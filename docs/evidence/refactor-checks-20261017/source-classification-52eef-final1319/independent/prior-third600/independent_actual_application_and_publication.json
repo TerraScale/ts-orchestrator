@@ -1,0 +1,89 @@
+{
+  "actual_acceptance": {
+    "path": "/tmp/third600-actual-composition-independent-acceptance.fwb_646u",
+    "sha256": "876c7755336a351375e0554240b667de4372a19c26d666a67877c2af06699752"
+  },
+  "all_five_gates": "OPEN",
+  "candidate": {
+    "clean": true,
+    "head": "1ee21af7709a6997212f9225ad5a06c5247b4ede",
+    "parent": "f54ac477362d659129e38b403d6731f6fb799a99",
+    "tree": "23006dc9f55daf8fbf79119a7449a0dfa6ab249c",
+    "worktree": "/tmp/ts-qa-third600-source-evidence-52eef"
+  },
+  "complete": false,
+  "counts": {
+    "classified": 2857,
+    "integration": 1019,
+    "mixed": 444,
+    "originals": 4319,
+    "other_unadjudicated": 1319,
+    "retained": 4300,
+    "retired": 19,
+    "reviewed_unresolved_included": 124,
+    "unadjudicated": 1443,
+    "unit": 1394
+  },
+  "decision": "ACTUAL_EXACT_REVIEWED_COMPOSITION_AND_PUBLICATION_ACK",
+  "exact_current_mirrors": 12,
+  "findings": [],
+  "historical_mirrors_unchanged": 2,
+  "holds": [
+    "Exact source-evidence publication and accounting application only; no canonical source adoption or qualification transfer.",
+    "No source reclassification/compiler/build/test/runtime/probe/cloud/crypto activity.",
+    "All inherited installed-origin/custody/financial-completeness/retirement/global completion holds remain."
+  ],
+  "live_after_hashes_and_modes_rechecked": {
+    "completion": {
+      "before_copy_sha256": "5e8980943839bc1589cdaec11c5e4214b9ae03fea71d0df00c63b847ff5e6638",
+      "bytes": 1518155,
+      "exact_reviewed_proposal_bytes": true,
+      "mode": "0o600",
+      "path": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+      "sha256": "f14d93dcfbd9cac749c328649a08409e86c78846d6f9dcca33aa6cebba677c60"
+    },
+    "progress": {
+      "before_copy_sha256": "a76bfb940bd750c8735595fb3fabe2fa347fa8dc11fc20f1dad1ffb5e067a239",
+      "bytes": 196180,
+      "exact_reviewed_proposal_bytes": true,
+      "mode": "0o644",
+      "path": "/tmp/ts-qa-main-union-progress-20261016.json",
+      "sha256": "bdaf0341c27cf21ea022d974cfffb139aacc1fa61539e18766a82a2f9df7fb89"
+    }
+  },
+  "publication": {
+    "exact_commit": "1ee21af7709a6997212f9225ad5a06c5247b4ede",
+    "exact_remote_output": "1ee21af7709a6997212f9225ad5a06c5247b4ede\trefs/heads/refactor/qa-third600-source-evidence-20261017\n",
+    "native_original_push_terminal_exit_code": 0,
+    "native_original_remote_proof_terminal_exit_code": 0,
+    "original_proofs": [
+      {
+        "path": "/tmp/ts-qa-third600-push-original.json",
+        "sha256": "2549060d4928132deb2d4c67fb6b0e2fca404be861e9cdd3226a44a14f03aad5"
+      },
+      {
+        "path": "/tmp/ts-qa-third600-push-terminal-original.json",
+        "sha256": "07c9dc4da4dfa4ffd29884336d9dbcaaecf73cdd8e0300390169ff33dfa16a44"
+      },
+      {
+        "path": "/tmp/ts-qa-third600-remote-after-original.json",
+        "sha256": "455f2f4cbc25dcf472a04b6505545138119efe6f63d7450511ce8c7103ad009d"
+      },
+      {
+        "path": "/tmp/ts-qa-third600-remote-after-terminal-original.json",
+        "sha256": "9270defbab1f42da3f5e72d557014b2165305bf845f88a8ef1c266d51f800e13"
+      }
+    ],
+    "push_session_correlated": true,
+    "ref": "refs/heads/refactor/qa-third600-source-evidence-20261017",
+    "remote": "git@github.com:TerraScale/ts-orchestrator.git",
+    "remote_session_correlated": true,
+    "scope": "Read original retained native push and separate exact remote proof; no network rerun or Git mutation by this reviewer."
+  },
+  "retirement_delta": 0,
+  "reviewed_utc": "2026-10-17T20:12:05.379544+00:00",
+  "reviewer": "/root/foundation_quote_review",
+  "runtime_credit": 0,
+  "schema": "independent-third600-actual-application-publication-acceptance-v1",
+  "source_change_or_adoption_credit": 0
+}

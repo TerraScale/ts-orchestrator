@@ -1,0 +1,5 @@
+Corrected source-only candidate for literal other[3100:3120).
+20 roots: 1 integration, 16 unit, 3 mixed, 0 unresolved.
+P1 resolved: root3100 local equality refusal is unit; fixture file inputs are incidental.
+Prior immutable packet preserved. All declarations/assertions/source pins unchanged.
+Runtime UNKNOWN; no execution/ledger/count/deletion/retirement credit.

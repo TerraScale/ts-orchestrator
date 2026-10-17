@@ -1,0 +1,101 @@
+{
+  "schema": "independent-source-only-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1940_1960",
+  "author": "/root/classification_100_dispatch/batch_1960_1980",
+  "verdict": "ACCEPTED_SOURCE_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-3360-3380-corrected-irrdr8h4/classification.json",
+    "sha256": "54a1e94afee51b81c8478eb2f25efe426b411aa7110358515b63ba6aae791bda",
+    "checksum_path": "/tmp/ts-source-classification-3360-3380-corrected-irrdr8h4/SHA256SUMS",
+    "checksum_sha256": "eec8928edf829365da697bae68f81b489f1ddba96110b9a11b1d5bddbdb7e08d"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[3360:3380]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_1940_1960"
+  },
+  "literal_range": [
+    3360,
+    3380
+  ],
+  "root_ids": [
+    "internal/selfupdate/cli/units_test.go::TestSelfUpdateUnitsMatchLayout",
+    "internal/selfupdate/confirmed_test.go::TestConfirmedHistorySurvivesPruningAndReopen",
+    "internal/selfupdate/confirmed_test.go::TestInterruptedConfirmationReplaysOneHistoryEntry",
+    "internal/selfupdate/confirmed_test.go::TestRejectedReleaseNeverEntersConfirmedHistory",
+    "internal/selfupdate/confirmed_test.go::TestUnsafeConfirmedHistoryStopsConfirmationAndPruning",
+    "internal/selfupdate/identity_rekey_test.go::TestIdentityRekeyBaselinePublishesPairAndRefusesUnresolvedTransitions",
+    "internal/selfupdate/layout_review_test.go::TestReadBoundedRefusesAFIFOWithoutBlocking",
+    "internal/selfupdate/netbird_test.go::TestNetBirdWorkerInstallAndCurrentRelease",
+    "internal/selfupdate/production_expiry_test.go::TestReceiptPolicyProjectsIndependentQualificationExpiry",
+    "internal/selfupdate/restore_test.go::TestActivateFinishesAnInterruptedRestoreFirst",
+    "internal/selfupdate/restore_test.go::TestAdmitEpochIsDurableAndMonotonic",
+    "internal/selfupdate/restore_test.go::TestRestoreIsNotProofGatedAndAnInterruptedOneIsFinishedByWatch",
+    "internal/selfupdate/selfupdate_test.go::TestActivateRetryRunsTheFreshActivationGates",
+    "internal/selfupdate/selfupdate_test.go::TestExpiredActivationOfAnUnwatchedUnitRollsBack",
+    "internal/selfupdate/selfupdate_test.go::TestLayoutRejectsForeignOwnersAndLinks",
+    "internal/selfupdate/selfupdate_test.go::TestLockSerializesRootSteps",
+    "internal/selfupdate/selfupdate_test.go::TestMissedProofDeadlineRollsBackAndMarksKnownBad",
+    "internal/selfupdate/selfupdate_test.go::TestPrepareMovesAnUnreadableActivationAsideAndRollsBack",
+    "internal/selfupdate/selfupdate_test.go::TestProofOfAGoneProcessNeverConfirms",
+    "internal/selfupdate/selfupdate_test.go::TestPruneReleasesKeepsReferencedBakedAndRecentReleases"
+  ],
+  "counts": {
+    "unit": 2,
+    "integration": 16,
+    "mixed": 2,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read every complete allocated root from canonical pinned Git and its reached production/fixture paths. Own3340:3360 frozen/handed off before peer review.",
+    "Verified exact20 literal allocation mappings and original/current survival names/kind/state/hash identities;40raw baseline/current declarations, bounds and full texts. No drift.",
+    "Verified41canonical/baseline file mode/Git blob/SHA256/byte pins,51connected callee spans and20entire assertion-body spans byte-exact against pinned Git.",
+    "Checked target boundary paths: actual local filesystem/release installation, symlink selection, history/pruning, restore/epoch/rekey/permissions/FIFO/flock/process-liveness; synthetic authority/qualification and injected crash/dead-process paths remain explicit.",
+    "Verified exact fresh packet hash, checksum hash/content,0444files/0555directory and unchanged superseded packet bytes. Corrected only3365/3370 categories/rationales plus metadata."
+  ],
+  "resolved_findings": [
+    {
+      "id": "P1",
+      "literal_index": 3365,
+      "root_id": "internal/selfupdate/identity_rekey_test.go::TestIdentityRekeyBaselinePublishesPairAndRefusesUnresolvedTransitions",
+      "resolution": "mixed to integration: Current/KnownGood filesystem readback at identity_rekey_test.go57-70 verifies persisted selection preservation across guard refusal; no independent local-only guard block remains."
+    },
+    {
+      "id": "P2",
+      "literal_index": 3370,
+      "root_id": "internal/selfupdate/restore_test.go::TestAdmitEpochIsDurableAndMonotonic",
+      "resolution": "mixed to integration: AcceptedEpoch()==5 at restore_test.go128-130 verifies persisted state preserved across regression4 and zero0 rejection; no independent local-only assertion block remains."
+    }
+  ],
+  "remaining_findings": [],
+  "unresolved_source_blockers": [],
+  "qualification_limits": [
+    "Every root runtime remains UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no receipts reviewed and no source executed.",
+    "All twenty raw baseline/current declarations match exact survival hashes; candidate categories do not authorize ledger/count/deletion/retirement/completion promotion.",
+    "Scratch filesystem/OS integration does not establish systemd execution, privileged ownership transitions, deployment, live identity rekey or actual target binary/process execution.",
+    "Signed fixture receipts use anyLineage and synthetic gate-evidence bytes. They establish local admission/check behavior, not independent production qualification.",
+    "History reopen reconstructs Layout in the same process; interrupted/crash states are planted on disk or injected callbacks, without actual crashes. Dead-process test injects the first liveness result and only probes the live test process later.",
+    "FIFO root skips if mkfifo fails; lock contention is between two descriptors in one process. Exact runtime/platform behavior remains unqualified."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "source_mutated": false,
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": false,
+    "qualification_delta": 0,
+    "deletion_delta": 0,
+    "retirement_delta": 0,
+    "global_completion": false
+  },
+  "superseded_packet": {
+    "path": "/tmp/ts-source-classification-3360-3380-o9owd4np/classification.json",
+    "sha256": "a091798472622435837478bb559ffffcce37e703ec405b135508e84b1541a124"
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "schema": "independent-source-only-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2080_2100",
+  "author": "/root/classification_100_dispatch/batch_2100_2120",
+  "decision": "ACCEPTED_SOURCE_ONLY_WITH_RETAINED_UNRESOLVED_HELPER",
+  "accepted_packet": "/tmp/ts-source-final3500-3520-mo5rs4kn/classification.json",
+  "accepted_packet_sha256": "1c09a6a32c5f93cfee8cf5c7f4ecc740cbeb632d1d4c605aaed10464790b9ca0",
+  "accepted_checksums": "/tmp/ts-source-final3500-3520-mo5rs4kn/SHA256SUMS",
+  "accepted_checksums_sha256": "a4506a8dfef1c9792d0c90e553e29be09974368a9c30a222eb6e62ca2662823d",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[3500:3520]"
+  },
+  "root_ids": [
+    "internal/terrabase/wan_test.go::TestParseWANMetricsPreservesRawRegionsAndScrapeTime",
+    "internal/terrabase/wan_test.go::TestParseWANMetricsRejectsIncompleteOrAmbiguousScrapes",
+    "internal/terrabase/wan_test.go::TestWANFreshness",
+    "internal/terrabasestats/terrabasestats_test.go::TestDatabasesCapAtTen",
+    "internal/terrabasestats/terrabasestats_test.go::TestDatabasesMergeAcrossMembers",
+    "internal/terrabasestats/terrabasestats_test.go::TestDatabasesMergeRatesPeersStorageAndOps",
+    "internal/terrabasestats/terrabasestats_test.go::TestInvalidRollupsIgnored",
+    "internal/terrabasestats/terrabasestats_test.go::TestStaleMemberDropped",
+    "internal/testutil/tier/tier_test.go::TestIntegration",
+    "internal/testutil/tier/tier_test.go::TestIntegrationChild",
+    "internal/testutil/tier/tier_test.go::TestQualification",
+    "internal/testutil/tier/tier_test.go::TestUnavailable",
+    "internal/trust/envelope_test.go::TestDecodeEnvelopeRejectsAmbiguousOrNoncanonicalJSON",
+    "internal/trust/envelope_test.go::TestDelegationRestrictsPurposeCellRoleAndSlot",
+    "internal/trust/envelope_test.go::TestEnvelopeRejectsMalleableSignatureAndTimestampRepresentations",
+    "internal/trust/envelope_test.go::TestEnvelopeRoundTripAndCanonicalWire",
+    "internal/trust/envelope_test.go::TestHistoricalDelegatedRecordCanBeAuditedButNotUsedCurrently",
+    "internal/trust/envelope_test.go::TestSignRejectsDuplicatePayloadMembers",
+    "internal/trust/envelope_test.go::TestVerifyHistoricalDoesNotAuthorizeCurrentAction",
+    "internal/trust/rootchain_test.go::TestRootChainCompromisedOldRoot"
+  ],
+  "counts": {
+    "integration": 8,
+    "unit": 11,
+    "mixed": 0,
+    "unresolved": 1
+  },
+  "checks_performed": [
+    "Independently read all twenty full canonical allocated roots and actual reached fixture/helper/production paths. Read parser and freshness path; direct upstream NATS fixture and follower path; test-child tier path; local trust envelope/delegation/root-chain verification path.",
+    "Verified twenty exact literal IDs against active allocation and accounting slice [3500:3520), survival TSV rows, original/current raw declarations, exact bounds/text/SHA256 and Git blobs. Five root-bearing test files have identical baseline/current pinned content; no body drift.",
+    "Verified twenty assertion spans and105 exact connected evidence spans against canonical committed raw bytes/Git blobs. Upstream NewServer and Start excerpts are explicitly identified as excerpts with whole-function bounds.",
+    "Verified23 source-file pins including Git mode/blob, SHA256 and byte lengths; all input hashes; canonical HEAD/tree; category counts; immutable0444 files/0555 directory and manifest checksums.",
+    "Reassessed categories using materially asserted boundary behavior. Five stats roots directly start upstream loopback TCP NATS and publish/subscribe through real transport. Three tier parents assert actual bounded test-child output/exit. Three WAN roots and eight trust roots are local computations. No source-visible unsupported assertion credit found."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [
+    {
+      "root_id": "internal/testutil/tier/tier_test.go::TestIntegrationChild",
+      "disposition": "RETAINED_UNRESOLVED_NO_STANDALONE_CREDIT",
+      "detail": "Conditional child skips without parent environment. Parent roots own process exit/output assertions; established conditional-helper accounting rule is absent."
+    }
+  ],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no receipts reviewed and no compile/runtime result inferred.",
+    "No Go/build/test/project helper/scanner/parser/framework/formatter/lint, process/resource probe, lock, privilege, cloud/signing/crypto/TerraBase execution or download performed. Only Git/file/hash inspection and metadata serialization.",
+    "Stats roots start upstream loopback TCP NATS server/client directly in their source; they do not call natscell.Start, production credential setup, TLS/JWT, regional quorum or live TerraBase. Synthetic rollups/injected clock only support subscriber/merge/expiry behavior. nats.go v1.54.0 is external dependency pinned by canonical go.mod; no dependency download/execution.",
+    "Tier parents use actual test executable and test runner output/exit status, not real qualification infrastructure. /fixture paths are strings, no files supplied. Conditional TestIntegrationChild standalone category remains unresolved pending established helper-root rule.",
+    "Trust/WAN unit obligations retain all invalid input, signature/time/scope/delegation/chain safety assertions. No remote signer, cryptographic service, transport, storage or controller adoption is asserted by them.",
+    "No source/repository/ledger mutation, count promotion, deletion/retirement/runtime qualification/global completion credit. All safety obligations retained."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "source_or_repository_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": false,
+    "deletion_or_retirement_credit": false,
+    "runtime_qualification_credit": false,
+    "global_completion_credit": false
+  },
+  "method_limit": "Only read-only Git/files/hash inspection and metadata-only serialization over explicitly manually reviewed spans. No Go/build/test/helper/scanner/parser/framework/formatter/lint, process/resource probe, lock, privilege/cloud/signing/crypto/TerraBase execution or download."
+}

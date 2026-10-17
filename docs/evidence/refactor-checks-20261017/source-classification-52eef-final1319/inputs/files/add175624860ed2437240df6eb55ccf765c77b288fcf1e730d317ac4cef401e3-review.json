@@ -1,0 +1,91 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2280_2300",
+  "author": "/root/classification_100_dispatch/batch_2300_2320",
+  "disposition": "ACCEPTED_SOURCE_ONLY_WITH_RETAINED_BLOCKER",
+  "accepted_packet": "/tmp/ts-source-classification-3700-3720-corrected-_ni375_l/classification.json",
+  "accepted_packet_sha256": "2d89ea9586df0c0a225c57c3467a449e27f6a05fb0dafee8bbd82795418320cf",
+  "accepted_checksum_file": "/tmp/ts-source-classification-3700-3720-corrected-_ni375_l/SHA256SUMS",
+  "accepted_checksum_file_sha256": "eabb5b675edadc40612af3795b90f5847e8ca64b011521151ff6214473e53e9b",
+  "allocation_path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+  "allocation_sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+  "literal_range": "original_root_ids_by_disposition.other_unadjudicated[3700:3720)",
+  "root_ids": [
+    "tests/deploy/promote_image_test.go::TestPromotionDryRunReadOnlyGates",
+    "tests/deploy/promote_image_test.go::TestPromotionFailedBuildRemovesSourceWorktree",
+    "tests/deploy/promote_image_test.go::TestPromotionFirstRunWaitsForImageDelegation",
+    "tests/deploy/promote_image_test.go::TestPromotionLocalImageWithoutCIEvidence",
+    "tests/deploy/promote_image_test.go::TestPromotionRejectsInvalidEvidenceBeforeEffects",
+    "tests/deploy/promote_image_test.go::TestPromotionReportsGitHubDownloadFailure",
+    "tests/deploy/promote_image_test.go::TestPromotionRequiresOCITargetsAndSigning",
+    "tests/deploy/promote_image_test.go::TestPromotionResumeRefetchesChangedAssetsAndRefusesOtherImages",
+    "tests/deploy/promote_image_test.go::TestPromotionResumeReusesVerifiedWork",
+    "tests/deploy/promote_image_test.go::TestPromotionUnsignedCandidateRequiresSignBinary",
+    "tests/deploy/systemd_stability_test.go::TestControllerCanCollectNodeResources",
+    "tests/deploy/systemd_stability_test.go::TestHostSetupNeverRestartsTheHostRuntime",
+    "tests/deploy/systemd_stability_test.go::TestOrchestratorUnitsReportReadinessAndEscalateCrashLoops",
+    "tests/firecracker/jwtsetup/main_test.go::TestGeneratedFixtureHasPrivateFilesAndScopedClaims",
+    "tests/firecracker/jwtsetup/main_test.go::TestGeneratedFixtureReservesProductionR3StoresWithProductionJWTAndTLS",
+    "tests/firecracker/jwtsetup/main_test.go::TestGeneratorRejectsUnsafeOrExistingDestinations",
+    "tests/firecracker/managedmember/exporter/main_test.go::TestAuthoritySeedRequiresProtectedFileAndIndependentPin",
+    "tests/firecracker/managedmember/exporter/main_test.go::TestEmptyCatalogSchemaDigest",
+    "tests/firecracker/managedmember/exporter/main_test.go::TestExportDirectoriesMatchQualificationScopes",
+    "tests/firecracker/managedmember/exporter/main_test.go::TestExportMemberIncludesLiveS3MaterialAndPins"
+  ],
+  "counts": {
+    "integration": 14,
+    "unit": 5,
+    "mixed": 0,
+    "unresolved": 1
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "checks_performed": [
+    "Independently read all20 full roots and reached actual helper/fixture/production paths; category decisions assessed from asserted behavior.",
+    "Verified exact literal allocation/accounting/survival mappings,40 full raw baseline/current declarations/bounds/hashes,39 canonical/baseline file Git blob/mode/SHA256/byte pins.",
+    "Verified full assertion text and all64 callee spans against pinned Git bytes; packet/checksum hashes and files0444/dir0555 verified.",
+    "Promotion process, fake-build seam, actual OCI SDK/loopback HTTP, generated JWT file outputs, embedded R3 protocol/store/bridge routes and exporter protected-file/output paths traced.",
+    "Static systemd/local catalog/directory checks remain local; no category changes required.",
+    "P1 corrected successor checked; roots/source pins remain identical to prior packet."
+  ],
+  "resolved_findings": [
+    {
+      "id": "P1",
+      "finding": "exporter_pure memberDirs fixed-input citation end_line41 omitted blank41 from text.",
+      "resolution": "Fresh successor uses exact31\u201340 bound/text; source identity and categories unchanged.",
+      "superseded_packet": "/tmp/ts-source-classification-3700-3720-3yg_31up/classification.json",
+      "superseded_sha256": "473041788f20664c5389ea517ea1b13583938a0e69eb5f60f7131a84487a055b"
+    }
+  ],
+  "remaining_review_findings": [],
+  "retained_source_blockers": [
+    {
+      "root_id": "tests/deploy/systemd_stability_test.go::TestHostSetupNeverRestartsTheHostRuntime",
+      "finding": "Host-setup first ExecStartPost comparison mismatches current unit; later assertions blocked/uncredited.",
+      "citations": [
+        "tests/deploy/systemd_stability_test.go:16",
+        "tests/deploy/helpers_test.go:43",
+        "deploy/systemd/terrascale-orchestrator-host-setup.service:11"
+      ]
+    }
+  ],
+  "qualification_limits": [
+    "HostSetup first equality expects host.service while canonical unit starts managed-runtime.service; first target and later restart/timer assertions stay unresolved/uncredited.",
+    "Promotion dependencies use executable shims; sign-image/verify-image output fabricated. verify-image-production real verifier consumes test-signed evidence. OCI requests use real SDK against loopback stand-in, not live cloud.",
+    "JWT R3 fixture uses embedded server with InProcessServer controllers/system, actual TLS routes/external bridge clients and FileStorage store API readbacks. Authority/mutation/intent hooks remain synthetic.",
+    "Exporter output/protected-file boundaries real; mkfs.ext4 conditional setup. No live S3, Firecracker/TerraBase or installed workload behavior.",
+    "All safety/negative/authentication/correctness obligations remain retained. No tests/builds/helpers/crypto/cloud/runtime execution or receipts reviewed."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "credits": {
+    "ledger": false,
+    "count_promotion": false,
+    "deletion": false,
+    "retirement": false,
+    "qualification": false,
+    "completion": false
+  }
+}

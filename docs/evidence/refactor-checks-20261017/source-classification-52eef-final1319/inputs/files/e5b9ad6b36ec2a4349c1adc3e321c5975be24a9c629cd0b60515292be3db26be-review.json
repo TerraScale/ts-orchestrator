@@ -1,0 +1,141 @@
+{
+  "schema": "root-source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_940_960",
+  "author": "/root/classification_100_dispatch/batch_960_980",
+  "status": "ACCEPTED_EXACT_HASH_SOURCE_ONLY",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b"
+  },
+  "literal_range": [
+    3160,
+    3180
+  ],
+  "root_ids": [
+    "internal/rollout/abandonment_test.go::TestUnprovenOrphanNeverRefundsHistoricalAttempts",
+    "internal/rollout/active_test.go::TestStoreActiveAndKnownBadFollowTheCellSlot",
+    "internal/rollout/decisions_test.go::TestInsightRolloutCarriesPhaseDeadline",
+    "internal/rollout/decisions_test.go::TestTransitionDecisionsFollowTheJournalContract",
+    "internal/rollout/history_test.go::TestRecentRolloutsAbandonedStagesAndReadFailures",
+    "internal/rollout/history_test.go::TestRecentRolloutsGenerationWindowAndReadBudget",
+    "internal/rollout/history_test.go::TestRecentRolloutsRetainedOrphanDoesNotRaiseActiveDeadlineInsight",
+    "internal/rollout/history_test.go::TestRecentRolloutsSparseStagesSortDedupAndActiveOutsideWindow",
+    "internal/rollout/observation_test.go::TestObservationBudgetCannotRestartBetweenWaves",
+    "internal/rollout/observation_test.go::TestObservationCannotStartInTheFuture",
+    "internal/rollout/observation_test.go::TestObservationDeadlineBoundsEveryForwardPhase",
+    "internal/rollout/observation_test.go::TestUntouchedObservationExpiryAbortsWithoutBlacklisting",
+    "internal/rollout/release_pins_test.go::TestReleasePinsBoundsDesiredRevisionChurn",
+    "internal/rollout/release_pins_test.go::TestReleasePinsIncludesAllRetainedGenerationsAfterFailedPurges",
+    "internal/rollout/release_pins_test.go::TestReleasePinsProtectsUnpublishedCopyWithoutAdmittingItsStage",
+    "internal/rollout/release_pins_test.go::TestReleasePinsRefusesIncompleteRetainedInventory",
+    "internal/rollout/release_pins_test.go::TestReleasePinsRefusesIncompleteRetainedReads",
+    "internal/rollout/release_pins_test.go::TestReleasePinsRefusesInvalidRetainedRecords",
+    "internal/rollout/release_pins_test.go::TestReleasePinsRetriesConcurrentPublication",
+    "internal/rollout/release_pins_test.go::TestReleasePinsRetriesConcurrentPurge"
+  ],
+  "counts": {
+    "integration": 9,
+    "unit": 7,
+    "mixed": 4,
+    "unresolved": 0
+  },
+  "accepted_packet": {
+    "path": "/tmp/ts-source-3160-3180-oudo6xhc/classification.json",
+    "sha256": "a80d3b6f26f15c5b980b1dbb07c95945dd67d93da8470d3bd82d54f59ef715b0",
+    "SHA256SUMS": "/tmp/ts-source-3160-3180-oudo6xhc/SHA256SUMS",
+    "checksum_sha256": "a4484b19df29670b7b69113feb4861b4cc182802c0c874f16525c6c2193ad8e5"
+  },
+  "review_order": {
+    "own_packet_frozen_and_handed_off_before_peer_review": true,
+    "own_final_packet": "/tmp/ts-final1319-source-3140-3160-corrected-x16s1b06/classification.json",
+    "own_final_sha256": "fd5daadb5ede1240c087dedf30a700fdbb9bd818594fbcf5ea2aefd3efb1de89",
+    "own_acceptance_receipt": "/tmp/ts-source-peer-3140-3160-by-3120-3140-v3qkodnl/review.json",
+    "own_acceptance_sha256": "05f9f8aa5fa9b7c83cb018a4c71025704da7078be872ccf7904c8a556632d73c"
+  },
+  "checks_performed": [
+    "Independently read all20 full roots from canonical immutable Git source, including all assertion conditions, failure/cancellation branches and fixture setup.",
+    "Independently traced actual connected upstream NATS loopback TCP/FileStorage KV, release admission/read/write/CAS, marker recovery, retention/inventory/purge and history read paths; no natscell.Start attribution.",
+    "Read local decision/view projection, synthetic Record/Event/Health transition timing, wave/policy/action paths; followed actual Store.Rollouts to insights gather/evaluate/deadline rule for retained-orphan assertion.",
+    "Verified literal allocation/accounting slice and survival mapping for every root; all40 baseline/current raw declarations, bounds/text/SHA256 and unchanged bodies; all29 canonical/baseline file pins blob/mode/SHA256/bytes; all60 assertion/callee spans text/bounds/hash.",
+    "Verified exact candidate and SHA256SUMS hashes plus all listed file hashes and immutable files0444/dir0555; categories exhaust only these20 roots."
+  ],
+  "source_decisions": [
+    {
+      "roots": [
+        "TestUnprovenOrphanNeverRefundsHistoricalAttempts",
+        "TestReleasePinsBoundsDesiredRevisionChurn",
+        "TestReleasePinsIncludesAllRetainedGenerationsAfterFailedPurges",
+        "TestReleasePinsProtectsUnpublishedCopyWithoutAdmittingItsStage",
+        "TestReleasePinsRefusesIncompleteRetainedReads",
+        "TestReleasePinsRefusesInvalidRetainedRecords",
+        "TestReleasePinsRetriesConcurrentPublication",
+        "TestReleasePinsRetriesConcurrentPurge"
+      ],
+      "category": "integration",
+      "basis": "Real store state/inventory/read/write/CAS materially supports asserted targets. Faults/pauses are scoped delegating hooks; no live outage or crash-durability claim."
+    },
+    {
+      "roots": [
+        "TestRecentRolloutsRetainedOrphanDoesNotRaiseActiveDeadlineInsight"
+      ],
+      "category": "integration",
+      "basis": "Actual retained record versus actual empty active slot is read by history, Store.Rollouts and insights provider path; retained history must not become active deadline input."
+    },
+    {
+      "roots": [
+        "TestStoreActiveAndKnownBadFollowTheCellSlot"
+      ],
+      "category": "mixed",
+      "basis": "Real slot/record/known-bad behavior plus separate malformed-digest pre-I/O guard and Settle(active) local no-op."
+    },
+    {
+      "roots": [
+        "TestRecentRolloutsAbandonedStagesAndReadFailures",
+        "TestRecentRolloutsGenerationWindowAndReadBudget",
+        "TestRecentRolloutsSparseStagesSortDedupAndActiveOutsideWindow"
+      ],
+      "category": "mixed",
+      "basis": "Actual delegated history reads and stored data support results; independent pre-I/O context deadline assertion in historyReadKV and cancel-before branch retain local scope."
+    },
+    {
+      "roots": [
+        "TestInsightRolloutCarriesPhaseDeadline",
+        "TestTransitionDecisionsFollowTheJournalContract",
+        "TestObservationBudgetCannotRestartBetweenWaves",
+        "TestObservationCannotStartInTheFuture",
+        "TestObservationDeadlineBoundsEveryForwardPhase",
+        "TestUntouchedObservationExpiryAbortsWithoutBlacklisting",
+        "TestReleasePinsRefusesIncompleteRetainedInventory"
+      ],
+      "category": "unit",
+      "basis": "Direct local projections/state/clock guards, or replaced WatchFiltered and synthetic completion channel. Setup server/data does not establish target inventory integration."
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "source_visible_blocked_assertions": [],
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE. Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION.",
+    "testStore directly starts upstream NATS server and nats.Connect over loopback TCP with FileStorage; no natscell in-process clients. No cluster/quorum/failover/crash-durability/deployment/runtime receipt inferred.",
+    "epochFence is synthetic authority. Pause wrappers delegate actual JetStream; chosen purge/read faults are injected. The incomplete-inventory watcher is wholly synthetic and retains unit scope.",
+    "Local decision mappings do not record a journal. Observation/health/action assertions use synthetic Records, Events, supplied timestamps and Health values; no executor or serving process is run.",
+    "historyReadKV pre-I/O deadline checks and cancel-before guards retain local scope separately from real store readback. Actual inventory/read/write/CAS effects are credited only to asserted targets.",
+    "Operational trust fixture signing is incidental to inventory classification; no cryptographic admission/execution qualification. No source/repository/ledger/runtime/count/deletion/retirement/completion mutation or credit. Independent peer review required."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "deletion_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "count_credit": false,
+    "ledger_mutated": false,
+    "promotion": false,
+    "runtime_credit": false,
+    "retirement_credit": false,
+    "completion_credit": false
+  },
+  "no_execution": "No source/repository/ledger edits, Go/build/test/helpers/scanners/parsers/cloud/crypto/probes/locks/downloads/children; metadata-only Git/hash/serialization checks."
+}

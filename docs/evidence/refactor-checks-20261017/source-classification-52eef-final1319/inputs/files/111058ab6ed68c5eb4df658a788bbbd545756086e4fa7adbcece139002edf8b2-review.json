@@ -1,0 +1,233 @@
+{
+  "schema": "source-classification-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_60_80",
+  "author": "/root/classification_100_dispatch/batch_80_100",
+  "range": [
+    2580,
+    2600
+  ],
+  "decision": "ACCEPT_SOURCE_ONLY_WITH_EXPLICIT_LIMITS",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-2580-2600-v3-q4u_rjct/classification.json",
+    "sha256": "2d4afa7e5875e5bbb4b02e34db7556a9d44b3f6a042a376ef830e8812f5ebc40",
+    "checksum_file": "/tmp/ts-source-classification-2580-2600-v3-q4u_rjct/SHA256SUMS",
+    "checksum_file_sha256": "143513df96e400242e1518b1b888ba649044ccc74cc67e291c7df5e917a1e5d3"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "literal_root_ids": [
+    "internal/ociregion/capacityinventory/accounting_integration_test.go::TestAccountingReadsRestartedJournalAndPositiveSDKTerminalResources",
+    "internal/ociregion/capacityinventory/collect_integration_test.go::TestRegionalInventoryAndCurrentTariffsThroughRealProtocols",
+    "internal/ociregion/catalog/catalog_test.go::TestCatalogIsClosedAndOrdered",
+    "internal/ociregion/catalog/catalog_test.go::TestCellOfNamesOCIRegionsAsTheCatalogDoes",
+    "internal/ociregion/catalog/catalog_test.go::TestEveryCatalogRegionIsKnownToTheOCISDK",
+    "internal/ociregion/catalog/catalog_test.go::TestFoundedIsExactlyTheAddressPlanCells",
+    "internal/ociregion/csharp_cell_test.go::TestCellPlanNamesTheCheckedInPhase2Cell",
+    "internal/ociregion/csharp_cell_test.go::TestCellPlanNamesTheCheckedInSFOCell",
+    "internal/ociregion/csharp_cell_test.go::TestCellPlanRejectsProfileDriftAndOverCeiling",
+    "internal/ociregion/csharp_cell_test.go::TestFoundationInspectionNeedsNoRustEraResources",
+    "internal/ociregion/csharp_cell_test.go::TestFoundationInspectionRejectsPartialLegacyAndPublicBindings",
+    "internal/ociregion/csharp_cell_test.go::TestInventoryAdmitsOperatorLaunchedCSharpHosts",
+    "internal/ociregion/csharp_cell_test.go::TestMemberLaunchRejectsUnadmittedOrInvalidInputs",
+    "internal/ociregion/csharp_cell_test.go::TestMemberLaunchWritesStaticCSharpHostInput",
+    "internal/ociregion/foundation/foundation_test.go::TestADifferentBoundPlanIsNeverOverwritten",
+    "internal/ociregion/foundation/foundation_test.go::TestApplyCreatesEveryResourceOnceAndUncheckpointedRerunIsRefused",
+    "internal/ociregion/foundation/foundation_test.go::TestDifferingResourcesAreRefusedNotAdopted",
+    "internal/ociregion/foundation/foundation_test.go::TestDryRunMakesNoWrite",
+    "internal/ociregion/foundation/foundation_test.go::TestIAMWritesGoToTheHomeRegion",
+    "internal/ociregion/foundation/foundation_test.go::TestInterruptedRunRequiresAuthenticatedCheckpointsToResume"
+  ],
+  "counts": {
+    "integration": 2,
+    "unit": 15,
+    "mixed": 2,
+    "unresolved": 1,
+    "total": 20
+  },
+  "checks_performed": [
+    "Independently manually read all20 complete canonical roots before inspecting author packet, then actual connected helper/production/client/store paths; own2560:2580 packet frozen before peer review.",
+    "Checked exact allocation/accounting slice2580:2600 and20 unique frozen survival mappings. All40 complete baseline/current declaration texts,bounds,Git blobs and SHA256 verified. Collect root canonical eight-line Original clone/mutation drift reviewed; frozen historical identity preserved.",
+    "Checked38 baseline/current Git file pins for blob,mode,SHA256,bytes and canonical worktree equality;63 connected citation texts/bounds/blobs and20 entire assertion body spans checked. All input hashes,category counts and runtime/safety limits verified.",
+    "Checked exact final packet/checksum-file hashes,SHA256SUMS readback and0444 files/0555 directory. Verified v3 roots/inputs/counts identical to verified v2; only connected evidence,file pin and supersession metadata additions.",
+    "Followed accounting fixture to missing Config.Lab and mandatory TLS/JWT startup validation; no reached NATS/journal/SDK assertions credited. Collect source design contains real httptest SDK/tariff HTTP calls plus independent local zero-quote,clone,expiry,geometry and seal tampering blocks; same package source blocker retained.",
+    "Followed Engine.oci through call to actual Dependency interception; foundation fake client.Call delegates to in-memory rows with no-op checkpoints/guards/pause. Real member-launch writeBytes0600 and bound-plan write/overwrite refusal materially support only explicit output mode/content/byte-preservation roots. Uninspected success outputs remain incidental."
+  ],
+  "resolved_findings": [
+    {
+      "root_index": 2592,
+      "finding": "Original mixed category counted uninspected successful output as a filesystem boundary. Corrected to unit: local rejection and success validation predicates; output incidental.",
+      "resolved_in_packet_sha256": "2d4afa7e5875e5bbb4b02e34db7556a9d44b3f6a042a376ef830e8812f5ebc40"
+    },
+    {
+      "root_index": 2580,
+      "finding": "Corrected final rejection description: Pending is nonempty, never mutated by this root. Validate rejects via ValidateOwned first, so expired authority is not isolated.",
+      "resolved_in_packet_sha256": "2d4afa7e5875e5bbb4b02e34db7556a9d44b3f6a042a376ef830e8812f5ebc40"
+    },
+    {
+      "root_index": 2581,
+      "finding": "Added direct capacityinventory/accounting.go20:25 Quote.SHA256 callee and file pin; engine.go392:412 Dependency seam also added.",
+      "resolved_in_packet_sha256": "2d4afa7e5875e5bbb4b02e34db7556a9d44b3f6a042a376ef830e8812f5ebc40"
+    }
+  ],
+  "remaining_correction_findings": [],
+  "retained_uncredited_obligations": [
+    {
+      "root_index": 2580,
+      "status": "SOURCE_BLOCKED_UNRESOLVED_UNCREDITED",
+      "finding": "Fixture Config{Lab:true} is invalid against canonical Config131:148; omitted TLS/JWT additionally fail validate611:618 before server/store startup. Intended broker restart,journal persistence,positive SDK terminal observation,unknown-operation and missing-resource assertions are all uncredited. No runtime execution."
+    },
+    {
+      "root_index": 2581,
+      "status": "SOURCE_DESIGN_MIXED_WITH_SHARED_PACKAGE_BLOCKER",
+      "finding": "Same-package accounting root invalid Config.Lab blocks package build. Mixed category describes independently inspected real-protocol/local assertion design only; no runtime qualification or execution credit."
+    }
+  ],
+  "per_root_review": [
+    {
+      "allocation_index": 2580,
+      "root_id": "internal/ociregion/capacityinventory/accounting_integration_test.go::TestAccountingReadsRestartedJournalAndPositiveSDKTerminalResources",
+      "category": "unresolved",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2581,
+      "root_id": "internal/ociregion/capacityinventory/collect_integration_test.go::TestRegionalInventoryAndCurrentTariffsThroughRealProtocols",
+      "category": "mixed",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2582,
+      "root_id": "internal/ociregion/catalog/catalog_test.go::TestCatalogIsClosedAndOrdered",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2583,
+      "root_id": "internal/ociregion/catalog/catalog_test.go::TestCellOfNamesOCIRegionsAsTheCatalogDoes",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2584,
+      "root_id": "internal/ociregion/catalog/catalog_test.go::TestEveryCatalogRegionIsKnownToTheOCISDK",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2585,
+      "root_id": "internal/ociregion/catalog/catalog_test.go::TestFoundedIsExactlyTheAddressPlanCells",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2586,
+      "root_id": "internal/ociregion/csharp_cell_test.go::TestCellPlanNamesTheCheckedInPhase2Cell",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2587,
+      "root_id": "internal/ociregion/csharp_cell_test.go::TestCellPlanNamesTheCheckedInSFOCell",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2588,
+      "root_id": "internal/ociregion/csharp_cell_test.go::TestCellPlanRejectsProfileDriftAndOverCeiling",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2589,
+      "root_id": "internal/ociregion/csharp_cell_test.go::TestFoundationInspectionNeedsNoRustEraResources",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2590,
+      "root_id": "internal/ociregion/csharp_cell_test.go::TestFoundationInspectionRejectsPartialLegacyAndPublicBindings",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2591,
+      "root_id": "internal/ociregion/csharp_cell_test.go::TestInventoryAdmitsOperatorLaunchedCSharpHosts",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2592,
+      "root_id": "internal/ociregion/csharp_cell_test.go::TestMemberLaunchRejectsUnadmittedOrInvalidInputs",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2593,
+      "root_id": "internal/ociregion/csharp_cell_test.go::TestMemberLaunchWritesStaticCSharpHostInput",
+      "category": "integration",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2594,
+      "root_id": "internal/ociregion/foundation/foundation_test.go::TestADifferentBoundPlanIsNeverOverwritten",
+      "category": "integration",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2595,
+      "root_id": "internal/ociregion/foundation/foundation_test.go::TestApplyCreatesEveryResourceOnceAndUncheckpointedRerunIsRefused",
+      "category": "mixed",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2596,
+      "root_id": "internal/ociregion/foundation/foundation_test.go::TestDifferingResourcesAreRefusedNotAdopted",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2597,
+      "root_id": "internal/ociregion/foundation/foundation_test.go::TestDryRunMakesNoWrite",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2598,
+      "root_id": "internal/ociregion/foundation/foundation_test.go::TestIAMWritesGoToTheHomeRegion",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2599,
+      "root_id": "internal/ociregion/foundation/foundation_test.go::TestInterruptedRunRequiresAuthenticatedCheckpointsToResume",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "NONE; no ledger/deletion/retirement/count/runtime-qualification/completion promotion",
+  "execution_limits": "Read-only pinned file/Git source inspection and metadata-only inline verification/serialization over explicit manually reviewed bounds. No Go/build/test/lint/format/helper/scanner/parser/framework/process/resource/cloud/signing/crypto/TerraBase execution,downloads,children,source/repository/ledger mutation."
+}

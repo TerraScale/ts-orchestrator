@@ -1,0 +1,91 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2140_2160",
+  "author": "/root/classification_100_dispatch/batch_2160_2180",
+  "status": "ACCEPTED",
+  "accepted_packet": {
+    "path": "/tmp/ts-root3560-3580-source-yqnk9z6u/classification.json",
+    "sha256": "d7f3f3605e46395ae1ca735d0d11a31a0b03abd3b6fb09080613263b7eab4d83",
+    "checksum_path": "/tmp/ts-root3560-3580-source-yqnk9z6u/SHA256SUMS",
+    "checksum_sha256": "2f39fbecb703ff31fcddcd371d0197b9fa8ad95dfd4b84a1a166d4b9763208d6"
+  },
+  "canonical_repository": "/tmp/ts-refactor-main-union-3d9a933e",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b"
+  },
+  "accounting_input": {
+    "path": "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json",
+    "sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513",
+    "disposition": "other_unadjudicated",
+    "literal_range": [
+      3560,
+      3580
+    ]
+  },
+  "survival_input": {
+    "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+    "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+  },
+  "literal_range": [
+    3560,
+    3580
+  ],
+  "root_ids": [
+    "internal/vaultsecret/current_test.go::TestWatchPublishesChangedVersionsAndRetries",
+    "internal/vaultsecret/memory_linux_test.go::TestMemoryDeliveryRefusesUnsafeDirectories",
+    "internal/vaultsecret/memory_linux_test.go::TestMemoryFileReplacementDoesNotFollowSymlinks",
+    "internal/vaultsecret/memory_linux_test.go::TestSwapOffMatchesProcSwaps",
+    "internal/vaultsecret/vault_test.go::TestAbsentIsOnlyVaultNotFound",
+    "internal/vaultsecret/vault_test.go::TestName",
+    "internal/vaultsecret/vault_test.go::TestPutRefusesWithoutLeakingTheValue",
+    "internal/vaultsecret/vault_test.go::TestPutStoresOnceAndProvesTheCopy",
+    "internal/vaultsecret/vault_test.go::TestReadVersionedRequiresAuthoritativeMetadata",
+    "internal/vaultsecret/vault_test.go::TestRender",
+    "internal/vaultsecret/vault_test.go::TestResolveReadsCurrentValuesWithoutLeaking",
+    "internal/vaultsecret/vault_test.go::TestRetrySecretReadClassifiesOCIStatus",
+    "internal/vaultsecret/vault_test.go::TestRunRejectsBeforeOCI",
+    "internal/vaultsecret/vault_test.go::TestValidateRefs",
+    "internal/vaultsecret/vault_test.go::TestWriteFileReplacesOwnerOnly",
+    "internal/vaultsecret/version_test.go::TestPublishVersionRequiresExactTargetAndConcurrentVersion",
+    "internal/volume/reconcile_test.go::TestReconcilerActsOnlyAsTheCurrentLeader",
+    "internal/volume/reconcile_test.go::TestReconcilerBindsAVolumeWhoseCreateResponseWasLost",
+    "internal/volume/reconcile_test.go::TestReconcilerCreatesAnEncryptedVolumeOnce",
+    "internal/volume/reconcile_test.go::TestReconcilerGrowsRetiersAndChangesRetention"
+  ],
+  "counts": {
+    "integration": 3,
+    "unit": 12,
+    "mixed": 5,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 full current roots and reached production, fixture, fake client, protocol and store paths from immutable canonical Git. All40 baseline/current declarations are byte-exact equal; full source declarations and safety assertions retained.",
+    "Verified exact FINAL allocation and literal original-root accounting other_unadjudicated[3560:3580), author and cyclic reviewer mapping, and all20 survival rows with baseline identity/hash and current identity.",
+    "Verified all27 commit:path full-file Git blob/mode/SHA256/byte pins and127 explicit declaration/assertion/callee raw spans, line bounds, hashes and source blobs against Git. No declaration body drift.",
+    "Source categories reviewed per assertion:3 integration OS/file/kernel roots;12 unit fake/local roots;5 mixed roots with separate local-only assertions and real file/NATS-backed observations. Actual volume fixture starts upstream NATS with loopback TCP and production FileStorage Store; natscell.Start is not called.",
+    "Verified exact packet/checksum hashes and every SHA256SUMS member; files0444 and directory0555. Source-only review performed without code/test/build/helper/runtime execution."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "source_qualification_limits": [
+    "Vault callbacks and volume cloud/fencer are synthetic: no actual OCI Vault, KMS, volume, backup policy or leader election qualified.",
+    "Memory directory policy final assertion is conditional on actual RequireMemoryFilesystem rejection; swap test skips absent /proc/swaps and is sensitive to live swap state changes. No host state inspected.",
+    "writeMemoryFile is exercised on ordinary temporary directory; tmpfs/swap gating and crash durability are not qualified by replacement roots.",
+    "No runtime receipts reviewed or runtime outcomes inferred. Source-only categories do not grant retirement, deletion, qualification, ledger/count or global completion credit."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "count_promotion": false,
+    "global_completion": false
+  }
+}

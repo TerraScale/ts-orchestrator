@@ -1,0 +1,86 @@
+{
+  "actual_application": {
+    "path": "/tmp/ts-qa-third600-actual-application-receipt.json",
+    "sha256": "bf9641098f802e0a71ecf2fcb7d10c95add5bdcde3fa2673b5c0820db297fe8c"
+  },
+  "actual_ledgers": {
+    "completion": {
+      "bytes": 1518155,
+      "mode": "0o600",
+      "path": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+      "sha256": "f14d93dcfbd9cac749c328649a08409e86c78846d6f9dcca33aa6cebba677c60"
+    },
+    "progress": {
+      "bytes": 196180,
+      "mode": "0o644",
+      "path": "/tmp/ts-qa-main-union-progress-20261016.json",
+      "sha256": "bdaf0341c27cf21ea022d974cfffb139aacc1fa61539e18766a82a2f9df7fb89"
+    }
+  },
+  "all_five_gates": "OPEN",
+  "branch": "refactor/qa-third600-source-evidence-20261017",
+  "canonical_source_mutation": false,
+  "complete": false,
+  "config_mutation": false,
+  "counts": {
+    "classified": 2857,
+    "integration": 1019,
+    "mixed": 444,
+    "originals": 4319,
+    "other_unadjudicated": 1319,
+    "retained": 4300,
+    "retired": 19,
+    "reviewed_unresolved_included": 124,
+    "unadjudicated": 1443,
+    "unit": 1394
+  },
+  "created_utc": "2026-10-17T20:12:53.736722+00:00",
+  "explicit_remote": "git@github.com:TerraScale/ts-orchestrator.git",
+  "head": "1ee21af7709a6997212f9225ad5a06c5247b4ede",
+  "human_main_mutation": false,
+  "independent_actual_application_and_publication": {
+    "path": "/tmp/third600-actual-and-publication-independent-acceptance.wwjo3173",
+    "sha256": "1f9a8e4fccc6e6904a38175a6938081945118f6cd9cb93ade313557a103dfc19"
+  },
+  "native_originals": {
+    "publication-preflight-original": {
+      "path": "/tmp/ts-qa-third600-publication-preflight-original.json",
+      "sha256": "3d94265a7bb12a646de4d4cf8a8a1464d39ec9f8f0ef14a6bf9e82c239270aed"
+    },
+    "push-original": {
+      "path": "/tmp/ts-qa-third600-push-original.json",
+      "sha256": "2549060d4928132deb2d4c67fb6b0e2fca404be861e9cdd3226a44a14f03aad5"
+    },
+    "push-terminal-original": {
+      "path": "/tmp/ts-qa-third600-push-terminal-original.json",
+      "sha256": "07c9dc4da4dfa4ffd29884336d9dbcaaecf73cdd8e0300390169ff33dfa16a44"
+    },
+    "remote-after-original": {
+      "path": "/tmp/ts-qa-third600-remote-after-original.json",
+      "sha256": "455f2f4cbc25dcf472a04b6505545138119efe6f63d7450511ce8c7103ad009d"
+    },
+    "remote-after-terminal-original": {
+      "path": "/tmp/ts-qa-third600-remote-after-terminal-original.json",
+      "sha256": "9270defbab1f42da3f5e72d557014b2165305bf845f88a8ef1c266d51f800e13"
+    },
+    "remote-before-original": {
+      "path": "/tmp/ts-qa-third600-remote-before-original.json",
+      "sha256": "7ff3c96a913dd4aa0b89a11b83abf4ced033cd7fc34aa474b38833a7068f333c"
+    },
+    "remote-before-terminal-original": {
+      "path": "/tmp/ts-qa-third600-remote-before-terminal-original.json",
+      "sha256": "9762f823cff4c8dca3c92e08b8c1404901fc6e5fb457d920362c1b8324d81215"
+    }
+  },
+  "normal_push_exit_code": 0,
+  "parent": "f54ac477362d659129e38b403d6731f6fb799a99",
+  "remote_head": "1ee21af7709a6997212f9225ad5a06c5247b4ede",
+  "retirement_delta": 0,
+  "runtime_credit": 0,
+  "schema": "third600-isolated-actual-publication-receipt-v1",
+  "separate_remote_proof_exit_code": 0,
+  "source_scope": "New third600 exact52eef classification only; prior2275 evidence scope unchanged. All source/runtime holds preserved.",
+  "state": "PUBLISHED_EXACT_REMOTE_AND_ACTUAL_LEDGER_BYTES_INDEPENDENTLY_ACCEPTED",
+  "tree": "23006dc9f55daf8fbf79119a7449a0dfa6ab249c",
+  "worktree": "/tmp/ts-qa-third600-source-evidence-52eef"
+}

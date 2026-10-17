@@ -1,0 +1,113 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2340_2360",
+  "author": "/root/classification_100_dispatch/batch_2360_2380",
+  "accepted": true,
+  "accepted_packet": {
+    "path": "/tmp/ts-source-3760-3780-p1p2-oe8kv2ql/classification.json",
+    "sha256": "1521ad414d39c5cd2e966a862d7019a06e4f34a384b4f3d9743683894fc6a234"
+  },
+  "accepted_checksums": {
+    "path": "/tmp/ts-source-3760-3780-p1p2-oe8kv2ql/SHA256SUMS",
+    "sha256": "03ebde8098a1a5ba8fdd9e59620f5e568f13032112c300f0ae0ab3bef0017448"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      3760,
+      3780
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2340_2360"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "range": [
+    3760,
+    3780
+  ],
+  "root_ids": [
+    "tests/firecracker/production/fixturegen/packet_test.go::TestEmitPacketNeverInstallsOfflineRootKey",
+    "tests/firecracker/production/fixturegen/packet_test.go::TestPacketBoundsSignedSourceInventory",
+    "tests/firecracker/production/fixturegen/packet_test.go::TestPacketRejectsEmptyOrOversizedSimulatorInventory",
+    "tests/firecracker/production/fixturegen/packet_test.go::TestPacketRejectsPathIdentityAndSignatureConfusion",
+    "tests/firecracker/production/fixturegen/packet_test.go::TestPacketRejectsUnlistedTamperSymlinkAndWrongRoot",
+    "tests/firecracker/production/fixturegen/packet_test.go::TestPacketRequiresTrustedCurrentRunClock",
+    "tests/firecracker/production/fixturegen/packet_test.go::TestPacketValidationAndControllerCopyBoundary",
+    "tests/firecracker/production/fixturegen/packet_test.go::TestVerifiedPacketManifestCannotMutateAuthorizedViews",
+    "tests/firecracker/production/fixturegen/production_guest_test.go::TestProductionControllerConfigRequiresExplicitVersionOne",
+    "tests/firecracker/production/fixturegen/routes_test.go::TestCapturedObjectRouteUsesExactSDKRequestURI",
+    "tests/firecracker/production/fixturegen/signed_history_recipe_test.go::TestSignedHistoryRecipeCompletesThreeSlotsThroughPublicLedger",
+    "tests/firecracker/production/fixturegen/source_inventory_test.go::TestCurrentCompletedSourcePinsCoverRecipeAndVerify",
+    "tests/firecracker/production/fixturegen/source_test.go::TestVerifySourcePinsRejectsChangedMissingOrEscapedSource",
+    "tests/firecracker/production/fixturegen/stage_guest_test.go::TestStageGuestRejectsHostRootAndPlainDirectory",
+    "tests/firecracker/production/fixturegen/stage_guest_test.go::TestStageGuestRejectsServiceIdentityMismatch",
+    "tests/firecracker/production/simulator_test.go::TestSimulatorAcceptsRealInstancePrincipalSDKRequests",
+    "tests/firecracker/production/simulator_test.go::TestSimulatorAcceptsSDKSignatureAcrossNetHTTPServer",
+    "tests/firecracker/production/simulator_test.go::TestSimulatorAuthenticatesFederationAndExactServiceRead",
+    "tests/firecracker/production/simulator_test.go::TestSimulatorBindsDistinctFederationSessionsAndSignedQuery",
+    "tests/firecracker/production/simulator_test.go::TestSimulatorBoundsFixtureSessionsAndRequestAudit"
+  ],
+  "counts": {
+    "integration": 3,
+    "unit": 12,
+    "mixed": 5,
+    "unresolved": 0,
+    "total": 20
+  },
+  "checks_performed": [
+    "Independently read all20 full current test roots and connected reached fixture/production paths; reviewed changed baseline/current source and retained unchanged baseline identities by exact raw declaration equality.",
+    "Verified literal other_unadjudicated[3760:3780) identities against canonical accounting; all20 raw survival rows, original/current names/state/hashes, and all40 baseline/current raw declarations including exact line bounds/text/SHA256/Git blobs.",
+    "Verified canonical source commit/tree and29 exact file blob/mode/SHA256/byte pins; all20 assertion spans and44 connected callee spans match pinned Git text exactly. No canonical body drift from survival mapping.",
+    "Verified allocation/accounting/survival/instruction input hashes, final packet and SHA256SUMS exact hashes, every listed checksum, files0444/directory0555.",
+    "Independently followed real EmitPacket filesystem publication/validation, file-state/source inventory and guest-account paths, direct fake HTTP dispatcher versus actual httptest loopback exchange, and map-backed public Ledger paths. Categories depend on the asserted target, not incidental fixture I/O."
+  ],
+  "resolved_review_findings": [
+    {
+      "id": "P1",
+      "root_index": 3765,
+      "root_id": "tests/firecracker/production/fixturegen/packet_test.go::TestPacketRequiresTrustedCurrentRunClock",
+      "resolution": "Final +2h expired-signature case reaches the earlier +/-5minute fixture-clock guard before trust.VerifyCurrent. Packet now explicitly marks signature-expiry coverage unresolved/uncredited, cites exact test255-257/packet247-249/265-271 spans, and retains unit only on independent earlier clock targets."
+    },
+    {
+      "id": "P2",
+      "root_index": 3772,
+      "root_id": "tests/firecracker/production/fixturegen/source_test.go::TestVerifySourcePinsRejectsChangedMissingOrEscapedSource",
+      "resolution": "Replacing first mandatory source pin with ../outside removes a required path. The missing-required-inventory guard73-76 precedes traversal guard92-94. Packet now explicitly marks traversal-specific coverage unresolved/uncredited, cites exact test50-53/source61-77/90-96 spans, and retains mixed only on independent actual file-state and local guard targets."
+    }
+  ],
+  "remaining_review_findings": [],
+  "retained_uncredited_obligations": [
+    {
+      "root_index": 3765,
+      "obligation": "Signature expiry is masked by stale fixture-clock rejection; no signature-expiry coverage credited."
+    },
+    {
+      "root_index": 3772,
+      "obligation": "Traversal-specific rejection is masked by missing mandatory inventory; no traversal-specific coverage credited."
+    }
+  ],
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE. Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no compile/build/test/helper/signing/crypto execution.",
+    "Packet emission and validation exercise only temporary local filesystem effects and signed synthetic material; no Firecracker, guest startup, cloud API, installed production secret or offline signing-key custody qualification.",
+    "Mount guard tests reject actual plain directories/symlinks and a local host-root predicate; no actual mounted ext4 image success is claimed.",
+    "Config-version setup contains a subprocess invocation, incidental to local version validation; this review did not invoke it.",
+    "CapturingObjectStorage and simulatorDispatcher remain in-memory fakes even with production Ledger and OCI SDK clients; direct ResponseRecorder tests receive no network credit.",
+    "Only the specified simulator loopback HTTP root crosses net/http; synthetic IAM keys/certificates/tokens do not establish OCI compatibility beyond the asserted local exchange.",
+    "Current source-pin inventory reads actual repository files in the source test design; this review performs source inspection only and does not execute that inventory walker.",
+    "No source/repository/shared-ledger mutation, count promotion, deletion, retirement, runtime qualification or global completion credit. All safety obligations retained."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": 0,
+    "deletion_delta": 0,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  }
+}

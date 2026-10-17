@@ -1,0 +1,5 @@
+FINAL1319 source-only candidate other_unadjudicated[3500:3520],20roots.
+8integration /11unit /0mixed /1unresolved conditional TestIntegrationChild.
+Canonical52eef25bad09736d8f0806ecaccaef1a7c86b49e; baselinebfca60368f60d2da67f9016d1d489317ae8749c8.
+Exact raw root identities/bodies/assertions/callee spans/file pins retained; no runtime or count promotion.
+Independent peer /root/classification_100_dispatch/batch_2080_2100.

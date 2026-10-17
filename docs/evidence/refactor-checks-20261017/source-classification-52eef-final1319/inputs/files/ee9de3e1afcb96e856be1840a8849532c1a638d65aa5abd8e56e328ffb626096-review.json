@@ -1,0 +1,89 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1920_1940",
+  "author": "/root/classification_100_dispatch/batch_1940_1960",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[3340:3360]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_1920_1940"
+  },
+  "reviewed_range": [
+    3340,
+    3360
+  ],
+  "accepted": true,
+  "decision": "ACCEPT_EXACT_FROZEN_PACKET_SOURCE_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-3340-3360-0rlfckwc/classification.json",
+    "sha256": "5a6cccb79cc6effecc5fc0f9be2fd7d0610fed36efd483847fd4826170d71fcd",
+    "checksum_path": "/tmp/ts-source-3340-3360-0rlfckwc/SHA256SUMS",
+    "checksum_sha256": "975f17189c5f3ca06ca65a5115dbb471a2c59a4fcb7b52f1756059588c3df70c"
+  },
+  "root_ids": [
+    "internal/selfupdate/cli/memory_linux_test.go::TestRuntimeDirectoryNeverFollowsSymlinks",
+    "internal/selfupdate/cli/netbird_prepare_test.go::TestNetBirdWorkerCustomRootDoesNotProbeOrStart",
+    "internal/selfupdate/cli/netbird_prepare_test.go::TestNetBirdWorkerProbeFaultsAreReported",
+    "internal/selfupdate/cli/netbird_prepare_test.go::TestNetBirdWorkerRequiresCapableBinary",
+    "internal/selfupdate/cli/netbird_prepare_test.go::TestNetBirdWorkerRetriesReloadOfUnchangedInstalledUnits",
+    "internal/selfupdate/cli/netbird_prepare_test.go::TestNetBirdWorkerSkipsCustomRootThroughActivationAndDelegatedPrepare",
+    "internal/selfupdate/cli/netbird_prepare_test.go::TestNetBirdWorkerStartupCapturesSystemctlFailures",
+    "internal/selfupdate/cli/netbird_prepare_test.go::TestNetBirdWorkerUnmanagedHostDoesNotReloadEnableOrStart",
+    "internal/selfupdate/cli/restart_review_test.go::TestWatchdogRetriesAnOwedRestartAndToleratesAnUnusableProofKey",
+    "internal/selfupdate/cli/rollout_step_test.go::TestWatchdogAppliesTheUnitsSpooledRolloutStep",
+    "internal/selfupdate/cli/run_test.go::TestPrepareActivateWatchdogRestart",
+    "internal/selfupdate/cli/run_test.go::TestReadKeys",
+    "internal/selfupdate/cli/run_test.go::TestRootStepsRunTheKnownGoodRelease",
+    "internal/selfupdate/cli/run_test.go::TestWatchdogConfirmsOrRollsBackFromTheRoleConfig",
+    "internal/selfupdate/cli/units_test.go::TestBootstrapDropinRunsTheCurrentRelease",
+    "internal/selfupdate/cli/units_test.go::TestBootstrapRestoreStepSkipsOnlyAnOlderRelease",
+    "internal/selfupdate/cli/units_test.go::TestControllerInstallDropinRunsTheCurrentRelease",
+    "internal/selfupdate/cli/units_test.go::TestHostSetupDropinRunsTheCurrentRelease",
+    "internal/selfupdate/cli/units_test.go::TestImageUnitArgumentsStillRun",
+    "internal/selfupdate/cli/units_test.go::TestPrepareReloadsSystemdForNewDropins"
+  ],
+  "counts": {
+    "integration": 12,
+    "unit": 1,
+    "mixed": 7,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently manually read every20 full canonical roots and connected actual fixture/helper/project production paths; own3320:3340 packet was frozen and handed off before peer review.",
+    "Verified literal activated allocation IDs against accounting[3340:3360], exact original/current survival rows and all40 raw declaration bounds/text/SHA256 from pinned Git objects excluding terminal LF.",
+    "Verified37 source-file pins: canonical/baseline commit, mode, Git blob, whole-file SHA256 and byte count. Verified78 exact assertion/callee span texts/blobs and root connected references.",
+    "Verified all20 entire assertion interiors, category counts/exhaustion, per-root runtime UNKNOWN, retirement false and safety obligation retained. Canonical fixture drifts3349/3353 explicitly preserve baseline obligation and stale historical current hash.",
+    "Verified packet/checksum hashes, SHA256SUMS entries, files0444/directory0555. No source parser/scanner, Go/build/test/helper/crypto/process/privilege/cloud execution or repository/ledger edits."
+  ],
+  "independent_source_observations": [
+    "Real descriptor-relative directory creation/clearing refuses symlink directory/parent and preserves outside target; root3340 integration.",
+    "Custom-root guard3341 rejects before production I/O/exec, so unit. Other NetBird roots execute scratch capability/systemctl shells and assert filesystem/process results; no live worker or systemd.",
+    "Root3348 synthetic restart fail/success responses materially affect actual persisted restart obligation; root3349 actual spooled command verifies and reaches Agent.AdmitEpoch/Activate, reply and marker readback. Host-on-controller guard depends on actual controller.json existence.",
+    "Root3350 independent missing-stage/unknown command/proof shape blocks justify mixed. Root3351 permission rejection and key readback depend on actual file mode. Root3352 real known-good delegation/fallback/timeout/backstop reads and writes support integration.",
+    "Root3353 role proof files/process witness and actual activation/current/known-bad readback coexist with independent proof-option validation. Dropin roots3354\u20133358 combine local command/shape predicates with real shell/installer/CLI behavior; root3359 reload counter is coupled to actual file installation/idempotence and remains integration."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No tests/builds/helpers/crypto/signing/locks/process/cloud probes were executed.",
+    "OS subprocess boundaries use test-owned shell executables, not real NetBird worker/systemd or first-party service binaries. Reload/restart in other tests are callbacks.",
+    "Filesystem boundary supports observed contents, selection, permissions and absence only; no crash durability, live rollout, installed acceptance, network/NATS, OCI, Vault, or hardware safety is qualified.",
+    "Default controller acceptance/global systemd directory paths are not uniformly replaced; source category does not authorize these tests to execute on a real host.",
+    "Role config fixture bodies drift from version1 to2 in roots3349 and3353 only; baseline original hashes and stale historical current hashes retained, canonical actual hashes pinned.",
+    "No original assertion or trust/negative/fencing/preservation obligation is removed. All safety obligations retained; no count/promotion/deletion/retirement/completion credit."
+  ],
+  "additional_limits": [
+    "No tests executed and no runtime receipts reviewed. Existing default controller-acceptance and systemd paths are source qualification limits, not authorized execution. Shell subprocesses use scratch fixtures; callback restarts do not prove service restart.",
+    "Source classifications and this peer receipt grant no global ledger/count/deletion/retirement/qualification/completion credit; all original safety and migration obligations remain."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "ledger_mutated": false,
+  "count_promotion": false,
+  "deletion_credit": false,
+  "completion_credit": false
+}

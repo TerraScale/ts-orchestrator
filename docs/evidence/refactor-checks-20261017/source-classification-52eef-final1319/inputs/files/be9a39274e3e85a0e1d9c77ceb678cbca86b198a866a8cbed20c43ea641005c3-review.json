@@ -1,0 +1,255 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_140_160",
+  "author": "/root/classification_100_dispatch/batch_160_180",
+  "decision": "ACCEPTED_SOURCE_ONLY",
+  "reviewed_packet": {
+    "path": "/tmp/ts-source-classification-2720-2740-wys38g9x/classification.json",
+    "sha256": "7f3467538bc8c17fcc9d1ff04dd284060f6a69136c7adbd9e12d87bfc5e9e036",
+    "readme_sha256": "3abc67a81b37838c0082e5e4b6694ece2216d825c0fa6ea8758925403ba12b9e",
+    "checksum_path": "/tmp/ts-source-classification-2720-2740-wys38g9x/SHA256SUMS",
+    "checksum_sha256": "023fcc88038b07753759d80fe95e314bb8f7226a65b72a1f15eaae9245fbe832"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      2720,
+      2740
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_140_160"
+  },
+  "input_pins": {
+    "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/PEER-PROTOCOL.md": "b1cbcb7a96a344363f5ba924a0e76fc418553607209733945892796508db7765",
+    "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+    "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70"
+  },
+  "accounting_input": {
+    "path": "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json",
+    "sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513"
+  },
+  "root_ids": [
+    "internal/ociregion/teardown/teardown_integration_test.go::TestDryRunPrintsDiffWithoutDeleting",
+    "internal/ociregion/teardown/teardown_integration_test.go::TestDryRunReportsEveryUnexpectedVaultContent",
+    "internal/ociregion/teardown/teardown_integration_test.go::TestRefusesResourcesOutsideThePlan",
+    "internal/ociregion/teardown/teardown_integration_test.go::TestTeardownStopsOnOCIPermissionErrors",
+    "internal/ociregion/teardown/teardown_integration_test.go::TestUnverified404CannotComplete",
+    "internal/ociregion/teardown/teardown_integration_test.go::TestVaultContentsRecheckedBeforeScheduling",
+    "internal/ociregion/teardown/teardown_integration_test.go::TestVaultDeletionRequiresVerifiedContents",
+    "internal/ociregion/teardown/teardown_test.go::TestApplyFollowsDeletionUntilProvenComplete",
+    "internal/ociregion/teardown/teardown_test.go::TestChildCompartmentHoldsItsParent",
+    "internal/ociregion/teardown/teardown_test.go::TestCompleteDiffMustBeWrittenBeforeDeleting",
+    "internal/ociregion/teardown/teardown_test.go::TestDryRunPrintsDiffWithoutDeleting",
+    "internal/ociregion/teardown/teardown_test.go::TestDryRunReportsEveryUnexpectedVaultContent",
+    "internal/ociregion/teardown/teardown_test.go::TestRefusesResourcesOutsideThePlan",
+    "internal/ociregion/teardown/teardown_test.go::TestUnverified404CannotComplete",
+    "internal/ociregion/teardown/teardown_test.go::TestValidateRejectsAmbiguousPlans",
+    "internal/ociregion/teardown/teardown_test.go::TestVaultContentsRecheckedBeforeScheduling",
+    "internal/ociregion/teardown/teardown_test.go::TestVaultDeletionRequiresVerifiedContents",
+    "internal/ociregion/tsauth_rule_test.go::TestPublicSubnetReachesControllersOnlyOnTSAuthPort",
+    "internal/ociresource/bucket/bucket_test.go::TestBucketForeignAndTombstoneNeverMutate",
+    "internal/ociresource/bucket/bucket_test.go::TestBucketLockedManagedRuleBlocksInsteadOfChanging"
+  ],
+  "counts": {
+    "integration": 2,
+    "unit": 1,
+    "mixed": 0,
+    "unresolved": 17
+  },
+  "checks_performed": [
+    "Independently read all20 complete canonical roots plus all39 connected evidence spans and additional reached plan validators, operation checkpoints, controller/store paths; follow actual calls and material assertions.",
+    "Verified exact activated allocation and accounting other_unadjudicated[2720:2740) order, all20 literal IDs and historical survival mappings.",
+    "Verified all40 complete baseline/current declaration texts, inclusive bounds, SHA256, blobs and func-to-column-zero-close boundaries excluding following LF. No baseline/current declaration drift.",
+    "Verified all25 source file pins for commit/path, Git mode/blob, SHA256 and byte length.",
+    "Verified all20 assertion spans and39 connected spans for exact text, inclusive bounds, blob and SHA256; span text includes following LF.",
+    "Verified references, category counts,17 blocker arrays and NONE_SOURCE_BLOCKED assertion credit, runtime/retirement/retained-obligation fields, input pins, canonical tree, checksum manifest and immutable modes."
+  ],
+  "verified_totals": {
+    "literal_roots": 20,
+    "historical_survival_rows": 20,
+    "file_pins": 25,
+    "baseline_current_declarations": 40,
+    "assertion_spans": 20,
+    "connected_spans": 39
+  },
+  "root_reviews": [
+    {
+      "allocation_index": 2720,
+      "root_id": "internal/ociregion/teardown/teardown_integration_test.go::TestDryRunPrintsDiffWithoutDeleting",
+      "accepted_category": "unresolved",
+      "independent_source_basis": "Same package without build constraints contains duplicate constants, gruPlan, incompatible liveCell/run helpers, failWriter/Write and repeated Test declarations; literal root and complete baseline/current assertions retained unresolved with no assertion credit. Apparent HTTP/fake path cannot resolve the contradictory package."
+    },
+    {
+      "allocation_index": 2721,
+      "root_id": "internal/ociregion/teardown/teardown_integration_test.go::TestDryRunReportsEveryUnexpectedVaultContent",
+      "accepted_category": "unresolved",
+      "independent_source_basis": "Same package without build constraints contains duplicate constants, gruPlan, incompatible liveCell/run helpers, failWriter/Write and repeated Test declarations; literal root and complete baseline/current assertions retained unresolved with no assertion credit. Apparent HTTP/fake path cannot resolve the contradictory package."
+    },
+    {
+      "allocation_index": 2722,
+      "root_id": "internal/ociregion/teardown/teardown_integration_test.go::TestRefusesResourcesOutsideThePlan",
+      "accepted_category": "unresolved",
+      "independent_source_basis": "Same package without build constraints contains duplicate constants, gruPlan, incompatible liveCell/run helpers, failWriter/Write and repeated Test declarations; literal root and complete baseline/current assertions retained unresolved with no assertion credit. Apparent HTTP/fake path cannot resolve the contradictory package."
+    },
+    {
+      "allocation_index": 2723,
+      "root_id": "internal/ociregion/teardown/teardown_integration_test.go::TestTeardownStopsOnOCIPermissionErrors",
+      "accepted_category": "unresolved",
+      "independent_source_basis": "Same package without build constraints contains duplicate constants, gruPlan, incompatible liveCell/run helpers, failWriter/Write and repeated Test declarations; literal root and complete baseline/current assertions retained unresolved with no assertion credit. Apparent HTTP/fake path cannot resolve the contradictory package."
+    },
+    {
+      "allocation_index": 2724,
+      "root_id": "internal/ociregion/teardown/teardown_integration_test.go::TestUnverified404CannotComplete",
+      "accepted_category": "unresolved",
+      "independent_source_basis": "Same package without build constraints contains duplicate constants, gruPlan, incompatible liveCell/run helpers, failWriter/Write and repeated Test declarations; literal root and complete baseline/current assertions retained unresolved with no assertion credit. Apparent HTTP/fake path cannot resolve the contradictory package."
+    },
+    {
+      "allocation_index": 2725,
+      "root_id": "internal/ociregion/teardown/teardown_integration_test.go::TestVaultContentsRecheckedBeforeScheduling",
+      "accepted_category": "unresolved",
+      "independent_source_basis": "Same package without build constraints contains duplicate constants, gruPlan, incompatible liveCell/run helpers, failWriter/Write and repeated Test declarations; literal root and complete baseline/current assertions retained unresolved with no assertion credit. Apparent HTTP/fake path cannot resolve the contradictory package."
+    },
+    {
+      "allocation_index": 2726,
+      "root_id": "internal/ociregion/teardown/teardown_integration_test.go::TestVaultDeletionRequiresVerifiedContents",
+      "accepted_category": "unresolved",
+      "independent_source_basis": "Same package without build constraints contains duplicate constants, gruPlan, incompatible liveCell/run helpers, failWriter/Write and repeated Test declarations; literal root and complete baseline/current assertions retained unresolved with no assertion credit. Apparent HTTP/fake path cannot resolve the contradictory package."
+    },
+    {
+      "allocation_index": 2727,
+      "root_id": "internal/ociregion/teardown/teardown_test.go::TestApplyFollowsDeletionUntilProvenComplete",
+      "accepted_category": "unresolved",
+      "independent_source_basis": "Same package without build constraints contains duplicate constants, gruPlan, incompatible liveCell/run helpers, failWriter/Write and repeated Test declarations; literal root and complete baseline/current assertions retained unresolved with no assertion credit. Apparent HTTP/fake path cannot resolve the contradictory package."
+    },
+    {
+      "allocation_index": 2728,
+      "root_id": "internal/ociregion/teardown/teardown_test.go::TestChildCompartmentHoldsItsParent",
+      "accepted_category": "unresolved",
+      "independent_source_basis": "Same package without build constraints contains duplicate constants, gruPlan, incompatible liveCell/run helpers, failWriter/Write and repeated Test declarations; literal root and complete baseline/current assertions retained unresolved with no assertion credit. Apparent HTTP/fake path cannot resolve the contradictory package."
+    },
+    {
+      "allocation_index": 2729,
+      "root_id": "internal/ociregion/teardown/teardown_test.go::TestCompleteDiffMustBeWrittenBeforeDeleting",
+      "accepted_category": "unresolved",
+      "independent_source_basis": "Same package without build constraints contains duplicate constants, gruPlan, incompatible liveCell/run helpers, failWriter/Write and repeated Test declarations; literal root and complete baseline/current assertions retained unresolved with no assertion credit. Apparent HTTP/fake path cannot resolve the contradictory package."
+    },
+    {
+      "allocation_index": 2730,
+      "root_id": "internal/ociregion/teardown/teardown_test.go::TestDryRunPrintsDiffWithoutDeleting",
+      "accepted_category": "unresolved",
+      "independent_source_basis": "Same package without build constraints contains duplicate constants, gruPlan, incompatible liveCell/run helpers, failWriter/Write and repeated Test declarations; literal root and complete baseline/current assertions retained unresolved with no assertion credit. Apparent HTTP/fake path cannot resolve the contradictory package."
+    },
+    {
+      "allocation_index": 2731,
+      "root_id": "internal/ociregion/teardown/teardown_test.go::TestDryRunReportsEveryUnexpectedVaultContent",
+      "accepted_category": "unresolved",
+      "independent_source_basis": "Same package without build constraints contains duplicate constants, gruPlan, incompatible liveCell/run helpers, failWriter/Write and repeated Test declarations; literal root and complete baseline/current assertions retained unresolved with no assertion credit. Apparent HTTP/fake path cannot resolve the contradictory package."
+    },
+    {
+      "allocation_index": 2732,
+      "root_id": "internal/ociregion/teardown/teardown_test.go::TestRefusesResourcesOutsideThePlan",
+      "accepted_category": "unresolved",
+      "independent_source_basis": "Same package without build constraints contains duplicate constants, gruPlan, incompatible liveCell/run helpers, failWriter/Write and repeated Test declarations; literal root and complete baseline/current assertions retained unresolved with no assertion credit. Apparent HTTP/fake path cannot resolve the contradictory package."
+    },
+    {
+      "allocation_index": 2733,
+      "root_id": "internal/ociregion/teardown/teardown_test.go::TestUnverified404CannotComplete",
+      "accepted_category": "unresolved",
+      "independent_source_basis": "Same package without build constraints contains duplicate constants, gruPlan, incompatible liveCell/run helpers, failWriter/Write and repeated Test declarations; literal root and complete baseline/current assertions retained unresolved with no assertion credit. Apparent HTTP/fake path cannot resolve the contradictory package."
+    },
+    {
+      "allocation_index": 2734,
+      "root_id": "internal/ociregion/teardown/teardown_test.go::TestValidateRejectsAmbiguousPlans",
+      "accepted_category": "unresolved",
+      "independent_source_basis": "Same package without build constraints contains duplicate constants, gruPlan, incompatible liveCell/run helpers, failWriter/Write and repeated Test declarations; literal root and complete baseline/current assertions retained unresolved with no assertion credit. Apparent HTTP/fake path cannot resolve the contradictory package."
+    },
+    {
+      "allocation_index": 2735,
+      "root_id": "internal/ociregion/teardown/teardown_test.go::TestVaultContentsRecheckedBeforeScheduling",
+      "accepted_category": "unresolved",
+      "independent_source_basis": "Same package without build constraints contains duplicate constants, gruPlan, incompatible liveCell/run helpers, failWriter/Write and repeated Test declarations; literal root and complete baseline/current assertions retained unresolved with no assertion credit. Apparent HTTP/fake path cannot resolve the contradictory package."
+    },
+    {
+      "allocation_index": 2736,
+      "root_id": "internal/ociregion/teardown/teardown_test.go::TestVaultDeletionRequiresVerifiedContents",
+      "accepted_category": "unresolved",
+      "independent_source_basis": "Same package without build constraints contains duplicate constants, gruPlan, incompatible liveCell/run helpers, failWriter/Write and repeated Test declarations; literal root and complete baseline/current assertions retained unresolved with no assertion credit. Apparent HTTP/fake path cannot resolve the contradictory package."
+    },
+    {
+      "allocation_index": 2737,
+      "root_id": "internal/ociregion/tsauth_rule_test.go::TestPublicSubnetReachesControllersOnlyOnTSAuthPort",
+      "accepted_category": "unit",
+      "independent_source_basis": "Checked-in plan JSON and temporary files supply local LoadPlan/validation/tsAuthBackendRule predicates: exact controller NSG TCP8080 allowed; alternate port/range, SSH and workload NSG refused. No listener/cloud NSG/reachability is reached."
+    },
+    {
+      "allocation_index": 2738,
+      "root_id": "internal/ociresource/bucket/bucket_test.go::TestBucketForeignAndTombstoneNeverMutate",
+      "accepted_category": "integration",
+      "independent_source_basis": "Foreign bucket actual SDK HTTP observation records foreign state without mutation. Managed-rule setup crosses SDK HTTP and authenticated loopback TCP file-backed JetStream KV; confirmation completes the persisted operation. MarkDeleted KV tombstone makes Observe return absent before HTTP, and deleteOne purges desired/observed KV with Deleted increment. Remote rule remains; no bucket or cloud deletion is reached."
+    },
+    {
+      "allocation_index": 2739,
+      "root_id": "internal/ociresource/bucket/bucket_test.go::TestBucketLockedManagedRuleBlocksInsteadOfChanging",
+      "accepted_category": "integration",
+      "independent_source_basis": "Actual SDK HTTP bucket/retention observation establishes locked drift; Apply blocks and blocked status is persisted/read through real file-backed JetStream KV. No HTTP mutation or actual cloud lock enforcement is qualified."
+    }
+  ],
+  "resolved_findings": [
+    "No review correction requested. Source categories and bounds are supported; unresolved source contradictions are explicitly retained rather than resolved."
+  ],
+  "remaining_review_corrections": [],
+  "remaining_findings": [
+    {
+      "kind": "duplicate_same_package_source_blocker",
+      "root_ids": [
+        "internal/ociregion/teardown/teardown_integration_test.go::TestDryRunPrintsDiffWithoutDeleting",
+        "internal/ociregion/teardown/teardown_integration_test.go::TestDryRunReportsEveryUnexpectedVaultContent",
+        "internal/ociregion/teardown/teardown_integration_test.go::TestRefusesResourcesOutsideThePlan",
+        "internal/ociregion/teardown/teardown_integration_test.go::TestTeardownStopsOnOCIPermissionErrors",
+        "internal/ociregion/teardown/teardown_integration_test.go::TestUnverified404CannotComplete",
+        "internal/ociregion/teardown/teardown_integration_test.go::TestVaultContentsRecheckedBeforeScheduling",
+        "internal/ociregion/teardown/teardown_integration_test.go::TestVaultDeletionRequiresVerifiedContents",
+        "internal/ociregion/teardown/teardown_test.go::TestApplyFollowsDeletionUntilProvenComplete",
+        "internal/ociregion/teardown/teardown_test.go::TestChildCompartmentHoldsItsParent",
+        "internal/ociregion/teardown/teardown_test.go::TestCompleteDiffMustBeWrittenBeforeDeleting",
+        "internal/ociregion/teardown/teardown_test.go::TestDryRunPrintsDiffWithoutDeleting",
+        "internal/ociregion/teardown/teardown_test.go::TestDryRunReportsEveryUnexpectedVaultContent",
+        "internal/ociregion/teardown/teardown_test.go::TestRefusesResourcesOutsideThePlan",
+        "internal/ociregion/teardown/teardown_test.go::TestUnverified404CannotComplete",
+        "internal/ociregion/teardown/teardown_test.go::TestValidateRejectsAmbiguousPlans",
+        "internal/ociregion/teardown/teardown_test.go::TestVaultContentsRecheckedBeforeScheduling",
+        "internal/ociregion/teardown/teardown_test.go::TestVaultDeletionRequiresVerifiedContents"
+      ],
+      "detail": "Canonical same-package test files have no build constraints and duplicate parentCompartment/cellCompartment, gruPlan, liveCell, run, failWriter/Write and multiple Test functions. liveCell signatures differ (*teardownAPI with t vs *fakeOCI without t), and run provider signatures differ. Source therefore does not define a unique callable teardown test package. All assertions remain unresolved/uncredited; apparent syntactic paths are evidence only, with no compile/runtime claim."
+    },
+    {
+      "kind": "unreached_authority_gate",
+      "root_ids": [
+        "internal/ociregion/teardown/teardown_integration_test.go::TestDryRunPrintsDiffWithoutDeleting",
+        "internal/ociregion/teardown/teardown_integration_test.go::TestDryRunReportsEveryUnexpectedVaultContent",
+        "internal/ociregion/teardown/teardown_integration_test.go::TestRefusesResourcesOutsideThePlan",
+        "internal/ociregion/teardown/teardown_integration_test.go::TestTeardownStopsOnOCIPermissionErrors",
+        "internal/ociregion/teardown/teardown_integration_test.go::TestUnverified404CannotComplete",
+        "internal/ociregion/teardown/teardown_integration_test.go::TestVaultContentsRecheckedBeforeScheduling",
+        "internal/ociregion/teardown/teardown_integration_test.go::TestVaultDeletionRequiresVerifiedContents"
+      ],
+      "detail": "http_fixture_test.go54\u201365 calls exported Teardown61 directly; netbird.go SDKProvider.teardown15 is not on this fixture path."
+    }
+  ],
+  "qualification_limits": [
+    "Source-only. No Go/build/test/helper/scanner/parser/framework, runtime, cloud/signing/crypto/TerraBase, process/resource probe, download, source/repository/ledger mutation or runtime receipt review.",
+    "All17 teardown roots remain unresolved/uncredited: duplicate same-package declarations and incompatible helper signatures prevent a unique callable package. No compilation or execution claim.",
+    "Apparent HTTP fixture invokes exported Teardown directly, bypassing SDKProvider.teardown GRU foundation/NetBird authority gate. Apparent legacy paths use map/slice fakeOCI. Neither receives assertion qualification while source-blocked.",
+    "tsAuth root establishes local plan/rule predicates only; filesystem setup is incidental and no deployed reachability or NSG enforcement is established.",
+    "Bucket integrations use actual OCI SDK HTTP against a synthetic OCI service and a token-authenticated upstream broker via loopback TCP with real file-backed JetStream KV. No real OCI state, bucket deletion, cloud lock enforcement or natscell in-process protocol is claimed.",
+    "No accounting/count/deletion/retirement/runtime qualification or overall completion promotion; original assertions and safety obligations remain retained."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "NONE"
+}

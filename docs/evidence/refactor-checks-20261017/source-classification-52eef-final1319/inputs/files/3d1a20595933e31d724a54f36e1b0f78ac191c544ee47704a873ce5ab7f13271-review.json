@@ -1,0 +1,171 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1980_2000",
+  "author": "/root/classification_100_dispatch/batch_2000_2020",
+  "decision": "ACCEPTED_EXACT_PACKET",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-3400-3420-qgu451z9/classification.json",
+    "sha256": "d15c5b96dda46584beb6b1b41c9ea1980ba12cd77e6105901edf3293f3fbd0c3",
+    "checksum_path": "/tmp/ts-source-classification-3400-3420-qgu451z9/SHA256SUMS",
+    "checksum_sha256": "36cad7902e77ec5bdf0eb6954da919fa6259cb842e59fe763741406d195325e2"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      3400,
+      3420
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_1980_2000"
+  },
+  "root_ids": [
+    "internal/storage/backup/planner_review_test.go::TestFixedRetentionKeepsTheFullBackupThroughoutItsCadence",
+    "internal/storage/backup/planner_review_test.go::TestPlanUsesANewAttemptKeyAfterAFaultyBackup",
+    "internal/storage/backup/termination_test.go::TestRunnerChecksYoungOrphanSourcesOnceIncludingFailures",
+    "internal/storage/backup/termination_test.go::TestRunnerProtectsPlacedVolumeAfterSourceObservationFailure",
+    "internal/storage/backup/termination_test.go::TestRunnerRecognizesTerminatedPlacedVolumesWithoutCreatingBackups",
+    "internal/storage/capacity/capacity_test.go::TestCollectorMeasuresTargetsAndReportsPartialFailures",
+    "internal/storage/capacity/capacity_test.go::TestEvaluateFloorsAndReservations",
+    "internal/storage/capacity/capacity_test.go::TestEvaluateThresholds",
+    "internal/storage/capacity/capacity_test.go::TestNodeHeadroomSubtractsAJetStreamReserveOnTheBootFilesystem",
+    "internal/storage/capacity/capacity_test.go::TestPolicyValidation",
+    "internal/storage/capacity/capacity_test.go::TestRealStatfsOfTempDir",
+    "internal/storage/capacity/capacity_test.go::TestRunPublishesAndSignalsUntilCanceled",
+    "internal/storage/capacity/capacity_test.go::TestUsageStorePublishesWithTTLAndFeedsSignals",
+    "internal/storage/capacity/capacity_test.go::TestWorstAndNodeHeadroom",
+    "internal/storage/execution/cpu_linux_test.go::TestCPUProfileRequiresEveryProcessorAndCommonFeatures",
+    "internal/storage/execution/cpu_linux_test.go::TestHostCPUProfileProcIntegration",
+    "internal/storage/execution/hooks_integration_test.go::TestExecutorSafetyIntegration",
+    "internal/storage/execution/member_peer_integration_test.go::TestDrainProtocolPeer",
+    "internal/storage/execution/qualification_integration_test.go::TestStatefulQualificationHTTPIntegration",
+    "internal/storage/execution/runtime_integration_test.go::TestRuntimeObserverHostNetworkNamespaceIntegration"
+  ],
+  "source_categories": {
+    "integration": 3,
+    "unit": 13,
+    "mixed": 1,
+    "unresolved": 3
+  },
+  "checks_performed": [
+    "Own FINAL[3380:3400) packet was frozen and independently accepted before this FINAL peer receipt; earlier third600 source/receipt work remains separate and excluded.",
+    "Independently read all twenty entire current roots, changed baseline TestDrainProtocolPeer and actual connected production/fixture/client/store/OS paths. No source, test or helper executed.",
+    "Verified literal IDs and order against activated allocation and original accounting other_unadjudicated[3400:3420); verified survival TSV original/current paths, names, kind, state and historical raw hashes. Verified all five input pins and canonical source tree.",
+    "Verified all forty baseline/current raw declaration bounds, exact SHA256 and byte lengths; twenty entire-body assertion spans; forty-six Git file mode/blob/SHA256/byte pins; and one hundred six connected explicit spans including exact text/hash/bounds within EOF. Metadata-only verification used no source parser or scanner.",
+    "Independently assessed thirteen unit roots using local synthetic/fake/injected observations; three integration roots materially reading actual statfs, proc CPU and namespace process boundaries; mixed executor root combining independent local guards with real authority JetStream CAS, admission file read, Unix member/drain protocol and durable FileStore reopen.",
+    "Verified unresolved3412 canonical Config has no Lab field; unresolved3418 file references runtime.GOARCH without runtime import; unresolved3417 conditional subprocess helper returns without the enabling environment and parent owns assertions. Blocked and ambiguous assertions remain uncredited.",
+    "Verified metadata-only successor preserves all categories/root identities/raw declarations/assertion bytes; corrected blocker line references, exact OpenJournal end and added eight reached OCI/authority spans. Verified exact final packet/checksum hashes and all0444/0555 immutable permissions."
+  ],
+  "metadata_checks": {
+    "input_pins": 5,
+    "literal_roots": 20,
+    "raw_declarations": 40,
+    "source_file_pins": 46,
+    "assertion_spans": 20,
+    "connected_spans": 106,
+    "all_explicit_spans": 166,
+    "canonical_declaration_drift": 1
+  },
+  "resolved_review_findings": [
+    "Author successor corrects runtime.GOARCH reference lines to126/130/211, narrows OpenJournal end to164 and adds eight actual reached OCI/authority evidence spans. These metadata refinements are verified; prior immutable packet preserved."
+  ],
+  "remaining_review_findings": [],
+  "corrections_requested": [],
+  "retained_source_findings": [
+    {
+      "root_id": "internal/storage/capacity/capacity_test.go::TestUsageStorePublishesWithTTLAndFeedsSignals",
+      "source_blockers": [
+        {
+          "finding": "Unknown Lab field in natscell.Config line163; canonical Config lines131\u2013149 has no such field.",
+          "assertions_uncredited": "Every assertion in this root.",
+          "evidence_ids": [
+            "nats_config"
+          ]
+        }
+      ]
+    },
+    {
+      "root_id": "internal/storage/execution/member_peer_integration_test.go::TestDrainProtocolPeer",
+      "source_blockers": [
+        {
+          "finding": "Conditional helper-only root; no established independent classification rule.",
+          "assertions_uncredited": "Standalone integration credit; parent-owned protocol obligations retained."
+        }
+      ]
+    },
+    {
+      "root_id": "internal/storage/execution/qualification_integration_test.go::TestStatefulQualificationHTTPIntegration",
+      "source_blockers": [
+        {
+          "finding": "runtime.GOARCH referenced at lines126,130,211 but imports3\u201322 omit runtime.",
+          "assertions_uncredited": "Every assertion in this root.",
+          "evidence_ids": [
+            "qualification_imports"
+          ]
+        }
+      ]
+    }
+  ],
+  "unresolved_source_blockers": [
+    {
+      "root_id": "internal/storage/capacity/capacity_test.go::TestUsageStorePublishesWithTTLAndFeedsSignals",
+      "source_blockers": [
+        {
+          "finding": "Unknown Lab field in natscell.Config line163; canonical Config lines131\u2013149 has no such field.",
+          "assertions_uncredited": "Every assertion in this root.",
+          "evidence_ids": [
+            "nats_config"
+          ]
+        }
+      ]
+    },
+    {
+      "root_id": "internal/storage/execution/member_peer_integration_test.go::TestDrainProtocolPeer",
+      "source_blockers": [
+        {
+          "finding": "Conditional helper-only root; no established independent classification rule.",
+          "assertions_uncredited": "Standalone integration credit; parent-owned protocol obligations retained."
+        }
+      ]
+    },
+    {
+      "root_id": "internal/storage/execution/qualification_integration_test.go::TestStatefulQualificationHTTPIntegration",
+      "source_blockers": [
+        {
+          "finding": "runtime.GOARCH referenced at lines126,130,211 but imports3\u201322 omit runtime.",
+          "assertions_uncredited": "Every assertion in this root.",
+          "evidence_ids": [
+            "qualification_imports"
+          ]
+        }
+      ]
+    }
+  ],
+  "canonical_declaration_drift": [
+    {
+      "root_id": "internal/storage/execution/member_peer_integration_test.go::TestDrainProtocolPeer",
+      "original_raw_sha256": "c912e2995b35c8ea3b3d6b5f82d2c479e632b7ac47b58e433c9da0ac31a118e8",
+      "historical_current_raw_sha256": "c912e2995b35c8ea3b3d6b5f82d2c479e632b7ac47b58e433c9da0ac31a118e8",
+      "actual_current_raw_sha256": "8980e97b39374ba7a404a1de313a5aef0ac335ca8d1076c77465f52a649ddcfc",
+      "limit": "Canonical helper adds Backup binding/serveBackupPeer branch. Historical mapping and original obligations retained; no alternate identity inferred."
+    }
+  ],
+  "qualification_limits": [
+    "Source-only acceptance. Every runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no execution receipts reviewed, source/helper/test execution, package compilation or runnable-package claim.",
+    "Capacity package stale Config.Lab and execution package missing runtime import block intended assertions in3412/3418. Other roots retain supported source-path categories only; shared-package compilability is not established.",
+    "Conditional drain helper3417 remains unresolved; subprocess simulator assertions belong to parent tests. Exact baseline/current declaration drift is retained.",
+    "Executor authority, file and Unix protocol effects use controlled in-process/server/subprocess fixtures. No actual container, TerraBase, Oracle provider, deployment or independent production qualification is established. Qualification HTTP/SDK intended assertions are blocked and uncredited.",
+    "Actual statfs/proc/namespace source paths support narrow integration categories only. Kernel/privilege/sudo/unshare availability and behavior were not measured.",
+    "Thirteen unit roots use local synthetic history/maps/counters/parser strings or injected statfs/publisher callbacks; no live backup/provider/broker behavior follows from those assertions.",
+    "No repository/ledger/count/deletion/retirement/qualification/completion promotion follows from this receipt; all original safety obligations retained."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "ledger_mutation_authorized": false,
+  "count_credit_authorized": false,
+  "deletion_authorized": false,
+  "completion_credit_authorized": false
+}

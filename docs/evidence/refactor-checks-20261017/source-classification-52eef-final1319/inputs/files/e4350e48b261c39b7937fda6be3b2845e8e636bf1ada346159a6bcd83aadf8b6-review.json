@@ -1,0 +1,194 @@
+{
+  "schema": "source-classification-independent-peer-review/v1",
+  "reviewer": "/root/classification_100_dispatch/peer_00_20",
+  "author": "/root/classification_100_dispatch/peer_20_40",
+  "decision": "ACCEPT_SOURCE_CLASSIFICATION_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-final1319-2620-2640-source-gkiwrzf1/classification.json",
+    "sha256": "809eeab31218ab21c31ec2189285b731af27434c6dc10a6a6e05151128abdca3",
+    "checksum_path": "/tmp/ts-final1319-2620-2640-source-gkiwrzf1/SHA256SUMS",
+    "checksum_sha256": "64de340574cf0f406754f13a186bf2a26faf85dfeaf920c32ae9abb610c0f923"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      2620,
+      2640
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/peer_00_20"
+  },
+  "input_pins": {
+    "survival": {
+      "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+      "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+    },
+    "worker_guide": {
+      "path": "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md",
+      "sha256": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70"
+    },
+    "peer_protocol": {
+      "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/PEER-PROTOCOL.md",
+      "sha256": "b1cbcb7a96a344363f5ba924a0e76fc418553607209733945892796508db7765"
+    }
+  },
+  "literal_root_ids": [
+    "internal/ociregion/imageimport/upload_test.go::TestStreamingUploadAbortsWhenTheFileChangesMidUpload",
+    "internal/ociregion/imageimport/upload_test.go::TestStreamingUploadCancelsWhileWaitingForPartHeaders",
+    "internal/ociregion/imageimport/upload_test.go::TestStreamingUploadCommitsExactlyTheVerifiedBytes",
+    "internal/ociregion/imageimport/upload_test.go::TestStreamingUploadRefusesAMismatchedSinglePartBeforeAnyRequest",
+    "internal/ociregion/imageimport/upload_test.go::TestStreamingUploadReportsThePartFailure",
+    "internal/ociregion/imageimport/upload_test.go::TestStreamingUploadRetriesSeekableParts",
+    "internal/ociregion/imageimport/upload_test.go::TestStreamingUploadSizesBuffersByTheFile",
+    "internal/ociregion/import_integration_test.go::TestImportCurrentObjectHeadThroughOCIProtocol",
+    "internal/ociregion/import_integration_test.go::TestInventoryScopedImagesThroughOCIProtocol",
+    "internal/ociregion/public_balancer_test.go::TestEstimatePricesTheLoadBalancerAtItsCeiling",
+    "internal/ociregion/public_balancer_test.go::TestInventoryAdmitsOnlyThePricedBalancer",
+    "internal/ociregion/public_balancer_test.go::TestLiveBalancerReadback",
+    "internal/ociregion/public_balancer_test.go::TestLiveBalancerReadbackServesTheMachinesAPI",
+    "internal/ociregion/public_balancer_test.go::TestPlanBindsTheFlexibleLoadBalancer",
+    "internal/ociregion/public_schema_test.go::TestEstimateBillsHostsOutsideTheHomeRegionInFull",
+    "internal/ociregion/public_schema_test.go::TestLegacyPublicAPIDoesNotAdmitTSAuth",
+    "internal/ociregion/public_schema_test.go::TestPublicAPIListenerPortMatchesSchema",
+    "internal/ociregion/public_schema_test.go::TestPublicAPIPinsCustomerOriginTrust",
+    "internal/ociregion/public_schema_test.go::TestPublicAPIRejectsNullFlexibleFields",
+    "internal/ociregion/public_schema_test.go::TestPublicAPISchemaEstimateSafeguards"
+  ],
+  "counts": {
+    "allocated_originals": 20,
+    "integration": 8,
+    "unit": 11,
+    "mixed": 1,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 whole current test declarations and connected upload/HTTP proxy/stand-in/SDK/client/retry/inventory/JSON/plan/public API/certificate/naming/network/catalog paths and pinned fixture input bytes. Baseline declarations are byte-identical to the reviewed current bodies.",
+    "Verified literal original_root_ids_by_disposition.other_unadjudicated[2620:2640), owner/cyclic reviewer and all20 unique survival mappings, original/current names, declaration hashes and retained-body states; no canonical body drift.",
+    "Verified40 raw baseline/current declaration text/bounds/SHA256 values including literal func-name first lines and column-zero closing braces;32 Git mode/blob/SHA256/byte file pins and canonical disk bytes.",
+    "Verified73 exact citation text/bounds/blob pins within EOF:20 assertion spans and53 connected spans. Read inventory.go310-390 in addition to cited ranges to inspect the connecting path.",
+    "Verified exact packet/checksum hashes and members, files0444/directory0555, canonical commit/tree and allocation/protocol/guide/survival/accounting input hashes.",
+    "Confirmed counts8integration/11unit/1mixed/0unresolved, per-root runtime UNKNOWN, retirement false, safety retained and zero accounting/qualification/retirement/global-completion effect. No source-visible contradictions found in the reached assertion blocks."
+  ],
+  "root_reviews": [
+    {
+      "root_id": "internal/ociregion/imageimport/upload_test.go::TestStreamingUploadAbortsWhenTheFileChangesMidUpload",
+      "accepted_category": "integration",
+      "independent_rationale": "Rewriting the actual upload file during signed SDK multipart HTTP affects production hashing; server object/abort readback supports the mismatch refusal."
+    },
+    {
+      "root_id": "internal/ociregion/imageimport/upload_test.go::TestStreamingUploadCancelsWhileWaitingForPartHeaders",
+      "accepted_category": "integration",
+      "independent_rationale": "Loopback HTTP proxies withhold response headers across upload phases; cancellation and error/abort assertions depend on real HTTP request handling. Timing remains unexecuted."
+    },
+    {
+      "root_id": "internal/ociregion/imageimport/upload_test.go::TestStreamingUploadCommitsExactlyTheVerifiedBytes",
+      "accepted_category": "integration",
+      "independent_rationale": "Actual file reads and signed SDK single/multipart requests feed the stand-in; byte/metadata and completed-upload readback support the assertions."
+    },
+    {
+      "root_id": "internal/ociregion/imageimport/upload_test.go::TestStreamingUploadRefusesAMismatchedSinglePartBeforeAnyRequest",
+      "accepted_category": "mixed",
+      "independent_rationale": "The first block directly reads and hashes actual mismatched file bytes, while the independent missing-digest block stops at the pre-I/O length guard. Integration and unit blocks are distinct."
+    },
+    {
+      "root_id": "internal/ociregion/imageimport/upload_test.go::TestStreamingUploadReportsThePartFailure",
+      "accepted_category": "integration",
+      "independent_rationale": "The forbidden response comes from an actual multipart HTTP handler; returned primary failure and abort readback materially test protocol behavior."
+    },
+    {
+      "root_id": "internal/ociregion/imageimport/upload_test.go::TestStreamingUploadRetriesSeekableParts",
+      "accepted_category": "integration",
+      "independent_rationale": "Actual HTTP retry proxies read seekable request bodies, inject retry responses, and forward requests; attempt, cancellation and stored-byte assertions cross the reached HTTP/file paths."
+    },
+    {
+      "root_id": "internal/ociregion/imageimport/upload_test.go::TestStreamingUploadSizesBuffersByTheFile",
+      "accepted_category": "integration",
+      "independent_rationale": "Actual small-file upload and stored-byte readback qualify the reached boundary. A huge configured part size alone does not measure allocation or peak memory."
+    },
+    {
+      "root_id": "internal/ociregion/import_integration_test.go::TestImportCurrentObjectHeadThroughOCIProtocol",
+      "accepted_category": "integration",
+      "independent_rationale": "Object HEAD requests pass through real SDK HTTP and sdkcli handling; received fields and malformed/deleted response refusals depend on protocol bytes."
+    },
+    {
+      "root_id": "internal/ociregion/import_integration_test.go::TestInventoryScopedImagesThroughOCIProtocol",
+      "accepted_category": "integration",
+      "independent_rationale": "Image listing passes through real SDK HTTP and strict JSON/rendering; compartment identity and exact received integer handling support the protocol classification."
+    },
+    {
+      "root_id": "internal/ociregion/public_balancer_test.go::TestEstimatePricesTheLoadBalancerAtItsCeiling",
+      "accepted_category": "unit",
+      "independent_rationale": "Fixture plan file roundtrip prepares local flexible-balancer ceiling arithmetic. The asserted pricing result has no material provider or persistence boundary."
+    },
+    {
+      "root_id": "internal/ociregion/public_balancer_test.go::TestInventoryAdmitsOnlyThePricedBalancer",
+      "accepted_category": "unit",
+      "independent_rationale": "Injected balancer inventory maps exercise local identity, shape, bandwidth and quantity predicates; no actual provider readback is reached."
+    },
+    {
+      "root_id": "internal/ociregion/public_balancer_test.go::TestLiveBalancerReadback",
+      "accepted_category": "unit",
+      "independent_rationale": "Engine.Dependency supplies synthetic resource maps; local routing, certificate and security checks provide the assertions. The Live name does not establish network or cloud behavior."
+    },
+    {
+      "root_id": "internal/ociregion/public_balancer_test.go::TestLiveBalancerReadbackServesTheMachinesAPI",
+      "accepted_category": "unit",
+      "independent_rationale": "Synthetic dependency data and generated certificate inputs exercise local listener/port and egress predicates. No Machines API server or real network policy is reached."
+    },
+    {
+      "root_id": "internal/ociregion/public_balancer_test.go::TestPlanBindsTheFlexibleLoadBalancer",
+      "accepted_category": "unit",
+      "independent_rationale": "Plan JSON setup supplies local schema, identity and membership validation. No filesystem persistence target or provider operation is asserted."
+    },
+    {
+      "root_id": "internal/ociregion/public_schema_test.go::TestEstimateBillsHostsOutsideTheHomeRegionInFull",
+      "accepted_category": "unit",
+      "independent_rationale": "Injected inventory and region edits support local rational host/storage pricing; fixture hashing identifies the plan rather than establishing a provider or store target."
+    },
+    {
+      "root_id": "internal/ociregion/public_schema_test.go::TestLegacyPublicAPIDoesNotAdmitTSAuth",
+      "accepted_category": "unit",
+      "independent_rationale": "Plan field and rule edits exercise local legacy-schema and auth-ingress admission. No network policy is applied."
+    },
+    {
+      "root_id": "internal/ociregion/public_schema_test.go::TestPublicAPIListenerPortMatchesSchema",
+      "accepted_category": "unit",
+      "independent_rationale": "Legacy/flexible listener-port tables exercise local schema and protocol predicates; temporary JSON setup does not establish a listener boundary."
+    },
+    {
+      "root_id": "internal/ociregion/public_schema_test.go::TestPublicAPIPinsCustomerOriginTrust",
+      "accepted_category": "unit",
+      "independent_rationale": "Fixture CA data and plan fields exercise local trust and desired-field validation; there is no TLS handshake or Cloudflare operation."
+    },
+    {
+      "root_id": "internal/ociregion/public_schema_test.go::TestPublicAPIRejectsNullFlexibleFields",
+      "accepted_category": "unit",
+      "independent_rationale": "Explicit null values exercise local schema/numeric refusal and diagnostics; temporary plan files are incidental inputs."
+    },
+    {
+      "root_id": "internal/ociregion/public_schema_test.go::TestPublicAPISchemaEstimateSafeguards",
+      "accepted_category": "unit",
+      "independent_rationale": "Injected plan/inventory data exercise local pricing, bandwidth, monthly-limit and public-IP predicates; receipt hashing is setup rather than material inventory observation."
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Acceptance is limited to immutable source classification and the exact accepted packet hash; no runtime receipts were reviewed and no test/Go/helper execution was performed.",
+    "Actual SDK HTTP requests terminate at modeled local handlers and memory-backed state. No real OCI tenancy, durable Object Storage, provider authentication, or live distributed deployment is qualified; signature header presence does not establish authenticity.",
+    "Timing, cancellation deadlines, retry duration, leak behavior and memory/allocation behavior remain unexecuted source assertions. The huge-part-size root asserts stored bytes rather than measured buffer sizing.",
+    "Schema/pricing/balancer roots use synthetic maps and incidental plan/certificate/receipt setup; they establish local predicates rather than real listeners, cloud policies, TLS handshakes, Cloudflare behavior or financial history.",
+    "No source/repository/ledger mutation, runtime/count/qualification/completion promotion, deletion or retirement authorization. All original identities and safety obligations remain retained."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "ledger_modified": false,
+  "counts_promoted": false,
+  "deletion_authorized": false,
+  "source_modified": false,
+  "execution_performed": false
+}

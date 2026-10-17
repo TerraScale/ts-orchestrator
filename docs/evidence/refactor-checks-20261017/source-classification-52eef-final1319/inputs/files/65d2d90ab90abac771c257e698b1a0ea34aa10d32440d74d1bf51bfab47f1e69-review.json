@@ -1,0 +1,92 @@
+{
+  "schema": "independent-source-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2360_2380",
+  "author": "/root/classification_100_dispatch/batch_2380_2400",
+  "decision": "ACCEPT_EXACT_SOURCE_ONLY_PACKET",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-3780-3800-linked-es3tfsu6/classification.json",
+    "sha256": "3d3ac90962d62186b6247b4cd998997ef829d9ee180b74af61cf7b2508979217",
+    "checksum_path": "/tmp/ts-source-3780-3800-linked-es3tfsu6/SHA256SUMS",
+    "checksum_sha256": "7987ffdf51552e8c227103862477003301eb3e65024a58439c019e6f3be43d8e"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "literal_range": [
+    3780,
+    3800
+  ],
+  "root_ids": [
+    "tests/firecracker/production/simulator_test.go::TestSimulatorExpectedMissingNeedsAuthentication",
+    "tests/firecracker/production/simulator_test.go::TestSimulatorPinsIMDSAndRejectsUnlistedRoutes",
+    "tests/firecracker/production/simulator_test.go::TestSimulatorRedactsUnlistedQuery",
+    "tests/firecracker/production/simulator_test.go::TestSimulatorRejectsTamperedFederationAndStaleServiceSignature",
+    "tests/firecracker/production/simulator_test.go::TestSimulatorRequiresPrimaryPrivateIP",
+    "tests/imagequalification/materialfixtures/fixture_test.go::TestSignedMaterialFixtureBoundary",
+    "tests/integration/authority_deployment_test.go::TestRegionalDeploymentFenceKeepsR3PeersConnected",
+    "tests/integration/regional_authority_test.go::TestRegionalAuthorityFailoverAndQuorum",
+    "tests/runtime_priority/pressure_evidence_test.go::TestControllerOperationsUseControllerSSH",
+    "tests/runtime_priority/pressure_evidence_test.go::TestControllerProbeAvoidsAbsentHostUnit",
+    "tests/runtime_priority/pressure_evidence_test.go::TestPressureExternalScopeRequiresEffectiveCaps",
+    "tests/runtime_priority/pressure_evidence_test.go::TestPressureFailureTargetRequiresQualifiedRole",
+    "tests/runtime_priority/pressure_evidence_test.go::TestPressureLiveOCIIdentityPins",
+    "tests/runtime_priority/pressure_evidence_test.go::TestPressureManagerRecoveryPreservesPeerSession",
+    "tests/runtime_priority/pressure_evidence_test.go::TestPressureOOMRequiresExactRoleAndRestoredCap",
+    "tests/runtime_priority/pressure_evidence_test.go::TestPressureObjectDurabilityRequiresExactPeerRead",
+    "tests/runtime_priority/pressure_evidence_test.go::TestPressurePeerProofFinishesDuringWorkers",
+    "tests/runtime_priority/pressure_evidence_test.go::TestPressureQualifiedRoleCgroups",
+    "tests/runtime_priority/pressure_evidence_test.go::TestPressureReadOnlyHostReports",
+    "tests/runtime_priority/pressure_evidence_test.go::TestPressureRequiresDistinctPinnedController"
+  ],
+  "counts": {
+    "integration": 0,
+    "unit": 16,
+    "mixed": 2,
+    "unresolved": 2
+  },
+  "checks_performed": {
+    "independent_full_root_reads": 20,
+    "actual_connected_paths_read": true,
+    "literal_allocation_and_survival_mappings": 20,
+    "baseline_current_raw_declarations_and_hashes": 40,
+    "exact_text_spans_checked": 77,
+    "git_blob_mode_sha256_byte_file_pins_checked": 26,
+    "input_hashes_verified": true,
+    "assertion_and_callee_text_exact": true,
+    "categories_independently_reviewed": 20,
+    "packet_checksum_and_immutable_modes_verified": true
+  },
+  "resolved_findings": [],
+  "remaining_findings": [
+    {
+      "root_ids": [
+        "tests/integration/authority_deployment_test.go::TestRegionalDeploymentFenceKeepsR3PeersConnected",
+        "tests/integration/regional_authority_test.go::TestRegionalAuthorityFailoverAndQuorum"
+      ],
+      "finding": "Shared newRegionalCluster still specifies removed natscell.Config.Lab at regional_authority_test.go344. Canonical Config129-148 lacks Lab; cfg.validate611-618 and655-656 additionally require omitted production client/embedded TLS/JWT/route credentials. Intended R3 startup and every later assertion remain unresolved/uncredited.",
+      "disposition": "Explicitly documented by author; retained unresolved source categories. No compilation or runtime diagnostic claimed."
+    }
+  ],
+  "source_review_notes": [
+    "All20 full roots independently read from canonical source, with full root assertions and actual fixture/helper/production paths. Literal accounting and survival identities match; no omitted or renamed original obligation.",
+    "Five simulator roots invoke direct recorders and local maps/crypto; actual serve374-434 connects response assertions to the handler, without any network exchange. SDK signing is local.",
+    "Signed material root only signs/verifies/maps synthetic profile/intent bytes; no native runtime, service, installed artifact or secret-store boundary.",
+    "Regional authority roots have meaningful intended R3 operations, but canonical obsolete Lab and missing production startup material block every asserted boundary; unresolved is preserved. Lab naming fallback was checked and matches lab-one/two/three.",
+    "Qualifier mixed: actual unit file readText/readNoFollow feeds the asserted digest at test416-418. The separate guest_role predicate and injected-command absence assertions are local. Ordinary proc/cgroup files, xattr and injected ownership/systemctl/ionice do not qualify a kernel cgroup or managed process. Optional xattr skip retained.",
+    "OOM mixed: before-record ValidateOOM writes/fsyncs oom-restore-intent.json and syncs its directory, then root296 reads exact persisted data. Later separately replayed event success and altered restored-cap rejection inspect synthetic records/state only; no OOM, cap change, journal, signal or recovery is executed.",
+    "Other pressure roots replay JSON maps or invoke injected Adapter.SSH/local validators. Source file/executable setup reads remain incidental to their target predicates. No pressure workers, real SSH, OCI request, peer connection or database operation is credited.",
+    "No correction requested for the exact linked packet. Existing unresolved source findings are preserved; source acceptance grants no runtime or global accounting credit."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": false,
+    "deletion_credit": 0,
+    "retirement_credit": 0,
+    "runtime_qualification_credit": 0,
+    "global_completion_credit": false
+  }
+}

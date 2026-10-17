@@ -1,0 +1,119 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_680_700",
+  "author": "/root/classification_100_dispatch/batch_700_720",
+  "batch": "other[2900:2920)",
+  "decision": "accepted",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-2900-2920-3dpwzr42/classification.json",
+    "sha256": "9ffcdc7448694d5217bf5635a7e909c42698d28f711447c030ff7bc384f8b1f4"
+  },
+  "accepted_checksum": {
+    "path": "/tmp/ts-source-2900-2920-3dpwzr42/SHA256SUMS",
+    "sha256": "fdbacef0a392f2997314f5ca4b84f141f6c57d780500afffaad0212d92a28f00"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/protocol/protocol_test.go::TestDecodeStrictRejectsDuplicateAndUnknownEnvelopeFields",
+    "internal/protocol/protocol_test.go::TestDecodeTolerantSkipsOnlyUnknownMembers",
+    "internal/protocol/protocol_test.go::TestEnvelopeRoundTripAndPayloadWhitespace",
+    "internal/protocol/protocol_test.go::TestEnvelopeV1GoldenVector",
+    "internal/protocol/protocol_test.go::TestSignEnvelopeRejectsDuplicateInvalidAndNonObjectPayload",
+    "internal/protocol/protocol_test.go::TestSubjectBuildersUseVersionedRegionalAndHashedAgentScopes",
+    "internal/protocol/protocol_test.go::TestVerifyEnvelopeEnforcesTimePolicy",
+    "internal/protocol/protocol_test.go::TestVerifyEnvelopeRejectsScopeKeyAndSignedFieldChanges",
+    "internal/qualification/firecracker/command_ownership_test.go::TestQualificationCleanupPreservesResourcesUntilPendingCommandStops",
+    "internal/qualification/firecracker/command_ownership_test.go::TestQualificationNetworkRetainsAmbiguousCreationOwnership",
+    "internal/qualification/firecracker/generic_admission_test.go::TestBrokerClockFaultBudgetIncludesSSH",
+    "internal/qualification/firecracker/generic_admission_test.go::TestChronySocketUsesPrivateRootOwnedRunDirectory",
+    "internal/qualification/firecracker/generic_admission_test.go::TestClockCheckKeepsStrictOneSecondBound",
+    "internal/qualification/firecracker/generic_admission_test.go::TestClockDiagnosticFailurePreservesOriginalTimeout",
+    "internal/qualification/firecracker/generic_admission_test.go::TestClockDiagnosticsAreBoundedAndCaptureFirewallCounters",
+    "internal/qualification/firecracker/generic_admission_test.go::TestClockReleaseRequiresNTPKernelHealthAndFreshService",
+    "internal/qualification/firecracker/generic_admission_test.go::TestClusterDiagnosticUsesSeparateCredentials",
+    "internal/qualification/firecracker/generic_admission_test.go::TestForegroundChronyUsesRootSocketAndOwnedCleanup",
+    "internal/qualification/firecracker/generic_admission_test.go::TestNTPFirewallInstallsScopedOwnedRuleAndDeletesByHandle",
+    "internal/qualification/firecracker/generic_admission_test.go::TestNTPFirewallRejectsInactiveOrUnexpectedBackend"
+  ],
+  "counts": {
+    "integration": 1,
+    "unit": 16,
+    "mixed": 3,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read every full allocated root plus actual setup/fixture and reached production path from pinned canonical Git objects.",
+    "Reconfirmed literal allocation/accounting/survival mappings and input hashes; canonical tree exact.",
+    "Recomputed40 baseline/current raw declarations from explicit bounds, excluding trailing LF; all20 baseline/current identities exact and survival hashes preserved.",
+    "Reconfirmed20 full-root assertion spans,38 connected-source spans and20 canonical file mode/blob/SHA256/byte pins; checksum entries match and files0444/directory0555.",
+    "Independently assessed categories, independent local-only blocks, genuine asserted filesystem boundaries, injected Process/Command/lstat/clock/namespace feeds and incidental file setup. No source-visible blockers found."
+  ],
+  "boundary_assessment": [
+    {
+      "roots": [
+        2900,
+        2901,
+        2902,
+        2903,
+        2904,
+        2905,
+        2906,
+        2907
+      ],
+      "result": "unit",
+      "basis": "Only local JSON/token/signature/time-policy targets. Checked-in golden expected-file reads remain incidental."
+    },
+    {
+      "roots": [
+        2908
+      ],
+      "result": "mixed",
+      "basis": "Generic Cleanup gate preserves actual images/stage/secrets directories; os.Stat supports retention assertion. Separate production profile and hook process/counter/list assertions are synthetic. Post-quiescence file deletion is reached but not directly asserted."
+    },
+    {
+      "roots": [
+        2909,
+        2910,
+        2911,
+        2912,
+        2915,
+        2916,
+        2918,
+        2919
+      ],
+      "result": "unit",
+      "basis": "Target behavior is injected command/process/lstat/measurement/clock feed and local ownership/argv/deadline validation. Ready log, credential existence, event logging and temporary roots are incidental."
+    },
+    {
+      "roots": [
+        2913
+      ],
+      "result": "integration",
+      "basis": "Production writeJSON reaches actual MkdirAll failure because Logs is a regular file; write_failed event and original injected timeout are asserted. No actual SSH/NTP."
+    },
+    {
+      "roots": [
+        2914,
+        2917
+      ],
+      "result": "mixed",
+      "basis": "Persisted diagnostics/config bytes are read back to support actual production filesystem assertions. Independent timeout/argv/lifecycle command blocks use fakes."
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_delta": 0,
+    "deletion_credit": 0,
+    "retirement_credit": 0,
+    "qualification_credit": 0,
+    "global_completion": false
+  }
+}

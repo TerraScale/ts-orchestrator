@@ -1,0 +1,276 @@
+{
+  "schema": "independent-source-only-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2220_2240",
+  "author": "/root/classification_100_dispatch/batch_2240_2260",
+  "decision": "ACCEPT_EXACT_HASH_WITH_RETAINED_SOURCE_BLOCKERS",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-3640-3660-r2w7_29n/classification.json",
+    "sha256": "6a920d1f54e8dd8be71937e992a872512296e3d605603563786b476add864a98",
+    "checksum_path": "/tmp/ts-source-3640-3660-r2w7_29n/SHA256SUMS",
+    "checksum_sha256": "18023239abb4186c8cad2b2248b4e81bd21e0b04adc4cd55937b487bbf6442e6"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "literal_range": [
+      3640,
+      3660
+    ],
+    "independent_peer_owner_verified": true
+  },
+  "root_ids": [
+    "tests/deploy/build_offline_test.go::TestOfflineDeploymentMaterialNeverBaked",
+    "tests/deploy/build_offline_test.go::TestOfflineEveryImageRequiresEnabledOpenSSHServer",
+    "tests/deploy/build_offline_test.go::TestOfflineInstallsSelfUpdateEnabled",
+    "tests/deploy/build_offline_test.go::TestOfflineManagedRootAndVolumeInitUnits",
+    "tests/deploy/build_offline_test.go::TestOfflineMissingTimeSyncUnitsAbortImage",
+    "tests/deploy/build_offline_test.go::TestOfflineReadbackMismatchDiscardsCandidate",
+    "tests/deploy/build_offline_test.go::TestOfflineRejectsBadPublicInputsBeforeImageEffects",
+    "tests/deploy/build_offline_test.go::TestOfflineRejectsBaseArtifacts",
+    "tests/deploy/build_offline_test.go::TestOfflineRejectsCompetingTimesyncConfiguration",
+    "tests/deploy/build_offline_test.go::TestOfflineRejectsDeploymentFlagsBeforeImageEffects",
+    "tests/deploy/build_offline_test.go::TestOfflineRejectsMaskedOrConflictingSelfUpdate",
+    "tests/deploy/build_offline_test.go::TestOfflineRejectsPersistedSelfUpdateState",
+    "tests/deploy/build_offline_test.go::TestOfflineRejectsReservedWorkloadIdentityBeforeInstall",
+    "tests/deploy/build_offline_test.go::TestOfflineRejectsSymlinkedUploadParents",
+    "tests/deploy/build_offline_test.go::TestOfflineRejectsUnsafeNativeVerifierParents",
+    "tests/deploy/build_offline_test.go::TestOfflineRequiresAuditedSystemdAndInstallDirectives",
+    "tests/deploy/build_offline_test.go::TestOfflineRequiresNativeVerifier",
+    "tests/deploy/build_offline_test.go::TestOfflineRequiresPinnedVolumeTools",
+    "tests/deploy/build_offline_test.go::TestOfflineRootSetBoundsBeforeVerification",
+    "tests/deploy/build_offline_test.go::TestOfflineTimesyncConfigRequiredExplicitAndExcludesLabRange"
+  ],
+  "counts": {
+    "integration": 17,
+    "unit": 1,
+    "mixed": 0,
+    "unresolved": 2,
+    "total": 20
+  },
+  "checks_performed": [
+    "Independently read every full20 source root plus actual fixture/newOffline/run/reject/installed/cleanup, fakeToolBinary/race setup, real script.Exec and deployTool/TestDeployTool, build-offline shell, image.RunWith/runOffline/OfflineBuild/ELF guard and LoadPin/ValidatePinJSON/ValidatePin/orderedKeys paths.",
+    "Verified literal root order against activated allocation and original accounting[3640:3660), mapped reviewer, survival raw identity/state/name/kind,40 baseline/current exact raw declarations at independently fixed bounds and excluding closing LF. Baseline/current same blob/raw text.",
+    "Recomputed20 canonical/baseline file pins: mode/blob/SHA256/bytes, all full assertion evidence and39 connected spans against pinned Git files, and all blocked caller evidence. Verified full packet/checksum hashes, SHA256SUMS contents, files0444/directory0555.",
+    "Reviewed category and individual supported vs blocked assertion sequence. Genuine project subprocess exit/output is narrow boundary; fake guest/provider tools and incidental filesystem setup never establish named image/authority target.",
+    "No Go/tests/project helper/scanner/parser/framework/format/lint/resource probe/privilege/cloud/signing/crypto/TerraBase/download execution; metadata-only verification over manually reviewed explicit spans."
+  ],
+  "verification_totals": {
+    "literal_roots": 20,
+    "raw_baseline_current_declarations": 40,
+    "source_file_pins": 20,
+    "connected_spans": 39
+  },
+  "root_reviews": [
+    {
+      "literal_index": 3640,
+      "root_id": "tests/deploy/build_offline_test.go::TestOfflineDeploymentMaterialNeverBaked",
+      "accepted_category": "unresolved",
+      "review_observation": "First successful665 gate contradicts non-ELF orchestrator;666\u2013681 material/root directory assertions are gated and uncredited.",
+      "all_assertions_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "literal_index": 3641,
+      "root_id": "tests/deploy/build_offline_test.go::TestOfflineEveryImageRequiresEnabledOpenSSHServer",
+      "accepted_category": "integration",
+      "review_observation": "929\u2192reject435\u2013437 supports only actual child nonzero; SSH diagnostic440 and later930 remain blocked.",
+      "all_assertions_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "literal_index": 3642,
+      "root_id": "tests/deploy/build_offline_test.go::TestOfflineInstallsSelfUpdateEnabled",
+      "accepted_category": "unresolved",
+      "review_observation": "First successful970 is blocked; all installation and watchdog readback assertions971\u2013981 remain uncredited.",
+      "all_assertions_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "literal_index": 3643,
+      "root_id": "tests/deploy/build_offline_test.go::TestOfflineManagedRootAndVolumeInitUnits",
+      "accepted_category": "unit",
+      "review_observation": "939\u2013940 direct source text predicates independently support unit. Successful941 and942\u2013961 directory/units/metadata assertions blocked.",
+      "all_assertions_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "literal_index": 3644,
+      "root_id": "tests/deploy/build_offline_test.go::TestOfflineMissingTimeSyncUnitsAbortImage",
+      "accepted_category": "integration",
+      "review_observation": "1104\u2192reject435\u2013437 generic actual process failure only; requested time diagnostic and1105 listener assertion blocked.",
+      "all_assertions_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "literal_index": 3645,
+      "root_id": "tests/deploy/build_offline_test.go::TestOfflineReadbackMismatchDiscardsCandidate",
+      "accepted_category": "integration",
+      "review_observation": "606\u2192reject435\u2013437 only generic actual child rejection; corrupt readback diagnostic and607\u2013609 blocked.",
+      "all_assertions_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "literal_index": 3646,
+      "root_id": "tests/deploy/build_offline_test.go::TestOfflineRejectsBadPublicInputsBeforeImageEffects",
+      "accepted_category": "integration",
+      "review_observation": "587\u2192reject435\u2013437 generic actual child rejection in each table arm; intended diagnostic and588\u2013595 blocked by earlier ELF guard.",
+      "all_assertions_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "literal_index": 3647,
+      "root_id": "tests/deploy/build_offline_test.go::TestOfflineRejectsBaseArtifacts",
+      "accepted_category": "integration",
+      "review_observation": "636\u2192reject435\u2013437 generic actual child rejection; artifact cause440 and637\u2013643 guest/listener details blocked.",
+      "all_assertions_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "literal_index": 3648,
+      "root_id": "tests/deploy/build_offline_test.go::TestOfflineRejectsCompetingTimesyncConfiguration",
+      "accepted_category": "integration",
+      "review_observation": "1074\u2192reject435\u2013437 generic actual child rejection; time-config cause and1075\u20131078 blocked.",
+      "all_assertions_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "literal_index": 3649,
+      "root_id": "tests/deploy/build_offline_test.go::TestOfflineRejectsDeploymentFlagsBeforeImageEffects",
+      "accepted_category": "integration",
+      "review_observation": "691\u2013695 actual CLI unknown-flag parser exit2/usage/no-event/no-output assertions; parser238\u2013243 precedes ELF and no guest effects are asserted.",
+      "all_assertions_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "literal_index": 3650,
+      "root_id": "tests/deploy/build_offline_test.go::TestOfflineRejectsMaskedOrConflictingSelfUpdate",
+      "accepted_category": "integration",
+      "review_observation": "1003\u2192reject435\u2013437 generic actual child rejection only; masks/override cause440 and implicit442 output gate blocked.",
+      "all_assertions_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "literal_index": 3651,
+      "root_id": "tests/deploy/build_offline_test.go::TestOfflineRejectsPersistedSelfUpdateState",
+      "accepted_category": "integration",
+      "review_observation": "657\u2192reject435\u2013437 generic actual child rejection only; persisted-state diagnostic and658\u2013660 blocked.",
+      "all_assertions_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "literal_index": 3652,
+      "root_id": "tests/deploy/build_offline_test.go::TestOfflineRejectsReservedWorkloadIdentityBeforeInstall",
+      "accepted_category": "integration",
+      "review_observation": "867\u2192reject435\u2013437 generic actual child rejection only; reserved UID cause440 and868 absence blocked.",
+      "all_assertions_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "literal_index": 3653,
+      "root_id": "tests/deploy/build_offline_test.go::TestOfflineRejectsSymlinkedUploadParents",
+      "accepted_category": "integration",
+      "review_observation": "884\u2192reject435\u2013437 generic actual child rejection only; upload-parent cause440 blocked; setup symlink is incidental.",
+      "all_assertions_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "literal_index": 3654,
+      "root_id": "tests/deploy/build_offline_test.go::TestOfflineRejectsUnsafeNativeVerifierParents",
+      "accepted_category": "integration",
+      "review_observation": "857\u2192reject435\u2013437 generic actual child rejection only; required parent-kind/mode diagnostic and858 blocked.",
+      "all_assertions_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "literal_index": 3655,
+      "root_id": "tests/deploy/build_offline_test.go::TestOfflineRequiresAuditedSystemdAndInstallDirectives",
+      "accepted_category": "integration",
+      "review_observation": "894/901\u2192reject435\u2013437 generic actual child rejection only; systemd version/Install diagnostics blocked.",
+      "all_assertions_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "literal_index": 3656,
+      "root_id": "tests/deploy/build_offline_test.go::TestOfflineRequiresNativeVerifier",
+      "accepted_category": "integration",
+      "review_observation": "558\u2192runOffline\u2192OfflineBuild380\u2013383 rejects missing native required argument before ELF; process stderr/nonzero/output absence target supported.",
+      "all_assertions_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "literal_index": 3657,
+      "root_id": "tests/deploy/build_offline_test.go::TestOfflineRequiresPinnedVolumeTools",
+      "accepted_category": "integration",
+      "review_observation": "1026\u2192reject435\u2013437 generic actual child rejection only; intended package/tool diagnostic blocked.",
+      "all_assertions_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "literal_index": 3658,
+      "root_id": "tests/deploy/build_offline_test.go::TestOfflineRootSetBoundsBeforeVerification",
+      "accepted_category": "integration",
+      "review_observation": "1167\u20131169 actual child exit/no-event/no-output assertions. Root count385 precedes ELF; byte-size444\u2013456 is unreached in per-root/total cases and remains uncredited.",
+      "all_assertions_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "literal_index": 3659,
+      "root_id": "tests/deploy/build_offline_test.go::TestOfflineTimesyncConfigRequiredExplicitAndExcludesLabRange",
+      "accepted_category": "integration",
+      "review_observation": "1047\u20131049 actual child generic failure/no-effect observations support process category; no named timesync rejection cause. Reset-normalized successful1058 and1059\u20131062 readbacks blocked.",
+      "all_assertions_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "retained_source_limitations": [
+    {
+      "id": "plain-text-orchestrator-elf-blocker",
+      "detail": "newOffline318 writes mock verified binary; run393 forwards unchanged; OfflineBuild404\u2192binaryArchitecture87\u201390 elf.Open rejects before image tooling. Later expected diagnostics/success/readbacks remain unresolved/uncredited. All affected roots explicitly retain limits even where generic earlier nonzero exit supports category."
+    },
+    {
+      "id": "conditional-fixture-setup",
+      "detail": "fakeToolBinary31\u201357 selects current executable or race-only go test -c rebuild. This source-described setup and tier skip are not build/race/runtime receipts."
+    },
+    {
+      "id": "synthetic-guest-authority",
+      "detail": "QEMU/release/guestfish/systemctl/sysusers endpoints are fakes; owner metadata JSON is synthetic. No actual QCOW2/libguestfs/systemd/boot/native/OCI/NetBird/Vault or signed production qualification."
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": false,
+    "qualification_delta": 0,
+    "deletion_authorized": false,
+    "retirement_delta": 0,
+    "global_completion": false
+  }
+}

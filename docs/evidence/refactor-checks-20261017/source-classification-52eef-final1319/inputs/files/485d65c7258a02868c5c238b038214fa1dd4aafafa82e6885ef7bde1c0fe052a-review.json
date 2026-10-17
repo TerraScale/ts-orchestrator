@@ -1,0 +1,216 @@
+{
+  "schema": "independent-source-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2380_2400",
+  "author": "/root/classification_100_dispatch/batch_2400_2420",
+  "disposition": "ACCEPT_SOURCE_ONLY",
+  "accepted_packet": "/tmp/ts-source-3800-3819-07qu_h1f/classification.json",
+  "accepted_packet_sha256": "c3c5103cb5bc3bf13290213d64ee9d3df85bc116fac92af247467eb7716e56a1",
+  "accepted_sha256sums": "/tmp/ts-source-3800-3819-07qu_h1f/SHA256SUMS",
+  "accepted_sha256sums_sha256": "e778a17fc24833896040f1be398a4b95d156c447f2cc180c34f511d260a6b0fb",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      3800,
+      3819
+    ],
+    "mapped_reviewer_verified": true
+  },
+  "root_ids": [
+    "tests/runtime_priority/pressure_evidence_test.go::TestPressureServingProofReceivedPrefixes",
+    "tests/runtime_priority/pressure_manifest_memory_test.go::TestAllocationProfilePreflight",
+    "tests/runtime_priority/pressure_manifest_memory_test.go::TestAllocationRunStatusRequiresCompletionRecoveryAndSamples",
+    "tests/runtime_priority/pressure_manifest_memory_test.go::TestMemorySampleIdentityAndRawEvidence",
+    "tests/runtime_priority/pressure_manifest_memory_test.go::TestPackagedQualifierCapturesBoundedStableCgroups",
+    "tests/runtime_priority/pressure_manifest_memory_test.go::TestPressureDryRunAndUnqualifiedEvidence",
+    "tests/runtime_priority/pressure_manifest_memory_test.go::TestPressureResourceBounds",
+    "tests/runtime_priority/pressure_manifest_memory_test.go::TestRunnerRetainsOnlyIdentityBoundMemorySamples",
+    "tests/runtime_priority/pressure_transport_test.go::TestAlphaTransportPinsAndRemoteCompile",
+    "tests/runtime_priority/pressure_transport_test.go::TestHTTPSLeafPinPrecedesSecretsAndBody",
+    "tests/runtime_priority/pressure_transport_test.go::TestRemoteCleanupRestoresOnlyExactKnownCgroup",
+    "tests/runtime_priority/pressure_transport_test.go::TestRemoteOOMCannotLowerReplacementCgroup",
+    "tests/runtime_priority/pressure_transport_test.go::TestRemoteSigkillRejectsChangedRoleBeforeKill",
+    "tests/runtime_priority/probe_admission_test.go::TestProbeAdmissionExactPublication",
+    "tests/runtime_priority/probe_admission_test.go::TestProbeAdmissionRejectsUnboundEvidence",
+    "tests/runtime_priority/probe_admission_test.go::TestRemotePinnedProbe",
+    "tests/runtime_priority/publish_qualification_test.go::TestD15PublisherReadback",
+    "tests/slo/dashboard_test.go::TestDashboardContract",
+    "tests/slo/rules_test.go::TestPrometheusRules"
+  ],
+  "counts": {
+    "integration": 9,
+    "unit": 8,
+    "mixed": 2,
+    "unresolved": 0
+  },
+  "checks_performed": {
+    "all_19_full_roots_independently_read": true,
+    "reached_fixture_helper_client_store_runtime_paths_independently_inspected": true,
+    "literal_allocation_and_survival_mappings": 19,
+    "raw_baseline_current_declarations_verified": 38,
+    "raw_hash_rule": "func through column-zero closing brace excluding following LF",
+    "git_blob_mode_sha256_bytes_pins_verified": 34,
+    "exact_assertion_plus_connected_span_texts_verified": 79,
+    "categories_and_mixed_independence_manually_reviewed": true,
+    "checksums_exact_packet_hash_and_0444_files_0555_directory_verified": true,
+    "no_missing_root_or_unknown_mapping": true
+  },
+  "root_reviews": [
+    {
+      "root_id": "tests/runtime_priority/pressure_evidence_test.go::TestPressureServingProofReceivedPrefixes",
+      "category": "unit",
+      "accepted": true,
+      "reviewer_reason": "Frozen report/process JSON validation is unit; load/executable hashing is incidental."
+    },
+    {
+      "root_id": "tests/runtime_priority/pressure_manifest_memory_test.go::TestAllocationProfilePreflight",
+      "category": "mixed",
+      "accepted": true,
+      "reviewer_reason": "Allocation preflight has independent local reason/acceptance block and genuine persisted summary readback; mixed."
+    },
+    {
+      "root_id": "tests/runtime_priority/pressure_manifest_memory_test.go::TestAllocationRunStatusRequiresCompletionRecoveryAndSamples",
+      "category": "unit",
+      "accepted": true,
+      "reviewer_reason": "EvaluateRunStatus uses supplied booleans/phases; unit."
+    },
+    {
+      "root_id": "tests/runtime_priority/pressure_manifest_memory_test.go::TestMemorySampleIdentityAndRawEvidence",
+      "category": "unit",
+      "accepted": true,
+      "reviewer_reason": "Synthetic memory sample tables and controller transformation use local ValidateMemorySample; unit."
+    },
+    {
+      "root_id": "tests/runtime_priority/pressure_manifest_memory_test.go::TestPackagedQualifierCapturesBoundedStableCgroups",
+      "category": "integration",
+      "accepted": true,
+      "reviewer_reason": "Exact/bound/replacement cases genuinely capture anchored temp-file bytes/inodes/directories; ValidateMemorySample consumes the same actual sample; integration."
+    },
+    {
+      "root_id": "tests/runtime_priority/pressure_manifest_memory_test.go::TestPressureDryRunAndUnqualifiedEvidence",
+      "category": "mixed",
+      "accepted": true,
+      "reviewer_reason": "DryRun has independent local plan assertions plus genuine RunQualification manifest/summary/checksum readback; mixed."
+    },
+    {
+      "root_id": "tests/runtime_priority/pressure_manifest_memory_test.go::TestPressureResourceBounds",
+      "category": "unit",
+      "accepted": true,
+      "reviewer_reason": "Resource and deadline/OOM-cap tables inspect local manifest predicates; unit."
+    },
+    {
+      "root_id": "tests/runtime_priority/pressure_manifest_memory_test.go::TestRunnerRetainsOnlyIdentityBoundMemorySamples",
+      "category": "unit",
+      "accepted": true,
+      "reviewer_reason": "ValidateQualifier mutates in-memory sample state using synthetic summary/probe/time evidence; unit."
+    },
+    {
+      "root_id": "tests/runtime_priority/pressure_transport_test.go::TestAlphaTransportPinsAndRemoteCompile",
+      "category": "integration",
+      "accepted": true,
+      "reviewer_reason": "VerifyTransport reads exact pinned files and current-user private material; missing real CA path is checked. No compile/SSH occurs; integration via target file checks."
+    },
+    {
+      "root_id": "tests/runtime_priority/pressure_transport_test.go::TestHTTPSLeafPinPrecedesSecretsAndBody",
+      "category": "integration",
+      "accepted": true,
+      "reviewer_reason": "Actual TLS connection negotiates trusted fixture CA and rejects wrong leaf hash before nonexistent secret or HTTP/body write; integration."
+    },
+    {
+      "root_id": "tests/runtime_priority/pressure_transport_test.go::TestRemoteCleanupRestoresOnlyExactKnownCgroup",
+      "category": "integration",
+      "accepted": true,
+      "reviewer_reason": "Cleanup acts on actual directory inodes/cap files; runner checks consume same observed report, including restoration and replacement/race preservation; integration."
+    },
+    {
+      "root_id": "tests/runtime_priority/pressure_transport_test.go::TestRemoteOOMCannotLowerReplacementCgroup",
+      "category": "integration",
+      "accepted": true,
+      "reviewer_reason": "OOM replacement race uses actual rename/openat/path-identity rejection and exact unchanged old/new file readback; integration without kernel OOM."
+    },
+    {
+      "root_id": "tests/runtime_priority/pressure_transport_test.go::TestRemoteSigkillRejectsChangedRoleBeforeKill",
+      "category": "unit",
+      "accepted": true,
+      "reviewer_reason": "Changed role target rejected lexically before injected Signal; unit."
+    },
+    {
+      "root_id": "tests/runtime_priority/probe_admission_test.go::TestProbeAdmissionExactPublication",
+      "category": "integration",
+      "accepted": true,
+      "reviewer_reason": "In-process CLI loads inputs and exclusively writes/syncs actual receipt then root reads exact hashes; integration without CI service."
+    },
+    {
+      "root_id": "tests/runtime_priority/probe_admission_test.go::TestProbeAdmissionRejectsUnboundEvidence",
+      "category": "unit",
+      "accepted": true,
+      "reviewer_reason": "Unbound-evidence cases target local schema/digest/job/marker predicates and no receipt; no independent material output or CI boundary; unit."
+    },
+    {
+      "root_id": "tests/runtime_priority/probe_admission_test.go::TestRemotePinnedProbe",
+      "category": "integration",
+      "accepted": true,
+      "reviewer_reason": "Pinned probe validates actual staging path/modes/uid/gid/nlink/content and returns descriptor read by root; integration, no execution."
+    },
+    {
+      "root_id": "tests/runtime_priority/publish_qualification_test.go::TestD15PublisherReadback",
+      "category": "integration",
+      "accepted": true,
+      "reviewer_reason": "Real publisher subprocess and child fake gh processes exchange actual filesystem upload/count/event attachments; retries/readback/markers/rerun materially depend on those boundaries; integration."
+    },
+    {
+      "root_id": "tests/slo/dashboard_test.go::TestDashboardContract",
+      "category": "unit",
+      "accepted": true,
+      "reviewer_reason": "Dashboard JSON/YAML as static contract data parsed locally; no Grafana/Prometheus or PromQL runtime; unit."
+    },
+    {
+      "root_id": "tests/slo/rules_test.go::TestPrometheusRules",
+      "category": "integration",
+      "accepted": true,
+      "reviewer_reason": "Process-owning root conditionally invokes external promtool to check and evaluate actual shipped rules/generated series. Explicit skip when variable empty; configured process path integration, unpinned tool/runtime unqualified."
+    }
+  ],
+  "additional_reached_source": [
+    {
+      "path": "internal/runtimepriority/run.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "cec5c2146b71e2fb1c95e7e354b3082ac143e5b3",
+      "line": 111,
+      "end_line": 171,
+      "text": "\tstart := time.Now()\n\tif r.AdapterCall != nil {\n\t\tresponse, err = r.AdapterCall(ctx, request)\n\t} else {\n\t\tif e := VerifyPinnedFile(str(adapter, \"executable_path\"), str(adapter, \"executable_sha256\"), \"native adapter\", true); e != nil {\n\t\t\treturn nil, e\n\t\t}\n\t\tfd, e := unix.Open(str(adapter, \"executable_path\"), unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)\n\t\tif e != nil {\n\t\t\treturn nil, e\n\t\t}\n\t\tbinary := os.NewFile(uintptr(fd), \"adapter\")\n\t\tdefer binary.Close()\n\t\traw, e := io.ReadAll(io.LimitReader(binary, MaxProbeBytes+1))\n\t\tif e != nil || Hash(raw) != str(adapter, \"executable_sha256\") {\n\t\t\tfail(\"adapter executable changed before descriptor execution\")\n\t\t}\n\t\tbinary.Seek(0, 0)\n\t\tcallCtx, cancel := context.WithTimeout(ctx, time.Duration(deadline)*time.Second)\n\t\tdefer cancel()\n\t\tcmd := exec.CommandContext(callCtx, \"/proc/self/fd/3\", \"runtime-priority\", \"adapter\")\n\t\tcmd.ExtraFiles = []*os.File{binary}\n\t\tcmd.Stdin = strings.NewReader(string(Canonical(request)))\n\t\tcmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}\n\t\tcmd.Cancel = func() error { return unix.Kill(-cmd.Process.Pid, unix.SIGKILL) }\n\t\tcmd.WaitDelay = time.Second\n\t\tstdout, stderr := &boundedOutput{maximum: 1 << 20}, &boundedOutput{maximum: 1 << 20}\n\t\tcmd.Stdout, cmd.Stderr = stdout, stderr\n\t\terr = cmd.Run()\n\t\taccount(stdout.Len() + stderr.Len())\n\t\tos.WriteFile(filepath.Join(directory, \"stdout.log\"), stdout.Bytes(), 0600)\n\t\tos.WriteFile(filepath.Join(directory, \"stderr.log\"), stderr.Bytes(), 0600)\n\t\tif err == nil && (stdout.exceeded || stderr.exceeded || stdout.Len()+stderr.Len() > 1<<20) {\n\t\t\terr = &DomainError{\"HarnessError\", \"adapter output exceeds fixed evidence bound\"}\n\t\t}\n\t\tif err == nil {\n\t\t\terr = jsonUnmarshal(stdout.Bytes(), &response)\n\t\t}\n\t}\n\tif err == nil {\n\t\tif !exact(response, \"schema\", \"request_id\", \"contract_id\", \"role\", \"status\", \"observed_at_utc\", \"evidence\") || str(response, \"schema\") != AdapterResultSchema || str(response, \"role\") != role || response[\"request_id\"] != request[\"request_id\"] || response[\"contract_id\"] != request[\"contract_id\"] {\n\t\t\terr = &DomainError{\"HarnessError\", \"adapter result stale or differs from pinned result schema\"}\n\t\t} else if str(response, \"status\") != \"PASS\" {\n\t\t\terr = &DomainError{\"HarnessError\", \"adapter reported FAIL\"}\n\t\t} else {\n\t\t\terr = r.ValidateRole(role, phase, request, response)\n\t\t}\n\t}\n\tobservation := Object{\"sequence\": sequence, \"role\": role, \"phase\": phase, \"request_id\": request[\"request_id\"], \"started_at_utc\": request[\"sent_at_utc\"], \"finished_at_utc\": utcNow(), \"elapsed_seconds\": time.Since(start).Seconds(), \"evidence_path\": directory, \"status\": \"PASS\", \"failure\": nil}\n\tif err != nil {\n\t\tobservation[\"status\"], observation[\"failure\"] = \"FAIL\", err.Error()\n\t}\n\taccount(len(pretty(observation)))\n\tif e := writeJSON(filepath.Join(directory, \"observation.json\"), observation, false); e != nil {\n\t\treturn nil, e\n\t}\n\tr.appendState(\"results\", observation)\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"%s/%s: %w\", role, phase, err)\n\t}\n\treturn\n"
+    },
+    {
+      "path": "internal/runtimepriority/remote.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "3c721065d734899bb68d83fa52e451161f81cc18",
+      "line": 288,
+      "end_line": 293,
+      "text": "func (m *Remote) Dispatch(ctx context.Context, request Object, action string) (result Object, err error) {\n\tdefer recoverError(&err)\n\tm.roots()\n\tpayload, _ := request[\"remote_payload\"].(map[string]any)\n\truntimeSettings := sub(sub(request, \"transport\"), \"runtime\")\n\tswitch action {\n"
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "qualification_limits_retained": [
+    "SOURCE_ONLY_CANDIDATE; runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No tests/builds/project helpers/runtime probes/cloud/signing/crypto/TerraBase executed. Metadata hashing only.",
+    "No OCI, SSH, real pressure worker, kernel OOM, SIGKILL, running service, GitHub publication or admitted production probe qualification. Cgroup fixtures are ordinary filesystem directories; Witness and Signal are injected.",
+    "TestPrometheusRules skips if TS_SLO_PROMTOOL is empty, and source does not pin the external executable identity. Category describes the configured process path; no tool availability or actual evaluation outcome is claimed.",
+    "TestRemotePinnedProbe passes os.Getuid as expected owner and also expects GID equal that UID in production. Temp-file group ownership/OS support are runtime assumptions, unverified here. Kernel openat2, file mode and identity semantics require a compatible Linux environment.",
+    "Publisher uses real subprocess and filesystem boundaries with fake gh/git/go/sleep; checked attachment bytes are fixture bytes, not compiled CI artifacts. Admission receipt sources are synthetic local files, not live CI or release trust receipts.",
+    "All safety, validation, negative, retry, byte-preservation, authority and recovery obligations retained. No source retirement, ledger/category count promotion, deletion, runtime qualification or global completion credit. Distinct peer review required."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "ledger_changes": false,
+    "count_promotion": false,
+    "deletion_credit": false,
+    "retirement_credit": false,
+    "completion_credit": false
+  },
+  "execution_statement": "Read-only Git/files/hash and metadata serialization only. No source/repository/ledger edits; no Go/build/test/helpers/scanners/parsers/lint/format/runtime/process/resource probes/locks/privilege/cloud/signing/crypto/TerraBase/download execution."
+}

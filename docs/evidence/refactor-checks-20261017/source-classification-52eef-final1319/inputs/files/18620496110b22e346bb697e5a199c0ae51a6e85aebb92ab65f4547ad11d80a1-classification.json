@@ -1,0 +1,1929 @@
+{
+  "schema": "source-classification-explicit-spans-v1",
+  "owner": "/root/classification_100_dispatch/batch_60_80",
+  "batch": "other_unadjudicated[2560:2580)",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "input_pins": [
+    {
+      "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+      "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+      "bytes": 462344
+    },
+    {
+      "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/PEER-PROTOCOL.md",
+      "sha256": "b1cbcb7a96a344363f5ba924a0e76fc418553607209733945892796508db7765",
+      "bytes": 3255
+    },
+    {
+      "path": "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json",
+      "sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513",
+      "bytes": 423442
+    },
+    {
+      "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+      "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+      "bytes": 1640609
+    },
+    {
+      "path": "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md",
+      "sha256": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70",
+      "bytes": 3851
+    }
+  ],
+  "allocation": {
+    "owner": "/root/classification_100_dispatch/batch_60_80",
+    "range": [
+      2560,
+      2580
+    ],
+    "root_ids": [
+      "internal/ocicost/usage_test.go::TestUsageFiltersComponents",
+      "internal/ocicost/usage_test.go::TestUsageKeepsDayWithoutAmount",
+      "internal/ocicost/usage_test.go::TestUsagePagesAcrossTwoPages",
+      "internal/ocicost/usage_test.go::TestUsageRejectsBadAnswers",
+      "internal/ocicost/usage_test.go::TestUsageReportIsSortedAndValid",
+      "internal/ocicost/usage_test.go::TestUsageRequestShapes",
+      "internal/ocicost/usage_test.go::TestUsageRoundsUpToCents",
+      "internal/ocicost/usage_test.go::TestUsageSKUPrices",
+      "internal/ocicost/usage_test.go::TestUsageStopsAfterSixteenPages",
+      "internal/ocicost/usage_test.go::TestUsageWindowAtMonthEnd",
+      "internal/ocicost/usage_test.go::TestUsageWrapsAPIError",
+      "internal/ocicost/view_test.go::TestSummarizeCarriesForecast",
+      "internal/ocicost/view_test.go::TestSummarizeFoldsLinesPastTheBound",
+      "internal/ocicost/view_test.go::TestSummarizeUntaggedFloorsAtZero",
+      "internal/ociregion/admission_security_test.go::TestBilledGiBRequiresLexicalInteger",
+      "internal/ociregion/admission_security_test.go::TestJSONRejectsNestedDuplicateAndTrailingValue",
+      "internal/ociregion/admission_security_test.go::TestMoneyRoundsTiesToEven",
+      "internal/ociregion/admission_security_test.go::TestOCIListDoesNotTurnMalformedStorageResponseIntoEmptyInventory",
+      "internal/ociregion/admission_security_test.go::TestPlanPrivatePrefixChecksWholeNetwork",
+      "internal/ociregion/admission_security_test.go::TestReadJSONRejectsSymlinkAndNonregularSource"
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_40_60",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "reused_confirmed_agent": true,
+    "activation_requires": "Own and cyclic-peer obligations in prior allocation both exact-hash accepted; actual global running+pending_init <=81 after activation; preserve20slots."
+  },
+  "literal_root_ids": [
+    "internal/ocicost/usage_test.go::TestUsageFiltersComponents",
+    "internal/ocicost/usage_test.go::TestUsageKeepsDayWithoutAmount",
+    "internal/ocicost/usage_test.go::TestUsagePagesAcrossTwoPages",
+    "internal/ocicost/usage_test.go::TestUsageRejectsBadAnswers",
+    "internal/ocicost/usage_test.go::TestUsageReportIsSortedAndValid",
+    "internal/ocicost/usage_test.go::TestUsageRequestShapes",
+    "internal/ocicost/usage_test.go::TestUsageRoundsUpToCents",
+    "internal/ocicost/usage_test.go::TestUsageSKUPrices",
+    "internal/ocicost/usage_test.go::TestUsageStopsAfterSixteenPages",
+    "internal/ocicost/usage_test.go::TestUsageWindowAtMonthEnd",
+    "internal/ocicost/usage_test.go::TestUsageWrapsAPIError",
+    "internal/ocicost/view_test.go::TestSummarizeCarriesForecast",
+    "internal/ocicost/view_test.go::TestSummarizeFoldsLinesPastTheBound",
+    "internal/ocicost/view_test.go::TestSummarizeUntaggedFloorsAtZero",
+    "internal/ociregion/admission_security_test.go::TestBilledGiBRequiresLexicalInteger",
+    "internal/ociregion/admission_security_test.go::TestJSONRejectsNestedDuplicateAndTrailingValue",
+    "internal/ociregion/admission_security_test.go::TestMoneyRoundsTiesToEven",
+    "internal/ociregion/admission_security_test.go::TestOCIListDoesNotTurnMalformedStorageResponseIntoEmptyInventory",
+    "internal/ociregion/admission_security_test.go::TestPlanPrivatePrefixChecksWholeNetwork",
+    "internal/ociregion/admission_security_test.go::TestReadJSONRejectsSymlinkAndNonregularSource"
+  ],
+  "counts": {
+    "integration": 1,
+    "unit": 19,
+    "mixed": 0,
+    "unresolved": 0,
+    "total": 20
+  },
+  "classification_definitions": {
+    "integration": "Asserted target materially traverses real service/API/network/process/store/OS boundary; scope limits explicit.",
+    "unit": "Local predicates, arithmetic, fake API responses/request recording or pre-I/O guards; incidental setup is not integration.",
+    "mixed": "Separate independent local-only and genuine-boundary assertion blocks.",
+    "unresolved": "Missing mapping/source or source contradiction prevents target category; intended unexercised obligations separately uncredited when narrower actual assertions support category."
+  },
+  "roots": [
+    {
+      "allocation_index": 2560,
+      "root_id": "internal/ocicost/usage_test.go::TestUsageFiltersComponents",
+      "path": "internal/ocicost/usage_test.go",
+      "original_name": "TestUsageFiltersComponents",
+      "current_name": "TestUsageFiltersComponents",
+      "kind": "test",
+      "original_declaration_sha256": "eee28566ccc2dd25ada60c99b856801304d5dcd17a6c14cc09d241753f299685",
+      "current_declaration_sha256": "eee28566ccc2dd25ada60c99b856801304d5dcd17a6c14cc09d241753f299685",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/ocicost/usage_test.go",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 250,
+        "end_line": 267,
+        "text": "func TestUsageFiltersComponents(t *testing.T) {\n\tapi := &fakeUsageAPI{components: [][]usageapi.UsageSummary{{\n\t\tusageComponentRow(common.String(\"Oracle-Tags\"), ComponentTag, \"terrabase\", 5),\n\t\tusageComponentRow(nil, \"terrascale-resource\", \"terrabase\", 5),\n\t\tusageComponentRow(nil, ComponentTag, \"db\", 5),\n\t\tusageComponentRow(common.String(\"\"), ComponentTag, \"terrabase\", 1.5),\n\t\tusageComponentRow(nil, ComponentTag, \"terrabase\", 2.25),\n\t\tusageComponentRow(nil, ComponentTag, \"controller\", 0.5),\n\t}}}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\twant := []Line{{\"terrabase\", 375}, {\"controller\", 50}}\n\tif !slices.Equal(report.Components, want) {\n\t\tt.Fatalf(\"components = %+v, want %+v\", report.Components, want)\n\t}\n}",
+        "raw_declaration_sha256": "eee28566ccc2dd25ada60c99b856801304d5dcd17a6c14cc09d241753f299685",
+        "raw_declaration_bytes": 747
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/ocicost/usage_test.go",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 250,
+        "end_line": 267,
+        "text": "func TestUsageFiltersComponents(t *testing.T) {\n\tapi := &fakeUsageAPI{components: [][]usageapi.UsageSummary{{\n\t\tusageComponentRow(common.String(\"Oracle-Tags\"), ComponentTag, \"terrabase\", 5),\n\t\tusageComponentRow(nil, \"terrascale-resource\", \"terrabase\", 5),\n\t\tusageComponentRow(nil, ComponentTag, \"db\", 5),\n\t\tusageComponentRow(common.String(\"\"), ComponentTag, \"terrabase\", 1.5),\n\t\tusageComponentRow(nil, ComponentTag, \"terrabase\", 2.25),\n\t\tusageComponentRow(nil, ComponentTag, \"controller\", 0.5),\n\t}}}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\twant := []Line{{\"terrabase\", 375}, {\"controller\", 50}}\n\tif !slices.Equal(report.Components, want) {\n\t\tt.Fatalf(\"components = %+v, want %+v\", report.Components, want)\n\t}\n}",
+        "raw_declaration_sha256": "eee28566ccc2dd25ada60c99b856801304d5dcd17a6c14cc09d241753f299685",
+        "raw_declaration_bytes": 747
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/usage_test.go",
+        "original_name": "TestUsageFiltersComponents",
+        "kind": "test",
+        "original_declaration_sha256": "eee28566ccc2dd25ada60c99b856801304d5dcd17a6c14cc09d241753f299685",
+        "current_name": "TestUsageFiltersComponents",
+        "current_declaration_sha256": "eee28566ccc2dd25ada60c99b856801304d5dcd17a6c14cc09d241753f299685",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Exact frozen identity and both raw baseline/current hashes verified; bodies byte-identical.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestUsageFiltersComponents(t *testing.T) {\n\tapi := &fakeUsageAPI{components: [][]usageapi.UsageSummary{{\n\t\tusageComponentRow(common.String(\"Oracle-Tags\"), ComponentTag, \"terrabase\", 5),\n\t\tusageComponentRow(nil, \"terrascale-resource\", \"terrabase\", 5),\n\t\tusageComponentRow(nil, ComponentTag, \"db\", 5),\n\t\tusageComponentRow(common.String(\"\"), ComponentTag, \"terrabase\", 1.5),\n\t\tusageComponentRow(nil, ComponentTag, \"terrabase\", 2.25),\n\t\tusageComponentRow(nil, ComponentTag, \"controller\", 0.5),\n\t}}}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\twant := []Line{{\"terrabase\", 375}, {\"controller\", 50}}\n\tif !slices.Equal(report.Components, want) {\n\t\tt.Fatalf(\"components = %+v, want %+v\", report.Components, want)\n\t}\n}",
+      "category": "unit",
+      "rationale": "Synthetic UsageAPI rows exercise local component tag namespace/key/known-value filtering and sums; no SDK/network.",
+      "assertion_blocks": [
+        {
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "path": "internal/ocicost/usage_test.go",
+          "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+          "start_line": 251,
+          "end_line": 266,
+          "text": "\tapi := &fakeUsageAPI{components: [][]usageapi.UsageSummary{{\n\t\tusageComponentRow(common.String(\"Oracle-Tags\"), ComponentTag, \"terrabase\", 5),\n\t\tusageComponentRow(nil, \"terrascale-resource\", \"terrabase\", 5),\n\t\tusageComponentRow(nil, ComponentTag, \"db\", 5),\n\t\tusageComponentRow(common.String(\"\"), ComponentTag, \"terrabase\", 1.5),\n\t\tusageComponentRow(nil, ComponentTag, \"terrabase\", 2.25),\n\t\tusageComponentRow(nil, ComponentTag, \"controller\", 0.5),\n\t}}}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\twant := []Line{{\"terrabase\", 375}, {\"controller\", 50}}\n\tif !slices.Equal(report.Components, want) {\n\t\tt.Fatalf(\"components = %+v, want %+v\", report.Components, want)\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Synthetic UsageAPI rows exercise local component tag namespace/key/known-value filtering and sums; no SDK/network."
+        }
+      ],
+      "connected_citation_ids": [
+        "usage_fixture",
+        "usage_reader",
+        "usage_pages",
+        "usage_amount",
+        "usage_lines",
+        "report_contract",
+        "report_validate"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2561,
+      "root_id": "internal/ocicost/usage_test.go::TestUsageKeepsDayWithoutAmount",
+      "path": "internal/ocicost/usage_test.go",
+      "original_name": "TestUsageKeepsDayWithoutAmount",
+      "current_name": "TestUsageKeepsDayWithoutAmount",
+      "kind": "test",
+      "original_declaration_sha256": "5cf0ab77cf123fa3d922872a2daaa0e6434c45c90d752307e78f165d2374533f",
+      "current_declaration_sha256": "5cf0ab77cf123fa3d922872a2daaa0e6434c45c90d752307e78f165d2374533f",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/ocicost/usage_test.go",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 235,
+        "end_line": 248,
+        "text": "func TestUsageKeepsDayWithoutAmount(t *testing.T) {\n\tunpriced := usageapi.UsageSummary{TimeUsageStarted: &common.SDKTime{Time: usageDay(5)}}\n\tapi := &fakeUsageAPI{daily: [][]usageapi.UsageSummary{{unpriced, usageRow(usageDay(6), 1, \"USD\")}}}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(report.Days) != 2 || !report.Days[0].Day.Equal(usageDay(5)) || report.Days[0].Cents != 0 {\n\t\tt.Fatalf(\"days = %+v\", report.Days)\n\t}\n\tif report.Currency != \"USD\" {\n\t\tt.Fatalf(\"currency = %q\", report.Currency)\n\t}\n}",
+        "raw_declaration_sha256": "5cf0ab77cf123fa3d922872a2daaa0e6434c45c90d752307e78f165d2374533f",
+        "raw_declaration_bytes": 538
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/ocicost/usage_test.go",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 235,
+        "end_line": 248,
+        "text": "func TestUsageKeepsDayWithoutAmount(t *testing.T) {\n\tunpriced := usageapi.UsageSummary{TimeUsageStarted: &common.SDKTime{Time: usageDay(5)}}\n\tapi := &fakeUsageAPI{daily: [][]usageapi.UsageSummary{{unpriced, usageRow(usageDay(6), 1, \"USD\")}}}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(report.Days) != 2 || !report.Days[0].Day.Equal(usageDay(5)) || report.Days[0].Cents != 0 {\n\t\tt.Fatalf(\"days = %+v\", report.Days)\n\t}\n\tif report.Currency != \"USD\" {\n\t\tt.Fatalf(\"currency = %q\", report.Currency)\n\t}\n}",
+        "raw_declaration_sha256": "5cf0ab77cf123fa3d922872a2daaa0e6434c45c90d752307e78f165d2374533f",
+        "raw_declaration_bytes": 538
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/usage_test.go",
+        "original_name": "TestUsageKeepsDayWithoutAmount",
+        "kind": "test",
+        "original_declaration_sha256": "5cf0ab77cf123fa3d922872a2daaa0e6434c45c90d752307e78f165d2374533f",
+        "current_name": "TestUsageKeepsDayWithoutAmount",
+        "current_declaration_sha256": "5cf0ab77cf123fa3d922872a2daaa0e6434c45c90d752307e78f165d2374533f",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Exact frozen identity and both raw baseline/current hashes verified; bodies byte-identical.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestUsageKeepsDayWithoutAmount(t *testing.T) {\n\tunpriced := usageapi.UsageSummary{TimeUsageStarted: &common.SDKTime{Time: usageDay(5)}}\n\tapi := &fakeUsageAPI{daily: [][]usageapi.UsageSummary{{unpriced, usageRow(usageDay(6), 1, \"USD\")}}}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(report.Days) != 2 || !report.Days[0].Day.Equal(usageDay(5)) || report.Days[0].Cents != 0 {\n\t\tt.Fatalf(\"days = %+v\", report.Days)\n\t}\n\tif report.Currency != \"USD\" {\n\t\tt.Fatalf(\"currency = %q\", report.Currency)\n\t}\n}",
+      "category": "unit",
+      "rationale": "Fake daily rows with nil amount retain zero-cost day and discover USD from another row; local data normalization.",
+      "assertion_blocks": [
+        {
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "path": "internal/ocicost/usage_test.go",
+          "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+          "start_line": 236,
+          "end_line": 247,
+          "text": "\tunpriced := usageapi.UsageSummary{TimeUsageStarted: &common.SDKTime{Time: usageDay(5)}}\n\tapi := &fakeUsageAPI{daily: [][]usageapi.UsageSummary{{unpriced, usageRow(usageDay(6), 1, \"USD\")}}}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(report.Days) != 2 || !report.Days[0].Day.Equal(usageDay(5)) || report.Days[0].Cents != 0 {\n\t\tt.Fatalf(\"days = %+v\", report.Days)\n\t}\n\tif report.Currency != \"USD\" {\n\t\tt.Fatalf(\"currency = %q\", report.Currency)\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Fake daily rows with nil amount retain zero-cost day and discover USD from another row; local data normalization."
+        }
+      ],
+      "connected_citation_ids": [
+        "usage_fixture",
+        "usage_reader",
+        "usage_pages",
+        "usage_amount",
+        "report_validate"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2562,
+      "root_id": "internal/ocicost/usage_test.go::TestUsagePagesAcrossTwoPages",
+      "path": "internal/ocicost/usage_test.go",
+      "original_name": "TestUsagePagesAcrossTwoPages",
+      "current_name": "TestUsagePagesAcrossTwoPages",
+      "kind": "test",
+      "original_declaration_sha256": "d04be253ace7589dfce24b2dd72136683a78ff284fca81bf8067fa77a1af9a8e",
+      "current_declaration_sha256": "d04be253ace7589dfce24b2dd72136683a78ff284fca81bf8067fa77a1af9a8e",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/ocicost/usage_test.go",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 181,
+        "end_line": 196,
+        "text": "func TestUsagePagesAcrossTwoPages(t *testing.T) {\n\tapi := &fakeUsageAPI{daily: [][]usageapi.UsageSummary{\n\t\t{usageRow(usageDay(1), 10, \"USD\")},\n\t\t{usageRow(usageDay(2), 20, \"USD\")},\n\t}}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(report.Days) != 2 || report.Days[1].Cents != 2000 {\n\t\tt.Fatalf(\"days = %+v\", report.Days)\n\t}\n\tif len(api.requests) != 5 || api.requests[1].Page == nil || *api.requests[1].Page != \"1\" {\n\t\tt.Fatalf(\"requests = %d\", len(api.requests))\n\t}\n}",
+        "raw_declaration_sha256": "d04be253ace7589dfce24b2dd72136683a78ff284fca81bf8067fa77a1af9a8e",
+        "raw_declaration_bytes": 506
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/ocicost/usage_test.go",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 181,
+        "end_line": 196,
+        "text": "func TestUsagePagesAcrossTwoPages(t *testing.T) {\n\tapi := &fakeUsageAPI{daily: [][]usageapi.UsageSummary{\n\t\t{usageRow(usageDay(1), 10, \"USD\")},\n\t\t{usageRow(usageDay(2), 20, \"USD\")},\n\t}}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(report.Days) != 2 || report.Days[1].Cents != 2000 {\n\t\tt.Fatalf(\"days = %+v\", report.Days)\n\t}\n\tif len(api.requests) != 5 || api.requests[1].Page == nil || *api.requests[1].Page != \"1\" {\n\t\tt.Fatalf(\"requests = %d\", len(api.requests))\n\t}\n}",
+        "raw_declaration_sha256": "d04be253ace7589dfce24b2dd72136683a78ff284fca81bf8067fa77a1af9a8e",
+        "raw_declaration_bytes": 506
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/usage_test.go",
+        "original_name": "TestUsagePagesAcrossTwoPages",
+        "kind": "test",
+        "original_declaration_sha256": "d04be253ace7589dfce24b2dd72136683a78ff284fca81bf8067fa77a1af9a8e",
+        "current_name": "TestUsagePagesAcrossTwoPages",
+        "current_declaration_sha256": "d04be253ace7589dfce24b2dd72136683a78ff284fca81bf8067fa77a1af9a8e",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Exact frozen identity and both raw baseline/current hashes verified; bodies byte-identical.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestUsagePagesAcrossTwoPages(t *testing.T) {\n\tapi := &fakeUsageAPI{daily: [][]usageapi.UsageSummary{\n\t\t{usageRow(usageDay(1), 10, \"USD\")},\n\t\t{usageRow(usageDay(2), 20, \"USD\")},\n\t}}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(report.Days) != 2 || report.Days[1].Cents != 2000 {\n\t\tt.Fatalf(\"days = %+v\", report.Days)\n\t}\n\tif len(api.requests) != 5 || api.requests[1].Page == nil || *api.requests[1].Page != \"1\" {\n\t\tt.Fatalf(\"requests = %d\", len(api.requests))\n\t}\n}",
+      "category": "unit",
+      "rationale": "Two synthetic fake pages verify accumulated report and recorded page token/request count; no actual paginated HTTP service.",
+      "assertion_blocks": [
+        {
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "path": "internal/ocicost/usage_test.go",
+          "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+          "start_line": 182,
+          "end_line": 195,
+          "text": "\tapi := &fakeUsageAPI{daily: [][]usageapi.UsageSummary{\n\t\t{usageRow(usageDay(1), 10, \"USD\")},\n\t\t{usageRow(usageDay(2), 20, \"USD\")},\n\t}}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(report.Days) != 2 || report.Days[1].Cents != 2000 {\n\t\tt.Fatalf(\"days = %+v\", report.Days)\n\t}\n\tif len(api.requests) != 5 || api.requests[1].Page == nil || *api.requests[1].Page != \"1\" {\n\t\tt.Fatalf(\"requests = %d\", len(api.requests))\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Two synthetic fake pages verify accumulated report and recorded page token/request count; no actual paginated HTTP service."
+        }
+      ],
+      "connected_citation_ids": [
+        "usage_fixture",
+        "usage_reader",
+        "usage_pages",
+        "report_validate"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2563,
+      "root_id": "internal/ocicost/usage_test.go::TestUsageRejectsBadAnswers",
+      "path": "internal/ocicost/usage_test.go",
+      "original_name": "TestUsageRejectsBadAnswers",
+      "current_name": "TestUsageRejectsBadAnswers",
+      "kind": "test",
+      "original_declaration_sha256": "5d8b7ab8591a4e68eba5a4e27ebad3be3742f07081018d6a62b795d138ddaea5",
+      "current_declaration_sha256": "5d8b7ab8591a4e68eba5a4e27ebad3be3742f07081018d6a62b795d138ddaea5",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/ocicost/usage_test.go",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 305,
+        "end_line": 331,
+        "text": "func TestUsageRejectsBadAnswers(t *testing.T) {\n\tnan := float32(math.NaN())\n\tcases := map[string]*fakeUsageAPI{\n\t\t\"mixed currency across queries\": {\n\t\t\tdaily:    [][]usageapi.UsageSummary{{usageRow(usageDay(12), 1, \"USD\")}},\n\t\t\tservices: [][]usageapi.UsageSummary{{usageServiceRow(\"Compute\", 1, \"BRL\")}}},\n\t\t\"mixed currency in one query\": {daily: [][]usageapi.UsageSummary{{\n\t\t\tusageRow(usageDay(12), 1, \"USD\"), usageRow(usageDay(13), 1, \"BRL\")}}},\n\t\t\"cost without currency\": {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(12), 1, \"\")}}},\n\t\t\"day at window end\":     {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(17), 1, \"USD\")}}},\n\t\t\"day before window\":     {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(0), 1, \"USD\")}}},\n\t\t\"unaligned day\":         {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(12).Add(time.Hour), 1, \"USD\")}}},\n\t\t\"no start\": {daily: [][]usageapi.UsageSummary{{\n\t\t\t{ComputedAmount: common.Float32(1), Currency: common.String(\"USD\")}}}},\n\t\t\"not a number\":           {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(12), nan, \"USD\")}}},\n\t\t\"absurd amount\":          {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(12), 1e9, \"USD\")}}},\n\t\t\"service without name\":   {services: [][]usageapi.UsageSummary{{usageServiceRow(\"\", 1, \"USD\")}}},\n\t\t\"sku before rate window\": {skus: [][]usageapi.UsageSummary{{usageSKURow(usageDay(6), \"B93297\", 1, 1)}}},\n\t\t\"negative sku quantity\":  {skus: [][]usageapi.UsageSummary{{usageSKURow(usageDay(9), \"B93297\", 1, -1)}}},\n\t\t\"not a sku quantity\":     {skus: [][]usageapi.UsageSummary{{usageSKURow(usageDay(9), \"B93297\", 1, nan)}}},\n\t}\n\tfor name, api := range cases {\n\t\tif _, err := usageRead(api, usageMid); err == nil {\n\t\t\tt.Errorf(\"%s: accepted\", name)\n\t\t}\n\t}\n}",
+        "raw_declaration_sha256": "5d8b7ab8591a4e68eba5a4e27ebad3be3742f07081018d6a62b795d138ddaea5",
+        "raw_declaration_bytes": 1740
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/ocicost/usage_test.go",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 305,
+        "end_line": 331,
+        "text": "func TestUsageRejectsBadAnswers(t *testing.T) {\n\tnan := float32(math.NaN())\n\tcases := map[string]*fakeUsageAPI{\n\t\t\"mixed currency across queries\": {\n\t\t\tdaily:    [][]usageapi.UsageSummary{{usageRow(usageDay(12), 1, \"USD\")}},\n\t\t\tservices: [][]usageapi.UsageSummary{{usageServiceRow(\"Compute\", 1, \"BRL\")}}},\n\t\t\"mixed currency in one query\": {daily: [][]usageapi.UsageSummary{{\n\t\t\tusageRow(usageDay(12), 1, \"USD\"), usageRow(usageDay(13), 1, \"BRL\")}}},\n\t\t\"cost without currency\": {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(12), 1, \"\")}}},\n\t\t\"day at window end\":     {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(17), 1, \"USD\")}}},\n\t\t\"day before window\":     {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(0), 1, \"USD\")}}},\n\t\t\"unaligned day\":         {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(12).Add(time.Hour), 1, \"USD\")}}},\n\t\t\"no start\": {daily: [][]usageapi.UsageSummary{{\n\t\t\t{ComputedAmount: common.Float32(1), Currency: common.String(\"USD\")}}}},\n\t\t\"not a number\":           {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(12), nan, \"USD\")}}},\n\t\t\"absurd amount\":          {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(12), 1e9, \"USD\")}}},\n\t\t\"service without name\":   {services: [][]usageapi.UsageSummary{{usageServiceRow(\"\", 1, \"USD\")}}},\n\t\t\"sku before rate window\": {skus: [][]usageapi.UsageSummary{{usageSKURow(usageDay(6), \"B93297\", 1, 1)}}},\n\t\t\"negative sku quantity\":  {skus: [][]usageapi.UsageSummary{{usageSKURow(usageDay(9), \"B93297\", 1, -1)}}},\n\t\t\"not a sku quantity\":     {skus: [][]usageapi.UsageSummary{{usageSKURow(usageDay(9), \"B93297\", 1, nan)}}},\n\t}\n\tfor name, api := range cases {\n\t\tif _, err := usageRead(api, usageMid); err == nil {\n\t\t\tt.Errorf(\"%s: accepted\", name)\n\t\t}\n\t}\n}",
+        "raw_declaration_sha256": "5d8b7ab8591a4e68eba5a4e27ebad3be3742f07081018d6a62b795d138ddaea5",
+        "raw_declaration_bytes": 1740
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/usage_test.go",
+        "original_name": "TestUsageRejectsBadAnswers",
+        "kind": "test",
+        "original_declaration_sha256": "5d8b7ab8591a4e68eba5a4e27ebad3be3742f07081018d6a62b795d138ddaea5",
+        "current_name": "TestUsageRejectsBadAnswers",
+        "current_declaration_sha256": "5d8b7ab8591a4e68eba5a4e27ebad3be3742f07081018d6a62b795d138ddaea5",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Exact frozen identity and both raw baseline/current hashes verified; bodies byte-identical.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestUsageRejectsBadAnswers(t *testing.T) {\n\tnan := float32(math.NaN())\n\tcases := map[string]*fakeUsageAPI{\n\t\t\"mixed currency across queries\": {\n\t\t\tdaily:    [][]usageapi.UsageSummary{{usageRow(usageDay(12), 1, \"USD\")}},\n\t\t\tservices: [][]usageapi.UsageSummary{{usageServiceRow(\"Compute\", 1, \"BRL\")}}},\n\t\t\"mixed currency in one query\": {daily: [][]usageapi.UsageSummary{{\n\t\t\tusageRow(usageDay(12), 1, \"USD\"), usageRow(usageDay(13), 1, \"BRL\")}}},\n\t\t\"cost without currency\": {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(12), 1, \"\")}}},\n\t\t\"day at window end\":     {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(17), 1, \"USD\")}}},\n\t\t\"day before window\":     {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(0), 1, \"USD\")}}},\n\t\t\"unaligned day\":         {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(12).Add(time.Hour), 1, \"USD\")}}},\n\t\t\"no start\": {daily: [][]usageapi.UsageSummary{{\n\t\t\t{ComputedAmount: common.Float32(1), Currency: common.String(\"USD\")}}}},\n\t\t\"not a number\":           {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(12), nan, \"USD\")}}},\n\t\t\"absurd amount\":          {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(12), 1e9, \"USD\")}}},\n\t\t\"service without name\":   {services: [][]usageapi.UsageSummary{{usageServiceRow(\"\", 1, \"USD\")}}},\n\t\t\"sku before rate window\": {skus: [][]usageapi.UsageSummary{{usageSKURow(usageDay(6), \"B93297\", 1, 1)}}},\n\t\t\"negative sku quantity\":  {skus: [][]usageapi.UsageSummary{{usageSKURow(usageDay(9), \"B93297\", 1, -1)}}},\n\t\t\"not a sku quantity\":     {skus: [][]usageapi.UsageSummary{{usageSKURow(usageDay(9), \"B93297\", 1, nan)}}},\n\t}\n\tfor name, api := range cases {\n\t\tif _, err := usageRead(api, usageMid); err == nil {\n\t\t\tt.Errorf(\"%s: accepted\", name)\n\t\t}\n\t}\n}",
+      "category": "unit",
+      "rationale": "Bad fake row/currency/window/amount/quantity table is rejected by pure reader guards; no OCI request.",
+      "assertion_blocks": [
+        {
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "path": "internal/ocicost/usage_test.go",
+          "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+          "start_line": 306,
+          "end_line": 330,
+          "text": "\tnan := float32(math.NaN())\n\tcases := map[string]*fakeUsageAPI{\n\t\t\"mixed currency across queries\": {\n\t\t\tdaily:    [][]usageapi.UsageSummary{{usageRow(usageDay(12), 1, \"USD\")}},\n\t\t\tservices: [][]usageapi.UsageSummary{{usageServiceRow(\"Compute\", 1, \"BRL\")}}},\n\t\t\"mixed currency in one query\": {daily: [][]usageapi.UsageSummary{{\n\t\t\tusageRow(usageDay(12), 1, \"USD\"), usageRow(usageDay(13), 1, \"BRL\")}}},\n\t\t\"cost without currency\": {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(12), 1, \"\")}}},\n\t\t\"day at window end\":     {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(17), 1, \"USD\")}}},\n\t\t\"day before window\":     {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(0), 1, \"USD\")}}},\n\t\t\"unaligned day\":         {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(12).Add(time.Hour), 1, \"USD\")}}},\n\t\t\"no start\": {daily: [][]usageapi.UsageSummary{{\n\t\t\t{ComputedAmount: common.Float32(1), Currency: common.String(\"USD\")}}}},\n\t\t\"not a number\":           {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(12), nan, \"USD\")}}},\n\t\t\"absurd amount\":          {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(12), 1e9, \"USD\")}}},\n\t\t\"service without name\":   {services: [][]usageapi.UsageSummary{{usageServiceRow(\"\", 1, \"USD\")}}},\n\t\t\"sku before rate window\": {skus: [][]usageapi.UsageSummary{{usageSKURow(usageDay(6), \"B93297\", 1, 1)}}},\n\t\t\"negative sku quantity\":  {skus: [][]usageapi.UsageSummary{{usageSKURow(usageDay(9), \"B93297\", 1, -1)}}},\n\t\t\"not a sku quantity\":     {skus: [][]usageapi.UsageSummary{{usageSKURow(usageDay(9), \"B93297\", 1, nan)}}},\n\t}\n\tfor name, api := range cases {\n\t\tif _, err := usageRead(api, usageMid); err == nil {\n\t\t\tt.Errorf(\"%s: accepted\", name)\n\t\t}\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Bad fake row/currency/window/amount/quantity table is rejected by pure reader guards; no OCI request."
+        }
+      ],
+      "connected_citation_ids": [
+        "usage_fixture",
+        "usage_reader",
+        "usage_pages",
+        "usage_amount",
+        "usage_lines",
+        "report_validate"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2564,
+      "root_id": "internal/ocicost/usage_test.go::TestUsageReportIsSortedAndValid",
+      "path": "internal/ocicost/usage_test.go",
+      "original_name": "TestUsageReportIsSortedAndValid",
+      "current_name": "TestUsageReportIsSortedAndValid",
+      "kind": "test",
+      "original_declaration_sha256": "4716e5af17f7a8cfdf69573089b382be8cb969b9a86a924a9ac6f8e313024cfa",
+      "current_declaration_sha256": "4716e5af17f7a8cfdf69573089b382be8cb969b9a86a924a9ac6f8e313024cfa",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/ocicost/usage_test.go",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 269,
+        "end_line": 303,
+        "text": "func TestUsageReportIsSortedAndValid(t *testing.T) {\n\tapi := &fakeUsageAPI{\n\t\tdaily: [][]usageapi.UsageSummary{{usageRow(usageDay(3), 1, \"USD\"), usageRow(usageDay(1), 2, \"USD\")}},\n\t\tservices: [][]usageapi.UsageSummary{{\n\t\t\tusageServiceRow(\"Block Storage\", 10, \"USD\"),\n\t\t\tusageServiceRow(\"Compute\", 30, \"USD\"),\n\t\t\tusageServiceRow(\"Audit\", 30, \"USD\"),\n\t\t}},\n\t\tcomponents: [][]usageapi.UsageSummary{{\n\t\t\tusageComponentRow(nil, ComponentTag, \"terrabase\", 3),\n\t\t\tusageComponentRow(nil, ComponentTag, \"controller\", 1),\n\t\t}},\n\t}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := report.Validate(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif !report.Days[0].Day.Equal(usageDay(1)) || !report.Days[1].Day.Equal(usageDay(3)) {\n\t\tt.Fatalf(\"days = %+v\", report.Days)\n\t}\n\twantServices := []Line{{\"Audit\", 3000}, {\"Compute\", 3000}, {\"Block Storage\", 1000}}\n\tif !slices.Equal(report.Services, wantServices) {\n\t\tt.Fatalf(\"services = %+v\", report.Services)\n\t}\n\tif report.Components[0].Name != \"terrabase\" || report.Components[1].Name != \"controller\" {\n\t\tt.Fatalf(\"components = %+v\", report.Components)\n\t}\n\tif report.Cell != \"gru\" || report.OCIRegion != \"sa-saopaulo-1\" || report.Currency != \"USD\" ||\n\t\t!report.ObservedAt.Equal(usageMid) || !report.Through.Equal(usageDay(14)) {\n\t\tt.Fatalf(\"report = %+v\", report)\n\t}\n}",
+        "raw_declaration_sha256": "4716e5af17f7a8cfdf69573089b382be8cb969b9a86a924a9ac6f8e313024cfa",
+        "raw_declaration_bytes": 1329
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/ocicost/usage_test.go",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 269,
+        "end_line": 303,
+        "text": "func TestUsageReportIsSortedAndValid(t *testing.T) {\n\tapi := &fakeUsageAPI{\n\t\tdaily: [][]usageapi.UsageSummary{{usageRow(usageDay(3), 1, \"USD\"), usageRow(usageDay(1), 2, \"USD\")}},\n\t\tservices: [][]usageapi.UsageSummary{{\n\t\t\tusageServiceRow(\"Block Storage\", 10, \"USD\"),\n\t\t\tusageServiceRow(\"Compute\", 30, \"USD\"),\n\t\t\tusageServiceRow(\"Audit\", 30, \"USD\"),\n\t\t}},\n\t\tcomponents: [][]usageapi.UsageSummary{{\n\t\t\tusageComponentRow(nil, ComponentTag, \"terrabase\", 3),\n\t\t\tusageComponentRow(nil, ComponentTag, \"controller\", 1),\n\t\t}},\n\t}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := report.Validate(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif !report.Days[0].Day.Equal(usageDay(1)) || !report.Days[1].Day.Equal(usageDay(3)) {\n\t\tt.Fatalf(\"days = %+v\", report.Days)\n\t}\n\twantServices := []Line{{\"Audit\", 3000}, {\"Compute\", 3000}, {\"Block Storage\", 1000}}\n\tif !slices.Equal(report.Services, wantServices) {\n\t\tt.Fatalf(\"services = %+v\", report.Services)\n\t}\n\tif report.Components[0].Name != \"terrabase\" || report.Components[1].Name != \"controller\" {\n\t\tt.Fatalf(\"components = %+v\", report.Components)\n\t}\n\tif report.Cell != \"gru\" || report.OCIRegion != \"sa-saopaulo-1\" || report.Currency != \"USD\" ||\n\t\t!report.ObservedAt.Equal(usageMid) || !report.Through.Equal(usageDay(14)) {\n\t\tt.Fatalf(\"report = %+v\", report)\n\t}\n}",
+        "raw_declaration_sha256": "4716e5af17f7a8cfdf69573089b382be8cb969b9a86a924a9ac6f8e313024cfa",
+        "raw_declaration_bytes": 1329
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/usage_test.go",
+        "original_name": "TestUsageReportIsSortedAndValid",
+        "kind": "test",
+        "original_declaration_sha256": "4716e5af17f7a8cfdf69573089b382be8cb969b9a86a924a9ac6f8e313024cfa",
+        "current_name": "TestUsageReportIsSortedAndValid",
+        "current_declaration_sha256": "4716e5af17f7a8cfdf69573089b382be8cb969b9a86a924a9ac6f8e313024cfa",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Exact frozen identity and both raw baseline/current hashes verified; bodies byte-identical.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestUsageReportIsSortedAndValid(t *testing.T) {\n\tapi := &fakeUsageAPI{\n\t\tdaily: [][]usageapi.UsageSummary{{usageRow(usageDay(3), 1, \"USD\"), usageRow(usageDay(1), 2, \"USD\")}},\n\t\tservices: [][]usageapi.UsageSummary{{\n\t\t\tusageServiceRow(\"Block Storage\", 10, \"USD\"),\n\t\t\tusageServiceRow(\"Compute\", 30, \"USD\"),\n\t\t\tusageServiceRow(\"Audit\", 30, \"USD\"),\n\t\t}},\n\t\tcomponents: [][]usageapi.UsageSummary{{\n\t\t\tusageComponentRow(nil, ComponentTag, \"terrabase\", 3),\n\t\t\tusageComponentRow(nil, ComponentTag, \"controller\", 1),\n\t\t}},\n\t}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := report.Validate(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif !report.Days[0].Day.Equal(usageDay(1)) || !report.Days[1].Day.Equal(usageDay(3)) {\n\t\tt.Fatalf(\"days = %+v\", report.Days)\n\t}\n\twantServices := []Line{{\"Audit\", 3000}, {\"Compute\", 3000}, {\"Block Storage\", 1000}}\n\tif !slices.Equal(report.Services, wantServices) {\n\t\tt.Fatalf(\"services = %+v\", report.Services)\n\t}\n\tif report.Components[0].Name != \"terrabase\" || report.Components[1].Name != \"controller\" {\n\t\tt.Fatalf(\"components = %+v\", report.Components)\n\t}\n\tif report.Cell != \"gru\" || report.OCIRegion != \"sa-saopaulo-1\" || report.Currency != \"USD\" ||\n\t\t!report.ObservedAt.Equal(usageMid) || !report.Through.Equal(usageDay(14)) {\n\t\tt.Fatalf(\"report = %+v\", report)\n\t}\n}",
+      "category": "unit",
+      "rationale": "Fake report rows test pure sorted days/services/components, report identity/time and Validate.",
+      "assertion_blocks": [
+        {
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "path": "internal/ocicost/usage_test.go",
+          "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+          "start_line": 270,
+          "end_line": 302,
+          "text": "\tapi := &fakeUsageAPI{\n\t\tdaily: [][]usageapi.UsageSummary{{usageRow(usageDay(3), 1, \"USD\"), usageRow(usageDay(1), 2, \"USD\")}},\n\t\tservices: [][]usageapi.UsageSummary{{\n\t\t\tusageServiceRow(\"Block Storage\", 10, \"USD\"),\n\t\t\tusageServiceRow(\"Compute\", 30, \"USD\"),\n\t\t\tusageServiceRow(\"Audit\", 30, \"USD\"),\n\t\t}},\n\t\tcomponents: [][]usageapi.UsageSummary{{\n\t\t\tusageComponentRow(nil, ComponentTag, \"terrabase\", 3),\n\t\t\tusageComponentRow(nil, ComponentTag, \"controller\", 1),\n\t\t}},\n\t}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := report.Validate(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif !report.Days[0].Day.Equal(usageDay(1)) || !report.Days[1].Day.Equal(usageDay(3)) {\n\t\tt.Fatalf(\"days = %+v\", report.Days)\n\t}\n\twantServices := []Line{{\"Audit\", 3000}, {\"Compute\", 3000}, {\"Block Storage\", 1000}}\n\tif !slices.Equal(report.Services, wantServices) {\n\t\tt.Fatalf(\"services = %+v\", report.Services)\n\t}\n\tif report.Components[0].Name != \"terrabase\" || report.Components[1].Name != \"controller\" {\n\t\tt.Fatalf(\"components = %+v\", report.Components)\n\t}\n\tif report.Cell != \"gru\" || report.OCIRegion != \"sa-saopaulo-1\" || report.Currency != \"USD\" ||\n\t\t!report.ObservedAt.Equal(usageMid) || !report.Through.Equal(usageDay(14)) {\n\t\tt.Fatalf(\"report = %+v\", report)\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Fake report rows test pure sorted days/services/components, report identity/time and Validate."
+        }
+      ],
+      "connected_citation_ids": [
+        "usage_fixture",
+        "usage_reader",
+        "usage_lines",
+        "report_contract",
+        "report_validate"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2565,
+      "root_id": "internal/ocicost/usage_test.go::TestUsageRequestShapes",
+      "path": "internal/ocicost/usage_test.go",
+      "original_name": "TestUsageRequestShapes",
+      "current_name": "TestUsageRequestShapes",
+      "kind": "test",
+      "original_declaration_sha256": "e1d444b8739bf0da521598b50f4e3f92c9f872e51a3c03bb2100e1ee1f0dc012",
+      "current_declaration_sha256": "e1d444b8739bf0da521598b50f4e3f92c9f872e51a3c03bb2100e1ee1f0dc012",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/ocicost/usage_test.go",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 98,
+        "end_line": 136,
+        "text": "func TestUsageRequestShapes(t *testing.T) {\n\tapi := &fakeUsageAPI{}\n\tif _, err := usageRead(api, usageMid); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(api.requests) != 4 {\n\t\tt.Fatalf(\"requests = %d, want 4\", len(api.requests))\n\t}\n\tfor _, request := range api.requests {\n\t\tif *request.TenantId != usageTenancy || request.QueryType != usageapi.RequestSummarizedUsagesDetailsQueryTypeCost ||\n\t\t\trequest.Filter.Operator != usageapi.FilterOperatorAnd || len(request.Filter.Dimensions) != 1 ||\n\t\t\t*request.Filter.Dimensions[0].Key != \"region\" || *request.Filter.Dimensions[0].Value != \"sa-saopaulo-1\" ||\n\t\t\trequest.GroupByTag != nil {\n\t\t\tt.Fatalf(\"request = %+v\", request.RequestSummarizedUsagesDetails)\n\t\t}\n\t}\n\tdays, services, components := api.requests[0], api.requests[1], api.requests[2]\n\t// now is Oct 16: the rate window starts Oct 7, so the month's Oct 1 is earlier.\n\tif days.Granularity != usageapi.RequestSummarizedUsagesDetailsGranularityDaily || days.GroupBy != nil ||\n\t\t!days.TimeUsageStarted.Equal(usageDay(1)) || !days.TimeUsageEnded.Equal(usageDay(17)) {\n\t\tt.Fatalf(\"days request = %+v\", days.RequestSummarizedUsagesDetails)\n\t}\n\tif services.Granularity != usageapi.RequestSummarizedUsagesDetailsGranularityMonthly ||\n\t\t!slices.Equal(services.GroupBy, []string{\"service\"}) ||\n\t\t!services.TimeUsageStarted.Equal(usageDay(1)) || !services.TimeUsageEnded.Equal(usageDay(17)) {\n\t\tt.Fatalf(\"services request = %+v\", services.RequestSummarizedUsagesDetails)\n\t}\n\tif components.Granularity != usageapi.RequestSummarizedUsagesDetailsGranularityMonthly ||\n\t\t!slices.Equal(components.GroupBy, []string{\"tagNamespace\", \"tagKey\", \"tagValue\"}) ||\n\t\t!components.TimeUsageStarted.Equal(usageDay(1)) || !components.TimeUsageEnded.Equal(usageDay(17)) {\n\t\tt.Fatalf(\"components request = %+v\", components.RequestSummarizedUsagesDetails)\n\t}\n\t// The rate window is the 7 complete days before through (Oct 14), so it starts Oct 7.\n\tsku := api.requests[3]\n\tif sku.Granularity != usageapi.RequestSummarizedUsagesDetailsGranularityDaily ||\n\t\t!sku.TimeUsageStarted.Equal(usageDay(7)) || !sku.TimeUsageEnded.Equal(usageDay(17)) {\n\t\tt.Fatalf(\"sku request = %+v\", sku.RequestSummarizedUsagesDetails)\n\t}\n}",
+        "raw_declaration_sha256": "e1d444b8739bf0da521598b50f4e3f92c9f872e51a3c03bb2100e1ee1f0dc012",
+        "raw_declaration_bytes": 2178
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/ocicost/usage_test.go",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 98,
+        "end_line": 136,
+        "text": "func TestUsageRequestShapes(t *testing.T) {\n\tapi := &fakeUsageAPI{}\n\tif _, err := usageRead(api, usageMid); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(api.requests) != 4 {\n\t\tt.Fatalf(\"requests = %d, want 4\", len(api.requests))\n\t}\n\tfor _, request := range api.requests {\n\t\tif *request.TenantId != usageTenancy || request.QueryType != usageapi.RequestSummarizedUsagesDetailsQueryTypeCost ||\n\t\t\trequest.Filter.Operator != usageapi.FilterOperatorAnd || len(request.Filter.Dimensions) != 1 ||\n\t\t\t*request.Filter.Dimensions[0].Key != \"region\" || *request.Filter.Dimensions[0].Value != \"sa-saopaulo-1\" ||\n\t\t\trequest.GroupByTag != nil {\n\t\t\tt.Fatalf(\"request = %+v\", request.RequestSummarizedUsagesDetails)\n\t\t}\n\t}\n\tdays, services, components := api.requests[0], api.requests[1], api.requests[2]\n\t// now is Oct 16: the rate window starts Oct 7, so the month's Oct 1 is earlier.\n\tif days.Granularity != usageapi.RequestSummarizedUsagesDetailsGranularityDaily || days.GroupBy != nil ||\n\t\t!days.TimeUsageStarted.Equal(usageDay(1)) || !days.TimeUsageEnded.Equal(usageDay(17)) {\n\t\tt.Fatalf(\"days request = %+v\", days.RequestSummarizedUsagesDetails)\n\t}\n\tif services.Granularity != usageapi.RequestSummarizedUsagesDetailsGranularityMonthly ||\n\t\t!slices.Equal(services.GroupBy, []string{\"service\"}) ||\n\t\t!services.TimeUsageStarted.Equal(usageDay(1)) || !services.TimeUsageEnded.Equal(usageDay(17)) {\n\t\tt.Fatalf(\"services request = %+v\", services.RequestSummarizedUsagesDetails)\n\t}\n\tif components.Granularity != usageapi.RequestSummarizedUsagesDetailsGranularityMonthly ||\n\t\t!slices.Equal(components.GroupBy, []string{\"tagNamespace\", \"tagKey\", \"tagValue\"}) ||\n\t\t!components.TimeUsageStarted.Equal(usageDay(1)) || !components.TimeUsageEnded.Equal(usageDay(17)) {\n\t\tt.Fatalf(\"components request = %+v\", components.RequestSummarizedUsagesDetails)\n\t}\n\t// The rate window is the 7 complete days before through (Oct 14), so it starts Oct 7.\n\tsku := api.requests[3]\n\tif sku.Granularity != usageapi.RequestSummarizedUsagesDetailsGranularityDaily ||\n\t\t!sku.TimeUsageStarted.Equal(usageDay(7)) || !sku.TimeUsageEnded.Equal(usageDay(17)) {\n\t\tt.Fatalf(\"sku request = %+v\", sku.RequestSummarizedUsagesDetails)\n\t}\n}",
+        "raw_declaration_sha256": "e1d444b8739bf0da521598b50f4e3f92c9f872e51a3c03bb2100e1ee1f0dc012",
+        "raw_declaration_bytes": 2178
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/usage_test.go",
+        "original_name": "TestUsageRequestShapes",
+        "kind": "test",
+        "original_declaration_sha256": "e1d444b8739bf0da521598b50f4e3f92c9f872e51a3c03bb2100e1ee1f0dc012",
+        "current_name": "TestUsageRequestShapes",
+        "current_declaration_sha256": "e1d444b8739bf0da521598b50f4e3f92c9f872e51a3c03bb2100e1ee1f0dc012",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Exact frozen identity and both raw baseline/current hashes verified; bodies byte-identical.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestUsageRequestShapes(t *testing.T) {\n\tapi := &fakeUsageAPI{}\n\tif _, err := usageRead(api, usageMid); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(api.requests) != 4 {\n\t\tt.Fatalf(\"requests = %d, want 4\", len(api.requests))\n\t}\n\tfor _, request := range api.requests {\n\t\tif *request.TenantId != usageTenancy || request.QueryType != usageapi.RequestSummarizedUsagesDetailsQueryTypeCost ||\n\t\t\trequest.Filter.Operator != usageapi.FilterOperatorAnd || len(request.Filter.Dimensions) != 1 ||\n\t\t\t*request.Filter.Dimensions[0].Key != \"region\" || *request.Filter.Dimensions[0].Value != \"sa-saopaulo-1\" ||\n\t\t\trequest.GroupByTag != nil {\n\t\t\tt.Fatalf(\"request = %+v\", request.RequestSummarizedUsagesDetails)\n\t\t}\n\t}\n\tdays, services, components := api.requests[0], api.requests[1], api.requests[2]\n\t// now is Oct 16: the rate window starts Oct 7, so the month's Oct 1 is earlier.\n\tif days.Granularity != usageapi.RequestSummarizedUsagesDetailsGranularityDaily || days.GroupBy != nil ||\n\t\t!days.TimeUsageStarted.Equal(usageDay(1)) || !days.TimeUsageEnded.Equal(usageDay(17)) {\n\t\tt.Fatalf(\"days request = %+v\", days.RequestSummarizedUsagesDetails)\n\t}\n\tif services.Granularity != usageapi.RequestSummarizedUsagesDetailsGranularityMonthly ||\n\t\t!slices.Equal(services.GroupBy, []string{\"service\"}) ||\n\t\t!services.TimeUsageStarted.Equal(usageDay(1)) || !services.TimeUsageEnded.Equal(usageDay(17)) {\n\t\tt.Fatalf(\"services request = %+v\", services.RequestSummarizedUsagesDetails)\n\t}\n\tif components.Granularity != usageapi.RequestSummarizedUsagesDetailsGranularityMonthly ||\n\t\t!slices.Equal(components.GroupBy, []string{\"tagNamespace\", \"tagKey\", \"tagValue\"}) ||\n\t\t!components.TimeUsageStarted.Equal(usageDay(1)) || !components.TimeUsageEnded.Equal(usageDay(17)) {\n\t\tt.Fatalf(\"components request = %+v\", components.RequestSummarizedUsagesDetails)\n\t}\n\t// The rate window is the 7 complete days before through (Oct 14), so it starts Oct 7.\n\tsku := api.requests[3]\n\tif sku.Granularity != usageapi.RequestSummarizedUsagesDetailsGranularityDaily ||\n\t\t!sku.TimeUsageStarted.Equal(usageDay(7)) || !sku.TimeUsageEnded.Equal(usageDay(17)) {\n\t\tt.Fatalf(\"sku request = %+v\", sku.RequestSummarizedUsagesDetails)\n\t}\n}",
+      "category": "unit",
+      "rationale": "Fake records inspect four SDK request values, grouping/filter/tenancy/region/time windows; no real OCI SDK client selected.",
+      "assertion_blocks": [
+        {
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "path": "internal/ocicost/usage_test.go",
+          "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+          "start_line": 99,
+          "end_line": 135,
+          "text": "\tapi := &fakeUsageAPI{}\n\tif _, err := usageRead(api, usageMid); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(api.requests) != 4 {\n\t\tt.Fatalf(\"requests = %d, want 4\", len(api.requests))\n\t}\n\tfor _, request := range api.requests {\n\t\tif *request.TenantId != usageTenancy || request.QueryType != usageapi.RequestSummarizedUsagesDetailsQueryTypeCost ||\n\t\t\trequest.Filter.Operator != usageapi.FilterOperatorAnd || len(request.Filter.Dimensions) != 1 ||\n\t\t\t*request.Filter.Dimensions[0].Key != \"region\" || *request.Filter.Dimensions[0].Value != \"sa-saopaulo-1\" ||\n\t\t\trequest.GroupByTag != nil {\n\t\t\tt.Fatalf(\"request = %+v\", request.RequestSummarizedUsagesDetails)\n\t\t}\n\t}\n\tdays, services, components := api.requests[0], api.requests[1], api.requests[2]\n\t// now is Oct 16: the rate window starts Oct 7, so the month's Oct 1 is earlier.\n\tif days.Granularity != usageapi.RequestSummarizedUsagesDetailsGranularityDaily || days.GroupBy != nil ||\n\t\t!days.TimeUsageStarted.Equal(usageDay(1)) || !days.TimeUsageEnded.Equal(usageDay(17)) {\n\t\tt.Fatalf(\"days request = %+v\", days.RequestSummarizedUsagesDetails)\n\t}\n\tif services.Granularity != usageapi.RequestSummarizedUsagesDetailsGranularityMonthly ||\n\t\t!slices.Equal(services.GroupBy, []string{\"service\"}) ||\n\t\t!services.TimeUsageStarted.Equal(usageDay(1)) || !services.TimeUsageEnded.Equal(usageDay(17)) {\n\t\tt.Fatalf(\"services request = %+v\", services.RequestSummarizedUsagesDetails)\n\t}\n\tif components.Granularity != usageapi.RequestSummarizedUsagesDetailsGranularityMonthly ||\n\t\t!slices.Equal(components.GroupBy, []string{\"tagNamespace\", \"tagKey\", \"tagValue\"}) ||\n\t\t!components.TimeUsageStarted.Equal(usageDay(1)) || !components.TimeUsageEnded.Equal(usageDay(17)) {\n\t\tt.Fatalf(\"components request = %+v\", components.RequestSummarizedUsagesDetails)\n\t}\n\t// The rate window is the 7 complete days before through (Oct 14), so it starts Oct 7.\n\tsku := api.requests[3]\n\tif sku.Granularity != usageapi.RequestSummarizedUsagesDetailsGranularityDaily ||\n\t\t!sku.TimeUsageStarted.Equal(usageDay(7)) || !sku.TimeUsageEnded.Equal(usageDay(17)) {\n\t\tt.Fatalf(\"sku request = %+v\", sku.RequestSummarizedUsagesDetails)\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Fake records inspect four SDK request values, grouping/filter/tenancy/region/time windows; no real OCI SDK client selected."
+        }
+      ],
+      "connected_citation_ids": [
+        "usage_fixture",
+        "usage_reader",
+        "usage_pages",
+        "report_contract",
+        "report_validate"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2566,
+      "root_id": "internal/ocicost/usage_test.go::TestUsageRoundsUpToCents",
+      "path": "internal/ocicost/usage_test.go",
+      "original_name": "TestUsageRoundsUpToCents",
+      "current_name": "TestUsageRoundsUpToCents",
+      "kind": "test",
+      "original_declaration_sha256": "662ee39b6f56972901369c910cac70cceb08c73586b2eef65b1ac7c0c16de816",
+      "current_declaration_sha256": "662ee39b6f56972901369c910cac70cceb08c73586b2eef65b1ac7c0c16de816",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/ocicost/usage_test.go",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 217,
+        "end_line": 233,
+        "text": "func TestUsageRoundsUpToCents(t *testing.T) {\n\tapi := &fakeUsageAPI{daily: [][]usageapi.UsageSummary{{\n\t\tusageRow(usageDay(1), 0.0538, \"USD\"),\n\t\tusageRow(usageDay(2), 3, \"USD\"),\n\t\tusageRow(usageDay(2), -5, \"USD\"),\n\t\tusageRow(usageDay(3), 1.0000000001, \"USD\"),\n\t}}}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// Day 2 sums to -2: a credit day counts as zero, not as a negative cost.\n\twant := []Day{{usageDay(1), 6}, {usageDay(2), 0}, {usageDay(3), 100}}\n\tif !slices.Equal(report.Days, want) {\n\t\tt.Fatalf(\"days = %+v, want %+v\", report.Days, want)\n\t}\n}",
+        "raw_declaration_sha256": "662ee39b6f56972901369c910cac70cceb08c73586b2eef65b1ac7c0c16de816",
+        "raw_declaration_bytes": 584
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/ocicost/usage_test.go",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 217,
+        "end_line": 233,
+        "text": "func TestUsageRoundsUpToCents(t *testing.T) {\n\tapi := &fakeUsageAPI{daily: [][]usageapi.UsageSummary{{\n\t\tusageRow(usageDay(1), 0.0538, \"USD\"),\n\t\tusageRow(usageDay(2), 3, \"USD\"),\n\t\tusageRow(usageDay(2), -5, \"USD\"),\n\t\tusageRow(usageDay(3), 1.0000000001, \"USD\"),\n\t}}}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// Day 2 sums to -2: a credit day counts as zero, not as a negative cost.\n\twant := []Day{{usageDay(1), 6}, {usageDay(2), 0}, {usageDay(3), 100}}\n\tif !slices.Equal(report.Days, want) {\n\t\tt.Fatalf(\"days = %+v, want %+v\", report.Days, want)\n\t}\n}",
+        "raw_declaration_sha256": "662ee39b6f56972901369c910cac70cceb08c73586b2eef65b1ac7c0c16de816",
+        "raw_declaration_bytes": 584
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/usage_test.go",
+        "original_name": "TestUsageRoundsUpToCents",
+        "kind": "test",
+        "original_declaration_sha256": "662ee39b6f56972901369c910cac70cceb08c73586b2eef65b1ac7c0c16de816",
+        "current_name": "TestUsageRoundsUpToCents",
+        "current_declaration_sha256": "662ee39b6f56972901369c910cac70cceb08c73586b2eef65b1ac7c0c16de816",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Exact frozen identity and both raw baseline/current hashes verified; bodies byte-identical.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestUsageRoundsUpToCents(t *testing.T) {\n\tapi := &fakeUsageAPI{daily: [][]usageapi.UsageSummary{{\n\t\tusageRow(usageDay(1), 0.0538, \"USD\"),\n\t\tusageRow(usageDay(2), 3, \"USD\"),\n\t\tusageRow(usageDay(2), -5, \"USD\"),\n\t\tusageRow(usageDay(3), 1.0000000001, \"USD\"),\n\t}}}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// Day 2 sums to -2: a credit day counts as zero, not as a negative cost.\n\twant := []Day{{usageDay(1), 6}, {usageDay(2), 0}, {usageDay(3), 100}}\n\tif !slices.Equal(report.Days, want) {\n\t\tt.Fatalf(\"days = %+v, want %+v\", report.Days, want)\n\t}\n}",
+      "category": "unit",
+      "rationale": "Fake amounts exercise local per-day sum, credit floor, epsilon and cents ceiling.",
+      "assertion_blocks": [
+        {
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "path": "internal/ocicost/usage_test.go",
+          "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+          "start_line": 218,
+          "end_line": 232,
+          "text": "\tapi := &fakeUsageAPI{daily: [][]usageapi.UsageSummary{{\n\t\tusageRow(usageDay(1), 0.0538, \"USD\"),\n\t\tusageRow(usageDay(2), 3, \"USD\"),\n\t\tusageRow(usageDay(2), -5, \"USD\"),\n\t\tusageRow(usageDay(3), 1.0000000001, \"USD\"),\n\t}}}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// Day 2 sums to -2: a credit day counts as zero, not as a negative cost.\n\twant := []Day{{usageDay(1), 6}, {usageDay(2), 0}, {usageDay(3), 100}}\n\tif !slices.Equal(report.Days, want) {\n\t\tt.Fatalf(\"days = %+v, want %+v\", report.Days, want)\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Fake amounts exercise local per-day sum, credit floor, epsilon and cents ceiling."
+        }
+      ],
+      "connected_citation_ids": [
+        "usage_fixture",
+        "usage_reader",
+        "usage_amount",
+        "usage_lines",
+        "report_validate"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2567,
+      "root_id": "internal/ocicost/usage_test.go::TestUsageSKUPrices",
+      "path": "internal/ocicost/usage_test.go",
+      "original_name": "TestUsageSKUPrices",
+      "current_name": "TestUsageSKUPrices",
+      "kind": "test",
+      "original_declaration_sha256": "6f26d9750db5550a41c8d0cb3eba55bbaa1ef532db4dba7e5735f3737796f55c",
+      "current_declaration_sha256": "6f26d9750db5550a41c8d0cb3eba55bbaa1ef532db4dba7e5735f3737796f55c",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/ocicost/usage_test.go",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 138,
+        "end_line": 157,
+        "text": "func TestUsageSKUPrices(t *testing.T) {\n\tapi := &fakeUsageAPI{skus: [][]usageapi.UsageSummary{{\n\t\tusageSKURow(usageDay(9), \"B93297\", 2, 10),\n\t\tusageSKURow(usageDay(10), \"B93297\", 1, 20),\n\t\tusageSKURow(usageDay(9), \"B91961\", 0, 5),\n\t\tusageSKURow(usageDay(9), \"B93298\", 1, 0),\n\t\t{TimeUsageStarted: &common.SDKTime{Time: usageDay(9)}, ComputedAmount: common.Float32(3),\n\t\t\tComputedQuantity: common.Float32(3)},\n\t}}}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// Two days of B93297 sum to 3 over 30 units. B91961 is free, so it prices at zero;\n\t// B93298 has no quantity and the last row has no SKU, so neither is listed.\n\tif len(report.Prices) != 2 || report.Prices[0].SKU != \"B91961\" || report.Prices[0].PerUnit != 0 ||\n\t\treport.Prices[1].SKU != \"B93297\" || math.Abs(report.Prices[1].PerUnit-0.1) > 1e-9 {\n\t\tt.Fatalf(\"prices = %+v\", report.Prices)\n\t}\n}",
+        "raw_declaration_sha256": "6f26d9750db5550a41c8d0cb3eba55bbaa1ef532db4dba7e5735f3737796f55c",
+        "raw_declaration_bytes": 884
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/ocicost/usage_test.go",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 138,
+        "end_line": 157,
+        "text": "func TestUsageSKUPrices(t *testing.T) {\n\tapi := &fakeUsageAPI{skus: [][]usageapi.UsageSummary{{\n\t\tusageSKURow(usageDay(9), \"B93297\", 2, 10),\n\t\tusageSKURow(usageDay(10), \"B93297\", 1, 20),\n\t\tusageSKURow(usageDay(9), \"B91961\", 0, 5),\n\t\tusageSKURow(usageDay(9), \"B93298\", 1, 0),\n\t\t{TimeUsageStarted: &common.SDKTime{Time: usageDay(9)}, ComputedAmount: common.Float32(3),\n\t\t\tComputedQuantity: common.Float32(3)},\n\t}}}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// Two days of B93297 sum to 3 over 30 units. B91961 is free, so it prices at zero;\n\t// B93298 has no quantity and the last row has no SKU, so neither is listed.\n\tif len(report.Prices) != 2 || report.Prices[0].SKU != \"B91961\" || report.Prices[0].PerUnit != 0 ||\n\t\treport.Prices[1].SKU != \"B93297\" || math.Abs(report.Prices[1].PerUnit-0.1) > 1e-9 {\n\t\tt.Fatalf(\"prices = %+v\", report.Prices)\n\t}\n}",
+        "raw_declaration_sha256": "6f26d9750db5550a41c8d0cb3eba55bbaa1ef532db4dba7e5735f3737796f55c",
+        "raw_declaration_bytes": 884
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/usage_test.go",
+        "original_name": "TestUsageSKUPrices",
+        "kind": "test",
+        "original_declaration_sha256": "6f26d9750db5550a41c8d0cb3eba55bbaa1ef532db4dba7e5735f3737796f55c",
+        "current_name": "TestUsageSKUPrices",
+        "current_declaration_sha256": "6f26d9750db5550a41c8d0cb3eba55bbaa1ef532db4dba7e5735f3737796f55c",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Exact frozen identity and both raw baseline/current hashes verified; bodies byte-identical.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestUsageSKUPrices(t *testing.T) {\n\tapi := &fakeUsageAPI{skus: [][]usageapi.UsageSummary{{\n\t\tusageSKURow(usageDay(9), \"B93297\", 2, 10),\n\t\tusageSKURow(usageDay(10), \"B93297\", 1, 20),\n\t\tusageSKURow(usageDay(9), \"B91961\", 0, 5),\n\t\tusageSKURow(usageDay(9), \"B93298\", 1, 0),\n\t\t{TimeUsageStarted: &common.SDKTime{Time: usageDay(9)}, ComputedAmount: common.Float32(3),\n\t\t\tComputedQuantity: common.Float32(3)},\n\t}}}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// Two days of B93297 sum to 3 over 30 units. B91961 is free, so it prices at zero;\n\t// B93298 has no quantity and the last row has no SKU, so neither is listed.\n\tif len(report.Prices) != 2 || report.Prices[0].SKU != \"B91961\" || report.Prices[0].PerUnit != 0 ||\n\t\treport.Prices[1].SKU != \"B93297\" || math.Abs(report.Prices[1].PerUnit-0.1) > 1e-9 {\n\t\tt.Fatalf(\"prices = %+v\", report.Prices)\n\t}\n}",
+      "category": "unit",
+      "rationale": "Fake SKU rows exercise local amount/quantity aggregation, zero/free/missing handling and sorted ratios.",
+      "assertion_blocks": [
+        {
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "path": "internal/ocicost/usage_test.go",
+          "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+          "start_line": 139,
+          "end_line": 156,
+          "text": "\tapi := &fakeUsageAPI{skus: [][]usageapi.UsageSummary{{\n\t\tusageSKURow(usageDay(9), \"B93297\", 2, 10),\n\t\tusageSKURow(usageDay(10), \"B93297\", 1, 20),\n\t\tusageSKURow(usageDay(9), \"B91961\", 0, 5),\n\t\tusageSKURow(usageDay(9), \"B93298\", 1, 0),\n\t\t{TimeUsageStarted: &common.SDKTime{Time: usageDay(9)}, ComputedAmount: common.Float32(3),\n\t\t\tComputedQuantity: common.Float32(3)},\n\t}}}\n\treport, err := usageRead(api, usageMid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// Two days of B93297 sum to 3 over 30 units. B91961 is free, so it prices at zero;\n\t// B93298 has no quantity and the last row has no SKU, so neither is listed.\n\tif len(report.Prices) != 2 || report.Prices[0].SKU != \"B91961\" || report.Prices[0].PerUnit != 0 ||\n\t\treport.Prices[1].SKU != \"B93297\" || math.Abs(report.Prices[1].PerUnit-0.1) > 1e-9 {\n\t\tt.Fatalf(\"prices = %+v\", report.Prices)\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Fake SKU rows exercise local amount/quantity aggregation, zero/free/missing handling and sorted ratios."
+        }
+      ],
+      "connected_citation_ids": [
+        "usage_fixture",
+        "usage_reader",
+        "usage_lines",
+        "report_validate"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2568,
+      "root_id": "internal/ocicost/usage_test.go::TestUsageStopsAfterSixteenPages",
+      "path": "internal/ocicost/usage_test.go",
+      "original_name": "TestUsageStopsAfterSixteenPages",
+      "current_name": "TestUsageStopsAfterSixteenPages",
+      "kind": "test",
+      "original_declaration_sha256": "194097f6ceb128b4ce4f8025eef21652bdb775a9745e2751010452b306af90e1",
+      "current_declaration_sha256": "194097f6ceb128b4ce4f8025eef21652bdb775a9745e2751010452b306af90e1",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/ocicost/usage_test.go",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 198,
+        "end_line": 207,
+        "text": "func TestUsageStopsAfterSixteenPages(t *testing.T) {\n\tapi := &fakeUsageAPI{endless: true}\n\t_, err := usageRead(api, usageMid)\n\tif err == nil || !strings.Contains(err.Error(), \"more than 16 pages\") {\n\t\tt.Fatalf(\"err = %v\", err)\n\t}\n\tif len(api.requests) != maxUsagePages {\n\t\tt.Fatalf(\"requests = %d, want %d\", len(api.requests), maxUsagePages)\n\t}\n}",
+        "raw_declaration_sha256": "194097f6ceb128b4ce4f8025eef21652bdb775a9745e2751010452b306af90e1",
+        "raw_declaration_bytes": 346
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/ocicost/usage_test.go",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 198,
+        "end_line": 207,
+        "text": "func TestUsageStopsAfterSixteenPages(t *testing.T) {\n\tapi := &fakeUsageAPI{endless: true}\n\t_, err := usageRead(api, usageMid)\n\tif err == nil || !strings.Contains(err.Error(), \"more than 16 pages\") {\n\t\tt.Fatalf(\"err = %v\", err)\n\t}\n\tif len(api.requests) != maxUsagePages {\n\t\tt.Fatalf(\"requests = %d, want %d\", len(api.requests), maxUsagePages)\n\t}\n}",
+        "raw_declaration_sha256": "194097f6ceb128b4ce4f8025eef21652bdb775a9745e2751010452b306af90e1",
+        "raw_declaration_bytes": 346
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/usage_test.go",
+        "original_name": "TestUsageStopsAfterSixteenPages",
+        "kind": "test",
+        "original_declaration_sha256": "194097f6ceb128b4ce4f8025eef21652bdb775a9745e2751010452b306af90e1",
+        "current_name": "TestUsageStopsAfterSixteenPages",
+        "current_declaration_sha256": "194097f6ceb128b4ce4f8025eef21652bdb775a9745e2751010452b306af90e1",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Exact frozen identity and both raw baseline/current hashes verified; bodies byte-identical.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestUsageStopsAfterSixteenPages(t *testing.T) {\n\tapi := &fakeUsageAPI{endless: true}\n\t_, err := usageRead(api, usageMid)\n\tif err == nil || !strings.Contains(err.Error(), \"more than 16 pages\") {\n\t\tt.Fatalf(\"err = %v\", err)\n\t}\n\tif len(api.requests) != maxUsagePages {\n\t\tt.Fatalf(\"requests = %d, want %d\", len(api.requests), maxUsagePages)\n\t}\n}",
+      "category": "unit",
+      "rationale": "Endless synthetic page tokens exercise bounded16-iteration guard and fake request count.",
+      "assertion_blocks": [
+        {
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "path": "internal/ocicost/usage_test.go",
+          "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+          "start_line": 199,
+          "end_line": 206,
+          "text": "\tapi := &fakeUsageAPI{endless: true}\n\t_, err := usageRead(api, usageMid)\n\tif err == nil || !strings.Contains(err.Error(), \"more than 16 pages\") {\n\t\tt.Fatalf(\"err = %v\", err)\n\t}\n\tif len(api.requests) != maxUsagePages {\n\t\tt.Fatalf(\"requests = %d, want %d\", len(api.requests), maxUsagePages)\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Endless synthetic page tokens exercise bounded16-iteration guard and fake request count."
+        }
+      ],
+      "connected_citation_ids": [
+        "usage_fixture",
+        "usage_reader",
+        "usage_pages"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2569,
+      "root_id": "internal/ocicost/usage_test.go::TestUsageWindowAtMonthEnd",
+      "path": "internal/ocicost/usage_test.go",
+      "original_name": "TestUsageWindowAtMonthEnd",
+      "current_name": "TestUsageWindowAtMonthEnd",
+      "kind": "test",
+      "original_declaration_sha256": "eaea404798e2c16ee18b84695b7956ec53e3b04686fa8d5ebad3c4d672ace2e1",
+      "current_declaration_sha256": "eaea404798e2c16ee18b84695b7956ec53e3b04686fa8d5ebad3c4d672ace2e1",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/ocicost/usage_test.go",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 159,
+        "end_line": 179,
+        "text": "func TestUsageWindowAtMonthEnd(t *testing.T) {\n\tapi := &fakeUsageAPI{}\n\treport, err := usageRead(api, time.Date(2026, 11, 1, 6, 0, 0, 0, time.UTC))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// now is Nov 1 06:00: through is Oct 30, so the rate window starts Oct 23\n\t// and is earlier than the month's Nov 1.\n\tdays, services := api.requests[0], api.requests[1]\n\tif !days.TimeUsageStarted.Equal(time.Date(2026, 10, 23, 0, 0, 0, 0, time.UTC)) ||\n\t\t!days.TimeUsageEnded.Equal(time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)) {\n\t\tt.Fatalf(\"days window = %v to %v\", days.TimeUsageStarted, days.TimeUsageEnded)\n\t}\n\tif !services.TimeUsageStarted.Equal(time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)) ||\n\t\t!services.TimeUsageEnded.Equal(time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)) {\n\t\tt.Fatalf(\"services window = %v to %v\", services.TimeUsageStarted, services.TimeUsageEnded)\n\t}\n\tif !report.Through.Equal(usageDay(30)) {\n\t\tt.Fatalf(\"through = %v\", report.Through)\n\t}\n}",
+        "raw_declaration_sha256": "eaea404798e2c16ee18b84695b7956ec53e3b04686fa8d5ebad3c4d672ace2e1",
+        "raw_declaration_bytes": 950
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/ocicost/usage_test.go",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 159,
+        "end_line": 179,
+        "text": "func TestUsageWindowAtMonthEnd(t *testing.T) {\n\tapi := &fakeUsageAPI{}\n\treport, err := usageRead(api, time.Date(2026, 11, 1, 6, 0, 0, 0, time.UTC))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// now is Nov 1 06:00: through is Oct 30, so the rate window starts Oct 23\n\t// and is earlier than the month's Nov 1.\n\tdays, services := api.requests[0], api.requests[1]\n\tif !days.TimeUsageStarted.Equal(time.Date(2026, 10, 23, 0, 0, 0, 0, time.UTC)) ||\n\t\t!days.TimeUsageEnded.Equal(time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)) {\n\t\tt.Fatalf(\"days window = %v to %v\", days.TimeUsageStarted, days.TimeUsageEnded)\n\t}\n\tif !services.TimeUsageStarted.Equal(time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)) ||\n\t\t!services.TimeUsageEnded.Equal(time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)) {\n\t\tt.Fatalf(\"services window = %v to %v\", services.TimeUsageStarted, services.TimeUsageEnded)\n\t}\n\tif !report.Through.Equal(usageDay(30)) {\n\t\tt.Fatalf(\"through = %v\", report.Through)\n\t}\n}",
+        "raw_declaration_sha256": "eaea404798e2c16ee18b84695b7956ec53e3b04686fa8d5ebad3c4d672ace2e1",
+        "raw_declaration_bytes": 950
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/usage_test.go",
+        "original_name": "TestUsageWindowAtMonthEnd",
+        "kind": "test",
+        "original_declaration_sha256": "eaea404798e2c16ee18b84695b7956ec53e3b04686fa8d5ebad3c4d672ace2e1",
+        "current_name": "TestUsageWindowAtMonthEnd",
+        "current_declaration_sha256": "eaea404798e2c16ee18b84695b7956ec53e3b04686fa8d5ebad3c4d672ace2e1",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Exact frozen identity and both raw baseline/current hashes verified; bodies byte-identical.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestUsageWindowAtMonthEnd(t *testing.T) {\n\tapi := &fakeUsageAPI{}\n\treport, err := usageRead(api, time.Date(2026, 11, 1, 6, 0, 0, 0, time.UTC))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// now is Nov 1 06:00: through is Oct 30, so the rate window starts Oct 23\n\t// and is earlier than the month's Nov 1.\n\tdays, services := api.requests[0], api.requests[1]\n\tif !days.TimeUsageStarted.Equal(time.Date(2026, 10, 23, 0, 0, 0, 0, time.UTC)) ||\n\t\t!days.TimeUsageEnded.Equal(time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)) {\n\t\tt.Fatalf(\"days window = %v to %v\", days.TimeUsageStarted, days.TimeUsageEnded)\n\t}\n\tif !services.TimeUsageStarted.Equal(time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)) ||\n\t\t!services.TimeUsageEnded.Equal(time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)) {\n\t\tt.Fatalf(\"services window = %v to %v\", services.TimeUsageStarted, services.TimeUsageEnded)\n\t}\n\tif !report.Through.Equal(usageDay(30)) {\n\t\tt.Fatalf(\"through = %v\", report.Through)\n\t}\n}",
+      "category": "unit",
+      "rationale": "Injected fixed clock at month boundary exercises pure date window/Through arithmetic and recorded fake request times.",
+      "assertion_blocks": [
+        {
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "path": "internal/ocicost/usage_test.go",
+          "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+          "start_line": 160,
+          "end_line": 178,
+          "text": "\tapi := &fakeUsageAPI{}\n\treport, err := usageRead(api, time.Date(2026, 11, 1, 6, 0, 0, 0, time.UTC))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// now is Nov 1 06:00: through is Oct 30, so the rate window starts Oct 23\n\t// and is earlier than the month's Nov 1.\n\tdays, services := api.requests[0], api.requests[1]\n\tif !days.TimeUsageStarted.Equal(time.Date(2026, 10, 23, 0, 0, 0, 0, time.UTC)) ||\n\t\t!days.TimeUsageEnded.Equal(time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)) {\n\t\tt.Fatalf(\"days window = %v to %v\", days.TimeUsageStarted, days.TimeUsageEnded)\n\t}\n\tif !services.TimeUsageStarted.Equal(time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)) ||\n\t\t!services.TimeUsageEnded.Equal(time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)) {\n\t\tt.Fatalf(\"services window = %v to %v\", services.TimeUsageStarted, services.TimeUsageEnded)\n\t}\n\tif !report.Through.Equal(usageDay(30)) {\n\t\tt.Fatalf(\"through = %v\", report.Through)\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Injected fixed clock at month boundary exercises pure date window/Through arithmetic and recorded fake request times."
+        }
+      ],
+      "connected_citation_ids": [
+        "usage_fixture",
+        "usage_reader",
+        "usage_pages",
+        "report_contract",
+        "report_validate"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2570,
+      "root_id": "internal/ocicost/usage_test.go::TestUsageWrapsAPIError",
+      "path": "internal/ocicost/usage_test.go",
+      "original_name": "TestUsageWrapsAPIError",
+      "current_name": "TestUsageWrapsAPIError",
+      "kind": "test",
+      "original_declaration_sha256": "11eba81e96862d628ca1b3fb9ea4d14eb06a3a0f967435b1c2a875304a52c9d5",
+      "current_declaration_sha256": "11eba81e96862d628ca1b3fb9ea4d14eb06a3a0f967435b1c2a875304a52c9d5",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/ocicost/usage_test.go",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 209,
+        "end_line": 215,
+        "text": "func TestUsageWrapsAPIError(t *testing.T) {\n\tsentinel := errors.New(\"NotAuthorizedOrNotFound\")\n\t_, err := usageRead(&fakeUsageAPI{err: sentinel}, usageMid)\n\tif !errors.Is(err, sentinel) || !strings.Contains(err.Error(), \"read OCI usage\") {\n\t\tt.Fatalf(\"err = %v\", err)\n\t}\n}",
+        "raw_declaration_sha256": "11eba81e96862d628ca1b3fb9ea4d14eb06a3a0f967435b1c2a875304a52c9d5",
+        "raw_declaration_bytes": 272
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/ocicost/usage_test.go",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 209,
+        "end_line": 215,
+        "text": "func TestUsageWrapsAPIError(t *testing.T) {\n\tsentinel := errors.New(\"NotAuthorizedOrNotFound\")\n\t_, err := usageRead(&fakeUsageAPI{err: sentinel}, usageMid)\n\tif !errors.Is(err, sentinel) || !strings.Contains(err.Error(), \"read OCI usage\") {\n\t\tt.Fatalf(\"err = %v\", err)\n\t}\n}",
+        "raw_declaration_sha256": "11eba81e96862d628ca1b3fb9ea4d14eb06a3a0f967435b1c2a875304a52c9d5",
+        "raw_declaration_bytes": 272
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/usage_test.go",
+        "original_name": "TestUsageWrapsAPIError",
+        "kind": "test",
+        "original_declaration_sha256": "11eba81e96862d628ca1b3fb9ea4d14eb06a3a0f967435b1c2a875304a52c9d5",
+        "current_name": "TestUsageWrapsAPIError",
+        "current_declaration_sha256": "11eba81e96862d628ca1b3fb9ea4d14eb06a3a0f967435b1c2a875304a52c9d5",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Exact frozen identity and both raw baseline/current hashes verified; bodies byte-identical.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestUsageWrapsAPIError(t *testing.T) {\n\tsentinel := errors.New(\"NotAuthorizedOrNotFound\")\n\t_, err := usageRead(&fakeUsageAPI{err: sentinel}, usageMid)\n\tif !errors.Is(err, sentinel) || !strings.Contains(err.Error(), \"read OCI usage\") {\n\t\tt.Fatalf(\"err = %v\", err)\n\t}\n}",
+      "category": "unit",
+      "rationale": "Injected sentinel API error is locally wrapped and preserved by errors.Is; no actual provider failure.",
+      "assertion_blocks": [
+        {
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "path": "internal/ocicost/usage_test.go",
+          "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+          "start_line": 210,
+          "end_line": 214,
+          "text": "\tsentinel := errors.New(\"NotAuthorizedOrNotFound\")\n\t_, err := usageRead(&fakeUsageAPI{err: sentinel}, usageMid)\n\tif !errors.Is(err, sentinel) || !strings.Contains(err.Error(), \"read OCI usage\") {\n\t\tt.Fatalf(\"err = %v\", err)\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Injected sentinel API error is locally wrapped and preserved by errors.Is; no actual provider failure."
+        }
+      ],
+      "connected_citation_ids": [
+        "usage_fixture",
+        "usage_reader",
+        "usage_pages"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2571,
+      "root_id": "internal/ocicost/view_test.go::TestSummarizeCarriesForecast",
+      "path": "internal/ocicost/view_test.go",
+      "original_name": "TestSummarizeCarriesForecast",
+      "current_name": "TestSummarizeCarriesForecast",
+      "kind": "test",
+      "original_declaration_sha256": "3a8d04e4ce41cc1725ca838a4a23f65e23a232f6ad795aec59f32d9f0e6cb97a",
+      "current_declaration_sha256": "3a8d04e4ce41cc1725ca838a4a23f65e23a232f6ad795aec59f32d9f0e6cb97a",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/ocicost/view_test.go",
+        "git_blob": "3cd7bb832149c5108b5441b54da6fd5fb68c5066",
+        "start_line": 25,
+        "end_line": 42,
+        "text": "func TestSummarizeCarriesForecast(t *testing.T) {\n\tt.Parallel()\n\tview := Summarize(viewReport(), viewNow, nil)\n\tif view.Cell != \"gru\" || view.OCIRegion != \"sa-saopaulo-1\" {\n\t\tt.Fatalf(\"view identity = %q %q\", view.Cell, view.OCIRegion)\n\t}\n\t// 840 this month; the 7 complete days before the 9th average 100 a day,\n\t// so the month ends at 800 + 100 \u00d7 23 days left.\n\tif view.Forecast.MonthToDateCents != 840 || view.Forecast.RateCents != 100 || view.Forecast.MonthEndCents != 3100 {\n\t\tt.Fatalf(\"forecast = %+v\", view.Forecast)\n\t}\n\tif len(view.Services) != 2 || view.Services[0].Name != \"compute\" || len(view.Components) != 2 {\n\t\tt.Fatalf(\"lines = %+v %+v\", view.Services, view.Components)\n\t}\n\tif view.UntaggedCents != 340 {\n\t\tt.Fatalf(\"untagged = %d, want 840 - 500\", view.UntaggedCents)\n\t}\n}",
+        "raw_declaration_sha256": "3a8d04e4ce41cc1725ca838a4a23f65e23a232f6ad795aec59f32d9f0e6cb97a",
+        "raw_declaration_bytes": 791
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/ocicost/view_test.go",
+        "git_blob": "3cd7bb832149c5108b5441b54da6fd5fb68c5066",
+        "start_line": 25,
+        "end_line": 42,
+        "text": "func TestSummarizeCarriesForecast(t *testing.T) {\n\tt.Parallel()\n\tview := Summarize(viewReport(), viewNow, nil)\n\tif view.Cell != \"gru\" || view.OCIRegion != \"sa-saopaulo-1\" {\n\t\tt.Fatalf(\"view identity = %q %q\", view.Cell, view.OCIRegion)\n\t}\n\t// 840 this month; the 7 complete days before the 9th average 100 a day,\n\t// so the month ends at 800 + 100 \u00d7 23 days left.\n\tif view.Forecast.MonthToDateCents != 840 || view.Forecast.RateCents != 100 || view.Forecast.MonthEndCents != 3100 {\n\t\tt.Fatalf(\"forecast = %+v\", view.Forecast)\n\t}\n\tif len(view.Services) != 2 || view.Services[0].Name != \"compute\" || len(view.Components) != 2 {\n\t\tt.Fatalf(\"lines = %+v %+v\", view.Services, view.Components)\n\t}\n\tif view.UntaggedCents != 340 {\n\t\tt.Fatalf(\"untagged = %d, want 840 - 500\", view.UntaggedCents)\n\t}\n}",
+        "raw_declaration_sha256": "3a8d04e4ce41cc1725ca838a4a23f65e23a232f6ad795aec59f32d9f0e6cb97a",
+        "raw_declaration_bytes": 791
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/view_test.go",
+        "original_name": "TestSummarizeCarriesForecast",
+        "kind": "test",
+        "original_declaration_sha256": "3a8d04e4ce41cc1725ca838a4a23f65e23a232f6ad795aec59f32d9f0e6cb97a",
+        "current_name": "TestSummarizeCarriesForecast",
+        "current_declaration_sha256": "3a8d04e4ce41cc1725ca838a4a23f65e23a232f6ad795aec59f32d9f0e6cb97a",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Exact frozen identity and both raw baseline/current hashes verified; bodies byte-identical.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestSummarizeCarriesForecast(t *testing.T) {\n\tt.Parallel()\n\tview := Summarize(viewReport(), viewNow, nil)\n\tif view.Cell != \"gru\" || view.OCIRegion != \"sa-saopaulo-1\" {\n\t\tt.Fatalf(\"view identity = %q %q\", view.Cell, view.OCIRegion)\n\t}\n\t// 840 this month; the 7 complete days before the 9th average 100 a day,\n\t// so the month ends at 800 + 100 \u00d7 23 days left.\n\tif view.Forecast.MonthToDateCents != 840 || view.Forecast.RateCents != 100 || view.Forecast.MonthEndCents != 3100 {\n\t\tt.Fatalf(\"forecast = %+v\", view.Forecast)\n\t}\n\tif len(view.Services) != 2 || view.Services[0].Name != \"compute\" || len(view.Components) != 2 {\n\t\tt.Fatalf(\"lines = %+v %+v\", view.Services, view.Components)\n\t}\n\tif view.UntaggedCents != 340 {\n\t\tt.Fatalf(\"untagged = %d, want 840 - 500\", view.UntaggedCents)\n\t}\n}",
+      "category": "unit",
+      "rationale": "Synthetic report projected and summarized by local arithmetic; identity/forecast/lines/untagged checks need no store or service.",
+      "assertion_blocks": [
+        {
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "path": "internal/ocicost/view_test.go",
+          "git_blob": "3cd7bb832149c5108b5441b54da6fd5fb68c5066",
+          "start_line": 26,
+          "end_line": 41,
+          "text": "\tt.Parallel()\n\tview := Summarize(viewReport(), viewNow, nil)\n\tif view.Cell != \"gru\" || view.OCIRegion != \"sa-saopaulo-1\" {\n\t\tt.Fatalf(\"view identity = %q %q\", view.Cell, view.OCIRegion)\n\t}\n\t// 840 this month; the 7 complete days before the 9th average 100 a day,\n\t// so the month ends at 800 + 100 \u00d7 23 days left.\n\tif view.Forecast.MonthToDateCents != 840 || view.Forecast.RateCents != 100 || view.Forecast.MonthEndCents != 3100 {\n\t\tt.Fatalf(\"forecast = %+v\", view.Forecast)\n\t}\n\tif len(view.Services) != 2 || view.Services[0].Name != \"compute\" || len(view.Components) != 2 {\n\t\tt.Fatalf(\"lines = %+v %+v\", view.Services, view.Components)\n\t}\n\tif view.UntaggedCents != 340 {\n\t\tt.Fatalf(\"untagged = %d, want 840 - 500\", view.UntaggedCents)\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Synthetic report projected and summarized by local arithmetic; identity/forecast/lines/untagged checks need no store or service."
+        }
+      ],
+      "connected_citation_ids": [
+        "view_fixture",
+        "summarize",
+        "project",
+        "report_validate"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2572,
+      "root_id": "internal/ocicost/view_test.go::TestSummarizeFoldsLinesPastTheBound",
+      "path": "internal/ocicost/view_test.go",
+      "original_name": "TestSummarizeFoldsLinesPastTheBound",
+      "current_name": "TestSummarizeFoldsLinesPastTheBound",
+      "kind": "test",
+      "original_declaration_sha256": "d333b09788d1c71967c63771bec73af9eab9206b14ccc907bebdb4ef75a3ca69",
+      "current_declaration_sha256": "d333b09788d1c71967c63771bec73af9eab9206b14ccc907bebdb4ef75a3ca69",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/ocicost/view_test.go",
+        "git_blob": "3cd7bb832149c5108b5441b54da6fd5fb68c5066",
+        "start_line": 44,
+        "end_line": 61,
+        "text": "func TestSummarizeFoldsLinesPastTheBound(t *testing.T) {\n\tt.Parallel()\n\treport := viewReport()\n\treport.Services = nil\n\tfor index := 1; index <= 20; index++ {\n\t\treport.Services = append(report.Services, Line{Name: fmt.Sprintf(\"svc-%02d\", index), Cents: uint64(index)})\n\t}\n\tservices := Summarize(report, viewNow, nil).Services\n\tif len(services) != maxViewLines {\n\t\tt.Fatalf(\"services = %d lines, want %d\", len(services), maxViewLines)\n\t}\n\tif last := services[maxViewLines-1]; last.Name != \"Other\" || last.Cents != 16+17+18+19+20 {\n\t\tt.Fatalf(\"folded line = %+v, want Other 90\", last)\n\t}\n\tif services[maxViewLines-2].Name != \"svc-15\" {\n\t\tt.Fatalf(\"kept lines = ..., %q, want svc-15 last\", services[maxViewLines-2].Name)\n\t}\n}",
+        "raw_declaration_sha256": "d333b09788d1c71967c63771bec73af9eab9206b14ccc907bebdb4ef75a3ca69",
+        "raw_declaration_bytes": 721
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/ocicost/view_test.go",
+        "git_blob": "3cd7bb832149c5108b5441b54da6fd5fb68c5066",
+        "start_line": 44,
+        "end_line": 61,
+        "text": "func TestSummarizeFoldsLinesPastTheBound(t *testing.T) {\n\tt.Parallel()\n\treport := viewReport()\n\treport.Services = nil\n\tfor index := 1; index <= 20; index++ {\n\t\treport.Services = append(report.Services, Line{Name: fmt.Sprintf(\"svc-%02d\", index), Cents: uint64(index)})\n\t}\n\tservices := Summarize(report, viewNow, nil).Services\n\tif len(services) != maxViewLines {\n\t\tt.Fatalf(\"services = %d lines, want %d\", len(services), maxViewLines)\n\t}\n\tif last := services[maxViewLines-1]; last.Name != \"Other\" || last.Cents != 16+17+18+19+20 {\n\t\tt.Fatalf(\"folded line = %+v, want Other 90\", last)\n\t}\n\tif services[maxViewLines-2].Name != \"svc-15\" {\n\t\tt.Fatalf(\"kept lines = ..., %q, want svc-15 last\", services[maxViewLines-2].Name)\n\t}\n}",
+        "raw_declaration_sha256": "d333b09788d1c71967c63771bec73af9eab9206b14ccc907bebdb4ef75a3ca69",
+        "raw_declaration_bytes": 721
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/view_test.go",
+        "original_name": "TestSummarizeFoldsLinesPastTheBound",
+        "kind": "test",
+        "original_declaration_sha256": "d333b09788d1c71967c63771bec73af9eab9206b14ccc907bebdb4ef75a3ca69",
+        "current_name": "TestSummarizeFoldsLinesPastTheBound",
+        "current_declaration_sha256": "d333b09788d1c71967c63771bec73af9eab9206b14ccc907bebdb4ef75a3ca69",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Exact frozen identity and both raw baseline/current hashes verified; bodies byte-identical.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestSummarizeFoldsLinesPastTheBound(t *testing.T) {\n\tt.Parallel()\n\treport := viewReport()\n\treport.Services = nil\n\tfor index := 1; index <= 20; index++ {\n\t\treport.Services = append(report.Services, Line{Name: fmt.Sprintf(\"svc-%02d\", index), Cents: uint64(index)})\n\t}\n\tservices := Summarize(report, viewNow, nil).Services\n\tif len(services) != maxViewLines {\n\t\tt.Fatalf(\"services = %d lines, want %d\", len(services), maxViewLines)\n\t}\n\tif last := services[maxViewLines-1]; last.Name != \"Other\" || last.Cents != 16+17+18+19+20 {\n\t\tt.Fatalf(\"folded line = %+v, want Other 90\", last)\n\t}\n\tif services[maxViewLines-2].Name != \"svc-15\" {\n\t\tt.Fatalf(\"kept lines = ..., %q, want svc-15 last\", services[maxViewLines-2].Name)\n\t}\n}",
+      "category": "unit",
+      "rationale": "Synthetic20 service lines exercise local first15 retention and Other90 fold; input order is synthetic, not a provider.",
+      "assertion_blocks": [
+        {
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "path": "internal/ocicost/view_test.go",
+          "git_blob": "3cd7bb832149c5108b5441b54da6fd5fb68c5066",
+          "start_line": 45,
+          "end_line": 60,
+          "text": "\tt.Parallel()\n\treport := viewReport()\n\treport.Services = nil\n\tfor index := 1; index <= 20; index++ {\n\t\treport.Services = append(report.Services, Line{Name: fmt.Sprintf(\"svc-%02d\", index), Cents: uint64(index)})\n\t}\n\tservices := Summarize(report, viewNow, nil).Services\n\tif len(services) != maxViewLines {\n\t\tt.Fatalf(\"services = %d lines, want %d\", len(services), maxViewLines)\n\t}\n\tif last := services[maxViewLines-1]; last.Name != \"Other\" || last.Cents != 16+17+18+19+20 {\n\t\tt.Fatalf(\"folded line = %+v, want Other 90\", last)\n\t}\n\tif services[maxViewLines-2].Name != \"svc-15\" {\n\t\tt.Fatalf(\"kept lines = ..., %q, want svc-15 last\", services[maxViewLines-2].Name)\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Synthetic20 service lines exercise local first15 retention and Other90 fold; input order is synthetic, not a provider."
+        }
+      ],
+      "connected_citation_ids": [
+        "view_fixture",
+        "summarize",
+        "project"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2573,
+      "root_id": "internal/ocicost/view_test.go::TestSummarizeUntaggedFloorsAtZero",
+      "path": "internal/ocicost/view_test.go",
+      "original_name": "TestSummarizeUntaggedFloorsAtZero",
+      "current_name": "TestSummarizeUntaggedFloorsAtZero",
+      "kind": "test",
+      "original_declaration_sha256": "7f3f0f6a76e041fee3a01e6a224ae1c0b809c285e3e1330234a1869eb023eddd",
+      "current_declaration_sha256": "7f3f0f6a76e041fee3a01e6a224ae1c0b809c285e3e1330234a1869eb023eddd",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/ocicost/view_test.go",
+        "git_blob": "3cd7bb832149c5108b5441b54da6fd5fb68c5066",
+        "start_line": 63,
+        "end_line": 70,
+        "text": "func TestSummarizeUntaggedFloorsAtZero(t *testing.T) {\n\tt.Parallel()\n\treport := viewReport()\n\treport.Components = []Line{{Name: \"controller\", Cents: 1000}}\n\tif untagged := Summarize(report, viewNow, nil).UntaggedCents; untagged != 0 {\n\t\tt.Fatalf(\"untagged = %d, want 0 when tags exceed the month\", untagged)\n\t}\n}",
+        "raw_declaration_sha256": "7f3f0f6a76e041fee3a01e6a224ae1c0b809c285e3e1330234a1869eb023eddd",
+        "raw_declaration_bytes": 312
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/ocicost/view_test.go",
+        "git_blob": "3cd7bb832149c5108b5441b54da6fd5fb68c5066",
+        "start_line": 63,
+        "end_line": 70,
+        "text": "func TestSummarizeUntaggedFloorsAtZero(t *testing.T) {\n\tt.Parallel()\n\treport := viewReport()\n\treport.Components = []Line{{Name: \"controller\", Cents: 1000}}\n\tif untagged := Summarize(report, viewNow, nil).UntaggedCents; untagged != 0 {\n\t\tt.Fatalf(\"untagged = %d, want 0 when tags exceed the month\", untagged)\n\t}\n}",
+        "raw_declaration_sha256": "7f3f0f6a76e041fee3a01e6a224ae1c0b809c285e3e1330234a1869eb023eddd",
+        "raw_declaration_bytes": 312
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/view_test.go",
+        "original_name": "TestSummarizeUntaggedFloorsAtZero",
+        "kind": "test",
+        "original_declaration_sha256": "7f3f0f6a76e041fee3a01e6a224ae1c0b809c285e3e1330234a1869eb023eddd",
+        "current_name": "TestSummarizeUntaggedFloorsAtZero",
+        "current_declaration_sha256": "7f3f0f6a76e041fee3a01e6a224ae1c0b809c285e3e1330234a1869eb023eddd",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Exact frozen identity and both raw baseline/current hashes verified; bodies byte-identical.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestSummarizeUntaggedFloorsAtZero(t *testing.T) {\n\tt.Parallel()\n\treport := viewReport()\n\treport.Components = []Line{{Name: \"controller\", Cents: 1000}}\n\tif untagged := Summarize(report, viewNow, nil).UntaggedCents; untagged != 0 {\n\t\tt.Fatalf(\"untagged = %d, want 0 when tags exceed the month\", untagged)\n\t}\n}",
+      "category": "unit",
+      "rationale": "Synthetic tagged sum above month total exercises local subtraction floor.",
+      "assertion_blocks": [
+        {
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "path": "internal/ocicost/view_test.go",
+          "git_blob": "3cd7bb832149c5108b5441b54da6fd5fb68c5066",
+          "start_line": 64,
+          "end_line": 69,
+          "text": "\tt.Parallel()\n\treport := viewReport()\n\treport.Components = []Line{{Name: \"controller\", Cents: 1000}}\n\tif untagged := Summarize(report, viewNow, nil).UntaggedCents; untagged != 0 {\n\t\tt.Fatalf(\"untagged = %d, want 0 when tags exceed the month\", untagged)\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Synthetic tagged sum above month total exercises local subtraction floor."
+        }
+      ],
+      "connected_citation_ids": [
+        "view_fixture",
+        "summarize",
+        "project"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2574,
+      "root_id": "internal/ociregion/admission_security_test.go::TestBilledGiBRequiresLexicalInteger",
+      "path": "internal/ociregion/admission_security_test.go",
+      "original_name": "TestBilledGiBRequiresLexicalInteger",
+      "current_name": "TestBilledGiBRequiresLexicalInteger",
+      "kind": "test",
+      "original_declaration_sha256": "bed7c2d04c7fdee4d84be650c21c7e73cb71f542c375a5e914bf59fbe8a5457f",
+      "current_declaration_sha256": "bed7c2d04c7fdee4d84be650c21c7e73cb71f542c375a5e914bf59fbe8a5457f",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/ociregion/admission_security_test.go",
+        "git_blob": "00ff1e9ccd1a90de005c462f95d4a3b6946a3a36",
+        "start_line": 12,
+        "end_line": 35,
+        "text": "func TestBilledGiBRequiresLexicalInteger(t *testing.T) {\n\tfor _, wire := range []string{`2.0`, `2e0`, `true`, `\"2\"`, `-1`, `0`} {\n\t\tt.Run(wire, func(t *testing.T) {\n\t\t\tvalue, err := decodeJSON([]byte(wire))\n\t\t\tif err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\t_, err = capture(func() any { return positiveGiB(value, \"image size\") })\n\t\t\tif err == nil || !strings.Contains(err.Error(), \"positive integer billed GiB\") {\n\t\t\t\tt.Fatalf(\"admitted %s: %v\", wire, err)\n\t\t\t}\n\t\t})\n\t}\n\tfor _, wire := range []string{`1`, `2`, `9007199254740993`} {\n\t\tvalue, err := decodeJSON([]byte(wire))\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\t_, err = capture(func() any { return positiveGiB(value, \"image size\") })\n\t\tif err != nil {\n\t\t\tt.Fatalf(\"integer %s rejected: %v\", wire, err)\n\t\t}\n\t}\n}",
+        "raw_declaration_sha256": "bed7c2d04c7fdee4d84be650c21c7e73cb71f542c375a5e914bf59fbe8a5457f",
+        "raw_declaration_bytes": 757
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/ociregion/admission_security_test.go",
+        "git_blob": "00ff1e9ccd1a90de005c462f95d4a3b6946a3a36",
+        "start_line": 12,
+        "end_line": 35,
+        "text": "func TestBilledGiBRequiresLexicalInteger(t *testing.T) {\n\tfor _, wire := range []string{`2.0`, `2e0`, `true`, `\"2\"`, `-1`, `0`} {\n\t\tt.Run(wire, func(t *testing.T) {\n\t\t\tvalue, err := decodeJSON([]byte(wire))\n\t\t\tif err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\t_, err = capture(func() any { return positiveGiB(value, \"image size\") })\n\t\t\tif err == nil || !strings.Contains(err.Error(), \"positive integer billed GiB\") {\n\t\t\t\tt.Fatalf(\"admitted %s: %v\", wire, err)\n\t\t\t}\n\t\t})\n\t}\n\tfor _, wire := range []string{`1`, `2`, `9007199254740993`} {\n\t\tvalue, err := decodeJSON([]byte(wire))\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\t_, err = capture(func() any { return positiveGiB(value, \"image size\") })\n\t\tif err != nil {\n\t\t\tt.Fatalf(\"integer %s rejected: %v\", wire, err)\n\t\t}\n\t}\n}",
+        "raw_declaration_sha256": "bed7c2d04c7fdee4d84be650c21c7e73cb71f542c375a5e914bf59fbe8a5457f",
+        "raw_declaration_bytes": 757
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ociregion/admission_security_test.go",
+        "original_name": "TestBilledGiBRequiresLexicalInteger",
+        "kind": "test",
+        "original_declaration_sha256": "bed7c2d04c7fdee4d84be650c21c7e73cb71f542c375a5e914bf59fbe8a5457f",
+        "current_name": "TestBilledGiBRequiresLexicalInteger",
+        "current_declaration_sha256": "bed7c2d04c7fdee4d84be650c21c7e73cb71f542c375a5e914bf59fbe8a5457f",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Exact frozen identity and both raw baseline/current hashes verified; bodies byte-identical.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestBilledGiBRequiresLexicalInteger(t *testing.T) {\n\tfor _, wire := range []string{`2.0`, `2e0`, `true`, `\"2\"`, `-1`, `0`} {\n\t\tt.Run(wire, func(t *testing.T) {\n\t\t\tvalue, err := decodeJSON([]byte(wire))\n\t\t\tif err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\t_, err = capture(func() any { return positiveGiB(value, \"image size\") })\n\t\t\tif err == nil || !strings.Contains(err.Error(), \"positive integer billed GiB\") {\n\t\t\t\tt.Fatalf(\"admitted %s: %v\", wire, err)\n\t\t\t}\n\t\t})\n\t}\n\tfor _, wire := range []string{`1`, `2`, `9007199254740993`} {\n\t\tvalue, err := decodeJSON([]byte(wire))\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\t_, err = capture(func() any { return positiveGiB(value, \"image size\") })\n\t\tif err != nil {\n\t\t\tt.Fatalf(\"integer %s rejected: %v\", wire, err)\n\t\t}\n\t}\n}",
+      "category": "unit",
+      "rationale": "Inline JSON scalar decode and positiveGiB/capture locally distinguish lexical integers from float/exponent/bool/string/nonpositive.",
+      "assertion_blocks": [
+        {
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "path": "internal/ociregion/admission_security_test.go",
+          "git_blob": "00ff1e9ccd1a90de005c462f95d4a3b6946a3a36",
+          "start_line": 13,
+          "end_line": 34,
+          "text": "\tfor _, wire := range []string{`2.0`, `2e0`, `true`, `\"2\"`, `-1`, `0`} {\n\t\tt.Run(wire, func(t *testing.T) {\n\t\t\tvalue, err := decodeJSON([]byte(wire))\n\t\t\tif err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\t_, err = capture(func() any { return positiveGiB(value, \"image size\") })\n\t\t\tif err == nil || !strings.Contains(err.Error(), \"positive integer billed GiB\") {\n\t\t\t\tt.Fatalf(\"admitted %s: %v\", wire, err)\n\t\t\t}\n\t\t})\n\t}\n\tfor _, wire := range []string{`1`, `2`, `9007199254740993`} {\n\t\tvalue, err := decodeJSON([]byte(wire))\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\t_, err = capture(func() any { return positiveGiB(value, \"image size\") })\n\t\tif err != nil {\n\t\t\tt.Fatalf(\"integer %s rejected: %v\", wire, err)\n\t\t}\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Inline JSON scalar decode and positiveGiB/capture locally distinguish lexical integers from float/exponent/bool/string/nonpositive."
+        }
+      ],
+      "connected_citation_ids": [
+        "json_decode",
+        "numeric_types",
+        "billed_gib",
+        "capture_read"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2575,
+      "root_id": "internal/ociregion/admission_security_test.go::TestJSONRejectsNestedDuplicateAndTrailingValue",
+      "path": "internal/ociregion/admission_security_test.go",
+      "original_name": "TestJSONRejectsNestedDuplicateAndTrailingValue",
+      "current_name": "TestJSONRejectsNestedDuplicateAndTrailingValue",
+      "kind": "test",
+      "original_declaration_sha256": "8aadec135b204b6ac95cdedd374dcc332999d0e329554b40d3e292be9028ef36",
+      "current_declaration_sha256": "8aadec135b204b6ac95cdedd374dcc332999d0e329554b40d3e292be9028ef36",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/ociregion/admission_security_test.go",
+        "git_blob": "00ff1e9ccd1a90de005c462f95d4a3b6946a3a36",
+        "start_line": 36,
+        "end_line": 42,
+        "text": "func TestJSONRejectsNestedDuplicateAndTrailingValue(t *testing.T) {\n\tfor _, wire := range []string{`{\"plan\":{\"id\":\"first\",\"id\":\"0000000000V4MRM46HP1SNGDYW\"}}`, `{\"valid\":true}{\"extra\":true}`} {\n\t\tif _, err := decodeJSON([]byte(wire)); err == nil {\n\t\t\tt.Fatalf(\"accepted ambiguous JSON %s\", wire)\n\t\t}\n\t}\n}",
+        "raw_declaration_sha256": "8aadec135b204b6ac95cdedd374dcc332999d0e329554b40d3e292be9028ef36",
+        "raw_declaration_bytes": 304
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/ociregion/admission_security_test.go",
+        "git_blob": "00ff1e9ccd1a90de005c462f95d4a3b6946a3a36",
+        "start_line": 36,
+        "end_line": 42,
+        "text": "func TestJSONRejectsNestedDuplicateAndTrailingValue(t *testing.T) {\n\tfor _, wire := range []string{`{\"plan\":{\"id\":\"first\",\"id\":\"0000000000V4MRM46HP1SNGDYW\"}}`, `{\"valid\":true}{\"extra\":true}`} {\n\t\tif _, err := decodeJSON([]byte(wire)); err == nil {\n\t\t\tt.Fatalf(\"accepted ambiguous JSON %s\", wire)\n\t\t}\n\t}\n}",
+        "raw_declaration_sha256": "8aadec135b204b6ac95cdedd374dcc332999d0e329554b40d3e292be9028ef36",
+        "raw_declaration_bytes": 304
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ociregion/admission_security_test.go",
+        "original_name": "TestJSONRejectsNestedDuplicateAndTrailingValue",
+        "kind": "test",
+        "original_declaration_sha256": "8aadec135b204b6ac95cdedd374dcc332999d0e329554b40d3e292be9028ef36",
+        "current_name": "TestJSONRejectsNestedDuplicateAndTrailingValue",
+        "current_declaration_sha256": "8aadec135b204b6ac95cdedd374dcc332999d0e329554b40d3e292be9028ef36",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Exact frozen identity and both raw baseline/current hashes verified; bodies byte-identical.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestJSONRejectsNestedDuplicateAndTrailingValue(t *testing.T) {\n\tfor _, wire := range []string{`{\"plan\":{\"id\":\"first\",\"id\":\"0000000000V4MRM46HP1SNGDYW\"}}`, `{\"valid\":true}{\"extra\":true}`} {\n\t\tif _, err := decodeJSON([]byte(wire)); err == nil {\n\t\t\tt.Fatalf(\"accepted ambiguous JSON %s\", wire)\n\t\t}\n\t}\n}",
+      "category": "unit",
+      "rationale": "Inline nested-duplicate/trailing JSON strings exercise local decoder rejection.",
+      "assertion_blocks": [
+        {
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "path": "internal/ociregion/admission_security_test.go",
+          "git_blob": "00ff1e9ccd1a90de005c462f95d4a3b6946a3a36",
+          "start_line": 37,
+          "end_line": 41,
+          "text": "\tfor _, wire := range []string{`{\"plan\":{\"id\":\"first\",\"id\":\"0000000000V4MRM46HP1SNGDYW\"}}`, `{\"valid\":true}{\"extra\":true}`} {\n\t\tif _, err := decodeJSON([]byte(wire)); err == nil {\n\t\t\tt.Fatalf(\"accepted ambiguous JSON %s\", wire)\n\t\t}\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Inline nested-duplicate/trailing JSON strings exercise local decoder rejection."
+        }
+      ],
+      "connected_citation_ids": [
+        "json_decode"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2576,
+      "root_id": "internal/ociregion/admission_security_test.go::TestMoneyRoundsTiesToEven",
+      "path": "internal/ociregion/admission_security_test.go",
+      "original_name": "TestMoneyRoundsTiesToEven",
+      "current_name": "TestMoneyRoundsTiesToEven",
+      "kind": "test",
+      "original_declaration_sha256": "88b052355f44c022ba139bd0879b3d44ff9447c03a142b67e060786409d9d222",
+      "current_declaration_sha256": "88b052355f44c022ba139bd0879b3d44ff9447c03a142b67e060786409d9d222",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/ociregion/admission_security_test.go",
+        "git_blob": "00ff1e9ccd1a90de005c462f95d4a3b6946a3a36",
+        "start_line": 85,
+        "end_line": 95,
+        "text": "func TestMoneyRoundsTiesToEven(t *testing.T) {\n\tfor amount, want := range map[string]string{\"0.005\": \"0.00\", \"0.015\": \"0.02\", \"1.23445\": \"1.2344\", \"1.23455\": \"1.2346\"} {\n\t\tplaces := 2\n\t\tif len(strings.Split(amount, \".\")[1]) > 3 {\n\t\t\tplaces = 4\n\t\t}\n\t\tif got := fixed(amount, places); got != want {\n\t\t\tt.Fatalf(\"round(%s)=%s want %s\", amount, got, want)\n\t\t}\n\t}\n}",
+        "raw_declaration_sha256": "88b052355f44c022ba139bd0879b3d44ff9447c03a142b67e060786409d9d222",
+        "raw_declaration_bytes": 360
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/ociregion/admission_security_test.go",
+        "git_blob": "00ff1e9ccd1a90de005c462f95d4a3b6946a3a36",
+        "start_line": 85,
+        "end_line": 95,
+        "text": "func TestMoneyRoundsTiesToEven(t *testing.T) {\n\tfor amount, want := range map[string]string{\"0.005\": \"0.00\", \"0.015\": \"0.02\", \"1.23445\": \"1.2344\", \"1.23455\": \"1.2346\"} {\n\t\tplaces := 2\n\t\tif len(strings.Split(amount, \".\")[1]) > 3 {\n\t\t\tplaces = 4\n\t\t}\n\t\tif got := fixed(amount, places); got != want {\n\t\t\tt.Fatalf(\"round(%s)=%s want %s\", amount, got, want)\n\t\t}\n\t}\n}",
+        "raw_declaration_sha256": "88b052355f44c022ba139bd0879b3d44ff9447c03a142b67e060786409d9d222",
+        "raw_declaration_bytes": 360
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ociregion/admission_security_test.go",
+        "original_name": "TestMoneyRoundsTiesToEven",
+        "kind": "test",
+        "original_declaration_sha256": "88b052355f44c022ba139bd0879b3d44ff9447c03a142b67e060786409d9d222",
+        "current_name": "TestMoneyRoundsTiesToEven",
+        "current_declaration_sha256": "88b052355f44c022ba139bd0879b3d44ff9447c03a142b67e060786409d9d222",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Exact frozen identity and both raw baseline/current hashes verified; bodies byte-identical.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestMoneyRoundsTiesToEven(t *testing.T) {\n\tfor amount, want := range map[string]string{\"0.005\": \"0.00\", \"0.015\": \"0.02\", \"1.23445\": \"1.2344\", \"1.23455\": \"1.2346\"} {\n\t\tplaces := 2\n\t\tif len(strings.Split(amount, \".\")[1]) > 3 {\n\t\t\tplaces = 4\n\t\t}\n\t\tif got := fixed(amount, places); got != want {\n\t\t\tt.Fatalf(\"round(%s)=%s want %s\", amount, got, want)\n\t\t}\n\t}\n}",
+      "category": "unit",
+      "rationale": "Inline decimal amounts exercise big.Rat local ties-to-even formatting.",
+      "assertion_blocks": [
+        {
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "path": "internal/ociregion/admission_security_test.go",
+          "git_blob": "00ff1e9ccd1a90de005c462f95d4a3b6946a3a36",
+          "start_line": 86,
+          "end_line": 94,
+          "text": "\tfor amount, want := range map[string]string{\"0.005\": \"0.00\", \"0.015\": \"0.02\", \"1.23445\": \"1.2344\", \"1.23455\": \"1.2346\"} {\n\t\tplaces := 2\n\t\tif len(strings.Split(amount, \".\")[1]) > 3 {\n\t\t\tplaces = 4\n\t\t}\n\t\tif got := fixed(amount, places); got != want {\n\t\t\tt.Fatalf(\"round(%s)=%s want %s\", amount, got, want)\n\t\t}\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Inline decimal amounts exercise big.Rat local ties-to-even formatting."
+        }
+      ],
+      "connected_citation_ids": [
+        "numeric_types",
+        "fixed_money"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2577,
+      "root_id": "internal/ociregion/admission_security_test.go::TestOCIListDoesNotTurnMalformedStorageResponseIntoEmptyInventory",
+      "path": "internal/ociregion/admission_security_test.go",
+      "original_name": "TestOCIListDoesNotTurnMalformedStorageResponseIntoEmptyInventory",
+      "current_name": "TestOCIListDoesNotTurnMalformedStorageResponseIntoEmptyInventory",
+      "kind": "test",
+      "original_declaration_sha256": "33dd65d664c5910d60809a64531370f5ea76e3a608e3c8fb219a8a3792467596",
+      "current_declaration_sha256": "33dd65d664c5910d60809a64531370f5ea76e3a608e3c8fb219a8a3792467596",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/ociregion/admission_security_test.go",
+        "git_blob": "00ff1e9ccd1a90de005c462f95d4a3b6946a3a36",
+        "start_line": 71,
+        "end_line": 84,
+        "text": "func TestOCIListDoesNotTurnMalformedStorageResponseIntoEmptyInventory(t *testing.T) {\n\tfor _, stdout := range []string{\"\", `{\"prefixes\":[\"hidden/\"]}`, `{\"data\":[],\"data\":[{\"size\":100}]}`} {\n\t\tengine := &Engine{Dependency: func(name string, args []any, kwargs Object) (any, error) {\n\t\t\tif name != \"subprocess.run\" {\n\t\t\t\treturn nil, errors.New(\"unexpected dependency\")\n\t\t\t}\n\t\t\treturn Object{\"returncode\": 0, \"stdout\": stdout}, nil\n\t\t}}\n\t\t_, err := engine.Invoke(\"oci\", []any{\"os\", \"object\", \"list\", \"--all\"}, Object{})\n\t\tif err == nil {\n\t\t\tt.Fatalf(\"accepted uncounted object storage %q\", stdout)\n\t\t}\n\t}\n}",
+        "raw_declaration_sha256": "33dd65d664c5910d60809a64531370f5ea76e3a608e3c8fb219a8a3792467596",
+        "raw_declaration_bytes": 603
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/ociregion/admission_security_test.go",
+        "git_blob": "00ff1e9ccd1a90de005c462f95d4a3b6946a3a36",
+        "start_line": 71,
+        "end_line": 84,
+        "text": "func TestOCIListDoesNotTurnMalformedStorageResponseIntoEmptyInventory(t *testing.T) {\n\tfor _, stdout := range []string{\"\", `{\"prefixes\":[\"hidden/\"]}`, `{\"data\":[],\"data\":[{\"size\":100}]}`} {\n\t\tengine := &Engine{Dependency: func(name string, args []any, kwargs Object) (any, error) {\n\t\t\tif name != \"subprocess.run\" {\n\t\t\t\treturn nil, errors.New(\"unexpected dependency\")\n\t\t\t}\n\t\t\treturn Object{\"returncode\": 0, \"stdout\": stdout}, nil\n\t\t}}\n\t\t_, err := engine.Invoke(\"oci\", []any{\"os\", \"object\", \"list\", \"--all\"}, Object{})\n\t\tif err == nil {\n\t\t\tt.Fatalf(\"accepted uncounted object storage %q\", stdout)\n\t\t}\n\t}\n}",
+        "raw_declaration_sha256": "33dd65d664c5910d60809a64531370f5ea76e3a608e3c8fb219a8a3792467596",
+        "raw_declaration_bytes": 603
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ociregion/admission_security_test.go",
+        "original_name": "TestOCIListDoesNotTurnMalformedStorageResponseIntoEmptyInventory",
+        "kind": "test",
+        "original_declaration_sha256": "33dd65d664c5910d60809a64531370f5ea76e3a608e3c8fb219a8a3792467596",
+        "current_name": "TestOCIListDoesNotTurnMalformedStorageResponseIntoEmptyInventory",
+        "current_declaration_sha256": "33dd65d664c5910d60809a64531370f5ea76e3a608e3c8fb219a8a3792467596",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Exact frozen identity and both raw baseline/current hashes verified; bodies byte-identical.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestOCIListDoesNotTurnMalformedStorageResponseIntoEmptyInventory(t *testing.T) {\n\tfor _, stdout := range []string{\"\", `{\"prefixes\":[\"hidden/\"]}`, `{\"data\":[],\"data\":[{\"size\":100}]}`} {\n\t\tengine := &Engine{Dependency: func(name string, args []any, kwargs Object) (any, error) {\n\t\t\tif name != \"subprocess.run\" {\n\t\t\t\treturn nil, errors.New(\"unexpected dependency\")\n\t\t\t}\n\t\t\treturn Object{\"returncode\": 0, \"stdout\": stdout}, nil\n\t\t}}\n\t\t_, err := engine.Invoke(\"oci\", []any{\"os\", \"object\", \"list\", \"--all\"}, Object{})\n\t\tif err == nil {\n\t\t\tt.Fatalf(\"accepted uncounted object storage %q\", stdout)\n\t\t}\n\t}\n}",
+      "category": "unit",
+      "rationale": "Actual direct Invoke bypasses Dependency(subprocess.run). Missing namespace-name/bucket-name yields local pre-I/O error, satisfying only broad err!=nil. Fabricated malformed stdout is never consumed; intended malformed-storage response rejection remains explicitly unexercised/uncredited.",
+      "assertion_blocks": [
+        {
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "path": "internal/ociregion/admission_security_test.go",
+          "git_blob": "00ff1e9ccd1a90de005c462f95d4a3b6946a3a36",
+          "start_line": 72,
+          "end_line": 83,
+          "text": "\tfor _, stdout := range []string{\"\", `{\"prefixes\":[\"hidden/\"]}`, `{\"data\":[],\"data\":[{\"size\":100}]}`} {\n\t\tengine := &Engine{Dependency: func(name string, args []any, kwargs Object) (any, error) {\n\t\t\tif name != \"subprocess.run\" {\n\t\t\t\treturn nil, errors.New(\"unexpected dependency\")\n\t\t\t}\n\t\t\treturn Object{\"returncode\": 0, \"stdout\": stdout}, nil\n\t\t}}\n\t\t_, err := engine.Invoke(\"oci\", []any{\"os\", \"object\", \"list\", \"--all\"}, Object{})\n\t\tif err == nil {\n\t\t\tt.Fatalf(\"accepted uncounted object storage %q\", stdout)\n\t\t}\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Actual direct Invoke bypasses Dependency(subprocess.run). Missing namespace-name/bucket-name yields local pre-I/O error, satisfying only broad err!=nil. Fabricated malformed stdout is never consumed; intended malformed-storage response rejection remains explicitly unexercised/uncredited."
+        }
+      ],
+      "connected_citation_ids": [
+        "invoke_oci",
+        "real_oci",
+        "dependency_process",
+        "sdk_factory",
+        "sdk_parse",
+        "sdk_bucket",
+        "sdk_list",
+        "operator_factory",
+        "factory_new",
+        "capture_read"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null,
+      "uncredited_intended_obligation": {
+        "status": "UNEXERCISED_SOURCE_VISIBLE_DISPATCH_MISMATCH",
+        "credit": false,
+        "intended_assertion": "Malformed or missing object-storage data must not become empty inventory.",
+        "evidence": "Fixture Dependency is bypassed by Invoke realOCI; missing required bucket flags cause earlier local error. Broad err!=nil cannot establish malformed-response handling.",
+        "retained": true
+      }
+    },
+    {
+      "allocation_index": 2578,
+      "root_id": "internal/ociregion/admission_security_test.go::TestPlanPrivatePrefixChecksWholeNetwork",
+      "path": "internal/ociregion/admission_security_test.go",
+      "original_name": "TestPlanPrivatePrefixChecksWholeNetwork",
+      "current_name": "TestPlanPrivatePrefixChecksWholeNetwork",
+      "kind": "test",
+      "original_declaration_sha256": "f83d929aa7325269c4a8a3993b0948da7b72b8a19ecbff939d3bfdf6605c34fb",
+      "current_declaration_sha256": "f83d929aa7325269c4a8a3993b0948da7b72b8a19ecbff939d3bfdf6605c34fb",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/ociregion/admission_security_test.go",
+        "git_blob": "00ff1e9ccd1a90de005c462f95d4a3b6946a3a36",
+        "start_line": 43,
+        "end_line": 54,
+        "text": "func TestPlanPrivatePrefixChecksWholeNetwork(t *testing.T) {\n\tfor _, cidr := range []string{\"10.0.0.0/7\", \"172.16.0.0/11\", \"192.168.0.0/15\"} {\n\t\tif privatePrefix(netip.MustParsePrefix(cidr)) {\n\t\t\tt.Fatalf(\"accepted public addresses within %s\", cidr)\n\t\t}\n\t}\n\tfor _, cidr := range []string{\"10.0.0.0/8\", \"172.16.0.0/12\", \"192.168.0.0/16\", \"192.0.2.0/24\"} {\n\t\tif !privatePrefix(netip.MustParsePrefix(cidr)) {\n\t\t\tt.Fatalf(\"rejected contract private network %s\", cidr)\n\t\t}\n\t}\n}",
+        "raw_declaration_sha256": "f83d929aa7325269c4a8a3993b0948da7b72b8a19ecbff939d3bfdf6605c34fb",
+        "raw_declaration_bytes": 472
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/ociregion/admission_security_test.go",
+        "git_blob": "00ff1e9ccd1a90de005c462f95d4a3b6946a3a36",
+        "start_line": 43,
+        "end_line": 54,
+        "text": "func TestPlanPrivatePrefixChecksWholeNetwork(t *testing.T) {\n\tfor _, cidr := range []string{\"10.0.0.0/7\", \"172.16.0.0/11\", \"192.168.0.0/15\"} {\n\t\tif privatePrefix(netip.MustParsePrefix(cidr)) {\n\t\t\tt.Fatalf(\"accepted public addresses within %s\", cidr)\n\t\t}\n\t}\n\tfor _, cidr := range []string{\"10.0.0.0/8\", \"172.16.0.0/12\", \"192.168.0.0/16\", \"192.0.2.0/24\"} {\n\t\tif !privatePrefix(netip.MustParsePrefix(cidr)) {\n\t\t\tt.Fatalf(\"rejected contract private network %s\", cidr)\n\t\t}\n\t}\n}",
+        "raw_declaration_sha256": "f83d929aa7325269c4a8a3993b0948da7b72b8a19ecbff939d3bfdf6605c34fb",
+        "raw_declaration_bytes": 472
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ociregion/admission_security_test.go",
+        "original_name": "TestPlanPrivatePrefixChecksWholeNetwork",
+        "kind": "test",
+        "original_declaration_sha256": "f83d929aa7325269c4a8a3993b0948da7b72b8a19ecbff939d3bfdf6605c34fb",
+        "current_name": "TestPlanPrivatePrefixChecksWholeNetwork",
+        "current_declaration_sha256": "f83d929aa7325269c4a8a3993b0948da7b72b8a19ecbff939d3bfdf6605c34fb",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Exact frozen identity and both raw baseline/current hashes verified; bodies byte-identical.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestPlanPrivatePrefixChecksWholeNetwork(t *testing.T) {\n\tfor _, cidr := range []string{\"10.0.0.0/7\", \"172.16.0.0/11\", \"192.168.0.0/15\"} {\n\t\tif privatePrefix(netip.MustParsePrefix(cidr)) {\n\t\t\tt.Fatalf(\"accepted public addresses within %s\", cidr)\n\t\t}\n\t}\n\tfor _, cidr := range []string{\"10.0.0.0/8\", \"172.16.0.0/12\", \"192.168.0.0/16\", \"192.0.2.0/24\"} {\n\t\tif !privatePrefix(netip.MustParsePrefix(cidr)) {\n\t\t\tt.Fatalf(\"rejected contract private network %s\", cidr)\n\t\t}\n\t}\n}",
+      "category": "unit",
+      "rationale": "Parsed synthetic CIDRs exercise local whole-network non-global boundary predicate; no actual routes or network.",
+      "assertion_blocks": [
+        {
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "path": "internal/ociregion/admission_security_test.go",
+          "git_blob": "00ff1e9ccd1a90de005c462f95d4a3b6946a3a36",
+          "start_line": 44,
+          "end_line": 53,
+          "text": "\tfor _, cidr := range []string{\"10.0.0.0/7\", \"172.16.0.0/11\", \"192.168.0.0/15\"} {\n\t\tif privatePrefix(netip.MustParsePrefix(cidr)) {\n\t\t\tt.Fatalf(\"accepted public addresses within %s\", cidr)\n\t\t}\n\t}\n\tfor _, cidr := range []string{\"10.0.0.0/8\", \"172.16.0.0/12\", \"192.168.0.0/16\", \"192.0.2.0/24\"} {\n\t\tif !privatePrefix(netip.MustParsePrefix(cidr)) {\n\t\t\tt.Fatalf(\"rejected contract private network %s\", cidr)\n\t\t}\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Parsed synthetic CIDRs exercise local whole-network non-global boundary predicate; no actual routes or network."
+        }
+      ],
+      "connected_citation_ids": [
+        "private_prefix"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2579,
+      "root_id": "internal/ociregion/admission_security_test.go::TestReadJSONRejectsSymlinkAndNonregularSource",
+      "path": "internal/ociregion/admission_security_test.go",
+      "original_name": "TestReadJSONRejectsSymlinkAndNonregularSource",
+      "current_name": "TestReadJSONRejectsSymlinkAndNonregularSource",
+      "kind": "test",
+      "original_declaration_sha256": "753e2aac9529738c68332c48f151bb616b1e906244cd4e1bd6b6ce1dcd959f08",
+      "current_declaration_sha256": "753e2aac9529738c68332c48f151bb616b1e906244cd4e1bd6b6ce1dcd959f08",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/ociregion/admission_security_test.go",
+        "git_blob": "00ff1e9ccd1a90de005c462f95d4a3b6946a3a36",
+        "start_line": 55,
+        "end_line": 70,
+        "text": "func TestReadJSONRejectsSymlinkAndNonregularSource(t *testing.T) {\n\tdirectory := t.TempDir()\n\tpath := filepath.Join(directory, \"plan.json\")\n\tif err := os.WriteFile(path, []byte(`{\"schema\":1}`), 0600); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tlink := filepath.Join(directory, \"link.json\")\n\tif err := os.Symlink(path, link); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfor _, source := range []string{link, directory} {\n\t\tif _, err := ReadJSON(source, 1024, \"plan\"); err == nil {\n\t\t\tt.Fatalf(\"read untrusted source %s\", source)\n\t\t}\n\t}\n}",
+        "raw_declaration_sha256": "753e2aac9529738c68332c48f151bb616b1e906244cd4e1bd6b6ce1dcd959f08",
+        "raw_declaration_bytes": 513
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/ociregion/admission_security_test.go",
+        "git_blob": "00ff1e9ccd1a90de005c462f95d4a3b6946a3a36",
+        "start_line": 55,
+        "end_line": 70,
+        "text": "func TestReadJSONRejectsSymlinkAndNonregularSource(t *testing.T) {\n\tdirectory := t.TempDir()\n\tpath := filepath.Join(directory, \"plan.json\")\n\tif err := os.WriteFile(path, []byte(`{\"schema\":1}`), 0600); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tlink := filepath.Join(directory, \"link.json\")\n\tif err := os.Symlink(path, link); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfor _, source := range []string{link, directory} {\n\t\tif _, err := ReadJSON(source, 1024, \"plan\"); err == nil {\n\t\t\tt.Fatalf(\"read untrusted source %s\", source)\n\t\t}\n\t}\n}",
+        "raw_declaration_sha256": "753e2aac9529738c68332c48f151bb616b1e906244cd4e1bd6b6ce1dcd959f08",
+        "raw_declaration_bytes": 513
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ociregion/admission_security_test.go",
+        "original_name": "TestReadJSONRejectsSymlinkAndNonregularSource",
+        "kind": "test",
+        "original_declaration_sha256": "753e2aac9529738c68332c48f151bb616b1e906244cd4e1bd6b6ce1dcd959f08",
+        "current_name": "TestReadJSONRejectsSymlinkAndNonregularSource",
+        "current_declaration_sha256": "753e2aac9529738c68332c48f151bb616b1e906244cd4e1bd6b6ce1dcd959f08",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Exact frozen identity and both raw baseline/current hashes verified; bodies byte-identical.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestReadJSONRejectsSymlinkAndNonregularSource(t *testing.T) {\n\tdirectory := t.TempDir()\n\tpath := filepath.Join(directory, \"plan.json\")\n\tif err := os.WriteFile(path, []byte(`{\"schema\":1}`), 0600); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tlink := filepath.Join(directory, \"link.json\")\n\tif err := os.Symlink(path, link); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfor _, source := range []string{link, directory} {\n\t\tif _, err := ReadJSON(source, 1024, \"plan\"); err == nil {\n\t\t\tt.Fatalf(\"read untrusted source %s\", source)\n\t\t}\n\t}\n}",
+      "category": "integration",
+      "rationale": "Production ReadJSON actually attempts unix.Open O_NOFOLLOW on an OS symlink and opens/stats a real directory to reject nonregular source. The regular target file is fixture setup; no successful JSON read or cloud admission is qualified.",
+      "assertion_blocks": [
+        {
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "path": "internal/ociregion/admission_security_test.go",
+          "git_blob": "00ff1e9ccd1a90de005c462f95d4a3b6946a3a36",
+          "start_line": 56,
+          "end_line": 69,
+          "text": "\tdirectory := t.TempDir()\n\tpath := filepath.Join(directory, \"plan.json\")\n\tif err := os.WriteFile(path, []byte(`{\"schema\":1}`), 0600); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tlink := filepath.Join(directory, \"link.json\")\n\tif err := os.Symlink(path, link); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfor _, source := range []string{link, directory} {\n\t\tif _, err := ReadJSON(source, 1024, \"plan\"); err == nil {\n\t\t\tt.Fatalf(\"read untrusted source %s\", source)\n\t\t}\n\t}",
+          "category": "integration",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Production ReadJSON actually attempts unix.Open O_NOFOLLOW on an OS symlink and opens/stats a real directory to reject nonregular source. The regular target file is fixture setup; no successful JSON read or cloud admission is qualified."
+        }
+      ],
+      "connected_citation_ids": [
+        "read_bytes",
+        "capture_read"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    }
+  ],
+  "connected_source_citations": [
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/usage_test.go",
+      "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+      "start_line": 19,
+      "end_line": 96,
+      "text": "const usageTenancy = \"ocid1.tenancy.oc1..t\"\n\n// fakeUsageAPI answers each query kind from its own pages and records every\n// request. Next-page tokens are page indexes.\ntype fakeUsageAPI struct {\n\tdaily, services, components, skus [][]usageapi.UsageSummary\n\tendless                           bool\n\terr                               error\n\trequests                          []usageapi.RequestSummarizedUsagesRequest\n}\n\nfunc (f *fakeUsageAPI) RequestSummarizedUsages(_ context.Context, request usageapi.RequestSummarizedUsagesRequest,\n) (usageapi.RequestSummarizedUsagesResponse, error) {\n\tf.requests = append(f.requests, request)\n\tif f.err != nil {\n\t\treturn usageapi.RequestSummarizedUsagesResponse{}, f.err\n\t}\n\tpages := f.components\n\tswitch {\n\t// The SKU query is daily too, so it is matched before the daily pages.\n\tcase slices.Equal(request.GroupBy, []string{\"skuPartNumber\"}):\n\t\tpages = f.skus\n\tcase request.Granularity == usageapi.RequestSummarizedUsagesDetailsGranularityDaily:\n\t\tpages = f.daily\n\tcase len(request.GroupBy) == 1:\n\t\tpages = f.services\n\t}\n\tindex := 0\n\tif request.Page != nil {\n\t\tindex, _ = strconv.Atoi(*request.Page)\n\t}\n\tvar response usageapi.RequestSummarizedUsagesResponse\n\tif index < len(pages) {\n\t\tresponse.Items = pages[index]\n\t}\n\tif f.endless || index+1 < len(pages) {\n\t\tresponse.OpcNextPage = common.String(strconv.Itoa(index + 1))\n\t}\n\treturn response, nil\n}\n\nfunc usageRead(api UsageAPI, now time.Time) (Report, error) {\n\treturn (&Usage{Cell: \"gru\", OCIRegion: \"sa-saopaulo-1\", TenancyID: usageTenancy, API: api}).Read(context.Background(), now)\n}\n\nfunc usageDay(dayOfMonth int) time.Time {\n\treturn time.Date(2026, 10, dayOfMonth, 0, 0, 0, 0, time.UTC)\n}\n\nvar (\n\tusageMid   = time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)\n\tusageMonth = usageDay(1)\n)\n\nfunc usageRow(day time.Time, amount float32, currency string) usageapi.UsageSummary {\n\treturn usageapi.UsageSummary{TimeUsageStarted: &common.SDKTime{Time: day},\n\t\tTimeUsageEnded: &common.SDKTime{Time: day.Add(24 * time.Hour)}, ComputedAmount: &amount,\n\t\tCurrency: common.String(currency)}\n}\n\nfunc usageServiceRow(service string, amount float32, currency string) usageapi.UsageSummary {\n\trow := usageRow(usageMonth, amount, currency)\n\trow.Service = common.String(service)\n\treturn row\n}\n\nfunc usageComponentRow(namespace *string, key, value string, amount float32) usageapi.UsageSummary {\n\trow := usageRow(usageMonth, amount, \"USD\")\n\trow.Tags = []usageapi.Tag{{Namespace: namespace, Key: common.String(key), Value: common.String(value)}}\n\treturn row\n}\n\nfunc usageSKURow(day time.Time, sku string, amount, quantity float32) usageapi.UsageSummary {\n\trow := usageRow(day, amount, \"USD\")\n\trow.SkuPartNumber = common.String(sku)\n\trow.ComputedQuantity = common.Float32(quantity)\n\treturn row\n}",
+      "id": "usage_fixture",
+      "rationale": "In-memory UsageAPI fake records requests and returns synthetic pages/rows; usageRead injects it."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/usage.go",
+      "git_blob": "cd4de1ead57871d5b0050a0d8a122ec26f8c547d",
+      "start_line": 74,
+      "end_line": 197,
+      "text": "func (u *Usage) Read(ctx context.Context, now time.Time) (Report, error) {\n\tnow = now.UTC()\n\ttoday := now.Truncate(day)\n\tthrough := today.Add(-UsageLag)\n\tmonthStart, _ := monthBounds(now)\n\tfrom := through.Add(-RateDays * day)\n\tif monthStart.Before(from) {\n\t\tfrom = monthStart\n\t}\n\tend := today.Add(day)\n\tsums := usageSums{days: map[int64]float64{}, services: map[string]float64{}, components: map[string]float64{},\n\t\tskuAmounts: map[string]float64{}, skuQuantities: map[string]float64{}}\n\n\tif err := u.each(ctx, usageapi.RequestSummarizedUsagesDetails{\n\t\tGranularity:      usageapi.RequestSummarizedUsagesDetailsGranularityDaily,\n\t\tTimeUsageStarted: &common.SDKTime{Time: from},\n\t\tTimeUsageEnded:   &common.SDKTime{Time: end},\n\t}, func(item usageapi.UsageSummary) error {\n\t\tstart, err := rowStart(item, from, end)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tamount, err := sums.amount(item)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tsums.days[start.Unix()] += amount\n\t\treturn nil\n\t}); err != nil {\n\t\treturn Report{}, err\n\t}\n\n\tif err := u.each(ctx, usageapi.RequestSummarizedUsagesDetails{\n\t\tGranularity:      usageapi.RequestSummarizedUsagesDetailsGranularityMonthly,\n\t\tTimeUsageStarted: &common.SDKTime{Time: monthStart},\n\t\tTimeUsageEnded:   &common.SDKTime{Time: end},\n\t\tGroupBy:          []string{\"service\"},\n\t}, func(item usageapi.UsageSummary) error {\n\t\tif _, err := rowStart(item, monthStart, end); err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif item.Service == nil || *item.Service == \"\" {\n\t\t\treturn errors.New(\"OCI usage row has no service\")\n\t\t}\n\t\tamount, err := sums.amount(item)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tsums.services[*item.Service] += amount\n\t\treturn nil\n\t}); err != nil {\n\t\treturn Report{}, err\n\t}\n\n\t// The API refuses a region filter together with GroupByTag, so the tag\n\t// comes back through the tag dimensions instead.\n\tif err := u.each(ctx, usageapi.RequestSummarizedUsagesDetails{\n\t\tGranularity:      usageapi.RequestSummarizedUsagesDetailsGranularityMonthly,\n\t\tTimeUsageStarted: &common.SDKTime{Time: monthStart},\n\t\tTimeUsageEnded:   &common.SDKTime{Time: end},\n\t\tGroupBy:          []string{\"tagNamespace\", \"tagKey\", \"tagValue\"},\n\t}, func(item usageapi.UsageSummary) error {\n\t\tif _, err := rowStart(item, monthStart, end); err != nil {\n\t\t\treturn err\n\t\t}\n\t\tname := componentName(item)\n\t\tif name == \"\" {\n\t\t\treturn nil\n\t\t}\n\t\tamount, err := sums.amount(item)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tsums.components[name] += amount\n\t\treturn nil\n\t}); err != nil {\n\t\treturn Report{}, err\n\t}\n\n\t// Unit prices come from the rate window only, so a SKU's price tracks what it costs now.\n\twindowStart := through.Add(-RateDays * day)\n\tif err := u.each(ctx, usageapi.RequestSummarizedUsagesDetails{\n\t\tGranularity:      usageapi.RequestSummarizedUsagesDetailsGranularityDaily,\n\t\tTimeUsageStarted: &common.SDKTime{Time: windowStart},\n\t\tTimeUsageEnded:   &common.SDKTime{Time: end},\n\t\tGroupBy:          []string{\"skuPartNumber\"},\n\t}, func(item usageapi.UsageSummary) error {\n\t\tif _, err := rowStart(item, windowStart, end); err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif item.SkuPartNumber == nil || *item.SkuPartNumber == \"\" {\n\t\t\treturn nil\n\t\t}\n\t\tamount, err := sums.amount(item)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tquantity := 0.0\n\t\tif item.ComputedQuantity != nil {\n\t\t\tquantity = float64(*item.ComputedQuantity)\n\t\t}\n\t\tif math.IsNaN(quantity) || math.IsInf(quantity, 0) || quantity < 0 {\n\t\t\treturn fmt.Errorf(\"OCI usage quantity %v is out of range\", quantity)\n\t\t}\n\t\tsums.skuAmounts[*item.SkuPartNumber] += amount\n\t\tsums.skuQuantities[*item.SkuPartNumber] += quantity\n\t\treturn nil\n\t}); err != nil {\n\t\treturn Report{}, err\n\t}\n\n\tvar days []Day\n\tfor unix, amount := range sums.days {\n\t\tdays = append(days, Day{Day: time.Unix(unix, 0).UTC(), Cents: cents(amount)})\n\t}\n\tslices.SortFunc(days, func(a, b Day) int { return a.Day.Compare(b.Day) })\n\treport := Report{Version: Version, Cell: u.Cell, OCIRegion: u.OCIRegion, Currency: sums.currency,\n\t\tObservedAt: now, Through: through, Days: days, Services: lines(sums.services),\n\t\tComponents: lines(sums.components), Prices: skuPrices(sums.skuAmounts, sums.skuQuantities)}\n\tif err := report.Validate(); err != nil {\n\t\treturn Report{}, err\n\t}\n\treturn report, nil\n}",
+      "id": "usage_reader",
+      "rationale": "Four local fake API queries and report assembly/validation."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/usage.go",
+      "git_blob": "cd4de1ead57871d5b0050a0d8a122ec26f8c547d",
+      "start_line": 199,
+      "end_line": 228,
+      "text": "// each runs one cost question for the region and visits its rows, following\n// the API's pages. The page cap stops a runaway answer.\nfunc (u *Usage) each(ctx context.Context, details usageapi.RequestSummarizedUsagesDetails, visit func(usageapi.UsageSummary) error) error {\n\tdetails.TenantId = common.String(u.TenancyID)\n\tdetails.QueryType = usageapi.RequestSummarizedUsagesDetailsQueryTypeCost\n\tdetails.Filter = &usageapi.Filter{Operator: usageapi.FilterOperatorAnd,\n\t\tDimensions: []usageapi.Dimension{{Key: common.String(\"region\"), Value: common.String(u.OCIRegion)}}}\n\tvar page *string\n\tfor range maxUsagePages {\n\t\trequestCtx := ctx\n\t\tswitch u.API.(type) {\n\t\tcase usageapi.UsageapiClient, *usageapi.UsageapiClient:\n\t\t\trequestCtx = ociclient.RequestContext(ctx)\n\t\t}\n\t\tresponse, err := u.API.RequestSummarizedUsages(requestCtx, usageapi.RequestSummarizedUsagesRequest{\n\t\t\tRequestSummarizedUsagesDetails: details, Page: page})\n\t\tif err != nil {\n\t\t\treturn fmt.Errorf(\"read OCI usage: %w\", err)\n\t\t}\n\t\tfor _, item := range response.Items {\n\t\t\tif err := visit(item); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n\t\tif page = response.OpcNextPage; page == nil {\n\t\t\treturn nil\n\t\t}\n\t}\n\treturn fmt.Errorf(\"OCI usage spans more than %d pages\", maxUsagePages)\n}",
+      "id": "usage_pages",
+      "rationale": "Fake RequestSummarizedUsages dispatch; SDK-only RequestContext branch not selected."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/usage.go",
+      "git_blob": "cd4de1ead57871d5b0050a0d8a122ec26f8c547d",
+      "start_line": 230,
+      "end_line": 268,
+      "text": "// amount returns a row's cost in currency units, zero when OCI gave none. It\n// refuses a row whose cost is absurd or whose currency breaks the report's.\nfunc (s *usageSums) amount(item usageapi.UsageSummary) (float64, error) {\n\tif item.ComputedAmount == nil {\n\t\treturn 0, nil\n\t}\n\tamount := float64(*item.ComputedAmount)\n\tif math.IsNaN(amount) || math.Abs(amount) > maxRowAmount {\n\t\treturn 0, fmt.Errorf(\"OCI usage amount %v is out of range\", amount)\n\t}\n\tcurrency := \"\"\n\tif item.Currency != nil {\n\t\tcurrency = *item.Currency\n\t}\n\tswitch {\n\tcase currency == \"\":\n\t\tif amount != 0 {\n\t\t\treturn 0, errors.New(\"OCI usage row has a cost but no currency\")\n\t\t}\n\tcase s.currency != \"\" && currency != s.currency:\n\t\treturn 0, fmt.Errorf(\"OCI usage mixes currencies %s and %s\", s.currency, currency)\n\tdefault:\n\t\ts.currency = currency\n\t}\n\treturn amount, nil\n}\n\n// rowStart returns when a row's usage begins, and refuses one that is not a\n// UTC midnight inside [from, end).\nfunc rowStart(item usageapi.UsageSummary, from, end time.Time) (time.Time, error) {\n\tif item.TimeUsageStarted == nil {\n\t\treturn time.Time{}, errors.New(\"OCI usage row has no start\")\n\t}\n\tstart := item.TimeUsageStarted.Time.UTC()\n\tif !start.Equal(start.Truncate(day)) || start.Before(from) || !start.Before(end) {\n\t\treturn time.Time{}, fmt.Errorf(\"OCI usage row for %s is not a UTC midnight in the requested days\", start.Format(time.RFC3339))\n\t}\n\treturn start, nil\n}",
+      "id": "usage_amount",
+      "rationale": "Local currency/numeric/window guards."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/usage.go",
+      "git_blob": "cd4de1ead57871d5b0050a0d8a122ec26f8c547d",
+      "start_line": 270,
+      "end_line": 314,
+      "text": "// componentName returns the component named by the row's terrascale-component\n// freeform tag, or \"\" when the row has no such tag or names an unknown one.\nfunc componentName(item usageapi.UsageSummary) string {\n\tfor _, tag := range item.Tags {\n\t\tif (tag.Namespace == nil || *tag.Namespace == \"\") && tag.Key != nil && *tag.Key == ComponentTag &&\n\t\t\ttag.Value != nil && slices.Contains(Components, *tag.Value) {\n\t\t\treturn *tag.Value\n\t\t}\n\t}\n\treturn \"\"\n}\n\n// lines turns summed amounts into lines, costliest first, then by name.\n// OCI lists free services at zero; they are left out.\nfunc lines(sums map[string]float64) []Line {\n\tvar out []Line\n\tfor name, amount := range sums {\n\t\tif amount := cents(amount); amount > 0 {\n\t\t\tout = append(out, Line{Name: name, Cents: amount})\n\t\t}\n\t}\n\tslices.SortFunc(out, func(a, b Line) int {\n\t\treturn cmp.Or(cmp.Compare(b.Cents, a.Cents), cmp.Compare(a.Name, b.Name))\n\t})\n\treturn out\n}\n\n// skuPrices divides each SKU's amount by its quantity, sorted by SKU. A SKU\n// with no quantity has no unit to price, so it is left out.\nfunc skuPrices(amounts, quantities map[string]float64) []Price {\n\tvar out []Price\n\tfor sku, quantity := range quantities {\n\t\tif quantity > 0 {\n\t\t\tout = append(out, Price{SKU: sku, PerUnit: max(amounts[sku], 0) / quantity})\n\t\t}\n\t}\n\tslices.SortFunc(out, func(a, b Price) int { return cmp.Compare(a.SKU, b.SKU) })\n\treturn out\n}\n\n// cents rounds an amount up to whole cents; credits count as zero. The\n// epsilon keeps float error from adding a cent to an exact amount.\nfunc cents(amount float64) uint64 {\n\treturn uint64(math.Ceil(max(amount, 0)*100 - 1e-6))\n}",
+      "id": "usage_lines",
+      "rationale": "Tag filtering, deterministic sorting, SKU ratios and ceil cents."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/report.go",
+      "git_blob": "f0029cc07dc5587304d5976088492270d2191e21",
+      "start_line": 17,
+      "end_line": 51,
+      "text": "\t// Version is the report's wire version.\n\tVersion = 1\n\t// UsageLag is how long OCI usage data may take to arrive: a day counts\n\t// as complete once it ended at least this long ago.\n\tUsageLag = 48 * time.Hour\n\t// RateDays is how many complete days the daily rate averages.\n\tRateDays = 7\n\t// MaxReportAge is how long a report may stand in for failed reads.\n\tMaxReportAge = 6 * time.Hour\n\n\t// ComponentTag is the freeform tag the component lines group by.\n\tComponentTag = \"terrascale-component\"\n\t// RegionTag is the freeform tag holding the resource's region.\n\tRegionTag = \"terrascale-region\"\n\n\tmaxDays  = 64\n\tmaxLines = 64\n\t// maxCents bounds an amount; more is a corrupt answer, not a bill.\n\tmaxCents     = 1 << 40\n\tmaxNameBytes = 64\n\t// maxUnitPrice bounds one SKU unit's price in currency units, as maxCents bounds an amount.\n\tmaxUnitPrice = 1e6\n\tday          = 24 * time.Hour\n)\n\n// Components are the values of ComponentTag. Cost under any other value\n// counts as untagged.\nvar Components = []string{\"controller\", \"terrabase\", \"node-pool\", \"apps\", \"network\", \"releases\", \"images\",\n\t\"disaster-recovery\", \"storage\"}\n\nvar (\n\tcellPattern     = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)\n\tcurrencyPattern = regexp.MustCompile(`^[A-Z]{3}$`)\n\t// ErrInvalidReport marks a report that fails Validate.\n\tErrInvalidReport = errors.New(\"invalid OCI cost report\")",
+      "id": "report_contract",
+      "rationale": "Constants and component/currency restrictions."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/report.go",
+      "git_blob": "f0029cc07dc5587304d5976088492270d2191e21",
+      "start_line": 95,
+      "end_line": 155,
+      "text": "// Empty reports whether OCI answered without a single day of usage.\nfunc (r Report) Empty() bool { return len(r.Days) == 0 }\n\n// Validate bounds the report and checks its order, so a reader can trust\n// any report it decodes.\nfunc (r Report) Validate() error {\n\tswitch {\n\tcase r.Version != Version:\n\t\treturn fmt.Errorf(\"%w: version %d\", ErrInvalidReport, r.Version)\n\tcase !cellPattern.MatchString(r.Cell) || r.OCIRegion == \"\" || len(r.OCIRegion) > maxNameBytes:\n\t\treturn fmt.Errorf(\"%w: cell and OCI region are required\", ErrInvalidReport)\n\tcase r.Currency != \"\" && !currencyPattern.MatchString(r.Currency):\n\t\treturn fmt.Errorf(\"%w: currency %q\", ErrInvalidReport, r.Currency)\n\tcase r.ObservedAt.IsZero() || !midnight(r.Through) || r.Through.After(r.ObservedAt):\n\t\treturn fmt.Errorf(\"%w: needs an observation time after a UTC-midnight through\", ErrInvalidReport)\n\tcase len(r.Days) > maxDays || len(r.Services) > maxLines || len(r.Components) > maxLines || len(r.Prices) > maxLines:\n\t\treturn fmt.Errorf(\"%w: more than %d days or %d lines\", ErrInvalidReport, maxDays, maxLines)\n\t}\n\tvar total uint64\n\tfor index, entry := range r.Days {\n\t\tif !midnight(entry.Day) || index > 0 && !r.Days[index-1].Day.Before(entry.Day) || entry.Cents > maxCents {\n\t\t\treturn fmt.Errorf(\"%w: days must be sorted unique UTC midnights within bounds\", ErrInvalidReport)\n\t\t}\n\t\ttotal += entry.Cents\n\t}\n\tfor _, lines := range [][]Line{r.Services, r.Components} {\n\t\tfor index, line := range lines {\n\t\t\tif line.Name == \"\" || len(line.Name) > maxNameBytes || line.Cents > maxCents ||\n\t\t\t\tslices.ContainsFunc(lines[:index], func(other Line) bool { return other.Name == line.Name }) {\n\t\t\t\treturn fmt.Errorf(\"%w: lines need unique bounded names\", ErrInvalidReport)\n\t\t\t}\n\t\t\ttotal += line.Cents\n\t\t}\n\t}\n\tfor _, line := range r.Components {\n\t\tif !slices.Contains(Components, line.Name) {\n\t\t\treturn fmt.Errorf(\"%w: unknown component %q\", ErrInvalidReport, line.Name)\n\t\t}\n\t}\n\tfor index, price := range r.Prices {\n\t\tif price.SKU == \"\" || len(price.SKU) > maxNameBytes || index > 0 && r.Prices[index-1].SKU >= price.SKU ||\n\t\t\t!(price.PerUnit >= 0 && price.PerUnit <= maxUnitPrice) {\n\t\t\treturn fmt.Errorf(\"%w: prices need sorted unique SKUs and unit prices within bounds\", ErrInvalidReport)\n\t\t}\n\t}\n\tif r.Currency == \"\" && total != 0 {\n\t\treturn fmt.Errorf(\"%w: cost without a currency\", ErrInvalidReport)\n\t}\n\treturn nil\n}\n\nfunc midnight(at time.Time) bool {\n\treturn !at.IsZero() && at.Location() == time.UTC && at.Equal(at.Truncate(day))\n}\n\n// monthBounds returns the UTC month holding at and the next month's start.\nfunc monthBounds(at time.Time) (time.Time, time.Time) {\n\tat = at.UTC()\n\tstart := time.Date(at.Year(), at.Month(), 1, 0, 0, 0, 0, time.UTC)\n\treturn start, start.AddDate(0, 1, 0)\n}",
+      "id": "report_validate",
+      "rationale": "Pure Report validation and month bounds."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/view_test.go",
+      "git_blob": "3cd7bb832149c5108b5441b54da6fd5fb68c5066",
+      "start_line": 9,
+      "end_line": 23,
+      "text": "// viewReport is October 2026 through the 9th, with October 9th partial.\nfunc viewReport() Report {\n\treport := Report{Version: Version, Cell: \"gru\", OCIRegion: \"sa-saopaulo-1\", Currency: \"USD\",\n\t\tObservedAt: time.Date(2026, 10, 10, 10, 0, 0, 0, time.UTC),\n\t\tThrough:    time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC),\n\t\tServices:   []Line{{Name: \"compute\", Cents: 500}, {Name: \"storage\", Cents: 300}},\n\t\tComponents: []Line{{Name: \"controller\", Cents: 300}, {Name: \"terrabase\", Cents: 200}}}\n\tfor day := 1; day <= 8; day++ {\n\t\treport.Days = append(report.Days, Day{Day: time.Date(2026, 10, day, 0, 0, 0, 0, time.UTC), Cents: 100})\n\t}\n\treport.Days = append(report.Days, Day{Day: time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC), Cents: 40})\n\treturn report\n}\n\nvar viewNow = time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)",
+      "id": "view_fixture",
+      "rationale": "Synthetic October report with explicit complete/partial daily costs."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/view.go",
+      "git_blob": "2bca63b6ec575dea764d171d95b658733ebb8163",
+      "start_line": 8,
+      "end_line": 58,
+      "text": "// maxViewLines bounds each list a view carries, so 20 regions' views stay\n// small in one dashboard fan-out.\nconst maxViewLines = 16\n\n// View is one region's cost as its summary carries it.\ntype View struct {\n\tCell      string `json:\"cell\"`\n\tOCIRegion string `json:\"oci_region,omitempty\"`\n\t// Missing says why the region has no report yet; Forecast and the\n\t// lines are then empty.\n\tMissing    string   `json:\"missing,omitempty\"`\n\tForecast   Forecast `json:\"forecast\"`\n\tServices   []Line   `json:\"services,omitempty\"`\n\tComponents []Line   `json:\"components,omitempty\"`\n\t// UntaggedCents is this month's cost without a component tag.\n\tUntaggedCents uint64 `json:\"untagged_cents\"`\n}\n\n// Summarize is the view of report at now: its forecast with the region's\n// autoscaled hosts.\nfunc Summarize(report Report, now time.Time, hosts []Host) View {\n\tforecast := Project(report, now, hosts)\n\tvar tagged uint64\n\tfor _, line := range report.Components {\n\t\ttagged += line.Cents\n\t}\n\treturn View{Cell: report.Cell, OCIRegion: report.OCIRegion, Forecast: forecast,\n\t\tServices:      fold(report.Services),\n\t\tComponents:    fold(report.Components),\n\t\tUntaggedCents: subtractFloor(forecast.MonthToDateCents, tagged)}\n}\n\n// fold keeps the costliest lines and merges the rest into one Other line.\nfunc fold(lines []Line) []Line {\n\tif len(lines) <= maxViewLines {\n\t\treturn slices.Clone(lines)\n\t}\n\tout := slices.Clone(lines[:maxViewLines-1])\n\tother := Line{Name: \"Other\"}\n\tfor _, line := range lines[maxViewLines-1:] {\n\t\tother.Cents += line.Cents\n\t}\n\treturn append(out, other)\n}\n\nfunc subtractFloor(a, b uint64) uint64 {\n\tif b > a {\n\t\treturn 0\n\t}\n\treturn a - b\n}",
+      "id": "summarize",
+      "rationale": "Pure Summarize/fold/subtractFloor."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/forecast.go",
+      "git_blob": "2d2383f3cc0543f2f07319f1e9b38f74d96d7435",
+      "start_line": 38,
+      "end_line": 111,
+      "text": "func Project(report Report, now time.Time, hosts []Host) Forecast {\n\tmonthStart, monthEnd := monthBounds(now)\n\tnextEnd := monthEnd.AddDate(0, 1, 0)\n\tthrough := report.Through\n\tforecast := Forecast{Currency: report.Currency, ObservedAt: report.ObservedAt, Through: through}\n\n\tfor _, entry := range report.Days {\n\t\tinMonth := !entry.Day.Before(monthStart)\n\t\tif inMonth && entry.Day.Before(monthEnd) {\n\t\t\tforecast.MonthToDateCents += entry.Cents\n\t\t}\n\t\tif inMonth && entry.Day.Before(through) {\n\t\t\tforecast.CompleteCents += entry.Cents\n\t\t}\n\t}\n\n\t// A new region averages only the days it has, so its rate is not diluted\n\t// by days before it existed.\n\tfrom := through.Add(-RateDays * day)\n\tif len(report.Days) > 0 && report.Days[0].Day.After(from) {\n\t\tfrom = report.Days[0].Day\n\t}\n\tif from.After(through) {\n\t\tfrom = through\n\t}\n\tn := int(through.Sub(from) / day)\n\tvar window uint64\n\tfor _, entry := range report.Days {\n\t\tif !entry.Day.Before(from) && entry.Day.Before(through) {\n\t\t\twindow += entry.Cents\n\t\t}\n\t}\n\tforecast.RateFrom = from\n\tforecast.AveragedDays = n\n\tif n > 0 {\n\t\tforecast.RateCents = ceilDiv(window, uint64(n))\n\t}\n\n\tvar pending uint64\n\tfor _, host := range hosts {\n\t\tdaily := ceilDiv(host.MonthlyCents*12, 365)\n\t\tif n == 0 {\n\t\t\tpending += daily\n\t\t\tcontinue\n\t\t}\n\t\tvar covered int\n\t\tswitch {\n\t\tcase !host.Created.IsZero() && !host.Created.After(from):\n\t\t\tcovered = n\n\t\tcase host.Created.IsZero() || !host.Created.Before(through):\n\t\t\tcovered = 0\n\t\tdefault:\n\t\t\tcovered = min(n, int(through.Sub(host.Created)/day))\n\t\t}\n\t\tmissed := n - covered\n\t\tpending += ceilDiv(daily*uint64(missed), uint64(n))\n\t}\n\tforecast.PendingDailyCents = pending\n\n\tstart := through\n\tif start.Before(monthStart) {\n\t\tstart = monthStart\n\t}\n\tforecast.DaysLeft = int(monthEnd.Sub(start) / day)\n\tperDay := forecast.RateCents + pending\n\tforecast.MonthEndCents = forecast.CompleteCents + perDay*uint64(forecast.DaysLeft)\n\tforecast.NextMonthCents = perDay * uint64(nextEnd.Sub(monthEnd)/day)\n\treturn forecast\n}\n\n// ceilDiv rounds up, so every division in a projection errs high.\nfunc ceilDiv(a, b uint64) uint64 {\n\treturn (a + b - 1) / b\n}",
+      "id": "project",
+      "rationale": "Local forecast arithmetic; hosts nil in assigned roots."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/json.go",
+      "git_blob": "5ca5fa8c1da435d4d8d3a42078381e81c14260cb",
+      "start_line": 12,
+      "end_line": 86,
+      "text": "// jsonFloat retains the lexical distinction between a JSON integer and a JSON\n// floating point amount. OCI billed GiB and receipt byte counts require integers.\ntype jsonFloat float64\n\nfunc decodeJSON(wire []byte) (any, error) {\n\tdecoder := jsontext.NewDecoder(bytes.NewReader(wire))\n\tvalue, err := decodeValue(decoder)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tif _, err = decoder.ReadToken(); err != io.EOF {\n\t\tif err == nil {\n\t\t\terr = fmt.Errorf(\"extra JSON value\")\n\t\t}\n\t\treturn nil, err\n\t}\n\treturn value, nil\n}\nfunc decodeValue(decoder *jsontext.Decoder) (any, error) {\n\ttoken, err := decoder.ReadToken()\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tswitch token.Kind() {\n\tcase 'n':\n\t\treturn nil, nil\n\tcase 't':\n\t\treturn true, nil\n\tcase 'f':\n\t\treturn false, nil\n\tcase '\"':\n\t\treturn token.String(), nil\n\tcase '0':\n\t\ts := token.String()\n\t\tif strings.ContainsAny(s, \".eE\") {\n\t\t\tf, err := strconv.ParseFloat(s, 64)\n\t\t\treturn jsonFloat(f), err\n\t\t}\n\t\treturn strconv.ParseInt(s, 10, 64)\n\tcase '{':\n\t\tm := Object{}\n\t\tfor decoder.PeekKind() != '}' {\n\t\t\tkey, err := decoder.ReadToken()\n\t\t\tif err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n\t\t\tif key.Kind() != '\"' {\n\t\t\t\treturn nil, fmt.Errorf(\"JSON object requires a field name\")\n\t\t\t}\n\t\t\tname := key.String()\n\t\t\tif _, ok := m[name]; ok {\n\t\t\t\treturn nil, fmt.Errorf(\"duplicate JSON field\")\n\t\t\t}\n\t\t\tvalue, err := decodeValue(decoder)\n\t\t\tif err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n\t\t\tm[name] = value\n\t\t}\n\t\t_, err := decoder.ReadToken()\n\t\treturn m, err\n\tcase '[':\n\t\ta := []any{}\n\t\tfor decoder.PeekKind() != ']' {\n\t\t\tvalue, err := decodeValue(decoder)\n\t\t\tif err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n\t\t\ta = append(a, value)\n\t\t}\n\t\t_, err := decoder.ReadToken()\n\t\treturn a, err\n\t}\n\treturn nil, fmt.Errorf(\"invalid JSON token\")\n}",
+      "id": "json_decode",
+      "rationale": "Lexical integer distinction, nested duplicate rejection and trailing value guard."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/engine.go",
+      "git_blob": "8dd7bc3ffcaf334686b5e7eaee18af875a0379ff",
+      "start_line": 153,
+      "end_line": 184,
+      "text": "func integer(v any) bool {\n\tswitch x := v.(type) {\n\tcase int, int64:\n\t\treturn true\n\tcase float64:\n\t\treturn !math.IsNaN(x) && !math.IsInf(x, 0) && math.Trunc(x) == x\n\t}\n\treturn false\n}\nfunc number(v any) float64 {\n\tif _, ok := v.(bool); ok {\n\t\tfail(\"boolean is not a number\")\n\t}\n\tf, err := strconv.ParseFloat(str(v), 64)\n\tif err != nil || math.IsNaN(f) || math.IsInf(f, 0) {\n\t\tfail(\"invalid numeric amount\")\n\t}\n\treturn f\n}\nfunc rat(v any) *big.Rat {\n\tif _, ok := v.(bool); ok {\n\t\tfail(\"boolean is not a number\")\n\t}\n\tif r, ok := v.(*big.Rat); ok {\n\t\treturn new(big.Rat).Set(r)\n\t}\n\tr, ok := new(big.Rat).SetString(str(v))\n\tif !ok {\n\t\tfail(\"invalid numeric amount\")\n\t}\n\treturn r\n}",
+      "id": "numeric_types",
+      "rationale": "Local integer/number/rational conversions."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/inventory.go",
+      "git_blob": "7367ee9b5c81e982a7cbb47ede5e5105cfce0754",
+      "start_line": 39,
+      "end_line": 44,
+      "text": "func positiveGiB(v any, label string) any {\n\tif !integer(v) || number(v) <= 0 {\n\t\tfail(label + \" must be a positive integer billed GiB amount\")\n\t}\n\treturn v\n}",
+      "id": "billed_gib",
+      "rationale": "Positive lexical integer GiB guard."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/engine.go",
+      "git_blob": "8dd7bc3ffcaf334686b5e7eaee18af875a0379ff",
+      "start_line": 224,
+      "end_line": 251,
+      "text": "func fixed(v any, n int) string {\n\tr := rat(v)\n\tscale := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(n)), nil)\n\tnum := new(big.Int).Mul(r.Num(), scale)\n\tq, rem := new(big.Int), new(big.Int)\n\tq.QuoRem(num, r.Denom(), rem)\n\ttwice := new(big.Int).Mul(new(big.Int).Abs(rem), big.NewInt(2))\n\tcmp := twice.Cmp(r.Denom())\n\tif cmp > 0 || (cmp == 0 && q.Bit(0) == 1) {\n\t\tif r.Sign() < 0 {\n\t\t\tq.Sub(q, big.NewInt(1))\n\t\t} else {\n\t\t\tq.Add(q, big.NewInt(1))\n\t\t}\n\t}\n\tnegative := q.Sign() < 0\n\ts := new(big.Int).Abs(q).String()\n\tfor len(s) <= n {\n\t\ts = \"0\" + s\n\t}\n\tif n > 0 {\n\t\ts = s[:len(s)-n] + \".\" + s[len(s)-n:]\n\t}\n\tif negative {\n\t\ts = \"-\" + s\n\t}\n\treturn s\n}",
+      "id": "fixed_money",
+      "rationale": "Local rational ties-to-even rounding."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/plan.go",
+      "git_blob": "a7896c337b702a06b3c36ea900f4feada11c0512",
+      "start_line": 47,
+      "end_line": 70,
+      "text": "func privateAddr(a netip.Addr) bool {\n\tprivate := []string{\"0.0.0.0/8\", \"10.0.0.0/8\", \"127.0.0.0/8\", \"169.254.0.0/16\", \"172.16.0.0/12\", \"192.0.0.0/24\", \"192.0.0.170/31\", \"192.0.2.0/24\", \"192.168.0.0/16\", \"198.18.0.0/15\", \"198.51.100.0/24\", \"203.0.113.0/24\", \"240.0.0.0/4\", \"255.255.255.255/32\"}\n\tif a == netip.MustParseAddr(\"192.0.0.9\") || a == netip.MustParseAddr(\"192.0.0.10\") {\n\t\treturn false\n\t}\n\tfor _, cidr := range private {\n\t\tif netip.MustParsePrefix(cidr).Contains(a) {\n\t\t\treturn true\n\t\t}\n\t}\n\treturn false\n}\nfunc privatePrefix(p netip.Prefix) bool {\n\t// Inventory plans accept non-global IPv4 space; private peer intents require\n\t// RFC1918. Check both boundary addresses, as in the original contract.\n\tif !p.IsValid() || !p.Addr().Is4() || p != p.Masked() {\n\t\treturn false\n\t}\n\tlast := p.Addr().As4()\n\tfor bit := p.Bits(); bit < 32; bit++ {\n\t\tlast[bit/8] |= 1 << uint(7-bit%8)\n\t}\n\treturn privateAddr(p.Addr()) && privateAddr(netip.AddrFrom4(last))\n}",
+      "id": "private_prefix",
+      "rationale": "Local non-global range and both boundary-address checks."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/engine.go",
+      "git_blob": "8dd7bc3ffcaf334686b5e7eaee18af875a0379ff",
+      "start_line": 343,
+      "end_line": 377,
+      "text": "func readBytes(path string, limit int, label string) []byte {\n\tfd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)\n\tif err != nil {\n\t\tfail(label + \" is unreadable or invalid JSON\")\n\t}\n\tf := os.NewFile(uintptr(fd), path)\n\tdefer f.Close()\n\tst, err := f.Stat()\n\tif err != nil {\n\t\tfail(label + \" is unreadable or invalid JSON\")\n\t}\n\tif !st.Mode().IsRegular() || st.Size() <= 0 || st.Size() > int64(limit) {\n\t\tfail(label + \" has invalid size or is not a regular file\")\n\t}\n\twire := must(io.ReadAll(io.LimitReader(f, int64(limit+1))))\n\tif len(wire) == 0 || len(wire) > limit {\n\t\tfail(label + \" has invalid size\")\n\t}\n\treturn wire\n}\nfunc readJSON(path string, limit int, label string) Object {\n\twire := readBytes(path, limit, label)\n\tv, err := decodeJSON(wire)\n\tif err != nil {\n\t\tif strings.Contains(err.Error(), \"duplicate\") {\n\t\t\tfail(\"JSON document has duplicate fields\")\n\t\t}\n\t\tfail(label + \" is unreadable or invalid JSON\")\n\t}\n\tm, ok := v.(map[string]any)\n\tif !ok {\n\t\tfail(label + \" must be an object\")\n\t}\n\treturn m\n}",
+      "id": "read_bytes",
+      "rationale": "Actual unix.Open O_NOFOLLOW, f.Stat regular-file/size guards, bounded read and JSON object decode."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/engine.go",
+      "git_blob": "8dd7bc3ffcaf334686b5e7eaee18af875a0379ff",
+      "start_line": 479,
+      "end_line": 493,
+      "text": "func capture[T any](fn func() T) (v T, err error) {\n\tdefer func() {\n\t\tif r := recover(); r != nil {\n\t\t\tif e, ok := r.(error); ok {\n\t\t\t\terr = e\n\t\t\t} else {\n\t\t\t\terr = fmt.Errorf(\"%v\", r)\n\t\t\t}\n\t\t}\n\t}()\n\treturn fn(), nil\n}\nfunc ReadJSON(path string, limit int, label string) (Object, error) {\n\treturn capture(func() Object { return readJSON(path, limit, label) })\n}",
+      "id": "capture_read",
+      "rationale": "Panic-to-error wrapper and public ReadJSON."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/invoke.go",
+      "git_blob": "9b08b61cffade31fb59428a206b2df4cae1ae5ec",
+      "start_line": 78,
+      "end_line": 113,
+      "text": "func (e *Engine) Invoke(name string, args []any, kwargs Object) (any, error) {\n\treturn capture(func() any { return e.invoke(name, args, kwargs) })\n}\nfunc (e *Engine) invoke(name string, args []any, kw Object) any {\n\targ := func(i int) any {\n\t\tif i < len(args) {\n\t\t\treturn args[i]\n\t\t}\n\t\treturn nil\n\t}\n\toption := func(i int, key string, fallback any) any {\n\t\tif i < len(args) {\n\t\t\treturn args[i]\n\t\t}\n\t\tif v, ok := kw[key]; ok {\n\t\t\treturn v\n\t\t}\n\t\treturn fallback\n\t}\n\tnow := e.now()\n\tif t, ok := option(3, \"now\", nil).(time.Time); ok {\n\t\tnow = t\n\t}\n\tswitch name {\n\tcase \"main\":\n\t\te.run(e.Argv[1:])\n\t\treturn nil\n\tcase \"load_plan\":\n\t\tpath := pathValue(option(0, \"path\", Path(e.PlanPath)))\n\t\treturn e.loadPlan(path)\n\tcase \"require_ocid\":\n\t\treturn requireOCID(arg(0), str(arg(1)), text(option(2, \"region\", \"\")))\n\tcase \"oci\":\n\t\treturn e.realOCI(args, kw)\n\tcase \"checked_tool\":\n\t\treturn e.realChecked(args)",
+      "id": "invoke_oci",
+      "rationale": "Invoke directly dispatches oci to realOCI; test Dependency bypassed."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/engine.go",
+      "git_blob": "8dd7bc3ffcaf334686b5e7eaee18af875a0379ff",
+      "start_line": 450,
+      "end_line": 473,
+      "text": "func (e *Engine) realOCI(args []any, kwargs Object) any {\n\twords := make([]string, len(args))\n\tfor i, x := range args {\n\t\twords[i] = str(x)\n\t}\n\tregion := text(kwargs[\"region\"])\n\tclient, err := sdkcli.ForRegion(region)\n\tif err != nil {\n\t\tfail(fmt.Sprintf(\"OCI read cannot be served in-binary for region %q: %v\", region, err))\n\t}\n\tctx, cancel := context.WithTimeout(e.ctx(), ociReadTimeout)\n\tdefer cancel()\n\tdata, _, err := client.Call(ctx, words)\n\tif err != nil {\n\t\tif ctxErr := ctx.Err(); ctxErr != nil {\n\t\t\tpanic(ctxErr)\n\t\t}\n\t\tfail(err.Error())\n\t}\n\tv, err := decodeJSON(data)\n\tif err != nil {\n\t\tfail(\"invalid OCI response for \" + strings.Join(words[:min(3, len(words))], \" \"))\n\t}\n\treturn v",
+      "id": "real_oci",
+      "rationale": "Uses SDK client; fabricated subprocess stdout never consumed."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/engine.go",
+      "git_blob": "8dd7bc3ffcaf334686b5e7eaee18af875a0379ff",
+      "start_line": 392,
+      "end_line": 418,
+      "text": "func (e *Engine) call(name string, args []any, kwargs Object) any {\n\tif e.Dependency != nil && (name == \"oci\" || name == \"checked_tool\" || name == \"subprocess.run\" || name == \"cloudflare_origin_ips\" || e.Overrides[name]) {\n\t\tv, err := e.Dependency(name, args, kwargs)\n\t\tif err != nil {\n\t\t\tpanic(err)\n\t\t}\n\t\treturn v\n\t}\n\treturn e.invoke(name, args, kwargs)\n}\nfunc (e *Engine) oci(region string, args ...string) any {\n\ta := make([]any, len(args))\n\tfor i, x := range args {\n\t\ta[i] = x\n\t}\n\tkw := Object{}\n\tif region != \"\" {\n\t\tkw[\"region\"] = region\n\t}\n\treturn e.call(\"oci\", a, kw)\n}\nfunc (e *Engine) process(command []string) Object {\n\targs := []any{arr(command)}\n\tkw := Object{\"capture_output\": true, \"text\": true, \"timeout\": 180, \"check\": false}\n\tif e.Dependency != nil {\n\t\treturn obj(e.call(\"subprocess.run\", args, kw))\n\t}",
+      "id": "dependency_process",
+      "rationale": "Dependency only affects call/process path, not direct Invoke realOCI path."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/sdkcli/sdkcli.go",
+      "git_blob": "6be643ba22b25c2b7a2332b2ac55c0698f551702",
+      "start_line": 160,
+      "end_line": 214,
+      "text": "var (\n\tclientsMu sync.Mutex\n\tclients   = map[string]*Client{}\n)\n\n// ForRegion returns the shared client for region. An empty region selects\n// the bootstrap region, which serves the tenancy-global IAM reads the CLI\n// sent to the profile's default region.\nfunc ForRegion(region string) (*Client, error) {\n\tif region == \"\" {\n\t\tregion = catalog.OCIRegion(catalog.Bootstrap)\n\t}\n\tclientsMu.Lock()\n\tdefer clientsMu.Unlock()\n\tif client := clients[region]; client != nil {\n\t\treturn client, nil\n\t}\n\tfactory, err := ociclient.OperatorConfig(region)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tclient := NewClient(factory, \"\")\n\tclients[region] = client\n\treturn client, nil\n}\n\n// Call serves one CLI command and returns the CLI \"data\" document as JSON.\n// handled is false, with ErrUnsupported, when the command is not served.\nfunc (c *Client) Call(ctx context.Context, args []string) (data jsontext.Value, handled bool, err error) {\n\tcommand, err := Parse(args)\n\tif err != nil {\n\t\treturn nil, false, err\n\t}\n\tif _, ok := command.Flags[\"output\"]; ok {\n\t\treturn nil, false, errors.New(\"OCI --output is fixed to json\")\n\t}\n\tif _, ok := command.Flags[\"region\"]; ok {\n\t\treturn nil, false, errors.New(\"OCI --region is selected by the caller\")\n\t}\n\thandler, ok := handlers[command.Path]\n\tif !ok {\n\t\treturn nil, false, fmt.Errorf(\"%w: %s\", ErrUnsupported, command.Path)\n\t}\n\tvalue, err := handler(ociclient.RequestContext(ctx), c, command)\n\tif err != nil {\n\t\treturn nil, true, fmt.Errorf(\"OCI read failed: %s: %w\", command.Path, err)\n\t}\n\tif unused := command.unused(); len(unused) > 0 {\n\t\t// The read ignored a flag, so its result may be wider than asked\n\t\t// for. Report the command as unsupported rather than answer it.\n\t\treturn nil, false, fmt.Errorf(\"%w: %s with --%s\", ErrUnsupported, command.Path, strings.Join(unused, \", --\"))\n\t}\n\tdata, err = Render(value)\n\treturn data, true, err\n}",
+      "id": "sdk_factory",
+      "rationale": "Region factory and command dispatch; no actual ListObjects because missing flags."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/sdkcli/sdkcli.go",
+      "git_blob": "6be643ba22b25c2b7a2332b2ac55c0698f551702",
+      "start_line": 46,
+      "end_line": 101,
+      "text": "func Parse(args []string) (Command, error) {\n\tcommand := Command{Flags: map[string]string{}, used: map[string]bool{}}\n\tvar path []string\n\tfor i := 0; i < len(args); i++ {\n\t\targ := args[i]\n\t\tif !strings.HasPrefix(arg, \"--\") {\n\t\t\tif len(command.Flags) > 0 || command.All {\n\t\t\t\treturn Command{}, fmt.Errorf(\"positional OCI argument %q follows a flag\", arg)\n\t\t\t}\n\t\t\tpath = append(path, arg)\n\t\t\tcontinue\n\t\t}\n\t\tname := strings.TrimPrefix(arg, \"--\")\n\t\tif name == \"all\" {\n\t\t\tcommand.All = true\n\t\t\tcontinue\n\t\t}\n\t\tif i+1 >= len(args) || strings.HasPrefix(args[i+1], \"--\") {\n\t\t\treturn Command{}, fmt.Errorf(\"OCI flag --%s has no value\", name)\n\t\t}\n\t\tif _, repeated := command.Flags[name]; repeated {\n\t\t\treturn Command{}, fmt.Errorf(\"OCI flag --%s is repeated\", name)\n\t\t}\n\t\tcommand.Flags[name] = args[i+1]\n\t\ti++\n\t}\n\tcommand.Path = strings.Join(path, \" \")\n\treturn command, nil\n}\n\n// value returns a flag's value, or \"\", and records that it was read.\nfunc (c Command) value(name string) string {\n\tif c.used != nil {\n\t\tc.used[name] = true\n\t}\n\treturn c.Flags[name]\n}\n\n// unused lists the flags no handler read, in sorted order.\nfunc (c Command) unused() []string {\n\tvar names []string\n\tfor name := range c.Flags {\n\t\tif !c.used[name] {\n\t\t\tnames = append(names, name)\n\t\t}\n\t}\n\tslices.Sort(names)\n\treturn names\n}\n\nfunc (c Command) flag(name string) (string, error) {\n\tvalue := c.value(name)\n\tif value == \"\" {\n\t\treturn \"\", fmt.Errorf(\"OCI %s requires --%s\", c.Path, name)\n\t}\n\treturn value, nil",
+      "id": "sdk_parse",
+      "rationale": "Local command parse and required flag error."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/sdkcli/handlers.go",
+      "git_blob": "96f545bdee15c154c71d34ef8c8877bb31b110fb",
+      "start_line": 610,
+      "end_line": 617,
+      "text": "func bucketFlags(command Command) (string, string, error) {\n\tnamespace, err := command.flag(\"namespace-name\")\n\tif err != nil {\n\t\treturn \"\", \"\", err\n\t}\n\tbucket, err := command.flag(\"bucket-name\")\n\treturn namespace, bucket, err\n}",
+      "id": "sdk_bucket",
+      "rationale": "Missing namespace-name rejected before bucket/client/network."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/sdkcli/handlers.go",
+      "git_blob": "96f545bdee15c154c71d34ef8c8877bb31b110fb",
+      "start_line": 648,
+      "end_line": 664,
+      "text": "func osObjectList(ctx context.Context, c *Client, command Command) (any, error) {\n\tnamespace, bucket, err := bucketFlags(command)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tclient, err := c.objects()\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn pages(command.All, func(start *string) ([]objectstorage.ObjectSummary, *string, error) {\n\t\tresponse, err := client.ListObjects(ctx, objectstorage.ListObjectsRequest{NamespaceName: &namespace,\n\t\t\tBucketName: &bucket, Fields: command.optional(\"fields\"), Start: start})\n\t\tif err == nil && response.Objects == nil {\n\t\t\treturn nil, nil, fmt.Errorf(\"OCI object list lacks objects\")\n\t\t}\n\t\treturn response.Objects, response.NextStartWith, err\n\t})",
+      "id": "sdk_list",
+      "rationale": "Required bucket flags gate SDK ListObjects; target malformed response branch unreachable here."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociclient/factory.go",
+      "git_blob": "e8e99e02456a27a832cf3038587bcc65745a1958",
+      "start_line": 244,
+      "end_line": 248,
+      "text": "// OperatorConfig returns a factory over the operator's ~/.oci/config DEFAULT\n// profile, the same credentials the retired Python CLI used.\nfunc OperatorConfig(region string) (*Factory, error) {\n\treturn New(common.DefaultConfigProvider(), Options{Region: region})\n}",
+      "id": "operator_factory",
+      "rationale": "Operator default provider construction; incidental to pre-I/O guard."
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociclient/factory.go",
+      "git_blob": "e8e99e02456a27a832cf3038587bcc65745a1958",
+      "start_line": 119,
+      "end_line": 136,
+      "text": "\t\treturn nil, errors.New(\"OCI client factory requires a configuration provider\")\n\t}\n\tif !catalog.IsOCIRegion(options.Region) {\n\t\treturn nil, fmt.Errorf(\"OCI client factory region %q is not in the region catalog\", options.Region)\n\t}\n\tlimits := make(map[Service]Limit, len(DefaultLimits))\n\tfor service, limit := range DefaultLimits {\n\t\tlimits[service] = limit\n\t}\n\tfor service, limit := range options.Limits {\n\t\tif limit.PerSecond <= 0 || limit.Burst < 1 {\n\t\t\treturn nil, fmt.Errorf(\"OCI client limit for %s must be positive\", service)\n\t\t}\n\t\tlimits[service] = limit\n\t}\n\treturn &Factory{provider: provider, region: options.Region, limits: limits,\n\t\tpolicy: RetryPolicy(options.Retry), limiters: map[Service]*rate.Limiter{}}, nil\n}",
+      "id": "factory_new",
+      "rationale": "Factory stores configuration provider and local limiter settings; no API call."
+    }
+  ],
+  "source_pins": {
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ocicost/usage_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/usage_test.go",
+      "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+      "mode": "100644",
+      "sha256": "cb6286e82c53c8abf4d9e739dde4226ba7e32937fa334e6e09e023d63b9a2b8a",
+      "bytes": 14074
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ocicost/usage.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/usage.go",
+      "git_blob": "cd4de1ead57871d5b0050a0d8a122ec26f8c547d",
+      "mode": "100644",
+      "sha256": "4f6552329c27080bde518320468f7959627349276d51f87a8a41d5e419aa6378",
+      "bytes": 10508
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ocicost/report.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/report.go",
+      "git_blob": "f0029cc07dc5587304d5976088492270d2191e21",
+      "mode": "100644",
+      "sha256": "74b18558c2f94c69c66b395cf9b568ac947e1f478ed559952771dd2d56093581",
+      "bytes": 6002
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ocicost/view_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/view_test.go",
+      "git_blob": "3cd7bb832149c5108b5441b54da6fd5fb68c5066",
+      "mode": "100644",
+      "sha256": "6322527247168055c38950bf07868f413ab89ed68483e10688c977fd8e7ff992",
+      "bytes": 2697
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ocicost/view.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/view.go",
+      "git_blob": "2bca63b6ec575dea764d171d95b658733ebb8163",
+      "mode": "100644",
+      "sha256": "d2e7c3cc99e314c8c6225b365a5cd5aae2bf705bbdb2a9f2e7ce178f9dd4028f",
+      "bytes": 1692
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ocicost/forecast.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/forecast.go",
+      "git_blob": "2d2383f3cc0543f2f07319f1e9b38f74d96d7435",
+      "mode": "100644",
+      "sha256": "e51fb0bf1adf12b5cd5909846b6ba74b32e217d2fe990fef3a44ee6a99547239",
+      "bytes": 3604
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/json.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/json.go",
+      "git_blob": "5ca5fa8c1da435d4d8d3a42078381e81c14260cb",
+      "mode": "100644",
+      "sha256": "0e099fd6379f9116e301681b8558a377294ef9daebf16513888faaf325621a81",
+      "bytes": 1843
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/engine.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/engine.go",
+      "git_blob": "8dd7bc3ffcaf334686b5e7eaee18af875a0379ff",
+      "mode": "100644",
+      "sha256": "9cd15d7ce740442e8b1ea676762f5180b3fa55b5e1d406f70beba8b7effc7867",
+      "bytes": 12011
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/inventory.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/inventory.go",
+      "git_blob": "7367ee9b5c81e982a7cbb47ede5e5105cfce0754",
+      "mode": "100644",
+      "sha256": "ced6224359f6af73262d37a746e5db2d8dc12301b4a18387e787892b46a89549",
+      "bytes": 26219
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/plan.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/plan.go",
+      "git_blob": "a7896c337b702a06b3c36ea900f4feada11c0512",
+      "mode": "100644",
+      "sha256": "73149c82c1e6e1363f0bce913c7420d5f1c5e78063dcdb75e1b1e219eaae51cf",
+      "bytes": 25081
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/invoke.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/invoke.go",
+      "git_blob": "9b08b61cffade31fb59428a206b2df4cae1ae5ec",
+      "mode": "100644",
+      "sha256": "7fb17431d48e3928a07bdcc88f78ad920baad42456964307f6f3bc16b17800c2",
+      "bytes": 6834
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/sdkcli/sdkcli.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/sdkcli/sdkcli.go",
+      "git_blob": "6be643ba22b25c2b7a2332b2ac55c0698f551702",
+      "mode": "100644",
+      "sha256": "d9fdb2a5519b2daa4787889a81b83f40cb3cae875ff8436c01d80cc499b93968",
+      "bytes": 10704
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/sdkcli/handlers.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/sdkcli/handlers.go",
+      "git_blob": "96f545bdee15c154c71d34ef8c8877bb31b110fb",
+      "mode": "100644",
+      "sha256": "afd5ce167c2c6d187775db6be0b55af8c09ae5c8c5089d60c14e5487dd854b2e",
+      "bytes": 28185
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociclient/factory.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociclient/factory.go",
+      "git_blob": "e8e99e02456a27a832cf3038587bcc65745a1958",
+      "mode": "100644",
+      "sha256": "7949bd617658a10ec293cf0fab2a1eedd2dad1b1d74f746bb382ac2f5986f209",
+      "bytes": 24633
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/ocicost/usage_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/ocicost/usage_test.go",
+      "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+      "mode": "100644",
+      "sha256": "cb6286e82c53c8abf4d9e739dde4226ba7e32937fa334e6e09e023d63b9a2b8a",
+      "bytes": 14074
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/ocicost/view_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/ocicost/view_test.go",
+      "git_blob": "3cd7bb832149c5108b5441b54da6fd5fb68c5066",
+      "mode": "100644",
+      "sha256": "6322527247168055c38950bf07868f413ab89ed68483e10688c977fd8e7ff992",
+      "bytes": 2697
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/ociregion/admission_security_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/ociregion/admission_security_test.go",
+      "git_blob": "00ff1e9ccd1a90de005c462f95d4a3b6946a3a36",
+      "mode": "100644",
+      "sha256": "3faa4afbdc0b640b8f0a9f188b6cdfcc8642428e6a19dfaf6b1973dcdd4d7f8d",
+      "bytes": 3114
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/admission_security_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/admission_security_test.go",
+      "git_blob": "00ff1e9ccd1a90de005c462f95d4a3b6946a3a36",
+      "mode": "100644",
+      "sha256": "3faa4afbdc0b640b8f0a9f188b6cdfcc8642428e6a19dfaf6b1973dcdd4d7f8d",
+      "bytes": 3114
+    }
+  },
+  "findings": [
+    {
+      "root_indices": [
+        2577
+      ],
+      "finding": "Invoke(oci) directly calls SDK realOCI, bypassing test subprocess Dependency; missing namespace-name/bucket-name rejects before SDK request. Broad err!=nil has only narrow unit guard evidence. Intended malformed stdout handling never occurs and remains explicitly uncredited/retained."
+    },
+    {
+      "root_indices": [
+        2579
+      ],
+      "finding": "Actual symlink O_NOFOLLOW and directory Stat guards materially support target rejection; regular JSON file is setup only. No successful JSON read/parse permission/durability or OCI evidence."
+    },
+    {
+      "root_indices": [
+        2560,
+        2561,
+        2562,
+        2563,
+        2564,
+        2565,
+        2566,
+        2567,
+        2568,
+        2569,
+        2570,
+        2571,
+        2572,
+        2573
+      ],
+      "finding": "UsageAPI fake and synthetic report summaries provide only local request/data/forecast arithmetic; no OCI SDK network, cost store, or real report acquisition."
+    }
+  ],
+  "method": [
+    "All20full roots and actual connected production/fixture paths manually read.",
+    "Exact literal allocation/accounting and original frozen maps; raw declaration func through column-zero } excludes following LF.",
+    "All20baseline/current bodies byte-identical and match survival; full-file Git blob/mode/SHA256/bytes pinned.",
+    "Metadata-only serialization/hash over explicit manually reviewed bounds; no source parser/scanner/framework/helper execution."
+  ],
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE; runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No test/compiler/pass/fail claim.",
+    "Root2577 malformed-response obligation explicitly uncredited; no external OCI/process execution inferred.",
+    "No repo/source/ledger/count/deletion/retirement/qualification/completion promotion; all safety obligations retained.",
+    "Independent peer review required."
+  ],
+  "accounting_effect": "NONE; retirement_authorized false, all obligations retained."
+}

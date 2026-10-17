@@ -1,0 +1,164 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2240_2260",
+  "author": "/root/classification_100_dispatch/batch_2260_2280",
+  "accepted": true,
+  "decision": "ACCEPT_SOURCE_ONLY_CANDIDATE_WITH_RETAINED_UNRESOLVED_ROOTS_AND_BLOCKED_ASSERTIONS",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-final3660-3680-corrected-s162al8j/classification.json",
+    "sha256": "c22ecde2c1af9b413ab4c3b03760d13d6c482f02d72db3b14848cb2d2ccdceb3"
+  },
+  "accepted_checksum": {
+    "path": "/tmp/ts-source-final3660-3680-corrected-s162al8j/SHA256SUMS",
+    "sha256": "3e59218440aa30e43c56d4f96076ffb34ccb9d5a6ed12f5979fab8030e6d11c3"
+  },
+  "reviewer_own_frozen_packet": {
+    "path": "/tmp/ts-source-3640-3660-r2w7_29n/classification.json",
+    "sha256": "6a920d1f54e8dd8be71937e992a872512296e3d605603563786b476add864a98",
+    "freeze_preceded_peer_review": true
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      3660,
+      3680
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2240_2260"
+  },
+  "input_pins": {
+    "survival": {
+      "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+      "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+    },
+    "protocol": {
+      "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/PEER-PROTOCOL.md",
+      "sha256": "b1cbcb7a96a344363f5ba924a0e76fc418553607209733945892796508db7765"
+    }
+  },
+  "root_ids": [
+    "tests/deploy/build_offline_test.go::TestOfflineTimesyncSectionsAndMaskPrecedence",
+    "tests/deploy/build_offline_test.go::TestOfflineValidatesRevisionAndKernelReleaseBeforeEffects",
+    "tests/deploy/build_offline_test.go::TestOfflineVerifiedInputsInstalled",
+    "tests/deploy/guestfish_listen_test.go::TestNativeListenerObservation",
+    "tests/deploy/guestfish_listen_test.go::TestOfflineListenerChild",
+    "tests/deploy/guestfish_listen_test.go::TestOfflineListenerCommand",
+    "tests/deploy/guestfish_listen_test.go::TestOfflineListenerFailureRetainsDaemonStderr",
+    "tests/deploy/guestfish_listen_test.go::TestOfflinePersistentChildStderrDoesNotHoldLaunchOpen",
+    "tests/deploy/helpers_test.go::TestDeployTool",
+    "tests/deploy/image_inputs_test.go::TestImageInputsAcceptPublishingRun",
+    "tests/deploy/image_inputs_test.go::TestImageInputsCheckedInManifest",
+    "tests/deploy/image_inputs_test.go::TestImageInputsPinOnlyRewritesTerrabase",
+    "tests/deploy/image_inputs_test.go::TestImageInputsPinPreservesExistingBaseAssetOrder",
+    "tests/deploy/image_inputs_test.go::TestImageInputsRejectFailedOrMismatchedRunWithoutMutation",
+    "tests/deploy/image_inputs_test.go::TestImageInputsRejectMissingVerifierPin",
+    "tests/deploy/image_inputs_test.go::TestImageInputsRejectNonCanonicalFormatting",
+    "tests/deploy/image_inputs_test.go::TestImageInputsRequireCheckedInPins",
+    "tests/deploy/image_inputs_test.go::TestImageInputsRequireOneArm64ServerArtifact",
+    "tests/deploy/image_inputs_test.go::TestImageInputsVerifyArchivedVerifier",
+    "tests/deploy/netbird_client_test.go::TestGRUNetbirdInputNamesEveryCellSlotStably"
+  ],
+  "counts": {
+    "integration": 9,
+    "unit": 0,
+    "mixed": 0,
+    "unresolved": 11,
+    "total": 20
+  },
+  "checks_performed": [
+    "Independently manually read all20 complete literal canonical roots and actual connected fixture/helper/OS subprocess/production CLI/manifest/guest-listener source. No source parser or project execution.",
+    "Verified exact original allocation/accounting slice, exclusion disjointness and20 literal survival mappings;40 baseline/current complete raw declarations and SHA256;21 whole-file Git blob/mode/SHA256/byte pins;301 span occurrences covering64 unique exact assertion/callee/blocked spans.",
+    "Confirmed revision/kernel parser validates before ELF. Confirmed parent listener tests re-exec actual observation and stand-in guestfish processes: persistent inherited stderr is a real file, failure path reads retained stderr and /proc state through production NewGuest/Kind/Call/Close. No real libguestfs appliance qualification.",
+    "Confirmed offline plain-text orchestrator ELF blocker prevents first expected-success assertions and all later image readback, including the later independent shell-text predicate. No unit credit for unreachable predicate.",
+    "Confirmed LoadInputs manifest trust-root containment gate precedes qualification/check/archive dispatch. Null/empty verifier keys and noncanonical formatting fail before containment gate and support their exact diagnostics. Other negative roots support only earlier exact process exit/no-mutation assertions; wrong-cause named validations remain uncredited.",
+    "Confirmed GRU config lacks required setup_key_secret_id and PeerNames. First error Fatal prevents all stable slot naming assertions. Four conditional helper roots remain unresolved without duplicate parent integration accounting.",
+    "Checked fresh corrected packet contains only requested complete-callee bounds updates across27 citations; categories/findings/identities unchanged and prior packet bytes preserved. All final checksums and immutable0444/0555 modes passed."
+  ],
+  "resolved_findings": [
+    {
+      "id": "absent-helper-complete-bound",
+      "detail": "Named connected helpers_test.go20-59 omitted absent closing brace60. Fresh final uses20-60 with exact complete text."
+    },
+    {
+      "id": "archive-callee-complete-start",
+      "detail": "Named client.go59-96 began inside Pin.Archive; fresh final uses57-96 including declaration and switch start."
+    }
+  ],
+  "remaining_findings": [
+    {
+      "kind": "source_contradiction",
+      "detail": "newOffline318 writes plain text \"mock verified binary\". OfflineBuild404 calls binaryArchitecture/elf.Open and returns error406 before image effects; first successful() fails and all later image/readback predicates remain unresolved/uncredited.",
+      "root_ids": [
+        "tests/deploy/build_offline_test.go::TestOfflineTimesyncSectionsAndMaskPrecedence",
+        "tests/deploy/build_offline_test.go::TestOfflineVerifiedInputsInstalled"
+      ]
+    },
+    {
+      "kind": "source_contradiction",
+      "detail": "Checked-in image-inputs.json trust_roots[0].path is internal/trust/bootstrap-root-002.pem, a regular Git file. LoadInputs249-263 restricts every entry to deploy/image/inputs and rejects this first trust root before check/pin/archive dispatch. Intended deeper assertions remain unresolved/uncredited.",
+      "root_ids": [
+        "tests/deploy/image_inputs_test.go::TestImageInputsAcceptPublishingRun",
+        "tests/deploy/image_inputs_test.go::TestImageInputsCheckedInManifest",
+        "tests/deploy/image_inputs_test.go::TestImageInputsPinOnlyRewritesTerrabase",
+        "tests/deploy/image_inputs_test.go::TestImageInputsPinPreservesExistingBaseAssetOrder",
+        "tests/deploy/image_inputs_test.go::TestImageInputsRejectFailedOrMismatchedRunWithoutMutation",
+        "tests/deploy/image_inputs_test.go::TestImageInputsRequireCheckedInPins",
+        "tests/deploy/image_inputs_test.go::TestImageInputsRequireOneArm64ServerArtifact",
+        "tests/deploy/image_inputs_test.go::TestImageInputsVerifyArchivedVerifier"
+      ]
+    },
+    {
+      "kind": "helper_accounting_unresolved",
+      "detail": "Conditional re-exec helper returns without its selected process arguments/environment in ordinary invocation. Parent roots own process observations; absent an established child/helper accounting rule this helper remains unresolved and receives no duplicated integration credit.",
+      "root_ids": [
+        "tests/deploy/guestfish_listen_test.go::TestNativeListenerObservation",
+        "tests/deploy/guestfish_listen_test.go::TestOfflineListenerChild",
+        "tests/deploy/guestfish_listen_test.go::TestOfflineListenerCommand",
+        "tests/deploy/helpers_test.go::TestDeployTool"
+      ]
+    },
+    {
+      "kind": "source_contradiction",
+      "detail": "GRU enrollment config lacks required setup secret and name map; Fatal379 blocks naming assertions.",
+      "root_ids": [
+        "tests/deploy/netbird_client_test.go::TestGRUNetbirdInputNamesEveryCellSlotStably"
+      ]
+    }
+  ],
+  "corrections_requested": [],
+  "prior_reviewed_packet": {
+    "path": "/tmp/ts-source-final3660-3680-sizorofq/classification.json",
+    "sha256": "ef8bdeb31d6e71f109a7adce8347aa1da87b7ae5678c992de8b354bd215856b4",
+    "accepted": false,
+    "reason": "Superseded by fresh corrected complete-callee spans."
+  },
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no runtime receipts reviewed, no tests/helpers executed.",
+    "Candidate source categories only; no ledger/count/deletion/retirement/qualification/global-completion credit.",
+    "Offline ELF gate prevents all intended image assembly/readback. qcow2/guestfish/systemctl/sysusers/release fixture responses are stand-ins; ownership metadata is synthetic JSON.",
+    "Listener parents establish narrow actual subprocess/inherited-stderr/temp-file behavior; no guestfish appliance or image-content qualification.",
+    "Wrong-cause negative exits do not qualify failed Fast/head, archive verifier, replacement digest or artifact cardinality when manifest admission short-circuits them.",
+    "No real vendor fetch, production service, signing/trust validation, OCI/Vault or TerraBase execution qualification.",
+    "All original safety/negative/error/data identity obligations retained, including blocked assertions."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "count_promotion": false,
+    "deletion_credit": false,
+    "global_completion": false
+  },
+  "execution": {
+    "go_tests_helpers_scanners_parsers_formatters_probes_cloud_signing_crypto_downloads": false,
+    "ordinary_read_only_git_file_hash_inspection": true,
+    "metadata_only_packaging_over_explicit_manually_reviewed_spans": true
+  }
+}

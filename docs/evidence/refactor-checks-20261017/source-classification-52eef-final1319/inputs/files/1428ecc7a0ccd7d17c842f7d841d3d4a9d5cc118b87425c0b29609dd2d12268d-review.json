@@ -1,0 +1,330 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_900_920",
+  "author": "/root/classification_100_dispatch/batch_920_940",
+  "range": [
+    3120,
+    3140
+  ],
+  "accepted_packet": {
+    "path": "/tmp/ts-source-3120-3140-candidate-_o_jlu5q/classification.json",
+    "sha256": "7cd1e1eb557ba32b94f9e90d090b8c4cabeb4d712e6bd143abf0b5e82ec92992",
+    "checksum_path": "/tmp/ts-source-3120-3140-candidate-_o_jlu5q/SHA256SUMS",
+    "checksum_sha256": "a8d990a6b28d41c064c77ba93602d1eee1241bc9dcdeee561c7c6004c46f32f7"
+  },
+  "decision": "ACCEPT_EXACT_HASH_SOURCE_ONLY",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      3120,
+      3140
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_900_920"
+  },
+  "root_ids": [
+    "internal/release/sequence_integration_test.go::TestSequenceSignerHTTPDurableMigrationAndConcurrentProducers",
+    "internal/release/source_tree_test.go::TestSourceTreeDigestIgnoresLocalGitSettings",
+    "internal/release/update_delegation_test.go::TestBinaryUpdateDelegationServices",
+    "internal/release/update_delegation_test.go::TestBinaryUpdateReceiptHistoricalOutlivesExpiryNotScope",
+    "internal/release/update_delegation_test.go::TestBinaryUpdateReceiptIsBoundToExactDelegation",
+    "internal/release/update_delegation_test.go::TestBinaryUpdateReceiptRefusesANearlyExpiredDelegation",
+    "internal/release/update_delegation_test.go::TestBinaryUpdateReceiptRejectsOutOfScopeConsumers",
+    "internal/release/update_delegation_test.go::TestBinaryUpdateReceiptSignsAnyQualifiedDescendantInScope",
+    "internal/release/update_delegation_test.go::TestBinaryUpdateSigningEnforcesScopeLineageAndKey",
+    "internal/release/update_delegation_test.go::TestVerifyReleaseDelegationCurrent",
+    "internal/releasechannel/channel_test.go::TestAwaitFollowsTheRegionStatus",
+    "internal/releasechannel/channel_test.go::TestAwaitKeepsDeadlineAndCancellationReasons",
+    "internal/releasechannel/channel_test.go::TestBucketNameIsTheRegionHeadBucket",
+    "internal/releasechannel/channel_test.go::TestChannelVerifiesEveryArchitectureForItsCell",
+    "internal/releasechannel/channel_test.go::TestChannelVerifyRefusesTampering",
+    "internal/releasechannel/channel_test.go::TestClipKeepsOneBoundedLine",
+    "internal/releasechannel/channel_test.go::TestPublishMovesTheChannelOnlyForward",
+    "internal/releasechannel/channel_test.go::TestReleasePinValidationAndStatusBounds",
+    "internal/releasechannel/channel_test.go::TestStatusReadClassifiesInvalidTelemetry",
+    "internal/releasechannel/function_integration_test.go::TestFunctionChannelRejectsOversizedSourceAndCrossNamespaceModules"
+  ],
+  "counts": {
+    "integration": 2,
+    "unit": 17,
+    "mixed": 1,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 full pinned current roots and actual fixtures/production paths before acceptance.",
+    "Verified immutable file/directory modes, packet and checksum hashes, allocation and all input pins.",
+    "Verified literal survival mapping, both raw declarations including exact bounds/text/hash, canonical file mode/blob/SHA256/bytes and every complete assertion/callee span.",
+    "Verified SDK loopback HTTP versus map-backed fakeBucket and fakeLineage topology; production Git subprocess/archive path; incidental evidence file setup; local crypto and predicate limits.",
+    "All20 source categories independently agree. No runtime execution or production qualification inferred."
+  ],
+  "metadata_check": {
+    "root_count": 20,
+    "source_pin_count": 30,
+    "exact_span_count": 61,
+    "status": "PASS_METADATA_ONLY"
+  },
+  "roots": [
+    {
+      "literal_original_index": 3120,
+      "root_id": "internal/release/sequence_integration_test.go::TestSequenceSignerHTTPDurableMigrationAndConcurrentProducers",
+      "category": "mixed",
+      "baseline_current_bounds": [
+        31,
+        263
+      ],
+      "original_declaration_sha256": "95cc8863fb6c5dc2d6e5187f1bf58f37f1f14866480fc8c7328a8e08e54c27f8",
+      "current_declaration_sha256": "95cc8863fb6c5dc2d6e5187f1bf58f37f1f14866480fc8c7328a8e08e54c27f8",
+      "checks": "independent complete root/called-boundary reading; exact survival identity, declaration bytes/bounds/hashes, assertion text, pins and category verified"
+    },
+    {
+      "literal_original_index": 3121,
+      "root_id": "internal/release/source_tree_test.go::TestSourceTreeDigestIgnoresLocalGitSettings",
+      "category": "integration",
+      "baseline_current_bounds": [
+        13,
+        86
+      ],
+      "original_declaration_sha256": "e821aa37e6ec7b84d85d20ccf37c7bbef3a1910f522cd821070b50fecf00205a",
+      "current_declaration_sha256": "e821aa37e6ec7b84d85d20ccf37c7bbef3a1910f522cd821070b50fecf00205a",
+      "checks": "independent complete root/called-boundary reading; exact survival identity, declaration bytes/bounds/hashes, assertion text, pins and category verified"
+    },
+    {
+      "literal_original_index": 3122,
+      "root_id": "internal/release/update_delegation_test.go::TestBinaryUpdateDelegationServices",
+      "category": "unit",
+      "baseline_current_bounds": [
+        239,
+        268
+      ],
+      "original_declaration_sha256": "56ff2bf62762ac5364edf220bc7333cab9f2413363f927f41c0192ba9f2268eb",
+      "current_declaration_sha256": "56ff2bf62762ac5364edf220bc7333cab9f2413363f927f41c0192ba9f2268eb",
+      "checks": "independent complete root/called-boundary reading; exact survival identity, declaration bytes/bounds/hashes, assertion text, pins and category verified"
+    },
+    {
+      "literal_original_index": 3123,
+      "root_id": "internal/release/update_delegation_test.go::TestBinaryUpdateReceiptHistoricalOutlivesExpiryNotScope",
+      "category": "unit",
+      "baseline_current_bounds": [
+        161,
+        198
+      ],
+      "original_declaration_sha256": "f2dd783d7b550076552659a195c006fd375a6eddc287fc368838196e99bab7ac",
+      "current_declaration_sha256": "f2dd783d7b550076552659a195c006fd375a6eddc287fc368838196e99bab7ac",
+      "checks": "independent complete root/called-boundary reading; exact survival identity, declaration bytes/bounds/hashes, assertion text, pins and category verified"
+    },
+    {
+      "literal_original_index": 3124,
+      "root_id": "internal/release/update_delegation_test.go::TestBinaryUpdateReceiptIsBoundToExactDelegation",
+      "category": "unit",
+      "baseline_current_bounds": [
+        286,
+        312
+      ],
+      "original_declaration_sha256": "248c56ecc944852e7caa85d67e0ff5ef0050189688c611a4cb76e9c844fa7fb0",
+      "current_declaration_sha256": "248c56ecc944852e7caa85d67e0ff5ef0050189688c611a4cb76e9c844fa7fb0",
+      "checks": "independent complete root/called-boundary reading; exact survival identity, declaration bytes/bounds/hashes, assertion text, pins and category verified"
+    },
+    {
+      "literal_original_index": 3125,
+      "root_id": "internal/release/update_delegation_test.go::TestBinaryUpdateReceiptRefusesANearlyExpiredDelegation",
+      "category": "unit",
+      "baseline_current_bounds": [
+        314,
+        325
+      ],
+      "original_declaration_sha256": "e939335e4007b09861c9249c2b25c50fb14318fd440dde5d83bf950645375780",
+      "current_declaration_sha256": "e939335e4007b09861c9249c2b25c50fb14318fd440dde5d83bf950645375780",
+      "checks": "independent complete root/called-boundary reading; exact survival identity, declaration bytes/bounds/hashes, assertion text, pins and category verified"
+    },
+    {
+      "literal_original_index": 3126,
+      "root_id": "internal/release/update_delegation_test.go::TestBinaryUpdateReceiptRejectsOutOfScopeConsumers",
+      "category": "unit",
+      "baseline_current_bounds": [
+        139,
+        159
+      ],
+      "original_declaration_sha256": "b0721b4ba708b5ff5af2911783b9ade035115cd6e329e04289e1e8aa3e2ca3c3",
+      "current_declaration_sha256": "b0721b4ba708b5ff5af2911783b9ade035115cd6e329e04289e1e8aa3e2ca3c3",
+      "checks": "independent complete root/called-boundary reading; exact survival identity, declaration bytes/bounds/hashes, assertion text, pins and category verified"
+    },
+    {
+      "literal_original_index": 3127,
+      "root_id": "internal/release/update_delegation_test.go::TestBinaryUpdateReceiptSignsAnyQualifiedDescendantInScope",
+      "category": "unit",
+      "baseline_current_bounds": [
+        102,
+        137
+      ],
+      "original_declaration_sha256": "31748dbff651a799508464578fb732633c97042176501f9c735fbea115f89769",
+      "current_declaration_sha256": "31748dbff651a799508464578fb732633c97042176501f9c735fbea115f89769",
+      "checks": "independent complete root/called-boundary reading; exact survival identity, declaration bytes/bounds/hashes, assertion text, pins and category verified"
+    },
+    {
+      "literal_original_index": 3128,
+      "root_id": "internal/release/update_delegation_test.go::TestBinaryUpdateSigningEnforcesScopeLineageAndKey",
+      "category": "unit",
+      "baseline_current_bounds": [
+        200,
+        237
+      ],
+      "original_declaration_sha256": "64c3db0aef871d90806d83da01106ada72dca8a94cf3ea3b0c2266a4bcdec8c8",
+      "current_declaration_sha256": "64c3db0aef871d90806d83da01106ada72dca8a94cf3ea3b0c2266a4bcdec8c8",
+      "checks": "independent complete root/called-boundary reading; exact survival identity, declaration bytes/bounds/hashes, assertion text, pins and category verified"
+    },
+    {
+      "literal_original_index": 3129,
+      "root_id": "internal/release/update_delegation_test.go::TestVerifyReleaseDelegationCurrent",
+      "category": "unit",
+      "baseline_current_bounds": [
+        270,
+        284
+      ],
+      "original_declaration_sha256": "11672cf2064f3dfff84be53912874f1b191c1ce4aee6540337a90b1f4fc4bb8d",
+      "current_declaration_sha256": "11672cf2064f3dfff84be53912874f1b191c1ce4aee6540337a90b1f4fc4bb8d",
+      "checks": "independent complete root/called-boundary reading; exact survival identity, declaration bytes/bounds/hashes, assertion text, pins and category verified"
+    },
+    {
+      "literal_original_index": 3130,
+      "root_id": "internal/releasechannel/channel_test.go::TestAwaitFollowsTheRegionStatus",
+      "category": "unit",
+      "baseline_current_bounds": [
+        438,
+        496
+      ],
+      "original_declaration_sha256": "f6c4cf062ce5f346ad9fea73e9c1a906d828687dacfa80badf8fb93e7b58a0f0",
+      "current_declaration_sha256": "f6c4cf062ce5f346ad9fea73e9c1a906d828687dacfa80badf8fb93e7b58a0f0",
+      "checks": "independent complete root/called-boundary reading; exact survival identity, declaration bytes/bounds/hashes, assertion text, pins and category verified"
+    },
+    {
+      "literal_original_index": 3131,
+      "root_id": "internal/releasechannel/channel_test.go::TestAwaitKeepsDeadlineAndCancellationReasons",
+      "category": "unit",
+      "baseline_current_bounds": [
+        498,
+        520
+      ],
+      "original_declaration_sha256": "3ae982cee6720ff51847d5b5ab038f4413bd4709e0441994effe3998672624b5",
+      "current_declaration_sha256": "3ae982cee6720ff51847d5b5ab038f4413bd4709e0441994effe3998672624b5",
+      "checks": "independent complete root/called-boundary reading; exact survival identity, declaration bytes/bounds/hashes, assertion text, pins and category verified"
+    },
+    {
+      "literal_original_index": 3132,
+      "root_id": "internal/releasechannel/channel_test.go::TestBucketNameIsTheRegionHeadBucket",
+      "category": "unit",
+      "baseline_current_bounds": [
+        533,
+        540
+      ],
+      "original_declaration_sha256": "b825ec8968ce29dd09aa708d530be936ce9531228f38869f3698d9faf95417fa",
+      "current_declaration_sha256": "b825ec8968ce29dd09aa708d530be936ce9531228f38869f3698d9faf95417fa",
+      "checks": "independent complete root/called-boundary reading; exact survival identity, declaration bytes/bounds/hashes, assertion text, pins and category verified"
+    },
+    {
+      "literal_original_index": 3133,
+      "root_id": "internal/releasechannel/channel_test.go::TestChannelVerifiesEveryArchitectureForItsCell",
+      "category": "unit",
+      "baseline_current_bounds": [
+        197,
+        221
+      ],
+      "original_declaration_sha256": "580acf4d956a07d8c8c4c144714c6df86000e93f01e01f7b1ad72b95ad010cc1",
+      "current_declaration_sha256": "580acf4d956a07d8c8c4c144714c6df86000e93f01e01f7b1ad72b95ad010cc1",
+      "checks": "independent complete root/called-boundary reading; exact survival identity, declaration bytes/bounds/hashes, assertion text, pins and category verified"
+    },
+    {
+      "literal_original_index": 3134,
+      "root_id": "internal/releasechannel/channel_test.go::TestChannelVerifyRefusesTampering",
+      "category": "unit",
+      "baseline_current_bounds": [
+        223,
+        290
+      ],
+      "original_declaration_sha256": "8f678b0e051486ed9193a5f2b49d777acb711ba385cea04073f5ad0cc7540a0b",
+      "current_declaration_sha256": "8f678b0e051486ed9193a5f2b49d777acb711ba385cea04073f5ad0cc7540a0b",
+      "checks": "independent complete root/called-boundary reading; exact survival identity, declaration bytes/bounds/hashes, assertion text, pins and category verified"
+    },
+    {
+      "literal_original_index": 3135,
+      "root_id": "internal/releasechannel/channel_test.go::TestClipKeepsOneBoundedLine",
+      "category": "unit",
+      "baseline_current_bounds": [
+        542,
+        550
+      ],
+      "original_declaration_sha256": "3e8f089937b22e099be0a51fc925fc0811917c02af57cc18c59018e83603fb27",
+      "current_declaration_sha256": "3e8f089937b22e099be0a51fc925fc0811917c02af57cc18c59018e83603fb27",
+      "checks": "independent complete root/called-boundary reading; exact survival identity, declaration bytes/bounds/hashes, assertion text, pins and category verified"
+    },
+    {
+      "literal_original_index": 3136,
+      "root_id": "internal/releasechannel/channel_test.go::TestPublishMovesTheChannelOnlyForward",
+      "category": "unit",
+      "baseline_current_bounds": [
+        370,
+        436
+      ],
+      "original_declaration_sha256": "4c55347db25c99ed0ad068646256839c9672121ac28f7bce09fe1c37310a8fa5",
+      "current_declaration_sha256": "4c55347db25c99ed0ad068646256839c9672121ac28f7bce09fe1c37310a8fa5",
+      "checks": "independent complete root/called-boundary reading; exact survival identity, declaration bytes/bounds/hashes, assertion text, pins and category verified"
+    },
+    {
+      "literal_original_index": 3137,
+      "root_id": "internal/releasechannel/channel_test.go::TestReleasePinValidationAndStatusBounds",
+      "category": "unit",
+      "baseline_current_bounds": [
+        552,
+        582
+      ],
+      "original_declaration_sha256": "40edee3a0f4b7bda0bf1990560cd600638fcaadc1b820b56e957f45c9967dc15",
+      "current_declaration_sha256": "40edee3a0f4b7bda0bf1990560cd600638fcaadc1b820b56e957f45c9967dc15",
+      "checks": "independent complete root/called-boundary reading; exact survival identity, declaration bytes/bounds/hashes, assertion text, pins and category verified"
+    },
+    {
+      "literal_original_index": 3138,
+      "root_id": "internal/releasechannel/channel_test.go::TestStatusReadClassifiesInvalidTelemetry",
+      "category": "unit",
+      "baseline_current_bounds": [
+        584,
+        610
+      ],
+      "original_declaration_sha256": "9ef67658c1f6fb028dd64c44689cdd20cf0ca9fd1543e533fc06213c51d8bab5",
+      "current_declaration_sha256": "9ef67658c1f6fb028dd64c44689cdd20cf0ca9fd1543e533fc06213c51d8bab5",
+      "checks": "independent complete root/called-boundary reading; exact survival identity, declaration bytes/bounds/hashes, assertion text, pins and category verified"
+    },
+    {
+      "literal_original_index": 3139,
+      "root_id": "internal/releasechannel/function_integration_test.go::TestFunctionChannelRejectsOversizedSourceAndCrossNamespaceModules",
+      "category": "integration",
+      "baseline_current_bounds": [
+        149,
+        183
+      ],
+      "original_declaration_sha256": "213a87b41e78a1feac129fb37ce3060abecf0d3a7964d34cc66d8cc7044aadbe",
+      "current_declaration_sha256": "213a87b41e78a1feac129fb37ce3060abecf0d3a7964d34cc66d8cc7044aadbe",
+      "checks": "independent complete root/called-boundary reading; exact survival identity, declaration bytes/bounds/hashes, assertion text, pins and category verified"
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [
+    {
+      "id": "L1",
+      "status": "retained_attribution_limit_accepted",
+      "detail": "Final expired-import error after unsigned stored-head corruption does not isolate current expiry rejection. Author explicitly retains this assertion without expiry-specific credit; root mixed category remains supported by earlier HTTP/CAS/filesystem boundary plus independent local blocks."
+    }
+  ],
+  "additional_findings": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "ledger_mutated": false,
+    "count_promotion": false,
+    "deletion_authorized": false,
+    "retirement_authorized": false,
+    "qualification_delta": 0
+  }
+}

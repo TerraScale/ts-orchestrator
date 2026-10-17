@@ -1,0 +1,264 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2320_2340",
+  "author": "/root/classification_100_dispatch/batch_2340_2360",
+  "accepted": true,
+  "accepted_packet": {
+    "path": "/tmp/ts-source-3740-3760-adjudicated-vn7qnf1f/classification.json",
+    "sha256": "789376b0f48d55eb12b0ed3eea68d9bb9d9969d7e1d1a43f6b5ed57c0921b883"
+  },
+  "accepted_checksums": {
+    "path": "/tmp/ts-source-3740-3760-adjudicated-vn7qnf1f/SHA256SUMS",
+    "sha256": "e3a6b7c3f7916681629ab7dd55be9d827797eaf7bf16de635bec04fd37fd6aa8"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      3740,
+      3760
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2320_2340"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "range": [
+    3740,
+    3760
+  ],
+  "root_ids": [
+    "tests/firecracker/natsdiag_test.go::TestDiagnosticFormationStatusesAndReplicaReadiness",
+    "tests/firecracker/natsdiag_test.go::TestDiagnosticForwardMapKeepsPrivateEndpointIdentity",
+    "tests/firecracker/natsdiag_test.go::TestDiagnosticMarshalsReplicatedClusterMetadata",
+    "tests/firecracker/natsdiag_test.go::TestDiagnosticReadsLiveReplicatedCluster",
+    "tests/firecracker/natsdiag_test.go::TestDiagnosticSnapshotServerIDsAreUniqueByMember",
+    "tests/firecracker/natsdiag_test.go::TestDiagnosticTopologyUsesControllerSlotAndRouteOrder",
+    "tests/firecracker/natsdiag_test.go::TestDiagnosticUsesAuthenticatedReplyInboxes",
+    "tests/firecracker/natsdiag_test.go::TestReadPathTargetsAndBoundedErrors",
+    "tests/firecracker/natsdiag_test.go::TestSessionProbeUsesJWTOverProductionTLSFirstBridge",
+    "tests/firecracker/production/fixturegen/capture_inventory_test.go::TestCapturedInventoryUsesAnchorDomainAndExactKeys",
+    "tests/firecracker/production/fixturegen/capture_test.go::TestCaptureBoundsDistinctExpectedMissingKeys",
+    "tests/firecracker/production/fixturegen/capture_test.go::TestCapturePreservesExactKeyBytesAndCAS",
+    "tests/firecracker/production/fixturegen/cmd/main_test.go::TestRejectKeyInsideMaterialIncludingSymlinkAlias",
+    "tests/firecracker/production/fixturegen/complete_packet_integration_test.go::TestCompletedPacketEmitsSignedThreeSlotCaptureAndVerifiedFloors",
+    "tests/firecracker/production/fixturegen/complete_packet_integration_test.go::TestGuestMaterialRejectsMalformedOrIncompleteTrustRoot",
+    "tests/firecracker/production/fixturegen/complete_packet_test.go::TestCompletedPacketRequiresSeedAndManagedSlotRoles",
+    "tests/firecracker/production/fixturegen/image_binding_test.go::TestPacketImageReceiptBindsExecutableAndImage",
+    "tests/firecracker/production/fixturegen/offline_packet_test.go::TestEmitOfflineProductionPacket",
+    "tests/firecracker/production/fixturegen/offline_packet_test.go::TestOfflineIssuerRejectsChangedBuildIdentity",
+    "tests/firecracker/production/fixturegen/packet_test.go::TestEmitPacketDerivesExactBinaryAndSignsOnce"
+  ],
+  "counts": {
+    "integration": 4,
+    "unit": 11,
+    "mixed": 1,
+    "unresolved": 4,
+    "total": 20
+  },
+  "checks_performed": [
+    "Independently read all20 full current roots, changed baseline declarations, and reached actual fixture/production paths; manually adjudicated local versus filesystem/process/protocol targets.",
+    "Verified all20 literal allocation/survival mappings and raw baseline/current declarations, explicit bounds/text/hashes, renamed expanded3753 identity and retained original obligations.",
+    "Verified all43 canonical source-file blob/mode/SHA256/byte pins, all supplied assertion/callee spans/text, input hashes, immutable file0444/directory0555 modes, classification checksum and SHA256SUMS hash.",
+    "Confirmed embedded NATS internal clients use InProcessServer and diagnostic sessions use TLS-first loopback bridge. Map-backed capture supplies no OCI/durability evidence.",
+    "Four unresolved roots and masked/contradictory assertion tails remain uncredited. No runtime receipt reviewed or execution performed."
+  ],
+  "resolved_review_findings": [
+    {
+      "id": "P1",
+      "root_index": 3749,
+      "resolution": "Controller-slice alias masks duplicate-instance/private-prefix checks; fresh packet explicitly retains both uncredited, with unit supported by earlier local route/scope blocks."
+    },
+    {
+      "id": "P2",
+      "root_index": 3745,
+      "resolution": "Root unresolved: first positive target assertion expects canonical names but callee concatenates broker IDs; fatal blocks negative route target. No independent supported earlier target."
+    },
+    {
+      "id": "P3",
+      "root_index": 3747,
+      "resolution": "Earlier target/deadline blocks support unit; contradictory final opaque error-ID comparison remains uncredited."
+    }
+  ],
+  "remaining_review_findings": [],
+  "retained_source_limits": [
+    {
+      "root_indices": [
+        3743,
+        3746
+      ],
+      "limit": "Direct removed Config.Lab literals and non-TLS/seed-only setup block intended live diagnostic assertions; unresolved."
+    },
+    {
+      "root_index": 3745,
+      "limit": "First member-name target contradicts callee; later negative route target blocked; unresolved."
+    },
+    {
+      "root_index": 3757,
+      "limit": "Qualification-gated external offline issuer has no established conditional-helper accounting rule; dispatcher confirmed unresolved."
+    },
+    {
+      "root_indices": [
+        3747,
+        3749,
+        3754
+      ],
+      "limit": "Contradictory readPathError tail, aliased inventory late guards, and multiple-root check masked by absent input Configs/IMDS remain explicitly uncredited."
+    }
+  ],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no Go/build/tests/project helpers/scanners/parsers/cloud/signing/crypto/VM/TerraBase executed.",
+    "natsdiag_test.go build-ignore file has direct removed Config.Lab literals at38 and651. Those roots unresolved; other source categories retain shared explicit-file compilation limitation, no runtime pass claim.",
+    "Session internal embedded NATS client uses InProcessServer; external diagnostic uses TLS-first loopback TCP bridge. go.mod136 vendors upstream NATS server; nats.go and OCI SDK external internals not fully reviewed.",
+    "CapturingObjectStorage is a map-backed fake. Public ledger signing/replay on that fake is not OCI durability evidence. Actual completed-packet filesystem publication/readback and SDK loopback HTTP are credited only within their own scope.",
+    "No actual guest/VM/image/runtime/live OCI/production/TerraBase behavior credited. Conditional offline issuer original-root rule absent; no parent process assertions transferred.",
+    "Malformed keyring root omits Configs/IMDS and is rejected by early completeness guard; intended keyring identity coverage uncredited.",
+    "Renamed expanded controller-c root retains original ID/obligations. All safety obligations retained; no ledger/count/retirement/deletion/runtime/completion credit.",
+    "capture_inventory_test.go130-131 aliases controllers and changes controllers[0].Slot. wrongInstance135-136 copies this already-invalid slot; calls137 and151 both fail capture_inventory.go38-40 before duplicate-instance43-45 or outside-prefix61-62 validation. Intended duplicate-instance and private-prefix coverage is masked/uncredited; unit category retained.",
+    "natsdiag_test.go395-398 expects gru-1-ctl-1/2/3 and localMember gru-1-ctl-2, but natsdiag.go110/139 constructs gru-controller-a/b/c and gru-controller-b. Positive topology assertion contradicts source and t.Fatalf blocks later loopback-route rejection400-402. Both intended member-name/localMember match and later route guard remain uncredited.",
+    "natsdiag_test.go372-374 compares readPathError(errors.New(\"private-host-payload\")) with exact literal 0000000000V4MRM46HP1SNGDYW; natsdiag.go1081-1082 returns \"other\". This final assertion contradicts source and remains uncredited; earlier local target/deadline assertions retain unit category."
+  ],
+  "supplemental_manually_read_spans": [
+    {
+      "path": "tests/firecracker/production/fixturegen/verified_production_guest.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "8884048b4599893fdcb7db32337f7e1ddef45ce8",
+      "line": 165,
+      "end_line": 200,
+      "text": "\t\t\tcase strings.HasPrefix(file.GuestPath, serviceSecretsGuestDir+\"/\"):\n\t\t\t\tmaterial[strings.TrimPrefix(file.GuestPath, serviceSecretsGuestDir+\"/\")] = file.Body\n\t\t\tcase file.GuestPath == guestNetworkPath || file.GuestPath == guestTimesyncPath ||\n\t\t\t\tfile.GuestPath == guestHostsPath || file.GuestPath == guestCloudDisabledPath ||\n\t\t\t\tfile.GuestPath == guestSSHConfigPath:\n\t\t\t\tnetwork[controller.Slot][file.GuestPath] = file.Body\n\t\t\t}\n\t\t}\n\t\tvar marker bootstrapstart.AcceptedInstall\n\t\tif len(markerWire) == 0 || protocol.DecodeStrict(markerWire, &marker, 1<<20) != nil {\n\t\t\treturn fmt.Errorf(\"controller %q has no canonical restart marker\", controller.Slot)\n\t\t}\n\t\tcanonical, err := protocol.EncodeJSON(marker)\n\t\tif err != nil || !bytes.Equal(canonical, markerWire) ||\n\t\t\tmarker.Slot != controller.Slot || marker.InstanceOCID != controller.InstanceOCID ||\n\t\t\tmarker.BinarySHA256 != packet.manifest.Binary.SHA256 ||\n\t\t\tlen(marker.MaterialSHA256) != len(material) {\n\t\t\treturn fmt.Errorf(\"controller %q restart marker differs from signed packet\", controller.Slot)\n\t\t}\n\t\tfor name, body := range material {\n\t\t\tdigest := sha256.Sum256(body)\n\t\t\tif marker.MaterialSHA256[name] != hex.EncodeToString(digest[:]) {\n\t\t\t\treturn fmt.Errorf(\"controller %q credential %q differs from restart marker\", controller.Slot, name)\n\t\t\t}\n\t\t}\n\t\tobservations[controller.Slot] = GuestObservation{\n\t\t\tPrimaryVNICOCID: marker.PrimaryVNICOCID, PrimaryPrivateIP: marker.PrimaryPrivateIP}\n\t\tcredentials[controller.Slot] = material\n\t}\n\tfor _, controller := range packet.manifest.Controllers {\n\t\texpectedNetwork, err := productionNetworkFiles(observations[controller.Slot].PrimaryPrivateIP)\n\t\tif err != nil || len(network[controller.Slot]) != len(expectedNetwork) {\n\t\t\treturn fmt.Errorf(\"controller %q lacks isolated network configuration: %w\", controller.Slot, err)\n\t\t}\n\t\tfor path, body := range expectedNetwork {\n\t\t\tif !bytes.Equal(network[controller.Slot][path], body) {\n"
+    },
+    {
+      "path": "tests/firecracker/production/fixturegen/production_guest.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "4641c85eafeb3eaba163f8a31a20d8dd1e503849",
+      "line": 107,
+      "end_line": 140,
+      "text": "func validateControllerConfig(wire []byte, slot, instanceOCID, privateIP string,\n\tobservations map[string]GuestObservation, credentials map[string][]byte,\n) error {\n\tif len(wire) == 0 || len(wire) > 1<<20 || len(observations) != 3 || len(credentials) == 0 {\n\t\treturn errors.New(\"production controller configuration or material is absent\")\n\t}\n\tvar cfg app.Config\n\tif err := protocol.DecodeStrict(wire, &cfg, 1<<20); err != nil {\n\t\treturn fmt.Errorf(\"decode strict controller configuration: %w\", err)\n\t}\n\tif cfg.Version != app.ConfigVersion {\n\t\treturn fmt.Errorf(\"controller configuration version must be %d, got %d\", app.ConfigVersion, cfg.Version)\n\t}\n\tcanonical, err := protocol.EncodeJSON(cfg)\n\tif err != nil || !bytes.Equal(canonical, wire) {\n\t\treturn errors.New(\"production controller configuration is not canonical\")\n\t}\n\thost := cfg.Host\n\thost.Roles = nil\n\tif !reflect.DeepEqual(host, app.HostConfig{}) || !reflect.DeepEqual(cfg.Operator, app.OperatorConfig{}) ||\n\t\tcfg.NATS.Cell != \"gru\" || cfg.NATS.Instance != slot ||\n\t\tcfg.NATS.Replicas != 3 || cfg.NATS.ClientRole != \"controller\" || cfg.NATS.Embedded == nil ||\n\t\tcfg.NATS.NKeySeedFile != \"\" || cfg.Controller.CandidateID != instanceOCID ||\n\t\tcfg.Controller.OciRegionConfig != \"\" || cfg.Controller.OciRegionIntentFile != \"\" ||\n\t\tcfg.Controller.PlacementConfig != \"\" || len(cfg.Controller.Workloads) != 0 ||\n\t\tlen(cfg.Controller.TrustedSigners) != 0 {\n\t\treturn errors.New(\"configuration is not a production GRU completed-restart controller\")\n\t}\n\taddress, err := netip.ParseAddr(privateIP)\n\tif err != nil || !address.Is4() || !address.IsPrivate() || address.String() != privateIP {\n\t\treturn errors.New(\"controller VNIC address is not canonical private IPv4\")\n\t}\n\tembedded := cfg.NATS.Embedded\n\tif embedded.Host != privateIP || embedded.RouteHost != privateIP ||\n"
+    },
+    {
+      "path": "tests/firecracker/production/fixturegen/signed_history_recipe.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "a471aac174fcddfe59b59df0fa139e1b687576bd",
+      "line": 51,
+      "end_line": 120,
+      "text": "func (recipe SignedHistoryRecipe) Prepare(ledger *bootstrap.Ledger) (SeedHistory, []ManagedHistory, error) {\n\tif ledger == nil || !recipe.Anchor.IsVerified() || recipe.Now.IsZero() ||\n\t\trecipe.Now.Location() != time.UTC || recipe.Now.Nanosecond() != 0 ||\n\t\tlen(recipe.RootPrivateKey) != ed25519.PrivateKeySize ||\n\t\tlen(recipe.LedgerPrivateKey) != ed25519.PrivateKeySize ||\n\t\tlen(recipe.FounderPrivateKey) != ed25519.PrivateKeySize || len(recipe.Roots) != 1 ||\n\t\tlen(recipe.Observed) != 3 || !validDigest(recipe.ReviewedSeedPlanSHA256) {\n\t\treturn SeedHistory{}, nil, errors.New(\"signed history recipe lacks current UTC clock, keys, or three observations\")\n\t}\n\tanchor := recipe.Anchor.Anchor()\n\tif anchor.Environment != \"production\" || string(anchor.Cell) != \"GRU\" ||\n\t\t!slices.Equal(anchor.ControllerSlots, []string{\"controller-a\", \"controller-b\", \"controller-c\"}) {\n\t\treturn SeedHistory{}, nil, errors.New(\"signed history recipe requires production GRU three-slot anchor\")\n\t}\n\tpolicy := trust.Policy{MaxLifetime: 24 * time.Hour, ClockSkew: bootstrap.ManifestClockSkew}\n\tplan, err := bootstrap.VerifyFounderPlan(recipe.FounderPlanWire, recipe.Roots, recipe.Anchor.Wire(),\n\t\trecipe.ManifestWires, recipe.Now, policy)\n\tif err != nil {\n\t\treturn SeedHistory{}, nil, fmt.Errorf(\"verify root-signed founder plan: %w\", err)\n\t}\n\tplanValue := plan.Plan()\n\tif planValue.SeedSlot != \"controller-c\" || len(planValue.Peers) != 2 ||\n\t\tplanValue.Peers[0].Slot != \"controller-a\" || planValue.Peers[1].Slot != \"controller-b\" {\n\t\treturn SeedHistory{}, nil, errors.New(\"signed founder plan does not name controller-c and both managed controller slots\")\n\t}\n\tselectedUntil, err := recipe.verifyFounderSelection(plan)\n\tif err != nil {\n\t\treturn SeedHistory{}, nil, err\n\t}\n\tplanEnvelope, err := trust.DecodeEnvelope(recipe.FounderPlanWire)\n\tif err != nil {\n\t\treturn SeedHistory{}, nil, err\n\t}\n\timageOCID := planValue.Peers[0].ImageOCID\n\tseed, err := recipe.signSlot(anchor, plan, imageOCID, \"controller-c\", nil, selectedUntil, planEnvelope.ExpiresAt, policy, ledger)\n\tif err != nil {\n\t\treturn SeedHistory{}, nil, fmt.Errorf(\"sign seed history: %w\", err)\n\t}\n\tpeers := make([]ManagedHistory, 0, 2)\n\tfor _, row := range planValue.Peers {\n\t\tpeer, err := recipe.signSlot(anchor, plan, imageOCID, row.Slot, &row,\n\t\t\tselectedUntil, planEnvelope.ExpiresAt, policy, ledger)\n\t\tif err != nil {\n\t\t\treturn SeedHistory{}, nil, fmt.Errorf(\"sign managed history %s: %w\", row.Slot, err)\n\t\t}\n\t\tpeers = append(peers, peer.managed)\n\t}\n\treturn seed.seed, peers, nil\n}\n\ntype signedSlotHistory struct {\n\tseed    SeedHistory\n\tmanaged ManagedHistory\n}\n\nfunc (recipe SignedHistoryRecipe) signSlot(anchor bootstrap.BootstrapAnchor,\n\tplan bootstrap.VerifiedFounderPlan, imageOCID, slot string, row *bootstrap.FounderPeerRow,\n\tselectedUntil, planExpiresAt time.Time, policy trust.Policy, ledger *bootstrap.Ledger,\n) (signedSlotHistory, error) {\n\tobservation, ok := recipe.Observed[slot]\n\tif !ok || observation.InstanceOCID == \"\" || observation.CreateKey == \"\" ||\n\t\tobservation.ETag == \"\" || observation.ProviderRequestID == \"\" ||\n\t\t(row != nil && observation.RetryToken == \"\") || (row == nil && observation.RetryToken != \"\") {\n\t\treturn signedSlotHistory{}, fmt.Errorf(\"slot %q lacks exact Compute observation\", slot)\n\t}\n\tmanifestWire := recipe.ManifestWires[slot]\n\tmanifestEnvelope, err := trust.DecodeEnvelope(manifestWire)\n\tif err != nil {\n\t\treturn signedSlotHistory{}, err\n\t}\n"
+    },
+    {
+      "path": "tests/firecracker/production/fixturegen/compute_inventory_observer_default_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "39e54912f318a551cff1226b704952a3b7472272",
+      "line": 13,
+      "end_line": 18,
+      "text": "func assertPacketComputeObserver(_ *testing.T, _ common.ConfigurationProvider,\n\t_ *core.ComputeClient, _ *core.VirtualNetworkClient,\n\t_ ObservedController, _ GuestObservation,\n\t_ core.GetInstanceResponse, _ core.GetVnicResponse,\n\t_ production.Config,\n) int {\n"
+    },
+    {
+      "path": "internal/naming/naming.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "849d830258a9114981607aacd8a63418abf076fa",
+      "line": 93,
+      "end_line": 104,
+      "text": "func (c Cell) ControllerSlot(slot string) (string, error) {\n\tif strings.ToUpper(c.Region) == catalog.GRU {\n\t\treturn c.slot(slot, \"controller-\", Controller)\n\t}\n\tletter, ok := strings.CutPrefix(slot, \"controller-\")\n\tif !ok || len(letter) != 1 || letter[0] < 'a' || letter[0] > 'z' {\n\t\treturn \"\", fmt.Errorf(\"%w: controller-slot %q\", ErrName, slot)\n\t}\n\treturn c.Node(int(letter[0]-'a') + 1)\n}\n\n// MemberSlot returns the server name of a regional plan's database host\n"
+    },
+    {
+      "path": "internal/naming/naming.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "849d830258a9114981607aacd8a63418abf076fa",
+      "line": 159,
+      "end_line": 164,
+      "text": "func NATSServer(cell, instance string) string {\n\tif name, err := RegionCell(cell).ControllerSlot(instance); err == nil {\n\t\treturn name\n\t}\n\treturn cell + \"-\" + instance\n}\n"
+    },
+    {
+      "path": "internal/release/receipt.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "fc23b8d57779c03a4635611dcb6389de345700d5",
+      "line": 221,
+      "end_line": 241,
+      "text": "func SignImageReceipt(receipt ImageReceipt, environment string, delegation trust.Envelope, roots trust.Keyring,\n\tprivateKey ed25519.PrivateKey, now time.Time, validFor time.Duration,\n) (trust.Envelope, error) {\n\tif err := receipt.Validate(); err != nil {\n\t\treturn trust.Envelope{}, err\n\t}\n\tif err := validateEnvironment(environment); err != nil {\n\t\treturn trust.Envelope{}, err\n\t}\n\tif validFor <= 0 || validFor > MaxReceiptLifetime {\n\t\treturn trust.Envelope{}, fmt.Errorf(\"receipt validity must be positive and at most %s\", MaxReceiptLifetime)\n\t}\n\tproductionExpiry, err := verifyImageProduction(receipt, environment, roots, now)\n\tif err != nil {\n\t\treturn trust.Envelope{}, err\n\t}\n\tif validFor > 0 && productionExpiry.Before(now.Add(validFor)) {\n\t\tvalidFor = productionExpiry.Sub(now)\n\t}\n\treturn signReceipt(receipt, ImageScope(receipt, environment), delegation, roots, privateKey, now, validFor)\n}\n"
+    },
+    {
+      "path": "internal/release/receipt.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "fc23b8d57779c03a4635611dcb6389de345700d5",
+      "line": 313,
+      "end_line": 353,
+      "text": "func VerifyImageCurrent(envelopeWire, delegationWire []byte, roots trust.Keyring,\n\texpected ImageExpectation, now time.Time,\n) (VerifiedImage, error) {\n\tif err := validateImageExpectation(expected); err != nil {\n\t\treturn VerifiedImage{}, err\n\t}\n\tenvelope, delegationEnvelope, err := decodeEnvelopePair(envelopeWire, delegationWire)\n\tif err != nil {\n\t\treturn VerifiedImage{}, err\n\t}\n\treceipt, err := decodeCanonicalPayload[ImageReceipt](envelope.Payload)\n\tif err != nil {\n\t\treturn VerifiedImage{}, err\n\t}\n\tif err := receipt.Validate(); err != nil {\n\t\treturn VerifiedImage{}, err\n\t}\n\tif err := matchImageExpectation(receipt, expected); err != nil {\n\t\treturn VerifiedImage{}, err\n\t}\n\tscope := ImageScope(receipt, expected.Environment)\n\tdelegation, err := trust.VerifyDelegationCurrent(delegationEnvelope, roots, now, delegationPolicy())\n\tif err != nil {\n\t\treturn VerifiedImage{}, fmt.Errorf(\"verify current release delegation: %w\", err)\n\t}\n\tif _, err := trust.VerifyDelegatedCurrent(envelope, scope, delegation, now, receiptPolicy()); err != nil {\n\t\treturn VerifiedImage{}, fmt.Errorf(\"verify current signed image receipt: %w\", err)\n\t}\n\tproductionExpiry, err := verifyImageProduction(receipt, expected.Environment, roots, now)\n\tif err != nil {\n\t\treturn VerifiedImage{}, err\n\t}\n\tproof, err := proofFor(envelope)\n\tif err != nil {\n\t\treturn VerifiedImage{}, err\n\t}\n\tif productionExpiry.Before(proof.expiresAt) {\n\t\tproof.expiresAt = productionExpiry\n\t}\n\treturn VerifiedImage{receipt: receipt, proof: proof}, nil\n}\n"
+    },
+    {
+      "path": "internal/natscell/runtime.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "b7d9b16bf34c966d722a17bea21a3ccb76cc396b",
+      "line": 206,
+      "end_line": 251,
+      "text": "func (r *Runtime) ApplyCellClaim(ctx context.Context, sequence uint64, raw string) error {\n\tif r == nil || r.server == nil || r.resolver == nil || r.systemConn == nil ||\n\t\tsequence == 0 || raw == \"\" {\n\t\treturn errors.New(\"production cell claim application is unavailable\")\n\t}\n\tr.claimMu.Lock()\n\tdefer r.claimMu.Unlock()\n\tif sequence < r.appliedSequence {\n\t\treturn errors.New(\"cell claim sequence is stale\")\n\t}\n\tif r.bridge != nil {\n\t\tr.bridge.FenceClaim(sequence)\n\t}\n\tif claim, err := jwt.DecodeAccountClaims(raw); err != nil || !r.SignedByPinnedOperator(claim) {\n\t\treturn errors.New(\"cell claim is not signed by the pinned operator\")\n\t}\n\t// Store runs the contract and issued-at checks; only then is the claim\n\t// installed, locally and directly. The server ignores CLAIMS.UPDATE\n\t// requests (see accountResolver.IsTrackingUpdate), so no routed or\n\t// client-sent claim can skip these checks.\n\tif err := r.resolver.Store(r.resolver.cell, raw); err != nil {\n\t\treturn err\n\t}\n\taccount, err := r.server.LookupAccount(r.resolver.cell)\n\tif err != nil {\n\t\treturn err\n\t}\n\tcurrent, err := r.server.Accountz(&server.AccountzOptions{Account: r.resolver.cell})\n\tif err != nil {\n\t\treturn err\n\t}\n\tif current.Account == nil {\n\t\treturn errors.New(\"cell account is not loaded\")\n\t}\n\tif current.Account.Jwt != raw {\n\t\tif err := r.server.UpdateAccountClaimJWT(account, raw); err != nil {\n\t\t\treturn fmt.Errorf(\"install cell account claim: %w\", err)\n\t\t}\n\t\tcurrent, err = r.server.Accountz(&server.AccountzOptions{Account: r.resolver.cell})\n\t\tif err != nil || current.Account == nil || current.Account.Jwt != raw {\n\t\t\treturn errors.New(\"cell JWT update lacks local exact readback\")\n\t\t}\n\t}\n\tr.appliedSequence = sequence\n\treturn nil\n}\n"
+    }
+  ],
+  "supplemental_source_pins": {
+    "tests/firecracker/production/fixturegen/verified_production_guest.go": {
+      "path": "tests/firecracker/production/fixturegen/verified_production_guest.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "mode": "100644",
+      "git_blob": "8884048b4599893fdcb7db32337f7e1ddef45ce8",
+      "sha256": "80d0d2b12e193b2d3e240f594c6f5c0c738cd6ab1981e8fca639f4209df6663e",
+      "bytes": 9086
+    },
+    "tests/firecracker/production/fixturegen/production_guest.go": {
+      "path": "tests/firecracker/production/fixturegen/production_guest.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "mode": "100644",
+      "git_blob": "4641c85eafeb3eaba163f8a31a20d8dd1e503849",
+      "sha256": "d7f7d6334c908aa2256cca2823c28e078b02de93ead48fe8ece7fb41c1e42237",
+      "bytes": 8682
+    },
+    "tests/firecracker/production/fixturegen/signed_history_recipe.go": {
+      "path": "tests/firecracker/production/fixturegen/signed_history_recipe.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "mode": "100644",
+      "git_blob": "a471aac174fcddfe59b59df0fa139e1b687576bd",
+      "sha256": "0b5d5cd6720dbc29ba8f60530868735b3abf0f5a1d6515c5fd22a9c07f72c41a",
+      "bytes": 15106
+    },
+    "tests/firecracker/production/fixturegen/compute_inventory_observer_default_test.go": {
+      "path": "tests/firecracker/production/fixturegen/compute_inventory_observer_default_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "mode": "100644",
+      "git_blob": "39e54912f318a551cff1226b704952a3b7472272",
+      "sha256": "0961d6b33eb2f5b1752927727f56457fe6431c4caa6aae58b8ca15b460f0d76e",
+      "bytes": 494
+    },
+    "internal/naming/naming.go": {
+      "path": "internal/naming/naming.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "mode": "100644",
+      "git_blob": "849d830258a9114981607aacd8a63418abf076fa",
+      "sha256": "0db87bb443e8cff6b768e8e5d091d19ae3ba2a97db92ef11e49eb94112795a9c",
+      "bytes": 6079
+    },
+    "internal/release/receipt.go": {
+      "path": "internal/release/receipt.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "mode": "100644",
+      "git_blob": "fc23b8d57779c03a4635611dcb6389de345700d5",
+      "sha256": "526e5d3c961eb85c6356562fb940b9b01d58ab36936e11315d4b0c5c4a89df10",
+      "bytes": 24314
+    },
+    "internal/natscell/runtime.go": {
+      "path": "internal/natscell/runtime.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "mode": "100644",
+      "git_blob": "b7d9b16bf34c966d722a17bea21a3ccb76cc396b",
+      "sha256": "44804d1b0692d1b47fb37f4a9e1d99bfe7235d3fb317fc7c81c9090d80dc57cf",
+      "bytes": 35509
+    }
+  },
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": 0,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  }
+}

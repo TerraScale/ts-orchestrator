@@ -1,0 +1,186 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2020_2040",
+  "author": "/root/classification_100_dispatch/batch_2040_2060",
+  "decision": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-3440-3460-enl0udse/classification.json",
+    "sha256": "08a19245039884f521712e04b4294645431bc3c67151bd9d150c2413e87b7825",
+    "checksum_path": "/tmp/ts-source-3440-3460-enl0udse/SHA256SUMS",
+    "checksum_sha256": "d32a7fccd496d8fb353afc8b8590c8ce271f40ce240f6cd28f04eb752c213602"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      3440,
+      3460
+    ]
+  },
+  "own_packet_frozen_before_peer_review": {
+    "path": "/tmp/ts-source-3420-3440-d4nj5ixs/classification.json",
+    "sha256": "d671361346df31523260c7d8559282354005d6a81dfa633ba5f647243fca7798"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/storage/hostvolume/observer_linux_test.go::TestRetainedMountRefusesUntrustedDevices",
+    "internal/storage/lifecycle/attach_retry_review_test.go::TestAttachRetriesSurviveTheDetachReattachCycle",
+    "internal/storage/lifecycle/machine_test.go::TestAttachingTimesOutIntoStuckAndCannotBeResetByReobservation",
+    "internal/storage/lifecycle/machine_test.go::TestCorruptOrFutureSinceExpiresImmediately",
+    "internal/storage/lifecycle/machine_test.go::TestDeadlineValidation",
+    "internal/storage/lifecycle/machine_test.go::TestHappyPathReachesMountedAndDeleted",
+    "internal/storage/lifecycle/machine_test.go::TestHoldAndReleaseRoundTrip",
+    "internal/storage/lifecycle/machine_test.go::TestHoldFromStuckRemembersStalledPhase",
+    "internal/storage/lifecycle/machine_test.go::TestInvalidTransitionsAreRejectedWithoutMutation",
+    "internal/storage/lifecycle/machine_test.go::TestOCIAttachmentStateMapping",
+    "internal/storage/lifecycle/machine_test.go::TestReleaseKeepsAttemptsSoRetriesStillEscalate",
+    "internal/storage/lifecycle/machine_test.go::TestRemediationPerStalledPhase",
+    "internal/storage/lifecycle/machine_test.go::TestReobservingTransitionalPhaseKeepsDeadline",
+    "internal/storage/lifecycle/machine_test.go::TestRetryCountsAttemptsAndEscalatesToHostReplacement",
+    "internal/storage/lifecycle/machine_test.go::TestStablePhasesNeverExpire",
+    "internal/tenant/store_test.go::TestStoreConcurrentWritersOneWins",
+    "internal/tenant/store_test.go::TestStoreCreateRefusesOffPlanResources",
+    "internal/tenant/store_test.go::TestStoreListFailsWhenCutShort",
+    "internal/tenant/store_test.go::TestStoreRefusesDeleteMarkers",
+    "internal/tenant/store_test.go::TestStoreRefusesFutureStamps"
+  ],
+  "counts": {
+    "mixed": 2,
+    "unit": 16,
+    "integration": 2,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently manually read every full canonical allocated root and connected production/helper/fixture paths; baseline/current raw declaration identity independently verified against pinned Git bytes.",
+    "Exact activated allocation and original accounting slice3440:3460 literal order,20 survival TSV rows/line numbers and original/current names/hashes verified.",
+    "40 raw declarations verified for explicit strict bounds, func-through-column-zero-close bytes excluding following LF, text, SHA256 and Git blobs.",
+    "18 canonical/baseline/installed dependency source-file pins verified for mode, blob when Git tracked, SHA256 and byte length; all5 input metadata pins verified.",
+    "All38 assertion and connected evidence spans verified for strict bounds, exact text/span SHA256 and canonical blob or installed dependency file SHA256.",
+    "Source categories checked against actual assertion dependencies; counts sum20. Checksums pass; packet frozen files0444/dir0555."
+  ],
+  "per_root_review": [
+    {
+      "root_id": "internal/storage/hostvolume/observer_linux_test.go::TestRetainedMountRefusesUntrustedDevices",
+      "category": "mixed",
+      "accepted": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/attach_retry_review_test.go::TestAttachRetriesSurviveTheDetachReattachCycle",
+      "category": "unit",
+      "accepted": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestAttachingTimesOutIntoStuckAndCannotBeResetByReobservation",
+      "category": "unit",
+      "accepted": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestCorruptOrFutureSinceExpiresImmediately",
+      "category": "unit",
+      "accepted": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestDeadlineValidation",
+      "category": "unit",
+      "accepted": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestHappyPathReachesMountedAndDeleted",
+      "category": "unit",
+      "accepted": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestHoldAndReleaseRoundTrip",
+      "category": "unit",
+      "accepted": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestHoldFromStuckRemembersStalledPhase",
+      "category": "unit",
+      "accepted": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestInvalidTransitionsAreRejectedWithoutMutation",
+      "category": "unit",
+      "accepted": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestOCIAttachmentStateMapping",
+      "category": "unit",
+      "accepted": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestReleaseKeepsAttemptsSoRetriesStillEscalate",
+      "category": "unit",
+      "accepted": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestRemediationPerStalledPhase",
+      "category": "unit",
+      "accepted": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestReobservingTransitionalPhaseKeepsDeadline",
+      "category": "unit",
+      "accepted": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestRetryCountsAttemptsAndEscalatesToHostReplacement",
+      "category": "unit",
+      "accepted": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestStablePhasesNeverExpire",
+      "category": "unit",
+      "accepted": true
+    },
+    {
+      "root_id": "internal/tenant/store_test.go::TestStoreConcurrentWritersOneWins",
+      "category": "integration",
+      "accepted": true
+    },
+    {
+      "root_id": "internal/tenant/store_test.go::TestStoreCreateRefusesOffPlanResources",
+      "category": "unit",
+      "accepted": true
+    },
+    {
+      "root_id": "internal/tenant/store_test.go::TestStoreListFailsWhenCutShort",
+      "category": "unit",
+      "accepted": true
+    },
+    {
+      "root_id": "internal/tenant/store_test.go::TestStoreRefusesDeleteMarkers",
+      "category": "integration",
+      "accepted": true
+    },
+    {
+      "root_id": "internal/tenant/store_test.go::TestStoreRefusesFutureStamps",
+      "category": "mixed",
+      "accepted": true
+    }
+  ],
+  "qualification_assessments": [
+    "Host-device mixed root separates zero-witness/malformed-path local guards from /dev/null actual Lstat/Open/Fstat rejection; no privileged mount operation executed.",
+    "Fourteen lifecycle roots only manipulate states/times/events and return decision enums; they do not carry out attachment/host replacement or persist state.",
+    "Concurrent-writers integration uses sequential stale readers over separate loopback clients and actual KV revision state. Change refusal is tied to the actual persisted reread; no simultaneous writers or partition claim.",
+    "Off-plan Create is rejected by local CheckNew before KV update. Cancelled List follows bound-stream ordered subscription then upsertConsumer/API wrapper into pre-request ctx.Err; incidental possible SUB and setup state do not establish active-list truncation.",
+    "Delete/purge-marker assertions use actual KV marker writes, leader reads/watch and failed ID reuse. Future-stamp mixed root combines independent pre-write stamp guard with real stored-revision Update paths."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "count_promotion": false,
+    "global_completion": false
+  },
+  "execution_limits": "Read-only Git/files/hash and metadata packaging only. No Go/tests/helpers/scanners/parsers/process/resource/privilege/cloud/signing/credential crypto/TerraBase execution or downloads. Installed upstream dependency source was read and pinned, not run."
+}

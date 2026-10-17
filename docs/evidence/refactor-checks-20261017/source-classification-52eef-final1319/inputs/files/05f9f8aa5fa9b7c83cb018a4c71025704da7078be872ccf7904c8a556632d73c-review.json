@@ -1,0 +1,552 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_920_940",
+  "author": "/root/classification_100_dispatch/batch_940_960",
+  "range": [
+    3140,
+    3160
+  ],
+  "decision": "ACCEPT_EXACT_HASH_SOURCE_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-final1319-source-3140-3160-corrected-x16s1b06/classification.json",
+    "sha256": "fd5daadb5ede1240c087dedf30a700fdbb9bd818594fbcf5ea2aefd3efb1de89",
+    "checksum_path": "/tmp/ts-final1319-source-3140-3160-corrected-x16s1b06/SHA256SUMS",
+    "checksum_sha256": "5336af83e74bf6dc84036366e0c5683c1b6186c2f03c954e20e39a0b2b9dd40b"
+  },
+  "superseded_candidate": {
+    "path": "/tmp/ts-final1319-source-3140-3160-zantz4bm/classification.json",
+    "sha256": "ed404c1bde62f13f6d5d21c48999e3a73495c67a20e06d45807b77445342130c",
+    "accepted": false
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      3140,
+      3160
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_920_940"
+  },
+  "root_ids": [
+    "internal/releasechannel/function_integration_test.go::TestFunctionChannelSDKPublicationPreservesTenantsAndRecoversLostReplies",
+    "internal/releasechannel/pins_freshness_test.go::TestPinInventoryFreshnessBounds",
+    "internal/releasechannel/pins_test.go::TestPinKeysRefusesCancellation",
+    "internal/releasechannel/pins_test.go::TestPinKeysRefusesWatcherCreationFailure",
+    "internal/releasechannel/pins_test.go::TestPinKeysRequiresCompletionMarker",
+    "internal/releasechannel/scope_test.go::TestDeploymentScopeAcceptsFreshInventoryRegardlessOfRolloutProgress",
+    "internal/releasechannel/scope_test.go::TestDeploymentScopeRejectsMissingStaleOrWrongRegionInventory",
+    "internal/releasechannel/sequence_integration_test.go::TestSequenceChannelHTTPMigrationPreservesLegacyFloors",
+    "internal/releasechannel/service_test.go::TestAwaitServiceFollowsTheRelease",
+    "internal/releasechannel/service_test.go::TestServiceChannelPublishesOnlyNewerClaims",
+    "internal/roleidentity/roleidentity_test.go::TestRoleGrantBucketsStartWithTheirRole",
+    "internal/roleidentity/roleidentity_test.go::TestRoleObservationsAreNotControllerLeaves",
+    "internal/roleidentity/roleidentity_test.go::TestRoleScopePublishesObservationsInOwnCell",
+    "internal/rollout/abandonment_test.go::TestAbandonedMarkerRejectsMalformedIdentity",
+    "internal/rollout/abandonment_test.go::TestAbandonedReservationRecoveryIsBoundAndExactlyOnce",
+    "internal/rollout/abandonment_test.go::TestAbandonedReservationUsesAllReadableRetainedGenerations",
+    "internal/rollout/abandonment_test.go::TestAbandonmentDoesNotRefundARecordThatWonCreation",
+    "internal/rollout/abandonment_test.go::TestReleaseStageBindingRefusesTargetKindAndStartSwaps",
+    "internal/rollout/abandonment_test.go::TestRetryUntouchedReleaseRequiresBoundProofAndFreshLineage",
+    "internal/rollout/abandonment_test.go::TestStoreRecoversOriginalV1ActiveReservation"
+  ],
+  "counts": {
+    "mixed": 3,
+    "unit": 11,
+    "integration": 6,
+    "unresolved": 0,
+    "total": 20
+  },
+  "checks_performed": [
+    "Own [3120:3140) packet frozen and handed off before this peer review; own exact-hash acceptance received.",
+    "Independently read all 20 complete roots and connected actual helper/production paths: normal OCI SDK HTTP endpoint/map backend, custom real HTTP/filesystem sequence client, direct fakeBucket maps/watch channels, local role grants, and upstream loopback NATS FileStorage KV. No natscell.Start topology assumed.",
+    "Verified activated literal allocation, all input hashes, survival raw names/state/hashes, actual baseline/current explicit declaration bounds/text/hash and zero canonical drift.",
+    "Verified all 40 canonical/baseline file Git blobs/modes/SHA256/bytes, 82 assertion/callee spans plus one retained blocked-assertion span, full assertion text, immutable packet/checksum hashes and file/directory modes.",
+    "Independent categories agree with final 6 integration / 11 unit / 3 mixed / 0 category-unresolved. Retry rollback-ancestry mode is an independent pre-I/O guard; other proof/lineage modes materially read JetStream state.",
+    "Verified corrected candidate preserves prior declaration/assertion bytes and categories; only accurate source descriptions/qualification notes changed. No test/build/helper/runtime execution or receipts reviewed."
+  ],
+  "metadata_check": {
+    "status": "PASS_METADATA_ONLY",
+    "root_count": 20,
+    "source_pin_count": 40,
+    "assertion_and_callee_span_count": 82,
+    "additional_blocked_span_count": 1,
+    "canonical_body_drift": 0
+  },
+  "roots": [
+    {
+      "literal_original_index": 3140,
+      "root_id": "internal/releasechannel/function_integration_test.go::TestFunctionChannelSDKPublicationPreservesTenantsAndRecoversLostReplies",
+      "category": "mixed",
+      "baseline_source": {
+        "path": "internal/releasechannel/function_integration_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "2519052a83a8d40e9bc4ad007cb6939c2873355b",
+        "line": 31,
+        "end_line": 147
+      },
+      "current_source": {
+        "path": "internal/releasechannel/function_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2519052a83a8d40e9bc4ad007cb6939c2873355b",
+        "line": 31,
+        "end_line": 147
+      },
+      "original_declaration_sha256": "70dbe5f88db6f4e55cfeb2509b807828abd1b2d5860f0aa89fc0988afcff506d",
+      "current_declaration_sha256": "70dbe5f88db6f4e55cfeb2509b807828abd1b2d5860f0aa89fc0988afcff506d",
+      "checked": "complete root, actual boundary path, exact declaration/assertion/pin metadata"
+    },
+    {
+      "literal_original_index": 3141,
+      "root_id": "internal/releasechannel/pins_freshness_test.go::TestPinInventoryFreshnessBounds",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/releasechannel/pins_freshness_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "be17c45421bce1566db226fa515585ae183b4398",
+        "line": 8,
+        "end_line": 28
+      },
+      "current_source": {
+        "path": "internal/releasechannel/pins_freshness_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "be17c45421bce1566db226fa515585ae183b4398",
+        "line": 8,
+        "end_line": 28
+      },
+      "original_declaration_sha256": "302a205ca0fb47407a820edf5930ae4fce795abc540491920164791bb0840198",
+      "current_declaration_sha256": "302a205ca0fb47407a820edf5930ae4fce795abc540491920164791bb0840198",
+      "checked": "complete root, actual boundary path, exact declaration/assertion/pin metadata"
+    },
+    {
+      "literal_original_index": 3142,
+      "root_id": "internal/releasechannel/pins_test.go::TestPinKeysRefusesCancellation",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/releasechannel/pins_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "d83d96e7d187cf45073d2203e62910da6967358d",
+        "line": 86,
+        "end_line": 102
+      },
+      "current_source": {
+        "path": "internal/releasechannel/pins_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "d83d96e7d187cf45073d2203e62910da6967358d",
+        "line": 86,
+        "end_line": 102
+      },
+      "original_declaration_sha256": "6a9f01c1667230b36fab44c2cea3b6d43e8ff2cac12507871298cf190b49d7f7",
+      "current_declaration_sha256": "6a9f01c1667230b36fab44c2cea3b6d43e8ff2cac12507871298cf190b49d7f7",
+      "checked": "complete root, actual boundary path, exact declaration/assertion/pin metadata"
+    },
+    {
+      "literal_original_index": 3143,
+      "root_id": "internal/releasechannel/pins_test.go::TestPinKeysRefusesWatcherCreationFailure",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/releasechannel/pins_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "d83d96e7d187cf45073d2203e62910da6967358d",
+        "line": 104,
+        "end_line": 110
+      },
+      "current_source": {
+        "path": "internal/releasechannel/pins_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "d83d96e7d187cf45073d2203e62910da6967358d",
+        "line": 104,
+        "end_line": 110
+      },
+      "original_declaration_sha256": "a2b702cff155dc5bc2d75461318594030185090edba021f508759ac057b57890",
+      "current_declaration_sha256": "a2b702cff155dc5bc2d75461318594030185090edba021f508759ac057b57890",
+      "checked": "complete root, actual boundary path, exact declaration/assertion/pin metadata"
+    },
+    {
+      "literal_original_index": 3144,
+      "root_id": "internal/releasechannel/pins_test.go::TestPinKeysRequiresCompletionMarker",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/releasechannel/pins_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "d83d96e7d187cf45073d2203e62910da6967358d",
+        "line": 48,
+        "end_line": 84
+      },
+      "current_source": {
+        "path": "internal/releasechannel/pins_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "d83d96e7d187cf45073d2203e62910da6967358d",
+        "line": 48,
+        "end_line": 84
+      },
+      "original_declaration_sha256": "4292b89df487dd6f3045c1ca20cb88f7f35216a00fc7e3fa789f17766a941a9b",
+      "current_declaration_sha256": "4292b89df487dd6f3045c1ca20cb88f7f35216a00fc7e3fa789f17766a941a9b",
+      "checked": "complete root, actual boundary path, exact declaration/assertion/pin metadata"
+    },
+    {
+      "literal_original_index": 3145,
+      "root_id": "internal/releasechannel/scope_test.go::TestDeploymentScopeAcceptsFreshInventoryRegardlessOfRolloutProgress",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/releasechannel/scope_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "965ac51d6da931deeb5415874f70d1dad07616e8",
+        "line": 8,
+        "end_line": 19
+      },
+      "current_source": {
+        "path": "internal/releasechannel/scope_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "965ac51d6da931deeb5415874f70d1dad07616e8",
+        "line": 8,
+        "end_line": 19
+      },
+      "original_declaration_sha256": "beb34b2ed4e75823cfbe21c300b066342717e9379c6fe2d7dcdb2fbedc23b781",
+      "current_declaration_sha256": "beb34b2ed4e75823cfbe21c300b066342717e9379c6fe2d7dcdb2fbedc23b781",
+      "checked": "complete root, actual boundary path, exact declaration/assertion/pin metadata"
+    },
+    {
+      "literal_original_index": 3146,
+      "root_id": "internal/releasechannel/scope_test.go::TestDeploymentScopeRejectsMissingStaleOrWrongRegionInventory",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/releasechannel/scope_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "965ac51d6da931deeb5415874f70d1dad07616e8",
+        "line": 21,
+        "end_line": 44
+      },
+      "current_source": {
+        "path": "internal/releasechannel/scope_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "965ac51d6da931deeb5415874f70d1dad07616e8",
+        "line": 21,
+        "end_line": 44
+      },
+      "original_declaration_sha256": "5a621af0e3c8e645134dd05e181f9e86701f4ea32cb70dba3c549b7bfc7c70bd",
+      "current_declaration_sha256": "5a621af0e3c8e645134dd05e181f9e86701f4ea32cb70dba3c549b7bfc7c70bd",
+      "checked": "complete root, actual boundary path, exact declaration/assertion/pin metadata"
+    },
+    {
+      "literal_original_index": 3147,
+      "root_id": "internal/releasechannel/sequence_integration_test.go::TestSequenceChannelHTTPMigrationPreservesLegacyFloors",
+      "category": "mixed",
+      "baseline_source": {
+        "path": "internal/releasechannel/sequence_integration_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "68097f33b877b68a933878d3a1b97724ec730837",
+        "line": 30,
+        "end_line": 144
+      },
+      "current_source": {
+        "path": "internal/releasechannel/sequence_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "68097f33b877b68a933878d3a1b97724ec730837",
+        "line": 30,
+        "end_line": 144
+      },
+      "original_declaration_sha256": "445cdfc22bd1d9bcad24bc9f1fa33ccfa8c52fd8b19c7ead0961c4e3f8e3c982",
+      "current_declaration_sha256": "445cdfc22bd1d9bcad24bc9f1fa33ccfa8c52fd8b19c7ead0961c4e3f8e3c982",
+      "checked": "complete root, actual boundary path, exact declaration/assertion/pin metadata"
+    },
+    {
+      "literal_original_index": 3148,
+      "root_id": "internal/releasechannel/service_test.go::TestAwaitServiceFollowsTheRelease",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/releasechannel/service_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "2f5e8ce36dd418726a4576ad2cff7a91a25f69bf",
+        "line": 75,
+        "end_line": 120
+      },
+      "current_source": {
+        "path": "internal/releasechannel/service_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2f5e8ce36dd418726a4576ad2cff7a91a25f69bf",
+        "line": 75,
+        "end_line": 120
+      },
+      "original_declaration_sha256": "53bbdb91553146db21032f66e3714433bce44b444fd6253e6d36615157fdf648",
+      "current_declaration_sha256": "53bbdb91553146db21032f66e3714433bce44b444fd6253e6d36615157fdf648",
+      "checked": "complete root, actual boundary path, exact declaration/assertion/pin metadata"
+    },
+    {
+      "literal_original_index": 3149,
+      "root_id": "internal/releasechannel/service_test.go::TestServiceChannelPublishesOnlyNewerClaims",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/releasechannel/service_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "2f5e8ce36dd418726a4576ad2cff7a91a25f69bf",
+        "line": 37,
+        "end_line": 73
+      },
+      "current_source": {
+        "path": "internal/releasechannel/service_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2f5e8ce36dd418726a4576ad2cff7a91a25f69bf",
+        "line": 37,
+        "end_line": 73
+      },
+      "original_declaration_sha256": "557e86d74f298a1a876bea5c50e6bdfc8349c569ce3168be0baf18f5bf26e752",
+      "current_declaration_sha256": "557e86d74f298a1a876bea5c50e6bdfc8349c569ce3168be0baf18f5bf26e752",
+      "checked": "complete root, actual boundary path, exact declaration/assertion/pin metadata"
+    },
+    {
+      "literal_original_index": 3150,
+      "root_id": "internal/roleidentity/roleidentity_test.go::TestRoleGrantBucketsStartWithTheirRole",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/roleidentity/roleidentity_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "56e1f80939ebb94defe7463e8ba894fe10ec8cd4",
+        "line": 27,
+        "end_line": 39
+      },
+      "current_source": {
+        "path": "internal/roleidentity/roleidentity_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "56e1f80939ebb94defe7463e8ba894fe10ec8cd4",
+        "line": 27,
+        "end_line": 39
+      },
+      "original_declaration_sha256": "fa13b59be09a18f0a635e9326821b40241626be904f3a341a3010b6122a03be7",
+      "current_declaration_sha256": "fa13b59be09a18f0a635e9326821b40241626be904f3a341a3010b6122a03be7",
+      "checked": "complete root, actual boundary path, exact declaration/assertion/pin metadata"
+    },
+    {
+      "literal_original_index": 3151,
+      "root_id": "internal/roleidentity/roleidentity_test.go::TestRoleObservationsAreNotControllerLeaves",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/roleidentity/roleidentity_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "56e1f80939ebb94defe7463e8ba894fe10ec8cd4",
+        "line": 17,
+        "end_line": 25
+      },
+      "current_source": {
+        "path": "internal/roleidentity/roleidentity_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "56e1f80939ebb94defe7463e8ba894fe10ec8cd4",
+        "line": 17,
+        "end_line": 25
+      },
+      "original_declaration_sha256": "3ec62fdfc0758d562c4d3ca661a6222891702d8213a9ed5ce05f4b7ba08f0222",
+      "current_declaration_sha256": "3ec62fdfc0758d562c4d3ca661a6222891702d8213a9ed5ce05f4b7ba08f0222",
+      "checked": "complete root, actual boundary path, exact declaration/assertion/pin metadata"
+    },
+    {
+      "literal_original_index": 3152,
+      "root_id": "internal/roleidentity/roleidentity_test.go::TestRoleScopePublishesObservationsInOwnCell",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/roleidentity/roleidentity_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "56e1f80939ebb94defe7463e8ba894fe10ec8cd4",
+        "line": 11,
+        "end_line": 15
+      },
+      "current_source": {
+        "path": "internal/roleidentity/roleidentity_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "56e1f80939ebb94defe7463e8ba894fe10ec8cd4",
+        "line": 11,
+        "end_line": 15
+      },
+      "original_declaration_sha256": "584003d9512af9fb2a7a87221d3def0bb6eac5fa0ce27d8096f182f70779772c",
+      "current_declaration_sha256": "584003d9512af9fb2a7a87221d3def0bb6eac5fa0ce27d8096f182f70779772c",
+      "checked": "complete root, actual boundary path, exact declaration/assertion/pin metadata"
+    },
+    {
+      "literal_original_index": 3153,
+      "root_id": "internal/rollout/abandonment_test.go::TestAbandonedMarkerRejectsMalformedIdentity",
+      "category": "integration",
+      "baseline_source": {
+        "path": "internal/rollout/abandonment_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "f7f0e66098f0ff84414e9a6bf85b5eeecdaee4ba",
+        "line": 220,
+        "end_line": 253
+      },
+      "current_source": {
+        "path": "internal/rollout/abandonment_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "f7f0e66098f0ff84414e9a6bf85b5eeecdaee4ba",
+        "line": 220,
+        "end_line": 253
+      },
+      "original_declaration_sha256": "e108a155c70099193650c28bcb4fcb97bc52406a40551afd1e0df4672006d0a0",
+      "current_declaration_sha256": "e108a155c70099193650c28bcb4fcb97bc52406a40551afd1e0df4672006d0a0",
+      "checked": "complete root, actual boundary path, exact declaration/assertion/pin metadata"
+    },
+    {
+      "literal_original_index": 3154,
+      "root_id": "internal/rollout/abandonment_test.go::TestAbandonedReservationRecoveryIsBoundAndExactlyOnce",
+      "category": "integration",
+      "baseline_source": {
+        "path": "internal/rollout/abandonment_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "f7f0e66098f0ff84414e9a6bf85b5eeecdaee4ba",
+        "line": 126,
+        "end_line": 177
+      },
+      "current_source": {
+        "path": "internal/rollout/abandonment_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "f7f0e66098f0ff84414e9a6bf85b5eeecdaee4ba",
+        "line": 126,
+        "end_line": 177
+      },
+      "original_declaration_sha256": "49e988f67c0e2087503b650ae2d0b78ba1902303e070725a6b63c8495b72d400",
+      "current_declaration_sha256": "49e988f67c0e2087503b650ae2d0b78ba1902303e070725a6b63c8495b72d400",
+      "checked": "complete root, actual boundary path, exact declaration/assertion/pin metadata"
+    },
+    {
+      "literal_original_index": 3155,
+      "root_id": "internal/rollout/abandonment_test.go::TestAbandonedReservationUsesAllReadableRetainedGenerations",
+      "category": "integration",
+      "baseline_source": {
+        "path": "internal/rollout/abandonment_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "f7f0e66098f0ff84414e9a6bf85b5eeecdaee4ba",
+        "line": 335,
+        "end_line": 380
+      },
+      "current_source": {
+        "path": "internal/rollout/abandonment_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "f7f0e66098f0ff84414e9a6bf85b5eeecdaee4ba",
+        "line": 335,
+        "end_line": 380
+      },
+      "original_declaration_sha256": "10f9631e50865217facb818b332319877af28d48d75ec60b44c0b3f44ff95650",
+      "current_declaration_sha256": "10f9631e50865217facb818b332319877af28d48d75ec60b44c0b3f44ff95650",
+      "checked": "complete root, actual boundary path, exact declaration/assertion/pin metadata"
+    },
+    {
+      "literal_original_index": 3156,
+      "root_id": "internal/rollout/abandonment_test.go::TestAbandonmentDoesNotRefundARecordThatWonCreation",
+      "category": "integration",
+      "baseline_source": {
+        "path": "internal/rollout/abandonment_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "f7f0e66098f0ff84414e9a6bf85b5eeecdaee4ba",
+        "line": 194,
+        "end_line": 218
+      },
+      "current_source": {
+        "path": "internal/rollout/abandonment_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "f7f0e66098f0ff84414e9a6bf85b5eeecdaee4ba",
+        "line": 194,
+        "end_line": 218
+      },
+      "original_declaration_sha256": "293fcab992e2b5cf79978b1591f5927a84564cdf802d4746fcbf64bfd8002607",
+      "current_declaration_sha256": "293fcab992e2b5cf79978b1591f5927a84564cdf802d4746fcbf64bfd8002607",
+      "checked": "complete root, actual boundary path, exact declaration/assertion/pin metadata"
+    },
+    {
+      "literal_original_index": 3157,
+      "root_id": "internal/rollout/abandonment_test.go::TestReleaseStageBindingRefusesTargetKindAndStartSwaps",
+      "category": "integration",
+      "baseline_source": {
+        "path": "internal/rollout/abandonment_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "f7f0e66098f0ff84414e9a6bf85b5eeecdaee4ba",
+        "line": 67,
+        "end_line": 101
+      },
+      "current_source": {
+        "path": "internal/rollout/abandonment_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "f7f0e66098f0ff84414e9a6bf85b5eeecdaee4ba",
+        "line": 67,
+        "end_line": 101
+      },
+      "original_declaration_sha256": "f3306343913203437c30233ef52ae137f0e74479ff70fbb227e20c7d581ea1ab",
+      "current_declaration_sha256": "f3306343913203437c30233ef52ae137f0e74479ff70fbb227e20c7d581ea1ab",
+      "checked": "complete root, actual boundary path, exact declaration/assertion/pin metadata"
+    },
+    {
+      "literal_original_index": 3158,
+      "root_id": "internal/rollout/abandonment_test.go::TestRetryUntouchedReleaseRequiresBoundProofAndFreshLineage",
+      "category": "mixed",
+      "baseline_source": {
+        "path": "internal/rollout/abandonment_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "f7f0e66098f0ff84414e9a6bf85b5eeecdaee4ba",
+        "line": 255,
+        "end_line": 327
+      },
+      "current_source": {
+        "path": "internal/rollout/abandonment_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "f7f0e66098f0ff84414e9a6bf85b5eeecdaee4ba",
+        "line": 255,
+        "end_line": 327
+      },
+      "original_declaration_sha256": "c6b44f08d0fec7792dfbbdaa8f351c3a3186782bf06d05a6771fa1678fb9ae3a",
+      "current_declaration_sha256": "c6b44f08d0fec7792dfbbdaa8f351c3a3186782bf06d05a6771fa1678fb9ae3a",
+      "checked": "complete root, actual boundary path, exact declaration/assertion/pin metadata"
+    },
+    {
+      "literal_original_index": 3159,
+      "root_id": "internal/rollout/abandonment_test.go::TestStoreRecoversOriginalV1ActiveReservation",
+      "category": "integration",
+      "baseline_source": {
+        "path": "internal/rollout/abandonment_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "f7f0e66098f0ff84414e9a6bf85b5eeecdaee4ba",
+        "line": 20,
+        "end_line": 65
+      },
+      "current_source": {
+        "path": "internal/rollout/abandonment_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "f7f0e66098f0ff84414e9a6bf85b5eeecdaee4ba",
+        "line": 20,
+        "end_line": 65
+      },
+      "original_declaration_sha256": "76d6420532c84a983543b3000426c1d8b236ffb3bf625c5b06b0ce55e7b4d98e",
+      "current_declaration_sha256": "76d6420532c84a983543b3000426c1d8b236ffb3bf625c5b06b0ce55e7b4d98e",
+      "checked": "complete root, actual boundary path, exact declaration/assertion/pin metadata"
+    }
+  ],
+  "resolved_findings": [
+    {
+      "status": "CORRECTED_IN_ACCEPTED_FRESH_PACKET",
+      "detail": "Completion-marker reason now names actual watcher cases, not absent too-many-entry bounds; scope reasons identify supplied Status structs; role observations reason follows direct Grants.Observations checks; bucket reason identifies static Grants map. Categories unchanged."
+    }
+  ],
+  "remaining_findings": [
+    {
+      "root_id": "internal/releasechannel/sequence_integration_test.go::TestSequenceChannelHTTPMigrationPreservesLegacyFloors",
+      "status": "UNRESOLVED_UNCREDITED_ASSERTIONS_RETAINED",
+      "detail": "Raw SignBinaryUpdateReceiptSequenced does not attach Production. Channel.Verify requires VerifyQualifiedBinaryUpdateCurrent, whose nil Production guard causes the test73–75 fatal path. Later original assertions76–143 remain preserved, unresolved and uncredited. Earlier real legacy HTTP publication plus independent local Verify supports mixed only.",
+      "blocked_assertion_sha256": "604b9440d318f9824d2c0bff06f658206a9ed2887893fcfd9aabc176117635ee"
+    },
+    {
+      "root_id": "internal/releasechannel/function_integration_test.go::TestFunctionChannelSDKPublicationPreservesTenantsAndRecoversLostReplies",
+      "status": "CONDITIONAL_ASSERTION_LIMIT_RETAINED",
+      "detail": "Final tampered signature verification runs only if ReadFunctionChannel returns nil and target tenant entry is found; complete raw root retains this condition. No unconditional signature-rejection or Wasm-runtime credit is inferred."
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "source_mutated": false,
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "global_count_promotion": false,
+    "deletion_authorized": false,
+    "retirement_authorized": false,
+    "runtime_qualification_delta": 0,
+    "global_completion": false
+  }
+}

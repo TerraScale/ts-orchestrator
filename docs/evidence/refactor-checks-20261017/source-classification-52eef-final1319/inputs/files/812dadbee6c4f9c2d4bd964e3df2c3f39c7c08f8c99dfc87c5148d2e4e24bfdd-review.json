@@ -1,0 +1,260 @@
+{
+  "schema": "independent-source-only-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_660_680",
+  "author": "/root/classification_100_dispatch/batch_680_700",
+  "decision": "ACCEPT_SOURCE_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-other-2880-2900-corrected-s6fuev2b/classification.json",
+    "sha256": "21c3796fef83b67eeea2430f700f028dc02b6f8470a1d585d0a5d035e2526343",
+    "checksum_path": "/tmp/ts-source-other-2880-2900-corrected-s6fuev2b/SHA256SUMS",
+    "checksum_sha256": "f7ae1603e0ca946e305b6a1a979804848a20fc3a1023bcba1a2934141bae0964"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      2880,
+      2900
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_660_680"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "range": [
+    2880,
+    2900
+  ],
+  "root_ids": [
+    "internal/placement/terrabase_test.go::TestManagedProfileAcceptsAllocatablePlusReserveAtNominalComputeMemory",
+    "internal/placement/terrabase_test.go::TestMemberStateManagedProfilePinsAreAdditiveAndValidated",
+    "internal/placement/terrabase_test.go::TestRejectsObsoletePlacementSchemas",
+    "internal/placement/volume_fresh_host_review_test.go::TestControllerPreparedVolumeChecksInputsBeforeFreshHost",
+    "internal/placement/volume_fresh_host_review_test.go::TestControllerPreparedVolumeRechecksArtifactAfterFreshHost",
+    "internal/placement/volume_fresh_host_review_test.go::TestControllerPreparedVolumeRechecksCurrentRegistrationBeforeEachEffect",
+    "internal/placement/volume_fresh_host_review_test.go::TestControllerPreparedVolumeRejectsFreshHostMismatch",
+    "internal/placement/volume_fresh_host_review_test.go::TestControllerPreparedVolumeRequiresFreshHostBeforeCreateRecoveryAndResize",
+    "internal/placement/workload_test.go::TestPlanWorkloadAccountsForOtherExistingWorkloads",
+    "internal/placement/workload_test.go::TestPlanWorkloadDoesNotKeepReadyAssignmentAfterCapacityShrinks",
+    "internal/placement/workload_test.go::TestPlanWorkloadExcludesStaleCordonedAndUnderCapacityHosts",
+    "internal/placement/workload_test.go::TestPlanWorkloadRejectsInvalidResourceRequestAndDuplicateAssignments",
+    "internal/placement/workload_test.go::TestPlanWorkloadRejectsOvercapacityWithoutPartialAssignments",
+    "internal/placement/workload_test.go::TestPlanWorkloadReplacesFailedAssignmentOnAnotherNode",
+    "internal/placement/workload_test.go::TestPlanWorkloadSpreadsDeterministicallyAndBalancesCapacity",
+    "internal/protocol/families_test.go::TestNoSubjectLiteralsOutsideProtocol",
+    "internal/protocol/families_test.go::TestSubjectFamiliesFailClosed",
+    "internal/protocol/families_test.go::TestSubjectFamiliesKeepWireFormat",
+    "internal/protocol/protocol_test.go::TestDecodeStrictEnforcesSizeLimit",
+    "internal/protocol/protocol_test.go::TestDecodeStrictRejectsAmbiguousAndUnknownJSON"
+  ],
+  "counts": {
+    "integration": 0,
+    "unit": 19,
+    "mixed": 0,
+    "unresolved": 1
+  },
+  "root_decisions": [
+    {
+      "index": 2880,
+      "root_id": "internal/placement/terrabase_test.go::TestManagedProfileAcceptsAllocatablePlusReserveAtNominalComputeMemory",
+      "category": "unit",
+      "accepted": true,
+      "unresolved_assertions_retained": []
+    },
+    {
+      "index": 2881,
+      "root_id": "internal/placement/terrabase_test.go::TestMemberStateManagedProfilePinsAreAdditiveAndValidated",
+      "category": "unit",
+      "accepted": true,
+      "unresolved_assertions_retained": []
+    },
+    {
+      "index": 2882,
+      "root_id": "internal/placement/terrabase_test.go::TestRejectsObsoletePlacementSchemas",
+      "category": "unit",
+      "accepted": true,
+      "unresolved_assertions_retained": []
+    },
+    {
+      "index": 2883,
+      "root_id": "internal/placement/volume_fresh_host_review_test.go::TestControllerPreparedVolumeChecksInputsBeforeFreshHost",
+      "category": "unit",
+      "accepted": true,
+      "unresolved_assertions_retained": []
+    },
+    {
+      "index": 2884,
+      "root_id": "internal/placement/volume_fresh_host_review_test.go::TestControllerPreparedVolumeRechecksArtifactAfterFreshHost",
+      "category": "unit",
+      "accepted": true,
+      "unresolved_assertions_retained": []
+    },
+    {
+      "index": 2885,
+      "root_id": "internal/placement/volume_fresh_host_review_test.go::TestControllerPreparedVolumeRechecksCurrentRegistrationBeforeEachEffect",
+      "category": "unit",
+      "accepted": true,
+      "unresolved_assertions_retained": []
+    },
+    {
+      "index": 2886,
+      "root_id": "internal/placement/volume_fresh_host_review_test.go::TestControllerPreparedVolumeRejectsFreshHostMismatch",
+      "category": "unit",
+      "accepted": true,
+      "unresolved_assertions_retained": []
+    },
+    {
+      "index": 2887,
+      "root_id": "internal/placement/volume_fresh_host_review_test.go::TestControllerPreparedVolumeRequiresFreshHostBeforeCreateRecoveryAndResize",
+      "category": "unit",
+      "accepted": true,
+      "unresolved_assertions_retained": []
+    },
+    {
+      "index": 2888,
+      "root_id": "internal/placement/workload_test.go::TestPlanWorkloadAccountsForOtherExistingWorkloads",
+      "category": "unit",
+      "accepted": true,
+      "unresolved_assertions_retained": []
+    },
+    {
+      "index": 2889,
+      "root_id": "internal/placement/workload_test.go::TestPlanWorkloadDoesNotKeepReadyAssignmentAfterCapacityShrinks",
+      "category": "unit",
+      "accepted": true,
+      "unresolved_assertions_retained": []
+    },
+    {
+      "index": 2890,
+      "root_id": "internal/placement/workload_test.go::TestPlanWorkloadExcludesStaleCordonedAndUnderCapacityHosts",
+      "category": "unit",
+      "accepted": true,
+      "unresolved_assertions_retained": []
+    },
+    {
+      "index": 2891,
+      "root_id": "internal/placement/workload_test.go::TestPlanWorkloadRejectsInvalidResourceRequestAndDuplicateAssignments",
+      "category": "unit",
+      "accepted": true,
+      "unresolved_assertions_retained": []
+    },
+    {
+      "index": 2892,
+      "root_id": "internal/placement/workload_test.go::TestPlanWorkloadRejectsOvercapacityWithoutPartialAssignments",
+      "category": "unit",
+      "accepted": true,
+      "unresolved_assertions_retained": []
+    },
+    {
+      "index": 2893,
+      "root_id": "internal/placement/workload_test.go::TestPlanWorkloadReplacesFailedAssignmentOnAnotherNode",
+      "category": "unit",
+      "accepted": true,
+      "unresolved_assertions_retained": []
+    },
+    {
+      "index": 2894,
+      "root_id": "internal/placement/workload_test.go::TestPlanWorkloadSpreadsDeterministicallyAndBalancesCapacity",
+      "category": "unit",
+      "accepted": true,
+      "unresolved_assertions_retained": []
+    },
+    {
+      "index": 2895,
+      "root_id": "internal/protocol/families_test.go::TestNoSubjectLiteralsOutsideProtocol",
+      "category": "unresolved",
+      "accepted": true,
+      "unresolved_assertions_retained": [
+        {
+          "assertion_span": {
+            "path": "internal/protocol/families_test.go",
+            "start_line": 126,
+            "end_line": 134
+          },
+          "intended_assertion": "No STRING literal beginning ts. in walked non-test internal/cmd Go files outside protocol",
+          "blocker_source_ref": "literal_contradiction",
+          "reason": "QueueIdentity literal ts.functions. is in scope and satisfies the rejection predicate; no successful-source or runtime credit."
+        }
+      ]
+    },
+    {
+      "index": 2896,
+      "root_id": "internal/protocol/families_test.go::TestSubjectFamiliesFailClosed",
+      "category": "unit",
+      "accepted": true,
+      "unresolved_assertions_retained": []
+    },
+    {
+      "index": 2897,
+      "root_id": "internal/protocol/families_test.go::TestSubjectFamiliesKeepWireFormat",
+      "category": "unit",
+      "accepted": true,
+      "unresolved_assertions_retained": []
+    },
+    {
+      "index": 2898,
+      "root_id": "internal/protocol/protocol_test.go::TestDecodeStrictEnforcesSizeLimit",
+      "category": "unit",
+      "accepted": true,
+      "unresolved_assertions_retained": []
+    },
+    {
+      "index": 2899,
+      "root_id": "internal/protocol/protocol_test.go::TestDecodeStrictRejectsAmbiguousAndUnknownJSON",
+      "category": "unit",
+      "accepted": true,
+      "unresolved_assertions_retained": []
+    }
+  ],
+  "checks_performed": [
+    "Independently read all20 complete current allocated roots and reached fixture/production paths. Baseline/current raw declarations are byte-identical for all20 roots.",
+    "Verified exact ordered20 allocation and accounting IDs, unique survival rows, original/current names and hashes, actual versus historical hashes, canonical commit/tree, all40 raw declaration bounds/text/SHA256/bytes and closing braces.",
+    "Verified20 whole-root assertion spans and30 shared source spans against exact pinned Git bytes; all referenced source evidence exists.",
+    "Verified all20 source-file commit/path/Git blob/mode/SHA256/byte pins; canonical on-disk files equal pinned objects. Verified packet/SHA256SUMS hashes, every listed checksum, files0444 and directory0555.",
+    "Compared final successor with prior packet: only workloadHost helper label and explicit supersedes metadata changed. Verified all20 categories and retained qualification limits independently."
+  ],
+  "source_analysis": [
+    "2880\u20132882: synthetic profile/member validation, in-memory JSON roundtrip and schema guards; no store or OCI boundary.",
+    "2883\u20132887: actual Controller Tick/prepared-volume ordering calls test fake fleet/host/fencer/store and injected artifact resolver. Fresh callbacks mutate supplied observations/registration; create/recovery/resize append counters/requests and return synthetic records; CAS updates a map. No OCI client, real volume, host agent or durable authority.",
+    "2888\u20132894: PlanWorkload uses supplied synthetic host/assignment records and local selection/capacity calculations; returned slices/errors are the target.",
+    "2895: walked source is incidental input to AST/STRING-prefix policy. Non-test internal/functions/queue.go38 contains ts.functions. and lies within walked internal scope outside protocol exclusion. Intended no-literal assertion is source-contradicted; unresolved and uncredited, without executing scanner or asserting runtime failure.",
+    "2896\u20132899: local subject construction/token guards and in-memory strict JSON/size handling; no broker exchange or external store."
+  ],
+  "resolved_review_findings": [
+    {
+      "description": "Author self-corrected workload_fixture helper label from testWorkloadHosts to actual workloadHost; cited span bytes unchanged.",
+      "resolution": "Verified exact fresh successor and preserved predecessor."
+    }
+  ],
+  "remaining_review_findings": [],
+  "retained_source_findings": [
+    {
+      "root_id": "internal/protocol/families_test.go::TestNoSubjectLiteralsOutsideProtocol",
+      "status": "unresolved_source_contradiction",
+      "evidence_refs": [
+        "literal_contradiction"
+      ],
+      "description": "families_test.go132 rejects strings with prefix ts.; queue.go38 contains ts.functions. within its walked non-test internal scope."
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE; all runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No code, test, parser/scanner, signing/crypto, server, OCI, process or helper execution.",
+    "All twenty canonical root declarations are baseline-exact; actual/historical identities and raw bytes preserved. Full roots reproduce all assertions and setup conditions.",
+    "All volume effects are counters, synthetic returned records, slices and map CAS. No OCI, JetStream, host agent, filesystem-volume or durable authority behavior established.",
+    "Static source-policy root2895 remains unresolved/uncredited because canonical queue.go38 directly contradicts its intended no-ts.-literal assertion. No runtime failure claimed.",
+    "No source/repository/ledger mutation; no global count, completion, deletion, retirement or qualification credit. Safety obligations retained."
+  ],
+  "accounting_effect": {
+    "source_repository_mutated": false,
+    "ledger_mutated": false,
+    "global_count_promotion": false,
+    "global_completion": false,
+    "deletion_delta": 0,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "retirement_authorized": false,
+    "safety_obligations_retained": true
+  },
+  "execution_statement": "Only ordinary read-only pinned file/Git inspection, hashes, metadata checks and packaging over explicit manually reviewed spans. No Go/build/test/helper/scanner/parser/framework/runtime/probe/lock/privilege/cloud/signing/crypto/process-under-test execution or download."
+}

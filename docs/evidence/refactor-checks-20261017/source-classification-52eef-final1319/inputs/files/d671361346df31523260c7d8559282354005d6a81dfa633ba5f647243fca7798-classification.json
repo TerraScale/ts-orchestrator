@@ -1,0 +1,1721 @@
+{
+  "schema": "source-only-classification-v1",
+  "qualification": "SOURCE_ONLY_CANDIDATE",
+  "owner": "/root/classification_100_dispatch/batch_2020_2040",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      3420,
+      3440
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2000_2020"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "mapping_input": {
+    "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+    "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+  },
+  "accounting_input": {
+    "path": "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json",
+    "sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513"
+  },
+  "classification_definitions": {
+    "integration": "Core assertion materially traverses actual project service/client/storage/OS/protocol boundary. Fault injection may surround real committed state.",
+    "unit": "Local validation, transformation, logging or synthetic objects; incidental fixture file/key creation does not establish integration.",
+    "mixed": "Independent local-only assertions coexist with genuine boundary assertions.",
+    "unresolved": "Literal mapping or connected source evidence is insufficient; separate from runtime UNKNOWN."
+  },
+  "counts": {
+    "integration": 4,
+    "unit": 14,
+    "mixed": 1,
+    "unresolved": 1
+  },
+  "roots": [
+    {
+      "root_id": "internal/storage/execution/runtime_integration_test.go::TestRuntimeObserverRequiresConcreteClient",
+      "original_index": 3420,
+      "path": "internal/storage/execution/runtime_integration_test.go",
+      "original_function": "TestRuntimeObserverRequiresConcreteClient",
+      "current_function": "TestRuntimeObserverRequiresConcreteClient",
+      "survival": {
+        "path": "internal/storage/execution/runtime_integration_test.go",
+        "original_name": "TestRuntimeObserverRequiresConcreteClient",
+        "kind": "test",
+        "original_declaration_sha256": "7f21f513a8ce49323c7424fa76399176f18addf27e9f33f2923beab0e60438cb",
+        "current_name": "TestRuntimeObserverRequiresConcreteClient",
+        "current_declaration_sha256": "7f21f513a8ce49323c7424fa76399176f18addf27e9f33f2923beab0e60438cb",
+        "state": "retained_body_exact"
+      },
+      "baseline": {
+        "path": "internal/storage/execution/runtime_integration_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "start_line": 69,
+        "end_line": 75,
+        "git_blob": "6e9d2604f683193a44678daa309bdcaff65cdc54",
+        "sha256": "b953b14c1c87872d7fcb4cac05785a58706a2516397431a7c06018edafdf1cb7",
+        "raw_declaration_sha256": "7f21f513a8ce49323c7424fa76399176f18addf27e9f33f2923beab0e60438cb",
+        "raw_bytes": 262
+      },
+      "current": {
+        "path": "internal/storage/execution/runtime_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "start_line": 69,
+        "end_line": 75,
+        "git_blob": "6e9d2604f683193a44678daa309bdcaff65cdc54",
+        "sha256": "b953b14c1c87872d7fcb4cac05785a58706a2516397431a7c06018edafdf1cb7",
+        "raw_declaration_sha256": "7f21f513a8ce49323c7424fa76399176f18addf27e9f33f2923beab0e60438cb",
+        "raw_bytes": 262
+      },
+      "canonical_body_drift": false,
+      "category": "unit",
+      "rationale": "Both nil-context and ordinary-context calls use a zero RuntimeObserver and are rejected at the entry guard before containerd I/O.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/execution/runtime_integration_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "start_line": 69,
+          "end_line": 75,
+          "git_blob": "6e9d2604f683193a44678daa309bdcaff65cdc54",
+          "sha256": "b953b14c1c87872d7fcb4cac05785a58706a2516397431a7c06018edafdf1cb7",
+          "text": "func TestRuntimeObserverRequiresConcreteClient(t *testing.T) {\n\tfor _, ctx := range []context.Context{nil, t.Context()} {\n\t\tif _, err := (RuntimeObserver{}).Observe(ctx, RuntimePins{}); err == nil {\n\t\t\tt.Fatal(\"missing concrete runtime client accepted\")\n\t\t}\n\t}\n}\n",
+          "note": "Entire manually read root preserves every setup, condition, assertion and failure text."
+        }
+      ],
+      "independent_unit_only_blocks": [],
+      "connected_evidence_ids": [
+        "runtime_guard"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/storage/execution/runtime_integration_test.go::TestRuntimeSpecRefusesAdmissionDrift",
+      "original_index": 3421,
+      "path": "internal/storage/execution/runtime_integration_test.go",
+      "original_function": "TestRuntimeSpecRefusesAdmissionDrift",
+      "current_function": "TestRuntimeSpecRefusesAdmissionDrift",
+      "survival": {
+        "path": "internal/storage/execution/runtime_integration_test.go",
+        "original_name": "TestRuntimeSpecRefusesAdmissionDrift",
+        "kind": "test",
+        "original_declaration_sha256": "571f05fa2261b81f9c22b390c605857f07fb4e8a95de6b3f52617a4dbc05e310",
+        "current_name": "TestRuntimeSpecRefusesAdmissionDrift",
+        "current_declaration_sha256": "571f05fa2261b81f9c22b390c605857f07fb4e8a95de6b3f52617a4dbc05e310",
+        "state": "retained_body_exact"
+      },
+      "baseline": {
+        "path": "internal/storage/execution/runtime_integration_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "start_line": 17,
+        "end_line": 67,
+        "git_blob": "6e9d2604f683193a44678daa309bdcaff65cdc54",
+        "sha256": "1ecbb3f0cfb770774f55e8186ef564eef922c4779002e78d6441d3db717b02ae",
+        "raw_declaration_sha256": "571f05fa2261b81f9c22b390c605857f07fb4e8a95de6b3f52617a4dbc05e310",
+        "raw_bytes": 2810
+      },
+      "current": {
+        "path": "internal/storage/execution/runtime_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "start_line": 17,
+        "end_line": 67,
+        "git_blob": "6e9d2604f683193a44678daa309bdcaff65cdc54",
+        "sha256": "1ecbb3f0cfb770774f55e8186ef564eef922c4779002e78d6441d3db717b02ae",
+        "raw_declaration_sha256": "571f05fa2261b81f9c22b390c605857f07fb4e8a95de6b3f52617a4dbc05e310",
+        "raw_bytes": 2810
+      },
+      "canonical_body_drift": false,
+      "category": "unit",
+      "rationale": "Admitted and mutated OCI specs are synthetic structs. verifyRuntimeSpec compares process, resource, mount and namespace fields locally; no runtime is created or observed.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/execution/runtime_integration_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "start_line": 17,
+          "end_line": 67,
+          "git_blob": "6e9d2604f683193a44678daa309bdcaff65cdc54",
+          "sha256": "1ecbb3f0cfb770774f55e8186ef564eef922c4779002e78d6441d3db717b02ae",
+          "text": "func TestRuntimeSpecRefusesAdmissionDrift(t *testing.T) {\n\tpins := RuntimePins{\n\t\tProcess: runtimespec.Process{User: runtimespec.User{UID: 65534, GID: 65534}, Args: []string{\"/terrabase\"},\n\t\t\tCwd: \"/\", NoNewPrivileges: true, Capabilities: &runtimespec.LinuxCapabilities{}},\n\t\tResources: runtimespec.LinuxResources{Memory: &runtimespec.LinuxMemory{Limit: new(int64(64 << 20))}},\n\t\tMounts:    []runtimespec.Mount{{Source: \"/run/retained/volume\", Destination: \"/retained\", Type: \"bind\", Options: []string{\"rbind\", \"nosuid\", \"nodev\", \"noexec\", \"noatime\"}}},\n\t\tVolume:    hostvolume.MountPins{MountPath: \"/run/retained/volume\"}, VolumeDestination: \"/retained\",\n\t\tNamespaces: []runtimespec.LinuxNamespace{{Type: runtimespec.PIDNamespace}, {Type: runtimespec.MountNamespace}},\n\t}\n\tmakeSpec := func() *runtimespec.Spec {\n\t\treturn &runtimespec.Spec{Root: &runtimespec.Root{Readonly: true}, Process: &pins.Process, Mounts: pins.Mounts,\n\t\t\tLinux: &runtimespec.Linux{CgroupsPath: \"/terrascale/ts-member\", Resources: &pins.Resources, Namespaces: slices.Clone(pins.Namespaces)}}\n\t}\n\tif err := verifyRuntimeSpec(makeSpec(), pins, \"ts-member\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfor name, mutate := range map[string]func(*runtimespec.Spec){\n\t\t\"writable root\": func(spec *runtimespec.Spec) { spec.Root.Readonly = false },\n\t\t\"different process\": func(spec *runtimespec.Spec) {\n\t\t\tprocess := *spec.Process\n\t\t\tprocess.Args = []string{\"/different-member\"}\n\t\t\tspec.Process = &process\n\t\t},\n\t\t\"different limits\": func(spec *runtimespec.Spec) {\n\t\t\tspec.Linux.Resources = &runtimespec.LinuxResources{Memory: &runtimespec.LinuxMemory{Limit: new(int64(128 << 20))}}\n\t\t},\n\t\t\"different mount\": func(spec *runtimespec.Spec) {\n\t\t\tspec.Mounts = []runtimespec.Mount{{Source: \"/run/another-volume\", Destination: \"/retained\", Type: \"bind\"}}\n\t\t},\n\t\t\"different cgroup\":     func(spec *runtimespec.Spec) { spec.Linux.CgroupsPath = \"/other\" },\n\t\t\"host PID namespace\":   func(spec *runtimespec.Spec) { spec.Linux.Namespaces[0].Path = \"/proc/1/ns/pid\" },\n\t\t\"host mount namespace\": func(spec *runtimespec.Spec) { spec.Linux.Namespaces[1].Path = \"/proc/1/ns/mnt\" },\n\t\t\"user namespace\": func(spec *runtimespec.Spec) {\n\t\t\tspec.Linux.Namespaces = append(spec.Linux.Namespaces, runtimespec.LinuxNamespace{Type: runtimespec.UserNamespace})\n\t\t},\n\t\t\"private network namespace\": func(spec *runtimespec.Spec) {\n\t\t\tspec.Linux.Namespaces = append(spec.Linux.Namespaces, runtimespec.LinuxNamespace{Type: runtimespec.NetworkNamespace})\n\t\t},\n\t} {\n\t\tt.Run(name, func(t *testing.T) {\n\t\t\tspec := makeSpec()\n\t\t\tmutate(spec)\n\t\t\tif err := verifyRuntimeSpec(spec, pins, \"ts-member\"); err == nil {\n\t\t\t\tt.Fatal(\"actual runtime drift accepted\")\n\t\t\t}\n\t\t})\n\t}\n\tif !reflect.DeepEqual(makeSpec().Process, &pins.Process) {\n\t\tt.Fatal(\"drift fixtures mutated admitted process pins\")\n\t}\n}\n",
+          "note": "Entire manually read root preserves every setup, condition, assertion and failure text."
+        }
+      ],
+      "independent_unit_only_blocks": [],
+      "connected_evidence_ids": [
+        "runtime_spec"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/storage/failover/reattach_test.go::TestDecide",
+      "original_index": 3422,
+      "path": "internal/storage/failover/reattach_test.go",
+      "original_function": "TestDecide",
+      "current_function": "TestDecide",
+      "survival": {
+        "path": "internal/storage/failover/reattach_test.go",
+        "original_name": "TestDecide",
+        "kind": "test",
+        "original_declaration_sha256": "d76c3a6f6f8830f81bc5c21f503d964afebbb6596596bed9b256e6acdd4ac679",
+        "current_name": "TestDecide",
+        "current_declaration_sha256": "d76c3a6f6f8830f81bc5c21f503d964afebbb6596596bed9b256e6acdd4ac679",
+        "state": "retained_body_exact"
+      },
+      "baseline": {
+        "path": "internal/storage/failover/reattach_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "start_line": 21,
+        "end_line": 50,
+        "git_blob": "c7f38d657830c247542f309127a3ebc946ec0e5a",
+        "sha256": "07e3179c38a6adf15f2ef7b64fab9adb8b5e3b425ecffd5d766175bc7f006505",
+        "raw_declaration_sha256": "d76c3a6f6f8830f81bc5c21f503d964afebbb6596596bed9b256e6acdd4ac679",
+        "raw_bytes": 2140
+      },
+      "current": {
+        "path": "internal/storage/failover/reattach_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "start_line": 21,
+        "end_line": 50,
+        "git_blob": "c7f38d657830c247542f309127a3ebc946ec0e5a",
+        "sha256": "07e3179c38a6adf15f2ef7b64fab9adb8b5e3b425ecffd5d766175bc7f006505",
+        "raw_declaration_sha256": "d76c3a6f6f8830f81bc5c21f503d964afebbb6596596bed9b256e6acdd4ac679",
+        "raw_bytes": 2140
+      },
+      "canonical_body_drift": false,
+      "category": "unit",
+      "rationale": "State table feeds synthetic attachment slices to pure Decide and asserts only returned step kinds.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/failover/reattach_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "start_line": 21,
+          "end_line": 50,
+          "git_blob": "c7f38d657830c247542f309127a3ebc946ec0e5a",
+          "sha256": "07e3179c38a6adf15f2ef7b64fab9adb8b5e3b425ecffd5d766175bc7f006505",
+          "text": "func TestDecide(t *testing.T) {\n\tcases := []struct {\n\t\tname        string\n\t\tfenced      bool\n\t\tattachments []Attachment\n\t\tmounted     bool\n\t\twant        StepKind\n\t}{\n\t\t{\"unfenced never detaches\", false, []Attachment{attachment(\"a\", \"old\", \"ATTACHED\")}, false, StepProveFence},\n\t\t{\"detach old attached\", true, []Attachment{attachment(\"a\", \"old\", \"ATTACHED\")}, false, StepDetach},\n\t\t{\"detach old attaching\", true, []Attachment{attachment(\"a\", \"old\", \"ATTACHING\")}, false, StepDetach},\n\t\t{\"wait detaching\", true, []Attachment{attachment(\"a\", \"old\", \"DETACHING\")}, false, StepWaitDetached},\n\t\t{\"attach after detached history\", true, []Attachment{attachment(\"a\", \"old\", \"DETACHED\")}, false, StepAttach},\n\t\t{\"attach with no history\", true, nil, false, StepAttach},\n\t\t{\"wait replacement\", true, []Attachment{attachment(\"a\", \"old\", \"DETACHED\"), attachment(\"b\", \"new\", \"ATTACHING\")}, false, StepWaitAttached},\n\t\t{\"grant mount\", true, []Attachment{attachment(\"a\", \"old\", \"DETACHED\"), attachment(\"b\", \"new\", \"ATTACHED\")}, false, StepGrantMount},\n\t\t{\"done\", true, []Attachment{attachment(\"b\", \"new\", \"ATTACHED\")}, true, StepDone},\n\t\t{\"third instance holds\", true, []Attachment{attachment(\"c\", \"0000000000V4MRM46HP1SNGDYW\", \"ATTACHED\")}, false, StepHold},\n\t\t{\"third instance detached is history\", true, []Attachment{attachment(\"c\", \"0000000000V4MRM46HP1SNGDYW\", \"DETACHED\")}, false, StepAttach},\n\t\t{\"two replacement attachments hold\", true, []Attachment{attachment(\"b\", \"new\", \"ATTACHED\"), attachment(\"d\", \"new\", \"ATTACHING\")}, false, StepHold},\n\t\t{\"unknown old state holds\", true, []Attachment{attachment(\"a\", \"old\", \"FAULTY\")}, false, StepHold},\n\t\t{\"other volume holds\", true, []Attachment{{ID: \"x\", VolumeID: \"vol-2\", InstanceID: \"new\", State: \"ATTACHED\"}}, false, StepHold},\n\t\t{\"old detach precedes replacement\", true, []Attachment{attachment(\"b\", \"new\", \"ATTACHED\"), attachment(\"a\", \"old\", \"ATTACHED\")}, false, StepDetach},\n\t}\n\tfor _, test := range cases {\n\t\tif got := Decide(request, test.fenced, test.attachments, test.mounted); got.Kind != test.want {\n\t\t\tt.Fatalf(\"%s: step %s (%s), want %s\", test.name, got.Kind, got.Reason, test.want)\n\t\t}\n\t}\n}\n",
+          "note": "Entire manually read root preserves every setup, condition, assertion and failure text."
+        }
+      ],
+      "independent_unit_only_blocks": [],
+      "connected_evidence_ids": [
+        "decide",
+        "fake_instances"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/storage/failover/reattach_test.go::TestProveFencedRequiresTerminated",
+      "original_index": 3423,
+      "path": "internal/storage/failover/reattach_test.go",
+      "original_function": "TestProveFencedRequiresTerminated",
+      "current_function": "TestProveFencedRequiresTerminated",
+      "survival": {
+        "path": "internal/storage/failover/reattach_test.go",
+        "original_name": "TestProveFencedRequiresTerminated",
+        "kind": "test",
+        "original_declaration_sha256": "0ac63da2d6b07f6f4d35bf19cd44ab55faa84c87771d43bb99cb4eaa51d30fb7",
+        "current_name": "TestProveFencedRequiresTerminated",
+        "current_declaration_sha256": "0ac63da2d6b07f6f4d35bf19cd44ab55faa84c87771d43bb99cb4eaa51d30fb7",
+        "state": "retained_body_exact"
+      },
+      "baseline": {
+        "path": "internal/storage/failover/reattach_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "start_line": 62,
+        "end_line": 76,
+        "git_blob": "c7f38d657830c247542f309127a3ebc946ec0e5a",
+        "sha256": "8f3aba432bab7a40fcaf572d5b239d61bc0769a1dc5a2ee1cbd87d9af9785b34",
+        "raw_declaration_sha256": "0ac63da2d6b07f6f4d35bf19cd44ab55faa84c87771d43bb99cb4eaa51d30fb7",
+        "raw_bytes": 684
+      },
+      "current": {
+        "path": "internal/storage/failover/reattach_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "start_line": 62,
+        "end_line": 76,
+        "git_blob": "c7f38d657830c247542f309127a3ebc946ec0e5a",
+        "sha256": "8f3aba432bab7a40fcaf572d5b239d61bc0769a1dc5a2ee1cbd87d9af9785b34",
+        "raw_declaration_sha256": "0ac63da2d6b07f6f4d35bf19cd44ab55faa84c87771d43bb99cb4eaa51d30fb7",
+        "raw_bytes": 684
+      },
+      "canonical_body_drift": false,
+      "category": "unit",
+      "rationale": "Fence proof and lookup-error assertions use fakeInstances map values; no OCI lifecycle request occurs.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/failover/reattach_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "start_line": 62,
+          "end_line": 76,
+          "git_blob": "c7f38d657830c247542f309127a3ebc946ec0e5a",
+          "sha256": "8f3aba432bab7a40fcaf572d5b239d61bc0769a1dc5a2ee1cbd87d9af9785b34",
+          "text": "func TestProveFencedRequiresTerminated(t *testing.T) {\n\tnow := time.Now()\n\tfor state, ok := range map[string]bool{\"TERMINATED\": true, \"TERMINATING\": false, \"STOPPED\": false, \"RUNNING\": false} {\n\t\tproof, err := ProveFenced(t.Context(), fakeInstances{\"old\": state}, \"old\", now)\n\t\tif ok != (err == nil) || ok && proof.State != \"TERMINATED\" {\n\t\t\tt.Fatalf(\"%s: proof=%+v err=%v\", state, proof, err)\n\t\t}\n\t\tif !ok && !errors.Is(err, storage.ErrWriterNotFenced) {\n\t\t\tt.Fatalf(\"%s: wrong error %v\", state, err)\n\t\t}\n\t}\n\tif _, err := ProveFenced(t.Context(), fakeInstances{}, \"old\", now); !errors.Is(err, storage.ErrWriterNotFenced) {\n\t\tt.Fatalf(\"unobservable instance was fenced: %v\", err)\n\t}\n}\n",
+          "note": "Entire manually read root preserves every setup, condition, assertion and failure text."
+        }
+      ],
+      "independent_unit_only_blocks": [],
+      "connected_evidence_ids": [
+        "prove",
+        "fake_instances"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/storage/failover/reattach_test.go::TestReattacherDrivesTerminatedHostToMountedReplacement",
+      "original_index": 3424,
+      "path": "internal/storage/failover/reattach_test.go",
+      "original_function": "TestReattacherDrivesTerminatedHostToMountedReplacement",
+      "current_function": "TestReattacherDrivesTerminatedHostToMountedReplacement",
+      "survival": {
+        "path": "internal/storage/failover/reattach_test.go",
+        "original_name": "TestReattacherDrivesTerminatedHostToMountedReplacement",
+        "kind": "test",
+        "original_declaration_sha256": "8f15f57867606353b1293a0d8409db7c9c2bad2ca856821a45a67bf017eb71e0",
+        "current_name": "TestReattacherDrivesTerminatedHostToMountedReplacement",
+        "current_declaration_sha256": "8f15f57867606353b1293a0d8409db7c9c2bad2ca856821a45a67bf017eb71e0",
+        "state": "retained_body_exact"
+      },
+      "baseline": {
+        "path": "internal/storage/failover/reattach_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "start_line": 133,
+        "end_line": 177,
+        "git_blob": "c7f38d657830c247542f309127a3ebc946ec0e5a",
+        "sha256": "c7aea9702446699d1002d24c2b844a0de64cb41ae4e8bd493601fadbbd5a37da",
+        "raw_declaration_sha256": "8f15f57867606353b1293a0d8409db7c9c2bad2ca856821a45a67bf017eb71e0",
+        "raw_bytes": 1940
+      },
+      "current": {
+        "path": "internal/storage/failover/reattach_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "start_line": 133,
+        "end_line": 177,
+        "git_blob": "c7f38d657830c247542f309127a3ebc946ec0e5a",
+        "sha256": "c7aea9702446699d1002d24c2b844a0de64cb41ae4e8bd493601fadbbd5a37da",
+        "raw_declaration_sha256": "8f15f57867606353b1293a0d8409db7c9c2bad2ca856821a45a67bf017eb71e0",
+        "raw_bytes": 1940
+      },
+      "canonical_body_drift": false,
+      "category": "unit",
+      "rationale": "Reattacher sequence and fence/effect counts are driven by fake maps, slices and counters. Manual fake state changes stand in for detachment/attachment; no project store or provider boundary supports the target.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/failover/reattach_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "start_line": 133,
+          "end_line": 177,
+          "git_blob": "c7f38d657830c247542f309127a3ebc946ec0e5a",
+          "sha256": "c7aea9702446699d1002d24c2b844a0de64cb41ae4e8bd493601fadbbd5a37da",
+          "text": "func TestReattacherDrivesTerminatedHostToMountedReplacement(t *testing.T) {\n\tinstances := fakeInstances{\"old\": \"RUNNING\"}\n\tvolumes := &fakeVolumes{attachments: []Attachment{attachment(\"a\", \"old\", \"ATTACHED\")}}\n\tpermits := &fakePermits{granted: map[string]bool{}}\n\treattacher := Reattacher{Fencer: &fakeFencer{snapshot: leader()},\n\t\tInstances: instances, Volumes: volumes, Permits: permits}\n\n\t// A host that only stopped answering is never detached.\n\tif step, err := reattacher.Step(t.Context(), request); step.Kind != StepProveFence || !errors.Is(err, storage.ErrWriterNotFenced) || volumes.detaches != 0 {\n\t\tt.Fatalf(\"unfenced host was detached: %+v %v\", step, err)\n\t}\n\tif volumes.listings != 0 {\n\t\tt.Fatalf(\"an unproven fence still listed attachments %d times\", volumes.listings)\n\t}\n\tinstances[\"old\"] = \"TERMINATED\"\n\twant := []StepKind{StepDetach, StepWaitDetached}\n\tfor _, kind := range want {\n\t\tstep, err := reattacher.Step(t.Context(), request)\n\t\tif err != nil || step.Kind != kind {\n\t\t\tt.Fatalf(\"step = %+v, %v; want %s\", step, err, kind)\n\t\t}\n\t}\n\tvolumes.attachments[0].State = \"DETACHED\"\n\tfor _, kind := range []StepKind{StepAttach, StepWaitAttached} {\n\t\tstep, err := reattacher.Step(t.Context(), request)\n\t\tif err != nil || step.Kind != kind {\n\t\t\tt.Fatalf(\"step = %+v, %v; want %s\", step, err, kind)\n\t\t}\n\t}\n\tvolumes.attachments[1].State = \"ATTACHED\"\n\tfor _, kind := range []StepKind{StepGrantMount, StepDone} {\n\t\tstep, err := reattacher.Step(t.Context(), request)\n\t\tif err != nil || step.Kind != kind {\n\t\t\tt.Fatalf(\"step = %+v, %v; want %s\", step, err, kind)\n\t\t}\n\t}\n\tif volumes.detaches != 1 || volumes.attaches != 1 || len(permits.granted) != 1 {\n\t\tt.Fatalf(\"effects detach=%d attach=%d permits=%v\", volumes.detaches, volumes.attaches, permits.granted)\n\t}\n\tfor _, proof := range volumes.proofs {\n\t\tif proof.InstanceID != \"old\" || proof.State != \"TERMINATED\" {\n\t\t\tt.Fatalf(\"effect ran without terminated proof: %+v\", proof)\n\t\t}\n\t}\n}\n",
+          "note": "Entire manually read root preserves every setup, condition, assertion and failure text."
+        }
+      ],
+      "independent_unit_only_blocks": [],
+      "connected_evidence_ids": [
+        "request",
+        "decide",
+        "prove",
+        "reattach",
+        "fake_instances",
+        "fake_effects",
+        "authority_snapshot",
+        "reattach_records",
+        "decision_record",
+        "decision_correlation"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/storage/failover/reattach_test.go::TestReattacherRefusesFollowerFencedAndForeignAttachments",
+      "original_index": 3425,
+      "path": "internal/storage/failover/reattach_test.go",
+      "original_function": "TestReattacherRefusesFollowerFencedAndForeignAttachments",
+      "current_function": "TestReattacherRefusesFollowerFencedAndForeignAttachments",
+      "survival": {
+        "path": "internal/storage/failover/reattach_test.go",
+        "original_name": "TestReattacherRefusesFollowerFencedAndForeignAttachments",
+        "kind": "test",
+        "original_declaration_sha256": "fe71bf268da9990499650f6b8e82196c4fd590bcd8d6c96b3514f4c378b989d1",
+        "current_name": "TestReattacherRefusesFollowerFencedAndForeignAttachments",
+        "current_declaration_sha256": "fe71bf268da9990499650f6b8e82196c4fd590bcd8d6c96b3514f4c378b989d1",
+        "state": "retained_body_exact"
+      },
+      "baseline": {
+        "path": "internal/storage/failover/reattach_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "start_line": 179,
+        "end_line": 206,
+        "git_blob": "c7f38d657830c247542f309127a3ebc946ec0e5a",
+        "sha256": "2e6263092fc062304e8e05aeda7f8e62b7c40b50d864134e9a40318f68f26ec1",
+        "raw_declaration_sha256": "fe71bf268da9990499650f6b8e82196c4fd590bcd8d6c96b3514f4c378b989d1",
+        "raw_bytes": 1508
+      },
+      "current": {
+        "path": "internal/storage/failover/reattach_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "start_line": 179,
+        "end_line": 206,
+        "git_blob": "c7f38d657830c247542f309127a3ebc946ec0e5a",
+        "sha256": "2e6263092fc062304e8e05aeda7f8e62b7c40b50d864134e9a40318f68f26ec1",
+        "raw_declaration_sha256": "fe71bf268da9990499650f6b8e82196c4fd590bcd8d6c96b3514f4c378b989d1",
+        "raw_bytes": 1508
+      },
+      "canonical_body_drift": false,
+      "category": "unit",
+      "rationale": "Follower, fenced, same-instance and foreign-attachment refusals exercise local checks with fake dependencies; no real detach/attach or permit store is reached.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/failover/reattach_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "start_line": 179,
+          "end_line": 206,
+          "git_blob": "c7f38d657830c247542f309127a3ebc946ec0e5a",
+          "sha256": "2e6263092fc062304e8e05aeda7f8e62b7c40b50d864134e9a40318f68f26ec1",
+          "text": "func TestReattacherRefusesFollowerFencedAndForeignAttachments(t *testing.T) {\n\tvolumes := &fakeVolumes{attachments: []Attachment{attachment(\"a\", \"old\", \"ATTACHED\")}}\n\tbase := Reattacher{Fencer: &fakeFencer{snapshot: leader()},\n\t\tInstances: fakeInstances{\"old\": \"TERMINATED\"}, Volumes: volumes, Permits: &fakePermits{granted: map[string]bool{}}}\n\n\tfollower := base\n\tfollower.Fencer = &fakeFencer{snapshot: authority.Snapshot{DeploymentID: \"01ARZ3NDEKTSV4RRFFQ69G5FAV\", Ready: true}}\n\tif _, err := follower.Step(t.Context(), request); !errors.Is(err, authority.ErrNotLeader) {\n\t\tt.Fatalf(\"follower reattached: %v\", err)\n\t}\n\tfenced := base\n\tfenced.Fencer = &fakeFencer{snapshot: leader(), guardErr: authority.ErrFenced}\n\tif _, err := fenced.Step(t.Context(), request); !errors.Is(err, authority.ErrFenced) {\n\t\tt.Fatalf(\"fenced leader reattached: %v\", err)\n\t}\n\tsame := request\n\tsame.ReplacementInstanceID = same.OldInstanceID\n\tif _, err := base.Step(t.Context(), same); err == nil {\n\t\tt.Fatal(\"reattach to the lost instance itself was accepted\")\n\t}\n\tvolumes.attachments = []Attachment{attachment(\"c\", \"third\", \"ATTACHED\")}\n\tif step, err := base.Step(t.Context(), request); step.Kind != StepHold || !errors.Is(err, storage.ErrVolumeHeld) || errors.Is(err, storage.ErrVolumeStuck) {\n\t\tt.Fatalf(\"foreign attachment did not hold: %+v %v\", step, err)\n\t}\n\tif volumes.detaches != 0 || volumes.attaches != 0 {\n\t\tt.Fatalf(\"refused reattach performed effects: detach=%d attach=%d\", volumes.detaches, volumes.attaches)\n\t}\n}\n",
+          "note": "Entire manually read root preserves every setup, condition, assertion and failure text."
+        }
+      ],
+      "independent_unit_only_blocks": [],
+      "connected_evidence_ids": [
+        "request",
+        "decide",
+        "prove",
+        "reattach",
+        "fake_instances",
+        "fake_effects",
+        "authority_snapshot"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/storage/failover/reattach_test.go::TestReattacherSeparatesFailedLookupsAndBindsTheExpectedEpoch",
+      "original_index": 3426,
+      "path": "internal/storage/failover/reattach_test.go",
+      "original_function": "TestReattacherSeparatesFailedLookupsAndBindsTheExpectedEpoch",
+      "current_function": "TestReattacherSeparatesFailedLookupsAndBindsTheExpectedEpoch",
+      "survival": {
+        "path": "internal/storage/failover/reattach_test.go",
+        "original_name": "TestReattacherSeparatesFailedLookupsAndBindsTheExpectedEpoch",
+        "kind": "test",
+        "original_declaration_sha256": "4430b880e002ba351c74c0687081d2f1656e72719c9febbd3b20b79528fd78d9",
+        "current_name": "TestReattacherSeparatesFailedLookupsAndBindsTheExpectedEpoch",
+        "current_declaration_sha256": "4430b880e002ba351c74c0687081d2f1656e72719c9febbd3b20b79528fd78d9",
+        "state": "retained_body_exact"
+      },
+      "baseline": {
+        "path": "internal/storage/failover/reattach_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "start_line": 208,
+        "end_line": 230,
+        "git_blob": "c7f38d657830c247542f309127a3ebc946ec0e5a",
+        "sha256": "b0ef3b46e771d9268d390bf7f7549c6802982b22379dc61f95fa653d4b4bb5b4",
+        "raw_declaration_sha256": "4430b880e002ba351c74c0687081d2f1656e72719c9febbd3b20b79528fd78d9",
+        "raw_bytes": 1417
+      },
+      "current": {
+        "path": "internal/storage/failover/reattach_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "start_line": 208,
+        "end_line": 230,
+        "git_blob": "c7f38d657830c247542f309127a3ebc946ec0e5a",
+        "sha256": "b0ef3b46e771d9268d390bf7f7549c6802982b22379dc61f95fa653d4b4bb5b4",
+        "raw_declaration_sha256": "4430b880e002ba351c74c0687081d2f1656e72719c9febbd3b20b79528fd78d9",
+        "raw_bytes": 1417
+      },
+      "canonical_body_drift": false,
+      "category": "unit",
+      "rationale": "Missing/stopped/terminated states and expected-epoch transitions use fake observer/fencer and fake detach counter; no external lifecycle observation.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/failover/reattach_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "start_line": 208,
+          "end_line": 230,
+          "git_blob": "c7f38d657830c247542f309127a3ebc946ec0e5a",
+          "sha256": "b0ef3b46e771d9268d390bf7f7549c6802982b22379dc61f95fa653d4b4bb5b4",
+          "text": "func TestReattacherSeparatesFailedLookupsAndBindsTheExpectedEpoch(t *testing.T) {\n\tvolumes := &fakeVolumes{attachments: []Attachment{attachment(\"a\", \"old\", \"ATTACHED\")}}\n\tpermits := &fakePermits{granted: map[string]bool{}}\n\treattacher := Reattacher{Fencer: &fakeFencer{snapshot: leader()},\n\t\tInstances: fakeInstances{}, Volumes: volumes, Permits: permits}\n\tstep, err := reattacher.Step(t.Context(), request)\n\tif step.Kind != StepProveFence || !errors.Is(err, ErrFenceUnobserved) || !errors.Is(err, storage.ErrWriterNotFenced) {\n\t\tt.Fatalf(\"failed lookup: %+v %v\", step, err)\n\t}\n\treattacher.Instances = fakeInstances{\"old\": \"STOPPED\"}\n\tif _, err := reattacher.Step(t.Context(), request); errors.Is(err, ErrFenceUnobserved) {\n\t\tt.Fatalf(\"an observed STOPPED state was reported as a failed lookup: %v\", err)\n\t}\n\treattacher.Instances = fakeInstances{\"old\": \"TERMINATED\"}\n\treattacher.ExpectedEpoch = leader().Epoch + 1\n\tif _, err := reattacher.Step(t.Context(), request); !errors.Is(err, authority.ErrFenced) || volumes.detaches != 0 || volumes.listings != 0 {\n\t\tt.Fatalf(\"stale expected epoch: %v detaches=%d listings=%d\", err, volumes.detaches, volumes.listings)\n\t}\n\treattacher.ExpectedEpoch = leader().Epoch\n\tif step, err := reattacher.Step(t.Context(), request); err != nil || step.Kind != StepDetach || volumes.detaches != 1 {\n\t\tt.Fatalf(\"current expected epoch: %+v %v detaches=%d\", step, err, volumes.detaches)\n\t}\n}\n",
+          "note": "Entire manually read root preserves every setup, condition, assertion and failure text."
+        }
+      ],
+      "independent_unit_only_blocks": [],
+      "connected_evidence_ids": [
+        "request",
+        "decide",
+        "prove",
+        "reattach",
+        "fake_instances",
+        "fake_effects",
+        "authority_snapshot",
+        "reattach_records",
+        "decision_record",
+        "decision_correlation"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/storage/hostvolume/effects_linux_test.go::TestBlockDeviceMountedMatchesExactDevice",
+      "original_index": 3427,
+      "path": "internal/storage/hostvolume/effects_linux_test.go",
+      "original_function": "TestBlockDeviceMountedMatchesExactDevice",
+      "current_function": "TestBlockDeviceMountedMatchesExactDevice",
+      "survival": {
+        "path": "internal/storage/hostvolume/effects_linux_test.go",
+        "original_name": "TestBlockDeviceMountedMatchesExactDevice",
+        "kind": "test",
+        "original_declaration_sha256": "4313ab30c702f1fef0dc78a9b21f6bc89998b7b42a537f6662645e9984513e08",
+        "current_name": "TestBlockDeviceMountedMatchesExactDevice",
+        "current_declaration_sha256": "4313ab30c702f1fef0dc78a9b21f6bc89998b7b42a537f6662645e9984513e08",
+        "state": "retained_body_exact"
+      },
+      "baseline": {
+        "path": "internal/storage/hostvolume/effects_linux_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "start_line": 73,
+        "end_line": 83,
+        "git_blob": "94d9d25a205be7ec8ffd7587dd92d1868bd9fa04",
+        "sha256": "131512b12f2ff7760ec8b1af75befc2805b9aee65a43a1fe36abf0b74f37d6e8",
+        "raw_declaration_sha256": "4313ab30c702f1fef0dc78a9b21f6bc89998b7b42a537f6662645e9984513e08",
+        "raw_bytes": 538
+      },
+      "current": {
+        "path": "internal/storage/hostvolume/effects_linux_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "start_line": 73,
+        "end_line": 83,
+        "git_blob": "94d9d25a205be7ec8ffd7587dd92d1868bd9fa04",
+        "sha256": "131512b12f2ff7760ec8b1af75befc2805b9aee65a43a1fe36abf0b74f37d6e8",
+        "raw_declaration_sha256": "4313ab30c702f1fef0dc78a9b21f6bc89998b7b42a537f6662645e9984513e08",
+        "raw_bytes": 538
+      },
+      "canonical_body_drift": false,
+      "category": "integration",
+      "rationale": "The target BlockDeviceMounted itself opens and reads the persisted mountinfo fixture. Its exact device-match and absent-device results materially depend on production filesystem readback. Synthetic mount records do not establish actual mounted devices.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/hostvolume/effects_linux_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "start_line": 73,
+          "end_line": 83,
+          "git_blob": "94d9d25a205be7ec8ffd7587dd92d1868bd9fa04",
+          "sha256": "131512b12f2ff7760ec8b1af75befc2805b9aee65a43a1fe36abf0b74f37d6e8",
+          "text": "func TestBlockDeviceMountedMatchesExactDevice(t *testing.T) {\n\tpath := filepath.Join(t.TempDir(), \"mountinfo\")\n\tif err := os.WriteFile(path, []byte(mountInfo), 0o600); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfor rdev, want := range map[uint64]bool{unix.Mkdev(8, 16): true, unix.Mkdev(8, 32): true, unix.Mkdev(8, 48): false, unix.Mkdev(8, 1): true} {\n\t\tif got, err := BlockDeviceMounted(path, rdev); err != nil || got != want {\n\t\t\tt.Fatalf(\"BlockDeviceMounted(%d:%d) = %v, %v; want %v\", unix.Major(rdev), unix.Minor(rdev), got, err, want)\n\t\t}\n\t}\n}\n",
+          "note": "Entire manually read root preserves every setup, condition, assertion and failure text."
+        }
+      ],
+      "independent_unit_only_blocks": [],
+      "connected_evidence_ids": [
+        "device_mounted",
+        "mountinfo_fixture"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/storage/hostvolume/effects_linux_test.go::TestBtrfsRootExcludesEveryKernelMember",
+      "original_index": 3428,
+      "path": "internal/storage/hostvolume/effects_linux_test.go",
+      "original_function": "TestBtrfsRootExcludesEveryKernelMember",
+      "current_function": "TestBtrfsRootExcludesEveryKernelMember",
+      "survival": {
+        "path": "internal/storage/hostvolume/effects_linux_test.go",
+        "original_name": "TestBtrfsRootExcludesEveryKernelMember",
+        "kind": "test",
+        "original_declaration_sha256": "a730f039c6557bf4e86055685eacd5b1332159122e02d890b2fcf8ca9c3d0731",
+        "current_name": "TestBtrfsRootExcludesEveryKernelMember",
+        "current_declaration_sha256": "a730f039c6557bf4e86055685eacd5b1332159122e02d890b2fcf8ca9c3d0731",
+        "state": "retained_body_exact"
+      },
+      "baseline": {
+        "path": "internal/storage/hostvolume/effects_linux_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "start_line": 15,
+        "end_line": 71,
+        "git_blob": "94d9d25a205be7ec8ffd7587dd92d1868bd9fa04",
+        "sha256": "4d85f7cc721a57ea51fd97535c0cd0a99e0ea6a302603542f9d302ee1376f771",
+        "raw_declaration_sha256": "a730f039c6557bf4e86055685eacd5b1332159122e02d890b2fcf8ca9c3d0731",
+        "raw_bytes": 2319
+      },
+      "current": {
+        "path": "internal/storage/hostvolume/effects_linux_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "start_line": 15,
+        "end_line": 71,
+        "git_blob": "94d9d25a205be7ec8ffd7587dd92d1868bd9fa04",
+        "sha256": "4d85f7cc721a57ea51fd97535c0cd0a99e0ea6a302603542f9d302ee1376f771",
+        "raw_declaration_sha256": "a730f039c6557bf4e86055685eacd5b1332159122e02d890b2fcf8ca9c3d0731",
+        "raw_bytes": 2319
+      },
+      "canonical_body_drift": false,
+      "category": "integration",
+      "rationale": "Production btrfsRootDevices enumerates written fixture directories, reads each member and metadata field, and resolves actual filesystem symlinks/stat to identify whole disks. Mutated metadata and removed symlink are observed through production filesystem reads; no actual Btrfs kernel filesystem is exercised.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/hostvolume/effects_linux_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "start_line": 15,
+          "end_line": 71,
+          "git_blob": "94d9d25a205be7ec8ffd7587dd92d1868bd9fa04",
+          "sha256": "4d85f7cc721a57ea51fd97535c0cd0a99e0ea6a302603542f9d302ee1376f771",
+          "text": "func TestBtrfsRootExcludesEveryKernelMember(t *testing.T) {\n\tsysRoot := t.TempDir()\n\tconst uuid = \"0d370616-bf07-48e3-90a4-75e58c799c01\"\n\troot := filepath.Join(sysRoot, \"fs/btrfs\", uuid)\n\tvar want []string\n\tfor i, device := range []string{\"8:1\", \"8:17\"} {\n\t\tname := \"disk\" + strconv.Itoa(i)\n\t\twhole := filepath.Join(sysRoot, \"devices/block\", name)\n\t\tpartition := filepath.Join(whole, name+\"1\")\n\t\tfor _, directory := range []string{partition, filepath.Join(sysRoot, \"dev/block\"), filepath.Join(root, \"devices\", name), filepath.Join(root, \"devinfo\", strconv.Itoa(i+1))} {\n\t\t\tif err := os.MkdirAll(directory, 0o755); err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t}\n\t\tif err := os.WriteFile(filepath.Join(partition, \"partition\"), []byte(\"1\\n\"), 0o444); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tif err := os.Symlink(partition, filepath.Join(sysRoot, \"dev/block\", device)); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tif err := os.WriteFile(filepath.Join(root, \"devices\", name, \"dev\"), []byte(device+\"\\n\"), 0o444); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tfor field, value := range map[string]string{\"missing\": \"0\", \"in_fs_metadata\": \"1\", \"replace_target\": \"0\", \"fsid\": uuid} {\n\t\t\tif err := os.WriteFile(filepath.Join(root, \"devinfo\", strconv.Itoa(i+1), field), []byte(value+\"\\n\"), 0o644); err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t}\n\t\twant = append(want, whole)\n\t}\n\tgot, err := btrfsRootDevices(sysRoot, unix.Mkdev(8, 1))\n\tif err != nil || !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"complete root disks: %v, %v; want %v\", got, err, want)\n\t}\n\tfor field, unsafe := range map[string]string{\"missing\": \"1\", \"in_fs_metadata\": \"0\", \"replace_target\": \"1\", \"fsid\": \"another-filesystem\"} {\n\t\tt.Run(field, func(t *testing.T) {\n\t\t\tpath := filepath.Join(root, \"devinfo/2\", field)\n\t\t\toriginal, err := os.ReadFile(path)\n\t\t\tif err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tif err := os.WriteFile(path, []byte(unsafe), 0o644); err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tdefer os.WriteFile(path, original, 0o644)\n\t\t\tif _, err := btrfsRootDevices(sysRoot, unix.Mkdev(8, 1)); err == nil {\n\t\t\t\tt.Fatal(\"incomplete or changing root membership accepted\")\n\t\t\t}\n\t\t})\n\t}\n\tif err := os.Remove(filepath.Join(sysRoot, \"dev/block/8:17\")); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := btrfsRootDevices(sysRoot, unix.Mkdev(8, 1)); err == nil {\n\t\tt.Fatal(\"unresolvable second root member accepted\")\n\t}\n}\n",
+          "note": "Entire manually read root preserves every setup, condition, assertion and failure text."
+        }
+      ],
+      "independent_unit_only_blocks": [],
+      "connected_evidence_ids": [
+        "btrfs",
+        "sysfs"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/storage/hostvolume/hostvolume_test.go::TestExt4ResizeBlocks",
+      "original_index": 3429,
+      "path": "internal/storage/hostvolume/hostvolume_test.go",
+      "original_function": "TestExt4ResizeBlocks",
+      "current_function": "TestExt4ResizeBlocks",
+      "survival": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "original_name": "TestExt4ResizeBlocks",
+        "kind": "test",
+        "original_declaration_sha256": "22c21f2f709bcdc1870f4a32de65ac59159ba7c6e8f89da510bf4ae10f72e96f",
+        "current_name": "TestExt4ResizeBlocks",
+        "current_declaration_sha256": "22c21f2f709bcdc1870f4a32de65ac59159ba7c6e8f89da510bf4ae10f72e96f",
+        "state": "retained_body_exact"
+      },
+      "baseline": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "start_line": 89,
+        "end_line": 102,
+        "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+        "sha256": "857f4c60579ebbdefdcd33ed961cc51fff0b9ad04222c97dc1ef099db61ebbe8",
+        "raw_declaration_sha256": "22c21f2f709bcdc1870f4a32de65ac59159ba7c6e8f89da510bf4ae10f72e96f",
+        "raw_bytes": 462
+      },
+      "current": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "start_line": 89,
+        "end_line": 102,
+        "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+        "sha256": "857f4c60579ebbdefdcd33ed961cc51fff0b9ad04222c97dc1ef099db61ebbe8",
+        "raw_declaration_sha256": "22c21f2f709bcdc1870f4a32de65ac59159ba7c6e8f89da510bf4ae10f72e96f",
+        "raw_bytes": 462
+      },
+      "canonical_body_drift": false,
+      "category": "unit",
+      "rationale": "Ext4 block arithmetic and invalid-size guards are local; no resize ioctl or block device is used.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/hostvolume/hostvolume_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "start_line": 89,
+          "end_line": 102,
+          "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+          "sha256": "857f4c60579ebbdefdcd33ed961cc51fff0b9ad04222c97dc1ef099db61ebbe8",
+          "text": "func TestExt4ResizeBlocks(t *testing.T) {\n\tblocks, err := Ext4ResizeBlocks(100<<30+123, 4096)\n\tif err != nil || blocks != (100<<30)/4096 {\n\t\tt.Fatalf(\"blocks = %d, %v\", blocks, err)\n\t}\n\tfor _, size := range []uint64{0, 512, 3000, 1 << 17} {\n\t\tif _, err := Ext4ResizeBlocks(1<<30, size); err == nil {\n\t\t\tt.Fatalf(\"block size %d accepted\", size)\n\t\t}\n\t}\n\tif _, err := Ext4ResizeBlocks(1000, 4096); err == nil {\n\t\tt.Fatal(\"device smaller than a block accepted\")\n\t}\n}\n",
+          "note": "Entire manually read root preserves every setup, condition, assertion and failure text."
+        }
+      ],
+      "independent_unit_only_blocks": [],
+      "connected_evidence_ids": [
+        "format"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/storage/hostvolume/hostvolume_test.go::TestFilesystemData",
+      "original_index": 3430,
+      "path": "internal/storage/hostvolume/hostvolume_test.go",
+      "original_function": "TestFilesystemData",
+      "current_function": "TestFilesystemData",
+      "survival": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "original_name": "TestFilesystemData",
+        "kind": "test",
+        "original_declaration_sha256": "fb57a9fb97ebd2f33d35571b0f5b314bfcc6c4793c071cc74d925320fcb78997",
+        "current_name": "TestFilesystemData",
+        "current_declaration_sha256": "fb57a9fb97ebd2f33d35571b0f5b314bfcc6c4793c071cc74d925320fcb78997",
+        "state": "retained_body_exact"
+      },
+      "baseline": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "start_line": 83,
+        "end_line": 87,
+        "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+        "sha256": "3a50a5f15b397243fbcaec3d2590be60935f0e4c435155215cf86510a26e68bf",
+        "raw_declaration_sha256": "fb57a9fb97ebd2f33d35571b0f5b314bfcc6c4793c071cc74d925320fcb78997",
+        "raw_bytes": 173
+      },
+      "current": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "start_line": 83,
+        "end_line": 87,
+        "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+        "sha256": "3a50a5f15b397243fbcaec3d2590be60935f0e4c435155215cf86510a26e68bf",
+        "raw_declaration_sha256": "fb57a9fb97ebd2f33d35571b0f5b314bfcc6c4793c071cc74d925320fcb78997",
+        "raw_bytes": 173
+      },
+      "canonical_body_drift": false,
+      "category": "unit",
+      "rationale": "Filesystem type strings select mount-data strings locally; no mount occurs.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/hostvolume/hostvolume_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "start_line": 83,
+          "end_line": 87,
+          "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+          "sha256": "3a50a5f15b397243fbcaec3d2590be60935f0e4c435155215cf86510a26e68bf",
+          "text": "func TestFilesystemData(t *testing.T) {\n\tif FilesystemData(\"ext4\") != \"errors=remount-ro\" || FilesystemData(\"xfs\") != \"\" {\n\t\tt.Fatal(\"unexpected filesystem mount data\")\n\t}\n}\n",
+          "note": "Entire manually read root preserves every setup, condition, assertion and failure text."
+        }
+      ],
+      "independent_unit_only_blocks": [],
+      "connected_evidence_ids": [
+        "format"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/storage/hostvolume/hostvolume_test.go::TestFormatCommandPinsUUIDAndSupportsXFS",
+      "original_index": 3431,
+      "path": "internal/storage/hostvolume/hostvolume_test.go",
+      "original_function": "TestFormatCommandPinsUUIDAndSupportsXFS",
+      "current_function": "TestFormatCommandPinsUUIDAndSupportsXFS",
+      "survival": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "original_name": "TestFormatCommandPinsUUIDAndSupportsXFS",
+        "kind": "test",
+        "original_declaration_sha256": "10f324c3df295c3653fd3375e4116775f9faa89b036d1d297836c623cc810b9c",
+        "current_name": "TestFormatCommandPinsUUIDAndSupportsXFS",
+        "current_declaration_sha256": "10f324c3df295c3653fd3375e4116775f9faa89b036d1d297836c623cc810b9c",
+        "state": "retained_body_exact"
+      },
+      "baseline": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "start_line": 60,
+        "end_line": 81,
+        "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+        "sha256": "02f718d2832cee01297f6b778009244d477fbcddc45f251f7d1d96ff8fac6cc5",
+        "raw_declaration_sha256": "10f324c3df295c3653fd3375e4116775f9faa89b036d1d297836c623cc810b9c",
+        "raw_bytes": 854
+      },
+      "current": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "start_line": 60,
+        "end_line": 81,
+        "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+        "sha256": "02f718d2832cee01297f6b778009244d477fbcddc45f251f7d1d96ff8fac6cc5",
+        "raw_declaration_sha256": "10f324c3df295c3653fd3375e4116775f9faa89b036d1d297836c623cc810b9c",
+        "raw_bytes": 854
+      },
+      "canonical_body_drift": false,
+      "category": "unit",
+      "rationale": "FormatCommand only validates filesystem/UUID and constructs fixed tool/argument strings. No mkfs subprocess or filesystem format is executed by this root.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/hostvolume/hostvolume_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "start_line": 60,
+          "end_line": 81,
+          "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+          "sha256": "02f718d2832cee01297f6b778009244d477fbcddc45f251f7d1d96ff8fac6cc5",
+          "text": "func TestFormatCommandPinsUUIDAndSupportsXFS(t *testing.T) {\n\tuuid := \"123e4567-e89b-12d3-a456-426614174000\"\n\ttool, args, err := FormatCommand(\"ext4\", uuid)\n\tif err != nil || tool != \"/usr/sbin/mkfs.ext4\" || !slices.Contains(args, uuid) {\n\t\tt.Fatalf(\"ext4 command = %s %v, %v\", tool, args, err)\n\t}\n\ttool, args, err = FormatCommand(\"xfs\", uuid)\n\tif err != nil || tool != \"/usr/sbin/mkfs.xfs\" || !slices.Contains(args, \"uuid=\"+uuid) {\n\t\tt.Fatalf(\"xfs command = %s %v, %v\", tool, args, err)\n\t}\n\tfor _, bad := range []struct{ fs, uuid string }{\n\t\t{\"btrfs\", uuid},\n\t\t{\"ext4\", \"123E4567-E89B-12D3-A456-426614174000\"},\n\t\t{\"ext4\", \"not-a-uuid\"},\n\t\t{\"xfs\", uuid + \"0\"},\n\t\t{\"ext4\", \"123e4567-e89b-12d3-a456-42661417400g\"},\n\t} {\n\t\tif _, _, err := FormatCommand(bad.fs, bad.uuid); err == nil {\n\t\t\tt.Fatalf(\"FormatCommand(%q, %q) accepted\", bad.fs, bad.uuid)\n\t\t}\n\t}\n}\n",
+          "note": "Entire manually read root preserves every setup, condition, assertion and failure text."
+        }
+      ],
+      "independent_unit_only_blocks": [],
+      "connected_evidence_ids": [
+        "format",
+        "sysfs"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/storage/hostvolume/hostvolume_test.go::TestGrowNeededIgnoresSmallTailsAndNeverShrinks",
+      "original_index": 3432,
+      "path": "internal/storage/hostvolume/hostvolume_test.go",
+      "original_function": "TestGrowNeededIgnoresSmallTailsAndNeverShrinks",
+      "current_function": "TestGrowNeededIgnoresSmallTailsAndNeverShrinks",
+      "survival": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "original_name": "TestGrowNeededIgnoresSmallTailsAndNeverShrinks",
+        "kind": "test",
+        "original_declaration_sha256": "4f9290d7a423bfdb142be16b410f5e87c66895a37b019afa29d8ace61f1bb782",
+        "current_name": "TestGrowNeededIgnoresSmallTailsAndNeverShrinks",
+        "current_declaration_sha256": "4f9290d7a423bfdb142be16b410f5e87c66895a37b019afa29d8ace61f1bb782",
+        "state": "retained_body_exact"
+      },
+      "baseline": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "start_line": 145,
+        "end_line": 163,
+        "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+        "sha256": "73b94fac3e88ab97b332e199700cf9903613a9c4b7ca2fe6820ddc615847d1c3",
+        "raw_declaration_sha256": "4f9290d7a423bfdb142be16b410f5e87c66895a37b019afa29d8ace61f1bb782",
+        "raw_bytes": 612
+      },
+      "current": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "start_line": 145,
+        "end_line": 163,
+        "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+        "sha256": "73b94fac3e88ab97b332e199700cf9903613a9c4b7ca2fe6820ddc615847d1c3",
+        "raw_declaration_sha256": "4f9290d7a423bfdb142be16b410f5e87c66895a37b019afa29d8ace61f1bb782",
+        "raw_bytes": 612
+      },
+      "canonical_body_drift": false,
+      "category": "unit",
+      "rationale": "Numeric sizes feed GrowNeeded; assertions cover tails, growth, shrinking and zero block size without filesystem or device access.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/hostvolume/hostvolume_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "start_line": 145,
+          "end_line": 163,
+          "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+          "sha256": "73b94fac3e88ab97b332e199700cf9903613a9c4b7ca2fe6820ddc615847d1c3",
+          "text": "func TestGrowNeededIgnoresSmallTailsAndNeverShrinks(t *testing.T) {\n\tconst block = 4096\n\tfsBlocks := uint64(50<<30) / block\n\tif GrowNeeded(50<<30, fsBlocks, block, 128<<20) {\n\t\tt.Fatal(\"equal sizes need growth\")\n\t}\n\tif GrowNeeded(50<<30+64<<20, fsBlocks, block, 128<<20) {\n\t\tt.Fatal(\"small tail triggered growth\")\n\t}\n\tif !GrowNeeded(100<<30, fsBlocks, block, 128<<20) {\n\t\tt.Fatal(\"doubled device did not need growth\")\n\t}\n\tif GrowNeeded(40<<30, fsBlocks, block, 128<<20) {\n\t\tt.Fatal(\"smaller device requested growth\")\n\t}\n\tif GrowNeeded(100<<30, fsBlocks, 0, 0) {\n\t\tt.Fatal(\"zero block size requested growth\")\n\t}\n}\n",
+          "note": "Entire manually read root preserves every setup, condition, assertion and failure text."
+        }
+      ],
+      "independent_unit_only_blocks": [],
+      "connected_evidence_ids": [
+        "sysfs"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/storage/hostvolume/hostvolume_test.go::TestGrowSlackTriggersOnEveryWholeGiBResize",
+      "original_index": 3433,
+      "path": "internal/storage/hostvolume/hostvolume_test.go",
+      "original_function": "TestGrowSlackTriggersOnEveryWholeGiBResize",
+      "current_function": "TestGrowSlackTriggersOnEveryWholeGiBResize",
+      "survival": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "original_name": "TestGrowSlackTriggersOnEveryWholeGiBResize",
+        "kind": "test",
+        "original_declaration_sha256": "a1601493bab81501fb306be1acf85a3eb3bd19f2f0d43cfe2b5ce84f1514a907",
+        "current_name": "TestGrowSlackTriggersOnEveryWholeGiBResize",
+        "current_declaration_sha256": "a1601493bab81501fb306be1acf85a3eb3bd19f2f0d43cfe2b5ce84f1514a907",
+        "state": "retained_body_exact"
+      },
+      "baseline": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "start_line": 129,
+        "end_line": 143,
+        "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+        "sha256": "b6992c79730bf8feca148acb807c6be5e42ade44e42656c15fe23b172d9e95e5",
+        "raw_declaration_sha256": "a1601493bab81501fb306be1acf85a3eb3bd19f2f0d43cfe2b5ce84f1514a907",
+        "raw_bytes": 658
+      },
+      "current": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "start_line": 129,
+        "end_line": 143,
+        "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+        "sha256": "b6992c79730bf8feca148acb807c6be5e42ade44e42656c15fe23b172d9e95e5",
+        "raw_declaration_sha256": "a1601493bab81501fb306be1acf85a3eb3bd19f2f0d43cfe2b5ce84f1514a907",
+        "raw_bytes": 658
+      },
+      "canonical_body_drift": false,
+      "category": "unit",
+      "rationale": "Numeric metadata-overhead calculations and fixed GrowSlack feed a pure growth predicate; no resize or filesystem boundary.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/hostvolume/hostvolume_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "start_line": 129,
+          "end_line": 143,
+          "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+          "sha256": "b6992c79730bf8feca148acb807c6be5e42ade44e42656c15fe23b172d9e95e5",
+          "text": "func TestGrowSlackTriggersOnEveryWholeGiBResize(t *testing.T) {\n\tconst block = 4096\n\t// XFS reports roughly 0.3% and ext4 up to about 2% of the device as\n\t// metadata overhead below statfs blocks; a 1 GiB resize must still clear\n\t// the gate on large volumes.\n\tfor _, size := range []uint64{50 << 30, 64 << 30, 1 << 40} {\n\t\tfsBlocks := (size - size/50) / block\n\t\tif !GrowNeeded(size+1<<30, fsBlocks, block, GrowSlack) {\n\t\t\tt.Fatalf(\"a +1 GiB resize of a %d GiB volume did not trigger growth\", size>>30)\n\t\t}\n\t}\n\tif GrowNeeded(50<<30, (50<<30-200<<20)/block, block, GrowSlack) {\n\t\tt.Fatal(\"metadata overhead of an unresized small volume triggered growth\")\n\t}\n}\n",
+          "note": "Entire manually read root preserves every setup, condition, assertion and failure text."
+        }
+      ],
+      "independent_unit_only_blocks": [],
+      "connected_evidence_ids": [
+        "sysfs"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/storage/hostvolume/hostvolume_test.go::TestMountOptionsSelectsExactMountID",
+      "original_index": 3434,
+      "path": "internal/storage/hostvolume/hostvolume_test.go",
+      "original_function": "TestMountOptionsSelectsExactMountID",
+      "current_function": "TestMountOptionsSelectsExactMountID",
+      "survival": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "original_name": "TestMountOptionsSelectsExactMountID",
+        "kind": "test",
+        "original_declaration_sha256": "086d2bcef715ab3e9e9d7055e03f2b69b0ae3af4fa8e1350515b0ec06b38f874",
+        "current_name": "TestMountOptionsSelectsExactMountID",
+        "current_declaration_sha256": "086d2bcef715ab3e9e9d7055e03f2b69b0ae3af4fa8e1350515b0ec06b38f874",
+        "state": "retained_body_exact"
+      },
+      "baseline": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "start_line": 34,
+        "end_line": 45,
+        "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+        "sha256": "a6c46098f6a490d657179ed2fffbf39ade58f89b8b9a27a35eb575994f8085a4",
+        "raw_declaration_sha256": "086d2bcef715ab3e9e9d7055e03f2b69b0ae3af4fa8e1350515b0ec06b38f874",
+        "raw_bytes": 510
+      },
+      "current": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "start_line": 34,
+        "end_line": 45,
+        "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+        "sha256": "a6c46098f6a490d657179ed2fffbf39ade58f89b8b9a27a35eb575994f8085a4",
+        "raw_declaration_sha256": "086d2bcef715ab3e9e9d7055e03f2b69b0ae3af4fa8e1350515b0ec06b38f874",
+        "raw_bytes": 510
+      },
+      "canonical_body_drift": false,
+      "category": "unit",
+      "rationale": "MountOptions scans strings.Reader synthetic records; exact ID, absent ID and malformed input checks do not open a file or read kernel mount state.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/hostvolume/hostvolume_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "start_line": 34,
+          "end_line": 45,
+          "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+          "sha256": "a6c46098f6a490d657179ed2fffbf39ade58f89b8b9a27a35eb575994f8085a4",
+          "text": "func TestMountOptionsSelectsExactMountID(t *testing.T) {\n\toptions, err := MountOptions(strings.NewReader(mountInfo), 31)\n\tif err != nil || options != \"rw,nosuid,nodev,noexec,noatime\" {\n\t\tt.Fatalf(\"mount 31 options = %q, %v\", options, err)\n\t}\n\tif _, err := MountOptions(strings.NewReader(mountInfo), 99); err == nil {\n\t\tt.Fatal(\"missing mount ID was found\")\n\t}\n\tif _, err := MountOptions(strings.NewReader(\"x 1 8:1 / / rw - ext4 /dev/sda rw\\n\"), 1); err == nil {\n\t\tt.Fatal(\"corrupt mountinfo was accepted\")\n\t}\n}\n",
+          "note": "Entire manually read root preserves every setup, condition, assertion and failure text."
+        }
+      ],
+      "independent_unit_only_blocks": [],
+      "connected_evidence_ids": [
+        "options",
+        "mountinfo_fixture"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/storage/hostvolume/hostvolume_test.go::TestOptionsHardenedRequiresEveryFlag",
+      "original_index": 3435,
+      "path": "internal/storage/hostvolume/hostvolume_test.go",
+      "original_function": "TestOptionsHardenedRequiresEveryFlag",
+      "current_function": "TestOptionsHardenedRequiresEveryFlag",
+      "survival": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "original_name": "TestOptionsHardenedRequiresEveryFlag",
+        "kind": "test",
+        "original_declaration_sha256": "3de8cd72414815f8830e603943d4cdf8cc6c6778e58e711e0a9c6348656a3945",
+        "current_name": "TestOptionsHardenedRequiresEveryFlag",
+        "current_declaration_sha256": "3de8cd72414815f8830e603943d4cdf8cc6c6778e58e711e0a9c6348656a3945",
+        "state": "retained_body_exact"
+      },
+      "baseline": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "start_line": 16,
+        "end_line": 32,
+        "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+        "sha256": "d69b3d3688a3228d888a9e1123220f68a38d12454450b18112bd8873f9dbc574",
+        "raw_declaration_sha256": "3de8cd72414815f8830e603943d4cdf8cc6c6778e58e711e0a9c6348656a3945",
+        "raw_bytes": 603
+      },
+      "current": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "start_line": 16,
+        "end_line": 32,
+        "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+        "sha256": "d69b3d3688a3228d888a9e1123220f68a38d12454450b18112bd8873f9dbc574",
+        "raw_declaration_sha256": "3de8cd72414815f8830e603943d4cdf8cc6c6778e58e711e0a9c6348656a3945",
+        "raw_bytes": 603
+      },
+      "canonical_body_drift": false,
+      "category": "unit",
+      "rationale": "OptionsHardened operates on literal option strings and a local set; no kernel mount or file boundary.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/hostvolume/hostvolume_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "start_line": 16,
+          "end_line": 32,
+          "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+          "sha256": "d69b3d3688a3228d888a9e1123220f68a38d12454450b18112bd8873f9dbc574",
+          "text": "func TestOptionsHardenedRequiresEveryFlag(t *testing.T) {\n\tcases := map[string]bool{\n\t\t\"rw,nosuid,nodev,noexec,noatime\":  true,\n\t\t\"rw,noexec,nodev,nosuid,noatime\":  true,\n\t\t\"rw,noexec,nodev,nosuid\":          false,\n\t\t\"rw,nosuid,nodev,noexec,relatime\": false,\n\t\t\"rw,nosuid,nodev\":                 false,\n\t\t\"rw,relatime\":                     false,\n\t\t\"\":                                false,\n\t\t\"rw,nosuidx,nodev,noexec\":         false,\n\t}\n\tfor options, want := range cases {\n\t\tif got := OptionsHardened(options); got != want {\n\t\t\tt.Fatalf(\"OptionsHardened(%q) = %v, want %v\", options, got, want)\n\t\t}\n\t}\n}\n",
+          "note": "Entire manually read root preserves every setup, condition, assertion and failure text."
+        }
+      ],
+      "independent_unit_only_blocks": [],
+      "connected_evidence_ids": [
+        "options"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/storage/hostvolume/hostvolume_test.go::TestRequireHardenedReadsMountInfoFile",
+      "original_index": 3436,
+      "path": "internal/storage/hostvolume/hostvolume_test.go",
+      "original_function": "TestRequireHardenedReadsMountInfoFile",
+      "current_function": "TestRequireHardenedReadsMountInfoFile",
+      "survival": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "original_name": "TestRequireHardenedReadsMountInfoFile",
+        "kind": "test",
+        "original_declaration_sha256": "4c298c651ab945aab054e28d5058613cacbaeab8f51265a8a9700ec04b3404f9",
+        "current_name": "TestRequireHardenedReadsMountInfoFile",
+        "current_declaration_sha256": "4c298c651ab945aab054e28d5058613cacbaeab8f51265a8a9700ec04b3404f9",
+        "state": "retained_body_exact"
+      },
+      "baseline": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "start_line": 47,
+        "end_line": 58,
+        "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+        "sha256": "7ae75e9a4a683e3f696d64bcee5bfd00e8c6f41a1f736041373a3375fa55e10b",
+        "raw_declaration_sha256": "4c298c651ab945aab054e28d5058613cacbaeab8f51265a8a9700ec04b3404f9",
+        "raw_bytes": 391
+      },
+      "current": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "start_line": 47,
+        "end_line": 58,
+        "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+        "sha256": "7ae75e9a4a683e3f696d64bcee5bfd00e8c6f41a1f736041373a3375fa55e10b",
+        "raw_declaration_sha256": "4c298c651ab945aab054e28d5058613cacbaeab8f51265a8a9700ec04b3404f9",
+        "raw_bytes": 391
+      },
+      "canonical_body_drift": false,
+      "category": "integration",
+      "rationale": "RequireHardened opens the written mountinfo fixture through production os.Open and passes that real file to MountOptions; acceptance/rejection depends on this direct readback. The mount records are synthetic, not kernel evidence.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/hostvolume/hostvolume_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "start_line": 47,
+          "end_line": 58,
+          "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+          "sha256": "7ae75e9a4a683e3f696d64bcee5bfd00e8c6f41a1f736041373a3375fa55e10b",
+          "text": "func TestRequireHardenedReadsMountInfoFile(t *testing.T) {\n\tpath := filepath.Join(t.TempDir(), \"mountinfo\")\n\tif err := os.WriteFile(path, []byte(mountInfo), 0o600); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := RequireHardened(path, 31); err != nil {\n\t\tt.Fatalf(\"hardened mount rejected: %v\", err)\n\t}\n\tif err := RequireHardened(path, 32); err == nil {\n\t\tt.Fatal(\"unhardened mount accepted\")\n\t}\n}\n",
+          "note": "Entire manually read root preserves every setup, condition, assertion and failure text."
+        }
+      ],
+      "independent_unit_only_blocks": [],
+      "connected_evidence_ids": [
+        "options",
+        "mountinfo_fixture"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/storage/hostvolume/hostvolume_test.go::TestSysfsDeviceBytesReadsSectors",
+      "original_index": 3437,
+      "path": "internal/storage/hostvolume/hostvolume_test.go",
+      "original_function": "TestSysfsDeviceBytesReadsSectors",
+      "current_function": "TestSysfsDeviceBytesReadsSectors",
+      "survival": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "original_name": "TestSysfsDeviceBytesReadsSectors",
+        "kind": "test",
+        "original_declaration_sha256": "8d147d3949c3d833899b0c9c8cc8ef4a1055def7c0eac5073748b72b679d05e8",
+        "current_name": "TestSysfsDeviceBytesReadsSectors",
+        "current_declaration_sha256": "8d147d3949c3d833899b0c9c8cc8ef4a1055def7c0eac5073748b72b679d05e8",
+        "state": "retained_body_exact"
+      },
+      "baseline": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "start_line": 104,
+        "end_line": 127,
+        "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+        "sha256": "f905ada7df2df4318d51a278792b2deb08a13af25dec9f2e3e45783dfe0cdbfa",
+        "raw_declaration_sha256": "8d147d3949c3d833899b0c9c8cc8ef4a1055def7c0eac5073748b72b679d05e8",
+        "raw_bytes": 820
+      },
+      "current": {
+        "path": "internal/storage/hostvolume/hostvolume_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "start_line": 104,
+        "end_line": 127,
+        "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+        "sha256": "f905ada7df2df4318d51a278792b2deb08a13af25dec9f2e3e45783dfe0cdbfa",
+        "raw_declaration_sha256": "8d147d3949c3d833899b0c9c8cc8ef4a1055def7c0eac5073748b72b679d05e8",
+        "raw_bytes": 820
+      },
+      "canonical_body_drift": false,
+      "category": "integration",
+      "rationale": "SysfsDeviceBytes directly reads written size files through production os.ReadFile. Positive sector conversion, missing file and replaced invalid contents support actual filesystem I/O; no real sysfs or block capacity is observed.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/hostvolume/hostvolume_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "start_line": 104,
+          "end_line": 127,
+          "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+          "sha256": "f905ada7df2df4318d51a278792b2deb08a13af25dec9f2e3e45783dfe0cdbfa",
+          "text": "func TestSysfsDeviceBytesReadsSectors(t *testing.T) {\n\troot := t.TempDir()\n\tnode := filepath.Join(root, \"dev\", \"block\", \"8:16\")\n\tif err := os.MkdirAll(node, 0o755); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := os.WriteFile(filepath.Join(node, \"size\"), []byte(\"104857600\\n\"), 0o644); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif size, err := SysfsDeviceBytes(root, 8, 16); err != nil || size != 50<<30 {\n\t\tt.Fatalf(\"size = %d, %v; want 50 GiB\", size, err)\n\t}\n\tif _, err := SysfsDeviceBytes(root, 8, 32); err == nil {\n\t\tt.Fatal(\"missing device reported a size\")\n\t}\n\tfor _, bad := range []string{\"0\", \"garbage\", \"-1\"} {\n\t\tif err := os.WriteFile(filepath.Join(node, \"size\"), []byte(bad), 0o644); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tif _, err := SysfsDeviceBytes(root, 8, 16); err == nil {\n\t\t\tt.Fatalf(\"size %q was accepted\", bad)\n\t\t}\n\t}\n}\n",
+          "note": "Entire manually read root preserves every setup, condition, assertion and failure text."
+        }
+      ],
+      "independent_unit_only_blocks": [],
+      "connected_evidence_ids": [
+        "sysfs"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/storage/hostvolume/observer_linux_test.go::TestContainerMountFixture",
+      "original_index": 3438,
+      "path": "internal/storage/hostvolume/observer_linux_test.go",
+      "original_function": "TestContainerMountFixture",
+      "current_function": "TestContainerMountFixture",
+      "survival": {
+        "path": "internal/storage/hostvolume/observer_linux_test.go",
+        "original_name": "TestContainerMountFixture",
+        "kind": "test",
+        "original_declaration_sha256": "2890ce225c9ddf1cfc2fc53d73e1f62369724006d3302668874026e31c37610c",
+        "current_name": "TestContainerMountFixture",
+        "current_declaration_sha256": "2890ce225c9ddf1cfc2fc53d73e1f62369724006d3302668874026e31c37610c",
+        "state": "retained_body_exact"
+      },
+      "baseline": {
+        "path": "internal/storage/hostvolume/observer_linux_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "start_line": 180,
+        "end_line": 211,
+        "git_blob": "0259d7bcd662b00bf5742ceb4c17e95fc8291d27",
+        "sha256": "f598db905813047608b62aa3425f3426581419f44a1c1f8f52550f873138e7a9",
+        "raw_declaration_sha256": "2890ce225c9ddf1cfc2fc53d73e1f62369724006d3302668874026e31c37610c",
+        "raw_bytes": 930
+      },
+      "current": {
+        "path": "internal/storage/hostvolume/observer_linux_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "start_line": 180,
+        "end_line": 211,
+        "git_blob": "0259d7bcd662b00bf5742ceb4c17e95fc8291d27",
+        "sha256": "f598db905813047608b62aa3425f3426581419f44a1c1f8f52550f873138e7a9",
+        "raw_declaration_sha256": "2890ce225c9ddf1cfc2fc53d73e1f62369724006d3302668874026e31c37610c",
+        "raw_bytes": 930
+      },
+      "canonical_body_drift": false,
+      "category": "unresolved",
+      "rationale": "Conditional helper returns without assertions on ordinary invocation. In the child branch it mounts/chroots and acknowledges commands, while the allocated parent owns process lifecycle and production readback assertions. Protocol requires this helper remain unresolved without an established QA attribution rule.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/hostvolume/observer_linux_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "start_line": 180,
+          "end_line": 211,
+          "git_blob": "0259d7bcd662b00bf5742ceb4c17e95fc8291d27",
+          "sha256": "f598db905813047608b62aa3425f3426581419f44a1c1f8f52550f873138e7a9",
+          "text": "func TestContainerMountFixture(t *testing.T) {\n\tif os.Getenv(\"TS_VOLUME_OBSERVER_FIXTURE\") != \"container\" {\n\t\treturn\n\t}\n\troot, source := os.Getenv(\"TS_VOLUME_OBSERVER_ROOT\"), os.Getenv(\"TS_VOLUME_OBSERVER_SOURCE\")\n\tif err := unix.Mount(\"\", \"/\", \"\", unix.MS_REC|unix.MS_PRIVATE, \"\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := unix.Mount(source, filepath.Join(root, \"retained\"), \"\", unix.MS_BIND, \"\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := HardenRemount(filepath.Join(root, \"retained\")); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := unix.Chroot(root); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := os.Chdir(\"/\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfmt.Println(\"ready\")\n\tscanner := bufio.NewScanner(os.Stdin)\n\tfor scanner.Scan() {\n\t\tif scanner.Text() != \"shadow\" {\n\t\t\tt.Fatal(\"unknown fixture command\")\n\t\t}\n\t\tif err := unix.Mount(\"/retained\", \"/alias\", \"\", unix.MS_BIND, \"\"); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tfmt.Println(\"shadowed\")\n\t}\n}\n",
+          "note": "Entire manually read root preserves every setup, condition, assertion and failure text."
+        }
+      ],
+      "independent_unit_only_blocks": [],
+      "connected_evidence_ids": [
+        "container_fixture",
+        "kernel_parent",
+        "remount"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": [
+        "Conditional fixture attribution remains unresolved: parent owns the actual process/readback safety assertions. No established QA helper-root attribution rule supplied."
+      ]
+    },
+    {
+      "root_id": "internal/storage/hostvolume/observer_linux_test.go::TestRetainedMountKernelIntegration",
+      "original_index": 3439,
+      "path": "internal/storage/hostvolume/observer_linux_test.go",
+      "original_function": "TestRetainedMountKernelIntegration",
+      "current_function": "TestRetainedMountKernelIntegration",
+      "survival": {
+        "path": "internal/storage/hostvolume/observer_linux_test.go",
+        "original_name": "TestRetainedMountKernelIntegration",
+        "kind": "test",
+        "original_declaration_sha256": "dcd13dd5ff89c7323940c2b4010541eea35b3fcba7a33d545ca39538fad8a1db",
+        "current_name": "TestRetainedMountKernelIntegration",
+        "current_declaration_sha256": "dcd13dd5ff89c7323940c2b4010541eea35b3fcba7a33d545ca39538fad8a1db",
+        "state": "retained_body_exact"
+      },
+      "baseline": {
+        "path": "internal/storage/hostvolume/observer_linux_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "start_line": 20,
+        "end_line": 178,
+        "git_blob": "0259d7bcd662b00bf5742ceb4c17e95fc8291d27",
+        "sha256": "fe1ccb1fd98532e6e59e1cdcd0297762ce55aaf27cf93f38cae5aa70c841f6f3",
+        "raw_declaration_sha256": "dcd13dd5ff89c7323940c2b4010541eea35b3fcba7a33d545ca39538fad8a1db",
+        "raw_bytes": 4900
+      },
+      "current": {
+        "path": "internal/storage/hostvolume/observer_linux_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "start_line": 20,
+        "end_line": 178,
+        "git_blob": "0259d7bcd662b00bf5742ceb4c17e95fc8291d27",
+        "sha256": "fe1ccb1fd98532e6e59e1cdcd0297762ce55aaf27cf93f38cae5aa70c841f6f3",
+        "raw_declaration_sha256": "dcd13dd5ff89c7323940c2b4010541eea35b3fcba7a33d545ca39538fad8a1db",
+        "raw_bytes": 4900
+      },
+      "canonical_body_drift": false,
+      "category": "mixed",
+      "rationale": "Parent launches a privileged private mount-namespace test process, creates/formats a loop-backed filesystem, observes actual held device/mount identities and reads cross-namespace proc state, detects partial/second mounts and lost hardening, then remounts and rechecks. Separately the final closed-witness rejection is an independent local entry guard.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/hostvolume/observer_linux_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "start_line": 20,
+          "end_line": 178,
+          "git_blob": "0259d7bcd662b00bf5742ceb4c17e95fc8291d27",
+          "sha256": "fe1ccb1fd98532e6e59e1cdcd0297762ce55aaf27cf93f38cae5aa70c841f6f3",
+          "text": "func TestRetainedMountKernelIntegration(t *testing.T) {\n\tif os.Getenv(\"TS_VOLUME_OBSERVER_FIXTURE\") != \"mount\" {\n\t\texecutable, err := os.Executable()\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tcommand := exec.Command(\"sudo\", \"-n\", \"env\", \"TS_VOLUME_OBSERVER_FIXTURE=mount\", \"nice\", \"-n\", \"19\", \"unshare\", \"--mount\", executable, \"-test.run=^TestRetainedMountKernelIntegration$\", \"-test.v\")\n\t\toutput, err := command.CombinedOutput()\n\t\tif err != nil {\n\t\t\tt.Fatalf(\"real block/mount fixture: %v\\n%s\", err, output)\n\t\t}\n\t\tt.Log(string(output))\n\t\treturn\n\t}\n\tif err := unix.Mount(\"\", \"/\", \"\", unix.MS_REC|unix.MS_PRIVATE, \"\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tdirectory, err := os.MkdirTemp(\"/run\", \"ts-data-volume-\")\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tt.Cleanup(func() {\n\t\tif err := os.RemoveAll(directory); err != nil {\n\t\t\tt.Error(err)\n\t\t}\n\t})\n\tif err := os.Chmod(directory, 0o750); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tdisk := filepath.Join(directory, \"disk\")\n\tfile, err := os.OpenFile(disk, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := file.Truncate(32 << 20); err != nil {\n\t\tfile.Close()\n\t\tt.Fatal(err)\n\t}\n\tif err := file.Close(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tdevice := strings.TrimSpace(fixtureCommand(t, \"losetup\", \"--find\", \"--show\", \"--nooverlap\", disk))\n\tt.Cleanup(func() { fixtureCommand(t, \"losetup\", \"--detach\", device) })\n\tconst uuid = \"0d370616-bf07-48e3-90a4-75e58c799c01\"\n\tfixtureCommand(t, \"mkfs.ext4\", \"-q\", \"-F\", \"-U\", uuid, device)\n\tuuidPath := filepath.Join(\"/dev/disk/by-uuid\", uuid)\n\tif err := os.Symlink(device, uuidPath); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tt.Cleanup(func() {\n\t\tif err := os.Remove(uuidPath); err != nil {\n\t\t\tt.Error(err)\n\t\t}\n\t})\n\tvolume := filepath.Join(directory, \"volume\")\n\tif err := os.Mkdir(volume, 0o750); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := unix.Mount(device, volume, \"ext4\", MountFlags, \"errors=remount-ro\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tt.Cleanup(func() {\n\t\tif err := unix.Unmount(volume, 0); err != nil {\n\t\t\tt.Error(err)\n\t\t}\n\t})\n\tif err := os.Chmod(volume, 0o750); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := os.Chown(volume, 0, 65534); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfor _, child := range []string{\"data\", \"replication\"} {\n\t\tpath := filepath.Join(volume, child)\n\t\tif err := os.Mkdir(path, 0o700); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tif err := os.Chown(path, 65534, 65534); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\tpins := MountPins{DevicePath: device, MountPath: volume, FileSystemUUID: uuid, FileSystemType: \"ext4\", UID: 65534, GID: 65534}\n\twitness, err := ObserveMount(pins)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tdefer witness.Close()\n\tif err := witness.Recheck(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\trootfs := filepath.Join(directory, \"rootfs\")\n\tfor _, path := range []string{rootfs, filepath.Join(rootfs, \"retained\"), filepath.Join(rootfs, \"alias\")} {\n\t\tif err := os.Mkdir(path, 0o755); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\texecutable, err := os.Executable()\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tchild := exec.Command(\"unshare\", \"--mount\", executable, \"-test.run=^TestContainerMountFixture$\")\n\tchild.Env = append(os.Environ(), \"TS_VOLUME_OBSERVER_FIXTURE=container\", \"TS_VOLUME_OBSERVER_ROOT=\"+rootfs, \"TS_VOLUME_OBSERVER_SOURCE=\"+volume)\n\tinput, err := child.StdinPipe()\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\toutput, err := child.StdoutPipe()\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tvar logs bytes.Buffer\n\tchild.Stderr = &logs\n\tif err := child.Start(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tt.Cleanup(func() {\n\t\tchild.Process.Kill()\n\t\tchild.Wait()\n\t\tif logs.Len() > 0 {\n\t\t\tt.Log(logs.String())\n\t\t}\n\t})\n\treader := bufio.NewReader(output)\n\tready, err := reader.ReadString('\\n')\n\tif err != nil || ready != \"ready\\n\" {\n\t\tt.Fatalf(\"container mount fixture: %q, %v, %s\", ready, err, logs.String())\n\t}\n\tif err := witness.VerifyContainerMount(child.Process.Pid, \"/retained\"); err != nil {\n\t\tt.Fatalf(\"actual cross-namespace retained bind: %v\", err)\n\t}\n\tif err := witness.VerifyContainerMount(child.Process.Pid, \"/retained/data\"); err == nil {\n\t\tt.Fatal(\"partial filesystem root accepted as retained bind\")\n\t}\n\tif _, err := fmt.Fprintln(input, \"shadow\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif ack, err := reader.ReadString('\\n'); err != nil || ack != \"shadowed\\n\" {\n\t\tt.Fatalf(\"shadow mount fixture: %q, %v\", ack, err)\n\t}\n\tif err := witness.VerifyContainerMount(child.Process.Pid, \"/retained\"); err == nil {\n\t\tt.Fatal(\"second mount in container namespace accepted\")\n\t}\n\tif err := unix.Mount(\"\", volume, \"\", unix.MS_REMOUNT|unix.MS_BIND|unix.MS_NOSUID|unix.MS_NODEV|unix.MS_NOATIME, \"\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := witness.Recheck(); err == nil {\n\t\tt.Fatal(\"lost noexec protection accepted\")\n\t}\n\tif err := HardenRemount(volume); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := witness.Recheck(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\twitness.Close()\n\tif err := witness.Recheck(); err == nil {\n\t\tt.Fatal(\"closed retained witness accepted\")\n\t}\n}\n",
+          "note": "Entire manually read root preserves every setup, condition, assertion and failure text."
+        }
+      ],
+      "independent_unit_only_blocks": [
+        {
+          "path": "internal/storage/hostvolume/observer_linux_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "start_line": 174,
+          "end_line": 177,
+          "git_blob": "0259d7bcd662b00bf5742ceb4c17e95fc8291d27",
+          "sha256": "3c7d75839c6041a062420d7f9acc50971384e8de245ccdd1387460d711550b1f",
+          "text": "\twitness.Close()\n\tif err := witness.Recheck(); err == nil {\n\t\tt.Fatal(\"closed retained witness accepted\")\n\t}\n",
+          "note": "After actual descriptors are closed, Recheck rejects local deviceFD/rootFD sentinel values before any syscall (observer_linux.go142:144)."
+        }
+      ],
+      "connected_evidence_ids": [
+        "kernel_parent",
+        "container_fixture",
+        "observer",
+        "observer_helpers",
+        "boot_guard",
+        "root_identity",
+        "btrfs",
+        "sysfs",
+        "options",
+        "remount"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    }
+  ],
+  "connected_source_evidence": {
+    "runtime_guard": {
+      "path": "internal/storage/execution/runtime_linux.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 53,
+      "end_line": 56,
+      "git_blob": "19b85d1efd95dd4d853c2b11bcf13711a08985bf",
+      "sha256": "70bfa0bef70d435446294e9d8730b91a8b64f7543d97e8ac63bf902dbf790a80",
+      "text": "func (o RuntimeObserver) Observe(ctx context.Context, pins RuntimePins) (RuntimeObservation, error) {\n\tif ctx == nil || ctx.Err() != nil || o.Client == nil {\n\t\treturn RuntimeObservation{}, ErrUnsafe\n\t}\n",
+      "function": "RuntimeObserver.Observe entry guard",
+      "note": "Both allocated observer cases return here before any containerd call."
+    },
+    "runtime_spec": {
+      "path": "internal/storage/execution/runtime_linux.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 173,
+      "end_line": 213,
+      "git_blob": "19b85d1efd95dd4d853c2b11bcf13711a08985bf",
+      "sha256": "5684aa654a3dba717efb1331d37f156710365d9df1777b85f915aebfacc459a1",
+      "text": "func verifyRuntimeSpec(actual *runtimespec.Spec, pins RuntimePins, id string) error {\n\tif actual == nil || actual.Process == nil || actual.Linux == nil || actual.Root == nil || !actual.Root.Readonly ||\n\t\t!reflect.DeepEqual(*actual.Process, pins.Process) || !reflect.DeepEqual(actual.Linux.Resources, &pins.Resources) ||\n\t\t!reflect.DeepEqual(actual.Mounts, pins.Mounts) || !reflect.DeepEqual(actual.Linux.Namespaces, pins.Namespaces) ||\n\t\tactual.Linux.CgroupsPath != \"/terrascale/\"+id {\n\t\treturn errors.New(\"actual OCI process, resources, mounts, or cgroup differs from admission\")\n\t}\n\tpidNS, mountNS, boundVolume := 0, 0, 0\n\tfor _, namespace := range actual.Linux.Namespaces {\n\t\tswitch namespace.Type {\n\t\tcase runtimespec.PIDNamespace:\n\t\t\tpidNS++\n\t\t\tif namespace.Path != \"\" {\n\t\t\t\treturn errors.New(\"container must own its PID namespace\")\n\t\t\t}\n\t\tcase runtimespec.MountNamespace:\n\t\t\tmountNS++\n\t\t\tif namespace.Path != \"\" {\n\t\t\t\treturn errors.New(\"container must own its mount namespace\")\n\t\t\t}\n\t\tcase runtimespec.UserNamespace:\n\t\t\treturn errors.New(\"member user namespace mapping is not admitted\")\n\t\tcase runtimespec.NetworkNamespace:\n\t\t\treturn errors.New(\"member must use the host network namespace\")\n\t\t}\n\t}\n\tfor _, mount := range actual.Mounts {\n\t\tif mount.Destination == pins.VolumeDestination {\n\t\t\tboundVolume++\n\t\t\tif mount.Source != pins.Volume.MountPath || mount.Type != \"bind\" {\n\t\t\t\treturn errors.New(\"OCI volume bind differs from retained host mount\")\n\t\t\t}\n\t\t}\n\t}\n\tif pidNS != 1 || mountNS != 1 || boundVolume != 1 || !pins.Process.NoNewPrivileges ||\n\t\tpins.Process.Capabilities == nil || len(pins.Process.Capabilities.Bounding)+len(pins.Process.Capabilities.Effective)+\n\t\tlen(pins.Process.Capabilities.Permitted)+len(pins.Process.Capabilities.Inheritable)+len(pins.Process.Capabilities.Ambient) != 0 {\n\t\treturn errors.New(\"OCI member isolation or retained bind is incomplete\")\n\t}\n\treturn nil\n}\n",
+      "function": "verifyRuntimeSpec",
+      "note": "Only struct comparisons, namespace/mount loops and local validation."
+    },
+    "request": {
+      "path": "internal/storage/failover/reattach.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 52,
+      "end_line": 61,
+      "git_blob": "68e2a1d7845ec1ccd2c25cab72401caaf758700b",
+      "sha256": "a32290cca266620de0f99b654dc97c1206c63065c28d9cd3d400cce2ed19344d",
+      "text": "func (request Request) validate() error {\n\tif request.DatabaseID == \"\" || request.PartitionID == \"\" || request.VolumeID == \"\" ||\n\t\trequest.OldInstanceID == \"\" || request.ReplacementInstanceID == \"\" || request.AttachKey == \"\" {\n\t\treturn errors.New(\"reattach request is incomplete\")\n\t}\n\tif request.OldInstanceID == request.ReplacementInstanceID {\n\t\treturn errors.New(\"reattach replacement must be a different instance\")\n\t}\n\treturn nil\n}\n",
+      "function": "Request.validate",
+      "note": "Local request completeness and identity checks."
+    },
+    "decide": {
+      "path": "internal/storage/failover/reattach.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 87,
+      "end_line": 137,
+      "git_blob": "68e2a1d7845ec1ccd2c25cab72401caaf758700b",
+      "sha256": "558eaee35673d7b9143ea98518f4140f38f7840cf4d4e932cfc56426255818ca",
+      "text": "func Decide(request Request, fenced bool, attachments []Attachment, mounted bool) Step {\n\tif !fenced {\n\t\treturn Step{Kind: StepProveFence, Reason: \"old writer is not proven fenced\"}\n\t}\n\tvar replacement *Attachment\n\tfor index := range attachments {\n\t\tattachment := attachments[index]\n\t\tif attachment.VolumeID != request.VolumeID {\n\t\t\treturn Step{Kind: StepHold, Attachment: attachment, Reason: \"attachment listing returned another volume\"}\n\t\t}\n\t\tswitch attachment.InstanceID {\n\t\tcase request.OldInstanceID:\n\t\t\tswitch attachment.State {\n\t\t\tcase \"DETACHED\":\n\t\t\tcase \"DETACHING\":\n\t\t\t\treturn Step{Kind: StepWaitDetached, Attachment: attachment}\n\t\t\tcase \"ATTACHED\", \"ATTACHING\":\n\t\t\t\treturn Step{Kind: StepDetach, Attachment: attachment}\n\t\t\tdefault:\n\t\t\t\treturn Step{Kind: StepHold, Attachment: attachment, Reason: \"old attachment is in unknown state \" + attachment.State}\n\t\t\t}\n\t\tcase request.ReplacementInstanceID:\n\t\t\tif attachment.State == \"DETACHED\" {\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\tif replacement != nil {\n\t\t\t\treturn Step{Kind: StepHold, Attachment: attachment, Reason: \"replacement has more than one live attachment\"}\n\t\t\t}\n\t\t\treplacement = &attachments[index]\n\t\tdefault:\n\t\t\tif attachment.State != \"DETACHED\" {\n\t\t\t\t// A third writer was never proven fenced.\n\t\t\t\treturn Step{Kind: StepHold, Attachment: attachment, Reason: \"volume is attached to an unrelated instance\"}\n\t\t\t}\n\t\t}\n\t}\n\tif replacement == nil {\n\t\treturn Step{Kind: StepAttach}\n\t}\n\tswitch replacement.State {\n\tcase \"ATTACHING\":\n\t\treturn Step{Kind: StepWaitAttached, Attachment: *replacement}\n\tcase \"ATTACHED\":\n\t\tif mounted {\n\t\t\treturn Step{Kind: StepDone, Attachment: *replacement}\n\t\t}\n\t\treturn Step{Kind: StepGrantMount, Attachment: *replacement}\n\tdefault:\n\t\treturn Step{Kind: StepHold, Attachment: *replacement, Reason: \"replacement attachment is \" + replacement.State}\n\t}\n}\n",
+      "function": "Decide",
+      "note": "Pure attachment-state transition selection."
+    },
+    "prove": {
+      "path": "internal/storage/failover/reattach.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 147,
+      "end_line": 156,
+      "git_blob": "68e2a1d7845ec1ccd2c25cab72401caaf758700b",
+      "sha256": "ca21ba8a0c16974c77b0a894d8c7869bfde530e70218f2f5574933eb3bb9b0f7",
+      "text": "func ProveFenced(ctx context.Context, observer InstanceObserver, instanceID string, now time.Time) (FenceProof, error) {\n\tstate, err := observer.InstanceLifecycleState(ctx, instanceID)\n\tif err != nil {\n\t\treturn FenceProof{}, errors.Join(storage.ErrWriterNotFenced, ErrFenceUnobserved, err)\n\t}\n\tif state != \"TERMINATED\" {\n\t\treturn FenceProof{}, fmt.Errorf(\"%w: instance %s is %s\", storage.ErrWriterNotFenced, instanceID, state)\n\t}\n\treturn FenceProof{InstanceID: instanceID, State: state, ObservedAt: now.UTC()}, nil\n}\n",
+      "function": "ProveFenced",
+      "note": "Observer is the allocated test fakeInstances; no OCI client."
+    },
+    "reattach": {
+      "path": "internal/storage/failover/reattach.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 194,
+      "end_line": 273,
+      "git_blob": "68e2a1d7845ec1ccd2c25cab72401caaf758700b",
+      "sha256": "44ec82d391af75835f32baa3360ce6ebc1d8ee10a1c59ea8ddadefdef26d5ee4",
+      "text": "func (reattacher Reattacher) Step(ctx context.Context, request Request) (Step, error) {\n\tif err := request.validate(); err != nil {\n\t\treturn Step{}, err\n\t}\n\tif reattacher.Fencer == nil || reattacher.Instances == nil || reattacher.Volumes == nil || reattacher.Permits == nil {\n\t\treturn Step{}, errors.New(\"reattacher requires authority, instance, volume and permit boundaries\")\n\t}\n\tsnapshot := reattacher.Fencer.Current()\n\tif !snapshot.CanMutate() {\n\t\treturn Step{}, authority.ErrNotLeader\n\t}\n\tepoch := snapshot.Epoch\n\tif reattacher.ExpectedEpoch != 0 && epoch != reattacher.ExpectedEpoch {\n\t\treturn Step{}, authority.ErrFenced\n\t}\n\tnow := time.Now\n\tif reattacher.Now != nil {\n\t\tnow = reattacher.Now\n\t}\n\tproof, proofErr := ProveFenced(ctx, reattacher.Instances, request.OldInstanceID, now())\n\tfenced := proofErr == nil\n\tif !fenced {\n\t\t// Nothing past the fence proof is decided while it is missing, so\n\t\t// the attachment listing is not read for this step.\n\t\treturn Decide(request, false, nil, false), proofErr\n\t}\n\tattachments, err := reattacher.Volumes.VolumeAttachments(ctx, request.VolumeID)\n\tif err != nil {\n\t\treturn Step{}, err\n\t}\n\tmounted := false\n\tstep := Decide(request, fenced, attachments, false)\n\tif step.Kind == StepGrantMount {\n\t\tif mounted, err = reattacher.Permits.HasMountExisting(ctx, request, step.Attachment); err != nil {\n\t\t\treturn Step{}, err\n\t\t}\n\t\tstep = Decide(request, fenced, attachments, mounted)\n\t}\n\tswitch step.Kind {\n\tcase StepProveFence:\n\t\treturn step, proofErr\n\tcase StepHold:\n\t\treturn step, fmt.Errorf(\"%w: %s\", storage.ErrVolumeHeld, step.Reason)\n\tcase StepWaitDetached, StepWaitAttached, StepDone:\n\t\treturn step, nil\n\t}\n\tif err := reattacher.guard(ctx, epoch); err != nil {\n\t\treturn step, err\n\t}\n\tswitch step.Kind {\n\tcase StepDetach:\n\t\terr := reattacher.Volumes.DetachFenced(ctx, request, step.Attachment, proof)\n\t\tif err == nil {\n\t\t\trecordFencedDetach(ctx, epoch, request, proof, step.Attachment)\n\t\t}\n\t\treturn step, err\n\tcase StepAttach:\n\t\tattached, err := reattacher.Volumes.AttachReplacement(ctx, request, proof)\n\t\tstep.Attachment = attached\n\t\tif err == nil {\n\t\t\trecordReattach(ctx, epoch, request, proof, attached)\n\t\t}\n\t\treturn step, err\n\tcase StepGrantMount:\n\t\terr := reattacher.Permits.GrantMountExisting(ctx, request, step.Attachment)\n\t\tif err == nil {\n\t\t\trecordMountGranted(ctx, epoch, request, step.Attachment)\n\t\t}\n\t\treturn step, err\n\tdefault:\n\t\treturn step, fmt.Errorf(\"unknown reattach step %q\", step.Kind)\n\t}\n}\n\nfunc (reattacher Reattacher) guard(ctx context.Context, epoch uint64) error {\n\tif snapshot := reattacher.Fencer.Current(); !snapshot.CanMutate() || snapshot.Epoch != epoch {\n\t\treturn authority.ErrFenced\n\t}\n\treturn reattacher.Fencer.Guard(ctx, epoch)\n}\n",
+      "function": "Reattacher.Step/guard",
+      "note": "Actual targets are fake fencer, instances, volume and permit implementations."
+    },
+    "reattach_records": {
+      "path": "internal/storage/failover/reattach.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 277,
+      "end_line": 343,
+      "git_blob": "68e2a1d7845ec1ccd2c25cab72401caaf758700b",
+      "sha256": "173530bc0498098990a16d593daba421b283bd38c6b06fe982ec41acd349b21c",
+      "text": "func recordReattach(ctx context.Context, epoch uint64, request Request, proof FenceProof, attached Attachment) {\n\tkey := \"reattach:\" + request.AttachKey\n\tif decisionlog.Correlated(key) != \"\" {\n\t\treturn\n\t}\n\tid := decisionlog.Record(ctx, decisionlog.Decision{\n\t\tActor:   decisionlog.Actor{Slice: \"storage\"},\n\t\tKind:    decisionlog.KindVolumeReattached,\n\t\tSubject: decisionlog.Subject{Kind: \"volume\", ID: request.VolumeID},\n\t\tSummary: \"Reattached volume \" + request.VolumeID + \" to replacement instance \" + request.ReplacementInstanceID,\n\t\tReason:  \"The previous writer instance was proven fenced (\" + proof.State + \").\",\n\t\tRule:    \"storage.reattach_on_host_loss\",\n\t\tSignals: []decisionlog.Signal{{Name: \"old_instance_state\", Text: proof.State}},\n\t\tStatus:  decisionlog.StatusInProgress,\n\t\tEpoch:   epoch,\n\t\tAttrs: map[string]string{\"database\": request.DatabaseID, \"partition\": request.PartitionID,\n\t\t\t\"old_instance\": request.OldInstanceID, \"attachment\": attached.ID},\n\t})\n\tdecisionlog.Correlate(key, id)\n}\n\n// recordFencedDetach journals the detach of the lost instance's attachment,\n// once per attachment, before the replacement attach.\nfunc recordFencedDetach(ctx context.Context, epoch uint64, request Request, proof FenceProof, attachment Attachment) {\n\tkey := \"reattach-detach:\" + request.AttachKey + \":\" + attachment.ID\n\tif decisionlog.Correlated(key) != \"\" {\n\t\treturn\n\t}\n\tid := decisionlog.Record(ctx, decisionlog.Decision{\n\t\tActor:   decisionlog.Actor{Slice: \"storage\"},\n\t\tKind:    decisionlog.KindVolumeReattached,\n\t\tSubject: decisionlog.Subject{Kind: \"volume\", ID: request.VolumeID},\n\t\tSummary: \"Detached volume \" + request.VolumeID + \" from lost instance \" + request.OldInstanceID,\n\t\tReason:  \"OCI reports the lost instance \" + proof.State + \", so it can no longer write.\",\n\t\tRule:    \"storage.reattach_on_host_loss\",\n\t\tSignals: []decisionlog.Signal{{Name: \"old_instance_state\", Text: proof.State},\n\t\t\t{Name: \"old_attachment_state\", Text: attachment.State}},\n\t\tStatus: decisionlog.StatusInProgress,\n\t\tEpoch:  epoch,\n\t\tAttrs: map[string]string{\"database\": request.DatabaseID, \"partition\": request.PartitionID,\n\t\t\t\"old_instance\": request.OldInstanceID, \"attachment\": attachment.ID},\n\t})\n\tdecisionlog.Correlate(key, id)\n}\n\n// recordMountGranted closes the reattach chain: the replacement may mount\n// the existing filesystem and is never allowed to format it.\nfunc recordMountGranted(ctx context.Context, epoch uint64, request Request, attachment Attachment) {\n\tkey := \"reattach-mount:\" + request.AttachKey\n\tif decisionlog.Correlated(key) != \"\" {\n\t\treturn\n\t}\n\tid := decisionlog.Record(ctx, decisionlog.Decision{\n\t\tActor:    decisionlog.Actor{Slice: \"storage\"},\n\t\tKind:     decisionlog.KindVolumeReattached,\n\t\tSubject:  decisionlog.Subject{Kind: \"volume\", ID: request.VolumeID},\n\t\tSummary:  \"Granted a mount-existing permit for volume \" + request.VolumeID + \" on its replacement instance\",\n\t\tReason:   \"The volume is attached only to the replacement; its filesystem is mounted as is and never formatted.\",\n\t\tRule:     \"storage.reattach_on_host_loss\",\n\t\tStatus:   decisionlog.StatusSucceeded,\n\t\tEpoch:    epoch,\n\t\tParentID: decisionlog.Correlated(\"reattach:\" + request.AttachKey),\n\t\tAttrs: map[string]string{\"database\": request.DatabaseID, \"partition\": request.PartitionID,\n\t\t\t\"replacement_instance\": request.ReplacementInstanceID, \"attachment\": attachment.ID},\n\t})\n\tdecisionlog.Correlate(key, id)\n}\n",
+      "function": "recordReattach/recordFencedDetach/recordMountGranted",
+      "note": "Incidental decision logging is not asserted storage state."
+    },
+    "fake_instances": {
+      "path": "internal/storage/failover/reattach_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 14,
+      "end_line": 60,
+      "git_blob": "c7f38d657830c247542f309127a3ebc946ec0e5a",
+      "sha256": "66af24d0a8b9d0f050196ba1480bac6474268e4289c0ff1e29aaf613720a6777",
+      "text": "var request = Request{DatabaseID: \"0000000000FFE2BMB99VWR8Y1A\", PartitionID: \"00000000002J6YKHD7MH6HKSBC\", VolumeID: \"vol\", OldInstanceID: \"old\",\n\tReplacementInstanceID: \"new\", AttachKey: \"reattach-1\"}\n\nfunc attachment(id, instance, state string) Attachment {\n\treturn Attachment{ID: id, VolumeID: \"vol\", InstanceID: instance, State: state, ETag: \"e-\" + id}\n}\n\nfunc TestDecide(t *testing.T) {\n\tcases := []struct {\n\t\tname        string\n\t\tfenced      bool\n\t\tattachments []Attachment\n\t\tmounted     bool\n\t\twant        StepKind\n\t}{\n\t\t{\"unfenced never detaches\", false, []Attachment{attachment(\"a\", \"old\", \"ATTACHED\")}, false, StepProveFence},\n\t\t{\"detach old attached\", true, []Attachment{attachment(\"a\", \"old\", \"ATTACHED\")}, false, StepDetach},\n\t\t{\"detach old attaching\", true, []Attachment{attachment(\"a\", \"old\", \"ATTACHING\")}, false, StepDetach},\n\t\t{\"wait detaching\", true, []Attachment{attachment(\"a\", \"old\", \"DETACHING\")}, false, StepWaitDetached},\n\t\t{\"attach after detached history\", true, []Attachment{attachment(\"a\", \"old\", \"DETACHED\")}, false, StepAttach},\n\t\t{\"attach with no history\", true, nil, false, StepAttach},\n\t\t{\"wait replacement\", true, []Attachment{attachment(\"a\", \"old\", \"DETACHED\"), attachment(\"b\", \"new\", \"ATTACHING\")}, false, StepWaitAttached},\n\t\t{\"grant mount\", true, []Attachment{attachment(\"a\", \"old\", \"DETACHED\"), attachment(\"b\", \"new\", \"ATTACHED\")}, false, StepGrantMount},\n\t\t{\"done\", true, []Attachment{attachment(\"b\", \"new\", \"ATTACHED\")}, true, StepDone},\n\t\t{\"third instance holds\", true, []Attachment{attachment(\"c\", \"0000000000V4MRM46HP1SNGDYW\", \"ATTACHED\")}, false, StepHold},\n\t\t{\"third instance detached is history\", true, []Attachment{attachment(\"c\", \"0000000000V4MRM46HP1SNGDYW\", \"DETACHED\")}, false, StepAttach},\n\t\t{\"two replacement attachments hold\", true, []Attachment{attachment(\"b\", \"new\", \"ATTACHED\"), attachment(\"d\", \"new\", \"ATTACHING\")}, false, StepHold},\n\t\t{\"unknown old state holds\", true, []Attachment{attachment(\"a\", \"old\", \"FAULTY\")}, false, StepHold},\n\t\t{\"other volume holds\", true, []Attachment{{ID: \"x\", VolumeID: \"vol-2\", InstanceID: \"new\", State: \"ATTACHED\"}}, false, StepHold},\n\t\t{\"old detach precedes replacement\", true, []Attachment{attachment(\"b\", \"new\", \"ATTACHED\"), attachment(\"a\", \"old\", \"ATTACHED\")}, false, StepDetach},\n\t}\n\tfor _, test := range cases {\n\t\tif got := Decide(request, test.fenced, test.attachments, test.mounted); got.Kind != test.want {\n\t\t\tt.Fatalf(\"%s: step %s (%s), want %s\", test.name, got.Kind, got.Reason, test.want)\n\t\t}\n\t}\n}\n\ntype fakeInstances map[string]string\n\nfunc (instances fakeInstances) InstanceLifecycleState(_ context.Context, id string) (string, error) {\n\tstate, ok := instances[id]\n\tif !ok {\n\t\treturn \"\", errors.New(\"not found\")\n\t}\n\treturn state, nil\n}\n",
+      "function": "request/attachment/fakeInstances.InstanceLifecycleState",
+      "note": "Synthetic attachment objects and map lookup."
+    },
+    "fake_effects": {
+      "path": "internal/storage/failover/reattach_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 78,
+      "end_line": 131,
+      "git_blob": "c7f38d657830c247542f309127a3ebc946ec0e5a",
+      "sha256": "45d36f034407ab825c77f9db93daf3c3a2f0b9e03f30e5c9e0de9d02dc5a6533",
+      "text": "type fakeVolumes struct {\n\tattachments []Attachment\n\tdetaches    int\n\tattaches    int\n\tproofs      []FenceProof\n\tlistings    int\n}\n\nfunc (volumes *fakeVolumes) VolumeAttachments(context.Context, string) ([]Attachment, error) {\n\tvolumes.listings++\n\treturn append([]Attachment(nil), volumes.attachments...), nil\n}\n\nfunc (volumes *fakeVolumes) DetachFenced(_ context.Context, _ Request, target Attachment, proof FenceProof) error {\n\tvolumes.detaches++\n\tvolumes.proofs = append(volumes.proofs, proof)\n\tfor index := range volumes.attachments {\n\t\tif volumes.attachments[index].ID == target.ID {\n\t\t\tvolumes.attachments[index].State = \"DETACHING\"\n\t\t}\n\t}\n\treturn nil\n}\n\nfunc (volumes *fakeVolumes) AttachReplacement(_ context.Context, request Request, proof FenceProof) (Attachment, error) {\n\tvolumes.attaches++\n\tvolumes.proofs = append(volumes.proofs, proof)\n\tcreated := attachment(fmt.Sprintf(\"new-%d\", volumes.attaches), request.ReplacementInstanceID, \"ATTACHING\")\n\tvolumes.attachments = append(volumes.attachments, created)\n\treturn created, nil\n}\n\ntype fakePermits struct{ granted map[string]bool }\n\nfunc (permits *fakePermits) GrantMountExisting(_ context.Context, _ Request, target Attachment) error {\n\tpermits.granted[target.ID] = true\n\treturn nil\n}\n\nfunc (permits *fakePermits) HasMountExisting(_ context.Context, _ Request, target Attachment) (bool, error) {\n\treturn permits.granted[target.ID], nil\n}\n\ntype fakeFencer struct {\n\tsnapshot authority.Snapshot\n\tguardErr error\n}\n\nfunc (fencer *fakeFencer) Current() authority.Snapshot         { return fencer.snapshot }\nfunc (fencer *fakeFencer) Guard(context.Context, uint64) error { return fencer.guardErr }\n\nfunc leader() authority.Snapshot {\n\treturn authority.Snapshot{DeploymentID: \"01ARZ3NDEKTSV4RRFFQ69G5FAV\", Leader: true, Ready: true, Epoch: 2, Revision: 3, ExpiresAt: time.Now().Add(time.Minute)}\n}\n",
+      "function": "fakeVolumes/fakePermits/fakeFencer/leader",
+      "note": "All interface effects mutate only slices, counters and maps."
+    },
+    "authority_snapshot": {
+      "path": "internal/authority/types.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 75,
+      "end_line": 78,
+      "git_blob": "e70ccafadf1d60650e86d93549c6d4d87f2d0d5e",
+      "sha256": "ac4a3fe4f7962f1c7ac4d2cc9a326c86f6acfac53bc85d9b170b7f7c0f31fe83",
+      "text": "func (s Snapshot) CanMutate() bool {\n\treturn entityid.Valid(s.DeploymentID) && s.Ready && s.Leader && s.Epoch > 0 && s.Revision > 0 &&\n\t\t!s.ExpiresAt.IsZero() && time.Now().Before(s.ExpiresAt)\n}\n",
+      "function": "Snapshot.CanMutate",
+      "note": "Local snapshot, identifier and wall-clock predicate."
+    },
+    "decision_record": {
+      "path": "internal/decisionlog/record.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 35,
+      "end_line": 82,
+      "git_blob": "7fed2695fc9e488b8210b9f7680e5232cc1fe5b4",
+      "sha256": "ab6e8bbe0a1f1a171d769ad3e4392af4ffadb6226531b8001a72e97dd8deb963",
+      "text": "// Default returns the installed recorder, or nil when records go to the log.\nfunc Default() Recorder {\n\tif holder := defaultRecorder.Load(); holder != nil {\n\t\treturn holder.recorder\n\t}\n\treturn nil\n}\n\n// Record journals one decision with the process-wide recorder and returns\n// its ID, so a caller can link later decisions to it with ParentID. It never\n// blocks on the network and never fails; see the package documentation.\nfunc Record(ctx context.Context, decision Decision) string {\n\tif recorder := Default(); recorder != nil {\n\t\treturn recorder.Record(ctx, decision)\n\t}\n\treturn LogRecorder{}.Record(ctx, decision)\n}\n\n// LogRecorder writes decisions to the default structured logger. It is the\n// fallback before a Journal is installed, and the recorder of processes\n// without a regional stream (one-shot CLI commands, hosts).\ntype LogRecorder struct {\n\tLogger *slog.Logger\n}\n\n// Record logs the decision and returns its ID.\nfunc (recorder LogRecorder) Record(ctx context.Context, decision Decision) string {\n\tdecision = decision.Normalize(time.Now())\n\tlogger := recorder.Logger\n\tif logger == nil {\n\t\tlogger = slog.Default()\n\t}\n\tattrs := []slog.Attr{slog.String(observability.ComponentKey, \"decision\"), slog.Bool(observability.EventKey, true),\n\t\tslog.String(\"decision_id\", decision.ID),\n\t\tslog.String(\"kind\", string(decision.Kind)), slog.String(\"actor\", decision.Actor.Slice),\n\t\tslog.String(\"subject\", decision.Subject.String()), slog.String(\"status\", string(decision.Status))}\n\tif decision.Region != \"\" {\n\t\tattrs = append(attrs, slog.String(\"region\", decision.Region))\n\t}\n\tif decision.Reason != \"\" {\n\t\tattrs = append(attrs, slog.String(\"reason\", decision.Reason))\n\t}\n\tif decision.ParentID != \"\" {\n\t\tattrs = append(attrs, slog.String(\"parent_id\", decision.ParentID))\n\t}\n\tlogger.LogAttrs(ctx, slog.LevelInfo, decision.Summary, attrs...)\n\treturn decision.ID\n}\n",
+      "function": "Default/Record/LogRecorder.Record",
+      "note": "No recorder installed by failover fixtures; incidental fallback structured log, no asserted readback."
+    },
+    "decision_correlation": {
+      "path": "internal/decisionlog/correlate.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 5,
+      "end_line": 41,
+      "git_blob": "15f864994fb0c9dd4ca2b73630ae90a4656238ee",
+      "sha256": "dd5e8b5e473844524048c966310d4ad8b6465826d67bf3c6aff0bf4aee668113",
+      "text": "// maxCorrelations bounds the process-wide correlation table.\nconst maxCorrelations = 4096\n\n// correlations maps a caller-chosen key (for example \"release:sha256:...\" or\n// \"managed_update:<operation>\") to the ID of the decision that started that\n// chain in this process, so a later decision by another slice can name it as\n// its parent without both slices sharing state.\nvar correlations = struct {\n\tsync.Mutex\n\tids   map[string]string\n\torder []string\n}{ids: map[string]string{}}\n\n// Correlate remembers id as the decision for key. The table is bounded;\n// the oldest keys are forgotten first.\nfunc Correlate(key, id string) {\n\tif key == \"\" || id == \"\" {\n\t\treturn\n\t}\n\tcorrelations.Lock()\n\tdefer correlations.Unlock()\n\tif _, exists := correlations.ids[key]; !exists {\n\t\tcorrelations.order = append(correlations.order, key)\n\t}\n\tcorrelations.ids[key] = id\n\tfor len(correlations.order) > maxCorrelations {\n\t\tdelete(correlations.ids, correlations.order[0])\n\t\tcorrelations.order = correlations.order[1:]\n\t}\n}\n\n// Correlated returns the decision ID remembered for key, or \"\".\nfunc Correlated(key string) string {\n\tcorrelations.Lock()\n\tdefer correlations.Unlock()\n\treturn correlations.ids[key]\n}\n",
+      "function": "Correlate/Correlated",
+      "note": "Bounded in-memory correlation table."
+    },
+    "options": {
+      "path": "internal/storage/hostvolume/hostvolume.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 29,
+      "end_line": 85,
+      "git_blob": "ab863fea72126eb898c8c217a7779a8a28dc98cd",
+      "sha256": "b0ae427f73a61a9975285f353ae3644c3d99706970bea7d50a2ac1d085adff1b",
+      "text": "var HardenedOptions = []string{\"nosuid\", \"nodev\", \"noexec\", \"noatime\"}\n\n// OptionsHardened reports whether a mountinfo per-mount option field (for\n// example \"rw,nosuid,nodev,noexec,noatime\") carries every hardened option.\nfunc OptionsHardened(options string) bool {\n\tpresent := make(map[string]bool)\n\tfor _, option := range strings.Split(options, \",\") {\n\t\tpresent[option] = true\n\t}\n\tfor _, required := range HardenedOptions {\n\t\tif !present[required] {\n\t\t\treturn false\n\t\t}\n\t}\n\treturn true\n}\n\n// MountOptions returns the per-mount option field of mountID from a\n// /proc/self/mountinfo formatted reader.\nfunc MountOptions(mountInfo io.Reader, mountID uint64) (string, error) {\n\tscanner := bufio.NewScanner(mountInfo)\n\tfor scanner.Scan() {\n\t\tfields := strings.Fields(scanner.Text())\n\t\tif len(fields) < 6 {\n\t\t\tcontinue\n\t\t}\n\t\tid, err := strconv.ParseUint(fields[0], 10, 64)\n\t\tif err != nil {\n\t\t\treturn \"\", fmt.Errorf(\"parse mountinfo ID: %w\", err)\n\t\t}\n\t\tif id == mountID {\n\t\t\treturn fields[5], nil\n\t\t}\n\t}\n\tif err := scanner.Err(); err != nil {\n\t\treturn \"\", err\n\t}\n\treturn \"\", fmt.Errorf(\"mount %d is not visible\", mountID)\n}\n\n// RequireHardened fails unless mountID in mountInfoPath carries every\n// hardened option.\nfunc RequireHardened(mountInfoPath string, mountID uint64) error {\n\tfile, err := os.Open(mountInfoPath)\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer file.Close()\n\toptions, err := MountOptions(file, mountID)\n\tif err != nil {\n\t\treturn err\n\t}\n\tif !OptionsHardened(options) {\n\t\treturn fmt.Errorf(\"managed volume mount lacks %s\", strings.Join(HardenedOptions, \",\"))\n\t}\n\treturn nil\n}\n",
+      "function": "OptionsHardened/MountOptions/RequireHardened",
+      "note": "RequireHardened opens actual fixture file and delegates reader/predicate. Direct MountOptions cases use strings.Reader only."
+    },
+    "format": {
+      "path": "internal/storage/hostvolume/hostvolume.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 89,
+      "end_line": 123,
+      "git_blob": "ab863fea72126eb898c8c217a7779a8a28dc98cd",
+      "sha256": "e5c19b51bc2819017805056d8d3ea63a729ba9a72f0502d087589205ea867bf5",
+      "text": "func FilesystemData(fsType string) string {\n\tif fsType == storage.FileSystemExt4 {\n\t\treturn \"errors=remount-ro\"\n\t}\n\treturn \"\"\n}\n\n// FormatCommand returns the fixed absolute mkfs tool and arguments that create\n// fsType with the signed UUID. The pinned device is appended by the caller.\nfunc FormatCommand(fsType, uuid string) (string, []string, error) {\n\tif !ValidUUID(uuid) {\n\t\treturn \"\", nil, errors.New(\"managed filesystem UUID is invalid\")\n\t}\n\tswitch fsType {\n\tcase storage.FileSystemExt4:\n\t\treturn \"/usr/sbin/mkfs.ext4\", []string{\"-F\", \"-U\", uuid, \"-m\", \"0\", \"-E\", \"lazy_itable_init=0,lazy_journal_init=0\"}, nil\n\tcase storage.FileSystemXFS:\n\t\treturn \"/usr/sbin/mkfs.xfs\", []string{\"-f\", \"-m\", \"uuid=\" + uuid}, nil\n\tdefault:\n\t\treturn \"\", nil, fmt.Errorf(\"managed filesystem type %q is unsupported\", fsType)\n\t}\n}\n\n// Ext4ResizeBlocks returns the block count passed to EXT4_IOC_RESIZE_FS for a\n// device of deviceBytes and a filesystem block size. The kernel treats an\n// unchanged count as a no-op and rejects shrinking, so growth stays one-way.\nfunc Ext4ResizeBlocks(deviceBytes, blockSize uint64) (uint64, error) {\n\tif blockSize < 1024 || blockSize > 65536 || blockSize&(blockSize-1) != 0 {\n\t\treturn 0, errors.New(\"ext4 block size is invalid\")\n\t}\n\tif deviceBytes < blockSize {\n\t\treturn 0, errors.New(\"managed block device is smaller than one filesystem block\")\n\t}\n\treturn deviceBytes / blockSize, nil\n}\n",
+      "function": "FilesystemData/FormatCommand/Ext4ResizeBlocks",
+      "note": "Returns local strings/command arguments/arithmetic; executes no formatter or resize ioctl."
+    },
+    "sysfs": {
+      "path": "internal/storage/hostvolume/hostvolume.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 132,
+      "end_line": 172,
+      "git_blob": "ab863fea72126eb898c8c217a7779a8a28dc98cd",
+      "sha256": "db3942caabef069b8512d1733b8e4b273e61d72f5741550306906c713a4afcc1",
+      "text": "func SysfsDeviceBytes(sysRoot string, major, minor uint32) (uint64, error) {\n\tdata, err := os.ReadFile(filepath.Join(sysRoot, \"dev\", \"block\", fmt.Sprintf(\"%d:%d\", major, minor), \"size\"))\n\tif err != nil {\n\t\treturn 0, fmt.Errorf(\"read managed block device size: %w\", err)\n\t}\n\tsectors, err := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64)\n\tif err != nil || sectors == 0 || sectors > math.MaxUint64/512 {\n\t\treturn 0, errors.New(\"managed block device size is invalid\")\n\t}\n\treturn sectors * 512, nil\n}\n\n// GrowNeeded reports whether a filesystem of fsBlocks*blockSize bytes can grow\n// by at least one block group's worth of space (minSlack) on deviceBytes.\n// Small tails left by alignment never trigger a resize.\nfunc GrowNeeded(deviceBytes, fsBlocks, blockSize, minSlack uint64) bool {\n\tif blockSize == 0 || fsBlocks > deviceBytes/blockSize {\n\t\treturn false\n\t}\n\treturn deviceBytes-fsBlocks*blockSize >= minSlack\n}\n\n// ValidUUID accepts only a canonical lowercase filesystem UUID.\nfunc ValidUUID(value string) bool {\n\tif len(value) != 36 {\n\t\treturn false\n\t}\n\tfor index, character := range value {\n\t\tswitch index {\n\t\tcase 8, 13, 18, 23:\n\t\t\tif character != '-' {\n\t\t\t\treturn false\n\t\t\t}\n\t\tdefault:\n\t\t\tif !strings.ContainsRune(\"0123456789abcdef\", character) {\n\t\t\t\treturn false\n\t\t\t}\n\t\t}\n\t}\n\treturn true\n}\n",
+      "function": "SysfsDeviceBytes/GrowNeeded/ValidUUID",
+      "note": "SysfsDeviceBytes reads actual size file; GrowNeeded/ValidUUID are local predicates."
+    },
+    "mountinfo_fixture": {
+      "path": "internal/storage/hostvolume/hostvolume_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 11,
+      "end_line": 14,
+      "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+      "sha256": "0df350bf4a59ed391cd5165e3fdde0ce79f6244e4c2740c6ef7b92a996656a50",
+      "text": "const mountInfo = `22 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw\n31 22 8:16 / /srv/ts-managed/m/volume rw,nosuid,nodev,noexec,noatime shared:2 - ext4 /dev/sdb rw,errors=remount-ro\n32 22 8:32 / /srv/ts-managed/n/volume rw,relatime shared:3 - xfs /dev/sdc rw\n`\n",
+      "function": "mountInfo",
+      "note": "Literal synthetic mountinfo bytes, written to files only for the file-reader roots."
+    },
+    "device_mounted": {
+      "path": "internal/storage/hostvolume/effects_linux.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 131,
+      "end_line": 146,
+      "git_blob": "fe6e27fbdf5352737971ecba4ebbcc03d1db11a3",
+      "sha256": "b6de528c53c86f307441294151ef6259a4200c16863f3fe5b6f741d367aaea35",
+      "text": "func BlockDeviceMounted(path string, rdev uint64) (bool, error) {\n\tfile, err := os.Open(path)\n\tif err != nil {\n\t\treturn false, err\n\t}\n\tdefer file.Close()\n\twant := fmt.Sprintf(\"%d:%d\", unix.Major(rdev), unix.Minor(rdev))\n\tscan := bufio.NewScanner(file)\n\tfor scan.Scan() {\n\t\tfields := strings.Fields(scan.Text())\n\t\tif len(fields) > 4 && fields[2] == want {\n\t\t\treturn true, nil\n\t\t}\n\t}\n\treturn false, scan.Err()\n}\n",
+      "function": "BlockDeviceMounted",
+      "note": "Production opens fixture file and scans exact major:minor records."
+    },
+    "btrfs": {
+      "path": "internal/storage/hostvolume/effects_linux.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 201,
+      "end_line": 276,
+      "git_blob": "fe6e27fbdf5352737971ecba4ebbcc03d1db11a3",
+      "sha256": "47bd39caecd7c0d9b391a18e1f84eb153dbf5a65caaaf0138bb28732e679e242",
+      "text": "func wholeKernelDevice(sysRoot, device string) (string, error) {\n\ttarget, err := filepath.EvalSymlinks(filepath.Join(sysRoot, \"dev/block\", device))\n\tif err != nil {\n\t\treturn \"\", err\n\t}\n\tif _, err := os.Stat(filepath.Join(target, \"partition\")); err == nil {\n\t\treturn filepath.Dir(target), nil\n\t} else if !errors.Is(err, os.ErrNotExist) {\n\t\treturn \"\", err\n\t}\n\treturn target, nil\n}\n\n// Btrfs reports an anonymous mount device. Select its kernel filesystem by the\n// root source, then require every metadata member present before excluding all.\nfunc btrfsRootDevices(sysRoot string, source uint64) ([]string, error) {\n\tfilesystems, err := os.ReadDir(filepath.Join(sysRoot, \"fs/btrfs\"))\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\twant := fmt.Sprintf(\"%d:%d\", unix.Major(source), unix.Minor(source))\n\tvar roots []string\n\tmatches := 0\n\tfor _, filesystem := range filesystems {\n\t\tif !ValidUUID(filesystem.Name()) {\n\t\t\tcontinue\n\t\t}\n\t\troot := filepath.Join(sysRoot, \"fs/btrfs\", filesystem.Name())\n\t\tmembers, err := os.ReadDir(filepath.Join(root, \"devices\"))\n\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\tvar devices []string\n\t\tmatched := false\n\t\tfor _, member := range members {\n\t\t\tdata, err := os.ReadFile(filepath.Join(root, \"devices\", member.Name(), \"dev\"))\n\t\t\tif err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n\t\t\tdevice := strings.TrimSpace(string(data))\n\t\t\tvar major, minor uint32\n\t\t\tif _, err := fmt.Sscanf(device, \"%d:%d\", &major, &minor); err != nil || device != fmt.Sprintf(\"%d:%d\", major, minor) || slices.Contains(devices, device) {\n\t\t\t\treturn nil, errors.New(\"btrfs member has an invalid or repeated kernel identity\")\n\t\t\t}\n\t\t\tdevices = append(devices, device)\n\t\t\tmatched = matched || device == want\n\t\t}\n\t\tif !matched {\n\t\t\tcontinue\n\t\t}\n\t\tmetadata, err := os.ReadDir(filepath.Join(root, \"devinfo\"))\n\t\tif err != nil || len(metadata) == 0 || len(metadata) != len(devices) {\n\t\t\treturn nil, errors.New(\"btrfs root device membership is incomplete\")\n\t\t}\n\t\tfor _, member := range metadata {\n\t\t\tfor name, expected := range map[string]string{\"missing\": \"0\", \"in_fs_metadata\": \"1\", \"replace_target\": \"0\", \"fsid\": filesystem.Name()} {\n\t\t\t\tvalue, err := os.ReadFile(filepath.Join(root, \"devinfo\", member.Name(), name))\n\t\t\t\tif err != nil || strings.TrimSpace(string(value)) != expected {\n\t\t\t\t\treturn nil, errors.New(\"btrfs root has a missing, replacing, or unverified metadata member\")\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t\tmatches++\n\t\tfor _, device := range devices {\n\t\t\twhole, err := wholeKernelDevice(sysRoot, device)\n\t\t\tif err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n\t\t\troots = append(roots, whole)\n\t\t}\n\t}\n\tif matches != 1 || len(roots) == 0 {\n\t\treturn nil, errors.New(\"btrfs root does not identify one complete kernel filesystem\")\n\t}\n\treturn roots, nil\n}\n",
+      "function": "wholeKernelDevice/btrfsRootDevices",
+      "note": "Production directory enumeration, ReadFile, EvalSymlinks and Stat materially support expected complete root-device set and failure assertions."
+    },
+    "boot_guard": {
+      "path": "internal/storage/hostvolume/effects_linux.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 150,
+      "end_line": 199,
+      "git_blob": "fe6e27fbdf5352737971ecba4ebbcc03d1db11a3",
+      "sha256": "363495312e97b58f426844c31c88801ce5d29adc478d7710bb45362833e56cf5",
+      "text": "func RejectBootOrPartitionDevice(rdev uint64) error {\n\ttarget, err := filepath.EvalSymlinks(fmt.Sprintf(\"/sys/dev/block/%d:%d\", unix.Major(rdev), unix.Minor(rdev)))\n\tif err != nil {\n\t\treturn errors.New(\"managed device has no kernel block identity\")\n\t}\n\tname := filepath.Base(target)\n\tif _, err := os.Stat(filepath.Join(target, \"partition\")); err == nil {\n\t\treturn errors.New(\"managed device is a partition\")\n\t} else if !errors.Is(err, os.ErrNotExist) {\n\t\treturn err\n\t}\n\tchildren, err := os.ReadDir(target)\n\tif err != nil {\n\t\treturn err\n\t}\n\tfor _, child := range children {\n\t\tif strings.HasPrefix(child.Name(), name) && child.Name() != name {\n\t\t\tif _, err := os.Stat(filepath.Join(target, child.Name(), \"partition\")); err == nil {\n\t\t\t\treturn errors.New(\"managed device contains partitions\")\n\t\t\t}\n\t\t}\n\t}\n\tholders, err := os.ReadDir(filepath.Join(target, \"holders\"))\n\tif err != nil || len(holders) != 0 {\n\t\treturn errors.New(\"managed device has kernel holders\")\n\t}\n\trootDevice, fsType, source, err := rootMountIdentity(\"/proc/self/mountinfo\")\n\tif err != nil {\n\t\treturn err\n\t}\n\tvar roots []string\n\tif fsType == \"btrfs\" {\n\t\tvar stat unix.Stat_t\n\t\tif !cleanMountPath(source) || unix.Stat(source, &stat) != nil || stat.Mode&unix.S_IFMT != unix.S_IFBLK {\n\t\t\treturn errors.New(\"btrfs root source has no exact block identity\")\n\t\t}\n\t\troots, err = btrfsRootDevices(\"/sys\", stat.Rdev)\n\t} else {\n\t\tvar root string\n\t\troot, err = wholeKernelDevice(\"/sys\", rootDevice)\n\t\troots = []string{root}\n\t}\n\tif err != nil || len(roots) == 0 {\n\t\treturn errors.New(\"complete host root block device set cannot be identified\")\n\t}\n\tif slices.Contains(roots, target) {\n\t\treturn errors.New(\"managed device is the host boot disk\")\n\t}\n\treturn nil\n}\n",
+      "function": "RejectBootOrPartitionDevice",
+      "note": "Kernel parent calls via ObserveMount; requires actual sysfs identity, no holders and complete boot-disk identity."
+    },
+    "root_identity": {
+      "path": "internal/storage/hostvolume/effects_linux.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 278,
+      "end_line": 297,
+      "git_blob": "fe6e27fbdf5352737971ecba4ebbcc03d1db11a3",
+      "sha256": "ad4180460897921874d11ffbd60e897e4e45b98d72f1857ff519cfb84705969e",
+      "text": "func rootMountIdentity(path string) (string, string, string, error) {\n\tfile, err := os.Open(path)\n\tif err != nil {\n\t\treturn \"\", \"\", \"\", err\n\t}\n\tdefer file.Close()\n\tscan := bufio.NewScanner(file)\n\tfor scan.Scan() {\n\t\tfields := strings.Fields(scan.Text())\n\t\tif len(fields) > 4 && fields[4] == \"/\" {\n\t\t\tfor i := 6; i+3 < len(fields); i++ {\n\t\t\t\tif fields[i] == \"-\" {\n\t\t\t\t\treturn fields[2], fields[i+1], fields[i+2], nil\n\t\t\t\t}\n\t\t\t}\n\t\t\treturn \"\", \"\", \"\", errors.New(\"host root mount identity is malformed\")\n\t\t}\n\t}\n\treturn \"\", \"\", \"\", errors.Join(errors.New(\"host root mount is unavailable\"), scan.Err())\n}\n",
+      "function": "rootMountIdentity",
+      "note": "Actual /proc/self/mountinfo file read for parent boot-disk exclusion."
+    },
+    "remount": {
+      "path": "internal/storage/hostvolume/effects_linux.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 21,
+      "end_line": 36,
+      "git_blob": "fe6e27fbdf5352737971ecba4ebbcc03d1db11a3",
+      "sha256": "641db5cb2c61a24a9e7f22e5b1bb09fe50bfb8cf83d41d3ad61a047f51eed63c",
+      "text": "// MountFlags are the hardened per-mount flags applied to managed volumes.\nconst MountFlags = unix.MS_NOSUID | unix.MS_NODEV | unix.MS_NOEXEC | unix.MS_NOATIME\n\n// ext4IocResizeFS is EXT4_IOC_RESIZE_FS, _IOW('f', 16, __u64). It needs\n// CAP_SYS_RESOURCE, which the volume initializer unit grants.\nconst ext4IocResizeFS = 0x40086610\n\n// HardenRemount applies MountFlags to an existing mount at target without\n// touching the filesystem superblock. A bind remount changes only per-mount\n// flags, so a running workload keeps its open files.\nfunc HardenRemount(target string) error {\n\tif err := unix.Mount(\"\", target, \"\", unix.MS_REMOUNT|unix.MS_BIND|MountFlags, \"\"); err != nil {\n\t\treturn fmt.Errorf(\"harden managed volume mount: %w\", err)\n\t}\n\treturn nil\n}\n",
+      "function": "MountFlags/HardenRemount",
+      "note": "Actual bind remount kernel effect."
+    },
+    "observer": {
+      "path": "internal/storage/hostvolume/observer_linux.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 33,
+      "end_line": 222,
+      "git_blob": "81ab2489f61480f3e53138dc4e9fdb8975e775fb",
+      "sha256": "548dcc51cf495fa06371cca201470ce76fd74d8186db9807d33cca24998da047",
+      "text": "func (w *MountWitness) Close() {\n\tif w != nil && w.initialized {\n\t\tif w.deviceFD >= 0 {\n\t\t\t_ = unix.Close(w.deviceFD)\n\t\t\tw.deviceFD = -1\n\t\t}\n\t\tif w.rootFD >= 0 {\n\t\t\t_ = unix.Close(w.rootFD)\n\t\t\tw.rootFD = -1\n\t\t}\n\t}\n}\n\n// ObserveMount extracts the native retained-volume device/mount checks for\n// container execution, retaining the open witnesses instead of trusting paths.\nfunc ObserveMount(pins MountPins) (_ *MountWitness, err error) {\n\tif pins.UID == 0 || pins.GID == 0 || !ValidUUID(pins.FileSystemUUID) ||\n\t\t(pins.FileSystemType != \"ext4\" && pins.FileSystemType != \"xfs\") ||\n\t\t!cleanMountPath(pins.MountPath) || pins.MountPath == \"/\" {\n\t\treturn nil, errors.New(\"incomplete retained mount pins\")\n\t}\n\tif err := trustedDirectories(filepath.Dir(pins.MountPath)); err != nil {\n\t\treturn nil, err\n\t}\n\tw := &MountWitness{initialized: true, pins: pins, deviceFD: -1, rootFD: -1}\n\tdefer func() {\n\t\tif err != nil {\n\t\t\tw.Close()\n\t\t}\n\t}()\n\tw.deviceFD, w.device, err = openBlockDevice(pins.DevicePath)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tif err := RejectBootOrPartitionDevice(w.device.Rdev); err != nil {\n\t\treturn nil, err\n\t}\n\tif err := trustedDirectories(\"/dev/disk/by-uuid\"); err != nil {\n\t\treturn nil, err\n\t}\n\tvar uuid unix.Stat_t\n\tif err := unix.Stat(filepath.Join(\"/dev/disk/by-uuid\", pins.FileSystemUUID), &uuid); err != nil {\n\t\treturn nil, err\n\t}\n\tif uuid.Mode&unix.S_IFMT != unix.S_IFBLK || uuid.Rdev != w.device.Rdev || uuid.Uid != 0 {\n\t\treturn nil, errors.New(\"filesystem UUID does not identify the pinned block device\")\n\t}\n\tw.rootFD, err = unix.Open(pins.MountPath, unix.O_PATH|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tif err := unix.Fstat(w.rootFD, &w.root); err != nil {\n\t\treturn nil, err\n\t}\n\tif w.root.Dev != w.device.Rdev || w.root.Uid != 0 || w.root.Gid != pins.GID || w.root.Mode&0o7777 != 0o750 {\n\t\treturn nil, errors.New(\"retained filesystem root ownership or device differs\")\n\t}\n\tw.mountID, err = observedMountID(w.rootFD)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tif err := exclusiveHardenedMount(\"/proc/self/mountinfo\", pins.MountPath, w.device.Rdev, pins.FileSystemType, w.mountID); err != nil {\n\t\treturn nil, err\n\t}\n\tfor _, child := range []string{\"data\", \"replication\"} {\n\t\tvar stat unix.Stat_t\n\t\tif err := unix.Fstatat(w.rootFD, child, &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\tif stat.Mode&unix.S_IFMT != unix.S_IFDIR || stat.Mode&0o7777 != 0o700 ||\n\t\t\tstat.Dev != w.device.Rdev || stat.Uid != pins.UID || stat.Gid != pins.GID {\n\t\t\treturn nil, fmt.Errorf(\"unsafe retained %s directory\", child)\n\t\t}\n\t}\n\tif err := w.recheckPaths(); err != nil {\n\t\treturn nil, err\n\t}\n\treturn w, nil\n}\n\nfunc (w *MountWitness) recheckPaths() error {\n\tfd, device, err := openBlockDevice(w.pins.DevicePath)\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer unix.Close(fd)\n\tif !sameObject(device, w.device) {\n\t\treturn errors.New(\"retained device alias changed during observation\")\n\t}\n\tvar root, uuid unix.Stat_t\n\tif err := unix.Lstat(w.pins.MountPath, &root); err != nil {\n\t\treturn err\n\t}\n\tif err := unix.Stat(filepath.Join(\"/dev/disk/by-uuid\", w.pins.FileSystemUUID), &uuid); err != nil {\n\t\treturn err\n\t}\n\tvar mounted unix.Statx_t\n\tif err := unix.Statx(unix.AT_FDCWD, w.pins.MountPath, unix.AT_SYMLINK_NOFOLLOW, unix.STATX_MNT_ID, &mounted); err != nil {\n\t\treturn err\n\t}\n\tif !sameObject(root, w.root) || uuid.Mode&unix.S_IFMT != unix.S_IFBLK || uuid.Uid != 0 || uuid.Rdev != w.device.Rdev ||\n\t\tmounted.Mask&unix.STATX_MNT_ID == 0 || mounted.Mnt_id != w.mountID {\n\t\treturn errors.New(\"retained UUID or mounted root changed during observation\")\n\t}\n\treturn nil\n}\n\n// Recheck rejects replacement of either path or either held kernel object.\nfunc (w *MountWitness) Recheck() error {\n\tif w == nil || !w.initialized || w.deviceFD < 0 || w.rootFD < 0 {\n\t\treturn errors.New(\"retained mount witness is closed\")\n\t}\n\tfor _, held := range []struct {\n\t\tfd   int\n\t\tstat unix.Stat_t\n\t}{{w.deviceFD, w.device}, {w.rootFD, w.root}} {\n\t\tvar current unix.Stat_t\n\t\tif err := unix.Fstat(held.fd, &current); err != nil || !sameObject(current, held.stat) {\n\t\t\treturn errors.New(\"retained open device or root changed\")\n\t\t}\n\t}\n\tcurrent, err := ObserveMount(w.pins)\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer current.Close()\n\tif current.mountID != w.mountID || !sameObject(current.device, w.device) || !sameObject(current.root, w.root) {\n\t\treturn errors.New(\"retained mount path changed from held witness\")\n\t}\n\treturn nil\n}\n\n// VerifyContainerMount inspects the process's actual mount namespace through\n// its proc root. No Go thread enters the container's namespaces.\nfunc (w *MountWitness) VerifyContainerMount(hostPID int, destination string) error {\n\tif hostPID < 2 || !cleanMountPath(destination) || destination == \"/\" {\n\t\treturn errors.New(\"invalid container mount identity\")\n\t}\n\tif err := w.Recheck(); err != nil {\n\t\treturn err\n\t}\n\troot, err := unix.Open(fmt.Sprintf(\"/proc/%d/root\", hostPID), unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer unix.Close(root)\n\tfd, err := unix.Openat2(root, strings.TrimPrefix(destination, \"/\"), &unix.OpenHow{\n\t\tFlags:   unix.O_PATH | unix.O_DIRECTORY | unix.O_CLOEXEC,\n\t\tResolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,\n\t})\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer unix.Close(fd)\n\tvar actual unix.Stat_t\n\tif err := unix.Fstat(fd, &actual); err != nil {\n\t\treturn err\n\t}\n\tif !sameObject(actual, w.root) {\n\t\treturn errors.New(\"container volume is not the held retained filesystem root\")\n\t}\n\tid, err := observedMountID(fd)\n\tif err != nil {\n\t\treturn err\n\t}\n\tif err := exclusiveHardenedMount(fmt.Sprintf(\"/proc/%d/mountinfo\", hostPID), destination, w.device.Rdev, w.pins.FileSystemType, id); err != nil {\n\t\treturn err\n\t}\n\tif err := w.Recheck(); err != nil {\n\t\treturn err\n\t}\n\tcurrentRoot, err := unix.Open(fmt.Sprintf(\"/proc/%d/root\", hostPID), unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer unix.Close(currentRoot)\n\tcurrentFD, err := unix.Openat2(currentRoot, strings.TrimPrefix(destination, \"/\"), &unix.OpenHow{\n\t\tFlags:   unix.O_PATH | unix.O_DIRECTORY | unix.O_CLOEXEC,\n\t\tResolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,\n\t})\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer unix.Close(currentFD)\n\tcurrentID, err := observedMountID(currentFD)\n\tif err != nil || currentID != id {\n\t\treturn errors.New(\"container retained mount changed during observation\")\n\t}\n\treturn nil\n}\n",
+      "function": "MountWitness.Close/ObserveMount/recheckPaths/Recheck/VerifyContainerMount",
+      "note": "Actual held file descriptors/stat/statx, by-UUID/sysfs/proc reads and container namespace mount readback. Recheck closed guard142:144 is local-only."
+    },
+    "observer_helpers": {
+      "path": "internal/storage/hostvolume/observer_linux.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 224,
+      "end_line": 337,
+      "git_blob": "81ab2489f61480f3e53138dc4e9fdb8975e775fb",
+      "sha256": "dcf62d4690a4dbfeb8051944c0aecd6f0b54eb2f8c5a4d9b4657375d6cad3337",
+      "text": "func cleanMountPath(path string) bool {\n\treturn filepath.IsAbs(path) && filepath.Clean(path) == path && !strings.ContainsAny(path, \"\\\\ \\t\\r\\n\\x00\")\n}\n\nfunc trustedDirectories(path string) error {\n\tif !cleanMountPath(path) {\n\t\treturn errors.New(\"untrusted mount ancestor path\")\n\t}\n\tfor current := path; ; current = filepath.Dir(current) {\n\t\tvar stat unix.Stat_t\n\t\tif err := unix.Lstat(current, &stat); err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif stat.Mode&unix.S_IFMT != unix.S_IFDIR || stat.Uid != 0 || stat.Mode&0o022 != 0 {\n\t\t\treturn errors.New(\"retained path ancestor is writable or untrusted\")\n\t\t}\n\t\tif current == \"/\" {\n\t\t\treturn nil\n\t\t}\n\t}\n}\n\nfunc openBlockDevice(path string) (int, unix.Stat_t, error) {\n\tif !cleanMountPath(path) || (filepath.Dir(path) != \"/dev\" && filepath.Dir(path) != \"/dev/oracleoci\") {\n\t\treturn -1, unix.Stat_t{}, errors.New(\"retained block device is not a direct /dev node or OCI alias\")\n\t}\n\tif err := trustedDirectories(filepath.Dir(path)); err != nil {\n\t\treturn -1, unix.Stat_t{}, err\n\t}\n\tresolved := path\n\tif filepath.Dir(path) == \"/dev/oracleoci\" {\n\t\tvar alias unix.Stat_t\n\t\tif err := unix.Lstat(path, &alias); err != nil {\n\t\t\treturn -1, unix.Stat_t{}, err\n\t\t}\n\t\ttarget, err := os.Readlink(path)\n\t\tif err != nil || alias.Uid != 0 || alias.Mode&unix.S_IFMT != unix.S_IFLNK ||\n\t\t\ttarget != \"../\"+filepath.Base(target) || !cleanMountPath(filepath.Join(\"/dev\", filepath.Base(target))) {\n\t\t\treturn -1, unix.Stat_t{}, errors.New(\"retained OCI alias is not a root-owned one-hop device link\")\n\t\t}\n\t\tresolved = filepath.Join(\"/dev\", filepath.Base(target))\n\t}\n\tfd, err := unix.Open(resolved, unix.O_PATH|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)\n\tif err != nil {\n\t\treturn -1, unix.Stat_t{}, err\n\t}\n\tvar stat unix.Stat_t\n\tif err := unix.Fstat(fd, &stat); err != nil {\n\t\t_ = unix.Close(fd)\n\t\treturn -1, unix.Stat_t{}, err\n\t}\n\tif stat.Mode&unix.S_IFMT != unix.S_IFBLK || stat.Uid != 0 {\n\t\t_ = unix.Close(fd)\n\t\treturn -1, unix.Stat_t{}, errors.New(\"retained device is not an exact root-owned block node\")\n\t}\n\treturn fd, stat, nil\n}\n\nfunc sameObject(left, right unix.Stat_t) bool {\n\treturn left.Mode == right.Mode && left.Uid == right.Uid && left.Gid == right.Gid &&\n\t\tleft.Dev == right.Dev && left.Rdev == right.Rdev && left.Ino == right.Ino\n}\n\nfunc observedMountID(fd int) (uint64, error) {\n\tvar stat unix.Statx_t\n\tif err := unix.Statx(fd, \"\", unix.AT_EMPTY_PATH|unix.AT_SYMLINK_NOFOLLOW, unix.STATX_MNT_ID, &stat); err != nil {\n\t\treturn 0, err\n\t}\n\tif stat.Mask&unix.STATX_MNT_ID == 0 || stat.Mnt_id == 0 {\n\t\treturn 0, errors.New(\"kernel did not identify the retained mount\")\n\t}\n\treturn stat.Mnt_id, nil\n}\n\nfunc exclusiveHardenedMount(path, target string, device uint64, fsType string, visible uint64) error {\n\tfile, err := os.Open(path)\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer file.Close()\n\twant := fmt.Sprintf(\"%d:%d\", unix.Major(device), unix.Minor(device))\n\tfound := false\n\tscan := bufio.NewScanner(file)\n\tfor scan.Scan() {\n\t\tfields := strings.Fields(scan.Text())\n\t\tif len(fields) < 3 || fields[2] != want {\n\t\t\tcontinue\n\t\t}\n\t\tseparator := -1\n\t\tfor i := 6; i < len(fields); i++ {\n\t\t\tif fields[i] == \"-\" {\n\t\t\t\tseparator = i\n\t\t\t\tbreak\n\t\t\t}\n\t\t}\n\t\tif len(fields) < 10 || separator < 0 || separator+3 >= len(fields) || fields[3] != \"/\" ||\n\t\t\tfields[4] != target || fields[separator+1] != fsType || !OptionsHardened(fields[5]) ||\n\t\t\t!strings.Contains(\",\"+fields[5]+\",\", \",rw,\") || !strings.Contains(\",\"+fields[separator+3]+\",\", \",rw,\") {\n\t\t\treturn errors.New(\"retained device has another, unhardened, or partial-root mount\")\n\t\t}\n\t\tid, err := strconv.ParseUint(fields[0], 10, 64)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tfound = found || id == visible\n\t}\n\tif err := scan.Err(); err != nil {\n\t\treturn err\n\t}\n\tif !found || visible == 0 {\n\t\treturn errors.New(\"retained filesystem is not the visible pinned mount\")\n\t}\n\treturn nil\n}\n",
+      "function": "cleanMountPath/trustedDirectories/openBlockDevice/sameObject/observedMountID/exclusiveHardenedMount",
+      "note": "Actual path trust, block identity and exclusive visible hardened mount checks."
+    },
+    "kernel_parent": {
+      "path": "internal/storage/hostvolume/observer_linux_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 20,
+      "end_line": 178,
+      "git_blob": "0259d7bcd662b00bf5742ceb4c17e95fc8291d27",
+      "sha256": "fe1ccb1fd98532e6e59e1cdcd0297762ce55aaf27cf93f38cae5aa70c841f6f3",
+      "text": "func TestRetainedMountKernelIntegration(t *testing.T) {\n\tif os.Getenv(\"TS_VOLUME_OBSERVER_FIXTURE\") != \"mount\" {\n\t\texecutable, err := os.Executable()\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tcommand := exec.Command(\"sudo\", \"-n\", \"env\", \"TS_VOLUME_OBSERVER_FIXTURE=mount\", \"nice\", \"-n\", \"19\", \"unshare\", \"--mount\", executable, \"-test.run=^TestRetainedMountKernelIntegration$\", \"-test.v\")\n\t\toutput, err := command.CombinedOutput()\n\t\tif err != nil {\n\t\t\tt.Fatalf(\"real block/mount fixture: %v\\n%s\", err, output)\n\t\t}\n\t\tt.Log(string(output))\n\t\treturn\n\t}\n\tif err := unix.Mount(\"\", \"/\", \"\", unix.MS_REC|unix.MS_PRIVATE, \"\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tdirectory, err := os.MkdirTemp(\"/run\", \"ts-data-volume-\")\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tt.Cleanup(func() {\n\t\tif err := os.RemoveAll(directory); err != nil {\n\t\t\tt.Error(err)\n\t\t}\n\t})\n\tif err := os.Chmod(directory, 0o750); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tdisk := filepath.Join(directory, \"disk\")\n\tfile, err := os.OpenFile(disk, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := file.Truncate(32 << 20); err != nil {\n\t\tfile.Close()\n\t\tt.Fatal(err)\n\t}\n\tif err := file.Close(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tdevice := strings.TrimSpace(fixtureCommand(t, \"losetup\", \"--find\", \"--show\", \"--nooverlap\", disk))\n\tt.Cleanup(func() { fixtureCommand(t, \"losetup\", \"--detach\", device) })\n\tconst uuid = \"0d370616-bf07-48e3-90a4-75e58c799c01\"\n\tfixtureCommand(t, \"mkfs.ext4\", \"-q\", \"-F\", \"-U\", uuid, device)\n\tuuidPath := filepath.Join(\"/dev/disk/by-uuid\", uuid)\n\tif err := os.Symlink(device, uuidPath); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tt.Cleanup(func() {\n\t\tif err := os.Remove(uuidPath); err != nil {\n\t\t\tt.Error(err)\n\t\t}\n\t})\n\tvolume := filepath.Join(directory, \"volume\")\n\tif err := os.Mkdir(volume, 0o750); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := unix.Mount(device, volume, \"ext4\", MountFlags, \"errors=remount-ro\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tt.Cleanup(func() {\n\t\tif err := unix.Unmount(volume, 0); err != nil {\n\t\t\tt.Error(err)\n\t\t}\n\t})\n\tif err := os.Chmod(volume, 0o750); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := os.Chown(volume, 0, 65534); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfor _, child := range []string{\"data\", \"replication\"} {\n\t\tpath := filepath.Join(volume, child)\n\t\tif err := os.Mkdir(path, 0o700); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tif err := os.Chown(path, 65534, 65534); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\tpins := MountPins{DevicePath: device, MountPath: volume, FileSystemUUID: uuid, FileSystemType: \"ext4\", UID: 65534, GID: 65534}\n\twitness, err := ObserveMount(pins)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tdefer witness.Close()\n\tif err := witness.Recheck(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\trootfs := filepath.Join(directory, \"rootfs\")\n\tfor _, path := range []string{rootfs, filepath.Join(rootfs, \"retained\"), filepath.Join(rootfs, \"alias\")} {\n\t\tif err := os.Mkdir(path, 0o755); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\texecutable, err := os.Executable()\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tchild := exec.Command(\"unshare\", \"--mount\", executable, \"-test.run=^TestContainerMountFixture$\")\n\tchild.Env = append(os.Environ(), \"TS_VOLUME_OBSERVER_FIXTURE=container\", \"TS_VOLUME_OBSERVER_ROOT=\"+rootfs, \"TS_VOLUME_OBSERVER_SOURCE=\"+volume)\n\tinput, err := child.StdinPipe()\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\toutput, err := child.StdoutPipe()\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tvar logs bytes.Buffer\n\tchild.Stderr = &logs\n\tif err := child.Start(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tt.Cleanup(func() {\n\t\tchild.Process.Kill()\n\t\tchild.Wait()\n\t\tif logs.Len() > 0 {\n\t\t\tt.Log(logs.String())\n\t\t}\n\t})\n\treader := bufio.NewReader(output)\n\tready, err := reader.ReadString('\\n')\n\tif err != nil || ready != \"ready\\n\" {\n\t\tt.Fatalf(\"container mount fixture: %q, %v, %s\", ready, err, logs.String())\n\t}\n\tif err := witness.VerifyContainerMount(child.Process.Pid, \"/retained\"); err != nil {\n\t\tt.Fatalf(\"actual cross-namespace retained bind: %v\", err)\n\t}\n\tif err := witness.VerifyContainerMount(child.Process.Pid, \"/retained/data\"); err == nil {\n\t\tt.Fatal(\"partial filesystem root accepted as retained bind\")\n\t}\n\tif _, err := fmt.Fprintln(input, \"shadow\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif ack, err := reader.ReadString('\\n'); err != nil || ack != \"shadowed\\n\" {\n\t\tt.Fatalf(\"shadow mount fixture: %q, %v\", ack, err)\n\t}\n\tif err := witness.VerifyContainerMount(child.Process.Pid, \"/retained\"); err == nil {\n\t\tt.Fatal(\"second mount in container namespace accepted\")\n\t}\n\tif err := unix.Mount(\"\", volume, \"\", unix.MS_REMOUNT|unix.MS_BIND|unix.MS_NOSUID|unix.MS_NODEV|unix.MS_NOATIME, \"\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := witness.Recheck(); err == nil {\n\t\tt.Fatal(\"lost noexec protection accepted\")\n\t}\n\tif err := HardenRemount(volume); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := witness.Recheck(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\twitness.Close()\n\tif err := witness.Recheck(); err == nil {\n\t\tt.Fatal(\"closed retained witness accepted\")\n\t}\n}\n",
+      "function": "TestRetainedMountKernelIntegration",
+      "note": "Parent subprocess lifecycle and production assertion owner; all assertions preserved as root3439."
+    },
+    "container_fixture": {
+      "path": "internal/storage/hostvolume/observer_linux_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 180,
+      "end_line": 220,
+      "git_blob": "0259d7bcd662b00bf5742ceb4c17e95fc8291d27",
+      "sha256": "c56f087252f006243ae1117a9b343f316234bb38c8c86508de3a894d277220a8",
+      "text": "func TestContainerMountFixture(t *testing.T) {\n\tif os.Getenv(\"TS_VOLUME_OBSERVER_FIXTURE\") != \"container\" {\n\t\treturn\n\t}\n\troot, source := os.Getenv(\"TS_VOLUME_OBSERVER_ROOT\"), os.Getenv(\"TS_VOLUME_OBSERVER_SOURCE\")\n\tif err := unix.Mount(\"\", \"/\", \"\", unix.MS_REC|unix.MS_PRIVATE, \"\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := unix.Mount(source, filepath.Join(root, \"retained\"), \"\", unix.MS_BIND, \"\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := HardenRemount(filepath.Join(root, \"retained\")); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := unix.Chroot(root); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := os.Chdir(\"/\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfmt.Println(\"ready\")\n\tscanner := bufio.NewScanner(os.Stdin)\n\tfor scanner.Scan() {\n\t\tif scanner.Text() != \"shadow\" {\n\t\t\tt.Fatal(\"unknown fixture command\")\n\t\t}\n\t\tif err := unix.Mount(\"/retained\", \"/alias\", \"\", unix.MS_BIND, \"\"); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tfmt.Println(\"shadowed\")\n\t}\n}\n\nfunc fixtureCommand(t *testing.T, command string, args ...string) string {\n\tt.Helper()\n\toutput, err := exec.Command(command, args...).CombinedOutput()\n\tif err != nil {\n\t\tt.Fatalf(\"%s fixture command: %v: %s\", command, err, output)\n\t}\n\treturn string(output)\n}\n",
+      "function": "TestContainerMountFixture/fixtureCommand",
+      "note": "Conditional child fixture creates bind mounts/chroot and exchanges readiness/shadow acknowledgement; parent owns observation assertions."
+    }
+  },
+  "source_pins": {
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/storage/execution/runtime_linux.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/storage/execution/runtime_linux.go",
+      "mode": "100644",
+      "git_blob": "19b85d1efd95dd4d853c2b11bcf13711a08985bf",
+      "sha256": "9aa39c0f56e128b1552aca15092e456a608fad9af1a614027126ffe97b9564ea",
+      "bytes": 10661
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/storage/failover/reattach.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/storage/failover/reattach.go",
+      "mode": "100644",
+      "git_blob": "68e2a1d7845ec1ccd2c25cab72401caaf758700b",
+      "sha256": "28a2308de2af471f100588b18ed38f935cbcaac7420ceaf5a583b7fd968f6295",
+      "bytes": 13483
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/storage/failover/reattach_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/storage/failover/reattach_test.go",
+      "mode": "100644",
+      "git_blob": "c7f38d657830c247542f309127a3ebc946ec0e5a",
+      "sha256": "018e759c53195dbbd83c772276cb715c4a94c7eef28ef508c8a008a529a9b73e",
+      "bytes": 10349
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/authority/types.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/authority/types.go",
+      "mode": "100644",
+      "git_blob": "e70ccafadf1d60650e86d93549c6d4d87f2d0d5e",
+      "sha256": "d0886d7b4bd7dc75d5816a3ad4bcb01c0f3e3917f9f0b15e43a4d5cfaa53f326",
+      "bytes": 13938
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/decisionlog/record.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/decisionlog/record.go",
+      "mode": "100644",
+      "git_blob": "7fed2695fc9e488b8210b9f7680e5232cc1fe5b4",
+      "sha256": "e4811b9de947690cdc4b06774ba1ae4b4dfb174f11e4130b7c4ac0d5ccc9e0d2",
+      "bytes": 3091
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/decisionlog/correlate.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/decisionlog/correlate.go",
+      "mode": "100644",
+      "git_blob": "15f864994fb0c9dd4ca2b73630ae90a4656238ee",
+      "sha256": "882d763fcbc13fc0e9c70af0c3649213b1f8d5aee688c73ba7391dd64143ec7a",
+      "bytes": 1227
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/storage/hostvolume/hostvolume.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/storage/hostvolume/hostvolume.go",
+      "mode": "100644",
+      "git_blob": "ab863fea72126eb898c8c217a7779a8a28dc98cd",
+      "sha256": "33b18c9075e7de80fb8a1d974ad94b39f60a6924d0098af85de4ae4466ef4cb2",
+      "bytes": 5859
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/storage/hostvolume/hostvolume_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/storage/hostvolume/hostvolume_test.go",
+      "mode": "100644",
+      "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+      "sha256": "c28855e9bb5a0cff988d5ee5f1f8e12a61b77e91ac53e67553d06c2ab94347d0",
+      "bytes": 5455
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/storage/hostvolume/effects_linux.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/storage/hostvolume/effects_linux.go",
+      "mode": "100644",
+      "git_blob": "fe6e27fbdf5352737971ecba4ebbcc03d1db11a3",
+      "sha256": "4705eb7a280e2f681fad9b32fc174c20d19e3895a04e5e5b85568fabf6b3f5ab",
+      "bytes": 10087
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/storage/hostvolume/observer_linux.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/storage/hostvolume/observer_linux.go",
+      "mode": "100644",
+      "git_blob": "81ab2489f61480f3e53138dc4e9fdb8975e775fb",
+      "sha256": "326734bdb08f0f7c90fe23775ed3ec5c6fbe897018e8d1d8ce3d8e1ae2980926",
+      "bytes": 10998
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/storage/hostvolume/observer_linux_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/storage/hostvolume/observer_linux_test.go",
+      "mode": "100644",
+      "git_blob": "0259d7bcd662b00bf5742ceb4c17e95fc8291d27",
+      "sha256": "3d6381edb440cf77d793a9c3dea25c2e0afd6ee634d658ebaa1892358ea922bd",
+      "bytes": 6831
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/storage/execution/runtime_integration_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/storage/execution/runtime_integration_test.go",
+      "mode": "100644",
+      "git_blob": "6e9d2604f683193a44678daa309bdcaff65cdc54",
+      "sha256": "b603586a430c6bcebe3bebef5ea3a0b03c389c7478427bf8da033283978d5268",
+      "bytes": 4150
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/storage/execution/runtime_integration_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/storage/execution/runtime_integration_test.go",
+      "mode": "100644",
+      "git_blob": "6e9d2604f683193a44678daa309bdcaff65cdc54",
+      "sha256": "b603586a430c6bcebe3bebef5ea3a0b03c389c7478427bf8da033283978d5268",
+      "bytes": 4150
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/storage/failover/reattach_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/storage/failover/reattach_test.go",
+      "mode": "100644",
+      "git_blob": "c7f38d657830c247542f309127a3ebc946ec0e5a",
+      "sha256": "018e759c53195dbbd83c772276cb715c4a94c7eef28ef508c8a008a529a9b73e",
+      "bytes": 10349
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/storage/hostvolume/effects_linux_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/storage/hostvolume/effects_linux_test.go",
+      "mode": "100644",
+      "git_blob": "94d9d25a205be7ec8ffd7587dd92d1868bd9fa04",
+      "sha256": "4e6218d3785f2d2bb82d2ecc03a1321aaaa32e69cbaa327e98c4390f26032924",
+      "bytes": 2992
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/storage/hostvolume/effects_linux_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/storage/hostvolume/effects_linux_test.go",
+      "mode": "100644",
+      "git_blob": "94d9d25a205be7ec8ffd7587dd92d1868bd9fa04",
+      "sha256": "4e6218d3785f2d2bb82d2ecc03a1321aaaa32e69cbaa327e98c4390f26032924",
+      "bytes": 2992
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/storage/hostvolume/hostvolume_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/storage/hostvolume/hostvolume_test.go",
+      "mode": "100644",
+      "git_blob": "ee12ac2859d7391f5c0a777f98468539c793cd0d",
+      "sha256": "c28855e9bb5a0cff988d5ee5f1f8e12a61b77e91ac53e67553d06c2ab94347d0",
+      "bytes": 5455
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/storage/hostvolume/observer_linux_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/storage/hostvolume/observer_linux_test.go",
+      "mode": "100644",
+      "git_blob": "0259d7bcd662b00bf5742ceb4c17e95fc8291d27",
+      "sha256": "3d6381edb440cf77d793a9c3dea25c2e0afd6ee634d658ebaa1892358ea922bd",
+      "bytes": 6831
+    }
+  },
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no source category implies compilation or runtime success.",
+    "Only read-only pinned Git/file inspection, hashes and metadata serialization of manually selected explicit spans. No Go/tests/helpers/scanners/parsers/format/lint/process/resource/privilege/cloud/signing/credential crypto/TerraBase execution or downloads.",
+    "Four filesystem integration candidates read/traverse temporary synthetic fixture trees through actual production code; they do not prove kernel Btrfs, real sysfs, live block mounts, OCI or NetBird behavior.",
+    "Kernel parent source describes sudo/unshare/loop/mkfs/mount/chroot and proc readback. Required privilege/tools/kernel/sysfs/root-device visibility and successful operations were not probed. Fixed by-UUID link path and fixture child setup remain environmental/runtime obligations.",
+    "Conditional TestContainerMountFixture stays unresolved per protocol; parent owns subprocess lifecycle and observation assertions. No helper-root integration credit inferred.",
+    "All original assertions and safety obligations retained. No repository/source/ledger mutation, deletion/retirement/count promotion/runtime qualification/completion credit."
+  ],
+  "findings": [
+    {
+      "root_id": "internal/storage/hostvolume/observer_linux_test.go::TestContainerMountFixture",
+      "kind": "unresolved_conditional_helper_attribution",
+      "detail": "Conditional fixture attribution remains unresolved: parent owns the actual process/readback safety assertions. No established QA helper-root attribution rule supplied."
+    }
+  ],
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false,
+    "independent_peer_required": true
+  },
+  "metadata_revision": "Initial FINAL1319 own3420:3440 packet; preserves prior third600 packet bytes."
+}

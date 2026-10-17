@@ -1,0 +1,183 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_180_200",
+  "author": "/root/classification_100_dispatch/batch_200_220",
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-2760-2780-24jwokua/classification.json",
+    "sha256": "6160492830d3bf4fb55e34673dfff08e8091a427a73ec369dd63e1683f4ff096",
+    "checksum_path": "/tmp/ts-source-classification-2760-2780-24jwokua/SHA256SUMS",
+    "checksum_sha256": "26e26d2bda8533440b778dfbc6a60765deb255771541ee9b5542b35a676169e7"
+  },
+  "allocation": {
+    "range": [
+      2760,
+      2780
+    ],
+    "sequence": "other_unadjudicated"
+  },
+  "root_ids": [
+    "internal/ociresource/lb/lb_test.go::TestSDKFenceKeepsTheBackendShape",
+    "internal/ociresource/lb/lb_test.go::TestServingBackendLeavesOnlyWithAHealthyPeer",
+    "internal/ociresource/lb/lb_test.go::TestSpecValidation",
+    "internal/ociresource/lb/lb_test.go::TestTamperedAllDrainedRecordIsNotApplied",
+    "internal/ociresource/lb/lb_test.go::TestTombstoneEmptiesTheSetThenPurges",
+    "internal/ociresource/lb/lb_test.go::TestTombstonePurgesWhenTheLoadBalancerIsGone",
+    "internal/ociresource/nlb/nlb_test.go::TestApplyReguardsBeforeEveryMutation",
+    "internal/ociresource/nlb/nlb_test.go::TestBackendsFollowPlacement",
+    "internal/ociresource/nlb/nlb_test.go::TestDurableWorkRequestRecoversAfterNATSAndControllerRestart",
+    "internal/ociresource/nlb/nlb_test.go::TestEmptyPlacementIsNeverPublishedOrApplied",
+    "internal/ociresource/nlb/nlb_test.go::TestForeignNLBAndFailedWorkRequests",
+    "internal/ociresource/nlb/nlb_test.go::TestRestampAfterBackendChangesUsesAFreshETag",
+    "internal/ociresource/nlb/nlb_test.go::TestSpecValidation",
+    "internal/ociresource/nlb/nlb_test.go::TestTombstoneDrainsBackendsThenPurges",
+    "internal/ociresource/nlb/nlb_test.go::TestTombstonePurgesWhenTheBackendSetIsGone",
+    "internal/ociresource/nlb/nlb_test.go::TestTombstonePurgesWhenTheNLBIsGone",
+    "internal/ociresource/nsg/nsg_test.go::TestExclusiveTombstoneRemovesTheRulesItManaged",
+    "internal/ociresource/nsg/nsg_test.go::TestNSGRulesConvergeAndLeaveForeignRulesAlone",
+    "internal/ociresource/nsg/nsg_test.go::TestNSGTombstonePurgesWhenTheNSGIsGone",
+    "internal/ociresource/nsg/nsg_test.go::TestNSGTombstoneRemovesOnlyMarkedRules"
+  ],
+  "counts": {
+    "integration": 15,
+    "unit": 0,
+    "mixed": 4,
+    "unresolved": 1
+  },
+  "checks_performed": {
+    "literal_roots": 20,
+    "baseline_current_raw_declarations": 40,
+    "source_file_pins": 23,
+    "assertion_spans": 20,
+    "connected_callee_spans": 43,
+    "methods": [
+      "Independently read every complete allocated root and connected actual LB/NLB/NSG fixture/resource/SDK/shared production controller/KV/publish/authority-wire checkpoint path. No category copied without independent target-path review.",
+      "Verified immutable canonical/baseline Git blob, mode, SHA256, byte pins and worktree equality; all raw declarations from explicitly manually reviewed bounds, exact literal survival mapping and hashes/text; all assertion and callee span text, with declaration evidence excluding following LF as documented.",
+      "Verified activated literal range/order, input pins, exact frozen packet and SHA256SUMS, files0444/dir0555; independently recomputed I15/U0/M4/R1 counts and all runtime/retention fields.",
+      "Traced F1 absent Config.Lab and additional TLS/JWT validation blocker; no intended service/restart assertions credited. Traced F2 guards1\u20132 controller,3\u20134 resource,5\u20136 interceptor,7 succeeds/8 fails dispatcher; no first mutation; exactly-one assertion uncredited."
+    ]
+  },
+  "per_root_review": [
+    {
+      "root_id": "internal/ociresource/lb/lb_test.go::TestSDKFenceKeepsTheBackendShape",
+      "category": "integration",
+      "note": "LB Fenced/Shape inputs are only asserted after actual HTTP UpdateBackend/work-request/ListBackends round trips; no independent local-only block."
+    },
+    {
+      "root_id": "internal/ociresource/lb/lb_test.go::TestServingBackendLeavesOnlyWithAHealthyPeer",
+      "category": "integration",
+      "note": "LB healthy-peer refusal/HTTP health errors, later drain/removal and AllowEmpty phases use actual persisted specs and simulated HTTP health state; no application traffic credit."
+    },
+    {
+      "root_id": "internal/ociresource/lb/lb_test.go::TestSpecValidation",
+      "category": "mixed",
+      "note": "LB validation root separately asserts local pre-I/O rejection and actual empty-KV List readback: mixed."
+    },
+    {
+      "root_id": "internal/ociresource/lb/lb_test.go::TestTamperedAllDrainedRecordIsNotApplied",
+      "category": "integration",
+      "note": "LB tampered spec is persisted using production Put, then rejected after production List/decode; real stored input materially supports no-mutation assertion."
+    },
+    {
+      "root_id": "internal/ociresource/lb/lb_test.go::TestTombstoneEmptiesTheSetThenPurges",
+      "category": "integration",
+      "note": "LB tombstone empties simulated provider backends through SDK DELETE, later observation permits actual desired KV purge."
+    },
+    {
+      "root_id": "internal/ociresource/lb/lb_test.go::TestTombstonePurgesWhenTheLoadBalancerIsGone",
+      "category": "integration",
+      "note": "LB missing balancer uses SDK HTTP404 to distinguish live failure from tombstone release; no mutation expected."
+    },
+    {
+      "root_id": "internal/ociresource/nlb/nlb_test.go::TestApplyReguardsBeforeEveryMutation",
+      "category": "integration",
+      "note": "NLB remaining7 reaches guard8 in post-checkpoint target.Fence before any mutation HTTP dispatch. Earlier real KV and SDK GET observations support integration; exactly-one assertion337\u2013339 explicitly uncredited."
+    },
+    {
+      "root_id": "internal/ociresource/nlb/nlb_test.go::TestBackendsFollowPlacement",
+      "category": "mixed",
+      "note": "NLB FromPlacement filtering/sorting/dedup assertion is independent local block; later actual KV idempotence and SDK create/delete/tag convergence makes mixed."
+    },
+    {
+      "root_id": "internal/ociresource/nlb/nlb_test.go::TestDurableWorkRequestRecoversAfterNATSAndControllerRestart",
+      "category": "unresolved",
+      "note": "NLB durable restart root unresolved: literal Lab:true is absent from canonical Config; validate also requires missing client/embedded TLS/JWT. No restart/epoch/recovery/retry/cancellation assertion credit. Intended InProcessServer path is not loopback TCP and remains blocked."
+    },
+    {
+      "root_id": "internal/ociresource/nlb/nlb_test.go::TestEmptyPlacementIsNeverPublishedOrApplied",
+      "category": "mixed",
+      "note": "NLB empty-placement rejection is pre-I/O local; successful AllowEmpty Publish writes actual KV, making mixed."
+    },
+    {
+      "root_id": "internal/ociresource/nlb/nlb_test.go::TestForeignNLBAndFailedWorkRequests",
+      "category": "integration",
+      "note": "NLB foreign ownership and failed asynchronous work requests use actual SDK HTTP; observed status error read from actual KV."
+    },
+    {
+      "root_id": "internal/ociresource/nlb/nlb_test.go::TestRestampAfterBackendChangesUsesAFreshETag",
+      "category": "integration",
+      "note": "NLB restamp test follows actual HTTP create -> work request -> fresh balancer GET -> conditional tag PUT against changed fixture ETag."
+    },
+    {
+      "root_id": "internal/ociresource/nlb/nlb_test.go::TestSpecValidation",
+      "category": "mixed",
+      "note": "NLB validation root separately asserts pre-I/O invalid/wrong-kind guards and actual empty-KV List readback: mixed."
+    },
+    {
+      "root_id": "internal/ociresource/nlb/nlb_test.go::TestTombstoneDrainsBackendsThenPurges",
+      "category": "integration",
+      "note": "NLB reweight and tombstone no-revival assertions follow actual KV generations and HTTP update/delete/tag effects, then actual purge readback."
+    },
+    {
+      "root_id": "internal/ociresource/nlb/nlb_test.go::TestTombstonePurgesWhenTheBackendSetIsGone",
+      "category": "integration",
+      "note": "NLB missing backend set HTTP404 live-failure versus tombstone-purge assertions use actual KV state and SDK request/response path."
+    },
+    {
+      "root_id": "internal/ociresource/nlb/nlb_test.go::TestTombstonePurgesWhenTheNLBIsGone",
+      "category": "integration",
+      "note": "NLB missing balancer HTTP404 live-failure versus tombstone-purge assertions use actual KV state and SDK request/response path."
+    },
+    {
+      "root_id": "internal/ociresource/nsg/nsg_test.go::TestExclusiveTombstoneRemovesTheRulesItManaged",
+      "category": "integration",
+      "note": "NSG exclusive tombstone preserves a matching pre-existing unmarked rule during enforce, deletes that spec-named rule on tombstone and preserves later foreign rule; actual SDK/HTTP+KV."
+    },
+    {
+      "root_id": "internal/ociresource/nsg/nsg_test.go::TestNSGRulesConvergeAndLeaveForeignRulesAlone",
+      "category": "integration",
+      "note": "NSG managed markers, foreign rule/tag preservation, no-op, drift correction and exclusive enforcement use actual SDK HTTP and persisted desired state."
+    },
+    {
+      "root_id": "internal/ociresource/nsg/nsg_test.go::TestNSGTombstonePurgesWhenTheNSGIsGone",
+      "category": "integration",
+      "note": "NSG missing-resource HTTP404 and production KV tombstone/purge distinguish live failure from released state; no extra mutation credited."
+    },
+    {
+      "root_id": "internal/ociresource/nsg/nsg_test.go::TestNSGTombstoneRemovesOnlyMarkedRules",
+      "category": "integration",
+      "note": "NSG marked-only tombstone removes simulated managed rules via actual SDK requests, retains foreign rule and verifies desired-store absence."
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "accepted_documented_source_limits": [
+    "F1 durable natscell fixture remains source-blocked and its root unresolved; package compilation health is not claimed for other independently traced source paths.",
+    "F2 NLB exactly-one-mutation337\u2013339 remains unresolved/uncredited; earlier actual boundary supports integration category.",
+    "Local fixture HTTP checks only Authorization presence, not cryptographic verification. Real SDK protocol effects and authenticated TCP FileStorage KV are source-qualified; provider/health/work requests are simulated. No live OCI, production authority, quorum, region federation, real traffic or restart credit."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "source_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": false,
+    "deletion_credit": false,
+    "retirement_authorized": false,
+    "completion_promotion": false
+  }
+}

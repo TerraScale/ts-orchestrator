@@ -1,0 +1,1006 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1080_1100",
+  "author": "/root/classification_100_dispatch/batch_1900_1920",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-3300-3320-corrected-qk7qukk_/classification.json",
+    "sha256": "4256772868a89e2772aaae63328425090a8a2c26f5ff2e15b4fb57d62300a81c",
+    "checksum_path": "/tmp/ts-source-3300-3320-corrected-qk7qukk_/SHA256SUMS",
+    "checksum_sha256": "bef6c334c397683c2d8b597122728bbe1c1c4bba46fec951a5935d3830823f3e"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "literal_range": [
+    3300,
+    3320
+  ],
+  "root_ids": [
+    "internal/runtimepriority/remote_scope_test.go::TestDetachedScopeChild",
+    "internal/runtimepriority/remote_scope_test.go::TestScopeAdmissionOwnershipAndCleanup",
+    "internal/runtimepriority/remote_scope_test.go::TestScopeLauncherRunsDetachedAndReapsOnStop",
+    "internal/runtimepriority/runtime_safety_test.go::TestMalformedOperatorHostArraysAreDomainErrors",
+    "internal/runtimepriority/runtime_safety_test.go::TestNativeRoleRecreationRestoresAfterOldDescriptorError",
+    "internal/runtimepriority/stress_test.go::TestCgroupInventoryRejectsUnexpectedProcessesAndCapturesRawIdentity",
+    "internal/runtimepriority/stress_test.go::TestIOResourceWorkerWritesOnlyItsFiniteByteBudget",
+    "internal/runtimepriority/stress_test.go::TestJournalCollectionRejectsMalformedOOMRecords",
+    "internal/runtimepriority/stress_test.go::TestPhysicalBlockBackingUsesMountDeviceAndRejectsPseudoDevice",
+    "internal/runtimepriority/stress_test.go::TestStressManifestRejectsUnboundedIOAndMemoryBeforeExecution",
+    "internal/runtimepriority/stress_test.go::TestStressPinnedExecutableFixture",
+    "internal/runtimepriority/stress_test.go::TestStressReexecRetainsAdmittedInodeAfterPathReplacement",
+    "internal/runtimepriority/stress_test.go::TestWorkerStateRetainsExactHashAndBound",
+    "internal/sdnotify/extend_review_test.go::TestKeepStartingExtendsTheStartTimeoutUntilStopped",
+    "internal/sdnotify/sdnotify_test.go::TestNotifierEnvironmentAndWatchdogProcess",
+    "internal/sdnotify/sdnotify_test.go::TestNotifierSendsReadyAndStoppingToPathSocket",
+    "internal/sdnotify/sdnotify_test.go::TestNotifierSupportsAbstractSockets",
+    "internal/sdnotify/sdnotify_test.go::TestRunWatchdogPingsOnlyWhileHealthy",
+    "internal/seatrollout/controller_test.go::TestAFailedSeatHoldsTheGroupUntilTheRollback",
+    "internal/seatrollout/controller_test.go::TestAHoldStartsNoSeatRestart"
+  ],
+  "counts": {
+    "integration": 16,
+    "unit": 0,
+    "mixed": 2,
+    "unresolved": 2
+  },
+  "decision": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+  "checks_performed": [
+    "Independently read all20 complete canonical test roots and actual connected12 production/fixture/store/process/socket paths, including pinned server TCP source spans and3 Unicode fixture files.",
+    "Exact activated allocation order/owner/peer and accounting slice matched; every7-column survival mapping retained original/current identity,kind,state and hash.",
+    "All40 baseline/current raw declaration bytes,bounds,start/name,column-zero close,exact text and SHA256 independently verified. Both seat roots shifted15lines; bodies baseline-exact.",
+    "All29 file pins independently matched Git commit/path/blob/mode/SHA256/bytes; all86 assertion/local/boundary/callee spans independently matched canonical text and bounds.",
+    "All input/packet/checksum hashes and0444 file/0555 directory modes checked. Fresh correction scope inspected; prior immutable packet preserved.",
+    "Categories independently agree I16/U0/M2/R2. Synthetic systemctl/cgroup/device/journal/host boundaries and conditional helper accounting retained. No runtime evidence or executions."
+  ],
+  "per_root_independent_assessment": [
+    {
+      "allocation_index": 3300,
+      "root_id": "internal/runtimepriority/remote_scope_test.go::TestDetachedScopeChild",
+      "category": "unresolved",
+      "assessment": "Conditional marker-gated wait only, no assertion. Parent3302 owns launcher lifecycle; unresolved helper."
+    },
+    {
+      "allocation_index": 3301,
+      "root_id": "internal/runtimepriority/remote_scope_test.go::TestScopeAdmissionOwnershipAndCleanup",
+      "category": "integration",
+      "assessment": "Actual RunBounded shell systemctl substitute, sleep session, pid marker/proc reads and group stop/reaping are material. Systemd admission remains synthetic."
+    },
+    {
+      "allocation_index": 3302,
+      "root_id": "internal/runtimepriority/remote_scope_test.go::TestScopeLauncherRunsDetachedAndReapsOnStop",
+      "category": "integration",
+      "assessment": "Actual detached test executable and production launchScope stop/done channel support process lifetime and reap assertions. No scope daemon."
+    },
+    {
+      "allocation_index": 3303,
+      "root_id": "internal/runtimepriority/runtime_safety_test.go::TestMalformedOperatorHostArraysAreDomainErrors",
+      "category": "integration",
+      "assessment": "Actual shell cat transport supplies malformed host data to production Adapter; both JSON-decode and null array-shape errors remain domain failures. No external operator service."
+    },
+    {
+      "allocation_index": 3304,
+      "root_id": "internal/runtimepriority/runtime_safety_test.go::TestNativeRoleRecreationRestoresAfterOldDescriptorError",
+      "category": "integration",
+      "assessment": "Old read-only descriptor write fails; fallback checks new inode and preexisting1000 cap via real descriptor reads. Later700 cap rejected. No write to recreated cap or test-level readback claimed."
+    },
+    {
+      "allocation_index": 3305,
+      "root_id": "internal/runtimepriority/stress_test.go::TestCgroupInventoryRejectsUnexpectedProcessesAndCapturesRawIdentity",
+      "category": "integration",
+      "assessment": "Actual sleep PID/proc stat+cgroup identity, witness read and filesystem membership/symlink guards. cgroup.procs is fixture, no kernel membership enforcement."
+    },
+    {
+      "allocation_index": 3306,
+      "root_id": "internal/runtimepriority/stress_test.go::TestIOResourceWorkerWritesOnlyItsFiniteByteBudget",
+      "category": "integration",
+      "assessment": "Actual exclusive file creation, truncate8192, bounded4096 write/count and mode/stat; existing file retry rejected. Timing/performance not qualified."
+    },
+    {
+      "allocation_index": 3307,
+      "root_id": "internal/runtimepriority/stress_test.go::TestJournalCollectionRejectsMalformedOOMRecords",
+      "category": "integration",
+      "assessment": "Actual cat subprocess yields supplied journal JSONL; ParseKernelOOMRecord accepts one exact record and rejects duplicatePID/unsafe path/duplicate JSON. No OOM event."
+    },
+    {
+      "allocation_index": 3308,
+      "root_id": "internal/runtimepriority/stress_test.go::TestPhysicalBlockBackingUsesMountDeviceAndRejectsPseudoDevice",
+      "category": "integration",
+      "assessment": "Actual fixture mountinfo/sysfs file/symlink traversal and persisted/reloaded evidence support block graph validation; deviceOverride is synthetic. No actual disk topology qualification."
+    },
+    {
+      "allocation_index": 3309,
+      "root_id": "internal/runtimepriority/stress_test.go::TestStressManifestRejectsUnboundedIOAndMemoryBeforeExecution",
+      "category": "integration",
+      "assessment": "Actual CLI subprocess validates stress input and output/exit; filesystem ReadDir verifies no worker files. Validation returns before cgroup/resource work."
+    },
+    {
+      "allocation_index": 3310,
+      "root_id": "internal/runtimepriority/stress_test.go::TestStressPinnedExecutableFixture",
+      "category": "unresolved",
+      "assessment": "Conditional environment-gated marker printer, no assertion;3311 owns reexec proof. Unresolved helper."
+    },
+    {
+      "allocation_index": 3311,
+      "root_id": "internal/runtimepriority/stress_test.go::TestStressReexecRetainsAdmittedInodeAfterPathReplacement",
+      "category": "integration",
+      "assessment": "Actual copied test ELF held fd and /proc/self/fd/3 reexec survive old pathname replacement; marker proves held inode. No full admission/installed provenance proof."
+    },
+    {
+      "allocation_index": 3312,
+      "root_id": "internal/runtimepriority/stress_test.go::TestWorkerStateRetainsExactHashAndBound",
+      "category": "integration",
+      "assessment": "Actual canonical state write/fsync/rename/readback plus persisted bytes after oversized refusal and protected symlink target readback. No independent pure-only block."
+    },
+    {
+      "allocation_index": 3313,
+      "root_id": "internal/sdnotify/extend_review_test.go::TestKeepStartingExtendsTheStartTimeoutUntilStopped",
+      "category": "integration",
+      "assessment": "Actual Unixgram repeated timeout extension, stop/drain and invalid-interval silence. Scheduling and daemon behavior unexecuted."
+    },
+    {
+      "allocation_index": 3314,
+      "root_id": "internal/sdnotify/sdnotify_test.go::TestNotifierEnvironmentAndWatchdogProcess",
+      "category": "mixed",
+      "assessment": "Same root contains child assertions for nil-notifier local no-op plus actual process environment clearing/socket watchdog assertions. Mixed; no standalone helper transfer."
+    },
+    {
+      "allocation_index": 3315,
+      "root_id": "internal/sdnotify/sdnotify_test.go::TestNotifierSendsReadyAndStoppingToPathSocket",
+      "category": "mixed",
+      "assessment": "Local Enabled assertion42:44 is independent of actual Ready/Stopping Unixgram transmission/readback45:56. Mixed."
+    },
+    {
+      "allocation_index": 3316,
+      "root_id": "internal/sdnotify/sdnotify_test.go::TestNotifierSupportsAbstractSockets",
+      "category": "integration",
+      "assessment": "Actual abstract Unixgram receiver observes exact production Notify payload. Integration."
+    },
+    {
+      "allocation_index": 3317,
+      "root_id": "internal/sdnotify/sdnotify_test.go::TestRunWatchdogPingsOnlyWhileHealthy",
+      "category": "integration",
+      "assessment": "Actual pathname socket observes healthy ping, then drained receiver silence after health false; scheduling remains unknown."
+    },
+    {
+      "allocation_index": 3318,
+      "root_id": "internal/seatrollout/controller_test.go::TestAFailedSeatHoldsTheGroupUntilTheRollback",
+      "category": "integration",
+      "assessment": "Actual upstream TCP NATS/JetStream persisted seat drain+permit transitions read through Drained/Granted. Fake host/backend/clock/fencer. No seat restart."
+    },
+    {
+      "allocation_index": 3319,
+      "root_id": "internal/seatrollout/controller_test.go::TestAHoldStartsNoSeatRestart",
+      "category": "integration",
+      "assessment": "Actual Store reads establish held no-drain/no-permit state then persisted drain after hold released; Hold callback synthetic. Empty ListKeys external behavior unexecuted, no inferred source blocker."
+    }
+  ],
+  "independent_connected_evidence": {
+    "source_files_verified": [
+      {
+        "path": "internal/runtimepriority/cli_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b372db69f79c7289ed3fe467f5e6ab6bfd521cba",
+        "git_mode": "100644",
+        "sha256": "667c60291c35823deef0b460be394087f7c82158c5f7c17110e8d67c77b63246",
+        "bytes": 1236
+      },
+      {
+        "path": "internal/runtimepriority/remote_pressure.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2b1af724dcadfdf970d3fce44cd9a04ad7245f3d",
+        "git_mode": "100644",
+        "sha256": "e14fd9ee6c189cd5d2157ef32c8d197c46021805f43968ee010360d6ca20e221",
+        "bytes": 12566
+      },
+      {
+        "path": "internal/runtimepriority/remote.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3c721065d734899bb68d83fa52e451161f81cc18",
+        "git_mode": "100644",
+        "sha256": "c8fbd93e5b21ecc3e3da184df8faedfd00621080af7194caebe5966c05ad5b43",
+        "bytes": 24482
+      },
+      {
+        "path": "internal/runtimepriority/adapter.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "faf52655cf10224669f082acd5d4c98c0705c5c8",
+        "git_mode": "100644",
+        "sha256": "66ad38f16e88a7a10ced1e15b3edc717d93411afc9cda041763a4d6170d25a0a",
+        "bytes": 16093
+      },
+      {
+        "path": "internal/runtimepriority/common.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "a77928d1ed6f25c11b234d168afc4a44ff25df59",
+        "git_mode": "100644",
+        "sha256": "362b8f03de23e331a7d4984641ca39f014a50a8362582d7af94aff47e6b8f295",
+        "bytes": 9033
+      },
+      {
+        "path": "internal/runtimepriority/remote_scope_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5654ff293a2f458c7e99e9f35670a8bb045dfc04",
+        "git_mode": "100644",
+        "sha256": "da50fe5bfcd85d12d1d25baf5bcff95d27e49deb64f16fb5d915b4b24fed35a4",
+        "bytes": 5171
+      },
+      {
+        "path": "internal/runtimepriority/stress_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "7aa2291d31412aa6c1d35980a2ed299cd5e31aa1",
+        "git_mode": "100644",
+        "sha256": "17572f229798caf40092ce66ba55c02c8febd4fa8ea9d011245767670597b32d",
+        "bytes": 12532
+      },
+      {
+        "path": "internal/runtimepriority/stress.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6209d69a22898c9d7f42a82ef3811de087d6f0c6",
+        "git_mode": "100644",
+        "sha256": "9b2ba3bd6a15506c4f9632f084f60d799687f211a90eb7b2d093ee3268e2d968",
+        "bytes": 35994
+      },
+      {
+        "path": "internal/runtimepriority/qualify.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "e251a98d9522f2b4eba59c2eccb70b62b1a5ed10",
+        "git_mode": "100644",
+        "sha256": "bdcc760861adbc15e63af516b2714120d9ae8ee24b1d6f870895e8cc9b8a89d9",
+        "bytes": 27878
+      },
+      {
+        "path": "internal/runtimepriority/cli.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "63a5292ab49820faef50e1474e679ad24e808c80",
+        "git_mode": "100644",
+        "sha256": "a0423efafc8d8241e9d9c7d47b2f41f5269a262914d5ef6f2b76b3e37cb4dbc2",
+        "bytes": 8708
+      },
+      {
+        "path": "internal/sdnotify/sdnotify_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "20223e3f21e10d6452e6fcb296f0c35631db973a",
+        "git_mode": "100644",
+        "sha256": "358e62fd5fe118379ac2386e333c98846f0bdb22faa17353d43e81e37d0257d2",
+        "bytes": 5717
+      },
+      {
+        "path": "internal/sdnotify/sdnotify.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "0c8401459eed83a360ca1ce42f9efa43dcf20a5d",
+        "git_mode": "100644",
+        "sha256": "07a6a5f5e5a3f93d5c3d6f52387a9efc6955e170f27ed107e680a8e94014bfae",
+        "bytes": 4536
+      },
+      {
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "522cd70c50715ba0db577554605c76d806b78c39",
+        "git_mode": "100644",
+        "sha256": "30d48be58a8caa66a992a68fc7447e3fb1e70803d3a8a557e6de550529de2101",
+        "bytes": 11697
+      },
+      {
+        "path": "internal/seatrollout/store_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "cf177bb8ebfc7a43bf13bc2eabedbe42824cea50",
+        "git_mode": "100644",
+        "sha256": "8e75763fce989c850ff93cd71dfb02b1ed5768f001ba7bed944baffec2133cb5",
+        "bytes": 5192
+      },
+      {
+        "path": "internal/seatrollout/store.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bda3e148c89b7a3142344768e2b36510b5d9c1c6",
+        "git_mode": "100644",
+        "sha256": "3352f67fc62e52e2ed3ddf8c0031fdecb66dc29928bdba451a9c5ac9702b6dc2",
+        "bytes": 7282
+      },
+      {
+        "path": "internal/seatrollout/controller.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "aa8c1d31976364f618399f0328fa85b1b75fdba2",
+        "git_mode": "100644",
+        "sha256": "61d11b401007ef2109ddfccd652355fec71d0f21a94f62db588276fca2c18b26",
+        "bytes": 10527
+      },
+      {
+        "path": "third_party/nats-server/server/server.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c702ff7b80a23433c2cbbb05c5ed3a9feaa2992e",
+        "git_mode": "100644",
+        "sha256": "609ec106c6b89bfb1241e367c803663e4d42435dcaa815cd35fa8aed3ae074ef",
+        "bytes": 144684
+      },
+      {
+        "path": "go.mod",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "84da8168e25f1012adc94846a5972b429a765b05",
+        "git_mode": "100644",
+        "sha256": "3b9ee50d230a3083b3ed90dfc58d8af9496a61807847d2f5aeb6b4b283204d82",
+        "bytes": 6486
+      },
+      {
+        "path": "internal/runtimepriority/remote_scope_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "5654ff293a2f458c7e99e9f35670a8bb045dfc04",
+        "git_mode": "100644",
+        "sha256": "da50fe5bfcd85d12d1d25baf5bcff95d27e49deb64f16fb5d915b4b24fed35a4",
+        "bytes": 5171
+      },
+      {
+        "path": "internal/runtimepriority/runtime_safety_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5f5199dd4a7eb260e5ec91c47aec3dea4afdbda6",
+        "git_mode": "100644",
+        "sha256": "73c16a840ca4452e004c933fdc3c7550ce888a8ea370028b11325bb6092a06a4",
+        "bytes": 1893
+      },
+      {
+        "path": "internal/runtimepriority/runtime_safety_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "5f5199dd4a7eb260e5ec91c47aec3dea4afdbda6",
+        "git_mode": "100644",
+        "sha256": "73c16a840ca4452e004c933fdc3c7550ce888a8ea370028b11325bb6092a06a4",
+        "bytes": 1893
+      },
+      {
+        "path": "internal/runtimepriority/stress_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "7aa2291d31412aa6c1d35980a2ed299cd5e31aa1",
+        "git_mode": "100644",
+        "sha256": "17572f229798caf40092ce66ba55c02c8febd4fa8ea9d011245767670597b32d",
+        "bytes": 12532
+      },
+      {
+        "path": "internal/sdnotify/extend_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "295ddcc12c47b5ab77729faac82c05d89e626a88",
+        "git_mode": "100644",
+        "sha256": "69123c8a05b2efce78b998776a97416da0bf8e0af1280db702e816bb6a132be3",
+        "bytes": 1524
+      },
+      {
+        "path": "internal/sdnotify/extend_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "295ddcc12c47b5ab77729faac82c05d89e626a88",
+        "git_mode": "100644",
+        "sha256": "69123c8a05b2efce78b998776a97416da0bf8e0af1280db702e816bb6a132be3",
+        "bytes": 1524
+      },
+      {
+        "path": "internal/sdnotify/sdnotify_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "20223e3f21e10d6452e6fcb296f0c35631db973a",
+        "git_mode": "100644",
+        "sha256": "358e62fd5fe118379ac2386e333c98846f0bdb22faa17353d43e81e37d0257d2",
+        "bytes": 5717
+      },
+      {
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "783ed01fc69f20d2afc37643e76e28e4d4648e1f",
+        "git_mode": "100644",
+        "sha256": "b5dae425c6acc752e5ea309651100875fa04bc2eaca1f4b530887db0e2f88a23",
+        "bytes": 11221
+      },
+      {
+        "path": "internal/runtimepriority/testdata/canonical-unicode.json",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a41b46377509fc41effc937a7fd59361486c1c3",
+        "git_mode": "100644",
+        "sha256": "b796bc2609da8312869b7aa97a1481a69865ab6fc001461bd1acd1a1b3a6c7fe",
+        "bytes": 127
+      },
+      {
+        "path": "internal/runtimepriority/testdata/canonical-unicode.ascii.json",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "33d388f1540fd7461f1084ac35ea47c42e1647a2",
+        "git_mode": "100644",
+        "sha256": "f8dea18fb5cef757bd7fab53136fe98e8fb99144c1558aa2c4112c505980d6ee",
+        "bytes": 152
+      },
+      {
+        "path": "internal/runtimepriority/testdata/canonical-unicode.sha256",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "04e9cfb1d87cd54292607ec1c3ac7b0b9e951001",
+        "git_mode": "100644",
+        "sha256": "aa9e67bbc108c4ef1a63af77b160fdbe7a0c5d773d284d2b15a95374dbfd0b72",
+        "bytes": 65
+      }
+    ],
+    "connected_groups_verified": {
+      "scope": {
+        "label": "Real detached process admission and cleanup through shell fixtures",
+        "qualification_limit": "The shell fixture substitutes systemctl. Observation is injected and checks real pid marker and /proc; this does not exercise systemd scope ownership or actual cgroup admission.",
+        "explicit_verified_spans": [
+          {
+            "path": "internal/runtimepriority/cli_integration_test.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "b372db69f79c7289ed3fe467f5e6ab6bfd521cba",
+            "line": 43,
+            "end_line": 50,
+            "sha256": "1a0e761dddce5aac15644180fd74ff4dfefd3f5099db8e1a1dd2c3ce98455891"
+          },
+          {
+            "path": "internal/runtimepriority/remote_pressure.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "2b1af724dcadfdf970d3fce44cd9a04ad7245f3d",
+            "line": 175,
+            "end_line": 227,
+            "sha256": "23ffde2127896ee27348a57292d2fe2b15e104b4e96581f1d9eaa989b0c80458"
+          },
+          {
+            "path": "internal/runtimepriority/remote_pressure.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "2b1af724dcadfdf970d3fce44cd9a04ad7245f3d",
+            "line": 282,
+            "end_line": 327,
+            "sha256": "6eefed4b04040c35286b3347f8277f0dd026ed1be1c7425fc860910a72ba11ca"
+          },
+          {
+            "path": "internal/runtimepriority/remote.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "3c721065d734899bb68d83fa52e451161f81cc18",
+            "line": 47,
+            "end_line": 52,
+            "sha256": "55ccb19035fde4029bb1dc450934cd2c430a5f6ca48eed74d0739399bb6799a4"
+          },
+          {
+            "path": "internal/runtimepriority/remote.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "3c721065d734899bb68d83fa52e451161f81cc18",
+            "line": 254,
+            "end_line": 264,
+            "sha256": "6169e7c111ed101f7df2e473357ca545ec61bd06b3f13a45f054a3da1a18119f"
+          },
+          {
+            "path": "internal/runtimepriority/adapter.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "faf52655cf10224669f082acd5d4c98c0705c5c8",
+            "line": 26,
+            "end_line": 68,
+            "sha256": "a689c4c8964e7c15ba9ee0b74174164e2673001c864e7fddc7a5e92a1900feba"
+          },
+          {
+            "path": "internal/runtimepriority/common.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "a77928d1ed6f25c11b234d168afc4a44ff25df59",
+            "line": 288,
+            "end_line": 301,
+            "sha256": "1ea487e553e68785e2bd08902d3c623a92bfce561e5b41d7367fd3b5af302087"
+          },
+          {
+            "path": "internal/runtimepriority/remote_scope_test.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "5654ff293a2f458c7e99e9f35670a8bb045dfc04",
+            "line": 164,
+            "end_line": 169,
+            "sha256": "1a73bf0588eb05caed9585d4cf05f869c0726e50929b049c2f1f776042a72ef9"
+          }
+        ]
+      },
+      "operator": {
+        "label": "Operator JSON through a real bounded command",
+        "qualification_limit": "Shell/cat fixture produces malformed arrays. No SSH, real operator API or host inventory service is contacted.",
+        "explicit_verified_spans": [
+          {
+            "path": "internal/runtimepriority/cli_integration_test.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "b372db69f79c7289ed3fe467f5e6ab6bfd521cba",
+            "line": 43,
+            "end_line": 50,
+            "sha256": "1a0e761dddce5aac15644180fd74ff4dfefd3f5099db8e1a1dd2c3ce98455891"
+          },
+          {
+            "path": "internal/runtimepriority/adapter.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "faf52655cf10224669f082acd5d4c98c0705c5c8",
+            "line": 26,
+            "end_line": 68,
+            "sha256": "a689c4c8964e7c15ba9ee0b74174164e2673001c864e7fddc7a5e92a1900feba"
+          },
+          {
+            "path": "internal/runtimepriority/adapter.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "faf52655cf10224669f082acd5d4c98c0705c5c8",
+            "line": 131,
+            "end_line": 145,
+            "sha256": "9594df37c9e3b7074e6005008097290989deac519a3b289fc248ab303d6d7d86"
+          },
+          {
+            "path": "internal/runtimepriority/adapter.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "faf52655cf10224669f082acd5d4c98c0705c5c8",
+            "line": 241,
+            "end_line": 272,
+            "sha256": "a111ebdd30592189ce33283447d708c827972474321088cfce75d199ce8e1b04"
+          },
+          {
+            "path": "internal/runtimepriority/common.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "a77928d1ed6f25c11b234d168afc4a44ff25df59",
+            "line": 38,
+            "end_line": 62,
+            "sha256": "19931b00dccf304b3887f7c7ee4478977e2c7cff9e87eb9b9425d24f10df7a50"
+          }
+        ]
+      },
+      "restore": {
+        "label": "Held descriptor error followed by fresh-path identity and existing-cap verification",
+        "qualification_limit": "Regular files and real descriptors substitute cgroup control files; no kernel cgroup memory cap is changed.",
+        "explicit_verified_spans": [
+          {
+            "path": "internal/runtimepriority/remote.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "3c721065d734899bb68d83fa52e451161f81cc18",
+            "line": 96,
+            "end_line": 150,
+            "sha256": "86a97a297aec66c9428971a709811b62d6df8698676e4b49946d3ec09a666552"
+          },
+          {
+            "path": "internal/runtimepriority/remote.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "3c721065d734899bb68d83fa52e451161f81cc18",
+            "line": 587,
+            "end_line": 624,
+            "sha256": "38fae0e46339d3a40ef4925444511e61eed695c3352d81f93afbce342921c174"
+          },
+          {
+            "path": "internal/runtimepriority/common.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "a77928d1ed6f25c11b234d168afc4a44ff25df59",
+            "line": 169,
+            "end_line": 206,
+            "sha256": "4a834ee77236ba02fc48ca3d67e8a1fc5fc4dd615517b6af01b7cd75dca85c2b"
+          }
+        ]
+      },
+      "inventory": {
+        "label": "Real child and /proc identity with synthetic cgroup.procs",
+        "qualification_limit": "sleep child and procfs are real. The cgroup inventory directory is synthetic and does not prove kernel cgroup membership enforcement.",
+        "explicit_verified_spans": [
+          {
+            "path": "internal/runtimepriority/stress_test.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "7aa2291d31412aa6c1d35980a2ed299cd5e31aa1",
+            "line": 19,
+            "end_line": 36,
+            "sha256": "c969da4e7f2bd4116b0772c8030d7a7fa79b26db50b528bf9dfeb4b5c875faf8"
+          },
+          {
+            "path": "internal/runtimepriority/stress.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "6209d69a22898c9d7f42a82ef3811de087d6f0c6",
+            "line": 395,
+            "end_line": 483,
+            "sha256": "42a938e13342552935da9f7435c4773ee3d70385be36c375c9b509192e63b136"
+          },
+          {
+            "path": "internal/runtimepriority/remote.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "3c721065d734899bb68d83fa52e451161f81cc18",
+            "line": 21,
+            "end_line": 71,
+            "sha256": "e1732b29966a4c760bbe6cbe37bedfc7ea0456a4ada27d5f31bdbeaeb4eb94a5"
+          },
+          {
+            "path": "internal/runtimepriority/remote.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "3c721065d734899bb68d83fa52e451161f81cc18",
+            "line": 288,
+            "end_line": 295,
+            "sha256": "85b1d8e54d6807fc7a4c9f1aedef17e65424f6412a96edf12dcbf978048bee84"
+          },
+          {
+            "path": "internal/runtimepriority/qualify.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "e251a98d9522f2b4eba59c2eccb70b62b1a5ed10",
+            "line": 109,
+            "end_line": 124,
+            "sha256": "32b4a1e8fe1f068c334f33a41d866276cb113cf9a0cebe19ac81508b297f4194"
+          },
+          {
+            "path": "internal/runtimepriority/common.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "a77928d1ed6f25c11b234d168afc4a44ff25df59",
+            "line": 169,
+            "end_line": 206,
+            "sha256": "4a834ee77236ba02fc48ca3d67e8a1fc5fc4dd615517b6af01b7cd75dca85c2b"
+          },
+          {
+            "path": "internal/runtimepriority/common.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "a77928d1ed6f25c11b234d168afc4a44ff25df59",
+            "line": 302,
+            "end_line": 308,
+            "sha256": "bf30a51441ef12277aeb7c6313f7ba3f49d703a23d36411d8d1340c190a78dad"
+          }
+        ]
+      },
+      "io": {
+        "label": "Finite worker bytes with real file creation and fdatasync",
+        "qualification_limit": "Actual regular-file writes/stat support the count and finite-byte assertions. No production disk pressure, filesystem performance or cgroup I/O enforcement is qualified.",
+        "explicit_verified_spans": [
+          {
+            "path": "internal/runtimepriority/stress.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "6209d69a22898c9d7f42a82ef3811de087d6f0c6",
+            "line": 621,
+            "end_line": 737,
+            "sha256": "b50acb628c47a5f9491711225d681b5884dc074ad86efc2e74b99412d1f9329a"
+          }
+        ]
+      },
+      "journal": {
+        "label": "Real journal command transport and malformed-record filtering",
+        "qualification_limit": "cat fixture supplies journal records; no live systemd journal or OOM event is produced.",
+        "explicit_verified_spans": [
+          {
+            "path": "internal/runtimepriority/cli_integration_test.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "b372db69f79c7289ed3fe467f5e6ab6bfd521cba",
+            "line": 43,
+            "end_line": 50,
+            "sha256": "1a0e761dddce5aac15644180fd74ff4dfefd3f5099db8e1a1dd2c3ce98455891"
+          },
+          {
+            "path": "internal/runtimepriority/remote.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "3c721065d734899bb68d83fa52e451161f81cc18",
+            "line": 47,
+            "end_line": 52,
+            "sha256": "55ccb19035fde4029bb1dc450934cd2c430a5f6ca48eed74d0739399bb6799a4"
+          },
+          {
+            "path": "internal/runtimepriority/remote.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "3c721065d734899bb68d83fa52e451161f81cc18",
+            "line": 265,
+            "end_line": 287,
+            "sha256": "423ca2b950d69af255d07c3b4bf7cca808836c6d111b9cc130e75dde0083de51"
+          },
+          {
+            "path": "internal/runtimepriority/remote.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "3c721065d734899bb68d83fa52e451161f81cc18",
+            "line": 400,
+            "end_line": 405,
+            "sha256": "ce0a66f1bf2fc4f711973a391ad0263b49f2388bd35b05e06196ef2d873bde5b"
+          },
+          {
+            "path": "internal/runtimepriority/adapter.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "faf52655cf10224669f082acd5d4c98c0705c5c8",
+            "line": 26,
+            "end_line": 68,
+            "sha256": "a689c4c8964e7c15ba9ee0b74174164e2673001c864e7fddc7a5e92a1900feba"
+          },
+          {
+            "path": "internal/runtimepriority/stress.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "6209d69a22898c9d7f42a82ef3811de087d6f0c6",
+            "line": 311,
+            "end_line": 375,
+            "sha256": "8596b2966abf1c1bc3115de3324f7597d082c9b3a78f6601089999297a5ea47b"
+          }
+        ]
+      },
+      "block": {
+        "label": "Mount and sysfs evidence from real filesystem fixtures",
+        "qualification_limit": "The file/symlink reads and evidence reload support device assertions. mountinfo/sysfs and device numbers are fixture data; no physical device or real mounted workload is qualified.",
+        "explicit_verified_spans": [
+          {
+            "path": "internal/runtimepriority/stress_test.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "7aa2291d31412aa6c1d35980a2ed299cd5e31aa1",
+            "line": 19,
+            "end_line": 36,
+            "sha256": "c969da4e7f2bd4116b0772c8030d7a7fa79b26db50b528bf9dfeb4b5c875faf8"
+          },
+          {
+            "path": "internal/runtimepriority/stress.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "6209d69a22898c9d7f42a82ef3811de087d6f0c6",
+            "line": 33,
+            "end_line": 186,
+            "sha256": "1c79f5bff23a0b48222a22f12d21f0c28d46978996fd9df6f46666170da1cdda"
+          },
+          {
+            "path": "internal/runtimepriority/stress.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "6209d69a22898c9d7f42a82ef3811de087d6f0c6",
+            "line": 188,
+            "end_line": 309,
+            "sha256": "8c6140bf0c9dd24b86074664636d53a308291473197aa62ea569473891837fcc"
+          },
+          {
+            "path": "internal/runtimepriority/common.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "a77928d1ed6f25c11b234d168afc4a44ff25df59",
+            "line": 169,
+            "end_line": 228,
+            "sha256": "c153cbe11f56da710ca33dbc6e0c3dd854783aafa79204cfae5cc5b3774d5ab7"
+          }
+        ]
+      },
+      "manifest": {
+        "label": "Reexecuted CLI rejects manifest before resource execution",
+        "qualification_limit": "Real subprocess and manifest read are material to CLI error/exit and no-worker-file assertions. Validation returns before cgroup admission or resource workload; no pressure execution credited.",
+        "explicit_verified_spans": [
+          {
+            "path": "internal/runtimepriority/cli_integration_test.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "b372db69f79c7289ed3fe467f5e6ab6bfd521cba",
+            "line": 14,
+            "end_line": 41,
+            "sha256": "556797d838d6c029a446a0617daf4b6882696b85f033c3eeb471859321ec2d92"
+          },
+          {
+            "path": "internal/runtimepriority/cli.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "63a5292ab49820faef50e1474e679ad24e808c80",
+            "line": 13,
+            "end_line": 44,
+            "sha256": "fb184e1ec8fc3a6ea402aa3820e4470d10cc86760dae4caf50cf06570e3bd1ba"
+          },
+          {
+            "path": "internal/runtimepriority/cli.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "63a5292ab49820faef50e1474e679ad24e808c80",
+            "line": 64,
+            "end_line": 71,
+            "sha256": "1dae125b9a1d62112e813d3f1c10506fe8488b0dd72b76f2bed2d42ad921643c"
+          },
+          {
+            "path": "internal/runtimepriority/cli.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "63a5292ab49820faef50e1474e679ad24e808c80",
+            "line": 218,
+            "end_line": 260,
+            "sha256": "8ca4903750e0bbf602067e284b9b8f66fad68e4cc1c1ad35ee962dc80cd19a91"
+          },
+          {
+            "path": "internal/runtimepriority/common.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "a77928d1ed6f25c11b234d168afc4a44ff25df59",
+            "line": 169,
+            "end_line": 228,
+            "sha256": "c153cbe11f56da710ca33dbc6e0c3dd854783aafa79204cfae5cc5b3774d5ab7"
+          },
+          {
+            "path": "internal/runtimepriority/stress.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "6209d69a22898c9d7f42a82ef3811de087d6f0c6",
+            "line": 541,
+            "end_line": 587,
+            "sha256": "1c161497996202800050ac9e10aa25a66effcddab6a4568f4c59377b8b367772"
+          },
+          {
+            "path": "internal/runtimepriority/stress.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "6209d69a22898c9d7f42a82ef3811de087d6f0c6",
+            "line": 763,
+            "end_line": 775,
+            "sha256": "439df3ec3d7a7f233bb520b565d8ef26e0a7fdbb8cde34d0e170f9c14eb23633"
+          }
+        ]
+      },
+      "pinned": {
+        "label": "Held executable inode reused after pathname replacement",
+        "qualification_limit": "Actual test-binary fd reexec is asserted by its marker. Child-only fixture root itself has no assertion and remains unresolved.",
+        "explicit_verified_spans": [
+          {
+            "path": "internal/runtimepriority/stress.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "6209d69a22898c9d7f42a82ef3811de087d6f0c6",
+            "line": 757,
+            "end_line": 761,
+            "sha256": "cce311b6ca4aaafdffd44e8f6349c7757a6f56645edc169b5e94446933a61f45"
+          },
+          {
+            "path": "internal/runtimepriority/stress_test.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "7aa2291d31412aa6c1d35980a2ed299cd5e31aa1",
+            "line": 289,
+            "end_line": 294,
+            "sha256": "a907cb7f64a6e1c5d6fd0c052dd103e71d870d11eebc7ea60a79591605d8a38f"
+          }
+        ]
+      },
+      "state": {
+        "label": "Canonical bounded state persistence and protected-file readback",
+        "qualification_limit": "Regular-file write/fsync/rename/readback. Oversize and symlink rejection also read retained/protected bytes; these are material safety assertions, not separate independent pure predicates.",
+        "explicit_verified_spans": [
+          {
+            "path": "internal/runtimepriority/stress_test.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "7aa2291d31412aa6c1d35980a2ed299cd5e31aa1",
+            "line": 19,
+            "end_line": 36,
+            "sha256": "c969da4e7f2bd4116b0772c8030d7a7fa79b26db50b528bf9dfeb4b5c875faf8"
+          },
+          {
+            "path": "internal/runtimepriority/stress.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "6209d69a22898c9d7f42a82ef3811de087d6f0c6",
+            "line": 589,
+            "end_line": 615,
+            "sha256": "a59ee87ddb562391e6c9a21bff9f925d97addf3e67076f41cbdc442e93970f5e"
+          },
+          {
+            "path": "internal/runtimepriority/common.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "a77928d1ed6f25c11b234d168afc4a44ff25df59",
+            "line": 63,
+            "end_line": 93,
+            "sha256": "e611fc254e4acb11e937309d2f19aa9f1f7016f54b4988888ff5b4890ebdc508"
+          },
+          {
+            "path": "internal/runtimepriority/common.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "a77928d1ed6f25c11b234d168afc4a44ff25df59",
+            "line": 169,
+            "end_line": 228,
+            "sha256": "c153cbe11f56da710ca33dbc6e0c3dd854783aafa79204cfae5cc5b3774d5ab7"
+          }
+        ]
+      },
+      "notify": {
+        "label": "Real Unix datagram notifier and self subprocess",
+        "qualification_limit": "Real pathname/abstract Unix datagrams and process environment are exercised. No external systemd daemon participates; timeout and scheduling behavior remain runtime obligations.",
+        "explicit_verified_spans": [
+          {
+            "path": "internal/sdnotify/sdnotify_test.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "20223e3f21e10d6452e6fcb296f0c35631db973a",
+            "line": 17,
+            "end_line": 36,
+            "sha256": "dae7921a7cb836a2e4e195836464fc9fad0eccb29d9573de35a1742dd72b9359"
+          },
+          {
+            "path": "internal/sdnotify/sdnotify.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "0c8401459eed83a360ca1ce42f9efa43dcf20a5d",
+            "line": 27,
+            "end_line": 151,
+            "sha256": "37a53234aca35348c7c3812c605c2676f236bdc0da4b2c69e1136e5e7d47e8b9"
+          }
+        ]
+      },
+      "seat": {
+        "label": "Direct upstream NATS loopback TCP, JetStream store and controller",
+        "qualification_limit": "testStore directly invokes upstream server.NewServer and nats.Connect(ClientURL) over loopback TCP; natscell.Start is not reached. Single-replica file-backed JetStream; host/backend/authority/clock are synthetic. External nats.go v1.54.0 client implementation and empty ListKeys behavior are not canonical source reviewed, so no runtime claim or inferred blocker is made.",
+        "explicit_verified_spans": [
+          {
+            "path": "internal/seatrollout/controller_test.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "522cd70c50715ba0db577554605c76d806b78c39",
+            "line": 14,
+            "end_line": 101,
+            "sha256": "264ba38ca22dd01896fdd76c7824b9164b6085be11e4a04a7de0777c5dd3c7a8"
+          },
+          {
+            "path": "internal/seatrollout/store_test.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "cf177bb8ebfc7a43bf13bc2eabedbe42824cea50",
+            "line": 19,
+            "end_line": 63,
+            "sha256": "8b518ce05552146abcf433c843d65c8172230d7d94229f82b463b3ee4f952227"
+          },
+          {
+            "path": "internal/seatrollout/store.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "bda3e148c89b7a3142344768e2b36510b5d9c1c6",
+            "line": 50,
+            "end_line": 56,
+            "sha256": "209e208adecf1fe30289394ec8f91d719b10f09e818ae170fa21624dc780c094"
+          },
+          {
+            "path": "internal/seatrollout/store.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "bda3e148c89b7a3142344768e2b36510b5d9c1c6",
+            "line": 83,
+            "end_line": 120,
+            "sha256": "e596f1ff7ca2bc2b5794cb5dea0a2b31b057b109acddcce866b2593482e09a56"
+          },
+          {
+            "path": "internal/seatrollout/store.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "bda3e148c89b7a3142344768e2b36510b5d9c1c6",
+            "line": 124,
+            "end_line": 201,
+            "sha256": "d4e56a122fda71d1b1db48746190d464e218ec6a522626b85a023a3925659705"
+          },
+          {
+            "path": "internal/seatrollout/controller.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "aa8c1d31976364f618399f0328fa85b1b75fdba2",
+            "line": 101,
+            "end_line": 320,
+            "sha256": "523d6540eb84f9f7b25a343481b9175d353bddf60f8f41b918560ceca6edd94b"
+          },
+          {
+            "path": "third_party/nats-server/server/server.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "c702ff7b80a23433c2cbbb05c5ed3a9feaa2992e",
+            "line": 2279,
+            "end_line": 2312,
+            "sha256": "9f94c7ee93ab5d0fabfa57692e3bcf55fa1be6a5ae9541d9237480a86d271fa0"
+          },
+          {
+            "path": "third_party/nats-server/server/server.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "c702ff7b80a23433c2cbbb05c5ed3a9feaa2992e",
+            "line": 2452,
+            "end_line": 2474,
+            "sha256": "583e111aca231d06465513609919e81268b5840735040fdd9c3e27d071200028"
+          },
+          {
+            "path": "third_party/nats-server/server/server.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "c702ff7b80a23433c2cbbb05c5ed3a9feaa2992e",
+            "line": 2558,
+            "end_line": 2591,
+            "sha256": "630a92feddd3ae6a6f7c8cabae385ac434d56a9ab48814b387969a659305c306"
+          },
+          {
+            "path": "third_party/nats-server/server/server.go",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "c702ff7b80a23433c2cbbb05c5ed3a9feaa2992e",
+            "line": 2799,
+            "end_line": 2896,
+            "sha256": "8dbb016e4b87e551913f2583223e6ce0d18d868879f261f7332af1e755e17c07"
+          },
+          {
+            "path": "go.mod",
+            "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+            "git_blob": "84da8168e25f1012adc94846a5972b429a765b05",
+            "line": 20,
+            "end_line": 24,
+            "sha256": "7753699bfef6720ec9c9d2dd417b6d996a70658cf4849cb9c50fa0a937092d3c"
+          }
+        ]
+      }
+    }
+  },
+  "resolved_findings": [
+    {
+      "id": "P1",
+      "detail": "All40 declaration-text fields now omit following LF and directly hash to their declared raw identity; full-line assertion/callee spans unchanged."
+    },
+    {
+      "id": "P2",
+      "root_id": "internal/runtimepriority/runtime_safety_test.go::TestNativeRoleRecreationRestoresAfterOldDescriptorError",
+      "detail": "Rationale now describes failed old-FD write and verification of preexisting fresh-path cap, unknown-cap refusal and absence of fresh-path mutation/test-level readback."
+    }
+  ],
+  "remaining_findings": [],
+  "source_blockers": [],
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE; independent peer review and separate ledger acceptance required.",
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No Go/test/build/helper/scanner/parser/format/lint/resource/process/cloud/privilege/signing/TerraBase execution. Only pinned source reads/hashes and metadata packaging.",
+    "No source/repo/ledger edits, deletion, retirement, count/qualification/completion promotion.",
+    "OS/filesystem/process/Unix datagram fixtures do not qualify production systemd/cgroups/physical devices or real OOM pressure.",
+    "Seat fixtures use directly started upstream loopback TCP NATS and R1 file store, not natscell.Start; synthetic host/backend/clock/authority. External pinned nats.go client behavior remains unexecuted and not source reviewed.",
+    "Conditional child roots3300 and3310 unresolved; their parent assertions remain with roots3302 and3311.",
+    "3311 proves manually held test ELF inode reexec only; no complete executable admission/installed provenance.",
+    "Conditional helpers3300/3310 remain unresolved; parent process assertions not transferred. External nats.go client ListKeys empty behavior unexecuted/unreviewed, no inferred contradiction."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "ledger_mutation": false,
+    "count_promotion": false,
+    "deletion_authorized": false,
+    "retirement_authorized": false,
+    "qualification_promotion": false,
+    "completion_credit": false
+  },
+  "verified_span_counts": {
+    "raw_declarations": 40,
+    "source_files": 29,
+    "assertion_category_connected_spans": 86
+  }
+}

@@ -1,0 +1,98 @@
+{
+  "schema": "independent-source-only-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_760_780",
+  "author": "/root/classification_100_dispatch/batch_780_800",
+  "range": [
+    2980,
+    3000
+  ],
+  "decision": "accepted_source_only_exact_hash",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-2980-3000-corrected-b_2tktd0/classification.json",
+    "sha256": "9c9d02b754f3b697f4bbc869bd49d5701c49b8d4bf4f92e70d21c541a98e46ef",
+    "checksum_path": "/tmp/ts-source-classification-2980-3000-corrected-b_2tktd0/SHA256SUMS",
+    "checksum_sha256": "ea1674171a0fc0032d0d449d0457763c06bbcb049cdf560b2d351ab718e19c5b"
+  },
+  "superseded_reviewed_packet": {
+    "path": "/tmp/ts-source-classification-2980-3000-ihyys0cw/classification.json",
+    "sha256": "2d19134c0061186533584a57ccc68f06ea50b30ba9195d98d2f1cea87593ff78"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[2980:3000]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_760_780"
+  },
+  "literal_root_ids": [
+    "internal/qualification/memberstatus/memberstatus_test.go::TestManagedRootfsRequiresPinnedBlkidAndInstalledSystemd",
+    "internal/qualification/memberstatus/memberstatus_test.go::TestManagedVolumeParser",
+    "internal/qualification/memberstatus/memberstatus_test.go::TestManifests",
+    "internal/qualification/memberstatus/memberstatus_test.go::TestPrivateSocketDirectory",
+    "internal/qualification/memberstatus/memberstatus_test.go::TestProfileLogInventory",
+    "internal/qualification/memberstatus/memberstatus_test.go::TestQualificationParsers",
+    "internal/qualification/memberstatus/memberstatus_test.go::TestSourceInventoryMutationPreventsPass",
+    "internal/qualification/memberstatus/memberstatus_test.go::TestUnmountRefusesUnownedMount",
+    "internal/qualification/memberstatus/memberstatus_test.go::TestVMStartupRoutesAPICallsAndSeparatesBoundedLogs",
+    "internal/qualification/memberstatus/process_test.go::TestCommandRunnerReapedOutputOwnerIsNotPending",
+    "internal/qualification/memberstatus/process_test.go::TestOwnedProcessFixture",
+    "internal/qualification/memberstatus/process_test.go::TestOwnedProcessGroupCleanup",
+    "internal/qualification/memberstatus/process_test.go::TestUnquiescedVMRetainsResourcesUntilProvenStopped",
+    "internal/qualification/memberstatus/templates_test.go::TestMemberStatusGuestShellRunner",
+    "internal/qualification/memberstatus/templates_test.go::TestMemberStatusServicePrivilegeSeparation",
+    "internal/regionlink/links_test.go::TestLinkTimeoutAppliesUnderALaterCallerDeadline",
+    "internal/regionlink/links_test.go::TestLinksRegionsAndRequests",
+    "internal/regionlink/links_test.go::TestUnlinkDropsOnlyPeerRegions",
+    "internal/regionsuggest/decide_test.go::TestAddOverBudgetStillSuggestsAdd",
+    "internal/regionsuggest/decide_test.go::TestGreatCircleDistance"
+  ],
+  "counts": {
+    "integration": 7,
+    "unit": 7,
+    "mixed": 5,
+    "unresolved": 1
+  },
+  "checks_performed": [
+    "Own [2960:2980) packet frozen/handed off before peer review. Independently read all20 whole peer roots at immutable canonical commit and actual connected fixture/production paths; no source/helper/runtime execution.",
+    "Verified exact literal allocation IDs/order, original/current names and survival records, explicit baseline/current func-through-column-zero-brace bounds excluding following LF, raw SHA256 and whole assertion text. All20 baseline/current identities match survival; no canonical declaration drift.",
+    "Verified24 baseline/current file pins (Git mode/blob/SHA256/byte length),59 explicit connected span texts/hashes/blobs and5 immutable input pins. Verified packet SHA256 and all SHA256SUMS members.",
+    "Confirmed actual upstream NATS server/client loopback TCP request paths, real shell/process and filesystem effects supporting credited assertions; no inferred natscell.Start, Firecracker, OCI, WAN, guest systemd or volume qualification.",
+    "Rechecked fresh corrected exact hash; source pins/evidence/identities unchanged from independently verified first packet. Three corrected categories/rationales now explicitly retain independent local guard/callback blocks. Counts exhaust only20 assigned candidates; all runtime/retirement safety limits retained."
+  ],
+  "resolved_findings": [
+    {
+      "root_id": "internal/qualification/memberstatus/memberstatus_test.go::TestManifests",
+      "resolution": "integration\u2192mixed; independent synthetic manifest schema/predicate guards separated from real file digest/readback blocks."
+    },
+    {
+      "root_id": "internal/qualification/memberstatus/memberstatus_test.go::TestVMStartupRoutesAPICallsAndSeparatesBoundedLogs",
+      "resolution": "integration\u2192mixed; mocked API record/payload block separated from actual child process and bounded log readback."
+    },
+    {
+      "root_id": "internal/qualification/memberstatus/process_test.go::TestOwnedProcessGroupCleanup",
+      "resolution": "integration\u2192mixed; manually reaped pre-I/O guard and prepopulated idempotent VM.Stop blocks separated from real signal/quiescence effects."
+    }
+  ],
+  "remaining_findings": [
+    {
+      "root_id": "internal/qualification/memberstatus/process_test.go::TestOwnedProcessFixture",
+      "status": "explicitly_unresolved",
+      "reason": "Environment-selected executable helper owns no standalone assertion; absent selector returns. Parent process obligations retained; no established helper adjudication rule supplied."
+    }
+  ],
+  "review_blockers": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion_authorized": false,
+    "deletion_credit": 0,
+    "retirement_credit": 0,
+    "runtime_qualification_credit": 0,
+    "global_completion": false
+  }
+}

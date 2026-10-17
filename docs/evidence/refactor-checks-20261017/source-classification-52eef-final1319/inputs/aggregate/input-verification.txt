@@ -1,0 +1,1 @@
+All394 explicit metadata inputs matched SHA256;132packet identities,66owner-bound sums and259nested entries matched;0444/0555seals verified. RuntimeUNKNOWN; central QA pending.

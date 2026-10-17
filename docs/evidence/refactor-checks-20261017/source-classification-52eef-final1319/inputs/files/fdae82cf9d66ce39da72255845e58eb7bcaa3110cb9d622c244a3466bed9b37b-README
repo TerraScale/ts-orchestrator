@@ -1,0 +1,3 @@
+FINAL source-only roots3580:3600 corrected after independent review
+
+6 integration;12 unit;2 mixed;0 unresolved. TestReconcilerHoldsVolumesItCannotProve combines actual persisted status assertions with a separate fakeCloud.mutations assertion. Zone also mixes actual record reads and independent local guards. Prior packet bytes preserved. Exact20 original/current declarations, identities, spans, pins and all safety obligations retained. Runtime UNKNOWN; no ledger/count/deletion/retirement/completion credit.

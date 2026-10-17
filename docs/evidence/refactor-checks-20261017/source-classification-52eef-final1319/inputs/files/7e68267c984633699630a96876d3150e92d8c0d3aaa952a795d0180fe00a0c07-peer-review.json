@@ -1,0 +1,80 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_160_180",
+  "author": "/root/classification_100_dispatch/batch_180_200",
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "source_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": false,
+    "deletion_credit": false,
+    "retirement_authorized": false,
+    "completion_promotion": false
+  },
+  "accepted_packet": {
+    "path": "/tmp/ts-classification-2740-2760-cuz7vpb5/classification.json",
+    "sha256": "ac208baee0bc9a6d9b8323dc885a63c9f70ce404cc7fb3c011ef8485c798a055",
+    "checksum_path": "/tmp/ts-classification-2740-2760-cuz7vpb5/SHA256SUMS",
+    "checksum_sha256": "cc72569a032926b92bce38bf8b2d7eb85290f2769e3b4f89033e74caa44d5162"
+  },
+  "range": [
+    2740,
+    2760
+  ],
+  "root_ids": [
+    "internal/ociresource/bucket/bucket_test.go::TestBucketMarkerIsUnambiguousAcrossKeys",
+    "internal/ociresource/bucket/bucket_test.go::TestBucketRetentionConvergesAndLeavesOperatorRulesAlone",
+    "internal/ociresource/bucket/bucket_test.go::TestBucketSpecValidation",
+    "internal/ociresource/bucket/bucket_test.go::TestBucketSwitchesFromRetentionToVersioningInASafeOrder",
+    "internal/ociresource/bucket/bucket_test.go::TestBucketUnmanagedRuleBlocksVersioningBeforeAnyMutation",
+    "internal/ociresource/bucket/bucket_test.go::TestSDKRequestsCarryIfMatchAndNeverLock",
+    "internal/ociresource/controller_test.go::TestApplyFailureIsRecordedAndOtherRecordsContinue",
+    "internal/ociresource/controller_test.go::TestControllerCreatesDetectsAndCorrectsDrift",
+    "internal/ociresource/controller_test.go::TestDesiredRecordsAreValidatedAndGenerationsMonotonic",
+    "internal/ociresource/controller_test.go::TestFencedControllerStopsBeforeMutation",
+    "internal/ociresource/controller_test.go::TestForeignResourcesAreNeverTouched",
+    "internal/ociresource/controller_test.go::TestKVStoreRoundTripAndCompareAndSet",
+    "internal/ociresource/controller_test.go::TestLegacyPolicyMigratesDurablyBeforeAlwaysOnConvergence",
+    "internal/ociresource/controller_test.go::TestRetiredReportPolicyCannotEnterPersistentDesiredState",
+    "internal/ociresource/controller_test.go::TestTombstoneDeletesOnlyAfterNotBeforeAndPurgesAfterConfirmation",
+    "internal/ociresource/lb/lb_test.go::TestApplyOrderKeepsServingCapacity",
+    "internal/ociresource/lb/lb_test.go::TestApplyReguardsBeforeEveryMutation",
+    "internal/ociresource/lb/lb_test.go::TestDrainAndServeOneSeat",
+    "internal/ociresource/lb/lb_test.go::TestForeignLoadBalancerAndFailedWorkRequests",
+    "internal/ociresource/lb/lb_test.go::TestNoServingBackendIsRefused"
+  ],
+  "counts": {
+    "integration": 8,
+    "mixed": 3,
+    "unresolved": 9,
+    "unit": 0
+  },
+  "checks_performed": {
+    "literal_allocated_ids": 20,
+    "source_file_pins": 22,
+    "raw_baseline_current_declarations": 40,
+    "assertion_spans_exact_text": 30,
+    "connected_callee_spans_exact_text": 45,
+    "methods": [
+      "Independently read all20 complete allocated canonical roots and actual reached bucket/lb fixtures, upstream TCP NATS store/SDK HTTP helpers, controller and KV operations; read intended controller fake paths and canonical natscell Config/start/validate contradiction.",
+      "Verified exact activated range/order/literal survival mapping,40 baseline/current raw declarations/full text/hashes,22 Git blob/mode/SHA256/byte pins, all75 assertion/connected spans against immutable canonical Git, input pins and sealed packet/checksum hashes/modes. No source parser/scanner/helper or runtime execution.",
+      "Rechecked categories and independent unit blocks: bucket validation malformed Publish guards plus actual empty-KV readback; SDK HTTP request mapping plus independent empty-ETag guard; LB no-serving guards plus actual positive AllowEmpty KV publishes.",
+      "Manually traced LB guard budget through Target.Guard two authority checks, controller initial Fence, resource mutate Fence, SDK interceptor and post-checkpoint dispatcher Fence, RecordWorkRequest guard; remaining12 fails guard13 before second drain dispatch. Earlier actual KV/first HTTP mutation supports root integration; exact-two later assertion uncredited."
+    ]
+  },
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "review_notes": [
+    "All9 controller roots remain unresolved/uncredited: controller_test.go19/311 sets Config.Lab, absent in runtime.go131–148. Missing production TLS/JWT material is an additional blocker in runtime.validate611–618. Local NewDesired/policy/digest assertions retained without root promotion.",
+    "The intended natscell path uses nats.InProcessServer at runtime.go405–406; no TCP/store boundary credited to blocked controller fixtures. Bucket/lb Store fixture instead directly starts upstream NATS with file storage and connects authenticated loopback TCP.",
+    "Bucket/LB HTTP fixture uses genuine OCI SDK serialization, requests and response decoding against simulated state/health/work requests. HTTP server checks Authorization presence, not signature validity. No real OCI mutation or production authority claim.",
+    "TestApplyReguardsBeforeEveryMutation exact-two mutation expectation390–392 remains source-blocked/uncredited: first create consumes9 guards; second resource Fence reaches11; interceptor guard13 fails before drain. Error/first real boundary evidence supports integration category.",
+    "All root obligations retained; source blockers are accepted documentation, with no compilation/runtime pass/fail claim or ledger/count/deletion/retirement/completion promotion."
+  ]
+}

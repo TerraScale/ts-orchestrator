@@ -1,0 +1,207 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_720_740",
+  "author": "/root/classification_100_dispatch/batch_740_760",
+  "disposition": "ACCEPTED_SOURCE_ONLY",
+  "accepted_packet": "/tmp/ts-source-classification-2940-2960-y8e0q9k2/classification.json",
+  "accepted_packet_sha256": "4e07520cc591e772d5bf3583f87c8cd7d47b8805cdee948442fa2009ffaaff09",
+  "accepted_checksums": "/tmp/ts-source-classification-2940-2960-y8e0q9k2/SHA256SUMS",
+  "accepted_checksums_sha256": "d08df54bee33bda90c64848fe813fea0d267f19baa7ea295e67ff4ef97ef0cd8",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[2940:2960]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_720_740"
+  },
+  "root_ids": [
+    "internal/qualification/firecracker/generic_test.go::TestOperatorFailureDiagnosticOmitsOutput",
+    "internal/qualification/firecracker/generic_test.go::TestOperatorFailureRecordsStageAndBoundedTimeout",
+    "internal/qualification/firecracker/generic_test.go::TestOperatorHostsHashSessionID",
+    "internal/qualification/firecracker/generic_test.go::TestProcessGroupKillsTermIgnoringChildBeforeReapingLeader",
+    "internal/qualification/firecracker/generic_test.go::TestProcessGroupRejectsReapedLeaderAndRetainsLiveGroup",
+    "internal/qualification/firecracker/generic_test.go::TestProcessStatGone",
+    "internal/qualification/firecracker/generic_test.go::TestReadOnlyHostStatusRequiresSessionBoundReport",
+    "internal/qualification/firecracker/generic_test.go::TestSocketCleanupOnlyUnlinksOwnedStoppedSockets",
+    "internal/qualification/firecracker/generic_test.go::TestVerifiedLeaseParserRejectsNeighborEvents",
+    "internal/qualification/firecracker/managed_runtime_test.go::TestManagedCanceledNetworkCreateRetainsOwnedLink",
+    "internal/qualification/firecracker/managed_runtime_test.go::TestManagedCommandOwnershipSurvivesCleanupFailure",
+    "internal/qualification/firecracker/managed_runtime_test.go::TestManagedManifestRequiresCurrentUserExecutableAccess",
+    "internal/qualification/firecracker/managed_runtime_test.go::TestManagedS3StagingRejectsCredentialMutation",
+    "internal/qualification/firecracker/managed_runtime_test.go::TestManagedVMStartFailureReleasesCaptureAndResources",
+    "internal/qualification/firecracker/managed_runtime_test.go::TestManagedVolumeSetupUsesRuntimeDirectories",
+    "internal/qualification/firecracker/managed_runtime_test.go::TestNativeCommandWaitIsBoundedForEscapedPipeHolder",
+    "internal/qualification/firecracker/managed_runtime_test.go::TestNativeProvenancePinsExecutableAndModuleInputs",
+    "internal/qualification/firecracker/prepare_base_test.go::TestPrepareBaseRejectsNonRoot",
+    "internal/qualification/firecracker/prepare_base_test.go::TestPrepareBaseStagesPinnedDisposableImage",
+    "internal/qualification/firecracker/production_test.go::TestProductionAudit"
+  ],
+  "counts": {
+    "integration": 8,
+    "unit": 10,
+    "mixed": 2,
+    "unresolved": 0
+  },
+  "method": "Independently read all20 full current roots and connected actual fixture/production boundaries before comparing packet categories; reviewed exact baseline bodies, using identical-body comparison where applicable and full baseline/current production-audit drift. Metadata-only Git/hash comparison over explicit spans; no scanner/parser/project execution.",
+  "checks_performed": [
+    "Verified exact literal allocation and accounting slice[2940:2960), canonical commits/tree and original/current survival mappings.",
+    "Verified40 raw baseline/current declaration texts/bounds/hashes and20 exact assertion spans against canonical Git blobs; preserved historical hashes and actual production slot-body drift.",
+    "Verified44 connected source spans,22 current/baseline file pins (blob/mode/SHA256/bytes), current file bytes, input pins, categories/counts, all references and no unresolved assertions.",
+    "Verified exact frozen packet/checksum hashes, all SHA256SUMS entries, files0444 and directory0555.",
+    "Followed real boundary paths: persisted diagnostic snapshot; real shell group/pipe-wait behavior; owned-path deletion/retention; command failure/retry cleanup; staged-file hashes; unix.Access; capture failure; executable/module input hashes; real prepare-base file staging with injected privileged commands."
+  ],
+  "review_notes": [
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestProcessGroupRejectsReapedLeaderAndRetainsLiveGroup",
+      "assessment": "Unit accepted: root explicitly sets Reaped=true, then Group returns its local guard before getpgid/signals. Synthetic second branch injects every process seam; actual first-shell setup is incidental."
+    },
+    {
+      "root_id": "internal/qualification/firecracker/managed_runtime_test.go::TestManagedVMStartFailureReleasesCaptureAndResources",
+      "assessment": "Mixed accepted: real capture-file open and failed exec/close coexist with independent post-failure nil-Process Stop/Stopped-state assertions."
+    },
+    {
+      "root_id": "internal/qualification/firecracker/prepare_base_test.go::TestPrepareBaseStagesPinnedDisposableImage",
+      "assessment": "Mixed accepted: actual staging/known-hosts/mode/inode readback coexists with independent fake command-option/argv/key/systemctl/pending-process checks. No ext4 mount or systemd execution is established."
+    },
+    {
+      "root_id": "internal/qualification/firecracker/production_test.go::TestProductionAudit",
+      "assessment": "Actual baseline/current production audit slot-body drift pinned; both bodies remain pure synthetic-map checks. Original identity and obligation retained."
+    }
+  ],
+  "per_root": [
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestOperatorFailureDiagnosticOmitsOutput",
+      "category": "integration",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestOperatorFailureRecordsStageAndBoundedTimeout",
+      "category": "unit",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestOperatorHostsHashSessionID",
+      "category": "unit",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestProcessGroupKillsTermIgnoringChildBeforeReapingLeader",
+      "category": "integration",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestProcessGroupRejectsReapedLeaderAndRetainsLiveGroup",
+      "category": "unit",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestProcessStatGone",
+      "category": "unit",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestReadOnlyHostStatusRequiresSessionBoundReport",
+      "category": "unit",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestSocketCleanupOnlyUnlinksOwnedStoppedSockets",
+      "category": "integration",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestVerifiedLeaseParserRejectsNeighborEvents",
+      "category": "unit",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/managed_runtime_test.go::TestManagedCanceledNetworkCreateRetainsOwnedLink",
+      "category": "unit",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/managed_runtime_test.go::TestManagedCommandOwnershipSurvivesCleanupFailure",
+      "category": "integration",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/managed_runtime_test.go::TestManagedManifestRequiresCurrentUserExecutableAccess",
+      "category": "integration",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/managed_runtime_test.go::TestManagedS3StagingRejectsCredentialMutation",
+      "category": "integration",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/managed_runtime_test.go::TestManagedVMStartFailureReleasesCaptureAndResources",
+      "category": "mixed",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/managed_runtime_test.go::TestManagedVolumeSetupUsesRuntimeDirectories",
+      "category": "unit",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/managed_runtime_test.go::TestNativeCommandWaitIsBoundedForEscapedPipeHolder",
+      "category": "integration",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/managed_runtime_test.go::TestNativeProvenancePinsExecutableAndModuleInputs",
+      "category": "integration",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/prepare_base_test.go::TestPrepareBaseRejectsNonRoot",
+      "category": "unit",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/prepare_base_test.go::TestPrepareBaseStagesPinnedDisposableImage",
+      "category": "mixed",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/production_test.go::TestProductionAudit",
+      "category": "unit",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Source classification only. No Go/build/test/helper/scanner/probe/process/cloud/signing/crypto execution, downloads, source/repository/ledger mutation or children.",
+    "Synthetic ip/nft/SSH/systemd/Firecracker/OCI/ext4 mounting remains unqualified. Real file/process evidence is limited to exact asserted temporary-resource paths.",
+    "Runtime remains UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No acceptance-ledger/count promotion, deletion, retirement or completion credit."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "ledger_changed": false,
+  "count_promoted": false
+}

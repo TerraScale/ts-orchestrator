@@ -1,0 +1,5 @@
+Source-only candidate: literal other_unadjudicated[3160:3180).
+20 full roots and actual connected assertion-to-target paths reviewed at pinned canonical commit.
+Counts: {"integration": 9, "mixed": 4, "unit": 7, "unresolved": 0}.
+No execution, source/repository/ledger mutation, count promotion, deletion or retirement. Runtime UNKNOWN.
+Independent mapped peer review required.

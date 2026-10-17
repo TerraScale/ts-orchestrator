@@ -1,0 +1,98 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_240_260",
+  "author": "/root/classification_100_dispatch/batch_260_280",
+  "decision": "ACCEPTED_SOURCE_ONLY_EXACT_HASH",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-2820-2840-corrected-_o91ogwc/classification.json",
+    "sha256": "9b601c0339dbb34728bbae86b8752961edc9a0c2c4bd28ea82cff9ae75c35940",
+    "checksum_path": "/tmp/ts-source-classification-2820-2840-corrected-_o91ogwc/SHA256SUMS",
+    "checksum_sha256": "935f4fac90512bf6dd8b01e5cc72a9c36ff09508e365a74c06f787baaae399f8"
+  },
+  "superseded_packet": {
+    "path": "/tmp/ts-source-classification-2820-2840-kl3hu0b7/classification.json",
+    "sha256": "e04e101abf431e697166d278664e774754b8be543fef253f963b6966cf6184be",
+    "reason": "Peer P1\u2013P4: scope2837 fake known-bad blocks as mixed; precise2825/2827/2828 assertion rationales; connect2820 resize logging and journal normalization/ID helpers; add2829 DesiredSeats/RegionSeats identity evidence. Original20 identities/declarations/obligations preserved."
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "range": [
+    2820,
+    2840
+  ],
+  "root_ids": [
+    "internal/placement/controller_test.go::TestControllerPreparesRetainedVolumeOnlyWithCurrentExactHost",
+    "internal/placement/controller_test.go::TestControllerRechecksExactRosterPinsBeforeHostRecoveryAndVolumeCreate",
+    "internal/placement/controller_test.go::TestControllerRecoveredAttachmentRequiresCurrentArtifactAndImageQualification",
+    "internal/placement/controller_test.go::TestControllerRejectsEnsuredHostThatDiffersFromPinnedProfile",
+    "internal/placement/controller_test.go::TestControllerRejectsStaleManagedRegistrationBeforeAdmissionOrVolume",
+    "internal/placement/controller_test.go::TestControllerRequiresCurrentArtifactAdmissionBeforeEveryManagedOCIEffect",
+    "internal/placement/controller_test.go::TestControllerUsesStartOfTickPlacementAndHoldsItOnNextTick",
+    "internal/placement/controller_test.go::TestControllerWaitsForOCIReferenceToBecomeAttached",
+    "internal/placement/controller_test.go::TestControllerWithholdsPreparedDesiredWhenFreshInputsChange",
+    "internal/placement/controller_test.go::TestTerminalTargetsUseExactAdmittedSeatsAndDurableAttemptKeys",
+    "internal/placement/decisions_test.go::TestConcurrentReadDoesNotHideATransition",
+    "internal/placement/decisions_test.go::TestJournaledPhasesStayBoundedPerSeat",
+    "internal/placement/decisions_test.go::TestJournaledSeatSubjectsAreQualified",
+    "internal/placement/decisions_test.go::TestJournaledStoreRecordsTransitions",
+    "internal/placement/decisions_test.go::TestResumedUpdateLinksToTheAdmissionWithoutCorrelation",
+    "internal/placement/decisions_test.go::TestUnknownPredecessorDoesNotRepeatAPhase",
+    "internal/placement/managed_update_r3_integration_test.go::TestManagedUpdateR3PrepareHeldRestartReconciliation",
+    "internal/placement/managed_update_rolling_test.go::TestManagedUpdateR3RollsReleasesAcrossSeatsAndRollsBackHeldCanary",
+    "internal/placement/managed_update_test.go::TestManagedCanaryFinalServingVerifierRechecksDeadlineAfterProofReads",
+    "internal/placement/managed_update_test.go::TestManagedCanaryFinalServingVerifierRejectsProofAtDeadline"
+  ],
+  "counts": {
+    "integration": 0,
+    "unit": 18,
+    "mixed": 2,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Own2800:2820 source packet sealed and handed off before mapped peer review; requested own correction handled first and independently accepted.",
+    "Independently read all20 allocated whole roots plus actual connected controller, fake dependencies, local decision journal, managed-update admission/reconciliation/final serving, NATS and authority publication/read paths.",
+    "Verified literal accounting other_unadjudicated[2820:2840), all20 survival mappings,40 exact baseline/current raw declarations and hashes with original identities retained; two canonical startup body drifts explicitly preserved.",
+    "Verified36 source-file Git blobs/modes/SHA256/byte pins and canonical worktree bytes,55 exact connected spans and27 exact assertion spans; all input pins verified.",
+    "Verified fresh corrected exact packet and checksum hashes,0444 files/0555 directory, preserved original packet, counts0integration/18unit/2mixed/0unresolved.",
+    "No Go/build/test/project-helper/scanner/parser/framework/process/resource/runtime/cloud/signing/crypto/TerraBase execution, downloads, children or repository/source/ledger mutation. Metadata-only serialization of manually inspected explicit spans and ordinary Git/file/hash checks."
+  ],
+  "resolved_findings": [
+    {
+      "id": "P1",
+      "root_id": "internal/placement/managed_update_rolling_test.go::TestManagedUpdateR3RollsReleasesAcrossSeatsAndRollsBackHeldCanary",
+      "detail": "Known-bad fixed-map/error refusal assertions150:159 independently local; real authority reads supply preconditions. Corrected integration to mixed and split assertion evidence; genuine authority publication/readback remains credited only as source integration."
+    },
+    {
+      "id": "P2",
+      "roots": [
+        "internal/placement/controller_test.go::TestControllerRequiresCurrentArtifactAdmissionBeforeEveryManagedOCIEffect",
+        "internal/placement/controller_test.go::TestControllerWaitsForOCIReferenceToBecomeAttached",
+        "internal/placement/controller_test.go::TestControllerWithholdsPreparedDesiredWhenFreshInputsChange"
+      ],
+      "detail": "Narrowed2825/2827/2828 rationales to actual counters/state/table mutations; removed unasserted CAS/stage/device/ETag and nonexistent artifact-mutation claims."
+    },
+    {
+      "id": "P3",
+      "root_id": "internal/placement/controller_test.go::TestControllerPreparesRetainedVolumeOnlyWithCurrentExactHost",
+      "detail": "Linked reached resize emission to journal evidence and pinned fallback logging, Normalize/fit/clip and entity IDs. Emission/correlation remains unasserted and supplies no integration credit; journal roots also retain local-only normalization/ID proof."
+    },
+    {
+      "id": "P4",
+      "root_id": "internal/placement/controller_test.go::TestTerminalTargetsUseExactAdmittedSeatsAndDurableAttemptKeys",
+      "detail": "Added reached DesiredSeats/RegionSeats and seat identity source spans with actual end bounds."
+    }
+  ],
+  "remaining_review_findings": [],
+  "qualification_limits": [
+    "Both managed-update roots use genuine file-backed single-replica JetStream authority over in-process NATS clients. R3 names establish no quorum/failover or broker restart; external TLS listener setup is incidental to asserted authority requests.",
+    "Member map, fleet/OCI calls, host desired application, artifact admission, registration/session/proof inputs remain synthetic. No native host rollout, OCI effect, signed production admission service or production compatibility proof.",
+    "Restart reconstructs a Controller sharing the same live authority runtime/member map. Injected CAS failure verifies repair logic against retained authority history; it does not establish durable member-store restart behavior.",
+    "2836 explicit signature verification and assigned-deadline equality are local blocks.2837 independent known-bad map/error refusals are local blocks; preceding real authority reads establish preconditions only.",
+    "Decision journal fixture uses local ring/channel with no sink/archive/run. Direct remember simulates concurrency interleaving; resize structured log/correlation is unasserted. No real journal/store boundary inferred."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "NONE; no repository/source/ledger/runtime/count/deletion/retirement/completion promotion"
+}

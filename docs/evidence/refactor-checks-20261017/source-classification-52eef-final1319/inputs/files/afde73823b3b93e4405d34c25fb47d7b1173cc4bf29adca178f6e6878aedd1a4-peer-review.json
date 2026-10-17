@@ -1,0 +1,139 @@
+{
+  "schema": "independent-source-classification-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/peer_20_40",
+  "author": "/root/classification_100_dispatch/peer_40_60",
+  "status": "ACCEPTED_SOURCE_ONLY_EXACT_FROZEN_PACKET",
+  "accepted_packet": {
+    "path": "/tmp/ts-final2640-2660-corrected-nfysc6as/classification.json",
+    "sha256": "39bff9dcc4152619933f77ea39f78ab3476cbc03ef1d25c19ad626baa26ed46c",
+    "checksum_path": "/tmp/ts-final2640-2660-corrected-nfysc6as/SHA256SUMS",
+    "checksum_sha256": "241c13233859881971b72ffce4a681d6e9f199f2c4e6848edb441a7ba1cc41fc"
+  },
+  "superseded_packet": {
+    "path": "/tmp/ts-final2640-2660-source-czxhmevf/classification.json",
+    "sha256": "eff612a84e172da1f9327c7b9df471feec8dcf33cc6663a188a9e4d33fefc854",
+    "preserved_unchanged": true
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      2640,
+      2660
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/peer_20_40",
+    "accounting_literal_slice_verified": true,
+    "all_excluded_ids_disjoint": true
+  },
+  "input_pins": {
+    "survival": {
+      "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+      "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+    },
+    "worker_guide": {
+      "path": "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md",
+      "sha256": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70"
+    },
+    "peer_protocol": {
+      "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/PEER-PROTOCOL.md",
+      "sha256": "b1cbcb7a96a344363f5ba924a0e76fc418553607209733945892796508db7765"
+    },
+    "accounting": {
+      "path": "docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513"
+    }
+  },
+  "literal_original_root_ids": [
+    "internal/ociregion/publicapi/check_security_test.go::TestCheckBalancerSecurityBackendDefaults",
+    "internal/ociregion/publicapi/check_security_test.go::TestCheckBalancerSecurityHTTPRedirect",
+    "internal/ociregion/publicapi/check_security_test.go::TestCheckBalancerSecurityHealthAndOriginCertificate",
+    "internal/ociregion/publicapi/check_security_test.go::TestCheckBalancerSecurityHealthTLSDefaults",
+    "internal/ociregion/publicapi/check_security_test.go::TestCheckBalancerSecurityInactiveBackends",
+    "internal/ociregion/publicapi/check_security_test.go::TestCheckBalancerSecurityUnrestrictedHTTPDefaults",
+    "internal/ociregion/publicapi/cloudflare_test.go::TestEdgeStepsKeepEachCellsStrictRule",
+    "internal/ociregion/publicapi/cloudflare_test.go::TestEdgeStepsKeepOtherRulesAndRepairDrift",
+    "internal/ociregion/publicapi/cloudflare_test.go::TestEdgeStepsRefuseBeforeAnyWrite",
+    "internal/ociregion/publicapi/cloudflare_test.go::TestEdgeStepsSetStrictTLSAndOriginPullsBeforeProxiedRecords",
+    "internal/ociregion/publicapi/cloudflare_test.go::TestOriginIPsAcceptOnlyPublicIPv4Ranges",
+    "internal/ociregion/publicapi/cloudflare_test.go::TestStrictTLSReadbackBlocksLateDrift",
+    "internal/ociregion/publicapi/cloudflare_test.go::TestStrictTLSRuleCannotBeOverriddenBeforeDNS",
+    "internal/ociregion/publicapi/dns_security_test.go::TestDNSSecurityPreflightAcceptsProvisionedOriginIdempotently",
+    "internal/ociregion/publicapi/dns_security_test.go::TestDNSSecurityPreflightRefusesUnsafeOrigin",
+    "internal/ociregion/publicapi/originpull_test.go::TestOriginPullHostnameOverrideAndUnverifiableState",
+    "internal/ociregion/publicapi/originpull_test.go::TestOriginPullReadbackBlocksDNSWrites",
+    "internal/ociregion/publicapi/originpull_test.go::TestOriginPullRechecksAfterEnableAndBeforeEachDNSWrite",
+    "internal/ociregion/publicapi/originpull_test.go::TestOriginPullRefusesForeignSigner",
+    "internal/ociregion/publicapi/originpull_test.go::TestOriginPullRefusesUnreviewedZoneCertificateBeforeWrites"
+  ],
+  "counts": {
+    "allocated_originals": 20,
+    "integration": 13,
+    "unit": 4,
+    "mixed": 3,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 entire current roots and whole assertions; followed actual CheckBalancer, provisioning, SDK TLS, Cloudflare HTTP, origin certificate, DNS preflight/readback and fixture paths.",
+    "Verified exact activated and original accounting other_unadjudicated[2640:2660) literal order, all20 survival identities/kinds/names/hash/state mappings, exclusion disjointness and pinned instruction/allocation/accounting inputs.",
+    "Verified all40 raw baseline/current declarations against explicit manually reviewed bounds, names, complete text and SHA256 excluding following LF; no inventory/current body drift.",
+    "Verified22 commit:path file pins for Git mode/blob, full SHA256/bytes/lines; verified20 entire assertion interiors,44 connected exact text/blob spans and7 explicit mixed-block spans. Every end bound is within actual EOF.",
+    "Final corrected packet passed1036 metadata checks with zero errors; categories independently agree13integration/4unit/3mixed. Correction delta is only4 root reasons plus supersedes_metadata_only; all source/mapping/category/bounds/hash/pin/span bytes retained.",
+    "Verified exact final/prior packet hashes, final checksum-file hash, sha256sum -c, files0444 and directory0555; prior sealed packet remains unchanged."
+  ],
+  "metadata_checks": {
+    "checks": 1036,
+    "errors": [],
+    "raw_declarations": 40,
+    "assertion_interiors": 20,
+    "connected_spans": 44,
+    "mixed_block_spans": 7,
+    "file_pins": 22
+  },
+  "source_judgments": [
+    "CheckBalancer-only roots2640/2641/2643/2645 inspect local maps. reviewedEdge setup reaches real SDK/Cloudflare APIs but does not itself establish their target boundary; these4 remain unit.",
+    "Mixed2642/2644 have direct local CheckBalancer rejection followed by separate Provision error/no-mutation assertions. fakeOCI.Call delegates SDKClient.Call and sdkcli to actual signed SDK TLS requests; mutated simulator state returns through HTTP. Signature-prefix checks do not establish cryptographic authenticity.",
+    "Cloudflare roots2646\u20132652 use actual local HTTP client/server discovery, ruleset/AOP/DNS writes or readback. Mixed2648 also independently checks private IPv4/IPv6 pre-HTTP guards; its out-of-zone hostname case first performs zone lookup.",
+    "DNS roots2653/2654 materially read OCI network/LB/NSG through SDK TLS and Cloudflare ranges over HTTP, then assert safe publication/idempotence or fail-closed security rejection without writes. Synthetic vendor state does not qualify live OCI or Cloudflare.",
+    "Origin-pull roots2655\u20132659 read certificate/hostname/settings through HTTP, reject injected failures and stop later DNS writes. Certificate fixture creation is setup, not a separate assertion boundary;2656 alreadyEnabled=true/stalePUT returns before final refusal assertions. No later source-visible assertion blocker identified."
+  ],
+  "resolved_findings": [
+    {
+      "root_id": "internal/ociregion/publicapi/check_security_test.go::TestCheckBalancerSecurityHTTPRedirect",
+      "finding": "Removed nonexistent restored-redirect success assertion from2641 reason."
+    },
+    {
+      "root_id": "internal/ociregion/publicapi/check_security_test.go::TestCheckBalancerSecurityUnrestrictedHTTPDefaults",
+      "finding": "Corrected2645 reason to actual hostname-names nil/empty assignment and acceptance assertions."
+    },
+    {
+      "root_id": "internal/ociregion/publicapi/cloudflare_test.go::TestEdgeStepsKeepOtherRulesAndRepairDrift",
+      "finding": "Removed unasserted final idempotent rerun from2647 reason; retained actual POST/PUT and PATCH repairs."
+    },
+    {
+      "root_id": "internal/ociregion/publicapi/cloudflare_test.go::TestStrictTLSReadbackBlocksLateDrift",
+      "finding": "Corrected2651 reason to four downgrade/disabled/duplicated/removed drift cases; removed nonexistent initial-state loop."
+    }
+  ],
+  "remaining_findings": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "runtime_receipts_reviewed": false,
+  "execution_performed": false,
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "canonical_ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false,
+    "source_candidate_only": true
+  },
+  "qualification_limits": [
+    "Acceptance covers only exact frozen source classification/evidence. No runtime pass/fail, live vendor/public DNS/TLS edge or mutual-TLS handshake qualification.",
+    "All20 original roots and safety obligations retained. No repository/source/ledger mutation, count promotion, deletion, retirement or global completion credit.",
+    "No Go/build/test/lint/format/benchmark/helper/framework/scanner/parser, resource/process probe, locks/privilege/cloud/signing/crypto/TerraBase execution or downloads."
+  ]
+}

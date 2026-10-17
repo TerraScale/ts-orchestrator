@@ -1,0 +1,820 @@
+{
+  "schema": "source-only-independent-peer-receipt-explicit-spans-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_260_280",
+  "reviewed_owner": "/root/classification_100_dispatch/batch_280_300",
+  "accepted": true,
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-2840-2860-cpcm94ne/classification.json",
+    "sha256": "7f2b7c4e71d4b0bea26205f574081380d7382ad58509847e36b107cd536ade8c",
+    "checksum_path": "/tmp/ts-source-classification-2840-2860-cpcm94ne/SHA256SUMS",
+    "checksum_sha256": "ad8ea7c4a866d4ef496b3cd88bcd00ab1c042d5c8770a25839295a2d70d0f271"
+  },
+  "own_packet_frozen_before_peer_review": {
+    "path": "/tmp/ts-source-classification-2820-2840-kl3hu0b7/classification.json",
+    "sha256": "e04e101abf431e697166d278664e774754b8be543fef253f963b6966cf6184be"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      2840,
+      2860
+    ]
+  },
+  "peer_protocol": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/PEER-PROTOCOL.md",
+    "sha256": "b1cbcb7a96a344363f5ba924a0e76fc418553607209733945892796508db7765"
+  },
+  "input_pins": {
+    "accounting_input": {
+      "path": "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json",
+      "sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513"
+    },
+    "survival_input": {
+      "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+      "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+    },
+    "instructions": {
+      "path": "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md",
+      "sha256": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70"
+    }
+  },
+  "literal_range": [
+    2840,
+    2860
+  ],
+  "root_ids": [
+    "internal/placement/managed_update_test.go::TestManagedCanaryHeldSeatCannotAdvanceFromLateProof",
+    "internal/placement/managed_update_test.go::TestManagedCanaryPreparedAtRoundTripsBeforeDesiredEffect",
+    "internal/placement/managed_update_test.go::TestManagedCanaryTimeoutPersistsHeldWithoutHostOrStatusProof",
+    "internal/placement/managed_update_test.go::TestManagedUpdateCanaryDeadlineIsAbsoluteAndFailClosed",
+    "internal/placement/managed_update_test.go::TestManagedUpdateDurabilityDigestBindsRetainedFormatsAndTargets",
+    "internal/placement/managed_update_test.go::TestManagedUpdateIntentRejectsUnqualifiedOrMismatchedCompatibility",
+    "internal/placement/managed_update_test.go::TestManagedUpdateIntentValidatesSignedCompatibilityAndExactPredecessors",
+    "internal/placement/managed_update_test.go::TestManagedUpdateTerminalSeatRepairSurvivesLostCASAndRestart",
+    "internal/placement/metrics_test.go::TestReconcileMetricsSeparateStandbyFromErrors",
+    "internal/placement/metrics_test.go::TestSummarizeCountsStagesAndRolloutProgress",
+    "internal/placement/reattach_test.go::TestMemberStateRejectsAnInconsistentPreviousInstance",
+    "internal/placement/reattach_test.go::TestReattachHoldsOnALiveThirdAttachmentAndUnsupportedFleets",
+    "internal/placement/reattach_test.go::TestReattachMovesTheLostMembersVolumeOnlyAfterTermination",
+    "internal/placement/reattach_test.go::TestReattachReportsFailedFenceLookupsAndRejectsAStaleEpoch",
+    "internal/placement/region_mapping_test.go::TestEveryPlacementRegionHasAPermanentSeat",
+    "internal/placement/replacement_review_test.go::TestTerminatedListedHostIsLostAndARecoveredHostClearsTheLoss",
+    "internal/placement/replacement_test.go::TestCanReplaceLostMemberGate",
+    "internal/placement/replacement_test.go::TestControllerNeverReplacesObservedLostHost",
+    "internal/placement/replacement_test.go::TestControllerReplacesLostMemberOnlyWithEvidenceAfterGrace",
+    "internal/placement/seats_test.go::TestRegionSeatsGeneralizesTheTwoSeatTopology"
+  ],
+  "counts": {
+    "integration": 0,
+    "unit": 20,
+    "mixed": 0,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 full canonical roots, fixture helpers and actual reached production paths; classified by actual endpoints rather than test names.",
+    "Verified literal allocation/accounting slice, exact survival rows/original-current names,40 raw declarations including column-zero close/excluding LF,20 assertion spans,53 shared spans,42 Git blob/mode/SHA256/byte pins and5 input hashes.",
+    "Verified packet JSON/checksum exact hashes, README/SHA256SUMS entries, files0444 and directory0555.",
+    "Followed placement Tick/advance/persist/guards, managed update/history/timeout fake endpoints, OCI adapter/Reattacher into test map/slices, replacement/evidence gates, local serving-report checks and metrics/catalog/seat functions.",
+    "Preserved2849 canonical metrics assertion drift with full baseline/current body and obligation. Confirmed no source-visible assertion blocker after connected review; all-runtime UNKNOWN."
+  ],
+  "per_root_review": [
+    {
+      "index": 2840,
+      "root_id": "internal/placement/managed_update_test.go::TestManagedCanaryHeldSeatCannotAdvanceFromLateProof",
+      "accepted_category": "unit",
+      "manual_review": "entire canonical current declaration and connected actual path read",
+      "canonical_root": {
+        "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/managed_update_test.go",
+        "path": "internal/placement/managed_update_test.go",
+        "line": 392,
+        "end_line": 452,
+        "sha256": "c4b0ea826ac36ae3a81a7ec37374593fd2c2db77e8d3514f0672f49c9d39a1b3"
+      },
+      "assessment": "Held-phase early guard and aging supplied host report are local; all observed instances/statuses/proofs originate synthetic fixtures.",
+      "unresolved_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "index": 2841,
+      "root_id": "internal/placement/managed_update_test.go::TestManagedCanaryPreparedAtRoundTripsBeforeDesiredEffect",
+      "accepted_category": "unit",
+      "manual_review": "entire canonical current declaration and connected actual path read",
+      "canonical_root": {
+        "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/managed_update_test.go",
+        "path": "internal/placement/managed_update_test.go",
+        "line": 364,
+        "end_line": 390,
+        "sha256": "769e7d5282be1ae4a814168ec7d8462c8223dbad5baeb5842685a00d02df9f7d"
+      },
+      "assessment": "JSON serialization and map CAS retain the timestamp; no storage reopen or desired writer occurs.",
+      "unresolved_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "index": 2842,
+      "root_id": "internal/placement/managed_update_test.go::TestManagedCanaryTimeoutPersistsHeldWithoutHostOrStatusProof",
+      "accepted_category": "unit",
+      "manual_review": "entire canonical current declaration and connected actual path read",
+      "canonical_root": {
+        "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/managed_update_test.go",
+        "path": "internal/placement/managed_update_test.go",
+        "line": 333,
+        "end_line": 362,
+        "sha256": "70dd0dcde97c6f3ce8655cec8dc1399f99c7050ed42b64b4d4c157a89808be0c"
+      },
+      "assessment": "Timeout calls fake authority callback/struct commit and map persist; wording about R3 does not create a real authority service.",
+      "unresolved_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "index": 2843,
+      "root_id": "internal/placement/managed_update_test.go::TestManagedUpdateCanaryDeadlineIsAbsoluteAndFailClosed",
+      "accepted_category": "unit",
+      "manual_review": "entire canonical current declaration and connected actual path read",
+      "canonical_root": {
+        "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/managed_update_test.go",
+        "path": "internal/placement/managed_update_test.go",
+        "line": 168,
+        "end_line": 198,
+        "sha256": "117cb3c15289604b4872b892fa973d2cc32032c40f6fcf1b257f7cb609691086"
+      },
+      "assessment": "Provided timestamps drive a pure timeout/clock-validity predicate; no timers or wall-clock wait asserted.",
+      "unresolved_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "index": 2844,
+      "root_id": "internal/placement/managed_update_test.go::TestManagedUpdateDurabilityDigestBindsRetainedFormatsAndTargets",
+      "accepted_category": "unit",
+      "manual_review": "entire canonical current declaration and connected actual path read",
+      "canonical_root": {
+        "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/managed_update_test.go",
+        "path": "internal/placement/managed_update_test.go",
+        "line": 151,
+        "end_line": 166,
+        "sha256": "e3599b685b973bdcfce151d81eef4aead3fa61b29789a1fe41f1ea6ed11543ae"
+      },
+      "assessment": "Filesystem type is a string in the durability profile and digest; no volume or filesystem query.",
+      "unresolved_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "index": 2845,
+      "root_id": "internal/placement/managed_update_test.go::TestManagedUpdateIntentRejectsUnqualifiedOrMismatchedCompatibility",
+      "accepted_category": "unit",
+      "manual_review": "entire canonical current declaration and connected actual path read",
+      "canonical_root": {
+        "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/managed_update_test.go",
+        "path": "internal/placement/managed_update_test.go",
+        "line": 57,
+        "end_line": 149,
+        "sha256": "19038e8b515697ae29bd090e54cbcdc4c1ebb40a9ef0c8a31adbfe1f09fd0721"
+      },
+      "assessment": "Compatibility field mutation and locally signed payload exercise validation only; no compatibility qualification is run.",
+      "unresolved_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "index": 2846,
+      "root_id": "internal/placement/managed_update_test.go::TestManagedUpdateIntentValidatesSignedCompatibilityAndExactPredecessors",
+      "accepted_category": "unit",
+      "manual_review": "entire canonical current declaration and connected actual path read",
+      "canonical_root": {
+        "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/managed_update_test.go",
+        "path": "internal/placement/managed_update_test.go",
+        "line": 24,
+        "end_line": 55,
+        "sha256": "6d919f41915983ba89a0c2a0a03f45c558562e82a62a0adc1e2f312b8fa05756"
+      },
+      "assessment": "Local Validate/Digest and generated-key VerifyEnvelope at a fixed timestamp are pure value/crypto checks.",
+      "unresolved_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "index": 2847,
+      "root_id": "internal/placement/managed_update_test.go::TestManagedUpdateTerminalSeatRepairSurvivesLostCASAndRestart",
+      "accepted_category": "unit",
+      "manual_review": "entire canonical current declaration and connected actual path read",
+      "canonical_root": {
+        "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/managed_update_test.go",
+        "path": "internal/placement/managed_update_test.go",
+        "line": 200,
+        "end_line": 293,
+        "sha256": "70837770bdffc41f97f5eb4cbd38664ae2c25ac660ef9e7405017221e5de7e82"
+      },
+      "assessment": "Injected CAS conflict and reconstructed Controller share the same map and synthetic history; no broker/member-store/process restart.",
+      "unresolved_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "index": 2848,
+      "root_id": "internal/placement/metrics_test.go::TestReconcileMetricsSeparateStandbyFromErrors",
+      "accepted_category": "unit",
+      "manual_review": "entire canonical current declaration and connected actual path read",
+      "canonical_root": {
+        "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/metrics_test.go",
+        "path": "internal/placement/metrics_test.go",
+        "line": 57,
+        "end_line": 72,
+        "sha256": "3e940a739246eed5388dbe00a3bc5465835b639e5d62e4eb6f9fbeed8e87ee14"
+      },
+      "assessment": "Counter updates and Prometheus writing target bytes.Buffer; no scrape server or persistent metrics endpoint.",
+      "unresolved_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "index": 2849,
+      "root_id": "internal/placement/metrics_test.go::TestSummarizeCountsStagesAndRolloutProgress",
+      "accepted_category": "unit",
+      "manual_review": "entire canonical current declaration and connected actual path read",
+      "canonical_root": {
+        "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/metrics_test.go",
+        "path": "internal/placement/metrics_test.go",
+        "line": 11,
+        "end_line": 55,
+        "sha256": "f846c7018df26a7b45fd428cfed5d454e41fce6f487ec51308267853b1f96fcb"
+      },
+      "assessment": "Summarize reads fake intent/member store. Canonical Serving0 and unknown readiness differ from baseline Serving2; original body/obligation is preserved without transfer.",
+      "unresolved_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "index": 2850,
+      "root_id": "internal/placement/reattach_test.go::TestMemberStateRejectsAnInconsistentPreviousInstance",
+      "accepted_category": "unit",
+      "manual_review": "entire canonical current declaration and connected actual path read",
+      "canonical_root": {
+        "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/reattach_test.go",
+        "path": "internal/placement/reattach_test.go",
+        "line": 229,
+        "end_line": 245,
+        "sha256": "3519cf94d756a90242a200bc1f93905919a2908071f1c204ef1864b6874649f3"
+      },
+      "assessment": "MemberState.Validate compares supplied previous-instance ID/attempt fields; no provider or persistent identity lookup.",
+      "unresolved_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "index": 2851,
+      "root_id": "internal/placement/reattach_test.go::TestReattachHoldsOnALiveThirdAttachmentAndUnsupportedFleets",
+      "accepted_category": "unit",
+      "manual_review": "entire canonical current declaration and connected actual path read",
+      "canonical_root": {
+        "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/reattach_test.go",
+        "path": "internal/placement/reattach_test.go",
+        "line": 154,
+        "end_line": 189,
+        "sha256": "b991babdff06aa6d574e5297f82c6d9f7edef3eec493978af6d2d3c225348860"
+      },
+      "assessment": "Unsupported fleet returns before adapter execution; third attachment is an injected slice consumed by pure Decide and fake dependencies.",
+      "unresolved_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "index": 2852,
+      "root_id": "internal/placement/reattach_test.go::TestReattachMovesTheLostMembersVolumeOnlyAfterTermination",
+      "accepted_category": "unit",
+      "manual_review": "entire canonical current declaration and connected actual path read",
+      "canonical_root": {
+        "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/reattach_test.go",
+        "path": "internal/placement/reattach_test.go",
+        "line": 83,
+        "end_line": 152,
+        "sha256": "3e4bd2ee38e0f6ffdfe0fb0bb940938fb119756a0d09ac629dca6d3b99c99c65"
+      },
+      "assessment": "Real Reattacher/OCIBoundary route lifecycle/detach/attach/permit calls into reattachTestFleet maps/slices; actual provider/OS store is absent.",
+      "unresolved_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "index": 2853,
+      "root_id": "internal/placement/reattach_test.go::TestReattachReportsFailedFenceLookupsAndRejectsAStaleEpoch",
+      "accepted_category": "unit",
+      "manual_review": "entire canonical current declaration and connected actual path read",
+      "canonical_root": {
+        "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/reattach_test.go",
+        "path": "internal/placement/reattach_test.go",
+        "line": 191,
+        "end_line": 227,
+        "sha256": "0074d3ec6a6118296a29c31cdb1cb95c96f6e0f206b6b355d8c679f209a2214f"
+      },
+      "assessment": "Lookup error, stale fixed epoch and current-epoch detach exercise fake lifecycle/fencer and append-only test request slice.",
+      "unresolved_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "index": 2854,
+      "root_id": "internal/placement/region_mapping_test.go::TestEveryPlacementRegionHasAPermanentSeat",
+      "accepted_category": "unit",
+      "manual_review": "entire canonical current declaration and connected actual path read",
+      "canonical_root": {
+        "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/region_mapping_test.go",
+        "path": "internal/placement/region_mapping_test.go",
+        "line": 12,
+        "end_line": 25,
+        "sha256": "55643a814e5a071594753772594b1f6d425a1b46134a210bdf9c44bb29f306bf"
+      },
+      "assessment": "OCI Regions delegates to static founded catalog copied into a slice; seat mapping and unknown-region rejection are local.",
+      "unresolved_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "index": 2855,
+      "root_id": "internal/placement/replacement_review_test.go::TestTerminatedListedHostIsLostAndARecoveredHostClearsTheLoss",
+      "accepted_category": "unit",
+      "manual_review": "entire canonical current declaration and connected actual path read",
+      "canonical_root": {
+        "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/replacement_review_test.go",
+        "path": "internal/placement/replacement_review_test.go",
+        "line": 14,
+        "end_line": 49,
+        "sha256": "07de5189be1e803355fb7b381107e957201d13235fcefb1cdc8bc151b44b8842"
+      },
+      "assessment": "TERMINATED/RUNNING synthetic fleet values and supplied clock update map HostLostAt; no real lost/recovered host observation.",
+      "unresolved_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "index": 2856,
+      "root_id": "internal/placement/replacement_test.go::TestCanReplaceLostMemberGate",
+      "accepted_category": "unit",
+      "manual_review": "entire canonical current declaration and connected actual path read",
+      "canonical_root": {
+        "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/replacement_test.go",
+        "path": "internal/placement/replacement_test.go",
+        "line": 26,
+        "end_line": 73,
+        "sha256": "8add9f064cecd349f35c1ed8d394d8008aad9543373f7f2e2ce16ee74c2c969a"
+      },
+      "assessment": "CanReplaceLostMember/CanRetire validate supplied observations and evidence booleans/bytes; no acquired replication, quorum or writer-fence proof.",
+      "unresolved_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "index": 2857,
+      "root_id": "internal/placement/replacement_test.go::TestControllerNeverReplacesObservedLostHost",
+      "accepted_category": "unit",
+      "manual_review": "entire canonical current declaration and connected actual path read",
+      "canonical_root": {
+        "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/replacement_test.go",
+        "path": "internal/placement/replacement_test.go",
+        "line": 214,
+        "end_line": 234,
+        "sha256": "b1ad61dfa4774f4eac9c2b6c83f6c3baf4a478adbb31b40c7a8c2f61f6982bc7"
+      },
+      "assessment": "Fake fleet still lists host and fake host view is empty; callback non-call/map HostAttempt assert local replacement policy.",
+      "unresolved_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "index": 2858,
+      "root_id": "internal/placement/replacement_test.go::TestControllerReplacesLostMemberOnlyWithEvidenceAfterGrace",
+      "accepted_category": "unit",
+      "manual_review": "entire canonical current declaration and connected actual path read",
+      "canonical_root": {
+        "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/replacement_test.go",
+        "path": "internal/placement/replacement_test.go",
+        "line": 129,
+        "end_line": 212,
+        "sha256": "7152ccdfd1825e04cc136abb6b8a9d7314e584ce06e1811a10d62589f8880689"
+      },
+      "assessment": "Supplied clock, synthetic serving survivor and evidence callback authorize local replacement map CAS; explicit Ensure/Terminate counters remain zero.",
+      "unresolved_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "index": 2859,
+      "root_id": "internal/placement/seats_test.go::TestRegionSeatsGeneralizesTheTwoSeatTopology",
+      "accepted_category": "unit",
+      "manual_review": "entire canonical current declaration and connected actual path read",
+      "canonical_root": {
+        "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/seats_test.go",
+        "path": "internal/placement/seats_test.go",
+        "line": 11,
+        "end_line": 46,
+        "sha256": "fd1605089a99516c4716fc17e5355ffc99dfb9a6ceee92af8e9a14ae5896e780"
+      },
+      "assessment": "RegionSeats and deterministic IDs operate on domain strings/counts; no scheduler, cloud domain discovery or actual cluster.",
+      "unresolved_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    }
+  ],
+  "verified_source_pins": {
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/managed_update_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/placement/managed_update_test.go",
+      "mode": "100644",
+      "git_blob": "a4f6fc33f11a525be99157361c15ed89ab96f721",
+      "sha256": "1fc801e8a51e32fb091ca93e11cf0d09d1b6bbe854f3af6bb841052f41dd2aee",
+      "bytes": 45057
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/controller_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/placement/controller_test.go",
+      "mode": "100644",
+      "git_blob": "42a9a69397585bd59c44043965dbcb62663a991f",
+      "sha256": "7257f6f4125cedef1202fe1d964af028ad5041bf0af3c16c0b02753aa61487ba",
+      "bytes": 62695
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/terrabase_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/placement/terrabase_test.go",
+      "mode": "100644",
+      "git_blob": "ac1c646afd34a8d6b1cd0759ac9608e39d092cd1",
+      "sha256": "d88f219337b997f8c853e824c999cbab594c89e35e48deee342d284bbd5dc7d7",
+      "bytes": 28717
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/reattach_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/placement/reattach_test.go",
+      "mode": "100644",
+      "git_blob": "f1b700978c34fae1ed2b5b8a8fdc7e31b5f90853",
+      "sha256": "a6b396730092a9ca9c211520aa45283ccaafaf3d4bf9d02dd8d671cc2328bd0e",
+      "bytes": 11404
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/replacement_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/placement/replacement_test.go",
+      "mode": "100644",
+      "git_blob": "9b2a0e9f169ebc02f2b8c13f4ce0fbdc26e4d93d",
+      "sha256": "333ffbccbf33e07eaaae03f4154cde29e19f09cbbf9cc4d2f120c6a6b45ba208",
+      "bytes": 12568
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/controller.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/placement/controller.go",
+      "mode": "100644",
+      "git_blob": "d05bc5e01d34e23dafae5a6999e0a98619c58873",
+      "sha256": "6f7fdce40e81eca39a068bea36044150c0ac58aa267ef4500d4b8f1c9391265f",
+      "bytes": 67812
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/managed_update.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/placement/managed_update.go",
+      "mode": "100644",
+      "git_blob": "d9f409808cc3e3bd8b37fffcab859c2133eca15f",
+      "sha256": "89a5fb1c9a2be96567691066864d3442b5098bf1f35a5c7cf496beff01409ad7",
+      "bytes": 15812
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/managed_update_runtime.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/placement/managed_update_runtime.go",
+      "mode": "100644",
+      "git_blob": "7132408485cf8ec2a0b01c076b8acc3124d8e905",
+      "sha256": "436f5a857c57517bb7ddbeaab6b4c803734a58ea3833f962d0adbefdd59e7103",
+      "bytes": 50700
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/managed_update_admission.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/placement/managed_update_admission.go",
+      "mode": "100644",
+      "git_blob": "c23ee81cac111defe01dcc2d869d6e6b1af37c30",
+      "sha256": "64cb507bc61697c79a1a73dc2238f7d25ade5ccf5ddfc9946514e924c0513ecf",
+      "bytes": 17301
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/terrabase.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/placement/terrabase.go",
+      "mode": "100644",
+      "git_blob": "7a724c26564755d0158486214c4154048e2e9a2b",
+      "sha256": "f3cbf6a376c0d9eced50f37abb597cc813b3250023870cbb17deb02608c21a8c",
+      "bytes": 48358
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/metrics.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/placement/metrics.go",
+      "mode": "100644",
+      "git_blob": "f68a7862e703afc586547d2693e6fc4ec5ce7ff5",
+      "sha256": "a652d083b35bfc9055ff8996c9745588ee705cfbf29a819bdb02bab5247d05e1",
+      "bytes": 4844
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/seats.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/placement/seats.go",
+      "mode": "100644",
+      "git_blob": "bee2cb12cf261457861d5ec456e536f871fd0d68",
+      "sha256": "97e8680539cf1fcf7c2e99b854688d6e49c6639d21c09c108c26cad40e6bdd38",
+      "bytes": 3772
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/replacement.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/placement/replacement.go",
+      "mode": "100644",
+      "git_blob": "ecbbb5189eab32b5e29774567ce2c7a7e95f794c",
+      "sha256": "8a5b67a7d43de693cdc671bf71b13fd244e1b37bce228a1de532ef31be40ae51",
+      "bytes": 8261
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/reattach.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/placement/reattach.go",
+      "mode": "100644",
+      "git_blob": "ba10a8215ae53b5dc7923ebaf53239c9c590fdbe",
+      "sha256": "e41a3e89e3dae2bd386b9c208a81b44da9f4c7c8f3c1d33bcb9f35b379393515",
+      "bytes": 5454
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/storage/failover/oci.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/storage/failover/oci.go",
+      "mode": "100644",
+      "git_blob": "91d1c2df2dff0d8021c7f98d8fd8f3219e970601",
+      "sha256": "0764fbe89d927a58281079021cdaad3c80782420b848451bc3183eb0e23c9353",
+      "bytes": 4413
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/storage/failover/reattach.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/storage/failover/reattach.go",
+      "mode": "100644",
+      "git_blob": "68e2a1d7845ec1ccd2c25cab72401caaf758700b",
+      "sha256": "28a2308de2af471f100588b18ed38f935cbcaac7420ceaf5a583b7fd968f6295",
+      "bytes": 13483
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/authority/log.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/authority/log.go",
+      "mode": "100644",
+      "git_blob": "39e8073c3302fd73785bec8b3b3e8d0d61024a03",
+      "sha256": "500b03c30e554986f79a78891a88fad0c31732b37bf4f397b57a6919d66aed8f",
+      "bytes": 47408
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/authority/types.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/authority/types.go",
+      "mode": "100644",
+      "git_blob": "e70ccafadf1d60650e86d93549c6d4d87f2d0d5e",
+      "sha256": "d0886d7b4bd7dc75d5816a3ad4bcb01c0f3e3917f9f0b15e43a4d5cfaa53f326",
+      "bytes": 13938
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/authority/managed_update.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/authority/managed_update.go",
+      "mode": "100644",
+      "git_blob": "a9d57f31de25249b6ad095e9e15cc4e001ddc381",
+      "sha256": "3f9dc4889793e3a83c4c0ba186ea2fabb4d278db3f3507a498ef51d7ac236978",
+      "bytes": 16528
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/host/managed_runtime.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/host/managed_runtime.go",
+      "mode": "100644",
+      "git_blob": "ea0a9f24d1586ae12f439466cd8649d2787a1253",
+      "sha256": "10c1c858754f99adc065cab59e717f348e4f7c4ae53e1944172699bd857baa5b",
+      "bytes": 38734
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/host/types.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/host/types.go",
+      "mode": "100644",
+      "git_blob": "b48c60b2ed0625de4b3b8b47174fa52c0dddd874",
+      "sha256": "971b41b51813f0974c9d46911cdbd6434431dddaf540c8c1786ee77a5f3d9f54",
+      "bytes": 33905
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/memberstatus/report.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/memberstatus/report.go",
+      "mode": "100644",
+      "git_blob": "1a0732527d746cf03f26016c6d26594461d5bf60",
+      "sha256": "fdb15910ad0cc5a683c95ff3bd29daa04271125cc5ee2815e83fc8f3239efaa8",
+      "bytes": 3437
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/memberstatus/types.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/memberstatus/types.go",
+      "mode": "100644",
+      "git_blob": "b7c6d05a73660cd6c770a6eda25120bb31a57eb5",
+      "sha256": "61396040025cea390675f2b2d3c647e06c129b4ea03d5e032a6d3c74f79a78f7",
+      "bytes": 10434
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/protocol/envelope.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/protocol/envelope.go",
+      "mode": "100644",
+      "git_blob": "601cfc280ce409564934d73ef6460a5588682937",
+      "sha256": "616be7414db5d8a024250657c24db9525aa259602bbd9eebc2c566184a156cd0",
+      "bytes": 9245
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/oci/config.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/oci/config.go",
+      "mode": "100644",
+      "git_blob": "96d9781bec8d70bbb8f281ddf9ed6ef6a5f4c0e9",
+      "sha256": "ecba4d4a0ebe6451c68e96ff57ea78f721150b7b3c666bdcc3d113a3b8693f45",
+      "bytes": 9644
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/catalog/catalog.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/catalog/catalog.go",
+      "mode": "100644",
+      "git_blob": "094f141afb633efa0d345466c5c80b2154d97e69",
+      "sha256": "1cb9481c9291c863bea33c273443a1dc061bdcd4afada2b626843449ff54cf6e",
+      "bytes": 9451
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/entityid/id.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/entityid/id.go",
+      "mode": "100644",
+      "git_blob": "beb814978d3ceef2c76616c0e2d72359ed86b2b4",
+      "sha256": "e16d87bfe94500bfbc922d008ea3ce5412b7ac4201aa700bd0b40aed79e3982e",
+      "bytes": 1637
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/oci/secret_reference.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/oci/secret_reference.go",
+      "mode": "100644",
+      "git_blob": "a3bd7a17a76b49e52775d0f2f43123196db06f98",
+      "sha256": "410dcdc99ccb5fddd2a273afce56b9ef3033994556bbd8f5a117fa7a923461d7",
+      "bytes": 538
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/hostboot/descriptor.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/hostboot/descriptor.go",
+      "mode": "100644",
+      "git_blob": "218bfd37696a5dc9525c65f2b445e5a5ec3f9c67",
+      "sha256": "3a5d6dcff14c56c0594a5c6d1c65e3bb9771a08e5bfb443aed6d5b43a722cd4a",
+      "bytes": 8879
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/decisionlog/record.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/decisionlog/record.go",
+      "mode": "100644",
+      "git_blob": "7fed2695fc9e488b8210b9f7680e5232cc1fe5b4",
+      "sha256": "e4811b9de947690cdc4b06774ba1ae4b4dfb174f11e4130b7c4ac0d5ccc9e0d2",
+      "bytes": 3091
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/decisionlog/correlate.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/decisionlog/correlate.go",
+      "mode": "100644",
+      "git_blob": "15f864994fb0c9dd4ca2b73630ae90a4656238ee",
+      "sha256": "882d763fcbc13fc0e9c70af0c3649213b1f8d5aee688c73ba7391dd64143ec7a",
+      "bytes": 1227
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/placement/managed_update_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/placement/managed_update_test.go",
+      "mode": "100644",
+      "git_blob": "a4f6fc33f11a525be99157361c15ed89ab96f721",
+      "sha256": "1fc801e8a51e32fb091ca93e11cf0d09d1b6bbe854f3af6bb841052f41dd2aee",
+      "bytes": 45057
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/placement/metrics_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/placement/metrics_test.go",
+      "mode": "100644",
+      "git_blob": "8fb20d89ce39726d4602131ffcdd0da1aec17009",
+      "sha256": "9d911c1e50bb35dbbf2445d8f1253ebe09a5fd3642e35daa323c8af022e49833",
+      "bytes": 3354
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/metrics_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/placement/metrics_test.go",
+      "mode": "100644",
+      "git_blob": "6370bd1a2de9f1f0faa260b4d0bda4a25bf12969",
+      "sha256": "7ac835a794670caade161ec3a220ae99f943872bf4ed1e67f3806be0943c48b7",
+      "bytes": 3423
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/placement/reattach_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/placement/reattach_test.go",
+      "mode": "100644",
+      "git_blob": "f1b700978c34fae1ed2b5b8a8fdc7e31b5f90853",
+      "sha256": "a6b396730092a9ca9c211520aa45283ccaafaf3d4bf9d02dd8d671cc2328bd0e",
+      "bytes": 11404
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/placement/region_mapping_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/placement/region_mapping_test.go",
+      "mode": "100644",
+      "git_blob": "e51ac89cb104632f6f1652bad519f5b06f35a80b",
+      "sha256": "7d9b6b1d990e528fb8b1fa15c890f711ba804ba81e1d1a3c83adf4f44c0607c7",
+      "bytes": 757
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/region_mapping_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/placement/region_mapping_test.go",
+      "mode": "100644",
+      "git_blob": "e51ac89cb104632f6f1652bad519f5b06f35a80b",
+      "sha256": "7d9b6b1d990e528fb8b1fa15c890f711ba804ba81e1d1a3c83adf4f44c0607c7",
+      "bytes": 757
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/placement/replacement_review_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/placement/replacement_review_test.go",
+      "mode": "100644",
+      "git_blob": "5c766d3761b2254d988242057652fd6ee92befc9",
+      "sha256": "bf363dc15c9b994810b74101759aa9f1e8bf01c0328f9ce3e31203b73b936323",
+      "bytes": 1706
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/replacement_review_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/placement/replacement_review_test.go",
+      "mode": "100644",
+      "git_blob": "5c766d3761b2254d988242057652fd6ee92befc9",
+      "sha256": "bf363dc15c9b994810b74101759aa9f1e8bf01c0328f9ce3e31203b73b936323",
+      "bytes": 1706
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/placement/replacement_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/placement/replacement_test.go",
+      "mode": "100644",
+      "git_blob": "9b2a0e9f169ebc02f2b8c13f4ce0fbdc26e4d93d",
+      "sha256": "333ffbccbf33e07eaaae03f4154cde29e19f09cbbf9cc4d2f120c6a6b45ba208",
+      "bytes": 12568
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/placement/seats_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/placement/seats_test.go",
+      "mode": "100644",
+      "git_blob": "8839ff6e5809a634dd25f19ca10814dea8e51bfb",
+      "sha256": "3cf827161712afcd1fb2c0aea4be2f6b217a6545995796e2b53958961e7ec0ef",
+      "bytes": 3275
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/seats_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/placement/seats_test.go",
+      "mode": "100644",
+      "git_blob": "8839ff6e5809a634dd25f19ca10814dea8e51bfb",
+      "sha256": "3cf827161712afcd1fb2c0aea4be2f6b217a6545995796e2b53958961e7ec0ef",
+      "bytes": 3275
+    }
+  },
+  "supplemental_source_evidence": {
+    "reason": "Reached stalled-attach diagnostics use pure lifecycle timeout/remediation selection; no provider or timer execution.",
+    "path": "internal/storage/lifecycle/deadlines.go",
+    "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+    "git_blob": "859ece04ef6a123cad635b6dc061a3b157c4f97b",
+    "mode": "100644",
+    "sha256": "abd05b0654c3cf10bb0bb4ab8ca7506652abfa39f3380d74a7e2b5990f978696",
+    "bytes": 5418,
+    "line": 112,
+    "end_line": 161,
+    "text": "func Check(state State, now time.Time, deadlines Deadlines) (State, bool) {\n\tif !state.Phase.Transitional() || !deadlines.Expired(state, now) {\n\t\treturn state, false\n\t}\n\treturn State{\n\t\tPhase: Stuck, Since: now.UTC(), StuckFrom: state.Phase, Attempts: state.Attempts,\n\t\tReason: fmt.Sprintf(\"%s exceeded %s\", state.Phase, deadlines.For(state.Phase)),\n\t}, true\n}\n\n// Remediation is the next safe action for a stuck volume. Every remediation\n// that moves data access requires its own fencing proof at execution time;\n// this decision never authorizes an effect by itself.\ntype Remediation string\n\nconst (\n\tRemediationNone Remediation = \"\"\n\t// RemediationForceDetachRetry force-detaches the stalled attachment (no\n\t// writer has ever been granted a mount through it) and retries the attach\n\t// on the same host with a fresh idempotency key.\n\tRemediationForceDetachRetry Remediation = \"force-detach-retry\"\n\t// RemediationReplaceHost gives up on the host: the volume is reattached to\n\t// a replacement only after the old instance is proven terminated.\n\tRemediationReplaceHost Remediation = \"replace-host\"\n\t// RemediationForceDetach repeats a stalled detach with force semantics.\n\tRemediationForceDetach Remediation = \"force-detach\"\n\t// RemediationOperator holds for an exact-resource operator workflow.\n\tRemediationOperator Remediation = \"operator\"\n)\n\n// Remediate chooses the remediation for a stuck state.\nfunc Remediate(state State, deadlines Deadlines) Remediation {\n\tif state.Phase != Stuck {\n\t\treturn RemediationNone\n\t}\n\tdeadlines = deadlines.WithDefaults()\n\tswitch state.StuckFrom {\n\tcase Attaching:\n\t\tif state.Attempts < deadlines.MaxAttachRetries {\n\t\t\treturn RemediationForceDetachRetry\n\t\t}\n\t\treturn RemediationReplaceHost\n\tcase Detaching:\n\t\treturn RemediationForceDetach\n\tdefault:\n\t\t// Create, format, resize and delete stalls touch durable data or an\n\t\t// unknown provider outcome; automation never guesses.\n\t\treturn RemediationOperator\n\t}\n}\n"
+  },
+  "resolved_findings": [
+    {
+      "root_index": 2849,
+      "status": "accepted_preserved_drift_no_coverage_transfer",
+      "detail": "Canonical Serving0/unknown readiness assertion differs from baseline Serving2; exact actual/historical hashes and full declarations preserved. Both paths unit, original obligation retained."
+    }
+  ],
+  "remaining_findings": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "global_count_promotion": false,
+    "global_completion_promotion": false,
+    "retirement_delta": 0,
+    "runtime_qualification_delta": 0
+  },
+  "supersedes": {
+    "path": "/tmp/ts-source-peer-2820-2840-reviews-2840-2860-ywmr387a/review.json",
+    "sha256": "8da94dc835c3b0b3553aebabd003d9d43d49fbf70c5bf5c42c238c74bc80f415",
+    "reason": "Correct supplemental pure lifecycle evidence end_line from163 to actual161; source text, accepted owner packet, categories and all20 findings unchanged."
+  }
+}

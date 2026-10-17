@@ -1,0 +1,1199 @@
+{
+  "schema": "source-only-independent-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1020_1040",
+  "author": "/root/classification_100_dispatch/batch_1040_1060",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      3240,
+      3260
+    ],
+    "scope": "literal original-root-accounting other_unadjudicated[3240:3260)",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_1020_1040"
+  },
+  "accepted_packet": {
+    "path": "/tmp/ts-final1319-source-3240-3260-corrected-hn71dqjb/classification.json",
+    "sha256": "d422fa211d960d5240c6fe6d7a16df6cbf535e2a5d944f0ef989385321d1f9e6",
+    "checksum_path": "/tmp/ts-final1319-source-3240-3260-corrected-hn71dqjb/SHA256SUMS",
+    "checksum_sha256": "7ca5d395c3bd4947c31e9a4f1d9f1bb8c7d0cfec941588cdf88c296ba6bd09f3"
+  },
+  "verdict": "ACCEPTED_SOURCE_ONLY",
+  "root_ids": [
+    "internal/rolloutexec/agent_test.go::TestAgentRefusesAReplayedStepOfAnEarlierRollout",
+    "internal/rolloutexec/agent_test.go::TestAgentRefusesUnverifiedAndStaleSteps",
+    "internal/rolloutexec/agent_test.go::TestAgentRestagesAPrunedRollbackTarget",
+    "internal/rolloutexec/agent_test.go::TestAgentRestoreRefusesUnrelatedOrKnownBadReleases",
+    "internal/rolloutexec/agent_test.go::TestAgentRetriesARestartThatFailed",
+    "internal/rolloutexec/agent_test.go::TestAgentRetryRepairsAnInterruptedActivation",
+    "internal/rolloutexec/agent_test.go::TestAgentRollbackOfAnUnmovedUnitRefusesTheRejectedRelease",
+    "internal/rolloutexec/agent_test.go::TestStepCommandsExpireWithTheirPhaseDeadline",
+    "internal/rolloutexec/executor_test.go::TestExecutorCommitsAnExpiredDeadlineBeforeSendingAStep",
+    "internal/rolloutexec/executor_test.go::TestExecutorCompletesWithUnitClocksBehindTheLeader",
+    "internal/rolloutexec/executor_test.go::TestExecutorDoesNotCompleteAroundAPromotedUnitThatStoppedProving",
+    "internal/rolloutexec/executor_test.go::TestExecutorDoesNotPromoteAWaveAroundAUnitThatStoppedReporting",
+    "internal/rolloutexec/executor_test.go::TestExecutorFencesEveryStepAndIgnoresStaleProofs",
+    "internal/rolloutexec/executor_test.go::TestExecutorFollowerIsIdleAndANewLeaderAdopts",
+    "internal/rolloutexec/executor_test.go::TestExecutorForgetsTheMemoryOfAnEndedRollout",
+    "internal/rolloutexec/executor_test.go::TestExecutorFreezesWhenARollbackIsRefused",
+    "internal/rolloutexec/executor_test.go::TestExecutorHoldsAStepWhileAGroupPeerIsNotServing",
+    "internal/rolloutexec/executor_test.go::TestExecutorJudgesTheStepByTheAttemptThatWasAccepted",
+    "internal/rolloutexec/executor_test.go::TestExecutorNeedsAProofAfterTheAcceptedRollback",
+    "internal/rolloutexec/executor_test.go::TestExecutorPreflightWaitsForProofsAndAbortsOnAForeignRelease"
+  ],
+  "counts": {
+    "integration": 18,
+    "unit": 1,
+    "mixed": 1,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all twenty complete canonical roots and their actual fixture-to-production paths after own sealed handoff.",
+    "Verified twenty exact literal allocation identities and complete survival rows against independently pinned input. Baseline and current declarations preserved from func through column-zero closing brace excluding next LF; actual bounds, blobs and raw hashes match.",
+    "Verified all 28 canonical/baseline file mode/blob/SHA256/byte pins and five input hashes/byte counts by ordinary Git/file inspection.",
+    "Verified all 101 explicit root declaration/assertion/connected source spans for exact text/hash/blob and strict 1 <= start <= end <= actual EOF. Re-read asserted conditions and actual callees; no guessed fixture boundary.",
+    "Verified SHA256SUMS and 0444 files/0555 directories; final packet differs only in requested root3247 category/rationale, counts, qualification and correction metadata/README, with source pins/all root assertions unchanged."
+  ],
+  "independent_source_assessment": [
+    "Agent fixtures stage regular text files through real Seed, not executed binaries; Handle/Activate/Restore/epoch/current/knownbad/restart markers supply actual filesystem state/readback. Fake restart and fetch limits are retained.",
+    "Unknown-key, wrong-unit and expired-step blocks in TestAgentRefusesUnverifiedAndStaleSteps are independent pre-I/O checks alongside durable accepted-epoch behavior: mixed.",
+    "The phase-deadline test refuses in VerifyStepCommand before apply/layout effects. Later Pending confirms absent fixture state; all target behavior is unit.",
+    "Executor harness calls upstream server.NewServer/Start, connects over loopback TCP and opens production FileStorage rollout KV with one replica. Tick/Begin/Commit/Adopt/Load/Settle materially support phase/report/epoch/status assertions.",
+    "Executor fleet/proof/driver/gate/authority/status inputs are test fakes. No real unit restart, signed health collector, NATS auth, multi-node replication, election, cloud or TerraBase behavior is credited. Pure logic remains connected to genuine persisted rollout lifecycle rather than independent local-only blocks."
+  ],
+  "resolved_findings": [
+    {
+      "root_id": "internal/rolloutexec/agent_test.go::TestStepCommandsExpireWithTheirPhaseDeadline",
+      "original_packet": "/tmp/ts-final1319-source-3240-3260-uatt3mdj/classification.json",
+      "original_packet_sha256": "3e0bd27d7f2dbf601ff69d920a4fbf1e9739989b3ddbdbb40ddfd98b6db2e63d",
+      "finding": "Mixed classification treated post-guard Pending absence as a material integration block, although expired Handle exits before production I/O.",
+      "resolution": "Changed category to unit and matched rationale/counts/qualification; entire original declarations and Pending assertion retained.",
+      "status": "RESOLVED_IN_ACCEPTED_EXACT_PACKET"
+    }
+  ],
+  "remaining_findings": [],
+  "per_root": [
+    {
+      "root_id": "internal/rolloutexec/agent_test.go::TestAgentRefusesAReplayedStepOfAnEarlierRollout",
+      "category": "integration",
+      "accepted": true,
+      "baseline_source": {
+        "description": "Entire baseline declaration",
+        "path": "internal/rolloutexec/agent_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+        "line": 396,
+        "end_line": 409,
+        "sha256": "43c64aa0afb4f53e69767cc21b07fb2956a34bed7431a9c36619606d236ee306",
+        "text": "func TestAgentRefusesAReplayedStepOfAnEarlierRollout(t *testing.T) {\n\tf := newAgentFixture(t)\n\tlater := stageTestRelease(t, f.agent.Layout, \"release later\", f.to)\n\tpointCurrent(t, f.agent.Layout, later)\n\tif reply := f.agent.Handle(t.Context(), f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"replayed earlier step = %+v\", reply)\n\t}\n\tif current, err := f.agent.Layout.Current(); err != nil || current != later || f.restarts.count() != 0 {\n\t\tt.Fatalf(\"a replayed step moved the unit: current %s %v, restarts %d\", current, err, f.restarts.count())\n\t}\n\tif _, pending, err := f.agent.Layout.Pending(); err != nil || pending {\n\t\tt.Fatalf(\"a replayed step left an activation: %v %v\", pending, err)\n\t}\n}"
+      },
+      "current_source": {
+        "description": "Entire original assertion-bearing declaration",
+        "path": "internal/rolloutexec/agent_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+        "line": 396,
+        "end_line": 409,
+        "sha256": "43c64aa0afb4f53e69767cc21b07fb2956a34bed7431a9c36619606d236ee306",
+        "text": "func TestAgentRefusesAReplayedStepOfAnEarlierRollout(t *testing.T) {\n\tf := newAgentFixture(t)\n\tlater := stageTestRelease(t, f.agent.Layout, \"release later\", f.to)\n\tpointCurrent(t, f.agent.Layout, later)\n\tif reply := f.agent.Handle(t.Context(), f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"replayed earlier step = %+v\", reply)\n\t}\n\tif current, err := f.agent.Layout.Current(); err != nil || current != later || f.restarts.count() != 0 {\n\t\tt.Fatalf(\"a replayed step moved the unit: current %s %v, restarts %d\", current, err, f.restarts.count())\n\t}\n\tif _, pending, err := f.agent.Layout.Pending(); err != nil || pending {\n\t\tt.Fatalf(\"a replayed step left an activation: %v %v\", pending, err)\n\t}\n}"
+      },
+      "assertion_evidence": [
+        {
+          "description": "Entire assertion body including setup, all conditionals and subtests",
+          "path": "internal/rolloutexec/agent_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+          "line": 397,
+          "end_line": 408,
+          "sha256": "bfb9873aa7690fdb6d4de12c593ce3304d3979f65d7ba372e657b29cc9d1fb27",
+          "text": "\tf := newAgentFixture(t)\n\tlater := stageTestRelease(t, f.agent.Layout, \"release later\", f.to)\n\tpointCurrent(t, f.agent.Layout, later)\n\tif reply := f.agent.Handle(t.Context(), f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"replayed earlier step = %+v\", reply)\n\t}\n\tif current, err := f.agent.Layout.Current(); err != nil || current != later || f.restarts.count() != 0 {\n\t\tt.Fatalf(\"a replayed step moved the unit: current %s %v, restarts %d\", current, err, f.restarts.count())\n\t}\n\tif _, pending, err := f.agent.Layout.Pending(); err != nil || pending {\n\t\tt.Fatalf(\"a replayed step left an activation: %v %v\", pending, err)\n\t}"
+        }
+      ],
+      "independent_assessment": "Replay uses actual later current symlink; refuses predecessor mismatch and preserves current/pending readback.",
+      "remaining_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/rolloutexec/agent_test.go::TestAgentRefusesUnverifiedAndStaleSteps",
+      "category": "mixed",
+      "accepted": true,
+      "baseline_source": {
+        "description": "Entire baseline declaration",
+        "path": "internal/rolloutexec/agent_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+        "line": 213,
+        "end_line": 250,
+        "sha256": "103c4be821486a7a5fc6aeb83a575c7019d6b72a7001f4f62b645e85bca3d2ae",
+        "text": "func TestAgentRefusesUnverifiedAndStaleSteps(t *testing.T) {\n\tf := newAgentFixture(t)\n\tctx := t.Context()\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.from, 9)); reply.Outcome != OutcomeCurrent {\n\t\tt.Fatalf(\"step to the current release = %+v\", reply)\n\t}\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 8)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"step from an older epoch = %+v\", reply)\n\t}\n\tother, _ := testKey(t)\n\twire, err := SignStepCommand(StepCommand{Schema: StepSchema, Cell: \"gru\", RolloutID: \"00000000002JW3D8YH3EBSQV5Q\", Kind: rollout.KindController,\n\t\tUnit: \"ctl-b\", OperationID: \"0000000000N6KCZG3MWDGZ0WBE\", Action: StepPrepare, Digest: f.to, Replaces: f.from, Epoch: 9, ProofWindowSeconds: 60}, other, f.now, time.Time{})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif reply := f.agent.Handle(ctx, wire); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"step signed by an unknown key = %+v\", reply)\n\t}\n\tf.agent.Unit = \"ctl-c\"\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 9)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"step for another unit = %+v\", reply)\n\t}\n\tf.agent.Unit = \"ctl-b\"\n\t// The accepted epoch is durable: a recreated agent still refuses a\n\t// still-valid step from the older leader.\n\trecreated := &Agent{Cell: \"gru\", Unit: \"ctl-b\", SystemdUnit: agentUnit, Layout: f.agent.Layout,\n\t\tLeaders: f.agent.Leaders, Restart: f.restarts.restart, Now: f.agent.Now}\n\tif reply := recreated.Handle(ctx, f.command(t, StepPrepare, f.to, 8)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"older epoch replayed to a recreated agent = %+v\", reply)\n\t}\n\tf.agent.Now = func() time.Time { return f.now.Add(StepLifetime + time.Minute) }\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 9)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"expired step = %+v\", reply)\n\t}\n\tif f.restarts.count() != 0 {\n\t\tt.Fatal(\"a refused step restarted the unit\")\n\t}\n}"
+      },
+      "current_source": {
+        "description": "Entire original assertion-bearing declaration",
+        "path": "internal/rolloutexec/agent_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+        "line": 213,
+        "end_line": 250,
+        "sha256": "103c4be821486a7a5fc6aeb83a575c7019d6b72a7001f4f62b645e85bca3d2ae",
+        "text": "func TestAgentRefusesUnverifiedAndStaleSteps(t *testing.T) {\n\tf := newAgentFixture(t)\n\tctx := t.Context()\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.from, 9)); reply.Outcome != OutcomeCurrent {\n\t\tt.Fatalf(\"step to the current release = %+v\", reply)\n\t}\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 8)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"step from an older epoch = %+v\", reply)\n\t}\n\tother, _ := testKey(t)\n\twire, err := SignStepCommand(StepCommand{Schema: StepSchema, Cell: \"gru\", RolloutID: \"00000000002JW3D8YH3EBSQV5Q\", Kind: rollout.KindController,\n\t\tUnit: \"ctl-b\", OperationID: \"0000000000N6KCZG3MWDGZ0WBE\", Action: StepPrepare, Digest: f.to, Replaces: f.from, Epoch: 9, ProofWindowSeconds: 60}, other, f.now, time.Time{})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif reply := f.agent.Handle(ctx, wire); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"step signed by an unknown key = %+v\", reply)\n\t}\n\tf.agent.Unit = \"ctl-c\"\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 9)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"step for another unit = %+v\", reply)\n\t}\n\tf.agent.Unit = \"ctl-b\"\n\t// The accepted epoch is durable: a recreated agent still refuses a\n\t// still-valid step from the older leader.\n\trecreated := &Agent{Cell: \"gru\", Unit: \"ctl-b\", SystemdUnit: agentUnit, Layout: f.agent.Layout,\n\t\tLeaders: f.agent.Leaders, Restart: f.restarts.restart, Now: f.agent.Now}\n\tif reply := recreated.Handle(ctx, f.command(t, StepPrepare, f.to, 8)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"older epoch replayed to a recreated agent = %+v\", reply)\n\t}\n\tf.agent.Now = func() time.Time { return f.now.Add(StepLifetime + time.Minute) }\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 9)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"expired step = %+v\", reply)\n\t}\n\tif f.restarts.count() != 0 {\n\t\tt.Fatal(\"a refused step restarted the unit\")\n\t}\n}"
+      },
+      "assertion_evidence": [
+        {
+          "description": "Entire assertion body including setup, all conditionals and subtests",
+          "path": "internal/rolloutexec/agent_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+          "line": 214,
+          "end_line": 249,
+          "sha256": "af827a54fd008f28d565ba5a26891b146336924a062f53d1b1216c4459a67b26",
+          "text": "\tf := newAgentFixture(t)\n\tctx := t.Context()\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.from, 9)); reply.Outcome != OutcomeCurrent {\n\t\tt.Fatalf(\"step to the current release = %+v\", reply)\n\t}\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 8)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"step from an older epoch = %+v\", reply)\n\t}\n\tother, _ := testKey(t)\n\twire, err := SignStepCommand(StepCommand{Schema: StepSchema, Cell: \"gru\", RolloutID: \"00000000002JW3D8YH3EBSQV5Q\", Kind: rollout.KindController,\n\t\tUnit: \"ctl-b\", OperationID: \"0000000000N6KCZG3MWDGZ0WBE\", Action: StepPrepare, Digest: f.to, Replaces: f.from, Epoch: 9, ProofWindowSeconds: 60}, other, f.now, time.Time{})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif reply := f.agent.Handle(ctx, wire); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"step signed by an unknown key = %+v\", reply)\n\t}\n\tf.agent.Unit = \"ctl-c\"\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 9)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"step for another unit = %+v\", reply)\n\t}\n\tf.agent.Unit = \"ctl-b\"\n\t// The accepted epoch is durable: a recreated agent still refuses a\n\t// still-valid step from the older leader.\n\trecreated := &Agent{Cell: \"gru\", Unit: \"ctl-b\", SystemdUnit: agentUnit, Layout: f.agent.Layout,\n\t\tLeaders: f.agent.Leaders, Restart: f.restarts.restart, Now: f.agent.Now}\n\tif reply := recreated.Handle(ctx, f.command(t, StepPrepare, f.to, 8)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"older epoch replayed to a recreated agent = %+v\", reply)\n\t}\n\tf.agent.Now = func() time.Time { return f.now.Add(StepLifetime + time.Minute) }\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 9)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"expired step = %+v\", reply)\n\t}\n\tif f.restarts.count() != 0 {\n\t\tt.Fatal(\"a refused step restarted the unit\")\n\t}"
+        }
+      ],
+      "independent_assessment": "Durable epoch admission/recreated-agent rejection plus distinct pre-I/O key/unit/expiry cases; mixed.",
+      "remaining_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/rolloutexec/agent_test.go::TestAgentRestagesAPrunedRollbackTarget",
+      "category": "integration",
+      "accepted": true,
+      "baseline_source": {
+        "description": "Entire baseline declaration",
+        "path": "internal/rolloutexec/agent_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+        "line": 252,
+        "end_line": 278,
+        "sha256": "84c37d930d6bb48bbeb66ac351751eb8996fe2d0c42390bddb272ac321f286fb",
+        "text": "func TestAgentRestagesAPrunedRollbackTarget(t *testing.T) {\n\tf := newAgentFixture(t)\n\tctx := t.Context()\n\t// The target settled as current and the old release was pruned.\n\tpointCurrent(t, f.agent.Layout, f.to)\n\tif err := os.RemoveAll(f.agent.Layout.ReleaseDir(f.from)); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif reply := f.agent.Handle(ctx, f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"rollback without a fetcher = %+v\", reply)\n\t}\n\tfetch := &fetchFake{t: t, content: \"release from\", keep: f.to}\n\tf.agent.Fetch = fetch\n\tif reply := f.agent.Handle(ctx, f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeActivated {\n\t\tt.Fatalf(\"rollback with a fetcher = %+v\", reply)\n\t}\n\tif fetch.calls != 1 {\n\t\tt.Fatalf(\"fetches = %d\", fetch.calls)\n\t}\n\tf.assertRestored(t)\n\tif reply := f.agent.Handle(ctx, f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeCurrent {\n\t\tt.Fatalf(\"repeated rollback = %+v\", reply)\n\t}\n\tif digestOf(\"release from\") != f.from {\n\t\tt.Fatal(\"test digests are inconsistent\")\n\t}\n}"
+      },
+      "current_source": {
+        "description": "Entire original assertion-bearing declaration",
+        "path": "internal/rolloutexec/agent_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+        "line": 252,
+        "end_line": 278,
+        "sha256": "84c37d930d6bb48bbeb66ac351751eb8996fe2d0c42390bddb272ac321f286fb",
+        "text": "func TestAgentRestagesAPrunedRollbackTarget(t *testing.T) {\n\tf := newAgentFixture(t)\n\tctx := t.Context()\n\t// The target settled as current and the old release was pruned.\n\tpointCurrent(t, f.agent.Layout, f.to)\n\tif err := os.RemoveAll(f.agent.Layout.ReleaseDir(f.from)); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif reply := f.agent.Handle(ctx, f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"rollback without a fetcher = %+v\", reply)\n\t}\n\tfetch := &fetchFake{t: t, content: \"release from\", keep: f.to}\n\tf.agent.Fetch = fetch\n\tif reply := f.agent.Handle(ctx, f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeActivated {\n\t\tt.Fatalf(\"rollback with a fetcher = %+v\", reply)\n\t}\n\tif fetch.calls != 1 {\n\t\tt.Fatalf(\"fetches = %d\", fetch.calls)\n\t}\n\tf.assertRestored(t)\n\tif reply := f.agent.Handle(ctx, f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeCurrent {\n\t\tt.Fatalf(\"repeated rollback = %+v\", reply)\n\t}\n\tif digestOf(\"release from\") != f.from {\n\t\tt.Fatal(\"test digests are inconsistent\")\n\t}\n}"
+      },
+      "assertion_evidence": [
+        {
+          "description": "Entire assertion body including setup, all conditionals and subtests",
+          "path": "internal/rolloutexec/agent_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+          "line": 253,
+          "end_line": 277,
+          "sha256": "f46d2fb955ab56491dcb6e49f185f409cfa908e3778175e7e2555e09a5f64da4",
+          "text": "\tf := newAgentFixture(t)\n\tctx := t.Context()\n\t// The target settled as current and the old release was pruned.\n\tpointCurrent(t, f.agent.Layout, f.to)\n\tif err := os.RemoveAll(f.agent.Layout.ReleaseDir(f.from)); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif reply := f.agent.Handle(ctx, f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"rollback without a fetcher = %+v\", reply)\n\t}\n\tfetch := &fetchFake{t: t, content: \"release from\", keep: f.to}\n\tf.agent.Fetch = fetch\n\tif reply := f.agent.Handle(ctx, f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeActivated {\n\t\tt.Fatalf(\"rollback with a fetcher = %+v\", reply)\n\t}\n\tif fetch.calls != 1 {\n\t\tt.Fatalf(\"fetches = %d\", fetch.calls)\n\t}\n\tf.assertRestored(t)\n\tif reply := f.agent.Handle(ctx, f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeCurrent {\n\t\tt.Fatalf(\"repeated rollback = %+v\", reply)\n\t}\n\tif digestOf(\"release from\") != f.from {\n\t\tt.Fatal(\"test digests are inconsistent\")\n\t}"
+        }
+      ],
+      "independent_assessment": "Pruned real release detected, fake Fetch delegates to Seed, actual restore is read back. Digest sanity remains tied to Seed-generated predecessor.",
+      "remaining_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/rolloutexec/agent_test.go::TestAgentRestoreRefusesUnrelatedOrKnownBadReleases",
+      "category": "integration",
+      "accepted": true,
+      "baseline_source": {
+        "description": "Entire baseline declaration",
+        "path": "internal/rolloutexec/agent_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+        "line": 282,
+        "end_line": 299,
+        "sha256": "e370b17a0a5ba9160de1ebca27107529ed5c9e45879752c5499963871ddc1a06",
+        "text": "func TestAgentRestoreRefusesUnrelatedOrKnownBadReleases(t *testing.T) {\n\tf := newAgentFixture(t)\n\tctx := t.Context()\n\tthird := stageTestRelease(t, f.agent.Layout, \"a third release\", \"\")\n\tif reply := f.agent.Handle(ctx, f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"restore on a node running %s = %+v\", short(third), reply)\n\t}\n\tpointCurrent(t, f.agent.Layout, f.to)\n\tif reply := f.agent.Handle(ctx, f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeActivated {\n\t\tt.Fatalf(\"restore = %+v\", reply)\n\t}\n\tf.assertRestored(t)\n\t// The restored predecessor is now current; a later forward step to the\n\t// rejected release is refused on this node.\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"forward step to the rejected release = %+v\", reply)\n\t}\n}"
+      },
+      "current_source": {
+        "description": "Entire original assertion-bearing declaration",
+        "path": "internal/rolloutexec/agent_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+        "line": 282,
+        "end_line": 299,
+        "sha256": "e370b17a0a5ba9160de1ebca27107529ed5c9e45879752c5499963871ddc1a06",
+        "text": "func TestAgentRestoreRefusesUnrelatedOrKnownBadReleases(t *testing.T) {\n\tf := newAgentFixture(t)\n\tctx := t.Context()\n\tthird := stageTestRelease(t, f.agent.Layout, \"a third release\", \"\")\n\tif reply := f.agent.Handle(ctx, f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"restore on a node running %s = %+v\", short(third), reply)\n\t}\n\tpointCurrent(t, f.agent.Layout, f.to)\n\tif reply := f.agent.Handle(ctx, f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeActivated {\n\t\tt.Fatalf(\"restore = %+v\", reply)\n\t}\n\tf.assertRestored(t)\n\t// The restored predecessor is now current; a later forward step to the\n\t// rejected release is refused on this node.\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"forward step to the rejected release = %+v\", reply)\n\t}\n}"
+      },
+      "assertion_evidence": [
+        {
+          "description": "Entire assertion body including setup, all conditionals and subtests",
+          "path": "internal/rolloutexec/agent_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+          "line": 283,
+          "end_line": 298,
+          "sha256": "c782646e3e71b08de96d69537504072363660cf4eea1d9e615b27b75c0f169a4",
+          "text": "\tf := newAgentFixture(t)\n\tctx := t.Context()\n\tthird := stageTestRelease(t, f.agent.Layout, \"a third release\", \"\")\n\tif reply := f.agent.Handle(ctx, f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"restore on a node running %s = %+v\", short(third), reply)\n\t}\n\tpointCurrent(t, f.agent.Layout, f.to)\n\tif reply := f.agent.Handle(ctx, f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeActivated {\n\t\tt.Fatalf(\"restore = %+v\", reply)\n\t}\n\tf.assertRestored(t)\n\t// The restored predecessor is now current; a later forward step to the\n\t// rejected release is refused on this node.\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"forward step to the rejected release = %+v\", reply)\n\t}"
+        }
+      ],
+      "independent_assessment": "Unrelated real current rejected; restore records knownbad target which blocks later prepare. Restore-to-knownbad-predecessor is not asserted.",
+      "remaining_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/rolloutexec/agent_test.go::TestAgentRetriesARestartThatFailed",
+      "category": "integration",
+      "accepted": true,
+      "baseline_source": {
+        "description": "Entire baseline declaration",
+        "path": "internal/rolloutexec/agent_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+        "line": 301,
+        "end_line": 329,
+        "sha256": "429843f0ef86f976a134f4b6e74dd0739f6fd84d857a2f8938a96d236ca8a750",
+        "text": "func TestAgentRetriesARestartThatFailed(t *testing.T) {\n\tf := newAgentFixture(t)\n\tctx := t.Context()\n\tf.restarts.fail = true\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomeRetry {\n\t\tt.Fatalf(\"step with a failed restart = %+v\", reply)\n\t}\n\t// The failed restart is owed durably, so the watchdog retries it even\n\t// if this agent is gone.\n\tif owed, err := f.agent.Layout.RestartPending(agentUnit); err != nil || !owed {\n\t\tt.Fatalf(\"failed restart is not owed durably: %v %v\", owed, err)\n\t}\n\tf.restarts.fail = false\n\t// A new agent (the old one died before restarting) finishes the\n\t// restart from the durable obligation.\n\tf.agent = &Agent{Cell: \"gru\", Unit: \"ctl-b\", SystemdUnit: agentUnit, Layout: f.agent.Layout,\n\t\tLeaders: f.agent.Leaders, Restart: f.restarts.restart, Now: f.agent.Now}\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomePending || f.restarts.count() != 1 {\n\t\tt.Fatalf(\"retry = %+v restarts %d\", reply, f.restarts.count())\n\t}\n\t// Only the unit's start clears the obligation; a retry before it does\n\t// not restart the unit again.\n\tif owed, err := f.agent.Layout.RestartPending(agentUnit); err != nil || !owed {\n\t\tt.Fatalf(\"restart obligation cleared before the unit started: %v %v\", owed, err)\n\t}\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomePending || f.restarts.count() != 1 {\n\t\tt.Fatalf(\"second retry restarted again: %+v restarts %d\", reply, f.restarts.count())\n\t}\n}"
+      },
+      "current_source": {
+        "description": "Entire original assertion-bearing declaration",
+        "path": "internal/rolloutexec/agent_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+        "line": 301,
+        "end_line": 329,
+        "sha256": "429843f0ef86f976a134f4b6e74dd0739f6fd84d857a2f8938a96d236ca8a750",
+        "text": "func TestAgentRetriesARestartThatFailed(t *testing.T) {\n\tf := newAgentFixture(t)\n\tctx := t.Context()\n\tf.restarts.fail = true\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomeRetry {\n\t\tt.Fatalf(\"step with a failed restart = %+v\", reply)\n\t}\n\t// The failed restart is owed durably, so the watchdog retries it even\n\t// if this agent is gone.\n\tif owed, err := f.agent.Layout.RestartPending(agentUnit); err != nil || !owed {\n\t\tt.Fatalf(\"failed restart is not owed durably: %v %v\", owed, err)\n\t}\n\tf.restarts.fail = false\n\t// A new agent (the old one died before restarting) finishes the\n\t// restart from the durable obligation.\n\tf.agent = &Agent{Cell: \"gru\", Unit: \"ctl-b\", SystemdUnit: agentUnit, Layout: f.agent.Layout,\n\t\tLeaders: f.agent.Leaders, Restart: f.restarts.restart, Now: f.agent.Now}\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomePending || f.restarts.count() != 1 {\n\t\tt.Fatalf(\"retry = %+v restarts %d\", reply, f.restarts.count())\n\t}\n\t// Only the unit's start clears the obligation; a retry before it does\n\t// not restart the unit again.\n\tif owed, err := f.agent.Layout.RestartPending(agentUnit); err != nil || !owed {\n\t\tt.Fatalf(\"restart obligation cleared before the unit started: %v %v\", owed, err)\n\t}\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomePending || f.restarts.count() != 1 {\n\t\tt.Fatalf(\"second retry restarted again: %+v restarts %d\", reply, f.restarts.count())\n\t}\n}"
+      },
+      "assertion_evidence": [
+        {
+          "description": "Entire assertion body including setup, all conditionals and subtests",
+          "path": "internal/rolloutexec/agent_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+          "line": 302,
+          "end_line": 328,
+          "sha256": "6c65d47947a07a2b87514935c3e4408ffae4db33b08e65b716165abc4b36b1bb",
+          "text": "\tf := newAgentFixture(t)\n\tctx := t.Context()\n\tf.restarts.fail = true\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomeRetry {\n\t\tt.Fatalf(\"step with a failed restart = %+v\", reply)\n\t}\n\t// The failed restart is owed durably, so the watchdog retries it even\n\t// if this agent is gone.\n\tif owed, err := f.agent.Layout.RestartPending(agentUnit); err != nil || !owed {\n\t\tt.Fatalf(\"failed restart is not owed durably: %v %v\", owed, err)\n\t}\n\tf.restarts.fail = false\n\t// A new agent (the old one died before restarting) finishes the\n\t// restart from the durable obligation.\n\tf.agent = &Agent{Cell: \"gru\", Unit: \"ctl-b\", SystemdUnit: agentUnit, Layout: f.agent.Layout,\n\t\tLeaders: f.agent.Leaders, Restart: f.restarts.restart, Now: f.agent.Now}\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomePending || f.restarts.count() != 1 {\n\t\tt.Fatalf(\"retry = %+v restarts %d\", reply, f.restarts.count())\n\t}\n\t// Only the unit's start clears the obligation; a retry before it does\n\t// not restart the unit again.\n\tif owed, err := f.agent.Layout.RestartPending(agentUnit); err != nil || !owed {\n\t\tt.Fatalf(\"restart obligation cleared before the unit started: %v %v\", owed, err)\n\t}\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomePending || f.restarts.count() != 1 {\n\t\tt.Fatalf(\"second retry restarted again: %+v restarts %d\", reply, f.restarts.count())\n\t}"
+        }
+      ],
+      "independent_assessment": "Fake restart failure leaves actual durable marker; recreated Agent reads it and retries without repeated callback after accepted retry.",
+      "remaining_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/rolloutexec/agent_test.go::TestAgentRetryRepairsAnInterruptedActivation",
+      "category": "integration",
+      "accepted": true,
+      "baseline_source": {
+        "description": "Entire baseline declaration",
+        "path": "internal/rolloutexec/agent_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+        "line": 198,
+        "end_line": 211,
+        "sha256": "7ce6734767c23771bbbb003a68266fc379b076a5a9b6cb0b216c0c1ab48a79d2",
+        "text": "func TestAgentRetryRepairsAnInterruptedActivation(t *testing.T) {\n\tf := newAgentFixture(t)\n\tctx := t.Context()\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomeActivated {\n\t\tt.Fatalf(\"first step = %+v\", reply)\n\t}\n\tpointCurrent(t, f.agent.Layout, f.from)\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomePending {\n\t\tt.Fatalf(\"retry = %+v\", reply)\n\t}\n\tif current, err := f.agent.Layout.Current(); err != nil || current != f.to {\n\t\tt.Fatalf(\"retry did not repair the current link: %s %v\", current, err)\n\t}\n}"
+      },
+      "current_source": {
+        "description": "Entire original assertion-bearing declaration",
+        "path": "internal/rolloutexec/agent_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+        "line": 198,
+        "end_line": 211,
+        "sha256": "7ce6734767c23771bbbb003a68266fc379b076a5a9b6cb0b216c0c1ab48a79d2",
+        "text": "func TestAgentRetryRepairsAnInterruptedActivation(t *testing.T) {\n\tf := newAgentFixture(t)\n\tctx := t.Context()\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomeActivated {\n\t\tt.Fatalf(\"first step = %+v\", reply)\n\t}\n\tpointCurrent(t, f.agent.Layout, f.from)\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomePending {\n\t\tt.Fatalf(\"retry = %+v\", reply)\n\t}\n\tif current, err := f.agent.Layout.Current(); err != nil || current != f.to {\n\t\tt.Fatalf(\"retry did not repair the current link: %s %v\", current, err)\n\t}\n}"
+      },
+      "assertion_evidence": [
+        {
+          "description": "Entire assertion body including setup, all conditionals and subtests",
+          "path": "internal/rolloutexec/agent_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+          "line": 199,
+          "end_line": 210,
+          "sha256": "46a9abbcdd51d8ebde93b480824920a5f06ceee30f345600575990a84489c06f",
+          "text": "\tf := newAgentFixture(t)\n\tctx := t.Context()\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomeActivated {\n\t\tt.Fatalf(\"first step = %+v\", reply)\n\t}\n\tpointCurrent(t, f.agent.Layout, f.from)\n\tif reply := f.agent.Handle(ctx, f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomePending {\n\t\tt.Fatalf(\"retry = %+v\", reply)\n\t}\n\tif current, err := f.agent.Layout.Current(); err != nil || current != f.to {\n\t\tt.Fatalf(\"retry did not repair the current link: %s %v\", current, err)\n\t}"
+        }
+      ],
+      "independent_assessment": "Real pending activation/current symlink repaired after fixture rewinds current; filesystem readback is core.",
+      "remaining_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/rolloutexec/agent_test.go::TestAgentRollbackOfAnUnmovedUnitRefusesTheRejectedRelease",
+      "category": "integration",
+      "accepted": true,
+      "baseline_source": {
+        "description": "Entire baseline declaration",
+        "path": "internal/rolloutexec/agent_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+        "line": 352,
+        "end_line": 363,
+        "sha256": "6723c62e8246dfeaa070c853de0dc3668365fdbbebbaf11c1760631de0522028",
+        "text": "func TestAgentRollbackOfAnUnmovedUnitRefusesTheRejectedRelease(t *testing.T) {\n\tf := newAgentFixture(t)\n\tif reply := f.agent.Handle(t.Context(), f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeCurrent {\n\t\tt.Fatalf(\"rollback of an unmoved unit = %+v\", reply)\n\t}\n\tif reply := f.agent.Handle(t.Context(), f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"a same-epoch prepare of the rejected release = %+v\", reply)\n\t}\n\tif f.restarts.count() != 0 {\n\t\tt.Fatalf(\"restarts = %d\", f.restarts.count())\n\t}\n}"
+      },
+      "current_source": {
+        "description": "Entire original assertion-bearing declaration",
+        "path": "internal/rolloutexec/agent_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+        "line": 352,
+        "end_line": 363,
+        "sha256": "6723c62e8246dfeaa070c853de0dc3668365fdbbebbaf11c1760631de0522028",
+        "text": "func TestAgentRollbackOfAnUnmovedUnitRefusesTheRejectedRelease(t *testing.T) {\n\tf := newAgentFixture(t)\n\tif reply := f.agent.Handle(t.Context(), f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeCurrent {\n\t\tt.Fatalf(\"rollback of an unmoved unit = %+v\", reply)\n\t}\n\tif reply := f.agent.Handle(t.Context(), f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"a same-epoch prepare of the rejected release = %+v\", reply)\n\t}\n\tif f.restarts.count() != 0 {\n\t\tt.Fatalf(\"restarts = %d\", f.restarts.count())\n\t}\n}"
+      },
+      "assertion_evidence": [
+        {
+          "description": "Entire assertion body including setup, all conditionals and subtests",
+          "path": "internal/rolloutexec/agent_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+          "line": 353,
+          "end_line": 362,
+          "sha256": "835e246dda6dff379462a6b796ddc808c660f2d06a20fe7b9eb6c9f077825b9c",
+          "text": "\tf := newAgentFixture(t)\n\tif reply := f.agent.Handle(t.Context(), f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeCurrent {\n\t\tt.Fatalf(\"rollback of an unmoved unit = %+v\", reply)\n\t}\n\tif reply := f.agent.Handle(t.Context(), f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"a same-epoch prepare of the rejected release = %+v\", reply)\n\t}\n\tif f.restarts.count() != 0 {\n\t\tt.Fatalf(\"restarts = %d\", f.restarts.count())\n\t}"
+        }
+      ],
+      "independent_assessment": "Unmoved rollback records actual knownbad target, which subsequent prepare reads and refuses; fake restart stays zero.",
+      "remaining_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/rolloutexec/agent_test.go::TestStepCommandsExpireWithTheirPhaseDeadline",
+      "category": "unit",
+      "accepted": true,
+      "baseline_source": {
+        "description": "Entire baseline declaration",
+        "path": "internal/rolloutexec/agent_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+        "line": 368,
+        "end_line": 391,
+        "sha256": "8d4a56bdc5cfc3d8623d208297bc7ca60a91d086cc28f6e31b99524f5d1e3472",
+        "text": "func TestStepCommandsExpireWithTheirPhaseDeadline(t *testing.T) {\n\tf := newAgentFixture(t)\n\tcommand := StepCommand{Schema: StepSchema, Cell: \"gru\", RolloutID: entityid.Derive(\"release-controllers\", \"rel1\"), Kind: rollout.KindController,\n\t\tUnit: \"ctl-b\", OperationID: rollout.OperationID(entityid.Derive(\"release-controllers\", \"rel1\"), \"ctl-b\", rollout.PhaseCanary, 0),\n\t\tAction: StepPrepare, Digest: f.to, Replaces: f.from, Epoch: 7, ProofWindowSeconds: 600}\n\tdeadline := f.now.Add(30 * time.Second)\n\twire, err := SignStepCommand(command, f.key, f.now, deadline)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, expires, err := VerifyStepCommand(wire, \"gru\", \"ctl-b\", f.agent.Leaders, f.now); err != nil || !expires.Equal(deadline) {\n\t\tt.Fatalf(\"expiry = %s %v, want the phase deadline %s\", expires, err, deadline)\n\t}\n\tf.agent.Now = func() time.Time { return deadline.Add(time.Second) }\n\tif reply := f.agent.Handle(t.Context(), wire); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"step after its phase deadline = %+v\", reply)\n\t}\n\tif _, pending, err := f.agent.Layout.Pending(); err != nil || pending {\n\t\tt.Fatalf(\"a step after its deadline activated: %v %v\", pending, err)\n\t}\n\tif _, err := SignStepCommand(command, f.key, f.now, f.now); !errors.Is(err, ErrInvalid) {\n\t\tt.Fatalf(\"signing a step whose deadline passed = %v\", err)\n\t}\n}"
+      },
+      "current_source": {
+        "description": "Entire original assertion-bearing declaration",
+        "path": "internal/rolloutexec/agent_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+        "line": 368,
+        "end_line": 391,
+        "sha256": "8d4a56bdc5cfc3d8623d208297bc7ca60a91d086cc28f6e31b99524f5d1e3472",
+        "text": "func TestStepCommandsExpireWithTheirPhaseDeadline(t *testing.T) {\n\tf := newAgentFixture(t)\n\tcommand := StepCommand{Schema: StepSchema, Cell: \"gru\", RolloutID: entityid.Derive(\"release-controllers\", \"rel1\"), Kind: rollout.KindController,\n\t\tUnit: \"ctl-b\", OperationID: rollout.OperationID(entityid.Derive(\"release-controllers\", \"rel1\"), \"ctl-b\", rollout.PhaseCanary, 0),\n\t\tAction: StepPrepare, Digest: f.to, Replaces: f.from, Epoch: 7, ProofWindowSeconds: 600}\n\tdeadline := f.now.Add(30 * time.Second)\n\twire, err := SignStepCommand(command, f.key, f.now, deadline)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, expires, err := VerifyStepCommand(wire, \"gru\", \"ctl-b\", f.agent.Leaders, f.now); err != nil || !expires.Equal(deadline) {\n\t\tt.Fatalf(\"expiry = %s %v, want the phase deadline %s\", expires, err, deadline)\n\t}\n\tf.agent.Now = func() time.Time { return deadline.Add(time.Second) }\n\tif reply := f.agent.Handle(t.Context(), wire); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"step after its phase deadline = %+v\", reply)\n\t}\n\tif _, pending, err := f.agent.Layout.Pending(); err != nil || pending {\n\t\tt.Fatalf(\"a step after its deadline activated: %v %v\", pending, err)\n\t}\n\tif _, err := SignStepCommand(command, f.key, f.now, f.now); !errors.Is(err, ErrInvalid) {\n\t\tt.Fatalf(\"signing a step whose deadline passed = %v\", err)\n\t}\n}"
+      },
+      "assertion_evidence": [
+        {
+          "description": "Entire assertion body including setup, all conditionals and subtests",
+          "path": "internal/rolloutexec/agent_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+          "line": 369,
+          "end_line": 390,
+          "sha256": "a2b8695e7200f3300c62bd1625558da9f49e8d7d7901e55a8aaa06f308515299",
+          "text": "\tf := newAgentFixture(t)\n\tcommand := StepCommand{Schema: StepSchema, Cell: \"gru\", RolloutID: entityid.Derive(\"release-controllers\", \"rel1\"), Kind: rollout.KindController,\n\t\tUnit: \"ctl-b\", OperationID: rollout.OperationID(entityid.Derive(\"release-controllers\", \"rel1\"), \"ctl-b\", rollout.PhaseCanary, 0),\n\t\tAction: StepPrepare, Digest: f.to, Replaces: f.from, Epoch: 7, ProofWindowSeconds: 600}\n\tdeadline := f.now.Add(30 * time.Second)\n\twire, err := SignStepCommand(command, f.key, f.now, deadline)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, expires, err := VerifyStepCommand(wire, \"gru\", \"ctl-b\", f.agent.Leaders, f.now); err != nil || !expires.Equal(deadline) {\n\t\tt.Fatalf(\"expiry = %s %v, want the phase deadline %s\", expires, err, deadline)\n\t}\n\tf.agent.Now = func() time.Time { return deadline.Add(time.Second) }\n\tif reply := f.agent.Handle(t.Context(), wire); reply.Outcome != OutcomeRefused {\n\t\tt.Fatalf(\"step after its phase deadline = %+v\", reply)\n\t}\n\tif _, pending, err := f.agent.Layout.Pending(); err != nil || pending {\n\t\tt.Fatalf(\"a step after its deadline activated: %v %v\", pending, err)\n\t}\n\tif _, err := SignStepCommand(command, f.key, f.now, f.now); !errors.Is(err, ErrInvalid) {\n\t\tt.Fatalf(\"signing a step whose deadline passed = %v\", err)\n\t}"
+        }
+      ],
+      "independent_assessment": "All product checks are deadline signing/verification/pre-I/O expiry predicates; Pending confirms pre-existing fixture absence.",
+      "remaining_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/rolloutexec/executor_test.go::TestExecutorCommitsAnExpiredDeadlineBeforeSendingAStep",
+      "category": "integration",
+      "accepted": true,
+      "baseline_source": {
+        "description": "Entire baseline declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 435,
+        "end_line": 450,
+        "sha256": "c3ba26638ea1c9a982839d4b9f5ae73432178de1f443e5b3959e1644ac69867d",
+        "text": "func TestExecutorCommitsAnExpiredDeadlineBeforeSendingAStep(t *testing.T) {\n\th := newHarness(t)\n\th.program = h.program[:1]\n\th.gate.holds[\"ctl-b\"] = 1\n\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// The leader resumes long after the canary's prepare deadline.\n\th.clock.Advance(time.Duration(testPolicy().ProofDeadlineSeconds+60) * time.Second)\n\th.run(5, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseRolledBack\n\t})\n\tif slices.Contains(h.fleet.stepLog(), \"prepare:ctl-b\") {\n\t\tt.Fatalf(\"an expired prepare was still sent: %v\", h.fleet.stepLog())\n\t}\n}"
+      },
+      "current_source": {
+        "description": "Entire original assertion-bearing declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 435,
+        "end_line": 450,
+        "sha256": "c3ba26638ea1c9a982839d4b9f5ae73432178de1f443e5b3959e1644ac69867d",
+        "text": "func TestExecutorCommitsAnExpiredDeadlineBeforeSendingAStep(t *testing.T) {\n\th := newHarness(t)\n\th.program = h.program[:1]\n\th.gate.holds[\"ctl-b\"] = 1\n\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// The leader resumes long after the canary's prepare deadline.\n\th.clock.Advance(time.Duration(testPolicy().ProofDeadlineSeconds+60) * time.Second)\n\th.run(5, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseRolledBack\n\t})\n\tif slices.Contains(h.fleet.stepLog(), \"prepare:ctl-b\") {\n\t\tt.Fatalf(\"an expired prepare was still sent: %v\", h.fleet.stepLog())\n\t}\n}"
+      },
+      "assertion_evidence": [
+        {
+          "description": "Entire assertion body including setup, all conditionals and subtests",
+          "path": "internal/rolloutexec/executor_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+          "line": 436,
+          "end_line": 449,
+          "sha256": "4a519e8766444b8dcc6a67f4fdfa0a234c8b11a9ad71c9150214c4be6f69cf37",
+          "text": "\th := newHarness(t)\n\th.program = h.program[:1]\n\th.gate.holds[\"ctl-b\"] = 1\n\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// The leader resumes long after the canary's prepare deadline.\n\th.clock.Advance(time.Duration(testPolicy().ProofDeadlineSeconds+60) * time.Second)\n\th.run(5, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseRolledBack\n\t})\n\tif slices.Contains(h.fleet.stepLog(), \"prepare:ctl-b\") {\n\t\tt.Fatalf(\"an expired prepare was still sent: %v\", h.fleet.stepLog())\n\t}"
+        }
+      ],
+      "independent_assessment": "Expired phase deadline committed to real store before fake Driver step; stored RolledBack plus no prepare.",
+      "remaining_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/rolloutexec/executor_test.go::TestExecutorCompletesWithUnitClocksBehindTheLeader",
+      "category": "integration",
+      "accepted": true,
+      "baseline_source": {
+        "description": "Entire baseline declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 749,
+        "end_line": 764,
+        "sha256": "e3179c197b48464df8984d4a1c8c1ae797c52ce69856b810abd2dcaff5fdefef",
+        "text": "func TestExecutorCompletesWithUnitClocksBehindTheLeader(t *testing.T) {\n\th := newHarness(t)\n\th.program = h.program[:1]\n\th.program[0].Policy.ProofDeadlineSeconds = 30\n\tfor _, unit := range h.fleet.units {\n\t\tunit.behind = 45 * time.Second\n\t}\n\th.run(60, func() bool {\n\t\tphase := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1)))\n\t\treturn phase == rollout.PhaseComplete || phase == rollout.PhaseRollingBack || phase == rollout.PhaseRolledBack\n\t})\n\tif phase := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))); phase != rollout.PhaseComplete {\n\t\trecord, _ := h.load(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1)))\n\t\tt.Fatalf(\"phase = %s (%s); steps %v\", phase, record.Reason, h.fleet.stepLog())\n\t}\n}"
+      },
+      "current_source": {
+        "description": "Entire original assertion-bearing declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 749,
+        "end_line": 764,
+        "sha256": "e3179c197b48464df8984d4a1c8c1ae797c52ce69856b810abd2dcaff5fdefef",
+        "text": "func TestExecutorCompletesWithUnitClocksBehindTheLeader(t *testing.T) {\n\th := newHarness(t)\n\th.program = h.program[:1]\n\th.program[0].Policy.ProofDeadlineSeconds = 30\n\tfor _, unit := range h.fleet.units {\n\t\tunit.behind = 45 * time.Second\n\t}\n\th.run(60, func() bool {\n\t\tphase := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1)))\n\t\treturn phase == rollout.PhaseComplete || phase == rollout.PhaseRollingBack || phase == rollout.PhaseRolledBack\n\t})\n\tif phase := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))); phase != rollout.PhaseComplete {\n\t\trecord, _ := h.load(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1)))\n\t\tt.Fatalf(\"phase = %s (%s); steps %v\", phase, record.Reason, h.fleet.stepLog())\n\t}\n}"
+      },
+      "assertion_evidence": [
+        {
+          "description": "Entire assertion body including setup, all conditionals and subtests",
+          "path": "internal/rolloutexec/executor_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+          "line": 750,
+          "end_line": 763,
+          "sha256": "eba1d3b641a43d295514599d83b878f74dd268f7075a488b00ff5c08427ad26c",
+          "text": "\th := newHarness(t)\n\th.program = h.program[:1]\n\th.program[0].Policy.ProofDeadlineSeconds = 30\n\tfor _, unit := range h.fleet.units {\n\t\tunit.behind = 45 * time.Second\n\t}\n\th.run(60, func() bool {\n\t\tphase := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1)))\n\t\treturn phase == rollout.PhaseComplete || phase == rollout.PhaseRollingBack || phase == rollout.PhaseRolledBack\n\t})\n\tif phase := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))); phase != rollout.PhaseComplete {\n\t\trecord, _ := h.load(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1)))\n\t\tt.Fatalf(\"phase = %s (%s); steps %v\", phase, record.Reason, h.fleet.stepLog())\n\t}"
+        }
+      ],
+      "independent_assessment": "Injected observation clocks lag; stored controller lifecycle completes via received-time ordering. No actual clock synchronization proven.",
+      "remaining_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/rolloutexec/executor_test.go::TestExecutorDoesNotCompleteAroundAPromotedUnitThatStoppedProving",
+      "category": "integration",
+      "accepted": true,
+      "baseline_source": {
+        "description": "Entire baseline declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 727,
+        "end_line": 744,
+        "sha256": "31cb248aad04afc9f416ea7247847680ae2aa19a63c11a95248cbeec5bbbaf31",
+        "text": "func TestExecutorDoesNotCompleteAroundAPromotedUnitThatStoppedProving(t *testing.T) {\n\th := newHarness(t)\n\th.program = h.program[:1]\n\th.run(40, func() bool {\n\t\trecord, exists := h.load(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1)))\n\t\treturn exists && record.Units[\"ctl-b\"].State == rollout.UnitPromoted && record.Units[\"ctl-a\"].State == rollout.UnitSoaking\n\t})\n\th.fleet.mu.Lock()\n\th.fleet.units[\"ctl-b\"].down = true\n\th.fleet.mu.Unlock()\n\th.run(60, func() bool {\n\t\tphase := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1)))\n\t\treturn phase == rollout.PhaseRollingBack || phase == rollout.PhaseRolledBack || phase == rollout.PhaseComplete\n\t})\n\tif phase := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))); phase == rollout.PhaseComplete {\n\t\tt.Fatalf(\"the rollout completed while promoted unit ctl-b had no proof; steps %v\", h.fleet.stepLog())\n\t}\n}"
+      },
+      "current_source": {
+        "description": "Entire original assertion-bearing declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 727,
+        "end_line": 744,
+        "sha256": "31cb248aad04afc9f416ea7247847680ae2aa19a63c11a95248cbeec5bbbaf31",
+        "text": "func TestExecutorDoesNotCompleteAroundAPromotedUnitThatStoppedProving(t *testing.T) {\n\th := newHarness(t)\n\th.program = h.program[:1]\n\th.run(40, func() bool {\n\t\trecord, exists := h.load(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1)))\n\t\treturn exists && record.Units[\"ctl-b\"].State == rollout.UnitPromoted && record.Units[\"ctl-a\"].State == rollout.UnitSoaking\n\t})\n\th.fleet.mu.Lock()\n\th.fleet.units[\"ctl-b\"].down = true\n\th.fleet.mu.Unlock()\n\th.run(60, func() bool {\n\t\tphase := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1)))\n\t\treturn phase == rollout.PhaseRollingBack || phase == rollout.PhaseRolledBack || phase == rollout.PhaseComplete\n\t})\n\tif phase := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))); phase == rollout.PhaseComplete {\n\t\tt.Fatalf(\"the rollout completed while promoted unit ctl-b had no proof; steps %v\", h.fleet.stepLog())\n\t}\n}"
+      },
+      "assertion_evidence": [
+        {
+          "description": "Entire assertion body including setup, all conditionals and subtests",
+          "path": "internal/rolloutexec/executor_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+          "line": 728,
+          "end_line": 743,
+          "sha256": "b9ef1394b4d1a01b71e3daa7863cf40b0b50a0ded0aee11e6a7c627b01ed521f",
+          "text": "\th := newHarness(t)\n\th.program = h.program[:1]\n\th.run(40, func() bool {\n\t\trecord, exists := h.load(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1)))\n\t\treturn exists && record.Units[\"ctl-b\"].State == rollout.UnitPromoted && record.Units[\"ctl-a\"].State == rollout.UnitSoaking\n\t})\n\th.fleet.mu.Lock()\n\th.fleet.units[\"ctl-b\"].down = true\n\th.fleet.mu.Unlock()\n\th.run(60, func() bool {\n\t\tphase := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1)))\n\t\treturn phase == rollout.PhaseRollingBack || phase == rollout.PhaseRolledBack || phase == rollout.PhaseComplete\n\t})\n\tif phase := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))); phase == rollout.PhaseComplete {\n\t\tt.Fatalf(\"the rollout completed while promoted unit ctl-b had no proof; steps %v\", h.fleet.stepLog())\n\t}"
+        }
+      ],
+      "independent_assessment": "Stored promoted unit loses synthetic proof; subsequent persisted state cannot Complete, with RollingBack permitted.",
+      "remaining_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/rolloutexec/executor_test.go::TestExecutorDoesNotPromoteAWaveAroundAUnitThatStoppedReporting",
+      "category": "integration",
+      "accepted": true,
+      "baseline_source": {
+        "description": "Entire baseline declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 528,
+        "end_line": 561,
+        "sha256": "c183dd15498eccc50e74887c2c85472e6695edc8a796c8910f5fb96eb9f5acf7",
+        "text": "func TestExecutorDoesNotPromoteAWaveAroundAUnitThatStoppedReporting(t *testing.T) {\n\th := newHarness(t)\n\tpolicy := testPolicy()\n\tpolicy.BatchSize = 2\n\th.program = Program{{RolloutID: entityid.Derive(\"release-hosts\", rollout.ReleaseRolloutID(1)), Kind: rollout.KindHost, Cell: \"gru\", FromDigest: fromDigest,\n\t\tToDigest: toDigest, Policy: policy,\n\t\tUnits: HostUnits(map[string][]string{\"h1\": {\"p1\"}, \"h3\": {\"p2\"}, \"h4\": {\"p3\"}})}}\n\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// h3 is slow to report; h4 meets its soak first and then goes quiet.\n\th.fleet.units[\"h3\"].age = 2 * DefaultProofFreshness\n\th.run(30, func() bool {\n\t\trecord, _ := h.load(entityid.Derive(\"release-hosts\", rollout.ReleaseRolloutID(1)))\n\t\th4 := record.Units[\"h4\"]\n\t\treturn record.WaveIndex == 1 && h4.HealthyReports >= policy.MinHealthyReports &&\n\t\t\t!h4.LastHealthyAt.Before(h4.FirstHealthyAt.Add(time.Duration(policy.BatchSoakSeconds)*time.Second))\n\t})\n\th.fleet.units[\"h4\"].down = true\n\th.fleet.units[\"h3\"].age = 0\n\tfor range 10 {\n\t\th.clock.Advance(20 * time.Second)\n\t\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\trecord, _ := h.load(entityid.Derive(\"release-hosts\", rollout.ReleaseRolloutID(1)))\n\tif record.Phase != rollout.PhaseBatchSoak || record.Units[\"h3\"].HealthyReports != 0 {\n\t\tt.Fatalf(\"the wave was promoted around a silent unit: %s %+v\", record.Phase, record.Units[\"h3\"])\n\t}\n\tif !slices.Contains(h.status.heldUnits(), \"soak\") {\n\t\tt.Fatal(\"the soak hold was not reported\")\n\t}\n}"
+      },
+      "current_source": {
+        "description": "Entire original assertion-bearing declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 528,
+        "end_line": 561,
+        "sha256": "c183dd15498eccc50e74887c2c85472e6695edc8a796c8910f5fb96eb9f5acf7",
+        "text": "func TestExecutorDoesNotPromoteAWaveAroundAUnitThatStoppedReporting(t *testing.T) {\n\th := newHarness(t)\n\tpolicy := testPolicy()\n\tpolicy.BatchSize = 2\n\th.program = Program{{RolloutID: entityid.Derive(\"release-hosts\", rollout.ReleaseRolloutID(1)), Kind: rollout.KindHost, Cell: \"gru\", FromDigest: fromDigest,\n\t\tToDigest: toDigest, Policy: policy,\n\t\tUnits: HostUnits(map[string][]string{\"h1\": {\"p1\"}, \"h3\": {\"p2\"}, \"h4\": {\"p3\"}})}}\n\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// h3 is slow to report; h4 meets its soak first and then goes quiet.\n\th.fleet.units[\"h3\"].age = 2 * DefaultProofFreshness\n\th.run(30, func() bool {\n\t\trecord, _ := h.load(entityid.Derive(\"release-hosts\", rollout.ReleaseRolloutID(1)))\n\t\th4 := record.Units[\"h4\"]\n\t\treturn record.WaveIndex == 1 && h4.HealthyReports >= policy.MinHealthyReports &&\n\t\t\t!h4.LastHealthyAt.Before(h4.FirstHealthyAt.Add(time.Duration(policy.BatchSoakSeconds)*time.Second))\n\t})\n\th.fleet.units[\"h4\"].down = true\n\th.fleet.units[\"h3\"].age = 0\n\tfor range 10 {\n\t\th.clock.Advance(20 * time.Second)\n\t\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\trecord, _ := h.load(entityid.Derive(\"release-hosts\", rollout.ReleaseRolloutID(1)))\n\tif record.Phase != rollout.PhaseBatchSoak || record.Units[\"h3\"].HealthyReports != 0 {\n\t\tt.Fatalf(\"the wave was promoted around a silent unit: %s %+v\", record.Phase, record.Units[\"h3\"])\n\t}\n\tif !slices.Contains(h.status.heldUnits(), \"soak\") {\n\t\tt.Fatal(\"the soak hold was not reported\")\n\t}\n}"
+      },
+      "assertion_evidence": [
+        {
+          "description": "Entire assertion body including setup, all conditionals and subtests",
+          "path": "internal/rolloutexec/executor_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+          "line": 529,
+          "end_line": 560,
+          "sha256": "86225178178ec385131b8ee9dedd287b69b218f449cc2bc4e1b5f93b62b4f6ac",
+          "text": "\th := newHarness(t)\n\tpolicy := testPolicy()\n\tpolicy.BatchSize = 2\n\th.program = Program{{RolloutID: entityid.Derive(\"release-hosts\", rollout.ReleaseRolloutID(1)), Kind: rollout.KindHost, Cell: \"gru\", FromDigest: fromDigest,\n\t\tToDigest: toDigest, Policy: policy,\n\t\tUnits: HostUnits(map[string][]string{\"h1\": {\"p1\"}, \"h3\": {\"p2\"}, \"h4\": {\"p3\"}})}}\n\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// h3 is slow to report; h4 meets its soak first and then goes quiet.\n\th.fleet.units[\"h3\"].age = 2 * DefaultProofFreshness\n\th.run(30, func() bool {\n\t\trecord, _ := h.load(entityid.Derive(\"release-hosts\", rollout.ReleaseRolloutID(1)))\n\t\th4 := record.Units[\"h4\"]\n\t\treturn record.WaveIndex == 1 && h4.HealthyReports >= policy.MinHealthyReports &&\n\t\t\t!h4.LastHealthyAt.Before(h4.FirstHealthyAt.Add(time.Duration(policy.BatchSoakSeconds)*time.Second))\n\t})\n\th.fleet.units[\"h4\"].down = true\n\th.fleet.units[\"h3\"].age = 0\n\tfor range 10 {\n\t\th.clock.Advance(20 * time.Second)\n\t\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\trecord, _ := h.load(entityid.Derive(\"release-hosts\", rollout.ReleaseRolloutID(1)))\n\tif record.Phase != rollout.PhaseBatchSoak || record.Units[\"h3\"].HealthyReports != 0 {\n\t\tt.Fatalf(\"the wave was promoted around a silent unit: %s %+v\", record.Phase, record.Units[\"h3\"])\n\t}\n\tif !slices.Contains(h.status.heldUnits(), \"soak\") {\n\t\tt.Fatal(\"the soak hold was not reported\")\n\t}"
+        }
+      ],
+      "independent_assessment": "Stored wave and reports wait on synthetic missing proof; stored BatchSoak and zero peer reports plus soak hold are checked.",
+      "remaining_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/rolloutexec/executor_test.go::TestExecutorFencesEveryStepAndIgnoresStaleProofs",
+      "category": "integration",
+      "accepted": true,
+      "baseline_source": {
+        "description": "Entire baseline declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 401,
+        "end_line": 433,
+        "sha256": "5f520ab5a9a8d0ee7f06d814551f38a2c1da155bbd84f3691633ec97fd4d288e",
+        "text": "func TestExecutorFencesEveryStepAndIgnoresStaleProofs(t *testing.T) {\n\th := newHarness(t)\n\th.program = h.program[:1]\n\th.gate.holds[\"ctl-b\"] = 1\n\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// The lease is lost after the tick's snapshot: no step leaves.\n\th.fence.lost.Store(true)\n\tif err := h.executor.Tick(t.Context()); err == nil {\n\t\tt.Fatal(\"a tick whose lease was lost before the step succeeded\")\n\t}\n\tif steps := h.fleet.stepLog(); len(steps) != 0 {\n\t\tt.Fatalf(\"a step left after the lease was lost: %v\", steps)\n\t}\n\th.fence.lost.Store(false)\n\t// The canary only ever reports stale proofs: they never count towards\n\t// its soak, however much later they were observed than the phase start.\n\th.fleet.units[\"ctl-b\"].age = 2 * DefaultProofFreshness\n\tfor range 14 {\n\t\th.clock.Advance(20 * time.Second)\n\t\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\trecord, _ := h.load(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1)))\n\tif record.Phase != rollout.PhaseCanarySoak || record.Units[\"ctl-b\"].HealthyReports != 0 {\n\t\tt.Fatalf(\"stale proofs advanced the canary: %s %+v\", record.Phase, record.Units[\"ctl-b\"])\n\t}\n\tif steps := h.fleet.stepLog(); !slices.Equal(steps, []string{\"prepare:ctl-b\"}) {\n\t\tt.Fatalf(\"steps = %v\", steps)\n\t}\n}"
+      },
+      "current_source": {
+        "description": "Entire original assertion-bearing declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 401,
+        "end_line": 433,
+        "sha256": "5f520ab5a9a8d0ee7f06d814551f38a2c1da155bbd84f3691633ec97fd4d288e",
+        "text": "func TestExecutorFencesEveryStepAndIgnoresStaleProofs(t *testing.T) {\n\th := newHarness(t)\n\th.program = h.program[:1]\n\th.gate.holds[\"ctl-b\"] = 1\n\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// The lease is lost after the tick's snapshot: no step leaves.\n\th.fence.lost.Store(true)\n\tif err := h.executor.Tick(t.Context()); err == nil {\n\t\tt.Fatal(\"a tick whose lease was lost before the step succeeded\")\n\t}\n\tif steps := h.fleet.stepLog(); len(steps) != 0 {\n\t\tt.Fatalf(\"a step left after the lease was lost: %v\", steps)\n\t}\n\th.fence.lost.Store(false)\n\t// The canary only ever reports stale proofs: they never count towards\n\t// its soak, however much later they were observed than the phase start.\n\th.fleet.units[\"ctl-b\"].age = 2 * DefaultProofFreshness\n\tfor range 14 {\n\t\th.clock.Advance(20 * time.Second)\n\t\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\trecord, _ := h.load(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1)))\n\tif record.Phase != rollout.PhaseCanarySoak || record.Units[\"ctl-b\"].HealthyReports != 0 {\n\t\tt.Fatalf(\"stale proofs advanced the canary: %s %+v\", record.Phase, record.Units[\"ctl-b\"])\n\t}\n\tif steps := h.fleet.stepLog(); !slices.Equal(steps, []string{\"prepare:ctl-b\"}) {\n\t\tt.Fatalf(\"steps = %v\", steps)\n\t}\n}"
+      },
+      "assertion_evidence": [
+        {
+          "description": "Entire assertion body including setup, all conditionals and subtests",
+          "path": "internal/rolloutexec/executor_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+          "line": 402,
+          "end_line": 432,
+          "sha256": "6f11f4dc77d89dd7425051b2a261274d799c32d01e21ea981f77de806f944657",
+          "text": "\th := newHarness(t)\n\th.program = h.program[:1]\n\th.gate.holds[\"ctl-b\"] = 1\n\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// The lease is lost after the tick's snapshot: no step leaves.\n\th.fence.lost.Store(true)\n\tif err := h.executor.Tick(t.Context()); err == nil {\n\t\tt.Fatal(\"a tick whose lease was lost before the step succeeded\")\n\t}\n\tif steps := h.fleet.stepLog(); len(steps) != 0 {\n\t\tt.Fatalf(\"a step left after the lease was lost: %v\", steps)\n\t}\n\th.fence.lost.Store(false)\n\t// The canary only ever reports stale proofs: they never count towards\n\t// its soak, however much later they were observed than the phase start.\n\th.fleet.units[\"ctl-b\"].age = 2 * DefaultProofFreshness\n\tfor range 14 {\n\t\th.clock.Advance(20 * time.Second)\n\t\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\trecord, _ := h.load(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1)))\n\tif record.Phase != rollout.PhaseCanarySoak || record.Units[\"ctl-b\"].HealthyReports != 0 {\n\t\tt.Fatalf(\"stale proofs advanced the canary: %s %+v\", record.Phase, record.Units[\"ctl-b\"])\n\t}\n\tif steps := h.fleet.stepLog(); !slices.Equal(steps, []string{\"prepare:ctl-b\"}) {\n\t\tt.Fatalf(\"steps = %v\", steps)\n\t}"
+        }
+      ],
+      "independent_assessment": "Fake lease loss prevents step after existing stored canary; later stale synthetic proofs leave persisted report count zero.",
+      "remaining_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/rolloutexec/executor_test.go::TestExecutorFollowerIsIdleAndANewLeaderAdopts",
+      "category": "integration",
+      "accepted": true,
+      "baseline_source": {
+        "description": "Entire baseline declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 320,
+        "end_line": 346,
+        "sha256": "3e91710399bcdf1f1b35b02a6f567c3a7767a81103b7c54be915f1f9997c77af",
+        "text": "func TestExecutorFollowerIsIdleAndANewLeaderAdopts(t *testing.T) {\n\th := newHarness(t)\n\th.run(20, func() bool {\n\t\trecord, exists := h.load(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1)))\n\t\treturn exists && record.Phase == rollout.PhaseCanarySoak\n\t})\n\tsteps := len(h.fleet.stepLog())\n\th.fence.leader.Store(false)\n\tfor range 5 {\n\t\th.clock.Advance(20 * time.Second)\n\t\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\tif len(h.fleet.stepLog()) != steps {\n\t\tt.Fatal(\"a follower sent steps\")\n\t}\n\th.fence.epoch.Store(8)\n\th.fence.leader.Store(true)\n\th.run(200, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseComplete\n\t})\n\trecord, _ := h.load(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1)))\n\tif record.AuthorityEpoch != 8 {\n\t\tt.Fatalf(\"the new leader did not adopt the rollout: epoch %d\", record.AuthorityEpoch)\n\t}\n}"
+      },
+      "current_source": {
+        "description": "Entire original assertion-bearing declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 320,
+        "end_line": 346,
+        "sha256": "3e91710399bcdf1f1b35b02a6f567c3a7767a81103b7c54be915f1f9997c77af",
+        "text": "func TestExecutorFollowerIsIdleAndANewLeaderAdopts(t *testing.T) {\n\th := newHarness(t)\n\th.run(20, func() bool {\n\t\trecord, exists := h.load(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1)))\n\t\treturn exists && record.Phase == rollout.PhaseCanarySoak\n\t})\n\tsteps := len(h.fleet.stepLog())\n\th.fence.leader.Store(false)\n\tfor range 5 {\n\t\th.clock.Advance(20 * time.Second)\n\t\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\tif len(h.fleet.stepLog()) != steps {\n\t\tt.Fatal(\"a follower sent steps\")\n\t}\n\th.fence.epoch.Store(8)\n\th.fence.leader.Store(true)\n\th.run(200, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseComplete\n\t})\n\trecord, _ := h.load(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1)))\n\tif record.AuthorityEpoch != 8 {\n\t\tt.Fatalf(\"the new leader did not adopt the rollout: epoch %d\", record.AuthorityEpoch)\n\t}\n}"
+      },
+      "assertion_evidence": [
+        {
+          "description": "Entire assertion body including setup, all conditionals and subtests",
+          "path": "internal/rolloutexec/executor_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+          "line": 321,
+          "end_line": 345,
+          "sha256": "f65dc84aea4e9641a0162402a3afb38164ff51ba929768b622dcad2ce7fde8f3",
+          "text": "\th := newHarness(t)\n\th.run(20, func() bool {\n\t\trecord, exists := h.load(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1)))\n\t\treturn exists && record.Phase == rollout.PhaseCanarySoak\n\t})\n\tsteps := len(h.fleet.stepLog())\n\th.fence.leader.Store(false)\n\tfor range 5 {\n\t\th.clock.Advance(20 * time.Second)\n\t\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\tif len(h.fleet.stepLog()) != steps {\n\t\tt.Fatal(\"a follower sent steps\")\n\t}\n\th.fence.epoch.Store(8)\n\th.fence.leader.Store(true)\n\th.run(200, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseComplete\n\t})\n\trecord, _ := h.load(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1)))\n\tif record.AuthorityEpoch != 8 {\n\t\tt.Fatalf(\"the new leader did not adopt the rollout: epoch %d\", record.AuthorityEpoch)\n\t}"
+        }
+      ],
+      "independent_assessment": "Follower fake snapshot sends no steps, later epoch8 adopts real stored record and completion is loaded. No actual election.",
+      "remaining_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/rolloutexec/executor_test.go::TestExecutorForgetsTheMemoryOfAnEndedRollout",
+      "category": "integration",
+      "accepted": true,
+      "baseline_source": {
+        "description": "Entire baseline declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 496,
+        "end_line": 524,
+        "sha256": "8273355ed2227e6b95f177c2de42395fcb3614ba41fb25511eedd69dfcbba366",
+        "text": "func TestExecutorForgetsTheMemoryOfAnEndedRollout(t *testing.T) {\n\th := newHarness(t)\n\th.program = h.program[:1]\n\th.fleet.units[\"ctl-c\"].down = true\n\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\th.fleet.units[\"ctl-c\"].down = false\n\th.fleet.units[\"ctl-c\"].digest = otherBad\n\th.run(5, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseAborted\n\t})\n\th.fleet.units[\"ctl-c\"].digest = fromDigest\n\t// Memory left from the ended rollout must not reach the next one.\n\th.executor.holds[\"ctl-z\"] = \"left over from rel1\"\n\th.publish(strings.Repeat(\"d\", 64))\n\tnext := h.program[0]\n\tnext.RolloutID, next.ToDigest = entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(2)), strings.Repeat(\"d\", 64)\n\th.program = Program{next}\n\th.run(5, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(2))) == rollout.PhaseCanarySoak\n\t})\n\th.status.mu.Lock()\n\tlast := h.status.statuses[len(h.status.statuses)-1]\n\th.status.mu.Unlock()\n\tif last.RolloutID != entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(2)) || len(last.Holds) != 0 {\n\t\tt.Fatalf(\"status of the next rollout = %s holds %v\", last.RolloutID, last.Holds)\n\t}\n}"
+      },
+      "current_source": {
+        "description": "Entire original assertion-bearing declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 496,
+        "end_line": 524,
+        "sha256": "8273355ed2227e6b95f177c2de42395fcb3614ba41fb25511eedd69dfcbba366",
+        "text": "func TestExecutorForgetsTheMemoryOfAnEndedRollout(t *testing.T) {\n\th := newHarness(t)\n\th.program = h.program[:1]\n\th.fleet.units[\"ctl-c\"].down = true\n\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\th.fleet.units[\"ctl-c\"].down = false\n\th.fleet.units[\"ctl-c\"].digest = otherBad\n\th.run(5, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseAborted\n\t})\n\th.fleet.units[\"ctl-c\"].digest = fromDigest\n\t// Memory left from the ended rollout must not reach the next one.\n\th.executor.holds[\"ctl-z\"] = \"left over from rel1\"\n\th.publish(strings.Repeat(\"d\", 64))\n\tnext := h.program[0]\n\tnext.RolloutID, next.ToDigest = entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(2)), strings.Repeat(\"d\", 64)\n\th.program = Program{next}\n\th.run(5, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(2))) == rollout.PhaseCanarySoak\n\t})\n\th.status.mu.Lock()\n\tlast := h.status.statuses[len(h.status.statuses)-1]\n\th.status.mu.Unlock()\n\tif last.RolloutID != entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(2)) || len(last.Holds) != 0 {\n\t\tt.Fatalf(\"status of the next rollout = %s holds %v\", last.RolloutID, last.Holds)\n\t}\n}"
+      },
+      "assertion_evidence": [
+        {
+          "description": "Entire assertion body including setup, all conditionals and subtests",
+          "path": "internal/rolloutexec/executor_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+          "line": 497,
+          "end_line": 523,
+          "sha256": "4c1a1ec2a2a4e8b21df38c4a61cbc4d57478fe78ac0ce09c2975883feebe1de7",
+          "text": "\th := newHarness(t)\n\th.program = h.program[:1]\n\th.fleet.units[\"ctl-c\"].down = true\n\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\th.fleet.units[\"ctl-c\"].down = false\n\th.fleet.units[\"ctl-c\"].digest = otherBad\n\th.run(5, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseAborted\n\t})\n\th.fleet.units[\"ctl-c\"].digest = fromDigest\n\t// Memory left from the ended rollout must not reach the next one.\n\th.executor.holds[\"ctl-z\"] = \"left over from rel1\"\n\th.publish(strings.Repeat(\"d\", 64))\n\tnext := h.program[0]\n\tnext.RolloutID, next.ToDigest = entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(2)), strings.Repeat(\"d\", 64)\n\th.program = Program{next}\n\th.run(5, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(2))) == rollout.PhaseCanarySoak\n\t})\n\th.status.mu.Lock()\n\tlast := h.status.statuses[len(h.status.statuses)-1]\n\th.status.mu.Unlock()\n\tif last.RolloutID != entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(2)) || len(last.Holds) != 0 {\n\t\tt.Fatalf(\"status of the next rollout = %s holds %v\", last.RolloutID, last.Holds)\n\t}"
+        }
+      ],
+      "independent_assessment": "Distinct persisted ended/new rollout and new generation drive clearing old injected hold from derived status.",
+      "remaining_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/rolloutexec/executor_test.go::TestExecutorFreezesWhenARollbackIsRefused",
+      "category": "integration",
+      "accepted": true,
+      "baseline_source": {
+        "description": "Entire baseline declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 305,
+        "end_line": 318,
+        "sha256": "430963d6e359825ca9bb5ec82c4aed7017f9df4d33044b41d53bcef450f1f603",
+        "text": "func TestExecutorFreezesWhenARollbackIsRefused(t *testing.T) {\n\th := newHarness(t)\n\th.fleet.wrongBinary[\"ctl-b\"] = true\n\th.fleet.refuseRollback = true\n\th.run(10, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseFrozen\n\t})\n\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif steps := h.fleet.stepLog(); slices.Contains(steps, \"prepare:ctl-c\") {\n\t\tt.Fatalf(\"a frozen rollout kept moving forward: %v\", steps)\n\t}\n}"
+      },
+      "current_source": {
+        "description": "Entire original assertion-bearing declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 305,
+        "end_line": 318,
+        "sha256": "430963d6e359825ca9bb5ec82c4aed7017f9df4d33044b41d53bcef450f1f603",
+        "text": "func TestExecutorFreezesWhenARollbackIsRefused(t *testing.T) {\n\th := newHarness(t)\n\th.fleet.wrongBinary[\"ctl-b\"] = true\n\th.fleet.refuseRollback = true\n\th.run(10, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseFrozen\n\t})\n\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif steps := h.fleet.stepLog(); slices.Contains(steps, \"prepare:ctl-c\") {\n\t\tt.Fatalf(\"a frozen rollout kept moving forward: %v\", steps)\n\t}\n}"
+      },
+      "assertion_evidence": [
+        {
+          "description": "Entire assertion body including setup, all conditionals and subtests",
+          "path": "internal/rolloutexec/executor_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+          "line": 306,
+          "end_line": 317,
+          "sha256": "9e76d44882d3d7158b0e9033bcb0a06a511b1a1040c13087e14f47bc247cc79d",
+          "text": "\th := newHarness(t)\n\th.fleet.wrongBinary[\"ctl-b\"] = true\n\th.fleet.refuseRollback = true\n\th.run(10, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseFrozen\n\t})\n\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif steps := h.fleet.stepLog(); slices.Contains(steps, \"prepare:ctl-c\") {\n\t\tt.Fatalf(\"a frozen rollout kept moving forward: %v\", steps)\n\t}"
+        }
+      ],
+      "independent_assessment": "Wrong-binary/refused rollback fakes yield persisted Frozen; later tick avoids forward step around frozen record.",
+      "remaining_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/rolloutexec/executor_test.go::TestExecutorHoldsAStepWhileAGroupPeerIsNotServing",
+      "category": "integration",
+      "accepted": true,
+      "baseline_source": {
+        "description": "Entire baseline declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 348,
+        "end_line": 373,
+        "sha256": "d9a3ec186a0dc02251872468d269eb60adc1877a64439d56a0113d84148565cc",
+        "text": "func TestExecutorHoldsAStepWhileAGroupPeerIsNotServing(t *testing.T) {\n\th := newHarness(t)\n\th.program = h.program[:1]\n\t// Pass preflight, then lose a peer before the canary step is sent.\n\th.gate.holds[\"ctl-b\"] = 1\n\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif got := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))); got != rollout.PhaseCanary {\n\t\tt.Fatalf(\"phase = %s\", got)\n\t}\n\th.fleet.units[\"ctl-c\"].down = true\n\tfor range 5 {\n\t\th.clock.Advance(20 * time.Second)\n\t\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\tif steps := h.fleet.stepLog(); len(steps) != 0 {\n\t\tt.Fatalf(\"a step was sent while its group peer was down: %v\", steps)\n\t}\n\th.fleet.units[\"ctl-c\"].down = false\n\th.run(200, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseComplete\n\t})\n}"
+      },
+      "current_source": {
+        "description": "Entire original assertion-bearing declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 348,
+        "end_line": 373,
+        "sha256": "d9a3ec186a0dc02251872468d269eb60adc1877a64439d56a0113d84148565cc",
+        "text": "func TestExecutorHoldsAStepWhileAGroupPeerIsNotServing(t *testing.T) {\n\th := newHarness(t)\n\th.program = h.program[:1]\n\t// Pass preflight, then lose a peer before the canary step is sent.\n\th.gate.holds[\"ctl-b\"] = 1\n\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif got := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))); got != rollout.PhaseCanary {\n\t\tt.Fatalf(\"phase = %s\", got)\n\t}\n\th.fleet.units[\"ctl-c\"].down = true\n\tfor range 5 {\n\t\th.clock.Advance(20 * time.Second)\n\t\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\tif steps := h.fleet.stepLog(); len(steps) != 0 {\n\t\tt.Fatalf(\"a step was sent while its group peer was down: %v\", steps)\n\t}\n\th.fleet.units[\"ctl-c\"].down = false\n\th.run(200, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseComplete\n\t})\n}"
+      },
+      "assertion_evidence": [
+        {
+          "description": "Entire assertion body including setup, all conditionals and subtests",
+          "path": "internal/rolloutexec/executor_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+          "line": 349,
+          "end_line": 372,
+          "sha256": "9c4e41346155e651f81eac9a3b21415a8289dd71c5e82fd199c4a4109d6660d3",
+          "text": "\th := newHarness(t)\n\th.program = h.program[:1]\n\t// Pass preflight, then lose a peer before the canary step is sent.\n\th.gate.holds[\"ctl-b\"] = 1\n\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif got := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))); got != rollout.PhaseCanary {\n\t\tt.Fatalf(\"phase = %s\", got)\n\t}\n\th.fleet.units[\"ctl-c\"].down = true\n\tfor range 5 {\n\t\th.clock.Advance(20 * time.Second)\n\t\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\tif steps := h.fleet.stepLog(); len(steps) != 0 {\n\t\tt.Fatalf(\"a step was sent while its group peer was down: %v\", steps)\n\t}\n\th.fleet.units[\"ctl-c\"].down = false\n\th.run(200, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseComplete\n\t})"
+        }
+      ],
+      "independent_assessment": "Stored canary phase held while synthetic quorum peer lacks proof, then real KV lifecycle reaches Complete when proof returns.",
+      "remaining_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/rolloutexec/executor_test.go::TestExecutorJudgesTheStepByTheAttemptThatWasAccepted",
+      "category": "integration",
+      "accepted": true,
+      "baseline_source": {
+        "description": "Entire baseline declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 613,
+        "end_line": 644,
+        "sha256": "757e3c981c46d76667015977b351188f286edbbdfc0198f015489c3b188fd709",
+        "text": "func TestExecutorJudgesTheStepByTheAttemptThatWasAccepted(t *testing.T) {\n\th := newHarness(t)\n\th.fleet.failSteps[\"ctl-b\"] = 1\n\th.run(10, func() bool { return slices.Contains(h.fleet.stepLog(), \"prepare:ctl-b\") })\n\t// An unrelated restart on the old release, before the retry.\n\th.fleet.mu.Lock()\n\th.fleet.restart(\"ctl-b\")\n\th.fleet.slowRestart[\"ctl-b\"] = true\n\th.fleet.mu.Unlock()\n\th.clock.Advance(20 * time.Second)\n\tfor range 3 {\n\t\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\th.clock.Advance(5 * time.Second)\n\t}\n\tif phase := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))); phase == rollout.PhaseRollingBack || phase == rollout.PhaseRolledBack {\n\t\tt.Fatalf(\"a restart before the accepted step rolled the rollout back: %v\", h.fleet.stepLog())\n\t}\n\t// The unit now restarts onto the target and the rollout moves on.\n\th.fleet.mu.Lock()\n\th.fleet.slowRestart[\"ctl-b\"] = false\n\th.fleet.units[\"ctl-b\"].digest = toDigest\n\th.fleet.restart(\"ctl-b\")\n\th.fleet.mu.Unlock()\n\th.run(40, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseComplete\n\t})\n\tif slices.Contains(h.fleet.stepLog(), \"rollback:ctl-b\") {\n\t\tt.Fatalf(\"steps = %v\", h.fleet.stepLog())\n\t}\n}"
+      },
+      "current_source": {
+        "description": "Entire original assertion-bearing declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 613,
+        "end_line": 644,
+        "sha256": "757e3c981c46d76667015977b351188f286edbbdfc0198f015489c3b188fd709",
+        "text": "func TestExecutorJudgesTheStepByTheAttemptThatWasAccepted(t *testing.T) {\n\th := newHarness(t)\n\th.fleet.failSteps[\"ctl-b\"] = 1\n\th.run(10, func() bool { return slices.Contains(h.fleet.stepLog(), \"prepare:ctl-b\") })\n\t// An unrelated restart on the old release, before the retry.\n\th.fleet.mu.Lock()\n\th.fleet.restart(\"ctl-b\")\n\th.fleet.slowRestart[\"ctl-b\"] = true\n\th.fleet.mu.Unlock()\n\th.clock.Advance(20 * time.Second)\n\tfor range 3 {\n\t\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\th.clock.Advance(5 * time.Second)\n\t}\n\tif phase := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))); phase == rollout.PhaseRollingBack || phase == rollout.PhaseRolledBack {\n\t\tt.Fatalf(\"a restart before the accepted step rolled the rollout back: %v\", h.fleet.stepLog())\n\t}\n\t// The unit now restarts onto the target and the rollout moves on.\n\th.fleet.mu.Lock()\n\th.fleet.slowRestart[\"ctl-b\"] = false\n\th.fleet.units[\"ctl-b\"].digest = toDigest\n\th.fleet.restart(\"ctl-b\")\n\th.fleet.mu.Unlock()\n\th.run(40, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseComplete\n\t})\n\tif slices.Contains(h.fleet.stepLog(), \"rollback:ctl-b\") {\n\t\tt.Fatalf(\"steps = %v\", h.fleet.stepLog())\n\t}\n}"
+      },
+      "assertion_evidence": [
+        {
+          "description": "Entire assertion body including setup, all conditionals and subtests",
+          "path": "internal/rolloutexec/executor_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+          "line": 614,
+          "end_line": 643,
+          "sha256": "48f6eaacb26e2c77445105b11602c1e7de5f0d507891ba6316152bef71bbe7dc",
+          "text": "\th := newHarness(t)\n\th.fleet.failSteps[\"ctl-b\"] = 1\n\th.run(10, func() bool { return slices.Contains(h.fleet.stepLog(), \"prepare:ctl-b\") })\n\t// An unrelated restart on the old release, before the retry.\n\th.fleet.mu.Lock()\n\th.fleet.restart(\"ctl-b\")\n\th.fleet.slowRestart[\"ctl-b\"] = true\n\th.fleet.mu.Unlock()\n\th.clock.Advance(20 * time.Second)\n\tfor range 3 {\n\t\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\th.clock.Advance(5 * time.Second)\n\t}\n\tif phase := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))); phase == rollout.PhaseRollingBack || phase == rollout.PhaseRolledBack {\n\t\tt.Fatalf(\"a restart before the accepted step rolled the rollout back: %v\", h.fleet.stepLog())\n\t}\n\t// The unit now restarts onto the target and the rollout moves on.\n\th.fleet.mu.Lock()\n\th.fleet.slowRestart[\"ctl-b\"] = false\n\th.fleet.units[\"ctl-b\"].digest = toDigest\n\th.fleet.restart(\"ctl-b\")\n\th.fleet.mu.Unlock()\n\th.run(40, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseComplete\n\t})\n\tif slices.Contains(h.fleet.stepLog(), \"rollback:ctl-b\") {\n\t\tt.Fatalf(\"steps = %v\", h.fleet.stepLog())\n\t}"
+        }
+      ],
+      "independent_assessment": "Accepted attempt tracks synthetic incarnation after undelivered attempt; persisted rollout avoids rollback and completes.",
+      "remaining_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/rolloutexec/executor_test.go::TestExecutorNeedsAProofAfterTheAcceptedRollback",
+      "category": "integration",
+      "accepted": true,
+      "baseline_source": {
+        "description": "Entire baseline declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 566,
+        "end_line": 587,
+        "sha256": "8bb55184e1cdcd9c480bfd1948a52518c71ec761ade386f0e408db63a8ec9d54",
+        "text": "func TestExecutorNeedsAProofAfterTheAcceptedRollback(t *testing.T) {\n\th := newHarness(t)\n\th.program = h.program[:1]\n\th.fleet.wrongBinary[\"ctl-b\"] = true\n\th.fleet.retryRollbacks = 1\n\th.run(10, func() bool {\n\t\treturn slices.Contains(h.fleet.stepLog(), \"rollback:ctl-b\")\n\t})\n\th.clock.Advance(20 * time.Second)\n\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif steps := h.fleet.stepLog(); len(steps) != 3 || steps[2] != \"rollback:ctl-b\" {\n\t\tt.Fatalf(\"steps = %v, want the retried rollback accepted\", steps)\n\t}\n\tif phase := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))); phase != rollout.PhaseRollingBack {\n\t\tt.Fatalf(\"rollback completed on a proof from before its accepted attempt: %s\", phase)\n\t}\n\th.run(3, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseRolledBack\n\t})\n}"
+      },
+      "current_source": {
+        "description": "Entire original assertion-bearing declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 566,
+        "end_line": 587,
+        "sha256": "8bb55184e1cdcd9c480bfd1948a52518c71ec761ade386f0e408db63a8ec9d54",
+        "text": "func TestExecutorNeedsAProofAfterTheAcceptedRollback(t *testing.T) {\n\th := newHarness(t)\n\th.program = h.program[:1]\n\th.fleet.wrongBinary[\"ctl-b\"] = true\n\th.fleet.retryRollbacks = 1\n\th.run(10, func() bool {\n\t\treturn slices.Contains(h.fleet.stepLog(), \"rollback:ctl-b\")\n\t})\n\th.clock.Advance(20 * time.Second)\n\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif steps := h.fleet.stepLog(); len(steps) != 3 || steps[2] != \"rollback:ctl-b\" {\n\t\tt.Fatalf(\"steps = %v, want the retried rollback accepted\", steps)\n\t}\n\tif phase := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))); phase != rollout.PhaseRollingBack {\n\t\tt.Fatalf(\"rollback completed on a proof from before its accepted attempt: %s\", phase)\n\t}\n\th.run(3, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseRolledBack\n\t})\n}"
+      },
+      "assertion_evidence": [
+        {
+          "description": "Entire assertion body including setup, all conditionals and subtests",
+          "path": "internal/rolloutexec/executor_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+          "line": 567,
+          "end_line": 586,
+          "sha256": "513fd5057971b3709962d8d55f55aaa513a3e082b60b49dcba99c28886d16ec1",
+          "text": "\th := newHarness(t)\n\th.program = h.program[:1]\n\th.fleet.wrongBinary[\"ctl-b\"] = true\n\th.fleet.retryRollbacks = 1\n\th.run(10, func() bool {\n\t\treturn slices.Contains(h.fleet.stepLog(), \"rollback:ctl-b\")\n\t})\n\th.clock.Advance(20 * time.Second)\n\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif steps := h.fleet.stepLog(); len(steps) != 3 || steps[2] != \"rollback:ctl-b\" {\n\t\tt.Fatalf(\"steps = %v, want the retried rollback accepted\", steps)\n\t}\n\tif phase := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))); phase != rollout.PhaseRollingBack {\n\t\tt.Fatalf(\"rollback completed on a proof from before its accepted attempt: %s\", phase)\n\t}\n\th.run(3, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseRolledBack\n\t})"
+        }
+      ],
+      "independent_assessment": "Real persisted RollingBack waits for synthetic proof received after accepted rollback, then becomes RolledBack.",
+      "remaining_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/rolloutexec/executor_test.go::TestExecutorPreflightWaitsForProofsAndAbortsOnAForeignRelease",
+      "category": "integration",
+      "accepted": true,
+      "baseline_source": {
+        "description": "Entire baseline declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 375,
+        "end_line": 399,
+        "sha256": "6118e9580b6334aabc36960de01acdfa3c5dc06b6cfd38b684416cf15713c325",
+        "text": "func TestExecutorPreflightWaitsForProofsAndAbortsOnAForeignRelease(t *testing.T) {\n\th := newHarness(t)\n\th.program = h.program[:1]\n\th.fleet.units[\"ctl-c\"].down = true\n\tfor range 3 {\n\t\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\th.clock.Advance(20 * time.Second)\n\t}\n\tif got := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))); got != rollout.PhasePreflight {\n\t\tt.Fatalf(\"phase = %s, want preflight held for the missing proof\", got)\n\t}\n\tif !slices.Contains(h.status.heldUnits(), \"preflight\") {\n\t\tt.Fatal(\"the preflight hold was not reported\")\n\t}\n\th.fleet.units[\"ctl-c\"].down = false\n\th.fleet.units[\"ctl-c\"].digest = otherBad\n\th.run(5, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseAborted\n\t})\n\tif len(h.fleet.stepLog()) != 0 {\n\t\tt.Fatalf(\"an aborted preflight sent steps: %v\", h.fleet.stepLog())\n\t}\n}"
+      },
+      "current_source": {
+        "description": "Entire original assertion-bearing declaration",
+        "path": "internal/rolloutexec/executor_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+        "line": 375,
+        "end_line": 399,
+        "sha256": "6118e9580b6334aabc36960de01acdfa3c5dc06b6cfd38b684416cf15713c325",
+        "text": "func TestExecutorPreflightWaitsForProofsAndAbortsOnAForeignRelease(t *testing.T) {\n\th := newHarness(t)\n\th.program = h.program[:1]\n\th.fleet.units[\"ctl-c\"].down = true\n\tfor range 3 {\n\t\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\th.clock.Advance(20 * time.Second)\n\t}\n\tif got := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))); got != rollout.PhasePreflight {\n\t\tt.Fatalf(\"phase = %s, want preflight held for the missing proof\", got)\n\t}\n\tif !slices.Contains(h.status.heldUnits(), \"preflight\") {\n\t\tt.Fatal(\"the preflight hold was not reported\")\n\t}\n\th.fleet.units[\"ctl-c\"].down = false\n\th.fleet.units[\"ctl-c\"].digest = otherBad\n\th.run(5, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseAborted\n\t})\n\tif len(h.fleet.stepLog()) != 0 {\n\t\tt.Fatalf(\"an aborted preflight sent steps: %v\", h.fleet.stepLog())\n\t}\n}"
+      },
+      "assertion_evidence": [
+        {
+          "description": "Entire assertion body including setup, all conditionals and subtests",
+          "path": "internal/rolloutexec/executor_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+          "line": 376,
+          "end_line": 398,
+          "sha256": "2412ebd2ccfaacb61526ff5f668dcbaa6ba4b5316d21fb5d382f1c02edf1baec",
+          "text": "\th := newHarness(t)\n\th.program = h.program[:1]\n\th.fleet.units[\"ctl-c\"].down = true\n\tfor range 3 {\n\t\tif err := h.executor.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\th.clock.Advance(20 * time.Second)\n\t}\n\tif got := h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))); got != rollout.PhasePreflight {\n\t\tt.Fatalf(\"phase = %s, want preflight held for the missing proof\", got)\n\t}\n\tif !slices.Contains(h.status.heldUnits(), \"preflight\") {\n\t\tt.Fatal(\"the preflight hold was not reported\")\n\t}\n\th.fleet.units[\"ctl-c\"].down = false\n\th.fleet.units[\"ctl-c\"].digest = otherBad\n\th.run(5, func() bool {\n\t\treturn h.phase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(1))) == rollout.PhaseAborted\n\t})\n\tif len(h.fleet.stepLog()) != 0 {\n\t\tt.Fatalf(\"an aborted preflight sent steps: %v\", h.fleet.stepLog())\n\t}"
+        }
+      ],
+      "independent_assessment": "Persisted Preflight holds missing synthetic proof, derives status hold; foreign digest commits Aborted without steps.",
+      "remaining_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    }
+  ],
+  "reviewed_source_pins": {
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/rolloutexec/agent_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/rolloutexec/agent_test.go",
+      "mode": "100644",
+      "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+      "sha256": "d899b9efe3db4a3cc62f58dc69fd59c5296f97578f823aa9fa10e03c4a8badbc",
+      "bytes": 16678
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/rolloutexec/helpers_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/rolloutexec/helpers_test.go",
+      "mode": "100644",
+      "git_blob": "d07c428b6f6f6330fb8df29c1b1f34a4406c0474",
+      "sha256": "3a9eca6b001471bff0904d8be811c4a491de4fdb198e94a29893ba643c4c3ccc",
+      "bytes": 3079
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/rolloutexec/executor_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/rolloutexec/executor_test.go",
+      "mode": "100644",
+      "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+      "sha256": "7d7b686715369347e1a6b43f0d16506b4298a6baae7e287a13948965d8a6ffcd",
+      "bytes": 28805
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/rolloutexec/program_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/rolloutexec/program_test.go",
+      "mode": "100644",
+      "git_blob": "cae3b6b042bf5363dcbb3a27c948e7941181f21b",
+      "sha256": "7d3a811d261178d36427de17aae1ecd7ee325ca79eba2b2378049877679ac4aa",
+      "bytes": 21514
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/rolloutexec/agent.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/rolloutexec/agent.go",
+      "mode": "100644",
+      "git_blob": "ecff5307d4e659595af043992d8a9b1e23105466",
+      "sha256": "623272d8ebdfa0a1b9d97a13f56965f9ef58ee83ae1e6f59c3ea2276aba13669",
+      "bytes": 10391
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/rolloutexec/step.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/rolloutexec/step.go",
+      "mode": "100644",
+      "git_blob": "4be05eca00ad569f814882a0ebcbcb0826c9218d",
+      "sha256": "fc02fe6494d6344bffbf4f923df0f9f778da53ca13cc4be231eee5512f3f9002",
+      "bytes": 12882
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/trust/envelope.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/trust/envelope.go",
+      "mode": "100644",
+      "git_blob": "b525ec7a2bba0fb81c2c4f51f5e503394eb0b5cc",
+      "sha256": "3c90601156d882bb761fa45b7a72542de6a9b96042272a155a8b6c87f745ac5a",
+      "bytes": 21424
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/selfupdate/layout.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/selfupdate/layout.go",
+      "mode": "100644",
+      "git_blob": "37f3b6a5e87f559cc0d699492b2d13ce2ba5a495",
+      "sha256": "4c4ac096db7865ad0b241ec8f273d912d8b3b1bcb6b4282129d3a3e89ccc921b",
+      "bytes": 10826
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/selfupdate/stage.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/selfupdate/stage.go",
+      "mode": "100644",
+      "git_blob": "ae0b34849192bf7e70282874448d1320e56a6023",
+      "sha256": "105228fae7c690bd0b882e1ef1fb100fe25567701d70762d0b212206960591c9",
+      "bytes": 7545
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/selfupdate/activate.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/selfupdate/activate.go",
+      "mode": "100644",
+      "git_blob": "329855efb8fd22162c41c2a4f2ade6d35faf0791",
+      "sha256": "3601684cc28d3c5899f542ffdd8c886a23174118205cf79e8b375c4ad4b93b81",
+      "bytes": 8456
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/selfupdate/restore.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/selfupdate/restore.go",
+      "mode": "100644",
+      "git_blob": "30c76d7fc25a19ca7f415425fa621f7ec452e9e5",
+      "sha256": "2bc7ac60ec4a581c35dc203083bb28b22879e8fda3ffed57bf6711e1168e8120",
+      "bytes": 8505
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/selfupdate/epoch.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/selfupdate/epoch.go",
+      "mode": "100644",
+      "git_blob": "0282e73400b66690516ca459c118610fb75f5182",
+      "sha256": "b47b419db0ab657c4b0db76842ef75e14d3d38155d0cc2c9f161f3450008e456",
+      "bytes": 1865
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/selfupdate/restart.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/selfupdate/restart.go",
+      "mode": "100644",
+      "git_blob": "c88e41a521df6047dd4056139ca37fc480715537",
+      "sha256": "2c4f3405d9984a033d6777797762e1162782ff5ee29cfb6f79e329b4fe04e734",
+      "bytes": 1793
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/rolloutexec/executor.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/rolloutexec/executor.go",
+      "mode": "100644",
+      "git_blob": "6f009b1a90ccd3c3b4c41cea7e5881e29e2069ca",
+      "sha256": "7005d0ac16b1e52a745283429be62598b13b1269a6f534c50df285cd80e1e427",
+      "bytes": 25290
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/rolloutexec/proof.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/rolloutexec/proof.go",
+      "mode": "100644",
+      "git_blob": "8b3cecf0200367ab8ba3350ef7e8d3d84fae435a",
+      "sha256": "baa2f4bf917e38d2ca96354e6b41cd253865e0fadb33fead49bd6d00117ef88f",
+      "bytes": 13603
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/rolloutexec/plan.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/rolloutexec/plan.go",
+      "mode": "100644",
+      "git_blob": "94a23931f87a3b4eea0007e5d6b5fb1209d3f790",
+      "sha256": "557fc73c280557c80765da4a9e67b9c6a43b78899aeabc3ff639065193965c60",
+      "bytes": 8064
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/rolloutexec/decisions.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/rolloutexec/decisions.go",
+      "mode": "100644",
+      "git_blob": "4054b561e20fd3ee3af810e1a0cec5de11ef4c84",
+      "sha256": "32a773d84eb590c4a2569c71f003f4f427aa78c4cca3e646f9e39725f2028a7c",
+      "bytes": 3701
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/rolloutexec/status.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/rolloutexec/status.go",
+      "mode": "100644",
+      "git_blob": "b6a1036a9b0f607c5d83478db0ef8fb06a582dda",
+      "sha256": "53ee087171293a8084b65ea2f3aae6a98fd69e7ad515139e7e9de55ec2262cce",
+      "bytes": 3955
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/rollout/store.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/rollout/store.go",
+      "mode": "100644",
+      "git_blob": "aec45c1b50d5f4c3a66effbf62b46bd01b9a991d",
+      "sha256": "1368cff72007370e88b9f7e759db3911eca0ea19ec137eb0e561eb1405a16296",
+      "bytes": 22323
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/rollout/active.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/rollout/active.go",
+      "mode": "100644",
+      "git_blob": "5efbbd4e4c15db825ce8ad9e56bede2281598859",
+      "sha256": "06bafb85a150bc66c90c4c2143170ecddb580b38932354471450c032eac5c513",
+      "bytes": 2882
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/rollout/release.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/rollout/release.go",
+      "mode": "100644",
+      "git_blob": "43316134de66dbdb3a4c5911b9181a7f70fcdc87",
+      "sha256": "8fb8cbabe6925578c45c9c53ec24585c63ec211fc075326abb754870b2101249",
+      "bytes": 22460
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/rollout/transition.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/rollout/transition.go",
+      "mode": "100644",
+      "git_blob": "ce98368bb49f5cc01995f0dae1a709fbdf87672c",
+      "sha256": "7e77c21a4b964edda571cc7c893026ffef0780e64c405da6cbca81a4f6a1f9af",
+      "bytes": 20289
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/rollout/actions.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/rollout/actions.go",
+      "mode": "100644",
+      "git_blob": "6d968728e261b9d6bbe3c0f3fdedc15bb86bab94",
+      "sha256": "2ac7e94ca6348c94be17d5a301145abc5f4b34dcf38b46d35d9c6ac2695cfd86",
+      "bytes": 2897
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/rollout/soak.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/rollout/soak.go",
+      "mode": "100644",
+      "git_blob": "a933d82a103c881536978b8c1f0e1749f209c5d6",
+      "sha256": "cd46f81cb08b42c653a4cf0bd0ebdb4195199661278a02292b361b00e89814aa",
+      "bytes": 4081
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:REFACTOR.md": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "REFACTOR.md",
+      "mode": "100644",
+      "git_blob": "593d4b544684df951072b63afe8badfb28431ed9",
+      "sha256": "4ec6ca3e1c007e635f35b707b2d60df6eecf88cb53fa5694d5153ecf2c68aa4a",
+      "bytes": 97007
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/rolloutexec/agent_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/rolloutexec/agent_test.go",
+      "mode": "100644",
+      "git_blob": "903f188c7d62314a1a7fd436cfd5eee3a3e59aeb",
+      "sha256": "d899b9efe3db4a3cc62f58dc69fd59c5296f97578f823aa9fa10e03c4a8badbc",
+      "bytes": 16678
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/rolloutexec/executor_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/rolloutexec/executor_test.go",
+      "mode": "100644",
+      "git_blob": "3c116be2211a52ee36e3656e9d314ed16b8464d7",
+      "sha256": "7d7b686715369347e1a6b43f0d16506b4298a6baae7e287a13948965d8a6ffcd",
+      "bytes": 28805
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json",
+      "mode": "100644",
+      "git_blob": "277bf19cde79c1fc63d86c22a7adca9631216f8a",
+      "sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513",
+      "bytes": 423442
+    }
+  },
+  "supplemental_inspection": [
+    {
+      "path": "internal/authority/types.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "e70ccafadf1d60650e86d93549c6d4d87f2d0d5e",
+      "mode": "100644",
+      "file_sha256": "d0886d7b4bd7dc75d5816a3ad4bcb01c0f3e3917f9f0b15e43a4d5cfaa53f326",
+      "file_bytes": 13938,
+      "line": 75,
+      "end_line": 78,
+      "text": "func (s Snapshot) CanMutate() bool {\n\treturn entityid.Valid(s.DeploymentID) && s.Ready && s.Leader && s.Epoch > 0 && s.Revision > 0 &&\n\t\t!s.ExpiresAt.IsZero() && time.Now().Before(s.ExpiresAt)\n}\n",
+      "span_sha256": "ac4a3fe4f7962f1c7ac4d2cc9a326c86f6acfac53bc85d9b170b7f7c0f31fe83",
+      "assessment": "Fake snapshot passes real CanMutate predicate; no real lease service"
+    },
+    {
+      "path": "internal/rollout/sequence.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "dd266506ce25a66fb54f631956316e7a914c44d2",
+      "mode": "100644",
+      "file_sha256": "063c52884a6e7aadb650b77e1535f24c94b158dff210b486f50dc51100169423",
+      "file_bytes": 7483,
+      "line": 15,
+      "end_line": 28,
+      "text": "func rejectSequencedReceipt(wire []byte) error {\n\tenvelope, err := trust.DecodeEnvelope(wire)\n\tif err != nil || envelope.Scope.Domain != release.UpdateReceiptDomain {\n\t\treturn nil\n\t}\n\tvar receipt release.BinaryUpdateReceipt\n\tif err := protocol.DecodeStrict(envelope.Payload, &receipt, trust.MaxPayloadBytes); err != nil {\n\t\treturn err\n\t}\n\tif receipt.ReleaseSequence > 0 || receipt.SequenceMigrationSHA256 != \"\" {\n\t\treturn fmt.Errorf(\"%w: signed sequence requires signature admission\", ErrInvalid)\n\t}\n\treturn nil\n}\n",
+      "span_sha256": "371af05b8b29bbad5811bb771c82a5d41d753c98300427a41946640e61e065c3",
+      "assessment": "Empty receipt in fixture exits legacy sequence guard before signature admission"
+    },
+    {
+      "path": "internal/rollout/sequence.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "dd266506ce25a66fb54f631956316e7a914c44d2",
+      "mode": "100644",
+      "file_sha256": "063c52884a6e7aadb650b77e1535f24c94b158dff210b486f50dc51100169423",
+      "file_bytes": 7483,
+      "line": 72,
+      "end_line": 92,
+      "text": "func (s *Store) seedReleaseOrdering(ctx context.Context, desired Desired) (Desired, error) {\n\tif desired.OrderingFloor.Generation > 0 || desired.LegacyFloor.Generation > 0 && desired.LegacyIssuanceFloor.Generation > 0 || desired.Generation() == 0 {\n\t\treturn desired, nil\n\t}\n\tretained, err := s.retainedReleases(ctx, desired)\n\tif err != nil {\n\t\treturn Desired{}, err\n\t}\n\tfor _, historical := range retained {\n\t\tif historical.ReleaseSequence > 0 {\n\t\t\treturn Desired{}, fmt.Errorf(\"%w: sequenced history has no durable floor\", ErrInvalid)\n\t\t}\n\t\tif desired.LegacyFloor.Generation == 0 || historical.RunNumber > desired.LegacyFloor.RunNumber {\n\t\t\tdesired.LegacyFloor = historical\n\t\t}\n\t\tif desired.LegacyIssuanceFloor.Generation == 0 || historical.CreatedAt.After(desired.LegacyIssuanceFloor.CreatedAt) {\n\t\t\tdesired.LegacyIssuanceFloor = historical\n\t\t}\n\t}\n\treturn desired, nil\n}\n",
+      "span_sha256": "ddaa9803e8ec4dbfb3d15897f65f0ab5547a7ab9191f567bafc8838b37b000d8",
+      "assessment": "Fixture release ordering seeding"
+    },
+    {
+      "path": "internal/rollout/sequence.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "dd266506ce25a66fb54f631956316e7a914c44d2",
+      "mode": "100644",
+      "file_sha256": "063c52884a6e7aadb650b77e1535f24c94b158dff210b486f50dc51100169423",
+      "file_bytes": 7483,
+      "line": 94,
+      "end_line": 148,
+      "text": "func advanceReleaseOrdering(desired *Desired, next Release, cell string) error {\n\tfloor := desired.OrderingFloor\n\tif floor.ReleaseSequence > 0 {\n\t\tif next.SequenceMigrationSHA256 != floor.SequenceMigrationSHA256 {\n\t\t\treturn fmt.Errorf(\"%w: release ordering migration cannot change\", ErrInvalid)\n\t\t}\n\t\tif next.ReleaseSequence < floor.ReleaseSequence {\n\t\t\treturn fmt.Errorf(\"%w: signer sequence %d is below retained floor %d\", ErrInvalid, next.ReleaseSequence, floor.ReleaseSequence)\n\t\t}\n\t\tif next.ReleaseSequence == floor.ReleaseSequence {\n\t\t\tsame, err := sameSequencedContent(floor, next)\n\t\t\tif err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tif !same {\n\t\t\t\treturn fmt.Errorf(\"%w: signer sequence already names another release\", ErrInvalid)\n\t\t\t}\n\t\t\tif desired.Release.Digest != next.Digest || desired.Release.RollbackOf != 0 {\n\t\t\t\treturn fmt.Errorf(\"%w: retained sequence cannot restart a rolled-back release\", ErrInvalid)\n\t\t\t}\n\t\t\treturn nil\n\t\t}\n\t}\n\tif next.ReleaseSequence > 0 {\n\t\tenvelope, err := trust.DecodeEnvelope(next.SequenceMigration)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tvar migration release.SequenceMigration\n\t\tif err := protocol.DecodeStrict(envelope.Payload, &migration, trust.MaxPayloadBytes); err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif !migration.AdmitsLegacyFloor(strings.ToUpper(cell), desired.LegacyFloor.RunNumber, desired.LegacyIssuanceFloor.CreatedAt) {\n\t\t\treturn fmt.Errorf(\"%w: migration omits retained legacy run floor %d\", ErrInvalid, desired.LegacyFloor.RunNumber)\n\t\t}\n\t\tdesired.OrderingFloor = next\n\t} else {\n\t\tif next.RunNumber < desired.LegacyFloor.RunNumber {\n\t\t\treturn fmt.Errorf(\"%w: CI run is below retained legacy floor\", ErrInvalid)\n\t\t}\n\t\tif next.CreatedAt.Before(desired.LegacyIssuanceFloor.CreatedAt) {\n\t\t\treturn fmt.Errorf(\"%w: issuance is below retained legacy floor\", ErrInvalid)\n\t\t}\n\t\tif next.RunNumber > 0 && next.RunNumber == desired.LegacyFloor.RunNumber && (next.Digest != desired.LegacyFloor.Digest || next.SourceRevision != desired.LegacyFloor.SourceRevision) {\n\t\t\treturn fmt.Errorf(\"%w: CI run already names another release\", ErrInvalid)\n\t\t}\n\t\tif desired.LegacyFloor.Generation == 0 || next.RunNumber > desired.LegacyFloor.RunNumber {\n\t\t\tdesired.LegacyFloor = next\n\t\t}\n\t\tif desired.LegacyIssuanceFloor.Generation == 0 || next.CreatedAt.After(desired.LegacyIssuanceFloor.CreatedAt) {\n\t\t\tdesired.LegacyIssuanceFloor = next\n\t\t}\n\t}\n\treturn nil\n}\n",
+      "span_sha256": "c0ab554b813976165c61870694a71fd5d480d70a7dc45f66dd5a7c581c2fc7fc",
+      "assessment": "Fixture legacy generation ordering"
+    },
+    {
+      "path": "internal/rollout/store.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "aec45c1b50d5f4c3a66effbf62b46bd01b9a991d",
+      "mode": "100644",
+      "file_sha256": "1368cff72007370e88b9f7e759db3911eca0ea19ec137eb0e561eb1405a16296",
+      "file_bytes": 22323,
+      "line": 553,
+      "end_line": 572,
+      "text": "func decodeAbandoned(wire []byte, rolloutID string) (*abandonedMarker, error) {\n\tvar kind struct {\n\t\tAbandonedRollout string `json:\"abandoned_rollout\"`\n\t\tSchemaVersion    int    `json:\"schema_version\"`\n\t}\n\tif err := protocol.DecodeTolerant(wire, &kind, maxRecordBytes); err != nil {\n\t\treturn nil, err\n\t}\n\tif kind.AbandonedRollout == \"\" || kind.SchemaVersion != 0 {\n\t\treturn nil, nil\n\t}\n\tvar marker abandonedMarker\n\tif err := protocol.DecodeStrict(wire, &marker, maxRecordBytes); err != nil {\n\t\treturn nil, err\n\t}\n\tif marker.AbandonedRollout != rolloutID || !entityid.Valid(rolloutID) {\n\t\treturn nil, fmt.Errorf(\"%w: abandoned rollout binding\", ErrInvalid)\n\t}\n\treturn &marker, nil\n}\n",
+      "span_sha256": "4d9c5f5c81f4d0d381d9893fc9f0ba5626f7af44d9117506d5fbedf373e3f8e5",
+      "assessment": "Load probes abandoned marker locally before tolerant record decode"
+    },
+    {
+      "path": "internal/rollout/store.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "aec45c1b50d5f4c3a66effbf62b46bd01b9a991d",
+      "mode": "100644",
+      "file_sha256": "1368cff72007370e88b9f7e759db3911eca0ea19ec137eb0e561eb1405a16296",
+      "file_bytes": 22323,
+      "line": 520,
+      "end_line": 535,
+      "text": "func boundAttempts(attempts map[string]int, knownBad []string, keep string) {\n\tif len(attempts) <= maxAttemptDigest {\n\t\treturn\n\t}\n\tdigests := slices.Sorted(maps.Keys(attempts))\n\tfor _, refused := range []bool{true, false} {\n\t\tfor _, digest := range digests {\n\t\t\tif len(attempts) <= maxAttemptDigest {\n\t\t\t\treturn\n\t\t\t}\n\t\t\tif digest != keep && slices.Contains(knownBad, digest) == refused {\n\t\t\t\tdelete(attempts, digest)\n\t\t\t}\n\t\t}\n\t}\n}\n",
+      "span_sha256": "1f5f23ec63f529095d7cd5afc93620e21fe8c1be526bfaf5061c55f16e0892b0",
+      "assessment": "Attempt-map bounding helper"
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "source_mutated": false,
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_delta": 0,
+    "qualification_delta": 0,
+    "retirement_delta": 0,
+    "deletion_authorized": false,
+    "global_completion": false
+  }
+}

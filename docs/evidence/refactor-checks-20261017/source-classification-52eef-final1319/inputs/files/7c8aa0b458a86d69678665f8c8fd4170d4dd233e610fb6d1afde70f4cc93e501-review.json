@@ -1,0 +1,80 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2180_2200",
+  "author": "/root/classification_100_dispatch/batch_2200_2220",
+  "status": "ACCEPTED_SOURCE_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-3600-3620-ndr60x33/classification.json",
+    "sha256": "34c17917f151276b788adb8f7e4157cc62ddb45fc8241278ec049e8a0798346b",
+    "sha256sums_path": "/tmp/ts-source-3600-3620-ndr60x33/SHA256SUMS",
+    "sha256sums_sha256": "a62c011783f039f6d0929ad4af900a9b5e389f0accc18795136f6c6a31dfe14d"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[3600:3620]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2180_2200"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "scripts/ci/deploylag/main_test.go::TestRunDeliversAlertAfterCollectionContextEnds",
+    "scripts/ci/deploylag/main_test.go::TestRunValidatesCurrentProofsBeforeClosingAnIncident",
+    "scripts/ci/prune_releases_test.go::TestPruneReleasesKeepsNewestRecentAndPinned",
+    "scripts/ci/racetest/race_test.go::TestRaceScheduler",
+    "scripts/ci/racetest/race_test.go::TestRaceSchedulerCleanupStopsShardProcessTrees",
+    "scripts/ci/racetest/race_test.go::TestSchedulerGoWrapper",
+    "scripts/ci/racetest/wait_review_test.go::TestRaceSchedulerReapsShardsWaitNNoLongerReports",
+    "scripts/ci/stablemtime/main_test.go::TestStampDerivesEveryTrackedTimeFromItsObject",
+    "scripts/ci/stablemtime/main_test.go::TestStampObjectIDBoundsOnDisk",
+    "scripts/ci/stablemtime/main_test.go::TestStampRefusesModifiedTrackedFiles",
+    "scripts/ci/stablemtime/main_test.go::TestStampSeparatesChangedContent",
+    "tests/ci/m0_oci_real_caller_test.go::TestRealCallerAcknowledgmentFrontiersPreserveUint64",
+    "tests/ci/m0_oci_real_caller_test.go::TestRealCallerBootstrapReceiptAndCommandIdentity",
+    "tests/ci/m0_oci_real_caller_test.go::TestRealCallerCurrentReportExactIdentity",
+    "tests/ci/m0_oci_real_caller_test.go::TestRealCallerCustomerEnvelopeCommitments",
+    "tests/ci/m0_oci_real_caller_test.go::TestRealCallerCustomerTokenRejectsNoncanonicalIDs",
+    "tests/ci/m0_oci_real_caller_test.go::TestRealCallerForwardMapRejections",
+    "tests/ci/m0_oci_real_caller_test.go::TestRealCallerHostsRepeatableNATSForwardFlags",
+    "tests/ci/m0_oci_real_caller_test.go::TestRealCallerLoopbackTCPPreservesSignedIPTLSAndHost",
+    "tests/ci/m0_oci_real_caller_test.go::TestRealCallerTerrabaseStaticARM64Qualification"
+  ],
+  "counts": {
+    "integration": 8,
+    "unit": 9,
+    "mixed": 2,
+    "unresolved": 1
+  },
+  "checks_performed": [
+    "Independently manually read all20 full canonical roots and reached fixture/helper/production paths; classified actual observable assertions and independent local-only blocks.",
+    "Verified20 exact allocation/accounting literal IDs, cyclic reviewer ownership, survival raw mappings and all input SHA256 pins.",
+    "Verified40 baseline/current raw declarations against manually reviewed explicit bounds, declaration text/hash, survival identities, canonical drift and Git blob pins.",
+    "Verified26 complete file pins for Git mode/blob/SHA256/bytes and81 exact assertion/connected-source spans against canonical Git bytes.",
+    "Verified categories/counts, qualification/safety/no-credit limits, exact packet/checksum hashes, manifest and0444/0555 immutable modes."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "retained_unresolved_obligations": [
+    {
+      "kind": "helper_root_classification_unresolved",
+      "root_id": "scripts/ci/racetest/race_test.go::TestSchedulerGoWrapper",
+      "detail": "Conditional helper endpoint returns on ordinary test invocation and has no own t assertion. Parents own process/state assertions. Established helper-root accounting rule is not supplied; unresolved retained."
+    }
+  ],
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE; runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; source does not claim passing/buildable/runtime-qualified.",
+    "No repository/source/ledger mutations, Go/test/helper/scanner/parser/framework/format/probe/locks/privilege/cloud/signing/crypto/TerraBase execution or downloads. Read-only Git/file/hash and metadata serialization only.",
+    "Release pruning exercises local fake GitHub and actual shell/curl only. Scheduler exercises generated tiny fixture Go tests; no production cluster/runtime/CI success inferred.",
+    "Stable timestamps qualify local Git/file syscall behavior only, not crash durability. TLS test uses one loopback server with fixture certificate, not a live TerraBase service.",
+    "Bootstrap evidence file reads do not qualify actual bootstrap/go/readelf execution, decryption, signing or source CI proof. Qualification file schema predicates do not qualify real TerraBase binary.",
+    "Conditional TestSchedulerGoWrapper retains unresolved helper-root obligation; no independent category/count credit inferred.",
+    "All safety/recovery/ordering/validation obligations retained. No count/deletion/retirement/ledger/completion/runtime promotion; independent peer required.",
+    "Acceptance is source-only evidence validation; conditional TestSchedulerGoWrapper remains unresolved without independent category/count credit. Parent process assertions do not transfer standalone helper-root credit.",
+    "The reviewer did not execute any project source, test, helper, scheduler, Git fixture, network/process probe or cryptographic operation. File/Git inspection and metadata-only packaging are the entire performed method."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "NONE; source-only independent acceptance. No ledger/count/deletion/retirement/runtime/qualification/completion promotion."
+}

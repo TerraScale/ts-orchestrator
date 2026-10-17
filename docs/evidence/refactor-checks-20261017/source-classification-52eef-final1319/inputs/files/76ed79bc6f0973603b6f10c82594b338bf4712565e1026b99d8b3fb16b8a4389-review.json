@@ -1,0 +1,225 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2060_2080",
+  "author": "/root/classification_100_dispatch/batch_2080_2100",
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "packet": {
+    "path": "/tmp/ts-final1319-source-3480-3500-p1-f07xz5re/classification.json",
+    "sha256": "bdc2f3e652e687d2233893108a4e93e91121237565f69c7e358351c4833aa49a",
+    "checksum_path": "/tmp/ts-final1319-source-3480-3500-p1-f07xz5re/SHA256SUMS",
+    "checksum_sha256": "9b07cbb5d806adf9a63490743257e3bd99dfc2c431dc90559c56425bf691f588"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[3480:3500]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2060_2080"
+  },
+  "root_ids": [
+    "internal/terrabase/restore_check_test.go::TestRestoreCheckRefusesLiveDevices",
+    "internal/terrabase/restore_check_test.go::TestRestoreCheckRejectsBadFlags",
+    "internal/terrabase/restore_check_test.go::TestRestoreCheckReopensDeviceAfterOCIRead",
+    "internal/terrabase/restore_check_test.go::TestRestoreCheckRequiresIDsAndSafeNames",
+    "internal/terrabase/restore_check_test.go::TestRestoreCheckReverifiesBeforeStartingMember",
+    "internal/terrabase/restore_check_test.go::TestRestoreCheckRunsOnlyOnTheVerifiedScratchInstance",
+    "internal/terrabase/restore_check_test.go::TestRestoreVolumeConfigUsesThePlanScope",
+    "internal/terrabase/restore_check_test.go::TestVerifyRestoreReadsTheDocumentWithAReadOnlyKey",
+    "internal/terrabase/restore_namespace_test.go::TestRestoreNamespaceCommandIsolatesBeforeExec",
+    "internal/terrabase/restore_namespace_test.go::TestRestoreNamespaceHasOnlyLoopbackAndLocalTraffic",
+    "internal/terrabase/terrabase_test.go::TestHealthy",
+    "internal/terrabase/terrabase_test.go::TestLayoutEnvAddsHostOwnedPaths",
+    "internal/terrabase/terrabase_test.go::TestMemberCertificateIssue",
+    "internal/terrabase/terrabase_test.go::TestMemberIsTheNamedPeerOrTheOneAtTheAddress",
+    "internal/terrabase/terrabase_test.go::TestParsePeersRejectsScopedAddresses",
+    "internal/terrabase/terrabase_test.go::TestParseProfile",
+    "internal/terrabase/terrabase_test.go::TestVerifyRelease",
+    "internal/terrabase/terrabase_test.go::TestVerifyReleaseAcceptsTheARM64Fixture",
+    "internal/terrabase/terrabase_test.go::TestVerifyReleaseRequiresTheAssetMachine",
+    "internal/terrabase/wan_test.go::TestCollectWANLoopbackBoundsAndNoRedirect"
+  ],
+  "counts": {
+    "integration": 9,
+    "unit": 8,
+    "mixed": 3,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Own [3460:3480) packet sealed and handed off before independent peer review.",
+    "Independently read20 full canonical declarations and actual descriptor/device/HTTP/TLS/process/namespace/file-consumer fixtures and reached production paths.",
+    "Verified20 literal allocation IDs/survival rows,40 raw baseline/current declaration bounds/text/SHA256,24 file Git blob/mode/SHA256/byte pins, input pins and69 exact assertion/callee spans. All baseline/current bodies exact.",
+    "Verified original packet59c90266 remains preserved and fresh final bdc2f3e6. Final delta only P1 wording/findings/correction provenance; source identity/raw bodies/spans/categories/file pins unchanged.",
+    "Verified final expected packet/checksum hashes, SHA256SUMS and files0444/directory0555. Metadata-only checks on pinned spans, no source parser/scanner/helper/runtime execution."
+  ],
+  "independent_root_assessment": [
+    {
+      "root_id": "internal/terrabase/restore_check_test.go::TestRestoreCheckRefusesLiveDevices",
+      "category": "integration",
+      "accepted": true,
+      "reason": "Real host-marker/device descriptor/mountinfo reads support admission refusal; exact cause and optional root-device branch remain uncredited.",
+      "qualification_limits_retained": "Host marker presence can reject before device checks; root block branch skips when /dev/block identity is unavailable. Error cause is not asserted, so no specific mounted/boot rejection reason is qualified."
+    },
+    {
+      "root_id": "internal/terrabase/restore_check_test.go::TestRestoreCheckRejectsBadFlags",
+      "category": "unit",
+      "accepted": true,
+      "reason": "All entries stop at required-field/flag or pure request validation. No-checksum stops at missing database, before organization/checksum checks.",
+      "qualification_limits_retained": "The case named no checksum omits --database, so runRestoreCheck rejects at its required-field guard before resolveRestoreCheck or VerifyRelease. It also supplies invalid organization o, a later unexercised condition. Missing-checksum behavior is not credited by this root."
+    },
+    {
+      "root_id": "internal/terrabase/restore_check_test.go::TestRestoreCheckReopensDeviceAfterOCIRead",
+      "category": "integration",
+      "accepted": true,
+      "reason": "Real symlink replacement and O_PATH/Fstat comparison support production path revalidation; OCI callback synthetic.",
+      "qualification_limits_retained": "OCI callback is synthetic; regular files model path identity, not real block device/attachment/cloud provenance."
+    },
+    {
+      "root_id": "internal/terrabase/restore_check_test.go::TestRestoreCheckRequiresIDsAndSafeNames",
+      "category": "unit",
+      "accepted": true,
+      "reason": "Direct safe-path and canonical-ID strings are local validation.",
+      "qualification_limits_retained": "No release read, API, device, mount, database or process boundary."
+    },
+    {
+      "root_id": "internal/terrabase/restore_check_test.go::TestRestoreCheckReverifiesBeforeStartingMember",
+      "category": "unit",
+      "accepted": true,
+      "reason": "Injected rejection returns before filesystem identity check, namespace or member start.",
+      "qualification_limits_retained": "Layout TempDir is incidental; no actual OCI, filesystem identity check, mount or process assertion reached."
+    },
+    {
+      "root_id": "internal/terrabase/restore_check_test.go::TestRestoreCheckRunsOnlyOnTheVerifiedScratchInstance",
+      "category": "integration",
+      "accepted": true,
+      "reason": "Production HTTP reads loopback IMDS simulator response and compares identity; no live OCI infrastructure.",
+      "qualification_limits_retained": "Fixture replaces IMDS URL; no live OCI metadata or scratch infrastructure is qualified."
+    },
+    {
+      "root_id": "internal/terrabase/restore_check_test.go::TestRestoreVolumeConfigUsesThePlanScope",
+      "category": "unit",
+      "accepted": true,
+      "reason": "Plan file supplies schema/scope vectors; projection and validation are core target, so file transport incidental.",
+      "qualification_limits_retained": "restoreVolumeConfig does ReadFile; this is not treated as meaningful integration merely because JSON vectors are placed in a temporary file."
+    },
+    {
+      "root_id": "internal/terrabase/restore_check_test.go::TestVerifyRestoreReadsTheDocumentWithAReadOnlyKey",
+      "category": "integration",
+      "accepted": true,
+      "reason": "Readiness TLS, key HTTP and bearer-document TLS exchanges support ETag/error behavior; database simulated.",
+      "qualification_limits_retained": "Protocol simulators, not TerraBase: no database binary, real backup restore or live dataset. Error redaction assertions belong to these same protocol responses."
+    },
+    {
+      "root_id": "internal/terrabase/restore_namespace_test.go::TestRestoreNamespaceCommandIsolatesBeforeExec",
+      "category": "mixed",
+      "accepted": true,
+      "reason": "Local command-object assertions coexist with actual child process rejection of unchanged namespace through inherited descriptor/procfs.",
+      "qualification_limits_retained": "Parent clears CLONE_NEWNET deliberately for direct-invocation rejection; this root does not prove successful isolated launch. Static command-object assertions remain unit-only."
+    },
+    {
+      "root_id": "internal/terrabase/restore_namespace_test.go::TestRestoreNamespaceHasOnlyLoopbackAndLocalTraffic",
+      "category": "integration",
+      "accepted": true,
+      "reason": "Parent launches real namespaced test child; interfaces, host-loopback refusal and local HTTP/TLS are process/network observables. Privilege dependencies retained.",
+      "qualification_limits_retained": "No command executed during source review. Root/sudo/userns/capability/kernel permissions are runtime dependencies; child is test executable, not TerraBase."
+    },
+    {
+      "root_id": "internal/terrabase/terrabase_test.go::TestHealthy",
+      "category": "integration",
+      "accepted": true,
+      "reason": "Actual loopback HTTP status/body and closed-listener failures support health client behavior.",
+      "qualification_limits_retained": "No TerraBase process or real readiness guarantee; only admin HTTP client behavior."
+    },
+    {
+      "root_id": "internal/terrabase/terrabase_test.go::TestLayoutEnvAddsHostOwnedPaths",
+      "category": "unit",
+      "accepted": true,
+      "reason": "In-memory map/path construction and absent-client-certificate branch only.",
+      "qualification_limits_retained": "No host paths/files or runtime environment actually read or created."
+    },
+    {
+      "root_id": "internal/terrabase/terrabase_test.go::TestMemberCertificateIssue",
+      "category": "mixed",
+      "accepted": true,
+      "reason": "Independent certificate predicates coexist with missing/group-readable/symlink CA-key file admission assertions.",
+      "qualification_limits_retained": "Crypto algorithms are local; no TLS peer exchange. Filesystem key protection is material separate integration block; no cryptographic execution performed by reviewer."
+    },
+    {
+      "root_id": "internal/terrabase/terrabase_test.go::TestMemberIsTheNamedPeerOrTheOneAtTheAddress",
+      "category": "unit",
+      "accepted": true,
+      "reason": "Named-peer and address-fallback choices use local values.",
+      "qualification_limits_retained": "No member process, discovery, networking or persisted identity."
+    },
+    {
+      "root_id": "internal/terrabase/terrabase_test.go::TestParsePeersRejectsScopedAddresses",
+      "category": "unit",
+      "accepted": true,
+      "reason": "Scoped/link-local refusal and IPv4/IPv6 acceptance are local parse vectors.",
+      "qualification_limits_retained": "No sockets or peer service exchange."
+    },
+    {
+      "root_id": "internal/terrabase/terrabase_test.go::TestParseProfile",
+      "category": "unit",
+      "accepted": true,
+      "reason": "Profile defaults and invalid ports/keys/peer lists are local.",
+      "qualification_limits_retained": "No environment-driven service or runtime process is started."
+    },
+    {
+      "root_id": "internal/terrabase/terrabase_test.go::TestVerifyRelease",
+      "category": "mixed",
+      "accepted": true,
+      "reason": "Actual binary/checksum file admission plus independent pre-I/O asset-name regex guard makes mixed.",
+      "qualification_limits_retained": "Fake ELF/scripts never run. Renamed-name assertion206:207 is independent local-only guard; no published release trust or build/runtime qualification."
+    },
+    {
+      "root_id": "internal/terrabase/terrabase_test.go::TestVerifyReleaseAcceptsTheARM64Fixture",
+      "category": "integration",
+      "accepted": true,
+      "reason": "Checked-in bare64byte ARM64 ELF/checksum consumption supports artifact verifier; no executable run.",
+      "qualification_limits_retained": "Fixture is bare64byte ELF header; never executed and not a real TerraBase release."
+    },
+    {
+      "root_id": "internal/terrabase/terrabase_test.go::TestVerifyReleaseRequiresTheAssetMachine",
+      "category": "integration",
+      "accepted": true,
+      "reason": "Actual machine/header file-consumer rejection fixtures; no native execution.",
+      "qualification_limits_retained": "Synthetic files exercise file consumer/header admission only, no native executable compatibility or runtime success."
+    },
+    {
+      "root_id": "internal/terrabase/wan_test.go::TestCollectWANLoopbackBoundsAndNoRedirect",
+      "category": "integration",
+      "accepted": true,
+      "reason": "Actual HTTP metrics exchange, request-count, redirect/body/time bounds support result; no independent direct parser block.",
+      "qualification_limits_retained": "Synthetic Prometheus responses, not live replication. Raw metrics fixture and actual HTTP exchange support core assertions; no independent direct parser block in this root."
+    }
+  ],
+  "resolved_findings": [
+    {
+      "id": "P1",
+      "root_id": "internal/terrabase/restore_check_test.go::TestRestoreCheckRejectsBadFlags",
+      "corrected_evidence": "No-checksum vector omits --database and returns at required-field guard81. Invalid organization is later unexercised; missing-checksum behavior remains uncredited.",
+      "final_packet_sha256": "bdc2f3e652e687d2233893108a4e93e91121237565f69c7e358351c4833aa49a"
+    }
+  ],
+  "remaining_findings": [],
+  "retained_qualification_limits": [
+    "Host-marker presence and optional root block-device checks cannot establish exact mounted/boot refusal cause.",
+    "Namespace roots contain real parent process assertions; child helper branches are conditional test endpoints. No privileged process/namespace work performed during review.",
+    "Synthetic/bare ELF never executed; protocol servers simulate OCI metadata/TerraBase, no real backup/dataset/infrastructure result.",
+    "Plan/schema files are incidental; materially asserted file-consumer security behavior retains integration classification. Original assertions/safety obligations retained."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": false,
+    "deletion_credit": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  }
+}

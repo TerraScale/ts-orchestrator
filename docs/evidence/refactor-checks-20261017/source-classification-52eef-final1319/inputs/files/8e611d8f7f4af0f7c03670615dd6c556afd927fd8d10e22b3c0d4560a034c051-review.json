@@ -1,0 +1,218 @@
+{
+  "schema": "source-classification-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_40_60",
+  "author": "/root/classification_100_dispatch/batch_60_80",
+  "range": [
+    2560,
+    2580
+  ],
+  "decision": "ACCEPT_SOURCE_ONLY_WITH_EXPLICIT_LIMITS",
+  "accepted_packet": {
+    "path": "/tmp/ts-final1319-classification-2560-2580-acjykza4/classification.json",
+    "sha256": "18620496110b22e346bb697e5a199c0ae51a6e85aebb92ab65f4547ad11d80a1",
+    "checksum_file": "/tmp/ts-final1319-classification-2560-2580-acjykza4/SHA256SUMS",
+    "checksum_file_sha256": "ea9508dc15497a09fcde0dc641baee4c9ebfec7cd663c8777b11707cf5b20078"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "literal_root_ids": [
+    "internal/ocicost/usage_test.go::TestUsageFiltersComponents",
+    "internal/ocicost/usage_test.go::TestUsageKeepsDayWithoutAmount",
+    "internal/ocicost/usage_test.go::TestUsagePagesAcrossTwoPages",
+    "internal/ocicost/usage_test.go::TestUsageRejectsBadAnswers",
+    "internal/ocicost/usage_test.go::TestUsageReportIsSortedAndValid",
+    "internal/ocicost/usage_test.go::TestUsageRequestShapes",
+    "internal/ocicost/usage_test.go::TestUsageRoundsUpToCents",
+    "internal/ocicost/usage_test.go::TestUsageSKUPrices",
+    "internal/ocicost/usage_test.go::TestUsageStopsAfterSixteenPages",
+    "internal/ocicost/usage_test.go::TestUsageWindowAtMonthEnd",
+    "internal/ocicost/usage_test.go::TestUsageWrapsAPIError",
+    "internal/ocicost/view_test.go::TestSummarizeCarriesForecast",
+    "internal/ocicost/view_test.go::TestSummarizeFoldsLinesPastTheBound",
+    "internal/ocicost/view_test.go::TestSummarizeUntaggedFloorsAtZero",
+    "internal/ociregion/admission_security_test.go::TestBilledGiBRequiresLexicalInteger",
+    "internal/ociregion/admission_security_test.go::TestJSONRejectsNestedDuplicateAndTrailingValue",
+    "internal/ociregion/admission_security_test.go::TestMoneyRoundsTiesToEven",
+    "internal/ociregion/admission_security_test.go::TestOCIListDoesNotTurnMalformedStorageResponseIntoEmptyInventory",
+    "internal/ociregion/admission_security_test.go::TestPlanPrivatePrefixChecksWholeNetwork",
+    "internal/ociregion/admission_security_test.go::TestReadJSONRejectsSymlinkAndNonregularSource"
+  ],
+  "counts": {
+    "integration": 1,
+    "unit": 19,
+    "mixed": 0,
+    "unresolved": 0,
+    "total": 20
+  },
+  "checks_performed": [
+    "Independently manually read all20 full canonical roots and connected actual fake/helper/production paths;11 usage roots read in full earlier during immediately preceding own connected-source review and reread against peer evidence.",
+    "Verified exact allocation/accounting slice2560:2580 and unique frozen original mappings; all40 baseline/current complete raw declarations bounds/text/hash/bytes verified; no inventory drift.",
+    "Verified18 Git file blob/mode/SHA256/byte pins and canonical current worktree equality;26 exact connected spans and20 exact assertion spans verified.",
+    "Verified all input pins, exact packet/checksum-file hashes, checksum entry readback, files0444/dir0555 and20-root I1/U19/M0/R0 counts.",
+    "Followed direct Engine.Invoke(oci) to realOCI/ForRegion/Client.Call/osObjectList/bucketFlags. It bypasses Dependency and rejects missing namespace before objects client/ListObjects. Intended malformed subprocess stdout is never consumed.",
+    "Followed ReadJSON through capture/readJSON/readBytes to actual unix.Open O_NOFOLLOW on symlink and actual file.Stat directory rejection. Regular-file creation is setup; no successful JSON decode or durable/cloud claim."
+  ],
+  "resolved_findings": [],
+  "remaining_correction_findings": [],
+  "retained_uncredited_obligations": [
+    {
+      "allocation_index": 2577,
+      "root_id": "internal/ociregion/admission_security_test.go::TestOCIListDoesNotTurnMalformedStorageResponseIntoEmptyInventory",
+      "status": "NAMED_MALFORMED_STORAGE_RESPONSE_TARGET_UNEXERCISED_UNCREDITED",
+      "finding": "Broad err!=nil only establishes rejection at actual pre-I/O missing namespace-name guard. The Dependency subprocess response is bypassed; malformed/duplicate/empty storage response handling remains unexercised and uncredited despite narrow unit root classification."
+    }
+  ],
+  "source_assessment": [
+    "UsageAPI fixtures and view reports are in-memory synthetic data; local request construction/paging/rounding/window/component/cost/forecast arithmetic only. No real OCI request or cost-store boundary.",
+    "JSON lexical-integer/duplicate/trailing-value, rational ties-to-even money, and non-global full-prefix tests are local predicates.",
+    "Root2579 crosses real OS open/stat rejection boundaries; no successful JSON read, permissions, persistence/restart, cloud admission or live OCI qualification."
+  ],
+  "per_root_review": [
+    {
+      "allocation_index": 2560,
+      "root_id": "internal/ocicost/usage_test.go::TestUsageFiltersComponents",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2561,
+      "root_id": "internal/ocicost/usage_test.go::TestUsageKeepsDayWithoutAmount",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2562,
+      "root_id": "internal/ocicost/usage_test.go::TestUsagePagesAcrossTwoPages",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2563,
+      "root_id": "internal/ocicost/usage_test.go::TestUsageRejectsBadAnswers",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2564,
+      "root_id": "internal/ocicost/usage_test.go::TestUsageReportIsSortedAndValid",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2565,
+      "root_id": "internal/ocicost/usage_test.go::TestUsageRequestShapes",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2566,
+      "root_id": "internal/ocicost/usage_test.go::TestUsageRoundsUpToCents",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2567,
+      "root_id": "internal/ocicost/usage_test.go::TestUsageSKUPrices",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2568,
+      "root_id": "internal/ocicost/usage_test.go::TestUsageStopsAfterSixteenPages",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2569,
+      "root_id": "internal/ocicost/usage_test.go::TestUsageWindowAtMonthEnd",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2570,
+      "root_id": "internal/ocicost/usage_test.go::TestUsageWrapsAPIError",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2571,
+      "root_id": "internal/ocicost/view_test.go::TestSummarizeCarriesForecast",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2572,
+      "root_id": "internal/ocicost/view_test.go::TestSummarizeFoldsLinesPastTheBound",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2573,
+      "root_id": "internal/ocicost/view_test.go::TestSummarizeUntaggedFloorsAtZero",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2574,
+      "root_id": "internal/ociregion/admission_security_test.go::TestBilledGiBRequiresLexicalInteger",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2575,
+      "root_id": "internal/ociregion/admission_security_test.go::TestJSONRejectsNestedDuplicateAndTrailingValue",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2576,
+      "root_id": "internal/ociregion/admission_security_test.go::TestMoneyRoundsTiesToEven",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2577,
+      "root_id": "internal/ociregion/admission_security_test.go::TestOCIListDoesNotTurnMalformedStorageResponseIntoEmptyInventory",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2578,
+      "root_id": "internal/ociregion/admission_security_test.go::TestPlanPrivatePrefixChecksWholeNetwork",
+      "category": "unit",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 2579,
+      "root_id": "internal/ociregion/admission_security_test.go::TestReadJSONRejectsSymlinkAndNonregularSource",
+      "category": "integration",
+      "identity_bounds_hashes_assertions_and_connected_paths_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "NONE; no ledger/deletion/retirement/count/runtime-qualification/completion promotion",
+  "execution_limits": "Read-only pinned source/Git/file inspection and metadata-only inline hashing/serialization over explicit reviewed spans. No Go/build/test/lint/format/helper/scanner/parser/framework/process/resource/cloud/signing/crypto/TerraBase execution, downloads, children, or source/repository/ledger mutation."
+}

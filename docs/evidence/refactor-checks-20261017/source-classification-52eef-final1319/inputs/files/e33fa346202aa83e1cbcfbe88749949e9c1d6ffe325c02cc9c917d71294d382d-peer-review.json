@@ -1,0 +1,170 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_280_300",
+  "author": "/root/classification_100_dispatch/batch_660_680",
+  "decision": "ACCEPTED_EXACT_HASH_SOURCE_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-2860-2880-final-29t8fwb5/classification.json",
+    "sha256": "cee0f73575aaf09c91d8d40e1ed7cdfb5768963e639b394b742704af137bfe7b",
+    "checksum_path": "/tmp/ts-source-2860-2880-final-29t8fwb5/SHA256SUMS",
+    "checksum_sha256": "4813ea4765c0c0d39f1212bfc828519c0755d4c2242e3cf723371758e8fcf913"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      2860,
+      2880
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_280_300"
+  },
+  "peer_protocol": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/PEER-PROTOCOL.md",
+    "sha256": "b1cbcb7a96a344363f5ba924a0e76fc418553607209733945892796508db7765"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "batch": [
+    2860,
+    2880
+  ],
+  "root_ids": [
+    "internal/placement/seats_test.go::TestSeatMemberNamesFollowPlacementOrderAndIgnoreAttempts",
+    "internal/placement/serving_test.go::TestServingStageRequiresCurrentNativeAndNamedSurvivor",
+    "internal/placement/store_test.go::TestIntentListAllowsDifferentPartitionsButRejectsDuplicateCompositeIdentity",
+    "internal/placement/store_test.go::TestIntentListRejectsUncommittedOrMalformedPayloadDigests",
+    "internal/placement/store_test.go::TestListMembersReadsOnlyRequestedPartitionSeats",
+    "internal/placement/store_test.go::TestMemberPinReaderOpensExistingDurableStateWithoutWrites",
+    "internal/placement/store_test.go::TestMemberStateKeyIncludesPartitionIdentity",
+    "internal/placement/store_test.go::TestReadMemberUsesExactKeyAndReturnsExplicitAbsence",
+    "internal/placement/terrabase_test.go::TestCanRetireDoesNotCountHealthySurvivorsFromAnotherPartition",
+    "internal/placement/terrabase_test.go::TestCanRetireDoesNotCountPreparedOrAwaitingMembersAsServing",
+    "internal/placement/terrabase_test.go::TestCanRetireHoldsWhenReplicaFloorOrAntiAffinityIsLost",
+    "internal/placement/terrabase_test.go::TestCanRetireNeverRemovesAStillDesiredSeat",
+    "internal/placement/terrabase_test.go::TestCanRetireRequiresEveryIndependentSafetyProof",
+    "internal/placement/terrabase_test.go::TestCanonicalRosterDigestLookupAndValidation",
+    "internal/placement/terrabase_test.go::TestDesiredSeatsContainsExactlyTwoAntiAffineMembersPerSelectedRegion",
+    "internal/placement/terrabase_test.go::TestDesiredSeatsRejectsSameFailureDomain",
+    "internal/placement/terrabase_test.go::TestIntentRejectsUnselectedRegionAliasesDuplicatesAndStaleGeneration",
+    "internal/placement/terrabase_test.go::TestManagedIntentRejectsIncompleteForeignDuplicateAndUnsafeProfiles",
+    "internal/placement/terrabase_test.go::TestManagedIntentRequiresCompleteOrderedRuntimeManifests",
+    "internal/placement/terrabase_test.go::TestManagedIntentRoundTripsCanonicalPayloadAndRegionProfileDigest"
+  ],
+  "counts": {
+    "integration": 0,
+    "unit": 19,
+    "mixed": 1,
+    "unresolved": 0
+  },
+  "independent_source_assessment": [
+    {
+      "indices": [
+        2860,
+        2866
+      ],
+      "decision": "unit",
+      "evidence": "Entire roots read. RegionSeats/seatMemberName/pinnedEnsureRequest and memberStateKey/entityid.Valid compute names/requests/keys locally; no fleet or store call."
+    },
+    {
+      "indices": [
+        2861
+      ],
+      "decision": "unit",
+      "evidence": "Entire root and reached controller path reviewed. placementMemoryStore, placementTestFleet, placementTestHosts and fencer are synthetic; serving proof is constructed in the test. ManagedMountPath builds a path; VerifyReportedServing checks local identity and named-survivor sequence inequalities. Stage readback is a map entry."
+    },
+    {
+      "indices": [
+        2862,
+        2863,
+        2864,
+        2867
+      ],
+      "decision": "unit",
+      "evidence": "Entire roots and injected intentReaderFunc/exactLookupKV/partitionLookupKV/fixedMemberEntry reviewed. Local intent validation/encoding/sorting and state key/decode/error handling use fake readers; embedded KeyValue interfaces do not establish NATS I/O."
+    },
+    {
+      "indices": [
+        2865
+      ],
+      "decision": "mixed",
+      "evidence": "Entire baseline/current root and actual placementTestBrokerConfig/placementTestObserver plus natscell.Start/server options/ConnectMemory/tlsFirstDialer/Bridge paths reviewed. Real embedded server enables file-backed JetStream. Controller and system clients use InProcessServer. Separate observer connects over loopback TCP with mTLS then bridges into the real server. Store bucket/readback, replica-configuration preservation, updated attempt, tombstone and request-count assertions reach the service. Independent reader.(Store) method-set assertion is local-only. No restart/crash or R3 qualification."
+    },
+    {
+      "indices": [
+        2868,
+        2869,
+        2870,
+        2871,
+        2872
+      ],
+      "decision": "unit",
+      "evidence": "Entire roots and healthyMembers/testCandidate/CanRetire/topology/evidence helpers reviewed. All inputs are structs/booleans/placeholder bytes; coverage concerns local safety gates only and does not authorize retirement."
+    },
+    {
+      "indices": [
+        2873,
+        2874,
+        2875,
+        2876,
+        2877,
+        2878,
+        2879
+      ],
+      "decision": "unit",
+      "evidence": "Entire roots and relevant fixtures/Intent/Profile/Manifest/CanonicalRoster validation, seat selection, canonical decode and digest helpers reviewed. Synthetic rosters/manifests/compute profiles remain local; no OCI/Vault/material/runtime or committed-authority-log boundary."
+    }
+  ],
+  "checks_performed": {
+    "all20_full_current_roots_manually_read": true,
+    "full_changed_baseline_root2865_manually_read": true,
+    "literal_accounting_order_and_survival_rows": "PASS",
+    "activated_owner_range_and_peer_mapping": "PASS",
+    "canonical_tree": "PASS",
+    "raw_baseline_current_declarations": 40,
+    "raw_bounds_text_bytes_sha256_and_named_function_edges": "PASS",
+    "assertion_spans_text_bytes_sha256": 20,
+    "shared_spans_text_bytes_sha256": 56,
+    "file_pins_git_blob_mode_sha256_bytes": 27,
+    "current_working_files_equal_pinned_commit": "PASS",
+    "input_pins_sha256": 5,
+    "classification_counts_and_per_root_qualification_limits": "PASS",
+    "packet_checksum_contents_and_0444_files_0555_directory": "PASS"
+  },
+  "resolved_review_findings": [],
+  "remaining_review_corrections": [],
+  "preserved_source_findings": [
+    {
+      "index": 2863,
+      "kind": "blocked_intended_assertion",
+      "detail": {
+        "scope": "legacy missing digest and legacy malformed digest subtests",
+        "source_visible_blocker": "store_test.go454\u2013482 constructs schema1 legacy inputs. store.go205\u2013207 calls intent.Validate before the digest guard208\u2013210. terrabase.go255\u2013262 rejects SchemaVersion1 against current IntentSchemaVersion5 before PayloadDigest inspection. Legacy digest-specific causes receive no credit; managed cases reach the digest guard."
+      }
+    },
+    {
+      "index": 2876,
+      "kind": "blocked_intended_assertion",
+      "detail": {
+        "scope": "duplicate active-region rejection in second table input",
+        "source_visible_blocker": "terrabase_test.go53 sets SchemaVersion1 for duplicate GRU input. terrabase.go255\u2013262 rejects schema1 against current schema5 before the repeated-region loop263\u2013270. The duplicate-region target receives no credit; unsupported LAX and zero-generation cases remain reached local checks."
+      }
+    }
+  ],
+  "canonical_drift": {
+    "index": 2865,
+    "baseline_sha256": "411617d53cac7267646eb6ebd8675a25957da0cfb604bb831f935dc1c603e1bd",
+    "actual_current_sha256": "8ed6e33c110284d6c3af69c4951411f665328732d79cbeb0654a0d616bc9308b",
+    "historical_current_sha256": "411617d53cac7267646eb6ebd8675a25957da0cfb604bb831f935dc1c603e1bd",
+    "assessment": "Actual current source and full historical baseline are preserved. Acceptance transfers no historical runtime/coverage/retirement credit."
+  },
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "limits": [
+    "Source-only acceptance of exact final packet; superseded pre-handoff packet is not accepted.",
+    "Root2863 legacy digest cases reject schema1 before digest inspection; root2876 duplicate-region case rejects schema1 before duplicate inspection. These intended assertion obligations stay unresolved/uncredited.",
+    "No Go/build/test/lint/helper/framework/scanner/parser execution, process/resource probe, cloud/signing/crypto/TerraBase execution, or download. Metadata packaging and ordinary file/Git reads/hashes only.",
+    "No repository/source/ledger changes, deletion/retirement authorization, runtime qualification, global count/completion promotion, or execution credit."
+  ]
+}

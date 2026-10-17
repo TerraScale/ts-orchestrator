@@ -1,0 +1,5 @@
+Independent source-only acceptance: other_unadjudicated[3040:3060).
+Accepted exact classification.json SHA256 5b3c74714db3e4aebb33bc043c3a203ef1ca8fa43971acdc9e01f184f98407f9.
+20 roots: 2 integration,12 unit,6 mixed,0 unresolved categories.
+Container producer missing Index blocks assertions85:197; those assertions remain UNRESOLVED_UNCREDITED.
+Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No ledger/count/qualification/deletion/retirement/global completion credit.

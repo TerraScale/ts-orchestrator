@@ -1,0 +1,49 @@
+{
+  "actual2857_publication": {
+    "path": "/tmp/ts-qa-third600-actual-publication-receipt.json",
+    "sha256": "7132f1c5f40ebcda224ba694bacd8dc35e1914e3c2000b34d03cfb9a774b2183"
+  },
+  "actual_shared_ledger_mutation": false,
+  "all_five_categories": "OPEN",
+  "base_commit": "1ee21af7709a6997212f9225ad5a06c5247b4ede",
+  "central_source_acceptance": {
+    "path": "/tmp/ts-final1319-aggregate-review-60d88134-2ymj94xo/review.json",
+    "sha256": "e44835c220e10c106ceb8b21e04cc31a02c41122e266258637c112e3020774ae"
+  },
+  "complete": false,
+  "controlling_original_aggregate": {
+    "path": "/tmp/ts-root1319-final-source-handoff-stujzgy7/manifest.json",
+    "sha256": "60d8813425cd9b9e812addcb2356a7ac9344feb3627bdf7dd5db3f59634a009c"
+  },
+  "counts_after": {
+    "classified": 4095,
+    "integration": 1452,
+    "mixed": 581,
+    "originals": 4319,
+    "other_unadjudicated": 0,
+    "retained": 4300,
+    "retired": 19,
+    "reviewed_unresolved_included": 205,
+    "unadjudicated": 205,
+    "unit": 2062
+  },
+  "current2857_accounting": {
+    "path": "/tmp/ts-qa-final1319-source-evidence-52eef/docs/evidence/refactor-checks-20261017/source-classification-52eef-third600/composition/original-root-accounting.json",
+    "sha256": "e2e09d9721e167c5f8de8c5f0040714b0454f735a51900f20cb3409666fc53ac"
+  },
+  "limits": [
+    "All1319original owner records/66distinctpeer acceptances/centralreview retained verbatim including81unresolved,15canonical declaration drifts and every blocked/conditional assertion.",
+    "Before2857/after4095 proposals preserve unrelated fields, history prefixes, all4319IDs and19retirements. Exact12current mirrors only; historical mirrors retained.",
+    "All205reviewed-unresolved remain retained/uncredited. No remaining unreviewed root is not a runtime/completion claim.",
+    "Actual application requires independent prospective review and separate exactROOT grant withfreshbeforehashes. No Go/build/test/init/runtime/cloud/provider execution; no sourcequalification transfer."
+  ],
+  "proposed_composition": "composition/receipt.json",
+  "retirement_delta": 0,
+  "runtime_credit": 0,
+  "schema": "final1319-isolated-evidence-proposal-v1",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_preservation_proof": "inputs/aggregate/source-preservation-proof.json",
+  "source_scope": "New final1319 exact52eef only; inherited2857classification evidence scope unchanged. No compile/runtime credit.",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "state": "FROZEN_PROPOSAL_PENDING_INDEPENDENT_COMPOSITION_REVIEW"
+}

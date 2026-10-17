@@ -1,0 +1,14 @@
+{
+  "args": {
+    "cmd": "python3 - <<'PY'\nimport pathlib,json,hashlib,subprocess\nW='/tmp/ts-qa-third600-source-evidence-52eef';g=lambda *a:subprocess.check_output(['/run/current-system/sw/bin/git','-C',W,*a]).decode().strip()\nassert g('rev-parse','HEAD')=='1ee21af7709a6997212f9225ad5a06c5247b4ede';assert g('rev-parse','HEAD^{tree}')=='23006dc9f55daf8fbf79119a7449a0dfa6ab249c';assert g('rev-parse','HEAD^')=='f54ac477362d659129e38b403d6731f6fb799a99';assert not g('status','--porcelain=v1','--untracked-files=all')\nfor p,h in [('/tmp/ts-qa-refactor-completion-open-20261016.json','f14d93dcfbd9cac749c328649a08409e86c78846d6f9dcca33aa6cebba677c60'),('/tmp/ts-qa-main-union-progress-20261016.json','bdaf0341c27cf21ea022d974cfffb139aacc1fa61539e18766a82a2f9df7fb89')]:assert hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()==h\nprint(json.dumps({'publication_preflight':'PASS','head':g('rev-parse','HEAD'),'tree':g('rev-parse','HEAD^{tree}'),'branch':g('branch','--show-current'),'explicit_target':'git@github.com:TerraScale/ts-orchestrator.git','ref':'refs/heads/refactor/qa-third600-source-evidence-20261017','config_writes':False}))\nPY",
+    "login": false,
+    "max_output_tokens": 1500
+  },
+  "result": {
+    "chunk_id": "af51ad",
+    "wall_time_seconds": 0.08461394,
+    "exit_code": 0,
+    "original_token_count": 89,
+    "output": "{\"publication_preflight\": \"PASS\", \"head\": \"1ee21af7709a6997212f9225ad5a06c5247b4ede\", \"tree\": \"23006dc9f55daf8fbf79119a7449a0dfa6ab249c\", \"branch\": \"refactor/qa-third600-source-evidence-20261017\", \"explicit_target\": \"git@github.com:TerraScale/ts-orchestrator.git\", \"ref\": \"refs/heads/refactor/qa-third600-source-evidence-20261017\", \"config_writes\": false}\n"
+  }
+}

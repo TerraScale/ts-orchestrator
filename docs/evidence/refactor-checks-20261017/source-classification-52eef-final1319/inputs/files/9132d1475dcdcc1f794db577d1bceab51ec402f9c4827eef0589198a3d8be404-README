@@ -1,0 +1,3 @@
+Source-only candidate: other_unadjudicated[2860:2880).
+
+20 literal placement roots: integration0 / unit19 / mixed1 / unresolved0. Root2865 real embedded NATS/JetStream and separate local method-set assertion is mixed; canonical body drift retained. Specific legacy-digest and duplicate-region assertions are schema-blocked/uncredited in roots2863/2876. Runtime UNKNOWN; no execution, source/repository/ledger mutation, retirement/deletion or global count/completion credit. Independent exact-hash peer acceptance required.

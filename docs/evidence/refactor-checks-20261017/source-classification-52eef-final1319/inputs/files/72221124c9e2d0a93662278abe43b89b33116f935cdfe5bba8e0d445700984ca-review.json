@@ -1,0 +1,224 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_820_840",
+  "author": "/root/classification_100_dispatch/batch_840_860",
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-final1319-3040-3060-xvl_5j5b/classification.json",
+    "sha256": "5b3c74714db3e4aebb33bc043c3a203ef1ca8fa43971acdc9e01f184f98407f9",
+    "checksum_path": "/tmp/ts-source-final1319-3040-3060-xvl_5j5b/SHA256SUMS",
+    "checksum_sha256": "1b70b5ad1a65412c99148781c18fd21660789da1e8f551aaabbbf947663fee0a"
+  },
+  "own_prior_sealed_handoff": {
+    "path": "/tmp/ts-source-3020-3040-49jgqi0e/classification.json",
+    "sha256": "b4680fcd0f94bbeaa465a44d1ccbaae834dacd658bc8c410f1826065a5030ba4",
+    "independent_acceptance_path": "/tmp/ts-source-peer3020-3040-by800-wvrtnseb/review.json",
+    "independent_acceptance_sha256": "d19dd6b5e830e731a5ac972dd4a26e77e805cd4d85eeab6c628c320d30cb4694"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      3040,
+      3060
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_820_840"
+  },
+  "protocol": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/PEER-PROTOCOL.md",
+    "sha256": "b1cbcb7a96a344363f5ba924a0e76fc418553607209733945892796508db7765"
+  },
+  "accounting_input": {
+    "path": "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json",
+    "sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513"
+  },
+  "survival_mapping": {
+    "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+    "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+  },
+  "literal_range": "other_unadjudicated[3040:3060)",
+  "root_ids": [
+    "internal/release/admission_test.go::TestDecodeQualificationRejectsAmbiguousJSON",
+    "internal/release/admission_test.go::TestQualificationBindsRequiredCheckAndBothRetainedArtifacts",
+    "internal/release/cli/admission_test.go::TestBinarySigningRejectsLiveCheckFailure",
+    "internal/release/cli/admission_test.go::TestGitHubDetailMustMatchExactRunSourceJobAndSuccess",
+    "internal/release/cli/admission_test.go::TestGitHubLogSealsExactRetainedManifest",
+    "internal/release/cli/admission_test.go::TestImageSigningRequiresQualifiedBinaryAndLiveCheck",
+    "internal/release/cli/admission_test.go::TestSignedReceiptRejectsChangedQualificationBytes",
+    "internal/release/cli/admission_test.go::TestVerifyBinaryAcceptsExactQualifiedArtifact",
+    "internal/release/cli/apply_integration_test.go::TestSignedApplyRegionalHTTPRecovery",
+    "internal/release/cli/cell_spec_test.go::TestSignSpecDelegationThenSpec",
+    "internal/release/cli/consumer_integration_test.go::TestProductionChannelAndSelfUpdateRequireIndependentQualification",
+    "internal/release/cli/container_apply_integration_test.go::TestSignedContainerProducerApplyHTTPRecovery",
+    "internal/release/cli/delegation_test.go::TestSignDelegationBinaryThenImageRetainsBinaryAuthority",
+    "internal/release/cli/delegation_test.go::TestSignDelegationImageOfAnotherCatalogCell",
+    "internal/release/cli/delegation_test.go::TestSignDelegationRejectsInvalidScopeTimeKeysAndOverwrite",
+    "internal/release/cli/deploy_test.go::TestDeployFinishesOtherRegionsWhenOneRollsBack",
+    "internal/release/cli/deploy_test.go::TestDeployReadsTheDelegationFromVault",
+    "internal/release/cli/deploy_test.go::TestDeployReadsTheLeafFromVault",
+    "internal/release/cli/deploy_test.go::TestDeployReceiptValidityCoversRegionalDeadline",
+    "internal/release/cli/deploy_test.go::TestDeployRefusesUnqualifiedOrInvalidSource"
+  ],
+  "counts": {
+    "integration": 2,
+    "unit": 12,
+    "mixed": 6,
+    "unresolved": 0
+  },
+  "independent_verdicts": [
+    {
+      "root_id": "internal/release/admission_test.go::TestDecodeQualificationRejectsAmbiguousJSON",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/release/admission_test.go::TestQualificationBindsRequiredCheckAndBothRetainedArtifacts",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/release/cli/admission_test.go::TestBinarySigningRejectsLiveCheckFailure",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/release/cli/admission_test.go::TestGitHubDetailMustMatchExactRunSourceJobAndSuccess",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/release/cli/admission_test.go::TestGitHubLogSealsExactRetainedManifest",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/release/cli/admission_test.go::TestImageSigningRequiresQualifiedBinaryAndLiveCheck",
+      "category": "mixed",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/release/cli/admission_test.go::TestSignedReceiptRejectsChangedQualificationBytes",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/release/cli/admission_test.go::TestVerifyBinaryAcceptsExactQualifiedArtifact",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/release/cli/apply_integration_test.go::TestSignedApplyRegionalHTTPRecovery",
+      "category": "integration",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/release/cli/cell_spec_test.go::TestSignSpecDelegationThenSpec",
+      "category": "mixed",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/release/cli/consumer_integration_test.go::TestProductionChannelAndSelfUpdateRequireIndependentQualification",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/release/cli/container_apply_integration_test.go::TestSignedContainerProducerApplyHTTPRecovery",
+      "category": "integration",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/release/cli/delegation_test.go::TestSignDelegationBinaryThenImageRetainsBinaryAuthority",
+      "category": "mixed",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/release/cli/delegation_test.go::TestSignDelegationImageOfAnotherCatalogCell",
+      "category": "mixed",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/release/cli/delegation_test.go::TestSignDelegationRejectsInvalidScopeTimeKeysAndOverwrite",
+      "category": "mixed",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/release/cli/deploy_test.go::TestDeployFinishesOtherRegionsWhenOneRollsBack",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/release/cli/deploy_test.go::TestDeployReadsTheDelegationFromVault",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/release/cli/deploy_test.go::TestDeployReadsTheLeafFromVault",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/release/cli/deploy_test.go::TestDeployReceiptValidityCoversRegionalDeadline",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/release/cli/deploy_test.go::TestDeployRefusesUnqualifiedOrInvalidSource",
+      "category": "mixed",
+      "agreed": true
+    }
+  ],
+  "checks_performed": [
+    "Independently read all20 entire roots and connected fixture/helper/production paths from pinned Git source. Followed actual dispatch and early-return paths rather than fixture/test names.",
+    "Verified exact allocation and accounting3040:3060 literal IDs, no excluded overlap,20 unique survival rows, original/current names, kind, state and historical/current raw declaration hashes.",
+    "Verified canonical commit/tree, all40 baseline/current declarations with explicit manually reviewed line bounds and raw bytes excluding final LF; all20 baseline/current bodies exact without drift.",
+    "Verified48 source-file pins against pinned Git: blob, mode, SHA256 and byte length; verified all60 connected spans,20 complete root assertion-body spans and the additional blocked85:197 assertion span against exact canonical bytes.",
+    "Verified allocation, protocol, worker-guide, accounting and survival SHA256 pins; packet and checksum exact hashes; both listed file checksums; files0444/directory0555.",
+    "Independently agreed2 integration/12 unit/6 mixed/0 unresolved categories. Preserved one explicit unresolved/uncredited assertion block despite its integration root category."
+  ],
+  "boundary_findings": [
+    "Qualification/GitHub matchers, injected binary inspectors, consumer verifier-failure paths and deploy map/callback simulations remain unit; test names, synthetic signed gate evidence and incidental filesystem setup add no real external-service credit.",
+    "Image invalid-header read, delegation/spec exclusive output and permission/no-overwrite observations, and deploy tampered-artifact hash checks support only their narrow actual filesystem boundary blocks; independent local guards make those roots mixed.",
+    "Apply scenario reaches actual retained-artifact/ELF reads and OCI SDK requests through local httptest HTTP dispatch. Cloud/status simulation does not qualify live OCI, Vault, CI/GitHub, containerd, regional leader or workloads.",
+    "Container producer reaches actual Git archive/layout reads and SDK allocation before failing source verification. Its later historical comparisons depend on producer output and allocated lineage, rather than an independent synthetic assertion block."
+  ],
+  "resolved_findings": [
+    {
+      "kind": "pre_freeze_classification_clarification",
+      "root_id": "internal/release/cli/container_apply_integration_test.go::TestSignedContainerProducerApplyHTTPRecovery",
+      "resolution": "Author final frozen packet uses integration, preserving that later renewal comparisons consume actual producer outputs/allocator lineage. No frozen-packet correction was required."
+    }
+  ],
+  "remaining_findings": [
+    {
+      "kind": "source_visible_blocker",
+      "root_id": "internal/release/cli/container_apply_integration_test.go::TestSignedContainerProducerApplyHTTPRecovery",
+      "status": "UNRESOLVED_UNCREDITED",
+      "detail": "container_bundle.go144 omits ContainerBundle.Index. Fixture286:334 creates multiarch index; layout72:100 yields distinct index and child digests. VerifyContainerCurrent164 calls verifyContainerIdentity267 -> verifyContainerIndex20 and rejects empty Index before output writes232+. Initial success assertion85:87 and every later scenario assertion85:197 remain blocked and uncredited. Source integration category is not successful scenario qualification."
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no tests/builds/helpers/target code or compiler/runtime receipts were executed or reviewed.",
+    "All20 original root identities, raw declarations and full assertion text retained; baseline/current hashes agree with survival on exact canonical commit.",
+    "Container root has missing-Index source blocker: initial producer success and every later scenario assertion remain unresolved/uncredited. Its source integration category grants no pass, completion, deletion or retirement credit.",
+    "HTTP fixtures use actual OCI SDK routed to local httptest HTTP servers; statuses and object content are controlled simulation. No live OCI, Vault, CI/GitHub, containerd, regional leader or workload runtime is qualified.",
+    "Deploy fixtures use map-backed regionBucket, injected Git/check/inspect and injected secret bytes. These are not real cloud/Vault or regional-service boundaries.",
+    "Filesystem input loading around local predicates is incidental; actual signed output write/readback, no-overwrite and permission checks or asserted tampered-artifact content reads receive only narrow filesystem credit.",
+    "Crypto operations are source-inspected local code only; synthetic signed production proof fixtures do not establish runtime gate success.",
+    "No repository/source/ledger/runtime mutation, count promotion, deletion, retirement, global completion or deployment authorization."
+  ],
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false,
+    "deletion_authorized": false
+  },
+  "scope_limit": "Source-only independent acceptance of this exact frozen packet. No tests, Go, build, helpers, scanners, runtime receipts, cloud/signing or target code executed; metadata-only serialization/verification over explicitly reviewed spans only."
+}

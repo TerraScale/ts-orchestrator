@@ -1,0 +1,160 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2260_2280",
+  "author": "/root/classification_100_dispatch/batch_2280_2300",
+  "accepted": true,
+  "decision": "ACCEPT_SOURCE_ONLY_CANDIDATE_WITH_RETAINED_UNRESOLVED_ROOTS",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-final3680-3700-corrected-19ls1iq2/classification.json",
+    "sha256": "0b2729df307d8d163fd893e525cca30e2b88f61f5f9a7588a60f0f6d23b044bf"
+  },
+  "accepted_checksum": {
+    "path": "/tmp/ts-source-final3680-3700-corrected-19ls1iq2/SHA256SUMS",
+    "sha256": "8e5903b0425e0e6ba8d02bd177e0fcaac08e75a530dcd5882137d14702a69e88"
+  },
+  "reviewer_own_frozen_packet": {
+    "path": "/tmp/ts-source-final3660-3680-corrected-s162al8j/classification.json",
+    "sha256": "c22ecde2c1af9b413ab4c3b03760d13d6c482f02d72db3b14848cb2d2ccdceb3",
+    "original_seal_preceded_peer_review": true,
+    "own_peer_acceptance": {
+      "path": "/tmp/ts-peer-3660-3680-by3640-zu4lgqvf/review.json",
+      "sha256": "c0c162e65fe2e6a895b123fd6f76382210d1310ce0209e626fab32c17baa913c"
+    }
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[3680:3700]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2260_2280"
+  },
+  "input_pins": {
+    "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513",
+    "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+    "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/PEER-PROTOCOL.md": "b1cbcb7a96a344363f5ba924a0e76fc418553607209733945892796508db7765",
+    "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70"
+  },
+  "root_ids": [
+    "tests/deploy/netbird_client_test.go::TestNetbirdAdditiveInstallerPreservesOrchestrator",
+    "tests/deploy/netbird_client_test.go::TestNetbirdCacheSymlinkIsReplacedWithoutFollowingIt",
+    "tests/deploy/netbird_client_test.go::TestNetbirdCancelledFetchPreservesExistingClient",
+    "tests/deploy/netbird_client_test.go::TestNetbirdChecksExtractedDigestAndArchitecture",
+    "tests/deploy/netbird_client_test.go::TestNetbirdFetchChecksArchiveAndInstallsOnlyBinary",
+    "tests/deploy/netbird_client_test.go::TestNetbirdPublicConfigAdminPATSecretMustBeInRegion",
+    "tests/deploy/netbird_client_test.go::TestNetbirdPublicConfigRejectsForeignOriginAddressOrSecretRegion",
+    "tests/deploy/netbird_client_test.go::TestNetbirdPublicConfigRejectsInvalidPeerNames",
+    "tests/deploy/netbird_client_test.go::TestNetbirdRejectsArchiveLinksAndDuplicateBinaries",
+    "tests/deploy/netbird_client_test.go::TestNetbirdUnitsRetryWithoutGatingOrchestrator",
+    "tests/deploy/netbird_client_test.go::TestNetbirdVerifiedCacheReusesDownloadAndRechecksBytes",
+    "tests/deploy/netbird_client_test.go::TestNetbirdWrongArchiveDigestPreservesExistingClient",
+    "tests/deploy/netbird_client_test.go::TestSFONetbirdInputNamesEveryNode",
+    "tests/deploy/oci_device_paths_test.go::TestOCIDevicePathsGateWholeOraclePCISCSIVolumes",
+    "tests/deploy/oci_device_paths_test.go::TestOCIDevicePathsNameEveryLUN",
+    "tests/deploy/oci_device_paths_test.go::TestOCIDevicePathsParseUnderUdev",
+    "tests/deploy/promote_image_test.go::TestPromotionAutomaticBuildRejectsDirtyOrWrongRevision",
+    "tests/deploy/promote_image_test.go::TestPromotionAutomaticBuildSelectsPinnedCommands",
+    "tests/deploy/promote_image_test.go::TestPromotionCIImageImportedSignedVerifiedAndReceipted",
+    "tests/deploy/promote_image_test.go::TestPromotionCommand"
+  ],
+  "counts": {
+    "integration": 9,
+    "unit": 8,
+    "unresolved": 2,
+    "mixed": 1
+  },
+  "checks_performed": [
+    "Independently manually read all20 full literal canonical roots, fixture dispatch/build/archive/config/systemd/udev/promotion and connected actual production paths. No test/helper/Go/runtime execution or source parser/scanner.",
+    "Verified exact allocated20literal IDs and survival mappings;40 baseline/current raw declarations, line bounds/text/hash, no canonical root body drift. Verified35 whole-file canonical Git blob/mode/SHA256/byte pins, working byte equality and75 exact raw assertion/callee spans.",
+    "Traced NetBird actual archive/cache/hash/extract/publish/install filesystem boundaries; in-memory RoundTripper is not real HTTP. Cancellation returns before I/O. Config secret/name validation and static systemd/udev text predicates remain unit. Conditional udevadm process branch remains runtime UNKNOWN.",
+    "Confirmed offline Install uses supplied valid config/binaries and actual copy/rename/sync/drop-in/symlink effects, preserving orchestrator files. No live systemctl/enrollment/service or binary execution qualification.",
+    "Confirmed automatic-build runner fabricates Git/Go outcomes; local command/matching predicates are unit, separately executed selected shell tool supports mixed root. No Git/Go build was executed by reviewer.",
+    "Traced promotion actual child processes, shim file downloads/logs, normalized run-detail, retained gate proof verifier, in-binary importer SDK loopback TCP HTTP object upload/image creation/work-request polling, final receipt write and parent readback. Most release commands including sign-image/verify-image fabricate output. No real OCI/GitHub/production signing/runtime qualification.",
+    "Confirmed SFO config lacks required setup_key_secret_id; Fatal409 blocks all plan/name target assertions. Conditional TestPromotionCommand helper remains unresolved absent established child accounting rule.",
+    "Verified corrected packet differs from prior only duplicate-archive rationale and correction provenance. Current Extract267-268 rejects duplicate/link root entry before destination281 and VerifyBinary290; downloaded archive boundary still supports integration. Checksums/files0444/dir0555 passed for fresh exact accepted hash."
+  ],
+  "resolved_findings": [
+    {
+      "id": "P1",
+      "root_id": "tests/deploy/netbird_client_test.go::TestNetbirdRejectsArchiveLinksAndDuplicateBinaries",
+      "detail": "Removed incorrect claim duplicate case first writes/verifies extracted bytes. Buffered scan rejects before any destination write. Category remains integration via downloaded archive write/hash and failed publication."
+    }
+  ],
+  "remaining_source_findings": [
+    {
+      "root_id": "tests/deploy/netbird_client_test.go::TestSFONetbirdInputNamesEveryNode",
+      "finding": "SFO JSON only has management_url and region. ValidateConfig127\u2013128 requires setup_key_secret_id, so expected success408\u2013409 is blocked before any supported target assertion. Plan/name assertions418\u2013429 remain unresolved and uncredited.",
+      "category_effect": "unresolved",
+      "credit": "none"
+    },
+    {
+      "root_id": "tests/deploy/promote_image_test.go::TestPromotionCommand",
+      "finding": "Conditional reexecuted fixture command returns immediately without -- in normal invocation. Parent promotion roots own command/exit/receipt assertions; only verify-image-production delegates real release verifier. No established conditional-helper accounting rule is supplied.",
+      "category_effect": "unresolved",
+      "credit": "none"
+    }
+  ],
+  "corrections_requested": [],
+  "prior_reviewed_packet": {
+    "path": "/tmp/ts-source-final3680-3700-m5zgqtet/classification.json",
+    "sha256": "301a28a0b1b94ab3f28d3c80b7ec5872e570d4b49d09cddc50d8082f449adc65",
+    "accepted": false,
+    "reason": "Superseded by corrected P1 rationale; original immutable bytes preserved."
+  },
+  "supplemental_reviewed_source": {
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/githubapi/run.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/githubapi/run.go",
+      "mode": "100644",
+      "git_blob": "c91315e5912b08942400a9c69b8e14ac8067afb7",
+      "sha256": "384e4154064edb96952c1562908d9ac20f80092030fee228c71eabfa8b4ef35f",
+      "bytes": 4664,
+      "reviewed_span": {
+        "line": 18,
+        "end_line": 127,
+        "text": "func RunDetail(repository string, runID int64, run func(...string) ([]byte, error)) ([]byte, error) {\n\tparts := strings.Split(repository, \"/\")\n\tif len(parts) != 2 || parts[0] == \"\" || parts[1] == \"\" || strings.ContainsAny(repository, \"?#%\\\\ \\t\\r\\n\") || runID <= 0 {\n\t\treturn nil, fmt.Errorf(\"invalid GitHub repository or run ID\")\n\t}\n\tendpoint := fmt.Sprintf(\"repos/%s/actions/runs/%d\", repository, runID)\n\tdata, err := run(\"api\", \"--hostname\", \"github.com\", endpoint)\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"read GitHub run: %w\", err)\n\t}\n\tif len(data) == 0 || len(data) > 128<<10 {\n\t\treturn nil, fmt.Errorf(\"GitHub run response exceeds bounds\")\n\t}\n\tvar detail struct {\n\t\tID         int64  `json:\"id\"`\n\t\tNumber     int64  `json:\"run_number\"`\n\t\tSHA        string `json:\"head_sha\"`\n\t\tBranch     string `json:\"head_branch\"`\n\t\tEvent      string `json:\"event\"`\n\t\tPath       string `json:\"path\"`\n\t\tStatus     string `json:\"status\"`\n\t\tConclusion string `json:\"conclusion\"`\n\t\tAttempt    int64  `json:\"run_attempt\"`\n\t\tRepository struct {\n\t\t\tName string `json:\"full_name\"`\n\t\t} `json:\"repository\"`\n\t\tHeadRepository struct {\n\t\t\tName string `json:\"full_name\"`\n\t\t} `json:\"head_repository\"`\n\t}\n\tif err := json.Unmarshal(data, &detail); err != nil {\n\t\treturn nil, fmt.Errorf(\"decode GitHub run: %w\", err)\n\t}\n\tif detail.ID != runID || detail.Attempt <= 0 || !strings.EqualFold(detail.Repository.Name, repository) || !strings.EqualFold(detail.HeadRepository.Name, repository) {\n\t\treturn nil, fmt.Errorf(\"GitHub run identity does not match requested repository and run\")\n\t}\n\tif detail.Branch != \"main\" || (detail.Event != \"push\" && detail.Event != \"schedule\" && detail.Event != \"workflow_dispatch\") {\n\t\treturn nil, fmt.Errorf(\"GitHub release proof must originate from a main branch push, schedule, or workflow dispatch\")\n\t}\n\tworkflow, ok := strings.CutPrefix(detail.Path, \".github/workflows/\")\n\tif !ok || workflow == \"\" || workflow == \".\" || workflow == \"..\" || strings.ContainsAny(workflow, \"/\\\\@?#\\r\\n\") {\n\t\treturn nil, fmt.Errorf(\"invalid GitHub workflow path\")\n\t}\n\tstatus, err := normalizedStatus(detail.Status, detail.Conclusion)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tdata, err = run(\"api\", \"--hostname\", \"github.com\", \"--paginate\", \"--slurp\", fmt.Sprintf(\"%s/attempts/%d/jobs?per_page=100\", endpoint, detail.Attempt))\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"read GitHub jobs: %w\", err)\n\t}\n\tif len(data) == 0 || len(data) > 4<<20 {\n\t\treturn nil, fmt.Errorf(\"GitHub jobs response exceeds bounds\")\n\t}\n\tvar pages []struct {\n\t\tJobs []struct {\n\t\t\tID         int64  `json:\"id\"`\n\t\t\tRunID      int64  `json:\"run_id\"`\n\t\t\tName       string `json:\"name\"`\n\t\t\tStatus     string `json:\"status\"`\n\t\t\tConclusion string `json:\"conclusion\"`\n\t\t\tAttempt    int64  `json:\"run_attempt\"`\n\t\t} `json:\"jobs\"`\n\t}\n\tif err := json.Unmarshal(data, &pages); err != nil {\n\t\treturn nil, fmt.Errorf(\"decode GitHub jobs: %w\", err)\n\t}\n\tif len(pages) == 0 {\n\t\treturn nil, fmt.Errorf(\"GitHub jobs response has no pages\")\n\t}\n\tjobs := make([]jobDetail, 0)\n\tfor _, page := range pages {\n\t\tif page.Jobs == nil {\n\t\t\treturn nil, fmt.Errorf(\"GitHub jobs page has no jobs array\")\n\t\t}\n\t\tfor _, job := range page.Jobs {\n\t\t\tif job.ID <= 0 || job.RunID != runID || job.Attempt != detail.Attempt {\n\t\t\t\treturn nil, fmt.Errorf(\"GitHub job identity does not match run attempt\")\n\t\t\t}\n\t\t\tjobStatus, err := normalizedStatus(job.Status, job.Conclusion)\n\t\t\tif err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n\t\t\tjobs = append(jobs, jobDetail{job.ID, job.RunID, job.Name, jobStatus, job.Attempt})\n\t\t}\n\t}\n\treturn json.Marshal(struct {\n\t\tRunID     int64       `json:\"run_id\"`\n\t\tRunNumber int64       `json:\"run_number\"`\n\t\tHeadSHA   string      `json:\"head_sha\"`\n\t\tWorkflow  string      `json:\"workflow\"`\n\t\tStatus    string      `json:\"status\"`\n\t\tJobs      []jobDetail `json:\"jobs\"`\n\t}{detail.ID, detail.Number, detail.SHA, workflow, status, jobs})\n}\n\nfunc normalizedStatus(status, conclusion string) (string, error) {\n\tswitch status {\n\tcase \"completed\":\n\t\tswitch conclusion {\n\t\tcase \"success\", \"failure\", \"neutral\", \"cancelled\", \"skipped\", \"timed_out\", \"action_required\", \"stale\", \"startup_failure\":\n\t\t\treturn conclusion, nil\n\t\t}\n\tcase \"queued\", \"in_progress\", \"waiting\", \"requested\", \"pending\":\n\t\tif conclusion == \"\" {\n\t\t\treturn status, nil\n\t\t}\n\t}\n\treturn \"\", fmt.Errorf(\"invalid GitHub run or job status\")\n}\n"
+      }
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/release/cli/admission.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/release/cli/admission.go",
+      "mode": "100644",
+      "git_blob": "7b310ad13c6b40abaefe6e2ecb6e7a0587d0676f",
+      "sha256": "f1847b7db8a5780c3fe3403073d8b2736655858bddd4b7bcf5007b8b609cf9a6",
+      "bytes": 5472,
+      "reviewed_span": {
+        "line": 41,
+        "end_line": 47,
+        "text": "func readQualification(path string) (release.Qualification, string, error) {\n\twire, err := readBoundedRegular(path, release.MaxQualificationBytes)\n\tif err != nil {\n\t\treturn release.Qualification{}, \"\", err\n\t}\n\treturn release.DecodeQualification(wire)\n}\n"
+      }
+    }
+  },
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE; runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No test/build/helper/crypto/runtime execution or receipts reviewed.",
+    "NetBird HTTP uses custom in-memory RoundTripper; integration support is actual production archive/cache/extract/publish filesystem behavior. No real download, binary execution or enrollment.",
+    "Install is offline temp root. Static unit/config/udev checks remain local. udevadm branch conditional and no device activation.",
+    "Automatic-build runner never executes Git/Go; selected shell tool alone is actually launched by SelectsPinnedCommands.",
+    "Promotion real processes/SDK loopback HTTP do not establish live GitHub/OCI, production key signing or image/runtime qualification. Most release commands are output shims. Test-created signed production-gate evidence is consumed by real verifier.",
+    "SFO first success and later targets blocked; conditional promotion helper accounting missing. Both unresolved/uncredited.",
+    "All safety/negative/authentication/correctness obligations retained. No repository/ledger/count/deletion/retirement/runtime/completion promotion; independent peer required."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "deletion_credit": false,
+    "global_completion": false
+  },
+  "execution": {
+    "project_test_build_helper_cloud_signing_crypto_runtime": false,
+    "ordinary_read_only_git_file_hash_inspection": true,
+    "metadata_only_packaging_over_explicit_manually_reviewed_spans": true
+  }
+}

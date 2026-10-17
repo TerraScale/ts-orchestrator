@@ -1,0 +1,151 @@
+{
+  "schema": "independent-source-only-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1060_1080",
+  "author": "/root/classification_100_dispatch/batch_1080_1100",
+  "status": "ACCEPTED_SOURCE_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-3280-3300-final-a1e3avxf/classification.json",
+    "sha256": "e766f8c38f58bb98da46af901e9aee0ac3c139da4e880142f85faa2f7b0bf33a",
+    "checksum_path": "/tmp/ts-source-classification-3280-3300-final-a1e3avxf/SHA256SUMS",
+    "checksum_sha256": "81f9ce335951b12c148c2e049848ca7217d3738b28ab1d2376030d06f7f8b44c"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      3280,
+      3300
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_1060_1080"
+  },
+  "input_pins": {
+    "instructions": {
+      "path": "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md",
+      "sha256": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70"
+    },
+    "protocol": {
+      "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/PEER-PROTOCOL.md",
+      "sha256": "b1cbcb7a96a344363f5ba924a0e76fc418553607209733945892796508db7765"
+    },
+    "survival": {
+      "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+      "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+    },
+    "accounting": {
+      "path": "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json",
+      "sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513"
+    }
+  },
+  "root_ids": [
+    "internal/rolloutexec/program_test.go::TestResumeLeavesTheUnitsAnOperatorMovedOffTheTarget",
+    "internal/rolloutexec/program_test.go::TestResumeRetriesTheRollbackOfAFrozenRollout",
+    "internal/rolloutexec/program_test.go::TestResumeRollsBackACanaryWhosePendingPeerAnOperatorMoved",
+    "internal/rolloutexec/program_test.go::TestResumeRollsBackThePeersOfAUnitAnOperatorMovedOffTheTarget",
+    "internal/rolloutexec/program_test.go::TestUntouchedReleaseExpiryAllowsFreshPublication",
+    "internal/rolloutexec/proof_test.go::TestCollectorAcceptsANewIncarnationWhoseClockSteppedBack",
+    "internal/rolloutexec/proof_test.go::TestCollectorKeepsOnlyVerifiedNewestProofsOnTheirOwnSubject",
+    "internal/rolloutexec/proof_test.go::TestCollectorReclaimsExpiredUnitsWhenFull",
+    "internal/rolloutexec/proof_test.go::TestCollectorRefusesASupersededIncarnation",
+    "internal/rolloutexec/proof_test.go::TestPublisherProofsReachTheCollector",
+    "internal/rolloutexec/rollback_deadline_test.go::TestExecutorRollbackDeadlineIncludesGateRecovery",
+    "internal/rolloutexec/spool_test.go::TestRelayDropsFetchedBytesOfAnotherRelease",
+    "internal/rolloutexec/spool_test.go::TestRelayPassWithoutAStepSucceeds",
+    "internal/rolloutexec/spool_test.go::TestRootAgentRefusesATamperedSpool",
+    "internal/rolloutexec/spool_test.go::TestSpooledAgentGuardRefusesBeforeEffectsAndAfterFetch",
+    "internal/rolloutexec/spool_test.go::TestStepsReachTheRootAgentThroughTheRelay",
+    "internal/runtimepriority/cli_integration_test.go::TestRuntimePriorityCLIProcess",
+    "internal/runtimepriority/manifest_scope_test.go::TestScopeSeparatesAdmissionTokensAndEntityIDs",
+    "internal/runtimepriority/memory_capture_safety_test.go::TestMemoryCaptureBindsChildEnumerationToSampledSystemSlice",
+    "internal/runtimepriority/memory_capture_safety_test.go::TestMemoryCaptureRejectsSymlinkedCgroupAncestor"
+  ],
+  "counts": {
+    "integration": 15,
+    "unit": 4,
+    "mixed": 0,
+    "unresolved": 1,
+    "total": 20
+  },
+  "checks_performed": [
+    "Independently read all20 complete literal roots plus actual connected fixture and production call paths in canonical pinned source; source-only semantic judgment agrees I15/U4/M0/R1.",
+    "Verified allocation exact ordered root IDs against map and original_root_ids_by_disposition.other_unadjudicated[3280:3300); verified input hashes and canonical commit tree.",
+    "Verified all40 original/current raw declarations: exact func-through-final-column-zero-brace bounds excluding following LF, text, SHA256 and literal survival rows; all baseline/current bodies remain identical.",
+    "Verified all42 source file mode/blob/SHA256/byte pins; all20 full assertion spans and68 connected callee spans with exact source text/hash/byte count/bounds/blob.33 connected evidence groups.",
+    "Verified final packet and README checksums, checksum-file hash, all files0444 and directory0555. No source/repository/ledger mutation or runtime execution."
+  ],
+  "root_specific_assessment": [
+    {
+      "indices": [
+        3280,
+        3281,
+        3282,
+        3283,
+        3284,
+        3290
+      ],
+      "assessment": "Integration: actual JetStream KV state/phase/knownbad/history/absence reads and CAS transitions materially support assertions; fleet, gates, clock, health and failover remain synthetic."
+    },
+    {
+      "indices": [
+        3285,
+        3286,
+        3287,
+        3288
+      ],
+      "assessment": "Unit: direct signed-byte Observe/Latest validates and updates only Collector memory, without Subscribe/network/storage."
+    },
+    {
+      "indices": [
+        3289
+      ],
+      "assessment": "Integration: actual loopback NATS publish/subscription carries signed proofs; Publisher hashes selected temporary fixture bytes and reports current test-process PID. No fixture executable runs."
+    },
+    {
+      "indices": [
+        3291,
+        3292,
+        3293,
+        3294,
+        3295
+      ],
+      "assessment": "Integration: actual KV board and temporary spool/selfupdate filesystem stage/readback/activation/reply boundary; Sources and restart callback injected. Tamper cases include actual symlink and FIFO. Expiry at StepLifetime is rejected by strict VerifyCurrent expiry; issuance clock skew does not extend expiry. Synthetic signed gate evidence proves no live qualification."
+    },
+    {
+      "indices": [
+        3296,
+        3297,
+        3298,
+        3299
+      ],
+      "assessment": "3296 stays unresolved: conditional CLI process helper owns no assertions; caller3297 owns actual subprocess exit/output assertions.3298/3299 exercise actual no-symlink Openat2/directory descriptor/inode identity checks in temporary ordinary directories; failures occur before successful-tail kernel/proc capture."
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_review_findings": [],
+  "retained_unresolved": [
+    {
+      "root_id": "internal/runtimepriority/cli_integration_test.go::TestRuntimePriorityCLIProcess",
+      "reason": "Conditional TestRuntimePriorityCLIProcess has no independent assertions; established helper accounting missing. Parent process assertions retain ownership."
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no runtime receipts reviewed or actions executed.",
+    "Real upstream NATS server loopback TCP/JetStream file-backed KV is described from reached fixture source only; not natscell.Start or production cluster qualification.",
+    "Fleet, health, gate, clocks, restarter, fetched binary bytes and qualification CI evidence are synthetic/injected. No binary/service restart, privilege, provider/cloud, actual cgroup memory pressure or installed-runtime qualification.",
+    "3293 expires exactly at StepLifetime: VerifyCurrent strict expiry supports it; skew is issuance only.",
+    "3296 helper unresolved; process assertion credit stays with callers. No runtime/ledger/count/deletion/retirement/completion credit."
+  ],
+  "accounting_effect": {
+    "source_only": true,
+    "ledger_mutation": false,
+    "count_promotion": false,
+    "qualification_credit": false,
+    "retirement_authorized": false,
+    "deletion_authorized": false,
+    "completion_credit": false,
+    "safety_obligations_retained": true
+  }
+}

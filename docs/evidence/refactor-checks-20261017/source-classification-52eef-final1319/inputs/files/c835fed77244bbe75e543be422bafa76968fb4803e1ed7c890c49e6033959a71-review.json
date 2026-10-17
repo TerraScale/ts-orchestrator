@@ -1,0 +1,273 @@
+{
+  "schema": "independent-source-only-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2120_2140",
+  "author": "/root/classification_100_dispatch/batch_2140_2160",
+  "accepted_packet_path": "/tmp/ts-final-source-3540-3560-bbswbtzl/classification.json",
+  "accepted_packet_sha256": "ccd4a03771c58d362a69b1c8915fc0ab08d173b490e881744d722fdd6722f1e4",
+  "accepted_checksum_path": "/tmp/ts-final-source-3540-3560-bbswbtzl/SHA256SUMS",
+  "accepted_checksum_sha256": "5725aced60191c8da915e5ea0fc8ed87b8de53ca60725b03da23fcaf34fd10f1",
+  "decision": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[3540:3560]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2120_2140"
+  },
+  "root_ids": [
+    "internal/tsauth/ouroboros_test.go::TestOuroborosSecretNames",
+    "internal/tsauth/ouroboros_test.go::TestOuroborosTSAuthUserLookup",
+    "internal/tsauth/ouroboros_test.go::TestRunOuroborosRejectsIncompleteCommands",
+    "internal/tsauth/runbook_test.go::TestTSAuthRunbookRequiresAutomaticDeliveryAndFailClosedStartup",
+    "internal/tsauth/tenant_test.go::TestEnsureKeepsDuplicateRejectionAfterCreateConflict",
+    "internal/tsauth/tenant_test.go::TestEnsureRecoversCreateConflictByRereading",
+    "internal/tsauth/tenant_test.go::TestManagementRejectsNoncanonicalActorsAndOwners",
+    "internal/tsauth/terrabase_release_test.go::TestBootstrapAgainstTerraBaseRelease",
+    "internal/tsauth/vault_test.go::TestEnsureCreatesOnce",
+    "internal/tsauth/vault_test.go::TestEnsureFollowsPages",
+    "internal/tsauth/vault_test.go::TestEnsureKeepsExistingSecret",
+    "internal/tsauth/vault_test.go::TestEnsureRefusesUnusableSecret",
+    "internal/tsauth/vault_test.go::TestEnsureRejectsBeforeCreate",
+    "internal/tsauth/vault_test.go::TestEnsureVaultRecoversCreateConflictByRereading",
+    "internal/tsauth/vault_test.go::TestGenerate",
+    "internal/tsauth/vault_test.go::TestReadBackDoesNotRetryPermanentVaultErrors",
+    "internal/tsauth/vault_test.go::TestSecretNames",
+    "internal/vaultsecret/current_test.go::TestDeliveryNamespaceAndFileAliases",
+    "internal/vaultsecret/current_test.go::TestExactDeliveryFilenamesStayWithinService",
+    "internal/vaultsecret/current_test.go::TestReadCurrentMetadataAndRedaction"
+  ],
+  "counts": {
+    "integration": 4,
+    "unit": 15,
+    "mixed": 1,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "OwnFINAL3520:3540 sealed and handed off before cyclic3540:3560 review; own corrections retain priority.",
+    "Independently read all20 whole current roots and actual connected setup/helpers/production paths, with baseline/current identity verified against raw pinned Git bytes.",
+    "Literal allocated/accounting IDs and raw seven-field survival mappings checked. Forty baseline/current raw declarations, bounds, hashes and complete text verified.",
+    "All31 source file commit/path/Git blob/mode/SHA256/bytes pins verified. Every exact assertion and connected citation text/bounds/hash/blob checked against pinned Git.",
+    "Categories independently assessed from actual reached calls; conditional external release fixture limitations and unit/mixed partitions preserved.",
+    "Packet/checksum exact hashes and checksum contents verified. Files0444/directory0555 verified. Input pins verified; canonical HEAD/tree and tracked clean state verified."
+  ],
+  "metadata_check_counts": {
+    "roots": 20,
+    "raw_declarations": 40,
+    "source_pins": 31,
+    "assertion_spans": 20,
+    "connected_callee_spans": 64
+  },
+  "manual_assessment": [
+    "User lookup and create-conflict recovery tests traverse actual loopback TLS/HTTP through production clients; handler records stay synthetic. Invalid management identities are pre-request local guards, so unit despite incidental listener.",
+    "Incomplete ouroboros CLI has separate local guard vectors plus actual production owner-only descriptor-mode rejection of0644 file, so mixed.",
+    "External TerraBase release test conditionally verifies/copies/executes supplied binary and uses its admin/client APIs, keys and ownership. Fake Vault and synthetic users remain explicitly limited; their assertions are coupled to real bootstrap/API scenarios. Unavailable/unreviewed external fixture provides no runtime credit.",
+    "Ensure/read-back/current-value tests use supplied memory-only SDK hooks; generation checks local value shape/inequality. No real OCI transport or durable store is qualified.",
+    "Secret naming, delivery namespace/alias/path and static runbook predicates remain unit. No delivery publication/systemd/firewall behavior is claimed."
+  ],
+  "per_root_review": [
+    {
+      "root_id": "internal/tsauth/ouroboros_test.go::TestOuroborosSecretNames",
+      "category": "unit",
+      "line": 196,
+      "end_line": 216,
+      "original_declaration_sha256": "91995fd82f31a7427669d0b28bc50dab06a639801ea15bc9c38917286aca6c0a",
+      "current_declaration_sha256": "91995fd82f31a7427669d0b28bc50dab06a639801ea15bc9c38917286aca6c0a",
+      "status": "independently source reviewed; exact metadata verified"
+    },
+    {
+      "root_id": "internal/tsauth/ouroboros_test.go::TestOuroborosTSAuthUserLookup",
+      "category": "integration",
+      "line": 19,
+      "end_line": 75,
+      "original_declaration_sha256": "7b1c7398158a63bd5d5c62bda8a626eb5b97a2202c03a1e9dbee7e52257cf8f5",
+      "current_declaration_sha256": "7b1c7398158a63bd5d5c62bda8a626eb5b97a2202c03a1e9dbee7e52257cf8f5",
+      "status": "independently source reviewed; exact metadata verified"
+    },
+    {
+      "root_id": "internal/tsauth/ouroboros_test.go::TestRunOuroborosRejectsIncompleteCommands",
+      "category": "mixed",
+      "line": 162,
+      "end_line": 194,
+      "original_declaration_sha256": "0ae6ab724ccd93292af8dc020fd7eeb807d24132fd72e72113f4fac9699fda72",
+      "current_declaration_sha256": "0ae6ab724ccd93292af8dc020fd7eeb807d24132fd72e72113f4fac9699fda72",
+      "status": "independently source reviewed; exact metadata verified"
+    },
+    {
+      "root_id": "internal/tsauth/runbook_test.go::TestTSAuthRunbookRequiresAutomaticDeliveryAndFailClosedStartup",
+      "category": "unit",
+      "line": 10,
+      "end_line": 30,
+      "original_declaration_sha256": "144f1759e1385dafc8d9ddaabc7fdc2663aa929b1b9b1c62d10acbb5169ae9f4",
+      "current_declaration_sha256": "144f1759e1385dafc8d9ddaabc7fdc2663aa929b1b9b1c62d10acbb5169ae9f4",
+      "status": "independently source reviewed; exact metadata verified"
+    },
+    {
+      "root_id": "internal/tsauth/tenant_test.go::TestEnsureKeepsDuplicateRejectionAfterCreateConflict",
+      "category": "integration",
+      "line": 69,
+      "end_line": 93,
+      "original_declaration_sha256": "4acffdc95ac01807cb5c27f9989cc77357fc76a4ddaefea5ceef8143cdb77df2",
+      "current_declaration_sha256": "4acffdc95ac01807cb5c27f9989cc77357fc76a4ddaefea5ceef8143cdb77df2",
+      "status": "independently source reviewed; exact metadata verified"
+    },
+    {
+      "root_id": "internal/tsauth/tenant_test.go::TestEnsureRecoversCreateConflictByRereading",
+      "category": "integration",
+      "line": 35,
+      "end_line": 67,
+      "original_declaration_sha256": "98c6491c8839eb9fd13da40a66de30d7d6a6bc72bf89fe4ddb921d653d398cd3",
+      "current_declaration_sha256": "98c6491c8839eb9fd13da40a66de30d7d6a6bc72bf89fe4ddb921d653d398cd3",
+      "status": "independently source reviewed; exact metadata verified"
+    },
+    {
+      "root_id": "internal/tsauth/tenant_test.go::TestManagementRejectsNoncanonicalActorsAndOwners",
+      "category": "unit",
+      "line": 11,
+      "end_line": 33,
+      "original_declaration_sha256": "f6e48909b75cb07b84dd82356b7f507049dd544f8b8890cf6eceb3116124d378",
+      "current_declaration_sha256": "f6e48909b75cb07b84dd82356b7f507049dd544f8b8890cf6eceb3116124d378",
+      "status": "independently source reviewed; exact metadata verified"
+    },
+    {
+      "root_id": "internal/tsauth/terrabase_release_test.go::TestBootstrapAgainstTerraBaseRelease",
+      "category": "integration",
+      "line": 42,
+      "end_line": 284,
+      "original_declaration_sha256": "1303bb23fbfe4b20d10f08d2eaeb54b20ac3cc24d6d1689ccc411d55a7b2bc30",
+      "current_declaration_sha256": "1303bb23fbfe4b20d10f08d2eaeb54b20ac3cc24d6d1689ccc411d55a7b2bc30",
+      "status": "independently source reviewed; exact metadata verified"
+    },
+    {
+      "root_id": "internal/tsauth/vault_test.go::TestEnsureCreatesOnce",
+      "category": "unit",
+      "line": 117,
+      "end_line": 153,
+      "original_declaration_sha256": "04017d91375cf1e52aaaf26fdf77a966f68eecdd4cdd8f0401982633a50e7d3d",
+      "current_declaration_sha256": "04017d91375cf1e52aaaf26fdf77a966f68eecdd4cdd8f0401982633a50e7d3d",
+      "status": "independently source reviewed; exact metadata verified"
+    },
+    {
+      "root_id": "internal/tsauth/vault_test.go::TestEnsureFollowsPages",
+      "category": "unit",
+      "line": 199,
+      "end_line": 208,
+      "original_declaration_sha256": "cf7679c57ef489bdf37c202f369fae340b0dc522b9c90cf13c58042126ea1f19",
+      "current_declaration_sha256": "cf7679c57ef489bdf37c202f369fae340b0dc522b9c90cf13c58042126ea1f19",
+      "status": "independently source reviewed; exact metadata verified"
+    },
+    {
+      "root_id": "internal/tsauth/vault_test.go::TestEnsureKeepsExistingSecret",
+      "category": "unit",
+      "line": 155,
+      "end_line": 164,
+      "original_declaration_sha256": "0ff2922c5c0917bc247367cddd869d8f83a07b9fe3b5ea2f86c3abd08e771118",
+      "current_declaration_sha256": "0ff2922c5c0917bc247367cddd869d8f83a07b9fe3b5ea2f86c3abd08e771118",
+      "status": "independently source reviewed; exact metadata verified"
+    },
+    {
+      "root_id": "internal/tsauth/vault_test.go::TestEnsureRefusesUnusableSecret",
+      "category": "unit",
+      "line": 177,
+      "end_line": 197,
+      "original_declaration_sha256": "27adefbbbff2240b6879d7cbdb4975e9f4cb1f24f3e7f6a3a030ed403821a553",
+      "current_declaration_sha256": "27adefbbbff2240b6879d7cbdb4975e9f4cb1f24f3e7f6a3a030ed403821a553",
+      "status": "independently source reviewed; exact metadata verified"
+    },
+    {
+      "root_id": "internal/tsauth/vault_test.go::TestEnsureRejectsBeforeCreate",
+      "category": "unit",
+      "line": 210,
+      "end_line": 222,
+      "original_declaration_sha256": "0d4cbded25ab8442101dfa9cd37e85daf1c034590b8028f6a237a449b8fc62a3",
+      "current_declaration_sha256": "0d4cbded25ab8442101dfa9cd37e85daf1c034590b8028f6a237a449b8fc62a3",
+      "status": "independently source reviewed; exact metadata verified"
+    },
+    {
+      "root_id": "internal/tsauth/vault_test.go::TestEnsureVaultRecoversCreateConflictByRereading",
+      "category": "unit",
+      "line": 166,
+      "end_line": 175,
+      "original_declaration_sha256": "609257468cb81d96d7be941bcfceeee4704cae813b7aa0f0eee63b49f8e29e30",
+      "current_declaration_sha256": "609257468cb81d96d7be941bcfceeee4704cae813b7aa0f0eee63b49f8e29e30",
+      "status": "independently source reviewed; exact metadata verified"
+    },
+    {
+      "root_id": "internal/tsauth/vault_test.go::TestGenerate",
+      "category": "unit",
+      "line": 224,
+      "end_line": 236,
+      "original_declaration_sha256": "854049ae64820046a4537a7a7dd29e23652e0911ac6e24ccc07e6275dc9b821d",
+      "current_declaration_sha256": "854049ae64820046a4537a7a7dd29e23652e0911ac6e24ccc07e6275dc9b821d",
+      "status": "independently source reviewed; exact metadata verified"
+    },
+    {
+      "root_id": "internal/tsauth/vault_test.go::TestReadBackDoesNotRetryPermanentVaultErrors",
+      "category": "unit",
+      "line": 238,
+      "end_line": 248,
+      "original_declaration_sha256": "757eccf238fa75f22b8b96938e13d232953b0a81487628daf55af92be5e06a2e",
+      "current_declaration_sha256": "757eccf238fa75f22b8b96938e13d232953b0a81487628daf55af92be5e06a2e",
+      "status": "independently source reviewed; exact metadata verified"
+    },
+    {
+      "root_id": "internal/tsauth/vault_test.go::TestSecretNames",
+      "category": "unit",
+      "line": 260,
+      "end_line": 269,
+      "original_declaration_sha256": "1da05acc142af064f981c1780ce8157002010019a8762921f2c4ec8f6dfe58ea",
+      "current_declaration_sha256": "1da05acc142af064f981c1780ce8157002010019a8762921f2c4ec8f6dfe58ea",
+      "status": "independently source reviewed; exact metadata verified"
+    },
+    {
+      "root_id": "internal/vaultsecret/current_test.go::TestDeliveryNamespaceAndFileAliases",
+      "category": "unit",
+      "line": 133,
+      "end_line": 148,
+      "original_declaration_sha256": "0c3ae7c713d93ee4f7c5e6032ed6b4535ca9d2e8fc2c8bf89a15e6ce5f3abaee",
+      "current_declaration_sha256": "0c3ae7c713d93ee4f7c5e6032ed6b4535ca9d2e8fc2c8bf89a15e6ce5f3abaee",
+      "status": "independently source reviewed; exact metadata verified"
+    },
+    {
+      "root_id": "internal/vaultsecret/current_test.go::TestExactDeliveryFilenamesStayWithinService",
+      "category": "unit",
+      "line": 150,
+      "end_line": 169,
+      "original_declaration_sha256": "7e3be8382964ba000feb113e4177fd04519613592927393a8c717811a5b21133",
+      "current_declaration_sha256": "7e3be8382964ba000feb113e4177fd04519613592927393a8c717811a5b21133",
+      "status": "independently source reviewed; exact metadata verified"
+    },
+    {
+      "root_id": "internal/vaultsecret/current_test.go::TestReadCurrentMetadataAndRedaction",
+      "category": "unit",
+      "line": 30,
+      "end_line": 85,
+      "original_declaration_sha256": "eaeb6fb9e83e48e8beab4748256504ca02bc69e3a30339b5b3f3e77786a580d1",
+      "current_declaration_sha256": "eaeb6fb9e83e48e8beab4748256504ca02bc69e3a30339b5b3f3e77786a580d1",
+      "status": "independently source reviewed; exact metadata verified"
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion_delta": 0,
+    "deletion_delta": 0,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  },
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE; runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No runtime receipts reviewed; no tests/Go/build/helper/scanner/formatter/lint/probe/lock/cloud/signing/crypto/TerraBase execution/download.",
+    "HTTP/TLS tests reach real loopback protocol boundaries with synthetic handler records; no production ts-auth/TerraBase server qualification.",
+    "TerraBase release scenario depends on unreviewed TS_TERRABASE_BINARY asset and checksum; absent fixture skips outside qualification and fails inside. Source demonstrates intended process/API path only, not release availability, success or cross-platform behavior.",
+    "fakeVault/currentBundle/readErrorBundle are memory-only SDK hooks, not OCI Vault or durable store. No cloud secret creation, service access or production credential read occurred.",
+    "Generate is classified by local value-shape assertions; cryptographic entropy or key quality is not qualified. Checked-in runbook reads remain static text assertions.",
+    "All original assertions/safety obligations retained. No repository/ledger/count/deletion/retirement/runtime qualification/global completion mutation or credit."
+  ]
+}

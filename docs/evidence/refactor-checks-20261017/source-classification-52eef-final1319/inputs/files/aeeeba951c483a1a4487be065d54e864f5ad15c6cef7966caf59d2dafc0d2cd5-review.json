@@ -1,0 +1,78 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_00_20",
+  "author": "/root/classification_100_dispatch/batch_20_40",
+  "decision": "ACCEPT",
+  "accepted_packet": {
+    "path": "/tmp/ts-final1319-other2520-2540-source-6nmhid1e/classification.json",
+    "sha256": "fc82950034ae24f5f3dc97e8802eaa9419648b528c69bfe963628ad674b996d9",
+    "checksum_path": "/tmp/ts-final1319-other2520-2540-source-6nmhid1e/SHA256SUMS",
+    "checksum_sha256": "78a582a343e34ee865ced24c4190b30b2af2eaec100591e02d226f48c6bbe7ea"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      2520,
+      2540
+    ]
+  },
+  "root_ids": [
+    "internal/oci/volume_termination_test.go::TestVolumeTerminationProofRejectsDifferentOrCorruptScope",
+    "internal/oci/volume_termination_test.go::TestVolumeTerminationProofRequiresSuccessfulWrite",
+    "internal/oci/volume_termination_test.go::TestVolumeTerminationProofSurvivesBrokerRestart",
+    "internal/ocicost/cli_test.go::TestCostCLIArguments",
+    "internal/ocicost/collector_test.go::TestCollectorDropsReadWhenLeadershipLost",
+    "internal/ocicost/collector_test.go::TestCollectorFollowerDoesNotRead",
+    "internal/ocicost/collector_test.go::TestCollectorLeaderWritesWhenNoReport",
+    "internal/ocicost/collector_test.go::TestCollectorRefreshesStaleReport",
+    "internal/ocicost/collector_test.go::TestCollectorRetriesConnectAndKeepsReader",
+    "internal/ocicost/collector_test.go::TestCollectorRetriesFailedRead",
+    "internal/ocicost/collector_test.go::TestCollectorReusesFreshReport",
+    "internal/ocicost/collector_test.go::TestCollectorRunStopsOnCancel",
+    "internal/ocicost/forecast_test.go::TestProject",
+    "internal/ocicost/forecast_test.go::TestProjectPending",
+    "internal/ocicost/node_test.go::TestNodeMonthlyCents",
+    "internal/ocicost/report_test.go::TestReportValidate",
+    "internal/ocicost/store_test.go::TestOpenStoreRequiresReplicatedJetStream",
+    "internal/ocicost/store_test.go::TestStorePutRejectsInvalidReport",
+    "internal/ocicost/store_test.go::TestStoreReportBeforePutIsNoReport",
+    "internal/ocicost/store_test.go::TestStoreReportRejectsCorruptValue"
+  ],
+  "counts": {
+    "integration": 6,
+    "unit": 14,
+    "mixed": 0,
+    "unresolved": 0
+  },
+  "checks": {
+    "all20_full_baseline_current_declarations_independently_read": true,
+    "actual_fixture_helpers_and_production_callees_independently_read": true,
+    "all40_raw_declaration_hashes_match_mapping": true,
+    "all32_canonical_source_file_pins_verified": true,
+    "all60_connected_span_text_and_blob_pins_verified": true,
+    "all34_assertion_and_unit_span_quotes_verified": true,
+    "literal_allocation_and_accounting_match": true,
+    "packet_checksums_and_0444_0555_permissions_verified": true,
+    "source_categories_and_limits_reviewed": true
+  },
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "source_assessment": [
+    "Six integration roots materially assert real store behavior: conflicting persisted proofs, absence after injected failed Create, actual same-store broker restart/TTL refusal, invalid Put absence readback, missing cost report and corrupt stored value.",
+    "Root2521 injected Create failure and root2537 local invalid-report rejection are followed by real KV Get for the same no-persistence target. These connected error/readback pairs do not introduce independent unit-only scenarios. No successful write is inferred from these roots.",
+    "Volume fixture uses production embedded broker and separate external JWT/mTLS bridge client. Cost fixture directly starts upstream singleton NATS and connects over loopback TCP. No cloud, real terminal observation/deletion or HA qualification.",
+    "Collector dependencies and leadership are supplied stubs. Timer/goroutine cancellation is local. CLI tables stop before OCI construction; Project, node cost and report validation use supplied values only. OpenStore nil/zero-replica rejection occurs before KV API despite incidental broker setup.",
+    "Baseline restart declaration changes from removed Lab configuration/direct Start to authenticatedJournalConfig/startAuthenticatedJournal in current source; mapping explicitly records changed body and both40 hashes match. No unreported drift or source blocker found."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "qualification_limits": [
+    "Source-only review and metadata hashing/serialization. No Go/build/test/helper/lint/format/benchmark/scanner/parser/process/resource/cloud/signing/crypto/TerraBase execution, downloads or children.",
+    "No repository/source/ledger mutation, runtime pass, qualification, accepted-count, deletion, retirement or completion credit."
+  ]
+}

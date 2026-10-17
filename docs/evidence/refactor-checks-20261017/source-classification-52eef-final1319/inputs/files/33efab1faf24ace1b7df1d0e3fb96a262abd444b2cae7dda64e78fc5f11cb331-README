@@ -1,0 +1,5 @@
+Exact source-only candidate other[3120:3140), 20 literal roots.
+Counts: 2 integration, 17 unit, 1 mixed, 0 unresolved roots.
+L1 retains the final expired-import assertion but does not credit expiry-specific isolation after head corruption.
+Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No source, ledger, deletion, retirement, qualification, global count or completion credit.
+Independent peer review required. Explicit manual bounds only; Git/file/hash metadata packaging, no execution of reviewed code.

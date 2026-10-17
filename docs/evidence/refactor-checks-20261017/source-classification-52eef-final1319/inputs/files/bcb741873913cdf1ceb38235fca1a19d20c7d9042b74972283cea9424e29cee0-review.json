@@ -1,0 +1,95 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_980_1000",
+  "author": "/root/classification_100_dispatch/batch_1000_1020",
+  "status": "ACCEPTED_SOURCE_ONLY",
+  "allocation_range": [
+    3200,
+    3220
+  ],
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-final-3200-3220-corrected-suqrxa5n/classification.json",
+    "sha256": "ae4ab693c80f4750e161ee28814546b046f56c9873162af9d151f9aeb0477af1",
+    "checksum_path": "/tmp/ts-source-final-3200-3220-corrected-suqrxa5n/SHA256SUMS",
+    "checksum_sha256": "e9f7827e7f70d613304d683f2f67e70408c7765d172fe4b7e65b2be3e5effb77"
+  },
+  "root_ids": [
+    "internal/rollout/stage_lookup_test.go::TestReleaseStagePreservesCancellationWithoutDesiredGeneration",
+    "internal/rollout/stage_lookup_test.go::TestReleaseStageRefusesMisboundDesiredProofWithoutCharging",
+    "internal/rollout/stage_lookup_test.go::TestReleaseStageRequiresReadableValidatedHistoricalProof",
+    "internal/rollout/stage_lookup_test.go::TestReleaseStageUsesOnlyDesiredAndMatchingGeneration",
+    "internal/rollout/store_review_test.go::TestStoreBeginChecksAnExistingIDBeforeReserving",
+    "internal/rollout/store_review_test.go::TestStoreKnownBadOutlivesTheBoundedCellList",
+    "internal/rollout/store_test.go::TestBoundAttemptsEvictsKnownBadFirstAndKeepsTheTarget",
+    "internal/rollout/store_test.go::TestReleaseGenerationsOfANewerBinary",
+    "internal/rollout/store_test.go::TestReleasePinsIncludesHistoryActivePredecessorAndDurableKnownBad",
+    "internal/rollout/store_test.go::TestStoreBeginEnforcesAttemptBudget",
+    "internal/rollout/store_test.go::TestStoreBeginIsSingleActiveAndIdempotent",
+    "internal/rollout/store_test.go::TestStoreBeginReclaimsASlotWhoseRecordWasNeverCreated",
+    "internal/rollout/store_test.go::TestStoreBeginRepairsInterruptedCellRelease",
+    "internal/rollout/store_test.go::TestStoreBeginReportsALoadFailureInsteadOfAnActiveRollout",
+    "internal/rollout/store_test.go::TestStoreBeginRetryMustKeepThePlan",
+    "internal/rollout/store_test.go::TestStoreCommitIsCASFencedAndRecordsKnownBad",
+    "internal/rollout/store_test.go::TestStoreReadsTheRecordsOfANewerBinary",
+    "internal/rollout/store_test.go::TestStoreRefundsAnUntouchedAbortOnlyOnce",
+    "internal/rollout/store_test.go::TestStoreRefundsTheAttemptOfACompletedRollout",
+    "internal/rollout/transition_review_test.go::TestLateCompletionEventsDoNotBypassDeadlines"
+  ],
+  "counts": {
+    "integration": 15,
+    "unit": 2,
+    "mixed": 3,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 entire roots and actual reached fixture/store/release/reader/transition/helper paths; no project execution.",
+    "Verified exact20 literal allocated IDs/order/owner/cyclic peer and input allocation/instruction/accounting/survival SHA256 pins.",
+    "Verified all40 baseline/current raw declaration bounds/text/hash, survival names/kinds/states/historical/current hashes. Declarations exclude following LF.",
+    "Verified all24 canonical file Git blob/mode/SHA256/bytes and all20 assertion spans plus24 connected spans against exact inclusive canonical line slices including following LF. Strict file bounds and span blob references pass.",
+    "Verified packet/checksum hashes/contained checksums and files0444/directory0555; corrected packet changes only4 requested reasons plus supersedes_packet, preserving all source evidence.",
+    "Independently agreed15 integration/2 unit/3 mixed/0unresolved: actual loopback TCP/file-backed JetStream KV supports state assertions; local foreign-cell/fake Adopt guards and explicit transition phase assertions remain mixed; standalone map/deadline transition roots unit.",
+    "Baseline/current TestReleasePinsIncludesHistoryActivePredecessorAndDurableKnownBad drift independently checked: baseline544:578/current544:590; current566:577 adds Reader ReleasePins/Retained actual readback. Historical retained_body_exact remains historical only."
+  ],
+  "resolved_findings": [
+    {
+      "root_id": "internal/rollout/store_test.go::TestReleaseGenerationsOfANewerBinary",
+      "finding": "Original rationale named uncalled pin inventory.",
+      "resolution": "PublishRelease stores real generations; an unknown generation member is inserted into KV and RollbackRelease successfully reads the retained generation. ReleaseGeneration then rejects a breaking desired schema written to actual KV. No pin inventory is called."
+    },
+    {
+      "root_id": "internal/rollout/store_test.go::TestStoreBeginReportsALoadFailureInsteadOfAnActiveRollout",
+      "finding": "Original rationale named absent purge scenario.",
+      "resolution": "An incomplete schema-only rollout record is inserted into actual KV under the stored active slot. Begin propagates the Load validation failure instead of returning ErrActiveRollout; no purge scenario is present."
+    },
+    {
+      "root_id": "internal/rollout/store_test.go::TestStoreReadsTheRecordsOfANewerBinary",
+      "finding": "Original rationale named uncalled Commit/persisted-field-preservation assertion.",
+      "resolution": "Actual KV bytes with extra fields are read by production Cell and Load to verify tolerant supported-field reads; breaking schema, duplicate member and unrecognized policy-digest cases return errors. Stored abandoned marker is distinguished from a versioned record carrying the same member. No Commit or persisted-field-preservation assertion occurs."
+    },
+    {
+      "root_id": "internal/rollout/store_test.go::TestStoreRefundsAnUntouchedAbortOnlyOnce",
+      "finding": "Original rationale named duplicate Commit instead of repeated Settle.",
+      "resolution": "Untouched abort Commit refunds its persisted attempt, then a fresh Begin reserves a new attempt. Repeating Settle twice on the old abort leaves actual Cell active ID and attempt count attached to the fresh rollout, proving no repeated refund."
+    }
+  ],
+  "remaining_findings": [],
+  "retained_source_findings": [
+    {
+      "root_id": "internal/rollout/store_test.go::TestReleasePinsIncludesHistoryActivePredecessorAndDurableKnownBad",
+      "kind": "canonical_body_drift",
+      "detail": "Current adds Reader ReleasePins and Retained assertions; identity and full baseline/current bodies preserved; no obligation retired."
+    }
+  ],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no Go/build/test/helper/process/runtime/cloud/signing/crypto execution performed.",
+    "Upstream nats-server loopback TCP/FileStorage replicas1 plus fake epoch fence/error hooks/events/health. No natscell.Start, real authority/auth/quorum/region mesh/serving/crash durability qualification. Canceled read only supports error propagation.",
+    "No source/repo/ledger mutation, deletion/retirement/runtime qualification/count promotion/global completion credit. Original safety obligations retained."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "NONE"
+}

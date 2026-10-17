@@ -1,0 +1,15 @@
+{
+  "args": {
+    "cmd": "/run/current-system/sw/bin/git -C /tmp/ts-qa-third600-source-evidence-52eef ls-remote --exit-code git@github.com:TerraScale/ts-orchestrator.git refs/heads/refactor/qa-third600-source-evidence-20261017",
+    "login": false,
+    "max_output_tokens": 1000,
+    "yield_time_ms": 1000
+  },
+  "result": {
+    "chunk_id": "5d3c9c",
+    "wall_time_seconds": 1.000481835,
+    "session_id": 85364,
+    "original_token_count": 0,
+    "output": ""
+  }
+}

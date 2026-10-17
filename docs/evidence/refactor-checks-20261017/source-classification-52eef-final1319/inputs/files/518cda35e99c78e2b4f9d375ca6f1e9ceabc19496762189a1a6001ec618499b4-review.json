@@ -1,0 +1,88 @@
+{
+  "schema": "source-classification-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_80_100",
+  "author": "/root/classification_100_dispatch/peer_00_20",
+  "range": [
+    2600,
+    2620
+  ],
+  "decision": "ACCEPT_SOURCE_ONLY_WITH_EXPLICIT_LIMITS",
+  "accepted_packet": {
+    "path": "/tmp/ts-final1319-source-2600-2620-corrected-12j8krlx/classification.json",
+    "sha256": "2b08d16365ceda51d1b355d208044355783acbd27fd7bf78cd13062fd0db8a78",
+    "checksum_file": "/tmp/ts-final1319-source-2600-2620-corrected-12j8krlx/SHA256SUMS",
+    "checksum_file_sha256": "ebe978bdbc1080902a35ffd707fa1075e608526f0548624e946632eb3d2ed62b"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "literal_root_ids": [
+    "internal/ociregion/foundation/identity_integration_test.go::TestFoundationSDKOwnershipCheckpointAndRecovery",
+    "internal/ociregion/foundation/peer_test.go::TestInterruptedPeerResumes",
+    "internal/ociregion/foundation/peer_test.go::TestPeerApplyPassesInspectionThenRerunIsANoOp",
+    "internal/ociregion/foundation/peer_test.go::TestPeerDropPortRemovesOnlyThatRule",
+    "internal/ociregion/foundation/peer_test.go::TestPeerDryRunPlansEveryChangeAndWritesNothing",
+    "internal/ociregion/foundation/peer_test.go::TestPeerKeepsEveryExistingRule",
+    "internal/ociregion/foundation/peer_test.go::TestPeerRefusesBeforeAnyChange",
+    "internal/ociregion/foundation/peer_test.go::TestPeerRefusesOverlappingCells",
+    "internal/ociregion/imageimport/import_test.go::TestAvailabilityBackoffCancellationAndTerminalFailure",
+    "internal/ociregion/imageimport/import_test.go::TestCapabilitiesAndFinalShapesFailClosed",
+    "internal/ociregion/imageimport/import_test.go::TestDigestRejectsBeforeCloudEffects",
+    "internal/ociregion/imageimport/import_test.go::TestDuplicateImagesRejected",
+    "internal/ociregion/imageimport/import_test.go::TestExistingObjectSkipsUploadButMustMatchDigest",
+    "internal/ociregion/imageimport/import_test.go::TestImportAndResume",
+    "internal/ociregion/imageimport/import_test.go::TestImportRefusesALiveImageOfTheNameWithOtherBytes",
+    "internal/ociregion/imageimport/import_test.go::TestImportRegionsInParallel",
+    "internal/ociregion/imageimport/import_test.go::TestOptionsRejectUncataloguedOrRepeatedRegionsBeforeEffects",
+    "internal/ociregion/imageimport/import_test.go::TestRunParsesRepeatableRegions",
+    "internal/ociregion/imageimport/sdk_standin_test.go::TestSDKClientImportsIntoStandIn",
+    "internal/ociregion/imageimport/sdk_standin_test.go::TestSDKRegionalImportsCheckpointPartialSuccessAndResume"
+  ],
+  "counts": {
+    "integration": 3,
+    "unit": 14,
+    "mixed": 3,
+    "unresolved": 0,
+    "total": 20
+  },
+  "checks_performed": [
+    "Own2580:2600 packet frozen and handed off before independent peer source review. Independently read all20 complete canonical roots in identity_integration_test.go, peer_test.go, import_test.go and sdk_standin_test.go plus actual fixture/production/API/store paths.",
+    "Exact allocation/accounting literal2600:2620 IDs and20 unique survival mappings verified.40 baseline/current full raw declaration texts, hashes, explicit bounds and Git blobs verified. All four root files baseline/current identical; no identity drift.",
+    "Initial24 pins/66 connected spans and all entire assertion spans verified against immutable Git. Fresh revision26 pins/69 connected spans fully checked for blob/mode/SHA256/bytes and exact text/bounds≤EOF; original roots/categories/limits/inputs unchanged.",
+    "Input pin hashes, exact packet/checksum hashes, checksum entries and0444 files/0555 directory verified. Counts sum exactly20.",
+    "Followed Peer through injected command.Client/fake peering maps and Engine Dependency. Bound output write/readback supports2602 mixed; other peer file setup/output is incidental to local/fake assertions.",
+    "Followed foundation New/Reconcile through actual signed TLS SDK tenancy/policy/compartment requests. Root2600 also has independent local IAM validation. Pending/checkpoint/guards remain injected memory; no durable restart or leader fencing credit.",
+    "Followed image Import→ImportRegions→verifyDigest/importVerified and atomic checkpoints.2610 directly reads tampered file;2613 has asserted checkpoint readback plus independent fake call/request blocks. Other fake-file work incidental.",
+    "Followed sdkClient, streamUpload small-file conditional PUT, SDK capability/shape methods and httptest stand-in handlers/readback.2618/2619 cross actual local HTTP and checkpoint boundaries; no multipart/cloud/signature-verification credit."
+  ],
+  "resolved_findings": [
+    {
+      "finding": "Missing actual Capability.equal/Capabilities/a1Constraints and SDK capabilitySchema predicate evidence added as exact spans41:56,70:77,183:194.",
+      "resolved_in_packet_sha256": "2b08d16365ceda51d1b355d208044355783acbd27fd7bf78cd13062fd0db8a78"
+    },
+    {
+      "finding": "Both canonical checked-in plan inputs loaded by foundation/newPair added as exact full file pins.",
+      "resolved_in_packet_sha256": "2b08d16365ceda51d1b355d208044355783acbd27fd7bf78cd13062fd0db8a78"
+    }
+  ],
+  "remaining_correction_findings": [],
+  "remaining_source_blockers": [],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no runtime receipts reviewed or tests/Go/helper/cloud/signing/crypto executed.",
+    "All twenty original roots, assertions, identities and safety obligations retained. No source/repository/ledger mutation, category count promotion, deletion, retirement, runtime qualification or completion credit.",
+    "OCI state and credentials are synthetic; actual SDK tests reach local HTTP/TLS only. No live OCI ownership, IAM policy enforcement, real-region repair, production artifact qualification or cloud durability established.",
+    "Foundation pending/checkpoint callbacks are memory-only/injected; source describes repeat reconciliation with retained variables, not actual process restart or durable leader-handoff storage.",
+    "Image SDK fixtures use small-file conditional PUT, not the multipart branch. Signature-header checks establish request shape only; they do not verify signatures against OCI trust.",
+    "Unit roots may load/hash fixture files or write incidental checkpoints; their asserted target is local/fake. Mixed roots explicitly retain independent local-only blocks.",
+    "Independent exact-hash peer review and separate accepted ledger action remain required."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "runtime_receipts_reviewed": false,
+  "runtime_execution_performed": false,
+  "repository_or_source_mutated": false,
+  "ledger_mutated": false,
+  "count_promotion_authorized": false,
+  "deletion_authorized": false,
+  "retirement_authorized": false,
+  "safety_obligations_retained": true
+}

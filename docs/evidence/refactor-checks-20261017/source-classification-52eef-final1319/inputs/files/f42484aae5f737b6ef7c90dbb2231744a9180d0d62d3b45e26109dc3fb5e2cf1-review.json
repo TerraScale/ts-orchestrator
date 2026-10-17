@@ -1,0 +1,283 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2000_2020",
+  "author": "/root/classification_100_dispatch/batch_2020_2040",
+  "decision": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-3420-3440-d4nj5ixs/classification.json",
+    "sha256": "d671361346df31523260c7d8559282354005d6a81dfa633ba5f647243fca7798",
+    "checksum_path": "/tmp/ts-source-3420-3440-d4nj5ixs/SHA256SUMS",
+    "checksum_sha256": "96dc09b30634105024d9bf647c6daa0a6e8f12cb37ec5b52d652e6a15c09c63d"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      3420,
+      3440
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2000_2020"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/storage/execution/runtime_integration_test.go::TestRuntimeObserverRequiresConcreteClient",
+    "internal/storage/execution/runtime_integration_test.go::TestRuntimeSpecRefusesAdmissionDrift",
+    "internal/storage/failover/reattach_test.go::TestDecide",
+    "internal/storage/failover/reattach_test.go::TestProveFencedRequiresTerminated",
+    "internal/storage/failover/reattach_test.go::TestReattacherDrivesTerminatedHostToMountedReplacement",
+    "internal/storage/failover/reattach_test.go::TestReattacherRefusesFollowerFencedAndForeignAttachments",
+    "internal/storage/failover/reattach_test.go::TestReattacherSeparatesFailedLookupsAndBindsTheExpectedEpoch",
+    "internal/storage/hostvolume/effects_linux_test.go::TestBlockDeviceMountedMatchesExactDevice",
+    "internal/storage/hostvolume/effects_linux_test.go::TestBtrfsRootExcludesEveryKernelMember",
+    "internal/storage/hostvolume/hostvolume_test.go::TestExt4ResizeBlocks",
+    "internal/storage/hostvolume/hostvolume_test.go::TestFilesystemData",
+    "internal/storage/hostvolume/hostvolume_test.go::TestFormatCommandPinsUUIDAndSupportsXFS",
+    "internal/storage/hostvolume/hostvolume_test.go::TestGrowNeededIgnoresSmallTailsAndNeverShrinks",
+    "internal/storage/hostvolume/hostvolume_test.go::TestGrowSlackTriggersOnEveryWholeGiBResize",
+    "internal/storage/hostvolume/hostvolume_test.go::TestMountOptionsSelectsExactMountID",
+    "internal/storage/hostvolume/hostvolume_test.go::TestOptionsHardenedRequiresEveryFlag",
+    "internal/storage/hostvolume/hostvolume_test.go::TestRequireHardenedReadsMountInfoFile",
+    "internal/storage/hostvolume/hostvolume_test.go::TestSysfsDeviceBytesReadsSectors",
+    "internal/storage/hostvolume/observer_linux_test.go::TestContainerMountFixture",
+    "internal/storage/hostvolume/observer_linux_test.go::TestRetainedMountKernelIntegration"
+  ],
+  "counts": {
+    "integration": 4,
+    "unit": 14,
+    "mixed": 1,
+    "unresolved": 1
+  },
+  "checks_performed": [
+    "Independently read all20 full current root declarations, actual connected failover/runtime/hostvolume production and fixture paths, and incidental decision logging/correlation. All baseline declarations match the fully read current bodies by exact raw hash.",
+    "Verified activated allocation/accounting literal20 order, survival mapping original/current identities and all input hashes.",
+    "Verified40 baseline/current raw declaration bounds/SHA256/bytes/full-span hashes;18 canonical/baseline file blob/mode/SHA256/byte pins;46 assertion/local-block/connected exact spans, all with strict file bounds/text/hash/blob validation.",
+    "Verified source categories, closed-witness independent local block, helper-only unresolved3438, connected references, zero canonical raw body drifts and qualification/accounting limits.",
+    "Verified exact JSON/SHA256SUMS hashes, all listed checksums, files0444/directory0555 and canonical working-file bytes versus reviewed Git blobs. Metadata-only checks nice19/login:false."
+  ],
+  "root_reviews": [
+    {
+      "root_id": "internal/storage/execution/runtime_integration_test.go::TestRuntimeObserverRequiresConcreteClient",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "Zero RuntimeObserver nil/normal contexts stop at the local ctx/client guard before containerd calls.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/execution/runtime_integration_test.go::TestRuntimeSpecRefusesAdmissionDrift",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "Constructed OCI process/resource/mount/namespace structs reach only verifyRuntimeSpec comparisons.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/failover/reattach_test.go::TestDecide",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "Synthetic attachment-state table reaches pure Decide; no provider/store effects.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/failover/reattach_test.go::TestProveFencedRequiresTerminated",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "fakeInstances returns map lifecycle records/errors to ProveFenced; no OCI protocol observation.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/failover/reattach_test.go::TestReattacherDrivesTerminatedHostToMountedReplacement",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "Map/slice/counter fixtures and manual fake attachment state changes drive reattach; logging/correlation does not support a real detach/mount assertion.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/failover/reattach_test.go::TestReattacherRefusesFollowerFencedAndForeignAttachments",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "Follower/fenced/same-instance/foreign attachment checks use local structs and fake dependencies before real effects.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/failover/reattach_test.go::TestReattacherSeparatesFailedLookupsAndBindsTheExpectedEpoch",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "Failed/STOPPED/TERMINATED lookups and epoch checks use fake observer/fencer/counters only.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/hostvolume/effects_linux_test.go::TestBlockDeviceMountedMatchesExactDevice",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_evidence": "BlockDeviceMounted opens the actual fixture file in production and derives exact device membership from those bytes; no actual kernel mount proof.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/hostvolume/effects_linux_test.go::TestBtrfsRootExcludesEveryKernelMember",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_evidence": "Production Btrfs membership discovery traverses written directories, reads metadata files, resolves actual symlinks/stat and observes deliberate mutations/removal; no real Btrfs kernel fixture.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/hostvolume/hostvolume_test.go::TestExt4ResizeBlocks",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "Ext4ResizeBlocks operates on numeric sizes/block-size guards without ioctl/device access.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/hostvolume/hostvolume_test.go::TestFilesystemData",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "FilesystemData compares filesystem strings and returns mount-data strings only.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/hostvolume/hostvolume_test.go::TestFormatCommandPinsUUIDAndSupportsXFS",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "FormatCommand validates strings/UUID and constructs mkfs arguments; no subprocess runs.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/hostvolume/hostvolume_test.go::TestGrowNeededIgnoresSmallTailsAndNeverShrinks",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "GrowNeeded numeric comparisons cover tails/growth/shrink/zero block size locally.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/hostvolume/hostvolume_test.go::TestGrowSlackTriggersOnEveryWholeGiBResize",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "GrowSlack and synthetic device/filesystem sizes exercise local arithmetic.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/hostvolume/hostvolume_test.go::TestMountOptionsSelectsExactMountID",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "MountOptions scans strings.Reader records and local ID parse/refusal cases without file/kernel reads.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/hostvolume/hostvolume_test.go::TestOptionsHardenedRequiresEveryFlag",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "OptionsHardened compares literal comma-separated options with the local required set.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/hostvolume/hostvolume_test.go::TestRequireHardenedReadsMountInfoFile",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_evidence": "RequireHardened itself opens and reads persisted fixture mountinfo, supporting accept/reject readback; fixture records are synthetic.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/hostvolume/hostvolume_test.go::TestSysfsDeviceBytesReadsSectors",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_evidence": "SysfsDeviceBytes itself reads written/missing/replaced size files; sector conversion and error results materially depend on production file I/O.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/hostvolume/observer_linux_test.go::TestContainerMountFixture",
+      "category": "unresolved",
+      "decision": "accepted",
+      "independent_evidence": "Conditional TestContainerMountFixture returns on ordinary invocation and otherwise provides mount/chroot/command service to parent; standalone root attribution stays unresolved.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/hostvolume/observer_linux_test.go::TestRetainedMountKernelIntegration",
+      "category": "mixed",
+      "decision": "accepted",
+      "independent_evidence": "Parent uses actual loop-backed filesystem/mount namespaces, held kernel descriptors and cross-process proc inspection; final closed-witness sentinel guard is distinct local-only behavior.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "retained_unresolved_source_obligations": [
+    {
+      "root_id": "internal/storage/hostvolume/observer_linux_test.go::TestContainerMountFixture",
+      "reason": "Conditional helper has parent-owned process/readback assertions; no established standalone helper classification rule."
+    }
+  ],
+  "qualification_limits": [
+    "Source-only agreement provides no compilation, runtime success or qualification.",
+    "Execution test package shares the canonical qualification_integration_test.go missing runtime import observed during own3400:3420 review;3420/3421 retain local source-path categories only and gain no runnable-package claim.",
+    "Four direct filesystem I/O scenarios use synthetic fixture trees/records, never genuine Btrfs/sysfs/kernel mounts.",
+    "Kernel parent requires sudo/unshare/loop/mkfs/mount/chroot and host root-device visibility; environmental tools, privilege, fixed UUID alias path and cleanup behavior unmeasured.",
+    "Conditional3438 helper remains unresolved; no original safety/assertion obligation removed or credited as retired."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "no_ledger_count_deletion_retirement_completion_credit": true,
+  "execution_performed": false,
+  "repository_mutations": false,
+  "ledger_mutations": false
+}

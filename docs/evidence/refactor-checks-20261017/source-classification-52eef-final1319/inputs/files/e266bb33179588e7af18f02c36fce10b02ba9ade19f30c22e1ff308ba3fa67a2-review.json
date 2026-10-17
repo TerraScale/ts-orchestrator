@@ -1,0 +1,94 @@
+{
+  "schema": "source-only-independent-peer-review/v1",
+  "reviewer": "/root/classification_100_dispatch/peer_60_80",
+  "author": "/root/classification_100_dispatch/peer_80_100",
+  "decision": "accepted",
+  "accepted_packet": "/tmp/ts-source-classification-final2680-2700-v2-nqva7lq7/classification.json",
+  "accepted_packet_sha256": "da2b5d15ac4dc7240edd2eda4d019aac44e6c321b8f21798d5aaf6c913359b6c",
+  "accepted_checksum_file": "/tmp/ts-source-classification-final2680-2700-v2-nqva7lq7/SHA256SUMS",
+  "accepted_checksum_sha256": "e6bde010cce0021fa962a05286556e84287a47c1310ab9b20e6ed28b42f0db00",
+  "canonical_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "canonical_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation_range": [
+    2680,
+    2700
+  ],
+  "root_ids": [
+    "internal/ociregion/publicapi/public_test.go::TestProvisionBuildsTheEdgeThenResumes",
+    "internal/ociregion/publicapi/public_test.go::TestProvisionServesTheMachinesAPI",
+    "internal/ociregion/publicapi/public_test.go::TestRenamedAuthHostRotatesTheOriginInPlace",
+    "internal/ociregion/publicapi/public_test.go::TestSFOEdgeComesUpAndRotatesItsOrigin",
+    "internal/ociregion/publicapi/public_test.go::TestSFOPlanServesTheMachinesAPI",
+    "internal/ociregion/publicapi/public_test.go::TestSecretCommandsRefuseSDKDebugLogging",
+    "internal/ociregion/publicapi/public_test.go::TestVaultBundleMustNameBothPlannedHostsBeforeAnyWrite",
+    "internal/ociregion/publicapi/sdk_test.go::TestSDKDecodesEveryCommandTheProvisionerSends",
+    "internal/ociregion/publicapi/sdk_test.go::TestSDKNeverHandsSecretsToTheCLI",
+    "internal/ociregion/rebuild_plan_test.go::TestGRURebuildPlanKeepsFreshBindingsAndCSharpPeers",
+    "internal/ociregion/registry/issuer_integration_test.go::TestIssuerAuthorityReplacementAndForeignIdentityBlock",
+    "internal/ociregion/registry/issuer_integration_test.go::TestIssuerConcurrentClaimAndSecretDebugBlock",
+    "internal/ociregion/registry/issuer_integration_test.go::TestIssuerHomeLeaseLossCancelsJoinedTokenHTTP",
+    "internal/ociregion/registry/issuer_integration_test.go::TestIssuerLostTokenAndVaultResponsesRecoverWithoutBlindMint",
+    "internal/ociregion/registry/issuer_integration_test.go::TestIssuerSignedScopeIAMVaultAndRotationHTTP",
+    "internal/ociregion/registry/pullauth_integration_test.go::TestVaultPullMetadataAndScopedCredentialHTTP",
+    "internal/ociregion/registry/pullauth_integration_test.go::TestVaultPullReadCancellationAndIndependentBinding",
+    "internal/ociregion/registry/pullauth_integration_test.go::TestVaultPullRotationExpiryAndMissingCredentialBlock",
+    "internal/ociregion/registry/registry_integration_test.go::TestSDKExistingForeignRepositoryCannotBeAdopted",
+    "internal/ociregion/registry/registry_integration_test.go::TestSDKMissingPinsAndConditionalConflictPreventDeletion"
+  ],
+  "counts": {
+    "integration": 9,
+    "unit": 4,
+    "mixed": 7,
+    "unresolved": 0
+  },
+  "independent_source_review": {
+    "full_canonical_roots": 20,
+    "full_baseline_declarations": 20,
+    "connected_paths": "All allocated roots read independently from immutable Git, including actual fakeOCI→SDK TLS/Cloudflare HTTP, direct upstream NATS loopback/FileStorage KV, issuer/pullauth/registry/vault production calls and plan/profile local predicates. Canonical drift2693/2694 compared to full baseline declarations.",
+    "classification_findings": "Mixed blocks independently assessed: separate invalid CA, dry-run printing, SDK decoding, constructor/debug and foreign-host/tampered-owned guards. Local extraction of actual boundary results alone does not create mixed.",
+    "limits_retained": [
+      "Loopback protocol simulations only; no live OCI/Cloudflare/IAM qualification or actual Machines API/TerraBase/NetBird execution.",
+      "Single upstream JetStream FileStorage broker, no cluster/restart or reopened on-disk store proof.",
+      "Issuer fixture directly constructs Issuer; ordinary KV and no-op BeginEffect do not prove production protected journal enforcement.",
+      "2694 inspects decoded journal.Load then remarshal, not original raw protected journal bytes.",
+      "No runtime pass/fail asserted; source-visible classification only."
+    ]
+  },
+  "metadata_checks": {
+    "literal_allocation_accounting_survival_mappings": 20,
+    "raw_baseline_current_declarations": 40,
+    "explicit_manually_reviewed_canonical_bounds": 20,
+    "full_assertion_interiors": 20,
+    "source_file_blob_mode_sha256_byte_pins": 47,
+    "connected_citations": 85,
+    "exact_span_occurrences": 163,
+    "input_manifest_hashes": "PASS",
+    "canonical_tree": "PASS",
+    "packet_sha256_checksums_and_immutable_permissions": "PASS",
+    "canonical_drift_explicit": [
+      2693,
+      2694
+    ]
+  },
+  "resolved_findings": [
+    {
+      "root_index": 2698,
+      "finding": "Rationale incorrectly described repository list API.",
+      "resolution": "Fresh v2 exact path says load→persist create identity→CreateContainerRepository→ownership validation refusal; later Get not reached. Category unchanged.",
+      "prior_packet_sha256": "35fa68afaa089891deb99f13e6886fd26ff40b74cc200709a0735ac729a47fe3"
+    }
+  ],
+  "remaining_findings": [],
+  "unresolved_source_blockers": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_or_ledger_mutated": false,
+    "count_promotion": false,
+    "deletion_or_retirement_credit": false,
+    "runtime_qualification_credit": false,
+    "global_completion_credit": false
+  }
+}

@@ -1,0 +1,225 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_840_860",
+  "author": "/root/classification_100_dispatch/batch_860_880",
+  "status": "ACCEPTED_SOURCE_ONLY_WITH_RETAINED_BLOCKER",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-final1319-3060-3080-p9xtke5_/classification.json",
+    "sha256": "eec58ea7073c1c30b85408d31ef88bc5ed5171698d6d38f5531d9b5ae2bcd4a9",
+    "checksum_path": "/tmp/ts-source-classification-final1319-3060-3080-p9xtke5_/SHA256SUMS",
+    "checksum_sha256": "087fc5a8ee3afc5e22f60546548462186e297fa8c4ef973c1b5813ddca5a0a44"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[3060:3080]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_840_860"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/release/cli/deploy_test.go::TestDeployRollsOutEveryRegion",
+    "internal/release/cli/deploy_test.go::TestDeploySharesLineageFetchAcrossRegions",
+    "internal/release/cli/deploy_test.go::TestDeployStorageFailuresAreRegionalAndAllReported",
+    "internal/release/cli/deploy_test.go::TestDeployWaitsForRegionsConcurrently",
+    "internal/release/cli/deploy_test.go::TestFleetStatusRejectsStaleLeaderPins",
+    "internal/release/cli/deploy_test.go::TestFleetStatusRequiresLeaderPinsBeforePruning",
+    "internal/release/cli/discovery_test.go::TestDeployDiscoversEveryCellAndKeepsBadRegionalScopeIndependent",
+    "internal/release/cli/discovery_test.go::TestDeploymentDiscoveryCannotSucceedEmptyUnreadableOrDuplicated",
+    "internal/release/cli/discovery_test.go::TestServiceDeployDiscoversPerCellEnvironmentsAndReportsMissingScope",
+    "internal/release/cli/image_production_integration_test.go::TestFinalImageProductionAdmissionBoundary",
+    "internal/release/cli/image_production_pipeline_integration_test.go::TestImageProductionPipeline",
+    "internal/release/cli/main_test.go::TestBoundedReadSeekerSupportsRetriesWithoutReadingPastSize",
+    "internal/release/cli/main_test.go::TestCurrentBinaryVerificationRejectsTamperedArtifact",
+    "internal/release/cli/main_test.go::TestCurrentBinaryVerificationRequiresDelegationAndExactScope",
+    "internal/release/cli/main_test.go::TestDecodeCanonicalPayloadRejectsAlternateEncoding",
+    "internal/release/cli/main_test.go::TestImageIdentityAndGuestPathValidation",
+    "internal/release/cli/main_test.go::TestPutImmutableStreamsAndChecksExactReadback",
+    "internal/release/cli/main_test.go::TestReadDelegatedPrivateKeyRejectsGroupAccess",
+    "internal/release/cli/main_test.go::TestSignBinaryChecksDelegateSlotAndEmitsCurrentEnvelope",
+    "internal/release/cli/preflight_integration_test.go::TestProductionDeployRefusesBeforeSigningCredentials"
+  ],
+  "counts": {
+    "integration": 4,
+    "unit": 14,
+    "mixed": 2,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read every assigned full current root and connected actual fixture/production paths; no target/helper execution.",
+    "Confirmed owner and cyclic peer mapping against exact activated allocation and literal accounting slice other_unadjudicated[3060:3080); all20 root IDs preserved.",
+    "Verified every input SHA256, baseline/current full raw declaration bounds/text/SHA256 and exact survival fields; all root bodies unchanged.",
+    "Verified all37 canonical source file Git blobs/modes/SHA256/byte counts and worktree equality; canonical commit/tree pins agree.",
+    "Verified all76 explicit connected evidence spans and full assertion evidence text/SHA256 against immutable canonical Git bytes.",
+    "Verified classification definitions, counts sum20, every source category against actual target and independent local blocks, blocker/qualification limits and no accounting/retirement effects.",
+    "Verified exact classification/checksum hashes, every SHA256SUMS member and immutable files0444/directory0555."
+  ],
+  "root_reviews": [
+    {
+      "root_id": "internal/release/cli/deploy_test.go::TestDeployRollsOutEveryRegion",
+      "category": "unit",
+      "judgment": "AGREE",
+      "independent_reason": "Rollout/retry/status targets observe map-backed bucket writes and synthesized status; file inputs incidental.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/deploy_test.go::TestDeploySharesLineageFetchAcrossRegions",
+      "category": "unit",
+      "judgment": "AGREE",
+      "independent_reason": "Fetch count is recorded by injected Git function; no process invocation supports that assertion.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/deploy_test.go::TestDeployStorageFailuresAreRegionalAndAllReported",
+      "category": "unit",
+      "judgment": "AGREE",
+      "independent_reason": "Factory sentinels and in-memory regional logs support failure isolation; no actual provider.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/deploy_test.go::TestDeployWaitsForRegionsConcurrently",
+      "category": "unit",
+      "judgment": "AGREE",
+      "independent_reason": "Channel synchronization happens inside fake bucket wait callbacks; asserted concurrency is local.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/deploy_test.go::TestFleetStatusRejectsStaleLeaderPins",
+      "category": "unit",
+      "judgment": "AGREE",
+      "independent_reason": "Fake-map status timestamp vectors reach local ValidateFresh; no leader inventory or pruning.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/deploy_test.go::TestFleetStatusRequiresLeaderPinsBeforePruning",
+      "category": "unit",
+      "judgment": "AGREE",
+      "independent_reason": "Fake-map missing/malformed/valid pins reach local validation and text output only.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/discovery_test.go::TestDeployDiscoversEveryCellAndKeepsBadRegionalScopeIndependent",
+      "category": "unit",
+      "judgment": "AGREE",
+      "independent_reason": "Discovery/scope return fixture values; regional log writes remain synthetic.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/discovery_test.go::TestDeploymentDiscoveryCannotSucceedEmptyUnreadableOrDuplicated",
+      "category": "unit",
+      "judgment": "AGREE",
+      "independent_reason": "Empty/duplicate/unknown roster and error callback stop in local membership validation.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/discovery_test.go::TestServiceDeployDiscoversPerCellEnvironmentsAndReportsMissingScope",
+      "category": "unit",
+      "judgment": "AGREE",
+      "independent_reason": "Real Git archive supplies provenance, but environment/missing-scope result is driven by fake serviceBucket values/logs.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/image_production_integration_test.go::TestFinalImageProductionAdmissionBoundary",
+      "category": "mixed",
+      "judgment": "AGREE",
+      "independent_reason": "CLI hashQcow2 and retained evidence file reads establish actual FS boundary; direct proof authority, lifetime and defensive-copy blocks are independently local.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/image_production_pipeline_integration_test.go::TestImageProductionPipeline",
+      "category": "integration",
+      "judgment": "AGREE",
+      "independent_reason": "Actual bash process invocation and exit/admission target, but copied fixture lacks required qualified_release.py. Initial expected success and every later mutation/fetch/retry assertion remain unresolved and uncredited.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/main_test.go::TestBoundedReadSeekerSupportsRetriesWithoutReadingPastSize",
+      "category": "unit",
+      "judgment": "AGREE",
+      "independent_reason": "bytes.Reader bounded seeks/reads exercise only local stream adapter.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/main_test.go::TestCurrentBinaryVerificationRejectsTamperedArtifact",
+      "category": "integration",
+      "judgment": "AGREE",
+      "independent_reason": "Production verifier opens actual artifact and fails ELF parse on literal non-ELF tampered bytes. Only nonnil error, not final digest mismatch, is established by source.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/main_test.go::TestCurrentBinaryVerificationRequiresDelegationAndExactScope",
+      "category": "unit",
+      "judgment": "AGREE",
+      "independent_reason": "Generated receipt/delegation wires provide local scope/time/authority vectors; file serialization is incidental.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/main_test.go::TestDecodeCanonicalPayloadRejectsAlternateEncoding",
+      "category": "unit",
+      "judgment": "AGREE",
+      "independent_reason": "Canonical versus newline/unknown-field JSON vectors use in-memory decode.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/main_test.go::TestImageIdentityAndGuestPathValidation",
+      "category": "unit",
+      "judgment": "AGREE",
+      "independent_reason": "Image region/OCID and guest path assertions are string predicates.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/main_test.go::TestPutImmutableStreamsAndChecksExactReadback",
+      "category": "unit",
+      "judgment": "AGREE",
+      "independent_reason": "putImmutable receives bytes.Reader and fakeObjectClient; conditional/readback checks are synthetic in-memory API behavior.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/main_test.go::TestReadDelegatedPrivateKeyRejectsGroupAccess",
+      "category": "integration",
+      "judgment": "AGREE",
+      "independent_reason": "Actual chmod0640 plus production open/fstat establishes narrow OS permission rejection.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/main_test.go::TestSignBinaryChecksDelegateSlotAndEmitsCurrentEnvelope",
+      "category": "mixed",
+      "judgment": "AGREE",
+      "independent_reason": "Exclusive signed output creation and current verification readback form FS boundary; separate wrong-slot fixture with injected inspect/check is local.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/preflight_integration_test.go::TestProductionDeployRefusesBeforeSigningCredentials",
+      "category": "integration",
+      "judgment": "AGREE",
+      "independent_reason": "Actual retained production.json removal causes production missing-proof read failure before credential/storage access; real ELF read occurs, HTTP/Vault do not support target.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [
+    {
+      "kind": "source_visible_blocker",
+      "root_id": "internal/release/cli/image_production_pipeline_integration_test.go::TestImageProductionPipeline",
+      "status": "UNRESOLVED_UNCREDITED",
+      "detail": "Pipeline fixture copies only qualify-image-production.sh and fetch-image-production-evidence.sh; current qualify script46 invokes missing scripts/ci/qualified_release.py. First run(true) and all subsequent assertions remain uncredited. Current script also executes downloaded binary rather than fake go wrapper. This acceptance does not resolve the blocker or claim a runtime result."
+    }
+  ],
+  "qualification_limits": [
+    "Acceptance is exact-hash source classification only, not test pass/runtime qualification.",
+    "All20 original roots/assertions and source-visible blocker obligations retained.",
+    "Loopback/object-map/synthetic proof source evidence grants no live OCI, Vault, GitHub, containerd, workload, regional durability or multi-host credit.",
+    "Filesystem effects are scoped to actual file/permission/artifact operations materially supporting assertions.",
+    "No source/repository/ledger mutation, execution, deletion, retirement, promotion or global completion credit."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "ledger_mutated": false,
+    "qualification_delta": 0,
+    "retirement_delta": 0,
+    "global_completion": false
+  }
+}

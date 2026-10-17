@@ -1,0 +1,205 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_860_880",
+  "author": "/root/classification_100_dispatch/batch_880_900",
+  "decision": "ACCEPT_EXACT_FROZEN_PACKET_SOURCE_ONLY",
+  "accepted_packet": "/tmp/ts-source-classification-final-3080-3100-corrected-piqz88yl/classification.json",
+  "accepted_packet_sha256": "1e10069c252903d5b5d1a4968a3aae8937c299538bf005650540ff93f13480c4",
+  "accepted_checksum_file": "/tmp/ts-source-classification-final-3080-3100-corrected-piqz88yl/SHA256SUMS",
+  "accepted_checksum_sha256": "6eff2678f78852403745d4e2ccf8679b75ef16b4332afc63f3db821f864b92c6",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation_path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+  "allocation_sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+  "range": [
+    3080,
+    3100
+  ],
+  "root_ids": [
+    "internal/release/cli/preflight_integration_test.go::TestProductionPreflightStreamsHealthyRegionsDuringHTTPStall",
+    "internal/release/cli/production_integration_test.go::TestProductionAdmissionRetainedArtifactBoundary",
+    "internal/release/cli/production_transport_integration_test.go::TestProductionEvidenceCLIProcess",
+    "internal/release/cli/production_transport_integration_test.go::TestProductionEvidenceReleaseTransport",
+    "internal/release/cli/root_rotation_test.go::TestSignRootRotationCollectsOldAndNewRootSignatures",
+    "internal/release/cli/run_test.go::TestArtifactHashStopsWhenReadCancelsCommand",
+    "internal/release/cli/run_test.go::TestBinarySigningCancellationDoesNotWriteReceipt",
+    "internal/release/cli/run_test.go::TestBinaryVerificationCancellationDoesNotEmitSuccess",
+    "internal/release/cli/run_test.go::TestCanceledCommandDoesNotCreateOutput",
+    "internal/release/cli/run_test.go::TestCanceledPublicationDoesNotUpload",
+    "internal/release/cli/run_test.go::TestGuestExtractionUsesCommandCancellation",
+    "internal/release/cli/run_test.go::TestRunReportsOutputFailure",
+    "internal/release/cli/run_test.go::TestVerifiedBinaryReportsOutputFailure",
+    "internal/release/cli/run_test.go::TestVerifiedBinaryWritesToCommandOutput",
+    "internal/release/cli/sequence_integration_test.go::TestSequenceMigrationOfflineSigningFilesystem",
+    "internal/release/cli/service_deploy_test.go::TestServiceDeployFinishesOtherRegionsWhenOneRollsBack",
+    "internal/release/cli/service_deploy_test.go::TestServiceDeployRefusesIncompleteArguments",
+    "internal/release/cli/service_deploy_test.go::TestServiceDeployReleasesEveryRegion",
+    "internal/release/cli/service_deploy_test.go::TestServiceDeployStorageFailuresAreRegionalAndAllReported",
+    "internal/release/cli/update_delegation_test.go::TestPinnedLineageRemote"
+  ],
+  "counts": {
+    "integration": 5,
+    "unresolved": 1,
+    "unit": 13,
+    "mixed": 1
+  },
+  "checks_performed": [
+    "Read all20 whole canonical roots independently and followed actual fixture/helper/production paths, including OCI SDK loopback HTTP dispatcher, retained signed record/evidence/ELF reads, shell retention/fetch and child CLI, filesystem output/exclusive-create, local cancellation/output guards, service fake maps and real SourceTreeDigest Git archive.",
+    "Verified20 literal allocation IDs and root order against activated immutable map; checked each original/current name/kind/state and historical hashes against literal survival metadata.",
+    "Verified explicit baseline/current declaration bounds/raw text/hash from Git, excluding following LF; all entire-body assertion spans and every connected source snippet match canonical bytes/hash.",
+    "Verified all34 full-file source pins for Git blob/mode/SHA256/byte count, all checksum entries and files0444/directory0555. No source parser/scanner or project execution.",
+    "Independently assessed source categories:5 integration,13 unit,1 mixed,1 unresolved. Incidental file/provenance setup does not promote local predicate/fake targets; separately asserted Git archive comparison supports mixed service root.",
+    "Compared corrected frozen packet with prior packet: only conditional-helper rationale variable/value and explicit peer correction note differ. Revalidated all root/evidence/full-file pins, checksums and modes against corrected exact packet."
+  ],
+  "resolved_findings": [
+    {
+      "root_id": "internal/release/cli/production_transport_integration_test.go::TestProductionEvidenceCLIProcess",
+      "finding": "Prior rationale named TS_RELEASE_TRANSPORT_FIXTURE=1, inconsistent with canonical182-184.",
+      "resolution": "Fresh exact accepted packet names nonempty PRODUCTION_TEST_EXECUTABLE; raw evidence/category unchanged.",
+      "prior_packet": "/tmp/ts-source-classification-final-3080-3100-rib3z71_/classification.json",
+      "prior_packet_sha256": "26880569d2da0b8ec5020fbd61a608928a4f59be5fb807cb8ec80a1b3c8fd6b1"
+    }
+  ],
+  "remaining_findings": [],
+  "retained_limits": [
+    "Conditional CLIProcess remains unresolved: default returns without assertions; activated child executes Run and exits, while parent owns process exit/output assertions. No established helper-root accounting rule transfers parent credit.",
+    "Local SDK HTTP/process/filesystem evidence does not qualify live OCI/GitHub/production gates. All runtime outcomes unknown, synthetic trust/evidence retained as fixture limits.",
+    "Cancellation guards return before target I/O; no real guest extraction/upload/file creation is credited. Service regional publication/status ends in in-memory fake buckets except separately asserted real Git source-binding block."
+  ],
+  "per_root_review": [
+    {
+      "root_id": "internal/release/cli/preflight_integration_test.go::TestProductionPreflightStreamsHealthyRegionsDuringHTTPStall",
+      "category": "integration",
+      "status": "SOURCE_CATEGORY_AND_LIMITS_ACCEPTED",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/production_integration_test.go::TestProductionAdmissionRetainedArtifactBoundary",
+      "category": "integration",
+      "status": "SOURCE_CATEGORY_AND_LIMITS_ACCEPTED",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/production_transport_integration_test.go::TestProductionEvidenceCLIProcess",
+      "category": "unresolved",
+      "status": "SOURCE_CATEGORY_AND_LIMITS_ACCEPTED",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/production_transport_integration_test.go::TestProductionEvidenceReleaseTransport",
+      "category": "integration",
+      "status": "SOURCE_CATEGORY_AND_LIMITS_ACCEPTED",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/root_rotation_test.go::TestSignRootRotationCollectsOldAndNewRootSignatures",
+      "category": "integration",
+      "status": "SOURCE_CATEGORY_AND_LIMITS_ACCEPTED",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/run_test.go::TestArtifactHashStopsWhenReadCancelsCommand",
+      "category": "unit",
+      "status": "SOURCE_CATEGORY_AND_LIMITS_ACCEPTED",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/run_test.go::TestBinarySigningCancellationDoesNotWriteReceipt",
+      "category": "unit",
+      "status": "SOURCE_CATEGORY_AND_LIMITS_ACCEPTED",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/run_test.go::TestBinaryVerificationCancellationDoesNotEmitSuccess",
+      "category": "unit",
+      "status": "SOURCE_CATEGORY_AND_LIMITS_ACCEPTED",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/run_test.go::TestCanceledCommandDoesNotCreateOutput",
+      "category": "unit",
+      "status": "SOURCE_CATEGORY_AND_LIMITS_ACCEPTED",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/run_test.go::TestCanceledPublicationDoesNotUpload",
+      "category": "unit",
+      "status": "SOURCE_CATEGORY_AND_LIMITS_ACCEPTED",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/run_test.go::TestGuestExtractionUsesCommandCancellation",
+      "category": "unit",
+      "status": "SOURCE_CATEGORY_AND_LIMITS_ACCEPTED",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/run_test.go::TestRunReportsOutputFailure",
+      "category": "unit",
+      "status": "SOURCE_CATEGORY_AND_LIMITS_ACCEPTED",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/run_test.go::TestVerifiedBinaryReportsOutputFailure",
+      "category": "unit",
+      "status": "SOURCE_CATEGORY_AND_LIMITS_ACCEPTED",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/run_test.go::TestVerifiedBinaryWritesToCommandOutput",
+      "category": "unit",
+      "status": "SOURCE_CATEGORY_AND_LIMITS_ACCEPTED",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/sequence_integration_test.go::TestSequenceMigrationOfflineSigningFilesystem",
+      "category": "integration",
+      "status": "SOURCE_CATEGORY_AND_LIMITS_ACCEPTED",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/service_deploy_test.go::TestServiceDeployFinishesOtherRegionsWhenOneRollsBack",
+      "category": "unit",
+      "status": "SOURCE_CATEGORY_AND_LIMITS_ACCEPTED",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/service_deploy_test.go::TestServiceDeployRefusesIncompleteArguments",
+      "category": "unit",
+      "status": "SOURCE_CATEGORY_AND_LIMITS_ACCEPTED",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/service_deploy_test.go::TestServiceDeployReleasesEveryRegion",
+      "category": "mixed",
+      "status": "SOURCE_CATEGORY_AND_LIMITS_ACCEPTED",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/service_deploy_test.go::TestServiceDeployStorageFailuresAreRegionalAndAllReported",
+      "category": "unit",
+      "status": "SOURCE_CATEGORY_AND_LIMITS_ACCEPTED",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/release/cli/update_delegation_test.go::TestPinnedLineageRemote",
+      "category": "unit",
+      "status": "SOURCE_CATEGORY_AND_LIMITS_ACCEPTED",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "runtime_executed": false,
+    "deletion_delta": 0,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_count_promotion": false,
+    "global_completion": false
+  }
+}

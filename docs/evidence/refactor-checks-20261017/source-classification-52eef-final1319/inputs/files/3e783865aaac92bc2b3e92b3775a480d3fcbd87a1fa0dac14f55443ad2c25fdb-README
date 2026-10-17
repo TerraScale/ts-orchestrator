@@ -1,0 +1,6 @@
+SOURCE_ONLY_CANDIDATE: final other_unadjudicated[3540:3560)
+20 full original roots; {'integration': 4, 'unit': 15, 'mixed': 1, 'unresolved': 0}
+Canonical 52eef25bad09736d8f0806ecaccaef1a7c86b49e; baseline bfca60368f60d2da67f9016d1d489317ae8749c8; all20 baseline/current declarations exact.
+Real loopback APIs and conditional external-release process path are separated from fake Vault records and local predicates.
+Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No source/repository/ledger changes or execution.
+Independent peer required; no ledger/count/deletion/retirement/completion credit.

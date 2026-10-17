@@ -1,0 +1,5 @@
+Source-only exact other[3000:3020), 20 original roots.
+Counts I2/U15/M3/R0. Canonical 52eef25bad09736d8f0806ecaccaef1a7c86b49e baseline bfca60368f60d2da67f9016d1d489317ae8749c8.
+Full roots and connected paths manually read. Exact identities/declarations/assertion/callee spans and file pins retained.
+Topology canonical declaration drift recorded; original obligation retained.
+Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; independent peer required. No source/ledger/promotion/retirement/completion credit.

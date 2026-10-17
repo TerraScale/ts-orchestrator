@@ -1,0 +1,80 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_220_240",
+  "author": "/root/classification_100_dispatch/batch_240_260",
+  "decision": "ACCEPTED_SOURCE_ONLY_EXACT_HASH",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-2800-2820-gbej93mw/classification.json",
+    "sha256": "7660ab556178f4fb338878313b1fce20b103dca1663b98a98167f601f1cae908",
+    "checksum_path": "/tmp/ts-source-classification-2800-2820-gbej93mw/SHA256SUMS",
+    "checksum_sha256": "224ac105a5db8bd5839714c437d12424dba3a4ab21537c557fa9e581e043a7bc"
+  },
+  "superseded_packet": {
+    "path": "/tmp/ts-source-classification-2800-2820-7qnrfiv6/classification.json",
+    "sha256": "e4cef5e253eb4a7648be0ff6595d5b61ea27c2dd5267f3be23669076099e633a"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "range": [
+    2800,
+    2820
+  ],
+  "root_ids": [
+    "internal/ociresource/seclist/seclist_test.go::TestSecurityListAlwaysEnforcesAndForeignIsNeverWritten",
+    "internal/ociresource/seclist/seclist_test.go::TestSecurityListConvergesInOneConditionalReplace",
+    "internal/ociresource/seclist/seclist_test.go::TestSecurityListSpecValidation",
+    "internal/ociresource/seclist/seclist_test.go::TestSecurityListTombstoneReleasesWithoutTouchingRules",
+    "internal/placement/attach_deadline_review_test.go::TestControllerReportsAStalledAttachRequestWhileTheAttachmentIsUnobservable",
+    "internal/placement/controller_test.go::TestControllerAllowsLiveETagChurnButRejectsImmutableInstanceDrift",
+    "internal/placement/controller_test.go::TestControllerAppliesOnlyPreparedObservedManagedDesired",
+    "internal/placement/controller_test.go::TestControllerFailingPlacementDoesNotStarveLaterPlacement",
+    "internal/placement/controller_test.go::TestControllerGrowsUndersizedRetainedVolumeAutomatically",
+    "internal/placement/controller_test.go::TestControllerHoldsAfterAttachedVolumeWithoutObservedDevice",
+    "internal/placement/controller_test.go::TestControllerHoldsAttachmentStuckAttachingPastDeadline",
+    "internal/placement/controller_test.go::TestControllerHoldsConfiguredSeatWithoutMatchingSignedRosterRow",
+    "internal/placement/controller_test.go::TestControllerHoldsUnadmittedRuntimeAndReplaysPreparedCASConflict",
+    "internal/placement/controller_test.go::TestControllerHoldsUnpinnedChangedAndRemovedMembersBeforeOCI",
+    "internal/placement/controller_test.go::TestControllerHoldsUnsupportedMultiRegionSenderBeforeAnyEffect",
+    "internal/placement/controller_test.go::TestControllerHoldsWholePlacementBeforePreparingMissingSeat",
+    "internal/placement/controller_test.go::TestControllerKeepsMemberHostsOfAllowedEarlierImages",
+    "internal/placement/controller_test.go::TestControllerMovesLegacyServingMemberToRuntimeHoldWhenHostIsLost",
+    "internal/placement/controller_test.go::TestControllerPinsSignedProfileBeforeHostCreateAndUsesItOnRecovery",
+    "internal/placement/controller_test.go::TestControllerPreparedDesiredValidatesTheObservedHost"
+  ],
+  "counts": {
+    "integration": 3,
+    "mixed": 1,
+    "unit": 16,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Own2780:2800 packet sealed and handed off before mapped peer source review; own P1 correction handled first and independently accepted.",
+    "Independently read all20whole allocated roots and reached production/fixture paths. Separate security-list fixture uses upstream NATS token TCP/file JetStream plus actual OCI SDK loopback HTTP; placement uses injected map/slice/counter dependencies.",
+    "Verified allocation equals literal accounting other_unadjudicated[2800:2820), all20survival mappings and exact baseline/current raw declaration text/bounds/hashes excluding final LF; no body drift.",
+    "Verified40source-file Git blob/mode/SHA256/byte pins against canonical Git; canonical worktree bytes equal pinned files;77exact connected source spans plus20entire-root assertion spans verified.",
+    "Verified corrected exact packet hash, SHA256SUMS,0444files/0555directory and preserved prior packet. Categories3integration/16unit/1mixed/0unresolved independently agree.",
+    "Followed resize sidepath through recordVolumeResize, process-local correlation, recorder/log fallback, decision normalization and ID generation source. Incidental emission is unasserted and gives no integration credit.",
+    "No Go/build/test/project helper/scanner/parser/framework/process/resource/runtime/cloud/signing/crypto/TerraBase execution. Metadata-only serialization of inspected spans and ordinary file/Git/hash checks."
+  ],
+  "resolved_findings": [
+    {
+      "id": "P1",
+      "root_id": "internal/placement/controller_test.go::TestControllerGrowsUndersizedRetainedVolumeAutomatically",
+      "detail": "Added reached recordVolumeResize and decisionlog Record/Default/LogRecorder/correlation/normalization/ID evidence with5new pins/5spans. Rationale and qualification retain unit category: unasserted logging/correlation is incidental to fake resize/map transition."
+    }
+  ],
+  "remaining_review_findings": [],
+  "qualification_limits": [
+    "Security-list invalid table returns before store I/O and remains local-only within mixed root; separate accepted explicit-empty publication has real KV readback.",
+    "OCI HTTP server state is synthetic; Authorization nonempty check does not verify signature/IAM. Environment-sensitive SDK transport is source-visible; no runtime containment or live OCI proof.",
+    "Store fixture is one-replica file JetStream over token-authenticated loopback TCP; no quorum, failover, regional clustering or restart proof.",
+    "Placement controller reconstruction preserves same fake maps/slices. No signed authority commit, durable CAS, OCI mutation, actual mount/runtime or force-detach proof.",
+    "Failing-placement callback occurs before seat-key collision can reject later persistence; changed-payload-only variant reaches earlier multi-region guard. Both limits preserved.",
+    "Resize structured-log/correlation emission is incidental and unasserted; source classification does not infer a real journal/store boundary."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "NONE; no repository/source/ledger/runtime/count/deletion/retirement/completion promotion"
+}

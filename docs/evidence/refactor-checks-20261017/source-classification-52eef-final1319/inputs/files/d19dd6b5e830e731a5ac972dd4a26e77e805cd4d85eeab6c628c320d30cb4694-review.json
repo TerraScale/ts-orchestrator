@@ -1,0 +1,557 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_800_820",
+  "author": "/root/classification_100_dispatch/batch_820_840",
+  "status": "accepted",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-3020-3040-49jgqi0e/classification.json",
+    "sha256": "b4680fcd0f94bbeaa465a44d1ccbaae834dacd658bc8c410f1826065a5030ba4",
+    "checksum_path": "/tmp/ts-source-3020-3040-49jgqi0e/SHA256SUMS",
+    "checksum_sha256": "28702ccd845a9e529ce79e8c40a775db1b2c73f26b3ec586590c2299f3a8a27f"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      3020,
+      3040
+    ]
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/regionview/resources_test.go::TestFilesystemCollectionFailureMarksCoverageAndRecovers",
+    "internal/regionview/resources_test.go::TestFilesystemReplacedRoleKeepsOnlyCoherentLatestReport",
+    "internal/regionview/resources_test.go::TestFilesystemUnknownSizeRemainsUnavailable",
+    "internal/regionview/resources_test.go::TestLatestHostReportCannotBorrowMissingMetricsFromOlderReports",
+    "internal/regionview/resources_test.go::TestRegionCapacityMarksNodePresentationTruncation",
+    "internal/regionview/resources_test.go::TestRegionResourceAPIAndCapacity",
+    "internal/regionview/resources_test.go::TestResourcesPreserveMissingAndStale",
+    "internal/regionview/resources_test.go::TestResourcesUseCanonicalHostOrigin",
+    "internal/regionview/review_test.go::TestAuthorityIsTheNewestValidLease",
+    "internal/regionview/review_test.go::TestDatabasesCountDistinctIDsNotPartitions",
+    "internal/regionview/review_test.go::TestFailedClusterViewLeavesQuorumUnknown",
+    "internal/regionview/review_test.go::TestLegacyVersionMembersAreBoundedAcrossTheSummary",
+    "internal/regionview/review_test.go::TestRemoteRegionInsightsDoNotScoreThisRegion",
+    "internal/regionview/review_test.go::TestSummaryRequestCarriesTheCurrentVersion",
+    "internal/regionview/review_test.go::TestTerminalPartitionsAreNotActiveWork",
+    "internal/regionview/wan_test.go::TestWANHistoryDoesNotBorrowOlderReportMetrics",
+    "internal/regionview/wan_test.go::TestWANHistoryPreservesScrapeTimeAndExactHostBinding",
+    "internal/regionview/wan_test.go::TestWANHistoryQueriesEachGaugeOncePerNode",
+    "internal/regionview/wan_test.go::TestWANHistoryRejectsPartialReplayAndStaleScrapes",
+    "internal/regionview/wan_test.go::TestWANHistorySeparatesSourcesAndLatestBatch"
+  ],
+  "counts": {
+    "integration": 0,
+    "unit": 20,
+    "mixed": 0,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 full current roots in resources_test.go, review_test.go and wan_test.go, and baseline terminal root.",
+    "Independently followed real reached production CollectResources/latest/query/filesystems/fillNodeCapacity, Provider.Local/fillFromCluster/score/bounds, CollectWAN/nodeWAN, strict JSON, static fixtures and memory History.Append/Range/ring/label helpers.",
+    "Verified exact cyclic allocation/literal mappings and survival rows; all20 raw baseline/current declaration bounds/text/SHA256 and assertions; one canonical terminal-serving assertion drift retained.",
+    "Verified every cited canonical file mode/Git blob/SHA256/bytes and every serialized connected/assertion span against pinned Git bytes, all input hashes, counts and immutable packet/checksums.",
+    "All20 categories independently unit: constructed history and static callbacks support the assertions. No source-visible blocker or missing mapping found; runtime remains UNKNOWN."
+  ],
+  "roots": [
+    {
+      "root_id": "internal/regionview/resources_test.go::TestFilesystemCollectionFailureMarksCoverageAndRecovers",
+      "accepted_category": "unit",
+      "independent_basis": "Injected incomplete filesystem metric toggles capacity coverage; only memory history and arithmetic.",
+      "baseline_source": {
+        "path": "internal/regionview/resources_test.go",
+        "function": "TestFilesystemCollectionFailureMarksCoverageAndRecovers",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "8e1051671defbd7d80f7080b8e70a9c1b0591f12",
+        "line": 241,
+        "end_line": 273
+      },
+      "current_source": {
+        "path": "internal/regionview/resources_test.go",
+        "function": "TestFilesystemCollectionFailureMarksCoverageAndRecovers",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "8e1051671defbd7d80f7080b8e70a9c1b0591f12",
+        "line": 241,
+        "end_line": 273
+      },
+      "original_declaration_sha256": "16d1894570984c7b65d465f1bdfe3deebfade3b52576f3d6ad006c9ddac5a94d",
+      "current_declaration_sha256": "16d1894570984c7b65d465f1bdfe3deebfade3b52576f3d6ad006c9ddac5a94d",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/regionview/resources_test.go::TestFilesystemReplacedRoleKeepsOnlyCoherentLatestReport",
+      "accepted_category": "unit",
+      "independent_basis": "Old/new role/path/device labels are synthetic; timestamp joins and zero-value recovery operate on memory history.",
+      "baseline_source": {
+        "path": "internal/regionview/resources_test.go",
+        "function": "TestFilesystemReplacedRoleKeepsOnlyCoherentLatestReport",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "8e1051671defbd7d80f7080b8e70a9c1b0591f12",
+        "line": 135,
+        "end_line": 167
+      },
+      "current_source": {
+        "path": "internal/regionview/resources_test.go",
+        "function": "TestFilesystemReplacedRoleKeepsOnlyCoherentLatestReport",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "8e1051671defbd7d80f7080b8e70a9c1b0591f12",
+        "line": 135,
+        "end_line": 167
+      },
+      "original_declaration_sha256": "82803a13693668ecef52c407e5d75ed1f478454adec6d9d6a66468fe29906f1f",
+      "current_declaration_sha256": "82803a13693668ecef52c407e5d75ed1f478454adec6d9d6a66468fe29906f1f",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/regionview/resources_test.go::TestFilesystemUnknownSizeRemainsUnavailable",
+      "accepted_category": "unit",
+      "independent_basis": "Zero size is a local nil-reading guard; no statfs or filesystem action.",
+      "baseline_source": {
+        "path": "internal/regionview/resources_test.go",
+        "function": "TestFilesystemUnknownSizeRemainsUnavailable",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "8e1051671defbd7d80f7080b8e70a9c1b0591f12",
+        "line": 169,
+        "end_line": 183
+      },
+      "current_source": {
+        "path": "internal/regionview/resources_test.go",
+        "function": "TestFilesystemUnknownSizeRemainsUnavailable",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "8e1051671defbd7d80f7080b8e70a9c1b0591f12",
+        "line": 169,
+        "end_line": 183
+      },
+      "original_declaration_sha256": "c57d57051d690b291add0a474fc0b312ef9a0e83bda19b1ebce09376aff7d938",
+      "current_declaration_sha256": "c57d57051d690b291add0a474fc0b312ef9a0e83bda19b1ebce09376aff7d938",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/regionview/resources_test.go::TestLatestHostReportCannotBorrowMissingMetricsFromOlderReports",
+      "accepted_category": "unit",
+      "independent_basis": "Newest marker with no gauges locally prevents borrowing older memory metrics.",
+      "baseline_source": {
+        "path": "internal/regionview/resources_test.go",
+        "function": "TestLatestHostReportCannotBorrowMissingMetricsFromOlderReports",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "8e1051671defbd7d80f7080b8e70a9c1b0591f12",
+        "line": 185,
+        "end_line": 203
+      },
+      "current_source": {
+        "path": "internal/regionview/resources_test.go",
+        "function": "TestLatestHostReportCannotBorrowMissingMetricsFromOlderReports",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "8e1051671defbd7d80f7080b8e70a9c1b0591f12",
+        "line": 185,
+        "end_line": 203
+      },
+      "original_declaration_sha256": "a2dcaeadc50dc5910ee6debba3dbae6af7b272a1f10915b4663e1bff480cb9ce",
+      "current_declaration_sha256": "a2dcaeadc50dc5910ee6debba3dbae6af7b272a1f10915b4663e1bff480cb9ce",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/regionview/resources_test.go::TestRegionCapacityMarksNodePresentationTruncation",
+      "accepted_category": "unit",
+      "independent_basis": "Literal node slices and history samples drive local truncation/partial-capacity logic.",
+      "baseline_source": {
+        "path": "internal/regionview/resources_test.go",
+        "function": "TestRegionCapacityMarksNodePresentationTruncation",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "8e1051671defbd7d80f7080b8e70a9c1b0591f12",
+        "line": 101,
+        "end_line": 133
+      },
+      "current_source": {
+        "path": "internal/regionview/resources_test.go",
+        "function": "TestRegionCapacityMarksNodePresentationTruncation",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "8e1051671defbd7d80f7080b8e70a9c1b0591f12",
+        "line": 101,
+        "end_line": 133
+      },
+      "original_declaration_sha256": "1e395c50b330a4a2942a19bb1c759ee01be0bc50a01d4c9f8b2c4a2e5e49eef4",
+      "current_declaration_sha256": "1e395c50b330a4a2942a19bb1c759ee01be0bc50a01d4c9f8b2c4a2e5e49eef4",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/regionview/resources_test.go::TestRegionResourceAPIAndCapacity",
+      "accepted_category": "unit",
+      "independent_basis": "Direct Provider.Local with static cluster/Nodes callbacks and memory history; no HTTP/API exchange.",
+      "baseline_source": {
+        "path": "internal/regionview/resources_test.go",
+        "function": "TestRegionResourceAPIAndCapacity",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "8e1051671defbd7d80f7080b8e70a9c1b0591f12",
+        "line": 64,
+        "end_line": 99
+      },
+      "current_source": {
+        "path": "internal/regionview/resources_test.go",
+        "function": "TestRegionResourceAPIAndCapacity",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "8e1051671defbd7d80f7080b8e70a9c1b0591f12",
+        "line": 64,
+        "end_line": 99
+      },
+      "original_declaration_sha256": "9ec570143f81260a4c4ae89cf6e1c468e7fbba07f2d94e5326efe05e2a986ae7",
+      "current_declaration_sha256": "9ec570143f81260a4c4ae89cf6e1c468e7fbba07f2d94e5326efe05e2a986ae7",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/regionview/resources_test.go::TestResourcesPreserveMissingAndStale",
+      "accepted_category": "unit",
+      "independent_basis": "Appended old scrape time is preserved and Fresh checked locally; absent gauges remain nil.",
+      "baseline_source": {
+        "path": "internal/regionview/resources_test.go",
+        "function": "TestResourcesPreserveMissingAndStale",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "8e1051671defbd7d80f7080b8e70a9c1b0591f12",
+        "line": 46,
+        "end_line": 62
+      },
+      "current_source": {
+        "path": "internal/regionview/resources_test.go",
+        "function": "TestResourcesPreserveMissingAndStale",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "8e1051671defbd7d80f7080b8e70a9c1b0591f12",
+        "line": 46,
+        "end_line": 62
+      },
+      "original_declaration_sha256": "896664bb20b724f191d1a2bb0358246ea9259b9b167dffc6208a6b63dc8930d0",
+      "current_declaration_sha256": "896664bb20b724f191d1a2bb0358246ea9259b9b167dffc6208a6b63dc8930d0",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/regionview/resources_test.go::TestResourcesUseCanonicalHostOrigin",
+      "accepted_category": "unit",
+      "independent_basis": "Node.Name selects host labels from memory; controller alias does not supply host readings.",
+      "baseline_source": {
+        "path": "internal/regionview/resources_test.go",
+        "function": "TestResourcesUseCanonicalHostOrigin",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "8e1051671defbd7d80f7080b8e70a9c1b0591f12",
+        "line": 12,
+        "end_line": 44
+      },
+      "current_source": {
+        "path": "internal/regionview/resources_test.go",
+        "function": "TestResourcesUseCanonicalHostOrigin",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "8e1051671defbd7d80f7080b8e70a9c1b0591f12",
+        "line": 12,
+        "end_line": 44
+      },
+      "original_declaration_sha256": "efc7828e40c2ff7368cb52b69bc1cc20015414295c4623b65d9eed31966a1991",
+      "current_declaration_sha256": "efc7828e40c2ff7368cb52b69bc1cc20015414295c4623b65d9eed31966a1991",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/regionview/review_test.go::TestAuthorityIsTheNewestValidLease",
+      "accepted_category": "unit",
+      "independent_basis": "Constructed authority snapshots select newest ready epoch independently of order; no real authority lease.",
+      "baseline_source": {
+        "path": "internal/regionview/review_test.go",
+        "function": "TestAuthorityIsTheNewestValidLease",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "52560eb29bf24ba3eb588184ef4ee9c6c2261d64",
+        "line": 39,
+        "end_line": 60
+      },
+      "current_source": {
+        "path": "internal/regionview/review_test.go",
+        "function": "TestAuthorityIsTheNewestValidLease",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "d56de3acfc732d473078b937a657df7bfc9d5e38",
+        "line": 39,
+        "end_line": 60
+      },
+      "original_declaration_sha256": "5671a40798d499ddc7b7dbc26b65984b2510e95d73849a526ed794a00db0cfed",
+      "current_declaration_sha256": "5671a40798d499ddc7b7dbc26b65984b2510e95d73849a526ed794a00db0cfed",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/regionview/review_test.go::TestDatabasesCountDistinctIDsNotPartitions",
+      "accepted_category": "unit",
+      "independent_basis": "Constructed placement rows are counted by distinct database ID and summed desired seats.",
+      "baseline_source": {
+        "path": "internal/regionview/review_test.go",
+        "function": "TestDatabasesCountDistinctIDsNotPartitions",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "52560eb29bf24ba3eb588184ef4ee9c6c2261d64",
+        "line": 76,
+        "end_line": 86
+      },
+      "current_source": {
+        "path": "internal/regionview/review_test.go",
+        "function": "TestDatabasesCountDistinctIDsNotPartitions",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "d56de3acfc732d473078b937a657df7bfc9d5e38",
+        "line": 76,
+        "end_line": 86
+      },
+      "original_declaration_sha256": "5ec29eb7edce2681f9a310729eb8552ea3b0af5e7ece333924da9d1aad76587b",
+      "current_declaration_sha256": "5ec29eb7edce2681f9a310729eb8552ea3b0af5e7ece333924da9d1aad76587b",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/regionview/review_test.go::TestFailedClusterViewLeavesQuorumUnknown",
+      "accepted_category": "unit",
+      "independent_basis": "Synthetic failingCluster/staticSnapshot branches mark unknown quorum; no failed live request.",
+      "baseline_source": {
+        "path": "internal/regionview/review_test.go",
+        "function": "TestFailedClusterViewLeavesQuorumUnknown",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "52560eb29bf24ba3eb588184ef4ee9c6c2261d64",
+        "line": 62,
+        "end_line": 74
+      },
+      "current_source": {
+        "path": "internal/regionview/review_test.go",
+        "function": "TestFailedClusterViewLeavesQuorumUnknown",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "d56de3acfc732d473078b937a657df7bfc9d5e38",
+        "line": 62,
+        "end_line": 74
+      },
+      "original_declaration_sha256": "e80b4fcebec39ab5e3e0a93f010ac8728f7716297277b7d59e8c9bbc71064109",
+      "current_declaration_sha256": "e80b4fcebec39ab5e3e0a93f010ac8728f7716297277b7d59e8c9bbc71064109",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/regionview/review_test.go::TestLegacyVersionMembersAreBoundedAcrossTheSummary",
+      "accepted_category": "unit",
+      "independent_basis": "Nested version/member slices are bounded locally and their lengths summed.",
+      "baseline_source": {
+        "path": "internal/regionview/review_test.go",
+        "function": "TestLegacyVersionMembersAreBoundedAcrossTheSummary",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "52560eb29bf24ba3eb588184ef4ee9c6c2261d64",
+        "line": 109,
+        "end_line": 127
+      },
+      "current_source": {
+        "path": "internal/regionview/review_test.go",
+        "function": "TestLegacyVersionMembersAreBoundedAcrossTheSummary",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "d56de3acfc732d473078b937a657df7bfc9d5e38",
+        "line": 109,
+        "end_line": 127
+      },
+      "original_declaration_sha256": "c4b6c345633f1a02af4921c646d220330cc3e4cc28af42657a4e02be3dfde483",
+      "current_declaration_sha256": "c4b6c345633f1a02af4921c646d220330cc3e4cc28af42657a4e02be3dfde483",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/regionview/review_test.go::TestRemoteRegionInsightsDoNotScoreThisRegion",
+      "accepted_category": "unit",
+      "independent_basis": "Static insight region filtering/counting/scoring; no remote insight transport.",
+      "baseline_source": {
+        "path": "internal/regionview/review_test.go",
+        "function": "TestRemoteRegionInsightsDoNotScoreThisRegion",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "52560eb29bf24ba3eb588184ef4ee9c6c2261d64",
+        "line": 27,
+        "end_line": 37
+      },
+      "current_source": {
+        "path": "internal/regionview/review_test.go",
+        "function": "TestRemoteRegionInsightsDoNotScoreThisRegion",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "d56de3acfc732d473078b937a657df7bfc9d5e38",
+        "line": 27,
+        "end_line": 37
+      },
+      "original_declaration_sha256": "1108296ce9f048678912fe450195d837dee343ea919ff183a4e9e841e2abc9ea",
+      "current_declaration_sha256": "1108296ce9f048678912fe450195d837dee343ea919ff183a4e9e841e2abc9ea",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/regionview/review_test.go::TestSummaryRequestCarriesTheCurrentVersion",
+      "accepted_category": "unit",
+      "independent_basis": "JSON bytes from package initializer pass strict decoder/version guard locally; no request is sent.",
+      "baseline_source": {
+        "path": "internal/regionview/review_test.go",
+        "function": "TestSummaryRequestCarriesTheCurrentVersion",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "52560eb29bf24ba3eb588184ef4ee9c6c2261d64",
+        "line": 130,
+        "end_line": 135
+      },
+      "current_source": {
+        "path": "internal/regionview/review_test.go",
+        "function": "TestSummaryRequestCarriesTheCurrentVersion",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "d56de3acfc732d473078b937a657df7bfc9d5e38",
+        "line": 130,
+        "end_line": 135
+      },
+      "original_declaration_sha256": "0aa6007d81442ca95670f6c3ab12ff67f01c22e813d34818a0996fd04aa2179b",
+      "current_declaration_sha256": "0aa6007d81442ca95670f6c3ab12ff67f01c22e813d34818a0996fd04aa2179b",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/regionview/review_test.go::TestTerminalPartitionsAreNotActiveWork",
+      "accepted_category": "unit",
+      "independent_basis": "Static terminal placement filters live work; current zero-serving/unknown-readiness differs from baseline serving2 and remains explicitly unqualified.",
+      "baseline_source": {
+        "path": "internal/regionview/review_test.go",
+        "function": "TestTerminalPartitionsAreNotActiveWork",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "52560eb29bf24ba3eb588184ef4ee9c6c2261d64",
+        "line": 91,
+        "end_line": 106
+      },
+      "current_source": {
+        "path": "internal/regionview/review_test.go",
+        "function": "TestTerminalPartitionsAreNotActiveWork",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "d56de3acfc732d473078b937a657df7bfc9d5e38",
+        "line": 91,
+        "end_line": 106
+      },
+      "original_declaration_sha256": "3c7d22c2dd52500771bfd1cd6d7f61fdcb3852a49441d2fcc9f7885cb2167a8e",
+      "current_declaration_sha256": "9a30b78512771f1a0290ec021fb51cd3870d243e61f65da61293d37c2a5bf2a2",
+      "canonical_body_drift": true
+    },
+    {
+      "root_id": "internal/regionview/wan_test.go::TestWANHistoryDoesNotBorrowOlderReportMetrics",
+      "accepted_category": "unit",
+      "independent_basis": "Missing latest required gauges reject old values using in-memory timestamp equality.",
+      "baseline_source": {
+        "path": "internal/regionview/wan_test.go",
+        "function": "TestWANHistoryDoesNotBorrowOlderReportMetrics",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "411c91f0a8c524da8e7993ce1786668cca5aadc4",
+        "line": 211,
+        "end_line": 233
+      },
+      "current_source": {
+        "path": "internal/regionview/wan_test.go",
+        "function": "TestWANHistoryDoesNotBorrowOlderReportMetrics",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "411c91f0a8c524da8e7993ce1786668cca5aadc4",
+        "line": 211,
+        "end_line": 233
+      },
+      "original_declaration_sha256": "8e0ea1acd592af11f440b36e41c9e98a3d52b72a119b8966140b75597361b35d",
+      "current_declaration_sha256": "8e0ea1acd592af11f440b36e41c9e98a3d52b72a119b8966140b75597361b35d",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/regionview/wan_test.go::TestWANHistoryPreservesScrapeTimeAndExactHostBinding",
+      "accepted_category": "unit",
+      "independent_basis": "Host and receiver labels plus scrape-time/zero/counter joins remain memory-only, including Provider.Local callback path.",
+      "baseline_source": {
+        "path": "internal/regionview/wan_test.go",
+        "function": "TestWANHistoryPreservesScrapeTimeAndExactHostBinding",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "411c91f0a8c524da8e7993ce1786668cca5aadc4",
+        "line": 186,
+        "end_line": 209
+      },
+      "current_source": {
+        "path": "internal/regionview/wan_test.go",
+        "function": "TestWANHistoryPreservesScrapeTimeAndExactHostBinding",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "411c91f0a8c524da8e7993ce1786668cca5aadc4",
+        "line": 186,
+        "end_line": 209
+      },
+      "original_declaration_sha256": "ee5ec8edba0b83adb5a67c7c6113138148ead994ce063c63a52a49e8dee1d0b6",
+      "current_declaration_sha256": "ee5ec8edba0b83adb5a67c7c6113138148ead994ce063c63a52a49e8dee1d0b6",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/regionview/wan_test.go::TestWANHistoryQueriesEachGaugeOncePerNode",
+      "accepted_category": "unit",
+      "independent_basis": "Counting wrapper records History.Range calls; fanout and overflow bounds are local query-value checks.",
+      "baseline_source": {
+        "path": "internal/regionview/wan_test.go",
+        "function": "TestWANHistoryQueriesEachGaugeOncePerNode",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "411c91f0a8c524da8e7993ce1786668cca5aadc4",
+        "line": 58,
+        "end_line": 116
+      },
+      "current_source": {
+        "path": "internal/regionview/wan_test.go",
+        "function": "TestWANHistoryQueriesEachGaugeOncePerNode",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "411c91f0a8c524da8e7993ce1786668cca5aadc4",
+        "line": 58,
+        "end_line": 116
+      },
+      "original_declaration_sha256": "f7af710401d1859f0a66dd6b4cf77c39510e88e54efcb95479245bc19e09e0ca",
+      "current_declaration_sha256": "f7af710401d1859f0a66dd6b4cf77c39510e88e54efcb95479245bc19e09e0ca",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/regionview/wan_test.go::TestWANHistoryRejectsPartialReplayAndStaleScrapes",
+      "accepted_category": "unit",
+      "independent_basis": "Partial wrapper changes result flags; stale scrape is synthetic; no replay or WAN operation.",
+      "baseline_source": {
+        "path": "internal/regionview/wan_test.go",
+        "function": "TestWANHistoryRejectsPartialReplayAndStaleScrapes",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "411c91f0a8c524da8e7993ce1786668cca5aadc4",
+        "line": 251,
+        "end_line": 275
+      },
+      "current_source": {
+        "path": "internal/regionview/wan_test.go",
+        "function": "TestWANHistoryRejectsPartialReplayAndStaleScrapes",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "411c91f0a8c524da8e7993ce1786668cca5aadc4",
+        "line": 251,
+        "end_line": 275
+      },
+      "original_declaration_sha256": "fbfd0b291364cd1ed7903391c2da119220f00c8a00a9a5cfae2b88e220fcfdfc",
+      "current_declaration_sha256": "fbfd0b291364cd1ed7903391c2da119220f00c8a00a9a5cfae2b88e220fcfdfc",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/regionview/wan_test.go::TestWANHistorySeparatesSourcesAndLatestBatch",
+      "accepted_category": "unit",
+      "independent_basis": "Constructed source/batch combinations are joined by source and timestamp; optional counters remain local.",
+      "baseline_source": {
+        "path": "internal/regionview/wan_test.go",
+        "function": "TestWANHistorySeparatesSourcesAndLatestBatch",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "411c91f0a8c524da8e7993ce1786668cca5aadc4",
+        "line": 118,
+        "end_line": 184
+      },
+      "current_source": {
+        "path": "internal/regionview/wan_test.go",
+        "function": "TestWANHistorySeparatesSourcesAndLatestBatch",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "411c91f0a8c524da8e7993ce1786668cca5aadc4",
+        "line": 118,
+        "end_line": 184
+      },
+      "original_declaration_sha256": "8887492df6b72bd22075541d7a5271fc928f9eef48182624cff2f0a7d7fe1c5f",
+      "current_declaration_sha256": "8887492df6b72bd22075541d7a5271fc928f9eef48182624cff2f0a7d7fe1c5f",
+      "canonical_body_drift": false
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "No actual host/WAN scrape, report authentication, NATS/HTTP API, distributed lease, database/task teardown, durable history or replay is exercised by these roots.",
+    "Original terminal-partition ServingSeats==2 obligation is absent from current canonical assertion; packet explicitly preserves it and claims no equivalence or retirement credit.",
+    "Source-only review: no Go/test/helper/runtime/cloud/crypto execution, source/repository/ledger mutation, promotion/deletion/retirement/global completion."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  }
+}

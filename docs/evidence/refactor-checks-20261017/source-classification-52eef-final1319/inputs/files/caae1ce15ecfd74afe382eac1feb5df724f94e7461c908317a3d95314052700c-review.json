@@ -1,0 +1,207 @@
+{
+  "schema": "independent-source-classification-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_700_720",
+  "author": "/root/classification_100_dispatch/batch_720_740",
+  "decision": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-2920-2940-corrected-12hidgaz/classification.json",
+    "sha256": "7cdce9843db04cc7a3e2a094565daf540c96fb86ffc2d15dcae39135d003427a",
+    "checksum_path": "/tmp/ts-source-classification-2920-2940-corrected-12hidgaz/SHA256SUMS",
+    "checksum_sha256": "ebfe35a03f033da965cfb918c1047812ba8e5ed220ace1d57e388027728caf04"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[2920:2940]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_700_720"
+  },
+  "input_pins": {
+    "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+    "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513",
+    "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70",
+    "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/PEER-PROTOCOL.md": "b1cbcb7a96a344363f5ba924a0e76fc418553607209733945892796508db7765"
+  },
+  "root_ids": [
+    "internal/qualification/firecracker/generic_admission_test.go::TestNTPPartialInsertRetainsOwnershipAndRefusesChangedScope",
+    "internal/qualification/firecracker/generic_admission_test.go::TestNTPReorderedAcceptIsNotOwnedScopedRule",
+    "internal/qualification/firecracker/generic_admission_test.go::TestProcessGroupSignalsPrecedeLeaderReap",
+    "internal/qualification/firecracker/generic_admission_test.go::TestRenewalUsesSingle25SecondDeadline",
+    "internal/qualification/firecracker/generic_admission_test.go::TestRetryIntentOmitsEpoch",
+    "internal/qualification/firecracker/generic_admission_test.go::TestSSHWaitOrdersClockBeforeRuntime",
+    "internal/qualification/firecracker/generic_test.go::TestAPISocketPathIsPrivateShortAndBounded",
+    "internal/qualification/firecracker/generic_test.go::TestAssetPinsAndHashMismatch",
+    "internal/qualification/firecracker/generic_test.go::TestBlackholeOwnsScopedTableThroughPartialFailure",
+    "internal/qualification/firecracker/generic_test.go::TestChildExitProbeObservesWithoutReaping",
+    "internal/qualification/firecracker/generic_test.go::TestClockMeasurementUsesMonotonicUncertainty",
+    "internal/qualification/firecracker/generic_test.go::TestConnectedControllerParsesFourColumns",
+    "internal/qualification/firecracker/generic_test.go::TestDeployRetryContract",
+    "internal/qualification/firecracker/generic_test.go::TestFailedCleanupRetainsGuestImages",
+    "internal/qualification/firecracker/generic_test.go::TestFenceBindsLatestSignedLeaseBeforeExpiry",
+    "internal/qualification/firecracker/generic_test.go::TestGuestUnitsEnforceSupervisorBoundary",
+    "internal/qualification/firecracker/generic_test.go::TestHostStatusCuratesSecretsAndSessionCurrency",
+    "internal/qualification/firecracker/generic_test.go::TestNativeCgroupPathBoundToUnitAndPopulated",
+    "internal/qualification/firecracker/generic_test.go::TestNativeCgroupPathRejectsTraversalAndOtherRoles",
+    "internal/qualification/firecracker/generic_test.go::TestNativeObservationBindsPIDAndAgentUnit"
+  ],
+  "counts": {
+    "integration": 3,
+    "unit": 14,
+    "mixed": 3,
+    "unresolved": 0
+  },
+  "root_categories": [
+    {
+      "root_id": "internal/qualification/firecracker/generic_admission_test.go::TestNTPPartialInsertRetainsOwnershipAndRefusesChangedScope",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_admission_test.go::TestNTPReorderedAcceptIsNotOwnedScopedRule",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_admission_test.go::TestProcessGroupSignalsPrecedeLeaderReap",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_admission_test.go::TestRenewalUsesSingle25SecondDeadline",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_admission_test.go::TestRetryIntentOmitsEpoch",
+      "category": "integration"
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_admission_test.go::TestSSHWaitOrdersClockBeforeRuntime",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestAPISocketPathIsPrivateShortAndBounded",
+      "category": "mixed"
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestAssetPinsAndHashMismatch",
+      "category": "mixed"
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestBlackholeOwnsScopedTableThroughPartialFailure",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestChildExitProbeObservesWithoutReaping",
+      "category": "integration"
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestClockMeasurementUsesMonotonicUncertainty",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestConnectedControllerParsesFourColumns",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestDeployRetryContract",
+      "category": "mixed"
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestFailedCleanupRetainsGuestImages",
+      "category": "integration"
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestFenceBindsLatestSignedLeaseBeforeExpiry",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestGuestUnitsEnforceSupervisorBoundary",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestHostStatusCuratesSecretsAndSessionCurrency",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestNativeCgroupPathBoundToUnitAndPopulated",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestNativeCgroupPathRejectsTraversalAndOtherRoles",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestNativeObservationBindsPIDAndAgentUnit",
+      "category": "unit"
+    }
+  ],
+  "checks_performed": {
+    "independently_read_full_current_roots": 20,
+    "independently_read_full_changed_baseline_root": true,
+    "connected_actual_fixture_production_paths_independently_read": true,
+    "literal_allocation_and_survival_mappings_verified": 20,
+    "raw_baseline_current_declaration_bounds_text_sha256_verified": 40,
+    "source_file_blob_mode_sha256_bytes_verified": 9,
+    "exact_assertion_spans_verified": 20,
+    "exact_connected_spans_verified": 29,
+    "category_partition_verified": true,
+    "input_pins_verified": true,
+    "packet_checksum_hashes_verified": true,
+    "packet_modes_verified": "files0444_dir0555",
+    "prior_packet_bytes_preserved_successor_diff_verified": true
+  },
+  "resolved_findings": [
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestGuestUnitsEnforceSupervisorBoundary",
+      "finding": "Original rationale described cgroup script and injected callbacks not called by this root.",
+      "resolution": "Successor states exact GuestUnit text/prestart/capability-mask assertions and narrows connected references."
+    },
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestNativeObservationBindsPIDAndAgentUnit",
+      "finding": "Original rationale mentioned boot maps rather than actual observation text.",
+      "resolution": "Successor states actual PID-state/cgroup/invocation/unit text and narrows references."
+    }
+  ],
+  "known_findings_retained": [
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestAssetPinsAndHashMismatch",
+      "kind": "CANONICAL_DECLARATION_BODY_DRIFT",
+      "disposition": "Actual current body and41 added lines pinned; original identity and obligation retained; historical survival hashes preserved."
+    }
+  ],
+  "canonical_body_drift": [
+    {
+      "root_id": "internal/qualification/firecracker/generic_test.go::TestAssetPinsAndHashMismatch",
+      "baseline_lines": [
+        488,
+        496
+      ],
+      "current_lines": [
+        488,
+        537
+      ],
+      "added_lines": 41,
+      "original_identity_and_obligation_retained": true,
+      "historical_survival_hashes_preserved": true,
+      "actual_current_hash_verified": true
+    }
+  ],
+  "remaining_findings": [],
+  "boundary_qualification": [
+    "Retry intent and failed cleanup assert actual temporary file/directory writes, reads, retention and deletion. Child exit probe starts a disposable shell, observes Waitid with WNOWAIT, then kills/quiesces/reaps and asserts exit7.",
+    "Mixed roots independently combine actual private directory creation or source-file hash/persistence assertions with local path/constant or fake operator retry/argv/event assertions.",
+    "Nft, SSH, systemctl, cgroup, clock, lease and journal callback feeds do not establish real kernel/network/guest/controller/authority behavior. Local predicates and incidental fixture logs remain unit.",
+    "Asset root first kernel mismatch returns before KVM/executable probes; current SourceDigest additions exercise actual temporary source-tree reads and are explicitly pinned without altering original obligations."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "source_only": true,
+  "ledger_promotion_authorized": false,
+  "count_promotion_authorized": false,
+  "retirement_authorized": false,
+  "deletion_authorized": false,
+  "safety_obligations_retained": true,
+  "skipped_checks": [
+    "No tests, builds, Go, helper/scanner/parser, runtime, process/resource probe, cloud, signing, crypto or TerraBase execution. Ordinary pinned source/Git reading and metadata-only hash/serialization performed."
+  ],
+  "risk": "Source categories remain candidates; runtime behavior and all original safety obligations are unqualified and retained."
+}

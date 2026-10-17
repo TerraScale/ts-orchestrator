@@ -1,0 +1,4 @@
+Independent exact-hash source-only acceptance of FINAL1319 other[3000:3020).
+20 roots: 2 integration,15 unit,3 mixed,0 unresolved.
+20 raw mappings/declarations/assertions,30 file pins,79 connected spans and all input/checksum pins verified.
+Topology declaration drift retained. Runtime UNKNOWN; no ledger/count/deletion/retirement/global completion credit.

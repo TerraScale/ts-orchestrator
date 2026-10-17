@@ -1,0 +1,712 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/peer_40_60",
+  "author": "/root/classification_100_dispatch/peer_60_80",
+  "status": "ACCEPTED",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-final2660-2680-corrected-bdag23gv/classification.json",
+    "sha256": "008d828a1d20b2441f7f211f89e60407ebb16221c3e51835892abc77ab877153",
+    "checksum_path": "/tmp/ts-source-classification-final2660-2680-corrected-bdag23gv/SHA256SUMS",
+    "checksum_sha256": "aea1def89e98a5696558c35443c1b1fa90804ba811c32e3be0ca073c80e2b329"
+  },
+  "superseded_packet": {
+    "path": "/tmp/ts-source-classification-final2660-2680-lx5xd7g4/classification.json",
+    "sha256": "085be8e84501522a9d6ac462b8ceddd105bd837b169e9ca7c744e68746d78b03"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      2660,
+      2680
+    ],
+    "literal_accounting_slice_verified": true,
+    "all_exclusions_disjoint": true
+  },
+  "own_freeze_preceded_peer_review": {
+    "path": "/tmp/ts-final2640-2660-source-czxhmevf/classification.json",
+    "sha256": "eff612a84e172da1f9327c7b9df471feec8dcf33cc6663a188a9e4d33fefc854",
+    "own_corrections_prioritized": true,
+    "accepted_corrected_own_packet": "/tmp/ts-final2640-2660-corrected-nfysc6as/classification.json"
+  },
+  "root_ids": [
+    "internal/ociregion/publicapi/originpull_test.go::TestOriginPullValidate",
+    "internal/ociregion/publicapi/provision_safety_test.go::TestLoadPlanMemberIdentityFollowsSlots",
+    "internal/ociregion/publicapi/provision_safety_test.go::TestLoadPlanRejectsAmbiguousSlotsAndUnsupportedListeners",
+    "internal/ociregion/publicapi/provision_safety_test.go::TestProvisionAcceptsReviewedNetworkWithoutChanges",
+    "internal/ociregion/publicapi/provision_safety_test.go::TestProvisionRechecksAttachmentsAfterActivationAndConvergence",
+    "internal/ociregion/publicapi/provision_safety_test.go::TestProvisionRejectsNetworkSecurityDriftBeforeMutation",
+    "internal/ociregion/publicapi/provision_safety_test.go::TestSyncRulesKeepsFirstDesiredIDAndRemovesDuplicates",
+    "internal/ociregion/publicapi/public_test.go::TestApplyConvergesAnExistingLoadBalancerToThePlan",
+    "internal/ociregion/publicapi/public_test.go::TestApplyStampsTheControllerOwnershipOfTheTerraBaseSet",
+    "internal/ociregion/publicapi/public_test.go::TestCertIssuesIntoVaultThenInstallsOnTheLoadBalancer",
+    "internal/ociregion/publicapi/public_test.go::TestCertRefusesAShortOrForeignCertificate",
+    "internal/ociregion/publicapi/public_test.go::TestCheckBalancerRequiresTheExactPlan",
+    "internal/ociregion/publicapi/public_test.go::TestDNSUsesTheLoadBalancerAddress",
+    "internal/ociregion/publicapi/public_test.go::TestLoadBalancerRoutesByHostnameAndRequiresCloudflare",
+    "internal/ociregion/publicapi/public_test.go::TestLoadPlanRejectsAnUnusableEdge",
+    "internal/ociregion/publicapi/public_test.go::TestOriginIPsSyncAddsCloudflareAndRemovesEverythingElse",
+    "internal/ociregion/publicapi/public_test.go::TestOriginPullCAIsCloudflares",
+    "internal/ociregion/publicapi/public_test.go::TestOriginRulesMustBeExactlyCloudflares",
+    "internal/ociregion/publicapi/public_test.go::TestOriginTrustRequiredBeforeCertificateOrProvision",
+    "internal/ociregion/publicapi/public_test.go::TestPreviewMatchesGolden"
+  ],
+  "counts": {
+    "integration": 8,
+    "unit": 9,
+    "mixed": 3,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 allocated full canonical roots and actual connected fixture/production/client paths using pinned immutable Git blobs; verified baseline/current full text equality and exact function bounds. No category inferred from fixture names.",
+    "Verified20 literal allocation/accounting/survival mappings; exclusion disjointness;40 exact raw baseline/current declaration SHA256s;20 complete assertion interiors;87 connected citations;154 explicit spans with text/hash/blob and inclusive bounds <=actualEOF.",
+    "Verified32 source file mode/blob/SHA256/byte pins, canonical commit tree, all linked input manifest hashes, corrected counts, checksum entries and0444 files/0555directory. 2427 metadata assertions passed.",
+    "Reviewed real SDK TLS API boundary, actual Cloudflare HTTP client/server, pre-I/O unit guards, independent local schema assertions, configuration/readback versus live service/handshake limits.",
+    "Compared original/fresh packet root metadata: only2671 changed category/rationale/explicit split;40 declarations and source text unchanged. Accepted only exact fresh corrected hash."
+  ],
+  "root_checks": [
+    {
+      "allocation_index": 2660,
+      "root_id": "internal/ociregion/publicapi/originpull_test.go::TestOriginPullValidate",
+      "category": "unit",
+      "baseline_declaration_sha256": "bad125b6965650e0456636afbfb61a469b48441f175aadf63f33f2b00ed8392f",
+      "current_declaration_sha256": "bad125b6965650e0456636afbfb61a469b48441f175aadf63f33f2b00ed8392f",
+      "full_root_read": true,
+      "assertion_interior_verified": true,
+      "actual_callee_path_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 2661,
+      "root_id": "internal/ociregion/publicapi/provision_safety_test.go::TestLoadPlanMemberIdentityFollowsSlots",
+      "category": "unit",
+      "baseline_declaration_sha256": "15b8eb27b72657e68b74f2c8c3223e48bb0c389a963f6ee55144134d11f3181b",
+      "current_declaration_sha256": "15b8eb27b72657e68b74f2c8c3223e48bb0c389a963f6ee55144134d11f3181b",
+      "full_root_read": true,
+      "assertion_interior_verified": true,
+      "actual_callee_path_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 2662,
+      "root_id": "internal/ociregion/publicapi/provision_safety_test.go::TestLoadPlanRejectsAmbiguousSlotsAndUnsupportedListeners",
+      "category": "unit",
+      "baseline_declaration_sha256": "784dfce85f27fb1d9ea83ebb964379bd9745f56395134a0f67cb23564e0d1ad2",
+      "current_declaration_sha256": "784dfce85f27fb1d9ea83ebb964379bd9745f56395134a0f67cb23564e0d1ad2",
+      "full_root_read": true,
+      "assertion_interior_verified": true,
+      "actual_callee_path_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 2663,
+      "root_id": "internal/ociregion/publicapi/provision_safety_test.go::TestProvisionAcceptsReviewedNetworkWithoutChanges",
+      "category": "integration",
+      "baseline_declaration_sha256": "d4862db9e5350c3cbd0787b3d0e7d5afea4008708e2f41f61dbabdd23827029e",
+      "current_declaration_sha256": "d4862db9e5350c3cbd0787b3d0e7d5afea4008708e2f41f61dbabdd23827029e",
+      "full_root_read": true,
+      "assertion_interior_verified": true,
+      "actual_callee_path_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 2664,
+      "root_id": "internal/ociregion/publicapi/provision_safety_test.go::TestProvisionRechecksAttachmentsAfterActivationAndConvergence",
+      "category": "integration",
+      "baseline_declaration_sha256": "b8dc14442019cfa8442813ecc2be8cf21b6168f475384a7b6968132dccc45125",
+      "current_declaration_sha256": "b8dc14442019cfa8442813ecc2be8cf21b6168f475384a7b6968132dccc45125",
+      "full_root_read": true,
+      "assertion_interior_verified": true,
+      "actual_callee_path_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 2665,
+      "root_id": "internal/ociregion/publicapi/provision_safety_test.go::TestProvisionRejectsNetworkSecurityDriftBeforeMutation",
+      "category": "integration",
+      "baseline_declaration_sha256": "b0274a86b26cc1c852873c75f01fe2e088ccbc78fd347f234ef02ac41758aa12",
+      "current_declaration_sha256": "b0274a86b26cc1c852873c75f01fe2e088ccbc78fd347f234ef02ac41758aa12",
+      "full_root_read": true,
+      "assertion_interior_verified": true,
+      "actual_callee_path_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 2666,
+      "root_id": "internal/ociregion/publicapi/provision_safety_test.go::TestSyncRulesKeepsFirstDesiredIDAndRemovesDuplicates",
+      "category": "integration",
+      "baseline_declaration_sha256": "6828e50403ff489b655d305933896a158f64c18d3d7bc76279fc2760abf6a08f",
+      "current_declaration_sha256": "6828e50403ff489b655d305933896a158f64c18d3d7bc76279fc2760abf6a08f",
+      "full_root_read": true,
+      "assertion_interior_verified": true,
+      "actual_callee_path_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 2667,
+      "root_id": "internal/ociregion/publicapi/public_test.go::TestApplyConvergesAnExistingLoadBalancerToThePlan",
+      "category": "integration",
+      "baseline_declaration_sha256": "7a486f39f31b981352b0128739b6a3a0b014b8be6d393584d316b9db6a244bd4",
+      "current_declaration_sha256": "7a486f39f31b981352b0128739b6a3a0b014b8be6d393584d316b9db6a244bd4",
+      "full_root_read": true,
+      "assertion_interior_verified": true,
+      "actual_callee_path_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 2668,
+      "root_id": "internal/ociregion/publicapi/public_test.go::TestApplyStampsTheControllerOwnershipOfTheTerraBaseSet",
+      "category": "mixed",
+      "baseline_declaration_sha256": "035a56c6a10e37a7c4f2eaf6f18c0578cc7886aa8871f682eedc85d8b09c6c14",
+      "current_declaration_sha256": "035a56c6a10e37a7c4f2eaf6f18c0578cc7886aa8871f682eedc85d8b09c6c14",
+      "full_root_read": true,
+      "assertion_interior_verified": true,
+      "actual_callee_path_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 2669,
+      "root_id": "internal/ociregion/publicapi/public_test.go::TestCertIssuesIntoVaultThenInstallsOnTheLoadBalancer",
+      "category": "integration",
+      "baseline_declaration_sha256": "82abbcf16413c89c375c8f40a716b050d6aa94966f0842e16618a3a65103ada8",
+      "current_declaration_sha256": "82abbcf16413c89c375c8f40a716b050d6aa94966f0842e16618a3a65103ada8",
+      "full_root_read": true,
+      "assertion_interior_verified": true,
+      "actual_callee_path_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 2670,
+      "root_id": "internal/ociregion/publicapi/public_test.go::TestCertRefusesAShortOrForeignCertificate",
+      "category": "mixed",
+      "baseline_declaration_sha256": "43e23c391da2433c07b37c1852def079ea4e3a4b1e491d91108e3276d3924f0a",
+      "current_declaration_sha256": "43e23c391da2433c07b37c1852def079ea4e3a4b1e491d91108e3276d3924f0a",
+      "full_root_read": true,
+      "assertion_interior_verified": true,
+      "actual_callee_path_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 2671,
+      "root_id": "internal/ociregion/publicapi/public_test.go::TestCheckBalancerRequiresTheExactPlan",
+      "category": "mixed",
+      "baseline_declaration_sha256": "03de92b0a4c784bde42d5c25d4876b9e50d1c2333c013b8e4b76a411148a2548",
+      "current_declaration_sha256": "03de92b0a4c784bde42d5c25d4876b9e50d1c2333c013b8e4b76a411148a2548",
+      "full_root_read": true,
+      "assertion_interior_verified": true,
+      "actual_callee_path_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 2672,
+      "root_id": "internal/ociregion/publicapi/public_test.go::TestDNSUsesTheLoadBalancerAddress",
+      "category": "integration",
+      "baseline_declaration_sha256": "126e868c5e757aeac7037366811dbc47e2298fea0cfd31aae3746d282ec1646c",
+      "current_declaration_sha256": "126e868c5e757aeac7037366811dbc47e2298fea0cfd31aae3746d282ec1646c",
+      "full_root_read": true,
+      "assertion_interior_verified": true,
+      "actual_callee_path_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 2673,
+      "root_id": "internal/ociregion/publicapi/public_test.go::TestLoadBalancerRoutesByHostnameAndRequiresCloudflare",
+      "category": "unit",
+      "baseline_declaration_sha256": "f3b001a1ee1ff04dc0a9fbbce5bf857518fcca1e32f032d13a781c66eb2b9086",
+      "current_declaration_sha256": "f3b001a1ee1ff04dc0a9fbbce5bf857518fcca1e32f032d13a781c66eb2b9086",
+      "full_root_read": true,
+      "assertion_interior_verified": true,
+      "actual_callee_path_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 2674,
+      "root_id": "internal/ociregion/publicapi/public_test.go::TestLoadPlanRejectsAnUnusableEdge",
+      "category": "unit",
+      "baseline_declaration_sha256": "3153251091e9a4cbc021d583fc97e6d9b40fa2f201cbbb6f4d5a6c4fa8447d32",
+      "current_declaration_sha256": "3153251091e9a4cbc021d583fc97e6d9b40fa2f201cbbb6f4d5a6c4fa8447d32",
+      "full_root_read": true,
+      "assertion_interior_verified": true,
+      "actual_callee_path_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 2675,
+      "root_id": "internal/ociregion/publicapi/public_test.go::TestOriginIPsSyncAddsCloudflareAndRemovesEverythingElse",
+      "category": "integration",
+      "baseline_declaration_sha256": "c84e4864329777c4b743bc0e5bac3b7eb67cedad38569e92e7aa019ba27957f5",
+      "current_declaration_sha256": "c84e4864329777c4b743bc0e5bac3b7eb67cedad38569e92e7aa019ba27957f5",
+      "full_root_read": true,
+      "assertion_interior_verified": true,
+      "actual_callee_path_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 2676,
+      "root_id": "internal/ociregion/publicapi/public_test.go::TestOriginPullCAIsCloudflares",
+      "category": "unit",
+      "baseline_declaration_sha256": "cb59a0db1aa8905988e5e6698a14c637494fcc0aab5537cd4342712a4370133f",
+      "current_declaration_sha256": "cb59a0db1aa8905988e5e6698a14c637494fcc0aab5537cd4342712a4370133f",
+      "full_root_read": true,
+      "assertion_interior_verified": true,
+      "actual_callee_path_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 2677,
+      "root_id": "internal/ociregion/publicapi/public_test.go::TestOriginRulesMustBeExactlyCloudflares",
+      "category": "unit",
+      "baseline_declaration_sha256": "6c0e0e7b174c0b0cb76469afba34ea993158f189a701de72b22536c1aff1dc70",
+      "current_declaration_sha256": "6c0e0e7b174c0b0cb76469afba34ea993158f189a701de72b22536c1aff1dc70",
+      "full_root_read": true,
+      "assertion_interior_verified": true,
+      "actual_callee_path_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 2678,
+      "root_id": "internal/ociregion/publicapi/public_test.go::TestOriginTrustRequiredBeforeCertificateOrProvision",
+      "category": "unit",
+      "baseline_declaration_sha256": "db2b46c8945e58a2896786270be0a6fccac22e207fa5249566e04b86d360ad2c",
+      "current_declaration_sha256": "db2b46c8945e58a2896786270be0a6fccac22e207fa5249566e04b86d360ad2c",
+      "full_root_read": true,
+      "assertion_interior_verified": true,
+      "actual_callee_path_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 2679,
+      "root_id": "internal/ociregion/publicapi/public_test.go::TestPreviewMatchesGolden",
+      "category": "unit",
+      "baseline_declaration_sha256": "f7304a6f47b141f7e3fb3d648bc4b9b36f43d07a4cbfd3ed84c31f25bca1c663",
+      "current_declaration_sha256": "f7304a6f47b141f7e3fb3d648bc4b9b36f43d07a4cbfd3ed84c31f25bca1c663",
+      "full_root_read": true,
+      "assertion_interior_verified": true,
+      "actual_callee_path_reviewed": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    }
+  ],
+  "resolved_findings": [
+    {
+      "root_id": "internal/ociregion/publicapi/public_test.go::TestCheckBalancerRequiresTheExactPlan",
+      "allocation_index": 2671,
+      "finding": "Original integration category grouped API-backed positive baseline with distinct independently edited local schema checker assertions.",
+      "resolution": "Fresh exact packet classifies root2671 mixed and explicitly cites integration589\u2013602 and unit603\u2013693. Final counts I8/U9/M3/R0.",
+      "reviewed_current_path": "internal/ociregion/publicapi/public_test.go",
+      "resolved": true
+    }
+  ],
+  "remaining_findings": [],
+  "unresolved_source_blockers": [],
+  "supplemental_source_evidence": [
+    {
+      "path": "internal/ociregion/publicapi/public_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "86dfea945f9c87359da730f7c616edfa2b72bf6d",
+      "line": 589,
+      "end_line": 602,
+      "scope": "2671 real certificate/provision/API-created positive baseline",
+      "text": "\td := testDesired(t, testPlan)\n\tf := newFakeOCI(t)\n\t_, cloudflare := newFakeCloudflare(t)\n\tp := Provisioner{Client: f, Pause: func(context.Context, time.Duration) error { return nil }}\n\tsteps, err := p.certSteps(t.Context(), d, cloudflare)\n\tif err != nil || run(t.Context(), steps, true, io.Discard) != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := p.Provision(t.Context(), d, cloudflare, testCA(t), \"\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := d.CheckBalancer(f.balancer); err != nil {\n\t\tt.Fatal(err)\n\t}\n",
+      "span_sha256": "6009728720d4ec9d1f6756347b637618815deeba2203896bbda83bec2f548fac"
+    },
+    {
+      "path": "internal/ociregion/publicapi/public_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "86dfea945f9c87359da730f7c616edfa2b72bf6d",
+      "line": 603,
+      "end_line": 621,
+      "scope": "2671 independent local CA/ownership/backend checker cases",
+      "text": "\tfield(f.balancer, \"certificates\", originCertificate).(map[string]any)[\"ca-certificate\"] = strings.ReplaceAll(d.OriginPull.CACertificate, \"\\n\", \"\\r\\n\")\n\tif err := d.CheckBalancer(f.balancer); err != nil {\n\t\tt.Fatalf(\"rejected the same origin-pull CA with CRLF: %v\", err)\n\t}\n\t// Once the plan names the owner, the controller may add any planned\n\t// member and drain one during a release while another serves. Without\n\t// one the set must be exactly the seed.\n\towned := testDesired(t, ownedPlan)\n\tset := field(f.balancer, \"backend-sets\", \"terrabase\").(map[string]any)\n\tseed := set[\"backends\"]\n\tset[\"backends\"] = []any{map[string]any{\"ip-address\": \"10.251.0.21\", \"port\": 9465, \"drain\": true},\n\t\tmap[string]any{\"ip-address\": \"10.251.0.22\", \"port\": 9465, \"drain\": false}}\n\tif err := owned.CheckBalancer(f.balancer); err != nil {\n\t\tt.Fatalf(\"rejected a controller-managed TerraBase set: %v\", err)\n\t}\n\tif err := d.CheckBalancer(f.balancer); err == nil {\n\t\tt.Fatal(\"an ownerless plan accepted backends beyond its seed\")\n\t}\n\tset[\"backends\"] = seed\n",
+      "span_sha256": "1a8e86440e870d497ddf24baa49fbd90a32cb42983b97752a629bdd01b032df4"
+    },
+    {
+      "path": "internal/ociregion/publicapi/public_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "86dfea945f9c87359da730f7c616edfa2b72bf6d",
+      "line": 622,
+      "end_line": 693,
+      "scope": "2671 independent local cloned-map schema rejection table",
+      "text": "\tfor name, edit := range map[string]func(lb map[string]any){\n\t\t\"missing origin-pull CA\": func(lb map[string]any) {\n\t\t\tdelete(field(lb, \"certificates\", originCertificate).(map[string]any), \"ca-certificate\")\n\t\t},\n\t\t\"foreign origin-pull CA\": func(lb map[string]any) {\n\t\t\tfield(lb, \"certificates\", originCertificate).(map[string]any)[\"ca-certificate\"] = testCA(t)\n\t\t},\n\t\t\"shared Cloudflare origin-pull CA\": func(lb map[string]any) {\n\t\t\tfield(lb, \"certificates\", originCertificate).(map[string]any)[\"ca-certificate\"] = originPullCA\n\t\t},\n\t\t\"HTTPS path route override\": func(lb map[string]any) {\n\t\t\tfield(lb, \"listeners\", \"terrabase\").(map[string]any)[\"path-route-set-name\"] = \"override\"\n\t\t},\n\t\t\"HTTPS routing policy override\": func(lb map[string]any) {\n\t\t\tfield(lb, \"listeners\", \"ts-auth\").(map[string]any)[\"routing-policy-name\"] = \"override\"\n\t\t},\n\t\t\"HTTPS rule set override\": func(lb map[string]any) {\n\t\t\tfield(lb, \"listeners\", \"terrabase\").(map[string]any)[\"rule-set-names\"] = []any{\"https-redirect\"}\n\t\t},\n\t\t\"extra origin-pull CA\": func(lb map[string]any) {\n\t\t\tfield(lb, \"certificates\", originCertificate).(map[string]any)[\"ca-certificate\"] = d.OriginPull.CACertificate + testCA(t)\n\t\t},\n\t\t\"hostname swapped\": func(lb map[string]any) { field(lb, \"hostnames\", \"ts-auth\").(map[string]any)[\"hostname\"] = d.APIHost },\n\t\t\"no client certificate\": func(lb map[string]any) {\n\t\t\tfield(lb, \"listeners\", \"ts-auth\", \"ssl-configuration\").(map[string]any)[\"verify-peer-certificate\"] = false\n\t\t},\n\t\t\"unplanned TerraBase backend\": func(lb map[string]any) {\n\t\t\tset := field(lb, \"backend-sets\", \"terrabase\").(map[string]any)\n\t\t\tset[\"backends\"] = append(set[\"backends\"].([]any), map[string]any{\"ip-address\": \"10.251.0.99\", \"port\": 9465})\n\t\t},\n\t\t\"member off the client port\": func(lb map[string]any) {\n\t\t\tset := field(lb, \"backend-sets\", \"terrabase\").(map[string]any)\n\t\t\tset[\"backends\"] = append(set[\"backends\"].([]any), map[string]any{\"ip-address\": \"10.251.0.22\", \"port\": 9443})\n\t\t},\n\t\t\"every TerraBase seat drained\": func(lb map[string]any) {\n\t\t\tset := field(lb, \"backend-sets\", \"terrabase\").(map[string]any)\n\t\t\tset[\"backends\"] = []any{map[string]any{\"ip-address\": \"10.251.0.21\", \"port\": 9465, \"drain\": true}}\n\t\t},\n\t\t\"no TerraBase backend\": func(lb map[string]any) {\n\t\t\tfield(lb, \"backend-sets\", \"terrabase\").(map[string]any)[\"backends\"] = []any{}\n\t\t},\n\t\t\"offline TerraBase seat\": func(lb map[string]any) {\n\t\t\tset := field(lb, \"backend-sets\", \"terrabase\").(map[string]any)\n\t\t\tset[\"backends\"] = append(set[\"backends\"].([]any), map[string]any{\"ip-address\": \"10.251.0.22\", \"port\": 9465, \"offline\": true})\n\t\t},\n\t\t\"drained controller\": func(lb map[string]any) {\n\t\t\tfield(lb, \"backend-sets\", \"ts-auth\", \"backends\").([]any)[0].(map[string]any)[\"drain\"] = true\n\t\t},\n\t\t\"missing controller\": func(lb map[string]any) {\n\t\t\tset := field(lb, \"backend-sets\", \"ts-auth\").(map[string]any)\n\t\t\tset[\"backends\"] = set[\"backends\"].([]any)[:1]\n\t\t},\n\t\t\"plain member TLS\": func(lb map[string]any) {\n\t\t\tdelete(field(lb, \"backend-sets\", \"terrabase\").(map[string]any), \"ssl-configuration\")\n\t\t},\n\t\t\"wider bandwidth\": func(lb map[string]any) {\n\t\t\tfield(lb, \"shape-details\").(map[string]any)[\"maximum-bandwidth-in-mbps\"] = 400\n\t\t},\n\t\t\"no redirect\": func(lb map[string]any) { delete(lb[\"rule-sets\"].(map[string]any), \"https-redirect\") },\n\t} {\n\t\tt.Run(name, func(t *testing.T) {\n\t\t\twire, _ := json.Marshal(f.balancer)\n\t\t\tvar lb map[string]any\n\t\t\tif err := json.Unmarshal(wire, &lb); err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tedit(lb)\n\t\t\tif err := owned.CheckBalancer(lb); err == nil {\n\t\t\t\tt.Fatal(\"accepted\")\n\t\t\t}\n\t\t})\n\t}\n",
+      "span_sha256": "1e38c53529562c3aef6f3eaac31c84a2223c43e5ee7ce8ea7fc1cfe6b3675bbc"
+    },
+    {
+      "path": "internal/ociregion/publicapi/public_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "86dfea945f9c87359da730f7c616edfa2b72bf6d",
+      "line": 525,
+      "end_line": 527,
+      "scope": "2668 independent local owned-resource key assertion",
+      "text": "\tif d.Owned.String() != \"GRU/lb-backends/public-terrabase\" {\n\t\tt.Fatal(d.Owned)\n\t}\n",
+      "span_sha256": "0fa11594311f4e5b18dbe974356610a6e740f235e1f09d238da8dd4d21adedd2"
+    },
+    {
+      "path": "internal/ociregion/publicapi/public_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "86dfea945f9c87359da730f7c616edfa2b72bf6d",
+      "line": 583,
+      "end_line": 585,
+      "scope": "2668 independent local invalid-owner plan rejection",
+      "text": "\tif _, err := ParsePlan([]byte(strings.Replace(ownedPlan, \"ts-470-gru-rebuild-2\", \"Not A Token\", 1))); err == nil {\n\t\tt.Fatal(\"accepted an owner that is not a token\")\n\t}\n",
+      "span_sha256": "d414a6cc52aeb1fb9fff325fbfe39fddbdd5d4a4b8e73b289a66f093a133ef58"
+    },
+    {
+      "path": "internal/ociregion/publicapi/public_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "86dfea945f9c87359da730f7c616edfa2b72bf6d",
+      "line": 1027,
+      "end_line": 1031,
+      "scope": "2670 independent local non-RSA key rejection",
+      "text": "\tkey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)\n\tkeyDER, _ := x509.MarshalECPrivateKey(key)\n\tif err := checkOrigin(testCA(t), string(pem.EncodeToMemory(&pem.Block{Type: \"EC PRIVATE KEY\", Bytes: keyDER})), nil, time.Now()); err == nil {\n\t\tt.Fatal(\"accepted a non-RSA key\")\n\t}\n",
+      "span_sha256": "8870b999d0459929e618b731446d899907fe069209f0f45fe8c9a5e76a2cebf5"
+    },
+    {
+      "path": "internal/ociregion/publicapi/sdk_http_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "6dc5fea67a14406edb49b51057fe2ea48c98530d",
+      "line": 25,
+      "end_line": 50,
+      "scope": "actual SDK TLS fixture with raw test provider and redirected trusted loopback transport",
+      "text": "func sdkFixture(t *testing.T, handler http.Handler) *SDKClient {\n\tt.Helper()\n\tserver := httptest.NewTLSServer(handler)\n\tt.Cleanup(server.Close)\n\ttransport := http.DefaultTransport.(*http.Transport).Clone()\n\toriginal := http.DefaultTransport\n\ttransport.DialTLSContext = func(ctx context.Context, network, _ string) (net.Conn, error) {\n\t\treturn (&tls.Dialer{Config: server.Client().Transport.(*http.Transport).TLSClientConfig}).DialContext(ctx, network, strings.TrimPrefix(server.URL, \"https://\"))\n\t}\n\thttp.DefaultTransport = transport\n\tt.Cleanup(func() { http.DefaultTransport = original; transport.CloseIdleConnections() })\n\tkey, err := rsa.GenerateKey(rand.Reader, 2048)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tprovider := common.NewRawConfigurationProvider(\"ocid1.tenancy.oc1..test\", \"ocid1.user.oc1..test\", \"sa-saopaulo-1\", \"test\", string(pem.EncodeToMemory(&pem.Block{Type: \"RSA PRIVATE KEY\", Bytes: x509.MarshalPKCS1PrivateKey(key)})), nil)\n\tlimits := map[ociclient.Service]ociclient.Limit{}\n\tfor service := range ociclient.DefaultLimits {\n\t\tlimits[service] = ociclient.Limit{PerSecond: 100000, Burst: 100000}\n\t}\n\tfactory, err := ociclient.New(provider, ociclient.Options{Region: \"sa-saopaulo-1\", Limits: limits})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\treturn NewClientWithFactory(factory)\n}\n",
+      "span_sha256": "ee1916afd7f78e5911076c8451a1715095bd2ecf531de6f55f0508b0279d84f2"
+    },
+    {
+      "path": "internal/ociregion/publicapi/public_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "86dfea945f9c87359da730f7c616edfa2b72bf6d",
+      "line": 75,
+      "end_line": 78,
+      "scope": "fakeOCI.Call actually delegates to SDKClient.Call",
+      "text": "func (f *fakeOCI) Call(ctx context.Context, args ...string) (map[string]any, error) {\n\tf.calls = append(f.calls, slices.Clone(args))\n\treturn f.sdk.Call(ctx, args...)\n}\n",
+      "span_sha256": "af43687d9ef9409f401df4f52240333cbc7797f4b8c8952c4ee7963dea6c0f66"
+    },
+    {
+      "path": "internal/ociregion/publicapi/cloudflare_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "dcc65cfdf368a410596429546f67fa642d55c379",
+      "line": 50,
+      "end_line": 58,
+      "scope": "actual Cloudflare HTTP listener/client fixture",
+      "text": "func newFakeCloudflare(t *testing.T) (*fakeCloudflare, Cloudflare) {\n\tf := &fakeCloudflare{t: t, ranges: []string{\"173.245.48.0/20\", \"103.21.244.0/22\"}, records: map[string][]record{},\n\t\tvalidity: originValidityDays * 24 * time.Hour}\n\tf.certificates = []originPullCertificate{{ID: testOriginPull(t).CertificateID, Certificate: originPullFixture(t, \"origin-pull-test-client.pem\"), Status: \"active\"}}\n\tf.hostnameOverrides = map[string]any{}\n\tserver := httptest.NewServer(http.HandlerFunc(f.serve))\n\tt.Cleanup(server.Close)\n\treturn f, Cloudflare{BaseURL: server.URL, Token: \"token\", HTTP: server.Client()}\n}\n",
+      "span_sha256": "65a504d6f81a860c24dc0c959c352121b577f18fcbeb17b596564b12528b95a0"
+    }
+  ],
+  "source_pins_verified": {
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/publicapi/public_test.go": {
+      "path": "internal/ociregion/publicapi/public_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "86dfea945f9c87359da730f7c616edfa2b72bf6d",
+      "mode": "100644",
+      "sha256": "4088139aeeee7a00a50a61e422c2ecb83b5980b6a27a937945f10fce6f9d46cd",
+      "bytes": 51979
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/publicapi/originpull_test.go": {
+      "path": "internal/ociregion/publicapi/originpull_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "af8d655d4102a15bc6967b999b0fe9a07d614e6c",
+      "mode": "100644",
+      "sha256": "fcd418cc9956a2def7a9cd95353863114de9f8a6b851249077a6383d859b991a",
+      "bytes": 10987
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/publicapi/provision_safety_test.go": {
+      "path": "internal/ociregion/publicapi/provision_safety_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "54263de6df398ba26be2f25860c10aa4034b887e",
+      "mode": "100644",
+      "sha256": "f43b1c17ad6b7e142ae9d23378ed7f1f785f01a20c83a1eb73c6249b01a3f701",
+      "bytes": 13244
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/publicapi/cloudflare_test.go": {
+      "path": "internal/ociregion/publicapi/cloudflare_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "dcc65cfdf368a410596429546f67fa642d55c379",
+      "mode": "100644",
+      "sha256": "d4c3dd3f72cdbdae6149d67fa633406a3e7ac3f6cec0c21a951fe7351aaa3456",
+      "bytes": 17994
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/publicapi/sdk_http_test.go": {
+      "path": "internal/ociregion/publicapi/sdk_http_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "6dc5fea67a14406edb49b51057fe2ea48c98530d",
+      "mode": "100644",
+      "sha256": "6949638b4c16e53d38ad8362b1e9d39b2cdcc3c8983408a3eae85112dcc45588",
+      "bytes": 8757
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/publicapi/public.go": {
+      "path": "internal/ociregion/publicapi/public.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "ba7a810c220ac15704597d7fa77c0e5175ae8b77",
+      "mode": "100644",
+      "sha256": "1efd907db4eaaaf3677d752ae5eeadf08a2e30d20c25d6b7bc2dc7c215afed48",
+      "bytes": 51725
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/publicapi/cert.go": {
+      "path": "internal/ociregion/publicapi/cert.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "277e57b254e3feabafca15a9220382abd823b5d0",
+      "mode": "100644",
+      "sha256": "8bf862e540f35a6855627acd2f6aa1f2b91a7160ac2dce127beebac491a4b234",
+      "bytes": 12186
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/publicapi/originpull.go": {
+      "path": "internal/ociregion/publicapi/originpull.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "6eb05ae3703da16425cb5861406bce55a37de423",
+      "mode": "100644",
+      "sha256": "ce944052f260d370124d07cf912b950f3c73fbc7df8435dafeccbe92f7413afa",
+      "bytes": 5541
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/publicapi/check.go": {
+      "path": "internal/ociregion/publicapi/check.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "f1a5af902dbc5853b06b8b9ea360e99ea5c74069",
+      "mode": "100644",
+      "sha256": "30bcb7a78ca45e7a26ae86b36fc2857ef5e78394d8a84c019cc102a54f6a838a",
+      "bytes": 9590
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/publicapi/cloudflare.go": {
+      "path": "internal/ociregion/publicapi/cloudflare.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "d30fedf85076f64560154feef6c54e837ba72fc7",
+      "mode": "100644",
+      "sha256": "f2f4ca6d62eb25cfb1d37021127e82471363739b00bb8762922438620d030fb8",
+      "bytes": 11511
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/publicapi/sdk.go": {
+      "path": "internal/ociregion/publicapi/sdk.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "b520666c4d82ea198765e8b637997ffdcfc6a89c",
+      "mode": "100644",
+      "sha256": "0dd044286c108deb6a8ebc796a63fa443ceaeeccc35184b87ef4d92e2bd128cb",
+      "bytes": 28859
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/publicapi/sdk_foundation.go": {
+      "path": "internal/ociregion/publicapi/sdk_foundation.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "fa8ad48f93d657d380bbee4711c12af96aa6f44c",
+      "mode": "100644",
+      "sha256": "14d0b8c401244d0b5371dd901c0f795e52537f9fa379ecfbda4613c3e008829d",
+      "bytes": 12802
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/sdkcli/sdkcli.go": {
+      "path": "internal/ociregion/sdkcli/sdkcli.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "6be643ba22b25c2b7a2332b2ac55c0698f551702",
+      "mode": "100644",
+      "sha256": "d9fdb2a5519b2daa4787889a81b83f40cb3cae875ff8436c01d80cc499b93968",
+      "bytes": 10704
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/sdkcli/handlers.go": {
+      "path": "internal/ociregion/sdkcli/handlers.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "96f545bdee15c154c71d34ef8c8877bb31b110fb",
+      "mode": "100644",
+      "sha256": "afd5ce167c2c6d187775db6be0b55af8c09ae5c8c5089d60c14e5487dd854b2e",
+      "bytes": 28185
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/sdkcli/inventory.go": {
+      "path": "internal/ociregion/sdkcli/inventory.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "18f66955811415940f7aa82f417ed5d0f76611d3",
+      "mode": "100644",
+      "sha256": "157e367629a8225a825e20089c88f6ec77384c737c3b94cd6205c55293f19f16",
+      "bytes": 10341
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociclient/factory.go": {
+      "path": "internal/ociclient/factory.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "e8e99e02456a27a832cf3038587bcc65745a1958",
+      "mode": "100644",
+      "sha256": "7949bd617658a10ec293cf0fab2a1eedd2dad1b1d74f746bb382ac2f5986f209",
+      "bytes": 24633
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociclient/retry.go": {
+      "path": "internal/ociclient/retry.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "0e5718012dadfc4d400d6b6a50777ed29119d495",
+      "mode": "100644",
+      "sha256": "4b52708694eae6c1e4b536e7b2ab50d0f09ee75ac5e35b3b34a1315ddf09d591",
+      "bytes": 14162
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/naming/naming.go": {
+      "path": "internal/naming/naming.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "849d830258a9114981607aacd8a63418abf076fa",
+      "mode": "100644",
+      "sha256": "0db87bb443e8cff6b768e8e5d091d19ae3ba2a97db92ef11e49eb94112795a9c",
+      "bytes": 6079
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/catalog/catalog.go": {
+      "path": "internal/ociregion/catalog/catalog.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "094f141afb633efa0d345466c5c80b2154d97e69",
+      "mode": "100644",
+      "sha256": "1cb9481c9291c863bea33c273443a1dc061bdcd4afada2b626843449ff54cf6e",
+      "bytes": 9451
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociresource/ownership.go": {
+      "path": "internal/ociresource/ownership.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "988f98964ae6407d337d1a2fec1fbea2457a19e9",
+      "mode": "100644",
+      "sha256": "595f992dc6f20295147b5f81bc6b2534ff590edcbecd3cb128684dd67c4b6add",
+      "bytes": 3718
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociresource/resource.go": {
+      "path": "internal/ociresource/resource.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "9aacabdc85cddd182f03a6c1259baf633a3aeea5",
+      "mode": "100644",
+      "sha256": "e9ca59cb2efab3cbc46bafd786679ee0819737b0968cbdbab4aa92dff5c5caca",
+      "bytes": 5625
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociresource/lb/lb.go": {
+      "path": "internal/ociresource/lb/lb.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "25a8d7225380e13e18e8055398c8ee731ada7112",
+      "mode": "100644",
+      "sha256": "293d9ee4dedc23cea4abc95b999311d1d356516c70c8b664df4d2bbbf764afe7",
+      "bytes": 15958
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociresource/operation.go": {
+      "path": "internal/ociresource/operation.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "8c813b606eca708cbb6e71155f161cc499ac88b7",
+      "mode": "100644",
+      "sha256": "5a2b0549be55038740da247ef86801e312ca6d3208121dae150afe3972725c26",
+      "bytes": 9077
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:deploy/oci-region/plan.json": {
+      "path": "deploy/oci-region/plan.json",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "19c0acd80c6483b232e9e117dd81913565416359",
+      "mode": "100644",
+      "sha256": "b5eda8c0c08504924429bf020c467ba679db1da20dac8c14c0d0526a7fe7fa71",
+      "bytes": 18049
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/publicapi/testdata/preview.golden": {
+      "path": "internal/ociregion/publicapi/testdata/preview.golden",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "0711bf2680c2915c431eb04a6f981000ea9d9513",
+      "mode": "100644",
+      "sha256": "6d8e413a6876325817d28eff82d1498efe9d85da2aa2069a75333400334c7ea6",
+      "bytes": 1980
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/publicapi/testdata/origin-pull-test-ca.pem": {
+      "path": "internal/ociregion/publicapi/testdata/origin-pull-test-ca.pem",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "e3da51e7d433f167793bc4c8c862de7434431f55",
+      "mode": "100644",
+      "sha256": "f22d2b86abb2e56023ed4ae69ea22d832083216093ca9e47b775b0df64cc5153",
+      "bytes": 538
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/publicapi/testdata/origin-pull-test-client.pem": {
+      "path": "internal/ociregion/publicapi/testdata/origin-pull-test-client.pem",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "5b53f04ff7ba91fa9ce229d554cab80ed5ad9db5",
+      "mode": "100644",
+      "sha256": "1eff020d745ab1bca08b81345a9b24611fd279a49c5bac8fe519cbd54f454555",
+      "bytes": 522
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/publicapi/testdata/origin-test-server.pem": {
+      "path": "internal/ociregion/publicapi/testdata/origin-test-server.pem",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "9d98484b6d26b54f687353648b8757205912b4fb",
+      "mode": "100644",
+      "sha256": "d37ffd9e180e892ffece53700ba21e47e417f2887c489a8c945ef499879b84d2",
+      "bytes": 700
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/publicapi/origin-pull-ca.pem": {
+      "path": "internal/ociregion/publicapi/origin-pull-ca.pem",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "0684b9eca3953346c03e967d50d79c5ddceb128f",
+      "mode": "100644",
+      "sha256": "c14fed0ce5210db0719fea11d1f10b33750dc17d609aeaf47c75e9eff0d7b843",
+      "bytes": 2154
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/ociregion/publicapi/originpull_test.go": {
+      "path": "internal/ociregion/publicapi/originpull_test.go",
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "af8d655d4102a15bc6967b999b0fe9a07d614e6c",
+      "mode": "100644",
+      "sha256": "fcd418cc9956a2def7a9cd95353863114de9f8a6b851249077a6383d859b991a",
+      "bytes": 10987
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/ociregion/publicapi/provision_safety_test.go": {
+      "path": "internal/ociregion/publicapi/provision_safety_test.go",
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "54263de6df398ba26be2f25860c10aa4034b887e",
+      "mode": "100644",
+      "sha256": "f43b1c17ad6b7e142ae9d23378ed7f1f785f01a20c83a1eb73c6249b01a3f701",
+      "bytes": 13244
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/ociregion/publicapi/public_test.go": {
+      "path": "internal/ociregion/publicapi/public_test.go",
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "86dfea945f9c87359da730f7c616edfa2b72bf6d",
+      "mode": "100644",
+      "sha256": "4088139aeeee7a00a50a61e422c2ecb83b5980b6a27a937945f10fce6f9d46cd",
+      "bytes": 51979
+    }
+  },
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no runtime receipts reviewed. No Go/compiler/build/test/helper/scanner/parser/formatter/lint/benchmark/process/resource/privilege/cloud/signing/crypto/TerraBase execution or downloads. Only ordinary immutable Git/file reads, hashes and metadata checking/serialization occurred.",
+    "Signed OCI SDK uses real loopback TLS with raw test provider. Simulator checks Authorization Signature prefix only; no live OCI/IAM/instance-principal or cryptographic signature validation qualification.",
+    "Cloudflare fixture uses actual HTTP with synthetic API/certificates/token. No real Cloudflare zone, public DNS, live TLS or mutual-TLS handshake qualification.",
+    "Temporary plan files, public PEM inputs and golden bytes are fixture setup for local schema/format predicates; no durable-store/production runtime credit. All20 originals and every assertion/safety obligation retained.",
+    "Independent source acceptance grants no repository/Git/ledger change, count promotion, deletion, retirement, runtime qualification or global completion credit."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "canonical_ledger_mutated": false,
+    "classification_count_promotion": 0,
+    "deletion_delta": 0,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  }
+}

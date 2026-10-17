@@ -1,0 +1,7 @@
+Source-only 3340:3360 evidence
+
+12 integration / 1 unit / 7 mixed / 0 unresolved.
+Two role-config fixture bodies have version1-to2 drift; original identities and stale historical hashes are retained.
+Real boundaries are local filesystem and test-owned shell subprocesses; callbacks do not establish live systemd. Independent local shape/flag assertions are mixed where applicable.
+No source/repository/ledger mutation or execution. Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. All safety obligations retained, retirement_authorized false, zero qualification/count/deletion/retirement/completion credit.
+Independent peer acceptance required.

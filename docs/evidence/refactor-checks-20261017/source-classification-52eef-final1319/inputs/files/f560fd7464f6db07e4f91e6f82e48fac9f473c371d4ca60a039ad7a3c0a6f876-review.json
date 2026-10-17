@@ -1,0 +1,87 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1960_1980",
+  "author": "/root/classification_100_dispatch/batch_1980_2000",
+  "decision": "ACCEPTED_EXACT_PACKET",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-3380-3400-nvlldxbl/classification.json",
+    "sha256": "0b6b0b4e41cb89f00ddf2287057c2806a1a7c346adf8477cdcb20f34534013a8",
+    "checksum_path": "/tmp/ts-source-classification-3380-3400-nvlldxbl/SHA256SUMS",
+    "checksum_sha256": "74d99e3f23b9469963d57f26f7d5393682820067b8b090792e5d0b54430bc193"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[3380:3400]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_1960_1980"
+  },
+  "root_ids": [
+    "internal/selfupdate/selfupdate_test.go::TestSeedStageActivateConfirm",
+    "internal/selfupdate/selfupdate_test.go::TestStageRejectsMismatchedBytesAndUnauthorizedReceipts",
+    "internal/selfupdate/selfupdate_test.go::TestTamperedTargetRollsBackImmediately",
+    "internal/selfupdate/watchdog_dropin_test.go::TestInstallWatchdogLoggingDropinWritesOnceBesideTheUnit",
+    "internal/selfupdate/watchdog_review_test.go::TestBackstopEnforcesDeadlinesTheDelegateIgnored",
+    "internal/selfupdate/watchdog_review_test.go::TestBackstopRollsBackDamagedTargetBeforeDeadline",
+    "internal/selfupdate/watchdog_review_test.go::TestInterruptedRollbackIsFinishedNotConfirmed",
+    "internal/selfupdate/watchdog_review_test.go::TestKnownGoodMovesOnlyOnConfirmation",
+    "internal/selfupdate/watchdog_review_test.go::TestPrepareRefusesAnotherUnitsUnconfirmedTarget",
+    "internal/selfupdate/watchdog_review_test.go::TestProofAfterTheDeadlineNeverConfirms",
+    "internal/selfupdate/watchdog_review_test.go::TestRollbackLeavesARestartObligationUntilTheUnitStarts",
+    "internal/selfupdate/watchdog_review_test.go::TestUnreadableActivationRejectsUnrelatedCurrentBeforeRecoveryEffects",
+    "internal/storage/backup/backup_test.go::TestPlanCreatesFirstFullThenIncrementalsOnInterval",
+    "internal/storage/backup/backup_test.go::TestPlanPrunesOnlyOwnedAvailableBeyondRetain",
+    "internal/storage/backup/backup_test.go::TestRunnerCreatesIdempotentlyAndPrunesWithExactETag",
+    "internal/storage/backup/backup_test.go::TestRunnerProtectsListedVolumesButSkipsOrphansOnPartialListing",
+    "internal/storage/backup/backup_test.go::TestRunnerPrunesOrphanedBackupsOfRemovedVolumesAfterRetention",
+    "internal/storage/backup/backup_test.go::TestRunnerRefusesFollowersAndFencedAuthority",
+    "internal/storage/backup/backup_test.go::TestRunnerSkipsBackupThatChangedOwnershipBeforeDelete",
+    "internal/storage/backup/backup_test.go::TestScopeOwnsRequiresExactTagsAndSourceVolume"
+  ],
+  "source_categories": {
+    "integration": 11,
+    "unit": 8,
+    "mixed": 1,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Own FINAL[3360:3380) packet frozen and handed off before any FINAL peer review. Prior third600 source work remains separate/excluded.",
+    "Independently read all20 full current literal roots plus actual production/fixture/client/store paths from pinned Git source. Baseline/current test Git blobs are identical; forty raw baseline/current declaration identities and exact text independently checked.",
+    "Verified twenty literal IDs and order against activated allocation and original accounting other_unadjudicated[3380:3400), all survival TSV path/original/current names/kind/state/hashes, all five input SHA256 pins and canonical commit/tree.",
+    "Verified all26 file blob/mode/SHA256/byte pins, twenty entire-body assertion spans and89 connected callee spans against pinned Git bytes with explicit manually reviewed bounds. No source parser/scanner or source/runtime execution.",
+    "Reviewed all source categories and qualification limits: eleven selfupdate filesystem lifecycle roots, one mixed staging root retaining independent pre-I/O authorization guards, and eight backup roots with actual map-backed fakeProvider/fakeFencer calls and no OCI transport/store.",
+    "Verified actual stage/install/hash/chmod/sync/rename/readback/cleanup, activation/symlink/history/restart/rollback/quarantine/prune path, proof file/current-PID probe, Backstop and drop-in installer calls. Independent expiry/authorization predicates remain local obligations, not production qualification.",
+    "Verified exact packet SHA256, checksum entries and immutable0444/0555 packet permissions. Source-visible blockers were checked independently; none found."
+  ],
+  "metadata_checks": {
+    "input_pins": 5,
+    "literal_roots": 20,
+    "raw_declarations": 40,
+    "source_file_pins": 26,
+    "assertion_spans": 20,
+    "connected_spans": 89,
+    "canonical_declaration_drift": 0
+  },
+  "resolved_review_findings": [],
+  "remaining_review_findings": [],
+  "corrections_requested": [],
+  "retained_source_findings": [],
+  "qualification_limits": [
+    "Source acceptance only. Every runtime remains UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no test/helper/source executed and no execution receipt reviewed.",
+    "Selfupdate boundaries are real scratch filesystem/OS state with arbitrary text binaries. No candidate executable, actual systemd daemon/start/restart, privileged root-owned deployment or concurrent caller-Lock discipline is established.",
+    "Fixture-generated signatures, fabricated production-gate metadata, permissive anyLineage and test-process PID cannot establish live candidate health or independent production qualification.",
+    "Stage mixed root retains legacy/environment/expiry/foreign-cell verifier blocks before any layout I/O; actual staging bytes/cleanup support only its integration blocks.",
+    "All8 backup roots use synthetic snapshots/maps/counters/ETags/termination responses and injected volumes/time. Actual OCI/NATS/durable backup state is untested.",
+    "No ledger/count/deletion/retirement/completion promotion follows from this receipt."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "ledger_mutation_authorized": false,
+  "count_credit_authorized": false,
+  "deletion_authorized": false,
+  "completion_credit_authorized": false,
+  "unresolved_source_blockers": []
+}

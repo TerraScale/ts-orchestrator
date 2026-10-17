@@ -1,0 +1,77 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2160_2180",
+  "author": "/root/classification_100_dispatch/batch_2180_2200",
+  "status": "ACCEPTED_SOURCE_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-final-source-3580-3600-corrected-e0oim34c/classification.json",
+    "sha256": "7d71bc936840761e2ba739bcb4e5bdfbe669ae99ecdceb359ec5792b7c232ad3",
+    "sha256sums_path": "/tmp/ts-final-source-3580-3600-corrected-e0oim34c/SHA256SUMS",
+    "sha256sums_sha256": "6e5ad762c8f34f28355c5ecc3960757e70c1e0f5045990293ed3c491ab2510bb"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[3580:3600]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2160_2180"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/volume/reconcile_test.go::TestReconcilerHoldsVolumesItCannotProve",
+    "internal/volume/reconcile_test.go::TestReconcilerLeavesAForeignBackupPolicy",
+    "internal/volume/store_test.go::TestStoreClaimIsExclusive",
+    "internal/volume/store_test.go::TestStoreCreateGetListUpdate",
+    "internal/volume/store_test.go::TestStoreCreateRefusesForeignOrPrefilledRecords",
+    "internal/volume/store_test.go::TestStoreDestroyIsFinal",
+    "internal/volume/store_test.go::TestStoreListFailsInsteadOfTruncating",
+    "internal/volume/store_test.go::TestStoreListFailsWhenTheWatchEndsEarly",
+    "internal/volume/store_test.go::TestStoreRefusesTamperedRecords",
+    "internal/volume/store_test.go::TestStoreZonePinsMachineToItsVolume",
+    "internal/volume/volume_test.go::TestCheckUpdateGuardsIdentityGrowthAndOwnership",
+    "internal/volume/volume_test.go::TestNewIDIsValidAndUnique",
+    "internal/volume/volume_test.go::TestValidateRejectsMalformedRecords",
+    "scripts/check_dashboard_netbird_test.go::TestDashboardNetbirdCheck",
+    "scripts/ci/deploylag/main_test.go::TestAlertCreatesAssignedIncidentAndClosesItAfterRecovery",
+    "scripts/ci/deploylag/main_test.go::TestAlertFindsAndRecoversAnIncidentBeyondTheFirstPage",
+    "scripts/ci/deploylag/main_test.go::TestHistoryKeepsFirstQualificationAcrossFailedDeploymentAndRerun",
+    "scripts/ci/deploylag/main_test.go::TestHistoryPaginatesQualificationStatusesAndFailsOnUnreadablePage",
+    "scripts/ci/deploylag/main_test.go::TestPendingDoesNotResetThirtyMinuteClockForContinuousBuilds",
+    "scripts/ci/deploylag/main_test.go::TestPendingRefusesAnExhaustedHistoryWindow"
+  ],
+  "counts": {
+    "integration": 6,
+    "unit": 12,
+    "mixed": 2,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently manually read all20 full canonical roots and reached actual fixture/helper/production paths before this metadata-only verification; categories assessed from actual assertion observables.",
+    "Verified exact allocation/accounting20 literal IDs, survival raw mappings and all input hashes.",
+    "Verified40 raw baseline/current declarations from explicit recorded bounds, declaration text/hash, exact survival identity, canonical drift and blob pins.",
+    "Verified all22 file Git blob/mode/SHA256/byte pins and all78 explicit assertion/connected source spans against canonical Git bytes.",
+    "Verified final categories/counts, corrected independent mock-only assertion block, retained qualifications/safety obligations, checksum manifest and0444/0555 modes."
+  ],
+  "resolved_findings": [
+    {
+      "status": "resolved",
+      "root_id": "internal/volume/reconcile_test.go::TestReconcilerHoldsVolumesItCannotProve",
+      "finding": "Peer identified separate mock-only cloud.mutations assertion at392:394; root changed integration to mixed, preserving real store status assertion at388:391 and unit obligation.",
+      "reviewer": "/root/classification_100_dispatch/batch_2160_2180"
+    }
+  ],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE; independent peer and separate ledger acceptance required.",
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No Go/build/test/helper/scanner/parser/formatter/lint/benchmark/probe/locks/privilege/cloud/signing/crypto/TerraBase execution or downloads.",
+    "Loopback direct upstream NATS broker with one file-backed JetStream store; no natscell startup/auth/HA qualification. OCI/fencing remain fake.",
+    "Canceled List and synthetic closingWatcher assert local error paths only; no real disconnected watch/transport behavior is credited.",
+    "Dashboard actual subprocess/file lifecycle uses fake tool executables; no cloud/NetBird/controller/SSH/DNS/TCP acceptance. Deploylag uses fake RoundTripper only.",
+    "All safety/validation/fencing/recovery obligations retained. No repo/source/ledger mutation or count/deletion/retirement/runtime/completion promotion."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "NONE; source-only independent acceptance. No ledger/count/deletion/retirement/runtime/qualification/completion promotion."
+}

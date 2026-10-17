@@ -1,0 +1,25 @@
+{
+  "actual_shared_mutation": false,
+  "all4319_original_ids_conserved": true,
+  "counts": {
+    "classified": 4095,
+    "integration": 1452,
+    "mixed": 581,
+    "originals": 4319,
+    "other_unadjudicated": 0,
+    "retained": 4300,
+    "retired": 19,
+    "reviewed_unresolved_included": 205,
+    "unadjudicated": 205,
+    "unit": 2062
+  },
+  "history_prefixes_preserved": true,
+  "input_copies": 414,
+  "mirror_count": 12,
+  "new_unresolved81_retained": true,
+  "prior_retired19_unchanged": true,
+  "prior_reviewed_unresolved124_retained": true,
+  "runtime_credit": 0,
+  "state": "PASS_AUTHOR_STRUCTURE_ONLY_PENDING_INDEPENDENT_REVIEW",
+  "unrelated_ledger_changes": 0
+}

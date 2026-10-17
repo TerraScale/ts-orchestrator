@@ -1,0 +1,78 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_20_40",
+  "author": "/root/classification_100_dispatch/batch_40_60",
+  "decision": "ACCEPT",
+  "accepted_packet": {
+    "path": "/tmp/ts-final1319-source-2540-2560-corrected-lhbw9pv4/classification.json",
+    "sha256": "c1c0a917f5802ce13fff6f384c196b5f4d66192e91afaa8424f96e83fa8d4c8f",
+    "checksum_path": "/tmp/ts-final1319-source-2540-2560-corrected-lhbw9pv4/SHA256SUMS",
+    "checksum_sha256": "9a620c2a9f0717652006e6575427fb096bd7d707f159819758c8a51473f0db29"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      2540,
+      2560
+    ]
+  },
+  "root_ids": [
+    "internal/ocicost/store_test.go::TestStoreRoundTrip",
+    "internal/ocicost/tag_oci_test.go::TestOCITagsBucketUsesCachedNamespace",
+    "internal/ocicost/tag_oci_test.go::TestOCITagsPagesAndMapsResources",
+    "internal/ocicost/tag_oci_test.go::TestOCITagsQueryScopesCompartments",
+    "internal/ocicost/tag_oci_test.go::TestOCITagsRefusesCompartmentValue",
+    "internal/ocicost/tag_oci_test.go::TestOCITagsRefusesUnknownType",
+    "internal/ocicost/tag_oci_test.go::TestOCITagsRetagMapsOCIAnswers",
+    "internal/ocicost/tag_oci_test.go::TestOCITagsRetagMergesAndSendsIfMatch",
+    "internal/ocicost/tag_oci_test.go::TestOCITagsRetagUnchangedSendsNothing",
+    "internal/ocicost/tag_oci_test.go::TestOCITagsStopsAtPageLimit",
+    "internal/ocicost/tagger_test.go::TestPassCountsEachOutcome",
+    "internal/ocicost/tagger_test.go::TestPassListFailureStampsNothing",
+    "internal/ocicost/tagger_test.go::TestPassStopsOnUnexpectedError",
+    "internal/ocicost/tagger_test.go::TestTaggerRunStopsOnCancel",
+    "internal/ocicost/tagger_test.go::TestTaggerStepFailedPassRetries",
+    "internal/ocicost/tagger_test.go::TestTaggerStepFollowerDoesNotConnect",
+    "internal/ocicost/tagger_test.go::TestTaggerStepRetriesConnect",
+    "internal/ocicost/tags_test.go::TestComponentRules",
+    "internal/ocicost/tags_test.go::TestPlanTags",
+    "internal/ocicost/usage_test.go::TestConnectRefusesMissingTenancy"
+  ],
+  "counts": {
+    "integration": 1,
+    "unit": 19,
+    "mixed": 0,
+    "unresolved": 0
+  },
+  "checks": {
+    "all20_full_canonical_roots_independently_read": true,
+    "actual_fixture_helpers_and_reached_production_callees_independently_read": true,
+    "all20_literal_allocation_ids_and_unique_frozen_mappings_verified": true,
+    "all40_raw_baseline_current_declarations_bounds_bytes_text_sha256_and_blob_verified": true,
+    "all21_source_file_pins_mode_blob_bytes_and_sha256_verified": true,
+    "all27_connected_citations_and20_complete_assertion_spans_verified_excluding_following_LF": true,
+    "all5_input_pins_sha256_and_bytes_verified": true,
+    "source_commit_tree_and_counts_verified": true,
+    "packet_checksum_and0444_0555_freeze_verified": true,
+    "runtime_retirement_and_safety_limits_verified": true
+  },
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "source_assessment": [
+    "TestStoreRoundTrip materially creates/opens a file-backed JetStream bucket and performs production Put/Get through an upstream singleton NATS server and direct loopback TCP nats.Connect. natscell.Start/InProcessServer is not reached; no restart, R3 or live OCI qualification is claimed.",
+    "All19 remaining roots exercise local OCI-shaped interfaces/fake Search, Compute and ObjectStorage methods, stub pass/connect/leadership/clock dependencies, request construction, tag inference/planning, error mapping or pre-I/O tenancy guards. SDK-shaped request/response structs and HTTP status constants do not establish an actual API boundary.",
+    "Tagger cancellation uses a local goroutine/channel/context/timer. The factory constructor for missing tenancy validates a static catalog and constructs retry policy/maps locally; both tenancy assertions return before HomeRegion or Usage SDK construction.",
+    "All20 raw declarations exactly match baseline/current survival mapping. No source-visible assertion blocker, unreported drift or independent unit block accompanying the one real store scenario was found. The accepted exact packet preserves its prior prehandoff metadata correction without changing source categories."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "qualification_limits": [
+    "Source-only independent inspection and metadata hashing/serialization over explicit reviewed spans. No repository/source/ledger mutation, Go/build/test/helper/scanner/parser/lint/format/benchmark/process/resource/cloud/signing/crypto/TerraBase execution, downloads or children.",
+    "No runtime pass, accepted-count, qualification, deletion, retirement or completion credit. All original obligations retained."
+  ]
+}

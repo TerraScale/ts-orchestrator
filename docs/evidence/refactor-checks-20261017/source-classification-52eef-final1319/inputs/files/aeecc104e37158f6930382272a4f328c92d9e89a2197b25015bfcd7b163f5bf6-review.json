@@ -1,0 +1,251 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2300_2320",
+  "author": "/root/classification_100_dispatch/batch_2320_2340",
+  "status": "accepted",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-final1319-3720-3740-s_g5k9di/classification.json",
+    "sha256": "a0ccb11d6c1adbd6c578def0da3895752e5a8051568af0215a729ccb38246e1b",
+    "checksum_path": "/tmp/ts-source-final1319-3720-3740-s_g5k9di/SHA256SUMS",
+    "checksum_sha256": "d65edcff62cc9d980ad5cb577548cbb2a897d1dcece2f23c4bd19aab0e2f59b6"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "owner": "/root/classification_100_dispatch/batch_2320_2340",
+    "range": [
+      3720,
+      3740
+    ],
+    "root_ids": [
+      "tests/firecracker/managedmember/exporter/main_test.go::TestLocalS3Target",
+      "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberCanonicalGuestTools",
+      "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberCommandSignalAndTimeoutReaping",
+      "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberDistinctSignedRuntimeDirectories",
+      "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberExactInputDirectFileAndHash",
+      "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberFirecrackerResourceRoutesAndIDs",
+      "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberManifestSecurityMatrix",
+      "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberMaterialStagingOrderAndFinalLayout",
+      "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberPrivateS3CredentialBoundary",
+      "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberRealProtectedMaterialStaging",
+      "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberRejectsIncompleteManifestAndSubnetCollision",
+      "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberRejectsInvalidResourcesBeforeProcessStart",
+      "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberResultRequiresExactPassAndNativeEvidence",
+      "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberRootSupervisorReadSearchPermission",
+      "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberS3StartsBeforeGuestsAndSIGTERMCleanup",
+      "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberSignedS3ConfigCanonicalEncoding",
+      "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberSupervisorReadBoundaryAndReservations",
+      "tests/firecracker/memberstatus/main_test.go::TestIsRequestedMemberSocketBindFailure",
+      "tests/firecracker/natsdiag_test.go::TestDiagnosticEndpointMappingsRequireCompleteAndExactCoverage",
+      "tests/firecracker/natsdiag_test.go::TestDiagnosticFormationReadinessRequiresEndpointMapping"
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2300_2320",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "reused_confirmed_agent": true,
+    "activation_requires": "Own and cyclic-peer obligations in prior allocation both exact-hash accepted; actual global running+pending_init <=81 after activation; preserve20slots."
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "tests/firecracker/managedmember/exporter/main_test.go::TestLocalS3Target",
+    "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberCanonicalGuestTools",
+    "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberCommandSignalAndTimeoutReaping",
+    "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberDistinctSignedRuntimeDirectories",
+    "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberExactInputDirectFileAndHash",
+    "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberFirecrackerResourceRoutesAndIDs",
+    "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberManifestSecurityMatrix",
+    "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberMaterialStagingOrderAndFinalLayout",
+    "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberPrivateS3CredentialBoundary",
+    "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberRealProtectedMaterialStaging",
+    "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberRejectsIncompleteManifestAndSubnetCollision",
+    "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberRejectsInvalidResourcesBeforeProcessStart",
+    "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberResultRequiresExactPassAndNativeEvidence",
+    "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberRootSupervisorReadSearchPermission",
+    "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberS3StartsBeforeGuestsAndSIGTERMCleanup",
+    "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberSignedS3ConfigCanonicalEncoding",
+    "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberSupervisorReadBoundaryAndReservations",
+    "tests/firecracker/memberstatus/main_test.go::TestIsRequestedMemberSocketBindFailure",
+    "tests/firecracker/natsdiag_test.go::TestDiagnosticEndpointMappingsRequireCompleteAndExactCoverage",
+    "tests/firecracker/natsdiag_test.go::TestDiagnosticFormationReadinessRequiresEndpointMapping"
+  ],
+  "counts": {
+    "integration": 5,
+    "unit": 13,
+    "mixed": 2,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Own3700:3720 packet frozen and handed off before peer review; own P1 correction handled before receipt.",
+    "Independently read all20 complete roots and actual fixture/production paths; source-only categories and limitations checked against reached callees.",
+    "Verified literal manifest order/all20 survival rows, raw baseline/current declarations and exact line bounds/SHA256; root file diffs inspected.",
+    "Verified full baseline/current root file and connected file Git blob/mode/bytes/SHA256 pins; current working bytes match pinned commit.",
+    "Verified all58 assertion/callee evidence spans exactly including LF conventions, input hashes, packet/SHA256SUMS hashes, all checksum entries and0444 files/0555 directory."
+  ],
+  "root_reviews": [
+    {
+      "root_id": "tests/firecracker/managedmember/exporter/main_test.go::TestLocalS3Target",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_reason": "Pure S3 target/config/digest predicates; no client/network.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberCanonicalGuestTools",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_reason": "Production GuestPath Lstat/Stat directly checks actual canonical guest-tool files; removed canonical blkid rejection supports integration.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberCommandSignalAndTimeoutReaping",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_reason": "Actual BoundedCommand shell/process group crosses cancellation/deadline path; only error strings asserted, no direct quiescence/reaping proof retained.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberDistinctSignedRuntimeDirectories",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_reason": "Pure scope hash/directory string derivation, no filesystem effect.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberExactInputDirectFileAndHash",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_reason": "Actual DirectDigest/O_NOFOLLOW file load detects symlink and changed bytes.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberFirecrackerResourceRoutesAndIDs",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_reason": "Pure Firecracker request routes/IDs/maps; no API request.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberManifestSecurityMatrix",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_reason": "Synthetic manifest mutation predicates; actual hashing is incidental loading. Patching expected dirs permits valid fixture case; no source contradiction found.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberMaterialStagingOrderAndFinalLayout",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_reason": "Command hook supplies fabricated hash/stat records; captured command order/layout requests remain unit. Log writes/GuestPath incidental.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberPrivateS3CredentialBoundary",
+      "category": "mixed",
+      "decision": "accepted",
+      "independent_reason": "Actual protected credential file read/mode/symlink/byte rejection plus independent runner-string assertions: mixed.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberRealProtectedMaterialStaging",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_reason": "Conditional real sudo install/hash/stat and protected directory readback; event order describes same staging scenario. No privileged command executed in review.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberRejectsIncompleteManifestAndSubnetCollision",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_reason": "Incomplete synthetic manifest guard and injected route JSON/call count; no network command.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberRejectsInvalidResourcesBeforeProcessStart",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_reason": "Injected resources error returns before file/process I/O; Process nil local guard.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberResultRequiresExactPassAndNativeEvidence",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_reason": "Pure exact-pass/native evidence parsers with synthetic outputs/maps.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberRootSupervisorReadSearchPermission",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_reason": "Conditional actual sudo/setpriv/stat OS permission boundary. No actual project supervisor process; prerequisite limitation retained.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberS3StartsBeforeGuestsAndSIGTERMCleanup",
+      "category": "mixed",
+      "decision": "accepted",
+      "independent_reason": "Step hook never calls step.run; no RustFS/S3/guest/SIGTERM. Independent actual PrepareDirs/Cleanup plus Fixture os.Stat absence supports mixed.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberSignedS3ConfigCanonicalEncoding",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_reason": "Canonical JSON predicate using actual file merely as input; no independent file-safety target.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "tests/firecracker/managedmember/qualify_test.go::TestManagedMemberSupervisorReadBoundaryAndReservations",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_reason": "Script/systemd directive strings only; no runtime capability/mount/systemd effect.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "tests/firecracker/memberstatus/main_test.go::TestIsRequestedMemberSocketBindFailure",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_reason": "Synthetic socket-error text/ExitError predicate; shell exits create incidental error inputs and do not exercise project runtime/socket.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "tests/firecracker/natsdiag_test.go::TestDiagnosticEndpointMappingsRequireCompleteAndExactCoverage",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_reason": "Pure topology endpoint/member exact coverage and duplicate mapping predicates.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "tests/firecracker/natsdiag_test.go::TestDiagnosticFormationReadinessRequiresEndpointMapping",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_reason": "Pure readiness/endpoint mapping predicates; no diagnostic network.",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE. Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no Go/build/test/lint/formatter/helper/runtime or privilege command executed.",
+    "Filesystem/process integration classification requires actual production effects/readback supporting assertions. Incidental manifest files, shell error fixtures and Step/Command recorders receive no real service/runtime credit.",
+    "Conditional sudo/setpriv tests retain prerequisites. Source inspection proves neither that they ran nor that privileged cleanup succeeds.",
+    "No source-visible contradiction found in manually reviewed paths; this is no compiler/runtime pass claim. All assigned original roots/assertions/safety obligations retained.",
+    "No ledger, count, deletion, retirement, qualification or global completion credit. Independent exact-hash peer acceptance remains required.",
+    "Error-text-only process root does not directly prove descendant quiescence or reaping. Conditional privilege scenarios not executed.",
+    "Static script checks, synthetic recorder paths and Step hooks receive no live guest/S3/Firecracker/project workload credit."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": 0,
+    "deletion_delta": 0,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  }
+}

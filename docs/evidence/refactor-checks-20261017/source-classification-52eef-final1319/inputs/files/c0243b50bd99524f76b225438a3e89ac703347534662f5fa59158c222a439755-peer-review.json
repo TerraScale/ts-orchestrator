@@ -1,0 +1,96 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_200_220",
+  "author": "/root/classification_100_dispatch/batch_220_240",
+  "decision": "ACCEPTED_SOURCE_ONLY_EXACT_HASH",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-2780-2800-corrected-kn_nmzco/classification.json",
+    "sha256": "6ab85c6af0e47401139a651236438b3abc4f9eb6c110556d41cbace8e9315474",
+    "checksum_path": "/tmp/ts-source-classification-2780-2800-corrected-kn_nmzco/SHA256SUMS",
+    "checksum_sha256": "67585e531243726b492808ac46194a823a8e566813ca5ae69af0ccf294673684"
+  },
+  "superseded_packet": {
+    "path": "/tmp/ts-source-classification-2780-2800-ourcgaez/classification.json",
+    "sha256": "97356e59a1871dac92837974029c789cb9b189bf7fea0fa6286845049373cf75"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "range": [
+    2780,
+    2800
+  ],
+  "root_ids": [
+    "internal/ociresource/nsg/nsg_test.go::TestNSGWithoutOwnershipIsNeverChanged",
+    "internal/ociresource/nsg/nsg_test.go::TestPersistentSpecBoundsRulesAndRequiresCanonicalCIDRs",
+    "internal/ociresource/nsg/nsg_test.go::TestRestampAfterRuleChangesUsesAFreshETag",
+    "internal/ociresource/nsg/nsg_test.go::TestSDKPreservesUnsupportedRulesAndEncodesDestinationPorts",
+    "internal/ociresource/nsg/nsg_test.go::TestSpecValidationAndBatching",
+    "internal/ociresource/nsg/nsg_test.go::TestTombstoneSupersededDuringSDKObservationCannotDelete",
+    "internal/ociresource/ownership_test.go::TestPersistentControllerRefusesMissingForeignAndPartialOwnership",
+    "internal/ociresource/publish_test.go::TestPublishSetFencesEveryWrite",
+    "internal/ociresource/publish_test.go::TestPublishSetValidatesEverythingBeforeWriting",
+    "internal/ociresource/publish_test.go::TestPublishSetWritesOnlyChangesAndPrunesOnlyWhenAsked",
+    "internal/ociresource/routetable/routetable_test.go::TestConditionalReplaceRecoversAfterLostResponse",
+    "internal/ociresource/routetable/routetable_test.go::TestRouteTableConvergesAndCorrectsOutOfBandRoutes",
+    "internal/ociresource/routetable/routetable_test.go::TestRouteTableForeignEnforcementAndTombstone",
+    "internal/ociresource/routetable/routetable_test.go::TestRouteTableSpecValidation",
+    "internal/ociresource/routetable/routetable_test.go::TestSDKSkipsLocalRoutesAndReplacesUnderIfMatch",
+    "internal/ociresource/runner_test.go::TestRunnerOnlyRunsOnTheReadyLeaderAndSurvivesFailures",
+    "internal/ociresource/runner_test.go::TestRunnerStopsWithContextAndControllerPassIsFenced",
+    "internal/ociresource/runner_test.go::TestRunnerWakeStartsTheNextTick",
+    "internal/ociresource/seclist/seclist_test.go::TestConditionalReplaceRecoversAfterLostResponse",
+    "internal/ociresource/seclist/seclist_test.go::TestSDKReplacesBothDirectionsUnderIfMatch"
+  ],
+  "counts": {
+    "integration": 10,
+    "unit": 0,
+    "mixed": 3,
+    "unresolved": 7
+  },
+  "checks_performed": [
+    "Own2760:2780 packet sealed and handed off before independent peer review.",
+    "Independently read all20full allocated roots, actual NSG/route/security-list HTTP fixtures/production reconcilers/SDK methods; shared direct upstream TCP Store and production KV/controller/operation/publish paths.",
+    "Read parent integrationStore, fake widget/authority, runner and ownership paths; canonical Config whole type lacks Lab; mandatory TLS/JWT validation also blocks fixture. Intended natscell clients use InProcessServer, not direct fixture TCP.",
+    "Verified literal accounting other_unadjudicated[2780:2800) equals allocation and packet IDs;20survival mappings;40baseline/current raw declaration texts/bounds/SHA256 excluding finalLF;0canonical body drift.",
+    "Verified33Git blob/mode/file SHA256/byte pins;58exact connected source spans;20entire-root assertion text spans; source spans include their line-endingLF while declaration hashes exclude finalLF.",
+    "Verified immutable0444files/0555directory and SHA256SUMS; corrected packet differs only one root category/reason plus counts/qualification note.",
+    "No Go/build/test/helper/scanner/framework/process/cloud/signing/crypto/TerraBase execution; metadata-only serialization/hash and pinned Git/file inspection."
+  ],
+  "resolved_findings": [
+    {
+      "id": "P1",
+      "root_id": "internal/ociresource/routetable/routetable_test.go::TestRouteTableSpecValidation",
+      "detail": "Route-table SpecValidation changed integration to mixed: independent pre-I/O invalid-spec error table181\u2013194 plus separate accepted AllowEmpty Publish195\u2013197 and real List/readback198\u2013201. Corrected10I/3M/7R."
+    }
+  ],
+  "remaining_review_findings": [],
+  "retained_source_blockers": [
+    {
+      "id": "removed_natscell_config_lab_in_shared_fixture",
+      "kind": "source_visible_fixture_type_contradiction",
+      "detail": "internal/ociresource/controller_test.go:19\u201322 constructs natscell.Config{Lab:true}, but complete canonical Config internal/natscell/runtime.go:131\u2013148 has no Lab field. Thus this shared test package fixture is not source-compatible with the pinned production type; its intended Start, KV setup and downstream assertions cannot be credited. Even removing that field alone would leave omitted production TLS/JWT configuration rejected by validate. No compiler or runtime execution performed.",
+      "evidence_group": "blocked_parent_fixture",
+      "assertion_credit": "UNRESOLVED_UNCREDITED_NO_EXECUTION",
+      "root_ids": [
+        "internal/ociresource/ownership_test.go::TestPersistentControllerRefusesMissingForeignAndPartialOwnership",
+        "internal/ociresource/publish_test.go::TestPublishSetFencesEveryWrite",
+        "internal/ociresource/publish_test.go::TestPublishSetValidatesEverythingBeforeWriting",
+        "internal/ociresource/publish_test.go::TestPublishSetWritesOnlyChangesAndPrunesOnlyWhenAsked",
+        "internal/ociresource/runner_test.go::TestRunnerOnlyRunsOnTheReadyLeaderAndSurvivesFailures",
+        "internal/ociresource/runner_test.go::TestRunnerStopsWithContextAndControllerPassIsFenced",
+        "internal/ociresource/runner_test.go::TestRunnerWakeStartsTheNextTick"
+      ]
+    }
+  ],
+  "qualification_limits": [
+    "Seven parent-package fixture roots remain unresolved/uncredited due absent Config.Lab and missing production TLS/JWT.",
+    "Runner wake channel assertion does not inspect reconcile success; intended background KV traffic alone does not establish integration.",
+    "SDK protocol fixtures simulate provider state; nonempty Authorization is checked without independent RSA signature validation; no live OCI/network-filtering claim.",
+    "Lost-response cases reconstruct controller using same KV, not a process/broker restart; tombstones relinquish route/security-list management rather than deleting provider resources."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "NONE; no repository/source/ledger/runtime/count/deletion/retirement/completion promotion"
+}

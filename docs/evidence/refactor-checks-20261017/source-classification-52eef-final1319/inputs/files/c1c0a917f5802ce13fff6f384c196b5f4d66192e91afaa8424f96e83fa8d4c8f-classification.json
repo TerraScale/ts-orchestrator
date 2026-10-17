@@ -1,0 +1,1950 @@
+{
+  "schema": "source-classification-explicit-spans-v1",
+  "owner": "/root/classification_100_dispatch/batch_40_60",
+  "batch": "other_unadjudicated[2540:2560)",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "input_pins": [
+    {
+      "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+      "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+      "bytes": 462344
+    },
+    {
+      "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/PEER-PROTOCOL.md",
+      "sha256": "b1cbcb7a96a344363f5ba924a0e76fc418553607209733945892796508db7765",
+      "bytes": 3255
+    },
+    {
+      "path": "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json",
+      "sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513",
+      "bytes": 423442
+    },
+    {
+      "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+      "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+      "bytes": 1640609
+    },
+    {
+      "path": "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md",
+      "sha256": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70",
+      "bytes": 3851
+    }
+  ],
+  "allocation": {
+    "owner": "/root/classification_100_dispatch/batch_40_60",
+    "range": [
+      2540,
+      2560
+    ],
+    "root_ids": [
+      "internal/ocicost/store_test.go::TestStoreRoundTrip",
+      "internal/ocicost/tag_oci_test.go::TestOCITagsBucketUsesCachedNamespace",
+      "internal/ocicost/tag_oci_test.go::TestOCITagsPagesAndMapsResources",
+      "internal/ocicost/tag_oci_test.go::TestOCITagsQueryScopesCompartments",
+      "internal/ocicost/tag_oci_test.go::TestOCITagsRefusesCompartmentValue",
+      "internal/ocicost/tag_oci_test.go::TestOCITagsRefusesUnknownType",
+      "internal/ocicost/tag_oci_test.go::TestOCITagsRetagMapsOCIAnswers",
+      "internal/ocicost/tag_oci_test.go::TestOCITagsRetagMergesAndSendsIfMatch",
+      "internal/ocicost/tag_oci_test.go::TestOCITagsRetagUnchangedSendsNothing",
+      "internal/ocicost/tag_oci_test.go::TestOCITagsStopsAtPageLimit",
+      "internal/ocicost/tagger_test.go::TestPassCountsEachOutcome",
+      "internal/ocicost/tagger_test.go::TestPassListFailureStampsNothing",
+      "internal/ocicost/tagger_test.go::TestPassStopsOnUnexpectedError",
+      "internal/ocicost/tagger_test.go::TestTaggerRunStopsOnCancel",
+      "internal/ocicost/tagger_test.go::TestTaggerStepFailedPassRetries",
+      "internal/ocicost/tagger_test.go::TestTaggerStepFollowerDoesNotConnect",
+      "internal/ocicost/tagger_test.go::TestTaggerStepRetriesConnect",
+      "internal/ocicost/tags_test.go::TestComponentRules",
+      "internal/ocicost/tags_test.go::TestPlanTags",
+      "internal/ocicost/usage_test.go::TestConnectRefusesMissingTenancy"
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_20_40",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "reused_confirmed_agent": true,
+    "activation_requires": "Own and cyclic-peer obligations in prior allocation both exact-hash accepted; actual global running+pending_init <=81 after activation; preserve20slots."
+  },
+  "literal_root_ids": [
+    "internal/ocicost/store_test.go::TestStoreRoundTrip",
+    "internal/ocicost/tag_oci_test.go::TestOCITagsBucketUsesCachedNamespace",
+    "internal/ocicost/tag_oci_test.go::TestOCITagsPagesAndMapsResources",
+    "internal/ocicost/tag_oci_test.go::TestOCITagsQueryScopesCompartments",
+    "internal/ocicost/tag_oci_test.go::TestOCITagsRefusesCompartmentValue",
+    "internal/ocicost/tag_oci_test.go::TestOCITagsRefusesUnknownType",
+    "internal/ocicost/tag_oci_test.go::TestOCITagsRetagMapsOCIAnswers",
+    "internal/ocicost/tag_oci_test.go::TestOCITagsRetagMergesAndSendsIfMatch",
+    "internal/ocicost/tag_oci_test.go::TestOCITagsRetagUnchangedSendsNothing",
+    "internal/ocicost/tag_oci_test.go::TestOCITagsStopsAtPageLimit",
+    "internal/ocicost/tagger_test.go::TestPassCountsEachOutcome",
+    "internal/ocicost/tagger_test.go::TestPassListFailureStampsNothing",
+    "internal/ocicost/tagger_test.go::TestPassStopsOnUnexpectedError",
+    "internal/ocicost/tagger_test.go::TestTaggerRunStopsOnCancel",
+    "internal/ocicost/tagger_test.go::TestTaggerStepFailedPassRetries",
+    "internal/ocicost/tagger_test.go::TestTaggerStepFollowerDoesNotConnect",
+    "internal/ocicost/tagger_test.go::TestTaggerStepRetriesConnect",
+    "internal/ocicost/tags_test.go::TestComponentRules",
+    "internal/ocicost/tags_test.go::TestPlanTags",
+    "internal/ocicost/usage_test.go::TestConnectRefusesMissingTenancy"
+  ],
+  "counts": {
+    "integration": 1,
+    "unit": 19,
+    "mixed": 0,
+    "unresolved": 0,
+    "total": 20
+  },
+  "classification_definitions": {
+    "integration": "Core asserted behavior materially traverses actual project service/API/network/process/store/runtime boundary; fakes and scope limits stated.",
+    "unit": "Local validation/decoding/concurrency/clock/control or mock-only API feed; incidental setup/SDK-shaped types insufficient.",
+    "mixed": "Distinct independent local-only and actual-boundary assertion blocks in same root.",
+    "unresolved": "Mapping/source/actual path not resolved; source-blocked assertions remain uncredited even if earlier genuine boundary supports narrower root category."
+  },
+  "roots": [
+    {
+      "allocation_index": 2540,
+      "root_id": "internal/ocicost/store_test.go::TestStoreRoundTrip",
+      "path": "internal/ocicost/store_test.go",
+      "original_name": "TestStoreRoundTrip",
+      "current_name": "TestStoreRoundTrip",
+      "kind": "test",
+      "original_declaration_sha256": "1d5853c76001865541edcb238dee701ed86e83fcc25cd5e68240c483d329b8e3",
+      "current_declaration_sha256": "1d5853c76001865541edcb238dee701ed86e83fcc25cd5e68240c483d329b8e3",
+      "baseline_source": {
+        "path": "internal/ocicost/store_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "182838743d5a66bf2551d5c1ed7a86878112765b",
+        "start_line": 15,
+        "end_line": 32,
+        "text": "func TestStoreRoundTrip(t *testing.T) {\n\tctx := context.Background()\n\tstore, err := OpenStore(ctx, testJetStream(t), 1)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\twant := storeTestReport(time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC))\n\tif err := store.Put(ctx, want); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tgot, err := store.Report(ctx)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"report round trip = %+v, want %+v\", got, want)\n\t}\n}",
+        "raw_declaration_sha256": "1d5853c76001865541edcb238dee701ed86e83fcc25cd5e68240c483d329b8e3",
+        "raw_declaration_bytes": 457
+      },
+      "current_source": {
+        "path": "internal/ocicost/store_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "182838743d5a66bf2551d5c1ed7a86878112765b",
+        "start_line": 15,
+        "end_line": 32,
+        "text": "func TestStoreRoundTrip(t *testing.T) {\n\tctx := context.Background()\n\tstore, err := OpenStore(ctx, testJetStream(t), 1)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\twant := storeTestReport(time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC))\n\tif err := store.Put(ctx, want); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tgot, err := store.Report(ctx)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"report round trip = %+v, want %+v\", got, want)\n\t}\n}",
+        "raw_declaration_sha256": "1d5853c76001865541edcb238dee701ed86e83fcc25cd5e68240c483d329b8e3",
+        "raw_declaration_bytes": 457
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/store_test.go",
+        "original_name": "TestStoreRoundTrip",
+        "kind": "test",
+        "original_declaration_sha256": "1d5853c76001865541edcb238dee701ed86e83fcc25cd5e68240c483d329b8e3",
+        "current_name": "TestStoreRoundTrip",
+        "current_declaration_sha256": "1d5853c76001865541edcb238dee701ed86e83fcc25cd5e68240c483d329b8e3",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Unique exact literal original mapping; baseline and canonical current raw declarations match frozen inventory.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestStoreRoundTrip(t *testing.T) {\n\tctx := context.Background()\n\tstore, err := OpenStore(ctx, testJetStream(t), 1)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\twant := storeTestReport(time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC))\n\tif err := store.Put(ctx, want); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tgot, err := store.Report(ctx)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"report round trip = %+v, want %+v\", got, want)\n\t}\n}",
+      "category": "integration",
+      "rationale": "Production OpenStore creates a real JetStream file-backed KV; Store.Put and Store.Report cross loopback NATS client/server and report readback is DeepEqual. Single fixture server/replica; no restart, quorum or live OCI claim.",
+      "assertion_blocks": [
+        {
+          "path": "internal/ocicost/store_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "182838743d5a66bf2551d5c1ed7a86878112765b",
+          "start_line": 16,
+          "end_line": 31,
+          "text": "\tctx := context.Background()\n\tstore, err := OpenStore(ctx, testJetStream(t), 1)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\twant := storeTestReport(time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC))\n\tif err := store.Put(ctx, want); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tgot, err := store.Report(ctx)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"report round trip = %+v, want %+v\", got, want)\n\t}",
+          "category": "integration",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Production OpenStore creates a real JetStream file-backed KV; Store.Put and Store.Report cross loopback NATS client/server and report readback is DeepEqual. Single fixture server/replica; no restart, quorum or live OCI claim."
+        }
+      ],
+      "connected_citation_ids": [
+        "store_fixture",
+        "store",
+        "report",
+        "json"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2541,
+      "root_id": "internal/ocicost/tag_oci_test.go::TestOCITagsBucketUsesCachedNamespace",
+      "path": "internal/ocicost/tag_oci_test.go",
+      "original_name": "TestOCITagsBucketUsesCachedNamespace",
+      "current_name": "TestOCITagsBucketUsesCachedNamespace",
+      "kind": "test",
+      "original_declaration_sha256": "d8d2e468d0e008a0d74f0b760c64f3b3acf20fdb39ac2a67f3224319c8b55400",
+      "current_declaration_sha256": "d8d2e468d0e008a0d74f0b760c64f3b3acf20fdb39ac2a67f3224319c8b55400",
+      "baseline_source": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+        "start_line": 143,
+        "end_line": 157,
+        "text": "func TestOCITagsBucketUsesCachedNamespace(t *testing.T) {\n\tobjects := &fakeObjects{namespace: \"ns\", bucket: objectstorage.Bucket{FreeformTags: map[string]string{}}}\n\ttags := &OCITags{objects: objects}\n\tfor _, name := range []string{\"gru-1-head\", \"gru-1-backup\"} {\n\t\tif err := tags.Retag(t.Context(), Resource{Type: \"Bucket\", Name: name}, map[string]string{ComponentTag: \"releases\"}); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\tif objects.namespaceCalls != 1 {\n\t\tt.Fatalf(\"namespace read %d times, want 1\", objects.namespaceCalls)\n\t}\n\tif len(objects.updates) != 2 || *objects.updates[1].NamespaceName != \"ns\" || *objects.updates[1].BucketName != \"gru-1-backup\" {\n\t\tt.Fatalf(\"bucket updates = %+v\", objects.updates)\n\t}\n}",
+        "raw_declaration_sha256": "d8d2e468d0e008a0d74f0b760c64f3b3acf20fdb39ac2a67f3224319c8b55400",
+        "raw_declaration_bytes": 712
+      },
+      "current_source": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+        "start_line": 143,
+        "end_line": 157,
+        "text": "func TestOCITagsBucketUsesCachedNamespace(t *testing.T) {\n\tobjects := &fakeObjects{namespace: \"ns\", bucket: objectstorage.Bucket{FreeformTags: map[string]string{}}}\n\ttags := &OCITags{objects: objects}\n\tfor _, name := range []string{\"gru-1-head\", \"gru-1-backup\"} {\n\t\tif err := tags.Retag(t.Context(), Resource{Type: \"Bucket\", Name: name}, map[string]string{ComponentTag: \"releases\"}); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\tif objects.namespaceCalls != 1 {\n\t\tt.Fatalf(\"namespace read %d times, want 1\", objects.namespaceCalls)\n\t}\n\tif len(objects.updates) != 2 || *objects.updates[1].NamespaceName != \"ns\" || *objects.updates[1].BucketName != \"gru-1-backup\" {\n\t\tt.Fatalf(\"bucket updates = %+v\", objects.updates)\n\t}\n}",
+        "raw_declaration_sha256": "d8d2e468d0e008a0d74f0b760c64f3b3acf20fdb39ac2a67f3224319c8b55400",
+        "raw_declaration_bytes": 712
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "original_name": "TestOCITagsBucketUsesCachedNamespace",
+        "kind": "test",
+        "original_declaration_sha256": "d8d2e468d0e008a0d74f0b760c64f3b3acf20fdb39ac2a67f3224319c8b55400",
+        "current_name": "TestOCITagsBucketUsesCachedNamespace",
+        "current_declaration_sha256": "d8d2e468d0e008a0d74f0b760c64f3b3acf20fdb39ac2a67f3224319c8b55400",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Unique exact literal original mapping; baseline and canonical current raw declarations match frozen inventory.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestOCITagsBucketUsesCachedNamespace(t *testing.T) {\n\tobjects := &fakeObjects{namespace: \"ns\", bucket: objectstorage.Bucket{FreeformTags: map[string]string{}}}\n\ttags := &OCITags{objects: objects}\n\tfor _, name := range []string{\"gru-1-head\", \"gru-1-backup\"} {\n\t\tif err := tags.Retag(t.Context(), Resource{Type: \"Bucket\", Name: name}, map[string]string{ComponentTag: \"releases\"}); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\tif objects.namespaceCalls != 1 {\n\t\tt.Fatalf(\"namespace read %d times, want 1\", objects.namespaceCalls)\n\t}\n\tif len(objects.updates) != 2 || *objects.updates[1].NamespaceName != \"ns\" || *objects.updates[1].BucketName != \"gru-1-backup\" {\n\t\tt.Fatalf(\"bucket updates = %+v\", objects.updates)\n\t}\n}",
+      "category": "unit",
+      "rationale": "Namespace cache and two bucket update requests are observed only through fakeObjects counters/captured SDK-shaped structs. No SDK client, HTTP or real bucket.",
+      "assertion_blocks": [
+        {
+          "path": "internal/ocicost/tag_oci_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+          "start_line": 144,
+          "end_line": 156,
+          "text": "\tobjects := &fakeObjects{namespace: \"ns\", bucket: objectstorage.Bucket{FreeformTags: map[string]string{}}}\n\ttags := &OCITags{objects: objects}\n\tfor _, name := range []string{\"gru-1-head\", \"gru-1-backup\"} {\n\t\tif err := tags.Retag(t.Context(), Resource{Type: \"Bucket\", Name: name}, map[string]string{ComponentTag: \"releases\"}); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\tif objects.namespaceCalls != 1 {\n\t\tt.Fatalf(\"namespace read %d times, want 1\", objects.namespaceCalls)\n\t}\n\tif len(objects.updates) != 2 || *objects.updates[1].NamespaceName != \"ns\" || *objects.updates[1].BucketName != \"gru-1-backup\" {\n\t\tt.Fatalf(\"bucket updates = %+v\", objects.updates)\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Namespace cache and two bucket update requests are observed only through fakeObjects counters/captured SDK-shaped structs. No SDK client, HTTP or real bucket."
+        }
+      ],
+      "connected_citation_ids": [
+        "objects_fake",
+        "retag",
+        "load_bucket_unknown",
+        "namespace"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2542,
+      "root_id": "internal/ocicost/tag_oci_test.go::TestOCITagsPagesAndMapsResources",
+      "path": "internal/ocicost/tag_oci_test.go",
+      "original_name": "TestOCITagsPagesAndMapsResources",
+      "current_name": "TestOCITagsPagesAndMapsResources",
+      "kind": "test",
+      "original_declaration_sha256": "59b7f7f2241167f8cf02cbeac9b84e51053aa3f9a768de9f1cf52e277f178da6",
+      "current_declaration_sha256": "59b7f7f2241167f8cf02cbeac9b84e51053aa3f9a768de9f1cf52e277f178da6",
+      "baseline_source": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+        "start_line": 48,
+        "end_line": 72,
+        "text": "func TestOCITagsPagesAndMapsResources(t *testing.T) {\n\tcreated := common.SDKTime{Time: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)}\n\tsearch := &fakeSearch{pages: [][]resourcesearch.ResourceSummary{\n\t\t{{ResourceType: common.String(\"Instance\"), Identifier: common.String(\"ocid1.instance.a\"),\n\t\t\tDisplayName: common.String(\"gru-1-ctl-1\"), CompartmentId: common.String(testCompartmentA),\n\t\t\tTimeCreated: &created, FreeformTags: map[string]string{\"k\": \"v\"}}},\n\t\t{{ResourceType: common.String(\"Bucket\"), Identifier: common.String(\"ocid1.bucket.b\"), DisplayName: common.String(\"gru-1-head\")}},\n\t}}\n\ttags := &OCITags{search: search}\n\tresources, err := tags.Resources(t.Context())\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(resources) != 2 || len(search.pageArgs) != 2 || search.pageArgs[1] == nil || *search.pageArgs[1] != \"next\" {\n\t\tt.Fatalf(\"resources %d, page requests %v\", len(resources), search.pageArgs)\n\t}\n\tfirst := resources[0]\n\tif first.ID != \"ocid1.instance.a\" || first.Type != \"Instance\" || first.Name != \"gru-1-ctl-1\" ||\n\t\tfirst.Compartment != testCompartmentA || !first.Created.Equal(created.Time) || first.Tags[\"k\"] != \"v\" {\n\t\tt.Fatalf(\"first resource = %+v\", first)\n\t}\n\tif resources[1].Type != \"Bucket\" || resources[1].Name != \"gru-1-head\" {\n\t\tt.Fatalf(\"second resource = %+v\", resources[1])\n\t}\n}",
+        "raw_declaration_sha256": "59b7f7f2241167f8cf02cbeac9b84e51053aa3f9a768de9f1cf52e277f178da6",
+        "raw_declaration_bytes": 1304
+      },
+      "current_source": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+        "start_line": 48,
+        "end_line": 72,
+        "text": "func TestOCITagsPagesAndMapsResources(t *testing.T) {\n\tcreated := common.SDKTime{Time: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)}\n\tsearch := &fakeSearch{pages: [][]resourcesearch.ResourceSummary{\n\t\t{{ResourceType: common.String(\"Instance\"), Identifier: common.String(\"ocid1.instance.a\"),\n\t\t\tDisplayName: common.String(\"gru-1-ctl-1\"), CompartmentId: common.String(testCompartmentA),\n\t\t\tTimeCreated: &created, FreeformTags: map[string]string{\"k\": \"v\"}}},\n\t\t{{ResourceType: common.String(\"Bucket\"), Identifier: common.String(\"ocid1.bucket.b\"), DisplayName: common.String(\"gru-1-head\")}},\n\t}}\n\ttags := &OCITags{search: search}\n\tresources, err := tags.Resources(t.Context())\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(resources) != 2 || len(search.pageArgs) != 2 || search.pageArgs[1] == nil || *search.pageArgs[1] != \"next\" {\n\t\tt.Fatalf(\"resources %d, page requests %v\", len(resources), search.pageArgs)\n\t}\n\tfirst := resources[0]\n\tif first.ID != \"ocid1.instance.a\" || first.Type != \"Instance\" || first.Name != \"gru-1-ctl-1\" ||\n\t\tfirst.Compartment != testCompartmentA || !first.Created.Equal(created.Time) || first.Tags[\"k\"] != \"v\" {\n\t\tt.Fatalf(\"first resource = %+v\", first)\n\t}\n\tif resources[1].Type != \"Bucket\" || resources[1].Name != \"gru-1-head\" {\n\t\tt.Fatalf(\"second resource = %+v\", resources[1])\n\t}\n}",
+        "raw_declaration_sha256": "59b7f7f2241167f8cf02cbeac9b84e51053aa3f9a768de9f1cf52e277f178da6",
+        "raw_declaration_bytes": 1304
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "original_name": "TestOCITagsPagesAndMapsResources",
+        "kind": "test",
+        "original_declaration_sha256": "59b7f7f2241167f8cf02cbeac9b84e51053aa3f9a768de9f1cf52e277f178da6",
+        "current_name": "TestOCITagsPagesAndMapsResources",
+        "current_declaration_sha256": "59b7f7f2241167f8cf02cbeac9b84e51053aa3f9a768de9f1cf52e277f178da6",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Unique exact literal original mapping; baseline and canonical current raw declarations match frozen inventory.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestOCITagsPagesAndMapsResources(t *testing.T) {\n\tcreated := common.SDKTime{Time: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)}\n\tsearch := &fakeSearch{pages: [][]resourcesearch.ResourceSummary{\n\t\t{{ResourceType: common.String(\"Instance\"), Identifier: common.String(\"ocid1.instance.a\"),\n\t\t\tDisplayName: common.String(\"gru-1-ctl-1\"), CompartmentId: common.String(testCompartmentA),\n\t\t\tTimeCreated: &created, FreeformTags: map[string]string{\"k\": \"v\"}}},\n\t\t{{ResourceType: common.String(\"Bucket\"), Identifier: common.String(\"ocid1.bucket.b\"), DisplayName: common.String(\"gru-1-head\")}},\n\t}}\n\ttags := &OCITags{search: search}\n\tresources, err := tags.Resources(t.Context())\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(resources) != 2 || len(search.pageArgs) != 2 || search.pageArgs[1] == nil || *search.pageArgs[1] != \"next\" {\n\t\tt.Fatalf(\"resources %d, page requests %v\", len(resources), search.pageArgs)\n\t}\n\tfirst := resources[0]\n\tif first.ID != \"ocid1.instance.a\" || first.Type != \"Instance\" || first.Name != \"gru-1-ctl-1\" ||\n\t\tfirst.Compartment != testCompartmentA || !first.Created.Equal(created.Time) || first.Tags[\"k\"] != \"v\" {\n\t\tt.Fatalf(\"first resource = %+v\", first)\n\t}\n\tif resources[1].Type != \"Bucket\" || resources[1].Name != \"gru-1-head\" {\n\t\tt.Fatalf(\"second resource = %+v\", resources[1])\n\t}\n}",
+      "category": "unit",
+      "rationale": "Synthetic fakeSearch pages drive request-page capture and local ResourceSummary field mapping; no real Resource Search request.",
+      "assertion_blocks": [
+        {
+          "path": "internal/ocicost/tag_oci_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+          "start_line": 49,
+          "end_line": 71,
+          "text": "\tcreated := common.SDKTime{Time: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)}\n\tsearch := &fakeSearch{pages: [][]resourcesearch.ResourceSummary{\n\t\t{{ResourceType: common.String(\"Instance\"), Identifier: common.String(\"ocid1.instance.a\"),\n\t\t\tDisplayName: common.String(\"gru-1-ctl-1\"), CompartmentId: common.String(testCompartmentA),\n\t\t\tTimeCreated: &created, FreeformTags: map[string]string{\"k\": \"v\"}}},\n\t\t{{ResourceType: common.String(\"Bucket\"), Identifier: common.String(\"ocid1.bucket.b\"), DisplayName: common.String(\"gru-1-head\")}},\n\t}}\n\ttags := &OCITags{search: search}\n\tresources, err := tags.Resources(t.Context())\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(resources) != 2 || len(search.pageArgs) != 2 || search.pageArgs[1] == nil || *search.pageArgs[1] != \"next\" {\n\t\tt.Fatalf(\"resources %d, page requests %v\", len(resources), search.pageArgs)\n\t}\n\tfirst := resources[0]\n\tif first.ID != \"ocid1.instance.a\" || first.Type != \"Instance\" || first.Name != \"gru-1-ctl-1\" ||\n\t\tfirst.Compartment != testCompartmentA || !first.Created.Equal(created.Time) || first.Tags[\"k\"] != \"v\" {\n\t\tt.Fatalf(\"first resource = %+v\", first)\n\t}\n\tif resources[1].Type != \"Bucket\" || resources[1].Name != \"gru-1-head\" {\n\t\tt.Fatalf(\"second resource = %+v\", resources[1])\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Synthetic fakeSearch pages drive request-page capture and local ResourceSummary field mapping; no real Resource Search request."
+        }
+      ],
+      "connected_citation_ids": [
+        "search_fake",
+        "resources"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2543,
+      "root_id": "internal/ocicost/tag_oci_test.go::TestOCITagsQueryScopesCompartments",
+      "path": "internal/ocicost/tag_oci_test.go",
+      "original_name": "TestOCITagsQueryScopesCompartments",
+      "current_name": "TestOCITagsQueryScopesCompartments",
+      "kind": "test",
+      "original_declaration_sha256": "003968d005c25f4c049094d2d87536f33a0a4bb9576aeb970c94b16cbf7684bf",
+      "current_declaration_sha256": "003968d005c25f4c049094d2d87536f33a0a4bb9576aeb970c94b16cbf7684bf",
+      "baseline_source": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+        "start_line": 21,
+        "end_line": 35,
+        "text": "func TestOCITagsQueryScopesCompartments(t *testing.T) {\n\tsearch := &fakeSearch{}\n\ttags := &OCITags{search: search}\n\tif _, err := tags.Resources(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\ttags.Compartments = []string{testCompartmentA, \"ocid1.compartment.oc1..bbb\"}\n\tif _, err := tags.Resources(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\twant := searchQuery + \" && (compartmentId = '\" + testCompartmentA + \"' || compartmentId = 'ocid1.compartment.oc1..bbb')\"\n\tif got := search.queries; len(got) != 2 || got[0] != searchQuery || got[1] != want {\n\t\tt.Fatalf(\"queries = %q, want [%q %q]\", got, searchQuery, want)\n\t}\n}",
+        "raw_declaration_sha256": "003968d005c25f4c049094d2d87536f33a0a4bb9576aeb970c94b16cbf7684bf",
+        "raw_declaration_bytes": 618
+      },
+      "current_source": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+        "start_line": 21,
+        "end_line": 35,
+        "text": "func TestOCITagsQueryScopesCompartments(t *testing.T) {\n\tsearch := &fakeSearch{}\n\ttags := &OCITags{search: search}\n\tif _, err := tags.Resources(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\ttags.Compartments = []string{testCompartmentA, \"ocid1.compartment.oc1..bbb\"}\n\tif _, err := tags.Resources(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\twant := searchQuery + \" && (compartmentId = '\" + testCompartmentA + \"' || compartmentId = 'ocid1.compartment.oc1..bbb')\"\n\tif got := search.queries; len(got) != 2 || got[0] != searchQuery || got[1] != want {\n\t\tt.Fatalf(\"queries = %q, want [%q %q]\", got, searchQuery, want)\n\t}\n}",
+        "raw_declaration_sha256": "003968d005c25f4c049094d2d87536f33a0a4bb9576aeb970c94b16cbf7684bf",
+        "raw_declaration_bytes": 618
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "original_name": "TestOCITagsQueryScopesCompartments",
+        "kind": "test",
+        "original_declaration_sha256": "003968d005c25f4c049094d2d87536f33a0a4bb9576aeb970c94b16cbf7684bf",
+        "current_name": "TestOCITagsQueryScopesCompartments",
+        "current_declaration_sha256": "003968d005c25f4c049094d2d87536f33a0a4bb9576aeb970c94b16cbf7684bf",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Unique exact literal original mapping; baseline and canonical current raw declarations match frozen inventory.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestOCITagsQueryScopesCompartments(t *testing.T) {\n\tsearch := &fakeSearch{}\n\ttags := &OCITags{search: search}\n\tif _, err := tags.Resources(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\ttags.Compartments = []string{testCompartmentA, \"ocid1.compartment.oc1..bbb\"}\n\tif _, err := tags.Resources(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\twant := searchQuery + \" && (compartmentId = '\" + testCompartmentA + \"' || compartmentId = 'ocid1.compartment.oc1..bbb')\"\n\tif got := search.queries; len(got) != 2 || got[0] != searchQuery || got[1] != want {\n\t\tt.Fatalf(\"queries = %q, want [%q %q]\", got, searchQuery, want)\n\t}\n}",
+      "category": "unit",
+      "rationale": "Local compartment query construction is captured by fakeSearch. No OCI search or IAM-scope qualification.",
+      "assertion_blocks": [
+        {
+          "path": "internal/ocicost/tag_oci_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+          "start_line": 22,
+          "end_line": 34,
+          "text": "\tsearch := &fakeSearch{}\n\ttags := &OCITags{search: search}\n\tif _, err := tags.Resources(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\ttags.Compartments = []string{testCompartmentA, \"ocid1.compartment.oc1..bbb\"}\n\tif _, err := tags.Resources(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\twant := searchQuery + \" && (compartmentId = '\" + testCompartmentA + \"' || compartmentId = 'ocid1.compartment.oc1..bbb')\"\n\tif got := search.queries; len(got) != 2 || got[0] != searchQuery || got[1] != want {\n\t\tt.Fatalf(\"queries = %q, want [%q %q]\", got, searchQuery, want)\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Local compartment query construction is captured by fakeSearch. No OCI search or IAM-scope qualification."
+        }
+      ],
+      "connected_citation_ids": [
+        "search_fake",
+        "tag_types",
+        "resources"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2544,
+      "root_id": "internal/ocicost/tag_oci_test.go::TestOCITagsRefusesCompartmentValue",
+      "path": "internal/ocicost/tag_oci_test.go",
+      "original_name": "TestOCITagsRefusesCompartmentValue",
+      "current_name": "TestOCITagsRefusesCompartmentValue",
+      "kind": "test",
+      "original_declaration_sha256": "defa96287703f10d48903a70e415fcae956dbded0a17fc82e2b8916d1cf6ca2a",
+      "current_declaration_sha256": "defa96287703f10d48903a70e415fcae956dbded0a17fc82e2b8916d1cf6ca2a",
+      "baseline_source": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+        "start_line": 37,
+        "end_line": 46,
+        "text": "func TestOCITagsRefusesCompartmentValue(t *testing.T) {\n\tsearch := &fakeSearch{}\n\ttags := &OCITags{search: search, Compartments: []string{\"ocid1.compartment.oc1..aaa' || 1 = 1\"}}\n\tif _, err := tags.Resources(t.Context()); err == nil || !strings.Contains(err.Error(), \"not a compartment OCID\") {\n\t\tt.Fatalf(\"error = %v, want a refused compartment\", err)\n\t}\n\tif len(search.queries) != 0 {\n\t\tt.Fatalf(\"searched %d times with a refused compartment\", len(search.queries))\n\t}\n}",
+        "raw_declaration_sha256": "defa96287703f10d48903a70e415fcae956dbded0a17fc82e2b8916d1cf6ca2a",
+        "raw_declaration_bytes": 471
+      },
+      "current_source": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+        "start_line": 37,
+        "end_line": 46,
+        "text": "func TestOCITagsRefusesCompartmentValue(t *testing.T) {\n\tsearch := &fakeSearch{}\n\ttags := &OCITags{search: search, Compartments: []string{\"ocid1.compartment.oc1..aaa' || 1 = 1\"}}\n\tif _, err := tags.Resources(t.Context()); err == nil || !strings.Contains(err.Error(), \"not a compartment OCID\") {\n\t\tt.Fatalf(\"error = %v, want a refused compartment\", err)\n\t}\n\tif len(search.queries) != 0 {\n\t\tt.Fatalf(\"searched %d times with a refused compartment\", len(search.queries))\n\t}\n}",
+        "raw_declaration_sha256": "defa96287703f10d48903a70e415fcae956dbded0a17fc82e2b8916d1cf6ca2a",
+        "raw_declaration_bytes": 471
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "original_name": "TestOCITagsRefusesCompartmentValue",
+        "kind": "test",
+        "original_declaration_sha256": "defa96287703f10d48903a70e415fcae956dbded0a17fc82e2b8916d1cf6ca2a",
+        "current_name": "TestOCITagsRefusesCompartmentValue",
+        "current_declaration_sha256": "defa96287703f10d48903a70e415fcae956dbded0a17fc82e2b8916d1cf6ca2a",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Unique exact literal original mapping; baseline and canonical current raw declarations match frozen inventory.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestOCITagsRefusesCompartmentValue(t *testing.T) {\n\tsearch := &fakeSearch{}\n\ttags := &OCITags{search: search, Compartments: []string{\"ocid1.compartment.oc1..aaa' || 1 = 1\"}}\n\tif _, err := tags.Resources(t.Context()); err == nil || !strings.Contains(err.Error(), \"not a compartment OCID\") {\n\t\tt.Fatalf(\"error = %v, want a refused compartment\", err)\n\t}\n\tif len(search.queries) != 0 {\n\t\tt.Fatalf(\"searched %d times with a refused compartment\", len(search.queries))\n\t}\n}",
+      "category": "unit",
+      "rationale": "Invalid compartment regex guard returns before fakeSearch; zero recorded queries is a local pre-I/O assertion.",
+      "assertion_blocks": [
+        {
+          "path": "internal/ocicost/tag_oci_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+          "start_line": 38,
+          "end_line": 45,
+          "text": "\tsearch := &fakeSearch{}\n\ttags := &OCITags{search: search, Compartments: []string{\"ocid1.compartment.oc1..aaa' || 1 = 1\"}}\n\tif _, err := tags.Resources(t.Context()); err == nil || !strings.Contains(err.Error(), \"not a compartment OCID\") {\n\t\tt.Fatalf(\"error = %v, want a refused compartment\", err)\n\t}\n\tif len(search.queries) != 0 {\n\t\tt.Fatalf(\"searched %d times with a refused compartment\", len(search.queries))\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Invalid compartment regex guard returns before fakeSearch; zero recorded queries is a local pre-I/O assertion."
+        }
+      ],
+      "connected_citation_ids": [
+        "search_fake",
+        "tag_types",
+        "resources"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2545,
+      "root_id": "internal/ocicost/tag_oci_test.go::TestOCITagsRefusesUnknownType",
+      "path": "internal/ocicost/tag_oci_test.go",
+      "original_name": "TestOCITagsRefusesUnknownType",
+      "current_name": "TestOCITagsRefusesUnknownType",
+      "kind": "test",
+      "original_declaration_sha256": "de1c9939a5e42f5627cf4d30ad6703faadb00f9dc4b8f252db67ff5465347627",
+      "current_declaration_sha256": "de1c9939a5e42f5627cf4d30ad6703faadb00f9dc4b8f252db67ff5465347627",
+      "baseline_source": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+        "start_line": 159,
+        "end_line": 164,
+        "text": "func TestOCITagsRefusesUnknownType(t *testing.T) {\n\terr := (&OCITags{}).Retag(t.Context(), Resource{Type: \"Network\"}, map[string]string{ComponentTag: \"network\"})\n\tif err == nil || !strings.Contains(err.Error(), `\"Network\"`) {\n\t\tt.Fatalf(\"error = %v, want the unknown type named\", err)\n\t}\n}",
+        "raw_declaration_sha256": "de1c9939a5e42f5627cf4d30ad6703faadb00f9dc4b8f252db67ff5465347627",
+        "raw_declaration_bytes": 289
+      },
+      "current_source": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+        "start_line": 159,
+        "end_line": 164,
+        "text": "func TestOCITagsRefusesUnknownType(t *testing.T) {\n\terr := (&OCITags{}).Retag(t.Context(), Resource{Type: \"Network\"}, map[string]string{ComponentTag: \"network\"})\n\tif err == nil || !strings.Contains(err.Error(), `\"Network\"`) {\n\t\tt.Fatalf(\"error = %v, want the unknown type named\", err)\n\t}\n}",
+        "raw_declaration_sha256": "de1c9939a5e42f5627cf4d30ad6703faadb00f9dc4b8f252db67ff5465347627",
+        "raw_declaration_bytes": 289
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "original_name": "TestOCITagsRefusesUnknownType",
+        "kind": "test",
+        "original_declaration_sha256": "de1c9939a5e42f5627cf4d30ad6703faadb00f9dc4b8f252db67ff5465347627",
+        "current_name": "TestOCITagsRefusesUnknownType",
+        "current_declaration_sha256": "de1c9939a5e42f5627cf4d30ad6703faadb00f9dc4b8f252db67ff5465347627",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Unique exact literal original mapping; baseline and canonical current raw declarations match frozen inventory.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestOCITagsRefusesUnknownType(t *testing.T) {\n\terr := (&OCITags{}).Retag(t.Context(), Resource{Type: \"Network\"}, map[string]string{ComponentTag: \"network\"})\n\tif err == nil || !strings.Contains(err.Error(), `\"Network\"`) {\n\t\tt.Fatalf(\"error = %v, want the unknown type named\", err)\n\t}\n}",
+      "category": "unit",
+      "rationale": "Unknown resource type returns the local load-switch error before any client call; quoted type text is local.",
+      "assertion_blocks": [
+        {
+          "path": "internal/ocicost/tag_oci_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+          "start_line": 160,
+          "end_line": 163,
+          "text": "\terr := (&OCITags{}).Retag(t.Context(), Resource{Type: \"Network\"}, map[string]string{ComponentTag: \"network\"})\n\tif err == nil || !strings.Contains(err.Error(), `\"Network\"`) {\n\t\tt.Fatalf(\"error = %v, want the unknown type named\", err)\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Unknown resource type returns the local load-switch error before any client call; quoted type text is local."
+        }
+      ],
+      "connected_citation_ids": [
+        "retag",
+        "load_bucket_unknown"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2546,
+      "root_id": "internal/ocicost/tag_oci_test.go::TestOCITagsRetagMapsOCIAnswers",
+      "path": "internal/ocicost/tag_oci_test.go",
+      "original_name": "TestOCITagsRetagMapsOCIAnswers",
+      "current_name": "TestOCITagsRetagMapsOCIAnswers",
+      "kind": "test",
+      "original_declaration_sha256": "3fbcee3bc67d395aee790c766c9ea57b1690b11e85125134e605e29fcf6c4887",
+      "current_declaration_sha256": "3fbcee3bc67d395aee790c766c9ea57b1690b11e85125134e605e29fcf6c4887",
+      "baseline_source": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+        "start_line": 115,
+        "end_line": 141,
+        "text": "func TestOCITagsRetagMapsOCIAnswers(t *testing.T) {\n\tstamp := map[string]string{ComponentTag: \"controller\"}\n\tresource := Resource{ID: \"ocid1.instance.a\", Type: \"Instance\"}\n\tfor _, test := range []struct {\n\t\tname    string\n\t\tcompute *fakeCompute\n\t\twant    error\n\t}{\n\t\t{name: \"precondition failed\", compute: &fakeCompute{updateErr: statusError{http.StatusPreconditionFailed}}, want: ErrChanged},\n\t\t{name: \"not found\", compute: &fakeCompute{getErr: statusError{http.StatusNotFound}}, want: ErrNotPermitted},\n\t\t{name: \"forbidden\", compute: &fakeCompute{updateErr: statusError{http.StatusForbidden}}, want: ErrNotPermitted},\n\t\t{name: \"server error\", compute: &fakeCompute{updateErr: statusError{http.StatusInternalServerError}}},\n\t} {\n\t\tt.Run(test.name, func(t *testing.T) {\n\t\t\terr := (&OCITags{compute: test.compute}).Retag(t.Context(), resource, stamp)\n\t\t\tif err == nil {\n\t\t\t\tt.Fatal(\"Retag succeeded\")\n\t\t\t}\n\t\t\tif test.want == nil && (errors.Is(err, ErrChanged) || errors.Is(err, ErrNotPermitted)) {\n\t\t\t\tt.Fatalf(\"error %v maps to a pass sentinel, want a plain error\", err)\n\t\t\t}\n\t\t\tif test.want != nil && !errors.Is(err, test.want) {\n\t\t\t\tt.Fatalf(\"error %v, want %v\", err, test.want)\n\t\t\t}\n\t\t})\n\t}\n}",
+        "raw_declaration_sha256": "3fbcee3bc67d395aee790c766c9ea57b1690b11e85125134e605e29fcf6c4887",
+        "raw_declaration_bytes": 1195
+      },
+      "current_source": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+        "start_line": 115,
+        "end_line": 141,
+        "text": "func TestOCITagsRetagMapsOCIAnswers(t *testing.T) {\n\tstamp := map[string]string{ComponentTag: \"controller\"}\n\tresource := Resource{ID: \"ocid1.instance.a\", Type: \"Instance\"}\n\tfor _, test := range []struct {\n\t\tname    string\n\t\tcompute *fakeCompute\n\t\twant    error\n\t}{\n\t\t{name: \"precondition failed\", compute: &fakeCompute{updateErr: statusError{http.StatusPreconditionFailed}}, want: ErrChanged},\n\t\t{name: \"not found\", compute: &fakeCompute{getErr: statusError{http.StatusNotFound}}, want: ErrNotPermitted},\n\t\t{name: \"forbidden\", compute: &fakeCompute{updateErr: statusError{http.StatusForbidden}}, want: ErrNotPermitted},\n\t\t{name: \"server error\", compute: &fakeCompute{updateErr: statusError{http.StatusInternalServerError}}},\n\t} {\n\t\tt.Run(test.name, func(t *testing.T) {\n\t\t\terr := (&OCITags{compute: test.compute}).Retag(t.Context(), resource, stamp)\n\t\t\tif err == nil {\n\t\t\t\tt.Fatal(\"Retag succeeded\")\n\t\t\t}\n\t\t\tif test.want == nil && (errors.Is(err, ErrChanged) || errors.Is(err, ErrNotPermitted)) {\n\t\t\t\tt.Fatalf(\"error %v maps to a pass sentinel, want a plain error\", err)\n\t\t\t}\n\t\t\tif test.want != nil && !errors.Is(err, test.want) {\n\t\t\t\tt.Fatalf(\"error %v, want %v\", err, test.want)\n\t\t\t}\n\t\t})\n\t}\n}",
+        "raw_declaration_sha256": "3fbcee3bc67d395aee790c766c9ea57b1690b11e85125134e605e29fcf6c4887",
+        "raw_declaration_bytes": 1195
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "original_name": "TestOCITagsRetagMapsOCIAnswers",
+        "kind": "test",
+        "original_declaration_sha256": "3fbcee3bc67d395aee790c766c9ea57b1690b11e85125134e605e29fcf6c4887",
+        "current_name": "TestOCITagsRetagMapsOCIAnswers",
+        "current_declaration_sha256": "3fbcee3bc67d395aee790c766c9ea57b1690b11e85125134e605e29fcf6c4887",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Unique exact literal original mapping; baseline and canonical current raw declarations match frozen inventory.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestOCITagsRetagMapsOCIAnswers(t *testing.T) {\n\tstamp := map[string]string{ComponentTag: \"controller\"}\n\tresource := Resource{ID: \"ocid1.instance.a\", Type: \"Instance\"}\n\tfor _, test := range []struct {\n\t\tname    string\n\t\tcompute *fakeCompute\n\t\twant    error\n\t}{\n\t\t{name: \"precondition failed\", compute: &fakeCompute{updateErr: statusError{http.StatusPreconditionFailed}}, want: ErrChanged},\n\t\t{name: \"not found\", compute: &fakeCompute{getErr: statusError{http.StatusNotFound}}, want: ErrNotPermitted},\n\t\t{name: \"forbidden\", compute: &fakeCompute{updateErr: statusError{http.StatusForbidden}}, want: ErrNotPermitted},\n\t\t{name: \"server error\", compute: &fakeCompute{updateErr: statusError{http.StatusInternalServerError}}},\n\t} {\n\t\tt.Run(test.name, func(t *testing.T) {\n\t\t\terr := (&OCITags{compute: test.compute}).Retag(t.Context(), resource, stamp)\n\t\t\tif err == nil {\n\t\t\t\tt.Fatal(\"Retag succeeded\")\n\t\t\t}\n\t\t\tif test.want == nil && (errors.Is(err, ErrChanged) || errors.Is(err, ErrNotPermitted)) {\n\t\t\t\tt.Fatalf(\"error %v maps to a pass sentinel, want a plain error\", err)\n\t\t\t}\n\t\t\tif test.want != nil && !errors.Is(err, test.want) {\n\t\t\t\tt.Fatalf(\"error %v, want %v\", err, test.want)\n\t\t\t}\n\t\t})\n\t}\n}",
+      "category": "unit",
+      "rationale": "Synthetic common.ServiceError-compatible values from fakeCompute exercise local sentinel wrapping; no actual HTTP response.",
+      "assertion_blocks": [
+        {
+          "path": "internal/ocicost/tag_oci_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+          "start_line": 116,
+          "end_line": 140,
+          "text": "\tstamp := map[string]string{ComponentTag: \"controller\"}\n\tresource := Resource{ID: \"ocid1.instance.a\", Type: \"Instance\"}\n\tfor _, test := range []struct {\n\t\tname    string\n\t\tcompute *fakeCompute\n\t\twant    error\n\t}{\n\t\t{name: \"precondition failed\", compute: &fakeCompute{updateErr: statusError{http.StatusPreconditionFailed}}, want: ErrChanged},\n\t\t{name: \"not found\", compute: &fakeCompute{getErr: statusError{http.StatusNotFound}}, want: ErrNotPermitted},\n\t\t{name: \"forbidden\", compute: &fakeCompute{updateErr: statusError{http.StatusForbidden}}, want: ErrNotPermitted},\n\t\t{name: \"server error\", compute: &fakeCompute{updateErr: statusError{http.StatusInternalServerError}}},\n\t} {\n\t\tt.Run(test.name, func(t *testing.T) {\n\t\t\terr := (&OCITags{compute: test.compute}).Retag(t.Context(), resource, stamp)\n\t\t\tif err == nil {\n\t\t\t\tt.Fatal(\"Retag succeeded\")\n\t\t\t}\n\t\t\tif test.want == nil && (errors.Is(err, ErrChanged) || errors.Is(err, ErrNotPermitted)) {\n\t\t\t\tt.Fatalf(\"error %v maps to a pass sentinel, want a plain error\", err)\n\t\t\t}\n\t\t\tif test.want != nil && !errors.Is(err, test.want) {\n\t\t\t\tt.Fatalf(\"error %v, want %v\", err, test.want)\n\t\t\t}\n\t\t})\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Synthetic common.ServiceError-compatible values from fakeCompute exercise local sentinel wrapping; no actual HTTP response."
+        }
+      ],
+      "connected_citation_ids": [
+        "status_fake",
+        "compute_fake",
+        "retag",
+        "load_instance",
+        "tag_error"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2547,
+      "root_id": "internal/ocicost/tag_oci_test.go::TestOCITagsRetagMergesAndSendsIfMatch",
+      "path": "internal/ocicost/tag_oci_test.go",
+      "original_name": "TestOCITagsRetagMergesAndSendsIfMatch",
+      "current_name": "TestOCITagsRetagMergesAndSendsIfMatch",
+      "kind": "test",
+      "original_declaration_sha256": "94c907f67993f69e563c8c6eb7a113998e4479766c84cc025070c5ffb622ce22",
+      "current_declaration_sha256": "94c907f67993f69e563c8c6eb7a113998e4479766c84cc025070c5ffb622ce22",
+      "baseline_source": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+        "start_line": 85,
+        "end_line": 101,
+        "text": "func TestOCITagsRetagMergesAndSendsIfMatch(t *testing.T) {\n\tcompute := &fakeCompute{instance: core.Instance{FreeformTags: map[string]string{\"owner\": \"a\", RegionTag: \"gru\"}}, etag: \"e1\"}\n\ttags := &OCITags{compute: compute}\n\terr := tags.Retag(t.Context(), Resource{ID: \"ocid1.instance.a\", Type: \"Instance\"},\n\t\tmap[string]string{RegionTag: \"GRU\", ComponentTag: \"controller\"})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(compute.updates) != 1 {\n\t\tt.Fatalf(\"updates = %d, want 1\", len(compute.updates))\n\t}\n\tupdate := compute.updates[0]\n\twant := map[string]string{\"owner\": \"a\", RegionTag: \"GRU\", ComponentTag: \"controller\"}\n\tif *update.IfMatch != \"e1\" || !maps.Equal(update.UpdateInstanceDetails.FreeformTags, want) {\n\t\tt.Fatalf(\"update if-match %q tags %v, want e1 and %v\", *update.IfMatch, update.UpdateInstanceDetails.FreeformTags, want)\n\t}\n}",
+        "raw_declaration_sha256": "94c907f67993f69e563c8c6eb7a113998e4479766c84cc025070c5ffb622ce22",
+        "raw_declaration_bytes": 838
+      },
+      "current_source": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+        "start_line": 85,
+        "end_line": 101,
+        "text": "func TestOCITagsRetagMergesAndSendsIfMatch(t *testing.T) {\n\tcompute := &fakeCompute{instance: core.Instance{FreeformTags: map[string]string{\"owner\": \"a\", RegionTag: \"gru\"}}, etag: \"e1\"}\n\ttags := &OCITags{compute: compute}\n\terr := tags.Retag(t.Context(), Resource{ID: \"ocid1.instance.a\", Type: \"Instance\"},\n\t\tmap[string]string{RegionTag: \"GRU\", ComponentTag: \"controller\"})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(compute.updates) != 1 {\n\t\tt.Fatalf(\"updates = %d, want 1\", len(compute.updates))\n\t}\n\tupdate := compute.updates[0]\n\twant := map[string]string{\"owner\": \"a\", RegionTag: \"GRU\", ComponentTag: \"controller\"}\n\tif *update.IfMatch != \"e1\" || !maps.Equal(update.UpdateInstanceDetails.FreeformTags, want) {\n\t\tt.Fatalf(\"update if-match %q tags %v, want e1 and %v\", *update.IfMatch, update.UpdateInstanceDetails.FreeformTags, want)\n\t}\n}",
+        "raw_declaration_sha256": "94c907f67993f69e563c8c6eb7a113998e4479766c84cc025070c5ffb622ce22",
+        "raw_declaration_bytes": 838
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "original_name": "TestOCITagsRetagMergesAndSendsIfMatch",
+        "kind": "test",
+        "original_declaration_sha256": "94c907f67993f69e563c8c6eb7a113998e4479766c84cc025070c5ffb622ce22",
+        "current_name": "TestOCITagsRetagMergesAndSendsIfMatch",
+        "current_declaration_sha256": "94c907f67993f69e563c8c6eb7a113998e4479766c84cc025070c5ffb622ce22",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Unique exact literal original mapping; baseline and canonical current raw declarations match frozen inventory.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestOCITagsRetagMergesAndSendsIfMatch(t *testing.T) {\n\tcompute := &fakeCompute{instance: core.Instance{FreeformTags: map[string]string{\"owner\": \"a\", RegionTag: \"gru\"}}, etag: \"e1\"}\n\ttags := &OCITags{compute: compute}\n\terr := tags.Retag(t.Context(), Resource{ID: \"ocid1.instance.a\", Type: \"Instance\"},\n\t\tmap[string]string{RegionTag: \"GRU\", ComponentTag: \"controller\"})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(compute.updates) != 1 {\n\t\tt.Fatalf(\"updates = %d, want 1\", len(compute.updates))\n\t}\n\tupdate := compute.updates[0]\n\twant := map[string]string{\"owner\": \"a\", RegionTag: \"GRU\", ComponentTag: \"controller\"}\n\tif *update.IfMatch != \"e1\" || !maps.Equal(update.UpdateInstanceDetails.FreeformTags, want) {\n\t\tt.Fatalf(\"update if-match %q tags %v, want e1 and %v\", *update.IfMatch, update.UpdateInstanceDetails.FreeformTags, want)\n\t}\n}",
+      "category": "unit",
+      "rationale": "fakeCompute local read tags/ETag and captured update request prove map merge and IfMatch construction only; no conditional OCI write.",
+      "assertion_blocks": [
+        {
+          "path": "internal/ocicost/tag_oci_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+          "start_line": 86,
+          "end_line": 100,
+          "text": "\tcompute := &fakeCompute{instance: core.Instance{FreeformTags: map[string]string{\"owner\": \"a\", RegionTag: \"gru\"}}, etag: \"e1\"}\n\ttags := &OCITags{compute: compute}\n\terr := tags.Retag(t.Context(), Resource{ID: \"ocid1.instance.a\", Type: \"Instance\"},\n\t\tmap[string]string{RegionTag: \"GRU\", ComponentTag: \"controller\"})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(compute.updates) != 1 {\n\t\tt.Fatalf(\"updates = %d, want 1\", len(compute.updates))\n\t}\n\tupdate := compute.updates[0]\n\twant := map[string]string{\"owner\": \"a\", RegionTag: \"GRU\", ComponentTag: \"controller\"}\n\tif *update.IfMatch != \"e1\" || !maps.Equal(update.UpdateInstanceDetails.FreeformTags, want) {\n\t\tt.Fatalf(\"update if-match %q tags %v, want e1 and %v\", *update.IfMatch, update.UpdateInstanceDetails.FreeformTags, want)\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "fakeCompute local read tags/ETag and captured update request prove map merge and IfMatch construction only; no conditional OCI write."
+        }
+      ],
+      "connected_citation_ids": [
+        "compute_fake",
+        "retag",
+        "load_instance"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2548,
+      "root_id": "internal/ocicost/tag_oci_test.go::TestOCITagsRetagUnchangedSendsNothing",
+      "path": "internal/ocicost/tag_oci_test.go",
+      "original_name": "TestOCITagsRetagUnchangedSendsNothing",
+      "current_name": "TestOCITagsRetagUnchangedSendsNothing",
+      "kind": "test",
+      "original_declaration_sha256": "d114bb4b4bc4268796a80c6322483a14a5627326b32656a80d2b3ab04f17e7a1",
+      "current_declaration_sha256": "d114bb4b4bc4268796a80c6322483a14a5627326b32656a80d2b3ab04f17e7a1",
+      "baseline_source": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+        "start_line": 103,
+        "end_line": 113,
+        "text": "func TestOCITagsRetagUnchangedSendsNothing(t *testing.T) {\n\tcompute := &fakeCompute{instance: core.Instance{FreeformTags: map[string]string{RegionTag: \"GRU\", ComponentTag: \"controller\"}}, etag: \"e1\"}\n\ttags := &OCITags{compute: compute}\n\tif err := tags.Retag(t.Context(), Resource{ID: \"ocid1.instance.a\", Type: \"Instance\"},\n\t\tmap[string]string{RegionTag: \"GRU\", ComponentTag: \"controller\"}); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(compute.updates) != 0 {\n\t\tt.Fatalf(\"unchanged tags sent %d updates\", len(compute.updates))\n\t}\n}",
+        "raw_declaration_sha256": "d114bb4b4bc4268796a80c6322483a14a5627326b32656a80d2b3ab04f17e7a1",
+        "raw_declaration_bytes": 525
+      },
+      "current_source": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+        "start_line": 103,
+        "end_line": 113,
+        "text": "func TestOCITagsRetagUnchangedSendsNothing(t *testing.T) {\n\tcompute := &fakeCompute{instance: core.Instance{FreeformTags: map[string]string{RegionTag: \"GRU\", ComponentTag: \"controller\"}}, etag: \"e1\"}\n\ttags := &OCITags{compute: compute}\n\tif err := tags.Retag(t.Context(), Resource{ID: \"ocid1.instance.a\", Type: \"Instance\"},\n\t\tmap[string]string{RegionTag: \"GRU\", ComponentTag: \"controller\"}); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(compute.updates) != 0 {\n\t\tt.Fatalf(\"unchanged tags sent %d updates\", len(compute.updates))\n\t}\n}",
+        "raw_declaration_sha256": "d114bb4b4bc4268796a80c6322483a14a5627326b32656a80d2b3ab04f17e7a1",
+        "raw_declaration_bytes": 525
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "original_name": "TestOCITagsRetagUnchangedSendsNothing",
+        "kind": "test",
+        "original_declaration_sha256": "d114bb4b4bc4268796a80c6322483a14a5627326b32656a80d2b3ab04f17e7a1",
+        "current_name": "TestOCITagsRetagUnchangedSendsNothing",
+        "current_declaration_sha256": "d114bb4b4bc4268796a80c6322483a14a5627326b32656a80d2b3ab04f17e7a1",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Unique exact literal original mapping; baseline and canonical current raw declarations match frozen inventory.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestOCITagsRetagUnchangedSendsNothing(t *testing.T) {\n\tcompute := &fakeCompute{instance: core.Instance{FreeformTags: map[string]string{RegionTag: \"GRU\", ComponentTag: \"controller\"}}, etag: \"e1\"}\n\ttags := &OCITags{compute: compute}\n\tif err := tags.Retag(t.Context(), Resource{ID: \"ocid1.instance.a\", Type: \"Instance\"},\n\t\tmap[string]string{RegionTag: \"GRU\", ComponentTag: \"controller\"}); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(compute.updates) != 0 {\n\t\tt.Fatalf(\"unchanged tags sent %d updates\", len(compute.updates))\n\t}\n}",
+      "category": "unit",
+      "rationale": "Local equality guard skips captured fakeCompute updates after synthetic tag read; no real side effect/readback.",
+      "assertion_blocks": [
+        {
+          "path": "internal/ocicost/tag_oci_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+          "start_line": 104,
+          "end_line": 112,
+          "text": "\tcompute := &fakeCompute{instance: core.Instance{FreeformTags: map[string]string{RegionTag: \"GRU\", ComponentTag: \"controller\"}}, etag: \"e1\"}\n\ttags := &OCITags{compute: compute}\n\tif err := tags.Retag(t.Context(), Resource{ID: \"ocid1.instance.a\", Type: \"Instance\"},\n\t\tmap[string]string{RegionTag: \"GRU\", ComponentTag: \"controller\"}); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(compute.updates) != 0 {\n\t\tt.Fatalf(\"unchanged tags sent %d updates\", len(compute.updates))\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Local equality guard skips captured fakeCompute updates after synthetic tag read; no real side effect/readback."
+        }
+      ],
+      "connected_citation_ids": [
+        "compute_fake",
+        "retag",
+        "load_instance"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2549,
+      "root_id": "internal/ocicost/tag_oci_test.go::TestOCITagsStopsAtPageLimit",
+      "path": "internal/ocicost/tag_oci_test.go",
+      "original_name": "TestOCITagsStopsAtPageLimit",
+      "current_name": "TestOCITagsStopsAtPageLimit",
+      "kind": "test",
+      "original_declaration_sha256": "a73be6337cce25acb773ef1c0ea6f85eb03cba3b53bff21c1a1a9ad4bb7656ff",
+      "current_declaration_sha256": "a73be6337cce25acb773ef1c0ea6f85eb03cba3b53bff21c1a1a9ad4bb7656ff",
+      "baseline_source": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+        "start_line": 74,
+        "end_line": 83,
+        "text": "func TestOCITagsStopsAtPageLimit(t *testing.T) {\n\tsearch := &fakeSearch{pages: make([][]resourcesearch.ResourceSummary, maxSearchPages+1)}\n\ttags := &OCITags{search: search}\n\tif _, err := tags.Resources(t.Context()); err == nil {\n\t\tt.Fatal(\"Resources succeeded past the page limit\")\n\t}\n\tif len(search.queries) != maxSearchPages {\n\t\tt.Fatalf(\"searched %d pages, want %d\", len(search.queries), maxSearchPages)\n\t}\n}",
+        "raw_declaration_sha256": "a73be6337cce25acb773ef1c0ea6f85eb03cba3b53bff21c1a1a9ad4bb7656ff",
+        "raw_declaration_bytes": 411
+      },
+      "current_source": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+        "start_line": 74,
+        "end_line": 83,
+        "text": "func TestOCITagsStopsAtPageLimit(t *testing.T) {\n\tsearch := &fakeSearch{pages: make([][]resourcesearch.ResourceSummary, maxSearchPages+1)}\n\ttags := &OCITags{search: search}\n\tif _, err := tags.Resources(t.Context()); err == nil {\n\t\tt.Fatal(\"Resources succeeded past the page limit\")\n\t}\n\tif len(search.queries) != maxSearchPages {\n\t\tt.Fatalf(\"searched %d pages, want %d\", len(search.queries), maxSearchPages)\n\t}\n}",
+        "raw_declaration_sha256": "a73be6337cce25acb773ef1c0ea6f85eb03cba3b53bff21c1a1a9ad4bb7656ff",
+        "raw_declaration_bytes": 411
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/tag_oci_test.go",
+        "original_name": "TestOCITagsStopsAtPageLimit",
+        "kind": "test",
+        "original_declaration_sha256": "a73be6337cce25acb773ef1c0ea6f85eb03cba3b53bff21c1a1a9ad4bb7656ff",
+        "current_name": "TestOCITagsStopsAtPageLimit",
+        "current_declaration_sha256": "a73be6337cce25acb773ef1c0ea6f85eb03cba3b53bff21c1a1a9ad4bb7656ff",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Unique exact literal original mapping; baseline and canonical current raw declarations match frozen inventory.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestOCITagsStopsAtPageLimit(t *testing.T) {\n\tsearch := &fakeSearch{pages: make([][]resourcesearch.ResourceSummary, maxSearchPages+1)}\n\ttags := &OCITags{search: search}\n\tif _, err := tags.Resources(t.Context()); err == nil {\n\t\tt.Fatal(\"Resources succeeded past the page limit\")\n\t}\n\tif len(search.queries) != maxSearchPages {\n\t\tt.Fatalf(\"searched %d pages, want %d\", len(search.queries), maxSearchPages)\n\t}\n}",
+      "category": "unit",
+      "rationale": "Twenty synthetic fakeSearch pages exercise bounded loop and local page-limit error/count only; no actual pagination transport.",
+      "assertion_blocks": [
+        {
+          "path": "internal/ocicost/tag_oci_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+          "start_line": 75,
+          "end_line": 82,
+          "text": "\tsearch := &fakeSearch{pages: make([][]resourcesearch.ResourceSummary, maxSearchPages+1)}\n\ttags := &OCITags{search: search}\n\tif _, err := tags.Resources(t.Context()); err == nil {\n\t\tt.Fatal(\"Resources succeeded past the page limit\")\n\t}\n\tif len(search.queries) != maxSearchPages {\n\t\tt.Fatalf(\"searched %d pages, want %d\", len(search.queries), maxSearchPages)\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Twenty synthetic fakeSearch pages exercise bounded loop and local page-limit error/count only; no actual pagination transport."
+        }
+      ],
+      "connected_citation_ids": [
+        "search_fake",
+        "resources"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2550,
+      "root_id": "internal/ocicost/tagger_test.go::TestPassCountsEachOutcome",
+      "path": "internal/ocicost/tagger_test.go",
+      "original_name": "TestPassCountsEachOutcome",
+      "current_name": "TestPassCountsEachOutcome",
+      "kind": "test",
+      "original_declaration_sha256": "d05098c182c2e3a145043fb01b250628b5fd56032e0e3f1c1e0619367d38d819",
+      "current_declaration_sha256": "d05098c182c2e3a145043fb01b250628b5fd56032e0e3f1c1e0619367d38d819",
+      "baseline_source": {
+        "path": "internal/ocicost/tagger_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+        "start_line": 11,
+        "end_line": 29,
+        "text": "func TestPassCountsEachOutcome(t *testing.T) {\n\tapi := &stubTagAPI{resources: []Resource{\n\t\t{ID: \"stamped\", Type: \"Instance\", Name: \"gru-1-ctl-1\"},\n\t\t{ID: \"changed\", Type: \"Instance\", Name: \"gru-1-ctl-2\"},\n\t\t{ID: \"denied\", Type: \"Instance\", Name: \"gru-1-ctl-3\"},\n\t\t{ID: \"unmarked\", Type: \"Instance\", Name: \"random\"},\n\t\t{ID: \"unknown\", Type: \"Network\", Name: \"gru-1-ctl-4\"},\n\t}, retagErr: map[string]error{\"changed\": ErrChanged, \"denied\": ErrNotPermitted}}\n\tresult, err := Pass(t.Context(), api, \"gru\", tagsTestNow)\n\tif err != nil {\n\t\tt.Fatalf(\"Pass: %v\", err)\n\t}\n\tif want := (TagResult{Stamped: 1, Changed: 1, NotPermitted: 1, Untagged: 1}); result != want {\n\t\tt.Fatalf(\"result = %+v, want %+v\", result, want)\n\t}\n\tif len(api.retagged) != 3 {\n\t\tt.Fatalf(\"retagged %d resources, want 3\", len(api.retagged))\n\t}\n}",
+        "raw_declaration_sha256": "d05098c182c2e3a145043fb01b250628b5fd56032e0e3f1c1e0619367d38d819",
+        "raw_declaration_bytes": 809
+      },
+      "current_source": {
+        "path": "internal/ocicost/tagger_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+        "start_line": 11,
+        "end_line": 29,
+        "text": "func TestPassCountsEachOutcome(t *testing.T) {\n\tapi := &stubTagAPI{resources: []Resource{\n\t\t{ID: \"stamped\", Type: \"Instance\", Name: \"gru-1-ctl-1\"},\n\t\t{ID: \"changed\", Type: \"Instance\", Name: \"gru-1-ctl-2\"},\n\t\t{ID: \"denied\", Type: \"Instance\", Name: \"gru-1-ctl-3\"},\n\t\t{ID: \"unmarked\", Type: \"Instance\", Name: \"random\"},\n\t\t{ID: \"unknown\", Type: \"Network\", Name: \"gru-1-ctl-4\"},\n\t}, retagErr: map[string]error{\"changed\": ErrChanged, \"denied\": ErrNotPermitted}}\n\tresult, err := Pass(t.Context(), api, \"gru\", tagsTestNow)\n\tif err != nil {\n\t\tt.Fatalf(\"Pass: %v\", err)\n\t}\n\tif want := (TagResult{Stamped: 1, Changed: 1, NotPermitted: 1, Untagged: 1}); result != want {\n\t\tt.Fatalf(\"result = %+v, want %+v\", result, want)\n\t}\n\tif len(api.retagged) != 3 {\n\t\tt.Fatalf(\"retagged %d resources, want 3\", len(api.retagged))\n\t}\n}",
+        "raw_declaration_sha256": "d05098c182c2e3a145043fb01b250628b5fd56032e0e3f1c1e0619367d38d819",
+        "raw_declaration_bytes": 809
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/tagger_test.go",
+        "original_name": "TestPassCountsEachOutcome",
+        "kind": "test",
+        "original_declaration_sha256": "d05098c182c2e3a145043fb01b250628b5fd56032e0e3f1c1e0619367d38d819",
+        "current_name": "TestPassCountsEachOutcome",
+        "current_declaration_sha256": "d05098c182c2e3a145043fb01b250628b5fd56032e0e3f1c1e0619367d38d819",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Unique exact literal original mapping; baseline and canonical current raw declarations match frozen inventory.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestPassCountsEachOutcome(t *testing.T) {\n\tapi := &stubTagAPI{resources: []Resource{\n\t\t{ID: \"stamped\", Type: \"Instance\", Name: \"gru-1-ctl-1\"},\n\t\t{ID: \"changed\", Type: \"Instance\", Name: \"gru-1-ctl-2\"},\n\t\t{ID: \"denied\", Type: \"Instance\", Name: \"gru-1-ctl-3\"},\n\t\t{ID: \"unmarked\", Type: \"Instance\", Name: \"random\"},\n\t\t{ID: \"unknown\", Type: \"Network\", Name: \"gru-1-ctl-4\"},\n\t}, retagErr: map[string]error{\"changed\": ErrChanged, \"denied\": ErrNotPermitted}}\n\tresult, err := Pass(t.Context(), api, \"gru\", tagsTestNow)\n\tif err != nil {\n\t\tt.Fatalf(\"Pass: %v\", err)\n\t}\n\tif want := (TagResult{Stamped: 1, Changed: 1, NotPermitted: 1, Untagged: 1}); result != want {\n\t\tt.Fatalf(\"result = %+v, want %+v\", result, want)\n\t}\n\tif len(api.retagged) != 3 {\n\t\tt.Fatalf(\"retagged %d resources, want 3\", len(api.retagged))\n\t}\n}",
+      "category": "unit",
+      "rationale": "Stub API resources and injected retag errors drive local planning/counting and captured retag list; no OCI API boundary.",
+      "assertion_blocks": [
+        {
+          "path": "internal/ocicost/tagger_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+          "start_line": 12,
+          "end_line": 28,
+          "text": "\tapi := &stubTagAPI{resources: []Resource{\n\t\t{ID: \"stamped\", Type: \"Instance\", Name: \"gru-1-ctl-1\"},\n\t\t{ID: \"changed\", Type: \"Instance\", Name: \"gru-1-ctl-2\"},\n\t\t{ID: \"denied\", Type: \"Instance\", Name: \"gru-1-ctl-3\"},\n\t\t{ID: \"unmarked\", Type: \"Instance\", Name: \"random\"},\n\t\t{ID: \"unknown\", Type: \"Network\", Name: \"gru-1-ctl-4\"},\n\t}, retagErr: map[string]error{\"changed\": ErrChanged, \"denied\": ErrNotPermitted}}\n\tresult, err := Pass(t.Context(), api, \"gru\", tagsTestNow)\n\tif err != nil {\n\t\tt.Fatalf(\"Pass: %v\", err)\n\t}\n\tif want := (TagResult{Stamped: 1, Changed: 1, NotPermitted: 1, Untagged: 1}); result != want {\n\t\tt.Fatalf(\"result = %+v, want %+v\", result, want)\n\t}\n\tif len(api.retagged) != 3 {\n\t\tt.Fatalf(\"retagged %d resources, want 3\", len(api.retagged))\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Stub API resources and injected retag errors drive local planning/counting and captured retag list; no OCI API boundary."
+        }
+      ],
+      "connected_citation_ids": [
+        "tagger_fake",
+        "tagger",
+        "planning",
+        "clock"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2551,
+      "root_id": "internal/ocicost/tagger_test.go::TestPassListFailureStampsNothing",
+      "path": "internal/ocicost/tagger_test.go",
+      "original_name": "TestPassListFailureStampsNothing",
+      "current_name": "TestPassListFailureStampsNothing",
+      "kind": "test",
+      "original_declaration_sha256": "268d798c0764e66f1dbbf50bcfc87e0763e2f04b366e6fcce62d47c8e75946d3",
+      "current_declaration_sha256": "268d798c0764e66f1dbbf50bcfc87e0763e2f04b366e6fcce62d47c8e75946d3",
+      "baseline_source": {
+        "path": "internal/ocicost/tagger_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+        "start_line": 46,
+        "end_line": 54,
+        "text": "func TestPassListFailureStampsNothing(t *testing.T) {\n\tapi := &stubTagAPI{listErr: errors.New(\"search down\")}\n\tif _, err := Pass(t.Context(), api, \"gru\", tagsTestNow); err == nil {\n\t\tt.Fatal(\"Pass succeeded after a failed listing\")\n\t}\n\tif len(api.retagged) != 0 {\n\t\tt.Fatalf(\"retagged %d resources after a failed listing\", len(api.retagged))\n\t}\n}",
+        "raw_declaration_sha256": "268d798c0764e66f1dbbf50bcfc87e0763e2f04b366e6fcce62d47c8e75946d3",
+        "raw_declaration_bytes": 346
+      },
+      "current_source": {
+        "path": "internal/ocicost/tagger_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+        "start_line": 46,
+        "end_line": 54,
+        "text": "func TestPassListFailureStampsNothing(t *testing.T) {\n\tapi := &stubTagAPI{listErr: errors.New(\"search down\")}\n\tif _, err := Pass(t.Context(), api, \"gru\", tagsTestNow); err == nil {\n\t\tt.Fatal(\"Pass succeeded after a failed listing\")\n\t}\n\tif len(api.retagged) != 0 {\n\t\tt.Fatalf(\"retagged %d resources after a failed listing\", len(api.retagged))\n\t}\n}",
+        "raw_declaration_sha256": "268d798c0764e66f1dbbf50bcfc87e0763e2f04b366e6fcce62d47c8e75946d3",
+        "raw_declaration_bytes": 346
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/tagger_test.go",
+        "original_name": "TestPassListFailureStampsNothing",
+        "kind": "test",
+        "original_declaration_sha256": "268d798c0764e66f1dbbf50bcfc87e0763e2f04b366e6fcce62d47c8e75946d3",
+        "current_name": "TestPassListFailureStampsNothing",
+        "current_declaration_sha256": "268d798c0764e66f1dbbf50bcfc87e0763e2f04b366e6fcce62d47c8e75946d3",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Unique exact literal original mapping; baseline and canonical current raw declarations match frozen inventory.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestPassListFailureStampsNothing(t *testing.T) {\n\tapi := &stubTagAPI{listErr: errors.New(\"search down\")}\n\tif _, err := Pass(t.Context(), api, \"gru\", tagsTestNow); err == nil {\n\t\tt.Fatal(\"Pass succeeded after a failed listing\")\n\t}\n\tif len(api.retagged) != 0 {\n\t\tt.Fatalf(\"retagged %d resources after a failed listing\", len(api.retagged))\n\t}\n}",
+      "category": "unit",
+      "rationale": "Stub list error prevents subsequent stub retags; local short-circuit and capture count only.",
+      "assertion_blocks": [
+        {
+          "path": "internal/ocicost/tagger_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+          "start_line": 47,
+          "end_line": 53,
+          "text": "\tapi := &stubTagAPI{listErr: errors.New(\"search down\")}\n\tif _, err := Pass(t.Context(), api, \"gru\", tagsTestNow); err == nil {\n\t\tt.Fatal(\"Pass succeeded after a failed listing\")\n\t}\n\tif len(api.retagged) != 0 {\n\t\tt.Fatalf(\"retagged %d resources after a failed listing\", len(api.retagged))\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Stub list error prevents subsequent stub retags; local short-circuit and capture count only."
+        }
+      ],
+      "connected_citation_ids": [
+        "tagger_fake",
+        "tagger"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2552,
+      "root_id": "internal/ocicost/tagger_test.go::TestPassStopsOnUnexpectedError",
+      "path": "internal/ocicost/tagger_test.go",
+      "original_name": "TestPassStopsOnUnexpectedError",
+      "current_name": "TestPassStopsOnUnexpectedError",
+      "kind": "test",
+      "original_declaration_sha256": "9605bc3f89b19aaa57ead6660fab4648ca92c2ff987db80a81ab8b492bbb7ca0",
+      "current_declaration_sha256": "9605bc3f89b19aaa57ead6660fab4648ca92c2ff987db80a81ab8b492bbb7ca0",
+      "baseline_source": {
+        "path": "internal/ocicost/tagger_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+        "start_line": 31,
+        "end_line": 44,
+        "text": "func TestPassStopsOnUnexpectedError(t *testing.T) {\n\tapi := &stubTagAPI{resources: []Resource{\n\t\t{ID: \"first\", Type: \"Instance\", Name: \"gru-1-ctl-1\"},\n\t\t{ID: \"broken\", Type: \"Instance\", Name: \"gru-1-ctl-2\"},\n\t\t{ID: \"never\", Type: \"Instance\", Name: \"gru-1-ctl-3\"},\n\t}, retagErr: map[string]error{\"broken\": errors.New(\"throttled\")}}\n\tresult, err := Pass(t.Context(), api, \"gru\", tagsTestNow)\n\tif err == nil || !strings.Contains(err.Error(), \"gru-1-ctl-2\") || !strings.Contains(err.Error(), \"throttled\") {\n\t\tt.Fatalf(\"error = %v, want the failing resource named\", err)\n\t}\n\tif result.Stamped != 1 || len(api.retagged) != 2 {\n\t\tt.Fatalf(\"result %+v after %d retags, want one stamp and two retags\", result, len(api.retagged))\n\t}\n}",
+        "raw_declaration_sha256": "9605bc3f89b19aaa57ead6660fab4648ca92c2ff987db80a81ab8b492bbb7ca0",
+        "raw_declaration_bytes": 724
+      },
+      "current_source": {
+        "path": "internal/ocicost/tagger_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+        "start_line": 31,
+        "end_line": 44,
+        "text": "func TestPassStopsOnUnexpectedError(t *testing.T) {\n\tapi := &stubTagAPI{resources: []Resource{\n\t\t{ID: \"first\", Type: \"Instance\", Name: \"gru-1-ctl-1\"},\n\t\t{ID: \"broken\", Type: \"Instance\", Name: \"gru-1-ctl-2\"},\n\t\t{ID: \"never\", Type: \"Instance\", Name: \"gru-1-ctl-3\"},\n\t}, retagErr: map[string]error{\"broken\": errors.New(\"throttled\")}}\n\tresult, err := Pass(t.Context(), api, \"gru\", tagsTestNow)\n\tif err == nil || !strings.Contains(err.Error(), \"gru-1-ctl-2\") || !strings.Contains(err.Error(), \"throttled\") {\n\t\tt.Fatalf(\"error = %v, want the failing resource named\", err)\n\t}\n\tif result.Stamped != 1 || len(api.retagged) != 2 {\n\t\tt.Fatalf(\"result %+v after %d retags, want one stamp and two retags\", result, len(api.retagged))\n\t}\n}",
+        "raw_declaration_sha256": "9605bc3f89b19aaa57ead6660fab4648ca92c2ff987db80a81ab8b492bbb7ca0",
+        "raw_declaration_bytes": 724
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/tagger_test.go",
+        "original_name": "TestPassStopsOnUnexpectedError",
+        "kind": "test",
+        "original_declaration_sha256": "9605bc3f89b19aaa57ead6660fab4648ca92c2ff987db80a81ab8b492bbb7ca0",
+        "current_name": "TestPassStopsOnUnexpectedError",
+        "current_declaration_sha256": "9605bc3f89b19aaa57ead6660fab4648ca92c2ff987db80a81ab8b492bbb7ca0",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Unique exact literal original mapping; baseline and canonical current raw declarations match frozen inventory.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestPassStopsOnUnexpectedError(t *testing.T) {\n\tapi := &stubTagAPI{resources: []Resource{\n\t\t{ID: \"first\", Type: \"Instance\", Name: \"gru-1-ctl-1\"},\n\t\t{ID: \"broken\", Type: \"Instance\", Name: \"gru-1-ctl-2\"},\n\t\t{ID: \"never\", Type: \"Instance\", Name: \"gru-1-ctl-3\"},\n\t}, retagErr: map[string]error{\"broken\": errors.New(\"throttled\")}}\n\tresult, err := Pass(t.Context(), api, \"gru\", tagsTestNow)\n\tif err == nil || !strings.Contains(err.Error(), \"gru-1-ctl-2\") || !strings.Contains(err.Error(), \"throttled\") {\n\t\tt.Fatalf(\"error = %v, want the failing resource named\", err)\n\t}\n\tif result.Stamped != 1 || len(api.retagged) != 2 {\n\t\tt.Fatalf(\"result %+v after %d retags, want one stamp and two retags\", result, len(api.retagged))\n\t}\n}",
+      "category": "unit",
+      "rationale": "Stub errors drive local ordered-pass stop/count/error naming; no real resource modification.",
+      "assertion_blocks": [
+        {
+          "path": "internal/ocicost/tagger_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+          "start_line": 32,
+          "end_line": 43,
+          "text": "\tapi := &stubTagAPI{resources: []Resource{\n\t\t{ID: \"first\", Type: \"Instance\", Name: \"gru-1-ctl-1\"},\n\t\t{ID: \"broken\", Type: \"Instance\", Name: \"gru-1-ctl-2\"},\n\t\t{ID: \"never\", Type: \"Instance\", Name: \"gru-1-ctl-3\"},\n\t}, retagErr: map[string]error{\"broken\": errors.New(\"throttled\")}}\n\tresult, err := Pass(t.Context(), api, \"gru\", tagsTestNow)\n\tif err == nil || !strings.Contains(err.Error(), \"gru-1-ctl-2\") || !strings.Contains(err.Error(), \"throttled\") {\n\t\tt.Fatalf(\"error = %v, want the failing resource named\", err)\n\t}\n\tif result.Stamped != 1 || len(api.retagged) != 2 {\n\t\tt.Fatalf(\"result %+v after %d retags, want one stamp and two retags\", result, len(api.retagged))\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Stub errors drive local ordered-pass stop/count/error naming; no real resource modification."
+        }
+      ],
+      "connected_citation_ids": [
+        "tagger_fake",
+        "tagger",
+        "planning",
+        "clock"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2553,
+      "root_id": "internal/ocicost/tagger_test.go::TestTaggerRunStopsOnCancel",
+      "path": "internal/ocicost/tagger_test.go",
+      "original_name": "TestTaggerRunStopsOnCancel",
+      "current_name": "TestTaggerRunStopsOnCancel",
+      "kind": "test",
+      "original_declaration_sha256": "eb8505460a6d9d9eeb0725faa6f11c36dc858c2f611adcd50725aad054a36da6",
+      "current_declaration_sha256": "eb8505460a6d9d9eeb0725faa6f11c36dc858c2f611adcd50725aad054a36da6",
+      "baseline_source": {
+        "path": "internal/ocicost/tagger_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+        "start_line": 106,
+        "end_line": 121,
+        "text": "func TestTaggerRunStopsOnCancel(t *testing.T) {\n\tctx, cancel := context.WithCancel(t.Context())\n\tconnects := 0\n\ttagger := newStubTagger(&stubTagAPI{}, &connects)\n\ttagger.Leader = func() bool { cancel(); return false }\n\tdone := make(chan error, 1)\n\tgo func() { done <- tagger.Run(ctx) }()\n\tselect {\n\tcase err := <-done:\n\t\tif err != nil {\n\t\t\tt.Fatalf(\"Run = %v, want nil\", err)\n\t\t}\n\tcase <-time.After(5 * time.Second):\n\t\tt.Fatal(\"Run did not stop after cancel\")\n\t}\n}",
+        "raw_declaration_sha256": "eb8505460a6d9d9eeb0725faa6f11c36dc858c2f611adcd50725aad054a36da6",
+        "raw_declaration_bytes": 464
+      },
+      "current_source": {
+        "path": "internal/ocicost/tagger_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+        "start_line": 106,
+        "end_line": 121,
+        "text": "func TestTaggerRunStopsOnCancel(t *testing.T) {\n\tctx, cancel := context.WithCancel(t.Context())\n\tconnects := 0\n\ttagger := newStubTagger(&stubTagAPI{}, &connects)\n\ttagger.Leader = func() bool { cancel(); return false }\n\tdone := make(chan error, 1)\n\tgo func() { done <- tagger.Run(ctx) }()\n\tselect {\n\tcase err := <-done:\n\t\tif err != nil {\n\t\t\tt.Fatalf(\"Run = %v, want nil\", err)\n\t\t}\n\tcase <-time.After(5 * time.Second):\n\t\tt.Fatal(\"Run did not stop after cancel\")\n\t}\n}",
+        "raw_declaration_sha256": "eb8505460a6d9d9eeb0725faa6f11c36dc858c2f611adcd50725aad054a36da6",
+        "raw_declaration_bytes": 464
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/tagger_test.go",
+        "original_name": "TestTaggerRunStopsOnCancel",
+        "kind": "test",
+        "original_declaration_sha256": "eb8505460a6d9d9eeb0725faa6f11c36dc858c2f611adcd50725aad054a36da6",
+        "current_name": "TestTaggerRunStopsOnCancel",
+        "current_declaration_sha256": "eb8505460a6d9d9eeb0725faa6f11c36dc858c2f611adcd50725aad054a36da6",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Unique exact literal original mapping; baseline and canonical current raw declarations match frozen inventory.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestTaggerRunStopsOnCancel(t *testing.T) {\n\tctx, cancel := context.WithCancel(t.Context())\n\tconnects := 0\n\ttagger := newStubTagger(&stubTagAPI{}, &connects)\n\ttagger.Leader = func() bool { cancel(); return false }\n\tdone := make(chan error, 1)\n\tgo func() { done <- tagger.Run(ctx) }()\n\tselect {\n\tcase err := <-done:\n\t\tif err != nil {\n\t\t\tt.Fatalf(\"Run = %v, want nil\", err)\n\t\t}\n\tcase <-time.After(5 * time.Second):\n\t\tt.Fatal(\"Run did not stop after cancel\")\n\t}\n}",
+      "category": "unit",
+      "rationale": "Injected follower callback cancels context; local goroutine/channel/timer select returns nil. No child process/service/network/store boundary.",
+      "assertion_blocks": [
+        {
+          "path": "internal/ocicost/tagger_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+          "start_line": 107,
+          "end_line": 120,
+          "text": "\tctx, cancel := context.WithCancel(t.Context())\n\tconnects := 0\n\ttagger := newStubTagger(&stubTagAPI{}, &connects)\n\ttagger.Leader = func() bool { cancel(); return false }\n\tdone := make(chan error, 1)\n\tgo func() { done <- tagger.Run(ctx) }()\n\tselect {\n\tcase err := <-done:\n\t\tif err != nil {\n\t\t\tt.Fatalf(\"Run = %v, want nil\", err)\n\t\t}\n\tcase <-time.After(5 * time.Second):\n\t\tt.Fatal(\"Run did not stop after cancel\")\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Injected follower callback cancels context; local goroutine/channel/timer select returns nil. No child process/service/network/store boundary."
+        }
+      ],
+      "connected_citation_ids": [
+        "tagger_fake",
+        "tagger",
+        "intervals"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2554,
+      "root_id": "internal/ocicost/tagger_test.go::TestTaggerStepFailedPassRetries",
+      "path": "internal/ocicost/tagger_test.go",
+      "original_name": "TestTaggerStepFailedPassRetries",
+      "current_name": "TestTaggerStepFailedPassRetries",
+      "kind": "test",
+      "original_declaration_sha256": "72e9da611a517ba847101acc02a80bf0592053c8d47d18ef6e67a2fbde02dc77",
+      "current_declaration_sha256": "72e9da611a517ba847101acc02a80bf0592053c8d47d18ef6e67a2fbde02dc77",
+      "baseline_source": {
+        "path": "internal/ocicost/tagger_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+        "start_line": 90,
+        "end_line": 104,
+        "text": "func TestTaggerStepFailedPassRetries(t *testing.T) {\n\tapi := &stubTagAPI{listErr: errors.New(\"search down\")}\n\tconnects := 0\n\ttagger := newStubTagger(api, &connects)\n\tif wait := tagger.step(t.Context()); wait != retryInterval {\n\t\tt.Fatalf(\"failed pass waits %v, want %v\", wait, retryInterval)\n\t}\n\tapi.listErr = nil\n\tif wait := tagger.step(t.Context()); wait != Interval {\n\t\tt.Fatalf(\"recovered pass waits %v, want %v\", wait, Interval)\n\t}\n\tif tagger.failure != \"\" {\n\t\tt.Fatalf(\"failure %q kept after recovery\", tagger.failure)\n\t}\n}",
+        "raw_declaration_sha256": "72e9da611a517ba847101acc02a80bf0592053c8d47d18ef6e67a2fbde02dc77",
+        "raw_declaration_bytes": 529
+      },
+      "current_source": {
+        "path": "internal/ocicost/tagger_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+        "start_line": 90,
+        "end_line": 104,
+        "text": "func TestTaggerStepFailedPassRetries(t *testing.T) {\n\tapi := &stubTagAPI{listErr: errors.New(\"search down\")}\n\tconnects := 0\n\ttagger := newStubTagger(api, &connects)\n\tif wait := tagger.step(t.Context()); wait != retryInterval {\n\t\tt.Fatalf(\"failed pass waits %v, want %v\", wait, retryInterval)\n\t}\n\tapi.listErr = nil\n\tif wait := tagger.step(t.Context()); wait != Interval {\n\t\tt.Fatalf(\"recovered pass waits %v, want %v\", wait, Interval)\n\t}\n\tif tagger.failure != \"\" {\n\t\tt.Fatalf(\"failure %q kept after recovery\", tagger.failure)\n\t}\n}",
+        "raw_declaration_sha256": "72e9da611a517ba847101acc02a80bf0592053c8d47d18ef6e67a2fbde02dc77",
+        "raw_declaration_bytes": 529
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/tagger_test.go",
+        "original_name": "TestTaggerStepFailedPassRetries",
+        "kind": "test",
+        "original_declaration_sha256": "72e9da611a517ba847101acc02a80bf0592053c8d47d18ef6e67a2fbde02dc77",
+        "current_name": "TestTaggerStepFailedPassRetries",
+        "current_declaration_sha256": "72e9da611a517ba847101acc02a80bf0592053c8d47d18ef6e67a2fbde02dc77",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Unique exact literal original mapping; baseline and canonical current raw declarations match frozen inventory.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestTaggerStepFailedPassRetries(t *testing.T) {\n\tapi := &stubTagAPI{listErr: errors.New(\"search down\")}\n\tconnects := 0\n\ttagger := newStubTagger(api, &connects)\n\tif wait := tagger.step(t.Context()); wait != retryInterval {\n\t\tt.Fatalf(\"failed pass waits %v, want %v\", wait, retryInterval)\n\t}\n\tapi.listErr = nil\n\tif wait := tagger.step(t.Context()); wait != Interval {\n\t\tt.Fatalf(\"recovered pass waits %v, want %v\", wait, Interval)\n\t}\n\tif tagger.failure != \"\" {\n\t\tt.Fatalf(\"failure %q kept after recovery\", tagger.failure)\n\t}\n}",
+      "category": "unit",
+      "rationale": "Stub listing failure then recovery exercises local retry duration and failure-string reset; no real retry/network.",
+      "assertion_blocks": [
+        {
+          "path": "internal/ocicost/tagger_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+          "start_line": 91,
+          "end_line": 103,
+          "text": "\tapi := &stubTagAPI{listErr: errors.New(\"search down\")}\n\tconnects := 0\n\ttagger := newStubTagger(api, &connects)\n\tif wait := tagger.step(t.Context()); wait != retryInterval {\n\t\tt.Fatalf(\"failed pass waits %v, want %v\", wait, retryInterval)\n\t}\n\tapi.listErr = nil\n\tif wait := tagger.step(t.Context()); wait != Interval {\n\t\tt.Fatalf(\"recovered pass waits %v, want %v\", wait, Interval)\n\t}\n\tif tagger.failure != \"\" {\n\t\tt.Fatalf(\"failure %q kept after recovery\", tagger.failure)\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Stub listing failure then recovery exercises local retry duration and failure-string reset; no real retry/network."
+        }
+      ],
+      "connected_citation_ids": [
+        "tagger_fake",
+        "tagger",
+        "intervals",
+        "clock"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2555,
+      "root_id": "internal/ocicost/tagger_test.go::TestTaggerStepFollowerDoesNotConnect",
+      "path": "internal/ocicost/tagger_test.go",
+      "original_name": "TestTaggerStepFollowerDoesNotConnect",
+      "current_name": "TestTaggerStepFollowerDoesNotConnect",
+      "kind": "test",
+      "original_declaration_sha256": "07df1d7e4b5826dbd8662251ef4cd0859b58300e9c658a3413e3be8703f08c71",
+      "current_declaration_sha256": "07df1d7e4b5826dbd8662251ef4cd0859b58300e9c658a3413e3be8703f08c71",
+      "baseline_source": {
+        "path": "internal/ocicost/tagger_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+        "start_line": 56,
+        "end_line": 66,
+        "text": "func TestTaggerStepFollowerDoesNotConnect(t *testing.T) {\n\tconnects := 0\n\ttagger := newStubTagger(&stubTagAPI{}, &connects)\n\ttagger.Leader = func() bool { return false }\n\tif wait := tagger.step(t.Context()); wait != followInterval {\n\t\tt.Fatalf(\"follower waits %v, want %v\", wait, followInterval)\n\t}\n\tif connects != 0 {\n\t\tt.Fatalf(\"follower connected %d times\", connects)\n\t}\n}",
+        "raw_declaration_sha256": "07df1d7e4b5826dbd8662251ef4cd0859b58300e9c658a3413e3be8703f08c71",
+        "raw_declaration_bytes": 375
+      },
+      "current_source": {
+        "path": "internal/ocicost/tagger_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+        "start_line": 56,
+        "end_line": 66,
+        "text": "func TestTaggerStepFollowerDoesNotConnect(t *testing.T) {\n\tconnects := 0\n\ttagger := newStubTagger(&stubTagAPI{}, &connects)\n\ttagger.Leader = func() bool { return false }\n\tif wait := tagger.step(t.Context()); wait != followInterval {\n\t\tt.Fatalf(\"follower waits %v, want %v\", wait, followInterval)\n\t}\n\tif connects != 0 {\n\t\tt.Fatalf(\"follower connected %d times\", connects)\n\t}\n}",
+        "raw_declaration_sha256": "07df1d7e4b5826dbd8662251ef4cd0859b58300e9c658a3413e3be8703f08c71",
+        "raw_declaration_bytes": 375
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/tagger_test.go",
+        "original_name": "TestTaggerStepFollowerDoesNotConnect",
+        "kind": "test",
+        "original_declaration_sha256": "07df1d7e4b5826dbd8662251ef4cd0859b58300e9c658a3413e3be8703f08c71",
+        "current_name": "TestTaggerStepFollowerDoesNotConnect",
+        "current_declaration_sha256": "07df1d7e4b5826dbd8662251ef4cd0859b58300e9c658a3413e3be8703f08c71",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Unique exact literal original mapping; baseline and canonical current raw declarations match frozen inventory.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestTaggerStepFollowerDoesNotConnect(t *testing.T) {\n\tconnects := 0\n\ttagger := newStubTagger(&stubTagAPI{}, &connects)\n\ttagger.Leader = func() bool { return false }\n\tif wait := tagger.step(t.Context()); wait != followInterval {\n\t\tt.Fatalf(\"follower waits %v, want %v\", wait, followInterval)\n\t}\n\tif connects != 0 {\n\t\tt.Fatalf(\"follower connected %d times\", connects)\n\t}\n}",
+      "category": "unit",
+      "rationale": "Injected false leader predicate avoids local Connect callback and returns follower duration; no actual leadership/session service.",
+      "assertion_blocks": [
+        {
+          "path": "internal/ocicost/tagger_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+          "start_line": 57,
+          "end_line": 65,
+          "text": "\tconnects := 0\n\ttagger := newStubTagger(&stubTagAPI{}, &connects)\n\ttagger.Leader = func() bool { return false }\n\tif wait := tagger.step(t.Context()); wait != followInterval {\n\t\tt.Fatalf(\"follower waits %v, want %v\", wait, followInterval)\n\t}\n\tif connects != 0 {\n\t\tt.Fatalf(\"follower connected %d times\", connects)\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Injected false leader predicate avoids local Connect callback and returns follower duration; no actual leadership/session service."
+        }
+      ],
+      "connected_citation_ids": [
+        "tagger_fake",
+        "tagger",
+        "intervals"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2556,
+      "root_id": "internal/ocicost/tagger_test.go::TestTaggerStepRetriesConnect",
+      "path": "internal/ocicost/tagger_test.go",
+      "original_name": "TestTaggerStepRetriesConnect",
+      "current_name": "TestTaggerStepRetriesConnect",
+      "kind": "test",
+      "original_declaration_sha256": "7336265fce6ef2c307175004fc492b12553732e4b42b522ec139faabfa453524",
+      "current_declaration_sha256": "7336265fce6ef2c307175004fc492b12553732e4b42b522ec139faabfa453524",
+      "baseline_source": {
+        "path": "internal/ocicost/tagger_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+        "start_line": 68,
+        "end_line": 88,
+        "text": "func TestTaggerStepRetriesConnect(t *testing.T) {\n\tapi := &stubTagAPI{}\n\tconnects := 0\n\ttagger := newStubTagger(api, &connects)\n\ttagger.Connect = func(context.Context) (TagAPI, error) {\n\t\tconnects++\n\t\tif connects == 1 {\n\t\t\treturn nil, errors.New(\"oci down\")\n\t\t}\n\t\treturn api, nil\n\t}\n\tif wait := tagger.step(t.Context()); wait != retryInterval {\n\t\tt.Fatalf(\"failed connect waits %v, want %v\", wait, retryInterval)\n\t}\n\tif wait := tagger.step(t.Context()); wait != Interval {\n\t\tt.Fatalf(\"connect retry waits %v, want %v\", wait, Interval)\n\t}\n\tif wait := tagger.step(t.Context()); wait != Interval || connects != 2 {\n\t\tt.Fatalf(\"second pass waits %v after %d connects, want %v with 2 connects\", wait, connects, Interval)\n\t}\n}",
+        "raw_declaration_sha256": "7336265fce6ef2c307175004fc492b12553732e4b42b522ec139faabfa453524",
+        "raw_declaration_bytes": 720
+      },
+      "current_source": {
+        "path": "internal/ocicost/tagger_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+        "start_line": 68,
+        "end_line": 88,
+        "text": "func TestTaggerStepRetriesConnect(t *testing.T) {\n\tapi := &stubTagAPI{}\n\tconnects := 0\n\ttagger := newStubTagger(api, &connects)\n\ttagger.Connect = func(context.Context) (TagAPI, error) {\n\t\tconnects++\n\t\tif connects == 1 {\n\t\t\treturn nil, errors.New(\"oci down\")\n\t\t}\n\t\treturn api, nil\n\t}\n\tif wait := tagger.step(t.Context()); wait != retryInterval {\n\t\tt.Fatalf(\"failed connect waits %v, want %v\", wait, retryInterval)\n\t}\n\tif wait := tagger.step(t.Context()); wait != Interval {\n\t\tt.Fatalf(\"connect retry waits %v, want %v\", wait, Interval)\n\t}\n\tif wait := tagger.step(t.Context()); wait != Interval || connects != 2 {\n\t\tt.Fatalf(\"second pass waits %v after %d connects, want %v with 2 connects\", wait, connects, Interval)\n\t}\n}",
+        "raw_declaration_sha256": "7336265fce6ef2c307175004fc492b12553732e4b42b522ec139faabfa453524",
+        "raw_declaration_bytes": 720
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/tagger_test.go",
+        "original_name": "TestTaggerStepRetriesConnect",
+        "kind": "test",
+        "original_declaration_sha256": "7336265fce6ef2c307175004fc492b12553732e4b42b522ec139faabfa453524",
+        "current_name": "TestTaggerStepRetriesConnect",
+        "current_declaration_sha256": "7336265fce6ef2c307175004fc492b12553732e4b42b522ec139faabfa453524",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Unique exact literal original mapping; baseline and canonical current raw declarations match frozen inventory.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestTaggerStepRetriesConnect(t *testing.T) {\n\tapi := &stubTagAPI{}\n\tconnects := 0\n\ttagger := newStubTagger(api, &connects)\n\ttagger.Connect = func(context.Context) (TagAPI, error) {\n\t\tconnects++\n\t\tif connects == 1 {\n\t\t\treturn nil, errors.New(\"oci down\")\n\t\t}\n\t\treturn api, nil\n\t}\n\tif wait := tagger.step(t.Context()); wait != retryInterval {\n\t\tt.Fatalf(\"failed connect waits %v, want %v\", wait, retryInterval)\n\t}\n\tif wait := tagger.step(t.Context()); wait != Interval {\n\t\tt.Fatalf(\"connect retry waits %v, want %v\", wait, Interval)\n\t}\n\tif wait := tagger.step(t.Context()); wait != Interval || connects != 2 {\n\t\tt.Fatalf(\"second pass waits %v after %d connects, want %v with 2 connects\", wait, connects, Interval)\n\t}\n}",
+      "category": "unit",
+      "rationale": "Injected Connect closure fails once, returns stub API next time and is cached; local retry/interval/call-count checks only.",
+      "assertion_blocks": [
+        {
+          "path": "internal/ocicost/tagger_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+          "start_line": 69,
+          "end_line": 87,
+          "text": "\tapi := &stubTagAPI{}\n\tconnects := 0\n\ttagger := newStubTagger(api, &connects)\n\ttagger.Connect = func(context.Context) (TagAPI, error) {\n\t\tconnects++\n\t\tif connects == 1 {\n\t\t\treturn nil, errors.New(\"oci down\")\n\t\t}\n\t\treturn api, nil\n\t}\n\tif wait := tagger.step(t.Context()); wait != retryInterval {\n\t\tt.Fatalf(\"failed connect waits %v, want %v\", wait, retryInterval)\n\t}\n\tif wait := tagger.step(t.Context()); wait != Interval {\n\t\tt.Fatalf(\"connect retry waits %v, want %v\", wait, Interval)\n\t}\n\tif wait := tagger.step(t.Context()); wait != Interval || connects != 2 {\n\t\tt.Fatalf(\"second pass waits %v after %d connects, want %v with 2 connects\", wait, connects, Interval)\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Injected Connect closure fails once, returns stub API next time and is cached; local retry/interval/call-count checks only."
+        }
+      ],
+      "connected_citation_ids": [
+        "tagger_fake",
+        "tagger",
+        "intervals",
+        "clock"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2557,
+      "root_id": "internal/ocicost/tags_test.go::TestComponentRules",
+      "path": "internal/ocicost/tags_test.go",
+      "original_name": "TestComponentRules",
+      "current_name": "TestComponentRules",
+      "kind": "test",
+      "original_declaration_sha256": "92cdfd64d996e0e55ecfc107d60192f39ed509eea1b2da8535ba0091b0f38cf5",
+      "current_declaration_sha256": "92cdfd64d996e0e55ecfc107d60192f39ed509eea1b2da8535ba0091b0f38cf5",
+      "baseline_source": {
+        "path": "internal/ocicost/tags_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "83196074cd4e9d4bc25da2c55bc34f1adbb29b81",
+        "start_line": 11,
+        "end_line": 57,
+        "text": "func TestComponentRules(t *testing.T) {\n\tfor _, test := range []struct {\n\t\tname     string\n\t\tcell     string\n\t\tresource Resource\n\t\twant     string\n\t}{\n\t\t{name: \"valid component kept\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"random\",\n\t\t\tTags: map[string]string{ComponentTag: \"apps\"}}, want: \"apps\"},\n\t\t{name: \"invalid component ignored\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"gru-1-ctl-1\",\n\t\t\tTags: map[string]string{ComponentTag: \"gru\"}}, want: \"controller\"},\n\t\t{name: \"dr source\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-dr-sfo-1-backup\",\n\t\t\tTags: map[string]string{drSourceTag: \"sfo\"}}, want: \"disaster-recovery\"},\n\t\t{name: \"member host\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"gru-1-db-1-retired-20261006\",\n\t\t\tTags: map[string]string{resourceTag: \"terrabase-host\"}}, want: \"terrabase\"},\n\t\t{name: \"member data volume\", cell: \"gru\", resource: Resource{Type: \"Volume\", Name: \"gru-1-member-1-data\",\n\t\t\tTags: map[string]string{resourceTag: \"member-data\"}}, want: \"terrabase\"},\n\t\t{name: \"database role\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"random\",\n\t\t\tTags: map[string]string{roleTag: \"db\"}}, want: \"terrabase\"},\n\t\t{name: \"managed volume\", cell: \"gru\", resource: Resource{Type: \"Volume\", Name: \"random\",\n\t\t\tTags: map[string]string{resourceTag: \"managed-volume\"}}, want: \"apps\"},\n\t\t{name: \"terrascale app\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"random\",\n\t\t\tTags: map[string]string{appTag: \"forgejo\"}}, want: \"apps\"},\n\t\t{name: \"node pool mark\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"random\",\n\t\t\tTags: map[string]string{poolTag: \"pool-a\"}}, want: \"node-pool\"},\n\t\t{name: \"controller boot volume\", cell: \"gru\", resource: Resource{Type: \"BootVolume\", Name: \"ts-gru-2 (Boot Volume)\"}, want: \"controller\"},\n\t\t{name: \"controller backup\", cell: \"gru\", resource: Resource{Type: \"BootVolumeBackup\", Name: \"gru-1-ctl-1-pre-anna-20261007\"}, want: \"controller\"},\n\t\t{name: \"database name\", cell: \"gru\", resource: Resource{Type: \"Volume\", Name: \"gru-1-db-1-data\"}, want: \"terrabase\"},\n\t\t{name: \"member backup name\", cell: \"gru\", resource: Resource{Type: \"VolumeBackup\", Name: \"ts-member-data-backup-abc\"}, want: \"terrabase\"},\n\t\t{name: \"pool name\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"gru-1-pool-3\"}, want: \"node-pool\"},\n\t\t{name: \"bucket backup\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-backup\"}, want: \"terrabase\"},\n\t\t{name: \"bucket head\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-head\"}, want: \"releases\"},\n\t\t{name: \"bucket material\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-material\"}, want: \"controller\"},\n\t\t{name: \"bucket ledger\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-ledger\"}, want: \"controller\"},\n\t\t{name: \"bucket outside cell\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"ts-forgejo-backup\"}, want: \"storage\"},\n\t\t{name: \"bucket other\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-scratch\"}, want: \"storage\"},\n\t\t{name: \"image\", cell: \"gru\", resource: Resource{Type: \"Image\", Name: \"gru-1-arm64\"}, want: \"images\"},\n\t\t{name: \"load balancer\", cell: \"gru\", resource: Resource{Type: \"LoadBalancer\", Name: \"gru-1-api\"}, want: \"network\"},\n\t\t{name: \"unmarked instance\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"random\"}, want: \"\"},\n\t} {\n\t\tt.Run(test.name, func(t *testing.T) {\n\t\t\tif got := Component(test.cell, test.resource); got != test.want {\n\t\t\t\tt.Fatalf(\"Component = %q, want %q\", got, test.want)\n\t\t\t}\n\t\t})\n\t}\n}",
+        "raw_declaration_sha256": "92cdfd64d996e0e55ecfc107d60192f39ed509eea1b2da8535ba0091b0f38cf5",
+        "raw_declaration_bytes": 3579
+      },
+      "current_source": {
+        "path": "internal/ocicost/tags_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "83196074cd4e9d4bc25da2c55bc34f1adbb29b81",
+        "start_line": 11,
+        "end_line": 57,
+        "text": "func TestComponentRules(t *testing.T) {\n\tfor _, test := range []struct {\n\t\tname     string\n\t\tcell     string\n\t\tresource Resource\n\t\twant     string\n\t}{\n\t\t{name: \"valid component kept\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"random\",\n\t\t\tTags: map[string]string{ComponentTag: \"apps\"}}, want: \"apps\"},\n\t\t{name: \"invalid component ignored\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"gru-1-ctl-1\",\n\t\t\tTags: map[string]string{ComponentTag: \"gru\"}}, want: \"controller\"},\n\t\t{name: \"dr source\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-dr-sfo-1-backup\",\n\t\t\tTags: map[string]string{drSourceTag: \"sfo\"}}, want: \"disaster-recovery\"},\n\t\t{name: \"member host\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"gru-1-db-1-retired-20261006\",\n\t\t\tTags: map[string]string{resourceTag: \"terrabase-host\"}}, want: \"terrabase\"},\n\t\t{name: \"member data volume\", cell: \"gru\", resource: Resource{Type: \"Volume\", Name: \"gru-1-member-1-data\",\n\t\t\tTags: map[string]string{resourceTag: \"member-data\"}}, want: \"terrabase\"},\n\t\t{name: \"database role\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"random\",\n\t\t\tTags: map[string]string{roleTag: \"db\"}}, want: \"terrabase\"},\n\t\t{name: \"managed volume\", cell: \"gru\", resource: Resource{Type: \"Volume\", Name: \"random\",\n\t\t\tTags: map[string]string{resourceTag: \"managed-volume\"}}, want: \"apps\"},\n\t\t{name: \"terrascale app\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"random\",\n\t\t\tTags: map[string]string{appTag: \"forgejo\"}}, want: \"apps\"},\n\t\t{name: \"node pool mark\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"random\",\n\t\t\tTags: map[string]string{poolTag: \"pool-a\"}}, want: \"node-pool\"},\n\t\t{name: \"controller boot volume\", cell: \"gru\", resource: Resource{Type: \"BootVolume\", Name: \"ts-gru-2 (Boot Volume)\"}, want: \"controller\"},\n\t\t{name: \"controller backup\", cell: \"gru\", resource: Resource{Type: \"BootVolumeBackup\", Name: \"gru-1-ctl-1-pre-anna-20261007\"}, want: \"controller\"},\n\t\t{name: \"database name\", cell: \"gru\", resource: Resource{Type: \"Volume\", Name: \"gru-1-db-1-data\"}, want: \"terrabase\"},\n\t\t{name: \"member backup name\", cell: \"gru\", resource: Resource{Type: \"VolumeBackup\", Name: \"ts-member-data-backup-abc\"}, want: \"terrabase\"},\n\t\t{name: \"pool name\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"gru-1-pool-3\"}, want: \"node-pool\"},\n\t\t{name: \"bucket backup\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-backup\"}, want: \"terrabase\"},\n\t\t{name: \"bucket head\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-head\"}, want: \"releases\"},\n\t\t{name: \"bucket material\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-material\"}, want: \"controller\"},\n\t\t{name: \"bucket ledger\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-ledger\"}, want: \"controller\"},\n\t\t{name: \"bucket outside cell\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"ts-forgejo-backup\"}, want: \"storage\"},\n\t\t{name: \"bucket other\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-scratch\"}, want: \"storage\"},\n\t\t{name: \"image\", cell: \"gru\", resource: Resource{Type: \"Image\", Name: \"gru-1-arm64\"}, want: \"images\"},\n\t\t{name: \"load balancer\", cell: \"gru\", resource: Resource{Type: \"LoadBalancer\", Name: \"gru-1-api\"}, want: \"network\"},\n\t\t{name: \"unmarked instance\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"random\"}, want: \"\"},\n\t} {\n\t\tt.Run(test.name, func(t *testing.T) {\n\t\t\tif got := Component(test.cell, test.resource); got != test.want {\n\t\t\t\tt.Fatalf(\"Component = %q, want %q\", got, test.want)\n\t\t\t}\n\t\t})\n\t}\n}",
+        "raw_declaration_sha256": "92cdfd64d996e0e55ecfc107d60192f39ed509eea1b2da8535ba0091b0f38cf5",
+        "raw_declaration_bytes": 3579
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/tags_test.go",
+        "original_name": "TestComponentRules",
+        "kind": "test",
+        "original_declaration_sha256": "92cdfd64d996e0e55ecfc107d60192f39ed509eea1b2da8535ba0091b0f38cf5",
+        "current_name": "TestComponentRules",
+        "current_declaration_sha256": "92cdfd64d996e0e55ecfc107d60192f39ed509eea1b2da8535ba0091b0f38cf5",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Unique exact literal original mapping; baseline and canonical current raw declarations match frozen inventory.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestComponentRules(t *testing.T) {\n\tfor _, test := range []struct {\n\t\tname     string\n\t\tcell     string\n\t\tresource Resource\n\t\twant     string\n\t}{\n\t\t{name: \"valid component kept\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"random\",\n\t\t\tTags: map[string]string{ComponentTag: \"apps\"}}, want: \"apps\"},\n\t\t{name: \"invalid component ignored\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"gru-1-ctl-1\",\n\t\t\tTags: map[string]string{ComponentTag: \"gru\"}}, want: \"controller\"},\n\t\t{name: \"dr source\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-dr-sfo-1-backup\",\n\t\t\tTags: map[string]string{drSourceTag: \"sfo\"}}, want: \"disaster-recovery\"},\n\t\t{name: \"member host\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"gru-1-db-1-retired-20261006\",\n\t\t\tTags: map[string]string{resourceTag: \"terrabase-host\"}}, want: \"terrabase\"},\n\t\t{name: \"member data volume\", cell: \"gru\", resource: Resource{Type: \"Volume\", Name: \"gru-1-member-1-data\",\n\t\t\tTags: map[string]string{resourceTag: \"member-data\"}}, want: \"terrabase\"},\n\t\t{name: \"database role\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"random\",\n\t\t\tTags: map[string]string{roleTag: \"db\"}}, want: \"terrabase\"},\n\t\t{name: \"managed volume\", cell: \"gru\", resource: Resource{Type: \"Volume\", Name: \"random\",\n\t\t\tTags: map[string]string{resourceTag: \"managed-volume\"}}, want: \"apps\"},\n\t\t{name: \"terrascale app\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"random\",\n\t\t\tTags: map[string]string{appTag: \"forgejo\"}}, want: \"apps\"},\n\t\t{name: \"node pool mark\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"random\",\n\t\t\tTags: map[string]string{poolTag: \"pool-a\"}}, want: \"node-pool\"},\n\t\t{name: \"controller boot volume\", cell: \"gru\", resource: Resource{Type: \"BootVolume\", Name: \"ts-gru-2 (Boot Volume)\"}, want: \"controller\"},\n\t\t{name: \"controller backup\", cell: \"gru\", resource: Resource{Type: \"BootVolumeBackup\", Name: \"gru-1-ctl-1-pre-anna-20261007\"}, want: \"controller\"},\n\t\t{name: \"database name\", cell: \"gru\", resource: Resource{Type: \"Volume\", Name: \"gru-1-db-1-data\"}, want: \"terrabase\"},\n\t\t{name: \"member backup name\", cell: \"gru\", resource: Resource{Type: \"VolumeBackup\", Name: \"ts-member-data-backup-abc\"}, want: \"terrabase\"},\n\t\t{name: \"pool name\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"gru-1-pool-3\"}, want: \"node-pool\"},\n\t\t{name: \"bucket backup\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-backup\"}, want: \"terrabase\"},\n\t\t{name: \"bucket head\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-head\"}, want: \"releases\"},\n\t\t{name: \"bucket material\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-material\"}, want: \"controller\"},\n\t\t{name: \"bucket ledger\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-ledger\"}, want: \"controller\"},\n\t\t{name: \"bucket outside cell\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"ts-forgejo-backup\"}, want: \"storage\"},\n\t\t{name: \"bucket other\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-scratch\"}, want: \"storage\"},\n\t\t{name: \"image\", cell: \"gru\", resource: Resource{Type: \"Image\", Name: \"gru-1-arm64\"}, want: \"images\"},\n\t\t{name: \"load balancer\", cell: \"gru\", resource: Resource{Type: \"LoadBalancer\", Name: \"gru-1-api\"}, want: \"network\"},\n\t\t{name: \"unmarked instance\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"random\"}, want: \"\"},\n\t} {\n\t\tt.Run(test.name, func(t *testing.T) {\n\t\t\tif got := Component(test.cell, test.resource); got != test.want {\n\t\t\t\tt.Fatalf(\"Component = %q, want %q\", got, test.want)\n\t\t\t}\n\t\t})\n\t}\n}",
+      "category": "unit",
+      "rationale": "Synthetic Resource tables exercise local tag/name/component inference and regex predicates; no resource discovery API.",
+      "assertion_blocks": [
+        {
+          "path": "internal/ocicost/tags_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "83196074cd4e9d4bc25da2c55bc34f1adbb29b81",
+          "start_line": 12,
+          "end_line": 56,
+          "text": "\tfor _, test := range []struct {\n\t\tname     string\n\t\tcell     string\n\t\tresource Resource\n\t\twant     string\n\t}{\n\t\t{name: \"valid component kept\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"random\",\n\t\t\tTags: map[string]string{ComponentTag: \"apps\"}}, want: \"apps\"},\n\t\t{name: \"invalid component ignored\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"gru-1-ctl-1\",\n\t\t\tTags: map[string]string{ComponentTag: \"gru\"}}, want: \"controller\"},\n\t\t{name: \"dr source\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-dr-sfo-1-backup\",\n\t\t\tTags: map[string]string{drSourceTag: \"sfo\"}}, want: \"disaster-recovery\"},\n\t\t{name: \"member host\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"gru-1-db-1-retired-20261006\",\n\t\t\tTags: map[string]string{resourceTag: \"terrabase-host\"}}, want: \"terrabase\"},\n\t\t{name: \"member data volume\", cell: \"gru\", resource: Resource{Type: \"Volume\", Name: \"gru-1-member-1-data\",\n\t\t\tTags: map[string]string{resourceTag: \"member-data\"}}, want: \"terrabase\"},\n\t\t{name: \"database role\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"random\",\n\t\t\tTags: map[string]string{roleTag: \"db\"}}, want: \"terrabase\"},\n\t\t{name: \"managed volume\", cell: \"gru\", resource: Resource{Type: \"Volume\", Name: \"random\",\n\t\t\tTags: map[string]string{resourceTag: \"managed-volume\"}}, want: \"apps\"},\n\t\t{name: \"terrascale app\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"random\",\n\t\t\tTags: map[string]string{appTag: \"forgejo\"}}, want: \"apps\"},\n\t\t{name: \"node pool mark\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"random\",\n\t\t\tTags: map[string]string{poolTag: \"pool-a\"}}, want: \"node-pool\"},\n\t\t{name: \"controller boot volume\", cell: \"gru\", resource: Resource{Type: \"BootVolume\", Name: \"ts-gru-2 (Boot Volume)\"}, want: \"controller\"},\n\t\t{name: \"controller backup\", cell: \"gru\", resource: Resource{Type: \"BootVolumeBackup\", Name: \"gru-1-ctl-1-pre-anna-20261007\"}, want: \"controller\"},\n\t\t{name: \"database name\", cell: \"gru\", resource: Resource{Type: \"Volume\", Name: \"gru-1-db-1-data\"}, want: \"terrabase\"},\n\t\t{name: \"member backup name\", cell: \"gru\", resource: Resource{Type: \"VolumeBackup\", Name: \"ts-member-data-backup-abc\"}, want: \"terrabase\"},\n\t\t{name: \"pool name\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"gru-1-pool-3\"}, want: \"node-pool\"},\n\t\t{name: \"bucket backup\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-backup\"}, want: \"terrabase\"},\n\t\t{name: \"bucket head\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-head\"}, want: \"releases\"},\n\t\t{name: \"bucket material\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-material\"}, want: \"controller\"},\n\t\t{name: \"bucket ledger\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-ledger\"}, want: \"controller\"},\n\t\t{name: \"bucket outside cell\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"ts-forgejo-backup\"}, want: \"storage\"},\n\t\t{name: \"bucket other\", cell: \"gru\", resource: Resource{Type: \"Bucket\", Name: \"gru-1-scratch\"}, want: \"storage\"},\n\t\t{name: \"image\", cell: \"gru\", resource: Resource{Type: \"Image\", Name: \"gru-1-arm64\"}, want: \"images\"},\n\t\t{name: \"load balancer\", cell: \"gru\", resource: Resource{Type: \"LoadBalancer\", Name: \"gru-1-api\"}, want: \"network\"},\n\t\t{name: \"unmarked instance\", cell: \"gru\", resource: Resource{Type: \"Instance\", Name: \"random\"}, want: \"\"},\n\t} {\n\t\tt.Run(test.name, func(t *testing.T) {\n\t\t\tif got := Component(test.cell, test.resource); got != test.want {\n\t\t\t\tt.Fatalf(\"Component = %q, want %q\", got, test.want)\n\t\t\t}\n\t\t})\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Synthetic Resource tables exercise local tag/name/component inference and regex predicates; no resource discovery API."
+        }
+      ],
+      "connected_citation_ids": [
+        "planning",
+        "report"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2558,
+      "root_id": "internal/ocicost/tags_test.go::TestPlanTags",
+      "path": "internal/ocicost/tags_test.go",
+      "original_name": "TestPlanTags",
+      "current_name": "TestPlanTags",
+      "kind": "test",
+      "original_declaration_sha256": "dc07ab23cdeb95b00f088fabd07b73da6ef53d968e4442699ad68e6aecf6afa4",
+      "current_declaration_sha256": "dc07ab23cdeb95b00f088fabd07b73da6ef53d968e4442699ad68e6aecf6afa4",
+      "baseline_source": {
+        "path": "internal/ocicost/tags_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "83196074cd4e9d4bc25da2c55bc34f1adbb29b81",
+        "start_line": 59,
+        "end_line": 79,
+        "text": "func TestPlanTags(t *testing.T) {\n\tcorrect := map[string]string{RegionTag: \"GRU\", ComponentTag: \"controller\"}\n\tresources := []Resource{\n\t\t{ID: \"young\", Type: \"Instance\", Name: \"gru-1-ctl-2\", Created: tagsTestNow.Add(-time.Minute)},\n\t\t{ID: \"done\", Type: \"Instance\", Name: \"gru-1-ctl-1\", Created: tagsTestNow.Add(-2 * time.Hour), Tags: correct},\n\t\t{ID: \"lower\", Type: \"Instance\", Name: \"gru-1-ctl-3\", Created: tagsTestNow.Add(-2 * time.Hour),\n\t\t\tTags: map[string]string{RegionTag: \"gru\", ComponentTag: \"controller\"}},\n\t\t{ID: \"unknown-type\", Type: \"Network\", Name: \"gru-1-ctl-4\"},\n\t\t{ID: \"untagged\", Type: \"Instance\", Name: \"random\"},\n\t}\n\tstamps, untagged := PlanTags(\"gru\", resources, tagsTestNow)\n\tif len(stamps) != 1 || stamps[0].Resource.ID != \"lower\" {\n\t\tt.Fatalf(\"stamps = %+v, want only the lowercase region\", stamps)\n\t}\n\tif want := map[string]string{RegionTag: \"GRU\", ComponentTag: \"controller\"}; !maps.Equal(stamps[0].Tags, want) {\n\t\tt.Fatalf(\"stamp tags = %v, want %v\", stamps[0].Tags, want)\n\t}\n\tif len(untagged) != 1 || untagged[0].ID != \"untagged\" {\n\t\tt.Fatalf(\"untagged = %+v, want only the unmarked instance\", untagged)\n\t}\n}",
+        "raw_declaration_sha256": "dc07ab23cdeb95b00f088fabd07b73da6ef53d968e4442699ad68e6aecf6afa4",
+        "raw_declaration_bytes": 1135
+      },
+      "current_source": {
+        "path": "internal/ocicost/tags_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "83196074cd4e9d4bc25da2c55bc34f1adbb29b81",
+        "start_line": 59,
+        "end_line": 79,
+        "text": "func TestPlanTags(t *testing.T) {\n\tcorrect := map[string]string{RegionTag: \"GRU\", ComponentTag: \"controller\"}\n\tresources := []Resource{\n\t\t{ID: \"young\", Type: \"Instance\", Name: \"gru-1-ctl-2\", Created: tagsTestNow.Add(-time.Minute)},\n\t\t{ID: \"done\", Type: \"Instance\", Name: \"gru-1-ctl-1\", Created: tagsTestNow.Add(-2 * time.Hour), Tags: correct},\n\t\t{ID: \"lower\", Type: \"Instance\", Name: \"gru-1-ctl-3\", Created: tagsTestNow.Add(-2 * time.Hour),\n\t\t\tTags: map[string]string{RegionTag: \"gru\", ComponentTag: \"controller\"}},\n\t\t{ID: \"unknown-type\", Type: \"Network\", Name: \"gru-1-ctl-4\"},\n\t\t{ID: \"untagged\", Type: \"Instance\", Name: \"random\"},\n\t}\n\tstamps, untagged := PlanTags(\"gru\", resources, tagsTestNow)\n\tif len(stamps) != 1 || stamps[0].Resource.ID != \"lower\" {\n\t\tt.Fatalf(\"stamps = %+v, want only the lowercase region\", stamps)\n\t}\n\tif want := map[string]string{RegionTag: \"GRU\", ComponentTag: \"controller\"}; !maps.Equal(stamps[0].Tags, want) {\n\t\tt.Fatalf(\"stamp tags = %v, want %v\", stamps[0].Tags, want)\n\t}\n\tif len(untagged) != 1 || untagged[0].ID != \"untagged\" {\n\t\tt.Fatalf(\"untagged = %+v, want only the unmarked instance\", untagged)\n\t}\n}",
+        "raw_declaration_sha256": "dc07ab23cdeb95b00f088fabd07b73da6ef53d968e4442699ad68e6aecf6afa4",
+        "raw_declaration_bytes": 1135
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/tags_test.go",
+        "original_name": "TestPlanTags",
+        "kind": "test",
+        "original_declaration_sha256": "dc07ab23cdeb95b00f088fabd07b73da6ef53d968e4442699ad68e6aecf6afa4",
+        "current_name": "TestPlanTags",
+        "current_declaration_sha256": "dc07ab23cdeb95b00f088fabd07b73da6ef53d968e4442699ad68e6aecf6afa4",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Unique exact literal original mapping; baseline and canonical current raw declarations match frozen inventory.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestPlanTags(t *testing.T) {\n\tcorrect := map[string]string{RegionTag: \"GRU\", ComponentTag: \"controller\"}\n\tresources := []Resource{\n\t\t{ID: \"young\", Type: \"Instance\", Name: \"gru-1-ctl-2\", Created: tagsTestNow.Add(-time.Minute)},\n\t\t{ID: \"done\", Type: \"Instance\", Name: \"gru-1-ctl-1\", Created: tagsTestNow.Add(-2 * time.Hour), Tags: correct},\n\t\t{ID: \"lower\", Type: \"Instance\", Name: \"gru-1-ctl-3\", Created: tagsTestNow.Add(-2 * time.Hour),\n\t\t\tTags: map[string]string{RegionTag: \"gru\", ComponentTag: \"controller\"}},\n\t\t{ID: \"unknown-type\", Type: \"Network\", Name: \"gru-1-ctl-4\"},\n\t\t{ID: \"untagged\", Type: \"Instance\", Name: \"random\"},\n\t}\n\tstamps, untagged := PlanTags(\"gru\", resources, tagsTestNow)\n\tif len(stamps) != 1 || stamps[0].Resource.ID != \"lower\" {\n\t\tt.Fatalf(\"stamps = %+v, want only the lowercase region\", stamps)\n\t}\n\tif want := map[string]string{RegionTag: \"GRU\", ComponentTag: \"controller\"}; !maps.Equal(stamps[0].Tags, want) {\n\t\tt.Fatalf(\"stamp tags = %v, want %v\", stamps[0].Tags, want)\n\t}\n\tif len(untagged) != 1 || untagged[0].ID != \"untagged\" {\n\t\tt.Fatalf(\"untagged = %+v, want only the unmarked instance\", untagged)\n\t}\n}",
+      "category": "unit",
+      "rationale": "Synthetic resource age/type/tag map inputs produce local stamp/untagged arrays and normalized region tags; no tags written.",
+      "assertion_blocks": [
+        {
+          "path": "internal/ocicost/tags_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "83196074cd4e9d4bc25da2c55bc34f1adbb29b81",
+          "start_line": 60,
+          "end_line": 78,
+          "text": "\tcorrect := map[string]string{RegionTag: \"GRU\", ComponentTag: \"controller\"}\n\tresources := []Resource{\n\t\t{ID: \"young\", Type: \"Instance\", Name: \"gru-1-ctl-2\", Created: tagsTestNow.Add(-time.Minute)},\n\t\t{ID: \"done\", Type: \"Instance\", Name: \"gru-1-ctl-1\", Created: tagsTestNow.Add(-2 * time.Hour), Tags: correct},\n\t\t{ID: \"lower\", Type: \"Instance\", Name: \"gru-1-ctl-3\", Created: tagsTestNow.Add(-2 * time.Hour),\n\t\t\tTags: map[string]string{RegionTag: \"gru\", ComponentTag: \"controller\"}},\n\t\t{ID: \"unknown-type\", Type: \"Network\", Name: \"gru-1-ctl-4\"},\n\t\t{ID: \"untagged\", Type: \"Instance\", Name: \"random\"},\n\t}\n\tstamps, untagged := PlanTags(\"gru\", resources, tagsTestNow)\n\tif len(stamps) != 1 || stamps[0].Resource.ID != \"lower\" {\n\t\tt.Fatalf(\"stamps = %+v, want only the lowercase region\", stamps)\n\t}\n\tif want := map[string]string{RegionTag: \"GRU\", ComponentTag: \"controller\"}; !maps.Equal(stamps[0].Tags, want) {\n\t\tt.Fatalf(\"stamp tags = %v, want %v\", stamps[0].Tags, want)\n\t}\n\tif len(untagged) != 1 || untagged[0].ID != \"untagged\" {\n\t\tt.Fatalf(\"untagged = %+v, want only the unmarked instance\", untagged)\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Synthetic resource age/type/tag map inputs produce local stamp/untagged arrays and normalized region tags; no tags written."
+        }
+      ],
+      "connected_citation_ids": [
+        "planning",
+        "report",
+        "clock"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    },
+    {
+      "allocation_index": 2559,
+      "root_id": "internal/ocicost/usage_test.go::TestConnectRefusesMissingTenancy",
+      "path": "internal/ocicost/usage_test.go",
+      "original_name": "TestConnectRefusesMissingTenancy",
+      "current_name": "TestConnectRefusesMissingTenancy",
+      "kind": "test",
+      "original_declaration_sha256": "cba6dabac66436cae3af5adc9465207a792f4a5ac9f26b7bbc84e4ce437efde6",
+      "current_declaration_sha256": "cba6dabac66436cae3af5adc9465207a792f4a5ac9f26b7bbc84e4ce437efde6",
+      "baseline_source": {
+        "path": "internal/ocicost/usage_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 333,
+        "end_line": 350,
+        "text": "func TestConnectRefusesMissingTenancy(t *testing.T) {\n\tfactory, err := ociclient.New(usageTenancyProvider{}, ociclient.Options{Region: \"sa-saopaulo-1\"})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := Connect(context.Background(), factory, \"gru\", \"sa-saopaulo-1\"); err == nil ||\n\t\t!strings.Contains(err.Error(), \"no tenancy\") {\n\t\tt.Fatalf(\"err = %v\", err)\n\t}\n\tsentinel := errors.New(\"no config\")\n\tfactory, err = ociclient.New(usageTenancyProvider{err: sentinel}, ociclient.Options{Region: \"sa-saopaulo-1\"})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := Connect(context.Background(), factory, \"gru\", \"sa-saopaulo-1\"); !errors.Is(err, sentinel) {\n\t\tt.Fatalf(\"err = %v\", err)\n\t}\n}",
+        "raw_declaration_sha256": "cba6dabac66436cae3af5adc9465207a792f4a5ac9f26b7bbc84e4ce437efde6",
+        "raw_declaration_bytes": 681
+      },
+      "current_source": {
+        "path": "internal/ocicost/usage_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+        "start_line": 333,
+        "end_line": 350,
+        "text": "func TestConnectRefusesMissingTenancy(t *testing.T) {\n\tfactory, err := ociclient.New(usageTenancyProvider{}, ociclient.Options{Region: \"sa-saopaulo-1\"})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := Connect(context.Background(), factory, \"gru\", \"sa-saopaulo-1\"); err == nil ||\n\t\t!strings.Contains(err.Error(), \"no tenancy\") {\n\t\tt.Fatalf(\"err = %v\", err)\n\t}\n\tsentinel := errors.New(\"no config\")\n\tfactory, err = ociclient.New(usageTenancyProvider{err: sentinel}, ociclient.Options{Region: \"sa-saopaulo-1\"})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := Connect(context.Background(), factory, \"gru\", \"sa-saopaulo-1\"); !errors.Is(err, sentinel) {\n\t\tt.Fatalf(\"err = %v\", err)\n\t}\n}",
+        "raw_declaration_sha256": "cba6dabac66436cae3af5adc9465207a792f4a5ac9f26b7bbc84e4ce437efde6",
+        "raw_declaration_bytes": 681
+      },
+      "frozen_d4ac_mapping": {
+        "path": "internal/ocicost/usage_test.go",
+        "original_name": "TestConnectRefusesMissingTenancy",
+        "kind": "test",
+        "original_declaration_sha256": "cba6dabac66436cae3af5adc9465207a792f4a5ac9f26b7bbc84e4ce437efde6",
+        "current_name": "TestConnectRefusesMissingTenancy",
+        "current_declaration_sha256": "cba6dabac66436cae3af5adc9465207a792f4a5ac9f26b7bbc84e4ce437efde6",
+        "state": "retained_body_exact"
+      },
+      "survival_state": "retained_body_exact",
+      "mapping_resolution": "Unique exact literal original mapping; baseline and canonical current raw declarations match frozen inventory.",
+      "canonical_drift": null,
+      "current_declaration_text": "func TestConnectRefusesMissingTenancy(t *testing.T) {\n\tfactory, err := ociclient.New(usageTenancyProvider{}, ociclient.Options{Region: \"sa-saopaulo-1\"})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := Connect(context.Background(), factory, \"gru\", \"sa-saopaulo-1\"); err == nil ||\n\t\t!strings.Contains(err.Error(), \"no tenancy\") {\n\t\tt.Fatalf(\"err = %v\", err)\n\t}\n\tsentinel := errors.New(\"no config\")\n\tfactory, err = ociclient.New(usageTenancyProvider{err: sentinel}, ociclient.Options{Region: \"sa-saopaulo-1\"})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := Connect(context.Background(), factory, \"gru\", \"sa-saopaulo-1\"); !errors.Is(err, sentinel) {\n\t\tt.Fatalf(\"err = %v\", err)\n\t}\n}",
+      "category": "unit",
+      "rationale": "Actual factory is constructed around usageTenancyProvider. Both empty tenancy and sentinel return from Connect before HomeRegion/Usage SDK/network; purely local guard/error wrapping.",
+      "assertion_blocks": [
+        {
+          "path": "internal/ocicost/usage_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+          "start_line": 334,
+          "end_line": 349,
+          "text": "\tfactory, err := ociclient.New(usageTenancyProvider{}, ociclient.Options{Region: \"sa-saopaulo-1\"})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := Connect(context.Background(), factory, \"gru\", \"sa-saopaulo-1\"); err == nil ||\n\t\t!strings.Contains(err.Error(), \"no tenancy\") {\n\t\tt.Fatalf(\"err = %v\", err)\n\t}\n\tsentinel := errors.New(\"no config\")\n\tfactory, err = ociclient.New(usageTenancyProvider{err: sentinel}, ociclient.Options{Region: \"sa-saopaulo-1\"})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := Connect(context.Background(), factory, \"gru\", \"sa-saopaulo-1\"); !errors.Is(err, sentinel) {\n\t\tt.Fatalf(\"err = %v\", err)\n\t}",
+          "category": "unit",
+          "credit": "SOURCE_ONLY_CANDIDATE",
+          "rationale": "Actual factory is constructed around usageTenancyProvider. Both empty tenancy and sentinel return from Connect before HomeRegion/Usage SDK/network; purely local guard/error wrapping."
+        }
+      ],
+      "connected_citation_ids": [
+        "tenancy_fake",
+        "connect",
+        "factory_new",
+        "factory_provider",
+        "catalog",
+        "retry_normalize",
+        "retry_policy"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "unresolved_reason": null
+    }
+  ],
+  "connected_source_citations": [
+    {
+      "path": "internal/ocicost/store_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "182838743d5a66bf2551d5c1ed7a86878112765b",
+      "start_line": 91,
+      "end_line": 118,
+      "text": "func storeTestReport(observed time.Time) Report {\n\treturn Report{Version: Version, Cell: \"gru\", OCIRegion: \"sa-saopaulo-1\", Currency: \"BRL\",\n\t\tObservedAt: observed, Through: time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC),\n\t\tDays: []Day{{Day: time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC), Cents: 100}}}\n}\n\nfunc testJetStream(t *testing.T) jetstream.JetStream {\n\tt.Helper()\n\tsrv, err := server.NewServer(&server.Options{Host: \"127.0.0.1\", Port: -1, JetStream: true, StoreDir: t.TempDir()})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tgo srv.Start()\n\tif !srv.ReadyForConnections(5 * time.Second) {\n\t\tt.Fatal(\"NATS did not start\")\n\t}\n\tt.Cleanup(func() { srv.Shutdown(); srv.WaitForShutdown() })\n\tconn, err := nats.Connect(srv.ClientURL())\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tt.Cleanup(conn.Close)\n\tjs, err := jetstream.New(conn)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\treturn js\n}",
+      "id": "store_fixture",
+      "rationale": "Valid synthetic report; actual upstream server.NewServer with loopback ClientURL, nats.Connect and jetstream.New; one local file-backed server."
+    },
+    {
+      "path": "internal/ocicost/store.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "a4aaf4f6519b31cf3445887498ff22a692f0efae",
+      "start_line": 13,
+      "end_line": 75,
+      "text": "const (\n\t// Bucket is the regional KV bucket holding the region's report.\n\tBucket    = \"TS_OCI_COST\"\n\treportKey = \"report\"\n\t// maxReportBytes bounds a stored report well above the largest one\n\t// Validate accepts, so a corrupt value cannot exhaust memory.\n\tmaxReportBytes = 64 << 10\n)\n\n// ErrNoReport means no report has been written yet.\nvar ErrNoReport = errors.New(\"no OCI cost report yet\")\n\n// Store is the region's replicated report.\ntype Store struct{ kv jetstream.KeyValue }\n\n// OpenStore opens the region's report bucket. Replicas keep the report\n// readable through a leader failover, which is when the next read matters.\nfunc OpenStore(ctx context.Context, js jetstream.JetStream, replicas int) (*Store, error) {\n\tif js == nil || replicas < 1 || replicas > 5 {\n\t\treturn nil, errors.New(\"OCI cost store requires replicated JetStream\")\n\t}\n\tkv, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: Bucket, History: 1,\n\t\tMaxValueSize: maxReportBytes, MaxBytes: 1 << 20, Storage: jetstream.FileStorage, Replicas: replicas})\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"open OCI cost store: %w\", err)\n\t}\n\treturn &Store{kv: kv}, nil\n}\n\n// Put replaces the report. An invalid report is refused before it reaches\n// the bucket, so readers never see one.\nfunc (s *Store) Put(ctx context.Context, report Report) error {\n\tif err := report.Validate(); err != nil {\n\t\treturn fmt.Errorf(\"write OCI cost report: %w\", err)\n\t}\n\twire, err := protocol.EncodeJSON(report)\n\tif err == nil {\n\t\t_, err = s.kv.Put(ctx, reportKey, wire)\n\t}\n\tif err != nil {\n\t\treturn fmt.Errorf(\"write OCI cost report: %w\", err)\n\t}\n\treturn nil\n}\n\n// Report returns the stored report, or ErrNoReport before the first Put.\nfunc (s *Store) Report(ctx context.Context) (Report, error) {\n\tentry, err := s.kv.Get(ctx, reportKey)\n\tif errors.Is(err, jetstream.ErrKeyNotFound) {\n\t\treturn Report{}, ErrNoReport\n\t}\n\tif err != nil {\n\t\treturn Report{}, fmt.Errorf(\"read OCI cost report: %w\", err)\n\t}\n\tvar report Report\n\tif err := protocol.DecodeStrict(entry.Value(), &report, maxReportBytes); err != nil {\n\t\treturn Report{}, fmt.Errorf(\"read OCI cost report: %w\", err)\n\t}\n\tif err := report.Validate(); err != nil {\n\t\treturn Report{}, fmt.Errorf(\"read OCI cost report: %w\", err)\n\t}\n\treturn report, nil\n}",
+      "id": "store",
+      "rationale": "CreateOrUpdateKeyValue FileStorage; Put serialized report; Report actual KV Get, strict decode and validation."
+    },
+    {
+      "path": "internal/ocicost/report.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "f0029cc07dc5587304d5976088492270d2191e21",
+      "start_line": 16,
+      "end_line": 148,
+      "text": "const (\n\t// Version is the report's wire version.\n\tVersion = 1\n\t// UsageLag is how long OCI usage data may take to arrive: a day counts\n\t// as complete once it ended at least this long ago.\n\tUsageLag = 48 * time.Hour\n\t// RateDays is how many complete days the daily rate averages.\n\tRateDays = 7\n\t// MaxReportAge is how long a report may stand in for failed reads.\n\tMaxReportAge = 6 * time.Hour\n\n\t// ComponentTag is the freeform tag the component lines group by.\n\tComponentTag = \"terrascale-component\"\n\t// RegionTag is the freeform tag holding the resource's region.\n\tRegionTag = \"terrascale-region\"\n\n\tmaxDays  = 64\n\tmaxLines = 64\n\t// maxCents bounds an amount; more is a corrupt answer, not a bill.\n\tmaxCents     = 1 << 40\n\tmaxNameBytes = 64\n\t// maxUnitPrice bounds one SKU unit's price in currency units, as maxCents bounds an amount.\n\tmaxUnitPrice = 1e6\n\tday          = 24 * time.Hour\n)\n\n// Components are the values of ComponentTag. Cost under any other value\n// counts as untagged.\nvar Components = []string{\"controller\", \"terrabase\", \"node-pool\", \"apps\", \"network\", \"releases\", \"images\",\n\t\"disaster-recovery\", \"storage\"}\n\nvar (\n\tcellPattern     = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)\n\tcurrencyPattern = regexp.MustCompile(`^[A-Z]{3}$`)\n\t// ErrInvalidReport marks a report that fails Validate.\n\tErrInvalidReport = errors.New(\"invalid OCI cost report\")\n)\n\n// Day is one UTC day's cost.\ntype Day struct {\n\tDay   time.Time `json:\"day\"`\n\tCents uint64    `json:\"cents\"`\n}\n\n// Line is one service's or component's month-to-date cost.\ntype Line struct {\n\tName  string `json:\"name\"`\n\tCents uint64 `json:\"cents\"`\n}\n\n// Price is one SKU's unit price in the region: what it billed over what it\n// metered in the rate window. Always Free usage prices at zero.\ntype Price struct {\n\tSKU     string  `json:\"sku\"`\n\tPerUnit float64 `json:\"per_unit\"`\n}\n\n// Report is one OCI region's cost as the Usage API last answered it.\n// Amounts are whole cents of Currency, rounded up; credits count as zero.\ntype Report struct {\n\tVersion   int    `json:\"version\"`\n\tCell      string `json:\"cell\"`\n\tOCIRegion string `json:\"oci_region\"`\n\t// Currency is empty when OCI reported no cost at all.\n\tCurrency   string    `json:\"currency,omitempty\"`\n\tObservedAt time.Time `json:\"observed_at\"`\n\t// Through ends the last complete day.\n\tThrough time.Time `json:\"through\"`\n\t// Days are the days with usage, oldest first, from the rate window or\n\t// the month's first day, whichever is earlier; the newest are partial.\n\tDays []Day `json:\"days,omitempty\"`\n\t// Services and Components are this month's lines, costliest first.\n\t// Components hold only tagged cost; the rest is untagged.\n\tServices   []Line `json:\"services,omitempty\"`\n\tComponents []Line `json:\"components,omitempty\"`\n\t// Prices are sorted by SKU; a SKU absent from them has no usage yet.\n\tPrices []Price `json:\"prices,omitempty\"`\n}\n\n// Empty reports whether OCI answered without a single day of usage.\nfunc (r Report) Empty() bool { return len(r.Days) == 0 }\n\n// Validate bounds the report and checks its order, so a reader can trust\n// any report it decodes.\nfunc (r Report) Validate() error {\n\tswitch {\n\tcase r.Version != Version:\n\t\treturn fmt.Errorf(\"%w: version %d\", ErrInvalidReport, r.Version)\n\tcase !cellPattern.MatchString(r.Cell) || r.OCIRegion == \"\" || len(r.OCIRegion) > maxNameBytes:\n\t\treturn fmt.Errorf(\"%w: cell and OCI region are required\", ErrInvalidReport)\n\tcase r.Currency != \"\" && !currencyPattern.MatchString(r.Currency):\n\t\treturn fmt.Errorf(\"%w: currency %q\", ErrInvalidReport, r.Currency)\n\tcase r.ObservedAt.IsZero() || !midnight(r.Through) || r.Through.After(r.ObservedAt):\n\t\treturn fmt.Errorf(\"%w: needs an observation time after a UTC-midnight through\", ErrInvalidReport)\n\tcase len(r.Days) > maxDays || len(r.Services) > maxLines || len(r.Components) > maxLines || len(r.Prices) > maxLines:\n\t\treturn fmt.Errorf(\"%w: more than %d days or %d lines\", ErrInvalidReport, maxDays, maxLines)\n\t}\n\tvar total uint64\n\tfor index, entry := range r.Days {\n\t\tif !midnight(entry.Day) || index > 0 && !r.Days[index-1].Day.Before(entry.Day) || entry.Cents > maxCents {\n\t\t\treturn fmt.Errorf(\"%w: days must be sorted unique UTC midnights within bounds\", ErrInvalidReport)\n\t\t}\n\t\ttotal += entry.Cents\n\t}\n\tfor _, lines := range [][]Line{r.Services, r.Components} {\n\t\tfor index, line := range lines {\n\t\t\tif line.Name == \"\" || len(line.Name) > maxNameBytes || line.Cents > maxCents ||\n\t\t\t\tslices.ContainsFunc(lines[:index], func(other Line) bool { return other.Name == line.Name }) {\n\t\t\t\treturn fmt.Errorf(\"%w: lines need unique bounded names\", ErrInvalidReport)\n\t\t\t}\n\t\t\ttotal += line.Cents\n\t\t}\n\t}\n\tfor _, line := range r.Components {\n\t\tif !slices.Contains(Components, line.Name) {\n\t\t\treturn fmt.Errorf(\"%w: unknown component %q\", ErrInvalidReport, line.Name)\n\t\t}\n\t}\n\tfor index, price := range r.Prices {\n\t\tif price.SKU == \"\" || len(price.SKU) > maxNameBytes || index > 0 && r.Prices[index-1].SKU >= price.SKU ||\n\t\t\t!(price.PerUnit >= 0 && price.PerUnit <= maxUnitPrice) {\n\t\t\treturn fmt.Errorf(\"%w: prices need sorted unique SKUs and unit prices within bounds\", ErrInvalidReport)\n\t\t}\n\t}\n\tif r.Currency == \"\" && total != 0 {\n\t\treturn fmt.Errorf(\"%w: cost without a currency\", ErrInvalidReport)\n\t}\n\treturn nil\n}\n\nfunc midnight(at time.Time) bool {\n\treturn !at.IsZero() && at.Location() == time.UTC && at.Equal(at.Truncate(day))\n}",
+      "id": "report",
+      "rationale": "Report constants, types, local Validate and UTC midnight checks supporting store round-trip."
+    },
+    {
+      "path": "internal/protocol/json.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "1f1cf935e61e24139f03e3fdeeda46f1bbc9c164",
+      "start_line": 21,
+      "end_line": 66,
+      "text": "func EncodeJSON(value any) ([]byte, error) {\n\tencoded, err := json.Marshal(value, json.Deterministic(true))\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"encode protocol JSON: %w\", err)\n\t}\n\treturn encoded, nil\n}\n\n// DecodeStrict decodes one bounded JSON value, rejecting duplicate names, invalid\n// UTF-8, and unknown struct members. The Go 1.27 JSON v2 decoder rejects duplicate\n// object names and invalid UTF-8 by default; RejectUnknownMembers closes the\n// remaining permissive struct-decoding path.\nfunc DecodeStrict(data []byte, destination any, maxBytes int) error {\n\treturn decode(data, destination, maxBytes, true)\n}\n\n// DecodeTolerant is DecodeStrict for records a newer binary may have written:\n// it skips members this binary does not know, so binary N-1 reads N's records.\n// Duplicate names, invalid UTF-8 and the size limit still fail. A record's\n// schema version names its breaking changes, and its reader checks it; a new\n// member needs a safe zero value, since an older writer drops it.\nfunc DecodeTolerant(data []byte, destination any, maxBytes int) error {\n\treturn decode(data, destination, maxBytes, false)\n}\n\nfunc decode(data []byte, destination any, maxBytes int, rejectUnknown bool) error {\n\tif maxBytes == 0 {\n\t\tmaxBytes = DefaultMaxJSONBytes\n\t}\n\tif maxBytes < 0 {\n\t\treturn fmt.Errorf(\"%w: negative byte limit\", ErrInvalidJSON)\n\t}\n\tif len(data) > maxBytes {\n\t\treturn ErrJSONTooLarge\n\t}\n\tif !utf8.Valid(data) {\n\t\treturn fmt.Errorf(\"%w: invalid UTF-8\", ErrInvalidJSON)\n\t}\n\tif err := json.Unmarshal(data, destination,\n\t\tjson.RejectUnknownMembers(rejectUnknown),\n\t\tjsontext.AllowDuplicateNames(false),\n\t); err != nil {\n\t\treturn fmt.Errorf(\"decode protocol JSON: %w\", err)\n\t}\n\treturn nil\n}",
+      "id": "json",
+      "rationale": "Deterministic encode and bounded strict JSON decode; no separate local-only assertion in allocated store root."
+    },
+    {
+      "path": "internal/ocicost/tag_oci_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+      "start_line": 174,
+      "end_line": 193,
+      "text": "type fakeSearch struct {\n\tsearchAPI\n\tpages    [][]resourcesearch.ResourceSummary\n\tqueries  []string\n\tpageArgs []*string\n}\n\nfunc (f *fakeSearch) SearchResources(_ context.Context, request resourcesearch.SearchResourcesRequest) (resourcesearch.SearchResourcesResponse, error) {\n\tindex := len(f.queries)\n\tf.queries = append(f.queries, *request.SearchDetails.(resourcesearch.StructuredSearchDetails).Query)\n\tf.pageArgs = append(f.pageArgs, request.Page)\n\tresponse := resourcesearch.SearchResourcesResponse{}\n\tif index < len(f.pages) {\n\t\tresponse.Items = f.pages[index]\n\t}\n\tif index+1 < len(f.pages) {\n\t\tresponse.OpcNextPage = common.String(\"next\")\n\t}\n\treturn response, nil\n}",
+      "id": "search_fake",
+      "rationale": "fakeSearch records query/page pointer and returns synthetic resource pages; no SDK HTTP client."
+    },
+    {
+      "path": "internal/ocicost/tag_oci_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+      "start_line": 195,
+      "end_line": 214,
+      "text": "type fakeCompute struct {\n\tcomputeAPI\n\tinstance  core.Instance\n\tetag      string\n\tgetErr    error\n\tupdateErr error\n\tupdates   []core.UpdateInstanceRequest\n}\n\nfunc (f *fakeCompute) GetInstance(context.Context, core.GetInstanceRequest) (core.GetInstanceResponse, error) {\n\tif f.getErr != nil {\n\t\treturn core.GetInstanceResponse{}, f.getErr\n\t}\n\treturn core.GetInstanceResponse{Instance: f.instance, Etag: common.String(f.etag)}, nil\n}\n\nfunc (f *fakeCompute) UpdateInstance(_ context.Context, request core.UpdateInstanceRequest) (core.UpdateInstanceResponse, error) {\n\tf.updates = append(f.updates, request)\n\treturn core.UpdateInstanceResponse{}, f.updateErr\n}",
+      "id": "compute_fake",
+      "rationale": "fakeCompute returns local instance/etag/errors and appends update request; no real OCI read/write."
+    },
+    {
+      "path": "internal/ocicost/tag_oci_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+      "start_line": 216,
+      "end_line": 236,
+      "text": "type fakeObjects struct {\n\tobjectAPI\n\tnamespace      string\n\tnamespaceCalls int\n\tbucket         objectstorage.Bucket\n\tupdates        []objectstorage.UpdateBucketRequest\n}\n\nfunc (f *fakeObjects) GetNamespace(context.Context, objectstorage.GetNamespaceRequest) (objectstorage.GetNamespaceResponse, error) {\n\tf.namespaceCalls++\n\treturn objectstorage.GetNamespaceResponse{Value: common.String(f.namespace)}, nil\n}\n\nfunc (f *fakeObjects) GetBucket(context.Context, objectstorage.GetBucketRequest) (objectstorage.GetBucketResponse, error) {\n\treturn objectstorage.GetBucketResponse{Bucket: f.bucket}, nil\n}\n\nfunc (f *fakeObjects) UpdateBucket(_ context.Context, request objectstorage.UpdateBucketRequest) (objectstorage.UpdateBucketResponse, error) {\n\tf.updates = append(f.updates, request)\n\treturn objectstorage.UpdateBucketResponse{}, nil\n}",
+      "id": "objects_fake",
+      "rationale": "fakeObjects local namespace call counter, bucket tags and captured updates; no ObjectStorage client."
+    },
+    {
+      "path": "internal/ocicost/tag_oci_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+      "start_line": 166,
+      "end_line": 172,
+      "text": "type statusError struct{ status int }\n\nfunc (e statusError) Error() string           { return fmt.Sprintf(\"OCI status %d\", e.status) }\nfunc (e statusError) GetHTTPStatusCode() int  { return e.status }\nfunc (e statusError) GetMessage() string      { return e.Error() }\nfunc (e statusError) GetCode() string         { return \"test\" }\nfunc (e statusError) GetOpcRequestID() string { return \"\" }",
+      "id": "status_fake",
+      "rationale": "Synthetic common.ServiceError-compatible status methods; net/http constants do not imply HTTP."
+    },
+    {
+      "path": "internal/ocicost/tag_oci.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "5e6d14c402ba8e3572226271b3b874c2a12d191a",
+      "start_line": 21,
+      "end_line": 86,
+      "text": "type searchAPI interface {\n\tSearchResources(ctx context.Context, request resourcesearch.SearchResourcesRequest) (resourcesearch.SearchResourcesResponse, error)\n}\n\ntype computeAPI interface {\n\tGetInstance(ctx context.Context, request core.GetInstanceRequest) (core.GetInstanceResponse, error)\n\tUpdateInstance(ctx context.Context, request core.UpdateInstanceRequest) (core.UpdateInstanceResponse, error)\n\tGetImage(ctx context.Context, request core.GetImageRequest) (core.GetImageResponse, error)\n\tUpdateImage(ctx context.Context, request core.UpdateImageRequest) (core.UpdateImageResponse, error)\n}\n\ntype blockAPI interface {\n\tGetBootVolume(ctx context.Context, request core.GetBootVolumeRequest) (core.GetBootVolumeResponse, error)\n\tUpdateBootVolume(ctx context.Context, request core.UpdateBootVolumeRequest) (core.UpdateBootVolumeResponse, error)\n\tGetVolume(ctx context.Context, request core.GetVolumeRequest) (core.GetVolumeResponse, error)\n\tUpdateVolume(ctx context.Context, request core.UpdateVolumeRequest) (core.UpdateVolumeResponse, error)\n\tGetBootVolumeBackup(ctx context.Context, request core.GetBootVolumeBackupRequest) (core.GetBootVolumeBackupResponse, error)\n\tUpdateBootVolumeBackup(ctx context.Context, request core.UpdateBootVolumeBackupRequest) (core.UpdateBootVolumeBackupResponse, error)\n\tGetVolumeBackup(ctx context.Context, request core.GetVolumeBackupRequest) (core.GetVolumeBackupResponse, error)\n\tUpdateVolumeBackup(ctx context.Context, request core.UpdateVolumeBackupRequest) (core.UpdateVolumeBackupResponse, error)\n}\n\ntype objectAPI interface {\n\tGetNamespace(ctx context.Context, request objectstorage.GetNamespaceRequest) (objectstorage.GetNamespaceResponse, error)\n\tGetBucket(ctx context.Context, request objectstorage.GetBucketRequest) (objectstorage.GetBucketResponse, error)\n\tUpdateBucket(ctx context.Context, request objectstorage.UpdateBucketRequest) (objectstorage.UpdateBucketResponse, error)\n}\n\ntype balancerAPI interface {\n\tGetLoadBalancer(ctx context.Context, request loadbalancer.GetLoadBalancerRequest) (loadbalancer.GetLoadBalancerResponse, error)\n\tUpdateLoadBalancer(ctx context.Context, request loadbalancer.UpdateLoadBalancerRequest) (loadbalancer.UpdateLoadBalancerResponse, error)\n}\n\n// OCITags is the Resource Search and per-type update view of one OCI region.\n// Compartments, when set, scope the search; a controller leaves it empty and\n// its IAM limits what it sees.\ntype OCITags struct {\n\tCompartments []string\n\tsearch       searchAPI\n\tcompute      computeAPI\n\tblocks       blockAPI\n\tobjects      objectAPI\n\tbalancers    balancerAPI\n\tnamespace    string // cached Object Storage namespace\n}\n\nconst (\n\tsearchLimit    = 1000\n\tmaxSearchPages = 20\n\t// searchQuery lists the billable types; the lifecycle clause drops what\n\t// OCI has already removed.\n\tsearchQuery = \"query instance, bootvolume, volume, bootvolumebackup, volumebackup, image, bucket, loadbalancer \" +\n\t\t\"resources where lifecycleState != 'TERMINATED' && lifecycleState != 'TERMINATING' && lifecycleState != 'DELETED'\"\n)\n\n// compartmentPattern keeps a compartment OCID out of the query string unless\n// it is exactly one.\nvar compartmentPattern = regexp.MustCompile(`^ocid1\\.compartment\\.oc1\\.\\.[a-z0-9]+$`)\n\n// CheckCompartment refuses any compartment value that is not an OCID.\nfunc CheckCompartment(compartment string) error {\n\tif !compartmentPattern.MatchString(compartment) {\n\t\treturn fmt.Errorf(\"compartment %q is not a compartment OCID\", compartment)\n\t}\n\treturn nil\n}",
+      "id": "tag_types",
+      "rationale": "Narrow interfaces and local compartment regex guard; allocated fixtures inject fake implementations."
+    },
+    {
+      "path": "internal/ocicost/tag_oci.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "5e6d14c402ba8e3572226271b3b874c2a12d191a",
+      "start_line": 115,
+      "end_line": 163,
+      "text": "func (t *OCITags) Resources(ctx context.Context) ([]Resource, error) {\n\tquery := searchQuery\n\tif len(t.Compartments) > 0 {\n\t\tclauses := make([]string, 0, len(t.Compartments))\n\t\tfor _, compartment := range t.Compartments {\n\t\t\tif err := CheckCompartment(compartment); err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n\t\t\tclauses = append(clauses, \"compartmentId = '\"+compartment+\"'\")\n\t\t}\n\t\tquery += \" && (\" + strings.Join(clauses, \" || \") + \")\"\n\t}\n\tvar resources []Resource\n\tvar page *string\n\tfor range maxSearchPages {\n\t\tresponse, err := t.search.SearchResources(ctx, resourcesearch.SearchResourcesRequest{\n\t\t\tSearchDetails: resourcesearch.StructuredSearchDetails{Query: common.String(query)},\n\t\t\tLimit:         common.Int(searchLimit),\n\t\t\tPage:          page,\n\t\t})\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"search OCI resources: %w\", err)\n\t\t}\n\t\tfor _, item := range response.Items {\n\t\t\tresources = append(resources, resourceOf(item))\n\t\t}\n\t\tif response.OpcNextPage == nil {\n\t\t\treturn resources, nil\n\t\t}\n\t\tpage = response.OpcNextPage\n\t}\n\treturn nil, fmt.Errorf(\"OCI resource search returned more than %d pages\", maxSearchPages)\n}\n\nfunc resourceOf(item resourcesearch.ResourceSummary) Resource {\n\tresource := Resource{ID: stringOf(item.Identifier), Type: stringOf(item.ResourceType),\n\t\tName: stringOf(item.DisplayName), Compartment: stringOf(item.CompartmentId), Tags: item.FreeformTags}\n\tif item.TimeCreated != nil {\n\t\tresource.Created = item.TimeCreated.Time\n\t}\n\treturn resource\n}\n\nfunc stringOf(value *string) string {\n\tif value == nil {\n\t\treturn \"\"\n\t}\n\treturn *value\n}",
+      "id": "resources",
+      "rationale": "Query assembly, bounded page loop and local ResourceSummary mapping reach fakeSearch."
+    },
+    {
+      "path": "internal/ocicost/tag_oci.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "5e6d14c402ba8e3572226271b3b874c2a12d191a",
+      "start_line": 171,
+      "end_line": 187,
+      "text": "func (t *OCITags) Retag(ctx context.Context, resource Resource, tags map[string]string) error {\n\tcurrent, etag, write, err := t.load(ctx, resource)\n\tif err != nil {\n\t\treturn fmt.Errorf(\"read OCI %s: %w\", resource.Type, tagError(err))\n\t}\n\tmerged := make(map[string]string, len(current)+len(tags))\n\tmaps.Copy(merged, current)\n\tmaps.Copy(merged, tags)\n\tif maps.Equal(merged, current) {\n\t\treturn nil\n\t}\n\tif err := write(ctx, merged, etag); err != nil {\n\t\treturn fmt.Errorf(\"update OCI %s tags: %w\", resource.Type, tagError(err))\n\t}\n\treturn nil\n}\n",
+      "id": "retag",
+      "rationale": "Merge copied tag maps, local equality guard, call selected fake writer with captured ETag."
+    },
+    {
+      "path": "internal/ocicost/tag_oci.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "5e6d14c402ba8e3572226271b3b874c2a12d191a",
+      "start_line": 190,
+      "end_line": 199,
+      "text": "func (t *OCITags) load(ctx context.Context, resource Resource) (map[string]string, *string, tagWriter, error) {\n\tid := common.String(resource.ID)\n\tswitch resource.Type {\n\tcase \"Instance\":\n\t\tread, err := t.compute.GetInstance(ctx, core.GetInstanceRequest{InstanceId: id})\n\t\treturn read.FreeformTags, read.Etag, func(ctx context.Context, tags map[string]string, etag *string) error {\n\t\t\t_, err := t.compute.UpdateInstance(ctx, core.UpdateInstanceRequest{InstanceId: id, IfMatch: etag,\n\t\t\t\tUpdateInstanceDetails: core.UpdateInstanceDetails{FreeformTags: tags}})\n\t\t\treturn err\n\t\t}, err",
+      "id": "load_instance",
+      "rationale": "Instance branch invokes injected fakeCompute.GetInstance/UpdateInstance; no SDK transport."
+    },
+    {
+      "path": "internal/ocicost/tag_oci.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "5e6d14c402ba8e3572226271b3b874c2a12d191a",
+      "start_line": 242,
+      "end_line": 258,
+      "text": "\tcase \"Bucket\":\n\t\tnamespace, err := t.namespaceName(ctx)\n\t\tif err != nil {\n\t\t\treturn nil, nil, nil, err\n\t\t}\n\t\t// The bucket read carries no ETag in this SDK, so the write is not\n\t\t// conditional; the merge still keeps every tag the read returned.\n\t\tread, err := t.objects.GetBucket(ctx, objectstorage.GetBucketRequest{NamespaceName: common.String(namespace),\n\t\t\tBucketName: common.String(resource.Name)})\n\t\treturn read.FreeformTags, nil, func(ctx context.Context, tags map[string]string, _ *string) error {\n\t\t\t_, err := t.objects.UpdateBucket(ctx, objectstorage.UpdateBucketRequest{NamespaceName: common.String(namespace),\n\t\t\t\tBucketName: common.String(resource.Name), UpdateBucketDetails: objectstorage.UpdateBucketDetails{FreeformTags: tags}})\n\t\t\treturn err\n\t\t}, err\n\t}\n\treturn nil, nil, nil, fmt.Errorf(\"no tag update for OCI type %q\", resource.Type)\n}",
+      "id": "load_bucket_unknown",
+      "rationale": "Bucket invokes fakeObjects via namespace; bucket update has no conditional ETag in SDK; unknown type returns local error."
+    },
+    {
+      "path": "internal/ocicost/tag_oci.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "5e6d14c402ba8e3572226271b3b874c2a12d191a",
+      "start_line": 260,
+      "end_line": 273,
+      "text": "func (t *OCITags) namespaceName(ctx context.Context) (string, error) {\n\tif t.namespace != \"\" {\n\t\treturn t.namespace, nil\n\t}\n\tresponse, err := t.objects.GetNamespace(ctx, objectstorage.GetNamespaceRequest{})\n\tif err != nil {\n\t\treturn \"\", fmt.Errorf(\"read Object Storage namespace: %w\", err)\n\t}\n\tif stringOf(response.Value) == \"\" {\n\t\treturn \"\", errors.New(\"Object Storage namespace is empty\")\n\t}\n\tt.namespace = *response.Value\n\treturn t.namespace, nil\n}",
+      "id": "namespace",
+      "rationale": "Local namespace cache populated from fakeObjects.GetNamespace."
+    },
+    {
+      "path": "internal/ocicost/tag_oci.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "5e6d14c402ba8e3572226271b3b874c2a12d191a",
+      "start_line": 277,
+      "end_line": 289,
+      "text": "func tagError(err error) error {\n\tvar service common.ServiceError\n\tif !errors.As(err, &service) {\n\t\treturn err\n\t}\n\tswitch service.GetHTTPStatusCode() {\n\tcase http.StatusPreconditionFailed:\n\t\treturn fmt.Errorf(\"%w: %w\", ErrChanged, err)\n\tcase http.StatusNotFound, http.StatusUnauthorized, http.StatusForbidden:\n\t\treturn fmt.Errorf(\"%w: %w\", ErrNotPermitted, err)\n\t}\n\treturn err\n}",
+      "id": "tag_error",
+      "rationale": "Local errors.As/status mapping into ErrChanged/ErrNotPermitted sentinels."
+    },
+    {
+      "path": "internal/ocicost/tagger_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+      "start_line": 123,
+      "end_line": 143,
+      "text": "func newStubTagger(api *stubTagAPI, connects *int) *Tagger {\n\treturn &Tagger{Cell: \"gru\", Leader: func() bool { return true },\n\t\tConnect: func(context.Context) (TagAPI, error) { *connects++; return api, nil },\n\t\tNow:     func() time.Time { return tagsTestNow }}\n}\n\ntype stubTagAPI struct {\n\tresources []Resource\n\tlistErr   error\n\tretagErr  map[string]error\n\tretagged  []Resource\n}\n\nfunc (s *stubTagAPI) Resources(context.Context) ([]Resource, error) {\n\treturn s.resources, s.listErr\n}\n\nfunc (s *stubTagAPI) Retag(_ context.Context, resource Resource, _ map[string]string) error {\n\ts.retagged = append(s.retagged, resource)\n\treturn s.retagErr[resource.ID]\n}",
+      "id": "tagger_fake",
+      "rationale": "Injected leader/connect/clock and stubTagAPI list/retag capture; no actual OCI factory."
+    },
+    {
+      "path": "internal/ocicost/tagger.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "56b6a12537f64039177c06c6b82ca0d5bcc0dfeb",
+      "start_line": 33,
+      "end_line": 141,
+      "text": "const passTimeout = 10 * time.Minute\n\n// Tagger keeps the region's billable resources tagged with their region and\n// component, so the Usage API can split their cost. Only the regional\n// authority leader runs a pass.\ntype Tagger struct {\n\tCell    string\n\tLeader  func() bool\n\tConnect func(ctx context.Context) (TagAPI, error)\n\tNow     func() time.Time\n\n\tapi     TagAPI\n\tfailure string\n}\n\n// Run tags once an hour until ctx ends, then returns nil.\nfunc (t *Tagger) Run(ctx context.Context) error {\n\tfor {\n\t\ttimer := time.NewTimer(t.step(ctx))\n\t\tselect {\n\t\tcase <-ctx.Done():\n\t\t\ttimer.Stop()\n\t\t\treturn nil\n\t\tcase <-timer.C:\n\t\t}\n\t}\n}\n\n// step does one tag pass and returns how long to wait before the next.\nfunc (t *Tagger) step(ctx context.Context) time.Duration {\n\tif !t.Leader() {\n\t\treturn followInterval\n\t}\n\tif t.api == nil {\n\t\tapi, err := t.Connect(ctx)\n\t\tif err != nil {\n\t\t\tt.fail(err)\n\t\t\treturn retryInterval\n\t\t}\n\t\tt.api = api\n\t}\n\tpassCtx, cancel := context.WithTimeout(ctx, passTimeout)\n\tresult, err := Pass(passCtx, t.api, t.Cell, t.now())\n\tcancel()\n\tif err != nil {\n\t\tt.fail(err)\n\t\treturn retryInterval\n\t}\n\tif result.Stamped+result.Changed+result.NotPermitted > 0 {\n\t\tslog.Info(\"OCI cost tag pass\", observability.ComponentKey, \"ocicost\", \"stamped\", result.Stamped,\n\t\t\t\"changed\", result.Changed, \"not_permitted\", result.NotPermitted, \"untagged\", result.Untagged)\n\t}\n\tt.recovered()\n\treturn Interval\n}\n\n// Pass plans and applies one pass with api.\nfunc Pass(ctx context.Context, api TagAPI, cell string, now time.Time) (TagResult, error) {\n\tresources, err := api.Resources(ctx)\n\tif err != nil {\n\t\treturn TagResult{}, fmt.Errorf(\"list OCI resources for tags: %w\", err)\n\t}\n\tstamps, untagged := PlanTags(cell, resources, now)\n\tresult, err := applyStamps(ctx, api, stamps)\n\tresult.Untagged = len(untagged)\n\treturn result, err\n}\n\n// applyStamps retags each planned resource. A resource that changed or that\n// the principal may not update is counted, not fatal; any other error stops\n// the pass with the counts so far.\nfunc applyStamps(ctx context.Context, api TagAPI, stamps []Stamp) (TagResult, error) {\n\tvar result TagResult\n\tfor _, stamp := range stamps {\n\t\tswitch err := api.Retag(ctx, stamp.Resource, stamp.Tags); {\n\t\tcase errors.Is(err, ErrChanged):\n\t\t\tresult.Changed++\n\t\tcase errors.Is(err, ErrNotPermitted):\n\t\t\tresult.NotPermitted++\n\t\tcase err != nil:\n\t\t\treturn result, fmt.Errorf(\"tag OCI %s %s: %w\", stamp.Resource.Type, stamp.Resource.Name, err)\n\t\tdefault:\n\t\t\tresult.Stamped++\n\t\t}\n\t}\n\treturn result, nil\n}\n\nfunc (t *Tagger) now() time.Time {\n\tif t.Now == nil {\n\t\treturn time.Now()\n\t}\n\treturn t.Now()\n}\n\n// fail logs once per distinct error, so a long outage does not flood the log.\nfunc (t *Tagger) fail(err error) {\n\tif err.Error() != t.failure {\n\t\tslog.Warn(\"OCI cost tags not applied\", observability.ComponentKey, \"ocicost\", \"error\", err)\n\t}\n\tt.failure = err.Error()\n}\n\nfunc (t *Tagger) recovered() {\n\tif t.failure != \"\" {\n\t\tslog.Info(\"OCI cost tags are current again\", observability.ComponentKey, \"ocicost\")\n\t}\n\tt.failure = \"\"\n}",
+      "id": "tagger",
+      "rationale": "Local timer/context cancellation, leader predicate, cached injected API, pass counts, retries and failure text."
+    },
+    {
+      "path": "internal/ocicost/tags.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "d68a8772c138bf498b4e26483eb1bb565fae5685",
+      "start_line": 10,
+      "end_line": 117,
+      "text": "// Resource is one OCI resource a tag pass may stamp.\ntype Resource struct {\n\tID          string\n\tType        string // Resource Search type, e.g. \"Instance\", \"BootVolume\"\n\tName        string\n\tCompartment string\n\tCreated     time.Time\n\tTags        map[string]string // freeform\n}\n\n// TaggedTypes are the billable resource types a pass stamps.\nvar TaggedTypes = []string{\"Instance\", \"BootVolume\", \"Volume\", \"BootVolumeBackup\", \"VolumeBackup\", \"Image\", \"Bucket\", \"LoadBalancer\"}\n\n// Stamp is one resource's missing or wrong cost tags.\ntype Stamp struct {\n\tResource Resource\n\tTags     map[string]string // exactly RegionTag and ComponentTag\n}\n\nconst (\n\tdrSourceTag = \"terrascale-dr-source\"\n\tresourceTag = \"terrascale-resource\"\n\troleTag     = \"ts-role\"\n\tappTag      = \"terrascale-app\"\n\tpoolTag     = \"ts-pool\"\n\t// minTagAge keeps a pass away from resources still in their create flow,\n\t// whose ETag their creator may be holding.\n\tminTagAge = time.Hour\n)\n\nvar controllerName = regexp.MustCompile(`^ts-[a-z]+-[0-9]+($|-| )`)\n\n// Component infers a resource's component from the marks it already has,\n// or \"\" when none fits; the pass never guesses.\nfunc Component(cell string, r Resource) string {\n\tif component := r.Tags[ComponentTag]; slices.Contains(Components, component) {\n\t\treturn component\n\t}\n\tif _, ok := r.Tags[drSourceTag]; ok {\n\t\treturn \"disaster-recovery\"\n\t}\n\tswitch mark := r.Tags[resourceTag]; {\n\tcase strings.HasPrefix(mark, \"member-\") || mark == \"terrabase-host\":\n\t\treturn \"terrabase\"\n\tcase mark == \"managed-volume\":\n\t\treturn \"apps\"\n\t}\n\tif r.Tags[roleTag] == \"db\" {\n\t\treturn \"terrabase\"\n\t}\n\tif r.Tags[appTag] != \"\" {\n\t\treturn \"apps\"\n\t}\n\tif r.Tags[poolTag] != \"\" {\n\t\treturn \"node-pool\"\n\t}\n\tswitch r.Type {\n\tcase \"Instance\", \"BootVolume\", \"Volume\", \"BootVolumeBackup\", \"VolumeBackup\":\n\t\tname := strings.TrimSuffix(r.Name, \" (Boot Volume)\")\n\t\tswitch {\n\t\tcase strings.Contains(name, \"-ctl-\") || controllerName.MatchString(name):\n\t\t\treturn \"controller\"\n\t\tcase strings.Contains(name, \"-db-\") || strings.HasPrefix(name, \"ts-member-data-backup-\"):\n\t\t\treturn \"terrabase\"\n\t\tcase strings.Contains(name, \"-pool-\"):\n\t\t\treturn \"node-pool\"\n\t\t}\n\tcase \"Bucket\":\n\t\tif !strings.HasPrefix(r.Name, cell+\"-\") {\n\t\t\treturn \"storage\"\n\t\t}\n\t\tswitch {\n\t\tcase strings.HasSuffix(r.Name, \"-backup\"):\n\t\t\treturn \"terrabase\"\n\t\tcase strings.HasSuffix(r.Name, \"-head\"):\n\t\t\treturn \"releases\"\n\t\tcase strings.HasSuffix(r.Name, \"-material\") || strings.HasSuffix(r.Name, \"-ledger\"):\n\t\t\treturn \"controller\"\n\t\t}\n\t\treturn \"storage\"\n\tcase \"Image\":\n\t\treturn \"images\"\n\tcase \"LoadBalancer\":\n\t\treturn \"network\"\n\t}\n\treturn \"\"\n}\n\n// PlanTags returns the stamps the cell's resources need at now, and the\n// resources no rule fits.\nfunc PlanTags(cell string, resources []Resource, now time.Time) (stamps []Stamp, untagged []Resource) {\n\tfor _, r := range resources {\n\t\tif !slices.Contains(TaggedTypes, r.Type) || !r.Created.IsZero() && now.Sub(r.Created) < minTagAge {\n\t\t\tcontinue\n\t\t}\n\t\tcomponent := Component(cell, r)\n\t\tif component == \"\" {\n\t\t\tuntagged = append(untagged, r)\n\t\t\tcontinue\n\t\t}\n\t\tregion := strings.ToUpper(cell)\n\t\tif r.Tags[RegionTag] == region && r.Tags[ComponentTag] == component {\n\t\t\tcontinue\n\t\t}\n\t\tstamps = append(stamps, Stamp{Resource: r, Tags: map[string]string{RegionTag: region, ComponentTag: component}})\n\t}\n\treturn stamps, untagged\n}",
+      "id": "planning",
+      "rationale": "Local Resource/Stamp data, name/mark regex inference, age/type guards and PlanTags map output."
+    },
+    {
+      "path": "internal/ocicost/tags_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "83196074cd4e9d4bc25da2c55bc34f1adbb29b81",
+      "start_line": 9,
+      "end_line": 9,
+      "text": "var tagsTestNow = time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)",
+      "id": "clock",
+      "rationale": "Fixed local clock shared by mock pass and planning roots."
+    },
+    {
+      "path": "internal/ocicost/collector.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "327c23a0e129354e9460aef2cd1fb184f3a28a3d",
+      "start_line": 22,
+      "end_line": 28,
+      "text": "const (\n\t// Interval is how often the leader reads OCI usage.\n\tInterval       = time.Hour\n\tretryInterval  = 5 * time.Minute\n\tfollowInterval = time.Minute\n\treadTimeout    = 2 * time.Minute\n)",
+      "id": "intervals",
+      "rationale": "Fixed hourly/retry/follower duration constants; timing values do not establish external boundary."
+    },
+    {
+      "path": "internal/ocicost/usage_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+      "start_line": 352,
+      "end_line": 359,
+      "text": "// usageTenancyProvider answers only the tenancy, the one call Connect makes\n// before it needs the network.\ntype usageTenancyProvider struct {\n\tcommon.ConfigurationProvider\n\terr error\n}\n\nfunc (p usageTenancyProvider) TenancyOCID() (string, error) { return \"\", p.err }",
+      "id": "tenancy_fake",
+      "rationale": "Embedded provider answers TenancyOCID with empty string or sentinel; Connect returns before network."
+    },
+    {
+      "path": "internal/ocicost/usage.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "cd4de1ead57871d5b0050a0d8a122ec26f8c547d",
+      "start_line": 41,
+      "end_line": 60,
+      "text": "func Connect(ctx context.Context, factory *ociclient.Factory, cell, ociRegion string) (*Usage, error) {\n\ttenancy, err := factory.Provider().TenancyOCID()\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"read the tenancy: %w\", err)\n\t}\n\tif tenancy == \"\" {\n\t\treturn nil, errors.New(\"principal has no tenancy\")\n\t}\n\thome, err := factory.HomeRegion(ctx, tenancy)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tclient, err := factory.Usage()\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tclient.SetRegion(home)\n\treturn &Usage{Cell: cell, OCIRegion: ociRegion, TenancyID: tenancy, API: client}, nil\n}\n",
+      "id": "connect",
+      "rationale": "TenancyOCID error/empty guard returns before HomeRegion or Usage SDK construction."
+    },
+    {
+      "path": "internal/ociclient/factory.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "e8e99e02456a27a832cf3038587bcc65745a1958",
+      "start_line": 117,
+      "end_line": 136,
+      "text": "func New(provider common.ConfigurationProvider, options Options) (*Factory, error) {\n\tif provider == nil {\n\t\treturn nil, errors.New(\"OCI client factory requires a configuration provider\")\n\t}\n\tif !catalog.IsOCIRegion(options.Region) {\n\t\treturn nil, fmt.Errorf(\"OCI client factory region %q is not in the region catalog\", options.Region)\n\t}\n\tlimits := make(map[Service]Limit, len(DefaultLimits))\n\tfor service, limit := range DefaultLimits {\n\t\tlimits[service] = limit\n\t}\n\tfor service, limit := range options.Limits {\n\t\tif limit.PerSecond <= 0 || limit.Burst < 1 {\n\t\t\treturn nil, fmt.Errorf(\"OCI client limit for %s must be positive\", service)\n\t\t}\n\t\tlimits[service] = limit\n\t}\n\treturn &Factory{provider: provider, region: options.Region, limits: limits,\n\t\tpolicy: RetryPolicy(options.Retry), limiters: map[Service]*rate.Limiter{}}, nil\n}",
+      "id": "factory_new",
+      "rationale": "Actual factory constructor validates provider/region and builds local maps/retry policy; no network."
+    },
+    {
+      "path": "internal/ociclient/factory.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "e8e99e02456a27a832cf3038587bcc65745a1958",
+      "start_line": 281,
+      "end_line": 281,
+      "text": "func (f *Factory) Provider() common.ConfigurationProvider { return f.provider }",
+      "id": "factory_provider",
+      "rationale": "Provider accessor returns injected provider."
+    },
+    {
+      "path": "internal/ociregion/catalog/catalog.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "094f141afb633efa0d345466c5c80b2154d97e69",
+      "start_line": 144,
+      "end_line": 157,
+      "text": "func IsOCIRegion(region string) bool {\n\t_, ok := CellForOCIRegion(region)\n\treturn ok\n}\n\n// CellForOCIRegion maps an exact OCI region identifier back to its cell.\nfunc CellForOCIRegion(region string) (Entry, bool) {\n\tfor _, entry := range entries {\n\t\tif entry.OCIRegion == region {\n\t\t\treturn entry, true\n\t\t}\n\t}\n\treturn Entry{}, false\n}",
+      "id": "catalog",
+      "rationale": "OCI-region predicate loops in-memory catalog entries."
+    },
+    {
+      "path": "internal/ociclient/retry.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "0e5718012dadfc4d400d6b6a50777ed29119d495",
+      "start_line": 227,
+      "end_line": 244,
+      "text": "func (o RetryOptions) normalized() RetryOptions {\n\tif o.MaxAttempts == 0 {\n\t\to.MaxAttempts = defaultMaxAttempts\n\t}\n\tif o.BaseDelay <= 0 {\n\t\to.BaseDelay = defaultBaseDelay\n\t}\n\tif o.MaxDelay <= 0 {\n\t\to.MaxDelay = defaultMaxDelay\n\t}\n\tif o.MaxDelay < o.BaseDelay {\n\t\to.MaxDelay = o.BaseDelay\n\t}\n\tif o.Jitter == nil {\n\t\to.Jitter = rand.Float64\n\t}\n\treturn o\n}",
+      "id": "retry_normalize",
+      "rationale": "Retry defaults normalized locally; does not call transport."
+    },
+    {
+      "path": "internal/ociclient/retry.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "0e5718012dadfc4d400d6b6a50777ed29119d495",
+      "start_line": 259,
+      "end_line": 264,
+      "text": "func RetryPolicy(options RetryOptions) common.RetryPolicy {\n\toptions = options.normalized()\n\treturn common.NewRetryPolicy(options.MaxAttempts, ShouldRetry, func(response common.OCIOperationResponse) time.Duration {\n\t\treturn retryDelay(options, response)\n\t})\n}",
+      "id": "retry_policy",
+      "rationale": "Constructs SDK retry policy closure only; never exercised by missing-tenancy root."
+    }
+  ],
+  "source_pins": {
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ocicost/store_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/store_test.go",
+      "mode": "100644",
+      "git_blob": "182838743d5a66bf2551d5c1ed7a86878112765b",
+      "sha256": "fee7f3555b7f74ce166ea75bf766c98a5263251488db87246b8c20f434274a42",
+      "bytes": 3227
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ocicost/store.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/store.go",
+      "mode": "100644",
+      "git_blob": "a4aaf4f6519b31cf3445887498ff22a692f0efae",
+      "sha256": "841f54781bfc319269cfac21abac103d25f970e03b79c4dbbeb77a8649b09e2c",
+      "bytes": 2429
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ocicost/report.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/report.go",
+      "mode": "100644",
+      "git_blob": "f0029cc07dc5587304d5976088492270d2191e21",
+      "sha256": "74b18558c2f94c69c66b395cf9b568ac947e1f478ed559952771dd2d56093581",
+      "bytes": 6002
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/protocol/json.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/protocol/json.go",
+      "mode": "100644",
+      "git_blob": "1f1cf935e61e24139f03e3fdeeda46f1bbc9c164",
+      "sha256": "5a0439798f0961019fe651bd7b6db2a8ef4934a1b7a891b1aa56917e413c104e",
+      "bytes": 2204
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ocicost/tag_oci_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/tag_oci_test.go",
+      "mode": "100644",
+      "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+      "sha256": "35fdfc8f9330e1975a9821fd0c03d76e591e09930e5a3a73a52cae958ddbbb00",
+      "bytes": 9288
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ocicost/tag_oci.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/tag_oci.go",
+      "mode": "100644",
+      "git_blob": "5e6d14c402ba8e3572226271b3b874c2a12d191a",
+      "sha256": "1df85c8ce28bf6adbde37d5a1be3b34086c7d40df3e1bbf812ec7b3ddd160549",
+      "bytes": 12194
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ocicost/tagger_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/tagger_test.go",
+      "mode": "100644",
+      "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+      "sha256": "557a74a0852bcc0fb838143dfd1870f205ff4d9c97d855f08186980863ed7822",
+      "bytes": 4718
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ocicost/tagger.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/tagger.go",
+      "mode": "100644",
+      "git_blob": "56b6a12537f64039177c06c6b82ca0d5bcc0dfeb",
+      "sha256": "2d88029870a6d7c9639a6e712055a9672e0ce0f995a49d6fdef85d6ab977d7ec",
+      "bytes": 3942
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ocicost/tags.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/tags.go",
+      "mode": "100644",
+      "git_blob": "d68a8772c138bf498b4e26483eb1bb565fae5685",
+      "sha256": "edcf7578d727f41a55dd322034755e530ee0fdd38a16298bbe841f3afcda3dea",
+      "bytes": 3385
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ocicost/tags_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/tags_test.go",
+      "mode": "100644",
+      "git_blob": "83196074cd4e9d4bc25da2c55bc34f1adbb29b81",
+      "sha256": "ef62445ab4db9368b5b59e381483f4a80c13f465d7defe8f27d199beefd8e723",
+      "bytes": 4839
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ocicost/collector.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/collector.go",
+      "mode": "100644",
+      "git_blob": "327c23a0e129354e9460aef2cd1fb184f3a28a3d",
+      "sha256": "47ae3149354be70803203319e95130a77272cbbb48fac7ee5be214bd95e994c3",
+      "bytes": 2872
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ocicost/usage_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/usage_test.go",
+      "mode": "100644",
+      "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+      "sha256": "cb6286e82c53c8abf4d9e739dde4226ba7e32937fa334e6e09e023d63b9a2b8a",
+      "bytes": 14074
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ocicost/usage.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ocicost/usage.go",
+      "mode": "100644",
+      "git_blob": "cd4de1ead57871d5b0050a0d8a122ec26f8c547d",
+      "sha256": "4f6552329c27080bde518320468f7959627349276d51f87a8a41d5e419aa6378",
+      "bytes": 10508
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociclient/factory.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociclient/factory.go",
+      "mode": "100644",
+      "git_blob": "e8e99e02456a27a832cf3038587bcc65745a1958",
+      "sha256": "7949bd617658a10ec293cf0fab2a1eedd2dad1b1d74f746bb382ac2f5986f209",
+      "bytes": 24633
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/catalog/catalog.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/catalog/catalog.go",
+      "mode": "100644",
+      "git_blob": "094f141afb633efa0d345466c5c80b2154d97e69",
+      "sha256": "1cb9481c9291c863bea33c273443a1dc061bdcd4afada2b626843449ff54cf6e",
+      "bytes": 9451
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociclient/retry.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociclient/retry.go",
+      "mode": "100644",
+      "git_blob": "0e5718012dadfc4d400d6b6a50777ed29119d495",
+      "sha256": "4b52708694eae6c1e4b536e7b2ab50d0f09ee75ac5e35b3b34a1315ddf09d591",
+      "bytes": 14162
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/ocicost/store_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/ocicost/store_test.go",
+      "mode": "100644",
+      "git_blob": "182838743d5a66bf2551d5c1ed7a86878112765b",
+      "sha256": "fee7f3555b7f74ce166ea75bf766c98a5263251488db87246b8c20f434274a42",
+      "bytes": 3227
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/ocicost/tag_oci_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/ocicost/tag_oci_test.go",
+      "mode": "100644",
+      "git_blob": "21d1361c2ae7cbcf909f6721c9a200791beec27b",
+      "sha256": "35fdfc8f9330e1975a9821fd0c03d76e591e09930e5a3a73a52cae958ddbbb00",
+      "bytes": 9288
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/ocicost/tagger_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/ocicost/tagger_test.go",
+      "mode": "100644",
+      "git_blob": "40a883479cfa053a4be28c949b4eb909a1f17887",
+      "sha256": "557a74a0852bcc0fb838143dfd1870f205ff4d9c97d855f08186980863ed7822",
+      "bytes": 4718
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/ocicost/tags_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/ocicost/tags_test.go",
+      "mode": "100644",
+      "git_blob": "83196074cd4e9d4bc25da2c55bc34f1adbb29b81",
+      "sha256": "ef62445ab4db9368b5b59e381483f4a80c13f465d7defe8f27d199beefd8e723",
+      "bytes": 4839
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/ocicost/usage_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/ocicost/usage_test.go",
+      "mode": "100644",
+      "git_blob": "ae7b434223661339dee3054eaa04a7ab441384fc",
+      "sha256": "cb6286e82c53c8abf4d9e739dde4226ba7e32937fa334e6e09e023d63b9a2b8a",
+      "bytes": 14074
+    }
+  },
+  "findings": [
+    {
+      "root_indices": [
+        2540
+      ],
+      "finding": "testJetStream directly starts upstream nats-server and nats.Connect loopback TCP; not natscell.Start/InProcessServer. Actual file-backed KV Put/Get supports round-trip, one server/one replica only."
+    },
+    {
+      "root_indices": [
+        2541,
+        2542,
+        2543,
+        2544,
+        2545,
+        2546,
+        2547,
+        2548,
+        2549,
+        2550,
+        2551,
+        2552,
+        2553,
+        2554,
+        2555,
+        2556,
+        2557,
+        2558
+      ],
+      "finding": "All tag Search/Compute/ObjectStorage/pass/connect/leader/clock feeds are local fakes or synthetic records. No actual OCI HTTP, IAM, ETag concurrency, fleet leadership or durable tag effect qualification."
+    },
+    {
+      "root_indices": [
+        2559
+      ],
+      "finding": "Both missing-tenancy/error cases return before HomeRegion or Usage client; production factory constructor is incidental local setup, no network."
+    }
+  ],
+  "method": [
+    "All20 full canonical roots and connected actual fixture/helper/production paths manually read.",
+    "Inline metadata packaging only over explicit reviewed spans; raw declarations from func through column-zero closing brace excluding following LF.",
+    "Exact accounting allocation/frozen survival mapping and baseline/current raw hashes/bytes/bounds verified; pinned canonical complete file blobs/modes/SHA256/bytes.",
+    "No source/repository/ledger mutation, Go/build/test/lint/format/helper/scanner/parser/framework/process/resource/cloud/signing/crypto/TerraBase execution or downloads/children."
+  ],
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE. Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION for every root; no test/compilation/pass/fail claim.",
+    "Original20 obligations retained; no deletion/retirement/runtime/count/qualification/completion promotion.",
+    "No source-visible assertion blocker found; runtime and external dependencies remain unknown.",
+    "Independent mapped peer acceptance required before source classification can be considered reviewed."
+  ],
+  "accounting_effect": "NONE; retirement_authorized false; all original safety obligations retained.",
+  "metadata_correction": {
+    "supersedes_unhanded_packet": "/tmp/ts-final1319-source-2540-2560-hm79x2hf/classification.json",
+    "superseded_sha256": "633ad7eee9a115e3d0f6ce313f670170bf13a78e0f90d1787b27db076d7d1af0",
+    "reason": "Metadata preflight found JSON citation end67 exceeds66-line file; corrected to66. Source text/categories unchanged; old bytes preserved."
+  }
+}

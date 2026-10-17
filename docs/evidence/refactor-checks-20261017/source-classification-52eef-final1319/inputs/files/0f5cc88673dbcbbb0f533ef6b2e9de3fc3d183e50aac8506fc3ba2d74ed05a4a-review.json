@@ -1,0 +1,126 @@
+{
+  "schema": "independent-source-only-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1000_1020",
+  "author": "/root/classification_100_dispatch/batch_1020_1040",
+  "status": "ACCEPTED_SOURCE_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-final-3220-3240-final-dljo267v/classification.json",
+    "sha256": "9073f4610fff015a8c7ced1c000e920ae9df1393448d889dcb262e176796eb14",
+    "checksum_path": "/tmp/ts-source-final-3220-3240-final-dljo267v/SHA256SUMS",
+    "checksum_sha256": "5048cc76bf2256cfc07ce10a146441acca81edeb9a4afdf8e8231b20c3ac8b0c"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      3220,
+      3240
+    ]
+  },
+  "root_ids": [
+    "internal/rollout/transition_review_test.go::TestNearLimitFailureReasonStillRollsBack",
+    "internal/rollout/transition_review_test.go::TestSoakNeedsObservationsSpanningTheWindow",
+    "internal/rollout/transition_review_test.go::TestSoakRequiresAPositiveProcessIdentity",
+    "internal/rollout/transition_test.go::TestAbortAndFreeze",
+    "internal/rollout/transition_test.go::TestApplyRejectsInvalidEventsWithoutMutation",
+    "internal/rollout/transition_test.go::TestDeadlinesRollBack",
+    "internal/rollout/transition_test.go::TestDefaultPolicyMovesAsManyUnitsAsQuorumAllows",
+    "internal/rollout/transition_test.go::TestHealthBeforeTheWaveStartedIsStaleWhilePreparing",
+    "internal/rollout/transition_test.go::TestHeldRollbackFreezesAndResumeNeverRetargets",
+    "internal/rollout/transition_test.go::TestNewRejectsKnownBadAndInvalidSpecs",
+    "internal/rollout/transition_test.go::TestOperationIDIsStableAndDistinct",
+    "internal/rollout/transition_test.go::TestPlanWavesKeepsQuorumAndSeedLast",
+    "internal/rollout/transition_test.go::TestPlanWavesRejectsInvalidUnits",
+    "internal/rollout/transition_test.go::TestRandomWalkInvariants",
+    "internal/rollout/transition_test.go::TestRollbackReturnsEveryTouchedUnitNewestFirst",
+    "internal/rollout/transition_test.go::TestRolloutCompletesThroughCanarySoakAndBatches",
+    "internal/rollout/transition_test.go::TestSoakFailuresRollBack",
+    "internal/rollout/transition_test.go::TestValidateRejectsContradictoryAndMalformedRecords",
+    "internal/rolloutexec/agent_test.go::TestAgentActivatesOnceAndAnswersRetriesIdempotently",
+    "internal/rolloutexec/agent_test.go::TestAgentDoesNotApplyAStepThatExpiredWhileStaging"
+  ],
+  "counts": {
+    "integration": 2,
+    "unit": 18,
+    "mixed": 0,
+    "unresolved": 0,
+    "total": 20
+  },
+  "checks_performed": [
+    "Own3200:3220 packet frozen and handed off before cyclic peer review; own corrections completed first and separately accepted.",
+    "Independently manually read all20 full allocated roots, setup helpers and connected transition/validation/planning/actions/soak/entity/JSON paths; the18 local state roots do not execute workloads or persistence.",
+    "Independently manually traced both agent roots through direct Handle/signature validation and real selfupdate filesystem operations: seeded bytes, ownership/hash reads, epoch record, pending activation, current symlink, known-bad/restart markers and rollback. Restart hook remains fake. Expiry-after-staging checks final injected clock before activation; staging still writes files.",
+    "Verified20 literal original IDs against activated manifest and survival mapping, with40 baseline/current exact raw declarations, hashes and bounds; all20 are canonical exact with no body drift.",
+    "Verified27 baseline/current canonical Git file pins: blob, mode, SHA256, bytes; current inspected working files equal pinned canonical blobs.",
+    "Verified382 explicit span occurrences (including duplicated callee evidence), with strict0<line<=end_line<=file_lines, canonical blob and exact text; all20 assertion spans contain complete root interiors.",
+    "Verified packet and SHA256SUMS exact hashes, every listed file checksum, files0444/directory0555. Fresh final packet differs only in requested2 root reasons and supersedes metadata; source evidence/pins/categories unchanged.",
+    "Independently agree2integration/18unit/0mixed/0unresolved candidate categories; no runtime receipts or execution reviewed.",
+    "Final successor independently compared against previously verified corrected packet: only4additional root reasons/supersedes metadata changed. Narrowed descriptions agree with full manually inspected roots: deadlines prepare/proof/soak+preflight; exact4New guards; OperationID phase/attempt; controller-only completion. All27pins/40declarations/382span occurrences retained unchanged; final checksums/modes reverified."
+  ],
+  "resolved_findings": [
+    {
+      "root_id": "internal/rollout/transition_test.go::TestApplyRejectsInvalidEventsWithoutMutation",
+      "finding": "Original rationale claimed identical record bytes/JSON comparison absent from root.",
+      "resolution": "Fresh final rationale correctly cites invalid-event errors, cloned UnitPreparing state, anonymous health refusal and duplicate UnitSoaking state."
+    },
+    {
+      "root_id": "internal/rollout/transition_test.go::TestSoakFailuresRollBack",
+      "finding": "Original rationale named operation/phase/serving/clock-gap failure cases absent from this root.",
+      "resolution": "Fresh final rationale correctly names only PID restart, wrong digest, explicit unhealthy and held; rollback state/reason/order are local."
+    },
+    {
+      "root_id": "internal/rollout/transition_test.go::TestDeadlinesRollBack",
+      "finding": "Author identified broader-than-root rationale in pre-final packet.",
+      "resolution": "Deadline rationale now correctly omits rollback deadline and names prepare/proof/soak/preflight."
+    },
+    {
+      "root_id": "internal/rollout/transition_test.go::TestNewRejectsKnownBadAndInvalidSpecs",
+      "finding": "Author identified broader-than-root rationale in pre-final packet.",
+      "resolution": "New rationale now names exact known-bad forward/rollback, no-op digest and zero-epoch guard cases."
+    },
+    {
+      "root_id": "internal/rollout/transition_test.go::TestOperationIDIsStableAndDistinct",
+      "finding": "Author identified broader-than-root rationale in pre-final packet.",
+      "resolution": "OperationID rationale now names attempt rather than wave."
+    },
+    {
+      "root_id": "internal/rollout/transition_test.go::TestRolloutCompletesThroughCanarySoakAndBatches",
+      "finding": "Author identified broader-than-root rationale in pre-final packet.",
+      "resolution": "Completion rationale now correctly describes controller-only synthetic rollout, without database seat claim."
+    }
+  ],
+  "remaining_findings": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "qualification_limits": [
+    "Source inspection only; no Go, tests, build, project helpers, crypto/signing or runtime execution. No receipts reviewed.",
+    "Rollout state tests use synthetic records, health/PID samples, quorum lists and timestamps; planning actions are data, not executed effects.",
+    "Agent fixture uses temporary actual selfupdate releases, symlinks, epochs, activation and rollback/restart markers. Restart is an in-memory hook; staged content is text, never executed. Fetch is a fake that delegates to real Seed; no production receipt admission/download, systemd, NATS, cloud or authority boundary is claimed.",
+    "The expired-while-staging root creates staged release files through Seed. Its assertion establishes preserved current selection and zero fake restart, not absence of filesystem changes.",
+    "No deletion, retirement, count, completion or runtime qualification credit. Existing safety obligations retained."
+  ],
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": false,
+    "deletion_credit": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  },
+  "own_accepted_packet": {
+    "path": "/tmp/ts-source-final-3200-3220-corrected-suqrxa5n/classification.json",
+    "sha256": "ae4ab693c80f4750e161ee28814546b046f56c9873162af9d151f9aeb0477af1",
+    "review_receipt": "/tmp/ts-peer-3200-3220-by-3180-hxay9pvo/review.json",
+    "review_sha256": "bcb741873913cdf1ceb38235fca1a19d20c7d9042b74972283cea9424e29cee0"
+  },
+  "supersedes_receipt": {
+    "path": "/tmp/ts-peer-3220-3240-by-3200-3xbn1lzi/review.json",
+    "sha256": "2187be0a0fce01277920d10c4cad9a85207c8eeced7b15bbedc772fbf1c94bcf",
+    "reason": "Concurrent author precision successor narrowed4more reasons; preserve prior receipt but use only this final exact-hash acceptance."
+  }
+}

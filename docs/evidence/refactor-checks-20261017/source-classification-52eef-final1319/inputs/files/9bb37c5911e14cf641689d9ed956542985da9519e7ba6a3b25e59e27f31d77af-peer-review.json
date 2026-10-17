@@ -1,0 +1,197 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/peer_80_100",
+  "author": "/root/classification_100_dispatch/batch_140_160",
+  "status": "ACCEPTED_SOURCE_ONLY_NO_RUNTIME_OR_ACCOUNTING_CREDIT",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-2700-2720-j7fiqb46/classification.json",
+    "sha256": "356c1d141fa823bcac250c7be9c222c33d25d8c3968c0096fba1256144176be8",
+    "checksum_path": "/tmp/ts-source-classification-2700-2720-j7fiqb46/SHA256SUMS",
+    "checksum_sha256": "f7beee45c04324367bb873b32c34ec9e5d083f6e7af0f417cccf48cdf1b27fe3"
+  },
+  "canonical_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "canonical_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      2700,
+      2720
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/peer_80_100"
+  },
+  "literal_original_root_ids": [
+    "internal/ociregion/registry/registry_integration_test.go::TestSDKRepositoryLostCreateResponsePrivateRepairAndOwnership",
+    "internal/ociregion/registry/registry_integration_test.go::TestSDKRetentionKeepsCurrentRollbackTasksAndIndexChildren",
+    "internal/ociregion/registry/registry_integration_test.go::TestSDKRetentionPinDuringDeleteAndLostResponseRecovery",
+    "internal/ociregion/registry/registry_integration_test.go::TestSDKRetryRechecksAuthorityAndIncompletePinsStay",
+    "internal/ociregion/sdkcli/render_names_review_test.go::TestRenderKeepsNLBBackendSetAndListenerNames",
+    "internal/ociregion/sdkcli/sdkcli_test.go::TestHandlersServeCLIShapedData",
+    "internal/ociregion/sdkcli/sdkcli_test.go::TestObjectVersionListSendsTheCLIFieldList",
+    "internal/ociregion/sdkcli/sdkcli_test.go::TestSDKObjectInventoryRejectsMalformedResponses",
+    "internal/ociregion/sdkcli/sdkcli_test.go::TestSDKShapeCompatibilityAndCancellation",
+    "internal/ociregion/seed_test.go::TestSeedLaunchForwardsManagedHostImageProofs",
+    "internal/ociregion/seed_test.go::TestSeedLaunchRequiresCurrentManifestSchema",
+    "internal/ociregion/seed_test.go::TestSeedPreflightRejectsRetiredToolSwitches",
+    "internal/ociregion/teardown/netbird_test.go::TestNetBirdTeardownBlocksBeforeLegacyDeletion",
+    "internal/ociregion/teardown/sdk_test.go::TestSDKCompartmentDeletionUsesTenancyHomeRegion",
+    "internal/ociregion/teardown/sdk_test.go::TestSDKPreservesAmbiguous404",
+    "internal/ociregion/teardown/sdk_test.go::TestSDKVaultContentsAcrossCompartmentsAndPages",
+    "internal/ociregion/teardown/teardown_integration_test.go::TestApplyFollowsDeletionUntilProvenComplete",
+    "internal/ociregion/teardown/teardown_integration_test.go::TestCLIRejectsAmbiguousPlanFiles",
+    "internal/ociregion/teardown/teardown_integration_test.go::TestChildCompartmentHoldsItsParent",
+    "internal/ociregion/teardown/teardown_integration_test.go::TestCompleteDiffMustBeWrittenBeforeDeleting"
+  ],
+  "counts": {
+    "integration": 8,
+    "unit": 2,
+    "mixed": 2,
+    "unresolved": 8
+  },
+  "checks_performed": [
+    "Independently read all20 full canonical roots from pinned Git source and followed actual fixture/helper/SDK/store paths; baseline/current raw equality independently verified for every declaration.",
+    "Verified activated allocation/map/protocol/worker/accounting/survival hashes, exact original_root_ids_by_disposition.other_unadjudicated[2700:2720], owner and cyclic peer mapping.",
+    "Verified39 complete source-file Git blob/mode/SHA256/byte pins;40 exact baseline/current declarations with actual line bounds and raw func-through-column-zero-close hash excluding LF. All20 original and canonical hashes match frozen survival; no body drift.",
+    "Verified20 full-root assertion spans plus69 connected spans verbatim with exact bounds/blob/span SHA256, retaining every condition/subtest and original obligation.",
+    "Verified exact candidate SHA256356c1d141fa823bcac250c7be9c222c33d25d8c3968c0096fba1256144176be8, both manifest entries, manifest SHA256f7beee45c04324367bb873b32c34ec9e5d083f6e7af0f417cccf48cdf1b27fe3 and files0444/directory0555."
+  ],
+  "root_adjudications": [
+    {
+      "allocation_index": 2700,
+      "category": "integration",
+      "reason": "Real loopback JetStream FileStorage KV plus SDK HTTP create/recover, physical ownership/private immutable readback. Copied controller shares live broker/client; no process restart claim."
+    },
+    {
+      "allocation_index": 2701,
+      "category": "integration",
+      "reason": "Real KV pin/retirement state and SDK HTTP GET/DELETE support exact garbage-only deletion and retired image admission refusal."
+    },
+    {
+      "allocation_index": 2702,
+      "category": "integration",
+      "reason": "Actual SDK HTTP delete callback attempts SetPins against real durable retirement claim; lost-response retry reads existing KV and HTTP404 without a second accepted deletion."
+    },
+    {
+      "allocation_index": 2703,
+      "category": "mixed",
+      "reason": "Real SDK HTTP503/retry/authority interceptor plus KV recoveries315-328; independent incomplete/stale Pins329-337 reject in retained/SetPins before KV."
+    },
+    {
+      "allocation_index": 2704,
+      "category": "integration",
+      "reason": "NLB keys/references and user tag preservation inspect actual HTTP SDK Get output transformed through Render/kebab."
+    },
+    {
+      "allocation_index": 2705,
+      "category": "mixed",
+      "reason": "Actual SDK HTTP inventory/pagination/head/404/KMS responses; separate unsupported mutation, region and unsafe KMS endpoints reject locally before request. Unused flag check follows actual GET."
+    },
+    {
+      "allocation_index": 2706,
+      "category": "integration",
+      "reason": "Two real HTTP object-version pages record exact fields query while actual SDK response conversion preserves fields."
+    },
+    {
+      "allocation_index": 2707,
+      "category": "integration",
+      "reason": "Malformed/empty/duplicate/multiple JSON documents arrive over actual HTTP before strictResponses and osObjectList reject; valid empty inventory also actual HTTP."
+    },
+    {
+      "allocation_index": 2708,
+      "category": "integration",
+      "reason": "Paginated shapes and blocked request-context cancellation reach actual HTTP. Synthetic shape contents limit qualification."
+    },
+    {
+      "allocation_index": 2709,
+      "category": "integration",
+      "reason": "Production Invoke/seedLaunch/launchMaterial/readBytes directly read receipt/delegation filesystem bytes and forward exact bytes into output metadata. This is the target OS read boundary; no cloud launch/signature verification."
+    },
+    {
+      "allocation_index": 2710,
+      "category": "unit",
+      "reason": "Fixed temporary manifest data supports local schema/envelope validation; file setup is incidental."
+    },
+    {
+      "allocation_index": 2711,
+      "category": "unit",
+      "reason": "Retired flags fail flag.Parse before plan/tool/cloud work."
+    },
+    {
+      "allocation_index": 2712,
+      "category": "unresolved",
+      "reason": "Same-package canonical teardown source has duplicate constants/helpers/tests and incompatible liveCell/run declarations without build constraints. Preserve literal identity, all intended assertions and traced HTTP/local paths without guessing executable binding or granting coverage."
+    },
+    {
+      "allocation_index": 2713,
+      "category": "unresolved",
+      "reason": "Same-package canonical teardown source has duplicate constants/helpers/tests and incompatible liveCell/run declarations without build constraints. Preserve literal identity, all intended assertions and traced HTTP/local paths without guessing executable binding or granting coverage."
+    },
+    {
+      "allocation_index": 2714,
+      "category": "unresolved",
+      "reason": "Same-package canonical teardown source has duplicate constants/helpers/tests and incompatible liveCell/run declarations without build constraints. Preserve literal identity, all intended assertions and traced HTTP/local paths without guessing executable binding or granting coverage."
+    },
+    {
+      "allocation_index": 2715,
+      "category": "unresolved",
+      "reason": "Same-package canonical teardown source has duplicate constants/helpers/tests and incompatible liveCell/run declarations without build constraints. Preserve literal identity, all intended assertions and traced HTTP/local paths without guessing executable binding or granting coverage."
+    },
+    {
+      "allocation_index": 2716,
+      "category": "unresolved",
+      "reason": "Same-package canonical teardown source has duplicate constants/helpers/tests and incompatible liveCell/run declarations without build constraints. Preserve literal identity, all intended assertions and traced HTTP/local paths without guessing executable binding or granting coverage."
+    },
+    {
+      "allocation_index": 2717,
+      "category": "unresolved",
+      "reason": "Same-package canonical teardown source has duplicate constants/helpers/tests and incompatible liveCell/run declarations without build constraints. Preserve literal identity, all intended assertions and traced HTTP/local paths without guessing executable binding or granting coverage."
+    },
+    {
+      "allocation_index": 2718,
+      "category": "unresolved",
+      "reason": "Same-package canonical teardown source has duplicate constants/helpers/tests and incompatible liveCell/run declarations without build constraints. Preserve literal identity, all intended assertions and traced HTTP/local paths without guessing executable binding or granting coverage."
+    },
+    {
+      "allocation_index": 2719,
+      "category": "unresolved",
+      "reason": "Same-package canonical teardown source has duplicate constants/helpers/tests and incompatible liveCell/run declarations without build constraints. Preserve literal identity, all intended assertions and traced HTTP/local paths without guessing executable binding or granting coverage."
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_review_findings": [],
+  "retained_source_blockers": [
+    {
+      "kind": "canonical_package_declaration_collision",
+      "allocation_indexes": [
+        2712,
+        2713,
+        2714,
+        2715,
+        2716,
+        2717,
+        2718,
+        2719
+      ],
+      "detail": "Canonical teardown_test.go and teardown_integration_test.go both declare package teardown without build constraints and collide on parentCompartment/cellCompartment, gruPlan, incompatible liveCell/run, repeated TestApply/TestChild/TestCompleteDiff, failWriter/Write. Literal root identities retained; executable helper resolution/package compilation is not guessed or executed.",
+      "evidence_group": "teardown_collision"
+    }
+  ],
+  "qualification_limits": [
+    "All8 teardown roots2712-2719 remain unresolved/uncredited. Acceptance validates accurate source accounting, not executable-package behavior.",
+    "Registry fixture directly starts upstream NATS server.NewServer, uses loopback nats.Connect and FileStorage KV; no natscell authentication/multi-node quorum or broker/process/disk-reopen recovery.",
+    "OCI data/signers/authority/provider lifecycle are controlled fixtures; no live cloud authorization, NLB, OCI/OCIR resource operation, managed image signature verification or deployment is qualified.",
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No build/test/Go/formatter/lint/project helper/scanner/parser/runtime/cloud/signing execution, process/resource probes or downloads.",
+    "No source/repository/ledger mutation; zero accounting/count/promotion/deletion/retirement/qualification/global completion credit. All original safety/assertion obligations retained."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "accounting_effect": {
+    "canonical_ledger_mutated": false,
+    "count_promotion": false,
+    "qualification_delta": 0,
+    "retirement_delta": 0,
+    "retirement_authorized": false,
+    "global_completion": false,
+    "safety_obligations_retained": true
+  }
+}

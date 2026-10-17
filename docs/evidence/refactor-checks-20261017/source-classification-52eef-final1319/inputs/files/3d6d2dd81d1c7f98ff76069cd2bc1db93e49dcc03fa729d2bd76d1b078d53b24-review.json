@@ -1,0 +1,220 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_740_760",
+  "author": "/root/classification_100_dispatch/batch_760_780",
+  "disposition": "ACCEPTED_SOURCE_ONLY",
+  "accepted_packet": "/tmp/ts-final1319-source-2960-2980-corrected-ar77rbpu/classification.json",
+  "accepted_packet_sha256": "fd3ca3b2bb167bbf23bf8884bdc9a893197ab06cb45f3fbd4c2fc7b6c015eb7a",
+  "accepted_checksums": "/tmp/ts-final1319-source-2960-2980-corrected-ar77rbpu/SHA256SUMS",
+  "accepted_checksums_sha256": "b6dde689df10d03c4b601df88cf06c5ffce3727e4e65ba3d8591013b1bf29bc8",
+  "superseded_candidate": {
+    "path": "/tmp/ts-final1319-source-2960-2980-gml66p9j/classification.json",
+    "sha256": "838187ace2c00a757687b9fdb66b914b7af4ba810aa423f97f2ee92faebc2d03",
+    "reason": "Independent peer requested one narrow mixed-category correction and SocketPath callee pin."
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      2960,
+      2980
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_740_760"
+  },
+  "root_ids": [
+    "internal/qualification/firecracker/production_test.go::TestProductionAuditAcceptsNetBirdVNICRead",
+    "internal/qualification/firecracker/production_test.go::TestProductionCleanupKillsStuckSimulator",
+    "internal/qualification/firecracker/production_test.go::TestProductionFailedRunRetainsCounters",
+    "internal/qualification/firecracker/production_test.go::TestProductionFirewallBoundaries",
+    "internal/qualification/firecracker/production_test.go::TestProductionHealthFailureNamesStageAndDiagnostics",
+    "internal/qualification/firecracker/production_test.go::TestProductionNTPResponse",
+    "internal/qualification/firecracker/production_test.go::TestProductionNetworkCollision",
+    "internal/qualification/firecracker/production_test.go::TestProductionNetworkNamespace",
+    "internal/qualification/firecracker/production_test.go::TestProductionNetworkRaisesLoopbackFirst",
+    "internal/qualification/firecracker/production_test.go::TestProductionPinnedFileDetectsChange",
+    "internal/qualification/firecracker/production_test.go::TestProductionRebootDisconnectRequiresNewIdentity",
+    "internal/qualification/firecracker/production_test.go::TestProductionVMStopExitSignalRace",
+    "internal/qualification/firecracker/production_test.go::TestQualificationCleanupSurvivesCancellation",
+    "internal/qualification/memberstatus/memberstatus_test.go::TestBoundedOutputAndCommandEvidence",
+    "internal/qualification/memberstatus/memberstatus_test.go::TestCleanupRetainsFailedOrLiveGuestEvidence",
+    "internal/qualification/memberstatus/memberstatus_test.go::TestGuestReadsRefuseSymlinksAndBoundEvidence",
+    "internal/qualification/memberstatus/memberstatus_test.go::TestGuestRunnerFailureIsRetainedWithoutMissingTestLogs",
+    "internal/qualification/memberstatus/memberstatus_test.go::TestManagedDriveAttachmentOrder",
+    "internal/qualification/memberstatus/memberstatus_test.go::TestManagedLockdownUsesCapturedPathsAfterRestrictingTraversal",
+    "internal/qualification/memberstatus/memberstatus_test.go::TestManagedProtectedStagingUsesPrivilegedHashReadback"
+  ],
+  "counts": {
+    "integration": 4,
+    "unit": 12,
+    "mixed": 4,
+    "unresolved": 0
+  },
+  "method": "Independently read all20 full canonical roots and actual reached fixture/helper/production boundaries from immutable Git source after own author packet was frozen. Baseline/current changes and exact body equality independently checked. Metadata-only checks over explicit manually reviewed spans; no source parser/scanner or project execution.",
+  "checks_performed": [
+    "Exact literal allocation and original accounting other_unadjudicated[2960:2980); canonical commit/tree and original/current survival mappings.",
+    "40 baseline/current raw declaration bounds/text/hashes;20 complete assertion spans; retained audit seed-a to controller-c baseline/current body change.",
+    "18 canonical/baseline source-file Git blob/mode/SHA256/byte pins;43 exact connected source spans/text; root references; categories/counts.",
+    "Exact corrected packet and checksum-file hashes, every checksum entry, immutable files0444/directory0555, input hashes and per-root UNKNOWN/no-retirement/retained-obligation fields.",
+    "Real boundary tracing: pinned file byte mutation/read; real shell stop/wait/group and serial descriptor close/path unlink; actual command output log readback; actual symlink/regular-file bounds; collected serial-log failure precedence; conditional sudo install/hash permission readback.",
+    "Synthetic paths explicitly limited: nft/ip/namespace/reboot/SSH/simulator process hooks and captured stat records. No kernel firewall, real VM boot, guest service or OCI coverage inferred."
+  ],
+  "resolved_findings": [
+    {
+      "root_id": "internal/qualification/memberstatus/memberstatus_test.go::TestBoundedOutputAndCommandEvidence",
+      "original_category": "integration",
+      "accepted_category": "mixed",
+      "resolution": "207\u2013212 real command and log readback qualifies integration. Independent213\u2013219 serial block supplies bytes directly, sets Truncated by len/room before I/O and asserts local error flag without serial-file readback; qualifies unit. Corrected candidate names both blocks.",
+      "source_evidence": [
+        "internal/qualification/memberstatus/memberstatus_test.go:201\u2013220",
+        "internal/qualification/memberstatus/runtime.go:92\u2013119",
+        "internal/qualification/memberstatus/runtime.go:353\u2013374"
+      ]
+    },
+    {
+      "status": "EVIDENCE_COMPLETENESS",
+      "resolution": "Added exact VM.SocketPath callee span at memberstatus/runtime.go241 to cleanup evidence; exact text verified."
+    }
+  ],
+  "remaining_findings": [],
+  "per_root": [
+    {
+      "root_id": "internal/qualification/firecracker/production_test.go::TestProductionAuditAcceptsNetBirdVNICRead",
+      "category": "unit",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/production_test.go::TestProductionCleanupKillsStuckSimulator",
+      "category": "unit",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/production_test.go::TestProductionFailedRunRetainsCounters",
+      "category": "mixed",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/production_test.go::TestProductionFirewallBoundaries",
+      "category": "unit",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/production_test.go::TestProductionHealthFailureNamesStageAndDiagnostics",
+      "category": "unit",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/production_test.go::TestProductionNTPResponse",
+      "category": "unit",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/production_test.go::TestProductionNetworkCollision",
+      "category": "unit",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/production_test.go::TestProductionNetworkNamespace",
+      "category": "unit",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/production_test.go::TestProductionNetworkRaisesLoopbackFirst",
+      "category": "unit",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/production_test.go::TestProductionPinnedFileDetectsChange",
+      "category": "integration",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/production_test.go::TestProductionRebootDisconnectRequiresNewIdentity",
+      "category": "unit",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/production_test.go::TestProductionVMStopExitSignalRace",
+      "category": "integration",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/firecracker/production_test.go::TestQualificationCleanupSurvivesCancellation",
+      "category": "unit",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/memberstatus/memberstatus_test.go::TestBoundedOutputAndCommandEvidence",
+      "category": "mixed",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/memberstatus/memberstatus_test.go::TestCleanupRetainsFailedOrLiveGuestEvidence",
+      "category": "mixed",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/memberstatus/memberstatus_test.go::TestGuestReadsRefuseSymlinksAndBoundEvidence",
+      "category": "mixed",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/memberstatus/memberstatus_test.go::TestGuestRunnerFailureIsRetainedWithoutMissingTestLogs",
+      "category": "integration",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/memberstatus/memberstatus_test.go::TestManagedDriveAttachmentOrder",
+      "category": "unit",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/memberstatus/memberstatus_test.go::TestManagedLockdownUsesCapturedPathsAfterRestrictingTraversal",
+      "category": "unit",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/qualification/memberstatus/memberstatus_test.go::TestManagedProtectedStagingUsesPrivilegedHashReadback",
+      "category": "integration",
+      "decision": "ACCEPTED",
+      "unresolved_assertions": []
+    }
+  ],
+  "qualification_limits": [
+    "Every runtime result remains UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no receipts reviewed or test/helper/build/cloud/privilege/process probe executed.",
+    "Only literal other[2960:2980) are candidates. No ledger, retirement, deletion, qualification, global count or completion promotion.",
+    "All original assertions/identities retained. Audit root baseline expected seed-a changed to controller-c; canonical current hash agrees with historical survival mapping. No safety obligation retired.",
+    "Synthetic nft/ip/SSH/reboot/namespace/process hooks prove no actual kernel firewall, OCI request, host isolation, VM boot or guest health. Real UDP socket in failed-counter root does not establish NTP request/reply coverage.",
+    "Protected-staging root skips for root driver, membership in65534, missing sudo or unavailable noninteractive sudo. Full root owns actual effect/readback assertions; current host prerequisites are unknown.",
+    "No conditional helper-only root is allocated. Mixed roots name independent unit blocks; no source-visible assertion blocker found.",
+    "Peer correction: TestBoundedOutputAndCommandEvidence retains separate unit-only serial truncation predicate alongside real command/log readback; no serial output readback is inferred."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "ledger_mutated": false,
+  "count_promotion": false,
+  "deletion_authorized": false,
+  "completion_credit": false
+}

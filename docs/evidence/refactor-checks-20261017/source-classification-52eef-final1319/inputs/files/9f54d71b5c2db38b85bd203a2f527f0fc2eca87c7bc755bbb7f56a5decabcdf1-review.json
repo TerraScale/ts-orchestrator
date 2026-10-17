@@ -1,0 +1,114 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2400_2420",
+  "author": "/root/classification_100_dispatch/batch_00_20",
+  "status": "ACCEPTED_SOURCE_ONLY",
+  "range": [
+    2500,
+    2520
+  ],
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-2500-2520-final-q63o5zj_/classification.json",
+    "sha256": "e03d51208ce111f7ca418dab164517055b43c78b59c7168ba4a918d8f029d4ae",
+    "checksum_path": "/tmp/ts-source-classification-2500-2520-final-q63o5zj_/SHA256SUMS",
+    "checksum_sha256": "ad58c805139ff0283d258955ef75b388b924650238414bc5df59bb8c5907194d"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[2500:2520]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2400_2420"
+  },
+  "input_pins": {
+    "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/PEER-PROTOCOL.md": "b1cbcb7a96a344363f5ba924a0e76fc418553607209733945892796508db7765",
+    "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70",
+    "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513",
+    "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+  },
+  "root_ids": [
+    "internal/oci/volume_backup_prune_test.go::TestSDKOrphanPruningRequiresPositiveSourceDeletion",
+    "internal/oci/volume_backup_prune_test.go::TestSDKOrphanPruningUsesTerminalLifecycleProof",
+    "internal/oci/volume_backup_prune_test.go::TestSDKOrphanTerminationSurvivesRetentionAndLeaderHandoff",
+    "internal/oci/volume_init_test.go::TestInspectVolumeInitializationDeniesPriorDetachHistory",
+    "internal/oci/volume_init_test.go::TestInspectVolumeInitializationGrantsOneFirstFormat",
+    "internal/oci/volume_init_test.go::TestInspectVolumeInitializationGrantsPinnedXFSFirstFormat",
+    "internal/oci/volume_init_test.go::TestInspectVolumeInitializationHoldsWhenAuthorityIsFenced",
+    "internal/oci/volume_init_test.go::TestVolumeFormatPermitJournalOneWinnerAndImmutableBinding",
+    "internal/oci/volume_reattach_test.go::TestFencedDetachRequiresATerminatedInstanceAndIsJournaled",
+    "internal/oci/volume_reattach_test.go::TestFencedDetachThatNeverSettlesIsRecordedUnknown",
+    "internal/oci/volume_reattach_test.go::TestReattachAttachesOverDetachedHistoryAndGrantsOnlyAMount",
+    "internal/oci/volume_resize_pending_review_test.go::TestKVJournalOwnsAVolumeGrownByItsOwnUnconfirmedResize",
+    "internal/oci/volume_resize_test.go::TestKVJournalAdvancesAndRepairsResizedVolumeOwnership",
+    "internal/oci/volume_resize_test.go::TestKVJournalRepairsOwnershipFromALaterResizeAttempt",
+    "internal/oci/volume_resize_test.go::TestResizeAttemptsKeepTheUnmovedETagAndAreBounded",
+    "internal/oci/volume_resize_test.go::TestResizeRetainedVolumeGrowsAndKeepsDurableOwnership",
+    "internal/oci/volume_resize_test.go::TestResizeRetainedVolumeRecoversLostResponseAndHoldsStaleState",
+    "internal/oci/volume_resize_test.go::TestResizeRetainedVolumeRefusesUnownedFencedAndOutOfBoundRequests",
+    "internal/oci/volume_resize_test.go::TestTerminalSettlesAResizeWhoseETagCanNoLongerMatch",
+    "internal/oci/volume_resize_test.go::TestTerminalTreatsObservedSupersededResizesAsSettled"
+  ],
+  "counts": {
+    "integration": 10,
+    "unit": 7,
+    "mixed": 3,
+    "unresolved": 0
+  },
+  "independent_review": {
+    "full_roots_read": 20,
+    "baseline_current_raw_declarations_verified": 40,
+    "canonical_source_file_pins_verified": 29,
+    "assertion_connected_category_spans_verified": 90,
+    "literal_survival_mappings_verified": 20,
+    "checks": [
+      "Independently read every complete allocated root and its reached fixture/production/store/client paths; classified asserted behavior rather than names.",
+      "Verified literal allocation/accounting IDs, original/current identity and exact TSV mapping.",
+      "Verified all current/baseline Git file mode/blob/SHA256/byte pins, raw declaration bounds/text/hashes and literal assertion/callee spans.",
+      "Verified F1 external-client chain: fixture broker has internal clients, separate returned client has Embedded=nil, Runtime.URL selects bridge, custom TCP TLS dialer and JWT/nonce options reach listener/handshake/account forwarding and actual FileStorage KV operations.",
+      "Verified F2 current root91-124 and detachSettled226-235: actual ListOperations intents feed dependent same-scenario checks; final settled=true makes matching persisted intent nonvacuous.",
+      "Verified exact final packet/checksum hashes, artifact content checksums and 0444 files/0555 directory; checked narrow final metadata delta from earlier fully reviewed packet."
+    ],
+    "classification_basis": "Real reached production KV/network boundaries materially support asserted behavior; independent pre-I/O local-only guards produce mixed. Fake providers, fake fencers and fake SDK HTTP transport do not establish cloud, fencing-election or OCI network coverage."
+  },
+  "resolved_findings": [
+    {
+      "id": "F1",
+      "status": "RESOLVED",
+      "detail": "Added exact reached external TCP/mTLS client/bridge evidence; retained internal-broker-client distinction and no runtime claim."
+    },
+    {
+      "id": "F2",
+      "status": "RESOLVED",
+      "root_id": "internal/oci/volume_reattach_test.go::TestFencedDetachThatNeverSettlesIsRecordedUnknown",
+      "detail": "Changed mixed to integration. Settlement consumes persisted detach intents from same ListOperations scenario; final settled=true entails at least one matching intent. Narrowed weakness to no exactly-one or nonzero RecordedAt assertion; provider remains fake."
+    }
+  ],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no compilation, test result or runtime qualification claimed.",
+    "No source/repository/ledger mutation, Go/build/test/formatter/lint/benchmark/helper execution, process/resource probes, cloud, privilege, signing/crypto, TerraBase execution or download. Only canonical source/Git reads and metadata hashing/serialization.",
+    "All40 raw baseline/current declaration hashes match historical mapping; all20 bodies are exact. Current resize roots after261 have12fewer preceding lines than baseline due to an excluded retired declaration; explicit baseline bounds are offset, without claiming file/blob identity.",
+    "Actual journal fixture starts production natscell embedded broker with internal controller/system InProcessServer clients. startAuthenticatedJournal then sets cfg.URL=broker.URL() and cfg.Embedded=nil, which selects the external TLS custom dialer plus JWT/nonce options. The TCP mTLS bridge opens only for the exact applied claim and forwards to the in-process account protocol. This separate external client opens one-replica FileStorage KV and issues actual KV API operations. No successful execution, HA quorum or broker/disk restart claimed.",
+    "OCI providers, authority snapshots/guards and SDK HTTPClient.Do dispatch are fake. No cloud, actual leader election, live authority loss, OCI HTTP network, guest format/mount or physical volume resize/deletion is exercised.",
+    "Leader handoff and reopened controller create another KVJournal wrapper around the same live bucket. Injected clock advances replace actual retention elapsed time. Unknown/lost response and stuck detach states are synthetic provider behavior.",
+    "Root2509 unknown-result loop alone has no explicit count, but final settled=true requires at least one detach intent from the same actual ListOperations slice. The test does not assert exactly one detach receipt or a nonzero RecordedAt timestamp; no stronger coverage inferred. Settlement reads use the fake provider.",
+    "All scope, fencing, immutable ETag/ownership, first-format uniqueness, no-reformat, mount-only, unknown-outcome, retry-bound and terminal-proof obligations retained. Independent peer required; no ledger/count/deletion/retirement/qualification/completion promotion."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": false,
+    "deletion_credit": false,
+    "retirement_credit": false,
+    "qualification_credit": false,
+    "completion_credit": false,
+    "global_completion": false
+  },
+  "preservation": "Original and F1-corrected packets remain unchanged; acceptance applies only to the exact final hash."
+}

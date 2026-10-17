@@ -1,0 +1,148 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2200_2220",
+  "author": "/root/classification_100_dispatch/batch_2220_2240",
+  "status": "ACCEPTED_SOURCE_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-3620-3640-corrected-p_tiydm8/classification.json",
+    "sha256": "bebed7ebbd7c7592c968b847d4ab8b2661322303d78466baeee70a5a49d58f59",
+    "sha256sums_path": "/tmp/ts-source-classification-3620-3640-corrected-p_tiydm8/SHA256SUMS",
+    "sha256sums_sha256": "c832aa715542734883b08f369d67c9e8e8d1bcc12dcf67f5c208e2b23125cee2"
+  },
+  "superseded_packet": {
+    "path": "/tmp/ts-source-classification-3620-3640-7c_nhj2o/classification.json",
+    "sha256": "78a5d14bb470c9728e64c1397bd9029a3f7d42a1f8264abb35f27ca6e0d0372a",
+    "preserved": true
+  },
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[3620:3640)",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2200_2220"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "tests/ci/workflows_test.go::TestImageDispatchOnlyForChangedInputs",
+    "tests/ci/workflows_test.go::TestImageDispatchPinsRun",
+    "tests/ci/workflows_test.go::TestImageGateWaitsForDispatchingRun",
+    "tests/ci/workflows_test.go::TestQualifyImageDeadlineIncludesCompilation",
+    "tests/ci/workflows_test.go::TestQualifyImageRequiresEverySuiteToPass",
+    "tests/ci/workflows_test.go::TestQualifyImageSharesOneBudget",
+    "tests/ci/workflows_test.go::TestWorkflowContracts",
+    "tests/deploy/build_offline_contract_test.go::TestOfflineBuilderLimitsMatchBakedLoader",
+    "tests/deploy/build_offline_contract_test.go::TestOfflineConfigInstallerCanReadTheAdoptedRootChain",
+    "tests/deploy/build_offline_contract_test.go::TestOfflineControllerWaitsForBoundedClockSync",
+    "tests/deploy/build_offline_contract_test.go::TestOfflineHostSandboxWritableManagedPathOnly",
+    "tests/deploy/build_offline_contract_test.go::TestOfflinePackagedProbeWithoutGitCheckout",
+    "tests/deploy/build_offline_contract_test.go::TestOfflineProbeVerifiesCanonicalBakedReserve",
+    "tests/deploy/build_offline_contract_test.go::TestOfflineSysusersMatchesControllerUserAndGroup",
+    "tests/deploy/build_offline_contract_test.go::TestOfflineVolumeInitRootOnlyInHostNamespace",
+    "tests/deploy/build_offline_test.go::TestOfflineBaseKernelMustBeOneARM64ImageWithModules",
+    "tests/deploy/build_offline_test.go::TestOfflineBuildAcceptsRelativeOutputPaths",
+    "tests/deploy/build_offline_test.go::TestOfflineClockProbeUnitsKeepReadOnlyAdjtimex",
+    "tests/deploy/build_offline_test.go::TestOfflineCommand",
+    "tests/deploy/build_offline_test.go::TestOfflineCreatesMissingUploadParents"
+  ],
+  "counts": {
+    "integration": 7,
+    "unit": 8,
+    "mixed": 1,
+    "unresolved": 4
+  },
+  "checks_performed": [
+    "Own3600:3620 packet frozen before starting independent3620:3640 peer source review; own exact-hash acceptance received and verified.",
+    "Independently manually read all20 full canonical allocated roots and reached setup/helper/production paths; inspected actual source conditionals, calls, independent assertion blocks and source-visible blockers.",
+    "Verified20 literal allocation/accounting IDs, exact cyclic reviewer ownership, survival mappings and input SHA256 pins.",
+    "Verified40 raw baseline/current declaration texts, explicit manually reviewed bounds, column-zero close/hash convention, Git blob identities and no declaration drift.",
+    "Verified20 entire assertion spans and57 connected evidence spans against canonical Git bytes, plus50 complete source-file mode/blob/SHA256/byte pins and canonical worktree equality.",
+    "Verified exact final packet/checksum hashes, checksum manifest, files0444 and directory0555; categories/counts and no-execution/no-promotion constraints retained."
+  ],
+  "resolved_findings": [
+    {
+      "id": "P1_connected_helper_evidence",
+      "detail": "Fresh packet adds actual fakeToolBinary and race-conditional setup, ValidatePin/orderedKeys/ValidateConfig, runtimepriority error/hash/canonical/comparison/JSON delegates, and additional actual fixture/tier/output/read helpers with exact source pins. Metadata and actual source independently verified; categories unchanged."
+    },
+    {
+      "id": "P2_workflow_inputs_category_clarification",
+      "detail": "Dispatcher explicitly confirmed unit category for WorkflowContracts because independent source-string assertions remain supported while canonical trust-root path blocks expected-success filesystem validation. Reached stat/EvalSymlinks before guaranteed wrong rejection grants no supported expected-success boundary. Exact blocked assertions remain unresolved/uncredited."
+    }
+  ],
+  "remaining_review_findings": [],
+  "retained_source_findings": [
+    {
+      "id": "changed_fixture",
+      "roots": [
+        3620
+      ],
+      "detail": "Fixture releases at workflows_test.go368-370 have tag_name only, no draft=false/assets image-qualification.json required by image-inputs-changed.sh64-77. Thus no image base found; unchanged expected dispatched=false and consulted fetch assertions375-377,415-423 lack support. New dependency graph path23-48 invokes real go list; fake git397-403 does not implement rev-parse --show-toplevel. No Go executed here; successful dependency discovery cannot repair missing release assets. Relevant target assertions remain unresolved/uncredited; other real script status/dispatch cases establish narrow process category."
+    },
+    {
+      "id": "gate_newer_fixture",
+      "roots": [
+        3622
+      ],
+      "detail": "newer/success expects skip=true at workflows_test.go285,319. Gate96-101 now requests retained release and exact assets; fake gh image-gate/curl39-52 answers only successful-run list or /actions/runs/42, rejects release-tag request with exit2. No qualifying newer release; expected skip=true unsupported. Other cases retain process evidence."
+    },
+    {
+      "id": "workflow_drift",
+      "roots": [
+        3626
+      ],
+      "detail": "Static unit contract has multiple exact source contradictions: image_job literal expected workflows_test.go104 versus dynamic deploy/image/build-image.sh97; exact deploy if expected79 versus publication guard ci.yml186; wrapper expected gh asset flags/for architecture/dist/ts-orch strings198-207 versus retained-binary wrapper lines20,24,49,63; expected combined check/build step234-236 versus ci.yml124/143 split; shellcheck expected in extracted ci-verify241-243 versus Makefile23 delegating ci-check25-27. These assertions remain unresolved/uncredited. All actual predicate text preserved in root."
+    },
+    {
+      "id": "workflow_inputs",
+      "roots": [
+        3626
+      ],
+      "detail": "inputs check248-249 calls LoadInputs. Manifest trust_roots path is internal/trust/bootstrap-root-002.pem at image-inputs.json33; inputs.go254-263 resolves checked-in pins only under deploy/image/inputs, so this canonical root path is rejected before expected successful input validation and later manifest assertion. Additionally checked-in netbird-gru.json lacks setup_key_secret_id required by client.ValidateConfig127-128, if that later check were reached. No execution or pass/fail claim."
+    },
+    {
+      "id": "offline_elf",
+      "roots": [
+        3635,
+        3636,
+        3637,
+        3639
+      ],
+      "detail": "newOffline318 writes f.binary as literal mock verified binary, run393 forwards it unchanged; OfflineBuild404-406 calls binaryArchitecture, inputs.go87-90 elf.Open rejects non-ELF before any guest/tool process. Negative kernel table f.reject435-437 supports only generic process nonzero. Expected kernel diagnostics439-440 and remaining assertions after fatal gate are blocked; gzip/success/install/readback targets entirely uncredited. Current runtime installation202 is downstream and never establishes real QCOW2/runtime/HTTP evidence for these fixtures."
+    },
+    {
+      "id": "kernel_message",
+      "roots": [
+        3635
+      ],
+      "detail": "wrong-image expected message at build_offline_test.go725 is base guest kernel is not an AArch64 Linux boot Image; actual audit.go92-93 formats base guest kernel is not a Linux arm64 boot image. Independent later diagnostic drift retained even though earlier ELF guard blocks it."
+    },
+    {
+      "id": "conditional_helper",
+      "roots": [
+        3638
+      ],
+      "detail": "TestOfflineCommand45-49 returns with no --. Selected endpoint implements synthetic tools and parent roots own assertions. Standard conditional-helper rule keeps root unresolved; synthetic chown writes metadata JSON192-197 and fake systemctl only materializes links, never boots/runs systemd."
+    }
+  ],
+  "retained_unresolved_root_ids": [
+    "tests/deploy/build_offline_test.go::TestOfflineBuildAcceptsRelativeOutputPaths",
+    "tests/deploy/build_offline_test.go::TestOfflineClockProbeUnitsKeepReadOnlyAdjtimex",
+    "tests/deploy/build_offline_test.go::TestOfflineCommand",
+    "tests/deploy/build_offline_test.go::TestOfflineCreatesMissingUploadParents"
+  ],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no runtime pass/fail or compile inference.",
+    "All20 identities/full assertions retained; blocked later assertions stay unresolved/uncredited even where earlier exact boundary assertion supports root category.",
+    "No GitHub/Go suite/OCI/systemd guest/boot/qualification/crypto authority from fake tools; owner metadata is synthetic. Host sandbox real effect is conditional and unexecuted.",
+    "Static source/pin contracts and validation do not relax safety obligations. Conditional child helper remains unresolved.",
+    "No Go/build/tests/helpers/scanners/parsers/frameworks/format/resource probes/privilege/cloud/signing/TerraBase/download execution; no source or repository changes.",
+    "newOffline calls fakeToolBinary while constructing shims. Non-race mode uses os.Executable; race mode attempts go test -c of command fakes. This conditional fixture setup is source-described only and provides no build/race/runtime qualification; no setup helper was executed.",
+    "Source-only acceptance does not assert that any root passes, compiles or completes. CI shell categories qualify only supported actual project subprocess status/output; fake GitHub/Go/guest tooling supplies no provider or qualification authority.",
+    "Kernel root integration support is limited to initial generic child-process rejection; intended kernel diagnostics, subsequent assertions and gzip success remain blocked/uncredited. Success-based offline roots and conditional TestOfflineCommand remain unresolved.",
+    "Read-only Git/file/hash inspection and metadata-only packaging were performed. No project source, Go/tests/helpers/frameworks/scanners/parsers, probes, privilege, cloud, signing, cryptography, TerraBase or downloads were executed."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "NONE; source-only independent acceptance. No repository/source/ledger mutations, count/deletion/retirement/runtime/qualification/completion promotion."
+}

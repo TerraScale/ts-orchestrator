@@ -1,0 +1,243 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2040_2060",
+  "author": "/root/classification_100_dispatch/batch_2060_2080",
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "packet": {
+    "path": "/tmp/ts-source-classification-3460-3480-dx1ex5ch/classification.json",
+    "sha256": "98cda3656b362f9d8c89d866b31f01af5ce097143577c6e32f2d4f3cd6ae4311",
+    "checksum_path": "/tmp/ts-source-classification-3460-3480-dx1ex5ch/SHA256SUMS",
+    "checksum_sha256": "8450fabbd2c2bde7ee94aa74bca41ad90ae8694cbd1dbab44f90572901cfbbb2"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[3460:3480]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2040_2060"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/tenant/store_test.go::TestStoreRefusesInvalidWrites",
+    "internal/tenant/store_test.go::TestStoreRefusesTamperedRecords",
+    "internal/tenant/store_test.go::TestStoreRoundTripAndList",
+    "internal/tenant/tenant_test.go::TestCheckNewRefusesHandBuiltTenants",
+    "internal/tenant/tenant_test.go::TestCheckSuccessorRefusesForgedRecords",
+    "internal/tenant/tenant_test.go::TestClockSkewNeverFreezesATenant",
+    "internal/tenant/tenant_test.go::TestLifecycle",
+    "internal/tenant/tenant_test.go::TestNewValidatesIdentityAndSpec",
+    "internal/tenant/tenant_test.go::TestPlanEditsNeverResizeATenant",
+    "internal/tenant/tenant_test.go::TestPlansCannotBeChangedByImporters",
+    "internal/tenant/tenant_test.go::TestRefusedTransitions",
+    "internal/terrabase/admin_port_test.go::TestDefaultObservabilityListenerAvoidsTheAdminPort",
+    "internal/terrabase/binary_test.go::TestTerraBaseBinaryPeerMesh",
+    "internal/terrabase/cli_test.go::TestDataVolumeDryRunSizesFromThePlan",
+    "internal/terrabase/cli_test.go::TestDataVolumeRejectsUnplannedMembersAndAmbiguousFlags",
+    "internal/terrabase/cli_test.go::TestRestoreVolumeDryRunMakesNoOCICall",
+    "internal/terrabase/oci_live_test.go::TestLiveOCITerraBaseHostsReadOnly",
+    "internal/terrabase/restore_check_test.go::TestRestoreCheckEnvHasOnlyHostPathsAndNoPeers",
+    "internal/terrabase/restore_check_test.go::TestRestoreCheckPlanWithoutApply",
+    "internal/terrabase/restore_check_test.go::TestRestoreCheckProvenanceFailurePreventsMount"
+  ],
+  "counts": {
+    "integration": 4,
+    "unit": 15,
+    "mixed": 1,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 full canonical root declarations and changed live root full baseline declaration. Read connected tenant model/store/fixture, CLI resolver/dispatch, binary process/TLS/health helpers, release verifier, qualification gate, live OCI client/ingress and restore guard/environment paths.",
+    "Verified exact allocation and accounting literal other_unadjudicated[3460:3480] order and all20 historical survival mapping rows without remapping original identities.",
+    "Verified40 raw baseline/current declarations from func through column-zero close excluding following LF, exact declared bounds/text/SHA256 and29 Git source-file pins including blob/mode/SHA256/byte length.",
+    "Verified80 exact assertion/callee spans against canonical Git bytes and blob identity. Entire declarations retain all assertion conditions, including those outside narrowed evidence excerpts.",
+    "Verified input pins, packet/checksum hashes, SHA256SUMS entries and files0444/directory0555. No source scanning/parser/framework, Go/test/helper or runtime execution."
+  ],
+  "independent_root_assessment": [
+    {
+      "root_id": "internal/tenant/store_test.go::TestStoreRefusesInvalidWrites",
+      "category": "mixed",
+      "accepted": true,
+      "qualification_limits_retained": [
+        "Single upstream server, one replica; no distributed quorum or restart assertion."
+      ]
+    },
+    {
+      "root_id": "internal/tenant/store_test.go::TestStoreRefusesTamperedRecords",
+      "category": "integration",
+      "accepted": true,
+      "qualification_limits_retained": [
+        "Direct upstream server.NewServer plus nats.Connect TCP, not natscell.Start or in-process protocol client."
+      ]
+    },
+    {
+      "root_id": "internal/tenant/store_test.go::TestStoreRoundTripAndList",
+      "category": "integration",
+      "accepted": true,
+      "qualification_limits_retained": [
+        "Single server, no restart or multi-region durability claim."
+      ]
+    },
+    {
+      "root_id": "internal/tenant/tenant_test.go::TestCheckNewRefusesHandBuiltTenants",
+      "category": "unit",
+      "accepted": true,
+      "qualification_limits_retained": [
+        "No store or service boundary."
+      ]
+    },
+    {
+      "root_id": "internal/tenant/tenant_test.go::TestCheckSuccessorRefusesForgedRecords",
+      "category": "unit",
+      "accepted": true,
+      "qualification_limits_retained": [
+        "No persisted-record comparison; that is separately exercised by Store roots."
+      ]
+    },
+    {
+      "root_id": "internal/tenant/tenant_test.go::TestClockSkewNeverFreezesATenant",
+      "category": "unit",
+      "accepted": true,
+      "qualification_limits_retained": [
+        "No leader, clock service or stored state."
+      ]
+    },
+    {
+      "root_id": "internal/tenant/tenant_test.go::TestLifecycle",
+      "category": "unit",
+      "accepted": true,
+      "qualification_limits_retained": [
+        "No actual host scaling, releases, volumes or process lifecycle."
+      ]
+    },
+    {
+      "root_id": "internal/tenant/tenant_test.go::TestNewValidatesIdentityAndSpec",
+      "category": "unit",
+      "accepted": true,
+      "qualification_limits_retained": [
+        "Invalid legacy strings can fail canonical ULID validation; no reserved-name ownership service is exercised."
+      ]
+    },
+    {
+      "root_id": "internal/tenant/tenant_test.go::TestPlanEditsNeverResizeATenant",
+      "category": "unit",
+      "accepted": true,
+      "qualification_limits_retained": [
+        "No actual tenant resizing or storage."
+      ]
+    },
+    {
+      "root_id": "internal/tenant/tenant_test.go::TestPlansCannotBeChangedByImporters",
+      "category": "unit",
+      "accepted": true,
+      "qualification_limits_retained": [
+        "No external importer or boundary."
+      ]
+    },
+    {
+      "root_id": "internal/tenant/tenant_test.go::TestRefusedTransitions",
+      "category": "unit",
+      "accepted": true,
+      "qualification_limits_retained": [
+        "No actual release rollback, cluster or deletion."
+      ]
+    },
+    {
+      "root_id": "internal/terrabase/admin_port_test.go::TestDefaultObservabilityListenerAvoidsTheAdminPort",
+      "category": "unit",
+      "accepted": true,
+      "qualification_limits_retained": [
+        "Does not demonstrate successful simultaneous binds."
+      ]
+    },
+    {
+      "root_id": "internal/terrabase/binary_test.go::TestTerraBaseBinaryPeerMesh",
+      "category": "integration",
+      "accepted": true,
+      "qualification_limits_retained": [
+        "Requires TS_TERRABASE_BINARY and adjacent checksum; missing fixture skips or fails in qualification tier. No execution or asset receipt reviewed.",
+        "Positive gRPC assertion only requires a nonempty status, not grpc-status=0, replicated data or successful synchronization.",
+        "Exercises one cyclic client/server pairing per member; does not assert every ordered peer pair. Free-port helper closes reservations before member binds."
+      ]
+    },
+    {
+      "root_id": "internal/terrabase/cli_test.go::TestDataVolumeDryRunSizesFromThePlan",
+      "category": "unit",
+      "accepted": true,
+      "qualification_limits_retained": [
+        "No OCI call counter or cloud receipt; source control flow bypasses constructor without apply."
+      ]
+    },
+    {
+      "root_id": "internal/terrabase/cli_test.go::TestDataVolumeRejectsUnplannedMembersAndAmbiguousFlags",
+      "category": "unit",
+      "accepted": true,
+      "qualification_limits_retained": [
+        "No volume attachment, growth or persisted production effect."
+      ]
+    },
+    {
+      "root_id": "internal/terrabase/cli_test.go::TestRestoreVolumeDryRunMakesNoOCICall",
+      "category": "unit",
+      "accepted": true,
+      "qualification_limits_retained": [
+        "Name is not an instrumented no-OCI-call assertion; constructor bypass is visible in production source."
+      ]
+    },
+    {
+      "root_id": "internal/terrabase/oci_live_test.go::TestLiveOCITerraBaseHostsReadOnly",
+      "category": "integration",
+      "accepted": true,
+      "qualification_limits_retained": [
+        "Requires TS_OCI_LIVE_COMPARTMENT_ID and operator OCI configuration; missing fixture skips or fails in qualification tier.",
+        "Zero matching primary-VNIC members returns after regional checks; no peer TCP, egress, routing or replication probe. One-page list limits and partial static security policy interpretation retained.",
+        "Canonical declaration changed from baseline by extracting observePeerIngress; exact old/new raw declarations are retained."
+      ]
+    },
+    {
+      "root_id": "internal/terrabase/restore_check_test.go::TestRestoreCheckEnvHasOnlyHostPathsAndNoPeers",
+      "category": "unit",
+      "accepted": true,
+      "qualification_limits_retained": [
+        "No namespace isolation, path admission or executable behavior demonstrated."
+      ]
+    },
+    {
+      "root_id": "internal/terrabase/restore_check_test.go::TestRestoreCheckPlanWithoutApply",
+      "category": "unit",
+      "accepted": true,
+      "qualification_limits_retained": [
+        "ELF-looking bytes are never executed; no restored device, backup, cloud or namespace operation."
+      ]
+    },
+    {
+      "root_id": "internal/terrabase/restore_check_test.go::TestRestoreCheckProvenanceFailurePreventsMount",
+      "category": "unit",
+      "accepted": true,
+      "qualification_limits_retained": [
+        "Device is -1, OCI verification is fake; no OCI request, mount syscall or restored-device provenance receipt."
+      ]
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "retained_qualification_limits": [
+    "StoreInvalidWrites is mixed: separate generation2 Create local guard plus real KV writes/leader validation and readback. Store tampering/roundtrip genuinely use direct upstream NATS loopback TCP clients with file-backed KV.",
+    "Tenant lifecycle/catalog and CLI/schema guards are local decisions. Input plan/checksum/ELF files are incidental vectors; no OCI write or mount/process effect from dry-run roots. Mock provenance callback returns before unix.Open or Mount.",
+    "Binary fixture is conditional on external supplied release; positive gRPC check accepts any nonempty status and only cyclic peer pairs. No replicated data, grpc-status0, all-pair connectivity or in-flight drain proof is claimed; closed free-port reservations retain a race.",
+    "Live root materially reads real OCI List/Get APIs conditionally. Static ingress assessment is bounded to listed pages and partial rule fields; no peer TCP, egress, routing or replication proof. Zero matching hosts skips host assertions. Canonical helper extraction and full baseline obligation retained.",
+    "No source-visible deterministic blocker found in these assigned paths. Runtime/compile results and actual external fixtures remain unreviewed."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": false,
+    "deletion_credit": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2100_2120",
+  "author": "/root/classification_100_dispatch/batch_2120_2140",
+  "accepted_packet": {
+    "path": "/tmp/ts-final-source-3520-3540-pekg86g1/classification.json",
+    "sha256": "c4afc299b4a073c2c1f00afa53487070bcf4fa3428e63284d430fc9b45156116",
+    "checksum_path": "/tmp/ts-final-source-3520-3540-pekg86g1/SHA256SUMS",
+    "checksum_sha256": "4f04559a5df29eaf35bc0af093105659e91f84293120c4b297ac2fc6a7e67377"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": "other_unadjudicated[3520:3540)"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/trust/rootchain_test.go::TestRootChainRejectsTampering",
+    "internal/trust/rootchain_test.go::TestRootChainRequiresMajorityAndEveryNewRoot",
+    "internal/trust/rootchain_test.go::TestRootChainRequiresVersionOne",
+    "internal/trust/rootchain_test.go::TestRootChainRotatesAndRevokesTheReplacedRoot",
+    "internal/tsauth/cli_test.go::TestMemberClientRefusesUnsafeInputs",
+    "internal/tsauth/cli_test.go::TestReadOwnerOnlyRefusesFIFO",
+    "internal/tsauth/cli_test.go::TestRenderedMetadataRulesReserveMetadataForRootAndController",
+    "internal/tsauth/cli_test.go::TestRunRejectsIncompleteCommands",
+    "internal/tsauth/cli_test.go::TestRunRejectsPlanBeforeVaultAccess",
+    "internal/tsauth/contract_plan_test.go::TestBackendSet",
+    "internal/tsauth/contract_test.go::TestLayoutEnv",
+    "internal/tsauth/contract_test.go::TestProbe",
+    "internal/tsauth/contract_test.go::TestProjectIDsRequireCanonicalULID",
+    "internal/tsauth/contract_test.go::TestValidateMembers",
+    "internal/tsauth/contract_test.go::TestValidateProfile",
+    "internal/tsauth/contract_test.go::TestValidateSecrets",
+    "internal/tsauth/contract_test.go::TestVerifyRelease",
+    "internal/tsauth/ouroboros_test.go::TestEnsureOwnerAddsTransfersAndKeepsTheBootstrapAdmin",
+    "internal/tsauth/ouroboros_test.go::TestManagementOnAdminListener",
+    "internal/tsauth/ouroboros_test.go::TestOuroborosFlySecrets"
+  ],
+  "counts": {
+    "unit": 14,
+    "integration": 4,
+    "mixed": 2,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 complete roots and connected actual trust, CLI, metadata, catalog/profile, plan loader, release file, FIFO, probe, tenant HTTP, fakeVault and flyctl subprocess paths. Source only; no execution.",
+    "Confirmed exact literal allocation20 IDs/order and all survival mappings against pinned allocation/accounting and survival inputs.",
+    "Independently entered all20 declaration bounds; recomputed baseline/current raw declarations40 from func through column-zero close excluding final LF and compared exact current text and survival hashes. Five test files retain identical baseline/current blobs.",
+    "Recomputed all36 canonical/baseline file pins: Git mode/blob, SHA256 and bytes, including public genesis PEM and nonexecuted ELF fixture. Verified all20 entire assertion spans and59 connected evidence spans/text/blob against canonical Git bytes.",
+    "Manually confirmed I4/U14/M2: FIFO and real loopback HTTP boundaries materially support assertions; local certificate parsing/client construction, metadata/plan source policy, profile maps and cryptographic vectors remain unit. Release wrong-name guard and no-token fakeVault block coexist independently with actual file/process boundaries and remain mixed.",
+    "Verified exact packet/checksum hashes and each checksum member, all input pins, files0444/directory0555 seals, count sum20, runtime/safety/no-retirement flags and no accounting promotion."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "acceptance": "ACCEPTED_SOURCE_ONLY_CANDIDATE_EXACT_HASH",
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; source classification establishes neither compilation nor runtime pass/fail. No execution or runtime receipt reviewed.",
+    "Management and probe roots reach real loopback HTTP through production clients and synthetic handlers; no live TerraBase, production authentication provider or vendor availability is qualified.",
+    "FlySecrets uses an in-memory fakeVault and local PATH shell stub; no actual OCI Vault or Fly API/deployment. Independent no-token output/read-list block remains unit obligation.",
+    "Release verification reads a checked-in ELF fixture and temporary files only; no TerraBase or other release binary is executed. Wrong asset-name pre-I/O guard remains an independent unit obligation.",
+    "FIFO nonblocking rejection is the narrowly supported OS boundary. Metadata rendering/checked-in unit strings do not qualify nft/systemd enforcement; memberClient local input checks do not qualify TLS/network requests.",
+    "All validation, canonical identity, rotation/revocation, permission, authentication, owner/role, fail-closed and redaction obligations retained. No source/repository/ledger changes, count promotion, deletion/retirement, runtime qualification or global completion credit."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": false,
+    "deletion_credit": false,
+    "retirement_credit": false,
+    "runtime_credit": false,
+    "global_completion": false
+  }
+}

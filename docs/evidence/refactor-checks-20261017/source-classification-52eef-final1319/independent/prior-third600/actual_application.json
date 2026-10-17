@@ -1,0 +1,76 @@
+{
+  "actual": {
+    "completion": {
+      "bytes": 1518155,
+      "mode": "0o600",
+      "path": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+      "sha256": "f14d93dcfbd9cac749c328649a08409e86c78846d6f9dcca33aa6cebba677c60"
+    },
+    "progress": {
+      "bytes": 196180,
+      "mode": "0o644",
+      "path": "/tmp/ts-qa-main-union-progress-20261016.json",
+      "sha256": "bdaf0341c27cf21ea022d974cfffb139aacc1fa61539e18766a82a2f9df7fb89"
+    }
+  },
+  "all_five_gates": "OPEN",
+  "before_after": {
+    "completion": {
+      "actual_path": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+      "after_bytes": 1518155,
+      "after_path": "proposed-completion.json",
+      "after_sha256": "f14d93dcfbd9cac749c328649a08409e86c78846d6f9dcca33aa6cebba677c60",
+      "before_bytes": 1494887,
+      "before_mode": "0o600",
+      "before_path": "before/completion.json",
+      "before_sha256": "5e8980943839bc1589cdaec11c5e4214b9ae03fea71d0df00c63b847ff5e6638"
+    },
+    "progress": {
+      "actual_path": "/tmp/ts-qa-main-union-progress-20261016.json",
+      "after_bytes": 196180,
+      "after_path": "proposed-progress.json",
+      "after_sha256": "bdaf0341c27cf21ea022d974cfffb139aacc1fa61539e18766a82a2f9df7fb89",
+      "before_bytes": 190696,
+      "before_mode": "0o644",
+      "before_path": "before/progress.json",
+      "before_sha256": "a76bfb940bd750c8735595fb3fabe2fa347fa8dc11fc20f1dad1ffb5e067a239"
+    }
+  },
+  "canonical_source_mutation": false,
+  "complete": false,
+  "counts": {
+    "classified": 2857,
+    "integration": 1019,
+    "mixed": 444,
+    "originals": 4319,
+    "other_unadjudicated": 1319,
+    "retained": 4300,
+    "retired": 19,
+    "reviewed_unresolved_included": 124,
+    "unadjudicated": 1443,
+    "unit": 1394
+  },
+  "created_utc": "2026-10-17T20:10:24.547151+00:00",
+  "exact_reviewed_proposed_bytes_installed": true,
+  "freeze": {
+    "path": "/tmp/ts-qa-third600-prospective-freeze.json",
+    "sha256": "1504594bd115307ecbdbdd2844c8f61867eee1b1868c0d2b402caf398515af50"
+  },
+  "head": "1ee21af7709a6997212f9225ad5a06c5247b4ede",
+  "human_main_mutation": false,
+  "independent_prospective_review": {
+    "path": "/tmp/third600-prospective-composition-independent-review.t_mstvkd",
+    "sha256": "381738436230915ad567801af622827bacef7489d0d20ff57c6385cc5235ece2"
+  },
+  "mirror_count": 12,
+  "parent": "f54ac477362d659129e38b403d6731f6fb799a99",
+  "proposal_state_text_preserved_as_exact_reviewed_bytes": true,
+  "publication_scope": "206 evidence additions only",
+  "retirement_delta": 0,
+  "root_authorization": "ONE exact live accounting application and normal publication of frozen1ee21af77/tree23006dc9/parentf54ac; no automatic retry on drift",
+  "runtime_credit": 0,
+  "schema": "third600-exact-actual-application-v1",
+  "state": "ACTUAL_EXACT_REVIEWED_BYTES_APPLIED_PUBLICATION_PENDING",
+  "tree": "23006dc9f55daf8fbf79119a7449a0dfa6ab249c",
+  "worktree": "/tmp/ts-qa-third600-source-evidence-52eef"
+}

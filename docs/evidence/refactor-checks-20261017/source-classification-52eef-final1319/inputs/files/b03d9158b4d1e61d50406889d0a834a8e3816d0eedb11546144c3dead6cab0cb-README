@@ -1,0 +1,6 @@
+SOURCE_ONLY_CANDIDATE
+Literal FINAL allocation other_unadjudicated[3520:3540), twenty roots.
+4 integration / 14 unit / 2 mixed / 0 unresolved.
+Full roots and actual helper/callee paths manually read; metadata-only explicit-span serialization.
+Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No repository/ledger edits or promotion.
+All safety obligations retained; retirement_authorized=false. Independent peer required.

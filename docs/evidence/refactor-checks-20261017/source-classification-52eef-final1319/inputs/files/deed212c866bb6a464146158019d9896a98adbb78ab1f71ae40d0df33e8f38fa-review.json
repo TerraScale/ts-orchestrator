@@ -1,0 +1,101 @@
+{
+  "schema": "independent-source-classification-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_960_980",
+  "author": "/root/classification_100_dispatch/batch_980_1000",
+  "decision": "ACCEPT_EXACT_PACKET_SOURCE_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-other-3180-3200-xmlbfvgw/classification.json",
+    "sha256": "e3b7ac487bfbe510f48969cf98d0c0ff5d246b616b1cb7f58b4839a6a657726a"
+  },
+  "accepted_checksum_file": {
+    "path": "/tmp/ts-source-other-3180-3200-xmlbfvgw/SHA256SUMS",
+    "sha256": "871534df3619a726156953046da74b0a3f48df53ea826e27eca77d4367a398d8"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      3180,
+      3200
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_960_980"
+  },
+  "range": [
+    3180,
+    3200
+  ],
+  "literal_root_ids": [
+    "internal/rollout/release_test.go::TestAbandonedReleaseRefundsReservationAndAllowsFreshIssuance",
+    "internal/rollout/release_test.go::TestReleaseGenerationsPublishRollBackAndPause",
+    "internal/rollout/release_test.go::TestReleaseHistoryIsBounded",
+    "internal/rollout/release_test.go::TestReleaseWritesAreFencedAndRefuseKnownBadAndMalformedReleases",
+    "internal/rollout/reservation_test.go::TestAdmissionRefusesRetainedGenerationAheadOfPublishedDesired",
+    "internal/rollout/reservation_test.go::TestExistingFullRecordResumesWithoutRetainedGeneration",
+    "internal/rollout/reservation_test.go::TestPublicationPreservesProofAcrossAdmissionAndRecordFailure",
+    "internal/rollout/reservation_test.go::TestReservationRefusesUnpublishedStageWithoutChargingAnotherDigest",
+    "internal/rollout/reservation_test.go::TestStalePublisherPreservesSuccessorReservationProof",
+    "internal/rollout/rollout_test.go::TestAssessDerivesEveryStatementFromBothReleases",
+    "internal/rollout/rollout_test.go::TestAssessFailsClosedOnMissingOrMalformedDeclarations",
+    "internal/rollout/rollout_test.go::TestBackoffIsBoundedAndCapped",
+    "internal/rollout/rollout_test.go::TestClassifyDefaultsToTerminal",
+    "internal/rollout/rollout_test.go::TestKnownBadSetRefusesRecordedDigests",
+    "internal/rollout/rollout_test.go::TestSoakRequiresAStableServingProcessForTheWholeWindow",
+    "internal/rollout/rollout_test.go::TestSoakTreatsUnknownProcessAndReportGapsAsUnknown",
+    "internal/rollout/sequence_integration_test.go::TestSequencePublicationConcurrentConsumersKeepHighestFloor",
+    "internal/rollout/sequence_integration_test.go::TestSequencePublicationDurableBoundary",
+    "internal/rollout/sequence_integration_test.go::TestSequencePublicationRejectsInvalidProofBeforeWrites",
+    "internal/rollout/sequence_integration_test.go::TestSequencePublicationSeedsAllLegacyHistory"
+  ],
+  "counts": {
+    "integration": 10,
+    "unit": 7,
+    "mixed": 3,
+    "unresolved": 0
+  },
+  "review_method": "Independent manual reading of all20 complete literal roots and reached production/fixture paths; metadata-only verification against pinned Git bytes over explicitly reviewed bounds. No source parser/scanner or source/runtime execution.",
+  "checks_performed": [
+    "Verified allocation hash, exact owner/range/peer assignment and20 ordered literal root IDs; pinned instructions, survival TSV and original-root-accounting hashes; each exact survival row and one accounting disposition per literal root.",
+    "Verified canonical commit/tree and baseline commit;29 full source-file Git blob/mode/byte-size/SHA256 pins against git show/ls-tree.",
+    "Verified20 baseline/current manually reviewed declaration bounds, raw func-through-column-zero-close bytes excluding following LF, original/current declaration hashes, historical-survival identities and no canonical drift.",
+    "Verified20 entire-root assertion excerpts and37 connected-callee excerpt bounds/bytes/hash pins; every connected reference resolves.",
+    "Independently classified actual assertion-supporting boundaries, distinguishing direct upstream loopback TCP/FileStorage NATS from fake epoch authority; verified3 mixed roots retain independent pre-I/O local guards and7 local roots remain unit.",
+    "Verified sequence migration/signature/qualification call paths and bounded history/CAS behavior in source; signed fixture proofs and synthetic evidence files grant no live gate credit; orderly same-directory restart grants no crash qualification.",
+    "Verified exact packet/checksum SHA256, all checksum entries, file0444 and packet-directory0555; all20 roots retain safety obligations, runtimeUNKNOWN and no retirement authorization."
+  ],
+  "boundary_findings": [
+    {
+      "roots": [
+        "internal/rollout/release_test.go::TestReleaseWritesAreFencedAndRefuseKnownBadAndMalformedReleases"
+      ],
+      "disposition": "Accepted as mixed: invalid-digest/rollback guards are local before store I/O; known-bad writes/readback and final Desired assertion reach real KV."
+    },
+    {
+      "roots": [
+        "internal/rollout/sequence_integration_test.go::TestSequencePublicationDurableBoundary",
+        "internal/rollout/sequence_integration_test.go::TestSequencePublicationRejectsInvalidProofBeforeWrites"
+      ],
+      "disposition": "Accepted as mixed: independent direct/stripped signed-receipt and forged-rollback guards coexist with actual KV publication/refusal-state assertions. Cryptographic fixture construction is synthetic setup; actual retained history/floors support the integration portions."
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "unresolved_assertions": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "execution_performed": false,
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE; runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no compile/test pass/fail claim.",
+    "Actual upstream loopback TCP NATS/FileStorage KV and orderly same-directory restart; no natscell.Start, real authority/registration/auth, clustering, cloud, crash/power-loss durability or fleet serving claimed.",
+    "epochFence, record failures, interleaving wrappers and lineage callback are test fixtures. Sequence proofs use real local algorithms over synthetic metadata/evidence files; no live runtime-ha/workload-safety, independent evidence-body verification or signed production admission credit.",
+    "Seven roots are pure local. Three mixed roots retain distinct pre-I/O release/proof guard blocks alongside genuine KV scenarios; setup server/file activity does not qualify those local blocks.",
+    "No Go/build/test/helper/process/cloud/signing/crypto/TerraBase execution, downloads, children or source/repo/ledger mutation. Only file/Git/hash and metadata packaging performed.",
+    "All release ordering, fencing, refund, reservation proof, malformed-input, compatibility, retry/soak safety obligations retained. No deletion/retirement/qualification/count/global completion credit."
+  ],
+  "source_or_repository_mutation": false,
+  "ledger_mutation": false,
+  "promotion_authorized": false,
+  "retirement_authorized": false,
+  "accounting_effect": "NONE; no ledger/deletion/retirement/runtime/qualification/global-completion credit; original roots and safety obligations retained."
+}

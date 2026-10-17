@@ -1,0 +1,1548 @@
+{
+  "schema": "source-only-classification-explicit-spans-v1",
+  "owner": "/root/classification_100_dispatch/batch_2040_2060",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "classification_definitions": {
+    "integration": "Core observable materially reaches genuine project production file/store/protocol/service boundary. Direct production filesystem effect/readback or missing-file syscall error can establish that boundary.",
+    "unit": "Local predicate, grant/schema/role/clock/table validation; file vectors incidental to those predicates do not establish service or persistence coverage.",
+    "mixed": "Independent local-only assertion block coexists with materially genuine boundary assertion blocks.",
+    "unresolved": "Insufficient connected source or mapping evidence; distinct from runtime UNKNOWN."
+  },
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false,
+    "independent_peer_required": true
+  },
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[3440:3460]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2020_2040"
+  },
+  "input_pins": {
+    "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/PEER-PROTOCOL.md": "b1cbcb7a96a344363f5ba924a0e76fc418553607209733945892796508db7765",
+    "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70",
+    "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+    "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513"
+  },
+  "method": "Full manual source-only review of 20 literal roots and actual connected paths; explicit-span metadata packaging only. No source scanner/parser, Go, tests or helper execution. Baseline and canonical declaration bytes independently pinned.",
+  "counts": {
+    "mixed": 2,
+    "unit": 16,
+    "integration": 2,
+    "unresolved": 0
+  },
+  "root_ids": [
+    "internal/storage/hostvolume/observer_linux_test.go::TestRetainedMountRefusesUntrustedDevices",
+    "internal/storage/lifecycle/attach_retry_review_test.go::TestAttachRetriesSurviveTheDetachReattachCycle",
+    "internal/storage/lifecycle/machine_test.go::TestAttachingTimesOutIntoStuckAndCannotBeResetByReobservation",
+    "internal/storage/lifecycle/machine_test.go::TestCorruptOrFutureSinceExpiresImmediately",
+    "internal/storage/lifecycle/machine_test.go::TestDeadlineValidation",
+    "internal/storage/lifecycle/machine_test.go::TestHappyPathReachesMountedAndDeleted",
+    "internal/storage/lifecycle/machine_test.go::TestHoldAndReleaseRoundTrip",
+    "internal/storage/lifecycle/machine_test.go::TestHoldFromStuckRemembersStalledPhase",
+    "internal/storage/lifecycle/machine_test.go::TestInvalidTransitionsAreRejectedWithoutMutation",
+    "internal/storage/lifecycle/machine_test.go::TestOCIAttachmentStateMapping",
+    "internal/storage/lifecycle/machine_test.go::TestReleaseKeepsAttemptsSoRetriesStillEscalate",
+    "internal/storage/lifecycle/machine_test.go::TestRemediationPerStalledPhase",
+    "internal/storage/lifecycle/machine_test.go::TestReobservingTransitionalPhaseKeepsDeadline",
+    "internal/storage/lifecycle/machine_test.go::TestRetryCountsAttemptsAndEscalatesToHostReplacement",
+    "internal/storage/lifecycle/machine_test.go::TestStablePhasesNeverExpire",
+    "internal/tenant/store_test.go::TestStoreConcurrentWritersOneWins",
+    "internal/tenant/store_test.go::TestStoreCreateRefusesOffPlanResources",
+    "internal/tenant/store_test.go::TestStoreListFailsWhenCutShort",
+    "internal/tenant/store_test.go::TestStoreRefusesDeleteMarkers",
+    "internal/tenant/store_test.go::TestStoreRefusesFutureStamps"
+  ],
+  "roots": [
+    {
+      "root_id": "internal/storage/hostvolume/observer_linux_test.go::TestRetainedMountRefusesUntrustedDevices",
+      "path": "internal/storage/hostvolume/observer_linux_test.go",
+      "original_name": "TestRetainedMountRefusesUntrustedDevices",
+      "current_name": "TestRetainedMountRefusesUntrustedDevices",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_mapping": {
+        "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+        "line": 5293,
+        "raw_row": "internal/storage/hostvolume/observer_linux_test.go\tTestRetainedMountRefusesUntrustedDevices\ttest\tad68157d0f23d01197649096bca8a6cb59ab5c17545144591559881d36aa4de0\tTestRetainedMountRefusesUntrustedDevices\tad68157d0f23d01197649096bca8a6cb59ab5c17545144591559881d36aa4de0\tretained_body_exact",
+        "historical_current_declaration_sha256": "ad68157d0f23d01197649096bca8a6cb59ab5c17545144591559881d36aa4de0"
+      },
+      "original_declaration_sha256": "ad68157d0f23d01197649096bca8a6cb59ab5c17545144591559881d36aa4de0",
+      "current_declaration_sha256": "ad68157d0f23d01197649096bca8a6cb59ab5c17545144591559881d36aa4de0",
+      "canonical_body_drift": false,
+      "canonical_state": "retained_body_exact",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/storage/hostvolume/observer_linux_test.go",
+        "git_blob": "0259d7bcd662b00bf5742ceb4c17e95fc8291d27",
+        "line": 222,
+        "end_line": 234
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/storage/hostvolume/observer_linux_test.go",
+        "git_blob": "0259d7bcd662b00bf5742ceb4c17e95fc8291d27",
+        "line": 222,
+        "end_line": 234
+      },
+      "baseline_declaration_text": "func TestRetainedMountRefusesUntrustedDevices(t *testing.T) {\n\tvar zero MountWitness\n\tzero.Close()\n\tif err := zero.Recheck(); err == nil {\n\t\tt.Fatal(\"uninitialized retained witness accepted\")\n\t}\n\tfor _, device := range []string{\"/dev/null\", \"/tmp/loop0\", \"/dev/oracleoci/../../sda\", \"/dev/../dev/sda\"} {\n\t\tif fd, _, err := openBlockDevice(device); err == nil {\n\t\t\tunix.Close(fd)\n\t\t\tt.Fatalf(\"untrusted block device accepted: %s\", device)\n\t\t}\n\t}\n}",
+      "current_declaration_text": "func TestRetainedMountRefusesUntrustedDevices(t *testing.T) {\n\tvar zero MountWitness\n\tzero.Close()\n\tif err := zero.Recheck(); err == nil {\n\t\tt.Fatal(\"uninitialized retained witness accepted\")\n\t}\n\tfor _, device := range []string{\"/dev/null\", \"/tmp/loop0\", \"/dev/oracleoci/../../sda\", \"/dev/../dev/sda\"} {\n\t\tif fd, _, err := openBlockDevice(device); err == nil {\n\t\t\tunix.Close(fd)\n\t\t\tt.Fatalf(\"untrusted block device accepted: %s\", device)\n\t\t}\n\t}\n}",
+      "declaration_hash_rule": "Raw func through column-zero closing brace excluding following LF; manually inspected explicit bounds.",
+      "category": "mixed",
+      "reason": "Zero witness Close/Recheck and malformed/off-directory device paths are independent local pre-I/O guards. /dev/null is a clean direct /dev node: production trustedDirectories performs Lstat on /dev and /, then unix.Open/Fstat identifies/rejects the actual character node. This real filesystem/kernel read materially supports device refusal; no block mount or privileged sibling is exercised.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/hostvolume/observer_linux_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "0259d7bcd662b00bf5742ceb4c17e95fc8291d27",
+          "function": "entire root interior, preserving every assertion and condition",
+          "line": 223,
+          "end_line": 233,
+          "text": "\tvar zero MountWitness\n\tzero.Close()\n\tif err := zero.Recheck(); err == nil {\n\t\tt.Fatal(\"uninitialized retained witness accepted\")\n\t}\n\tfor _, device := range []string{\"/dev/null\", \"/tmp/loop0\", \"/dev/oracleoci/../../sda\", \"/dev/../dev/sda\"} {\n\t\tif fd, _, err := openBlockDevice(device); err == nil {\n\t\t\tunix.Close(fd)\n\t\t\tt.Fatalf(\"untrusted block device accepted: %s\", device)\n\t\t}\n\t}\n",
+          "span_sha256": "4938472f5aa2927e5f75ac4f20cb3805996c1eb1989c20facf97fcc604ded699"
+        }
+      ],
+      "connected_evidence": [
+        "host_guard"
+      ],
+      "source_blockers": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/attach_retry_review_test.go::TestAttachRetriesSurviveTheDetachReattachCycle",
+      "path": "internal/storage/lifecycle/attach_retry_review_test.go",
+      "original_name": "TestAttachRetriesSurviveTheDetachReattachCycle",
+      "current_name": "TestAttachRetriesSurviveTheDetachReattachCycle",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_mapping": {
+        "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+        "line": 5294,
+        "raw_row": "internal/storage/lifecycle/attach_retry_review_test.go\tTestAttachRetriesSurviveTheDetachReattachCycle\ttest\t7e7ecad3ae04d7e671e2cb400608cc0f60c87b10b2abe6a983741ab4f99980c4\tTestAttachRetriesSurviveTheDetachReattachCycle\t7e7ecad3ae04d7e671e2cb400608cc0f60c87b10b2abe6a983741ab4f99980c4\tretained_body_exact",
+        "historical_current_declaration_sha256": "7e7ecad3ae04d7e671e2cb400608cc0f60c87b10b2abe6a983741ab4f99980c4"
+      },
+      "original_declaration_sha256": "7e7ecad3ae04d7e671e2cb400608cc0f60c87b10b2abe6a983741ab4f99980c4",
+      "current_declaration_sha256": "7e7ecad3ae04d7e671e2cb400608cc0f60c87b10b2abe6a983741ab4f99980c4",
+      "canonical_body_drift": false,
+      "canonical_state": "retained_body_exact",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/storage/lifecycle/attach_retry_review_test.go",
+        "git_blob": "cc0e61a54320996c84b19f1cbde6d89731b8a010",
+        "line": 11,
+        "end_line": 47
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/storage/lifecycle/attach_retry_review_test.go",
+        "git_blob": "cc0e61a54320996c84b19f1cbde6d89731b8a010",
+        "line": 11,
+        "end_line": 47
+      },
+      "baseline_declaration_text": "func TestAttachRetriesSurviveTheDetachReattachCycle(t *testing.T) {\n\tdeadlines := DefaultDeadlines()\n\tstate := State{Phase: Attaching, Since: t0}\n\tat := t0\n\tfor cycle := uint32(0); ; cycle++ {\n\t\tat = at.Add(deadlines.For(Attaching) + time.Second)\n\t\tstuck, expired := Check(state, at, deadlines)\n\t\tif !expired || stuck.Phase != Stuck {\n\t\t\tt.Fatalf(\"cycle %d: attach did not stall: %+v\", cycle, stuck)\n\t\t}\n\t\tremediation := Remediate(stuck, deadlines)\n\t\tif cycle >= deadlines.MaxAttachRetries {\n\t\t\tif remediation != RemediationReplaceHost {\n\t\t\t\tt.Fatalf(\"cycle %d: remediation = %s, want host replacement\", cycle, remediation)\n\t\t\t}\n\t\t\tbreak\n\t\t}\n\t\tif remediation != RemediationForceDetachRetry {\n\t\t\tt.Fatalf(\"cycle %d: remediation = %s\", cycle, remediation)\n\t\t}\n\t\tstate = mustApply(t, stuck, EventRetry, at)\n\t\tfor _, event := range []Event{EventDetachRequested, EventDetached, EventAttachRequested} {\n\t\t\tstate = mustApply(t, state, event, at)\n\t\t}\n\t\tif state.Phase != Attaching || state.Attempts != cycle+1 {\n\t\t\tt.Fatalf(\"cycle %d: after reattach = %+v\", cycle, state)\n\t\t}\n\t}\n\tattached := mustApply(t, State{Phase: Attaching, Since: t0, Attempts: 2}, EventAttached, t0)\n\tif attached.Attempts != 0 {\n\t\tt.Fatalf(\"a successful attach kept the retry count: %+v\", attached)\n\t}\n\tdetached := mustApply(t, mustApply(t, attached, EventDetachRequested, t0), EventDetached, t0)\n\tif reattach := mustApply(t, detached, EventAttachRequested, t0); reattach.Attempts != 0 {\n\t\tt.Fatalf(\"an ordinary reattach inherited retries: %+v\", reattach)\n\t}\n}",
+      "current_declaration_text": "func TestAttachRetriesSurviveTheDetachReattachCycle(t *testing.T) {\n\tdeadlines := DefaultDeadlines()\n\tstate := State{Phase: Attaching, Since: t0}\n\tat := t0\n\tfor cycle := uint32(0); ; cycle++ {\n\t\tat = at.Add(deadlines.For(Attaching) + time.Second)\n\t\tstuck, expired := Check(state, at, deadlines)\n\t\tif !expired || stuck.Phase != Stuck {\n\t\t\tt.Fatalf(\"cycle %d: attach did not stall: %+v\", cycle, stuck)\n\t\t}\n\t\tremediation := Remediate(stuck, deadlines)\n\t\tif cycle >= deadlines.MaxAttachRetries {\n\t\t\tif remediation != RemediationReplaceHost {\n\t\t\t\tt.Fatalf(\"cycle %d: remediation = %s, want host replacement\", cycle, remediation)\n\t\t\t}\n\t\t\tbreak\n\t\t}\n\t\tif remediation != RemediationForceDetachRetry {\n\t\t\tt.Fatalf(\"cycle %d: remediation = %s\", cycle, remediation)\n\t\t}\n\t\tstate = mustApply(t, stuck, EventRetry, at)\n\t\tfor _, event := range []Event{EventDetachRequested, EventDetached, EventAttachRequested} {\n\t\t\tstate = mustApply(t, state, event, at)\n\t\t}\n\t\tif state.Phase != Attaching || state.Attempts != cycle+1 {\n\t\t\tt.Fatalf(\"cycle %d: after reattach = %+v\", cycle, state)\n\t\t}\n\t}\n\tattached := mustApply(t, State{Phase: Attaching, Since: t0, Attempts: 2}, EventAttached, t0)\n\tif attached.Attempts != 0 {\n\t\tt.Fatalf(\"a successful attach kept the retry count: %+v\", attached)\n\t}\n\tdetached := mustApply(t, mustApply(t, attached, EventDetachRequested, t0), EventDetached, t0)\n\tif reattach := mustApply(t, detached, EventAttachRequested, t0); reattach.Attempts != 0 {\n\t\tt.Fatalf(\"an ordinary reattach inherited retries: %+v\", reattach)\n\t}\n}",
+      "declaration_hash_rule": "Raw func through column-zero closing brace excluding following LF; manually inspected explicit bounds.",
+      "category": "unit",
+      "reason": "Synthetic force-detach/reattach event cycle invokes only Apply, Check and Remediate. Retry preservation, escalation and successful-attach reset are in-memory decision assertions; no detach, host replacement or OCI call occurs.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/lifecycle/attach_retry_review_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "cc0e61a54320996c84b19f1cbde6d89731b8a010",
+          "function": "entire root interior, preserving every assertion and condition",
+          "line": 12,
+          "end_line": 46,
+          "text": "\tdeadlines := DefaultDeadlines()\n\tstate := State{Phase: Attaching, Since: t0}\n\tat := t0\n\tfor cycle := uint32(0); ; cycle++ {\n\t\tat = at.Add(deadlines.For(Attaching) + time.Second)\n\t\tstuck, expired := Check(state, at, deadlines)\n\t\tif !expired || stuck.Phase != Stuck {\n\t\t\tt.Fatalf(\"cycle %d: attach did not stall: %+v\", cycle, stuck)\n\t\t}\n\t\tremediation := Remediate(stuck, deadlines)\n\t\tif cycle >= deadlines.MaxAttachRetries {\n\t\t\tif remediation != RemediationReplaceHost {\n\t\t\t\tt.Fatalf(\"cycle %d: remediation = %s, want host replacement\", cycle, remediation)\n\t\t\t}\n\t\t\tbreak\n\t\t}\n\t\tif remediation != RemediationForceDetachRetry {\n\t\t\tt.Fatalf(\"cycle %d: remediation = %s\", cycle, remediation)\n\t\t}\n\t\tstate = mustApply(t, stuck, EventRetry, at)\n\t\tfor _, event := range []Event{EventDetachRequested, EventDetached, EventAttachRequested} {\n\t\t\tstate = mustApply(t, state, event, at)\n\t\t}\n\t\tif state.Phase != Attaching || state.Attempts != cycle+1 {\n\t\t\tt.Fatalf(\"cycle %d: after reattach = %+v\", cycle, state)\n\t\t}\n\t}\n\tattached := mustApply(t, State{Phase: Attaching, Since: t0, Attempts: 2}, EventAttached, t0)\n\tif attached.Attempts != 0 {\n\t\tt.Fatalf(\"a successful attach kept the retry count: %+v\", attached)\n\t}\n\tdetached := mustApply(t, mustApply(t, attached, EventDetachRequested, t0), EventDetached, t0)\n\tif reattach := mustApply(t, detached, EventAttachRequested, t0); reattach.Attempts != 0 {\n\t\tt.Fatalf(\"an ordinary reattach inherited retries: %+v\", reattach)\n\t}\n",
+          "span_sha256": "7da5353429c15a5f8027b4d31ebf714028246d7b0f1a94a6f441ca9b6f0553f8"
+        }
+      ],
+      "connected_evidence": [
+        "lifecycle"
+      ],
+      "source_blockers": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestAttachingTimesOutIntoStuckAndCannotBeResetByReobservation",
+      "path": "internal/storage/lifecycle/machine_test.go",
+      "original_name": "TestAttachingTimesOutIntoStuckAndCannotBeResetByReobservation",
+      "current_name": "TestAttachingTimesOutIntoStuckAndCannotBeResetByReobservation",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_mapping": {
+        "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+        "line": 5299,
+        "raw_row": "internal/storage/lifecycle/machine_test.go\tTestAttachingTimesOutIntoStuckAndCannotBeResetByReobservation\ttest\tc6fe177cb7c475d62da88e278d1aed34cea060db5709411c11d320c9b22b0901\tTestAttachingTimesOutIntoStuckAndCannotBeResetByReobservation\tc6fe177cb7c475d62da88e278d1aed34cea060db5709411c11d320c9b22b0901\tretained_body_exact",
+        "historical_current_declaration_sha256": "c6fe177cb7c475d62da88e278d1aed34cea060db5709411c11d320c9b22b0901"
+      },
+      "original_declaration_sha256": "c6fe177cb7c475d62da88e278d1aed34cea060db5709411c11d320c9b22b0901",
+      "current_declaration_sha256": "c6fe177cb7c475d62da88e278d1aed34cea060db5709411c11d320c9b22b0901",
+      "canonical_body_drift": false,
+      "canonical_state": "retained_body_exact",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 94,
+        "end_line": 115
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 94,
+        "end_line": 115
+      },
+      "baseline_declaration_text": "func TestAttachingTimesOutIntoStuckAndCannotBeResetByReobservation(t *testing.T) {\n\tdeadlines := DefaultDeadlines()\n\tstate := mustApply(t, State{Phase: Available, Since: t0}, EventAttachRequested, t0)\n\tif _, stuck := Check(state, t0.Add(9*time.Minute), deadlines); stuck {\n\t\tt.Fatal(\"ATTACHING became stuck before its deadline\")\n\t}\n\tstuck, changed := Check(state, t0.Add(10*time.Minute), deadlines)\n\tif !changed || stuck.Phase != Stuck || stuck.StuckFrom != Attaching || stuck.Reason == \"\" {\n\t\tt.Fatalf(\"ATTACHING did not become stuck: %+v\", stuck)\n\t}\n\t// The placement loop keeps observing ATTACHING; that must not unstick it.\n\tif again := mustApply(t, stuck, EventAttachRequested, t0.Add(11*time.Minute)); again != stuck {\n\t\tt.Fatalf(\"re-observed ATTACHING cleared stuck: %+v\", again)\n\t}\n\tif got := Remediate(stuck, deadlines); got != RemediationForceDetachRetry {\n\t\tt.Fatalf(\"first stall remediation = %q\", got)\n\t}\n\t// A late positive observation resolves the stall without a retry.\n\tif resolved := mustApply(t, stuck, EventAttached, t0.Add(12*time.Minute)); resolved.Phase != Attached || resolved.Attempts != 0 {\n\t\tt.Fatalf(\"late ATTACHED did not resolve stall: %+v\", resolved)\n\t}\n}",
+      "current_declaration_text": "func TestAttachingTimesOutIntoStuckAndCannotBeResetByReobservation(t *testing.T) {\n\tdeadlines := DefaultDeadlines()\n\tstate := mustApply(t, State{Phase: Available, Since: t0}, EventAttachRequested, t0)\n\tif _, stuck := Check(state, t0.Add(9*time.Minute), deadlines); stuck {\n\t\tt.Fatal(\"ATTACHING became stuck before its deadline\")\n\t}\n\tstuck, changed := Check(state, t0.Add(10*time.Minute), deadlines)\n\tif !changed || stuck.Phase != Stuck || stuck.StuckFrom != Attaching || stuck.Reason == \"\" {\n\t\tt.Fatalf(\"ATTACHING did not become stuck: %+v\", stuck)\n\t}\n\t// The placement loop keeps observing ATTACHING; that must not unstick it.\n\tif again := mustApply(t, stuck, EventAttachRequested, t0.Add(11*time.Minute)); again != stuck {\n\t\tt.Fatalf(\"re-observed ATTACHING cleared stuck: %+v\", again)\n\t}\n\tif got := Remediate(stuck, deadlines); got != RemediationForceDetachRetry {\n\t\tt.Fatalf(\"first stall remediation = %q\", got)\n\t}\n\t// A late positive observation resolves the stall without a retry.\n\tif resolved := mustApply(t, stuck, EventAttached, t0.Add(12*time.Minute)); resolved.Phase != Attached || resolved.Attempts != 0 {\n\t\tt.Fatalf(\"late ATTACHED did not resolve stall: %+v\", resolved)\n\t}\n}",
+      "declaration_hash_rule": "Raw func through column-zero closing brace excluding following LF; manually inspected explicit bounds.",
+      "category": "unit",
+      "reason": "Fixed clock and State exercise Check deadline, stuck reobservation, remediation enum and late attached event through pure functions. No persisted state or attachment operation.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/lifecycle/machine_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+          "function": "entire root interior, preserving every assertion and condition",
+          "line": 95,
+          "end_line": 114,
+          "text": "\tdeadlines := DefaultDeadlines()\n\tstate := mustApply(t, State{Phase: Available, Since: t0}, EventAttachRequested, t0)\n\tif _, stuck := Check(state, t0.Add(9*time.Minute), deadlines); stuck {\n\t\tt.Fatal(\"ATTACHING became stuck before its deadline\")\n\t}\n\tstuck, changed := Check(state, t0.Add(10*time.Minute), deadlines)\n\tif !changed || stuck.Phase != Stuck || stuck.StuckFrom != Attaching || stuck.Reason == \"\" {\n\t\tt.Fatalf(\"ATTACHING did not become stuck: %+v\", stuck)\n\t}\n\t// The placement loop keeps observing ATTACHING; that must not unstick it.\n\tif again := mustApply(t, stuck, EventAttachRequested, t0.Add(11*time.Minute)); again != stuck {\n\t\tt.Fatalf(\"re-observed ATTACHING cleared stuck: %+v\", again)\n\t}\n\tif got := Remediate(stuck, deadlines); got != RemediationForceDetachRetry {\n\t\tt.Fatalf(\"first stall remediation = %q\", got)\n\t}\n\t// A late positive observation resolves the stall without a retry.\n\tif resolved := mustApply(t, stuck, EventAttached, t0.Add(12*time.Minute)); resolved.Phase != Attached || resolved.Attempts != 0 {\n\t\tt.Fatalf(\"late ATTACHED did not resolve stall: %+v\", resolved)\n\t}\n",
+          "span_sha256": "730faa818902bcb790208756fabb1c10495ae148ca354289ff15afb3ab38f6d4"
+        }
+      ],
+      "connected_evidence": [
+        "lifecycle"
+      ],
+      "source_blockers": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestCorruptOrFutureSinceExpiresImmediately",
+      "path": "internal/storage/lifecycle/machine_test.go",
+      "original_name": "TestCorruptOrFutureSinceExpiresImmediately",
+      "current_name": "TestCorruptOrFutureSinceExpiresImmediately",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_mapping": {
+        "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+        "line": 5303,
+        "raw_row": "internal/storage/lifecycle/machine_test.go\tTestCorruptOrFutureSinceExpiresImmediately\ttest\t99acc15a42cab9f2498bdc5733774e9e45131973388c6b883c92743973a421b2\tTestCorruptOrFutureSinceExpiresImmediately\t99acc15a42cab9f2498bdc5733774e9e45131973388c6b883c92743973a421b2\tretained_body_exact",
+        "historical_current_declaration_sha256": "99acc15a42cab9f2498bdc5733774e9e45131973388c6b883c92743973a421b2"
+      },
+      "original_declaration_sha256": "99acc15a42cab9f2498bdc5733774e9e45131973388c6b883c92743973a421b2",
+      "current_declaration_sha256": "99acc15a42cab9f2498bdc5733774e9e45131973388c6b883c92743973a421b2",
+      "canonical_body_drift": false,
+      "canonical_state": "retained_body_exact",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 172,
+        "end_line": 182
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 172,
+        "end_line": 182
+      },
+      "baseline_declaration_text": "func TestCorruptOrFutureSinceExpiresImmediately(t *testing.T) {\n\tif _, changed := Check(State{Phase: Attaching}, t0, Deadlines{}); !changed {\n\t\tt.Fatal(\"zero Since did not expire\")\n\t}\n\tif _, changed := Check(State{Phase: Attaching, Since: t0.Add(time.Hour)}, t0, Deadlines{}); !changed {\n\t\tt.Fatal(\"future Since did not expire\")\n\t}\n\tif _, changed := Check(State{Phase: Attaching, Since: t0.Add(30 * time.Second)}, t0, Deadlines{}); changed {\n\t\tt.Fatal(\"small clock skew expired a fresh phase\")\n\t}\n}",
+      "current_declaration_text": "func TestCorruptOrFutureSinceExpiresImmediately(t *testing.T) {\n\tif _, changed := Check(State{Phase: Attaching}, t0, Deadlines{}); !changed {\n\t\tt.Fatal(\"zero Since did not expire\")\n\t}\n\tif _, changed := Check(State{Phase: Attaching, Since: t0.Add(time.Hour)}, t0, Deadlines{}); !changed {\n\t\tt.Fatal(\"future Since did not expire\")\n\t}\n\tif _, changed := Check(State{Phase: Attaching, Since: t0.Add(30 * time.Second)}, t0, Deadlines{}); changed {\n\t\tt.Fatal(\"small clock skew expired a fresh phase\")\n\t}\n}",
+      "declaration_hash_rule": "Raw func through column-zero closing brace excluding following LF; manually inspected explicit bounds.",
+      "category": "unit",
+      "reason": "Zero/future/slightly skewed Since fields are local deadline predicates through Check/Expired; no clock service or store.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/lifecycle/machine_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+          "function": "entire root interior, preserving every assertion and condition",
+          "line": 173,
+          "end_line": 181,
+          "text": "\tif _, changed := Check(State{Phase: Attaching}, t0, Deadlines{}); !changed {\n\t\tt.Fatal(\"zero Since did not expire\")\n\t}\n\tif _, changed := Check(State{Phase: Attaching, Since: t0.Add(time.Hour)}, t0, Deadlines{}); !changed {\n\t\tt.Fatal(\"future Since did not expire\")\n\t}\n\tif _, changed := Check(State{Phase: Attaching, Since: t0.Add(30 * time.Second)}, t0, Deadlines{}); changed {\n\t\tt.Fatal(\"small clock skew expired a fresh phase\")\n\t}\n",
+          "span_sha256": "5297a0c9879ad5ddccb3e5014380cdafd60a144fb6a03107c1aaaadd925476e0"
+        }
+      ],
+      "connected_evidence": [
+        "lifecycle"
+      ],
+      "source_blockers": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestDeadlineValidation",
+      "path": "internal/storage/lifecycle/machine_test.go",
+      "original_name": "TestDeadlineValidation",
+      "current_name": "TestDeadlineValidation",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_mapping": {
+        "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+        "line": 5308,
+        "raw_row": "internal/storage/lifecycle/machine_test.go\tTestDeadlineValidation\ttest\t301b3039fa3342d3261660d205933dd9d5355e3c882dd2fd3501d77b101e9323\tTestDeadlineValidation\t301b3039fa3342d3261660d205933dd9d5355e3c882dd2fd3501d77b101e9323\tretained_body_exact",
+        "historical_current_declaration_sha256": "301b3039fa3342d3261660d205933dd9d5355e3c882dd2fd3501d77b101e9323"
+      },
+      "original_declaration_sha256": "301b3039fa3342d3261660d205933dd9d5355e3c882dd2fd3501d77b101e9323",
+      "current_declaration_sha256": "301b3039fa3342d3261660d205933dd9d5355e3c882dd2fd3501d77b101e9323",
+      "canonical_body_drift": false,
+      "canonical_state": "retained_body_exact",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 243,
+        "end_line": 259
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 243,
+        "end_line": 259
+      },
+      "baseline_declaration_text": "func TestDeadlineValidation(t *testing.T) {\n\tif err := (Deadlines{}).Validate(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := (Deadlines{Attaching: -time.Second}).Validate(); err == nil {\n\t\tt.Fatal(\"negative deadline accepted\")\n\t}\n\tif err := (Deadlines{Deleting: 48 * time.Hour}).Validate(); err == nil {\n\t\tt.Fatal(\"unbounded deadline accepted\")\n\t}\n\tif err := (Deadlines{MaxAttachRetries: 11}).Validate(); err == nil {\n\t\tt.Fatal(\"unbounded retries accepted\")\n\t}\n\tif got := (Deadlines{Attaching: time.Minute}).For(Attaching); got != time.Minute {\n\t\tt.Fatalf(\"custom deadline ignored: %s\", got)\n\t}\n}",
+      "current_declaration_text": "func TestDeadlineValidation(t *testing.T) {\n\tif err := (Deadlines{}).Validate(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := (Deadlines{Attaching: -time.Second}).Validate(); err == nil {\n\t\tt.Fatal(\"negative deadline accepted\")\n\t}\n\tif err := (Deadlines{Deleting: 48 * time.Hour}).Validate(); err == nil {\n\t\tt.Fatal(\"unbounded deadline accepted\")\n\t}\n\tif err := (Deadlines{MaxAttachRetries: 11}).Validate(); err == nil {\n\t\tt.Fatal(\"unbounded retries accepted\")\n\t}\n\tif got := (Deadlines{Attaching: time.Minute}).For(Attaching); got != time.Minute {\n\t\tt.Fatalf(\"custom deadline ignored: %s\", got)\n\t}\n}",
+      "declaration_hash_rule": "Raw func through column-zero closing brace excluding following LF; manually inspected explicit bounds.",
+      "category": "unit",
+      "reason": "Deadlines.Validate rejects bounded numeric vectors and For selects a custom duration in memory.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/lifecycle/machine_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+          "function": "entire root interior, preserving every assertion and condition",
+          "line": 244,
+          "end_line": 258,
+          "text": "\tif err := (Deadlines{}).Validate(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := (Deadlines{Attaching: -time.Second}).Validate(); err == nil {\n\t\tt.Fatal(\"negative deadline accepted\")\n\t}\n\tif err := (Deadlines{Deleting: 48 * time.Hour}).Validate(); err == nil {\n\t\tt.Fatal(\"unbounded deadline accepted\")\n\t}\n\tif err := (Deadlines{MaxAttachRetries: 11}).Validate(); err == nil {\n\t\tt.Fatal(\"unbounded retries accepted\")\n\t}\n\tif got := (Deadlines{Attaching: time.Minute}).For(Attaching); got != time.Minute {\n\t\tt.Fatalf(\"custom deadline ignored: %s\", got)\n\t}\n",
+          "span_sha256": "30c51518958e056cd7b08992146ea058e2fc04917a11f9405b891360acd19a07"
+        }
+      ],
+      "connected_evidence": [
+        "lifecycle"
+      ],
+      "source_blockers": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestHappyPathReachesMountedAndDeleted",
+      "path": "internal/storage/lifecycle/machine_test.go",
+      "original_name": "TestHappyPathReachesMountedAndDeleted",
+      "current_name": "TestHappyPathReachesMountedAndDeleted",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_mapping": {
+        "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+        "line": 5296,
+        "raw_row": "internal/storage/lifecycle/machine_test.go\tTestHappyPathReachesMountedAndDeleted\ttest\t517e900a5a4680e813b8b57fb2c8deb67c9dcc29e2e7985dd4fc6892a1a7621b\tTestHappyPathReachesMountedAndDeleted\t517e900a5a4680e813b8b57fb2c8deb67c9dcc29e2e7985dd4fc6892a1a7621b\tretained_body_exact",
+        "historical_current_declaration_sha256": "517e900a5a4680e813b8b57fb2c8deb67c9dcc29e2e7985dd4fc6892a1a7621b"
+      },
+      "original_declaration_sha256": "517e900a5a4680e813b8b57fb2c8deb67c9dcc29e2e7985dd4fc6892a1a7621b",
+      "current_declaration_sha256": "517e900a5a4680e813b8b57fb2c8deb67c9dcc29e2e7985dd4fc6892a1a7621b",
+      "canonical_body_drift": false,
+      "canonical_state": "retained_body_exact",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 20,
+        "end_line": 56
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 20,
+        "end_line": 56
+      },
+      "baseline_declaration_text": "func TestHappyPathReachesMountedAndDeleted(t *testing.T) {\n\tstate := New(t0)\n\tsteps := []struct {\n\t\tevent Event\n\t\twant  Phase\n\t}{\n\t\t{EventCreateRequested, Creating},\n\t\t{EventCreated, Available},\n\t\t{EventAttachRequested, Attaching},\n\t\t{EventAttached, Attached},\n\t\t{EventFormatStarted, Formatting},\n\t\t{EventMounted, Mounted},\n\t\t{EventResizeRequested, Resizing},\n\t\t{EventResized, Mounted},\n\t\t{EventDetachRequested, Detaching},\n\t\t{EventDetached, Detached},\n\t\t{EventAttachRequested, Attaching},\n\t\t{EventDetached, Detached},\n\t\t{EventDeleteRequested, Deleting},\n\t\t{EventDeleted, Deleted},\n\t}\n\tfor index, step := range steps {\n\t\tstate = mustApply(t, state, step.event, t0.Add(time.Duration(index)*time.Second))\n\t\tif state.Phase != step.want {\n\t\t\tt.Fatalf(\"step %d %s: phase %s, want %s\", index, step.event, state.Phase, step.want)\n\t\t}\n\t\tif !state.Since.Equal(t0.Add(time.Duration(index) * time.Second)) {\n\t\t\tt.Fatalf(\"step %d: Since was not restarted on progress\", index)\n\t\t}\n\t}\n\tif _, err := Apply(state, EventCreateRequested, t0, \"\"); !errors.Is(err, ErrTerminal) {\n\t\tt.Fatalf(\"Deleted accepted another event: %v\", err)\n\t}\n\tif _, err := Apply(state, EventHold, t0, \"x\"); !errors.Is(err, ErrTerminal) {\n\t\tt.Fatalf(\"Deleted accepted a hold: %v\", err)\n\t}\n}",
+      "current_declaration_text": "func TestHappyPathReachesMountedAndDeleted(t *testing.T) {\n\tstate := New(t0)\n\tsteps := []struct {\n\t\tevent Event\n\t\twant  Phase\n\t}{\n\t\t{EventCreateRequested, Creating},\n\t\t{EventCreated, Available},\n\t\t{EventAttachRequested, Attaching},\n\t\t{EventAttached, Attached},\n\t\t{EventFormatStarted, Formatting},\n\t\t{EventMounted, Mounted},\n\t\t{EventResizeRequested, Resizing},\n\t\t{EventResized, Mounted},\n\t\t{EventDetachRequested, Detaching},\n\t\t{EventDetached, Detached},\n\t\t{EventAttachRequested, Attaching},\n\t\t{EventDetached, Detached},\n\t\t{EventDeleteRequested, Deleting},\n\t\t{EventDeleted, Deleted},\n\t}\n\tfor index, step := range steps {\n\t\tstate = mustApply(t, state, step.event, t0.Add(time.Duration(index)*time.Second))\n\t\tif state.Phase != step.want {\n\t\t\tt.Fatalf(\"step %d %s: phase %s, want %s\", index, step.event, state.Phase, step.want)\n\t\t}\n\t\tif !state.Since.Equal(t0.Add(time.Duration(index) * time.Second)) {\n\t\t\tt.Fatalf(\"step %d: Since was not restarted on progress\", index)\n\t\t}\n\t}\n\tif _, err := Apply(state, EventCreateRequested, t0, \"\"); !errors.Is(err, ErrTerminal) {\n\t\tt.Fatalf(\"Deleted accepted another event: %v\", err)\n\t}\n\tif _, err := Apply(state, EventHold, t0, \"x\"); !errors.Is(err, ErrTerminal) {\n\t\tt.Fatalf(\"Deleted accepted a hold: %v\", err)\n\t}\n}",
+      "declaration_hash_rule": "Raw func through column-zero closing brace excluding following LF; manually inspected explicit bounds.",
+      "category": "unit",
+      "reason": "Local event table validates Phase and Since plus terminal errors through New/mustApply/Apply. Mounted and Deleted labels do not perform host or store effects.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/lifecycle/machine_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+          "function": "entire root interior, preserving every assertion and condition",
+          "line": 21,
+          "end_line": 55,
+          "text": "\tstate := New(t0)\n\tsteps := []struct {\n\t\tevent Event\n\t\twant  Phase\n\t}{\n\t\t{EventCreateRequested, Creating},\n\t\t{EventCreated, Available},\n\t\t{EventAttachRequested, Attaching},\n\t\t{EventAttached, Attached},\n\t\t{EventFormatStarted, Formatting},\n\t\t{EventMounted, Mounted},\n\t\t{EventResizeRequested, Resizing},\n\t\t{EventResized, Mounted},\n\t\t{EventDetachRequested, Detaching},\n\t\t{EventDetached, Detached},\n\t\t{EventAttachRequested, Attaching},\n\t\t{EventDetached, Detached},\n\t\t{EventDeleteRequested, Deleting},\n\t\t{EventDeleted, Deleted},\n\t}\n\tfor index, step := range steps {\n\t\tstate = mustApply(t, state, step.event, t0.Add(time.Duration(index)*time.Second))\n\t\tif state.Phase != step.want {\n\t\t\tt.Fatalf(\"step %d %s: phase %s, want %s\", index, step.event, state.Phase, step.want)\n\t\t}\n\t\tif !state.Since.Equal(t0.Add(time.Duration(index) * time.Second)) {\n\t\t\tt.Fatalf(\"step %d: Since was not restarted on progress\", index)\n\t\t}\n\t}\n\tif _, err := Apply(state, EventCreateRequested, t0, \"\"); !errors.Is(err, ErrTerminal) {\n\t\tt.Fatalf(\"Deleted accepted another event: %v\", err)\n\t}\n\tif _, err := Apply(state, EventHold, t0, \"x\"); !errors.Is(err, ErrTerminal) {\n\t\tt.Fatalf(\"Deleted accepted a hold: %v\", err)\n\t}\n",
+          "span_sha256": "b79306d6aca96123f3d08412f8f6e933e711d75bf57a0848b989bc5a009e4612"
+        }
+      ],
+      "connected_evidence": [
+        "lifecycle"
+      ],
+      "source_blockers": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestHoldAndReleaseRoundTrip",
+      "path": "internal/storage/lifecycle/machine_test.go",
+      "original_name": "TestHoldAndReleaseRoundTrip",
+      "current_name": "TestHoldAndReleaseRoundTrip",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_mapping": {
+        "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+        "line": 5304,
+        "raw_row": "internal/storage/lifecycle/machine_test.go\tTestHoldAndReleaseRoundTrip\ttest\ta349ea137b3933065249a7461279a24bc723687d1c485c0e169f704dc152c804\tTestHoldAndReleaseRoundTrip\ta349ea137b3933065249a7461279a24bc723687d1c485c0e169f704dc152c804\tretained_body_exact",
+        "historical_current_declaration_sha256": "a349ea137b3933065249a7461279a24bc723687d1c485c0e169f704dc152c804"
+      },
+      "original_declaration_sha256": "a349ea137b3933065249a7461279a24bc723687d1c485c0e169f704dc152c804",
+      "current_declaration_sha256": "a349ea137b3933065249a7461279a24bc723687d1c485c0e169f704dc152c804",
+      "canonical_body_drift": false,
+      "canonical_state": "retained_body_exact",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 184,
+        "end_line": 203
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 184,
+        "end_line": 203
+      },
+      "baseline_declaration_text": "func TestHoldAndReleaseRoundTrip(t *testing.T) {\n\tstate := State{Phase: Mounted, Since: t0}\n\theld, err := Apply(state, EventHold, t0.Add(time.Minute), \"unknown outcome\")\n\tif err != nil || held.Phase != Held || held.HeldFrom != Mounted || held.Reason != \"unknown outcome\" {\n\t\tt.Fatalf(\"hold = %+v, %v\", held, err)\n\t}\n\tif again := mustApply(t, held, EventHold, t0.Add(2*time.Minute)); again != held {\n\t\tt.Fatal(\"second hold changed state\")\n\t}\n\tif _, err := Apply(held, EventDetachRequested, t0, \"\"); !errors.Is(err, ErrInvalidTransition) {\n\t\tt.Fatalf(\"held volume accepted an effect: %v\", err)\n\t}\n\treleased := mustApply(t, held, EventRelease, t0.Add(3*time.Minute))\n\tif released.Phase != Mounted || released.Reason != \"\" {\n\t\tt.Fatalf(\"release = %+v\", released)\n\t}\n\tif _, err := Apply(state, EventRelease, t0, \"\"); !errors.Is(err, ErrInvalidTransition) {\n\t\tt.Fatal(\"release of a non-held volume succeeded\")\n\t}\n}",
+      "current_declaration_text": "func TestHoldAndReleaseRoundTrip(t *testing.T) {\n\tstate := State{Phase: Mounted, Since: t0}\n\theld, err := Apply(state, EventHold, t0.Add(time.Minute), \"unknown outcome\")\n\tif err != nil || held.Phase != Held || held.HeldFrom != Mounted || held.Reason != \"unknown outcome\" {\n\t\tt.Fatalf(\"hold = %+v, %v\", held, err)\n\t}\n\tif again := mustApply(t, held, EventHold, t0.Add(2*time.Minute)); again != held {\n\t\tt.Fatal(\"second hold changed state\")\n\t}\n\tif _, err := Apply(held, EventDetachRequested, t0, \"\"); !errors.Is(err, ErrInvalidTransition) {\n\t\tt.Fatalf(\"held volume accepted an effect: %v\", err)\n\t}\n\treleased := mustApply(t, held, EventRelease, t0.Add(3*time.Minute))\n\tif released.Phase != Mounted || released.Reason != \"\" {\n\t\tt.Fatalf(\"release = %+v\", released)\n\t}\n\tif _, err := Apply(state, EventRelease, t0, \"\"); !errors.Is(err, ErrInvalidTransition) {\n\t\tt.Fatal(\"release of a non-held volume succeeded\")\n\t}\n}",
+      "declaration_hash_rule": "Raw func through column-zero closing brace excluding following LF; manually inspected explicit bounds.",
+      "category": "unit",
+      "reason": "Local hold/release state records and error branches through Apply; requested detach is rejected as an event without executing an effect.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/lifecycle/machine_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+          "function": "entire root interior, preserving every assertion and condition",
+          "line": 185,
+          "end_line": 202,
+          "text": "\tstate := State{Phase: Mounted, Since: t0}\n\theld, err := Apply(state, EventHold, t0.Add(time.Minute), \"unknown outcome\")\n\tif err != nil || held.Phase != Held || held.HeldFrom != Mounted || held.Reason != \"unknown outcome\" {\n\t\tt.Fatalf(\"hold = %+v, %v\", held, err)\n\t}\n\tif again := mustApply(t, held, EventHold, t0.Add(2*time.Minute)); again != held {\n\t\tt.Fatal(\"second hold changed state\")\n\t}\n\tif _, err := Apply(held, EventDetachRequested, t0, \"\"); !errors.Is(err, ErrInvalidTransition) {\n\t\tt.Fatalf(\"held volume accepted an effect: %v\", err)\n\t}\n\treleased := mustApply(t, held, EventRelease, t0.Add(3*time.Minute))\n\tif released.Phase != Mounted || released.Reason != \"\" {\n\t\tt.Fatalf(\"release = %+v\", released)\n\t}\n\tif _, err := Apply(state, EventRelease, t0, \"\"); !errors.Is(err, ErrInvalidTransition) {\n\t\tt.Fatal(\"release of a non-held volume succeeded\")\n\t}\n",
+          "span_sha256": "f9e4f3737c45c41b0269edda2ea5f79c5e7d3c16aba9783c52391a3a96e15619"
+        }
+      ],
+      "connected_evidence": [
+        "lifecycle"
+      ],
+      "source_blockers": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestHoldFromStuckRemembersStalledPhase",
+      "path": "internal/storage/lifecycle/machine_test.go",
+      "original_name": "TestHoldFromStuckRemembersStalledPhase",
+      "current_name": "TestHoldFromStuckRemembersStalledPhase",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_mapping": {
+        "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+        "line": 5305,
+        "raw_row": "internal/storage/lifecycle/machine_test.go\tTestHoldFromStuckRemembersStalledPhase\ttest\t53cb88051b1089a7292874d13f40e9ac394a2eb44f8b80a698bc5260eaad3a97\tTestHoldFromStuckRemembersStalledPhase\t53cb88051b1089a7292874d13f40e9ac394a2eb44f8b80a698bc5260eaad3a97\tretained_body_exact",
+        "historical_current_declaration_sha256": "53cb88051b1089a7292874d13f40e9ac394a2eb44f8b80a698bc5260eaad3a97"
+      },
+      "original_declaration_sha256": "53cb88051b1089a7292874d13f40e9ac394a2eb44f8b80a698bc5260eaad3a97",
+      "current_declaration_sha256": "53cb88051b1089a7292874d13f40e9ac394a2eb44f8b80a698bc5260eaad3a97",
+      "canonical_body_drift": false,
+      "canonical_state": "retained_body_exact",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 205,
+        "end_line": 214
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 205,
+        "end_line": 214
+      },
+      "baseline_declaration_text": "func TestHoldFromStuckRemembersStalledPhase(t *testing.T) {\n\tstuck := State{Phase: Stuck, StuckFrom: Attaching, Since: t0, Attempts: 1}\n\theld := mustApply(t, stuck, EventHold, t0)\n\tif held.HeldFrom != Attaching || held.Attempts != 1 {\n\t\tt.Fatalf(\"hold from stuck = %+v\", held)\n\t}\n\tif _, err := Apply(State{Phase: Mounted}, EventRetry, t0, \"\"); !errors.Is(err, ErrInvalidTransition) {\n\t\tt.Fatal(\"retry of a non-stuck volume succeeded\")\n\t}\n}",
+      "current_declaration_text": "func TestHoldFromStuckRemembersStalledPhase(t *testing.T) {\n\tstuck := State{Phase: Stuck, StuckFrom: Attaching, Since: t0, Attempts: 1}\n\theld := mustApply(t, stuck, EventHold, t0)\n\tif held.HeldFrom != Attaching || held.Attempts != 1 {\n\t\tt.Fatalf(\"hold from stuck = %+v\", held)\n\t}\n\tif _, err := Apply(State{Phase: Mounted}, EventRetry, t0, \"\"); !errors.Is(err, ErrInvalidTransition) {\n\t\tt.Fatal(\"retry of a non-stuck volume succeeded\")\n\t}\n}",
+      "declaration_hash_rule": "Raw func through column-zero closing brace excluding following LF; manually inspected explicit bounds.",
+      "category": "unit",
+      "reason": "Synthetic stuck/held State verifies recorded stalled phase and attempt preservation; Apply rejects retry of a non-stuck record locally.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/lifecycle/machine_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+          "function": "entire root interior, preserving every assertion and condition",
+          "line": 206,
+          "end_line": 213,
+          "text": "\tstuck := State{Phase: Stuck, StuckFrom: Attaching, Since: t0, Attempts: 1}\n\theld := mustApply(t, stuck, EventHold, t0)\n\tif held.HeldFrom != Attaching || held.Attempts != 1 {\n\t\tt.Fatalf(\"hold from stuck = %+v\", held)\n\t}\n\tif _, err := Apply(State{Phase: Mounted}, EventRetry, t0, \"\"); !errors.Is(err, ErrInvalidTransition) {\n\t\tt.Fatal(\"retry of a non-stuck volume succeeded\")\n\t}\n",
+          "span_sha256": "25582e2b90e02b9908633a10993f1451bb3644206feb2d2576ce899de0989c3a"
+        }
+      ],
+      "connected_evidence": [
+        "lifecycle"
+      ],
+      "source_blockers": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestInvalidTransitionsAreRejectedWithoutMutation",
+      "path": "internal/storage/lifecycle/machine_test.go",
+      "original_name": "TestInvalidTransitionsAreRejectedWithoutMutation",
+      "current_name": "TestInvalidTransitionsAreRejectedWithoutMutation",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_mapping": {
+        "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+        "line": 5297,
+        "raw_row": "internal/storage/lifecycle/machine_test.go\tTestInvalidTransitionsAreRejectedWithoutMutation\ttest\t57b0d151fd5ff112dc4756f62e60bbc8b6ef322af31d98c5868949323f754040\tTestInvalidTransitionsAreRejectedWithoutMutation\t57b0d151fd5ff112dc4756f62e60bbc8b6ef322af31d98c5868949323f754040\tretained_body_exact",
+        "historical_current_declaration_sha256": "57b0d151fd5ff112dc4756f62e60bbc8b6ef322af31d98c5868949323f754040"
+      },
+      "original_declaration_sha256": "57b0d151fd5ff112dc4756f62e60bbc8b6ef322af31d98c5868949323f754040",
+      "current_declaration_sha256": "57b0d151fd5ff112dc4756f62e60bbc8b6ef322af31d98c5868949323f754040",
+      "canonical_body_drift": false,
+      "canonical_state": "retained_body_exact",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 58,
+        "end_line": 84
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 58,
+        "end_line": 84
+      },
+      "baseline_declaration_text": "func TestInvalidTransitionsAreRejectedWithoutMutation(t *testing.T) {\n\tcases := []struct {\n\t\tphase Phase\n\t\tevent Event\n\t}{\n\t\t{Pending, EventAttachRequested},\n\t\t{Available, EventFormatStarted},\n\t\t{Mounted, EventFormatStarted},\n\t\t{Mounted, EventDeleteRequested},\n\t\t{Attached, EventDeleteRequested},\n\t\t{Attaching, EventMounted},\n\t\t{Detaching, EventAttachRequested},\n\t\t{Resizing, EventDetachRequested},\n\t\t{Available, EventResizeRequested},\n\t\t{Phase(\"bogus\"), EventCreated},\n\t}\n\tfor _, test := range cases {\n\t\tstate := State{Phase: test.phase, Since: t0}\n\t\tgot, err := Apply(state, test.event, t0.Add(time.Hour), \"\")\n\t\tif !errors.Is(err, ErrInvalidTransition) {\n\t\t\tt.Fatalf(\"%s on %s: err %v, want invalid\", test.event, test.phase, err)\n\t\t}\n\t\tif got != state {\n\t\t\tt.Fatalf(\"%s on %s mutated state: %+v\", test.event, test.phase, got)\n\t\t}\n\t}\n}",
+      "current_declaration_text": "func TestInvalidTransitionsAreRejectedWithoutMutation(t *testing.T) {\n\tcases := []struct {\n\t\tphase Phase\n\t\tevent Event\n\t}{\n\t\t{Pending, EventAttachRequested},\n\t\t{Available, EventFormatStarted},\n\t\t{Mounted, EventFormatStarted},\n\t\t{Mounted, EventDeleteRequested},\n\t\t{Attached, EventDeleteRequested},\n\t\t{Attaching, EventMounted},\n\t\t{Detaching, EventAttachRequested},\n\t\t{Resizing, EventDetachRequested},\n\t\t{Available, EventResizeRequested},\n\t\t{Phase(\"bogus\"), EventCreated},\n\t}\n\tfor _, test := range cases {\n\t\tstate := State{Phase: test.phase, Since: t0}\n\t\tgot, err := Apply(state, test.event, t0.Add(time.Hour), \"\")\n\t\tif !errors.Is(err, ErrInvalidTransition) {\n\t\t\tt.Fatalf(\"%s on %s: err %v, want invalid\", test.event, test.phase, err)\n\t\t}\n\t\tif got != state {\n\t\t\tt.Fatalf(\"%s on %s mutated state: %+v\", test.event, test.phase, got)\n\t\t}\n\t}\n}",
+      "declaration_hash_rule": "Raw func through column-zero closing brace excluding following LF; manually inspected explicit bounds.",
+      "category": "unit",
+      "reason": "Table of phase/event pairs calls Apply and compares returned errors and unchanged value; no I/O.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/lifecycle/machine_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+          "function": "entire root interior, preserving every assertion and condition",
+          "line": 59,
+          "end_line": 83,
+          "text": "\tcases := []struct {\n\t\tphase Phase\n\t\tevent Event\n\t}{\n\t\t{Pending, EventAttachRequested},\n\t\t{Available, EventFormatStarted},\n\t\t{Mounted, EventFormatStarted},\n\t\t{Mounted, EventDeleteRequested},\n\t\t{Attached, EventDeleteRequested},\n\t\t{Attaching, EventMounted},\n\t\t{Detaching, EventAttachRequested},\n\t\t{Resizing, EventDetachRequested},\n\t\t{Available, EventResizeRequested},\n\t\t{Phase(\"bogus\"), EventCreated},\n\t}\n\tfor _, test := range cases {\n\t\tstate := State{Phase: test.phase, Since: t0}\n\t\tgot, err := Apply(state, test.event, t0.Add(time.Hour), \"\")\n\t\tif !errors.Is(err, ErrInvalidTransition) {\n\t\t\tt.Fatalf(\"%s on %s: err %v, want invalid\", test.event, test.phase, err)\n\t\t}\n\t\tif got != state {\n\t\t\tt.Fatalf(\"%s on %s mutated state: %+v\", test.event, test.phase, got)\n\t\t}\n\t}\n",
+          "span_sha256": "27971bf37d442be0146fd69eaaa833e6f108f42e1b7949650a07b3ad4a7fdbae"
+        }
+      ],
+      "connected_evidence": [
+        "lifecycle"
+      ],
+      "source_blockers": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestOCIAttachmentStateMapping",
+      "path": "internal/storage/lifecycle/machine_test.go",
+      "original_name": "TestOCIAttachmentStateMapping",
+      "current_name": "TestOCIAttachmentStateMapping",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_mapping": {
+        "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+        "line": 5307,
+        "raw_row": "internal/storage/lifecycle/machine_test.go\tTestOCIAttachmentStateMapping\ttest\tbd6646cf7ef01fbc256862e98e4009f505379b41bc6906925e963929e5bbe6a5\tTestOCIAttachmentStateMapping\tbd6646cf7ef01fbc256862e98e4009f505379b41bc6906925e963929e5bbe6a5\tretained_body_exact",
+        "historical_current_declaration_sha256": "bd6646cf7ef01fbc256862e98e4009f505379b41bc6906925e963929e5bbe6a5"
+      },
+      "original_declaration_sha256": "bd6646cf7ef01fbc256862e98e4009f505379b41bc6906925e963929e5bbe6a5",
+      "current_declaration_sha256": "bd6646cf7ef01fbc256862e98e4009f505379b41bc6906925e963929e5bbe6a5",
+      "canonical_body_drift": false,
+      "canonical_state": "retained_body_exact",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 229,
+        "end_line": 241
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 229,
+        "end_line": 241
+      },
+      "baseline_declaration_text": "func TestOCIAttachmentStateMapping(t *testing.T) {\n\tfor state, want := range map[string]Event{\n\t\t\"ATTACHING\": EventAttachRequested, \"ATTACHED\": EventAttached,\n\t\t\"DETACHING\": EventDetachRequested, \"DETACHED\": EventDetached,\n\t} {\n\t\tif got, ok := FromOCIAttachmentState(state); !ok || got != want {\n\t\t\tt.Fatalf(\"%s -> %s %v\", state, got, ok)\n\t\t}\n\t}\n\tif _, ok := FromOCIAttachmentState(\"FAULTY\"); ok {\n\t\tt.Fatal(\"unknown OCI attachment state mapped to an event\")\n\t}\n}",
+      "current_declaration_text": "func TestOCIAttachmentStateMapping(t *testing.T) {\n\tfor state, want := range map[string]Event{\n\t\t\"ATTACHING\": EventAttachRequested, \"ATTACHED\": EventAttached,\n\t\t\"DETACHING\": EventDetachRequested, \"DETACHED\": EventDetached,\n\t} {\n\t\tif got, ok := FromOCIAttachmentState(state); !ok || got != want {\n\t\t\tt.Fatalf(\"%s -> %s %v\", state, got, ok)\n\t\t}\n\t}\n\tif _, ok := FromOCIAttachmentState(\"FAULTY\"); ok {\n\t\tt.Fatal(\"unknown OCI attachment state mapped to an event\")\n\t}\n}",
+      "declaration_hash_rule": "Raw func through column-zero closing brace excluding following LF; manually inspected explicit bounds.",
+      "category": "unit",
+      "reason": "FromOCIAttachmentState maps literal strings to event constants and rejects unknown text; no OCI API.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/lifecycle/machine_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+          "function": "entire root interior, preserving every assertion and condition",
+          "line": 230,
+          "end_line": 240,
+          "text": "\tfor state, want := range map[string]Event{\n\t\t\"ATTACHING\": EventAttachRequested, \"ATTACHED\": EventAttached,\n\t\t\"DETACHING\": EventDetachRequested, \"DETACHED\": EventDetached,\n\t} {\n\t\tif got, ok := FromOCIAttachmentState(state); !ok || got != want {\n\t\t\tt.Fatalf(\"%s -> %s %v\", state, got, ok)\n\t\t}\n\t}\n\tif _, ok := FromOCIAttachmentState(\"FAULTY\"); ok {\n\t\tt.Fatal(\"unknown OCI attachment state mapped to an event\")\n\t}\n",
+          "span_sha256": "e377ba645d0394c32a2311f73d07f3b69855ace8928427ad3858b37a58747b17"
+        }
+      ],
+      "connected_evidence": [
+        "lifecycle"
+      ],
+      "source_blockers": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestReleaseKeepsAttemptsSoRetriesStillEscalate",
+      "path": "internal/storage/lifecycle/machine_test.go",
+      "original_name": "TestReleaseKeepsAttemptsSoRetriesStillEscalate",
+      "current_name": "TestReleaseKeepsAttemptsSoRetriesStillEscalate",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_mapping": {
+        "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+        "line": 5306,
+        "raw_row": "internal/storage/lifecycle/machine_test.go\tTestReleaseKeepsAttemptsSoRetriesStillEscalate\ttest\t22a53394a3b7ed828af769c3b37948f7b41ec7588ec114fe238027b88f01ddf2\tTestReleaseKeepsAttemptsSoRetriesStillEscalate\t22a53394a3b7ed828af769c3b37948f7b41ec7588ec114fe238027b88f01ddf2\tretained_body_exact",
+        "historical_current_declaration_sha256": "22a53394a3b7ed828af769c3b37948f7b41ec7588ec114fe238027b88f01ddf2"
+      },
+      "original_declaration_sha256": "22a53394a3b7ed828af769c3b37948f7b41ec7588ec114fe238027b88f01ddf2",
+      "current_declaration_sha256": "22a53394a3b7ed828af769c3b37948f7b41ec7588ec114fe238027b88f01ddf2",
+      "canonical_body_drift": false,
+      "canonical_state": "retained_body_exact",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 216,
+        "end_line": 227
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 216,
+        "end_line": 227
+      },
+      "baseline_declaration_text": "func TestReleaseKeepsAttemptsSoRetriesStillEscalate(t *testing.T) {\n\tdeadlines := DefaultDeadlines()\n\theld := mustApply(t, State{Phase: Stuck, StuckFrom: Attaching, Since: t0, Attempts: deadlines.MaxAttachRetries}, EventHold, t0)\n\treleased := mustApply(t, held, EventRelease, t0.Add(time.Minute))\n\tif released.Phase != Attaching || released.Attempts != deadlines.MaxAttachRetries {\n\t\tt.Fatalf(\"release = %+v, want Attaching with the attempts kept\", released)\n\t}\n\tstuck, changed := Check(released, released.Since.Add(deadlines.Attaching+time.Second), deadlines)\n\tif !changed || Remediate(stuck, deadlines) != RemediationReplaceHost {\n\t\tt.Fatalf(\"a stall after hold/release did not escalate: %+v\", stuck)\n\t}\n}",
+      "current_declaration_text": "func TestReleaseKeepsAttemptsSoRetriesStillEscalate(t *testing.T) {\n\tdeadlines := DefaultDeadlines()\n\theld := mustApply(t, State{Phase: Stuck, StuckFrom: Attaching, Since: t0, Attempts: deadlines.MaxAttachRetries}, EventHold, t0)\n\treleased := mustApply(t, held, EventRelease, t0.Add(time.Minute))\n\tif released.Phase != Attaching || released.Attempts != deadlines.MaxAttachRetries {\n\t\tt.Fatalf(\"release = %+v, want Attaching with the attempts kept\", released)\n\t}\n\tstuck, changed := Check(released, released.Since.Add(deadlines.Attaching+time.Second), deadlines)\n\tif !changed || Remediate(stuck, deadlines) != RemediationReplaceHost {\n\t\tt.Fatalf(\"a stall after hold/release did not escalate: %+v\", stuck)\n\t}\n}",
+      "declaration_hash_rule": "Raw func through column-zero closing brace excluding following LF; manually inspected explicit bounds.",
+      "category": "unit",
+      "reason": "Local hold/release then Check/Remediate verifies retry attempts survive and escalation enum follows; no host replacement.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/lifecycle/machine_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+          "function": "entire root interior, preserving every assertion and condition",
+          "line": 217,
+          "end_line": 226,
+          "text": "\tdeadlines := DefaultDeadlines()\n\theld := mustApply(t, State{Phase: Stuck, StuckFrom: Attaching, Since: t0, Attempts: deadlines.MaxAttachRetries}, EventHold, t0)\n\treleased := mustApply(t, held, EventRelease, t0.Add(time.Minute))\n\tif released.Phase != Attaching || released.Attempts != deadlines.MaxAttachRetries {\n\t\tt.Fatalf(\"release = %+v, want Attaching with the attempts kept\", released)\n\t}\n\tstuck, changed := Check(released, released.Since.Add(deadlines.Attaching+time.Second), deadlines)\n\tif !changed || Remediate(stuck, deadlines) != RemediationReplaceHost {\n\t\tt.Fatalf(\"a stall after hold/release did not escalate: %+v\", stuck)\n\t}\n",
+          "span_sha256": "1761802c823fc854fe01bb7b4bd952a0b0d85664d4ce46418714ccc98feafa69"
+        }
+      ],
+      "connected_evidence": [
+        "lifecycle"
+      ],
+      "source_blockers": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestRemediationPerStalledPhase",
+      "path": "internal/storage/lifecycle/machine_test.go",
+      "original_name": "TestRemediationPerStalledPhase",
+      "current_name": "TestRemediationPerStalledPhase",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_mapping": {
+        "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+        "line": 5301,
+        "raw_row": "internal/storage/lifecycle/machine_test.go\tTestRemediationPerStalledPhase\ttest\t6f2bb2a05cdcc8a86b5b54c8c4a66d7b7d564b2147d4f7cfbf53b33e7bbc3625\tTestRemediationPerStalledPhase\t6f2bb2a05cdcc8a86b5b54c8c4a66d7b7d564b2147d4f7cfbf53b33e7bbc3625\tretained_body_exact",
+        "historical_current_declaration_sha256": "6f2bb2a05cdcc8a86b5b54c8c4a66d7b7d564b2147d4f7cfbf53b33e7bbc3625"
+      },
+      "original_declaration_sha256": "6f2bb2a05cdcc8a86b5b54c8c4a66d7b7d564b2147d4f7cfbf53b33e7bbc3625",
+      "current_declaration_sha256": "6f2bb2a05cdcc8a86b5b54c8c4a66d7b7d564b2147d4f7cfbf53b33e7bbc3625",
+      "canonical_body_drift": false,
+      "canonical_state": "retained_body_exact",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 142,
+        "end_line": 162
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 142,
+        "end_line": 162
+      },
+      "baseline_declaration_text": "func TestRemediationPerStalledPhase(t *testing.T) {\n\tcases := map[Phase]Remediation{\n\t\tDetaching:  RemediationForceDetach,\n\t\tCreating:   RemediationOperator,\n\t\tFormatting: RemediationOperator,\n\t\tResizing:   RemediationOperator,\n\t\tDeleting:   RemediationOperator,\n\t}\n\tfor phase, want := range cases {\n\t\tstuck, changed := Check(State{Phase: phase, Since: t0}, t0.Add(25*time.Hour), Deadlines{})\n\t\tif !changed {\n\t\t\tt.Fatalf(\"%s did not expire\", phase)\n\t\t}\n\t\tif got := Remediate(stuck, Deadlines{}); got != want {\n\t\t\tt.Fatalf(\"%s remediation = %q, want %q\", phase, got, want)\n\t\t}\n\t}\n\tif got := Remediate(State{Phase: Mounted}, Deadlines{}); got != RemediationNone {\n\t\tt.Fatalf(\"non-stuck remediation = %q\", got)\n\t}\n}",
+      "current_declaration_text": "func TestRemediationPerStalledPhase(t *testing.T) {\n\tcases := map[Phase]Remediation{\n\t\tDetaching:  RemediationForceDetach,\n\t\tCreating:   RemediationOperator,\n\t\tFormatting: RemediationOperator,\n\t\tResizing:   RemediationOperator,\n\t\tDeleting:   RemediationOperator,\n\t}\n\tfor phase, want := range cases {\n\t\tstuck, changed := Check(State{Phase: phase, Since: t0}, t0.Add(25*time.Hour), Deadlines{})\n\t\tif !changed {\n\t\t\tt.Fatalf(\"%s did not expire\", phase)\n\t\t}\n\t\tif got := Remediate(stuck, Deadlines{}); got != want {\n\t\t\tt.Fatalf(\"%s remediation = %q, want %q\", phase, got, want)\n\t\t}\n\t}\n\tif got := Remediate(State{Phase: Mounted}, Deadlines{}); got != RemediationNone {\n\t\tt.Fatalf(\"non-stuck remediation = %q\", got)\n\t}\n}",
+      "declaration_hash_rule": "Raw func through column-zero closing brace excluding following LF; manually inspected explicit bounds.",
+      "category": "unit",
+      "reason": "Synthetic expired phases map to remediation constants and non-stuck maps to none; decision only, no execution.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/lifecycle/machine_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+          "function": "entire root interior, preserving every assertion and condition",
+          "line": 143,
+          "end_line": 161,
+          "text": "\tcases := map[Phase]Remediation{\n\t\tDetaching:  RemediationForceDetach,\n\t\tCreating:   RemediationOperator,\n\t\tFormatting: RemediationOperator,\n\t\tResizing:   RemediationOperator,\n\t\tDeleting:   RemediationOperator,\n\t}\n\tfor phase, want := range cases {\n\t\tstuck, changed := Check(State{Phase: phase, Since: t0}, t0.Add(25*time.Hour), Deadlines{})\n\t\tif !changed {\n\t\t\tt.Fatalf(\"%s did not expire\", phase)\n\t\t}\n\t\tif got := Remediate(stuck, Deadlines{}); got != want {\n\t\t\tt.Fatalf(\"%s remediation = %q, want %q\", phase, got, want)\n\t\t}\n\t}\n\tif got := Remediate(State{Phase: Mounted}, Deadlines{}); got != RemediationNone {\n\t\tt.Fatalf(\"non-stuck remediation = %q\", got)\n\t}\n",
+          "span_sha256": "3761e5aaa34e32c6acb69bcbeea367f89bcf00b41edc9190d161d742e35d1240"
+        }
+      ],
+      "connected_evidence": [
+        "lifecycle"
+      ],
+      "source_blockers": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestReobservingTransitionalPhaseKeepsDeadline",
+      "path": "internal/storage/lifecycle/machine_test.go",
+      "original_name": "TestReobservingTransitionalPhaseKeepsDeadline",
+      "current_name": "TestReobservingTransitionalPhaseKeepsDeadline",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_mapping": {
+        "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+        "line": 5298,
+        "raw_row": "internal/storage/lifecycle/machine_test.go\tTestReobservingTransitionalPhaseKeepsDeadline\ttest\t40aed433b2e897e9283cd2868add3c67fe06e055a71d726df5b82c44206f8802\tTestReobservingTransitionalPhaseKeepsDeadline\t40aed433b2e897e9283cd2868add3c67fe06e055a71d726df5b82c44206f8802\tretained_body_exact",
+        "historical_current_declaration_sha256": "40aed433b2e897e9283cd2868add3c67fe06e055a71d726df5b82c44206f8802"
+      },
+      "original_declaration_sha256": "40aed433b2e897e9283cd2868add3c67fe06e055a71d726df5b82c44206f8802",
+      "current_declaration_sha256": "40aed433b2e897e9283cd2868add3c67fe06e055a71d726df5b82c44206f8802",
+      "canonical_body_drift": false,
+      "canonical_state": "retained_body_exact",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 86,
+        "end_line": 92
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 86,
+        "end_line": 92
+      },
+      "baseline_declaration_text": "func TestReobservingTransitionalPhaseKeepsDeadline(t *testing.T) {\n\tstate := mustApply(t, State{Phase: Available, Since: t0}, EventAttachRequested, t0)\n\tagain := mustApply(t, state, EventAttachRequested, t0.Add(9*time.Minute))\n\tif again != state {\n\t\tt.Fatalf(\"re-observing ATTACHING restarted the deadline: %+v\", again)\n\t}\n}",
+      "current_declaration_text": "func TestReobservingTransitionalPhaseKeepsDeadline(t *testing.T) {\n\tstate := mustApply(t, State{Phase: Available, Since: t0}, EventAttachRequested, t0)\n\tagain := mustApply(t, state, EventAttachRequested, t0.Add(9*time.Minute))\n\tif again != state {\n\t\tt.Fatalf(\"re-observing ATTACHING restarted the deadline: %+v\", again)\n\t}\n}",
+      "declaration_hash_rule": "Raw func through column-zero closing brace excluding following LF; manually inspected explicit bounds.",
+      "category": "unit",
+      "reason": "Two Apply calls with fixed times compare State to prove no deadline reset; no observation boundary.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/lifecycle/machine_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+          "function": "entire root interior, preserving every assertion and condition",
+          "line": 87,
+          "end_line": 91,
+          "text": "\tstate := mustApply(t, State{Phase: Available, Since: t0}, EventAttachRequested, t0)\n\tagain := mustApply(t, state, EventAttachRequested, t0.Add(9*time.Minute))\n\tif again != state {\n\t\tt.Fatalf(\"re-observing ATTACHING restarted the deadline: %+v\", again)\n\t}\n",
+          "span_sha256": "db0f0028f8ed87029efbd486c033c25af5872461760847e5411aa5d97c979af2"
+        }
+      ],
+      "connected_evidence": [
+        "lifecycle"
+      ],
+      "source_blockers": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestRetryCountsAttemptsAndEscalatesToHostReplacement",
+      "path": "internal/storage/lifecycle/machine_test.go",
+      "original_name": "TestRetryCountsAttemptsAndEscalatesToHostReplacement",
+      "current_name": "TestRetryCountsAttemptsAndEscalatesToHostReplacement",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_mapping": {
+        "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+        "line": 5300,
+        "raw_row": "internal/storage/lifecycle/machine_test.go\tTestRetryCountsAttemptsAndEscalatesToHostReplacement\ttest\t4c245cf52a8613ed661fdc335a779da626af857fc932c151d9e1fc89eacc7c89\tTestRetryCountsAttemptsAndEscalatesToHostReplacement\t4c245cf52a8613ed661fdc335a779da626af857fc932c151d9e1fc89eacc7c89\tretained_body_exact",
+        "historical_current_declaration_sha256": "4c245cf52a8613ed661fdc335a779da626af857fc932c151d9e1fc89eacc7c89"
+      },
+      "original_declaration_sha256": "4c245cf52a8613ed661fdc335a779da626af857fc932c151d9e1fc89eacc7c89",
+      "current_declaration_sha256": "4c245cf52a8613ed661fdc335a779da626af857fc932c151d9e1fc89eacc7c89",
+      "canonical_body_drift": false,
+      "canonical_state": "retained_body_exact",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 117,
+        "end_line": 140
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 117,
+        "end_line": 140
+      },
+      "baseline_declaration_text": "func TestRetryCountsAttemptsAndEscalatesToHostReplacement(t *testing.T) {\n\tdeadlines := Deadlines{MaxAttachRetries: 2}\n\tstate := State{Phase: Attaching, Since: t0}\n\tnow := t0\n\tfor attempt := uint32(0); attempt < 2; attempt++ {\n\t\tnow = now.Add(deadlines.For(Attaching))\n\t\tstuck, changed := Check(state, now, deadlines)\n\t\tif !changed || stuck.Attempts != attempt {\n\t\t\tt.Fatalf(\"attempt %d: stuck=%+v\", attempt, stuck)\n\t\t}\n\t\tif got := Remediate(stuck, deadlines); got != RemediationForceDetachRetry {\n\t\t\tt.Fatalf(\"attempt %d remediation = %q\", attempt, got)\n\t\t}\n\t\tstate = mustApply(t, stuck, EventRetry, now)\n\t\tif state.Phase != Attaching || state.Attempts != attempt+1 || !state.Since.Equal(now) {\n\t\t\tt.Fatalf(\"retry did not restart attaching: %+v\", state)\n\t\t}\n\t}\n\tnow = now.Add(deadlines.For(Attaching))\n\tstuck, _ := Check(state, now, deadlines)\n\tif got := Remediate(stuck, deadlines); got != RemediationReplaceHost {\n\t\tt.Fatalf(\"exhausted retries remediation = %q\", got)\n\t}\n}",
+      "current_declaration_text": "func TestRetryCountsAttemptsAndEscalatesToHostReplacement(t *testing.T) {\n\tdeadlines := Deadlines{MaxAttachRetries: 2}\n\tstate := State{Phase: Attaching, Since: t0}\n\tnow := t0\n\tfor attempt := uint32(0); attempt < 2; attempt++ {\n\t\tnow = now.Add(deadlines.For(Attaching))\n\t\tstuck, changed := Check(state, now, deadlines)\n\t\tif !changed || stuck.Attempts != attempt {\n\t\t\tt.Fatalf(\"attempt %d: stuck=%+v\", attempt, stuck)\n\t\t}\n\t\tif got := Remediate(stuck, deadlines); got != RemediationForceDetachRetry {\n\t\t\tt.Fatalf(\"attempt %d remediation = %q\", attempt, got)\n\t\t}\n\t\tstate = mustApply(t, stuck, EventRetry, now)\n\t\tif state.Phase != Attaching || state.Attempts != attempt+1 || !state.Since.Equal(now) {\n\t\t\tt.Fatalf(\"retry did not restart attaching: %+v\", state)\n\t\t}\n\t}\n\tnow = now.Add(deadlines.For(Attaching))\n\tstuck, _ := Check(state, now, deadlines)\n\tif got := Remediate(stuck, deadlines); got != RemediationReplaceHost {\n\t\tt.Fatalf(\"exhausted retries remediation = %q\", got)\n\t}\n}",
+      "declaration_hash_rule": "Raw func through column-zero closing brace excluding following LF; manually inspected explicit bounds.",
+      "category": "unit",
+      "reason": "Synthetic repeated Check/Apply retry sequence validates attempts/time and replacement decision enum; no detach or replacement effects.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/lifecycle/machine_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+          "function": "entire root interior, preserving every assertion and condition",
+          "line": 118,
+          "end_line": 139,
+          "text": "\tdeadlines := Deadlines{MaxAttachRetries: 2}\n\tstate := State{Phase: Attaching, Since: t0}\n\tnow := t0\n\tfor attempt := uint32(0); attempt < 2; attempt++ {\n\t\tnow = now.Add(deadlines.For(Attaching))\n\t\tstuck, changed := Check(state, now, deadlines)\n\t\tif !changed || stuck.Attempts != attempt {\n\t\t\tt.Fatalf(\"attempt %d: stuck=%+v\", attempt, stuck)\n\t\t}\n\t\tif got := Remediate(stuck, deadlines); got != RemediationForceDetachRetry {\n\t\t\tt.Fatalf(\"attempt %d remediation = %q\", attempt, got)\n\t\t}\n\t\tstate = mustApply(t, stuck, EventRetry, now)\n\t\tif state.Phase != Attaching || state.Attempts != attempt+1 || !state.Since.Equal(now) {\n\t\t\tt.Fatalf(\"retry did not restart attaching: %+v\", state)\n\t\t}\n\t}\n\tnow = now.Add(deadlines.For(Attaching))\n\tstuck, _ := Check(state, now, deadlines)\n\tif got := Remediate(stuck, deadlines); got != RemediationReplaceHost {\n\t\tt.Fatalf(\"exhausted retries remediation = %q\", got)\n\t}\n",
+          "span_sha256": "e127f25e7d94e1c45be9674975eaa90f4047b95554d8148c06fecb4725184ed2"
+        }
+      ],
+      "connected_evidence": [
+        "lifecycle"
+      ],
+      "source_blockers": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/storage/lifecycle/machine_test.go::TestStablePhasesNeverExpire",
+      "path": "internal/storage/lifecycle/machine_test.go",
+      "original_name": "TestStablePhasesNeverExpire",
+      "current_name": "TestStablePhasesNeverExpire",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_mapping": {
+        "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+        "line": 5302,
+        "raw_row": "internal/storage/lifecycle/machine_test.go\tTestStablePhasesNeverExpire\ttest\t04a5b3b54a39264ab651c1d13dc1678197bb70079cfad255d1523ba347560037\tTestStablePhasesNeverExpire\t04a5b3b54a39264ab651c1d13dc1678197bb70079cfad255d1523ba347560037\tretained_body_exact",
+        "historical_current_declaration_sha256": "04a5b3b54a39264ab651c1d13dc1678197bb70079cfad255d1523ba347560037"
+      },
+      "original_declaration_sha256": "04a5b3b54a39264ab651c1d13dc1678197bb70079cfad255d1523ba347560037",
+      "current_declaration_sha256": "04a5b3b54a39264ab651c1d13dc1678197bb70079cfad255d1523ba347560037",
+      "canonical_body_drift": false,
+      "canonical_state": "retained_body_exact",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 164,
+        "end_line": 170
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "line": 164,
+        "end_line": 170
+      },
+      "baseline_declaration_text": "func TestStablePhasesNeverExpire(t *testing.T) {\n\tfor _, phase := range []Phase{Pending, Available, Attached, Mounted, Detached, Deleted, Held, Stuck} {\n\t\tif _, changed := Check(State{Phase: phase, Since: t0}, t0.Add(1000*time.Hour), Deadlines{}); changed {\n\t\t\tt.Fatalf(\"%s expired\", phase)\n\t\t}\n\t}\n}",
+      "current_declaration_text": "func TestStablePhasesNeverExpire(t *testing.T) {\n\tfor _, phase := range []Phase{Pending, Available, Attached, Mounted, Detached, Deleted, Held, Stuck} {\n\t\tif _, changed := Check(State{Phase: phase, Since: t0}, t0.Add(1000*time.Hour), Deadlines{}); changed {\n\t\t\tt.Fatalf(\"%s expired\", phase)\n\t\t}\n\t}\n}",
+      "declaration_hash_rule": "Raw func through column-zero closing brace excluding following LF; manually inspected explicit bounds.",
+      "category": "unit",
+      "reason": "Fixed stable-phase values remain unchanged under Check at a distant synthetic time; local predicate.",
+      "assertion_evidence": [
+        {
+          "path": "internal/storage/lifecycle/machine_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+          "function": "entire root interior, preserving every assertion and condition",
+          "line": 165,
+          "end_line": 169,
+          "text": "\tfor _, phase := range []Phase{Pending, Available, Attached, Mounted, Detached, Deleted, Held, Stuck} {\n\t\tif _, changed := Check(State{Phase: phase, Since: t0}, t0.Add(1000*time.Hour), Deadlines{}); changed {\n\t\t\tt.Fatalf(\"%s expired\", phase)\n\t\t}\n\t}\n",
+          "span_sha256": "8cdec730e6f571fe1993942d7636b2b1c200861978729b5d26ea49f58fca6fa0"
+        }
+      ],
+      "connected_evidence": [
+        "lifecycle"
+      ],
+      "source_blockers": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/tenant/store_test.go::TestStoreConcurrentWritersOneWins",
+      "path": "internal/tenant/store_test.go",
+      "original_name": "TestStoreConcurrentWritersOneWins",
+      "current_name": "TestStoreConcurrentWritersOneWins",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_mapping": {
+        "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+        "line": 5371,
+        "raw_row": "internal/tenant/store_test.go\tTestStoreConcurrentWritersOneWins\ttest\tbead8c0a83c152b3cf694bafad24f3ab25e9920cd91827e57959052e5b73b1fe\tTestStoreConcurrentWritersOneWins\tbead8c0a83c152b3cf694bafad24f3ab25e9920cd91827e57959052e5b73b1fe\tretained_body_exact",
+        "historical_current_declaration_sha256": "bead8c0a83c152b3cf694bafad24f3ab25e9920cd91827e57959052e5b73b1fe"
+      },
+      "original_declaration_sha256": "bead8c0a83c152b3cf694bafad24f3ab25e9920cd91827e57959052e5b73b1fe",
+      "current_declaration_sha256": "bead8c0a83c152b3cf694bafad24f3ab25e9920cd91827e57959052e5b73b1fe",
+      "canonical_body_drift": false,
+      "canonical_state": "retained_body_exact",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/tenant/store_test.go",
+        "git_blob": "bd2ee4bc1717419e7e48ef210f16439720b751ac",
+        "line": 151,
+        "end_line": 197
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/tenant/store_test.go",
+        "git_blob": "bd2ee4bc1717419e7e48ef210f16439720b751ac",
+        "line": 151,
+        "end_line": 197
+      },
+      "baseline_declaration_text": "func TestStoreConcurrentWritersOneWins(t *testing.T) {\n\tconnect := startCell(t)\n\tleft, right := openStore(t, connect()), openStore(t, connect())\n\tctx := t.Context()\n\tif _, err := left.Create(ctx, newTenant(t)); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tleftRead, err := left.Get(ctx, \"0000000000WT9WWA18KD4ET6PG\")\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\trightRead, err := right.Get(ctx, \"0000000000WT9WWA18KD4ET6PG\")\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tsuspend, err := leftRead.Tenant.Suspend(t0.Add(time.Minute))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := left.Update(ctx, leftRead.Revision, suspend); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tspec := rightRead.Tenant.Spec\n\tspec.Members = 1\n\tscale, err := rightRead.Tenant.Change(spec, t0.Add(time.Minute))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := right.Update(ctx, rightRead.Revision, scale); !errors.Is(err, ErrConflict) {\n\t\tt.Fatalf(\"stale Update = %v, want ErrConflict\", err)\n\t}\n\treread, err := right.Get(ctx, \"0000000000WT9WWA18KD4ET6PG\")\n\tif err != nil || reread.Tenant.State != StateSuspended {\n\t\tt.Fatalf(\"reread = %+v, %v; want the suspension\", reread, err)\n\t}\n\t// The suspended tenant no longer takes the stale scale; resuming does.\n\tif _, err := reread.Tenant.Change(spec, t0.Add(2*time.Minute)); !errors.Is(err, ErrInvalid) {\n\t\tt.Fatalf(\"scale of the suspended tenant = %v, want ErrInvalid\", err)\n\t}\n\tresumed, err := reread.Tenant.Resume(t0.Add(2 * time.Minute))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := right.Update(ctx, reread.Revision, resumed); err != nil {\n\t\tt.Fatal(err)\n\t}\n}",
+      "current_declaration_text": "func TestStoreConcurrentWritersOneWins(t *testing.T) {\n\tconnect := startCell(t)\n\tleft, right := openStore(t, connect()), openStore(t, connect())\n\tctx := t.Context()\n\tif _, err := left.Create(ctx, newTenant(t)); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tleftRead, err := left.Get(ctx, \"0000000000WT9WWA18KD4ET6PG\")\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\trightRead, err := right.Get(ctx, \"0000000000WT9WWA18KD4ET6PG\")\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tsuspend, err := leftRead.Tenant.Suspend(t0.Add(time.Minute))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := left.Update(ctx, leftRead.Revision, suspend); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tspec := rightRead.Tenant.Spec\n\tspec.Members = 1\n\tscale, err := rightRead.Tenant.Change(spec, t0.Add(time.Minute))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := right.Update(ctx, rightRead.Revision, scale); !errors.Is(err, ErrConflict) {\n\t\tt.Fatalf(\"stale Update = %v, want ErrConflict\", err)\n\t}\n\treread, err := right.Get(ctx, \"0000000000WT9WWA18KD4ET6PG\")\n\tif err != nil || reread.Tenant.State != StateSuspended {\n\t\tt.Fatalf(\"reread = %+v, %v; want the suspension\", reread, err)\n\t}\n\t// The suspended tenant no longer takes the stale scale; resuming does.\n\tif _, err := reread.Tenant.Change(spec, t0.Add(2*time.Minute)); !errors.Is(err, ErrInvalid) {\n\t\tt.Fatalf(\"scale of the suspended tenant = %v, want ErrInvalid\", err)\n\t}\n\tresumed, err := reread.Tenant.Resume(t0.Add(2 * time.Minute))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := right.Update(ctx, reread.Revision, resumed); err != nil {\n\t\tt.Fatal(err)\n\t}\n}",
+      "declaration_hash_rule": "Raw func through column-zero closing brace excluding following LF; manually inspected explicit bounds.",
+      "category": "integration",
+      "reason": "Two separate real loopback NATS connections operate the same file-backed KV bucket. Create/Get/Update persist a suspension; stale revision conflicts against a leader read, reread observes suspension, and resume Update succeeds. The Change rejection depends on the actual persisted reread rather than an independent synthetic unit block. Writers are sequential stale readers, not simultaneous goroutines or partition evidence.",
+      "assertion_evidence": [
+        {
+          "path": "internal/tenant/store_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "bd2ee4bc1717419e7e48ef210f16439720b751ac",
+          "function": "entire root interior, preserving every assertion and condition",
+          "line": 152,
+          "end_line": 196,
+          "text": "\tconnect := startCell(t)\n\tleft, right := openStore(t, connect()), openStore(t, connect())\n\tctx := t.Context()\n\tif _, err := left.Create(ctx, newTenant(t)); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tleftRead, err := left.Get(ctx, \"0000000000WT9WWA18KD4ET6PG\")\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\trightRead, err := right.Get(ctx, \"0000000000WT9WWA18KD4ET6PG\")\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tsuspend, err := leftRead.Tenant.Suspend(t0.Add(time.Minute))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := left.Update(ctx, leftRead.Revision, suspend); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tspec := rightRead.Tenant.Spec\n\tspec.Members = 1\n\tscale, err := rightRead.Tenant.Change(spec, t0.Add(time.Minute))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := right.Update(ctx, rightRead.Revision, scale); !errors.Is(err, ErrConflict) {\n\t\tt.Fatalf(\"stale Update = %v, want ErrConflict\", err)\n\t}\n\treread, err := right.Get(ctx, \"0000000000WT9WWA18KD4ET6PG\")\n\tif err != nil || reread.Tenant.State != StateSuspended {\n\t\tt.Fatalf(\"reread = %+v, %v; want the suspension\", reread, err)\n\t}\n\t// The suspended tenant no longer takes the stale scale; resuming does.\n\tif _, err := reread.Tenant.Change(spec, t0.Add(2*time.Minute)); !errors.Is(err, ErrInvalid) {\n\t\tt.Fatalf(\"scale of the suspended tenant = %v, want ErrInvalid\", err)\n\t}\n\tresumed, err := reread.Tenant.Resume(t0.Add(2 * time.Minute))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := right.Update(ctx, reread.Revision, resumed); err != nil {\n\t\tt.Fatal(err)\n\t}\n",
+          "span_sha256": "acf01b5c482b6e9695bc1ea06baa254533e27abcbe9cd56f0aa2a4083d0b17ac"
+        }
+      ],
+      "connected_evidence": [
+        "tenant_fixture",
+        "tenant_store",
+        "tenant_model"
+      ],
+      "source_blockers": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/tenant/store_test.go::TestStoreCreateRefusesOffPlanResources",
+      "path": "internal/tenant/store_test.go",
+      "original_name": "TestStoreCreateRefusesOffPlanResources",
+      "current_name": "TestStoreCreateRefusesOffPlanResources",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_mapping": {
+        "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+        "line": 5376,
+        "raw_row": "internal/tenant/store_test.go\tTestStoreCreateRefusesOffPlanResources\ttest\t99fec531e5668460049dbf5b0dd25f1185c50f8d3b803073e62918fca73c5e83\tTestStoreCreateRefusesOffPlanResources\t99fec531e5668460049dbf5b0dd25f1185c50f8d3b803073e62918fca73c5e83\tretained_body_exact",
+        "historical_current_declaration_sha256": "99fec531e5668460049dbf5b0dd25f1185c50f8d3b803073e62918fca73c5e83"
+      },
+      "original_declaration_sha256": "99fec531e5668460049dbf5b0dd25f1185c50f8d3b803073e62918fca73c5e83",
+      "current_declaration_sha256": "99fec531e5668460049dbf5b0dd25f1185c50f8d3b803073e62918fca73c5e83",
+      "canonical_body_drift": false,
+      "canonical_state": "retained_body_exact",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/tenant/store_test.go",
+        "git_blob": "bd2ee4bc1717419e7e48ef210f16439720b751ac",
+        "line": 340,
+        "end_line": 347
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/tenant/store_test.go",
+        "git_blob": "bd2ee4bc1717419e7e48ef210f16439720b751ac",
+        "line": 340,
+        "end_line": 347
+      },
+      "baseline_declaration_text": "func TestStoreCreateRefusesOffPlanResources(t *testing.T) {\n\tstore := openStore(t, startCell(t)())\n\tforged := newTenant(t)\n\tforged.Spec.Member.MemoryBytes *= 4\n\tif _, err := store.Create(t.Context(), forged); !errors.Is(err, ErrInvalid) {\n\t\tt.Fatalf(\"Create with off-plan resources = %v, want ErrInvalid\", err)\n\t}\n}",
+      "current_declaration_text": "func TestStoreCreateRefusesOffPlanResources(t *testing.T) {\n\tstore := openStore(t, startCell(t)())\n\tforged := newTenant(t)\n\tforged.Spec.Member.MemoryBytes *= 4\n\tif _, err := store.Create(t.Context(), forged); !errors.Is(err, ErrInvalid) {\n\t\tt.Fatalf(\"Create with off-plan resources = %v, want ErrInvalid\", err)\n\t}\n}",
+      "declaration_hash_rule": "Raw func through column-zero closing brace excluding following LF; manually inspected explicit bounds.",
+      "category": "unit",
+      "reason": "Forged member memory passes structural positivity but fails CheckNew plan equality before Create reaches checkStamp/encode/kv.Update. Server/bucket setup is incidental to the asserted pre-write validation guard.",
+      "assertion_evidence": [
+        {
+          "path": "internal/tenant/store_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "bd2ee4bc1717419e7e48ef210f16439720b751ac",
+          "function": "entire root interior, preserving every assertion and condition",
+          "line": 341,
+          "end_line": 346,
+          "text": "\tstore := openStore(t, startCell(t)())\n\tforged := newTenant(t)\n\tforged.Spec.Member.MemoryBytes *= 4\n\tif _, err := store.Create(t.Context(), forged); !errors.Is(err, ErrInvalid) {\n\t\tt.Fatalf(\"Create with off-plan resources = %v, want ErrInvalid\", err)\n\t}\n",
+          "span_sha256": "67e99813011e8b7a4c659bf675bc6df2bf82eeecdc35f5c2ae9de5eccddd0f56"
+        }
+      ],
+      "connected_evidence": [
+        "tenant_fixture",
+        "tenant_store",
+        "tenant_model"
+      ],
+      "source_blockers": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/tenant/store_test.go::TestStoreListFailsWhenCutShort",
+      "path": "internal/tenant/store_test.go",
+      "original_name": "TestStoreListFailsWhenCutShort",
+      "current_name": "TestStoreListFailsWhenCutShort",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_mapping": {
+        "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+        "line": 5374,
+        "raw_row": "internal/tenant/store_test.go\tTestStoreListFailsWhenCutShort\ttest\t720559b042cd6a86256737a950bad660392bc19f0ac41c2c75996c0c2b82a522\tTestStoreListFailsWhenCutShort\t720559b042cd6a86256737a950bad660392bc19f0ac41c2c75996c0c2b82a522\tretained_body_exact",
+        "historical_current_declaration_sha256": "720559b042cd6a86256737a950bad660392bc19f0ac41c2c75996c0c2b82a522"
+      },
+      "original_declaration_sha256": "720559b042cd6a86256737a950bad660392bc19f0ac41c2c75996c0c2b82a522",
+      "current_declaration_sha256": "720559b042cd6a86256737a950bad660392bc19f0ac41c2c75996c0c2b82a522",
+      "canonical_body_drift": false,
+      "canonical_state": "retained_body_exact",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/tenant/store_test.go",
+        "git_blob": "bd2ee4bc1717419e7e48ef210f16439720b751ac",
+        "line": 287,
+        "end_line": 297
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/tenant/store_test.go",
+        "git_blob": "bd2ee4bc1717419e7e48ef210f16439720b751ac",
+        "line": 287,
+        "end_line": 297
+      },
+      "baseline_declaration_text": "func TestStoreListFailsWhenCutShort(t *testing.T) {\n\tstore := openStore(t, startCell(t)())\n\tif _, err := store.Create(t.Context(), newTenant(t)); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tctx, cancel := context.WithCancel(t.Context())\n\tcancel()\n\tif tenants, err := store.List(ctx); err == nil {\n\t\tt.Fatalf(\"List on a cancelled context = %+v, want an error\", tenants)\n\t}\n}",
+      "current_declaration_text": "func TestStoreListFailsWhenCutShort(t *testing.T) {\n\tstore := openStore(t, startCell(t)())\n\tif _, err := store.Create(t.Context(), newTenant(t)); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tctx, cancel := context.WithCancel(t.Context())\n\tcancel()\n\tif tenants, err := store.List(ctx); err == nil {\n\t\tt.Fatalf(\"List on a cancelled context = %+v, want an error\", tenants)\n\t}\n}",
+      "declaration_hash_rule": "Raw func through column-zero closing brace excluding following LF; manually inspected explicit bounds.",
+      "category": "unit",
+      "reason": "Context is cancelled before List. WatchFiltered selects a bound-stream ordered subscription; subscribe may install an incidental NATS SUB, but upsertConsumer reaches RequestWithContext whose ctx.Err check returns before the consumer API request. The asserted non-nil error materially depends on local cancellation, not streamed records or a cut-short active listing. Setup Create and possible SUB do not establish the claimed truncation boundary.",
+      "assertion_evidence": [
+        {
+          "path": "internal/tenant/store_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "bd2ee4bc1717419e7e48ef210f16439720b751ac",
+          "function": "entire root interior, preserving every assertion and condition",
+          "line": 288,
+          "end_line": 296,
+          "text": "\tstore := openStore(t, startCell(t)())\n\tif _, err := store.Create(t.Context(), newTenant(t)); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tctx, cancel := context.WithCancel(t.Context())\n\tcancel()\n\tif tenants, err := store.List(ctx); err == nil {\n\t\tt.Fatalf(\"List on a cancelled context = %+v, want an error\", tenants)\n\t}\n",
+          "span_sha256": "02f89e71b4c618b0c36ca319fce5a95700ef6309a2f35710340e7e971641ba17"
+        }
+      ],
+      "connected_evidence": [
+        "tenant_fixture",
+        "tenant_store",
+        "tenant_model",
+        "cancelled_list"
+      ],
+      "source_blockers": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/tenant/store_test.go::TestStoreRefusesDeleteMarkers",
+      "path": "internal/tenant/store_test.go",
+      "original_name": "TestStoreRefusesDeleteMarkers",
+      "current_name": "TestStoreRefusesDeleteMarkers",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_mapping": {
+        "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+        "line": 5373,
+        "raw_row": "internal/tenant/store_test.go\tTestStoreRefusesDeleteMarkers\ttest\tfe7e0047f2ea38808a576cf9e39f4803d2d8ddd33ae72bcf09deb81d493738e6\tTestStoreRefusesDeleteMarkers\tfe7e0047f2ea38808a576cf9e39f4803d2d8ddd33ae72bcf09deb81d493738e6\tretained_body_exact",
+        "historical_current_declaration_sha256": "fe7e0047f2ea38808a576cf9e39f4803d2d8ddd33ae72bcf09deb81d493738e6"
+      },
+      "original_declaration_sha256": "fe7e0047f2ea38808a576cf9e39f4803d2d8ddd33ae72bcf09deb81d493738e6",
+      "current_declaration_sha256": "fe7e0047f2ea38808a576cf9e39f4803d2d8ddd33ae72bcf09deb81d493738e6",
+      "canonical_body_drift": false,
+      "canonical_state": "retained_body_exact",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/tenant/store_test.go",
+        "git_blob": "bd2ee4bc1717419e7e48ef210f16439720b751ac",
+        "line": 256,
+        "end_line": 285
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/tenant/store_test.go",
+        "git_blob": "bd2ee4bc1717419e7e48ef210f16439720b751ac",
+        "line": 256,
+        "end_line": 285
+      },
+      "baseline_declaration_text": "func TestStoreRefusesDeleteMarkers(t *testing.T) {\n\tjs := startCell(t)()\n\tstore := openStore(t, js)\n\tctx := t.Context()\n\tacme := newTenant(t)\n\tif _, err := store.Create(ctx, acme); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tkv, err := js.KeyValue(ctx, Bucket)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfor name, remove := range map[string]func() error{\n\t\t\"delete\": func() error { return kv.Delete(ctx, \"0000000000WT9WWA18KD4ET6PG\") },\n\t\t\"purge\":  func() error { return kv.Purge(ctx, \"0000000000WT9WWA18KD4ET6PG\") },\n\t} {\n\t\tif err := remove(); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tif _, err := store.Get(ctx, \"0000000000WT9WWA18KD4ET6PG\"); !errors.Is(err, ErrCorrupt) {\n\t\t\tt.Errorf(\"%s: Get = %v, want ErrCorrupt\", name, err)\n\t\t}\n\t\tif _, err := store.List(ctx); !errors.Is(err, ErrCorrupt) {\n\t\t\tt.Errorf(\"%s: List = %v, want ErrCorrupt\", name, err)\n\t\t}\n\t\tif _, err := store.Create(ctx, acme); !errors.Is(err, ErrExists) {\n\t\t\tt.Errorf(\"%s: Create = %v, want ErrExists\", name, err)\n\t\t}\n\t}\n}",
+      "current_declaration_text": "func TestStoreRefusesDeleteMarkers(t *testing.T) {\n\tjs := startCell(t)()\n\tstore := openStore(t, js)\n\tctx := t.Context()\n\tacme := newTenant(t)\n\tif _, err := store.Create(ctx, acme); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tkv, err := js.KeyValue(ctx, Bucket)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfor name, remove := range map[string]func() error{\n\t\t\"delete\": func() error { return kv.Delete(ctx, \"0000000000WT9WWA18KD4ET6PG\") },\n\t\t\"purge\":  func() error { return kv.Purge(ctx, \"0000000000WT9WWA18KD4ET6PG\") },\n\t} {\n\t\tif err := remove(); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tif _, err := store.Get(ctx, \"0000000000WT9WWA18KD4ET6PG\"); !errors.Is(err, ErrCorrupt) {\n\t\t\tt.Errorf(\"%s: Get = %v, want ErrCorrupt\", name, err)\n\t\t}\n\t\tif _, err := store.List(ctx); !errors.Is(err, ErrCorrupt) {\n\t\t\tt.Errorf(\"%s: List = %v, want ErrCorrupt\", name, err)\n\t\t}\n\t\tif _, err := store.Create(ctx, acme); !errors.Is(err, ErrExists) {\n\t\t\tt.Errorf(\"%s: Create = %v, want ErrExists\", name, err)\n\t\t}\n\t}\n}",
+      "declaration_hash_rule": "Raw func through column-zero closing brace excluding following LF; manually inspected explicit bounds.",
+      "category": "integration",
+      "reason": "Direct real KV Delete/Purge write markers; production Get leader read rejects marker as ErrCorrupt, List watches existing marker then reads/rejects it, and Create expected-revision-zero rejects reuse as ErrExists. Assertions depend on actual NATS KV history over loopback, not mock markers.",
+      "assertion_evidence": [
+        {
+          "path": "internal/tenant/store_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "bd2ee4bc1717419e7e48ef210f16439720b751ac",
+          "function": "entire root interior, preserving every assertion and condition",
+          "line": 257,
+          "end_line": 284,
+          "text": "\tjs := startCell(t)()\n\tstore := openStore(t, js)\n\tctx := t.Context()\n\tacme := newTenant(t)\n\tif _, err := store.Create(ctx, acme); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tkv, err := js.KeyValue(ctx, Bucket)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfor name, remove := range map[string]func() error{\n\t\t\"delete\": func() error { return kv.Delete(ctx, \"0000000000WT9WWA18KD4ET6PG\") },\n\t\t\"purge\":  func() error { return kv.Purge(ctx, \"0000000000WT9WWA18KD4ET6PG\") },\n\t} {\n\t\tif err := remove(); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tif _, err := store.Get(ctx, \"0000000000WT9WWA18KD4ET6PG\"); !errors.Is(err, ErrCorrupt) {\n\t\t\tt.Errorf(\"%s: Get = %v, want ErrCorrupt\", name, err)\n\t\t}\n\t\tif _, err := store.List(ctx); !errors.Is(err, ErrCorrupt) {\n\t\t\tt.Errorf(\"%s: List = %v, want ErrCorrupt\", name, err)\n\t\t}\n\t\tif _, err := store.Create(ctx, acme); !errors.Is(err, ErrExists) {\n\t\t\tt.Errorf(\"%s: Create = %v, want ErrExists\", name, err)\n\t\t}\n\t}\n",
+          "span_sha256": "86e52c20fd8fb4ec47f9fc93af0ba2960bd97f064b419e3629e6b2689f90fba2"
+        }
+      ],
+      "connected_evidence": [
+        "tenant_fixture",
+        "tenant_store",
+        "tenant_model"
+      ],
+      "source_blockers": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/tenant/store_test.go::TestStoreRefusesFutureStamps",
+      "path": "internal/tenant/store_test.go",
+      "original_name": "TestStoreRefusesFutureStamps",
+      "current_name": "TestStoreRefusesFutureStamps",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_mapping": {
+        "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+        "line": 5375,
+        "raw_row": "internal/tenant/store_test.go\tTestStoreRefusesFutureStamps\ttest\ta61aa27a94c8c2df2b7478cb93cfcd38749afc715db089ee9e5fad11c7680bf0\tTestStoreRefusesFutureStamps\ta61aa27a94c8c2df2b7478cb93cfcd38749afc715db089ee9e5fad11c7680bf0\tretained_body_exact",
+        "historical_current_declaration_sha256": "a61aa27a94c8c2df2b7478cb93cfcd38749afc715db089ee9e5fad11c7680bf0"
+      },
+      "original_declaration_sha256": "a61aa27a94c8c2df2b7478cb93cfcd38749afc715db089ee9e5fad11c7680bf0",
+      "current_declaration_sha256": "a61aa27a94c8c2df2b7478cb93cfcd38749afc715db089ee9e5fad11c7680bf0",
+      "canonical_body_drift": false,
+      "canonical_state": "retained_body_exact",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/tenant/store_test.go",
+        "git_blob": "bd2ee4bc1717419e7e48ef210f16439720b751ac",
+        "line": 301,
+        "end_line": 336
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/tenant/store_test.go",
+        "git_blob": "bd2ee4bc1717419e7e48ef210f16439720b751ac",
+        "line": 301,
+        "end_line": 336
+      },
+      "baseline_declaration_text": "func TestStoreRefusesFutureStamps(t *testing.T) {\n\tstore := openStore(t, startCell(t)())\n\tstore.now = func() time.Time { return t0 }\n\tctx := t.Context()\n\tearly, err := New(\"0000000000WT9WWA18KD4ET6PG\", \"0000000000GG77KS2XN2FPA9SS\", \"00000000005C91M54AQR9YGVT5\", \"gru\",\n\t\tSpec{Plan: \"standard\", Members: 3, TerraBase: digestA}, t0.Add(time.Hour))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := store.Create(ctx, early); !errors.Is(err, ErrInvalid) {\n\t\tt.Fatalf(\"Create stamped an hour ahead = %v, want ErrInvalid\", err)\n\t}\n\tcreated, err := store.Create(ctx, newTenant(t))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tdeleted, err := created.Tenant.Delete(MinRetention, t0)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tstored, err := store.Update(ctx, created.Revision, deleted)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tpurged, err := stored.Tenant.Purge(deleted.RetainUntil)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := store.Update(ctx, stored.Revision, purged); !errors.Is(err, ErrInvalid) {\n\t\tt.Fatalf(\"Purge stamped at retain_until a day early = %v, want ErrInvalid\", err)\n\t}\n\tstore.now = func() time.Time { return deleted.RetainUntil }\n\tif _, err := store.Update(ctx, stored.Revision, purged); err != nil {\n\t\tt.Fatalf(\"Purge once retention ended = %v\", err)\n\t}\n}",
+      "current_declaration_text": "func TestStoreRefusesFutureStamps(t *testing.T) {\n\tstore := openStore(t, startCell(t)())\n\tstore.now = func() time.Time { return t0 }\n\tctx := t.Context()\n\tearly, err := New(\"0000000000WT9WWA18KD4ET6PG\", \"0000000000GG77KS2XN2FPA9SS\", \"00000000005C91M54AQR9YGVT5\", \"gru\",\n\t\tSpec{Plan: \"standard\", Members: 3, TerraBase: digestA}, t0.Add(time.Hour))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := store.Create(ctx, early); !errors.Is(err, ErrInvalid) {\n\t\tt.Fatalf(\"Create stamped an hour ahead = %v, want ErrInvalid\", err)\n\t}\n\tcreated, err := store.Create(ctx, newTenant(t))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tdeleted, err := created.Tenant.Delete(MinRetention, t0)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tstored, err := store.Update(ctx, created.Revision, deleted)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tpurged, err := stored.Tenant.Purge(deleted.RetainUntil)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := store.Update(ctx, stored.Revision, purged); !errors.Is(err, ErrInvalid) {\n\t\tt.Fatalf(\"Purge stamped at retain_until a day early = %v, want ErrInvalid\", err)\n\t}\n\tstore.now = func() time.Time { return deleted.RetainUntil }\n\tif _, err := store.Update(ctx, stored.Revision, purged); err != nil {\n\t\tt.Fatalf(\"Purge once retention ended = %v\", err)\n\t}\n}",
+      "declaration_hash_rule": "Raw func through column-zero closing brace excluding following LF; manually inspected explicit bounds.",
+      "category": "mixed",
+      "reason": "Independent first Create of a future-stamped tenant is rejected locally by checkStamp before any KV write. Later Create and deletion Update persist real KV revisions; purge Update first leader-reads the deleted record then rejects future stamp, and the same revision succeeds after advancing the store clock. Real persistence and independent local guard coexist; no data deletion or actual retained-volume purge occurs.",
+      "assertion_evidence": [
+        {
+          "path": "internal/tenant/store_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "bd2ee4bc1717419e7e48ef210f16439720b751ac",
+          "function": "entire root interior, preserving every assertion and condition",
+          "line": 302,
+          "end_line": 335,
+          "text": "\tstore := openStore(t, startCell(t)())\n\tstore.now = func() time.Time { return t0 }\n\tctx := t.Context()\n\tearly, err := New(\"0000000000WT9WWA18KD4ET6PG\", \"0000000000GG77KS2XN2FPA9SS\", \"00000000005C91M54AQR9YGVT5\", \"gru\",\n\t\tSpec{Plan: \"standard\", Members: 3, TerraBase: digestA}, t0.Add(time.Hour))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := store.Create(ctx, early); !errors.Is(err, ErrInvalid) {\n\t\tt.Fatalf(\"Create stamped an hour ahead = %v, want ErrInvalid\", err)\n\t}\n\tcreated, err := store.Create(ctx, newTenant(t))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tdeleted, err := created.Tenant.Delete(MinRetention, t0)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tstored, err := store.Update(ctx, created.Revision, deleted)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tpurged, err := stored.Tenant.Purge(deleted.RetainUntil)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := store.Update(ctx, stored.Revision, purged); !errors.Is(err, ErrInvalid) {\n\t\tt.Fatalf(\"Purge stamped at retain_until a day early = %v, want ErrInvalid\", err)\n\t}\n\tstore.now = func() time.Time { return deleted.RetainUntil }\n\tif _, err := store.Update(ctx, stored.Revision, purged); err != nil {\n\t\tt.Fatalf(\"Purge once retention ended = %v\", err)\n\t}\n",
+          "span_sha256": "ce509d1c4d44b6f03e92c76ca604fc7d3c16b75c74ff8cac36545af9750b0484"
+        }
+      ],
+      "connected_evidence": [
+        "tenant_fixture",
+        "tenant_store",
+        "tenant_model"
+      ],
+      "source_blockers": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    }
+  ],
+  "connected_evidence": {
+    "host_guard": [
+      {
+        "path": "internal/storage/hostvolume/observer_linux.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "81ab2489f61480f3e53138dc4e9fdb8975e775fb",
+        "function": "MountWitness.Close zero witness guard",
+        "line": 33,
+        "end_line": 44,
+        "text": "func (w *MountWitness) Close() {\n\tif w != nil && w.initialized {\n\t\tif w.deviceFD >= 0 {\n\t\t\t_ = unix.Close(w.deviceFD)\n\t\t\tw.deviceFD = -1\n\t\t}\n\t\tif w.rootFD >= 0 {\n\t\t\t_ = unix.Close(w.rootFD)\n\t\t\tw.rootFD = -1\n\t\t}\n\t}\n}\n",
+        "span_sha256": "11cc27df11e8a74ab27223d8c7120a929ce639a09fa1471447470dca6e98856a"
+      },
+      {
+        "path": "internal/storage/hostvolume/observer_linux.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "81ab2489f61480f3e53138dc4e9fdb8975e775fb",
+        "function": "MountWitness.Recheck closed guard and unreached rest",
+        "line": 141,
+        "end_line": 163,
+        "text": "func (w *MountWitness) Recheck() error {\n\tif w == nil || !w.initialized || w.deviceFD < 0 || w.rootFD < 0 {\n\t\treturn errors.New(\"retained mount witness is closed\")\n\t}\n\tfor _, held := range []struct {\n\t\tfd   int\n\t\tstat unix.Stat_t\n\t}{{w.deviceFD, w.device}, {w.rootFD, w.root}} {\n\t\tvar current unix.Stat_t\n\t\tif err := unix.Fstat(held.fd, &current); err != nil || !sameObject(current, held.stat) {\n\t\t\treturn errors.New(\"retained open device or root changed\")\n\t\t}\n\t}\n\tcurrent, err := ObserveMount(w.pins)\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer current.Close()\n\tif current.mountID != w.mountID || !sameObject(current.device, w.device) || !sameObject(current.root, w.root) {\n\t\treturn errors.New(\"retained mount path changed from held witness\")\n\t}\n\treturn nil\n}\n",
+        "span_sha256": "3d28ee1f68dae8fe936897c7ea86028bd14204407ad9c3d73189045969208563"
+      },
+      {
+        "path": "internal/storage/hostvolume/observer_linux.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "81ab2489f61480f3e53138dc4e9fdb8975e775fb",
+        "function": "cleanMountPath/trustedDirectories/openBlockDevice actual local and filesystem paths",
+        "line": 225,
+        "end_line": 285,
+        "text": "\treturn filepath.IsAbs(path) && filepath.Clean(path) == path && !strings.ContainsAny(path, \"\\\\ \\t\\r\\n\\x00\")\n}\n\nfunc trustedDirectories(path string) error {\n\tif !cleanMountPath(path) {\n\t\treturn errors.New(\"untrusted mount ancestor path\")\n\t}\n\tfor current := path; ; current = filepath.Dir(current) {\n\t\tvar stat unix.Stat_t\n\t\tif err := unix.Lstat(current, &stat); err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif stat.Mode&unix.S_IFMT != unix.S_IFDIR || stat.Uid != 0 || stat.Mode&0o022 != 0 {\n\t\t\treturn errors.New(\"retained path ancestor is writable or untrusted\")\n\t\t}\n\t\tif current == \"/\" {\n\t\t\treturn nil\n\t\t}\n\t}\n}\n\nfunc openBlockDevice(path string) (int, unix.Stat_t, error) {\n\tif !cleanMountPath(path) || (filepath.Dir(path) != \"/dev\" && filepath.Dir(path) != \"/dev/oracleoci\") {\n\t\treturn -1, unix.Stat_t{}, errors.New(\"retained block device is not a direct /dev node or OCI alias\")\n\t}\n\tif err := trustedDirectories(filepath.Dir(path)); err != nil {\n\t\treturn -1, unix.Stat_t{}, err\n\t}\n\tresolved := path\n\tif filepath.Dir(path) == \"/dev/oracleoci\" {\n\t\tvar alias unix.Stat_t\n\t\tif err := unix.Lstat(path, &alias); err != nil {\n\t\t\treturn -1, unix.Stat_t{}, err\n\t\t}\n\t\ttarget, err := os.Readlink(path)\n\t\tif err != nil || alias.Uid != 0 || alias.Mode&unix.S_IFMT != unix.S_IFLNK ||\n\t\t\ttarget != \"../\"+filepath.Base(target) || !cleanMountPath(filepath.Join(\"/dev\", filepath.Base(target))) {\n\t\t\treturn -1, unix.Stat_t{}, errors.New(\"retained OCI alias is not a root-owned one-hop device link\")\n\t\t}\n\t\tresolved = filepath.Join(\"/dev\", filepath.Base(target))\n\t}\n\tfd, err := unix.Open(resolved, unix.O_PATH|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)\n\tif err != nil {\n\t\treturn -1, unix.Stat_t{}, err\n\t}\n\tvar stat unix.Stat_t\n\tif err := unix.Fstat(fd, &stat); err != nil {\n\t\t_ = unix.Close(fd)\n\t\treturn -1, unix.Stat_t{}, err\n\t}\n\tif stat.Mode&unix.S_IFMT != unix.S_IFBLK || stat.Uid != 0 {\n\t\t_ = unix.Close(fd)\n\t\treturn -1, unix.Stat_t{}, errors.New(\"retained device is not an exact root-owned block node\")\n\t}\n\treturn fd, stat, nil\n}\n\nfunc sameObject(left, right unix.Stat_t) bool {\n\treturn left.Mode == right.Mode && left.Uid == right.Uid && left.Gid == right.Gid &&\n\t\tleft.Dev == right.Dev && left.Rdev == right.Rdev && left.Ino == right.Ino\n}\n",
+        "span_sha256": "1f01153e60e43a089fad6842a67ccf8ff1c8efeb3eec80b95a9c65e6b6c5e8fc"
+      }
+    ],
+    "lifecycle": [
+      {
+        "path": "internal/storage/lifecycle/machine_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+        "function": "fixed time and mustApply",
+        "line": 9,
+        "end_line": 18,
+        "text": "var t0 = time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)\n\nfunc mustApply(t *testing.T, state State, event Event, at time.Time) State {\n\tt.Helper()\n\tnext, err := Apply(state, event, at, \"\")\n\tif err != nil {\n\t\tt.Fatalf(\"Apply(%s, %s): %v\", state.Phase, event, err)\n\t}\n\treturn next\n}\n",
+        "span_sha256": "8c89d28c97a322b8067ed7db45cd571e2ed2d3b37f69a3046f76692a08b030a4"
+      },
+      {
+        "path": "internal/storage/lifecycle/machine.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b63cb8521e3e08c3d9cfd9a6c1cd6530cb3d4d94",
+        "function": "Phase.Valid and Transitional",
+        "line": 39,
+        "end_line": 58,
+        "text": "func (phase Phase) Valid() bool {\n\tswitch phase {\n\tcase Pending, Creating, Available, Attaching, Attached, Formatting, Mounted,\n\t\tResizing, Detaching, Detached, Deleting, Deleted, Stuck, Held:\n\t\treturn true\n\tdefault:\n\t\treturn false\n\t}\n}\n\n// Transitional reports whether phase waits on an external effect and is\n// therefore bounded by a deadline.\nfunc (phase Phase) Transitional() bool {\n\tswitch phase {\n\tcase Creating, Attaching, Formatting, Resizing, Detaching, Deleting:\n\t\treturn true\n\tdefault:\n\t\treturn false\n\t}\n}\n",
+        "span_sha256": "8b69b8e8113dfb45f76ebf6cb2aeca9e9aab0e8e28825aa14b38149ed1628f06"
+      },
+      {
+        "path": "internal/storage/lifecycle/machine.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b63cb8521e3e08c3d9cfd9a6c1cd6530cb3d4d94",
+        "function": "New/Apply/attachRetryCycle/transition table/FromOCIAttachmentState",
+        "line": 103,
+        "end_line": 231,
+        "text": "func New(now time.Time) State {\n\treturn State{Phase: Pending, Since: now.UTC()}\n}\n\n// Apply returns the state after event at now. It never mutates its input and\n// rejects any transition not listed in the transition table.\nfunc Apply(state State, event Event, now time.Time, reason string) (State, error) {\n\tif !state.Phase.Valid() {\n\t\treturn state, fmt.Errorf(\"%w: unknown phase %q\", ErrInvalidTransition, state.Phase)\n\t}\n\tnow = now.UTC()\n\tif state.Phase == Deleted {\n\t\treturn state, ErrTerminal\n\t}\n\tswitch event {\n\tcase EventHold:\n\t\tif state.Phase == Held {\n\t\t\treturn state, nil\n\t\t}\n\t\tfrom := state.Phase\n\t\tif from == Stuck {\n\t\t\tfrom = state.StuckFrom\n\t\t}\n\t\treturn State{Phase: Held, Since: now, HeldFrom: from, Reason: reason, Attempts: state.Attempts}, nil\n\tcase EventRelease:\n\t\tif state.Phase != Held || !state.HeldFrom.Valid() || state.HeldFrom == Held || state.HeldFrom == Stuck {\n\t\t\treturn state, fmt.Errorf(\"%w: release requires a held volume with a recorded phase\", ErrInvalidTransition)\n\t\t}\n\t\t// Attempts survive the hold: a release must not reset the bound that\n\t\t// escalates repeated same-host attach stalls to host replacement.\n\t\treturn State{Phase: state.HeldFrom, Since: now, Attempts: state.Attempts}, nil\n\tcase EventRetry:\n\t\tif state.Phase != Stuck || !state.StuckFrom.Transitional() {\n\t\t\treturn state, fmt.Errorf(\"%w: retry requires a stuck transitional phase\", ErrInvalidTransition)\n\t\t}\n\t\treturn State{Phase: state.StuckFrom, Since: now, Attempts: state.Attempts + 1}, nil\n\t}\n\tfrom := state.Phase\n\tif from == Stuck {\n\t\t// A late positive observation resolves a stall without a retry.\n\t\tfrom = state.StuckFrom\n\t}\n\tnext, ok := transitions[edge{from, event}]\n\tif !ok || state.Phase == Held {\n\t\treturn state, fmt.Errorf(\"%w: %s on %s\", ErrInvalidTransition, event, state.Phase)\n\t}\n\tif next == from {\n\t\t// Re-observing or re-requesting the current phase keeps the original\n\t\t// deadline; a stuck volume stays stuck until it makes progress or an\n\t\t// explicit retry restarts its deadline.\n\t\treturn state, nil\n\t}\n\tattempts := uint32(0)\n\tif attachRetryCycle(from) && attachRetryCycle(next) {\n\t\t// A force-detach-retry passes through Detaching and Detached back\n\t\t// to Attaching. The same-host attach retry count must survive that\n\t\t// cycle, or repeated stalls never escalate to host replacement. It\n\t\t// resets once the attach succeeds or the volume leaves the cycle.\n\t\tattempts = state.Attempts\n\t}\n\treturn State{Phase: next, Since: now, Attempts: attempts}, nil\n}\n\n// attachRetryCycle reports the phases a same-host attach retry cycles through.\nfunc attachRetryCycle(phase Phase) bool {\n\treturn phase == Attaching || phase == Detaching || phase == Detached\n}\n\ntype edge struct {\n\tfrom  Phase\n\tevent Event\n}\n\n// transitions is the complete allowed graph outside Hold/Release/Retry.\n// Re-requesting the current transitional phase is idempotent.\nvar transitions = map[edge]Phase{\n\t{Pending, EventCreateRequested}:   Creating,\n\t{Creating, EventCreateRequested}:  Creating,\n\t{Creating, EventCreated}:          Available,\n\t{Creating, EventDeleteRequested}:  Deleting,\n\t{Available, EventCreated}:         Available,\n\t{Available, EventAttachRequested}: Attaching,\n\t{Available, EventDeleteRequested}: Deleting,\n\t{Attaching, EventAttachRequested}: Attaching,\n\t{Attaching, EventAttached}:        Attached,\n\t{Attaching, EventDetachRequested}: Detaching,\n\t{Attaching, EventDetached}:        Detached,\n\t{Attached, EventAttached}:         Attached,\n\t{Attached, EventFormatStarted}:    Formatting,\n\t{Attached, EventMounted}:          Mounted,\n\t{Attached, EventDetachRequested}:  Detaching,\n\t{Attached, EventDetached}:         Detached,\n\t{Formatting, EventAttached}:       Formatting,\n\t{Formatting, EventFormatStarted}:  Formatting,\n\t{Formatting, EventMounted}:        Mounted,\n\t{Mounted, EventAttached}:          Mounted,\n\t{Mounted, EventMounted}:           Mounted,\n\t{Mounted, EventResizeRequested}:   Resizing,\n\t{Mounted, EventDetachRequested}:   Detaching,\n\t{Mounted, EventDetached}:          Detached,\n\t{Resizing, EventAttached}:         Resizing,\n\t{Resizing, EventMounted}:          Resizing,\n\t{Resizing, EventResizeRequested}:  Resizing,\n\t{Resizing, EventResized}:          Mounted,\n\t{Detaching, EventDetachRequested}: Detaching,\n\t{Detaching, EventDetached}:        Detached,\n\t{Detached, EventDetached}:         Detached,\n\t{Detached, EventAttachRequested}:  Attaching,\n\t{Detached, EventDeleteRequested}:  Deleting,\n\t{Deleting, EventDeleteRequested}:  Deleting,\n\t{Deleting, EventDeleted}:          Deleted,\n}\n\n// FromOCIAttachmentState maps an OCI volume-attachment lifecycle state to the\n// event it represents. Unknown states return false and must be held.\nfunc FromOCIAttachmentState(state string) (Event, bool) {\n\tswitch state {\n\tcase \"ATTACHING\":\n\t\treturn EventAttachRequested, true\n\tcase \"ATTACHED\":\n\t\treturn EventAttached, true\n\tcase \"DETACHING\":\n\t\treturn EventDetachRequested, true\n\tcase \"DETACHED\":\n\t\treturn EventDetached, true\n\tdefault:\n\t\treturn \"\", false\n\t}\n}\n",
+        "span_sha256": "3ecc6dc0d94e81b56a8a29b7d420502d23214b2078a30bea770535e1880048a8"
+      },
+      {
+        "path": "internal/storage/lifecycle/deadlines.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "859ece04ef6a123cad635b6dc061a3b157c4f97b",
+        "function": "Deadlines defaults validation expiry Check Remediate pure decisions",
+        "line": 9,
+        "end_line": 161,
+        "text": "// Deadlines bound every transitional phase. Zero fields use the defaults.\ntype Deadlines struct {\n\tCreating   time.Duration `json:\"creating,omitzero\"`\n\tAttaching  time.Duration `json:\"attaching,omitzero\"`\n\tFormatting time.Duration `json:\"formatting,omitzero\"`\n\tResizing   time.Duration `json:\"resizing,omitzero\"`\n\tDetaching  time.Duration `json:\"detaching,omitzero\"`\n\tDeleting   time.Duration `json:\"deleting,omitzero\"`\n\t// MaxAttachRetries bounds same-host attach retries before the remediation\n\t// escalates to host replacement.\n\tMaxAttachRetries uint32 `json:\"max_attach_retries,omitzero\"`\n}\n\n// DefaultDeadlines are conservative OCI service-level bounds: an OCI\n// paravirtualized attach normally settles in well under two minutes, so ten\n// minutes in ATTACHING is a real stall rather than a slow API.\nfunc DefaultDeadlines() Deadlines {\n\treturn Deadlines{\n\t\tCreating:         15 * time.Minute,\n\t\tAttaching:        10 * time.Minute,\n\t\tFormatting:       30 * time.Minute,\n\t\tResizing:         30 * time.Minute,\n\t\tDetaching:        10 * time.Minute,\n\t\tDeleting:         30 * time.Minute,\n\t\tMaxAttachRetries: 2,\n\t}\n}\n\nconst maxDeadline = 24 * time.Hour\n\n// WithDefaults fills zero fields from DefaultDeadlines.\nfunc (deadlines Deadlines) WithDefaults() Deadlines {\n\tdefaults := DefaultDeadlines()\n\tfill := func(value *time.Duration, fallback time.Duration) {\n\t\tif *value == 0 {\n\t\t\t*value = fallback\n\t\t}\n\t}\n\tfill(&deadlines.Creating, defaults.Creating)\n\tfill(&deadlines.Attaching, defaults.Attaching)\n\tfill(&deadlines.Formatting, defaults.Formatting)\n\tfill(&deadlines.Resizing, defaults.Resizing)\n\tfill(&deadlines.Detaching, defaults.Detaching)\n\tfill(&deadlines.Deleting, defaults.Deleting)\n\tif deadlines.MaxAttachRetries == 0 {\n\t\tdeadlines.MaxAttachRetries = defaults.MaxAttachRetries\n\t}\n\treturn deadlines\n}\n\n// Validate rejects negative or unbounded deadlines.\nfunc (deadlines Deadlines) Validate() error {\n\tfor _, value := range []time.Duration{\n\t\tdeadlines.Creating, deadlines.Attaching, deadlines.Formatting,\n\t\tdeadlines.Resizing, deadlines.Detaching, deadlines.Deleting,\n\t} {\n\t\tif value < 0 || value > maxDeadline {\n\t\t\treturn errors.New(\"retained volume lifecycle deadlines must be between zero and 24h\")\n\t\t}\n\t}\n\tif deadlines.MaxAttachRetries > 10 {\n\t\treturn errors.New(\"retained volume attach retries must not exceed 10\")\n\t}\n\treturn nil\n}\n\n// For returns the deadline of phase, or zero for non-transitional phases.\nfunc (deadlines Deadlines) For(phase Phase) time.Duration {\n\tdeadlines = deadlines.WithDefaults()\n\tswitch phase {\n\tcase Creating:\n\t\treturn deadlines.Creating\n\tcase Attaching:\n\t\treturn deadlines.Attaching\n\tcase Formatting:\n\t\treturn deadlines.Formatting\n\tcase Resizing:\n\t\treturn deadlines.Resizing\n\tcase Detaching:\n\t\treturn deadlines.Detaching\n\tcase Deleting:\n\t\treturn deadlines.Deleting\n\tdefault:\n\t\treturn 0\n\t}\n}\n\n// Expired reports whether a transitional state has outlived its deadline. A\n// zero Since or a Since in the future is treated as expired so a corrupt or\n// clock-skewed record cannot wait forever.\nfunc (deadlines Deadlines) Expired(state State, now time.Time) bool {\n\tlimit := deadlines.For(state.Phase)\n\tif limit == 0 {\n\t\treturn false\n\t}\n\tif state.Since.IsZero() || state.Since.After(now.Add(time.Minute)) {\n\t\treturn true\n\t}\n\treturn now.Sub(state.Since) >= limit\n}\n\n// Check moves an expired transitional state to Stuck. It returns the state\n// unchanged and false otherwise.\nfunc Check(state State, now time.Time, deadlines Deadlines) (State, bool) {\n\tif !state.Phase.Transitional() || !deadlines.Expired(state, now) {\n\t\treturn state, false\n\t}\n\treturn State{\n\t\tPhase: Stuck, Since: now.UTC(), StuckFrom: state.Phase, Attempts: state.Attempts,\n\t\tReason: fmt.Sprintf(\"%s exceeded %s\", state.Phase, deadlines.For(state.Phase)),\n\t}, true\n}\n\n// Remediation is the next safe action for a stuck volume. Every remediation\n// that moves data access requires its own fencing proof at execution time;\n// this decision never authorizes an effect by itself.\ntype Remediation string\n\nconst (\n\tRemediationNone Remediation = \"\"\n\t// RemediationForceDetachRetry force-detaches the stalled attachment (no\n\t// writer has ever been granted a mount through it) and retries the attach\n\t// on the same host with a fresh idempotency key.\n\tRemediationForceDetachRetry Remediation = \"force-detach-retry\"\n\t// RemediationReplaceHost gives up on the host: the volume is reattached to\n\t// a replacement only after the old instance is proven terminated.\n\tRemediationReplaceHost Remediation = \"replace-host\"\n\t// RemediationForceDetach repeats a stalled detach with force semantics.\n\tRemediationForceDetach Remediation = \"force-detach\"\n\t// RemediationOperator holds for an exact-resource operator workflow.\n\tRemediationOperator Remediation = \"operator\"\n)\n\n// Remediate chooses the remediation for a stuck state.\nfunc Remediate(state State, deadlines Deadlines) Remediation {\n\tif state.Phase != Stuck {\n\t\treturn RemediationNone\n\t}\n\tdeadlines = deadlines.WithDefaults()\n\tswitch state.StuckFrom {\n\tcase Attaching:\n\t\tif state.Attempts < deadlines.MaxAttachRetries {\n\t\t\treturn RemediationForceDetachRetry\n\t\t}\n\t\treturn RemediationReplaceHost\n\tcase Detaching:\n\t\treturn RemediationForceDetach\n\tdefault:\n\t\t// Create, format, resize and delete stalls touch durable data or an\n\t\t// unknown provider outcome; automation never guesses.\n\t\treturn RemediationOperator\n\t}\n}\n",
+        "span_sha256": "0a29c4962982425d3eb105091d5f28ab744066bdab6db52d28fd5354c59fbbb2"
+      }
+    ],
+    "tenant_fixture": [
+      {
+        "path": "internal/tenant/store_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bd2ee4bc1717419e7e48ef210f16439720b751ac",
+        "function": "startCell direct upstream NATS server and loopback nats.Connect; openStore",
+        "line": 18,
+        "end_line": 55,
+        "text": "func startCell(t *testing.T) func() jetstream.JetStream {\n\tt.Helper()\n\tbroker, err := server.NewServer(&server.Options{Host: \"127.0.0.1\", Port: -1, JetStream: true, StoreDir: t.TempDir()})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tgo broker.Start()\n\tif !broker.ReadyForConnections(5 * time.Second) {\n\t\tt.Fatal(\"embedded NATS did not start\")\n\t}\n\tt.Cleanup(func() {\n\t\tbroker.Shutdown()\n\t\tbroker.WaitForShutdown()\n\t})\n\treturn func() jetstream.JetStream {\n\t\tconn, err := nats.Connect(broker.ClientURL())\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tt.Cleanup(conn.Close)\n\t\tjs, err := jetstream.New(conn)\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\treturn js\n\t}\n}\n\nfunc openStore(t *testing.T, js jetstream.JetStream) *Store {\n\tt.Helper()\n\tstore, err := OpenStore(t.Context(), js, 1)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// Every test stamp is within a year of t0; the wall clock plays no part.\n\tstore.now = func() time.Time { return t0.Add(365 * 24 * time.Hour) }\n\treturn store\n}\n",
+        "span_sha256": "ce0f7765de9d2c4f90bc56266ad38dfb35b170ac5361f8783a866892df8097ed"
+      },
+      {
+        "path": "internal/tenant/tenant_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "a6e2e52280ebe8872687e8765359915b684809aa",
+        "function": "fixed fixture time and newTenant",
+        "line": 10,
+        "end_line": 25,
+        "text": "var (\n\tt0      = time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)\n\tdigestA = strings.Repeat(\"a\", 64)\n\tdigestB = strings.Repeat(\"b\", 64)\n\tdigestC = strings.Repeat(\"c\", 64)\n)\n\nfunc newTenant(t *testing.T) Tenant {\n\tt.Helper()\n\ttenant, err := New(\"0000000000WT9WWA18KD4ET6PG\", \"0000000000GG77KS2XN2FPA9SS\", \"00000000005C91M54AQR9YGVT5\", \"gru\",\n\t\tSpec{Plan: \"standard\", Members: 3, TerraBase: digestA, Auth: digestB}, t0)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\treturn tenant\n}\n",
+        "span_sha256": "00c52ffaf3973de943c908905339b1fb387a60b67f90d02f7c7a3e381bf49dac"
+      },
+      {
+        "path": "internal/tenant/store.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "716dc66ae94034f71904629fbde20f73b0b2027f",
+        "function": "OpenStore actual file-backed KV configuration; legacyOptions; local checkStamp",
+        "line": 54,
+        "end_line": 105,
+        "text": "func OpenStore(ctx context.Context, js jetstream.JetStream, replicas int) (*Store, error) {\n\tif js == nil || replicas < 1 || replicas > 5 {\n\t\treturn nil, errors.New(\"tenant store requires JetStream and 1 to 5 replicas\")\n\t}\n\tkv, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{\n\t\tBucket:       Bucket,\n\t\tDescription:  \"Dedicated tenants of the cell\",\n\t\tHistory:      4,\n\t\tMaxValueSize: maxValueBytes,\n\t\tStorage:      jetstream.FileStorage,\n\t\tReplicas:     replicas,\n\t})\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"open tenant store: %w\", err)\n\t}\n\tstatus, err := kv.Status(ctx)\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"read tenant store status: %w\", err)\n\t}\n\tif got := status.Config().Replicas; got != replicas {\n\t\treturn nil, fmt.Errorf(\"tenant store has %d replicas, requires %d\", got, replicas)\n\t}\n\tleader, err := js.Conn().JetStream(legacyOptions(js.Options())...)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn &Store{kv: kv, leader: leader, now: time.Now}, nil\n}\n\n// legacyOptions carry js's API namespace and timeout to the leader-read\n// context, so both address the same JetStream.\nfunc legacyOptions(options jetstream.JetStreamOptions) []nats.JSOpt {\n\tvar legacy []nats.JSOpt\n\tswitch {\n\tcase options.Domain != \"\":\n\t\tlegacy = append(legacy, nats.Domain(options.Domain))\n\tcase options.APIPrefix != \"\":\n\t\tlegacy = append(legacy, nats.APIPrefix(options.APIPrefix))\n\t}\n\tif options.DefaultTimeout > 0 {\n\t\tlegacy = append(legacy, nats.MaxWait(options.DefaultTimeout))\n\t}\n\treturn legacy\n}\n\nfunc (s *Store) checkStamp(t Tenant) error {\n\tif limit := s.now().Add(clockSkew); t.UpdatedAt.After(limit) {\n\t\treturn fmt.Errorf(\"%w: tenant %s is stamped %s, after %s\", ErrInvalid, t.ID,\n\t\t\tt.UpdatedAt.Format(time.RFC3339), limit.Format(time.RFC3339))\n\t}\n\treturn nil\n}\n",
+        "span_sha256": "7aa1cdb3ddf1ab980f9d4ad56d811f8d419ea6065b174cceabd6dd67c5e1b1b8"
+      }
+    ],
+    "tenant_store": [
+      {
+        "path": "internal/tenant/store.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "716dc66ae94034f71904629fbde20f73b0b2027f",
+        "function": "Create/Update/Get/List/encode/decode actual validation, store and leader boundaries",
+        "line": 109,
+        "end_line": 240,
+        "text": "func (s *Store) Create(ctx context.Context, t Tenant) (Versioned, error) {\n\tif err := CheckNew(t); err != nil {\n\t\treturn Versioned{}, err\n\t}\n\tif err := s.checkStamp(t); err != nil {\n\t\treturn Versioned{}, err\n\t}\n\tdata, err := encode(t)\n\tif err != nil {\n\t\treturn Versioned{}, err\n\t}\n\trevision, err := s.kv.Update(ctx, t.ID, data, 0)\n\tif errors.Is(err, jetstream.ErrKeyExists) || errors.Is(err, jetstream.ErrKeyRevisionMismatch) {\n\t\treturn Versioned{}, fmt.Errorf(\"%w: %s\", ErrExists, t.ID)\n\t}\n\tif err != nil {\n\t\treturn Versioned{}, err\n\t}\n\treturn Versioned{Tenant: t, Revision: revision}, nil\n}\n\n// Update replaces the tenant stored at revision with its successor next. It\n// checks next against the stored record, never against the caller's copy.\nfunc (s *Store) Update(ctx context.Context, revision uint64, next Tenant) (Versioned, error) {\n\tcurrent, err := s.Get(ctx, next.ID)\n\tif err != nil {\n\t\treturn Versioned{}, err\n\t}\n\tif current.Revision != revision {\n\t\treturn Versioned{}, fmt.Errorf(\"%w: %s\", ErrConflict, next.ID)\n\t}\n\tif err := CheckSuccessor(current.Tenant, next); err != nil {\n\t\treturn Versioned{}, err\n\t}\n\tif err := s.checkStamp(next); err != nil {\n\t\treturn Versioned{}, err\n\t}\n\tdata, err := encode(next)\n\tif err != nil {\n\t\treturn Versioned{}, err\n\t}\n\trevision, err = s.kv.Update(ctx, next.ID, data, revision)\n\tif errors.Is(err, jetstream.ErrKeyExists) || errors.Is(err, jetstream.ErrKeyRevisionMismatch) {\n\t\treturn Versioned{}, fmt.Errorf(\"%w: %s\", ErrConflict, next.ID)\n\t}\n\tif err != nil {\n\t\treturn Versioned{}, err\n\t}\n\treturn Versioned{Tenant: next, Revision: revision}, nil\n}\n\n// Get reads one tenant. Tenants are never removed, so a delete marker is\n// tampering, not absence.\nfunc (s *Store) Get(ctx context.Context, id string) (Versioned, error) {\n\tif !entityid.Valid(id) {\n\t\treturn Versioned{}, fmt.Errorf(\"%w: id %q\", ErrInvalid, id)\n\t}\n\tkey := id\n\tmsg, err := s.leader.GetLastMsg(\"KV_\"+Bucket, \"$KV.\"+Bucket+\".\"+key, nats.Context(ctx))\n\tif errors.Is(err, nats.ErrMsgNotFound) {\n\t\treturn Versioned{}, fmt.Errorf(\"%w: %s\", ErrNotFound, id)\n\t}\n\tif err != nil {\n\t\treturn Versioned{}, err\n\t}\n\tif operation := msg.Header.Get(\"KV-Operation\"); operation != \"\" {\n\t\treturn Versioned{}, fmt.Errorf(\"%w: %s has a %s marker\", ErrCorrupt, key, operation)\n\t}\n\treturn decode(key, msg.Data, msg.Sequence)\n}\n\n// List reads, sorted by ID, every tenant created before the call, each at\n// its latest state; a tenant created during the call may be missing. Since\n// tenants are never removed, a missing tenant is never a gone one: the\n// tenant's state says when it is gone. A corrupt record or a delete marker\n// fails the list, and so does a listing cut short, so a reconciler never\n// takes a tampered or truncated bucket for tenants that are gone.\nfunc (s *Store) List(ctx context.Context) ([]Versioned, error) {\n\twatcher, err := s.kv.WatchFiltered(ctx, []string{\"*\"}, jetstream.MetaOnly())\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tdefer watcher.Stop()\n\tvar ids []string\n\tcomplete := false\n\tfor entry := range watcher.Updates() {\n\t\tif entry == nil {\n\t\t\tcomplete = true\n\t\t\tbreak\n\t\t}\n\t\tids = append(ids, entry.Key())\n\t}\n\tif !complete {\n\t\tif err := ctx.Err(); err != nil {\n\t\t\treturn nil, fmt.Errorf(\"tenant listing: %w\", context.Cause(ctx))\n\t\t}\n\t\treturn nil, errors.New(\"tenant listing ended before every tenant was read\")\n\t}\n\tslices.Sort(ids)\n\ttenants := make([]Versioned, 0, len(ids))\n\tfor _, id := range slices.Compact(ids) {\n\t\tt, err := s.Get(ctx, id)\n\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\ttenants = append(tenants, t)\n\t}\n\treturn tenants, nil\n}\n\nfunc encode(t Tenant) ([]byte, error) {\n\tdata, err := json.Marshal(t)\n\tif err == nil && len(data) > maxValueBytes {\n\t\terr = fmt.Errorf(\"%w: tenant %s exceeds %d bytes\", ErrInvalid, t.ID, maxValueBytes)\n\t}\n\treturn data, err\n}\n\n// decode trusts a record only when it is valid and stored under its own ID.\nfunc decode(key string, value []byte, revision uint64) (Versioned, error) {\n\tvar t Tenant\n\tif err := json.Unmarshal(value, &t, json.RejectUnknownMembers(true)); err != nil {\n\t\treturn Versioned{}, fmt.Errorf(\"%w: %s: %v\", ErrCorrupt, key, err)\n\t}\n\tif err := t.Validate(); err != nil {\n\t\treturn Versioned{}, fmt.Errorf(\"%w: %s: %v\", ErrCorrupt, key, err)\n\t}\n\tif key != t.ID {\n\t\treturn Versioned{}, fmt.Errorf(\"%w: %s holds tenant %s\", ErrCorrupt, key, t.ID)\n\t}\n\treturn Versioned{Tenant: t, Revision: revision}, nil\n}\n",
+        "span_sha256": "6aa04de79e8fd3e425650e0531cadb844bda23a1f63c598564ff24422e9a298a"
+      }
+    ],
+    "tenant_model": [
+      {
+        "path": "internal/tenant/tenant.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "609c9f6a05dbd224c0816dfd8d805f32317a881a",
+        "function": "fixed catalog and LookupPlan",
+        "line": 54,
+        "end_line": 79,
+        "text": "const gib = int64(1) << 30\n\n// plans are the sizes on sale; Member matches whole Ampere cores. The\n// catalog is private so no importer can change what a plan name means.\nvar plans = [...]Plan{\n\t{Name: \"starter\", Member: placement.Resources{CPU: 1, MemoryBytes: 4 * gib, DiskBytes: 20 * gib}},\n\t{Name: \"standard\", Member: placement.Resources{CPU: 2, MemoryBytes: 8 * gib, DiskBytes: 100 * gib}},\n\t{Name: \"pro\", Member: placement.Resources{CPU: 4, MemoryBytes: 16 * gib, DiskBytes: 250 * gib}},\n\t{Name: \"scale\", Member: placement.Resources{CPU: 8, MemoryBytes: 32 * gib, DiskBytes: 500 * gib}},\n}\n\n// Plans returns a copy of the plans on sale.\nfunc Plans() []Plan { return slices.Clone(plans[:]) }\n\n// AuthResources is one dedicated ts-auth replica's reservation, the platform\n// ts-auth profile's.\nvar AuthResources = placement.Resources{CPU: 1, MemoryBytes: 1 * gib, DiskBytes: 2 * gib}\n\n// LookupPlan returns the plan named name.\nfunc LookupPlan(name string) (Plan, bool) {\n\tindex := slices.IndexFunc(plans[:], func(plan Plan) bool { return plan.Name == name })\n\tif index < 0 {\n\t\treturn Plan{}, false\n\t}\n\treturn plans[index], true\n}\n",
+        "span_sha256": "d57dc06616eec0033dee22920947a7eeff02a423590ccc639fa884900b237167"
+      },
+      {
+        "path": "internal/tenant/tenant.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "609c9f6a05dbd224c0816dfd8d805f32317a881a",
+        "function": "Spec/Tenant validation CheckNew New Change lifecycle successor CheckSuccessor digest",
+        "line": 126,
+        "end_line": 339,
+        "text": "func (s Spec) Validate() error {\n\tif !planRE.MatchString(s.Plan) || s.Member.CPU <= 0 || s.Member.MemoryBytes <= 0 || s.Member.DiskBytes <= 0 {\n\t\treturn fmt.Errorf(\"%w: plan %q or its member resources\", ErrInvalid, s.Plan)\n\t}\n\tif s.Members != 1 && s.Members != 3 {\n\t\treturn fmt.Errorf(\"%w: a TerraBase cluster has 1 or 3 members\", ErrInvalid)\n\t}\n\tif !validDigest(s.TerraBase) || s.Auth != \"\" && !validDigest(s.Auth) {\n\t\treturn fmt.Errorf(\"%w: release digests must be lower-case SHA-256 hex\", ErrInvalid)\n\t}\n\treturn nil\n}\n\n// Validate checks the tenant's structure.\nfunc (t Tenant) Validate() error {\n\tif t.Schema != Schema {\n\t\treturn fmt.Errorf(\"%w: schema %q\", ErrInvalid, t.Schema)\n\t}\n\tif !entityid.Valid(t.ID) {\n\t\treturn fmt.Errorf(\"%w: id %q\", ErrInvalid, t.ID)\n\t}\n\tif _, ok := catalog.LookupName(t.Cell); !ok || !entityid.Valid(t.Organization) || !entityid.Valid(t.Project) {\n\t\treturn fmt.Errorf(\"%w: organization, project or cell\", ErrInvalid)\n\t}\n\tif err := t.Spec.Validate(); err != nil {\n\t\treturn err\n\t}\n\tif t.Generation == 0 || t.CreatedAt.IsZero() || t.UpdatedAt.Before(t.CreatedAt) {\n\t\treturn fmt.Errorf(\"%w: generation or timestamps\", ErrInvalid)\n\t}\n\tswitch t.State {\n\tcase StateActive, StateSuspended:\n\t\tif !t.RetainUntil.IsZero() {\n\t\t\treturn fmt.Errorf(\"%w: only a deleted tenant has a retention deadline\", ErrInvalid)\n\t\t}\n\tcase StateDeleted:\n\t\tif !t.RetainUntil.After(t.UpdatedAt) {\n\t\t\treturn fmt.Errorf(\"%w: a deleted tenant is retained after its deletion\", ErrInvalid)\n\t\t}\n\tcase StatePurged:\n\t\tif t.RetainUntil.IsZero() || t.UpdatedAt.Before(t.RetainUntil) {\n\t\t\treturn fmt.Errorf(\"%w: a tenant is purged only after its retention\", ErrInvalid)\n\t\t}\n\tdefault:\n\t\treturn fmt.Errorf(\"%w: state %q\", ErrInvalid, t.State)\n\t}\n\treturn nil\n}\n\n// CheckNew reports whether t may be created: a valid active generation 1\n// under a free ID, on a plan on sale at exactly its resources.\nfunc CheckNew(t Tenant) error {\n\tif !ValidID(t.ID) {\n\t\treturn fmt.Errorf(\"%w: id %q is taken or malformed\", ErrInvalid, t.ID)\n\t}\n\tif err := t.Validate(); err != nil {\n\t\treturn err\n\t}\n\tif t.Generation != 1 || t.State != StateActive || !t.UpdatedAt.Equal(t.CreatedAt) {\n\t\treturn fmt.Errorf(\"%w: a new tenant is active generation 1\", ErrInvalid)\n\t}\n\tif plan, ok := LookupPlan(t.Spec.Plan); !ok || plan.Member != t.Spec.Member {\n\t\treturn fmt.Errorf(\"%w: plan %q is not on sale at those resources\", ErrInvalid, t.Spec.Plan)\n\t}\n\treturn nil\n}\n\n// ValidID reports whether a new tenant may take id.\nfunc ValidID(id string) bool { return entityid.Valid(id) }\n\n// New is generation 1 of an active tenant; it fills spec.Member from the plan.\nfunc New(id, organization, project, cell string, spec Spec, now time.Time) (Tenant, error) {\n\tplan, ok := LookupPlan(spec.Plan)\n\tif !ok {\n\t\treturn Tenant{}, fmt.Errorf(\"%w: unknown plan %q\", ErrInvalid, spec.Plan)\n\t}\n\tspec.Member = plan.Member\n\tnow = now.UTC().Round(0)\n\tt := Tenant{Schema: Schema, ID: id, Organization: organization, Project: project, Cell: cell, Spec: spec,\n\t\tState: StateActive, Generation: 1, CreatedAt: now, UpdatedAt: now}\n\treturn t, CheckNew(t)\n}\n\n// Change replaces an active tenant's spec: a resize, a scale, adding or\n// removing ts-auth, or a release upgrade or rollback. A new plan brings its\n// resources; an unchanged one keeps the tenant's.\nfunc (t Tenant) Change(spec Spec, now time.Time) (Tenant, error) {\n\tspec.Member = t.Spec.Member\n\tif spec.Plan != t.Spec.Plan {\n\t\tplan, ok := LookupPlan(spec.Plan)\n\t\tif !ok {\n\t\t\treturn Tenant{}, fmt.Errorf(\"%w: unknown plan %q\", ErrInvalid, spec.Plan)\n\t\t}\n\t\tspec.Member = plan.Member\n\t}\n\treturn t.successor(StateActive, spec, time.Time{}, now)\n}\n\n// Suspend stops an active tenant's machines and keeps its data.\nfunc (t Tenant) Suspend(now time.Time) (Tenant, error) {\n\treturn t.successor(StateSuspended, t.Spec, time.Time{}, now)\n}\n\n// Resume restarts a suspended tenant.\nfunc (t Tenant) Resume(now time.Time) (Tenant, error) {\n\treturn t.successor(StateActive, t.Spec, time.Time{}, now)\n}\n\n// Delete stops the tenant for good and keeps its volumes and backups for\n// retention.\nfunc (t Tenant) Delete(retention time.Duration, now time.Time) (Tenant, error) {\n\treturn t.successor(StateDeleted, t.Spec, t.stamp(now).Add(retention), now)\n}\n\n// Purge records that a deleted tenant's data is gone, once its retention\n// has passed.\nfunc (t Tenant) Purge(now time.Time) (Tenant, error) {\n\treturn t.successor(StatePurged, t.Spec, t.RetainUntil, now)\n}\n\n// stamp is now, but never before the last change, so a controller with a\n// slower clock than the previous writer still moves the tenant forward.\nfunc (t Tenant) stamp(now time.Time) time.Time {\n\tnow = now.UTC().Round(0)\n\tif now.Before(t.UpdatedAt) {\n\t\treturn t.UpdatedAt\n\t}\n\treturn now\n}\n\nfunc (t Tenant) successor(state State, spec Spec, retainUntil, now time.Time) (Tenant, error) {\n\tnext := t\n\tnext.State, next.Spec, next.RetainUntil = state, spec, retainUntil\n\tnext.Generation++\n\tnext.UpdatedAt = t.stamp(now)\n\tif err := CheckSuccessor(t, next); err != nil {\n\t\treturn Tenant{}, err\n\t}\n\treturn next, nil\n}\n\n// CheckSuccessor reports whether next may replace prev: the next generation\n// of the same tenant, through an allowed transition. A generation changes\n// either the release or the topology, never both, so a health rollback\n// returns exactly the previous release.\nfunc CheckSuccessor(prev, next Tenant) error {\n\tif err := next.Validate(); err != nil {\n\t\treturn err\n\t}\n\tif prev.ID != next.ID || prev.Organization != next.Organization || prev.Project != next.Project ||\n\t\tprev.Cell != next.Cell || !prev.CreatedAt.Equal(next.CreatedAt) {\n\t\treturn fmt.Errorf(\"%w: a tenant's identity never changes\", ErrInvalid)\n\t}\n\tif next.Generation != prev.Generation+1 || next.UpdatedAt.Before(prev.UpdatedAt) {\n\t\treturn fmt.Errorf(\"%w: generation %d may only be followed by %d, no earlier than %s\",\n\t\t\tErrInvalid, prev.Generation, prev.Generation+1, prev.UpdatedAt.Format(time.RFC3339))\n\t}\n\tsameSpec := next.Spec == prev.Spec\n\tswitch {\n\tcase prev.State == StatePurged:\n\t\treturn fmt.Errorf(\"%w: tenant %s is purged\", ErrInvalid, prev.ID)\n\tcase prev.State == StateDeleted:\n\t\tif next.State != StatePurged || !sameSpec || !next.RetainUntil.Equal(prev.RetainUntil) {\n\t\t\treturn fmt.Errorf(\"%w: tenant %s is deleted and can only be purged\", ErrInvalid, prev.ID)\n\t\t}\n\t\treturn nil // Validate holds the purge until RetainUntil.\n\tcase next.State == StatePurged:\n\t\treturn fmt.Errorf(\"%w: only a deleted tenant is purged\", ErrInvalid)\n\tcase next.State == StateDeleted:\n\t\tif retention := next.RetainUntil.Sub(next.UpdatedAt); retention < MinRetention || retention > MaxRetention {\n\t\t\treturn fmt.Errorf(\"%w: retention must be %v to %v\", ErrInvalid, MinRetention, MaxRetention)\n\t\t}\n\t\tif !sameSpec {\n\t\t\treturn fmt.Errorf(\"%w: a deletion changes no spec\", ErrInvalid)\n\t\t}\n\t\treturn nil\n\tcase next.State != StateActive || prev.State != StateActive:\n\t\tif !sameSpec {\n\t\t\treturn fmt.Errorf(\"%w: only an active tenant changes its spec\", ErrInvalid)\n\t\t}\n\t\tif next.State == prev.State {\n\t\t\treturn fmt.Errorf(\"%w: tenant %s is already %s\", ErrUnchanged, prev.ID, prev.State)\n\t\t}\n\t\treturn nil\n\tcase sameSpec:\n\t\treturn ErrUnchanged\n\t}\n\tbefore, after := prev.Spec, next.Spec\n\tif after.Plan != before.Plan {\n\t\tplan, ok := LookupPlan(after.Plan)\n\t\tif !ok || plan.Member != after.Member {\n\t\t\treturn fmt.Errorf(\"%w: plan %q is not on sale at those resources\", ErrInvalid, after.Plan)\n\t\t}\n\t} else if after.Member != before.Member {\n\t\treturn fmt.Errorf(\"%w: member resources change only with the plan\", ErrInvalid)\n\t}\n\tif after.Member.DiskBytes < before.Member.DiskBytes {\n\t\treturn fmt.Errorf(\"%w: plan %s has less disk than %s, and volumes never shrink\", ErrInvalid, after.Plan, before.Plan)\n\t}\n\trelease := before.TerraBase != after.TerraBase || before.Auth != \"\" && after.Auth != \"\" && before.Auth != after.Auth\n\ttopology := before.Plan != after.Plan || before.Members != after.Members || (before.Auth == \"\") != (after.Auth == \"\")\n\tif release && topology {\n\t\treturn fmt.Errorf(\"%w: change the release and the topology in separate generations\", ErrInvalid)\n\t}\n\treturn nil\n}\n\nfunc validDigest(value string) bool {\n\tif len(value) != sha256.Size*2 {\n\t\treturn false\n\t}\n\tdigest, err := hex.DecodeString(value)\n\treturn err == nil && hex.EncodeToString(digest) == value\n}\n",
+        "span_sha256": "ac92b777be3a5bfbeee4d050eee93b83a60b069243e6d3decc4ff9417964343b"
+      }
+    ],
+    "cancelled_list": [
+      {
+        "path": "/home/mariogk/go/pkg/mod/github.com/nats-io/nats.go@v1.54.0/jetstream/kv.go",
+        "function": "WatchFiltered creates ordered push subscription with supplied context",
+        "line": 1244,
+        "end_line": 1390,
+        "text": "func (kv *kvs) WatchFiltered(ctx context.Context, keys []string, opts ...WatchOpt) (KeyWatcher, error) {\n\tfor _, key := range keys {\n\t\tif !searchKeyValid(key) {\n\t\t\treturn nil, fmt.Errorf(\"%w: %s\", ErrInvalidKey, \"key cannot be empty and must be a valid NATS subject\")\n\t\t}\n\t}\n\tvar o watchOpts\n\tfor _, opt := range opts {\n\t\tif opt != nil {\n\t\t\tif err := opt.configureWatcher(&o); err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n\t\t}\n\t}\n\n\t// Could be a pattern so don't check for validity as we normally do.\n\tfor i, key := range keys {\n\t\tvar b strings.Builder\n\t\tb.WriteString(kv.pre)\n\t\tb.WriteString(key)\n\t\tkeys[i] = b.String()\n\t}\n\n\t// if no keys are provided, watch all keys\n\tif len(keys) == 0 {\n\t\tvar b strings.Builder\n\t\tb.WriteString(kv.pre)\n\t\tb.WriteString(AllKeys)\n\t\tkeys = []string{b.String()}\n\t}\n\n\t// We will block below on placing items on the chan. That is by design.\n\tw := &watcher{updates: make(chan KeyValueEntry, 256)}\n\n\tupdate := func(m *nats.Msg) {\n\t\ttokens, err := parser.GetMetadataFields(m.Reply)\n\t\tif err != nil {\n\t\t\treturn\n\t\t}\n\t\tif len(m.Subject) <= len(kv.pre) {\n\t\t\treturn\n\t\t}\n\t\tsubj := m.Subject[len(kv.pre):]\n\n\t\tvar op KeyValueOp\n\t\tif len(m.Header) > 0 {\n\t\t\tif m.Header.Get(kvop) != \"\" {\n\t\t\t\tswitch m.Header.Get(kvop) {\n\t\t\t\tcase kvdel:\n\t\t\t\t\top = KeyValueDelete\n\t\t\t\tcase kvpurge:\n\t\t\t\t\top = KeyValuePurge\n\t\t\t\t}\n\t\t\t} else if m.Header.Get(MarkerReasonHeader) != \"\" {\n\t\t\t\tswitch m.Header.Get(MarkerReasonHeader) {\n\t\t\t\tcase \"MaxAge\", \"Purge\":\n\t\t\t\t\top = KeyValuePurge\n\t\t\t\tcase \"Remove\":\n\t\t\t\t\top = KeyValueDelete\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t\tdelta := parser.ParseNum(tokens[parser.AckNumPendingTokenPos])\n\t\tw.mu.Lock()\n\t\tdefer w.mu.Unlock()\n\t\tif !o.ignoreDeletes || (op != KeyValueDelete && op != KeyValuePurge) {\n\t\t\tentry := &kve{\n\t\t\t\tbucket:   kv.name,\n\t\t\t\tkey:      subj,\n\t\t\t\tvalue:    m.Data,\n\t\t\t\trevision: parser.ParseNum(tokens[parser.AckStreamSeqTokenPos]),\n\t\t\t\tcreated:  time.Unix(0, int64(parser.ParseNum(tokens[parser.AckTimestampSeqTokenPos]))),\n\t\t\t\tdelta:    delta,\n\t\t\t\top:       op,\n\t\t\t}\n\t\t\tw.updates <- entry\n\t\t}\n\t\t// Check if done and initial values.\n\t\tif !w.initDone {\n\t\t\tw.received++\n\t\t\t// Use the stable initPending value set at consumer creation.\n\t\t\t// We're done if we've received all expected messages OR there are no more pending.\n\t\t\tif w.received >= w.initPending || delta == 0 {\n\t\t\t\tw.initDone = true\n\t\t\t\tw.updates <- nil\n\t\t\t}\n\t\t}\n\t}\n\n\t// Used ordered consumer to deliver results.\n\tsubOpts := []nats.SubOpt{nats.BindStream(kv.streamName), nats.OrderedConsumer()}\n\tif !o.includeHistory {\n\t\tsubOpts = append(subOpts, nats.DeliverLastPerSubject())\n\t}\n\tif o.updatesOnly {\n\t\tsubOpts = append(subOpts, nats.DeliverNew())\n\t}\n\tif o.metaOnly {\n\t\tsubOpts = append(subOpts, nats.HeadersOnly())\n\t}\n\tif o.resumeFromRevision > 0 {\n\t\tsubOpts = append(subOpts, nats.StartSequence(o.resumeFromRevision))\n\t}\n\tsubOpts = append(subOpts, nats.Context(ctx))\n\t// Create the sub and rest of initialization under the lock.\n\t// We want to prevent the race between this code and the\n\t// update() callback.\n\tw.mu.Lock()\n\tdefer w.mu.Unlock()\n\tvar sub *nats.Subscription\n\tvar err error\n\tif len(keys) == 1 {\n\t\tsub, err = kv.pushJS.Subscribe(keys[0], update, subOpts...)\n\t} else {\n\t\tsubOpts = append(subOpts, nats.ConsumerFilterSubjects(keys...))\n\t\tsub, err = kv.pushJS.Subscribe(\"\", update, subOpts...)\n\t}\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tsub.SetClosedHandler(func(_ string) {\n\t\tw.mu.Lock()\n\t\tdefer w.mu.Unlock()\n\t\tclose(w.updates)\n\t})\n\t// If there were no pending messages at the time of the creation\n\t// of the consumer, send the marker.\n\t// Skip if UpdatesOnly() is set, since there will never be updates initially.\n\tif !o.updatesOnly {\n\t\tinitialPending, err := sub.InitialConsumerPending()\n\t\tif err == nil {\n\t\t\tif initialPending == 0 {\n\t\t\t\tw.initDone = true\n\t\t\t\tw.updates <- nil\n\t\t\t} else {\n\t\t\t\tw.initPending = initialPending\n\t\t\t}\n\t\t}\n\t} else {\n\t\t// if UpdatesOnly was used, mark initialization as complete\n\t\tw.initDone = true\n\t}\n\tw.sub = sub\n\treturn w, nil\n}\n\n// Watch for any updates to keys that match the keys argument which could include wildcards.\n",
+        "span_sha256": "fa3c0213b5b1b4f74d36c927815bab3ca41e2f1e556af1c9f5959fb7398342a5",
+        "file_sha256": "434699a502b2328acf9024da6125ade09e572367958a4a28d89e677ffade6c62"
+      },
+      {
+        "path": "/home/mariogk/go/pkg/mod/github.com/nats-io/nats.go@v1.54.0/js.go",
+        "function": "subscribe bound stream ordered ephemeral path; nc.subscribe before upsertConsumer",
+        "line": 1684,
+        "end_line": 2005,
+        "text": "func (js *js) subscribe(subj, queue string, cb MsgHandler, ch chan *Msg, isSync, isPullMode bool, opts []SubOpt) (*Subscription, error) {\n\tcfg := ConsumerConfig{\n\t\tDeliverPolicy: deliverPolicyNotSet,\n\t\tAckPolicy:     ackPolicyNotSet,\n\t\tReplayPolicy:  replayPolicyNotSet,\n\t}\n\to := subOpts{cfg: &cfg}\n\tif len(opts) > 0 {\n\t\tfor _, opt := range opts {\n\t\t\tif opt == nil {\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\tif err := opt.configureSubscribe(&o); err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n\t\t}\n\t}\n\n\t// If no stream name is specified, the subject cannot be empty.\n\tif subj == _EMPTY_ && o.stream == _EMPTY_ {\n\t\treturn nil, errors.New(\"nats: subject required\")\n\t}\n\n\t// Note that these may change based on the consumer info response we may get.\n\thasHeartbeats := o.cfg.Heartbeat > 0\n\thasFC := o.cfg.FlowControl\n\n\t// Some checks for pull subscribers\n\tif isPullMode {\n\t\t// No deliver subject should be provided\n\t\tif o.cfg.DeliverSubject != _EMPTY_ {\n\t\t\treturn nil, ErrPullSubscribeToPushConsumer\n\t\t}\n\t}\n\n\t// Some check/setting specific to queue subs\n\tif queue != _EMPTY_ {\n\t\t// Queue subscriber cannot have HB or FC (since messages will be randomly dispatched\n\t\t// to members). We may in the future have a separate NATS subscription that all members\n\t\t// would subscribe to and server would send on.\n\t\tif o.cfg.Heartbeat > 0 || o.cfg.FlowControl {\n\t\t\t// Not making this a public ErrXXX in case we allow in the future.\n\t\t\treturn nil, errors.New(\"nats: queue subscription doesn't support idle heartbeat nor flow control\")\n\t\t}\n\n\t\t// If this is a queue subscription and no consumer nor durable name was specified,\n\t\t// then we will use the queue name as a durable name.\n\t\tif o.consumer == _EMPTY_ && o.cfg.Durable == _EMPTY_ {\n\t\t\tif err := checkConsumerName(queue); err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n\t\t\to.cfg.Durable = queue\n\t\t}\n\t}\n\n\tvar (\n\t\terr           error\n\t\tshouldCreate  bool\n\t\tinfo          *ConsumerInfo\n\t\tdeliver       string\n\t\tstream        = o.stream\n\t\tconsumer      = o.consumer\n\t\tisDurable     = o.cfg.Durable != _EMPTY_\n\t\tconsumerBound = o.bound\n\t\tctx           = o.ctx\n\t\tskipCInfo     = o.skipCInfo\n\t\tnotFoundErr   bool\n\t\tlookupErr     bool\n\t\tnc            = js.nc\n\t\tnms           string\n\t\thbi           time.Duration\n\t\tccreq         *createConsumerRequest // In case we need to hold onto it for ordered consumers.\n\t\tmaxap         int\n\t)\n\n\t// Do some quick checks here for ordered consumers. We do these here instead of spread out\n\t// in the individual SubOpts.\n\tif o.ordered {\n\t\t// Make sure we are not durable.\n\t\tif isDurable {\n\t\t\treturn nil, errors.New(\"nats: durable can not be set for an ordered consumer\")\n\t\t}\n\t\t// Check ack policy.\n\t\tif o.cfg.AckPolicy != ackPolicyNotSet {\n\t\t\treturn nil, errors.New(\"nats: ack policy can not be set for an ordered consumer\")\n\t\t}\n\t\t// Check max deliver.\n\t\tif o.cfg.MaxDeliver != 1 && o.cfg.MaxDeliver != 0 {\n\t\t\treturn nil, errors.New(\"nats: max deliver can not be set for an ordered consumer\")\n\t\t}\n\t\t// No deliver subject, we pick our own.\n\t\tif o.cfg.DeliverSubject != _EMPTY_ {\n\t\t\treturn nil, errors.New(\"nats: deliver subject can not be set for an ordered consumer\")\n\t\t}\n\t\t// Queue groups not allowed.\n\t\tif queue != _EMPTY_ {\n\t\t\treturn nil, errors.New(\"nats: queues not be set for an ordered consumer\")\n\t\t}\n\t\t// Check for bound consumers.\n\t\tif consumer != _EMPTY_ {\n\t\t\treturn nil, errors.New(\"nats: can not bind existing consumer for an ordered consumer\")\n\t\t}\n\t\t// Check for pull mode.\n\t\tif isPullMode {\n\t\t\treturn nil, errors.New(\"nats: can not use pull mode for an ordered consumer\")\n\t\t}\n\t\t// Setup how we need it to be here.\n\t\to.cfg.FlowControl = true\n\t\to.cfg.AckPolicy = AckNonePolicy\n\t\to.cfg.MaxDeliver = 1\n\t\to.cfg.AckWait = 22 * time.Hour // Just set to something known, not utilized.\n\t\t// Force R1 and MemoryStorage for these.\n\t\to.cfg.Replicas = 1\n\t\to.cfg.MemoryStorage = true\n\n\t\tif !hasHeartbeats {\n\t\t\to.cfg.Heartbeat = orderedHeartbeatsInterval\n\t\t}\n\t\thasFC, hasHeartbeats = true, true\n\t\to.mack = true // To avoid auto-ack wrapping call below.\n\t\thbi = o.cfg.Heartbeat\n\t}\n\n\t// In case a consumer has not been set explicitly, then the\n\t// durable name will be used as the consumer name.\n\tif consumer == _EMPTY_ {\n\t\tconsumer = o.cfg.Durable\n\t}\n\n\t// Find the stream mapped to the subject if not bound to a stream already.\n\tif stream == _EMPTY_ {\n\t\tstream, err = js.StreamNameBySubject(subj)\n\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t}\n\n\t// With an explicit durable name, we can lookup the consumer first\n\t// to which it should be attaching to.\n\t// If SkipConsumerLookup was used, do not call consumer info.\n\tif consumer != _EMPTY_ && !o.skipCInfo {\n\t\tinfo, err = js.ConsumerInfo(stream, consumer)\n\t\tnotFoundErr = errors.Is(err, ErrConsumerNotFound)\n\t\tlookupErr = err == ErrJetStreamNotEnabled || errors.Is(err, ErrTimeout) || errors.Is(err, context.DeadlineExceeded)\n\t}\n\n\tswitch {\n\tcase info != nil:\n\t\tdeliver, err = processConsInfo(info, o.cfg, isPullMode, subj, queue)\n\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\ticfg := &info.Config\n\t\thasFC, hbi = icfg.FlowControl, icfg.Heartbeat\n\t\thasHeartbeats = hbi > 0\n\t\tmaxap = icfg.MaxAckPending\n\tcase (err != nil && !notFoundErr) || (notFoundErr && consumerBound):\n\t\t// If the consumer is being bound and we got an error on pull subscribe then allow the error.\n\t\tif !(isPullMode && lookupErr && consumerBound) {\n\t\t\treturn nil, err\n\t\t}\n\tcase skipCInfo:\n\t\t// When skipping consumer info, need to rely on the manually passed sub options\n\t\t// to match the expected behavior from the subscription.\n\t\thasFC, hbi = o.cfg.FlowControl, o.cfg.Heartbeat\n\t\thasHeartbeats = hbi > 0\n\t\tmaxap = o.cfg.MaxAckPending\n\t\tdeliver = o.cfg.DeliverSubject\n\t\tif consumerBound {\n\t\t\tbreak\n\t\t}\n\n\t\t// When not bound to a consumer already, proceed to create.\n\t\tfallthrough\n\tdefault:\n\t\t// Attempt to create consumer if not found nor using Bind.\n\t\tshouldCreate = true\n\t\tif o.cfg.DeliverSubject != _EMPTY_ {\n\t\t\tdeliver = o.cfg.DeliverSubject\n\t\t} else if !isPullMode {\n\t\t\tdeliver = nc.NewInbox()\n\t\t\tcfg.DeliverSubject = deliver\n\t\t}\n\t\t// Do filtering always, server will clear as needed.\n\t\tcfg.FilterSubject = subj\n\n\t\t// Pass the queue to the consumer config\n\t\tif queue != _EMPTY_ {\n\t\t\tcfg.DeliverGroup = queue\n\t\t}\n\n\t\t// If not set, default to deliver all\n\t\tif cfg.DeliverPolicy == deliverPolicyNotSet {\n\t\t\tcfg.DeliverPolicy = DeliverAllPolicy\n\t\t}\n\t\t// If not set, default to ack explicit.\n\t\tif cfg.AckPolicy == ackPolicyNotSet {\n\t\t\tcfg.AckPolicy = AckExplicitPolicy\n\t\t}\n\t\t// If not set, default to instant\n\t\tif cfg.ReplayPolicy == replayPolicyNotSet {\n\t\t\tcfg.ReplayPolicy = ReplayInstantPolicy\n\t\t}\n\n\t\t// If we have acks at all and the MaxAckPending is not set go ahead\n\t\t// and set to the internal max for channel based consumers\n\t\tif cfg.MaxAckPending == 0 && ch != nil && cfg.AckPolicy != AckNonePolicy {\n\t\t\tcfg.MaxAckPending = cap(ch)\n\t\t}\n\t\t// Create request here.\n\t\tccreq = &createConsumerRequest{\n\t\t\tStream: stream,\n\t\t\tConfig: &cfg,\n\t\t}\n\t\thbi = cfg.Heartbeat\n\t}\n\n\tif isPullMode {\n\t\tnms = fmt.Sprintf(js.apiSubj(apiRequestNextT), stream, consumer)\n\t\tdeliver = nc.NewInbox()\n\t\t// for pull consumers, create a wildcard subscription to differentiate pull requests\n\t\tdeliver += \".*\"\n\t}\n\n\t// In case this has a context, then create a child context that\n\t// is possible to cancel via unsubscribe / drain.\n\tvar cancel func()\n\tif ctx != nil {\n\t\tctx, cancel = context.WithCancel(ctx)\n\t}\n\n\tjsi := &jsSub{\n\t\tjs:       js,\n\t\tstream:   stream,\n\t\tconsumer: consumer,\n\t\tdeliver:  deliver,\n\t\thbi:      hbi,\n\t\tordered:  o.ordered,\n\t\tccreq:    ccreq,\n\t\tdseq:     1,\n\t\tpull:     isPullMode,\n\t\tnms:      nms,\n\t\tpsubj:    subj,\n\t\tcancel:   cancel,\n\t\tackNone:  o.cfg.AckPolicy == AckNonePolicy,\n\t\tctx:      o.ctx,\n\t}\n\n\t// Auto acknowledge unless manual ack is set or policy is set to AckNonePolicy\n\tif cb != nil && !o.mack && o.cfg.AckPolicy != AckNonePolicy {\n\t\tocb := cb\n\t\tcb = func(m *Msg) { ocb(m); m.Ack() }\n\t}\n\tsub, err := nc.subscribe(deliver, queue, cb, ch, nil, isSync, jsi)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\n\t// If we fail and we had the sub we need to cleanup, but can't just do a straight Unsubscribe or Drain.\n\t// We need to clear the jsi so we do not remove any durables etc.\n\tcleanUpSub := func() {\n\t\tif sub != nil {\n\t\t\tsub.mu.Lock()\n\t\t\tsub.jsi = nil\n\t\t\tsub.mu.Unlock()\n\t\t\tsub.Unsubscribe()\n\t\t}\n\t}\n\n\t// If we are creating or updating let's process that request.\n\tconsName := o.cfg.Name\n\tif shouldCreate {\n\t\tif cfg.Durable != \"\" {\n\t\t\tconsName = cfg.Durable\n\t\t} else if consName == \"\" {\n\t\t\tconsName = getHash(nuid.Next())\n\t\t}\n\t\tif o.ctx != nil {\n\t\t\tinfo, err = js.upsertConsumer(stream, consName, ccreq.Config, Context(o.ctx))\n\t\t} else {\n\t\t\tinfo, err = js.upsertConsumer(stream, consName, ccreq.Config)\n\t\t}\n\t\tif err != nil {\n\t\t\tvar apiErr *APIError\n\t\t\tif ok := errors.As(err, &apiErr); !ok {\n\t\t\t\tcleanUpSub()\n\t\t\t\treturn nil, err\n\t\t\t}\n\t\t\tlookupConsumer := consumer\n\t\t\tif lookupConsumer == _EMPTY_ {\n\t\t\t\tlookupConsumer = consName\n\t\t\t}\n\t\t\tif lookupConsumer == _EMPTY_ ||\n\t\t\t\t(apiErr.ErrorCode != JSErrCodeConsumerAlreadyExists && apiErr.ErrorCode != JSErrCodeConsumerNameExists) {\n\t\t\t\tcleanUpSub()\n\t\t\t\tif errors.Is(apiErr, ErrStreamNotFound) {\n\t\t\t\t\treturn nil, ErrStreamNotFound\n\t\t\t\t}\n\t\t\t\treturn nil, err\n\t\t\t}\n\t\t\t// We will not be using this sub here if we were push based.\n\t\t\tif !isPullMode {\n\t\t\t\tcleanUpSub()\n\t\t\t}\n\n\t\t\tinfo, err = js.ConsumerInfo(stream, lookupConsumer)\n\t\t\tif err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n\t\t\tdeliver, err = processConsInfo(info, o.cfg, isPullMode, subj, queue)\n\t\t\tif err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n\n\t\t\tif !isPullMode {\n\t\t\t\t// We can't reuse the channel, so if one was passed, we need to create a new one.\n\t\t\t\tif isSync {\n\t\t\t\t\tch = make(chan *Msg, cap(ch))\n\t\t\t\t} else if ch != nil {\n\t\t\t\t\t// User provided (ChanSubscription), simply try to drain it.\n\t\t\t\t\tfor done := false; !done; {\n\t\t\t\t\t\tselect {\n",
+        "span_sha256": "5b3d36cb4ff66bf8e0a641868bfdce27bb2feef7ac4042806e6ec118dae52308",
+        "file_sha256": "00999d57c1aa6332bffe8d8d700b77289ea03ab73c48dbf889ef28ccec0348e7"
+      },
+      {
+        "path": "/home/mariogk/go/pkg/mod/github.com/nats-io/nats.go@v1.54.0/jsm.go",
+        "function": "upsertConsumer context and apiRequestWithContext",
+        "line": 488,
+        "end_line": 545,
+        "text": "func (js *js) upsertConsumer(stream, consumerName string, cfg *ConsumerConfig, opts ...JSOpt) (*ConsumerInfo, error) {\n\tif err := checkStreamName(stream); err != nil {\n\t\treturn nil, err\n\t}\n\to, cancel, err := getJSContextOpts(js.opts, opts...)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tif cancel != nil {\n\t\tdefer cancel()\n\t}\n\n\treq, err := json.Marshal(&createConsumerRequest{Stream: stream, Config: cfg})\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\n\tvar ccSubj string\n\tif consumerName == _EMPTY_ {\n\t\t// if consumer name is empty (neither Durable nor Name is set), use the legacy ephemeral endpoint\n\t\tccSubj = fmt.Sprintf(apiLegacyConsumerCreateT, stream)\n\t} else if err := checkConsumerName(consumerName); err != nil {\n\t\treturn nil, err\n\t} else if js.nc.serverMinVersion(2, 9, 0) {\n\t\tif cfg.Durable != \"\" && js.opts.featureFlags.useDurableConsumerCreate {\n\t\t\t// if user set the useDurableConsumerCreate flag, use the legacy DURABLE.CREATE endpoint\n\t\t\tccSubj = fmt.Sprintf(apiDurableCreateT, stream, consumerName)\n\t\t} else if cfg.FilterSubject == _EMPTY_ || cfg.FilterSubject == \">\" {\n\t\t\t// if filter subject is empty or \">\", use the endpoint without filter subject\n\t\t\tccSubj = fmt.Sprintf(apiConsumerCreateT, stream, consumerName)\n\t\t} else {\n\t\t\t// safeguard against passing invalid filter subject in request subject\n\t\t\tif cfg.FilterSubject[0] == '.' || cfg.FilterSubject[len(cfg.FilterSubject)-1] == '.' {\n\t\t\t\treturn nil, fmt.Errorf(\"%w: %q\", ErrInvalidFilterSubject, cfg.FilterSubject)\n\t\t\t}\n\t\t\t// if filter subject is not empty, use the endpoint with filter subject\n\t\t\tccSubj = fmt.Sprintf(apiConsumerCreateWithFilterSubjectT, stream, consumerName, cfg.FilterSubject)\n\t\t}\n\t} else {\n\t\tif cfg.Durable != \"\" {\n\t\t\t// if Durable is set, use the DURABLE.CREATE endpoint\n\t\t\tccSubj = fmt.Sprintf(apiDurableCreateT, stream, consumerName)\n\t\t} else {\n\t\t\t// if Durable is not set, use the legacy ephemeral endpoint\n\t\t\tccSubj = fmt.Sprintf(apiLegacyConsumerCreateT, stream)\n\t\t}\n\t}\n\n\tresp, err := js.apiRequestWithContext(o.ctx, o.apiSubj(ccSubj), req)\n\tif err != nil {\n\t\tif errors.Is(err, ErrNoResponders) {\n\t\t\terr = ErrJetStreamNotEnabled\n\t\t}\n\t\treturn nil, err\n\t}\n\tvar info consumerResponse\n\terr = json.Unmarshal(resp.Data, &info)\n\tif err != nil {\n",
+        "span_sha256": "c83456cf7d3875500c5f04d6c9d32b187114fb197e2f691813885bdeea7eb2d6",
+        "file_sha256": "313916d3b931dc6ce50aa9d9b575ba47e5b79653ecb44bcb1bebe45d896e1d2a"
+      },
+      {
+        "path": "/home/mariogk/go/pkg/mod/github.com/nats-io/nats.go@v1.54.0/js.go",
+        "function": "apiRequestWithContext RequestWithContext",
+        "line": 3702,
+        "end_line": 3723,
+        "text": "func (js *js) apiRequestWithContext(ctx context.Context, subj string, data []byte) (*Msg, error) {\n\tif js.opts.shouldTrace {\n\t\tctrace := js.opts.ctrace\n\t\tif ctrace.RequestSent != nil {\n\t\t\tctrace.RequestSent(subj, data)\n\t\t}\n\t}\n\tresp, err := js.nc.RequestWithContext(ctx, subj, data)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tif js.opts.shouldTrace {\n\t\tctrace := js.opts.ctrace\n\t\tif ctrace.ResponseReceived != nil {\n\t\t\tctrace.ResponseReceived(subj, resp.Data, resp.Header)\n\t\t}\n\t}\n\n\treturn resp, nil\n}\n\nfunc (m *Msg) checkReply() error {\n",
+        "span_sha256": "01c1b26e1762bd5635ad57771f8aad5cc9ce28fc512689b60b8afcef671ef1ef",
+        "file_sha256": "00999d57c1aa6332bffe8d8d700b77289ea03ab73c48dbf889ef28ccec0348e7"
+      },
+      {
+        "path": "/home/mariogk/go/pkg/mod/github.com/nats-io/nats.go@v1.54.0/context.go",
+        "function": "RequestWithContext and pre-request ctx.Err guard",
+        "line": 36,
+        "end_line": 62,
+        "text": "func (nc *Conn) RequestWithContext(ctx context.Context, subj string, data []byte) (*Msg, error) {\n\treturn nc.requestWithContext(ctx, subj, nil, data)\n}\n\nfunc (nc *Conn) requestWithContext(ctx context.Context, subj string, hdr, data []byte) (*Msg, error) {\n\tif ctx == nil {\n\t\treturn nil, ErrInvalidContext\n\t}\n\tif nc == nil {\n\t\treturn nil, ErrInvalidConnection\n\t}\n\t// Check whether the context is done already before making\n\t// the request.\n\tif ctx.Err() != nil {\n\t\treturn nil, ctx.Err()\n\t}\n\n\tvar m *Msg\n\tvar err error\n\n\t// If user wants the old style.\n\tif nc.useOldRequestStyle() {\n\t\tm, err = nc.oldRequestWithContext(ctx, subj, hdr, data)\n\t} else {\n\t\tmch, token, err := nc.createNewRequestAndSend(subj, hdr, data)\n\t\tif err != nil {\n\t\t\treturn nil, err\n",
+        "span_sha256": "8f3e83b17d893a9eba8efed05e55d50e51da141fe1b80c2ef81e95ee0d141ce4",
+        "file_sha256": "d4802b1b14c449f70a05dec3065e8dd4bc19f2ff984df8f2421a96214a522198"
+      }
+    ]
+  },
+  "source_file_pins": {
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/storage/hostvolume/observer_linux.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/storage/hostvolume/observer_linux.go",
+      "mode": "100644",
+      "git_blob": "81ab2489f61480f3e53138dc4e9fdb8975e775fb",
+      "sha256": "326734bdb08f0f7c90fe23775ed3ec5c6fbe897018e8d1d8ce3d8e1ae2980926",
+      "bytes": 10998
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/storage/lifecycle/machine_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/storage/lifecycle/machine_test.go",
+      "mode": "100644",
+      "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+      "sha256": "ddc5bb0fb9761562f64c58ac09b8e260e231b4b2fff96d8fc64c86316c0cf89b",
+      "bytes": 9553
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/storage/lifecycle/machine.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/storage/lifecycle/machine.go",
+      "mode": "100644",
+      "git_blob": "b63cb8521e3e08c3d9cfd9a6c1cd6530cb3d4d94",
+      "sha256": "0c62c94c9eaa1352979f43beab9b21a6c2b7c415f387b52c4467b45a8cfc9c3d",
+      "bytes": 8421
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/storage/lifecycle/deadlines.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/storage/lifecycle/deadlines.go",
+      "mode": "100644",
+      "git_blob": "859ece04ef6a123cad635b6dc061a3b157c4f97b",
+      "sha256": "abd05b0654c3cf10bb0bb4ab8ca7506652abfa39f3380d74a7e2b5990f978696",
+      "bytes": 5418
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/tenant/store_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/tenant/store_test.go",
+      "mode": "100644",
+      "git_blob": "bd2ee4bc1717419e7e48ef210f16439720b751ac",
+      "sha256": "7698c3c74f137ed6fe3e5d164f5d854546194e0a8cfc158d6e6403f3f6663f9b",
+      "bytes": 11600
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/tenant/tenant_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/tenant/tenant_test.go",
+      "mode": "100644",
+      "git_blob": "a6e2e52280ebe8872687e8765359915b684809aa",
+      "sha256": "9b8425ed73995f932229ff97d02346a3d6d3b0103de10bb12814431919b299fb",
+      "bytes": 10237
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/tenant/store.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/tenant/store.go",
+      "mode": "100644",
+      "git_blob": "716dc66ae94034f71904629fbde20f73b0b2027f",
+      "sha256": "65008282fb072bcad42233e9a6bf085c43b0a30e25c8dc7607ebbc6f2d023539",
+      "bytes": 7828
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/tenant/tenant.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/tenant/tenant.go",
+      "mode": "100644",
+      "git_blob": "609c9f6a05dbd224c0816dfd8d805f32317a881a",
+      "sha256": "79af4396195025d7cd1588384dbe1e3389dd184f2467ec19bda2519d8e5622f1",
+      "bytes": 13053
+    },
+    "/home/mariogk/go/pkg/mod/github.com/nats-io/nats.go@v1.54.0/jetstream/kv.go": {
+      "path": "/home/mariogk/go/pkg/mod/github.com/nats-io/nats.go@v1.54.0/jetstream/kv.go",
+      "mode": "0o444",
+      "sha256": "434699a502b2328acf9024da6125ade09e572367958a4a28d89e677ffade6c62",
+      "bytes": 49432,
+      "dependency": "github.com/nats-io/nats.go v1.54.0 installed source; no execution"
+    },
+    "/home/mariogk/go/pkg/mod/github.com/nats-io/nats.go@v1.54.0/js.go": {
+      "path": "/home/mariogk/go/pkg/mod/github.com/nats-io/nats.go@v1.54.0/js.go",
+      "mode": "0o444",
+      "sha256": "00999d57c1aa6332bffe8d8d700b77289ea03ab73c48dbf889ef28ccec0348e7",
+      "bytes": 125101,
+      "dependency": "github.com/nats-io/nats.go v1.54.0 installed source; no execution"
+    },
+    "/home/mariogk/go/pkg/mod/github.com/nats-io/nats.go@v1.54.0/jsm.go": {
+      "path": "/home/mariogk/go/pkg/mod/github.com/nats-io/nats.go@v1.54.0/jsm.go",
+      "mode": "0o444",
+      "sha256": "313916d3b931dc6ce50aa9d9b575ba47e5b79653ecb44bcb1bebe45d896e1d2a",
+      "bytes": 53471,
+      "dependency": "github.com/nats-io/nats.go v1.54.0 installed source; no execution"
+    },
+    "/home/mariogk/go/pkg/mod/github.com/nats-io/nats.go@v1.54.0/context.go": {
+      "path": "/home/mariogk/go/pkg/mod/github.com/nats-io/nats.go@v1.54.0/context.go",
+      "mode": "0o444",
+      "sha256": "d4802b1b14c449f70a05dec3065e8dd4bc19f2ff984df8f2421a96214a522198",
+      "bytes": 5848,
+      "dependency": "github.com/nats-io/nats.go v1.54.0 installed source; no execution"
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/storage/hostvolume/observer_linux_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/storage/hostvolume/observer_linux_test.go",
+      "mode": "100644",
+      "git_blob": "0259d7bcd662b00bf5742ceb4c17e95fc8291d27",
+      "sha256": "3d6381edb440cf77d793a9c3dea25c2e0afd6ee634d658ebaa1892358ea922bd",
+      "bytes": 6831
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/storage/hostvolume/observer_linux_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/storage/hostvolume/observer_linux_test.go",
+      "mode": "100644",
+      "git_blob": "0259d7bcd662b00bf5742ceb4c17e95fc8291d27",
+      "sha256": "3d6381edb440cf77d793a9c3dea25c2e0afd6ee634d658ebaa1892358ea922bd",
+      "bytes": 6831
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/storage/lifecycle/attach_retry_review_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/storage/lifecycle/attach_retry_review_test.go",
+      "mode": "100644",
+      "git_blob": "cc0e61a54320996c84b19f1cbde6d89731b8a010",
+      "sha256": "8740fbb818ad1c66d62a585697168ed7a19cd41ea51da303082015d1df43c3c1",
+      "bytes": 1764
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/storage/lifecycle/attach_retry_review_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/storage/lifecycle/attach_retry_review_test.go",
+      "mode": "100644",
+      "git_blob": "cc0e61a54320996c84b19f1cbde6d89731b8a010",
+      "sha256": "8740fbb818ad1c66d62a585697168ed7a19cd41ea51da303082015d1df43c3c1",
+      "bytes": 1764
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/storage/lifecycle/machine_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/storage/lifecycle/machine_test.go",
+      "mode": "100644",
+      "git_blob": "76c9bbe0624465a45865d09a8c7df71f5b9ee277",
+      "sha256": "ddc5bb0fb9761562f64c58ac09b8e260e231b4b2fff96d8fc64c86316c0cf89b",
+      "bytes": 9553
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/tenant/store_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/tenant/store_test.go",
+      "mode": "100644",
+      "git_blob": "bd2ee4bc1717419e7e48ef210f16439720b751ac",
+      "sha256": "7698c3c74f137ed6fe3e5d164f5d854546194e0a8cfc158d6e6403f3f6663f9b",
+      "bytes": 11600
+    }
+  },
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE; runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No compile/run success claimed.",
+    "Exactly assigned20 roots only. All baseline/canonical declarations are identical; historical original/current pins preserved.",
+    "Lifecycle tests assert decisions only: no OCI operation, attachment, mount, fencing proof, remediation or host replacement execution.",
+    "Tenant fixture directly starts upstream NATS and dials real loopback TCP, not natscell.Start or an in-process client. Single-node file KV does not prove replication, restart durability, actual simultaneous writers or partitions.",
+    "Cancelled List rejects a context already cancelled before invocation. It does not prove Store.List incomplete-watch branch or live truncation. Incidental setup writes and possible subscription do not materially support cancellation error.",
+    "Host untrusted-device root reads /dev/null through production device validation but never executes privileged mount or block device operations. Environment-dependent ancestor failures remain possible.",
+    "No repository/source/ledger mutation, count promotion, deletion, retirement, qualification or completion credit. Exact-hash independent peer review required."
+  ],
+  "findings": [
+    {
+      "kind": "coverage_limit",
+      "root_id": "internal/tenant/store_test.go::TestStoreListFailsWhenCutShort",
+      "detail": "Already-cancelled context does not reach an active listing cut-short scenario or Store.List !complete branch."
+    },
+    {
+      "kind": "coverage_limit",
+      "root_id": "internal/tenant/store_test.go::TestStoreConcurrentWritersOneWins",
+      "detail": "Stale writers are invoked sequentially; no actual concurrent write race or partition exercised."
+    }
+  ]
+}

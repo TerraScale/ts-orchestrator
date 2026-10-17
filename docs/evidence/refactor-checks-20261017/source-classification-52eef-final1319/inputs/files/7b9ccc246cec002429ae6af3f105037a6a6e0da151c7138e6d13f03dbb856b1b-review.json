@@ -1,0 +1,1961 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1900_1920",
+  "author": "/root/classification_100_dispatch/batch_1920_1940",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-3320-3340-3qcbfit5/classification.json",
+    "sha256": "c9805aaa7bc179aef95a7ed3095e0c358b3d9d396c5a8b517e380688b4ea95db",
+    "checksum_path": "/tmp/ts-source-classification-3320-3340-3qcbfit5/SHA256SUMS",
+    "checksum_sha256": "2347a6dfb076bd29857b2381fde178978e2ec3e7bf1a6380f18eaa4d985184b3"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "literal_range": [
+      3320,
+      3340
+    ]
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "decision": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+  "root_ids": [
+    "internal/seatrollout/controller_test.go::TestASeatThatLeavesStartsItsWaitsOver",
+    "internal/seatrollout/controller_test.go::TestAWithdrawnSeatStaysDrained",
+    "internal/seatrollout/controller_test.go::TestSeatControllerWritesOnlyUnderAuthority",
+    "internal/seatrollout/controller_test.go::TestSeatsOutOfRotationGoFirstAndTheLastHealthySeatStays",
+    "internal/seatrollout/controller_test.go::TestSeatsRestartOneAtATimeBehindTheirDrain",
+    "internal/seatrollout/store_test.go::TestSeatRecordsDrainAndPermit",
+    "internal/seatrollout/store_test.go::TestTamperedSeatRecordsFailClosed",
+    "internal/selfupdate/cli/accepted_trust_test.go::TestAcceptedControllerAllowsSuccessorAndRefusesIncompatibleRollback",
+    "internal/selfupdate/cli/accepted_trust_test.go::TestAcceptedIdentityDecoderProbeRejectsOldReaders",
+    "internal/selfupdate/cli/accepted_trust_test.go::TestCompletionSubprocessDropsRootAndUsesFixedCommand",
+    "internal/selfupdate/cli/accepted_trust_test.go::TestControllerFinishesRecordedRestoreOnlyAfterTrustedCompletion",
+    "internal/selfupdate/cli/accepted_trust_test.go::TestControllerPrestartGateRefusesBeforeSelfupdateEffects",
+    "internal/selfupdate/cli/accepted_trust_test.go::TestControllerRecoveryPreservesHostOwnedActivation",
+    "internal/selfupdate/cli/accepted_trust_test.go::TestControllerRecoveryRollsBackDamageOnlyAfterTrustedCompletion",
+    "internal/selfupdate/cli/accepted_trust_test.go::TestControllerRootStepsRejectRetiredAcceptanceBeforeEffects",
+    "internal/selfupdate/cli/accepted_trust_test.go::TestIdentityRekeyBinariesRequireEverySelectedReleaseToReadProposedRecord",
+    "internal/selfupdate/cli/accepted_trust_test.go::TestPendingCompletionHoldsRootMutationsAndAllowsNoEffectPrepare",
+    "internal/selfupdate/cli/identity_rekey_binary_test.go::TestIdentityRekeyBinaryInstallRequiresStoppedController",
+    "internal/selfupdate/cli/identity_rekey_binary_test.go::TestIdentityRekeyCandidateRequiresExactSignedELFAndDecoder",
+    "internal/selfupdate/cli/memory_linux_test.go::TestReadHostRuntimeRoots"
+  ],
+  "counts": {
+    "integration": 11,
+    "mixed": 6,
+    "unit": 3,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 complete canonical roots, baseline shifted seat roots and drifted host-runtime root, plus actual connected production/helper/store/OS paths.",
+    "All original literal IDs/order and seven-column survival mappings retained;40 raw declarations independently match explicit source bounds/text/SHA256, excluding following LF.",
+    "All28 source file pins independently match pinned Git path/commit/blob/mode/SHA256/bytes; all supplied assertion/callee spans match exact canonical text/bounds.",
+    "Source categories independently agree I11/U3/M6/R0. Mixed independent local blocks and incidental setup limits assessed separately from actual boundary assertions.",
+    "Input/packet/checksum hashes and immutable0444files/0555directory checked. No source-visible blocker found; runtime UNKNOWN, no execution."
+  ],
+  "per_root_independent_assessment": [
+    {
+      "allocation_index": 3320,
+      "root_id": "internal/seatrollout/controller_test.go::TestASeatThatLeavesStartsItsWaitsOver",
+      "category": "integration",
+      "assessment": "Actual JetStream seat record and permit readback support membership-leave/reset wait assertions; clock/membership are supplied."
+    },
+    {
+      "allocation_index": 3321,
+      "root_id": "internal/seatrollout/controller_test.go::TestAWithdrawnSeatStaysDrained",
+      "category": "integration",
+      "assessment": "Persisted drain and no-permit records are read after synthetic desired withdrawal and repeated ticks."
+    },
+    {
+      "allocation_index": 3322,
+      "root_id": "internal/seatrollout/controller_test.go::TestSeatControllerWritesOnlyUnderAuthority",
+      "category": "integration",
+      "assessment": "Follower early guard and stale epoch refusal have real Store Drained/Granted no-publication readback. Synthetic authority; no distributed lease qualification."
+    },
+    {
+      "allocation_index": 3323,
+      "root_id": "internal/seatrollout/controller_test.go::TestSeatsOutOfRotationGoFirstAndTheLastHealthySeatStays",
+      "category": "integration",
+      "assessment": "Out-of-rotation precedence and last-serving-seat preservation are observed in actual KV-backed permits/drains; health is supplied."
+    },
+    {
+      "allocation_index": 3324,
+      "root_id": "internal/seatrollout/controller_test.go::TestSeatsRestartOneAtATimeBehindTheirDrain",
+      "category": "integration",
+      "assessment": "Every drain/permit/return step traverses real store CAS/readback. Wake counters are tied to successful Put and no-write ticks, not a separate isolated fake-call test."
+    },
+    {
+      "allocation_index": 3325,
+      "root_id": "internal/seatrollout/store_test.go::TestSeatRecordsDrainAndPermit",
+      "category": "mixed",
+      "assessment": "Actual KV absence/Create/CAS/update/readback plus independent other-role shortcut and malformed seat validation table before I/O. Mixed."
+    },
+    {
+      "allocation_index": 3326,
+      "root_id": "internal/seatrollout/store_test.go::TestTamperedSeatRecordsFailClosed",
+      "category": "integration",
+      "assessment": "Malformed bytes are injected into real KV; production readers retrieve and reject them before grants/drain output."
+    },
+    {
+      "allocation_index": 3327,
+      "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestAcceptedControllerAllowsSuccessorAndRefusesIncompatibleRollback",
+      "category": "integration",
+      "assessment": "Seed/Stage/Activate and release checks materially read/write actual release files and links. Current readback verifies incompatible predecessor rejection leaves successor selected; decoder hook supplied."
+    },
+    {
+      "allocation_index": 3328,
+      "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestAcceptedIdentityDecoderProbeRejectsOldReaders",
+      "category": "mixed",
+      "assessment": "Independent local accepted-record decoder assertions coexist with actual shell contract-probe subprocesses that reject unconditional success/failure readers."
+    },
+    {
+      "allocation_index": 3329,
+      "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestCompletionSubprocessDropsRootAndUsesFixedCommand",
+      "category": "mixed",
+      "assessment": "Root-only credentialed process uses actual shell/id to assert65534 UID/group and fixed argv; cancellation reaches command machinery. Independent privileged uid/gid guard returns before process. Mixed and root-skip limited."
+    },
+    {
+      "allocation_index": 3330,
+      "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestControllerFinishesRecordedRestoreOnlyAfterTrustedCompletion",
+      "category": "integration",
+      "assessment": "Real restore-intent and link state feeds production gates/Watch; selected destination and intent disappearance/preservation support effects and refusals. Completion/decoder/restart hooks supplied."
+    },
+    {
+      "allocation_index": 3331,
+      "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestControllerPrestartGateRefusesBeforeSelfupdateEffects",
+      "category": "unit",
+      "assessment": "Injected prestart failure returns from local controllerTrust before project OS/service path. Test Stat of absent root is generic guard evidence, not production boundary."
+    },
+    {
+      "allocation_index": 3332,
+      "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestControllerRecoveryPreservesHostOwnedActivation",
+      "category": "integration",
+      "assessment": "Actual activation bytes, release links, known-bad and intents readback establish host-owned selection preservation, including unreadable activation. Decoder hook supplied."
+    },
+    {
+      "allocation_index": 3333,
+      "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestControllerRecoveryRollsBackDamageOnlyAfterTrustedCompletion",
+      "category": "integration",
+      "assessment": "Actual damaged release/receipt/delegation/activation state feeds durable rollback or preserved-state assertions; quarantine and known-bad readback are material. No real systemd/shared completion proof."
+    },
+    {
+      "allocation_index": 3334,
+      "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestControllerRootStepsRejectRetiredAcceptanceBeforeEffects",
+      "category": "mixed",
+      "assessment": "Prepare/watchdog/activate retired-record decoding returns before project I/O; backstop separately performs real Layout.Lock directory/.lock creation and no-publication readback. Mixed."
+    },
+    {
+      "allocation_index": 3335,
+      "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestIdentityRekeyBinariesRequireEverySelectedReleaseToReadProposedRecord",
+      "category": "mixed",
+      "assessment": "Selected-release checks open real links/files; supplied old-reader failure has no-mutation readback. Independent foreign ChainIdentity guard before layout I/O makes mixed."
+    },
+    {
+      "allocation_index": 3336,
+      "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestPendingCompletionHoldsRootMutationsAndAllowsNoEffectPrepare",
+      "category": "integration",
+      "assessment": "Real seeded current/known-good files and bounded release reads precede supplied pending-completion refusal. Directory/Pending readback verifies no root/activation mutation."
+    },
+    {
+      "allocation_index": 3337,
+      "root_id": "internal/selfupdate/cli/identity_rekey_binary_test.go::TestIdentityRekeyBinaryInstallRequiresStoppedController",
+      "category": "unit",
+      "assessment": "Only local controllerStoppedState parses supplied strings. systemctl and binary install are not reached."
+    },
+    {
+      "allocation_index": 3338,
+      "root_id": "internal/selfupdate/cli/identity_rekey_binary_test.go::TestIdentityRekeyCandidateRequiresExactSignedELFAndDecoder",
+      "category": "mixed",
+      "assessment": "Actual openat/O_NOFOLLOW ownership traversal, ELF/size/hash read and symlink/altered-file rejection coexist with independent wrong-pin size and expired receipt pre-file guards. Decoder supplied; ancestor safety bypass limited."
+    },
+    {
+      "allocation_index": 3339,
+      "root_id": "internal/selfupdate/cli/memory_linux_test.go::TestReadHostRuntimeRoots",
+      "category": "unit",
+      "assessment": "Temporary JSON file is incidental transport for clean-path/workload-GID predicates. No mount/runtime effect asserted. Baseline version1 to canonical version2 body drift preserved, same literal root."
+    }
+  ],
+  "verification_evidence": {
+    "source_pins": {
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/seatrollout/controller_test.go": {
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_mode": "100644",
+        "git_blob": "783ed01fc69f20d2afc37643e76e28e4d4648e1f",
+        "sha256": "b5dae425c6acc752e5ea309651100875fa04bc2eaca1f4b530887db0e2f88a23",
+        "bytes": 11221
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/seatrollout/controller_test.go": {
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "522cd70c50715ba0db577554605c76d806b78c39",
+        "sha256": "30d48be58a8caa66a992a68fc7447e3fb1e70803d3a8a557e6de550529de2101",
+        "bytes": 11697
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/seatrollout/store_test.go": {
+        "path": "internal/seatrollout/store_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_mode": "100644",
+        "git_blob": "cf177bb8ebfc7a43bf13bc2eabedbe42824cea50",
+        "sha256": "8e75763fce989c850ff93cd71dfb02b1ed5768f001ba7bed944baffec2133cb5",
+        "bytes": 5192
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/seatrollout/store_test.go": {
+        "path": "internal/seatrollout/store_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "cf177bb8ebfc7a43bf13bc2eabedbe42824cea50",
+        "sha256": "8e75763fce989c850ff93cd71dfb02b1ed5768f001ba7bed944baffec2133cb5",
+        "bytes": 5192
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/selfupdate/cli/accepted_trust_test.go": {
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_mode": "100644",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "sha256": "7d312ee47f0fe1101f2d8a6377c43677aaead8a8cdf190c90f6af3bd405223f6",
+        "bytes": 40717
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/selfupdate/cli/accepted_trust_test.go": {
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "sha256": "7d312ee47f0fe1101f2d8a6377c43677aaead8a8cdf190c90f6af3bd405223f6",
+        "bytes": 40717
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/selfupdate/cli/identity_rekey_binary_test.go": {
+        "path": "internal/selfupdate/cli/identity_rekey_binary_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_mode": "100644",
+        "git_blob": "4c675e946138ad916776124a68ff35a0225a1e5f",
+        "sha256": "ee126299a44e4cd78d0e2c8ab56cbe442e5a36f643147f6672c46612c90e5603",
+        "bytes": 3398
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/selfupdate/cli/identity_rekey_binary_test.go": {
+        "path": "internal/selfupdate/cli/identity_rekey_binary_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "4c675e946138ad916776124a68ff35a0225a1e5f",
+        "sha256": "ee126299a44e4cd78d0e2c8ab56cbe442e5a36f643147f6672c46612c90e5603",
+        "bytes": 3398
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/selfupdate/cli/memory_linux_test.go": {
+        "path": "internal/selfupdate/cli/memory_linux_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_mode": "100644",
+        "git_blob": "db86ac8a59feade02660afc4273326290c250e01",
+        "sha256": "ed70af193bd8f591dbfcfbbc6dc5acd406aa471b398f369ae5581c5500c23c59",
+        "bytes": 3112
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/selfupdate/cli/memory_linux_test.go": {
+        "path": "internal/selfupdate/cli/memory_linux_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "4fbd20b9a77ee39aacafb74795c9b518c3a37e45",
+        "sha256": "85132a6005f88d208e00146b7321a54b8aefcab2e3f4a75b504e0d68911b0374",
+        "bytes": 3112
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/seatrollout/store.go": {
+        "path": "internal/seatrollout/store.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "bda3e148c89b7a3142344768e2b36510b5d9c1c6",
+        "sha256": "3352f67fc62e52e2ed3ddf8c0031fdecb66dc29928bdba451a9c5ac9702b6dc2",
+        "bytes": 7282
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/seatrollout/controller.go": {
+        "path": "internal/seatrollout/controller.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "aa8c1d31976364f618399f0328fa85b1b75fdba2",
+        "sha256": "61d11b401007ef2109ddfccd652355fec71d0f21a94f62db588276fca2c18b26",
+        "bytes": 10527
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/authority/types.go": {
+        "path": "internal/authority/types.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "e70ccafadf1d60650e86d93549c6d4d87f2d0d5e",
+        "sha256": "d0886d7b4bd7dc75d5816a3ad4bcb01c0f3e3917f9f0b15e43a4d5cfaa53f326",
+        "bytes": 13938
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/bootstrapstart/accepted_identity.go": {
+        "path": "internal/bootstrapstart/accepted_identity.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "083a3edd66ae10d00e337ea1e3a3855be6a1d75d",
+        "sha256": "6c8efb7fcce496606ffb3dce550f4c784ca5c5df18d54f403715fc06a8ca3237",
+        "bytes": 28476
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/trust/rootchain.go": {
+        "path": "internal/trust/rootchain.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "2d801b2eb18e0f56237a46bd9f0c3803e3c6b2e8",
+        "sha256": "3149a39feffdb4cd0104ae290adc211b7a1ec1308c618b8856ca478145ceca05",
+        "bytes": 11367
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/selfupdate/layout.go": {
+        "path": "internal/selfupdate/layout.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "37f3b6a5e87f559cc0d699492b2d13ce2ba5a495",
+        "sha256": "4c4ac096db7865ad0b241ec8f273d912d8b3b1bcb6b4282129d3a3e89ccc921b",
+        "bytes": 10826
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/selfupdate/stage.go": {
+        "path": "internal/selfupdate/stage.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "ae0b34849192bf7e70282874448d1320e56a6023",
+        "sha256": "105228fae7c690bd0b882e1ef1fb100fe25567701d70762d0b212206960591c9",
+        "bytes": 7545
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/selfupdate/activate.go": {
+        "path": "internal/selfupdate/activate.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "329855efb8fd22162c41c2a4f2ade6d35faf0791",
+        "sha256": "3601684cc28d3c5899f542ffdd8c886a23174118205cf79e8b375c4ad4b93b81",
+        "bytes": 8456
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/release/production_receipt.go": {
+        "path": "internal/release/production_receipt.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "dfbf365335db629d1af26c860c7926f78e8628fa",
+        "sha256": "f9e8ef9be86a66ab17eaba376f8f5ffe719029334fa396fc5d4fafcf300171dc",
+        "bytes": 4022
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/release/production.go": {
+        "path": "internal/release/production.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "f4237036660c0fbd89bf8b4b1004f3fc2977bf19",
+        "sha256": "06c98a8f5654947f689b512da728ef728f0867743114120e2c57c96ba82bc808",
+        "bytes": 5846
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/selfupdate/cli/run.go": {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "sha256": "fc8c517ecc6170a0e5aa3b7817c221d21b1d2d1b56db2414f718708cfd2fed16",
+        "bytes": 48613
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/selfupdate/watchdog.go": {
+        "path": "internal/selfupdate/watchdog.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "b54b89da8a7dae54e07a0042a1500a29f5a501a0",
+        "sha256": "b198bc2a68b13d584d25d9a34d92e2a2ebca9979d62b15e7b01b1def45e7cb4b",
+        "bytes": 14603
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/selfupdate/restore.go": {
+        "path": "internal/selfupdate/restore.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "30c76d7fc25a19ca7f415425fa621f7ec452e9e5",
+        "sha256": "2bc7ac60ec4a581c35dc203083bb28b22879e8fda3ffed57bf6711e1168e8120",
+        "bytes": 8505
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/selfupdate/restart.go": {
+        "path": "internal/selfupdate/restart.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "c88e41a521df6047dd4056139ca37fc480715537",
+        "sha256": "2c4f3405d9984a033d6777797762e1162782ff5ee29cfb6f79e329b4fe04e734",
+        "bytes": 1793
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/selfupdate/cli/identity_rekey_binary.go": {
+        "path": "internal/selfupdate/cli/identity_rekey_binary.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "6fafe1c8356a17c7c4de420df2ca3f36dce1cc99",
+        "sha256": "ee98f91ea5b8feb17a8725c1eb78c3ad12411849fd933c9d323ab2d825364bea",
+        "bytes": 7113
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/bootstrapstart/identity_rekey_binary.go": {
+        "path": "internal/bootstrapstart/identity_rekey_binary.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "51a24de98376ca8f51e9109896822cbcc65eee57",
+        "sha256": "338c30d5416b14917ce2776d2c5c58320bd438085720d62c5a715b61d4715986",
+        "bytes": 320
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/bootstrapstart/binary.go": {
+        "path": "internal/bootstrapstart/binary.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "1775574df72127b26d89072ae0b489edb9b24007",
+        "sha256": "f3b8d4f5ccd5e596e7261f7a3509880a656702a6ac61dc905f48dad8a73e4cea",
+        "bytes": 9299
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/selfupdate/cli/memory_linux.go": {
+        "path": "internal/selfupdate/cli/memory_linux.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "c2800c9c2442fcb2d519d7d05a1f63786f8d8224",
+        "sha256": "cface772ccd18e77ee6954ab1924e8b28f252992ba5a8bcfca8b33c3bb935e71",
+        "bytes": 6434
+      }
+    },
+    "raw_declarations": [
+      {
+        "root_id": "internal/seatrollout/controller_test.go::TestASeatThatLeavesStartsItsWaitsOver",
+        "kind": "baseline_source",
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "783ed01fc69f20d2afc37643e76e28e4d4648e1f",
+        "line": 266,
+        "end_line": 290,
+        "declaration_sha256": "09dff195a9d44201d584761ea5b00b46aa4b1ed619b0b275867f0f89f32dd018"
+      },
+      {
+        "root_id": "internal/seatrollout/controller_test.go::TestASeatThatLeavesStartsItsWaitsOver",
+        "kind": "current_source",
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "522cd70c50715ba0db577554605c76d806b78c39",
+        "line": 281,
+        "end_line": 305,
+        "declaration_sha256": "09dff195a9d44201d584761ea5b00b46aa4b1ed619b0b275867f0f89f32dd018"
+      },
+      {
+        "root_id": "internal/seatrollout/controller_test.go::TestAWithdrawnSeatStaysDrained",
+        "kind": "baseline_source",
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "783ed01fc69f20d2afc37643e76e28e4d4648e1f",
+        "line": 294,
+        "end_line": 307,
+        "declaration_sha256": "7048e61e8e12043807faa8e0a21c641142d26ea8f67806b1dd043832e02cb1e4"
+      },
+      {
+        "root_id": "internal/seatrollout/controller_test.go::TestAWithdrawnSeatStaysDrained",
+        "kind": "current_source",
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "522cd70c50715ba0db577554605c76d806b78c39",
+        "line": 309,
+        "end_line": 322,
+        "declaration_sha256": "7048e61e8e12043807faa8e0a21c641142d26ea8f67806b1dd043832e02cb1e4"
+      },
+      {
+        "root_id": "internal/seatrollout/controller_test.go::TestSeatControllerWritesOnlyUnderAuthority",
+        "kind": "baseline_source",
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "783ed01fc69f20d2afc37643e76e28e4d4648e1f",
+        "line": 235,
+        "end_line": 248,
+        "declaration_sha256": "9d79b3089c35a19bab60b5863508016f63bbb29008b7507da3613760e0d3c1cf"
+      },
+      {
+        "root_id": "internal/seatrollout/controller_test.go::TestSeatControllerWritesOnlyUnderAuthority",
+        "kind": "current_source",
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "522cd70c50715ba0db577554605c76d806b78c39",
+        "line": 250,
+        "end_line": 263,
+        "declaration_sha256": "9d79b3089c35a19bab60b5863508016f63bbb29008b7507da3613760e0d3c1cf"
+      },
+      {
+        "root_id": "internal/seatrollout/controller_test.go::TestSeatsOutOfRotationGoFirstAndTheLastHealthySeatStays",
+        "kind": "baseline_source",
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "783ed01fc69f20d2afc37643e76e28e4d4648e1f",
+        "line": 173,
+        "end_line": 194,
+        "declaration_sha256": "80e15e6d7b367d690fa23382c7521c25a0be56221770bde636631b40a77a629d"
+      },
+      {
+        "root_id": "internal/seatrollout/controller_test.go::TestSeatsOutOfRotationGoFirstAndTheLastHealthySeatStays",
+        "kind": "current_source",
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "522cd70c50715ba0db577554605c76d806b78c39",
+        "line": 173,
+        "end_line": 194,
+        "declaration_sha256": "80e15e6d7b367d690fa23382c7521c25a0be56221770bde636631b40a77a629d"
+      },
+      {
+        "root_id": "internal/seatrollout/controller_test.go::TestSeatsRestartOneAtATimeBehindTheirDrain",
+        "kind": "baseline_source",
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "783ed01fc69f20d2afc37643e76e28e4d4648e1f",
+        "line": 108,
+        "end_line": 169,
+        "declaration_sha256": "d4542035cda707d6bbf3c1e363f6662e2fee7187a8cb4933a7f0384ad6982ca5"
+      },
+      {
+        "root_id": "internal/seatrollout/controller_test.go::TestSeatsRestartOneAtATimeBehindTheirDrain",
+        "kind": "current_source",
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "522cd70c50715ba0db577554605c76d806b78c39",
+        "line": 108,
+        "end_line": 169,
+        "declaration_sha256": "d4542035cda707d6bbf3c1e363f6662e2fee7187a8cb4933a7f0384ad6982ca5"
+      },
+      {
+        "root_id": "internal/seatrollout/store_test.go::TestSeatRecordsDrainAndPermit",
+        "kind": "baseline_source",
+        "path": "internal/seatrollout/store_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "cf177bb8ebfc7a43bf13bc2eabedbe42824cea50",
+        "line": 69,
+        "end_line": 133,
+        "declaration_sha256": "d4fa068b201795bfbcc286cec0d29d9c51f41b4da96f70a1ef9b1e2a3331350d"
+      },
+      {
+        "root_id": "internal/seatrollout/store_test.go::TestSeatRecordsDrainAndPermit",
+        "kind": "current_source",
+        "path": "internal/seatrollout/store_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "cf177bb8ebfc7a43bf13bc2eabedbe42824cea50",
+        "line": 69,
+        "end_line": 133,
+        "declaration_sha256": "d4fa068b201795bfbcc286cec0d29d9c51f41b4da96f70a1ef9b1e2a3331350d"
+      },
+      {
+        "root_id": "internal/seatrollout/store_test.go::TestTamperedSeatRecordsFailClosed",
+        "kind": "baseline_source",
+        "path": "internal/seatrollout/store_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "cf177bb8ebfc7a43bf13bc2eabedbe42824cea50",
+        "line": 137,
+        "end_line": 158,
+        "declaration_sha256": "28dfc894e1cc16e65fe1e31210827abb9b98d9a1ee172c6322456ec09cacb7c9"
+      },
+      {
+        "root_id": "internal/seatrollout/store_test.go::TestTamperedSeatRecordsFailClosed",
+        "kind": "current_source",
+        "path": "internal/seatrollout/store_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "cf177bb8ebfc7a43bf13bc2eabedbe42824cea50",
+        "line": 137,
+        "end_line": 158,
+        "declaration_sha256": "28dfc894e1cc16e65fe1e31210827abb9b98d9a1ee172c6322456ec09cacb7c9"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestAcceptedControllerAllowsSuccessorAndRefusesIncompatibleRollback",
+        "kind": "baseline_source",
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 297,
+        "end_line": 348,
+        "declaration_sha256": "dc45821ef46f844c02a7aeff4958686e71045e6c13b98bb48a0cfcd47c5c359f"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestAcceptedControllerAllowsSuccessorAndRefusesIncompatibleRollback",
+        "kind": "current_source",
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 297,
+        "end_line": 348,
+        "declaration_sha256": "dc45821ef46f844c02a7aeff4958686e71045e6c13b98bb48a0cfcd47c5c359f"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestAcceptedIdentityDecoderProbeRejectsOldReaders",
+        "kind": "baseline_source",
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 350,
+        "end_line": 371,
+        "declaration_sha256": "c6ecb327b8e287e01e2abca6239bd582066dad6094c6db3d908af00fc35ede72"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestAcceptedIdentityDecoderProbeRejectsOldReaders",
+        "kind": "current_source",
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 350,
+        "end_line": 371,
+        "declaration_sha256": "c6ecb327b8e287e01e2abca6239bd582066dad6094c6db3d908af00fc35ede72"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestCompletionSubprocessDropsRootAndUsesFixedCommand",
+        "kind": "baseline_source",
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 172,
+        "end_line": 202,
+        "declaration_sha256": "e91c9a21d4c33806aff45f9aaad17b0b31ce3e8d9b9b5da46f3c1939dfe4836e"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestCompletionSubprocessDropsRootAndUsesFixedCommand",
+        "kind": "current_source",
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 172,
+        "end_line": 202,
+        "declaration_sha256": "e91c9a21d4c33806aff45f9aaad17b0b31ce3e8d9b9b5da46f3c1939dfe4836e"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestControllerFinishesRecordedRestoreOnlyAfterTrustedCompletion",
+        "kind": "baseline_source",
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 738,
+        "end_line": 879,
+        "declaration_sha256": "b0fcf0c8900e67e5912dbe8bb7190e67332b0bff5e8e83c9aec12be5f0ba0388"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestControllerFinishesRecordedRestoreOnlyAfterTrustedCompletion",
+        "kind": "current_source",
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 738,
+        "end_line": 879,
+        "declaration_sha256": "b0fcf0c8900e67e5912dbe8bb7190e67332b0bff5e8e83c9aec12be5f0ba0388"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestControllerPrestartGateRefusesBeforeSelfupdateEffects",
+        "kind": "baseline_source",
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 274,
+        "end_line": 295,
+        "declaration_sha256": "aafa904ff05d53c52f8af96ae4dd257aba7ede783bdf279a96d994f838112ca3"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestControllerPrestartGateRefusesBeforeSelfupdateEffects",
+        "kind": "current_source",
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 274,
+        "end_line": 295,
+        "declaration_sha256": "aafa904ff05d53c52f8af96ae4dd257aba7ede783bdf279a96d994f838112ca3"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestControllerRecoveryPreservesHostOwnedActivation",
+        "kind": "baseline_source",
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 449,
+        "end_line": 531,
+        "declaration_sha256": "ed165cbf6cee82b58b6c2f2e69e981f40de6be1661f215d5d899a938e4abd93f"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestControllerRecoveryPreservesHostOwnedActivation",
+        "kind": "current_source",
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 449,
+        "end_line": 531,
+        "declaration_sha256": "ed165cbf6cee82b58b6c2f2e69e981f40de6be1661f215d5d899a938e4abd93f"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestControllerRecoveryRollsBackDamageOnlyAfterTrustedCompletion",
+        "kind": "baseline_source",
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 533,
+        "end_line": 736,
+        "declaration_sha256": "6674e1a70320e2cf108d0ae943d2817d367189022442a8ef839f05e2dcc76e1c"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestControllerRecoveryRollsBackDamageOnlyAfterTrustedCompletion",
+        "kind": "current_source",
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 533,
+        "end_line": 736,
+        "declaration_sha256": "6674e1a70320e2cf108d0ae943d2817d367189022442a8ef839f05e2dcc76e1c"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestControllerRootStepsRejectRetiredAcceptanceBeforeEffects",
+        "kind": "baseline_source",
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 881,
+        "end_line": 941,
+        "declaration_sha256": "135f3c6e65b91a439cf1d88604465f3c3704d5551797df8dca1fbf65d3f8fa8d"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestControllerRootStepsRejectRetiredAcceptanceBeforeEffects",
+        "kind": "current_source",
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 881,
+        "end_line": 941,
+        "declaration_sha256": "135f3c6e65b91a439cf1d88604465f3c3704d5551797df8dca1fbf65d3f8fa8d"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestIdentityRekeyBinariesRequireEverySelectedReleaseToReadProposedRecord",
+        "kind": "baseline_source",
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 373,
+        "end_line": 447,
+        "declaration_sha256": "1592c3302e1d8e728b91a2da30622c0aff417bac9dc105f7174b80eea7f8e32b"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestIdentityRekeyBinariesRequireEverySelectedReleaseToReadProposedRecord",
+        "kind": "current_source",
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 373,
+        "end_line": 447,
+        "declaration_sha256": "1592c3302e1d8e728b91a2da30622c0aff417bac9dc105f7174b80eea7f8e32b"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestPendingCompletionHoldsRootMutationsAndAllowsNoEffectPrepare",
+        "kind": "baseline_source",
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 115,
+        "end_line": 170,
+        "declaration_sha256": "1ffb4cfed50e769cdb388f203ec6f8ae441b5b210c39f584c9252ba7c54d7e82"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/accepted_trust_test.go::TestPendingCompletionHoldsRootMutationsAndAllowsNoEffectPrepare",
+        "kind": "current_source",
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 115,
+        "end_line": 170,
+        "declaration_sha256": "1ffb4cfed50e769cdb388f203ec6f8ae441b5b210c39f584c9252ba7c54d7e82"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/identity_rekey_binary_test.go::TestIdentityRekeyBinaryInstallRequiresStoppedController",
+        "kind": "baseline_source",
+        "path": "internal/selfupdate/cli/identity_rekey_binary_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "4c675e946138ad916776124a68ff35a0225a1e5f",
+        "line": 85,
+        "end_line": 94,
+        "declaration_sha256": "9dbd540e050021386267aad304e1867deacb76444ff6383063ffba572390d8a3"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/identity_rekey_binary_test.go::TestIdentityRekeyBinaryInstallRequiresStoppedController",
+        "kind": "current_source",
+        "path": "internal/selfupdate/cli/identity_rekey_binary_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4c675e946138ad916776124a68ff35a0225a1e5f",
+        "line": 85,
+        "end_line": 94,
+        "declaration_sha256": "9dbd540e050021386267aad304e1867deacb76444ff6383063ffba572390d8a3"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/identity_rekey_binary_test.go::TestIdentityRekeyCandidateRequiresExactSignedELFAndDecoder",
+        "kind": "baseline_source",
+        "path": "internal/selfupdate/cli/identity_rekey_binary_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "4c675e946138ad916776124a68ff35a0225a1e5f",
+        "line": 17,
+        "end_line": 83,
+        "declaration_sha256": "74558805ae36d073f185142238782eba4caa473ca22f92e08e86792f546e4800"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/identity_rekey_binary_test.go::TestIdentityRekeyCandidateRequiresExactSignedELFAndDecoder",
+        "kind": "current_source",
+        "path": "internal/selfupdate/cli/identity_rekey_binary_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4c675e946138ad916776124a68ff35a0225a1e5f",
+        "line": 17,
+        "end_line": 83,
+        "declaration_sha256": "74558805ae36d073f185142238782eba4caa473ca22f92e08e86792f546e4800"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/memory_linux_test.go::TestReadHostRuntimeRoots",
+        "kind": "baseline_source",
+        "path": "internal/selfupdate/cli/memory_linux_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "db86ac8a59feade02660afc4273326290c250e01",
+        "line": 15,
+        "end_line": 35,
+        "declaration_sha256": "6d741ec726ad210a5bf8a3c3fb891e4b7c880a6d14ec36fca2010c7165c5c502"
+      },
+      {
+        "root_id": "internal/selfupdate/cli/memory_linux_test.go::TestReadHostRuntimeRoots",
+        "kind": "current_source",
+        "path": "internal/selfupdate/cli/memory_linux_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4fbd20b9a77ee39aacafb74795c9b518c3a37e45",
+        "line": 15,
+        "end_line": 35,
+        "declaration_sha256": "6dd9f09fa845b67f31052a09b2f4e156bb3ce46dc1c42e3fd77c23ae5e935af0"
+      }
+    ],
+    "explicit_assertion_callee_spans": [
+      {
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "522cd70c50715ba0db577554605c76d806b78c39",
+        "line": 282,
+        "end_line": 304,
+        "sha256": "200ee4fdd86931620ff42334d7f4f66ac0e63990e2ff025a933cad29f4db89f3"
+      },
+      {
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "522cd70c50715ba0db577554605c76d806b78c39",
+        "line": 310,
+        "end_line": 321,
+        "sha256": "c0c503a973eeb57e962ee6f2d68f4b4875a1edc902a33e311240b9199a8df168"
+      },
+      {
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "522cd70c50715ba0db577554605c76d806b78c39",
+        "line": 251,
+        "end_line": 262,
+        "sha256": "230409b4573f77b3ce776ea945f2f33f6237b16542f9705332d46941c9012006"
+      },
+      {
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "522cd70c50715ba0db577554605c76d806b78c39",
+        "line": 174,
+        "end_line": 193,
+        "sha256": "098c16abf150bf66921832459076f27789c831cb5709e267b47121e73f271e3f"
+      },
+      {
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "522cd70c50715ba0db577554605c76d806b78c39",
+        "line": 109,
+        "end_line": 168,
+        "sha256": "e5dc7970538b85ab4e349e1cd0207eaefae3de5ceb189de966dda7fef59e4d28"
+      },
+      {
+        "path": "internal/seatrollout/store_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "cf177bb8ebfc7a43bf13bc2eabedbe42824cea50",
+        "line": 70,
+        "end_line": 132,
+        "sha256": "f31029d08227e9102613c98df2ea982c54d2d1628cad50d6f35454db947f8ecd"
+      },
+      {
+        "path": "internal/seatrollout/store_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "cf177bb8ebfc7a43bf13bc2eabedbe42824cea50",
+        "line": 138,
+        "end_line": 157,
+        "sha256": "9209654cdcf4c096b5cee06fb8c46b544385f06a359fe1c05bdff0c6df504664"
+      },
+      {
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 298,
+        "end_line": 347,
+        "sha256": "a3b31ac49bc447f200bb5263bcda90eb4f237003d8d6361adfef8867d171c992"
+      },
+      {
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 351,
+        "end_line": 370,
+        "sha256": "e67f0962e447d04d81793b09aa987eba1e8a3c93eb0ef80216964336c1a43f15"
+      },
+      {
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 173,
+        "end_line": 201,
+        "sha256": "2afc5da546a0916a429e65862dfd3c6cf20dfdc06dec5adb45d25ab155496a8c"
+      },
+      {
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 739,
+        "end_line": 878,
+        "sha256": "de579e296f5d9b2ae07736ba1514858589db944611862acd0c60cd3c4af5a11e"
+      },
+      {
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 275,
+        "end_line": 294,
+        "sha256": "d7efbd38460a009429549c8f2233e3a06c2e4458518a4b4b27de2ac1c63f8ae4"
+      },
+      {
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 450,
+        "end_line": 530,
+        "sha256": "d8def3c42a4110f7de9a15039ae1634044a69b68578023d6b333bcea9d8205e3"
+      },
+      {
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 534,
+        "end_line": 735,
+        "sha256": "4f06ef1a280d9bc5d717a6c2bf5cd42272467ed90a117416973ef61b9dd16d64"
+      },
+      {
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 882,
+        "end_line": 940,
+        "sha256": "18bd2e6b5839492e0b422af230f2807bf0ad3dee92fe6b3ec072625a1501050f"
+      },
+      {
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 374,
+        "end_line": 446,
+        "sha256": "1b228ed039e15424ef946059f049aaa85b11ec2a97067d289de36fd3044fabdf"
+      },
+      {
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 116,
+        "end_line": 169,
+        "sha256": "235c8167a51fb30f6070ed90fe0e0a3aef1aaf2bb7656a13158d20a4e20d5bfa"
+      },
+      {
+        "path": "internal/selfupdate/cli/identity_rekey_binary_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4c675e946138ad916776124a68ff35a0225a1e5f",
+        "line": 86,
+        "end_line": 93,
+        "sha256": "50f34ecc761b4f56770a7ef12510a59304485d68b487a499a0984fb41ac2c97b"
+      },
+      {
+        "path": "internal/selfupdate/cli/identity_rekey_binary_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4c675e946138ad916776124a68ff35a0225a1e5f",
+        "line": 18,
+        "end_line": 82,
+        "sha256": "de1314328280d9d03e6946d660f3c60348b4214356103f521ac9e97935330a9a"
+      },
+      {
+        "path": "internal/selfupdate/cli/memory_linux_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4fbd20b9a77ee39aacafb74795c9b518c3a37e45",
+        "line": 16,
+        "end_line": 34,
+        "sha256": "400a6a8aa22794120e74f98ed399d5a8fbe6f6787f6373410a3c5bb648361351"
+      },
+      {
+        "path": "internal/seatrollout/store_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "cf177bb8ebfc7a43bf13bc2eabedbe42824cea50",
+        "line": 21,
+        "end_line": 23,
+        "sha256": "f270d5255fdacb233596ba68b01ffe8f0724073021d1d1484e05121cb5d491f7"
+      },
+      {
+        "path": "internal/seatrollout/store_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "cf177bb8ebfc7a43bf13bc2eabedbe42824cea50",
+        "line": 25,
+        "end_line": 30,
+        "sha256": "e96dc2ef8b430032a1356c62907e830f6d704f70358600f22254ae2094619f23"
+      },
+      {
+        "path": "internal/seatrollout/store_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "cf177bb8ebfc7a43bf13bc2eabedbe42824cea50",
+        "line": 32,
+        "end_line": 63,
+        "sha256": "1b836861bcf40b820ba13714c890ea24f6cf2e590dc1941fb5f5aa96eec90d49"
+      },
+      {
+        "path": "internal/seatrollout/store.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bda3e148c89b7a3142344768e2b36510b5d9c1c6",
+        "line": 50,
+        "end_line": 56,
+        "sha256": "209e208adecf1fe30289394ec8f91d719b10f09e818ae170fa21624dc780c094"
+      },
+      {
+        "path": "internal/seatrollout/store.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bda3e148c89b7a3142344768e2b36510b5d9c1c6",
+        "line": 83,
+        "end_line": 102,
+        "sha256": "943696c822fba8b24573c4e4f859127520c5dbb146ce6169d09b2bc9a0bcd030"
+      },
+      {
+        "path": "internal/seatrollout/store.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bda3e148c89b7a3142344768e2b36510b5d9c1c6",
+        "line": 105,
+        "end_line": 120,
+        "sha256": "77ae70fba0bbbf78c5d843a546668be7e4b7253ca9fe1965eac39514db3cbbd4"
+      },
+      {
+        "path": "internal/seatrollout/store.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bda3e148c89b7a3142344768e2b36510b5d9c1c6",
+        "line": 124,
+        "end_line": 148,
+        "sha256": "e7c5e33ad5ce94be35c77a3148c998651de0f06c7c77ab8d11d3047595b549ed"
+      },
+      {
+        "path": "internal/seatrollout/store.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bda3e148c89b7a3142344768e2b36510b5d9c1c6",
+        "line": 152,
+        "end_line": 167,
+        "sha256": "a93061bae0eaf9caac07ef9df96f3154bd074199b4522b38507f026998f878f8"
+      },
+      {
+        "path": "internal/seatrollout/store.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bda3e148c89b7a3142344768e2b36510b5d9c1c6",
+        "line": 170,
+        "end_line": 187,
+        "sha256": "f694e662d749b8b3b4ea818be9d49e3ff02ec285c9d4d22048371be132176065"
+      },
+      {
+        "path": "internal/seatrollout/store.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bda3e148c89b7a3142344768e2b36510b5d9c1c6",
+        "line": 192,
+        "end_line": 201,
+        "sha256": "eb7eae17a3ce788d9ff790ad7d9937ad60b6491040bf3aa26b3eb040443b48e2"
+      },
+      {
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "522cd70c50715ba0db577554605c76d806b78c39",
+        "line": 28,
+        "end_line": 35,
+        "sha256": "af9de9066d1ad7eef0066e14571611655b94363861eff335b760ff3126455b5b"
+      },
+      {
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "522cd70c50715ba0db577554605c76d806b78c39",
+        "line": 37,
+        "end_line": 43,
+        "sha256": "216d3bd6fea907185c331b5f0e5b4eec6e2f21d8539d9d24f79d02a78436e245"
+      },
+      {
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "522cd70c50715ba0db577554605c76d806b78c39",
+        "line": 45,
+        "end_line": 52,
+        "sha256": "399a58f38d03240c6289bd49f705589a9389290d48fd65d8e015f9772905bb15"
+      },
+      {
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "522cd70c50715ba0db577554605c76d806b78c39",
+        "line": 54,
+        "end_line": 59,
+        "sha256": "cad77b78a7dd4471bc346a90695f52f642d57dd62413e5c56232d73c07cc9ab4"
+      },
+      {
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "522cd70c50715ba0db577554605c76d806b78c39",
+        "line": 62,
+        "end_line": 66,
+        "sha256": "e20b1d8c29c22870ca980ebd967077ceafae61ed99185954c41686fc702f88c3"
+      },
+      {
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "522cd70c50715ba0db577554605c76d806b78c39",
+        "line": 68,
+        "end_line": 73,
+        "sha256": "3aec9ff47cfe742806814154a81d0c7e6e325800127e3dadb46b845ed68dcdce"
+      },
+      {
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "522cd70c50715ba0db577554605c76d806b78c39",
+        "line": 77,
+        "end_line": 101,
+        "sha256": "064f6bf63f8ab2557498b4baccf307d963637aa07704afc196146a8520dbc89a"
+      },
+      {
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "522cd70c50715ba0db577554605c76d806b78c39",
+        "line": 267,
+        "end_line": 267,
+        "sha256": "7588634ed6f0d9d20913ea9fd81454b5977b55ff5dc9b0e016d4e2481e6d1234"
+      },
+      {
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "522cd70c50715ba0db577554605c76d806b78c39",
+        "line": 268,
+        "end_line": 268,
+        "sha256": "3e393c68ef595f4e9bea3c979bc8220c071aafa2603bd80caacb4c269c3bd7af"
+      },
+      {
+        "path": "internal/seatrollout/controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "522cd70c50715ba0db577554605c76d806b78c39",
+        "line": 273,
+        "end_line": 277,
+        "sha256": "cf9b176c099eb7ec542fedff375cd39871e120724b117e07a8f2f1c5b7096aa2"
+      },
+      {
+        "path": "internal/seatrollout/controller.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "aa8c1d31976364f618399f0328fa85b1b75fdba2",
+        "line": 101,
+        "end_line": 106,
+        "sha256": "0b0e813158c517c6afc7c37071c7ec9818dd3f72961df45402d15a4479f635a4"
+      },
+      {
+        "path": "internal/seatrollout/controller.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "aa8c1d31976364f618399f0328fa85b1b75fdba2",
+        "line": 121,
+        "end_line": 121,
+        "sha256": "bf7d5726c7ef272581a14d6652e99ac0b69d7d0d548ec0dfe90c0344af45c83a"
+      },
+      {
+        "path": "internal/seatrollout/controller.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "aa8c1d31976364f618399f0328fa85b1b75fdba2",
+        "line": 124,
+        "end_line": 258,
+        "sha256": "4ac13e0ad0afa80b5f1ac2a70dff8540334fee97e5f84cca09d3704d7b258215"
+      },
+      {
+        "path": "internal/seatrollout/controller.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "aa8c1d31976364f618399f0328fa85b1b75fdba2",
+        "line": 260,
+        "end_line": 270,
+        "sha256": "94cc86b04ad77967651cbfcf3dcc249e37ae0e20a3b61e69c0c7ed56c40b60c5"
+      },
+      {
+        "path": "internal/seatrollout/controller.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "aa8c1d31976364f618399f0328fa85b1b75fdba2",
+        "line": 273,
+        "end_line": 320,
+        "sha256": "ae26423fcd53115ef0148855738bc5e8be026d08025ce8ae5bc72878e0ea9f97"
+      },
+      {
+        "path": "internal/authority/types.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "e70ccafadf1d60650e86d93549c6d4d87f2d0d5e",
+        "line": 75,
+        "end_line": 78,
+        "sha256": "ac4a3fe4f7962f1c7ac4d2cc9a326c86f6acfac53bc85d9b170b7f7c0f31fe83"
+      },
+      {
+        "path": "internal/seatrollout/store_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "cf177bb8ebfc7a43bf13bc2eabedbe42824cea50",
+        "line": 21,
+        "end_line": 23,
+        "sha256": "f270d5255fdacb233596ba68b01ffe8f0724073021d1d1484e05121cb5d491f7"
+      },
+      {
+        "path": "internal/seatrollout/store_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "cf177bb8ebfc7a43bf13bc2eabedbe42824cea50",
+        "line": 25,
+        "end_line": 30,
+        "sha256": "e96dc2ef8b430032a1356c62907e830f6d704f70358600f22254ae2094619f23"
+      },
+      {
+        "path": "internal/seatrollout/store_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "cf177bb8ebfc7a43bf13bc2eabedbe42824cea50",
+        "line": 32,
+        "end_line": 63,
+        "sha256": "1b836861bcf40b820ba13714c890ea24f6cf2e590dc1941fb5f5aa96eec90d49"
+      },
+      {
+        "path": "internal/seatrollout/store.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bda3e148c89b7a3142344768e2b36510b5d9c1c6",
+        "line": 50,
+        "end_line": 56,
+        "sha256": "209e208adecf1fe30289394ec8f91d719b10f09e818ae170fa21624dc780c094"
+      },
+      {
+        "path": "internal/seatrollout/store.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bda3e148c89b7a3142344768e2b36510b5d9c1c6",
+        "line": 83,
+        "end_line": 102,
+        "sha256": "943696c822fba8b24573c4e4f859127520c5dbb146ce6169d09b2bc9a0bcd030"
+      },
+      {
+        "path": "internal/seatrollout/store.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bda3e148c89b7a3142344768e2b36510b5d9c1c6",
+        "line": 105,
+        "end_line": 120,
+        "sha256": "77ae70fba0bbbf78c5d843a546668be7e4b7253ca9fe1965eac39514db3cbbd4"
+      },
+      {
+        "path": "internal/seatrollout/store.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bda3e148c89b7a3142344768e2b36510b5d9c1c6",
+        "line": 124,
+        "end_line": 148,
+        "sha256": "e7c5e33ad5ce94be35c77a3148c998651de0f06c7c77ab8d11d3047595b549ed"
+      },
+      {
+        "path": "internal/seatrollout/store.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bda3e148c89b7a3142344768e2b36510b5d9c1c6",
+        "line": 152,
+        "end_line": 167,
+        "sha256": "a93061bae0eaf9caac07ef9df96f3154bd074199b4522b38507f026998f878f8"
+      },
+      {
+        "path": "internal/seatrollout/store.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bda3e148c89b7a3142344768e2b36510b5d9c1c6",
+        "line": 170,
+        "end_line": 187,
+        "sha256": "f694e662d749b8b3b4ea818be9d49e3ff02ec285c9d4d22048371be132176065"
+      },
+      {
+        "path": "internal/seatrollout/store.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bda3e148c89b7a3142344768e2b36510b5d9c1c6",
+        "line": 192,
+        "end_line": 201,
+        "sha256": "eb7eae17a3ce788d9ff790ad7d9937ad60b6491040bf3aa26b3eb040443b48e2"
+      },
+      {
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 32,
+        "end_line": 35,
+        "sha256": "d8d8cc0421b45631f02ce61504816ccf219aaec105dd3c215b6e07ca9ec0662a"
+      },
+      {
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 37,
+        "end_line": 92,
+        "sha256": "c1746cb0c3c43655fc481659eea69d408e4fac11773f9ef122430c515e5d1621"
+      },
+      {
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 94,
+        "end_line": 113,
+        "sha256": "270ceb9be07a27fd45531b5cf9ecdf40a6a028b9b8e6a4556ec5b21b36e22278"
+      },
+      {
+        "path": "internal/selfupdate/cli/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4a149c8500ee1dbe223025cb3ac2b61c23fcfd56",
+        "line": 204,
+        "end_line": 272,
+        "sha256": "21866b33df77fa07f8df8f786968e59a5af9a831f04bd385024f5ac6fed8157d"
+      },
+      {
+        "path": "internal/bootstrapstart/accepted_identity.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "083a3edd66ae10d00e337ea1e3a3855be6a1d75d",
+        "line": 75,
+        "end_line": 85,
+        "sha256": "8ee3ef771bd5deb5ca4be36e81ca6305e95e29d920b1b96b5b52dac9ec600067"
+      },
+      {
+        "path": "internal/bootstrapstart/accepted_identity.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "083a3edd66ae10d00e337ea1e3a3855be6a1d75d",
+        "line": 93,
+        "end_line": 140,
+        "sha256": "541a76323fa47fc1fe129d0c55ccd6293aaa92bd24097fa1d46b19cd941fcb60"
+      },
+      {
+        "path": "internal/bootstrapstart/accepted_identity.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "083a3edd66ae10d00e337ea1e3a3855be6a1d75d",
+        "line": 261,
+        "end_line": 270,
+        "sha256": "e3fe8cd7aecb70cb85014e328f9dc3e6f0acb5cec0d542877941421913a6728f"
+      },
+      {
+        "path": "internal/bootstrapstart/accepted_identity.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "083a3edd66ae10d00e337ea1e3a3855be6a1d75d",
+        "line": 272,
+        "end_line": 282,
+        "sha256": "28b76d89c538cb52c7e430aef601f0ec6ab36f2329a960ee61e5e50a16e2381c"
+      },
+      {
+        "path": "internal/trust/rootchain.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2d801b2eb18e0f56237a46bd9f0c3803e3c6b2e8",
+        "line": 138,
+        "end_line": 156,
+        "sha256": "8a79e51924f826c54f19c95db17f464c14093692d80a3739da280e104c32438f"
+      },
+      {
+        "path": "internal/selfupdate/layout.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "37f3b6a5e87f559cc0d699492b2d13ce2ba5a495",
+        "line": 66,
+        "end_line": 71,
+        "sha256": "06e0dd619cf91f37e2734f29fbb6a4a1ddc33925ff297f96209ba17c9f730e4b"
+      },
+      {
+        "path": "internal/selfupdate/layout.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "37f3b6a5e87f559cc0d699492b2d13ce2ba5a495",
+        "line": 97,
+        "end_line": 116,
+        "sha256": "fc90e5ffea547651c247844231165a49966b2818241b57af6fe9a196f16fc7c6"
+      },
+      {
+        "path": "internal/selfupdate/layout.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "37f3b6a5e87f559cc0d699492b2d13ce2ba5a495",
+        "line": 119,
+        "end_line": 130,
+        "sha256": "843b759f43d6c412ce7400e4bb59a458aa6adb51ea5cb58c0b057ace7c500d45"
+      },
+      {
+        "path": "internal/selfupdate/layout.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "37f3b6a5e87f559cc0d699492b2d13ce2ba5a495",
+        "line": 134,
+        "end_line": 134,
+        "sha256": "80366a2df39f1e367b7724a81e0b244dd02dcb6b7c017eb0f4ba03b71a68f174"
+      },
+      {
+        "path": "internal/selfupdate/layout.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "37f3b6a5e87f559cc0d699492b2d13ce2ba5a495",
+        "line": 140,
+        "end_line": 140,
+        "sha256": "94d800f79babc5283ce3fafc261cbe456e8f30f9f20379d5208909cae10b5c91"
+      },
+      {
+        "path": "internal/selfupdate/layout.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "37f3b6a5e87f559cc0d699492b2d13ce2ba5a495",
+        "line": 142,
+        "end_line": 158,
+        "sha256": "697c756de2c7d6c537612d712802756e548c5f43b95393e437277eb76f657645"
+      },
+      {
+        "path": "internal/selfupdate/layout.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "37f3b6a5e87f559cc0d699492b2d13ce2ba5a495",
+        "line": 164,
+        "end_line": 177,
+        "sha256": "1039649eea88f876a49243a0d9cafa06d9e7c690d6fa30140693d1c4eb9dbf0d"
+      },
+      {
+        "path": "internal/selfupdate/layout.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "37f3b6a5e87f559cc0d699492b2d13ce2ba5a495",
+        "line": 181,
+        "end_line": 202,
+        "sha256": "5395ca63161bd7839891fc62f049471eb926b50b3c72c31cee53076de6156d9d"
+      },
+      {
+        "path": "internal/selfupdate/layout.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "37f3b6a5e87f559cc0d699492b2d13ce2ba5a495",
+        "line": 207,
+        "end_line": 218,
+        "sha256": "9d1c3878e5f8515edf5230cde51b67757777b4f6d90499708e689027fd7e649f"
+      },
+      {
+        "path": "internal/selfupdate/layout.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "37f3b6a5e87f559cc0d699492b2d13ce2ba5a495",
+        "line": 220,
+        "end_line": 235,
+        "sha256": "4c578e1ce9ab65cd4b2835ff85178ead12d390bb0261303206eb2f5b37c43a3c"
+      },
+      {
+        "path": "internal/selfupdate/layout.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "37f3b6a5e87f559cc0d699492b2d13ce2ba5a495",
+        "line": 237,
+        "end_line": 244,
+        "sha256": "d0aa1bfd2895d3da4954da5b0322b703758a8217bb981fa6c84b0a637f4e108a"
+      },
+      {
+        "path": "internal/selfupdate/layout.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "37f3b6a5e87f559cc0d699492b2d13ce2ba5a495",
+        "line": 247,
+        "end_line": 274,
+        "sha256": "964316ad1b75420e7356e68911ebccf93cde69a66ce19904b56778d19b10864b"
+      },
+      {
+        "path": "internal/selfupdate/layout.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "37f3b6a5e87f559cc0d699492b2d13ce2ba5a495",
+        "line": 280,
+        "end_line": 302,
+        "sha256": "a4d4b8018ee4178dc502b823a335e749e6d432c9bd14e6ad2fd32e18023ef1c3"
+      },
+      {
+        "path": "internal/selfupdate/layout.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "37f3b6a5e87f559cc0d699492b2d13ce2ba5a495",
+        "line": 309,
+        "end_line": 334,
+        "sha256": "9891f3bf8fe61c409201ea3fd4ce82a745da6ac2e437251dc7a25efe67236c56"
+      },
+      {
+        "path": "internal/selfupdate/stage.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "ae0b34849192bf7e70282874448d1320e56a6023",
+        "line": 29,
+        "end_line": 54,
+        "sha256": "80d12d69637970c82c4a31be137d9470f2e21159571def044aaf27e4e9c6330c"
+      },
+      {
+        "path": "internal/selfupdate/stage.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "ae0b34849192bf7e70282874448d1320e56a6023",
+        "line": 65,
+        "end_line": 94,
+        "sha256": "64ba72bf3cfbcbf34eabb38fde71ae19eb7e84d75f7c933376f73a6dcc61b7c5"
+      },
+      {
+        "path": "internal/selfupdate/stage.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "ae0b34849192bf7e70282874448d1320e56a6023",
+        "line": 99,
+        "end_line": 114,
+        "sha256": "b418ff1aaa0754c59a051a859837551687680bfb043037117471b076cafa216d"
+      },
+      {
+        "path": "internal/selfupdate/stage.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "ae0b34849192bf7e70282874448d1320e56a6023",
+        "line": 119,
+        "end_line": 149,
+        "sha256": "0a65b818f1ea82d1e9af331e274a5e94e0fb483a2d87626b29c3c2ea82b4c3a0"
+      },
+      {
+        "path": "internal/selfupdate/stage.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "ae0b34849192bf7e70282874448d1320e56a6023",
+        "line": 153,
+        "end_line": 201,
+        "sha256": "dd44f9a505b561a26a52272c95c437939bf9f4f41b918b892795c7e6f163001d"
+      },
+      {
+        "path": "internal/selfupdate/activate.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "329855efb8fd22162c41c2a4f2ade6d35faf0791",
+        "line": 60,
+        "end_line": 70,
+        "sha256": "6306f9e1d1a4907c86178af0cdf5f9dc46f05e8f6e7d24d69b770d5fec52bbec"
+      },
+      {
+        "path": "internal/selfupdate/activate.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "329855efb8fd22162c41c2a4f2ade6d35faf0791",
+        "line": 74,
+        "end_line": 93,
+        "sha256": "6701928b177550c849d8a29049b61c036b240714c9fbb6f7f62e22482e23e745"
+      },
+      {
+        "path": "internal/selfupdate/activate.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "329855efb8fd22162c41c2a4f2ade6d35faf0791",
+        "line": 96,
+        "end_line": 107,
+        "sha256": "5e85940d910eaf1f87e1e4af89c6e72a561ea10b91c51b50f55bd8697ec19266"
+      },
+      {
+        "path": "internal/selfupdate/activate.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "329855efb8fd22162c41c2a4f2ade6d35faf0791",
+        "line": 109,
+        "end_line": 118,
+        "sha256": "44e5411bb6cea4d5e94912a0ff2ac731a9029c0f87a22bb0e77e2ebba049fbcc"
+      },
+      {
+        "path": "internal/selfupdate/activate.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "329855efb8fd22162c41c2a4f2ade6d35faf0791",
+        "line": 124,
+        "end_line": 192,
+        "sha256": "6e0568d9a583944bb9d947cae5aecbf2b863170e2c5cca6803d6ed7392f22ec5"
+      },
+      {
+        "path": "internal/selfupdate/activate.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "329855efb8fd22162c41c2a4f2ade6d35faf0791",
+        "line": 200,
+        "end_line": 220,
+        "sha256": "a164fd6a3309da291498891bab9105f96d15869ed869388ad6a8344a273a3a10"
+      },
+      {
+        "path": "internal/selfupdate/activate.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "329855efb8fd22162c41c2a4f2ade6d35faf0791",
+        "line": 222,
+        "end_line": 246,
+        "sha256": "a7d996c4ce6122fd6aee8b542272d17c9b9d9b306cab5716f3d8aed0da9fe4cc"
+      },
+      {
+        "path": "internal/release/production_receipt.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "dfbf365335db629d1af26c860c7926f78e8628fa",
+        "line": 28,
+        "end_line": 65,
+        "sha256": "b77e8e6313a24e2989c49590b89ea2158800fb64e21f5e7432b2a78a291fe39f"
+      },
+      {
+        "path": "internal/release/production.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "f4237036660c0fbd89bf8b4b1004f3fc2977bf19",
+        "line": 64,
+        "end_line": 124,
+        "sha256": "1bdf81a622428c34699982d7d675bc60e2fee09cffcd6808f6a6039d99a3439a"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 90,
+        "end_line": 118,
+        "sha256": "ebbff52967b06a7047091ddf823c9243b1771befe40bbff382568a47ab7d4b55"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 196,
+        "end_line": 340,
+        "sha256": "5cc0a1ceef1f89dd0cc1b1c47ad1fea1771e0b1c962d4f30312df64bca9d1b3e"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 402,
+        "end_line": 508,
+        "sha256": "0b43cb0f9eb7b40a5d77ea93cb78d8ad677ba3523046259f9a3250b437efabdc"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 587,
+        "end_line": 638,
+        "sha256": "e101e072ca1ff34bbaa6be8b76cfa5265593373a9d6945da57fb63d75e49dba4"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 751,
+        "end_line": 792,
+        "sha256": "f3d96d513977aa20db50dcc4ea970fb0db6d479e9c399a3532f69e0100699e48"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 811,
+        "end_line": 837,
+        "sha256": "ff8445df6d81e2b4f8739c5b4ef28b2f5df7c0731eadb12eac7d059218f7bb9f"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 839,
+        "end_line": 859,
+        "sha256": "6f14cba62346533ee3a713a86f242688f6734776be89162b0fa56869b341b46b"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 346,
+        "end_line": 362,
+        "sha256": "951be77222296ddecfd5309fad5d831674b0c9803400a6f04a086fd395763b57"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 931,
+        "end_line": 958,
+        "sha256": "88061604d53632333520da0c19196b5980930d25c4708834613148fdce895066"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 960,
+        "end_line": 1003,
+        "sha256": "009998886edb33a4e1d682732be5eaaea678d75a042001a334510568c30ab132"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 1007,
+        "end_line": 1009,
+        "sha256": "c4046c3a3375e7903a90fe29e23d7c57b9911abb25e8d41607076b623372cfc5"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 1072,
+        "end_line": 1131,
+        "sha256": "92524a45e1fd80bb322fff9b656046d3c495333aa0f6db958eb8fc1260b4e53a"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 196,
+        "end_line": 340,
+        "sha256": "5cc0a1ceef1f89dd0cc1b1c47ad1fea1771e0b1c962d4f30312df64bca9d1b3e"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 402,
+        "end_line": 508,
+        "sha256": "0b43cb0f9eb7b40a5d77ea93cb78d8ad677ba3523046259f9a3250b437efabdc"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 751,
+        "end_line": 792,
+        "sha256": "f3d96d513977aa20db50dcc4ea970fb0db6d479e9c399a3532f69e0100699e48"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 839,
+        "end_line": 859,
+        "sha256": "6f14cba62346533ee3a713a86f242688f6734776be89162b0fa56869b341b46b"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 960,
+        "end_line": 1003,
+        "sha256": "009998886edb33a4e1d682732be5eaaea678d75a042001a334510568c30ab132"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 1011,
+        "end_line": 1017,
+        "sha256": "c41ec50bf4aeba50821a46303b0e677adf89e83f1bdd4434dcc5deb0b4a4c3d0"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 1019,
+        "end_line": 1047,
+        "sha256": "9a83884a5cd34ca1a43e216a1cdeed765a7bacaf0af89c6a88fc8694d47694df"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 1050,
+        "end_line": 1070,
+        "sha256": "a7e15b782a816e38dd005168fa824bcbc6205687193e8d26e8612fdbe2a5ab17"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 1072,
+        "end_line": 1131,
+        "sha256": "92524a45e1fd80bb322fff9b656046d3c495333aa0f6db958eb8fc1260b4e53a"
+      },
+      {
+        "path": "internal/selfupdate/watchdog.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b54b89da8a7dae54e07a0042a1500a29f5a501a0",
+        "line": 35,
+        "end_line": 126,
+        "sha256": "61bce7c56c278d402d5d37c1fd9ed74c5c8e25b430ca045334037b3b526d5de9"
+      },
+      {
+        "path": "internal/selfupdate/watchdog.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b54b89da8a7dae54e07a0042a1500a29f5a501a0",
+        "line": 134,
+        "end_line": 156,
+        "sha256": "abdcda24c58c9970a9c44e242c65db44f21dee00df5fbbebdbb711ae667dd266"
+      },
+      {
+        "path": "internal/selfupdate/watchdog.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b54b89da8a7dae54e07a0042a1500a29f5a501a0",
+        "line": 178,
+        "end_line": 213,
+        "sha256": "f081a9a773a8750fb4041473271caa93c5c1737b7764076ade2d7a39eb3ee79c"
+      },
+      {
+        "path": "internal/selfupdate/watchdog.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b54b89da8a7dae54e07a0042a1500a29f5a501a0",
+        "line": 217,
+        "end_line": 236,
+        "sha256": "17c84bd06aff0507ea1d4f923d6c87d95af50a392feca64e6a784e28fe077e38"
+      },
+      {
+        "path": "internal/selfupdate/watchdog.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b54b89da8a7dae54e07a0042a1500a29f5a501a0",
+        "line": 241,
+        "end_line": 281,
+        "sha256": "3622f73aa312564505b329dc5c4ec06fa9c83612db9d2f91c41ef29a6fce62c5"
+      },
+      {
+        "path": "internal/selfupdate/watchdog.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b54b89da8a7dae54e07a0042a1500a29f5a501a0",
+        "line": 293,
+        "end_line": 358,
+        "sha256": "cb8eed71766b2f5b66b6231ecacf57b3746c1abe73d9c9ee764d018e4f8eeae6"
+      },
+      {
+        "path": "internal/selfupdate/restore.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "30c76d7fc25a19ca7f415425fa621f7ec452e9e5",
+        "line": 46,
+        "end_line": 113,
+        "sha256": "83788d4030c9d79a3eaf479f4c071b2a342ab74ed89307c45052f7080c74d034"
+      },
+      {
+        "path": "internal/selfupdate/restore.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "30c76d7fc25a19ca7f415425fa621f7ec452e9e5",
+        "line": 120,
+        "end_line": 131,
+        "sha256": "36db01ddf88620122efe23b630e428c2eb36e79f5a1d0c72ed397ab0e3f00661"
+      },
+      {
+        "path": "internal/selfupdate/restore.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "30c76d7fc25a19ca7f415425fa621f7ec452e9e5",
+        "line": 134,
+        "end_line": 169,
+        "sha256": "3cd529e66c856cf39dc13f84dac79854859e9325e084ab8dd7a6b74875970b10"
+      },
+      {
+        "path": "internal/selfupdate/restore.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "30c76d7fc25a19ca7f415425fa621f7ec452e9e5",
+        "line": 171,
+        "end_line": 206,
+        "sha256": "fe58814baabd58ef9316b0cb3ed128bf24019ed93f16d8cd335c095621fa32fb"
+      },
+      {
+        "path": "internal/selfupdate/restore.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "30c76d7fc25a19ca7f415425fa621f7ec452e9e5",
+        "line": 213,
+        "end_line": 241,
+        "sha256": "b3154abc5dd14b9a47be73b4ef8dd5be026275554a7f2c4e7dc093764e5b7808"
+      },
+      {
+        "path": "internal/selfupdate/restart.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c88e41a521df6047dd4056139ca37fc480715537",
+        "line": 23,
+        "end_line": 28,
+        "sha256": "0cd391e07bcb5f1f49bdadce28d09012046ef5960a7ce520a997883e094069e6"
+      },
+      {
+        "path": "internal/selfupdate/restart.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c88e41a521df6047dd4056139ca37fc480715537",
+        "line": 32,
+        "end_line": 41,
+        "sha256": "8d599ef5f71a2b6a06affb0f88217b22dd8c72a5ede76571f9271f21ed9a4442"
+      },
+      {
+        "path": "internal/selfupdate/restart.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c88e41a521df6047dd4056139ca37fc480715537",
+        "line": 46,
+        "end_line": 54,
+        "sha256": "719573767fa5c9cf9fcb6f2deadcf8cf3fa6b78e6144f5c68029899078f61c77"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 890,
+        "end_line": 900,
+        "sha256": "ce10728df07e65cd40d28332d97a16e32fd9a2d59d15b9b2af1659a7c0e1ec3c"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 902,
+        "end_line": 923,
+        "sha256": "ac872db30427dfe1400492a171edeb5476eed96d3f07ce7ae602dc1345ede62d"
+      },
+      {
+        "path": "internal/selfupdate/cli/run.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "813f614263a436723ae6253eaf9036d8120636b2",
+        "line": 874,
+        "end_line": 888,
+        "sha256": "31aae1f91815dc07b8f62a503d7c03653e4224157dcb905d60d2422902c33aa1"
+      },
+      {
+        "path": "internal/selfupdate/cli/identity_rekey_binary.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6fafe1c8356a17c7c4de420df2ca3f36dce1cc99",
+        "line": 25,
+        "end_line": 38,
+        "sha256": "b6039a23724b3d1afdac423db6985b4a5b2c59d233ef93839ac501748811419b"
+      },
+      {
+        "path": "internal/selfupdate/cli/identity_rekey_binary.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6fafe1c8356a17c7c4de420df2ca3f36dce1cc99",
+        "line": 40,
+        "end_line": 57,
+        "sha256": "9f0056ad680f62bebef3c542139d820aa82f8c695d6dbdec59d107e7cadd2801"
+      },
+      {
+        "path": "internal/selfupdate/cli/identity_rekey_binary.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6fafe1c8356a17c7c4de420df2ca3f36dce1cc99",
+        "line": 134,
+        "end_line": 169,
+        "sha256": "96d0ae4ae9b64b1931eda0dd59d410ec0f4b3bafde882b923292f59c81949074"
+      },
+      {
+        "path": "internal/bootstrapstart/identity_rekey_binary.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "51a24de98376ca8f51e9109896822cbcc65eee57",
+        "line": 6,
+        "end_line": 9,
+        "sha256": "615fe9547359a2404079b36d4d0af220ca0737345f751906b19e493e84b00fe5"
+      },
+      {
+        "path": "internal/bootstrapstart/binary.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "1775574df72127b26d89072ae0b489edb9b24007",
+        "line": 66,
+        "end_line": 68,
+        "sha256": "aa3d2425b123a2c1c00a741eb217638ad9f10ea445ccc64cd602635d56e5dfe3"
+      },
+      {
+        "path": "internal/bootstrapstart/binary.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "1775574df72127b26d89072ae0b489edb9b24007",
+        "line": 195,
+        "end_line": 233,
+        "sha256": "7e7a71249cbf7b37a102b0d67a4669e0e3b1cbca71a293080b1e96f051f3482d"
+      },
+      {
+        "path": "internal/selfupdate/cli/identity_rekey_binary.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6fafe1c8356a17c7c4de420df2ca3f36dce1cc99",
+        "line": 119,
+        "end_line": 132,
+        "sha256": "33a5d1c98d16858b59444d1a7a811ae65dde8d8b9254bfd250bf1ecbe56b78fd"
+      },
+      {
+        "path": "internal/selfupdate/cli/memory_linux.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c2800c9c2442fcb2d519d7d05a1f63786f8d8224",
+        "line": 78,
+        "end_line": 103,
+        "sha256": "2eebc842c642cbde35a7dd3e31ad935049ffe6debdfdd90032b51c5dc95d154f"
+      }
+    ]
+  },
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "retained_source_findings": [
+    {
+      "root_id": "internal/selfupdate/cli/memory_linux_test.go::TestReadHostRuntimeRoots",
+      "type": "canonical_body_drift",
+      "detail": "All five fixture JSON examples changed version1\u21922; historical survival current hash is stale. Baseline/current exact bounds, text, raw hashes and whole-file pins retained. Same original obligation, no retirement credit."
+    }
+  ],
+  "source_blockers": [],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no tests/builds/helpers/crypto/process probes executed or runtime receipts reviewed.",
+    "Seat fixture directly starts upstream NATS over loopback TCP; real JetStream FileStorage single replica. Clock/host/LB/desired/authority are synthetic; no OCI/LB/restart/cluster quorum/distributed lease credit.",
+    "Accepted identity/trust/prestart/journal/contract/completion/material/reload/restart hooks are replaced as specified. Test-only signed evidence has no real production qualification. Root3329 skips unless root; candidate3338 requires Linux /proc/self/exe and bypasses parent ownership/mode checks.",
+    "All original assertions and safety obligations retained. Mixed local blocks named. Canonical3339 version1\u21922 fixture drift preserves exact baseline/current declarations and identity. No source blockers found; runtime remains independently unknown.",
+    "No repository/source/ledger mutation or count/deletion/retirement/completion credit. Independent exact-hash peer review required.",
+    "External nats.go client internals not canonical source reviewed; direct loopback TCP fixture and production Store calls establish source boundary only, no runtime/empty-ListKeys inference.",
+    "Completion credential-drop test skips unless root; no root or child process execution performed during review.",
+    "All signing/crypto calls were source read only. Test-only qualification evidence and injected identity/completion/decoder/restart hooks supply no production approval."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "ledger_mutation": false,
+    "count_promotion": false,
+    "deletion_authorized": false,
+    "retirement_authorized": false,
+    "qualification_promotion": false,
+    "completion_credit": false
+  },
+  "verified_counts": {
+    "roots": 20,
+    "raw_declarations": 40,
+    "source_pins": 28,
+    "explicit_assertion_callee_spans": 139
+  }
+}

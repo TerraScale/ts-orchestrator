@@ -1,0 +1,203 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_780_800",
+  "author": "/root/classification_100_dispatch/batch_800_820",
+  "status": "accepted_exact_hash_source_only",
+  "packet_path": "/tmp/ts-source-other3000-3020-j__tcm7n/classification.json",
+  "packet_sha256": "81c6660904096ca287ef5e34f3fe085b5f5710f21a580acae215d630b41f079b",
+  "packet_checksum_path": "/tmp/ts-source-other3000-3020-j__tcm7n/SHA256SUMS",
+  "packet_checksum_sha256": "32b9a856e2fa632582732146afb8704d3c77c6abb9504c3d791d69e98909924c",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": [
+      3000,
+      3020
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_780_800"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/regionsuggest/decide_test.go::TestIdleNeedsIdleForThenSuggestsRemoval",
+    "internal/regionsuggest/decide_test.go::TestNearestPicksTheLowestRoundTrip",
+    "internal/regionsuggest/decide_test.go::TestSaturationNeedsAnHourAndForgetsWhenItEnds",
+    "internal/regionsuggest/decide_test.go::TestSuggestRules",
+    "internal/regionsuggest/decide_test.go::TestUnknownStatusForgetsTheIdleClock",
+    "internal/regionsuggest/runner_test.go::TestCandidatesAreTheCatalogRegionsThatServeNothing",
+    "internal/regionsuggest/runner_test.go::TestRegionsReadTheMeasuredRoundTrips",
+    "internal/regionsuggest/runner_test.go::TestSuggestSavesTheAddSuggestion",
+    "internal/regionsuggest/store_test.go::TestStateIsNotWrittenWithoutTheLease",
+    "internal/regionsuggest/store_test.go::TestStateRoundTripsAndRefusesStaleWrites",
+    "internal/regionview/hostile_peer_test.go::TestRemoteSummaryFromHostilePeerIsBounded",
+    "internal/regionview/link_probe_test.go::TestProbeReachabilityPreservesAdmissionAndAuthenticatedWAN",
+    "internal/regionview/link_probe_test.go::TestProbeRequiresFreshExactRegionReply",
+    "internal/regionview/link_probe_test.go::TestProbeUnknownRegionDoesNotReportAnOutage",
+    "internal/regionview/regionview_test.go::TestLocalSummary",
+    "internal/regionview/regionview_test.go::TestLocalSummaryCarriesCost",
+    "internal/regionview/regionview_test.go::TestLocalSummaryTopology",
+    "internal/regionview/regionview_test.go::TestRegionsAcrossLinks",
+    "internal/regionview/regionview_test.go::TestScore",
+    "internal/regionview/resources_test.go::TestCapacityExcludesMissingStaleAndIncoherentUsage"
+  ],
+  "counts": {
+    "integration": 2,
+    "unit": 15,
+    "mixed": 3,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 full canonical roots before evaluating author classifications, plus reached fixtures and actual production/API/store/network/local paths. No source parser/scanner or test/helper execution.",
+    "Verified exact literal allocation and all20 survival rows, raw baseline/current declaration bounds/full text/hash and every complete assertion evidence span against immutable Git blobs.",
+    "Verified30 source-file pins: commit/path, Git blob/mode, SHA256 and byte length; verified79 explicit connected spans and all per-root callee references.",
+    "Verified allocation/protocol/instruction/survival/accounting input hashes and bytes, manifest checksums, files0444/directory0555 and exact accepted packet hash.",
+    "Confirmed upstream server.NewServer/nats.Connect loopback fixtures, actual JetStream file-backed KV read/write/CAS and Store.Save refusal readback; no natscell.Start attribution.",
+    "Confirmed incidental store fixture for measured-roundtrip local projection, pre-I/O epoch0 and region token guards, static request and clock callbacks, in-memory journal without Sink/Archive/Run; separate local-only blocks yield mixed.",
+    "Confirmed topology current-body drift is explicitly pinned against raw baseline and original Serving/readiness obligations retained. No source-visible later-assertion contradiction found."
+  ],
+  "root_verdicts": [
+    {
+      "root_id": "internal/regionsuggest/decide_test.go::TestIdleNeedsIdleForThenSuggestsRemoval",
+      "category": "unit",
+      "verdict": "accepted_source_category",
+      "reason": "Suggest reads constructed statuses, fixed times and Memory maps; duration transitions and removal tuple are local assertions."
+    },
+    {
+      "root_id": "internal/regionsuggest/decide_test.go::TestNearestPicksTheLowestRoundTrip",
+      "category": "unit",
+      "verdict": "accepted_source_category",
+      "reason": "nearest compares durations in a supplied map; missing measurements and lowest-RTT selection are local predicates."
+    },
+    {
+      "root_id": "internal/regionsuggest/decide_test.go::TestSaturationNeedsAnHourAndForgetsWhenItEnds",
+      "category": "unit",
+      "verdict": "accepted_source_category",
+      "reason": "Suggest and Memory.observe update supplied clock maps for saturation/reset; all times/statuses are constructed."
+    },
+    {
+      "root_id": "internal/regionsuggest/decide_test.go::TestSuggestRules",
+      "category": "unit",
+      "verdict": "accepted_source_category",
+      "reason": "All table cases evaluate Suggest over synthetic statuses, budgets, candidates and clocks. Location fallback uses compiled catalog/math; no OCI request."
+    },
+    {
+      "root_id": "internal/regionsuggest/decide_test.go::TestUnknownStatusForgetsTheIdleClock",
+      "category": "unit",
+      "verdict": "accepted_source_category",
+      "reason": "Memory.observe deletes an idle clock for nil status; assertion inspects returned map only."
+    },
+    {
+      "root_id": "internal/regionsuggest/runner_test.go::TestCandidatesAreTheCatalogRegionsThatServeNothing",
+      "category": "unit",
+      "verdict": "accepted_source_category",
+      "reason": "candidates filters supplied serving cells against compiled catalog. No roster/store/cloud request."
+    },
+    {
+      "root_id": "internal/regionsuggest/runner_test.go::TestRegionsReadTheMeasuredRoundTrips",
+      "category": "unit",
+      "verdict": "accepted_source_category",
+      "reason": "Runner.regions uses injected roster/rollup callbacks and compiled catalog; roundTrips converts integers to durations. newTestRunner opens real KV incidentally, but this target never accesses State."
+    },
+    {
+      "root_id": "internal/regionsuggest/runner_test.go::TestSuggestSavesTheAddSuggestion",
+      "category": "integration",
+      "verdict": "accepted_source_category",
+      "reason": "Runner.Suggest loads prior saturation memory from real file-backed JetStream KV, computes using injected rollups/roster/capacity, saves by CAS and reads the resulting suggestion through Store.Suggestion/Load. Persistence materially supports assertions; no OCI region is created."
+    },
+    {
+      "root_id": "internal/regionsuggest/store_test.go::TestStateIsNotWrittenWithoutTheLease",
+      "category": "integration",
+      "verdict": "accepted_source_category",
+      "reason": "Fake fencer refuses Save before I/O, followed by actual JetStream Get asserting state absent at revision0. Refusal plus real store absence readback form the safety target. No real lease authority."
+    },
+    {
+      "root_id": "internal/regionsuggest/store_test.go::TestStateRoundTripsAndRefusesStaleWrites",
+      "category": "mixed",
+      "verdict": "accepted_source_category",
+      "reason": "Empty/saved state and suggestion reads, revision roundtrip and stale CAS rejection traverse real file-backed JetStream. Independent final epoch0 check returns ErrFenced before fencer/encoding/KV and is unit."
+    },
+    {
+      "root_id": "internal/regionview/hostile_peer_test.go::TestRemoteSummaryFromHostilePeerIsBounded",
+      "category": "mixed",
+      "verdict": "accepted_source_category",
+      "reason": "Upstream NATS server/client over loopback TCP delivers hostile/forged summaries; Probe validates identity, filters decisions and bounds arrays; subscription observes real subjects. Separate Links.New invalid-token filtering and Links.Link wildcard rejection are local-only assertions."
+    },
+    {
+      "root_id": "internal/regionview/link_probe_test.go::TestProbeReachabilityPreservesAdmissionAndAuthenticatedWAN",
+      "category": "unit",
+      "verdict": "accepted_source_category",
+      "reason": "Reachability converts injected LinkProbes slices, preserving admission/WAN provenance. No request/network probe."
+    },
+    {
+      "root_id": "internal/regionview/link_probe_test.go::TestProbeRequiresFreshExactRegionReply",
+      "category": "unit",
+      "verdict": "accepted_source_category",
+      "reason": "Probe calls Static.Request whose handler marshals constructed replies and counts calls. Identity/version/freshness checks are local bytes/clock validation without NATS."
+    },
+    {
+      "root_id": "internal/regionview/link_probe_test.go::TestProbeUnknownRegionDoesNotReportAnOutage",
+      "category": "unit",
+      "verdict": "accepted_source_category",
+      "reason": "Static.Request returns injected wrapped/unwrapped ErrUnknownRegion; Probe/Reachability transform values. In-memory insights engine evaluates callback inputs at two times; no actual service/store boundary."
+    },
+    {
+      "root_id": "internal/regionview/regionview_test.go::TestLocalSummary",
+      "category": "unit",
+      "verdict": "accepted_source_category",
+      "reason": "Local consumes static cluster/insights and an in-memory Journal without Sink/Archive or Run. Quorum/leader/capacity/rollout/counts/score aggregate constructed values; NATSView is data."
+    },
+    {
+      "root_id": "internal/regionview/regionview_test.go::TestLocalSummaryCarriesCost",
+      "category": "unit",
+      "verdict": "accepted_source_category",
+      "reason": "Local invokes callback returning a cost pointer and standard JSON roundtrips it; clearing callback checks omission. No OCI collection/persistence."
+    },
+    {
+      "root_id": "internal/regionview/regionview_test.go::TestLocalSummaryTopology",
+      "category": "unit",
+      "verdict": "accepted_source_category",
+      "reason": "Local/fillFromCluster aggregates constructed member/placement structures and compares topology. Current expected hosts replace baseline Serving with unknown readiness/reason. Original safety obligation retained; no runtime observation."
+    },
+    {
+      "root_id": "internal/regionview/regionview_test.go::TestRegionsAcrossLinks",
+      "category": "mixed",
+      "verdict": "accepted_source_category",
+      "reason": "Production Serve QueueSubscribe/Respond and Links.Request RequestMsgWithContext cross real upstream loopback NATS for sfo; linked mia receives genuine no-responder result. Separate fra not-linked and nil LinkProbes checks return locally before network I/O."
+    },
+    {
+      "root_id": "internal/regionview/regionview_test.go::TestScore",
+      "category": "unit",
+      "verdict": "accepted_source_category",
+      "reason": "score computes score/status/reasons from constructed quorum/leaders/versions/insights. Pure local logic."
+    },
+    {
+      "root_id": "internal/regionview/resources_test.go::TestCapacityExcludesMissingStaleAndIncoherentUsage",
+      "category": "unit",
+      "verdict": "accepted_source_category",
+      "reason": "fillNodeCapacity reads constructed readings/timestamps/nodes; freshness, coherent usage, partial coverage, CPU weighting and measured-zero handling are local arithmetic/predicates."
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [
+    {
+      "root_id": "internal/regionview/regionview_test.go::TestLocalSummaryTopology",
+      "kind": "retained_canonical_declaration_drift",
+      "detail": "Baseline a87589f0ceb2539ce64b03746be5221b478fbcb7a06cad5349628952c3d0787f; canonical ec44a5fcee9053fe582861f77b5549ecaa94aba79d18884d00257fe74120797a. Author accurately retains the changed original safety obligation; no retirement credit."
+    }
+  ],
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE; runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No Go/tests/helpers/services/cloud/crypto/TerraBase execution.",
+    "Real fixtures directly start upstream nats-server over loopback TCP, not natscell.Start. Fencer, roster, rollup and capacity callbacks are synthetic. No real lease/cloud creation/multi-node cluster or replication proof.",
+    "Journal fixtures have no Sink/Archive and are never Run. Static Request handlers are callbacks; freshness/reachability unit roots perform no real network probe.",
+    "Store setup is incidental to measured-roundtrip aggregation. Epoch0 and invalid region-token checks are pre-I/O.",
+    "No source/repository/ledger mutation, promotion, deletion, retirement or global completion. All safety obligations retained, including changed topology assertions."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "repository_mutated": false,
+  "ledger_mutated": false,
+  "count_promotion_authorized": false,
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "global_completion_claimed": false
+}

@@ -1,0 +1,261 @@
+{
+  "schema": "independent-source-only-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_880_900",
+  "author": "/root/classification_100_dispatch/batch_900_920",
+  "decision": "ACCEPT_EXACT_FROZEN_PACKET",
+  "accepted_packet": "/tmp/ts-source-classification-3100-3120-peer-corrected-hd_ttc6x/classification.json",
+  "accepted_packet_sha256": "6835758af91d4bc6800edf77f8407ee374de0dcd91c910599185224f058ab7b7",
+  "accepted_checksum_file": "/tmp/ts-source-classification-3100-3120-peer-corrected-hd_ttc6x/SHA256SUMS",
+  "accepted_checksum_file_sha256": "1418d7b39a29b9282633b0ea1d0b53d90f7b4627bde631428e0b6de7cebd8463",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root1319-final-source-dispatch-n98fqnwt/allocation-and-exclusions.json",
+    "sha256": "777222361e2ec8a32c1d9c2bda9d4d6ad0df1d09fe5f43debbae717a58d44d7b",
+    "range": "other_unadjudicated[3100:3120]"
+  },
+  "root_ids": [
+    "internal/release/cli/update_delegation_test.go::TestSignUpdateDelegationRefusesTheRootAsLeaf",
+    "internal/release/cli/update_delegation_test.go::TestSignUpdateDelegationThenAutoSignBinaryUpdate",
+    "internal/release/container_integration_test.go::TestContainerAdmissionHTTPIntegration",
+    "internal/release/function_integration_test.go::TestFunctionAdmissionFilesystemBundle",
+    "internal/release/function_integration_test.go::TestFunctionAdmissionRejectsScopeOrderAndTrust",
+    "internal/release/function_integration_test.go::TestFunctionAdmissionRequiresExactDelegationAndSupportedContract",
+    "internal/release/function_receipt_integration_test.go::TestFunctionReceiptFilesystemVerificationKeepsExecutionSeparate",
+    "internal/release/function_receipt_integration_test.go::TestFunctionReceiptRejectsScopeOrderAndTrust",
+    "internal/release/netbird_image_integration_test.go::TestNetBirdImageCurrentAuthorityDeadlines",
+    "internal/release/netbird_image_integration_test.go::TestNetBirdImageCurrentCryptoBoundary",
+    "internal/release/oci_layout_integration_test.go::TestInspectContainerImageLayout",
+    "internal/release/oci_layout_integration_test.go::TestInspectContainerImageLayoutStandardRootIndex",
+    "internal/release/production_netbird_test.go::TestNetBirdProductionQualificationPurpose",
+    "internal/release/receipt_test.go::TestBinaryReceiptSignVerifyLifetimeBoundary",
+    "internal/release/receipt_test.go::TestHistoricalReceiptsDoNotAuthorizeCurrentUse",
+    "internal/release/receipt_test.go::TestImageReceiptAllowsDiskImagesLargerThanBinaryLimit",
+    "internal/release/receipt_test.go::TestImageReceiptClampsToDelegationAndPinsExactEnvelope",
+    "internal/release/receipt_test.go::TestImageReceiptRequiresExactQualificationDigest",
+    "internal/release/receipt_test.go::TestImageReceiptRequiresManifestImageIdentity",
+    "internal/release/receipt_test.go::TestReceiptLifetimeHasItsOwnLimit"
+  ],
+  "counts": {
+    "integration": 1,
+    "unit": 16,
+    "mixed": 3,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 full canonical roots and reached fixture/production paths; categories checked against asserted targets and independent local-only blocks.",
+    "Verified exact literal activated allocation order and20 survival mappings;40 baseline/current raw declarations match source text and original survival SHA256 identities, no drift.",
+    "Verified41 canonical full-file Git blobs/modes/SHA256/byte pins and60 complete assertion/connected evidence spans against pinned Git bytes.",
+    "Verified final classification/checksum hashes, checksum contents and files0444/directory0555 immutable modes.",
+    "Checked actual SDK HTTP dispatcher, on-disk winning allocation file/httptest HTTP/readWorkerFamily/evidence reader path; no real OCI or workload runtime claim.",
+    "Checked actual OCI directory os.OpenRoot/bounded read/blob digest path; mutable tag returns before filesystem target and supplies separate unit block.",
+    "Checked function/receipt/NetBird crypto predicates consume in-memory bytes; test-only file setup supplies no production file loader/execution credit.",
+    "Checked signUpdateDelegation/signBinaryUpdateWith actual read/write/readback boundary alongside synthetic Git/qualification/inspector callback assertion blocks."
+  ],
+  "resolved_findings": [
+    {
+      "root_id": "internal/release/cli/update_delegation_test.go::TestSignUpdateDelegationRefusesTheRootAsLeaf",
+      "original_category": "integration",
+      "accepted_category": "unit",
+      "finding": "Fixture public-key file reads feed sole bytes.Equal leaf/root refusal predicate before private-key/sign/write; no independently asserted loader effect.",
+      "resolution": "Author fresh corrected packet classifies unit and preserves exact raw original assertions.",
+      "superseded_packet": "/tmp/ts-source-classification-3100-3120-vmt2uxng/classification.json",
+      "superseded_packet_sha256": "413488fe8e29dce95380628379605f372e6a88a4c8bcc1bd58c4818207dc72a5"
+    }
+  ],
+  "remaining_findings": [],
+  "per_root_review": [
+    {
+      "root_id": "internal/release/cli/update_delegation_test.go::TestSignUpdateDelegationRefusesTheRootAsLeaf",
+      "category": "unit",
+      "raw_identity_verified": true,
+      "entire_root_read": true,
+      "actual_connected_boundary_read": true,
+      "assertion_text_preserved": true,
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/release/cli/update_delegation_test.go::TestSignUpdateDelegationThenAutoSignBinaryUpdate",
+      "category": "mixed",
+      "raw_identity_verified": true,
+      "entire_root_read": true,
+      "actual_connected_boundary_read": true,
+      "assertion_text_preserved": true,
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/release/container_integration_test.go::TestContainerAdmissionHTTPIntegration",
+      "category": "mixed",
+      "raw_identity_verified": true,
+      "entire_root_read": true,
+      "actual_connected_boundary_read": true,
+      "assertion_text_preserved": true,
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/release/function_integration_test.go::TestFunctionAdmissionFilesystemBundle",
+      "category": "unit",
+      "raw_identity_verified": true,
+      "entire_root_read": true,
+      "actual_connected_boundary_read": true,
+      "assertion_text_preserved": true,
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/release/function_integration_test.go::TestFunctionAdmissionRejectsScopeOrderAndTrust",
+      "category": "unit",
+      "raw_identity_verified": true,
+      "entire_root_read": true,
+      "actual_connected_boundary_read": true,
+      "assertion_text_preserved": true,
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/release/function_integration_test.go::TestFunctionAdmissionRequiresExactDelegationAndSupportedContract",
+      "category": "unit",
+      "raw_identity_verified": true,
+      "entire_root_read": true,
+      "actual_connected_boundary_read": true,
+      "assertion_text_preserved": true,
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/release/function_receipt_integration_test.go::TestFunctionReceiptFilesystemVerificationKeepsExecutionSeparate",
+      "category": "unit",
+      "raw_identity_verified": true,
+      "entire_root_read": true,
+      "actual_connected_boundary_read": true,
+      "assertion_text_preserved": true,
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/release/function_receipt_integration_test.go::TestFunctionReceiptRejectsScopeOrderAndTrust",
+      "category": "unit",
+      "raw_identity_verified": true,
+      "entire_root_read": true,
+      "actual_connected_boundary_read": true,
+      "assertion_text_preserved": true,
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/release/netbird_image_integration_test.go::TestNetBirdImageCurrentAuthorityDeadlines",
+      "category": "unit",
+      "raw_identity_verified": true,
+      "entire_root_read": true,
+      "actual_connected_boundary_read": true,
+      "assertion_text_preserved": true,
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/release/netbird_image_integration_test.go::TestNetBirdImageCurrentCryptoBoundary",
+      "category": "unit",
+      "raw_identity_verified": true,
+      "entire_root_read": true,
+      "actual_connected_boundary_read": true,
+      "assertion_text_preserved": true,
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/release/oci_layout_integration_test.go::TestInspectContainerImageLayout",
+      "category": "mixed",
+      "raw_identity_verified": true,
+      "entire_root_read": true,
+      "actual_connected_boundary_read": true,
+      "assertion_text_preserved": true,
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/release/oci_layout_integration_test.go::TestInspectContainerImageLayoutStandardRootIndex",
+      "category": "integration",
+      "raw_identity_verified": true,
+      "entire_root_read": true,
+      "actual_connected_boundary_read": true,
+      "assertion_text_preserved": true,
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/release/production_netbird_test.go::TestNetBirdProductionQualificationPurpose",
+      "category": "unit",
+      "raw_identity_verified": true,
+      "entire_root_read": true,
+      "actual_connected_boundary_read": true,
+      "assertion_text_preserved": true,
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/release/receipt_test.go::TestBinaryReceiptSignVerifyLifetimeBoundary",
+      "category": "unit",
+      "raw_identity_verified": true,
+      "entire_root_read": true,
+      "actual_connected_boundary_read": true,
+      "assertion_text_preserved": true,
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/release/receipt_test.go::TestHistoricalReceiptsDoNotAuthorizeCurrentUse",
+      "category": "unit",
+      "raw_identity_verified": true,
+      "entire_root_read": true,
+      "actual_connected_boundary_read": true,
+      "assertion_text_preserved": true,
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/release/receipt_test.go::TestImageReceiptAllowsDiskImagesLargerThanBinaryLimit",
+      "category": "unit",
+      "raw_identity_verified": true,
+      "entire_root_read": true,
+      "actual_connected_boundary_read": true,
+      "assertion_text_preserved": true,
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/release/receipt_test.go::TestImageReceiptClampsToDelegationAndPinsExactEnvelope",
+      "category": "unit",
+      "raw_identity_verified": true,
+      "entire_root_read": true,
+      "actual_connected_boundary_read": true,
+      "assertion_text_preserved": true,
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/release/receipt_test.go::TestImageReceiptRequiresExactQualificationDigest",
+      "category": "unit",
+      "raw_identity_verified": true,
+      "entire_root_read": true,
+      "actual_connected_boundary_read": true,
+      "assertion_text_preserved": true,
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/release/receipt_test.go::TestImageReceiptRequiresManifestImageIdentity",
+      "category": "unit",
+      "raw_identity_verified": true,
+      "entire_root_read": true,
+      "actual_connected_boundary_read": true,
+      "assertion_text_preserved": true,
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/release/receipt_test.go::TestReceiptLifetimeHasItsOwnLimit",
+      "category": "unit",
+      "raw_identity_verified": true,
+      "entire_root_read": true,
+      "actual_connected_boundary_read": true,
+      "assertion_text_preserved": true,
+      "unresolved_assertions": []
+    }
+  ],
+  "qualification_limits": [
+    "Source-only acceptance of exact frozen classification packet; all runtime outcomes UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION.",
+    "No Go/build/test/script/helper execution, scanner/parser, network/cloud/signing/runtime/resource probe or source/repository/ledger mutation.",
+    "Synthetic qualification bytes/keys are local metadata and do not execute production gates; shell Git/inspection/check callbacks in CLI test are fake.",
+    "Peer categories exhaust only assigned20 literal original roots; no global ledger/count/deletion/retirement/qualification/completion promotion or credit."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "ledger_mutation": false,
+  "count_promotion": false
+}
