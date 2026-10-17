@@ -14,6 +14,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/moby/swarmkit/v2/agent/exec"
 )
@@ -26,6 +27,15 @@ func StartAcceptedNodeFixture(ctx context.Context, stateDir string,
 	foundations region.FoundationResolver, vault vaultsecret.VaultClient, bundles vaultsecret.BundleClient,
 	executor exec.Executor, observer *bootstrapstart.OCIInstanceObserver, hostEnrollment []byte,
 ) (*Node, error) {
+	return startAcceptedNodeFixture(ctx, stateDir, reader, accepted, foundations, vault, bundles, executor, observer, hostEnrollment, nil, nil, nil)
+}
+
+func startAcceptedNodeFixture(ctx context.Context, stateDir string,
+	reader *bootstrapstart.CurrentFounderAuthorityReader, accepted bootstrapstart.AcceptedIdentity,
+	foundations region.FoundationResolver, vault vaultsecret.VaultClient, bundles vaultsecret.BundleClient,
+	executor exec.Executor, observer *bootstrapstart.OCIInstanceObserver, hostEnrollment []byte,
+	root *rootoci.Service, homeIAM *region.HomeIAMAuthority, permit *region.RuntimeCreationPermit,
+) (*Node, error) {
 	if !filepath.IsAbs(stateDir) || filepath.Clean(stateDir) != stateDir || stateDir == "/" || observer == nil || vault == nil || bundles == nil {
 		return nil, errors.New("accepted manager fixture requires an isolated directory and concrete OCI clients")
 	}
@@ -34,6 +44,19 @@ func StartAcceptedNodeFixture(ctx context.Context, stateDir string,
 		return nil, err
 	}
 	identity := authority.Identity()
+	checkHomeIAM := func(ctx context.Context) error {
+		if root == nil {
+			return nil
+		}
+		scope, err := authority.Anchor().FoundationScope()
+		if err != nil || homeIAM.StorageDomain() != scope.StorageDomain {
+			return errors.New("fixture home IAM differs from accepted signed foundation scope")
+		}
+		return homeIAM.Guard(ctx, 0)
+	}
+	if err := checkHomeIAM(ctx); err != nil {
+		return nil, err
+	}
 	foundation, err := foundations.Resolve(ctx, strings.ToUpper(identity.Cell))
 	if err != nil {
 		return nil, err
@@ -79,12 +102,17 @@ func StartAcceptedNodeFixture(ctx context.Context, stateDir string,
 		if fresh.OCIRegion != foundation.OCIRegion || freshTarget != target {
 			return errors.New("fixture regional Vault foundation changed")
 		}
-		return nil
+		return checkHomeIAM(ctx)
 	}
-	n, err := startAcceptedNodeAt(ctx, stateDir, identity, target, vault, bundles, executor, refresh, nil)
+	var guardGenesis func(context.Context) error
+	if permit != nil {
+		guardGenesis = func(ctx context.Context) error { return permit.GuardCreateFor(ctx, reader, accepted) }
+	}
+	n, err := startAcceptedNodeAt(ctx, stateDir, identity, target, vault, bundles, executor, refresh, guardGenesis)
 	if err != nil {
 		return nil, err
 	}
-	n.workerAuthority = &workerAuthority{identity: identity, public: public, target: target, vault: vault, bundles: bundles, observer: observer, refresh: refresh}
+	n.workerAuthority = &workerAuthority{identity: identity, public: public, target: target, vault: vault, bundles: bundles, observer: observer, refresh: refresh,
+		root: root, homeIAM: homeIAM, foundations: foundations}
 	return n, nil
 }
