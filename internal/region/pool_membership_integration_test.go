@@ -133,6 +133,15 @@ func TestPoolMembershipUsesSignedPermissionAndOriginalProtectedBirth(t *testing.
 	if fabricated.IsVerified() || fabricated.Revalidate(ctx) == nil {
 		t.Fatal("JSON minted membership authority")
 	}
+	original, revoke := context.WithCancel(ctx)
+	retained, err := resolver.PoolMembership(original, "GRU", poolID, configurationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revoke()
+	if retained.IsVerified() || retained.Revalidate(ctx) == nil {
+		t.Fatal("fresh context replaced original canceled membership authority")
+	}
 	short, stop := context.WithDeadline(ctx, now.Add(30*time.Second))
 	defer stop()
 	if err := proof.Revalidate(short); err == nil {
