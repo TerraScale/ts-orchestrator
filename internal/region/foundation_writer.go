@@ -152,13 +152,18 @@ func launchFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, re
 		return OriginalFoundationWriter{}, errors.New("home writer has no signed seed address")
 	}
 	details := core.LaunchInstanceDetails{AvailabilityDomain: new(profile.AvailabilityDomain), CompartmentId: new(profile.CompartmentOCID), FaultDomain: new(profile.FaultDomain), DisplayName: new(strings.ToLower(cell) + "-1-" + startup.SeedSlot), Shape: new(profile.Shape), Metadata: foundationWriterMetadata(startup.SeedSlot),
-		// The SDK restores these optional lists as empty after durable decoding.
-		// Send that same body on the original launch so its digest survives replay.
+		// Durable JSON restores optional maps and lists as empty. Send that same
+		// body on the original launch so its exact SDK digest survives replay.
 		LaunchVolumeAttachments: []core.LaunchAttachVolumeDetails{},
 		LicensingConfigs:        []core.LaunchInstanceLicensingConfig{},
+		DefinedTags:             map[string]map[string]any{},
+		SecurityAttributes:      map[string]map[string]any{},
+		ExtendedMetadata:        map[string]any{},
+		FreeformTags:            map[string]string{},
 		ShapeConfig:             &core.LaunchInstanceShapeConfigDetails{Ocpus: new(float32(resources.WholeOCPUs)), MemoryInGBs: new(float32(resources.MemoryInGB))},
 		SourceDetails:           core.InstanceSourceViaImageDetails{ImageId: new(startup.ImageOCID), BootVolumeSizeInGBs: new(int64(resources.BootVolumeGB)), BootVolumeVpusPerGB: new(int64(10))},
-		CreateVnicDetails:       &core.CreateVnicDetails{SubnetId: new(profile.SubnetOCID), NsgIds: slices.Clone(profile.NetworkSecurityGroupOCIDs), PrivateIp: new(privateIP), AssignPublicIp: new(false)}}
+		CreateVnicDetails: &core.CreateVnicDetails{SubnetId: new(profile.SubnetOCID), NsgIds: slices.Clone(profile.NetworkSecurityGroupOCIDs), PrivateIp: new(privateIP), AssignPublicIp: new(false),
+			DefinedTags: map[string]map[string]any{}, FreeformTags: map[string]string{}, SecurityAttributes: map[string]map[string]any{}, Ipv6AddressIpv6SubnetCidrPairDetails: []core.Ipv6AddressIpv6SubnetCidrPairDetails{}}}
 	digest, err := netBirdRequestDigest(details)
 	if err != nil {
 		return OriginalFoundationWriter{}, err
