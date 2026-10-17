@@ -498,6 +498,15 @@ func TestStoreRefusesTamperedRecords(t *testing.T) {
 		}
 		return data
 	}
+	status, err := store.PutStatus(ctx, epoch, Status{ID: machine.ID, App: app.Name, State: StateStarted})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored, err := store.Status(ctx, app.Name, machine.ID); err != nil || stored.ID != status.ID ||
+		stored.App != status.App || stored.State != status.State || !stored.UpdatedAt.Equal(status.UpdatedAt) ||
+		stored.UpdatedAt.IsZero() || stored.Revision == 0 {
+		t.Fatalf("valid status read back = %+v, %v", stored, err)
+	}
 	other := testApp("terrabase")
 	invalid := testApp("evil")
 	invalid.Config.Digest = "not-a-digest"
@@ -512,6 +521,21 @@ func TestStoreRefusesTamperedRecords(t *testing.T) {
 		"not json":                 {appKey("evil"), []byte("{")},
 		"machine under another ID": {entityid.Derive("wrong-machine", machine.ID), encode(machine)},
 		"status under another ID":  {entityid.Derive("wrong-status", machine.ID), encode(Status{ID: machine.ID, App: "ts-auth", State: StateStarted, UpdatedAt: time.Now()})},
+	}
+	// Keep the lookup key valid so validation follows the real KV read.
+	// PutStatus stamps UpdatedAt; restored bytes must reject a missing time.
+	for name, mutate := range map[string]func(*Status){
+		"id":             func(s *Status) { s.ID = "x" },
+		"app":            func(s *Status) { s.App = "TS" },
+		"state":          func(s *Status) { s.State = "running" },
+		"no update time": func(s *Status) { s.UpdatedAt = time.Time{} },
+	} {
+		candidate := status
+		mutate(&candidate)
+		cases["status "+name] = struct {
+			key   string
+			value []byte
+		}{machine.ID, encode(candidate)}
 	}
 	for name, tamper := range cases {
 		kv := store.apps
