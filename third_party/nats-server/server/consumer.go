@@ -5066,9 +5066,8 @@ func (o *consumer) getNextMsg() (*jsPubMsg, uint64, error) {
 	}
 	// Check if we should move our o.sseq.
 	if sseq >= o.sseq {
-		// If we are moving step by step then sseq == o.sseq.
-		// If we have jumped we should update skipped for other replicas.
-		if sseq != o.sseq && err == ErrStoreEOF {
+		// EOF advances the scan cursor even when just one message was skipped.
+		if errors.Is(err, ErrStoreEOF) {
 			o.updateSkipped(sseq + 1)
 		}
 		o.sseq = sseq + 1
