@@ -193,6 +193,14 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 		floors = append(floors, retainGenericRuntimeRegionalClaim(t, ctx, regionalCodec, policy.Role, identity.Environment))
 	}
 	bundle, evidence := genericRuntimeContainerRelease(t, signer, target, floors, 101, nil)
+	channelLocation := releasechannel.Location{Client: signer.allocations.Client, Namespace: signer.allocations.Namespace, Bucket: signer.allocations.Bucket}
+	publishChannel := func(bundle release.ContainerBundle) {
+		t.Helper()
+		if err := releasechannel.PublishContainer(ctx, channelLocation, bundle, signer.roots, target, time.Now().UTC(), time.Now().UTC().Add(2*time.Minute), evidence, signer.allocations); err != nil {
+			t.Fatal("publish actual signed container channel through SDK CAS", err)
+		}
+	}
+	publishChannel(bundle)
 	var claim release.ContainerClaim
 	envelope, err := trust.DecodeEnvelope(bundle.Claim)
 	if err != nil || protocol.DecodeStrict(envelope.Payload, &claim, trust.MaxPayloadBytes) != nil {
@@ -296,7 +304,47 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	history.deliveries = deliveries
 	signals := autoscale.NewWindowStore(0, 0)
 	controller, err = newGenericRuntime(genericRuntimeConfig{Client: client, ManagerID: manager.ID(), Authority: fencer, Specs: specs,
-		Delivery: deliveries, OriginalProfile: history.originalContainerProfile, Factory: signer.factory, Evidence: func(ctx context.Context, _ string, digest string) (io.ReadCloser, error) {
+		Delivery: deliveries, OriginalProfile: history.originalContainerProfile,
+		CurrentBundle: func(ctx context.Context, role, architecture string) (release.ContainerBundle, time.Time, error) {
+			if role != target.Role || architecture != target.Architecture {
+				return release.ContainerBundle{}, time.Time{}, delivery.ErrUnauthorized
+			}
+			current, found, err := releasechannel.ReadContainerBundle(ctx, channelLocation, role, architecture)
+			if err != nil || !found {
+				return release.ContainerBundle{}, time.Time{}, errors.Join(containermaterial.ErrPending, err)
+			}
+			deadline, _ := ctx.Deadline()
+			return current, deadline, ctx.Err()
+		},
+		Allocations: func(ctx context.Context, operationID string, requested release.ContainerBundle, roots trust.Keyring, requestedTarget release.ContainerTarget) (release.SequenceLocation, error) {
+			current, err := deliveries.ContainerIntent(ctx, operationID)
+			if err != nil {
+				return release.SequenceLocation{}, err
+			}
+			if current.Container == nil || requestedTarget != target || current.Role != target.Role || current.Environment != target.Environment || strings.ToUpper(current.Cell) != target.Cell {
+				return release.SequenceLocation{}, delivery.ErrUnauthorized
+			}
+			actual, actualErr := release.ContainerBundleSHA256(*current.Container)
+			wanted, wantedErr := release.ContainerBundleSHA256(requested)
+			if actualErr != nil || wantedErr != nil || actual != wanted {
+				return release.SequenceLocation{}, delivery.ErrUnauthorized
+			}
+			return currentContainerAllocations(ctx, signer.factory, requested, roots, requestedTarget)
+		}, Evidence: func(ctx context.Context, operationID, digest string) (io.ReadCloser, error) {
+			current, err := deliveries.ContainerIntent(ctx, operationID)
+			if err != nil {
+				return nil, err
+			}
+			if current.Container == nil || current.Role != target.Role || current.Environment != target.Environment || strings.ToUpper(current.Cell) != target.Cell {
+				return nil, delivery.ErrUnauthorized
+			}
+			currentEnvelope, err := trust.DecodeEnvelope(current.Container.Claim)
+			if err != nil {
+				return nil, err
+			}
+			if _, err := trust.Fingerprint(currentEnvelope); err != nil {
+				return nil, err
+			}
 			return evidence(ctx, digest)
 		}, Probe: probe, RetainedFloor: history.retainedContainerFloor, SessionGuard: session.verify}, signals)
 	if err != nil {
@@ -363,6 +411,15 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 		t.Fatalf("signed application submission: %+v %v", listed, err)
 	}
 	serviceID := listed.Services[0].ID
+	altered := intent.Clone()
+	altered.Container.Sequence = nil
+	if err := controller.apply(ctx, altered); err == nil {
+		t.Fatal("accepted operation admitted a different full container bundle")
+	}
+	operationRefusal, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: serviceID})
+	if err != nil || operationRefusal.Service.Meta.Version != listed.Services[0].Meta.Version {
+		t.Fatalf("operation-bound bundle refusal changed actual manager service: %v", err)
+	}
 	ready := func(replicas uint64) swarmruntime.ServiceObservation {
 		t.Helper()
 		var view swarmruntime.ServiceObservation
@@ -494,9 +551,17 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 		next := intent.Clone()
 		next.OperationID, next.Generation, next.Container = entityid.New(), sequence-100, &candidate
 		next.Source.Commit = claim.SourceRevision
+		publishChannel(candidate)
 		return next
 	}
 	next := rollout(102)
+	if err := controller.apply(ctx, intent); !errors.Is(err, containermaterial.ErrPending) {
+		t.Fatalf("replaced signed current channel admitted the previous delivery: %v", err)
+	}
+	afterChannelReplacement, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: serviceID})
+	if err != nil || afterChannelReplacement.Service.Meta.Version != replayVersion {
+		t.Fatalf("signed current channel replacement refusal changed actual manager service: %v", err)
+	}
 	if err := deliveries.Submit(ctx, next); err != nil {
 		t.Fatal(err)
 	}

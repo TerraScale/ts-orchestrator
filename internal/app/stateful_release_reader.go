@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
-	"slices"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
@@ -18,7 +17,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
-// statefulReleaseReader consumes finite operation-bound root reads. It never
+// statefulReleaseReader consumes finite protected container root reads. It never
 // receives an OCI principal, SDK client, caller-selected bucket or object key.
 type statefulReleaseReader struct {
 	client     *rootoci.Client
@@ -33,7 +32,7 @@ func (reader statefulReleaseReader) claim(ctx context.Context, operationID strin
 	if err != nil {
 		return release.ContainerBundle{}, "", err
 	}
-	if intent.Container == nil || intent.Role != "terrabase" {
+	if intent.Container == nil || intent.Validate() != nil || intent.Role != "terrabase" && intent.Role != "ts-auth" {
 		return release.ContainerBundle{}, "", execution.ErrUnsafe
 	}
 	envelope, err := trust.DecodeEnvelope(intent.Container.Claim)
@@ -48,8 +47,16 @@ func (reader statefulReleaseReader) evidence(ctx context.Context, operationID, d
 	return reader.readEvidence(ctx, operationID, digest, reader.deliveries.ContainerIntent, reader.client.ContainerEvidence)
 }
 
+func (reader statefulReleaseReader) retainedIntent(ctx context.Context, operationID string) (delivery.Intent, error) {
+	intent, err := reader.deliveries.RetainedContainerIntent(ctx, operationID)
+	if err != nil || intent.Role != "terrabase" {
+		return delivery.Intent{}, errors.Join(execution.ErrUnsafe, err)
+	}
+	return intent, nil
+}
+
 func (reader statefulReleaseReader) retainedEvidence(ctx context.Context, operationID, digest string) (io.ReadCloser, error) {
-	return reader.readEvidence(ctx, operationID, digest, reader.deliveries.RetainedContainerIntent, func(ctx context.Context, request rootoci.ContainerEvidenceRequest) (rootoci.ContainerEvidenceChunk, error) {
+	return reader.readEvidence(ctx, operationID, digest, reader.retainedIntent, func(ctx context.Context, request rootoci.ContainerEvidenceRequest) (rootoci.ContainerEvidenceChunk, error) {
 		chunk, err := reader.client.RetainedContainerEvidence(ctx, rootoci.RetainedContainerEvidenceRequest(request))
 		return rootoci.ContainerEvidenceChunk(chunk), err
 	})
@@ -104,7 +111,7 @@ func (reader statefulReleaseReader) allocations(ctx context.Context, operationID
 }
 
 func (reader statefulReleaseReader) retainedAllocations(ctx context.Context, operationID string, requested release.ContainerBundle, roots trust.Keyring, target release.ContainerTarget) (release.SequenceLocation, error) {
-	return reader.readAllocation(ctx, operationID, requested, roots, target, reader.deliveries.RetainedContainerIntent, func(ctx context.Context, request rootoci.ContainerAllocationRequest) (rootoci.ContainerAllocationObservation, error) {
+	return reader.readAllocation(ctx, operationID, requested, roots, target, reader.retainedIntent, func(ctx context.Context, request rootoci.ContainerAllocationRequest) (rootoci.ContainerAllocationObservation, error) {
 		observed, err := reader.client.RetainedContainerAllocation(ctx, rootoci.RetainedContainerAllocationRequest(request))
 		return rootoci.ContainerAllocationObservation(observed), err
 	})
@@ -115,7 +122,9 @@ func (reader statefulReleaseReader) readAllocation(ctx context.Context, operatio
 	if err != nil {
 		return release.SequenceLocation{}, err
 	}
-	if !slices.Equal(bundle.Claim, requested.Claim) || !slices.Equal(bundle.Migration, requested.Migration) || !slices.Equal(bundle.Sequence, requested.Sequence) {
+	actual, actualErr := release.ContainerBundleSHA256(bundle)
+	wanted, wantedErr := release.ContainerBundleSHA256(requested)
+	if actualErr != nil || wantedErr != nil || actual != wanted {
 		return release.SequenceLocation{}, execution.ErrUnsafe
 	}
 	envelope, err := trust.DecodeEnvelope(bundle.Migration)
@@ -135,6 +144,18 @@ func (reader statefulReleaseReader) readAllocation(ctx context.Context, operatio
 		return release.SequenceLocation{}, execution.ErrUnsafe
 	}
 	return release.SequenceLocation{Client: statefulAllocationObject{observation: observed, ctx: ctx}, Namespace: observed.Namespace, Bucket: observed.Bucket}, nil
+}
+
+func (reader statefulReleaseReader) currentBundle(ctx context.Context, role, architecture string) (release.ContainerBundle, time.Time, error) {
+	request := rootoci.ContainerReleaseRequest{Role: role, Architecture: architecture}
+	if reader.client == nil || !request.Valid() {
+		return release.ContainerBundle{}, time.Time{}, execution.ErrUnsafe
+	}
+	observation, err := reader.client.ContainerRelease(ctx, request)
+	if err != nil || !observation.Valid(request, time.Now().UTC()) || !observation.Found {
+		return release.ContainerBundle{}, time.Time{}, errors.Join(execution.ErrUnsafe, err)
+	}
+	return observation.Bundle, observation.ExpiresAt, ctx.Err()
 }
 
 type statefulAllocationObject struct {

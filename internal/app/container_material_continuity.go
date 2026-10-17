@@ -25,6 +25,31 @@ type containerIntentSelection struct {
 	guard     func(context.Context) error
 }
 
+func currentContainerChannel(ctx context.Context, intent delivery.Intent, architecture string, read func(context.Context, string, string) (release.ContainerBundle, time.Time, error)) (func(context.Context) error, error) {
+	if intent.Container == nil || read == nil {
+		return nil, containermaterial.ErrPending
+	}
+	wanted, err := release.ContainerBundleSHA256(*intent.Container)
+	if err != nil {
+		return nil, err
+	}
+	guard := func(ctx context.Context) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		current, currentExpiry, err := read(ctx, intent.Role, architecture)
+		if err != nil || !time.Now().UTC().Before(currentExpiry) {
+			return errors.Join(containermaterial.ErrPending, err)
+		}
+		actual, err := release.ContainerBundleSHA256(current)
+		if err != nil || actual != wanted {
+			return errors.Join(containermaterial.ErrPending, err)
+		}
+		return ctx.Err()
+	}
+	return guard, guard(ctx)
+}
+
 // The existing channel record supplies only a locator. The exact protected
 // operation must independently authorize its current actor on every read.
 func selectContainerIntent(ctx context.Context, js jetstream.JetStream, service *delivery.Service, originalOperation string) (containerIntentSelection, error) {
