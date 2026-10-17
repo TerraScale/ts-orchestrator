@@ -123,6 +123,11 @@ func (s *ManagerRuntimeSession) SessionEpoch() uint64         { return s.current
 func (s *ManagerRuntimeSession) RegistrationRevision() uint64 { return s.registrationRevision }
 func (s *ManagerRuntimeSession) SourceRevision() uint64       { return s.revision }
 func (s *ManagerRuntimeSession) ExpiresAt() time.Time         { return s.deadline }
+
+// SessionSourceExpiresAt is the captured stored session expiry, independent of
+// the operation deadline. It is descriptive and must accompany Revalidate.
+func (s *ManagerRuntimeSession) SessionSourceExpiresAt() time.Time { return s.current.ExpiresAt }
+
 func (s *ManagerRuntimeSession) SignedBinding() (SignedManagerRuntimeBinding, bool) {
 	if s.current.ManagerRuntimeBinding == nil {
 		return SignedManagerRuntimeBinding{}, false
@@ -210,7 +215,7 @@ func (s *ManagerRuntimeSession) Revalidate(ctx context.Context) error {
 	}
 	if regRevision != s.registrationRevision || !sameJSON(registration, s.registration) || revision < s.revision ||
 		current.RegistrationGeneration != s.current.RegistrationGeneration || current.SessionID != s.current.SessionID || current.Epoch != s.current.Epoch ||
-		current.ExpiresAt.Before(s.deadline) || !sameManagerCarrier(current.ManagerRuntimeBinding, s.current.ManagerRuntimeBinding) || !time.Now().Before(s.deadline) || s.original.Err() != nil {
+		current.ExpiresAt.Before(s.current.ExpiresAt) || !sameManagerCarrier(current.ManagerRuntimeBinding, s.current.ManagerRuntimeBinding) || !time.Now().Before(s.deadline) || s.original.Err() != nil {
 		return errors.New("original manager runtime registration or session carrier changed")
 	}
 	return ctx.Err()
