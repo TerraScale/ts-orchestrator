@@ -97,12 +97,7 @@ func reconnectRootBroker(parent context.Context) (int, error) {
 	if err != nil || peer.UID != 0 || peer.GID != 0 {
 		return 0, rootoci.ErrUnauthorized
 	}
-	witness, err := rootoci.CaptureProcess(peer.PID)
-	if err != nil {
-		return 0, err
-	}
-	defer witness.Close()
-	binding, err := rootBrokerPeerBinding(conn, witness, rootBrokerReconnectSocket)
+	binding, err := rootBrokerPeerBinding(conn, rootBrokerReconnectSocket)
 	if err != nil {
 		return 0, err
 	}
@@ -123,7 +118,7 @@ func reconnectRootBroker(parent context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	current, err := rootBrokerPeerBinding(conn, witness, rootBrokerReconnectSocket)
+	current, err := rootBrokerPeerBinding(conn, rootBrokerReconnectSocket)
 	if err != nil || current != binding || ctx.Err() != nil {
 		return 0, rootoci.ErrUnauthorized
 	}

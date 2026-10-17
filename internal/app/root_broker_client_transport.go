@@ -47,13 +47,7 @@ func (dialer *rootControllerDialer) Dial(network, address string) (net.Conn, err
 		_ = socket.Close()
 		return nil, rootoci.ErrUnauthorized
 	}
-	witness, err := rootoci.CaptureProcess(peer.PID)
-	if err != nil {
-		_ = socket.Close()
-		return nil, err
-	}
-	defer witness.Close()
-	if _, err := rootBrokerPeerBinding(socket, witness, rootBrokerClientSocket); err != nil || witness.Binding() != dialer.rootBinding || ctx.Err() != nil {
+	if identity, err := rootBrokerPeerBinding(socket, rootBrokerClientSocket); err != nil || identity.process != dialer.rootBinding || ctx.Err() != nil {
 		_ = socket.Close()
 		return nil, rootoci.ErrUnauthorized
 	}

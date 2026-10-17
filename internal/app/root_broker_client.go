@@ -31,26 +31,20 @@ func openControllerClientRuntime(ctx context.Context, cfg Config, _ func() error
 		_ = socket.Close()
 		return nil, rootoci.ErrUnauthorized
 	}
-	witness, err := rootoci.CaptureProcess(peer.PID)
-	if err != nil {
-		_ = socket.Close()
-		return nil, err
-	}
-	defer witness.Close()
-	binding, err := rootBrokerPeerBinding(socket, witness, rootBrokerStartupSocket)
+	binding, err := rootBrokerPeerBinding(socket, rootBrokerStartupSocket)
 	if err != nil {
 		_ = socket.Close()
 		return nil, err
 	}
 	stop := context.AfterFunc(probe, func() { _ = socket.Close() })
-	dialer := &rootControllerDialer{ctx: ctx, address: net.JoinHostPort(cfg.NATS.Embedded.Host, fmt.Sprint(cfg.NATS.Embedded.Port)), rootBinding: witness.Binding(), initial: socket}
+	dialer := &rootControllerDialer{ctx: ctx, address: net.JoinHostPort(cfg.NATS.Embedded.Host, fmt.Sprint(cfg.NATS.Embedded.Port)), rootBinding: binding.process, initial: socket}
 	runtime, err := natscell.StartRootControllerClient(probe, cfg.NATS, dialer)
 	stop()
 	if err != nil {
 		_ = socket.Close()
 		return nil, err
 	}
-	current, err := rootBrokerPeerBinding(socket, witness, rootBrokerStartupSocket)
+	current, err := rootBrokerPeerBinding(socket, rootBrokerStartupSocket)
 	if err != nil || binding != current || probe.Err() != nil {
 		_ = runtime.Close()
 		return nil, rootoci.ErrUnauthorized

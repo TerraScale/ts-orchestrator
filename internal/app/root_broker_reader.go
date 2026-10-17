@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
@@ -197,12 +198,7 @@ func (reader *rootBrokerReader) invoke(parent context.Context, operation rootBro
 	if err != nil || peer.UID != 0 || peer.GID != 0 {
 		return rootBrokerResponse{}, rootoci.ErrUnauthorized
 	}
-	witness, err := rootoci.CaptureProcess(peer.PID)
-	if err != nil {
-		return rootBrokerResponse{}, rootoci.ErrUnauthorized
-	}
-	defer witness.Close()
-	if err := reader.verify(socket, witness); err != nil {
+	if err := reader.verify(socket); err != nil {
 		return rootBrokerResponse{}, err
 	}
 	deadline, _ := ctx.Deadline()
@@ -219,49 +215,59 @@ func (reader *rootBrokerReader) invoke(parent context.Context, operation rootBro
 		return rootBrokerResponse{}, rootoci.ErrUnavailable
 	}
 	response, err = decodeRootBrokerResponse(reply, operation)
-	if err := reader.verify(socket, witness); err != nil {
+	if err := reader.verify(socket); err != nil {
 		return rootBrokerResponse{}, err
 	}
 	return response, err
 }
 
-func (reader *rootBrokerReader) verify(socket *net.UnixConn, witness *rootoci.ProcessWitness) error {
-	binding, err := rootBrokerPeerBinding(socket, witness, rootBrokerObservationSocket)
+func (reader *rootBrokerReader) verify(socket *net.UnixConn) error {
+	identity, err := rootBrokerPeerBinding(socket, rootBrokerObservationSocket)
 	if err != nil {
 		return err
 	}
 	reader.mu.Lock()
 	defer reader.mu.Unlock()
 	if reader.binding == "" {
-		reader.binding = binding
+		reader.binding = identity.socket
 	}
-	if reader.binding != binding {
+	if reader.binding != identity.socket {
 		return rootoci.ErrUnauthorized
 	}
 	return nil
 }
 
-func rootBrokerPeerBinding(socket *net.UnixConn, witness *rootoci.ProcessWitness, path string) (string, error) {
+type rootBrokerPeerIdentity struct {
+	process string
+	socket  string
+}
+
+// Ordinary callers observe the kernel peer without opening or signaling root's executable.
+func rootBrokerPeerBinding(socket *net.UnixConn, path string) (rootBrokerPeerIdentity, error) {
 	if path != rootBrokerStartupSocket && path != rootBrokerObservationSocket && path != rootBrokerReconnectSocket && path != rootBrokerClientSocket {
-		return "", rootoci.ErrUnauthorized
+		return rootBrokerPeerIdentity{}, rootoci.ErrUnauthorized
 	}
 	peer, err := rootociwire.PeerCredential(socket)
-	if err != nil || peer.UID != 0 || peer.GID != 0 || witness.Peer().PID != peer.PID ||
-		witness.Peer().UID != peer.UID || witness.Peer().GID != peer.GID || witness.Verify() != nil {
-		return "", rootoci.ErrUnauthorized
+	if err != nil || peer.UID != 0 || peer.GID != 0 {
+		return rootBrokerPeerIdentity{}, rootoci.ErrUnauthorized
+	}
+	start, parent, cgroup, err := rootociwire.KernelIdentity(peer.PID)
+	if err != nil {
+		return rootBrokerPeerIdentity{}, rootoci.ErrUnauthorized
 	}
 	for _, path := range []string{"/", "/run", "/run/terrascale-orchestrator"} {
 		var stat unix.Stat_t
 		if unix.Lstat(path, &stat) != nil || stat.Uid != 0 || stat.Mode&unix.S_IFMT != unix.S_IFDIR || stat.Mode&0o022 != 0 {
-			return "", rootoci.ErrUnauthorized
+			return rootBrokerPeerIdentity{}, rootoci.ErrUnauthorized
 		}
 	}
 	var stat unix.Stat_t
 	if unix.Lstat(path, &stat) != nil || stat.Uid != 0 ||
 		stat.Mode&unix.S_IFMT != unix.S_IFSOCK || stat.Mode&0o7777 != 0o660 {
-		return "", rootoci.ErrUnauthorized
+		return rootBrokerPeerIdentity{}, rootoci.ErrUnauthorized
 	}
-	return fmt.Sprintf("%s:%d:%d", witness.Binding(), stat.Dev, stat.Ino), nil
+	process := fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%d:%d:%d:%d:%d:%s", peer.PID, peer.UID, peer.GID, start, parent, cgroup))))
+	return rootBrokerPeerIdentity{process: process, socket: fmt.Sprintf("%s:%d:%d", process, stat.Dev, stat.Ino)}, nil
 }
 
 func decodeRootBrokerResponse(wire []byte, operation rootBrokerOperation) (rootBrokerResponse, error) {
