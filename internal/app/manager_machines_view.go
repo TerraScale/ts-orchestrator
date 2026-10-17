@@ -152,7 +152,9 @@ func (view *managerMachinesView) Snapshot(ctx context.Context) ([]machinesapi.Ap
 			if task.NodeID != "" {
 				response, err := m.client.GetNode(ctx, &api.GetNodeRequest{NodeID: task.NodeID})
 				if status.Code(err) == codes.NotFound {
-					state = machines.StateLost
+					if task.Status.State < api.TaskStateCompleted {
+						state = machines.StateLost
+					}
 				} else {
 					if err != nil || response == nil || response.Node == nil || response.Node.ID != task.NodeID {
 						return nil, errors.New("machines task host is unavailable")
@@ -171,7 +173,7 @@ func (view *managerMachinesView) Snapshot(ctx context.Context) ([]machinesapi.Ap
 					if member != nil && node.Spec.Annotations.Name == member.State.HostNode {
 						machine.FailureDomain = strings.ToLower(member.State.FailureDomain)
 					}
-					if node.Status.State == api.NodeStatus_DOWN {
+					if node.Status.State == api.NodeStatus_DOWN && task.Status.State < api.TaskStateCompleted {
 						state = machines.StateLost
 					}
 				}
