@@ -3,6 +3,7 @@ package volume
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -161,6 +162,57 @@ func TestStoreRefusesTamperedRecords(t *testing.T) {
 	}
 	if _, err := store.Get(ctx, unknown.ID); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("record with an unknown field: Get() = %v, want ErrInvalid", err)
+	}
+
+	ocid := "ocid1.volume.oc1.sa-saopaulo-1.abcdef"
+	for name, mutate := range map[string]func(*Volume){
+		"schema":                func(v *Volume) { v.SchemaVersion = 2 },
+		"id":                    func(v *Volume) { v.ID = "vol_UPPER" },
+		"app":                   func(v *Volume) { v.App = "bad-" },
+		"name":                  func(v *Volume) { v.Name = "has-dash" },
+		"region":                func(v *Volume) { v.Region = "GRU" },
+		"zone":                  func(v *Volume) { v.Zone = "AD 1" },
+		"too small":             func(v *Volume) { v.SizeGB = 49 },
+		"too large":             func(v *Volume) { v.SizeGB = MaxSizeGB + 1 },
+		"vpus step":             func(v *Volume) { v.VPUsPerGB = 15 },
+		"vpus max":              func(v *Volume) { v.VPUsPerGB = 130 },
+		"retention":             func(v *Volume) { v.SnapshotRetentionDays = 0 },
+		"machine":               func(v *Volume) { v.MachineID = "invalid" },
+		"no created_at":         func(v *Volume) { v.CreatedAt = time.Time{} },
+		"destroying claimed":    func(v *Volume) { v.DestroyRequestedAt = created; v.MachineID = m1 },
+		"state":                 func(v *Volume) { v.Status.State = "extending" },
+		"created without ocid":  func(v *Volume) { v.Status.State = StateCreated },
+		"ocid kind":             func(v *Volume) { v.Status.OCID = "ocid1.instance.oc1.x.y" },
+		"attached without ocid": func(v *Volume) { v.Status.AttachedMachineID = m1 },
+		"long message":          func(v *Volume) { v.Status.Message = strings.Repeat("x", maxMessageBytes+1) },
+		"pending without request": func(v *Volume) {
+			v.Status = Status{State: StatePendingDestroy, OCID: ocid}
+		},
+		"destroyed but attached": func(v *Volume) {
+			v.DestroyRequestedAt = created
+			v.Status = Status{State: StateDestroyed, OCID: ocid, AttachedMachineID: m1}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			v := testVolume(NewID())
+			key := v.ID
+			mutate(&v)
+			put(key, v)
+			if _, err := store.Get(ctx, key); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("persisted malformed record: Get() = %v, want ErrInvalid", err)
+			}
+		})
+	}
+	valid := testVolume(NewID())
+	valid.VPUsPerGB = 0
+	put(valid.ID, valid)
+	if got, err := store.Get(ctx, valid.ID); err != nil || got.VPUsPerGB != 0 {
+		t.Fatalf("persisted lower-cost volume: Get() = %+v, %v", got, err)
+	}
+	valid.Status = Status{State: StateCreated, Epoch: 1, OCID: "ocid1.volume.oc1.sa-saopaulo-1.managed-a"}
+	put(valid.ID, valid)
+	if got, err := store.Get(ctx, valid.ID); err != nil || got.VPUsPerGB != 0 || got.Status != valid.Status {
+		t.Fatalf("persisted hyphenated OCID: Get() = %+v, %v", got, err)
 	}
 }
 
