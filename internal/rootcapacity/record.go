@@ -16,6 +16,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/budget"
+	"github.com/TerraScale/ts-orchestrator/internal/drainwire"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/globalcontrol"
 	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
@@ -30,28 +31,55 @@ var ErrPending = errors.New("protected capacity operation is pending")
 // attempt is constructed only after the home handler independently resolves
 // the original durable reservation, signed source and actual home connection.
 type attempt struct {
-	call        rootoci.Call
-	resolver    region.FoundationResolver
-	store       *region.ObjectFoundationStore
-	factory     *ociclient.Factory
-	home        *globalcontrol.Reader
-	leader      *authority.Reader
-	credentials *rootsecret.ControllerReader
-	original    authority.Snapshot
-	deadline    time.Time
-	receipt     budget.Reservation
-	worker      region.VerifiedWorkerRecipe
-	membership  region.VerifiedPoolMembership
-	recipe      nodescale.Recipe
-	record      region.FoundationRecord
-	etag        string
-	operation   string
-	poolID      string
-	leaseID     string
-	observation *rootoci.PoolChildObservation
+	call           rootoci.Call
+	resolver       region.FoundationResolver
+	store          *region.ObjectFoundationStore
+	writer         *region.CapacityJournalWriter
+	factory        *ociclient.Factory
+	home           *globalcontrol.Reader
+	leader         *authority.Reader
+	credentials    *rootsecret.ControllerReader
+	original       authority.Snapshot
+	deadline       time.Time
+	receipt        budget.Reservation
+	worker         region.VerifiedWorkerRecipe
+	membership     region.VerifiedPoolMembership
+	lifecycle      region.VerifiedPoolLifecycle
+	drain          *drainwire.PoolReceipt
+	birthOperation string
+	recipe         nodescale.Recipe
+	record         region.FoundationRecord
+	etag           string
+	operation      string
+	poolID         string
+	leaseID        string
+	observation    *rootoci.PoolChildObservation
 }
 
 func (a *attempt) guard(ctx context.Context) error {
+	if err := a.guardPrincipal(ctx); err != nil {
+		return err
+	}
+	if a.leaseID != "" {
+		// This independent lease read retains the principal guard without
+		// recursively asking its own SDK request to reload the same lease.
+		read := ociclient.RequestContext(ociclient.WithRequestGuard(ociclient.CheckpointContext(ctx), a.guardPrincipal))
+		latest, _, err := a.store.Load(read, a.record.Cell)
+		if err != nil {
+			return err
+		}
+		pool, exists := latest.CapacityPools[a.poolID]
+		if !exists || pool.ActiveOperationID != a.operation || pool.LeaseID != a.leaseID || pool.Epoch != a.original.Epoch || !time.Now().Before(pool.LeaseExpiresAt) {
+			return authority.ErrFenced
+		}
+	}
+	if !time.Now().Before(a.deadline) {
+		return rootoci.ErrUnauthorized
+	}
+	return ctx.Err()
+}
+
+func (a *attempt) guardPrincipal(ctx context.Context) error {
 	if err := a.call.Guard(ctx); err != nil {
 		return err
 	}
@@ -81,16 +109,6 @@ func (a *attempt) guard(ctx context.Context) error {
 	if err != nil || term != a.original.Epoch {
 		return errors.Join(err, authority.ErrFenced)
 	}
-	if a.leaseID != "" {
-		latest, _, err := a.store.Load(ociclient.CheckpointContext(ctx), a.record.Cell)
-		if err != nil {
-			return err
-		}
-		pool, exists := latest.CapacityPools[a.poolID]
-		if !exists || pool.ActiveOperationID != a.operation || pool.LeaseID != a.leaseID || pool.Epoch != a.original.Epoch || !time.Now().Before(pool.LeaseExpiresAt) {
-			return authority.ErrFenced
-		}
-	}
 	if !time.Now().Before(a.deadline) {
 		return rootoci.ErrUnauthorized
 	}
@@ -106,14 +124,14 @@ func (a *attempt) readContext(ctx context.Context) context.Context {
 }
 
 func (a *attempt) save(ctx context.Context) error {
-	if a.observation != nil || a.home == nil || a.leader == nil {
+	if a.observation != nil || a.home == nil || a.leader == nil || a.writer == nil {
 		return errors.New("root observation cannot mutate protected capacity history")
 	}
 	if err := a.guard(ociclient.CheckpointContext(ctx)); err != nil {
 		return err
 	}
 	a.record.UpdatedAt = time.Now().UTC()
-	etag, err := a.store.CompareAndSwap(a.readContext(ctx), a.record, a.etag)
+	etag, err := a.writer.CompareAndSwap(a.readContext(ctx), a.record, a.etag)
 	if err != nil {
 		return err
 	}
@@ -161,8 +179,15 @@ func (a *attempt) releasePool(ctx context.Context, complete bool) error {
 	return nil
 }
 
+func (a *attempt) childOperation() string {
+	if a.birthOperation != "" {
+		return a.birthOperation
+	}
+	return a.receipt.OperationID
+}
+
 func (a *attempt) wire(kind string) *region.PoolWireRecord {
-	child := a.record.PoolChildren[a.receipt.OperationID]
+	child := a.record.PoolChildren[a.childOperation()]
 	switch kind {
 	case "launch":
 		return child.Launch
@@ -210,7 +235,7 @@ func (a *attempt) setWire(kind string, wire *region.PoolWireRecord) {
 }
 
 func (a *attempt) unknownStage(kind string) {
-	child := a.record.PoolChildren[a.receipt.OperationID]
+	child := a.record.PoolChildren[a.childOperation()]
 	switch kind {
 	case "launch":
 		child.Stage = region.PoolChildLaunchUnknown
@@ -221,7 +246,7 @@ func (a *attempt) unknownStage(kind string) {
 	default:
 		return
 	}
-	a.record.PoolChildren[a.receipt.OperationID] = child
+	a.record.PoolChildren[a.childOperation()] = child
 }
 
 func (a *attempt) writeContext(ctx context.Context, kind string) context.Context {
@@ -263,8 +288,14 @@ func (a *attempt) writeContext(ctx context.Context, kind string) context.Context
 		if wire == nil || wire.TokenInvalidated || wire.FirstAttemptAt.IsZero() || wire.RetryToken != "" && !time.Now().Before(wire.FirstAttemptAt.Add(23*time.Hour)) {
 			return nil, fmt.Errorf("%w: original provider retry token is expired or invalidated", ErrPending)
 		}
-		if kind != "quarantine" {
-			if err := a.worker.Revalidate(ociclient.CheckpointContext(ctx)); err != nil {
+		switch kind {
+		case "detach", "terminate", "delete-boot":
+			if err := a.lifecycle.Revalidate(a.proofContext(ctx)); err != nil {
+				return nil, err
+			}
+		case "quarantine":
+		default:
+			if err := a.worker.Revalidate(a.proofContext(ctx)); err != nil {
 				return nil, err
 			}
 		}
@@ -284,6 +315,12 @@ func (a *attempt) writeContext(ctx context.Context, kind string) context.Context
 		if err := a.guard(ctx); err != nil {
 			return err
 		}
+		if a.writer == nil {
+			return errors.New("capacity provider mutation lacks its original dedicated journal writer")
+		}
+		if err := a.writer.Guard(a.proofContext(ctx)); err != nil {
+			return err
+		}
 		switch kind {
 		case "launch":
 			return a.authorizeLaunch(ctx)
@@ -291,6 +328,8 @@ func (a *attempt) writeContext(ctx context.Context, kind string) context.Context
 			return a.authorizeAttach(ctx)
 		case "quarantine":
 			return a.authorizeQuarantine(ctx)
+		case "detach", "terminate", "delete-boot":
+			return a.authorizeRetirement(ctx, kind)
 		default:
 			return nil
 		}

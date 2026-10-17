@@ -94,11 +94,21 @@ func (c *Controller) open(ctx context.Context, call rootoci.Call, cell, operatio
 	if err := a.guard(ctx); err != nil {
 		return fail(err)
 	}
+	writerCtx, cancelWriter := context.WithDeadline(a.proofContext(ctx), a.deadline)
+	originalClose := close
+	close = func() { cancelWriter(); originalClose() }
+	a.writer, err = c.resolver.CapacityJournalWriter(writerCtx, c.homeAuthority)
+	if err != nil {
+		return fail(err)
+	}
+	if expiry := a.writer.ExpiresAt(); expiry.Before(a.deadline) {
+		a.deadline = expiry
+	}
 	authorized, err := c.resolver.Resolve(a.readContext(ctx), cell)
 	if err != nil {
 		return fail(err)
 	}
-	a.record, a.etag, err = c.store.Load(a.readContext(ctx), cell)
+	a.record, a.etag, err = a.writer.Load(a.readContext(ctx), cell)
 	if err != nil {
 		return fail(err)
 	}
