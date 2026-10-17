@@ -136,10 +136,10 @@ func (a *issuerAttempt) ensureCredential(ctx context.Context, user identity.User
 		a.state.TokenStarted = time.Now().UTC()
 		a.state.TokenExpires = a.state.TokenStarted.Add(90 * time.Second)
 		if deadline, ok := ctx.Deadline(); ok && deadline.Before(a.state.TokenExpires) {
-			a.state.TokenExpires = deadline
+			a.state.TokenExpires = deadline.UTC()
 		}
 		if expiry := a.issuer.scope.ExpiresAt(); expiry.Before(a.state.TokenExpires) {
-			a.state.TokenExpires = expiry
+			a.state.TokenExpires = expiry.UTC()
 		}
 		a.state.Stage = "token-pending"
 		if err := a.save(ctx, true); err != nil {

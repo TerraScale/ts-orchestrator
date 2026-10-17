@@ -62,7 +62,7 @@ func (b *Backend) ReconcileOCIR(ctx context.Context, sourceGuard func(context.Co
 		if scope.Intent().OCIRegion != b.factory.Region() {
 			continue
 		}
-		expires := minTime(deadline, scope.ExpiresAt())
+		expires := minTime(deadline, scope.ExpiresAt()).UTC()
 		attempt, cancel := context.WithDeadline(ctx, expires)
 		record, err := resolver.Resolve(attempt, b.cell)
 		if err != nil {

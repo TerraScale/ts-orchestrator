@@ -58,7 +58,7 @@ func (s *ocirJournal) BeginEffect(request *http.Request) (func(*http.Response, e
 			return nil, ErrScope
 		}
 		attempt.FirstAttemptAt = time.Now().UTC()
-		attempt.Deadline = minTime(deadline, s.deadline)
+		attempt.Deadline = minTime(deadline, s.deadline).UTC()
 		attempt.GrantSHA256 = s.scope.GrantDigest()
 		attempt.Epoch = s.original.Epoch
 		attempt.LeaseID = entry.State.LeaseID
