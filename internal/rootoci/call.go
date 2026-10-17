@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/nativerootoci"
@@ -104,6 +105,63 @@ func (call Call) SessionBindingSHA256() string {
 		return ""
 	}
 	return call.state.sessionBinding
+}
+
+// AuthorityBindingSHA256 describes only the actual admitted IPC caller's
+// retained process, accepted source and native session. RootCall's random
+// per-call nonce cannot establish that identity for a saved provider wire.
+// Digest equality never replaces this Call's live Guard or renews an old cap.
+func (call Call) AuthorityBindingSHA256(ctx context.Context) (string, time.Time, error) {
+	if call.state == nil || call.state.root || call.state.witness == nil || call.state.sessionBinding == "" {
+		return "", time.Time{}, ErrUnauthorized
+	}
+	if err := call.Guard(ctx); err != nil {
+		return "", time.Time{}, err
+	}
+	before, err := authorityBootID()
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	// The private lease cap is the original source/session lifetime. The
+	// separate per-request deadline (normally 30 seconds) is still guarded.
+	expires := call.state.lease.Deadline
+	digest := sha256.Sum256([]byte("rootoci-admitted-caller-v1\x00" + before + "\x00" + call.state.sessionBinding))
+	after, err := authorityBootID()
+	if err != nil || after != before || expires.IsZero() || !time.Now().Before(expires) {
+		return "", time.Time{}, errors.Join(err, ErrUnauthorized)
+	}
+	if err := call.Guard(ctx); err != nil {
+		return "", time.Time{}, err
+	}
+	return hex.EncodeToString(digest[:]), expires, nil
+}
+
+func authorityBootID() (string, error) {
+	wire, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		return "", errors.Join(err, ErrUnauthorized)
+	}
+	value := strings.TrimSuffix(string(wire), "\n")
+	if !validAuthorityBootID(value) {
+		return "", ErrUnauthorized
+	}
+	return value, nil
+}
+
+func validAuthorityBootID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for i, char := range value {
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			if char != '-' {
+				return false
+			}
+		} else if !(char >= '0' && char <= '9' || char >= 'a' && char <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // RuntimeID is the candidate identity privately bound by the root supervisor.
