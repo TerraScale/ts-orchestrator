@@ -660,8 +660,8 @@ func TestLoadRejectsWorldReadableOrLinkedMaterial(t *testing.T) {
 	}
 }
 
-// legacyMaterial rewrites generated material as a source generated before
-// the member CA existed: 32 files, no CA pair.
+// legacyMaterial removes only the optional member CA pair from generated
+// material, retaining every currently mandatory file.
 func legacyMaterial(t *testing.T, directory string, record Record) Record {
 	t.Helper()
 	record.Files = slices.DeleteFunc(slices.Clone(record.Files), func(file File) bool {
@@ -694,7 +694,7 @@ func TestLegacyMaterialWithoutMemberCAStillLoads(t *testing.T) {
 		t.Fatal(err)
 	}
 	legacy := legacyMaterial(t, directory, generated)
-	if len(legacy.Files) != 32 || legacy.HasMemberCA() || !generated.HasMemberCA() {
+	if len(legacy.Files) != 35 || legacy.HasMemberCA() || !generated.HasMemberCA() {
 		t.Fatalf("legacy fixture has %d files", len(legacy.Files))
 	}
 	loaded, err := Load(directory)
