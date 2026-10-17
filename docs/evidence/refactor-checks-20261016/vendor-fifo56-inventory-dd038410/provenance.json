@@ -1,0 +1,240 @@
+{
+  "schema": 1,
+  "purpose": "Reviewed inventory/failure diagnosis publication packet only",
+  "revision": "dd03841025c65c0a6c3350b3e8ad7c4d27eea77d",
+  "tree": "bac4b5eae4c69633777f8f89291cc032ea69b68c",
+  "reviewed_reconciliation_source": {
+    "path": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/artifact-manifest.json",
+    "sha256": "2f5036ea19fa247c2358f0ecaab8e854d3cf82bd009fc7462318e573fb21bb61",
+    "bytes": 2364
+  },
+  "copy_map": [
+    {
+      "source": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/README.md",
+      "member": "inventory-reconciliation/README.md",
+      "sha256": "0d1232545a4df376d5a486011ec54ef6fe3aba773b348d637dec1987df9f1e18",
+      "bytes": 638
+    },
+    {
+      "source": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/after-cases.tsv",
+      "member": "inventory-reconciliation/after-cases.tsv",
+      "sha256": "d3433286cbe27b087bce9822edb869208f5d064eb37fba6dda25ee6c9024a918",
+      "bytes": 570785
+    },
+    {
+      "source": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/after-progress.json",
+      "member": "inventory-reconciliation/after-progress.json",
+      "sha256": "96695331b5efec6d151027fd8bf23b69ecf45f48c8ddabb6695e98eb8e9dec1f",
+      "bytes": 14996
+    },
+    {
+      "source": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/after-union-dd038410-selection-disposition.json",
+      "member": "inventory-reconciliation/after-union-dd038410-selection-disposition.json",
+      "sha256": "838bb122bd395a4e4586d581ecdae5d317ab67d0f6c635f3d2dbe9a3e7d11688",
+      "bytes": 6935
+    },
+    {
+      "source": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/archive-source-outcome-verification.json",
+      "member": "inventory-reconciliation/archive-source-outcome-verification.json",
+      "sha256": "c931a6548783cc3a199386a44508f18f9fdf4d55a88fe2541f03b355c371ec96",
+      "bytes": 48501
+    },
+    {
+      "source": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/before-cases.tsv",
+      "member": "inventory-reconciliation/before-cases.tsv",
+      "sha256": "d3f73740f9a68b2db3a5e1fb2fbaf428bb37a7f079a61514cb4442b53be8846e",
+      "bytes": 570533
+    },
+    {
+      "source": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/before-progress.json",
+      "member": "inventory-reconciliation/before-progress.json",
+      "sha256": "93e40e33d1362b8e5af5806ce8f396dc62680bfdfd7d569497f9882caf50249a",
+      "bytes": 13682
+    },
+    {
+      "source": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/before-union-dd038410-selection-disposition.json",
+      "member": "inventory-reconciliation/before-union-dd038410-selection-disposition.json",
+      "sha256": "d514c2fc00f36002f8fff91aa336d24cc9a7d1996d40bb976349dae344a22ad2",
+      "bytes": 4357
+    },
+    {
+      "source": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/checkpoint.json",
+      "member": "inventory-reconciliation/checkpoint.json",
+      "sha256": "d69626ce03a36f56e39db6ebf007d7c4fca9c06de16a431917d3a6b6c8ef1fea",
+      "bytes": 4371
+    },
+    {
+      "source": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/immutable-evidence-before.json",
+      "member": "inventory-reconciliation/immutable-evidence-before.json",
+      "sha256": "fc22e30dc0578340994cf7fc2c730c5b99deafcfc18f04bcf0b8d90a2bbd7369",
+      "bytes": 42635
+    },
+    {
+      "source": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/reconciliation.json",
+      "member": "inventory-reconciliation/reconciliation.json",
+      "sha256": "b9d7309ad3b8d871533b0b068098d5fa06597bab670efe16a2e1d61d25da3a4a",
+      "bytes": 13306
+    },
+    {
+      "source": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/artifact-manifest.json",
+      "member": "inventory-reconciliation/artifact-manifest.json",
+      "sha256": "2f5036ea19fa247c2358f0ecaab8e854d3cf82bd009fc7462318e573fb21bb61",
+      "bytes": 2364
+    },
+    {
+      "source": "/tmp/ts-nats-vendor-migration-20261016/qualifications/union-dd038410-fifo05-06-inventory-aa3bffa7-fifo05-receipt.json",
+      "member": "inventory-receipts/union-dd038410-fifo05-06-inventory-aa3bffa7-fifo05-receipt.json",
+      "sha256": "fd6ee1af5d78daaa98877b9947429e0f03399b2f6d3be3e7da8b7fb65846f858",
+      "bytes": 17055
+    },
+    {
+      "source": "/tmp/ts-nats-vendor-migration-20261016/qualifications/union-dd038410-fifo05-06-inventory-aa3bffa7-fifo06-receipt.json",
+      "member": "inventory-receipts/union-dd038410-fifo05-06-inventory-aa3bffa7-fifo06-receipt.json",
+      "sha256": "7c1a547ddf0baf9489828fead9b95c613be20a0474da73fb3094761c5feafee1",
+      "bytes": 5146
+    },
+    {
+      "source": "/tmp/ts-vendor-union-dd038410-fifo06-source-diagnosis.md",
+      "member": "fifo06-source-diagnosis/ts-vendor-union-dd038410-fifo06-source-diagnosis.md",
+      "sha256": "fd0e4e1ac1e937b8a808a3855461b4498164f58060deb5d1ea907b8f1c2fe6dd",
+      "bytes": 6129
+    },
+    {
+      "source": "/tmp/ts-vendor-union-dd038410-fifo06-source-diagnosis.json",
+      "member": "fifo06-source-diagnosis/ts-vendor-union-dd038410-fifo06-source-diagnosis.json",
+      "sha256": "f21e2fb43e2079dc6aa05a0520df9173a7249589d9d6e03ddf2c55267f149f5c",
+      "bytes": 13380
+    }
+  ],
+  "original_external_references": [
+    {
+      "FIFO_position": 5,
+      "kind": "input",
+      "path": "/tmp/ts-vendor-scoped-evidence-dd038410-fifo05-jetstream-removal-lifecycle/fifo05-inventory-reconciliation-input.json",
+      "sha256": "8c4fdee3c88acfcd5fe6094249f5a83c0dd27882e861537141be3aff83cd6cae",
+      "bytes": 5507
+    },
+    {
+      "FIFO_position": 5,
+      "kind": "broker_receipt",
+      "path": "/tmp/ts-vendor-union-dd038410-fifo05-jetstream-removal-lifecycle-receipt.json",
+      "sha256": "fdbab3d862120d74133212e3c58996c5095a373ee99e51eecc7411840b8c7190",
+      "bytes": 82040
+    },
+    {
+      "FIFO_position": 5,
+      "kind": "canonical_summary",
+      "path": "/tmp/ts-nats-vendor-migration-20261016/qualifications/union-dd038410-fifo05-jetstream-removal-lifecycle.json",
+      "sha256": "2e6d36c2b196afb7d5627c55ad477b5c0f9edaa2620489bd464337cb8a9cb34d"
+    },
+    {
+      "FIFO_position": 5,
+      "kind": "raw_log",
+      "path": "/tmp/ts-vendor-union-dd038410-fifo05-jetstream-removal-lifecycle.jsonl",
+      "sha256": "fc57a4c49c8ecfffec45fa36f0a4cc5d88b08ef6fe91831d01e9ce8b1858f6fc"
+    },
+    {
+      "FIFO_position": 5,
+      "kind": "archive",
+      "path": "/tmp/ts-vendor-scoped-evidence-dd038410-fifo05-jetstream-removal-lifecycle.tar.gz",
+      "sha256": "1c81914c481878962dc1e93dc92f6415fb86ab93aa7425a755d978ece7a096d4",
+      "bytes": 88269
+    },
+    {
+      "FIFO_position": 5,
+      "kind": "packet_manifest",
+      "path": "/tmp/ts-vendor-scoped-evidence-dd038410-fifo05-jetstream-removal-lifecycle/evidence-manifest.json",
+      "sha256": "9ebbb0fc9859bdb7956a61ccf63814bb893706b6e60acbabd21d576601709301",
+      "bytes": 13940
+    },
+    {
+      "FIFO_position": 6,
+      "kind": "input",
+      "path": "/tmp/ts-vendor-scoped-evidence-dd038410-fifo06-service-removal-refresh/fifo06-inventory-reconciliation-input.json",
+      "sha256": "e56f4749c9fb5f6042e449edfe12c059db55c8359e0b126dbe8734ba6d491c47",
+      "bytes": 1391
+    },
+    {
+      "FIFO_position": 6,
+      "kind": "broker_receipt",
+      "path": "/tmp/ts-vendor-union-dd038410-fifo06-service-removal-refresh-receipt.json",
+      "sha256": "9a2113bd3784a0d9f1a62d6bcaf08aaf6be7569d000583987c7ff52193975888",
+      "bytes": 54907
+    },
+    {
+      "FIFO_position": 6,
+      "kind": "canonical_summary",
+      "path": "/tmp/ts-nats-vendor-migration-20261016/qualifications/union-dd038410-fifo06-service-removal-refresh.json",
+      "sha256": "ab43f9353a52c96374db5b3049b71aa61df30752a170959f701aab1f11998e97"
+    },
+    {
+      "FIFO_position": 6,
+      "kind": "raw_log",
+      "path": "/tmp/ts-vendor-union-dd038410-fifo06-service-removal-refresh.jsonl",
+      "sha256": "ece25ff44047bcfa37b4c7f4e7d9826608f889ffa2268908fa4523c62e4bf3f1"
+    },
+    {
+      "FIFO_position": 6,
+      "kind": "archive",
+      "path": "/tmp/ts-vendor-scoped-evidence-dd038410-fifo06-service-removal-refresh.tar.gz",
+      "sha256": "dc7f23c59b5f20a9584f902575933f1c1564adb013f061d10ecde1e8a9eec5ab",
+      "bytes": 74244
+    },
+    {
+      "FIFO_position": 6,
+      "kind": "packet_manifest",
+      "path": "/tmp/ts-vendor-scoped-evidence-dd038410-fifo06-service-removal-refresh/evidence-manifest.json",
+      "sha256": "eb3e3590bdea5326995eb6f9312d55db3886d8944a309e1184b3f5cd56f836c6",
+      "bytes": 4760
+    },
+    {
+      "kind": "FIFO4_predecessor_checkpoint",
+      "path": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo04-inventory-05aaea82/checkpoint.json",
+      "sha256": "ce67fac12ea0aac1a8b4753244779c2db295b167131de564afb33381f3ecd57b",
+      "bytes": 2778
+    },
+    {
+      "kind": "FIFO4_predecessor_reconciliation",
+      "path": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo04-inventory-05aaea82/reconciliation.json",
+      "sha256": "416a4d22b7d769e8fd07b626585e7ef44cacf95f0d81e757d978632a14bb36a3",
+      "bytes": 12366
+    },
+    {
+      "kind": "FIFO4_predecessor_manifest",
+      "path": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo04-inventory-05aaea82/artifact-manifest.json",
+      "sha256": "152d1ee8746826261e2728ec195a9b7b736d54882508733fe824491132304cac",
+      "bytes": 2267
+    }
+  ],
+  "outcomes": {
+    "FIFO5": "PASS_STANDARD_PUBLIC_API_ONLY:50 leaves plus separate parent",
+    "FIFO6": "FAILED_RETAINED:one root;NO PASS CREDIT;cause unproved"
+  },
+  "remaining": {
+    "batches": 5,
+    "roots": 6,
+    "cases": 30,
+    "accounts_roots": 1,
+    "accounts_cases": 1,
+    "client_roots": 5,
+    "client_cases": 29
+  },
+  "queue_stopped_before": 7,
+  "originals": 1449,
+  "approved_removals": 13,
+  "retained": 1436,
+  "central_closures": 0,
+  "source_diagnosis_scope": "Bounded separate SOURCE-ONLY diagnosis; runtime cause not proved; no fixture correction/production fix established. No diagnostic successor implementation or qualification included.",
+  "fresh_preservation": {
+    "original139_exact": true,
+    "current263_exact": true,
+    "frozen155_exact": true,
+    "all_original_inputs_exact": true,
+    "source_before_after_receipts_equal": true,
+    "original_FIFO4_provenance_exact": true
+  },
+  "NSG": "No adoption or runner; frozen source untouched",
+  "new_execution": "NONE",
+  "creation": "All new files exclusive; originals untouched",
+  "created_utc": "2026-10-17T00:28:23.330929+00:00"
+}

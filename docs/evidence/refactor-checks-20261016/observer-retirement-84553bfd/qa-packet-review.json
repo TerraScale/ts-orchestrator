@@ -1,0 +1,17 @@
+{
+  "state": "QA independently accepts retirement evidence packet",
+  "candidate": "84553bfd694c6c42987274cd1ae6e236bf03fab6",
+  "sole_parent": "69546992515385c8fec88803db4b43decf29fae4",
+  "tree": "983cb348061082733da5aaf894aa090d3c3f2ff3",
+  "archive_sha256": "d02470e83a7c6fb9d54be461f0bf5df6c631826f8eb68846216e40c1f57b5eea",
+  "PACKAGE_sha256": "85d5f6ce210f40baac0fdab181f09ffa79a914f7111e1c7f9b05cf0d53429dc4",
+  "members_verified": 33,
+  "absolute_original_payload_origins_verified": 24,
+  "all_payload_hashes_and_sizes_verified": true,
+  "member_metadata_verified": true,
+  "tar_gzip_deterministic_roundtrip": true,
+  "wrapper_provenance": "Reproduced verbatim stdin source per provider; no execution-time standalone wrapper existed. Exact expanded commands independently verified in original receipts.",
+  "binary_execution": false,
+  "runtime_repeat": false,
+  "limits": "Compilation only; upstream ba75 bounded SDK/socket runtime mapping retained; no global/native/live/full Gate acceptance"
+}

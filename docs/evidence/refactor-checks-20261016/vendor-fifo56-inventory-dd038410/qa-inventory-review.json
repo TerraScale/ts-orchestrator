@@ -1,0 +1,92 @@
+{
+  "state": "QA metadata review accepted; no runner",
+  "source": "dd03841025c65c0a6c3350b3e8ad7c4d27eea77d",
+  "tree": "bac4b5eae4c69633777f8f89291cc032ea69b68c",
+  "checkpoint_sha256": "d69626ce03a36f56e39db6ebf007d7c4fca9c06de16a431917d3a6b6c8ef1fea",
+  "verified_artifacts": [
+    "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/README.md",
+    "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/after-cases.tsv",
+    "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/after-progress.json",
+    "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/after-union-dd038410-selection-disposition.json",
+    "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/archive-source-outcome-verification.json",
+    "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/before-cases.tsv",
+    "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/before-progress.json",
+    "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/before-union-dd038410-selection-disposition.json",
+    "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/checkpoint.json",
+    "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/immutable-evidence-before.json",
+    "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/reconciliation.json",
+    "/tmp/ts-nats-vendor-migration-20261016/qualifications/union-dd038410-fifo05-06-inventory-aa3bffa7-fifo05-receipt.json",
+    "/tmp/ts-nats-vendor-migration-20261016/qualifications/union-dd038410-fifo05-06-inventory-aa3bffa7-fifo06-receipt.json"
+  ],
+  "independent_original_row_count": 1449,
+  "independent_changed_rows": [
+    [
+      {
+        "path": "third_party/nats-server/server/accounts_test.go",
+        "declaration": "TestAccountRemoveCbJSWriteRace",
+        "source_classification": "unit",
+        "status": "candidate_partial",
+        "owner": "vendor_review_5",
+        "worktree": "/tmp/ts-vendor-migrate-accounts",
+        "replacement": "TestAccountJetStreamRemovalLifecycleOverTCP",
+        "source_commit": "b1226ad79fa873bef9beff8a172867ff24b453f0",
+        "qualification": "Source candidate only; runtime/equivalence/removal/central integration pending. Gap: Reading a.js must occur through actual concurrent JS API/monitor requests; static JetStream enablement does not suffice. Signed delete request and allow_delete fixture must preserve operator authority, including invalid signer refusal.",
+        "final_commit": "",
+        "disposition_evidence": "/tmp/ts-nats-vendor-migration-20261016/accounts-plan/contracts.tsv"
+      },
+      {
+        "path": "third_party/nats-server/server/accounts_test.go",
+        "declaration": "TestAccountRemoveCbJSWriteRace",
+        "source_classification": "unit",
+        "status": "standard_pass_race_pending",
+        "owner": "vendor_review_5",
+        "worktree": "/tmp/ts-vendor-migrate-accounts",
+        "replacement": "TestAccountJetStreamRemovalLifecycleOverTCP",
+        "source_commit": "b1226ad79fa873bef9beff8a172867ff24b453f0",
+        "qualification": "/tmp/ts-nats-vendor-migration-20261016/qualifications/union-dd038410-fifo05-06-inventory-aa3bffa7-fifo05-receipt.json; dd038410 FIFO5 standard public API PASS all50 leaves/root .53s/package .549s. Original50-account private a.js locked-reader/write scheduling stress, race/equivalence/removal/central closure remain OPEN. Parent container is not an extra case.",
+        "final_commit": "",
+        "disposition_evidence": "/tmp/ts-nats-vendor-migration-20261016/qualifications/union-dd038410-fifo05-06-inventory-aa3bffa7-fifo05-receipt.json"
+      }
+    ],
+    [
+      {
+        "path": "third_party/nats-server/server/accounts_test.go",
+        "declaration": "TestRemoveAllServiceImportSubsNoRaceUnderConcurrentReaders",
+        "source_classification": "unit",
+        "status": "candidate_partial",
+        "owner": "vendor_review_5",
+        "worktree": "/tmp/ts-vendor-migrate-accounts",
+        "replacement": "TestAccountServiceRemovalConcurrentRefreshOverTCP",
+        "source_commit": "b1226ad79fa873bef9beff8a172867ff24b453f0",
+        "qualification": "Source candidate only; runtime/equivalence/removal/central integration pending. Gap: Need deletion and refresh on separate sockets/full callbacks to hit concurrent production reader+writer; whole-account serialized MEM queue is insufficient. Preserve2000internal stress oracle until external scheduling equivalence reviewed.",
+        "final_commit": "",
+        "disposition_evidence": "/tmp/ts-nats-vendor-migration-20261016/accounts-plan/contracts.tsv"
+      },
+      {
+        "path": "third_party/nats-server/server/accounts_test.go",
+        "declaration": "TestRemoveAllServiceImportSubsNoRaceUnderConcurrentReaders",
+        "source_classification": "unit",
+        "status": "candidate_failed",
+        "owner": "vendor_review_5",
+        "worktree": "/tmp/ts-vendor-migrate-accounts",
+        "replacement": "TestAccountServiceRemovalConcurrentRefreshOverTCP",
+        "source_commit": "b1226ad79fa873bef9beff8a172867ff24b453f0",
+        "qualification": "/tmp/ts-nats-vendor-migration-20261016/qualifications/union-dd038410-fifo05-06-inventory-aa3bffa7-fifo06-receipt.json; dd038410 FIFO6 FAILED root2.58s/package2.597s at accounts_test.go:1508: svc.0 != svc.1. Attempted failure gives NO passing coverage; cause not adjudicated. Original2000 private writes versus51delete requests, SID invariants, locked reader/race/equivalence/removal/central closure OPEN. No retry/FIFO7 grant.",
+        "final_commit": "",
+        "disposition_evidence": "/tmp/ts-nats-vendor-migration-20261016/qualifications/union-dd038410-fifo05-06-inventory-aa3bffa7-fifo06-receipt.json"
+      }
+    ]
+  ],
+  "central_closures": 0,
+  "queue_stopped_before": 7,
+  "remaining": {
+    "batches": 5,
+    "roots": 6,
+    "cases": 30,
+    "accounts_roots": 1,
+    "accounts_cases": 1,
+    "client_roots": 5,
+    "client_cases": 29
+  },
+  "prior_receipts_preserved": true
+}

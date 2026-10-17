@@ -1,0 +1,15 @@
+{
+  "state": "QA independently accepts FIFO5/6 metadata+source diagnosis packet",
+  "source": "dd03841025c65c0a6c3350b3e8ad7c4d27eea77d",
+  "tree": "bac4b5eae4c69633777f8f89291cc032ea69b68c",
+  "archive_sha256": "b6c773099300475f83a5a3f6987be6090889638d853a06acb59e4a4c9d0ce2c3",
+  "members_verified": 20,
+  "source_originals_compared": 16,
+  "all_member_bytes_hashes_sizes_metadata_and_GNUtar_gzip_roundtrips": true,
+  "central_closures": 0,
+  "runtime_cause_proved": false,
+  "fixture_correction_established": false,
+  "queue_stopped_before": 7,
+  "diagnostic_successor_qualified": false,
+  "inventory_QA_review": "/tmp/ts-qa-vendor-fifo05-06-reconciliation-review-20261017T002728Z-d37b54ef.json"
+}

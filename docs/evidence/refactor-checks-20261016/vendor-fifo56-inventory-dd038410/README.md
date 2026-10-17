@@ -1,0 +1,9 @@
+# Vendor FIFO5/6 inventory and failure diagnosis
+
+Frozen vendor source `dd03841025c65c0a6c3350b3e8ad7c4d27eea77d` remains separate from the APP source. FIFO5 passed all 50 leaves; FIFO6 failed its sole root at accounts_test.go:1508, receiving `svc.0` while expecting `svc.1`. The original failed receipt and exact assertions remain unchanged. Failure earns no passing coverage. The queue remains stopped before FIFO7, with five never-run batches, six roots and 30 cases.
+
+This metadata-only reconciliation changes exactly two of 1,449 original inventory rows: the JetStream lifecycle mapping becomes standard-pass/race-pending and the service-removal mapping becomes failed. There are 13 previously approved removals, 1,436 retained originals and zero central closures. The 24/27 full account groups plus 22/49 matrix subset are scoped public-boundary results; original private stress, race, equivalence and removal gaps remain open.
+
+The bounded source diagnosis identifies subscription/client lifetime windows that could explain duplicate forwarding. The retained failure omits payload/reply/SID and callback ordering needed to prove its runtime cause. No fixture correction is established. A later diagnostic successor is excluded from this packet and has no qualification here.
+
+The 20-member archive retains all reconciliation artifacts, before/after ledgers, unique inventory receipts and source diagnosis with original canonical receipt/raw/archive and FIFO4 provenance references. QA independently checked every member, all 16 original payload copies, checksums, normalized metadata and deterministic GNU tar/gzip roundtrips. The separate QA inventory review verifies exact row counts and the two changed rows. All prior evidence and all 155 frozen source bindings remain preserved; no tests were repeated for this reconciliation.
