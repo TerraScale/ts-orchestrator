@@ -25,12 +25,17 @@ func verifyOCIRAuthorityPolicy(ctx context.Context, iam identity.IdentityClient,
 // VerifyOCIRAuthority checks the separate installed repository capability.
 // Its signed authority expiry survives the shorter original install session.
 func (authority *HomeIAMAuthority) VerifyOCIRAuthority(ctx context.Context, scope VerifiedOCIRIssuer) error {
-	if authority == nil || authority.operator != nil || !scope.IsVerified() {
+	if ctx == nil || authority == nil || authority.operator != nil || !scope.IsVerified() {
 		return ErrFoundationFenced
 	}
-	if err := authority.VerifyFoundationWriter(ctx); err != nil {
+	ctx, cancelScope := context.WithDeadline(ctx, scope.ExpiresAt())
+	defer cancelScope()
+	writerDeadline, err := authority.FoundationWriterDeadline(ctx)
+	if err != nil {
 		return err
 	}
+	ctx, cancelWriter := context.WithDeadline(ctx, writerDeadline)
+	defer cancelWriter()
 	entry, ok := catalog.CellForOCIRegion(authority.factory.Region())
 	if !ok || scope.Intent().OCIRegion != entry.OCIRegion || scope.TenancyID() != authority.tenancyID || scope.InstallationID() != authority.installationID || scope.GrantDigest() != authority.grantDigest || scope.Generation() != authority.grantGeneration {
 		return ErrFoundationFenced
@@ -44,6 +49,8 @@ func (authority *HomeIAMAuthority) VerifyOCIRAuthority(ctx context.Context, scop
 		return ErrFoundationFenced
 	}
 	installed := writer.OCIRAuthority
+	ctx, cancelInstalled := context.WithDeadline(ctx, installed.AuthorityExpiresAt)
+	defer cancelInstalled()
 	current, expires, err := ocirAuthorityScope(ctx, authority.resolver, *writer)
 	if err != nil {
 		return err

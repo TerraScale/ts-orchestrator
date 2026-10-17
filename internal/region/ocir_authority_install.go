@@ -48,13 +48,27 @@ func sameOCIRAuthorityOrigin(a, b OCIRAuthorityRecord) bool {
 	return reflect.DeepEqual(a, b)
 }
 
+func (reservation OCIRAuthorityRecord) installed() bool {
+	if len(reservation.Policies) == 0 {
+		return false
+	}
+	for _, policy := range reservation.Policies {
+		if policy.PolicyID == "" || policy.VerifiedAt.IsZero() {
+			return false
+		}
+	}
+	return true
+}
+
 // installOCIRAuthority is reachable only from authenticated OPERATOR provisioning.
 // Existing POLICY_CREATE privilege is unchanged; this source boundary does not
 // establish native IAM prevention of runtime self-grants.
 func installOCIRAuthority(ctx context.Context, authority *HomeIAMAuthority, resolver FoundationResolver, bundle RetainedFoundation, cell string, receipt OriginalFoundationWriter) error {
-	if authority == nil || authority.operator == nil || receipt.cell != cell {
+	if ctx == nil || authority == nil || authority.operator == nil || receipt.cell != cell {
 		return ErrFoundationFenced
 	}
+	ctx, cancelOperator := context.WithDeadline(ctx, authority.operator.deadline)
+	defer cancelOperator()
 	ctx, release, err := authority.HomeWrite(ctx, 0)
 	if err != nil {
 		return err
@@ -68,10 +82,14 @@ func installOCIRAuthority(ctx context.Context, authority *HomeIAMAuthority, reso
 	if err != nil {
 		return err
 	}
+	ctx, cancelMaterial := context.WithDeadline(ctx, material.ExpiresAt())
+	defer cancelMaterial()
 	image, imageExpected, err := foundationWriterImage(ctx, resolver, material, cell)
 	if err != nil {
 		return err
 	}
+	ctx, cancelImage := context.WithDeadline(ctx, image.ExpiresAt())
+	defer cancelImage()
 	record, etag, err := resolver.Store.Load(ctx, cell)
 	if err != nil {
 		return err
@@ -80,10 +98,21 @@ func installOCIRAuthority(ctx context.Context, authority *HomeIAMAuthority, reso
 	if writer == nil || writer.validate() != nil || receipt.instance == "" || writer.InstanceID != receipt.instance || writer.RequestDigest != receipt.request || writer.GrantSHA256 != receipt.grant || receipt.grant != digestSource(bundle.GrantWire) || record.Stage != "reconciled" || record.LeaseID != "" || record.GrantSHA256 != writer.GrantSHA256 || record.Generation != writer.Generation || writer.Policy == nil || writer.Policy.PolicyID == "" || writer.Policy.VerifiedAt.IsZero() {
 		return ErrFoundationFenced
 	}
+	if saved := writer.OCIRAuthority; saved != nil {
+		deadline := saved.AuthorityExpiresAt
+		if !saved.installed() && saved.DispatchExpiresAt.Before(deadline) {
+			deadline = saved.DispatchExpiresAt
+		}
+		bounded, cancelRetained := context.WithDeadline(ctx, deadline)
+		defer cancelRetained()
+		ctx = bounded
+	}
 	scope, expires, err := ocirAuthorityScope(ctx, resolver, *writer)
 	if err != nil {
 		return err
 	}
+	ctx, cancelScope := context.WithDeadline(ctx, expires)
+	defer cancelScope()
 	now := time.Now().UTC()
 	deadline, ok := ctx.Deadline()
 	if !ok {
@@ -117,6 +146,12 @@ func installOCIRAuthority(ctx context.Context, authority *HomeIAMAuthority, reso
 	if err := pending.validate(*writer); err != nil {
 		return err
 	}
+	cap := pending.AuthorityExpiresAt
+	if !pending.installed() {
+		cap = pending.DispatchExpiresAt
+	}
+	ctx, cancelAttempt := context.WithDeadline(ctx, cap)
+	defer cancelAttempt()
 	guard := func(ctx context.Context) error {
 		if err := authority.Guard(ctx, 0); err != nil {
 			return err
@@ -141,7 +176,7 @@ func installOCIRAuthority(ctx context.Context, authority *HomeIAMAuthority, reso
 		if err := image.ValidFor(imageExpected, time.Now()); err != nil {
 			return err
 		}
-		if err := ociclient.LimitAdmission(ctx, pending.DispatchExpiresAt); err != nil {
+		if err := ociclient.LimitAdmission(ctx, cap); err != nil {
 			return err
 		}
 		return authority.Guard(ctx, 0)

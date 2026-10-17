@@ -369,9 +369,11 @@ func foundationWriterPolicyBody(details identity.CreatePolicyDetails) ([]byte, e
 // installFoundationWriter installs only the protected writer's original exact
 // policy after its launch receipt and durable birth checkpoint agree.
 func installFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, resolver FoundationResolver, bundle RetainedFoundation, cell string, receipt OriginalFoundationWriter) error {
-	if receipt.cell != cell {
+	if ctx == nil || authority == nil || authority.operator == nil || receipt.cell != cell {
 		return ErrFoundationFenced
 	}
+	ctx, cancelOperator := context.WithDeadline(ctx, authority.operator.deadline)
+	defer cancelOperator()
 	ctx, release, err := authority.HomeWrite(ctx, 0)
 	if err != nil {
 		return err
@@ -385,10 +387,14 @@ func installFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, r
 	if err != nil {
 		return err
 	}
+	ctx, cancelMaterial := context.WithDeadline(ctx, material.ExpiresAt())
+	defer cancelMaterial()
 	writerImage, imageExpected, err := foundationWriterImage(ctx, resolver, material, cell)
 	if err != nil {
 		return err
 	}
+	ctx, cancelImage := context.WithDeadline(ctx, writerImage.ExpiresAt())
+	defer cancelImage()
 	record, etag, err := resolver.Store.Load(ctx, cell)
 	if err != nil {
 		return err
@@ -397,6 +403,11 @@ func installFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, r
 		return ErrFoundationFenced
 	}
 	pending := *record.FoundationWriter
+	if pending.Policy != nil && pending.Policy.PolicyID == "" {
+		bounded, cancelRetry := context.WithDeadline(ctx, pending.Policy.FirstAttemptAt.Add(bootstrapRetryLifetime))
+		defer cancelRetry()
+		ctx = bounded
+	}
 	details, err := foundationWriterPolicy(pending)
 	if err != nil {
 		return err
@@ -454,6 +465,7 @@ func installFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, r
 		return ociclient.LimitAdmission(ctx, material.ExpiresAt())
 	}
 	ctx = ociclient.WithAuthority(ctx, guard)
+	ctx = ociclient.WithRequestGuard(ctx, guard)
 	ctx = ociclient.WithAdmission(ctx, func(ctx context.Context) (func(), error) {
 		if err := guard(ctx); err != nil {
 			return nil, err
@@ -486,8 +498,16 @@ func installFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, r
 		if found != policy.PolicyID {
 			return errors.New("home writer policy original identity changed")
 		}
-		return actor.verifyPolicy(ctx, SourcePolicyRecord{Request: policy.Request, PolicyID: policy.PolicyID})
+		if err := guard(ctx); err != nil {
+			return err
+		}
+		if err := actor.verifyPolicy(ctx, SourcePolicyRecord{Request: policy.Request, PolicyID: policy.PolicyID}); err != nil {
+			return err
+		}
+		return guard(ctx)
 	}
+	ctx, cancelRetry := context.WithDeadline(ctx, policy.FirstAttemptAt.Add(bootstrapRetryLifetime))
+	defer cancelRetry()
 	if found == "" {
 		if !time.Now().Before(policy.FirstAttemptAt.Add(bootstrapRetryLifetime)) {
 			return errors.New("home writer policy retry deadline expired")
@@ -545,60 +565,100 @@ func installFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, r
 	if saved.FoundationWriter == nil || saved.FoundationWriter.Policy == nil || saved.FoundationWriter.Policy.PolicyID != found {
 		return ErrFoundationFenced
 	}
-	return actor.verifyPolicy(ctx, SourcePolicyRecord{Request: policy.Request, PolicyID: found})
+	if err := actor.verifyPolicy(ctx, SourcePolicyRecord{Request: policy.Request, PolicyID: found}); err != nil {
+		return err
+	}
+	return guard(ctx)
 }
 
 // VerifyFoundationWriter gates principal effects on sealed local identity and
 // the independently read original launch and current exact IAM policy.
 func (authority *HomeIAMAuthority) VerifyFoundationWriter(ctx context.Context) error {
-	if err := authority.guardScope(ctx); err != nil {
-		return err
+	_, err := authority.FoundationWriterDeadline(ctx)
+	return err
+}
+
+// FoundationWriterDeadline returns the verified original writer's shortest
+// deadline so dependent proofs retain it through their remaining reads/effects.
+func (authority *HomeIAMAuthority) FoundationWriterDeadline(ctx context.Context) (time.Time, error) {
+	if ctx == nil || authority == nil || authority.operator != nil {
+		return time.Time{}, ErrFoundationFenced
 	}
+	var expires time.Time
+	if authority.proof.IsVerified() {
+		expires = authority.proof.ExpiresAt()
+	} else if authority.runtime.IsVerified() {
+		expires = authority.runtime.ExpiresAt()
+	} else {
+		return time.Time{}, ErrFoundationFenced
+	}
+	ctx, cancelProof := context.WithDeadline(ctx, expires)
+	defer cancelProof()
+	scopeDeadline, err := authority.scopeDeadline(ctx)
+	if err != nil {
+		return time.Time{}, err
+	}
+	ctx, cancelScope := context.WithDeadline(ctx, scopeDeadline)
+	defer cancelScope()
 	entry, ok := catalog.CellForOCIRegion(authority.factory.Region())
 	if !ok {
-		return ErrFoundationFenced
+		return time.Time{}, ErrFoundationFenced
 	}
 	record, _, err := authority.resolver.Store.Load(ctx, entry.Cell)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	pending := record.FoundationWriter
 	if pending == nil || pending.validate() != nil || pending.Cell != entry.Cell || pending.InstanceID != authority.instanceID || pending.InstallationID != authority.installationID || pending.Namespace != authority.domain.Namespace || pending.Bucket != authority.domain.HeadBucket || pending.KMSKeyID != authority.domain.HeadKMSKeyOCID || pending.BucketCompartment != authority.bucketCompartment || pending.Policy == nil || pending.Policy.PolicyID == "" || pending.Policy.VerifiedAt.IsZero() {
-		return ErrFoundationFenced
+		return time.Time{}, ErrFoundationFenced
 	}
 	material, err := authority.resolver.BootstrapMaterial(ctx, entry.Cell)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
+	ctx, cancelMaterial := context.WithDeadline(ctx, material.ExpiresAt())
+	defer cancelMaterial()
 	writerImage, imageExpected, err := foundationWriterImage(ctx, authority.resolver, material, entry.Cell)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
+	ctx, cancelImage := context.WithDeadline(ctx, writerImage.ExpiresAt())
+	defer cancelImage()
 	home, err := authority.factory.HomeRegion(ctx, authority.tenancyID)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	factory, err := authority.factory.ForRegion(home)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	iam, err := factory.Identity()
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	if err := (&SourceFounder{iam: iam}).verifyPolicy(ctx, SourcePolicyRecord{Request: pending.Policy.Request, PolicyID: pending.Policy.PolicyID}); err != nil {
-		return err
+		return time.Time{}, err
 	}
-	if err := authority.Guard(ctx, 0); err != nil {
-		return err
+	guardDeadline, err := authority.guardDeadline(ctx, 0)
+	if err != nil {
+		return time.Time{}, err
 	}
+	ctx, cancelGuard := context.WithDeadline(ctx, guardDeadline)
+	defer cancelGuard()
 	if err := writerImage.ValidFor(imageExpected, time.Now()); err != nil {
-		return err
+		return time.Time{}, err
 	}
 	if err := ociclient.LimitAdmission(ctx, writerImage.ExpiresAt()); err != nil {
-		return err
+		return time.Time{}, err
 	}
-	return ociclient.LimitAdmission(ctx, material.ExpiresAt())
+	if err := ociclient.LimitAdmission(ctx, material.ExpiresAt()); err != nil {
+		return time.Time{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return time.Time{}, err
+	}
+	deadline, _ := ctx.Deadline()
+	return deadline, nil
 }
 
 func (record FoundationWriterRecord) validate() error {

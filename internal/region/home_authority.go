@@ -160,63 +160,109 @@ func (authority *HomeIAMAuthority) initialize(ctx context.Context, factory *ocic
 }
 
 func (authority *HomeIAMAuthority) guardScope(ctx context.Context) error {
-	if authority == nil || authority.objects == nil || authority.resolver.Footprint == nil || authority.resolver.Store == nil {
-		return bootstrapstart.ErrSourceFounder
+	_, err := authority.scopeDeadline(ctx)
+	return err
+}
+
+func (authority *HomeIAMAuthority) scopeDeadline(ctx context.Context) (time.Time, error) {
+	if ctx == nil || authority == nil || authority.objects == nil || authority.resolver.Footprint == nil || authority.resolver.Store == nil {
+		return time.Time{}, bootstrapstart.ErrSourceFounder
 	}
 	if authority.operator != nil {
-		return authority.operator.guard(ctx)
+		ctx, cancel := context.WithDeadline(ctx, authority.operator.deadline)
+		defer cancel()
+		if err := authority.operator.guard(ctx); err != nil {
+			return time.Time{}, err
+		}
+		deadline, _ := ctx.Deadline()
+		return deadline, nil
 	}
+	var expires time.Time
+	if authority.proof.IsVerified() {
+		expires = authority.proof.ExpiresAt()
+	} else if authority.runtime.IsVerified() {
+		expires = authority.runtime.ExpiresAt()
+	} else {
+		return time.Time{}, bootstrapstart.ErrSourceFounder
+	}
+	ctx, cancelOriginal := context.WithDeadline(ctx, expires)
+	defer cancelOriginal()
 	if authority.proof.IsVerified() {
 		if err := authority.proof.VerifyCurrent(ctx); err != nil {
-			return err
+			return time.Time{}, err
 		}
-	} else if err := authority.runtime.VerifyCurrent(ctx); err != nil {
-		return err
+	} else {
+		deadline, err := authority.runtime.CurrentDeadline(ctx)
+		if err != nil {
+			return time.Time{}, err
+		}
+		bounded, cancelCurrent := context.WithDeadline(ctx, deadline)
+		defer cancelCurrent()
+		ctx = bounded
 	}
 	entry, ok := catalog.CellForOCIRegion(authority.factory.Region())
 	if !ok {
-		return bootstrapstart.ErrSourceFounder
+		return time.Time{}, bootstrapstart.ErrSourceFounder
 	}
 	// The production constructor pins the independent embedded genesis. Every
 	// guard rereads the full remote lineage and the durable anti-rollback floor.
 	current, err := discoverCurrentFoundation(ctx, authority.objects, authority.tenancyID, authority.currentGenesis)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	grant, err := current.BootstrapMaterial(ctx, entry.Cell)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
+	ctx, cancelGrant := context.WithDeadline(ctx, grant.ExpiresAt())
+	defer cancelGrant()
 	digest := sha256.Sum256(grant.FoundationGrantWire())
 	if !grant.IsVerified() || hex.EncodeToString(digest[:]) != authority.grantDigest || grant.Generation() != authority.grantGeneration ||
 		grant.InstallationID() != authority.installationID || grant.PlanDigest() != authority.planDigest || grant.StorageDomain() != authority.domain {
-		return errors.New("source founder differs from the current signed foundation grant")
+		return time.Time{}, errors.New("source founder differs from the current signed foundation grant")
 	}
-	return nil
+	deadline, _ := ctx.Deadline()
+	if err := ociclient.LimitAdmission(ctx, deadline); err != nil {
+		return time.Time{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return time.Time{}, err
+	}
+	return deadline, nil
 }
 
 type homeIAMLeaseKey struct{}
 
 // The founder proof is pre-NATS authority; regional records independently fence
 // caller epochs. A grant generation is never treated as a leadership epoch.
-func (authority *HomeIAMAuthority) Guard(ctx context.Context, _ uint64) error {
-	if err := authority.guardScope(ctx); err != nil {
-		if lease, ok := ctx.Value(homeIAMLeaseKey{}).(*homeIAMLease); ok && lease.authority == authority {
-			lease.cancel(err)
+func (authority *HomeIAMAuthority) Guard(ctx context.Context, epoch uint64) error {
+	_, err := authority.guardDeadline(ctx, epoch)
+	return err
+}
+
+func (authority *HomeIAMAuthority) guardDeadline(ctx context.Context, _ uint64) (time.Time, error) {
+	deadline, err := authority.scopeDeadline(ctx)
+	if err != nil {
+		if ctx != nil {
+			if lease, ok := ctx.Value(homeIAMLeaseKey{}).(*homeIAMLease); ok && lease.authority == authority {
+				lease.cancel(err)
+			}
 		}
-		return err
+		return time.Time{}, err
 	}
+	ctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
 	if lease, ok := ctx.Value(homeIAMLeaseKey{}).(*homeIAMLease); ok {
 		if lease.authority != authority {
-			return ErrFoundationFenced
+			return time.Time{}, ErrFoundationFenced
 		}
-		err := lease.check(ctx)
-		if err != nil {
+		if err := lease.check(ctx); err != nil {
 			lease.cancel(err)
+			return time.Time{}, err
 		}
-		return err
+		return deadline, ctx.Err()
 	}
-	return nil
+	return deadline, nil
 }
 
 func (authority *HomeIAMAuthority) HomeWrite(ctx context.Context, epoch uint64) (context.Context, func(), error) {

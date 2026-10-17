@@ -27,6 +27,7 @@ type VerifiedRuntimeIAM struct {
 	imds     IMDSClient
 	scope    bootstrap.FoundationScope
 	anchor   string
+	expires  time.Time
 }
 
 func VerifyRuntimeIAM(ctx context.Context, reader *CurrentFounderAuthorityReader, accepted AcceptedIdentity) (VerifiedRuntimeIAM, error) {
@@ -34,6 +35,8 @@ func VerifyRuntimeIAM(ctx context.Context, reader *CurrentFounderAuthorityReader
 	if err != nil {
 		return VerifiedRuntimeIAM{}, err
 	}
+	ctx, cancel := context.WithDeadline(ctx, current.ExpiresAt())
+	defer cancel()
 	scope, err := current.Anchor().FoundationScope()
 	if err != nil || scope.Validate() != nil {
 		return VerifiedRuntimeIAM{}, errors.Join(ErrSourceFounder, err)
@@ -55,18 +58,21 @@ func VerifyRuntimeIAM(ctx context.Context, reader *CurrentFounderAuthorityReader
 		return VerifiedRuntimeIAM{}, err
 	}
 	proof := VerifiedRuntimeIAM{reader: reader, accepted: accepted.Clone(), factory: factory,
-		observer: observer, imds: NewIMDSClient(), scope: scope, anchor: current.Anchor().Digest()}
-	if err := proof.VerifyCurrent(ctx); err != nil {
+		observer: observer, imds: NewIMDSClient(), scope: scope, anchor: current.Anchor().Digest(), expires: current.ExpiresAt()}
+	deadline, err := proof.CurrentDeadline(ctx)
+	if err != nil {
 		return VerifiedRuntimeIAM{}, err
 	}
+	proof.expires = deadline
 	return proof, nil
 }
 
 func (proof VerifiedRuntimeIAM) IsVerified() bool {
-	return proof.reader != nil && proof.factory != nil && proof.observer != nil && proof.anchor != ""
+	return proof.reader != nil && proof.factory != nil && proof.observer != nil && proof.anchor != "" && !proof.expires.IsZero()
 }
 func (proof VerifiedRuntimeIAM) InstanceID() string                         { return proof.accepted.InstanceOCID }
 func (proof VerifiedRuntimeIAM) FoundationScope() bootstrap.FoundationScope { return proof.scope }
+func (proof VerifiedRuntimeIAM) ExpiresAt() time.Time                       { return proof.expires }
 
 func (proof VerifiedRuntimeIAM) GuardedFactory(ctx context.Context) (*ociclient.Factory, context.Context, error) {
 	if err := proof.VerifyCurrent(ctx); err != nil {
@@ -76,43 +82,56 @@ func (proof VerifiedRuntimeIAM) GuardedFactory(ctx context.Context) (*ociclient.
 }
 
 func (proof VerifiedRuntimeIAM) VerifyCurrent(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
-		return err
+	_, err := proof.CurrentDeadline(ctx)
+	return err
+}
+
+// CurrentDeadline retains the original purpose deadline and any shorter current
+// signed selection through the caller's remaining authority-dependent waits.
+func (proof VerifiedRuntimeIAM) CurrentDeadline(ctx context.Context) (time.Time, error) {
+	if ctx == nil || !proof.IsVerified() {
+		return time.Time{}, ErrSourceFounder
 	}
-	if !proof.IsVerified() {
-		return ErrSourceFounder
+	ctx, cancelOriginal := context.WithDeadline(ctx, proof.expires)
+	defer cancelOriginal()
+	if err := ctx.Err(); err != nil {
+		return time.Time{}, err
 	}
 	now := time.Now().UTC()
 	current, err := proof.reader.ReadRuntimeAuthority(ctx, proof.accepted, now)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
+	ctx, cancelCurrent := context.WithDeadline(ctx, current.ExpiresAt())
+	defer cancelCurrent()
 	scope, err := current.Anchor().FoundationScope()
 	if err != nil || scope != proof.scope || current.Anchor().Digest() != proof.anchor || current.Identity().OCIRegion != proof.factory.Region() {
-		return ErrSourceFounder
+		return time.Time{}, ErrSourceFounder
 	}
 	gate := Gate{SelfUpdate: selfupdate.NewLayout(selfupdate.DefaultRoot)}
 	if err := gate.verifyRestartBinary(proof.accepted, proof.reader.baked.Roots); err != nil {
-		return err
+		return time.Time{}, err
 	}
 	instance, err := proof.imds.FetchInstanceID(ctx)
 	if err != nil || instance != proof.accepted.InstanceOCID {
-		return errors.Join(ErrSourceFounder, err)
+		return time.Time{}, errors.Join(ErrSourceFounder, err)
 	}
 	if err := verifyIAMInstancePrincipal(proof.factory.Provider(), proof.scope.TenancyID, instance); err != nil {
-		return err
+		return time.Time{}, err
 	}
 	descriptor, err := proof.imds.FetchDescriptor(ctx)
 	if err != nil || descriptor.SchemaVersion != 1 || descriptor.Slot != proof.accepted.Slot {
-		return errors.Join(ErrSourceFounder, err)
+		return time.Time{}, errors.Join(ErrSourceFounder, err)
 	}
-	manifest, err := proof.currentManifest(ctx, now)
+	manifest, manifestDeadline, err := proof.currentManifest(ctx, now)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
+	ctx, cancelManifest := context.WithDeadline(ctx, manifestDeadline)
+	defer cancelManifest()
 	observed, err := proof.observer.ObserveInstance(ctx, instance)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	for _, profile := range manifest.Profiles {
 		if profile.Slot != proof.accepted.Slot {
@@ -125,27 +144,38 @@ func (proof VerifiedRuntimeIAM) VerifyCurrent(ctx context.Context) error {
 			observed.CompartmentOCID != profile.CompartmentOCID || observed.AvailabilityDomain != profile.AvailabilityDomain ||
 			observed.FaultDomain != profile.FaultDomain || observed.Shape != profile.Shape || observed.SubnetOCID != profile.SubnetOCID ||
 			!slices.Equal(nsgs, expected) || !observed.PrimaryVNIC || observed.PrimaryVNICOCID != proof.accepted.PrimaryVNICOCID || observed.PrimaryPrivateIP != proof.accepted.PrimaryPrivateIP {
-			return ErrSourceFounder
+			return time.Time{}, ErrSourceFounder
 		}
-		return nil
+		deadline, _ := ctx.Deadline()
+		if err := ociclient.LimitAdmission(ctx, deadline); err != nil {
+			return time.Time{}, err
+		}
+		if err := ociclient.LimitAdmission(ctx, proof.expires); err != nil {
+			return time.Time{}, err
+		}
+		if err := ctx.Err(); err != nil {
+			return time.Time{}, err
+		}
+		return deadline, nil
 	}
-	return ErrSourceFounder
+	return time.Time{}, ErrSourceFounder
 }
 
-func (proof VerifiedRuntimeIAM) currentManifest(ctx context.Context, now time.Time) (bootstrap.Manifest, error) {
+func (proof VerifiedRuntimeIAM) currentManifest(ctx context.Context, now time.Time) (bootstrap.Manifest, time.Time, error) {
 	var wire []byte
+	var expires time.Time
 	if proof.accepted.Slot == proof.accepted.SeedSlot {
 		selected, err := proof.reader.ReadCurrent(ctx, now)
 		if err != nil || selected.Anchor.Digest() != proof.anchor {
-			return bootstrap.Manifest{}, errors.Join(ErrSourceFounder, err)
+			return bootstrap.Manifest{}, time.Time{}, errors.Join(ErrSourceFounder, err)
 		}
-		wire = selected.ManifestWires[proof.accepted.Slot]
+		wire, expires = selected.ManifestWires[proof.accepted.Slot], selected.SelectionExpiresAt
 	} else {
 		selected, err := proof.reader.readCurrentCompletedPeer(ctx, now, true)
 		if err != nil || selected.Anchor.Digest() != proof.anchor {
-			return bootstrap.Manifest{}, errors.Join(ErrSourceFounder, err)
+			return bootstrap.Manifest{}, time.Time{}, errors.Join(ErrSourceFounder, err)
 		}
-		wire = selected.ManifestWires[proof.accepted.Slot]
+		wire, expires = selected.ManifestWires[proof.accepted.Slot], selected.SelectionExpiresAt
 	}
 	var manifest bootstrap.Manifest
 	envelope, err := trust.DecodeEnvelope(wire)
@@ -153,9 +183,15 @@ func (proof VerifiedRuntimeIAM) currentManifest(ctx context.Context, now time.Ti
 	if err != nil || digestWire(wire) != proof.reader.accepted.ManifestSHA256 ||
 		protocol.DecodeStrict(envelope.Payload, &manifest, bootstrap.MaxManifestBytes) != nil || manifest.ImageOCID != proof.accepted.ImageOCID ||
 		manifest.Slot != proof.accepted.Slot || manifest.OCIRegion != proof.factory.Region() {
-		return bootstrap.Manifest{}, ErrSourceFounder
+		return bootstrap.Manifest{}, time.Time{}, ErrSourceFounder
 	}
-	return manifest, nil
+	if err := ctx.Err(); err != nil {
+		return bootstrap.Manifest{}, time.Time{}, err
+	}
+	if !time.Now().Before(expires) {
+		return bootstrap.Manifest{}, time.Time{}, ErrSourceFounder
+	}
+	return manifest, expires, nil
 }
 
 func verifyIAMInstancePrincipal(provider common.ConfigurationProvider, tenancy, instance string) error {
