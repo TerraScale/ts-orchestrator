@@ -86,6 +86,7 @@ func TestRegistryTaskAssignmentIntegration(t *testing.T) {
 	allocations := serviceAllocationStore(t, migration.Namespace, migration.Bucket)
 	reservations := map[uint64][]byte{}
 	intent := serviceIntent()
+	intent.Generation = 1
 	intent.OperationID = entityid.Derive("registry-operation", "first")
 	evidence := []byte("retained exact candidate integration evidence")
 	evidenceSHA := fmt.Sprintf("%x", sha256.Sum256(evidence))
@@ -179,17 +180,22 @@ func TestRegistryTaskAssignmentIntegration(t *testing.T) {
 	}
 	next := bundle(102, strings.Repeat("d", 40))
 	nextProof := verify(next)
-	floor, err := reserveReleaseFloor(ctx, client, intent, nextProof, roots, legacy, created.Meta.Version.Index)
+	changed := intent
+	changed.Generation++
+	changed.Container = intent.Container.Copy()
+	changed.Container.Args = []string{"pending"}
+	changed.OperationID = entityid.Derive("registry-operation", "next")
+	prepared, err := changed.withVerifiedRelease(nextProof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	floor, err := reserveReleaseFloor(ctx, client, prepared, nextProof, roots, legacy, created.Meta.Version.Index)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := VerifyRegistryTask(ctx, client, task, intent, proof, roots); err != nil {
 		t.Fatal("highwater revoked current task: ", err)
 	}
-	changed := intent
-	changed.Container = intent.Container.Copy()
-	changed.Container.Args = []string{"pending"}
-	changed.OperationID = entityid.Derive("registry-operation", "next")
 	if _, err := applySignedService(ctx, client, changed, next, roots, legacy, readEvidence, allocations); err != nil {
 		t.Fatal(err)
 	}
