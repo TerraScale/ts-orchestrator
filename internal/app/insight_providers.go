@@ -8,7 +8,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/insights"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
-	"github.com/TerraScale/ts-orchestrator/internal/workload"
 )
 
 // The adapters below expose state the parallel slices already keep (the
@@ -19,7 +18,7 @@ import (
 // workloadAutoscalers lists every autoscaled stateless service with its
 // current goal and configured maximum. The insight engine tracks how long a
 // target has been at its maximum itself, so AtMaxSince stays zero.
-type workloadAutoscalers struct{ reconciler *workload.Reconciler }
+type workloadAutoscalers struct{ reconciler workloadObservation }
 
 func (source workloadAutoscalers) Autoscalers(context.Context) ([]insights.Autoscaler, error) {
 	if source.reconciler == nil {
