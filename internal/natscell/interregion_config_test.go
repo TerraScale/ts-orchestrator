@@ -2,6 +2,7 @@ package natscell
 
 import (
 	"context"
+	"encoding/json/v2"
 	"path/filepath"
 	"testing"
 	"time"
@@ -86,8 +87,13 @@ func TestInterRegionConfigFailsClosed(t *testing.T) {
 	if err := dialing.validate(region.cfg); err != nil {
 		t.Fatalf("valid remote of a non-home region rejected: %v", err)
 	}
+	t.Run("lab", func(t *testing.T) {
+		var removed Config
+		if err := json.Unmarshal([]byte(`{"lab":true}`), &removed, json.RejectUnknownMembers(true)); err == nil {
+			t.Fatal("removed lab configuration was accepted")
+		}
+	})
 	cases := map[string]func(ir *InterRegion, cfg *Config){
-		"lab":                     func(_ *InterRegion, cfg *Config) { cfg.Lab = true },
 		"missing account":         func(ir *InterRegion, _ *Config) { ir.AccountJWTFile = "" },
 		"missing home":            func(ir *InterRegion, _ *Config) { ir.GlobalHome = "" },
 		"no peers":                func(ir *InterRegion, _ *Config) { ir.Peers = nil },

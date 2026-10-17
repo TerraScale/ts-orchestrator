@@ -1,21 +1,27 @@
 package natscell
 
 import (
+	"bufio"
 	"context"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/json/v2"
 	"encoding/pem"
 	"errors"
+	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,6 +77,17 @@ func TestProductionJWTBridgeClosedApplyOpenAndFence(t *testing.T) {
 	systemInbox := inboxPrefix("gru", systemUserID) + ".>"
 	systemCredentials := testJWTUserCredentialsWithKey(t, root, "system.creds", systemKey, systemID, systemUser,
 		[]string{"$SYS.REQ.ACCOUNT." + cellID + ".CLAIMS.UPDATE"}, []string{systemInbox})
+	membershipUser, err := nkeys.CreateUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer membershipUser.Wipe()
+	membershipUserID, err := membershipUser.PublicKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	membershipCredentials := testJWTUserCredentialsWithKey(t, root, "membership.creds", systemKey, systemID, membershipUser,
+		[]string{MembershipMetaStepdownSubject, MembershipServerRemoveSubject}, []string{inboxPrefix("gru", membershipUserID) + ".>"})
 	tlsFiles := testBridgeTLS(t, root)
 	cfg := Config{Cell: "gru", Instance: "broker-a", Replicas: 1, CredentialsFile: controllerCredentials, TLS: tlsFiles,
 		Embedded: &Embedded{Host: "127.0.0.1", Port: freeClientPort(t), StoreDir: filepath.Join(root, "store"),
@@ -118,6 +135,68 @@ func TestProductionJWTBridgeClosedApplyOpenAndFence(t *testing.T) {
 	}
 	if err := r.Bridge().OpenUntil(1, cellRaw, time.Now().Add(5*time.Second)); err != nil {
 		t.Fatal(err)
+	}
+	controllerWire, err := os.ReadFile(controllerCredentials)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clear(controllerWire)
+	controllerUser, err := nkeys.ParseDecoratedUserNKey(controllerWire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer controllerUser.Wipe()
+	otherControllerJWT := testJWTUserCredentialsWithKey(t, root, "controller-other-jwt.creds", cellKey, cellID, controllerUser,
+		[]string{">"}, []string{">"})
+	for _, next := range []struct {
+		name, path string
+		allowed    bool
+	}{
+		{"original", controllerCredentials, true},
+		{"same-account-other-user", hostCredentials, true},
+		{"same-user-other-jwt", otherControllerJWT, true},
+		{"system", systemCredentials, false},
+		{"membership", membershipCredentials, false},
+	} {
+		t.Run("repeated-connect/"+next.name, func(t *testing.T) {
+			secured, reader, nonce := testBridgeProtocolConnection(t, ctx, tlsFiles, r.ClientAddress().String())
+			writeBridgeConnect(t, secured, controllerCredentials, nonce)
+			if line, err := reader.ReadString('\n'); err != nil || line != "PONG\r\n" {
+				t.Fatalf("original controller authentication: %q %v", line, err)
+			}
+			writeBridgeConnect(t, secured, next.path, nonce)
+			line, err := reader.ReadString('\n')
+			if next.allowed {
+				if err != nil || line != "PONG\r\n" {
+					t.Fatalf("public bridge rejected same-account repeated CONNECT: %q %v", line, err)
+				}
+				return
+			}
+			if timeout, ok := errors.AsType[net.Error](err); ok && timeout.Timeout() {
+				t.Fatal("privileged repeated CONNECT was not rejected before the protocol deadline")
+			}
+			if ctx.Err() != nil || !r.Bridge().Status().Open {
+				t.Fatal("privileged repeated CONNECT ended after its context or public gate expired")
+			}
+			if err != nil {
+				if !errors.Is(err, io.EOF) {
+					t.Fatalf("privileged repeated CONNECT failed without a native rejection: %v", err)
+				}
+			} else if !strings.HasPrefix(line, "-ERR ") {
+				t.Fatalf("public bridge accepted privileged repeated CONNECT: %q", line)
+			}
+		})
+	}
+	admin, err := r.OpenMembershipAdmin(membershipCredentials)
+	if err != nil {
+		t.Fatalf("root's scoped membership handle failed: %v", err)
+	}
+	if err := admin.conn.FlushWithContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	admin.Close()
+	if err := r.systemConn.FlushWithContext(ctx); err != nil {
+		t.Fatalf("root's SYSTEM handle failed: %v", err)
 	}
 	client, err := Start(ctx, hostConfig)
 	if err != nil {
@@ -218,6 +297,72 @@ func TestProductionJWTBridgeClosedApplyOpenAndFence(t *testing.T) {
 	if connection, err := net.DialTimeout("tcp", meshListener.Addr().String(), time.Second); err == nil {
 		connection.Close()
 		t.Fatal("bridge close left second listener serving")
+	}
+}
+
+func testBridgeProtocolConnection(t *testing.T, ctx context.Context, files TLSFiles, address string) (*tls.Conn, *bufio.Reader, string) {
+	t.Helper()
+	config, err := loadTLS(files, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.ServerName = testLeafServerName
+	raw, err := (&net.Dialer{Timeout: time.Second}).DialContext(ctx, "tcp", address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secured := tls.Client(raw, config)
+	t.Cleanup(func() { _ = secured.Close() })
+	if err := secured.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := secured.HandshakeContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(secured)
+	line, err := reader.ReadString('\n')
+	if err != nil || !strings.HasPrefix(line, "INFO ") {
+		t.Fatalf("native INFO: %q %v", line, err)
+	}
+	var info struct {
+		Nonce string `json:"nonce"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(strings.TrimPrefix(line, "INFO "))), &info); err != nil || info.Nonce == "" {
+		t.Fatalf("native nonce: %v", err)
+	}
+	return secured, reader, info.Nonce
+}
+
+func writeBridgeConnect(t *testing.T, conn net.Conn, path, nonce string) {
+	t.Helper()
+	wire, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clear(wire)
+	raw, err := jwt.ParseDecoratedJWT(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pair, err := nkeys.ParseDecoratedUserNKey(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pair.Wipe()
+	signature, err := pair.Sign([]byte(nonce))
+	if err != nil {
+		t.Fatal(err)
+	}
+	connect, err := json.Marshal(struct {
+		JWT     string `json:"jwt"`
+		Sig     string `json:"sig"`
+		Verbose bool   `json:"verbose"`
+	}{JWT: raw, Sig: base64.RawURLEncoding.EncodeToString(signature)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fmt.Fprintf(conn, "CONNECT %s\r\nPING\r\n", connect); err != nil {
+		t.Fatal(err)
 	}
 }
 
