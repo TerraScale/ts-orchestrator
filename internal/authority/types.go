@@ -98,6 +98,7 @@ const (
 	MutationTerminalIntent    HostMutationKind = "terminal-intent"
 	MutationEnrollmentEffect  HostMutationKind = "enrollment-effect"
 	MutationRuntimeEffect     HostMutationKind = "runtime-effect"
+	MutationGenericExecution  HostMutationKind = "generic-execution"
 	MutationManagedUpdate     HostMutationKind = "managed-update"
 	MutationBackupOperation   HostMutationKind = "backup-operation"
 	MutationNetBirdState      HostMutationKind = "netbird-state"
