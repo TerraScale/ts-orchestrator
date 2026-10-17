@@ -63,7 +63,7 @@ func (client *NetBirdJournalClient) bootstrapReadiness(ctx context.Context) erro
 		return ErrDelivery
 	}
 	_, err = client.exchangeJournal(ctx, journal.Request{SchemaVersion: 1, Domain: journal.Domain, Action: journal.Ready, Binding: binding,
-		OperationID: entityid.New(), Nonce: hex.EncodeToString(nonce[:]), StartedAt: started, FirstDeadline: minDeadline(first, current)})
+		OperationID: entityid.New(), Nonce: hex.EncodeToString(nonce[:]), StartedAt: started, FirstDeadline: minDeadline(first, current).UTC()})
 	return err
 }
 
@@ -93,7 +93,7 @@ func (client *NetBirdJournalClient) doBootstrapMutation(request *http.Request) (
 	if err != nil {
 		return nil, ErrDelivery
 	}
-	first = minDeadline(first, current)
+	first = minDeadline(first, current).UTC()
 	ctx, cancelCurrent := context.WithDeadline(ctx, first)
 	defer cancelCurrent()
 	if client.checkBootstrapAccountMutation(ctx, mutation, token) != nil {
