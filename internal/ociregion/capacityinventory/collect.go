@@ -187,6 +187,10 @@ func observedCost(ctx context.Context, compute core.ComputeClient, block core.Bl
 		if response.Shape == nil || response.ShapeConfig == nil || response.ShapeConfig.Ocpus == nil || response.ShapeConfig.MemoryInGBs == nil || resource.LifecycleState == "" {
 			return 0, errors.New("instance dimensions or lifecycle state missing")
 		}
+		resource.Shape, resource.OCPUs, resource.MemoryGB = *response.Shape, float64(*response.ShapeConfig.Ocpus), float64(*response.ShapeConfig.MemoryInGBs)
+		if prices == nil {
+			return 0, nil
+		}
 		cpuSKU, memorySKU, known := ocicost.ComputeSKUs(*response.Shape)
 		if !known {
 			return 0, fmt.Errorf("unknown shape tariff: %s", *response.Shape)
@@ -222,7 +226,9 @@ func observedCost(ctx context.Context, compute core.ComputeClient, block core.Bl
 			if response.IsAutoTuneEnabled != nil && *response.IsAutoTuneEnabled || len(response.AutotunePolicies) > 0 {
 				return 0, errors.New("autotuned disk requires a bounded performance charge ledger")
 			}
-			evidenceErr = bootAttribution(ctx, compute, response.BootVolume, resource)
+			if prices != nil {
+				evidenceErr = bootAttribution(ctx, compute, response.BootVolume, resource)
+			}
 			size, vpus = response.SizeInGBs, response.VpusPerGB
 		} else {
 			response, err := block.GetVolume(ctx, core.GetVolumeRequest{VolumeId: item.Identifier})
@@ -245,6 +251,10 @@ func observedCost(ctx context.Context, compute core.ComputeClient, block core.Bl
 		}
 		if size == nil || vpus == nil || *size <= 0 || *vpus < 0 || resource.LifecycleState == "" {
 			return 0, errors.New("retained disk size or performance missing")
+		}
+		resource.SizeGB, resource.VPUs = float64(*size), *vpus
+		if prices == nil {
+			return 0, nil
 		}
 		storage, err := prices.price(ctx, "B91961", "Gigabyte Storage Capacity Per Month")
 		if err != nil {
