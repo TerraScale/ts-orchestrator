@@ -5,7 +5,9 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
+	"net/http"
 	"regexp"
 	"slices"
 	"strings"
@@ -329,7 +331,32 @@ func foundationWriterPolicy(record FoundationWriterRecord) (identity.CreatePolic
 	statements = append(statements, fmt.Sprintf("Allow any-user to manage objects in compartment id %s where all {%s, target.bucket.name='%s', target.object.name='%s', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}", record.BucketCompartment, principal, record.Bucket, homeIAMObject))
 	// OCI cannot constrain a created policy body; the root process confines this principal.
 	statements = append(statements, fmt.Sprintf("Allow any-user to manage policies in compartment id %s where all {%s, any {request.permission='POLICY_INSPECT', request.permission='POLICY_READ', request.permission='POLICY_CREATE'}}", record.BucketCompartment, principal))
-	return identity.CreatePolicyDetails{CompartmentId: new(record.BucketCompartment), Name: new("ts-foundation-writer-" + digestSource([]byte(record.InstallationID + "\x00" + record.Cell))[:32]), Description: new("Original home writer exact protected journals and policy creation"), Statements: statements}, nil
+	// Durable JSON restores nil maps as empty; send the same maps initially.
+	return identity.CreatePolicyDetails{CompartmentId: new(record.BucketCompartment), Name: new("ts-foundation-writer-" + digestSource([]byte(record.InstallationID + "\x00" + record.Cell))[:32]), Description: new("Original home writer exact protected journals and policy creation"), Statements: statements, FreeformTags: map[string]string{}, DefinedTags: map[string]map[string]any{}}, nil
+}
+
+func foundationWriterPolicyBody(details identity.CreatePolicyDetails) ([]byte, error) {
+	request := identity.CreatePolicyRequest{CreatePolicyDetails: details}
+	httpRequest, err := request.HTTPRequest(http.MethodPost, "/20160918/policies", nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	if httpRequest.Body == nil {
+		return nil, errors.New("home writer SDK policy request has no body")
+	}
+	defer httpRequest.Body.Close()
+	wire, err := io.ReadAll(io.LimitReader(httpRequest.Body, foundationRecordLimit+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(wire) > foundationRecordLimit {
+		return nil, errors.New("home writer SDK policy request exceeds size bound")
+	}
+	var object map[string]any
+	if err := json.Unmarshal(wire, &object); err != nil {
+		return nil, err
+	}
+	return json.Marshal(object, json.Deterministic(true))
 }
 
 // installFoundationWriter installs only the protected writer's original exact
@@ -367,7 +394,7 @@ func installFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, r
 	if err != nil {
 		return err
 	}
-	wire, err := json.Marshal(details, json.Deterministic(true))
+	wire, err := foundationWriterPolicyBody(details)
 	if err != nil {
 		return err
 	}
@@ -576,11 +603,11 @@ func (record FoundationWriterRecord) validate() error {
 	if err != nil {
 		return err
 	}
-	expectedWire, err := json.Marshal(expected, json.Deterministic(true))
+	expectedWire, err := foundationWriterPolicyBody(expected)
 	if err != nil {
 		return err
 	}
-	actualWire, err := json.Marshal(record.Policy.Request, json.Deterministic(true))
+	actualWire, err := foundationWriterPolicyBody(record.Policy.Request)
 	policy := record.Policy
 	if err != nil || string(expectedWire) != string(actualWire) || policy.RequestDigest != digestSource(actualWire) || policy.RetryToken != digestSource([]byte(record.RequestDigest+"\x00"+record.InstanceID+"\x00"+policy.RequestDigest)) || policy.FirstAttemptAt.Before(record.FirstAttemptAt) || policy.PolicyID == "" && !policy.VerifiedAt.IsZero() || policy.PolicyID != "" && (!validAuxiliaryID("controller_usage_policy", policy.PolicyID, "") || policy.VerifiedAt.Before(policy.FirstAttemptAt)) {
 		return errors.New("home writer IAM reservation differs from its canonical original policy")
