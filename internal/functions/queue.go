@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -35,7 +36,7 @@ func QueueIdentity(manifest Manifest) (QueueScope, error) {
 	if err := manifest.Validate(); err != nil {
 		return QueueScope{}, err
 	}
-	subject := "ts.functions." + manifest.TenantID + "." + manifest.FunctionID + "." + manifest.Revision
+	subject := protocol.FunctionQueueSubject(manifest.TenantID, manifest.FunctionID, manifest.Revision)
 	digest := sha256.Sum256([]byte(subject))
 	identity := hex.EncodeToString(digest[:])
 	return QueueScope{Subject: subject, Stream: "TS_FUNCTION_" + identity, ReceiptBucket: "TS_FUNCTION_RECEIPTS_" + identity}, nil

@@ -141,6 +141,11 @@ func GlobalState(tokens ...string) string { return joinSubject(GlobalStateRoot, 
 // GlobalStateStreamSubject is the single subject filter of TS_GLOBAL_CONTROL.
 func GlobalStateStreamSubject() string { return GlobalStateRoot + ".>" }
 
+// FunctionQueueSubject names one function revision's queue; callers validate the manifest scope.
+func FunctionQueueSubject(tenantID, functionID, revision string) string {
+	return "ts.functions." + tenantID + "." + functionID + "." + revision
+}
+
 // GlobalControlRequest is the global-authority mutation request subject.
 func GlobalControlRequest(action string) string {
 	subject, err := GlobalControlSubject(action)
