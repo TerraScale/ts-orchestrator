@@ -328,7 +328,7 @@ func telemetryRegistration(ctx context.Context, history *nativeHistory, origin h
 	return registration, nil
 }
 
-func telemetryTasks(ctx context.Context, specs *specRegistry, client api.ControlClient, registration host.Registration, owns func(string) bool) ([]*api.Task, error) {
+func telemetryTasks(ctx context.Context, specs *specRegistry, client api.ControlReader, registration host.Registration, owns func(string) bool) ([]*api.Task, error) {
 	response, err := client.ListNodes(ctx, &api.ListNodesRequest{})
 	if err != nil {
 		return nil, err

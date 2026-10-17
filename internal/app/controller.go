@@ -368,7 +368,6 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	var credentialFloor func(context.Context, host.Registration) (uint64, error)
 	var placementStore placement.Store
 	var fleet oci.Fleet
-	var managedJournal *oci.KVJournal
 	var volumeInspector host.ManagedVolumeInspector
 	var terminalExecutor oci.TerminalExecutor
 	var materialService *managedmaterial.PreparationService
@@ -408,7 +407,6 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		if err != nil {
 			return err
 		}
-		managedJournal = journal
 		acceptedLaunch, err := bootstrapstart.NewMarkerStore().ReadIdentity()
 		if err != nil {
 			return err
