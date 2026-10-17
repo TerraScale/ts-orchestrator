@@ -14,6 +14,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 )
 
 // ociCostView is the region's cost for its summary: the stored report's
@@ -150,20 +151,11 @@ func (views *ociCostViews) rollup() *globalview.Cost {
 }
 
 // newOCICostCollector keeps the region's OCI cost report fresh. It reads the
-// cost on the regional authority leader through the instance principal
-// (docs/oci-cost.md).
-func newOCICostCollector(cell string, store *ocicost.Store, control *authority.Runtime) *ocicost.Collector {
+// cost on the regional authority leader through the admitted root client.
+func newOCICostCollector(client *rootoci.Client, store *ocicost.Store, control *authority.Runtime) *ocicost.Collector {
 	return &ocicost.Collector{Store: store, Leader: func() bool { return control.Current().CanMutate() },
-		Connect: func(ctx context.Context) (ocicost.Reader, error) {
-			region, err := oci.Region(strings.ToUpper(cell)).OCIRegion()
-			if err != nil {
-				return nil, err
-			}
-			factory, err := instancePrincipal(ctx, region)
-			if err != nil {
-				return nil, err
-			}
-			return ocicost.Connect(ctx, factory, cell, region)
+		Connect: func(context.Context) (ocicost.Reader, error) {
+			return rootoci.CostReader{Client: client}, nil
 		}}
 }
 
