@@ -1,6 +1,9 @@
 package rootoci
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // MaxGenerationChainBytes preserves bootstrap's existing signed-chain limit.
 const MaxGenerationChainBytes = 64 * (64<<10 + 16<<10)
@@ -23,6 +26,7 @@ type SecretDeliveryReceipt struct {
 	AcceptanceSHA256 string              `json:"acceptance_sha256"`
 	GenerationSHA256 string              `json:"generation_sha256"`
 	Files            []SecretFileReceipt `json:"files"`
+	ExpiresAt        time.Time           `json:"expires_at"`
 }
 
 type Credentials interface {

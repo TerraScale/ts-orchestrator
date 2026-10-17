@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -31,8 +32,8 @@ const generationChainTemporary = ".material-generations.writing"
 // record; then every file is renamed over its installed name and the chain
 // last. A crash before the chain is staged leaves the installed set as it
 // was; after, FinishMaterialAdoption completes the install. The running
-// processes see each renamed file as soon as it is in place. Root runs it
-// (selfupdate prepare): everything it writes belongs to the service user.
+// processes see each renamed file as soon as it is in place. Root keeps a
+// delivered stage private until each file reaches its installed ownership.
 func (store MaterialStore) AdoptGeneration(target GenerationTarget, roots trust.Keyring, chainWire []byte, files map[string][]byte, config []byte, now time.Time) error {
 	return store.adoptGeneration(target, roots, chainWire, files, config, now, nil)
 }
@@ -40,6 +41,13 @@ func (store MaterialStore) AdoptGeneration(target GenerationTarget, roots trust.
 func (store MaterialStore) adoptGeneration(target GenerationTarget, roots trust.Keyring, chainWire []byte, files map[string][]byte, config []byte,
 	now time.Time, previous *identityMaterialPredecessors,
 ) error {
+	return store.adoptGenerationWithDelivery(target, roots, chainWire, files, config, now, previous, nil)
+}
+
+func (store MaterialStore) adoptGenerationWithDelivery(target GenerationTarget, roots trust.Keyring, chainWire []byte, files map[string][]byte, config []byte, now time.Time, previous *identityMaterialPredecessors, delivery *GenerationDeliveryLifetime) error {
+	if err := store.publicationLive(delivery); err != nil {
+		return err
+	}
 	chain, err := bootstrap.DecodeMaterialGenerationChain(chainWire)
 	if err != nil {
 		return err
@@ -79,7 +87,8 @@ func (store MaterialStore) adoptGeneration(target GenerationTarget, roots trust.
 	if err := unix.Mkdirat(dir, generationStaging, 0o700); err != nil {
 		return fmt.Errorf("create generation staging: %w", err)
 	}
-	if err := unix.Fchownat(dir, generationStaging, int(store.serviceUID), int(store.serviceGID),
+	uid, gid := uint32(os.Geteuid()), uint32(os.Getegid())
+	if err := unix.Fchownat(dir, generationStaging, int(uid), int(gid),
 		unix.AT_SYMLINK_NOFOLLOW); err != nil {
 		return fmt.Errorf("own generation staging: %w", err)
 	}
@@ -88,13 +97,39 @@ func (store MaterialStore) adoptGeneration(target GenerationTarget, roots trust.
 		return err
 	}
 	defer unix.Close(staging)
+	stageStore := store
+	stageStore.serviceUID, stageStore.serviceGID = uid, gid
+	if delivery != nil {
+		var stat unix.Stat_t
+		if unix.Fstat(staging, &stat) != nil || stat.Uid != 0 || stat.Gid != 0 || stat.Mode&0o7777 != 0o700 {
+			return ErrMaterial
+		}
+		metadata, err := protocol.EncodeJSON(delivery)
+		if err != nil {
+			return err
+		}
+		rootStore := store
+		rootStore.serviceUID, rootStore.serviceGID = 0, 0
+		if err := rootStore.writeStaged(staging, GenerationDeliveryFile, metadata); err != nil {
+			return err
+		}
+	}
 	for _, name := range slices.Sorted(maps.Keys(files)) {
-		if err := store.writeStaged(staging, name, files[name]); err != nil {
+		if err := store.publicationLive(delivery); err != nil {
+			return err
+		}
+		if err := stageStore.writeStaged(staging, name, files[name]); err != nil {
 			return fmt.Errorf("stage %s: %w", name, err)
 		}
 	}
-	if err := store.writeStaged(staging, generationChainTemporary, chainWire); err != nil {
+	if err := store.publicationLive(delivery); err != nil {
+		return err
+	}
+	if err := stageStore.writeStaged(staging, generationChainTemporary, chainWire); err != nil {
 		return fmt.Errorf("commit staged generation: %w", err)
+	}
+	if err := store.publicationLive(delivery); err != nil {
+		return err
 	}
 	if err := unix.Renameat2(staging, generationChainTemporary, staging, MaterialGenerationsFile, unix.RENAME_NOREPLACE); err != nil {
 		return err
@@ -104,7 +139,7 @@ func (store MaterialStore) adoptGeneration(target GenerationTarget, roots trust.
 	}
 	snapshot := maps.Clone(files)
 	snapshot[MaterialGenerationsFile] = chainWire
-	return store.rollForward(dir, staging, append(slices.Sorted(maps.Keys(files)), MaterialGenerationsFile), snapshot, previous)
+	return store.rollForward(dir, staging, append(slices.Sorted(maps.Keys(files)), MaterialGenerationsFile), snapshot, previous, delivery)
 }
 
 // FinishMaterialAdoption completes a generation install interrupted after
@@ -126,6 +161,10 @@ func (store MaterialStore) FinishMaterialAdoption(target GenerationTarget, roots
 func (store MaterialStore) finish(dir int, target GenerationTarget, roots trust.Keyring, configPath string, now time.Time,
 	previous *identityMaterialPredecessors, replacement []bootstrap.VerifiedMaterialGeneration,
 ) error {
+	return store.finishWithDelivery(dir, target, roots, configPath, now, previous, replacement, nil)
+}
+
+func (store MaterialStore) finishWithDelivery(dir int, target GenerationTarget, roots trust.Keyring, configPath string, now time.Time, previous *identityMaterialPredecessors, replacement []bootstrap.VerifiedMaterialGeneration, replacementDelivery *GenerationDeliveryLifetime) error {
 	staging, err := store.openStaging(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -149,6 +188,8 @@ func (store MaterialStore) finish(dir int, target GenerationTarget, roots trust.
 		}
 		names = slices.DeleteFunc(names, func(name string) bool { return name == verifiedMaterialTemporary })
 	}
+	hasDelivery := slices.Contains(names, GenerationDeliveryFile)
+	names = slices.DeleteFunc(names, func(name string) bool { return name == GenerationDeliveryFile })
 	if slices.Contains(names, MaterialGenerationsFile) {
 		chainWire, err := store.readStaged(staging, MaterialGenerationsFile, "", maxGenerationChainBytes)
 		if err != nil {
@@ -169,6 +210,21 @@ func (store MaterialStore) finish(dir int, target GenerationTarget, roots trust.
 		}
 		if err != nil {
 			return fmt.Errorf("verify committed generation stage: %w", err)
+		}
+		var delivery *GenerationDeliveryLifetime
+		if hasDelivery && replacement == nil {
+			found, _, err := readGenerationDelivery(staging, target, chainWire, verified[len(verified)-1], now)
+			if err != nil {
+				return err
+			}
+			delivery = &found
+			store.bindGenerationAdmission(delivery, target, chain)
+		}
+		if replacement != nil {
+			if replacementDelivery == nil || store.publicationLive(replacementDelivery) != nil {
+				return ErrMaterial
+			}
+			delivery = replacementDelivery
 		}
 		generation := verified[len(verified)-1].Generation()
 		installed, err := readUnpinned(dir, MaterialGenerationsFile, store.serviceUID, store.serviceGID, maxGenerationChainBytes)
@@ -199,7 +255,7 @@ func (store MaterialStore) finish(dir int, target GenerationTarget, roots trust.
 			}
 		}
 		files[MaterialGenerationsFile] = chainWire
-		return store.rollForward(dir, staging, names, files, previous)
+		return store.rollForward(dir, staging, names, files, previous, delivery)
 	}
 	// Only exact observed local material names may be removed before commitment.
 	allowed := bootstrap.MaterialGenerationFiles()
@@ -222,6 +278,11 @@ func (store MaterialStore) finish(dir int, target GenerationTarget, roots trust.
 			return err
 		}
 	}
+	if hasDelivery {
+		if err := unix.Unlinkat(staging, GenerationDeliveryFile, 0); err != nil {
+			return err
+		}
+	}
 	return removeStaging(dir)
 }
 
@@ -241,7 +302,7 @@ func (store MaterialStore) generationFiles(dir, staging int, target GenerationTa
 			err = os.ErrNotExist
 		}
 		if errors.Is(err, os.ErrNotExist) {
-			wire, err = readMaterial(dir, ref.TargetFile, store.serviceUID, store.serviceGID, ref.SHA256, ref.MaxBytes)
+			wire, err = store.readStaged(dir, ref.TargetFile, ref.SHA256, ref.MaxBytes)
 		}
 		if err != nil {
 			clearContents(files)
@@ -259,7 +320,10 @@ func (store MaterialStore) generationFiles(dir, staging int, target GenerationTa
 // last, then removes the staging directory.
 const verifiedMaterialTemporary = ".verified-material"
 
-func (store MaterialStore) rollForward(dir, staging int, names []string, snapshot map[string][]byte, previous *identityMaterialPredecessors) error {
+func (store MaterialStore) rollForward(dir, staging int, names []string, snapshot map[string][]byte, previous *identityMaterialPredecessors, delivery *GenerationDeliveryLifetime) error {
+	if err := store.publicationLive(delivery); err != nil {
+		return err
+	}
 	if previous != nil {
 		if err := store.verifyIdentityMaterialPredecessors(dir, snapshot[MaterialGenerationsFile], *previous); err != nil {
 			return err
@@ -274,32 +338,65 @@ func (store MaterialStore) rollForward(dir, staging int, names []string, snapsho
 		return err
 	}
 	for _, name := range names {
+		if err := store.publicationLive(delivery); err != nil {
+			return err
+		}
 		if name == MaterialGenerationsFile {
 			continue
 		}
 		if err := store.replaceStaged(staging, name, snapshot[name]); err != nil {
 			return err
 		}
-		if err := unix.Renameat(staging, name, dir, name); err != nil {
+		if err := store.publicationLive(delivery); err != nil {
+			return err
+		}
+		if err := store.publishStaged(staging, dir, name, delivery); err != nil {
 			return fmt.Errorf("install %s: %w", name, err)
 		}
 	}
+	// A crash may leave an installed client inode root-owned between its
+	// rename and ownership publication. The verified snapshot permits retry.
+	for _, name := range slices.Sorted(maps.Keys(snapshot)) {
+		if name == MaterialGenerationsFile {
+			continue
+		}
+		if err := store.publicationLive(delivery); err != nil {
+			return err
+		}
+		if err := store.publishInstalledOwner(dir, name, delivery); err != nil {
+			return err
+		}
+	}
 	if slices.Contains(names, MaterialGenerationsFile) {
+		if err := store.publicationLive(delivery); err != nil {
+			return err
+		}
 		if err := unix.Fsync(dir); err != nil {
 			return err
 		}
 		if err := store.replaceStaged(staging, MaterialGenerationsFile, snapshot[MaterialGenerationsFile]); err != nil {
 			return err
 		}
-		if err := store.keepChain(staging); err != nil {
+		if err := store.keepChain(staging, delivery); err != nil {
 			return fmt.Errorf("keep %s: %w", MaterialGenerationsFile, err)
 		}
-		if err := unix.Renameat(staging, MaterialGenerationsFile, dir, MaterialGenerationsFile); err != nil {
+		if err := store.publicationLive(delivery); err != nil {
+			return err
+		}
+		if err := store.publishStaged(staging, dir, MaterialGenerationsFile, delivery); err != nil {
 			return err
 		}
 	}
 	if err := unix.Fsync(dir); err != nil {
 		return err
+	}
+	if err := store.publicationLive(delivery); err != nil {
+		return err
+	}
+	if delivery != nil {
+		if err := unix.Unlinkat(staging, GenerationDeliveryFile, 0); err != nil && !errors.Is(err, unix.ENOENT) {
+			return err
+		}
 	}
 	return removeStaging(dir)
 }
@@ -334,10 +431,50 @@ func (store MaterialStore) replaceStaged(staging int, name string, wire []byte) 
 	if err := unix.Renameat(staging, verifiedMaterialTemporary, staging, name); err != nil {
 		return err
 	}
-	if err := unix.Fchown(fd, int(store.serviceUID), int(store.serviceGID)); err != nil {
+	return unix.Fsync(staging)
+}
+
+func (store MaterialStore) publishStaged(staging, installed int, name string, delivery *GenerationDeliveryLifetime) error {
+	fd, err := unix.Openat(staging, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
 		return err
 	}
-	return unix.Fsync(staging)
+	defer unix.Close(fd)
+	uid, gid := materialOwner(name, store.serviceUID, store.serviceGID)
+	if err := store.publicationLive(delivery); err != nil {
+		return err
+	}
+	if name == MaterialGenerationsFile {
+		if err := unix.Fchown(fd, int(uid), int(gid)); err != nil {
+			return err
+		}
+	}
+	if err := unix.Renameat(staging, name, installed, name); err != nil {
+		return err
+	}
+	if err := store.publicationLive(delivery); err != nil {
+		return err
+	}
+	if err := unix.Fchown(fd, int(uid), int(gid)); err != nil {
+		return err
+	}
+	return unix.Fsync(fd)
+}
+
+func (store MaterialStore) publishInstalledOwner(installed int, name string, delivery *GenerationDeliveryLifetime) error {
+	fd, err := unix.Openat(installed, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(fd)
+	if err := store.publicationLive(delivery); err != nil {
+		return err
+	}
+	uid, gid := materialOwner(name, store.serviceUID, store.serviceGID)
+	if err := unix.Fchown(fd, int(uid), int(gid)); err != nil {
+		return err
+	}
+	return unix.Fsync(fd)
 }
 
 func (store MaterialStore) readStaged(staging int, name, want string, maximum int64) ([]byte, error) {
@@ -368,6 +505,10 @@ func (store MaterialStore) openStaging(dir int) (int, error) {
 		stat.Mode&0o7777 != 0o700 {
 		unix.Close(fd)
 		return -1, fmt.Errorf("%w: generation staging is not the service's own directory", ErrMaterial)
+	}
+	if store.installedDirectory == MaterialDirectory && (stat.Uid != 0 || stat.Gid != 0) {
+		unix.Close(fd)
+		return -1, ErrMaterial
 	}
 	return fd, nil
 }

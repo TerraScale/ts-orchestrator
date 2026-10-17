@@ -12,15 +12,14 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/user"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -119,16 +118,7 @@ func (Service) DeliverControllerGeneration(ctx context.Context, call rootoci.Cal
 		}
 		return ctx.Err()
 	}
-	account, err := user.Lookup("terrascale-orchestrator")
-	if err != nil {
-		return fail()
-	}
-	uid, uidErr := strconv.ParseUint(account.Uid, 10, 32)
-	gid, gidErr := strconv.ParseUint(account.Gid, 10, 32)
-	if uidErr != nil || gidErr != nil || uid == 0 || gid == 0 {
-		return fail()
-	}
-	directory, err := openSpool(uint32(uid), uint32(gid))
+	directory, err := openSpool()
 	if err != nil {
 		return fail()
 	}
@@ -147,7 +137,7 @@ func (Service) DeliverControllerGeneration(ctx context.Context, call rootoci.Cal
 	}
 	client.HTTPClient = credentialDispatcher{next: client.HTTPClient, guard: guard}
 	receipt := rootoci.SecretDeliveryReceipt{Slot: target.Slot, AcceptanceSHA256: target.AcceptanceSHA256, GenerationSHA256: newest.Fingerprint()}
-	var earliest time.Time
+	earliest := newest.ExpiresAt()
 	for _, reference := range newest.Generation().Secrets {
 		if reference.Slot != "" && reference.Slot != target.Slot {
 			continue
@@ -159,7 +149,7 @@ func (Service) DeliverControllerGeneration(ctx context.Context, call rootoci.Cal
 		if err != nil {
 			return fail()
 		}
-		err = install(directory, reference.TargetFile, value, uint32(uid), uint32(gid), func() error {
+		err = install(directory, reference.TargetFile, value, 0, 0, func() error {
 			if guard() != nil {
 				return ErrDelivery
 			}
@@ -181,6 +171,13 @@ func (Service) DeliverControllerGeneration(ctx context.Context, call rootoci.Cal
 	if guard() != nil || !earliest.IsZero() && !time.Now().Before(earliest) {
 		return fail()
 	}
+	lifetime := bootstrapstart.GenerationDeliveryLifetime{AcceptanceSHA256: target.AcceptanceSHA256,
+		ChainSHA256: deliveryDigest(request.Chain), GenerationSHA256: newest.Fingerprint(), ExpiresAt: earliest}
+	metadata, err := protocol.EncodeJSON(lifetime)
+	if err != nil || install(directory, bootstrapstart.GenerationDeliveryFile, metadata, 0, 0, guard) != nil || guard() != nil {
+		return fail()
+	}
+	receipt.ExpiresAt = earliest
 	slices.SortFunc(receipt.Files, func(a, b rootoci.SecretFileReceipt) int { return strings.Compare(a.Name, b.Name) })
 	return receipt, nil
 }
@@ -257,4 +254,9 @@ func readExact(ctx context.Context, client *secrets.SecretsClient, reference boo
 		}
 	}
 	return value, expires, nil
+}
+
+func deliveryDigest(wire []byte) string {
+	sum := sha256.Sum256(wire)
+	return hex.EncodeToString(sum[:])
 }

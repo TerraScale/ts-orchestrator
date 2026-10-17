@@ -21,6 +21,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/identityrekey"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -322,6 +323,7 @@ type stager struct {
 	*Stager
 	base  string
 	asked []bootstrap.SecretReference
+	Read  func(context.Context, bootstrap.SecretReference) ([]byte, error)
 }
 
 func (c *cell) stager() *stager {
@@ -333,12 +335,57 @@ func (c *cell) stager() *stager {
 			AcceptanceSHA256: digest([]byte("manifest of controller-a")), Expected: expected,
 			Broker: identityrekey.BrokerIdentity{Operator: c.material.OperatorID, SystemAccount: c.material.SystemID,
 				CellAccount: c.material.CellID, HostSigner: c.material.HostSignerID, RoleSigner: c.material.RoleSignerID}},
-		Read: func(_ context.Context, reference bootstrap.SecretReference) ([]byte, error) {
-			s.asked = append(s.asked, reference)
-			return slices.Clone(c.material.Files[reference.TargetFile]), nil
-		},
 		Installed: filepath.Join(base, "secrets", bootstrapstart.MaterialGenerationsFile),
 		Spool:     filepath.Join(base, "state", "material-generation")}
+	s.Read = func(_ context.Context, reference bootstrap.SecretReference) ([]byte, error) {
+		s.asked = append(s.asked, reference)
+		return slices.Clone(c.material.Files[reference.TargetFile]), nil
+	}
+	// The fixture's raw reader is confined to this test binary. Production
+	// receives only the authenticated root receipt and cannot call it.
+	s.Deliver = func(ctx context.Context, wire []byte) (rootoci.SecretDeliveryReceipt, error) {
+		chain, err := bootstrap.DecodeMaterialGenerationChain(wire)
+		if err != nil {
+			return rootoci.SecretDeliveryReceipt{}, err
+		}
+		verified, err := s.Target.VerifyChain(chain, c.roots, now(s.Now))
+		if err != nil {
+			return rootoci.SecretDeliveryReceipt{}, err
+		}
+		newest := verified[len(verified)-1]
+		receipt := rootoci.SecretDeliveryReceipt{Slot: s.Target.Slot, AcceptanceSHA256: s.Target.AcceptanceSHA256,
+			GenerationSHA256: newest.Fingerprint(), ExpiresAt: newest.ExpiresAt()}
+		files := map[string][]byte{}
+		defer func() {
+			for _, data := range files {
+				clear(data)
+			}
+		}()
+		for _, ref := range newest.Generation().Secrets {
+			if ref.Slot != "" && ref.Slot != s.Target.Slot {
+				continue
+			}
+			data, err := s.Read(ctx, ref)
+			if err != nil {
+				return rootoci.SecretDeliveryReceipt{}, err
+			}
+			files[ref.TargetFile] = data
+			receipt.Files = append(receipt.Files, rootoci.SecretFileReceipt{Name: ref.TargetFile, SHA256: digest(data), Bytes: int64(len(data))})
+		}
+		if config := c.config(s.Target.Slot); config != nil {
+			files[bootstrapstart.GenerationConfigFile(s.Target.Slot)] = slices.Clone(config)
+		}
+		if err := s.Target.VerifyFiles(newest.Generation(), func(name string) ([]byte, error) {
+			data, ok := files[name]
+			if !ok {
+				return nil, os.ErrNotExist
+			}
+			return data, nil
+		}, now(s.Now)); err != nil {
+			return rootoci.SecretDeliveryReceipt{}, err
+		}
+		return receipt, nil
+	}
 	return s
 }
 
@@ -594,7 +641,7 @@ func TestVerifiedArmedStageSurvivesVaultOutageAndShutdown(t *testing.T) {
 	if status := s.Pass(ctx); status.Error != "" || !status.Armed {
 		t.Fatalf("initial stage: %+v", status)
 	}
-	path := filepath.Join(s.Spool, "ca.pem")
+	path := filepath.Join(s.Spool, bootstrapstart.GenerationDeliveryFile)
 	before, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
@@ -724,11 +771,11 @@ func TestUnverifiedSpoolRefetchesOrDisarms(t *testing.T) {
 			}
 			switch fault {
 			case "corrupt":
-				if err := os.WriteFile(filepath.Join(s.Spool, "ca.pem"), []byte("damaged"), 0o600); err != nil {
+				if err := os.WriteFile(filepath.Join(s.Spool, bootstrapstart.GenerationDeliveryFile), []byte("damaged"), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			case "missing":
-				if err := os.Remove(filepath.Join(s.Spool, "ca.pem")); err != nil {
+				if err := os.Remove(filepath.Join(s.Spool, bootstrapstart.GenerationDeliveryFile)); err != nil {
 					t.Fatal(err)
 				}
 			case "changed chain":
@@ -768,6 +815,81 @@ func TestUnverifiedSpoolRefetchesOrDisarms(t *testing.T) {
 			}
 			if (fault == "corrupt" || fault == "missing" || fault == "changed config") && reads == 0 {
 				t.Fatal("invalid local files skipped exact Vault recovery")
+			}
+		})
+	}
+}
+
+func TestOrdinaryGenerationSpoolContainsOnlyPublicDeliveryMetadata(t *testing.T) {
+	c := newCell(t)
+	leader, ctx := c.leader(), t.Context()
+	chain := c.sign(1, nil, time.Now().Add(-time.Minute))
+	if _, err := leader.Publish(ctx, wire(t, chain)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := leader.SetConfig(ctx, "controller-a", c.config("controller-a")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := leader.Arm(ctx, "controller-a", true); err != nil {
+		t.Fatal(err)
+	}
+	s := c.stager()
+	if status := s.Pass(ctx); status.Error != "" || !status.Armed {
+		t.Fatalf("stage: %+v", status)
+	}
+	allowed := map[string]bool{bootstrapstart.MaterialGenerationsFile: true, bootstrapstart.GenerationArmedFile: true,
+		bootstrapstart.GenerationConfigFile("controller-a"): true, bootstrapstart.GenerationDeliveryFile: true}
+	entries, err := os.ReadDir(s.Spool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if !allowed[entry.Name()] {
+			t.Fatalf("ordinary spool exposed %s", entry.Name())
+		}
+	}
+	for _, ref := range s.asked {
+		if _, err := os.Stat(filepath.Join(s.Spool, ref.TargetFile)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("ordinary spool has raw %s: %v", ref.TargetFile, err)
+		}
+	}
+}
+
+func TestRootDeliveryReceiptRequiresExactFilesAndOriginalExpiry(t *testing.T) {
+	for _, fault := range []string{"expired", "missing", "duplicate", "pin", "acceptance"} {
+		t.Run(fault, func(t *testing.T) {
+			c := newCell(t)
+			leader, ctx := c.leader(), t.Context()
+			chain := c.sign(1, nil, time.Now().Add(-time.Minute))
+			if _, err := leader.Publish(ctx, wire(t, chain)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := leader.SetConfig(ctx, "controller-a", c.config("controller-a")); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := leader.Arm(ctx, "controller-a", true); err != nil {
+				t.Fatal(err)
+			}
+			s := c.stager()
+			deliver := s.Deliver
+			s.Deliver = func(ctx context.Context, chain []byte) (rootoci.SecretDeliveryReceipt, error) {
+				receipt, err := deliver(ctx, chain)
+				switch fault {
+				case "expired":
+					receipt.ExpiresAt = time.Now().Add(-time.Second)
+				case "missing":
+					receipt.Files = receipt.Files[1:]
+				case "duplicate":
+					receipt.Files[0] = receipt.Files[1]
+				case "pin":
+					receipt.Files[0].SHA256 = digest([]byte("changed"))
+				case "acceptance":
+					receipt.AcceptanceSHA256 = digest([]byte("foreign"))
+				}
+				return receipt, err
+			}
+			if status := s.Pass(ctx); status.Error == "" || status.Armed {
+				t.Fatalf("accepted %s receipt: %+v", fault, status)
 			}
 		})
 	}

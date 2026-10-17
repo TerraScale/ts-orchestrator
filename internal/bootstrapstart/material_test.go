@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"golang.org/x/sys/unix"
 )
 
@@ -76,7 +77,7 @@ func TestServiceUIDCanReadRootInstalledMaterial(t *testing.T) {
 	if os.Getenv("TS_BOOTSTRAP_MATERIAL_CHILD") == "1" {
 		path := os.Getenv("TS_BOOTSTRAP_MATERIAL_DIR")
 		want := os.Getenv("TS_BOOTSTRAP_MATERIAL_SHA256")
-		fd, err := openMaterialDirectory(path, uint32(os.Getuid()), uint32(os.Getgid()), 0o700, true)
+		fd, err := openMaterialDirectory(path, 0, 0, 0o755, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -86,6 +87,24 @@ func TestServiceUIDCanReadRootInstalledMaterial(t *testing.T) {
 			t.Fatalf("unprivileged material read = %q, %v", content, err)
 		}
 		clear(content)
+		for _, name := range []string{"system.creds", "membership.creds", "controller-account-signer.seed", "controller-tls-issuer-key.pem", "route-password", "controller-a-tls-key.pem", "controller-b-tls-key.pem", "controller-c-tls-key.pem", bootstrap.LinkCredentialsFile, "interregion-tls-controller-a-key.pem", "interregion-tls-controller-b-key.pem", "interregion-tls-controller-c-key.pem", "leaf-sfo.creds"} {
+			if _, err := os.ReadFile(filepath.Join(path, name)); !errors.Is(err, os.ErrPermission) {
+				t.Fatalf("ordinary %s read: %v", name, err)
+			}
+		}
+		if err := os.Remove(filepath.Join(path, "controller.jwt")); !errors.Is(err, os.ErrPermission) {
+			t.Fatalf("ordinary installed-client unlink: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(path, "replacement"), []byte("replacement"), 0o600); !errors.Is(err, os.ErrPermission) {
+			t.Fatalf("ordinary credential parent mutation: %v", err)
+		}
+		stage := filepath.Join(path, generationStaging)
+		if _, err := os.ReadFile(filepath.Join(stage, "controller.jwt")); !errors.Is(err, os.ErrPermission) {
+			t.Fatalf("ordinary adoption-stage read: %v", err)
+		}
+		if err := os.Rename(stage, stage+"-replacement"); !errors.Is(err, os.ErrPermission) {
+			t.Fatalf("ordinary adoption-stage replacement: %v", err)
+		}
 		return
 	}
 	if os.Geteuid() != 0 {
@@ -112,14 +131,14 @@ func TestServiceUIDCanReadRootInstalledMaterial(t *testing.T) {
 		t.Fatal(err)
 	}
 	directory := filepath.Join(base, "service-secrets")
-	if err := os.Mkdir(directory, 0o700); err != nil {
+	if err := os.Mkdir(directory, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chown(directory, int(uid), int(gid)); err != nil {
+	if err := os.Chmod(directory, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	store := MaterialStore{installedDirectory: directory, serviceUID: uint32(uid), serviceGID: uint32(gid), allowUnsafeAncestors: true}
-	fd, err := openMaterialDirectory(directory, uint32(uid), uint32(gid), 0o700, true)
+	fd, err := openMaterialDirectory(directory, 0, 0, 0o755, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,6 +148,29 @@ func TestServiceUIDCanReadRootInstalledMaterial(t *testing.T) {
 		unix.Close(fd)
 		t.Fatal(err)
 	}
+	for _, name := range []string{"system.creds", "membership.creds", "controller-account-signer.seed", "controller-tls-issuer-key.pem", "route-password", "controller-a-tls-key.pem", "controller-b-tls-key.pem", "controller-c-tls-key.pem", bootstrap.LinkCredentialsFile, "interregion-tls-controller-a-key.pem", "interregion-tls-controller-b-key.pem", "interregion-tls-controller-c-key.pem", "leaf-sfo.creds"} {
+		if err := store.installMaterial(fd, name, content, want, 128); err != nil {
+			unix.Close(fd)
+			t.Fatal(err)
+		}
+	}
+	if err := unix.Mkdirat(fd, generationStaging, 0o700); err != nil {
+		unix.Close(fd)
+		t.Fatal(err)
+	}
+	stage, err := store.openStaging(fd)
+	if err != nil {
+		unix.Close(fd)
+		t.Fatal(err)
+	}
+	rootStore := store
+	rootStore.serviceUID, rootStore.serviceGID = 0, 0
+	if err := rootStore.writeStaged(stage, "controller.jwt", content); err != nil {
+		unix.Close(stage)
+		unix.Close(fd)
+		t.Fatal(err)
+	}
+	unix.Close(stage)
 	unix.Close(fd)
 	self, err := os.Executable()
 	if err != nil {

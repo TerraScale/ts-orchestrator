@@ -112,6 +112,36 @@ func TestRestoreIntactMaterialDoesNotReadVault(t *testing.T) {
 	if _, err := store.readRestoreReferences(t.Context(), refs, missing, read); err == nil || reads != 1 {
 		t.Fatalf("missing inventory bypassed Vault: reads=%d, error=%v", reads, err)
 	}
+	for _, failure := range []string{"context cancellation", "source expiry"} {
+		t.Run(failure, func(t *testing.T) {
+			install := newGenerationInstall(t)
+			store := install.store()
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			sourceExpired := false
+			store.restoreCurrent = func([]trust.Envelope) error {
+				if sourceExpired {
+					return ErrMaterial
+				}
+				return ctx.Err()
+			}
+			refs := materialReferences(install.accepted, nil)
+			reads := 0
+			contents, err := store.readGuardedReferences(ctx, refs, func(_ context.Context, ref bootstrap.SecretReference) ([]byte, error) {
+				reads++
+				if failure == "context cancellation" {
+					cancel()
+				} else {
+					sourceExpired = true
+				}
+				return bytes.Clone(install.read(ref.TargetFile)), nil
+			}, nil)
+			if err == nil || reads != 1 || len(contents) != 0 {
+				t.Fatalf("restore retained bytes after %s: reads=%d, error=%v", failure, reads, err)
+			}
+		})
+	}
+
 }
 
 func rebootArmedSuccessor(t *testing.T) (*spooledInstall, map[string][]byte, time.Time) {

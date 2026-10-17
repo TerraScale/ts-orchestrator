@@ -77,4 +77,27 @@ func TestVaultRechecksCurrentProofBeforeFetchAndInstall(t *testing.T) {
 	if checks != 5 || reader.calls != 2 {
 		t.Fatalf("current proof was not checked at both effect boundaries: checks=%d reads=%d", checks, reader.calls)
 	}
+	t.Run("original provider expiry", func(t *testing.T) {
+		authority := newTestBootstrapAuthority(t)
+		reference := authority.manifest.Secrets[0]
+		expires, deletes := time.Now().Add(time.Hour), time.Now().Add(time.Minute)
+		reader := &advancingSecretReader{bundle: SecretBundle{
+			SecretOCID: reference.SecretOCID, VersionNumber: reference.VersionNumber,
+			ContentType: "BASE64", ContentBase64: base64.StdEncoding.EncodeToString(authority.regionalData),
+			ExpiresAt: &expires, DeletesAt: &deletes,
+		}}
+		vault := &Vault{reader: reader}
+		content, original, err := vault.ReadGenerationSecretWithExpiry(t.Context(), reference)
+		defer clear(content)
+		if err != nil || !original.Equal(deletes) || string(content) != string(authority.regionalData) {
+			t.Fatal("exact Vault read lost the original earliest provider cap", err)
+		}
+		for _, invalid := range []time.Time{{}, time.Now().Add(-time.Second)} {
+			reader.bundle.ExpiresAt = &invalid
+			if content, _, err := vault.ReadGenerationSecretWithExpiry(t.Context(), reference); err == nil || len(content) != 0 {
+				t.Fatal("invalid original provider expiry returned secret bytes")
+			}
+		}
+
+	})
 }
