@@ -1,0 +1,14 @@
+{
+  "tool": "exec_command",
+  "args": {
+    "cmd": "python3 - <<'PY'\nimport hashlib,json,pathlib,tempfile\np=pathlib.Path('/proc')\nmem=dict((x.split(':')[0],x.split(':')[1].strip()) for x in (p/'meminfo').read_text().splitlines())\nload=(p/'loadavg').read_text().strip()\ncompilers=[]\nfor d in p.iterdir():\n if not d.name.isdigit():continue\n try:\n  comm=(d/'comm').read_text().strip()\n  if comm in ('compile','cc1','cc1plus','clang','gcc','rustc'):compilers.append({'pid':int(d.name),'comm':comm})\n except (FileNotFoundError,PermissionError,ProcessLookupError):pass\nassert int(mem['MemAvailable'].split()[0])*1024 >= 16*1024**3\nassert float(load.split()[0])<12\nassert len(compilers)<=4\nseal=pathlib.Path('/tmp/ts-management-observation-2d158-120-source-fd67jiak/seal.json')\nassert hashlib.sha256(seal.read_bytes()).hexdigest()=='08e29bdeb1193a7f8459f9de1727d5bf708caf11afde669cd95e8201138d08a7'\nout=pathlib.Path(tempfile.mkdtemp(prefix='ts-management-observation-2d158-native-'))\nrecord={'mem_available':mem['MemAvailable'],'loadavg':load,'compilers':compilers,'seal_sha256':hashlib.sha256(seal.read_bytes()).hexdigest()}\n(out/'resource-preflight.json').write_text(json.dumps(record,indent=2)+'\\n')\nprint(json.dumps({'evidence_dir':str(out),'preflight':record}))\nPY",
+    "max_output_tokens": 1000
+  },
+  "result": {
+    "chunk_id": "690fc5",
+    "wall_time_seconds": 0.102216181,
+    "exit_code": 0,
+    "original_token_count": 66,
+    "output": "{\"evidence_dir\": \"/tmp/ts-management-observation-2d158-native-4dylvs9v\", \"preflight\": {\"mem_available\": \"26936912 kB\", \"loadavg\": \"0.40 1.31 1.88 1/4479 673062\", \"compilers\": [], \"seal_sha256\": \"08e29bdeb1193a7f8459f9de1727d5bf708caf11afde669cd95e8201138d08a7\"}}\n"
+  }
+}

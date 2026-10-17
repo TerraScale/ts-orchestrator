@@ -1,0 +1,2202 @@
+{
+  "format": "flat-exact-evidence-publication-v1",
+  "created_utc": "2026-10-17T04:48:37.692758+00:00",
+  "operation": "packaging_only_no_execution_or_publication",
+  "intended_repository_directory": "docs/evidence/refactor-checks-20261017/app-management-oci-seat-connected-outcomes",
+  "original_directory_mappings": [
+    {
+      "label": "app-d0b",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "selection": "all original evidence recursively; ELF/symlinks/direct .go package inputs excluded"
+    },
+    {
+      "label": "oci64-runtime",
+      "original_directory": "/tmp/ts-oci-provision-runtime-64a55-120-sealed",
+      "selection": "all original evidence recursively; ELF/symlinks/direct .go package inputs excluded"
+    },
+    {
+      "label": "management-native",
+      "original_directory": "/tmp/ts-management-observation-2d158-native-4dylvs9v",
+      "selection": "all original evidence recursively; ELF/symlinks/direct .go package inputs excluded"
+    },
+    {
+      "label": "management-runner",
+      "original_directory": "/tmp/ts-management-observation-2d158-120-runner-_epv7y35",
+      "selection": "all original evidence recursively; ELF/symlinks/direct .go package inputs excluded"
+    },
+    {
+      "label": "management-source",
+      "original_directory": "/tmp/ts-management-observation-2d158-120-source-fd67jiak",
+      "selection": "all original evidence recursively; ELF/symlinks/direct .go package inputs excluded"
+    },
+    {
+      "label": "qa-app-d0b",
+      "original_directory": "/tmp/ts-qa-app-d0b-manager-terminal-acceptance-hbmhdidh",
+      "selection": "exact pinned independent terminal report only"
+    },
+    {
+      "label": "qa-oci64-runtime",
+      "original_directory": "/tmp",
+      "selection": "exact pinned independent terminal report only"
+    },
+    {
+      "label": "qa-management-2d158",
+      "original_directory": "/tmp/ts-qa-management-2d158-terminal-failure-mxqjsifp",
+      "selection": "exact pinned independent terminal report only"
+    },
+    {
+      "label": "app-d0b-source",
+      "original_directory": "/tmp/ts-app-native-evidence-6aab71080",
+      "selection": "listed exact-commit Git blob source snapshots as .go.txt only"
+    },
+    {
+      "label": "management-2d158-source",
+      "original_directory": "/tmp/ts-core-management-observation",
+      "selection": "listed exact-commit Git blob source snapshots as .go.txt only"
+    },
+    {
+      "label": "oci64-source",
+      "original_directory": "/tmp/ts-oci-foundation-region-compile",
+      "selection": "listed exact-commit Git blob source snapshots as .go.txt only"
+    },
+    {
+      "label": "data-seat-source",
+      "original_directory": "/tmp/ts-data-seat-reader-70c03-source-cpeo1dha",
+      "selection": "all original evidence recursively; ELF/symlinks/direct .go package inputs excluded"
+    },
+    {
+      "label": "data-seat-runner-native",
+      "original_directory": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w",
+      "selection": "all original evidence recursively; ELF/symlinks/direct .go package inputs excluded"
+    },
+    {
+      "label": "qa-data-seat70c03",
+      "original_directory": "/tmp/ts-qa-data-seat70c03-terminal-acceptance-a6in2jhz",
+      "selection": "exact pinned independent terminal report only"
+    },
+    {
+      "label": "data-seat70c03-source",
+      "original_directory": "/tmp/ts-data-seat-reader",
+      "selection": "listed exact-commit Git blob source snapshots as .go.txt only"
+    }
+  ],
+  "source_snapshot_identities": [
+    {
+      "label": "app-d0b-source",
+      "worktree": "/tmp/ts-app-native-evidence-6aab71080",
+      "commit": "d0b972460a0d6413aaa948a967a2c2406b407a4b",
+      "tree": "9603fd5ec7d35ebb02e7839d7e3521528cae116e",
+      "clean_frozen_HEAD_verified_before_copy": true,
+      "source_manifest": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/fullsource-manifest.json",
+      "source_manifest_sha256": "d00e8518785acaea61a761a03edbf890f412db7a48bff00a610d8ca68c7f7c7f",
+      "clean_frozen_HEAD_verified_after_copy": true
+    },
+    {
+      "label": "management-2d158-source",
+      "worktree": "/tmp/ts-core-management-observation",
+      "commit": "2d15811884db8036d4c2348cbf1adaa6af1422f3",
+      "tree": "89edb76c39969780081df545e6f6f4bf9759086d",
+      "clean_frozen_HEAD_verified_before_copy": true,
+      "source_manifest": "/tmp/ts-management-observation-2d158-120-source-fd67jiak/tracked-source-manifest.json",
+      "source_manifest_sha256": "f5bfa15b9598eb7fa347693d3a451b2d0d599c56221a55c2ddc4c8be59adf175",
+      "clean_frozen_HEAD_verified_after_copy": true
+    },
+    {
+      "label": "oci64-source",
+      "worktree": "/tmp/ts-oci-foundation-region-compile",
+      "commit": "64a55bb2fc0034279732cfb8a99c06b75cf90d6a",
+      "tree": "430c89f4408d37377f6492f7d827c58f2578cb89",
+      "clean_frozen_HEAD_verified_before_copy": true,
+      "source_manifest": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/fullsource-manifest.json",
+      "source_manifest_sha256": "95cd945be1348e2a96d11375e90df4c9ebda48eb8b2e7f96cb7cae1a672923bf",
+      "clean_frozen_HEAD_verified_after_copy": true
+    },
+    {
+      "label": "data-seat70c03-source",
+      "worktree": "/tmp/ts-data-seat-reader",
+      "commit": "70c03e8ca01a9bbe667e489608eb48f62c8762af",
+      "tree": "ac1551c89f7e52e4d956727800279cc35d3f1a39",
+      "clean_frozen_HEAD_verified_before_copy": true,
+      "source_manifest": "/tmp/ts-data-seat-reader-70c03-source-cpeo1dha/tracked-source-manifest.json",
+      "source_manifest_sha256": "939ed25dca2a45bdfeac89e026a448fdd8c11d317b77f6a01bcb614caddd9a03",
+      "clean_frozen_HEAD_verified_after_copy": true
+    }
+  ],
+  "counts": {
+    "original_file_mappings": 113,
+    "unique_copied_payloads": 109,
+    "deduplicated_alias_mappings": 4,
+    "copied_payload_bytes": 5601401,
+    "excluded_elf_files": 1,
+    "excluded_elf_original_bytes": 62893977,
+    "excluded_symlinks": 0,
+    "excluded_direct_go_inputs": 0,
+    "pinned_qa_reports": 4,
+    "pinned_git_blob_go_text_snapshots": 18
+  },
+  "copied_files": [
+    {
+      "filename": "app-d0b--final-seal.json",
+      "sha256": "ad9dfdbbfef70ef7d1e878854f2a2af7bee850d8dd9fb2fdfbee32ecc937dde6",
+      "size": 2616,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--fullsource-manifest.json",
+      "sha256": "d00e8518785acaea61a761a03edbf890f412db7a48bff00a610d8ca68c7f7c7f",
+      "size": 475988,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--locks-released.json",
+      "sha256": "ec6000fb02135e176e64e7bf6b1f63cdc6afa1baaddc29266f30c6fee86564fd",
+      "size": 275,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--native-launch.json",
+      "sha256": "0fc0ab64a781dde9da08be1acf54c46c6bdb0a9758986dcbefffcfddb7712743",
+      "size": 259,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--native-poll-1.json",
+      "sha256": "8bdfd240e004cadedcfd3789fa32450dc3ae904f75c61d8a716aff89465813cd",
+      "size": 130,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--native-poll-2.json",
+      "sha256": "5ec4dba5218f755e16256bbac4728e4a23c4f6226a610b70a93764a7724e50a2",
+      "size": 131,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--native-poll-3.json",
+      "sha256": "7ea38a335a5b687394d5e7b87fe6c3e182c065c6fadd8fb7c2ad33fbfc21fba9",
+      "size": 130,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--native-poll-4.json",
+      "sha256": "164300d21d5dddfe6ac79efac2b9ce05e3744b3d3a04429c4cbb6ac266460ba5",
+      "size": 131,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--native-poll-5.json",
+      "sha256": "be92129cdf971b22dfbe40496af11a5e415bbe02bc3a20e9dacb77c358f4affb",
+      "size": 131,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--native-poll-6.json",
+      "sha256": "d87cfa6a7f8b0f660e6749f1ae5f913c9937b855cd9c2b6727dcd9574d89546f",
+      "size": 131,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--native-terminal.json",
+      "sha256": "d84e88e64015fda0490f9f21552e75ec2f0f3317706237639560487c503243d5",
+      "size": 1448,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--phase-attribution.json",
+      "sha256": "4b8b0cdf98a19222cc3c4be2e86553054aac86d199c9142a22860b78ce3668fa",
+      "size": 3554,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--postflight.json",
+      "sha256": "7af5ba0463e077d986d361d05da94a4e42cecec5fccf93dfb9b3a7dcd6678257",
+      "size": 476991,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--preflight.json",
+      "sha256": "2bb3460696f56d95bc3478363d09d0d3e93f2a2218e1adc9c5e4e1f723dc01fa",
+      "size": 485436,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--qa-grant.json",
+      "sha256": "4d66c8744ec4f5fa4cc9fa425215ba5b94ce37535edccd109fb0375c09802a8f",
+      "size": 561,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--receipt.json",
+      "sha256": "53a34ff980bb400a6e5e7eacc7e8adbdc910b04cce5465f02f9d48f2bae82ed3",
+      "size": 1383,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--request.json",
+      "sha256": "e10f808fa48933de79e56fdd533c1b1432774b0b3b39aac28fe5774dac66e0cb",
+      "size": 6110,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--resource-check.json",
+      "sha256": "ec6646865b4fb64166f06cdbddc10375b2eea39c389195ba1c9b4a90a46fb37a",
+      "size": 1089,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--run.py",
+      "sha256": "de50a17b60ae8f4a3a69323822ee961f1499be92384b36edcfd054dbf1e4a734",
+      "size": 4951,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--runtime.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--runtime.stdout",
+      "sha256": "a2f6e7bab49c66949b6511bbbada8a2424a08398e0e6a8236e376fef8054d3c4",
+      "size": 302444,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--seal.json",
+      "sha256": "73fc4459602667137c887fe518b2126143b84e83cc45998eef515c0ab907e094",
+      "size": 1044,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--started.json",
+      "sha256": "f822ffb99e89c71e5038a8d9d223839bbaa8ad653802738198132d4c84bb9d38",
+      "size": 758,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--static-import-closure.json",
+      "sha256": "dbb00d284344a03e4a09251e8557b60a2375b66c1f026e0368e08a8d3b266442",
+      "size": 57551,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b--static-review.json",
+      "sha256": "5a7a9346341a8de13457b84823b3e9447a26a077544842ccc230dcb08a429b2c",
+      "size": 4029,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci64-runtime--final-runtime-seal.json",
+      "sha256": "c40122f255bb3415a2268345121b092068b5ee79949faceda3031cefd8c50062",
+      "size": 3246,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci64-runtime--final-seal.json",
+      "sha256": "d60e0fc3c1ffdfe97f30b17593d0b69eee6c853b1145ca6efa4474286385dc36",
+      "size": 851,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci64-runtime--fresh-host-preflight.json",
+      "sha256": "6d3c928cbb8989b6888d663083c16ae83001161e3ec0640cda1cc8d592258a74",
+      "size": 175,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci64-runtime--fullsource-manifest.json",
+      "sha256": "95cd945be1348e2a96d11375e90df4c9ebda48eb8b2e7f96cb7cae1a672923bf",
+      "size": 595944,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci64-runtime--native-launch.json",
+      "sha256": "c3030d3222b123208ecfc2f2f94fa1db04f7935b082c2092d46ba3da3a0461fd",
+      "size": 109,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci64-runtime--native-poll-1.json",
+      "sha256": "254458128f509c60c0d3ba2faac95d310e428b0da8eef3cff5902a3ec5224a16",
+      "size": 4954,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci64-runtime--native-resource-preflight.json",
+      "sha256": "ebf8d2382899a96a665d219c3a9bfab85375dd94156aaab581cea38ab0333f04",
+      "size": 301,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci64-runtime--preflight.json",
+      "sha256": "d34f0d72bca5c06d55b310aa916a11fda01fffb67778f9d168e2cf2bc392b7b4",
+      "size": 2976,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci64-runtime--receipt.json",
+      "sha256": "977c216b59eb4eb06e0baf5ed8ee5373ed3353dddb75bb665b5200c60c085dff",
+      "size": 5016,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci64-runtime--request.json",
+      "sha256": "d374ed2464d16dc22183bf191ffb7bcf59b21c88459dca9054f3102be895c124",
+      "size": 4662,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci64-runtime--run.py",
+      "sha256": "b1c1e4168be2ab7764b6f568edcb1d689146b99dece3a494071d7e478349103b",
+      "size": 4412,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci64-runtime--runtime-readiness.json",
+      "sha256": "48b8cec2f960e46cc3bfbecfa5f852d7c9dc38e82d9b36292e586e9e03258014",
+      "size": 81517,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci64-runtime--runtime.stdout",
+      "sha256": "73cc5d51e8f726dc5f209d4912c99fc8e7317e2d4ccd057c024cc9e68bee0fb1",
+      "size": 608,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci64-runtime--started.json",
+      "sha256": "f95c99e3cfb3bc505c40e382011e1c2a37c7f71ca1d3963351efb1e8eaad6277",
+      "size": 823,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci64-runtime--terminal-index.json",
+      "sha256": "365687d69c90e404744920164b49e97c49ba575c59af7bf2cc5906512050f62f",
+      "size": 1147,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-native--final-seal.json",
+      "sha256": "b7f2c62faeb85ad8655f6a2e1b50b04f2b7463d5546c6ea90de8345b6b7fd861",
+      "size": 6100,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-native--full-event-review.json",
+      "sha256": "25a4f48ea0025057936b2baa7e7f95765e45c2233ba2f8bc9bcaa5652acf3a1d",
+      "size": 4008,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-native--launch.json",
+      "sha256": "728e2333b56d4514fc331dacf3b58a8eaec59296bf4f2fac442b774fa069f8e1",
+      "size": 665,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-native--midrun-observation-native.json",
+      "sha256": "4ab7a515247df6fa22ce666dc015cc506b43608dc5d403c3f59fe8b67dacf61c",
+      "size": 735,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-native--poll-001.json",
+      "sha256": "085e6c35d54aa1cc6b5183555daf6f33986aba76291b03b66400bc18a483b2e3",
+      "size": 418,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-native--poll-002.json",
+      "sha256": "ab2220dec069479c0e1c77e9dca2b542c1f701f08015bc61686bdace5801ed99",
+      "size": 300,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-native--poll-003.json",
+      "sha256": "47c2ce743623603e926678bbb67084660b1c5499dbeb6c137a55878e4b9a9ad9",
+      "size": 301,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-native--poll-004.json",
+      "sha256": "86b99da7e4b1826b7ef3c1448b49352404ebe00ce36ad2e56e9f4a668b080df4",
+      "size": 303,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-native--poll-005.json",
+      "sha256": "bb4de730b7c0e6f694d3fc37ee424eac96e08b703174852de7c34eacd2d50b47",
+      "size": 303,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-native--poll-006.json",
+      "sha256": "3054085ce5824aaba3a07a1a6718ad5272b354f5e4bc64225f5e29937ba209ff",
+      "size": 303,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-native--poll-007.json",
+      "sha256": "8091bf4dbfcf27ada51542a9618f509cf5907464c8434bd1864bd675f83210bc",
+      "size": 303,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-native--poll-008.json",
+      "sha256": "27e57fe2507ba5e370527f2882f55d0d1cd8be6b79b577f20a691a8460e1f723",
+      "size": 303,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-native--poll-009.json",
+      "sha256": "604bb7367cf9c16f23bdc6ec53a6f2c3a39b36f5ca0b11b7dfbf0ed238a0925f",
+      "size": 303,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-native--poll-010.json",
+      "sha256": "d616ac75881dffa76108f88c05abae7cba305c231821e33e7b02a3e864c86d14",
+      "size": 9270,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-native--resource-preflight-native.json",
+      "sha256": "541b0223bea194fb19a29fe935a4a0b8214bb706325426ed80a1fd7dbfd009d0",
+      "size": 1759,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-native--resource-preflight.json",
+      "sha256": "8bfe5ec5a398c8dbe579690ca465ae02affc23c5a4d814bcc2af62c4e38d46fa",
+      "size": 186,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-runner--RESULT-SHA256SUMS",
+      "sha256": "f3c6583d9b021984c0f90a8a121aaee14ab353b9c737edb536ce0af2b0270761",
+      "size": 468,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-runner--preflight.json",
+      "sha256": "bacb75f100b0d729aa895898704c693cffadb81900d9f3c3201709f93d0b15a3",
+      "size": 1807,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-runner--receipt.json",
+      "sha256": "3fa4e9e2211f3f54ce75b150a4181b75073461563b9393e4836b8ae4630cdfed",
+      "size": 9590,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-runner--run.py",
+      "sha256": "5d0c94166da8ec52175bbb655a595a5991d210b8bcf1f6f7be2526caf020f19a",
+      "size": 5623,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-runner--started.json",
+      "sha256": "b2a6923ae73c67402c0439dab6b6125d322dbf04b9ad9adcc00cfb74ba4fae96",
+      "size": 997,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-runner--stdout.jsonl",
+      "sha256": "b2e56043d466f98901adc6f1f2ff62267f51592015bf0497bf3fe79b9a4fd02e",
+      "size": 91404,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-source--request.json",
+      "sha256": "6622dcff83909fd593f1e810cc7f2c28a55a33edf26037d37282c511d742362c",
+      "size": 30834,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-source--seal.json",
+      "sha256": "08e29bdeb1193a7f8459f9de1727d5bf708caf11afde669cd95e8201138d08a7",
+      "size": 417,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-source--static-effects.md",
+      "sha256": "fb8c9176fd2a79085c827cf405968b5a0761f5a700ae7b55800ba58f2ef5e714",
+      "size": 7978,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-source--static-import-closure.json",
+      "sha256": "5cf65ae0df69cb8058dcd6ff7dbe04492f657f3e4120c3b8c789414f9e8c203a",
+      "size": 194080,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-source--tool-pins.json",
+      "sha256": "df053f503abcb269c3a81f79d47edb0dcc092c8ec6d7425b7be9885ab0764c90",
+      "size": 2797,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-source--tracked-source-manifest.json",
+      "sha256": "f5bfa15b9598eb7fa347693d3a451b2d0d599c56221a55c2ddc4c8be59adf175",
+      "size": 1138439,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "qa-app-d0b--review.json",
+      "sha256": "9c5fe39c0550f27b5bb9b674ea115f29b6e5ab60a1d00d6cf5f2e0583fd3fe39",
+      "size": 11279,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "qa-oci64-runtime--ts-qa-provision64-terminal-failure-bkps8y8k.json",
+      "sha256": "5ada3a6fd437a6bba4edb6712013ec2c8cce5dcf0fcada784f18cb133081110d",
+      "size": 6309,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "qa-management-2d158--review.json",
+      "sha256": "a11137f8eb7e479241ad8864266a415677e83e0d829c5fb1194017b53c807344",
+      "size": 21671,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b-source--internal--app--generic_runtime_integration_test.go.txt",
+      "sha256": "43a538eb983b9d60e20607803211ac69c03b3cd63011e07c553c80b522d41501",
+      "size": 44437,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b-source--internal--swarmruntime--service.go.txt",
+      "sha256": "d7c090584d774e9faf03b2f72bb6fe8ea2404746d46aed2b7ee58c6a64090a1e",
+      "size": 15586,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "app-d0b-source--internal--swarmruntime--service_authority_test.go.txt",
+      "sha256": "0a94f39b2521b7ffb4cc63deaa43f7316dd627d044b21142ea900da6377374e8",
+      "size": 5976,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-2d158-source--internal--swarmruntime--management_integration_test.go.txt",
+      "sha256": "a81a658e8f644f591870eb4c5ea97faa7fe526bdcc93deb1594888dbd7b26ffc",
+      "size": 26316,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-2d158-source--internal--swarmruntime--management_observation_integration_test.go.txt",
+      "sha256": "8fb949bf6fdd27e9d70977fe034b1420321e7e1c850dbdc27fe4cfabb0004e05",
+      "size": 8938,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-2d158-source--internal--swarmruntime--management_observation_send_test.go.txt",
+      "sha256": "d98f5cb4bd7399bec6e61b432f980cc30253d43f326adb3a86cf7e116d7e97a4",
+      "size": 4252,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-2d158-source--internal--swarmruntime--management.go.txt",
+      "sha256": "51e916e98bbcdf63806dd2fa57dcff3e1cbcddfa3748a1abf4bd33954fe4dbb1",
+      "size": 25257,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-2d158-source--internal--swarmruntime--management_observation.go.txt",
+      "sha256": "50030d68852bbfa2b8b238b4fcb6491c3666448f74f5ed90b903e1f00df0dd51",
+      "size": 15728,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-2d158-source--internal--swarmruntime--management_public_ca.go.txt",
+      "sha256": "eb8b1c10a3fa29e5c4e7531e584248da9c3a2faf983a57af22810a41323c96ee",
+      "size": 1013,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "management-2d158-source--internal--swarmruntime--management_worker.go.txt",
+      "sha256": "ba596adcd0c453ca5e64c76da0dfa5e51dc357edcd53a0fe1da25f2783f98f72",
+      "size": 8474,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci64-source--internal--region--foundation_integration_test.go.txt",
+      "sha256": "f2d19b8f38c6cd13b30a1f5447f726b508b73b4f34922e7fe2f78f1e5bb5edc2",
+      "size": 29190,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci64-source--internal--region--foundation_provision_integration_test.go.txt",
+      "sha256": "7976524e9684163483fadda4633c9e5d4eea4dbe1fd0b792ca3b9a8fc9d7a9da",
+      "size": 38234,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci64-source--internal--region--object.go.txt",
+      "sha256": "2fab39b2675b49a4452bf7dd8597cb3f2cc4c837e7b002a45f96156fa6863a8e",
+      "size": 10843,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci64-source--internal--region--foundation_writer.go.txt",
+      "sha256": "950e59368463709c6038b49a26f9d743b8d28bc35b9b46011afa7617628b208f",
+      "size": 29003,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci64-source--internal--region--netbird_launch.go.txt",
+      "sha256": "d4fdc26a32ace786815f546f85773a853e02c72c7575a9912ad8f5f0338217f2",
+      "size": 18465,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "oci64-source--internal--region--source_founder.go.txt",
+      "sha256": "030f28119a5fa155b6ffa3eae5c98171bcc7a429a6f836af4596005cb7829083",
+      "size": 24459,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data-seat-source--request.json",
+      "sha256": "06f39dce12696999d860c03673da0ca95329645481468016458e94e34c92868f",
+      "size": 5464,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data-seat-source--seal.json",
+      "sha256": "ed6ddc5fe4067260198fa546ab2cf215722e9b186d93205c1a1778b41e8e3e5c",
+      "size": 1028,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data-seat-source--static-effects.md",
+      "sha256": "7b50ce9a6fafb12c5a649062dd14353d9f92dd8571ca8657e2046bff732e0886",
+      "size": 3062,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data-seat-source--static-import-closure.json",
+      "sha256": "b7a2be6acdf6b7722d9ff5864298fab56e1f782a74d516daf9f2e98be3d57b72",
+      "size": 78745,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data-seat-source--tracked-source-manifest.json",
+      "sha256": "939ed25dca2a45bdfeac89e026a448fdd8c11d317b77f6a01bcb614caddd9a03",
+      "size": 1026796,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data-seat-runner-native--FINAL-SEAL.json",
+      "sha256": "8725988edd4b4aec00ac405428d95c3a48cfbb265a104e4ae2037fd1a6c7b65f",
+      "size": 3224,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data-seat-runner-native--FINAL-SHA256SUMS",
+      "sha256": "465193acdde6b6f21f84a178c06e88377c391b576cb6393e43761b21a06914ba",
+      "size": 1201,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data-seat-runner-native--RESULT-SHA256SUMS",
+      "sha256": "5086f874b0ec5be899855935c15b57e341c91a0382d95cda0d6749d5903362a6",
+      "size": 844,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data-seat-runner-native--native-tool-result-launch.json",
+      "sha256": "688dbbe13c7aad9a34fe9e9f07467bd556d4655b0d04fc88da9249017c42cb67",
+      "size": 667,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data-seat-runner-native--native-tool-result-poll-1.json",
+      "sha256": "7b4a0318bfccb4bd45919372f96e609474d528640f5c23aceb80866296b75b3d",
+      "size": 413,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data-seat-runner-native--native-tool-result-poll-2.json",
+      "sha256": "10686119af2671deb0f387cd28dea207f8b4341f2477d6acedb5f94f10f9f888",
+      "size": 305,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data-seat-runner-native--native-tool-result-poll-3.json",
+      "sha256": "5266d68496d366c4d6d17ba62073ec801576e5152a8a128ffc50cc5d95ee292d",
+      "size": 9422,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data-seat-runner-native--owner-raw-event-review.json",
+      "sha256": "e8a148d7a574c00eeadb1dd6118b7f0ee71c2e8c0d0155cfeeb1dc7e4a7c95b1",
+      "size": 696,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data-seat-runner-native--preflight.json",
+      "sha256": "55c7a07d999edf8ed12d92d70a37e98e0afeed3a89b33e54f3075818b5ae6a74",
+      "size": 1495,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data-seat-runner-native--receipt.json",
+      "sha256": "a0d73ac5cf77b3b4b2a65d50fce9f09af645ca8ae16afa8a304bee1ce01c8ab1",
+      "size": 9759,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data-seat-runner-native--resource-gate.json",
+      "sha256": "5ba3a13498b6006d7c16cb5b813a02f10dc08e7797e81e5e6431ea69e99d4bec",
+      "size": 835,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data-seat-runner-native--run.py",
+      "sha256": "e3674addb6977cc1af7426567850dff167dca2f8e48b568ad8d3553370e6220d",
+      "size": 5876,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data-seat-runner-native--started.json",
+      "sha256": "e54e1d3604181a2e37a5eca8998abdf7adf61dfe79decc1adeac1a414342f5df",
+      "size": 685,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data-seat-runner-native--stdout.jsonl",
+      "sha256": "7320277058c35f750cd46ac6d096cafd1ac09b2520948e510c374d35be69b844",
+      "size": 26909,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "qa-data-seat70c03--review.json",
+      "sha256": "d52666ac99f386f4dc466a2b6b3096635816fd53de6fa9dcb5402b7bb0714d01",
+      "size": 21772,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data-seat70c03-source--internal--seatrollout--store.go.txt",
+      "sha256": "3352f67fc62e52e2ed3ddf8c0031fdecb66dc29928bdba451a9c5ac9702b6dc2",
+      "size": 7282,
+      "copied_mode": "0644"
+    },
+    {
+      "filename": "data-seat70c03-source--internal--seatrollout--reader_test.go.txt",
+      "sha256": "4d60864498b996535809662078eac1bb5f7092695a3d8d707a245ec9d42a3bb4",
+      "size": 5485,
+      "copied_mode": "0644"
+    }
+  ],
+  "original_file_mappings": [
+    {
+      "label": "app-d0b",
+      "relative_path": "final-seal.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/final-seal.json",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "ad9dfdbbfef70ef7d1e878854f2a2af7bee850d8dd9fb2fdfbee32ecc937dde6",
+      "size": 2616,
+      "copied_filename": "app-d0b--final-seal.json"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "fullsource-manifest.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/fullsource-manifest.json",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "d00e8518785acaea61a761a03edbf890f412db7a48bff00a610d8ca68c7f7c7f",
+      "size": 475988,
+      "copied_filename": "app-d0b--fullsource-manifest.json"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "locks-released.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/locks-released.json",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "ec6000fb02135e176e64e7bf6b1f63cdc6afa1baaddc29266f30c6fee86564fd",
+      "size": 275,
+      "copied_filename": "app-d0b--locks-released.json"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "native-launch.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/native-launch.json",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "0fc0ab64a781dde9da08be1acf54c46c6bdb0a9758986dcbefffcfddb7712743",
+      "size": 259,
+      "copied_filename": "app-d0b--native-launch.json"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "native-poll-1.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/native-poll-1.json",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "8bdfd240e004cadedcfd3789fa32450dc3ae904f75c61d8a716aff89465813cd",
+      "size": 130,
+      "copied_filename": "app-d0b--native-poll-1.json"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "native-poll-2.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/native-poll-2.json",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "5ec4dba5218f755e16256bbac4728e4a23c4f6226a610b70a93764a7724e50a2",
+      "size": 131,
+      "copied_filename": "app-d0b--native-poll-2.json"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "native-poll-3.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/native-poll-3.json",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "7ea38a335a5b687394d5e7b87fe6c3e182c065c6fadd8fb7c2ad33fbfc21fba9",
+      "size": 130,
+      "copied_filename": "app-d0b--native-poll-3.json"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "native-poll-4.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/native-poll-4.json",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "164300d21d5dddfe6ac79efac2b9ce05e3744b3d3a04429c4cbb6ac266460ba5",
+      "size": 131,
+      "copied_filename": "app-d0b--native-poll-4.json"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "native-poll-5.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/native-poll-5.json",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "be92129cdf971b22dfbe40496af11a5e415bbe02bc3a20e9dacb77c358f4affb",
+      "size": 131,
+      "copied_filename": "app-d0b--native-poll-5.json"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "native-poll-6.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/native-poll-6.json",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "d87cfa6a7f8b0f660e6749f1ae5f913c9937b855cd9c2b6727dcd9574d89546f",
+      "size": 131,
+      "copied_filename": "app-d0b--native-poll-6.json"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "native-terminal.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/native-terminal.json",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "d84e88e64015fda0490f9f21552e75ec2f0f3317706237639560487c503243d5",
+      "size": 1448,
+      "copied_filename": "app-d0b--native-terminal.json"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "phase-attribution.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/phase-attribution.json",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "4b8b0cdf98a19222cc3c4be2e86553054aac86d199c9142a22860b78ce3668fa",
+      "size": 3554,
+      "copied_filename": "app-d0b--phase-attribution.json"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "postflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/postflight.json",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "7af5ba0463e077d986d361d05da94a4e42cecec5fccf93dfb9b3a7dcd6678257",
+      "size": 476991,
+      "copied_filename": "app-d0b--postflight.json"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/preflight.json",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "2bb3460696f56d95bc3478363d09d0d3e93f2a2218e1adc9c5e4e1f723dc01fa",
+      "size": 485436,
+      "copied_filename": "app-d0b--preflight.json"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "qa-grant.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/qa-grant.json",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "4d66c8744ec4f5fa4cc9fa425215ba5b94ce37535edccd109fb0375c09802a8f",
+      "size": 561,
+      "copied_filename": "app-d0b--qa-grant.json"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "receipt.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/receipt.json",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "53a34ff980bb400a6e5e7eacc7e8adbdc910b04cce5465f02f9d48f2bae82ed3",
+      "size": 1383,
+      "copied_filename": "app-d0b--receipt.json"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "request.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/request.json",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "e10f808fa48933de79e56fdd533c1b1432774b0b3b39aac28fe5774dac66e0cb",
+      "size": 6110,
+      "copied_filename": "app-d0b--request.json"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "resource-check.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/resource-check.json",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "ec6646865b4fb64166f06cdbddc10375b2eea39c389195ba1c9b4a90a46fb37a",
+      "size": 1089,
+      "copied_filename": "app-d0b--resource-check.json"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "run.py",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/run.py",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "de50a17b60ae8f4a3a69323822ee961f1499be92384b36edcfd054dbf1e4a734",
+      "size": 4951,
+      "copied_filename": "app-d0b--run.py"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "runtime.stderr",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/runtime.stderr",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "copied_filename": "app-d0b--runtime.stderr"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "runtime.stdout",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/runtime.stdout",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "a2f6e7bab49c66949b6511bbbada8a2424a08398e0e6a8236e376fef8054d3c4",
+      "size": 302444,
+      "copied_filename": "app-d0b--runtime.stdout"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "seal.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/seal.json",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "73fc4459602667137c887fe518b2126143b84e83cc45998eef515c0ab907e094",
+      "size": 1044,
+      "copied_filename": "app-d0b--seal.json"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "started.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/started.json",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "f822ffb99e89c71e5038a8d9d223839bbaa8ad653802738198132d4c84bb9d38",
+      "size": 758,
+      "copied_filename": "app-d0b--started.json"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "static-import-closure.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/static-import-closure.json",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "dbb00d284344a03e4a09251e8557b60a2375b66c1f026e0368e08a8d3b266442",
+      "size": 57551,
+      "copied_filename": "app-d0b--static-import-closure.json"
+    },
+    {
+      "label": "app-d0b",
+      "relative_path": "static-review.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/static-review.json",
+      "original_directory": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8",
+      "original_mode": "0644",
+      "sha256": "5a7a9346341a8de13457b84823b3e9447a26a077544842ccc230dcb08a429b2c",
+      "size": 4029,
+      "copied_filename": "app-d0b--static-review.json"
+    },
+    {
+      "label": "oci64-runtime",
+      "relative_path": "final-runtime-seal.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/final-runtime-seal.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-64a55-120-sealed",
+      "original_mode": "0644",
+      "sha256": "c40122f255bb3415a2268345121b092068b5ee79949faceda3031cefd8c50062",
+      "size": 3246,
+      "copied_filename": "oci64-runtime--final-runtime-seal.json"
+    },
+    {
+      "label": "oci64-runtime",
+      "relative_path": "final-seal.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/final-seal.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-64a55-120-sealed",
+      "original_mode": "0644",
+      "sha256": "d60e0fc3c1ffdfe97f30b17593d0b69eee6c853b1145ca6efa4474286385dc36",
+      "size": 851,
+      "copied_filename": "oci64-runtime--final-seal.json"
+    },
+    {
+      "label": "oci64-runtime",
+      "relative_path": "fresh-host-preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/fresh-host-preflight.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-64a55-120-sealed",
+      "original_mode": "0644",
+      "sha256": "6d3c928cbb8989b6888d663083c16ae83001161e3ec0640cda1cc8d592258a74",
+      "size": 175,
+      "copied_filename": "oci64-runtime--fresh-host-preflight.json"
+    },
+    {
+      "label": "oci64-runtime",
+      "relative_path": "fullsource-manifest.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/fullsource-manifest.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-64a55-120-sealed",
+      "original_mode": "0644",
+      "sha256": "95cd945be1348e2a96d11375e90df4c9ebda48eb8b2e7f96cb7cae1a672923bf",
+      "size": 595944,
+      "copied_filename": "oci64-runtime--fullsource-manifest.json"
+    },
+    {
+      "label": "oci64-runtime",
+      "relative_path": "native-launch.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/native-launch.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-64a55-120-sealed",
+      "original_mode": "0644",
+      "sha256": "c3030d3222b123208ecfc2f2f94fa1db04f7935b082c2092d46ba3da3a0461fd",
+      "size": 109,
+      "copied_filename": "oci64-runtime--native-launch.json"
+    },
+    {
+      "label": "oci64-runtime",
+      "relative_path": "native-poll-1.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/native-poll-1.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-64a55-120-sealed",
+      "original_mode": "0644",
+      "sha256": "254458128f509c60c0d3ba2faac95d310e428b0da8eef3cff5902a3ec5224a16",
+      "size": 4954,
+      "copied_filename": "oci64-runtime--native-poll-1.json"
+    },
+    {
+      "label": "oci64-runtime",
+      "relative_path": "native-resource-preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/native-resource-preflight.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-64a55-120-sealed",
+      "original_mode": "0644",
+      "sha256": "ebf8d2382899a96a665d219c3a9bfab85375dd94156aaab581cea38ab0333f04",
+      "size": 301,
+      "copied_filename": "oci64-runtime--native-resource-preflight.json"
+    },
+    {
+      "label": "oci64-runtime",
+      "relative_path": "preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/preflight.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-64a55-120-sealed",
+      "original_mode": "0644",
+      "sha256": "d34f0d72bca5c06d55b310aa916a11fda01fffb67778f9d168e2cf2bc392b7b4",
+      "size": 2976,
+      "copied_filename": "oci64-runtime--preflight.json"
+    },
+    {
+      "label": "oci64-runtime",
+      "relative_path": "receipt.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/receipt.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-64a55-120-sealed",
+      "original_mode": "0644",
+      "sha256": "977c216b59eb4eb06e0baf5ed8ee5373ed3353dddb75bb665b5200c60c085dff",
+      "size": 5016,
+      "copied_filename": "oci64-runtime--receipt.json"
+    },
+    {
+      "label": "oci64-runtime",
+      "relative_path": "request.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/request.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-64a55-120-sealed",
+      "original_mode": "0644",
+      "sha256": "d374ed2464d16dc22183bf191ffb7bcf59b21c88459dca9054f3102be895c124",
+      "size": 4662,
+      "copied_filename": "oci64-runtime--request.json"
+    },
+    {
+      "label": "oci64-runtime",
+      "relative_path": "run.py",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/run.py",
+      "original_directory": "/tmp/ts-oci-provision-runtime-64a55-120-sealed",
+      "original_mode": "0644",
+      "sha256": "b1c1e4168be2ab7764b6f568edcb1d689146b99dece3a494071d7e478349103b",
+      "size": 4412,
+      "copied_filename": "oci64-runtime--run.py"
+    },
+    {
+      "label": "oci64-runtime",
+      "relative_path": "runtime-readiness.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/runtime-readiness.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-64a55-120-sealed",
+      "original_mode": "0644",
+      "sha256": "48b8cec2f960e46cc3bfbecfa5f852d7c9dc38e82d9b36292e586e9e03258014",
+      "size": 81517,
+      "copied_filename": "oci64-runtime--runtime-readiness.json"
+    },
+    {
+      "label": "oci64-runtime",
+      "relative_path": "runtime.stderr",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/runtime.stderr",
+      "original_directory": "/tmp/ts-oci-provision-runtime-64a55-120-sealed",
+      "original_mode": "0644",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "copied_filename": "app-d0b--runtime.stderr",
+      "alias_of_original": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/runtime.stderr"
+    },
+    {
+      "label": "oci64-runtime",
+      "relative_path": "runtime.stdout",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/runtime.stdout",
+      "original_directory": "/tmp/ts-oci-provision-runtime-64a55-120-sealed",
+      "original_mode": "0644",
+      "sha256": "73cc5d51e8f726dc5f209d4912c99fc8e7317e2d4ccd057c024cc9e68bee0fb1",
+      "size": 608,
+      "copied_filename": "oci64-runtime--runtime.stdout"
+    },
+    {
+      "label": "oci64-runtime",
+      "relative_path": "started.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/started.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-64a55-120-sealed",
+      "original_mode": "0644",
+      "sha256": "f95c99e3cfb3bc505c40e382011e1c2a37c7f71ca1d3963351efb1e8eaad6277",
+      "size": 823,
+      "copied_filename": "oci64-runtime--started.json"
+    },
+    {
+      "label": "oci64-runtime",
+      "relative_path": "terminal-index.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/terminal-index.json",
+      "original_directory": "/tmp/ts-oci-provision-runtime-64a55-120-sealed",
+      "original_mode": "0644",
+      "sha256": "365687d69c90e404744920164b49e97c49ba575c59af7bf2cc5906512050f62f",
+      "size": 1147,
+      "copied_filename": "oci64-runtime--terminal-index.json"
+    },
+    {
+      "label": "management-native",
+      "relative_path": "final-seal.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-native-4dylvs9v/final-seal.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-native-4dylvs9v",
+      "original_mode": "0644",
+      "sha256": "b7f2c62faeb85ad8655f6a2e1b50b04f2b7463d5546c6ea90de8345b6b7fd861",
+      "size": 6100,
+      "copied_filename": "management-native--final-seal.json"
+    },
+    {
+      "label": "management-native",
+      "relative_path": "full-event-review.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-native-4dylvs9v/full-event-review.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-native-4dylvs9v",
+      "original_mode": "0644",
+      "sha256": "25a4f48ea0025057936b2baa7e7f95765e45c2233ba2f8bc9bcaa5652acf3a1d",
+      "size": 4008,
+      "copied_filename": "management-native--full-event-review.json"
+    },
+    {
+      "label": "management-native",
+      "relative_path": "launch.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-native-4dylvs9v/launch.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-native-4dylvs9v",
+      "original_mode": "0644",
+      "sha256": "728e2333b56d4514fc331dacf3b58a8eaec59296bf4f2fac442b774fa069f8e1",
+      "size": 665,
+      "copied_filename": "management-native--launch.json"
+    },
+    {
+      "label": "management-native",
+      "relative_path": "midrun-observation-native.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-native-4dylvs9v/midrun-observation-native.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-native-4dylvs9v",
+      "original_mode": "0644",
+      "sha256": "4ab7a515247df6fa22ce666dc015cc506b43608dc5d403c3f59fe8b67dacf61c",
+      "size": 735,
+      "copied_filename": "management-native--midrun-observation-native.json"
+    },
+    {
+      "label": "management-native",
+      "relative_path": "poll-001.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-native-4dylvs9v/poll-001.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-native-4dylvs9v",
+      "original_mode": "0644",
+      "sha256": "085e6c35d54aa1cc6b5183555daf6f33986aba76291b03b66400bc18a483b2e3",
+      "size": 418,
+      "copied_filename": "management-native--poll-001.json"
+    },
+    {
+      "label": "management-native",
+      "relative_path": "poll-002.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-native-4dylvs9v/poll-002.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-native-4dylvs9v",
+      "original_mode": "0644",
+      "sha256": "ab2220dec069479c0e1c77e9dca2b542c1f701f08015bc61686bdace5801ed99",
+      "size": 300,
+      "copied_filename": "management-native--poll-002.json"
+    },
+    {
+      "label": "management-native",
+      "relative_path": "poll-003.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-native-4dylvs9v/poll-003.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-native-4dylvs9v",
+      "original_mode": "0644",
+      "sha256": "47c2ce743623603e926678bbb67084660b1c5499dbeb6c137a55878e4b9a9ad9",
+      "size": 301,
+      "copied_filename": "management-native--poll-003.json"
+    },
+    {
+      "label": "management-native",
+      "relative_path": "poll-004.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-native-4dylvs9v/poll-004.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-native-4dylvs9v",
+      "original_mode": "0644",
+      "sha256": "86b99da7e4b1826b7ef3c1448b49352404ebe00ce36ad2e56e9f4a668b080df4",
+      "size": 303,
+      "copied_filename": "management-native--poll-004.json"
+    },
+    {
+      "label": "management-native",
+      "relative_path": "poll-005.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-native-4dylvs9v/poll-005.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-native-4dylvs9v",
+      "original_mode": "0644",
+      "sha256": "bb4de730b7c0e6f694d3fc37ee424eac96e08b703174852de7c34eacd2d50b47",
+      "size": 303,
+      "copied_filename": "management-native--poll-005.json"
+    },
+    {
+      "label": "management-native",
+      "relative_path": "poll-006.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-native-4dylvs9v/poll-006.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-native-4dylvs9v",
+      "original_mode": "0644",
+      "sha256": "3054085ce5824aaba3a07a1a6718ad5272b354f5e4bc64225f5e29937ba209ff",
+      "size": 303,
+      "copied_filename": "management-native--poll-006.json"
+    },
+    {
+      "label": "management-native",
+      "relative_path": "poll-007.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-native-4dylvs9v/poll-007.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-native-4dylvs9v",
+      "original_mode": "0644",
+      "sha256": "8091bf4dbfcf27ada51542a9618f509cf5907464c8434bd1864bd675f83210bc",
+      "size": 303,
+      "copied_filename": "management-native--poll-007.json"
+    },
+    {
+      "label": "management-native",
+      "relative_path": "poll-008.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-native-4dylvs9v/poll-008.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-native-4dylvs9v",
+      "original_mode": "0644",
+      "sha256": "27e57fe2507ba5e370527f2882f55d0d1cd8be6b79b577f20a691a8460e1f723",
+      "size": 303,
+      "copied_filename": "management-native--poll-008.json"
+    },
+    {
+      "label": "management-native",
+      "relative_path": "poll-009.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-native-4dylvs9v/poll-009.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-native-4dylvs9v",
+      "original_mode": "0644",
+      "sha256": "604bb7367cf9c16f23bdc6ec53a6f2c3a39b36f5ca0b11b7dfbf0ed238a0925f",
+      "size": 303,
+      "copied_filename": "management-native--poll-009.json"
+    },
+    {
+      "label": "management-native",
+      "relative_path": "poll-010.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-native-4dylvs9v/poll-010.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-native-4dylvs9v",
+      "original_mode": "0644",
+      "sha256": "d616ac75881dffa76108f88c05abae7cba305c231821e33e7b02a3e864c86d14",
+      "size": 9270,
+      "copied_filename": "management-native--poll-010.json"
+    },
+    {
+      "label": "management-native",
+      "relative_path": "resource-preflight-native.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-native-4dylvs9v/resource-preflight-native.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-native-4dylvs9v",
+      "original_mode": "0644",
+      "sha256": "541b0223bea194fb19a29fe935a4a0b8214bb706325426ed80a1fd7dbfd009d0",
+      "size": 1759,
+      "copied_filename": "management-native--resource-preflight-native.json"
+    },
+    {
+      "label": "management-native",
+      "relative_path": "resource-preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-native-4dylvs9v/resource-preflight.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-native-4dylvs9v",
+      "original_mode": "0644",
+      "sha256": "8bfe5ec5a398c8dbe579690ca465ae02affc23c5a4d814bcc2af62c4e38d46fa",
+      "size": 186,
+      "copied_filename": "management-native--resource-preflight.json"
+    },
+    {
+      "label": "management-runner",
+      "relative_path": "RESULT-SHA256SUMS",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-120-runner-_epv7y35/RESULT-SHA256SUMS",
+      "original_directory": "/tmp/ts-management-observation-2d158-120-runner-_epv7y35",
+      "original_mode": "0644",
+      "sha256": "f3c6583d9b021984c0f90a8a121aaee14ab353b9c737edb536ce0af2b0270761",
+      "size": 468,
+      "copied_filename": "management-runner--RESULT-SHA256SUMS"
+    },
+    {
+      "label": "management-runner",
+      "relative_path": "preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-120-runner-_epv7y35/preflight.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-120-runner-_epv7y35",
+      "original_mode": "0644",
+      "sha256": "bacb75f100b0d729aa895898704c693cffadb81900d9f3c3201709f93d0b15a3",
+      "size": 1807,
+      "copied_filename": "management-runner--preflight.json"
+    },
+    {
+      "label": "management-runner",
+      "relative_path": "receipt.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-120-runner-_epv7y35/receipt.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-120-runner-_epv7y35",
+      "original_mode": "0644",
+      "sha256": "3fa4e9e2211f3f54ce75b150a4181b75073461563b9393e4836b8ae4630cdfed",
+      "size": 9590,
+      "copied_filename": "management-runner--receipt.json"
+    },
+    {
+      "label": "management-runner",
+      "relative_path": "run.py",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-120-runner-_epv7y35/run.py",
+      "original_directory": "/tmp/ts-management-observation-2d158-120-runner-_epv7y35",
+      "original_mode": "0444",
+      "sha256": "5d0c94166da8ec52175bbb655a595a5991d210b8bcf1f6f7be2526caf020f19a",
+      "size": 5623,
+      "copied_filename": "management-runner--run.py"
+    },
+    {
+      "label": "management-runner",
+      "relative_path": "started.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-120-runner-_epv7y35/started.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-120-runner-_epv7y35",
+      "original_mode": "0644",
+      "sha256": "b2a6923ae73c67402c0439dab6b6125d322dbf04b9ad9adcc00cfb74ba4fae96",
+      "size": 997,
+      "copied_filename": "management-runner--started.json"
+    },
+    {
+      "label": "management-runner",
+      "relative_path": "stderr.log",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-120-runner-_epv7y35/stderr.log",
+      "original_directory": "/tmp/ts-management-observation-2d158-120-runner-_epv7y35",
+      "original_mode": "0644",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "copied_filename": "app-d0b--runtime.stderr",
+      "alias_of_original": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/runtime.stderr"
+    },
+    {
+      "label": "management-runner",
+      "relative_path": "stdout.jsonl",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-120-runner-_epv7y35/stdout.jsonl",
+      "original_directory": "/tmp/ts-management-observation-2d158-120-runner-_epv7y35",
+      "original_mode": "0644",
+      "sha256": "b2e56043d466f98901adc6f1f2ff62267f51592015bf0497bf3fe79b9a4fd02e",
+      "size": 91404,
+      "copied_filename": "management-runner--stdout.jsonl"
+    },
+    {
+      "label": "management-source",
+      "relative_path": "request.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-120-source-fd67jiak/request.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-120-source-fd67jiak",
+      "original_mode": "0444",
+      "sha256": "6622dcff83909fd593f1e810cc7f2c28a55a33edf26037d37282c511d742362c",
+      "size": 30834,
+      "copied_filename": "management-source--request.json"
+    },
+    {
+      "label": "management-source",
+      "relative_path": "seal.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-120-source-fd67jiak/seal.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-120-source-fd67jiak",
+      "original_mode": "0444",
+      "sha256": "08e29bdeb1193a7f8459f9de1727d5bf708caf11afde669cd95e8201138d08a7",
+      "size": 417,
+      "copied_filename": "management-source--seal.json"
+    },
+    {
+      "label": "management-source",
+      "relative_path": "static-effects.md",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-120-source-fd67jiak/static-effects.md",
+      "original_directory": "/tmp/ts-management-observation-2d158-120-source-fd67jiak",
+      "original_mode": "0444",
+      "sha256": "fb8c9176fd2a79085c827cf405968b5a0761f5a700ae7b55800ba58f2ef5e714",
+      "size": 7978,
+      "copied_filename": "management-source--static-effects.md"
+    },
+    {
+      "label": "management-source",
+      "relative_path": "static-import-closure.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-120-source-fd67jiak/static-import-closure.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-120-source-fd67jiak",
+      "original_mode": "0444",
+      "sha256": "5cf65ae0df69cb8058dcd6ff7dbe04492f657f3e4120c3b8c789414f9e8c203a",
+      "size": 194080,
+      "copied_filename": "management-source--static-import-closure.json"
+    },
+    {
+      "label": "management-source",
+      "relative_path": "tool-pins.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-120-source-fd67jiak/tool-pins.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-120-source-fd67jiak",
+      "original_mode": "0444",
+      "sha256": "df053f503abcb269c3a81f79d47edb0dcc092c8ec6d7425b7be9885ab0764c90",
+      "size": 2797,
+      "copied_filename": "management-source--tool-pins.json"
+    },
+    {
+      "label": "management-source",
+      "relative_path": "tracked-source-manifest.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-management-observation-2d158-120-source-fd67jiak/tracked-source-manifest.json",
+      "original_directory": "/tmp/ts-management-observation-2d158-120-source-fd67jiak",
+      "original_mode": "0444",
+      "sha256": "f5bfa15b9598eb7fa347693d3a451b2d0d599c56221a55c2ddc4c8be59adf175",
+      "size": 1138439,
+      "copied_filename": "management-source--tracked-source-manifest.json"
+    },
+    {
+      "label": "qa-app-d0b",
+      "relative_path": "review.json",
+      "kind": "accepted_qa_report",
+      "expected_sha256": "9c5fe39c0550f27b5bb9b674ea115f29b6e5ab60a1d00d6cf5f2e0583fd3fe39",
+      "original_absolute_path": "/tmp/ts-qa-app-d0b-manager-terminal-acceptance-hbmhdidh/review.json",
+      "original_directory": "/tmp/ts-qa-app-d0b-manager-terminal-acceptance-hbmhdidh",
+      "original_mode": "0644",
+      "sha256": "9c5fe39c0550f27b5bb9b674ea115f29b6e5ab60a1d00d6cf5f2e0583fd3fe39",
+      "size": 11279,
+      "copied_filename": "qa-app-d0b--review.json"
+    },
+    {
+      "label": "qa-oci64-runtime",
+      "relative_path": "ts-qa-provision64-terminal-failure-bkps8y8k.json",
+      "kind": "accepted_qa_report",
+      "expected_sha256": "5ada3a6fd437a6bba4edb6712013ec2c8cce5dcf0fcada784f18cb133081110d",
+      "original_absolute_path": "/tmp/ts-qa-provision64-terminal-failure-bkps8y8k.json",
+      "original_directory": "/tmp",
+      "original_mode": "0600",
+      "sha256": "5ada3a6fd437a6bba4edb6712013ec2c8cce5dcf0fcada784f18cb133081110d",
+      "size": 6309,
+      "copied_filename": "qa-oci64-runtime--ts-qa-provision64-terminal-failure-bkps8y8k.json"
+    },
+    {
+      "label": "qa-management-2d158",
+      "relative_path": "review.json",
+      "kind": "accepted_qa_report",
+      "expected_sha256": "a11137f8eb7e479241ad8864266a415677e83e0d829c5fb1194017b53c807344",
+      "original_absolute_path": "/tmp/ts-qa-management-2d158-terminal-failure-mxqjsifp/review.json",
+      "original_directory": "/tmp/ts-qa-management-2d158-terminal-failure-mxqjsifp",
+      "original_mode": "0644",
+      "sha256": "a11137f8eb7e479241ad8864266a415677e83e0d829c5fb1194017b53c807344",
+      "size": 21671,
+      "copied_filename": "qa-management-2d158--review.json"
+    },
+    {
+      "label": "app-d0b-source",
+      "relative_path": "internal/app/generic_runtime_integration_test.go",
+      "kind": "git_blob_source_snapshot",
+      "repository_path": "internal/app/generic_runtime_integration_test.go",
+      "source_commit": "d0b972460a0d6413aaa948a967a2c2406b407a4b",
+      "source_tree": "9603fd5ec7d35ebb02e7839d7e3521528cae116e",
+      "git_blob": "7621d9f2504b2945fe39157b431f9d1bb25a5416",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/fullsource-manifest.json",
+      "expected_sha256": "43a538eb983b9d60e20607803211ac69c03b3cd63011e07c553c80b522d41501",
+      "original_absolute_path": "/tmp/ts-app-native-evidence-6aab71080/internal/app/generic_runtime_integration_test.go",
+      "original_directory": "/tmp/ts-app-native-evidence-6aab71080",
+      "original_mode": "0644",
+      "sha256": "43a538eb983b9d60e20607803211ac69c03b3cd63011e07c553c80b522d41501",
+      "size": 44437,
+      "copied_filename": "app-d0b-source--internal--app--generic_runtime_integration_test.go.txt"
+    },
+    {
+      "label": "app-d0b-source",
+      "relative_path": "internal/swarmruntime/service.go",
+      "kind": "git_blob_source_snapshot",
+      "repository_path": "internal/swarmruntime/service.go",
+      "source_commit": "d0b972460a0d6413aaa948a967a2c2406b407a4b",
+      "source_tree": "9603fd5ec7d35ebb02e7839d7e3521528cae116e",
+      "git_blob": "fd2531a5e9cc514946c66682b7c241983e8d7fee",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/fullsource-manifest.json",
+      "expected_sha256": "d7c090584d774e9faf03b2f72bb6fe8ea2404746d46aed2b7ee58c6a64090a1e",
+      "original_absolute_path": "/tmp/ts-app-native-evidence-6aab71080/internal/swarmruntime/service.go",
+      "original_directory": "/tmp/ts-app-native-evidence-6aab71080",
+      "original_mode": "0644",
+      "sha256": "d7c090584d774e9faf03b2f72bb6fe8ea2404746d46aed2b7ee58c6a64090a1e",
+      "size": 15586,
+      "copied_filename": "app-d0b-source--internal--swarmruntime--service.go.txt"
+    },
+    {
+      "label": "app-d0b-source",
+      "relative_path": "internal/swarmruntime/service_authority_test.go",
+      "kind": "git_blob_source_snapshot",
+      "repository_path": "internal/swarmruntime/service_authority_test.go",
+      "source_commit": "d0b972460a0d6413aaa948a967a2c2406b407a4b",
+      "source_tree": "9603fd5ec7d35ebb02e7839d7e3521528cae116e",
+      "git_blob": "e60150c9fe42367299d9b11ff197005e5cdca53f",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/fullsource-manifest.json",
+      "expected_sha256": "0a94f39b2521b7ffb4cc63deaa43f7316dd627d044b21142ea900da6377374e8",
+      "original_absolute_path": "/tmp/ts-app-native-evidence-6aab71080/internal/swarmruntime/service_authority_test.go",
+      "original_directory": "/tmp/ts-app-native-evidence-6aab71080",
+      "original_mode": "0644",
+      "sha256": "0a94f39b2521b7ffb4cc63deaa43f7316dd627d044b21142ea900da6377374e8",
+      "size": 5976,
+      "copied_filename": "app-d0b-source--internal--swarmruntime--service_authority_test.go.txt"
+    },
+    {
+      "label": "management-2d158-source",
+      "relative_path": "internal/swarmruntime/management_integration_test.go",
+      "kind": "git_blob_source_snapshot",
+      "repository_path": "internal/swarmruntime/management_integration_test.go",
+      "source_commit": "2d15811884db8036d4c2348cbf1adaa6af1422f3",
+      "source_tree": "89edb76c39969780081df545e6f6f4bf9759086d",
+      "git_blob": "c7e61249c39658361cca9aacc5533bd0377d33c6",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-management-observation-2d158-120-source-fd67jiak/tracked-source-manifest.json",
+      "expected_sha256": "a81a658e8f644f591870eb4c5ea97faa7fe526bdcc93deb1594888dbd7b26ffc",
+      "original_absolute_path": "/tmp/ts-core-management-observation/internal/swarmruntime/management_integration_test.go",
+      "original_directory": "/tmp/ts-core-management-observation",
+      "original_mode": "0644",
+      "sha256": "a81a658e8f644f591870eb4c5ea97faa7fe526bdcc93deb1594888dbd7b26ffc",
+      "size": 26316,
+      "copied_filename": "management-2d158-source--internal--swarmruntime--management_integration_test.go.txt"
+    },
+    {
+      "label": "management-2d158-source",
+      "relative_path": "internal/swarmruntime/management_observation_integration_test.go",
+      "kind": "git_blob_source_snapshot",
+      "repository_path": "internal/swarmruntime/management_observation_integration_test.go",
+      "source_commit": "2d15811884db8036d4c2348cbf1adaa6af1422f3",
+      "source_tree": "89edb76c39969780081df545e6f6f4bf9759086d",
+      "git_blob": "8b743fb69c0855e86d6e4669c86748852edfaa46",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-management-observation-2d158-120-source-fd67jiak/tracked-source-manifest.json",
+      "expected_sha256": "8fb949bf6fdd27e9d70977fe034b1420321e7e1c850dbdc27fe4cfabb0004e05",
+      "original_absolute_path": "/tmp/ts-core-management-observation/internal/swarmruntime/management_observation_integration_test.go",
+      "original_directory": "/tmp/ts-core-management-observation",
+      "original_mode": "0644",
+      "sha256": "8fb949bf6fdd27e9d70977fe034b1420321e7e1c850dbdc27fe4cfabb0004e05",
+      "size": 8938,
+      "copied_filename": "management-2d158-source--internal--swarmruntime--management_observation_integration_test.go.txt"
+    },
+    {
+      "label": "management-2d158-source",
+      "relative_path": "internal/swarmruntime/management_observation_send_test.go",
+      "kind": "git_blob_source_snapshot",
+      "repository_path": "internal/swarmruntime/management_observation_send_test.go",
+      "source_commit": "2d15811884db8036d4c2348cbf1adaa6af1422f3",
+      "source_tree": "89edb76c39969780081df545e6f6f4bf9759086d",
+      "git_blob": "62980ec386da6bf059baf13e5229a624acefd47e",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-management-observation-2d158-120-source-fd67jiak/tracked-source-manifest.json",
+      "expected_sha256": "d98f5cb4bd7399bec6e61b432f980cc30253d43f326adb3a86cf7e116d7e97a4",
+      "original_absolute_path": "/tmp/ts-core-management-observation/internal/swarmruntime/management_observation_send_test.go",
+      "original_directory": "/tmp/ts-core-management-observation",
+      "original_mode": "0644",
+      "sha256": "d98f5cb4bd7399bec6e61b432f980cc30253d43f326adb3a86cf7e116d7e97a4",
+      "size": 4252,
+      "copied_filename": "management-2d158-source--internal--swarmruntime--management_observation_send_test.go.txt"
+    },
+    {
+      "label": "management-2d158-source",
+      "relative_path": "internal/swarmruntime/management.go",
+      "kind": "git_blob_source_snapshot",
+      "repository_path": "internal/swarmruntime/management.go",
+      "source_commit": "2d15811884db8036d4c2348cbf1adaa6af1422f3",
+      "source_tree": "89edb76c39969780081df545e6f6f4bf9759086d",
+      "git_blob": "2c7867f1df52acc89826d4051bf26c6690511758",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-management-observation-2d158-120-source-fd67jiak/tracked-source-manifest.json",
+      "expected_sha256": "51e916e98bbcdf63806dd2fa57dcff3e1cbcddfa3748a1abf4bd33954fe4dbb1",
+      "original_absolute_path": "/tmp/ts-core-management-observation/internal/swarmruntime/management.go",
+      "original_directory": "/tmp/ts-core-management-observation",
+      "original_mode": "0644",
+      "sha256": "51e916e98bbcdf63806dd2fa57dcff3e1cbcddfa3748a1abf4bd33954fe4dbb1",
+      "size": 25257,
+      "copied_filename": "management-2d158-source--internal--swarmruntime--management.go.txt"
+    },
+    {
+      "label": "management-2d158-source",
+      "relative_path": "internal/swarmruntime/management_observation.go",
+      "kind": "git_blob_source_snapshot",
+      "repository_path": "internal/swarmruntime/management_observation.go",
+      "source_commit": "2d15811884db8036d4c2348cbf1adaa6af1422f3",
+      "source_tree": "89edb76c39969780081df545e6f6f4bf9759086d",
+      "git_blob": "cac41eb87b8cfdf42983dccafe8d149d05c3e411",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-management-observation-2d158-120-source-fd67jiak/tracked-source-manifest.json",
+      "expected_sha256": "50030d68852bbfa2b8b238b4fcb6491c3666448f74f5ed90b903e1f00df0dd51",
+      "original_absolute_path": "/tmp/ts-core-management-observation/internal/swarmruntime/management_observation.go",
+      "original_directory": "/tmp/ts-core-management-observation",
+      "original_mode": "0644",
+      "sha256": "50030d68852bbfa2b8b238b4fcb6491c3666448f74f5ed90b903e1f00df0dd51",
+      "size": 15728,
+      "copied_filename": "management-2d158-source--internal--swarmruntime--management_observation.go.txt"
+    },
+    {
+      "label": "management-2d158-source",
+      "relative_path": "internal/swarmruntime/management_public_ca.go",
+      "kind": "git_blob_source_snapshot",
+      "repository_path": "internal/swarmruntime/management_public_ca.go",
+      "source_commit": "2d15811884db8036d4c2348cbf1adaa6af1422f3",
+      "source_tree": "89edb76c39969780081df545e6f6f4bf9759086d",
+      "git_blob": "ef164355262653d24cd1ba44f43c0b8b9514c17e",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-management-observation-2d158-120-source-fd67jiak/tracked-source-manifest.json",
+      "expected_sha256": "eb8b1c10a3fa29e5c4e7531e584248da9c3a2faf983a57af22810a41323c96ee",
+      "original_absolute_path": "/tmp/ts-core-management-observation/internal/swarmruntime/management_public_ca.go",
+      "original_directory": "/tmp/ts-core-management-observation",
+      "original_mode": "0644",
+      "sha256": "eb8b1c10a3fa29e5c4e7531e584248da9c3a2faf983a57af22810a41323c96ee",
+      "size": 1013,
+      "copied_filename": "management-2d158-source--internal--swarmruntime--management_public_ca.go.txt"
+    },
+    {
+      "label": "management-2d158-source",
+      "relative_path": "internal/swarmruntime/management_worker.go",
+      "kind": "git_blob_source_snapshot",
+      "repository_path": "internal/swarmruntime/management_worker.go",
+      "source_commit": "2d15811884db8036d4c2348cbf1adaa6af1422f3",
+      "source_tree": "89edb76c39969780081df545e6f6f4bf9759086d",
+      "git_blob": "feaff083088f54bdb136e8b0f69defb0120cb270",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-management-observation-2d158-120-source-fd67jiak/tracked-source-manifest.json",
+      "expected_sha256": "ba596adcd0c453ca5e64c76da0dfa5e51dc357edcd53a0fe1da25f2783f98f72",
+      "original_absolute_path": "/tmp/ts-core-management-observation/internal/swarmruntime/management_worker.go",
+      "original_directory": "/tmp/ts-core-management-observation",
+      "original_mode": "0644",
+      "sha256": "ba596adcd0c453ca5e64c76da0dfa5e51dc357edcd53a0fe1da25f2783f98f72",
+      "size": 8474,
+      "copied_filename": "management-2d158-source--internal--swarmruntime--management_worker.go.txt"
+    },
+    {
+      "label": "oci64-source",
+      "relative_path": "internal/region/foundation_integration_test.go",
+      "kind": "git_blob_source_snapshot",
+      "repository_path": "internal/region/foundation_integration_test.go",
+      "source_commit": "64a55bb2fc0034279732cfb8a99c06b75cf90d6a",
+      "source_tree": "430c89f4408d37377f6492f7d827c58f2578cb89",
+      "git_blob": "de7e8c8a032010eb9b3bf82d084ed8288a0d4ac4",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/fullsource-manifest.json",
+      "expected_sha256": "f2d19b8f38c6cd13b30a1f5447f726b508b73b4f34922e7fe2f78f1e5bb5edc2",
+      "original_absolute_path": "/tmp/ts-oci-foundation-region-compile/internal/region/foundation_integration_test.go",
+      "original_directory": "/tmp/ts-oci-foundation-region-compile",
+      "original_mode": "0644",
+      "sha256": "f2d19b8f38c6cd13b30a1f5447f726b508b73b4f34922e7fe2f78f1e5bb5edc2",
+      "size": 29190,
+      "copied_filename": "oci64-source--internal--region--foundation_integration_test.go.txt"
+    },
+    {
+      "label": "oci64-source",
+      "relative_path": "internal/region/foundation_provision_integration_test.go",
+      "kind": "git_blob_source_snapshot",
+      "repository_path": "internal/region/foundation_provision_integration_test.go",
+      "source_commit": "64a55bb2fc0034279732cfb8a99c06b75cf90d6a",
+      "source_tree": "430c89f4408d37377f6492f7d827c58f2578cb89",
+      "git_blob": "239e99a9799dee4bd4d3cf6dfeae35b655b24bde",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/fullsource-manifest.json",
+      "expected_sha256": "7976524e9684163483fadda4633c9e5d4eea4dbe1fd0b792ca3b9a8fc9d7a9da",
+      "original_absolute_path": "/tmp/ts-oci-foundation-region-compile/internal/region/foundation_provision_integration_test.go",
+      "original_directory": "/tmp/ts-oci-foundation-region-compile",
+      "original_mode": "0644",
+      "sha256": "7976524e9684163483fadda4633c9e5d4eea4dbe1fd0b792ca3b9a8fc9d7a9da",
+      "size": 38234,
+      "copied_filename": "oci64-source--internal--region--foundation_provision_integration_test.go.txt"
+    },
+    {
+      "label": "oci64-source",
+      "relative_path": "internal/region/object.go",
+      "kind": "git_blob_source_snapshot",
+      "repository_path": "internal/region/object.go",
+      "source_commit": "64a55bb2fc0034279732cfb8a99c06b75cf90d6a",
+      "source_tree": "430c89f4408d37377f6492f7d827c58f2578cb89",
+      "git_blob": "4d86b44666bdb6f3115111dea8d1a7fd2c71aa26",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/fullsource-manifest.json",
+      "expected_sha256": "2fab39b2675b49a4452bf7dd8597cb3f2cc4c837e7b002a45f96156fa6863a8e",
+      "original_absolute_path": "/tmp/ts-oci-foundation-region-compile/internal/region/object.go",
+      "original_directory": "/tmp/ts-oci-foundation-region-compile",
+      "original_mode": "0644",
+      "sha256": "2fab39b2675b49a4452bf7dd8597cb3f2cc4c837e7b002a45f96156fa6863a8e",
+      "size": 10843,
+      "copied_filename": "oci64-source--internal--region--object.go.txt"
+    },
+    {
+      "label": "oci64-source",
+      "relative_path": "internal/region/foundation_writer.go",
+      "kind": "git_blob_source_snapshot",
+      "repository_path": "internal/region/foundation_writer.go",
+      "source_commit": "64a55bb2fc0034279732cfb8a99c06b75cf90d6a",
+      "source_tree": "430c89f4408d37377f6492f7d827c58f2578cb89",
+      "git_blob": "96f7bddebcb790a02c05013864cfec581645cc21",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/fullsource-manifest.json",
+      "expected_sha256": "950e59368463709c6038b49a26f9d743b8d28bc35b9b46011afa7617628b208f",
+      "original_absolute_path": "/tmp/ts-oci-foundation-region-compile/internal/region/foundation_writer.go",
+      "original_directory": "/tmp/ts-oci-foundation-region-compile",
+      "original_mode": "0644",
+      "sha256": "950e59368463709c6038b49a26f9d743b8d28bc35b9b46011afa7617628b208f",
+      "size": 29003,
+      "copied_filename": "oci64-source--internal--region--foundation_writer.go.txt"
+    },
+    {
+      "label": "oci64-source",
+      "relative_path": "internal/region/netbird_launch.go",
+      "kind": "git_blob_source_snapshot",
+      "repository_path": "internal/region/netbird_launch.go",
+      "source_commit": "64a55bb2fc0034279732cfb8a99c06b75cf90d6a",
+      "source_tree": "430c89f4408d37377f6492f7d827c58f2578cb89",
+      "git_blob": "dfe0540824a79b09f8b0fdcfbd42eebd873ec27c",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/fullsource-manifest.json",
+      "expected_sha256": "d4fdc26a32ace786815f546f85773a853e02c72c7575a9912ad8f5f0338217f2",
+      "original_absolute_path": "/tmp/ts-oci-foundation-region-compile/internal/region/netbird_launch.go",
+      "original_directory": "/tmp/ts-oci-foundation-region-compile",
+      "original_mode": "0644",
+      "sha256": "d4fdc26a32ace786815f546f85773a853e02c72c7575a9912ad8f5f0338217f2",
+      "size": 18465,
+      "copied_filename": "oci64-source--internal--region--netbird_launch.go.txt"
+    },
+    {
+      "label": "oci64-source",
+      "relative_path": "internal/region/source_founder.go",
+      "kind": "git_blob_source_snapshot",
+      "repository_path": "internal/region/source_founder.go",
+      "source_commit": "64a55bb2fc0034279732cfb8a99c06b75cf90d6a",
+      "source_tree": "430c89f4408d37377f6492f7d827c58f2578cb89",
+      "git_blob": "dd27e5d7818b36d8d1018c12ca9c4bb8f719d718",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/fullsource-manifest.json",
+      "expected_sha256": "030f28119a5fa155b6ffa3eae5c98171bcc7a429a6f836af4596005cb7829083",
+      "original_absolute_path": "/tmp/ts-oci-foundation-region-compile/internal/region/source_founder.go",
+      "original_directory": "/tmp/ts-oci-foundation-region-compile",
+      "original_mode": "0644",
+      "sha256": "030f28119a5fa155b6ffa3eae5c98171bcc7a429a6f836af4596005cb7829083",
+      "size": 24459,
+      "copied_filename": "oci64-source--internal--region--source_founder.go.txt"
+    },
+    {
+      "label": "data-seat-source",
+      "relative_path": "request.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-data-seat-reader-70c03-source-cpeo1dha/request.json",
+      "original_directory": "/tmp/ts-data-seat-reader-70c03-source-cpeo1dha",
+      "original_mode": "0444",
+      "sha256": "06f39dce12696999d860c03673da0ca95329645481468016458e94e34c92868f",
+      "size": 5464,
+      "copied_filename": "data-seat-source--request.json"
+    },
+    {
+      "label": "data-seat-source",
+      "relative_path": "seal.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-data-seat-reader-70c03-source-cpeo1dha/seal.json",
+      "original_directory": "/tmp/ts-data-seat-reader-70c03-source-cpeo1dha",
+      "original_mode": "0444",
+      "sha256": "ed6ddc5fe4067260198fa546ab2cf215722e9b186d93205c1a1778b41e8e3e5c",
+      "size": 1028,
+      "copied_filename": "data-seat-source--seal.json"
+    },
+    {
+      "label": "data-seat-source",
+      "relative_path": "static-effects.md",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-data-seat-reader-70c03-source-cpeo1dha/static-effects.md",
+      "original_directory": "/tmp/ts-data-seat-reader-70c03-source-cpeo1dha",
+      "original_mode": "0444",
+      "sha256": "7b50ce9a6fafb12c5a649062dd14353d9f92dd8571ca8657e2046bff732e0886",
+      "size": 3062,
+      "copied_filename": "data-seat-source--static-effects.md"
+    },
+    {
+      "label": "data-seat-source",
+      "relative_path": "static-import-closure.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-data-seat-reader-70c03-source-cpeo1dha/static-import-closure.json",
+      "original_directory": "/tmp/ts-data-seat-reader-70c03-source-cpeo1dha",
+      "original_mode": "0444",
+      "sha256": "b7a2be6acdf6b7722d9ff5864298fab56e1f782a74d516daf9f2e98be3d57b72",
+      "size": 78745,
+      "copied_filename": "data-seat-source--static-import-closure.json"
+    },
+    {
+      "label": "data-seat-source",
+      "relative_path": "tool-pins.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-data-seat-reader-70c03-source-cpeo1dha/tool-pins.json",
+      "original_directory": "/tmp/ts-data-seat-reader-70c03-source-cpeo1dha",
+      "original_mode": "0444",
+      "sha256": "df053f503abcb269c3a81f79d47edb0dcc092c8ec6d7425b7be9885ab0764c90",
+      "size": 2797,
+      "copied_filename": "management-source--tool-pins.json",
+      "alias_of_original": "/tmp/ts-management-observation-2d158-120-source-fd67jiak/tool-pins.json"
+    },
+    {
+      "label": "data-seat-source",
+      "relative_path": "tracked-source-manifest.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-data-seat-reader-70c03-source-cpeo1dha/tracked-source-manifest.json",
+      "original_directory": "/tmp/ts-data-seat-reader-70c03-source-cpeo1dha",
+      "original_mode": "0444",
+      "sha256": "939ed25dca2a45bdfeac89e026a448fdd8c11d317b77f6a01bcb614caddd9a03",
+      "size": 1026796,
+      "copied_filename": "data-seat-source--tracked-source-manifest.json"
+    },
+    {
+      "label": "data-seat-runner-native",
+      "relative_path": "FINAL-SEAL.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w/FINAL-SEAL.json",
+      "original_directory": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w",
+      "original_mode": "0644",
+      "sha256": "8725988edd4b4aec00ac405428d95c3a48cfbb265a104e4ae2037fd1a6c7b65f",
+      "size": 3224,
+      "copied_filename": "data-seat-runner-native--FINAL-SEAL.json"
+    },
+    {
+      "label": "data-seat-runner-native",
+      "relative_path": "FINAL-SHA256SUMS",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w/FINAL-SHA256SUMS",
+      "original_directory": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w",
+      "original_mode": "0644",
+      "sha256": "465193acdde6b6f21f84a178c06e88377c391b576cb6393e43761b21a06914ba",
+      "size": 1201,
+      "copied_filename": "data-seat-runner-native--FINAL-SHA256SUMS"
+    },
+    {
+      "label": "data-seat-runner-native",
+      "relative_path": "RESULT-SHA256SUMS",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w/RESULT-SHA256SUMS",
+      "original_directory": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w",
+      "original_mode": "0644",
+      "sha256": "5086f874b0ec5be899855935c15b57e341c91a0382d95cda0d6749d5903362a6",
+      "size": 844,
+      "copied_filename": "data-seat-runner-native--RESULT-SHA256SUMS"
+    },
+    {
+      "label": "data-seat-runner-native",
+      "relative_path": "native-tool-result-launch.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w/native-tool-result-launch.json",
+      "original_directory": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w",
+      "original_mode": "0644",
+      "sha256": "688dbbe13c7aad9a34fe9e9f07467bd556d4655b0d04fc88da9249017c42cb67",
+      "size": 667,
+      "copied_filename": "data-seat-runner-native--native-tool-result-launch.json"
+    },
+    {
+      "label": "data-seat-runner-native",
+      "relative_path": "native-tool-result-poll-1.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w/native-tool-result-poll-1.json",
+      "original_directory": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w",
+      "original_mode": "0644",
+      "sha256": "7b4a0318bfccb4bd45919372f96e609474d528640f5c23aceb80866296b75b3d",
+      "size": 413,
+      "copied_filename": "data-seat-runner-native--native-tool-result-poll-1.json"
+    },
+    {
+      "label": "data-seat-runner-native",
+      "relative_path": "native-tool-result-poll-2.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w/native-tool-result-poll-2.json",
+      "original_directory": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w",
+      "original_mode": "0644",
+      "sha256": "10686119af2671deb0f387cd28dea207f8b4341f2477d6acedb5f94f10f9f888",
+      "size": 305,
+      "copied_filename": "data-seat-runner-native--native-tool-result-poll-2.json"
+    },
+    {
+      "label": "data-seat-runner-native",
+      "relative_path": "native-tool-result-poll-3.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w/native-tool-result-poll-3.json",
+      "original_directory": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w",
+      "original_mode": "0644",
+      "sha256": "5266d68496d366c4d6d17ba62073ec801576e5152a8a128ffc50cc5d95ee292d",
+      "size": 9422,
+      "copied_filename": "data-seat-runner-native--native-tool-result-poll-3.json"
+    },
+    {
+      "label": "data-seat-runner-native",
+      "relative_path": "owner-raw-event-review.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w/owner-raw-event-review.json",
+      "original_directory": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w",
+      "original_mode": "0644",
+      "sha256": "e8a148d7a574c00eeadb1dd6118b7f0ee71c2e8c0d0155cfeeb1dc7e4a7c95b1",
+      "size": 696,
+      "copied_filename": "data-seat-runner-native--owner-raw-event-review.json"
+    },
+    {
+      "label": "data-seat-runner-native",
+      "relative_path": "preflight.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w/preflight.json",
+      "original_directory": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w",
+      "original_mode": "0644",
+      "sha256": "55c7a07d999edf8ed12d92d70a37e98e0afeed3a89b33e54f3075818b5ae6a74",
+      "size": 1495,
+      "copied_filename": "data-seat-runner-native--preflight.json"
+    },
+    {
+      "label": "data-seat-runner-native",
+      "relative_path": "receipt.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w/receipt.json",
+      "original_directory": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w",
+      "original_mode": "0644",
+      "sha256": "a0d73ac5cf77b3b4b2a65d50fce9f09af645ca8ae16afa8a304bee1ce01c8ab1",
+      "size": 9759,
+      "copied_filename": "data-seat-runner-native--receipt.json"
+    },
+    {
+      "label": "data-seat-runner-native",
+      "relative_path": "resource-gate.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w/resource-gate.json",
+      "original_directory": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w",
+      "original_mode": "0644",
+      "sha256": "5ba3a13498b6006d7c16cb5b813a02f10dc08e7797e81e5e6431ea69e99d4bec",
+      "size": 835,
+      "copied_filename": "data-seat-runner-native--resource-gate.json"
+    },
+    {
+      "label": "data-seat-runner-native",
+      "relative_path": "run.py",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w/run.py",
+      "original_directory": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w",
+      "original_mode": "0444",
+      "sha256": "e3674addb6977cc1af7426567850dff167dca2f8e48b568ad8d3553370e6220d",
+      "size": 5876,
+      "copied_filename": "data-seat-runner-native--run.py"
+    },
+    {
+      "label": "data-seat-runner-native",
+      "relative_path": "started.json",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w/started.json",
+      "original_directory": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w",
+      "original_mode": "0644",
+      "sha256": "e54e1d3604181a2e37a5eca8998abdf7adf61dfe79decc1adeac1a414342f5df",
+      "size": 685,
+      "copied_filename": "data-seat-runner-native--started.json"
+    },
+    {
+      "label": "data-seat-runner-native",
+      "relative_path": "stderr.log",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w/stderr.log",
+      "original_directory": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w",
+      "original_mode": "0644",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "copied_filename": "app-d0b--runtime.stderr",
+      "alias_of_original": "/tmp/ts-app-runtime-d0b972460-retention-m84_77t8/runtime.stderr"
+    },
+    {
+      "label": "data-seat-runner-native",
+      "relative_path": "stdout.jsonl",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w/stdout.jsonl",
+      "original_directory": "/tmp/ts-data-seat-reader-70c03-runner-uc2zp81w",
+      "original_mode": "0644",
+      "sha256": "7320277058c35f750cd46ac6d096cafd1ac09b2520948e510c374d35be69b844",
+      "size": 26909,
+      "copied_filename": "data-seat-runner-native--stdout.jsonl"
+    },
+    {
+      "label": "qa-data-seat70c03",
+      "relative_path": "review.json",
+      "kind": "accepted_qa_report",
+      "expected_sha256": "d52666ac99f386f4dc466a2b6b3096635816fd53de6fa9dcb5402b7bb0714d01",
+      "original_absolute_path": "/tmp/ts-qa-data-seat70c03-terminal-acceptance-a6in2jhz/review.json",
+      "original_directory": "/tmp/ts-qa-data-seat70c03-terminal-acceptance-a6in2jhz",
+      "original_mode": "0644",
+      "sha256": "d52666ac99f386f4dc466a2b6b3096635816fd53de6fa9dcb5402b7bb0714d01",
+      "size": 21772,
+      "copied_filename": "qa-data-seat70c03--review.json"
+    },
+    {
+      "label": "data-seat70c03-source",
+      "relative_path": "internal/seatrollout/store.go",
+      "kind": "git_blob_source_snapshot",
+      "repository_path": "internal/seatrollout/store.go",
+      "source_commit": "70c03e8ca01a9bbe667e489608eb48f62c8762af",
+      "source_tree": "ac1551c89f7e52e4d956727800279cc35d3f1a39",
+      "git_blob": "bda3e148c89b7a3142344768e2b36510b5d9c1c6",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-data-seat-reader-70c03-source-cpeo1dha/tracked-source-manifest.json",
+      "expected_sha256": "3352f67fc62e52e2ed3ddf8c0031fdecb66dc29928bdba451a9c5ac9702b6dc2",
+      "original_absolute_path": "/tmp/ts-data-seat-reader/internal/seatrollout/store.go",
+      "original_directory": "/tmp/ts-data-seat-reader",
+      "original_mode": "0644",
+      "sha256": "3352f67fc62e52e2ed3ddf8c0031fdecb66dc29928bdba451a9c5ac9702b6dc2",
+      "size": 7282,
+      "copied_filename": "data-seat70c03-source--internal--seatrollout--store.go.txt"
+    },
+    {
+      "label": "data-seat70c03-source",
+      "relative_path": "internal/seatrollout/reader_test.go",
+      "kind": "git_blob_source_snapshot",
+      "repository_path": "internal/seatrollout/reader_test.go",
+      "source_commit": "70c03e8ca01a9bbe667e489608eb48f62c8762af",
+      "source_tree": "ac1551c89f7e52e4d956727800279cc35d3f1a39",
+      "git_blob": "ee2d4c1a5697cbc3a6753bddbe1d57417d581bff",
+      "git_mode": "100644",
+      "source_manifest": "/tmp/ts-data-seat-reader-70c03-source-cpeo1dha/tracked-source-manifest.json",
+      "expected_sha256": "4d60864498b996535809662078eac1bb5f7092695a3d8d707a245ec9d42a3bb4",
+      "original_absolute_path": "/tmp/ts-data-seat-reader/internal/seatrollout/reader_test.go",
+      "original_directory": "/tmp/ts-data-seat-reader",
+      "original_mode": "0644",
+      "sha256": "4d60864498b996535809662078eac1bb5f7092695a3d8d707a245ec9d42a3bb4",
+      "size": 5485,
+      "copied_filename": "data-seat70c03-source--internal--seatrollout--reader_test.go.txt"
+    }
+  ],
+  "excluded_files": [
+    {
+      "label": "oci64-runtime",
+      "relative_path": "runtime-region.test",
+      "kind": "retained_evidence",
+      "original_absolute_path": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/runtime-region.test",
+      "original_directory": "/tmp/ts-oci-provision-runtime-64a55-120-sealed",
+      "original_mode": "0600",
+      "sha256": "446596085ee51b95485a2076d3575dfa9141ceac09c0b561373e55016167333a",
+      "size": 62893977,
+      "reason": "ELF binary excluded; exact original SHA256, size and mode retained"
+    }
+  ],
+  "generated_files": [
+    "README.md",
+    "MANIFEST.json",
+    "SHA256SUMS"
+  ],
+  "verification": {
+    "all_mappings_rehashed_against_originals": true,
+    "all_aliases_compared_byte_for_byte": true,
+    "all_excluded_elf_rehashed": true,
+    "source_text_snapshots_equal_immutable_git_blobs_and_pinned_manifests": true,
+    "historical_records_copied_unchanged": true,
+    "all_four_qa_reports_match_requested_pins": true,
+    "all_four_frozen_worktrees_remain_clean": true
+  },
+  "checksum_rule": "SHA256SUMS directly hashes copied payloads, README.md and MANIFEST.json; excludes itself.",
+  "scope_frozen_utc": "2026-10-17T04:50:10.126783+00:00",
+  "scope_additions_closed": true
+}

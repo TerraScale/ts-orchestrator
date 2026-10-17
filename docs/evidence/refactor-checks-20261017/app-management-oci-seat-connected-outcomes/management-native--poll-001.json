@@ -1,0 +1,16 @@
+{
+  "tool": "write_stdin",
+  "args": {
+    "session_id": 60404,
+    "chars": "",
+    "yield_time_ms": 1000,
+    "max_output_tokens": 10000
+  },
+  "result": {
+    "chunk_id": "23a8dc",
+    "wall_time_seconds": 5.00161416,
+    "session_id": 60404,
+    "original_token_count": 27,
+    "output": "{\"state\": \"STARTED\", \"pid\": 673367, \"output\": \"/tmp/ts-management-observation-2d158-120-runner-_epv7y35\"}\n"
+  }
+}

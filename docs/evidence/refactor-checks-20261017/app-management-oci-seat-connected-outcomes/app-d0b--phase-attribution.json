@@ -1,0 +1,63 @@
+{
+  "method": "Sole selected connected root PASS plus immutable ordered source assertions; raw task/release/session events corroborate deliberate failure phases.",
+  "result": "All assertions in TestGenericRuntimeSignedManagerIntegration passed, including strict current-role refusal after removal and original retained native KV/profile/provenance/archived-claim preservation.",
+  "completed_assertions": [
+    "initial delivery acceptance and application readiness; autoscale2 and signed resources",
+    "failed-task repair and equivalent replay; rollout102, rejection103/rollback, monotonic refusal, recovery104",
+    "HTTP failure refusal, signed session stop/restart, stale-policy refusal",
+    "zero-replica drain followed by three-manager election, durable floors, role removal and zero legacy writes",
+    "removed-role reader refusal plus unchanged original history/profile/provenance KV bytes+sequences and archived verified signed claim bytes"
+  ],
+  "limitations": [
+    "Election follows zero replicas: no live workload failover proof",
+    "Native executor and external recipient remain simulations",
+    "No OCI/IAM/cloud/native production, full retirement or OBS connected qualification claim"
+  ],
+  "raw_events": [
+    {
+      "stdout_line": 87,
+      "event": {
+        "Time": "2026-10-17T01:36:19.101125598-03:00",
+        "Action": "output",
+        "Package": "github.com/TerraScale/ts-orchestrator/internal/app",
+        "Test": "TestGenericRuntimeSignedManagerIntegration",
+        "Output": "time=\"2026-10-17T01:36:19-03:00\" level=error msg=\"fatal task error\" error=\"application task failed\" module=node/agent/taskmanager node.id=te2vj0sxdcd8u5irsdwhd00hj service.id=rac0u5e0zqh6j3u7fgb2jd1wz task.id=b1ccgjf4y49thrfxpk6yf65jc\n"
+      },
+      "raw_sha256": "e6fec87b6452c243a909b4149bcece601c04b657c4e087a38e8e16187f153926"
+    },
+    {
+      "stdout_line": 155,
+      "event": {
+        "Time": "2026-10-17T01:37:05.444118306-03:00",
+        "Action": "output",
+        "Package": "github.com/TerraScale/ts-orchestrator/internal/app",
+        "Test": "TestGenericRuntimeSignedManagerIntegration",
+        "Output": "time=\"2026-10-17T01:37:05-03:00\" level=error msg=\"fatal task error\" error=\"application rejected candidate release\" module=node/agent/taskmanager node.id=te2vj0sxdcd8u5irsdwhd00hj service.id=rac0u5e0zqh6j3u7fgb2jd1wz task.id=n3hs2iel1azn754bs48h8hi2l\n"
+      },
+      "raw_sha256": "fd503e469acd61518beead01ec936378f2fb76e5f3685b222bf5684a35a7a66b"
+    },
+    {
+      "stdout_line": 196,
+      "event": {
+        "Time": "2026-10-17T01:37:40.561879176-03:00",
+        "Action": "output",
+        "Package": "github.com/TerraScale/ts-orchestrator/internal/app",
+        "Test": "TestGenericRuntimeSignedManagerIntegration",
+        "Output": "    generic_runtime_integration_test.go:262: first signed container apply refusal: signed service release rolled back; previous revision is application-ready\n"
+      },
+      "raw_sha256": "12cc7d9d50210b48c4aec7a6a3b72d2020c825412d3c3272f751b67f72274cb6"
+    },
+    {
+      "stdout_line": 827,
+      "event": {
+        "Time": "2026-10-17T01:39:01.598163731-03:00",
+        "Action": "pass",
+        "Package": "github.com/TerraScale/ts-orchestrator/internal/app",
+        "Test": "TestGenericRuntimeSignedManagerIntegration",
+        "Elapsed": 164.12
+      },
+      "raw_sha256": "a6a71d3349e392163b9c1b1934ba949b6a3ddcc36a5e7ba30390e6e653c85224"
+    }
+  ],
+  "source_file_sha256": "43a538eb983b9d60e20607803211ac69c03b3cd63011e07c553c80b522d41501"
+}

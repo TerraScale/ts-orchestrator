@@ -1,0 +1,8 @@
+{
+  "nonblocking_reacquire_then_release": [
+    "/tmp/ts-orch-refactor-general-check.lock",
+    "/tmp/ts-orch-refactor-gate-check.lock"
+  ],
+  "daemonfixture": "released at native terminal; original child PID659458 no longer exists",
+  "verified_epoch": 1792211994.9740472
+}

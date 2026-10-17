@@ -1,0 +1,9 @@
+{
+  "authority": "/root/qa_integrator explicit exact one-attempt grant received before launch",
+  "commit": "d0b972460a0d6413aaa948a967a2c2406b407a4b",
+  "request_sha256": "e10f808fa48933de79e56fdd533c1b1432774b0b3b39aac28fe5774dac66e0cb",
+  "wrapper_sha256": "de50a17b60ae8f4a3a69323822ee961f1499be92384b36edcfd054dbf1e4a734",
+  "independent_readiness_review": "/tmp/ts-qa-app-d0b-retention-readiness-kvexip8q/review.json",
+  "independent_readiness_review_sha256": "cbc753e94d9d4a6dc3be51630eed52626783c591a8bcd0189de001116be43f48",
+  "attempts_consumed": 1
+}

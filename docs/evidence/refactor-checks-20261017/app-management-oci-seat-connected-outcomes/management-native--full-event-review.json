@@ -1,0 +1,101 @@
+{
+  "actions": {
+    "fail": 4,
+    "output": 235,
+    "pass": 21,
+    "run": 24,
+    "start": 1
+  },
+  "active_at_end": [],
+  "event_count": 285,
+  "expected_count": 26,
+  "extra_runs": [],
+  "failures": [
+    {
+      "action": "fail",
+      "test": "TestManagementIntegration"
+    },
+    {
+      "action": "fail",
+      "test": "TestManagementObservationIntegration"
+    },
+    {
+      "action": "fail",
+      "test": "TestManagementObservationGRPCBlockedSend"
+    },
+    {
+      "action": "fail",
+      "test": null
+    }
+  ],
+  "missing_runs": [
+    "TestManagementIntegration/wrong_UID",
+    "TestManagementIntegration/wrong_service"
+  ],
+  "package_start_count": 1,
+  "package_terminal": [
+    {
+      "Action": "fail",
+      "Elapsed": 1.423,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Time": "2026-10-17T01:42:50.612866609-03:00"
+    }
+  ],
+  "raw_sha256": "b2e56043d466f98901adc6f1f2ff62267f51592015bf0497bf3fe79b9a4fd02e",
+  "run_counts": {
+    "TestManagementIntegration": 1,
+    "TestManagementIntegration//terrascale.swarmruntime.WorkerManagement/Admit": 1,
+    "TestManagementIntegration//terrascale.swarmruntime.WorkerManagement/Prepare": 1,
+    "TestManagementObservationBlockedSend": 1,
+    "TestManagementObservationBlockedSend/authority_revoked": 1,
+    "TestManagementObservationBlockedSend/caller_canceled": 1,
+    "TestManagementObservationBlockedSend/overflow": 1,
+    "TestManagementObservationGRPCBlockedSend": 1,
+    "TestManagementObservationIntegration": 1,
+    "TestManagementObservationSlowConsumer": 1,
+    "TestManagementObservationStoreBoundaries": 1,
+    "TestManagementPeerPIDAdmission": 1,
+    "TestManagementPeerPIDAdmission/admitted_kernel_peer": 1,
+    "TestManagementPeerPIDAdmission/invalid_kernel_pid": 1,
+    "TestManagementPeerPIDAdmission/missing_peer": 1,
+    "TestManagementPeerPIDAdmission/unadmitted_kernel_peer": 1,
+    "TestManagementStatefulEffectBracket": 1,
+    "TestManagementStatefulEffectBracket/canceled_context": 1,
+    "TestManagementStatefulEffectBracket/ignored_duplicate": 1,
+    "TestManagementStatefulEffectBracket/ignored_effect_error": 1,
+    "TestManagementStatefulEffectBracket/missing_effect": 1,
+    "TestManagementStatefulEffectBracket/nil_context": 1,
+    "TestManagementStatefulEffectBracket/one_synchronous_effect": 1,
+    "TestManagementStatefulEffectBracket/post_effect_veto": 1
+  },
+  "run_terminal_counts_equal": true,
+  "scope": "full raw-event lifecycle and exact scope review; no rerun",
+  "scope_lifecycle_issues": [],
+  "state": "NOT_QUALIFIED",
+  "terminal_counts": {
+    "TestManagementIntegration": 1,
+    "TestManagementIntegration//terrascale.swarmruntime.WorkerManagement/Admit": 1,
+    "TestManagementIntegration//terrascale.swarmruntime.WorkerManagement/Prepare": 1,
+    "TestManagementObservationBlockedSend": 1,
+    "TestManagementObservationBlockedSend/authority_revoked": 1,
+    "TestManagementObservationBlockedSend/caller_canceled": 1,
+    "TestManagementObservationBlockedSend/overflow": 1,
+    "TestManagementObservationGRPCBlockedSend": 1,
+    "TestManagementObservationIntegration": 1,
+    "TestManagementObservationSlowConsumer": 1,
+    "TestManagementObservationStoreBoundaries": 1,
+    "TestManagementPeerPIDAdmission": 1,
+    "TestManagementPeerPIDAdmission/admitted_kernel_peer": 1,
+    "TestManagementPeerPIDAdmission/invalid_kernel_pid": 1,
+    "TestManagementPeerPIDAdmission/missing_peer": 1,
+    "TestManagementPeerPIDAdmission/unadmitted_kernel_peer": 1,
+    "TestManagementStatefulEffectBracket": 1,
+    "TestManagementStatefulEffectBracket/canceled_context": 1,
+    "TestManagementStatefulEffectBracket/ignored_duplicate": 1,
+    "TestManagementStatefulEffectBracket/ignored_effect_error": 1,
+    "TestManagementStatefulEffectBracket/missing_effect": 1,
+    "TestManagementStatefulEffectBracket/nil_context": 1,
+    "TestManagementStatefulEffectBracket/one_synchronous_effect": 1,
+    "TestManagementStatefulEffectBracket/post_effect_veto": 1
+  }
+}
