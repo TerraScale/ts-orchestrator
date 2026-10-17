@@ -190,9 +190,56 @@ func TestOCIRProtectedSDKJournalRestartPreservesUncertainAttempt(t *testing.T) {
 	if err != nil || acceptedRevision != revision+1 || loaded.TokenOperation != state.TokenOperation || loaded.TokenID != state.TokenID || !loaded.TokenExpires.Equal(state.TokenExpires) {
 		t.Fatalf("original uncertain attempt lost during restart: %+v %v", loaded, err)
 	}
-	record, _, err := store.Load(t.Context(), "GRU")
+	record, protectedETag, err := store.Load(t.Context(), "GRU")
 	if err != nil {
 		t.Fatal(err)
+	}
+	rejectRemoval := func(stage string) {
+		t.Helper()
+		t.Run("sibling-removal-"+stage, func(t *testing.T) {
+			snapshot, etag, err := store.Load(t.Context(), "GRU")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if snapshot.OCIRIssuances[key].State.Stage != stage {
+				t.Fatal("fixture did not persist requested stage")
+			}
+			removed := snapshot
+			removed.OCIRIssuances = nil
+			if _, err := store.CompareAndSwap(t.Context(), removed, etag); err == nil {
+				t.Fatal("omitted issuance sibling reset original operation")
+			}
+			preserved, currentETag, err := store.Load(t.Context(), "GRU")
+			if err != nil || currentETag != etag || preserved.OCIRIssuances[key].State.OperationID != state.OperationID || preserved.OCIRIssuances[key].Attempts[state.TokenOperation].TokenID != state.TokenID {
+				t.Fatal("rejected omission changed original disk history")
+			}
+		})
+	}
+	rejectRemoval("vault-pending")
+	for _, field := range []string{"attempts", "requests", "origin"} {
+		t.Run("history-removal-"+field, func(t *testing.T) {
+			wire, err := json.Marshal(record)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var removed region.FoundationRecord
+			if err := json.Unmarshal(wire, &removed); err != nil {
+				t.Fatal(err)
+			}
+			entry := removed.OCIRIssuances[key]
+			switch field {
+			case "attempts":
+				entry.Attempts = nil
+			case "requests":
+				entry.Requests = nil
+			case "origin":
+				entry.Origin = region.OCIRIssuanceOrigin{}
+			}
+			removed.OCIRIssuances[key] = entry
+			if _, err := store.CompareAndSwap(t.Context(), removed, protectedETag); err == nil {
+				t.Fatal("original uncertain issuance history was removed")
+			}
+		})
 	}
 	proof := record.OCIRIssuances[key].Attempts[state.TokenOperation]
 	if len(record.OCIRIssuances[key].Requests) != 1 {
@@ -221,6 +268,20 @@ func TestOCIRProtectedSDKJournalRestartPreservesUncertainAttempt(t *testing.T) {
 	if _, err := journal.CompareAndSwap(t.Context(), key, loaded, revision); err == nil {
 		t.Fatal("stale pre-response CAS revision accepted")
 	}
+	// Seed a completed public receipt to verify every other root writer also
+	// preserves ready history. This does not qualify Vault publication.
+	ready := loaded
+	ready.Stage = "ready"
+	ready.TokenOperation = ""
+	ready.BeforeTokens = nil
+	ready.SecretID = "ocid1.vaultsecret.oc1.sa-saopaulo-1.pull"
+	ready.Version = 1
+	ready.Hash = strings.Repeat("c", 64)
+	ready.PublishedAt = time.Now().UTC()
+	if _, err := journal.CompareAndSwap(t.Context(), key, ready, acceptedRevision); err != nil {
+		t.Fatal(err)
+	}
+	rejectRemoval("ready")
 	fenced.Store(true)
 	if _, _, err := journal.Load(t.Context(), key); err == nil {
 		t.Fatal("fenced source read accepted")
