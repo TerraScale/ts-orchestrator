@@ -98,11 +98,11 @@ func (s *SignedFootprint) boundStartup(ctx, original context.Context, startup Bo
 	if err != nil {
 		return BootstrapStartupIntent{}, nil, nil, err
 	}
-	original, err := json.Marshal(startup, json.Deterministic(true))
+	startupWire, err := json.Marshal(startup, json.Deterministic(true))
 	if err != nil {
 		return BootstrapStartupIntent{}, nil, nil, err
 	}
-	originalDigest := sha256.Sum256(original)
+	originalDigest := sha256.Sum256(startupWire)
 	if verified.TemplateDigest() != hex.EncodeToString(originalDigest[:]) {
 		return BootstrapStartupIntent{}, nil, nil, errors.New("regional startup differs from original signed template")
 	}
