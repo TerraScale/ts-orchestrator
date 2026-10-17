@@ -99,10 +99,14 @@ func (a *attempt) ensurePool(ctx context.Context, management core.ComputeManagem
 }
 
 func (a *attempt) ensureConfiguration(ctx context.Context, management core.ComputeManagementClient, poolID string) (string, error) {
+	profileSHA, err := digestValue(a.worker.Profile().Profile())
+	if err != nil {
+		return "", err
+	}
 	if poolID != "" {
 		found := ""
 		for id, config := range a.record.CapacityPools[poolID].Configurations {
-			if config.RecipeSHA256 == a.recipe.SHA256() {
+			if config.RecipeSHA256 == a.recipe.SHA256() && config.ProfileSHA256 == profileSHA {
 				if found != "" {
 					return "", errors.New("one pool recipe has conflicting protected configurations")
 				}
@@ -127,7 +131,7 @@ func (a *attempt) ensureConfiguration(ctx context.Context, management core.Compu
 			return "", err
 		}
 		create = region.PoolCreateRecord{OperationID: a.receipt.OperationID, PoolName: nodescale.PoolName(a.recipe.Cell, a.recipe.Capacity), Kind: "configuration",
-			RecipeSHA256: a.recipe.SHA256(), GrantSHA256: a.receipt.GrantSHA256, Generation: a.receipt.GrantGeneration, ConfigurationSHA256: configurationSHA, Request: *wire}
+			RecipeSHA256: a.recipe.SHA256(), ProfileSHA256: profileSHA, GrantSHA256: a.receipt.GrantSHA256, Generation: a.receipt.GrantGeneration, ConfigurationSHA256: configurationSHA, Request: *wire}
 		a.record.CapacityCreates[key] = create
 		if err := a.save(ctx); err != nil {
 			return "", err
@@ -168,7 +172,7 @@ func (a *attempt) ensureConfiguration(ctx context.Context, management core.Compu
 
 func configurationRecord(create region.PoolCreateRecord) region.PoolConfigurationRecord {
 	return region.PoolConfigurationRecord{ConfigurationID: create.ResourceID, OperationID: create.OperationID, RecipeSHA256: create.RecipeSHA256,
-		ConfigurationSHA256: create.ConfigurationSHA256, GrantSHA256: create.GrantSHA256, Generation: create.Generation, Create: create.Request}
+		ConfigurationSHA256: create.ConfigurationSHA256, ProfileSHA256: create.ProfileSHA256, GrantSHA256: create.GrantSHA256, Generation: create.Generation, Create: create.Request}
 }
 
 func (a *attempt) verifyConfiguration(ctx context.Context, management core.ComputeManagementClient, id, expectedSHA string) error {
@@ -198,7 +202,7 @@ func (a *attempt) createPool(ctx context.Context, management core.ComputeManagem
 			return "", err
 		}
 		create = region.PoolCreateRecord{OperationID: a.receipt.OperationID, PoolName: value(request.DisplayName), Kind: "pool", RecipeSHA256: a.recipe.SHA256(),
-			GrantSHA256: a.receipt.GrantSHA256, Generation: a.receipt.GrantGeneration, ConfigurationID: configurationID,
+			GrantSHA256: a.receipt.GrantSHA256, Generation: a.receipt.GrantGeneration, ConfigurationID: configurationID, ProfileSHA256: configuration.ProfileSHA256,
 			ConfigurationSHA256: configuration.ConfigurationSHA256, PlacementSHA256: placementSHA, Request: *wire}
 		a.record.CapacityCreates[key] = create
 		if err := a.save(ctx); err != nil {
@@ -227,6 +231,7 @@ func (a *attempt) createPool(ctx context.Context, management core.ComputeManagem
 	if _, exists := a.record.CapacityPools[create.ResourceID]; !exists {
 		a.record.CapacityPools[create.ResourceID] = region.PoolResourceRecord{PoolID: create.ResourceID, PoolName: create.PoolName, CompartmentID: a.receipt.CompartmentID,
 			OperationID: create.OperationID, GrantSHA256: create.GrantSHA256, Generation: create.Generation, Epoch: a.original.Epoch,
+			Role: a.recipe.Capacity.Role, Architecture: a.recipe.Capacity.Architecture, Shape: a.recipe.Capacity.Shape, ProfileSHA256: create.ProfileSHA256, RecipeSHA256: create.RecipeSHA256,
 			Create: create.Request, CurrentConfigurationID: configurationID, Configurations: map[string]region.PoolConfigurationRecord{configurationID: configurationRecord(configuration)},
 			ActiveOperationID: a.operation}
 		if err := a.save(ctx); err != nil {
