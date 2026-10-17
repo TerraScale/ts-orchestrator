@@ -179,6 +179,8 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 	if err != nil {
 		return deny("envelope")
 	}
+	ctx, cancelEnvelope := context.WithDeadline(ctx, envelope.ExpiresAt)
+	defer cancelEnvelope()
 	var binding DerivedStartupBinding
 	if json.Unmarshal(envelope.Payload, &binding, json.RejectUnknownMembers(true)) != nil || binding.SchemaVersion != 1 || binding.GrantSHA256 != template.GrantDigest() || binding.TemplateSHA256 != template.TemplateDigest() || !validDigest(binding.SourceSHA256) || binding.Manifest.validateStructure(true) != nil {
 		return deny("binding")

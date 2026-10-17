@@ -160,6 +160,17 @@ func LoadNetBirdBrokerSourceForOperation(ctx, originalCtx context.Context, facto
 	}
 	ctx, cancelStartup := context.WithDeadline(ctx, result.startup.ExpiresAt())
 	defer cancelStartup()
+	if wire := result.startup.LinkMaterialRecord(); len(wire) != 0 {
+		var link struct {
+			ExpiresAt time.Time `json:"expiresAt"`
+		}
+		if json.Unmarshal(wire, &link) != nil || link.ExpiresAt.IsZero() {
+			return NetBirdBrokerSource{}, ErrDelivery
+		}
+		result.expires = minDeadline(result.expires, link.ExpiresAt)
+	}
+	ctx, cancelMaterialLifetime := context.WithDeadline(ctx, result.ExpiresAt())
+	defer cancelMaterialLifetime()
 	for _, controller := range result.source.Manifest().ControllerSlots {
 		ip, err := netbird.BrokerRoute(ctx, netBirdControllerPeerName(cell, controller))
 		if err != nil {

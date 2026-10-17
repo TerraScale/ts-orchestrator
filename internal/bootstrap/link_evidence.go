@@ -67,21 +67,39 @@ func LinkDeliveryPayload(evidence RegionalLinkEvidence) ([]byte, error) {
 
 func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, client ObjectStorageClient, evidence RegionalLinkEvidence, now time.Time) (VerifiedStartupLink, error) {
 	deny := func() (VerifiedStartupLink, error) { return VerifiedStartupLink{}, ErrManifestInvalid }
-	if ctx.Err() != nil || client == nil || template.VerifyCurrentContext(ctx, now) != nil || !validDigest(evidence.SourceSHA256) || len(evidence.MaterialRecord) == 0 || len(evidence.MaterialRecord) > 48<<10 || len(evidence.Journal) == 0 || len(evidence.Journal) > 64<<10 {
+	if ctx == nil || ctx.Err() != nil || client == nil || !validDigest(evidence.SourceSHA256) || len(evidence.MaterialRecord) == 0 || len(evidence.MaterialRecord) > 48<<10 || len(evidence.Journal) == 0 || len(evidence.Journal) > 64<<10 {
+		return deny()
+	}
+	var candidate struct {
+		ExpiresAt time.Time `json:"expiresAt"`
+	}
+	if json.Unmarshal(evidence.MaterialRecord, &candidate) != nil || candidate.ExpiresAt.IsZero() {
+		return deny()
+	}
+	// Unverified input can only shorten the read budget; provenance still follows.
+	ctx, cancelTemplate := context.WithDeadline(ctx, minTimeLink(template.ExpiresAt(), candidate.ExpiresAt))
+	defer cancelTemplate()
+	if template.VerifyCurrentContext(ctx, now) != nil {
 		return deny()
 	}
 	regional, err := LoadRegionalSource(ctx, template, client, now)
 	if err != nil {
 		return deny()
 	}
+	ctx, cancelRegional := context.WithDeadline(ctx, regional.ExpiresAt())
+	defer cancelRegional()
 	homeTemplate, err := template.ForCell(ctx, oci.RegionGRU, now)
 	if err != nil {
 		return deny()
 	}
+	ctx, cancelHomeTemplate := context.WithDeadline(ctx, homeTemplate.ExpiresAt())
+	defer cancelHomeTemplate()
 	home, err := LoadRegionalSource(ctx, homeTemplate, client, now)
 	if err != nil {
 		return deny()
 	}
+	ctx, cancelHome := context.WithDeadline(ctx, home.ExpiresAt())
+	defer cancelHome()
 	isHome := template.startupIdentity().Cell == oci.RegionGRU
 	kind := "spoke-link-v1"
 	binding := ""
