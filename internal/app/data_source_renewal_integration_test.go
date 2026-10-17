@@ -1215,7 +1215,7 @@ func renewalQualifyImage(t *testing.T, cloud *renewalCloud, storage objectstorag
 // neither OCI tags alone nor an accepting image/registration callback suffice.
 func renewalOwnedFleet(t *testing.T, cloud *renewalCloud, js jetstream.JetStream,
 	state *placement.MemberState,
-) (oci.RegionConfig, *oci.VolumeMountObserver, oci.FleetObserver) {
+) (oci.RegionConfig, *oci.VolumeMountObserver, oci.FleetObserver, *oci.VolumeMountObserver) {
 	t.Helper()
 	images, now := managedImageVerifierFixture(t, runtime.GOARCH)
 	config := images.region
@@ -1361,6 +1361,10 @@ func renewalOwnedFleet(t *testing.T, cloud *renewalCloud, js jetstream.JetStream
 	if err != nil {
 		t.Fatal(err)
 	}
+	rootVolumes, err := oci.NewVolumeMountObserverWithReader(factory, config, intent, reader)
+	if err != nil {
+		t.Fatal(err)
+	}
 	fleet, err := oci.NewFleetObserver(config, intent, factory, reader, proof)
 	if err != nil {
 		t.Fatal(err)
@@ -1377,7 +1381,7 @@ func renewalOwnedFleet(t *testing.T, cloud *renewalCloud, js jetstream.JetStream
 	if err != nil || len(observed) != 1 || observed[0].BootDescriptorSHA256 != descriptorSHA || observed[0].Node != state.HostNode {
 		t.Fatalf("actual fleet observer and signed image: %v", err)
 	}
-	return config, volumes, fleet
+	return config, volumes, fleet, rootVolumes
 }
 
 func renewalPlacement(t *testing.T, material renewalMaterial, artifact, source string) placement.Intent {
@@ -1453,7 +1457,7 @@ func TestSourceRenewalOwnershipSDKFixtureIntegration(t *testing.T) {
 	material := renewalRetainMaterial(t, cloud, renewalStorageClient(t), control, "/srv/source-renewal")
 	intent := renewalPlacement(t, material, strings.Repeat("a", 64), strings.Repeat("b", 64))
 	state := renewalMemberState(t, intent, 0)
-	_, _, _ = renewalOwnedFleet(t, cloud, js, &state)
+	_, _, _, _ = renewalOwnedFleet(t, cloud, js, &state)
 	cloud.mu.Lock()
 	defer cloud.mu.Unlock()
 	if cloud.rejected != 0 {
@@ -1626,8 +1630,8 @@ func renewalWait(t *testing.T, label string, until time.Time, ready func() bool)
 }
 
 func renewalDelivery(t *testing.T, js jetstream.JetStream, control *authority.Runtime, members placement.Store,
-	upstream api.ControlClient, volumes *oci.VolumeMountObserver, signed renewalSignedRelease,
-) (*delivery.Service, *executionleader.Producer, delivery.Intent) {
+	upstream api.ControlClient, volumes, rootVolumes *oci.VolumeMountObserver, signed renewalSignedRelease,
+) (*delivery.Service, *executionleader.Producer, delivery.Intent, executionleader.ReadOnlyVerifierConfig) {
 	t.Helper()
 	identity := cellspec.Identity{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Cell: "gru", Environment: "production"}
 	profile := cellspec.Spec{Schema: cellspec.Schema, Identity: identity, Generation: 1, RequiresBinary: 1,
@@ -1732,7 +1736,36 @@ func renewalDelivery(t *testing.T, js jetstream.JetStream, control *authority.Ru
 	if err != nil {
 		t.Fatal(err)
 	}
-	return releases, producer, intent
+	return releases, producer, intent, executionleader.ReadOnlyVerifierConfig{Client: upstream, Authority: reader,
+		Members: pinReader, Delivery: rootDelivery, Volumes: rootVolumes, Roots: signed.roots, HistoricalRoots: signed.roots,
+		Evidence: evidence, RetainedEvidence: evidence, Allocations: allocations, RetainedAllocations: allocations,
+		Cell: "gru", Environment: "production"}
+}
+
+type renewalRootSources struct {
+	producer executionleader.ReadOnlyVerifierConfig
+	hosts    *host.Reader
+	relay    *host.Agent
+	leader   authority.Config
+}
+
+func (sources renewalRootSources) open(t *testing.T, ctx context.Context) (*swarmruntime.RootTaskReadiness, *authority.LeaseAdmission) {
+	t.Helper()
+	config := sources.producer
+	lease, err := config.Authority.AdmitRuntimeLease(ctx, sources.leader.DeploymentID, sources.leader.CandidateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.Lease = lease
+	producer, err := executionleader.NewReadOnlyVerifier(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readiness, err := swarmruntime.NewRootTaskReadiness(config.Client, config.Authority, lease, producer, sources.hosts, sources.relay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return readiness, lease
 }
 
 // This exercises Source renewal from retained starting-state records. Native
@@ -1755,8 +1788,8 @@ func TestSourceBackupRenewalIntegration(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = broker.Close() })
 	js := broker.JetStream()
-	control, err := authority.Start(t.Context(), js, authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-		Scope: "gru", CandidateID: entityid.New(), Replicas: 1})
+	leader := authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: entityid.New(), Replicas: 1}
+	control, err := authority.Start(t.Context(), js, leader)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1785,7 +1818,7 @@ func TestSourceBackupRenewalIntegration(t *testing.T) {
 	intent := renewalPlacement(t, material, fmt.Sprintf("%x", sha256.Sum256(native)), strings.Repeat("e", 64))
 	state := renewalMemberState(t, intent, 0)
 	state.AttachmentDevice = volume.DevicePath
-	config, volumes, fleet := renewalOwnedFleet(t, cloud, js, &state)
+	config, volumes, fleet, rootVolumes := renewalOwnedFleet(t, cloud, js, &state)
 	wire, err := protocol.EncodeJSON(intent)
 	if err != nil {
 		t.Fatal(err)
@@ -1854,7 +1887,7 @@ func TestSourceBackupRenewalIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	releases, producer, deployment := renewalDelivery(t, js, control, members, upstream, volumes, signed)
+	releases, producer, deployment, rootProducer := renewalDelivery(t, js, control, members, upstream, volumes, rootVolumes, signed)
 	effects, err := swarmruntime.NewEffectSessions(upstream, control, producer, volumes)
 	if err != nil {
 		t.Fatal(err)
@@ -1968,6 +2001,12 @@ func TestSourceBackupRenewalIntegration(t *testing.T) {
 	case <-t.Context().Done():
 		t.Fatal(t.Context().Err())
 	}
+	rootHosts, err := host.NewReader(t.Context(), host.ReaderConfig{Cell: "gru", Conn: broker.Conn(), JS: js,
+		StateReplicas: 1, HostMutations: rootProducer.Authority})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootSources := renewalRootSources{producer: rootProducer, hosts: rootHosts, relay: agent, leader: leader}
 	workerExecutor, err := swarmruntime.NewExecutor(filepath.Join(directory, "daemon.sock"), filepath.Join(directory, "worker-executor"))
 	if err != nil {
 		t.Fatal(err)
@@ -2025,7 +2064,7 @@ func TestSourceBackupRenewalIntegration(t *testing.T) {
 	if err := releases.Submit(t.Context(), deployment); err != nil {
 		t.Fatal(err)
 	}
-	renewalAssertBackupLifecycle(t, cloud, control, members, hosts, agent, session, source, client, upstream, effects, broker.Conn(), material, state, desired, response)
+	renewalAssertBackupLifecycle(t, cloud, control, members, hosts, agent, session, source, client, upstream, effects, broker.Conn(), material, state, desired, response, rootSources)
 }
 
 func renewalAssertBackupLifecycle(t *testing.T, cloud *renewalCloud, control *authority.Runtime, members placement.Store,
@@ -2033,6 +2072,7 @@ func renewalAssertBackupLifecycle(t *testing.T, cloud *renewalCloud, control *au
 	client *containerd.Client, manager api.ControlClient, effects *swarmruntime.EffectSessions, conn *nats.Conn,
 	material renewalMaterial, state placement.MemberState,
 	desired host.Desired, response ed25519.PrivateKey,
+	rootSources renewalRootSources,
 ) {
 	t.Helper()
 	scope := authority.WorkloadScope{DatabaseID: state.DatabaseID, PartitionID: state.PartitionID}
@@ -2153,6 +2193,48 @@ func renewalAssertBackupLifecycle(t *testing.T, cloud *renewalCloud, control *au
 	if len(proofs) != 2 {
 		t.Fatalf("capture and recheck require two fresh signed Source proof nonces, got %d", len(proofs))
 	}
+	// Keep root's source context live after capture; a temporary probe cancel
+	// would otherwise invalidate the original signed-session admission.
+	rootContext, cancelRoot := context.WithCancel(t.Context())
+	defer cancelRoot()
+	rootCaptureLimit := time.AfterFunc(4*time.Second, cancelRoot)
+	defer rootCaptureLimit.Stop()
+	rootStarted := time.Now()
+	attachmentPath := renewalFixtureCompute + "/20160918/volumeAttachments/" + state.AttachmentID
+	cloud.mu.Lock()
+	rootReadsBefore := cloud.routes[attachmentPath].reads
+	cloud.mu.Unlock()
+	rootReadiness, rootLease := rootSources.open(t, rootContext)
+	rootWitness, err := rootReadiness.CaptureTaskReadiness(rootContext, task)
+	if !rootCaptureLimit.Stop() {
+		t.Fatal("independent root capture exceeded its four-second bound")
+	}
+	if err != nil || rootWitness == nil || rootContext.Err() != nil || !time.Now().Before(rootWitness.Deadline()) {
+		t.Fatalf("independent root capture from genuine Source: %v", err)
+	}
+	rootDeadline := rootWitness.Deadline()
+	if rootDeadline.After(rootLease.Deadline()) || rootDeadline.After(first.ExpiresAt) || rootDeadline.After(rootStarted.Add(4*time.Second)) {
+		t.Fatal("root witness exceeded the original lease, effect or bounded capture")
+	}
+	if err := rootWitness.Recheck(t.Context()); err != nil || !rootWitness.Deadline().Equal(rootDeadline) {
+		t.Fatalf("independent root recheck changed its original witness: %v", err)
+	}
+	cloud.mu.Lock()
+	rootReadsAfter := cloud.routes[attachmentPath].reads
+	cloud.mu.Unlock()
+	if rootReadsAfter <= rootReadsBefore {
+		t.Fatal("root readiness did not independently read the real attachment")
+	}
+	_, rootProofs := renewalReadinessTraffic(t, conn, traffic, first, state.HostNode, rootStarted)
+	if len(rootProofs) != 2 {
+		t.Fatalf("root capture and recheck require two fresh signed Source proof nonces, got %d", len(rootProofs))
+	}
+	for nonce := range rootProofs {
+		if _, reused := proofs[nonce]; reused {
+			t.Fatal("root reused an ordinary readiness proof nonce")
+		}
+		proofs[nonce] = struct{}{}
+	}
 	operator, signer, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -2267,6 +2349,9 @@ func renewalAssertBackupLifecycle(t *testing.T, cloud *renewalCloud, control *au
 	if !witness.Deadline().Equal(firstReadinessDeadline) || time.Now().Before(firstReadinessDeadline) || witness.Recheck(t.Context()) == nil {
 		t.Fatal("renewed held effect extended or revived the original readiness witness")
 	}
+	if rootContext.Err() != nil || !rootWitness.Deadline().Equal(rootDeadline) || time.Now().Before(rootDeadline) || rootWitness.Recheck(t.Context()) == nil {
+		t.Fatal("renewed held effect extended or revived the independent root witness")
+	}
 	if _, err := agent.RuntimeWorkerIdentity(state.InstanceID, task.NodeID); err != nil {
 		t.Fatalf("host session expired instead of the original readiness witness: %v", err)
 	}
@@ -2291,6 +2376,20 @@ func renewalAssertBackupLifecycle(t *testing.T, cloud *renewalCloud, control *au
 	cloud.mu.Unlock()
 	if readsAfterCapture <= readsBeforeFailure {
 		t.Fatal("ETag readiness denial did not independently read the real attachment")
+	}
+	rootDeniedContext, cancelRootDenied := context.WithTimeout(t.Context(), 4*time.Second)
+	defer cancelRootDenied()
+	rootDeniedReadiness, _ := rootSources.open(t, rootDeniedContext)
+	rootDenied, rootError := rootDeniedReadiness.CaptureTaskReadiness(rootDeniedContext, task)
+	cancelRootDenied()
+	if rootDenied != nil || !errors.Is(rootError, oci.ErrAttachmentRecoveryHold) {
+		t.Fatalf("new independent root capture accepted the changed attachment: %v", rootError)
+	}
+	cloud.mu.Lock()
+	rootReadsAfterFailure := cloud.routes[path].reads
+	cloud.mu.Unlock()
+	if rootReadsAfterFailure <= readsAfterCapture {
+		t.Fatal("root ETag denial did not independently read the real attachment")
 	}
 	if _, err := agent.RuntimeWorkerIdentity(state.InstanceID, task.NodeID); err != nil {
 		t.Fatalf("host session expired instead of the new provider-denied readiness capture: %v", err)
