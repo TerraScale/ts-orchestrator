@@ -435,7 +435,7 @@ func (s *managementServer) managedService(spec *api.ServiceSpec) bool {
 	}
 	if spec.Annotations.Labels[LabelRole] == "ts-auth" {
 		constraints = append(constraints, "node.role==manager")
-		if placement.MaxReplicas != 1 {
+		if placement.MaxReplicas != 1 || spec.GetReplicated().Replicas > 3 {
 			return false
 		}
 	}

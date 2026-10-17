@@ -178,6 +178,11 @@ func TestManagementIntegration(t *testing.T) {
 	if !(&managementServer{region: "sa-saopaulo-1", environment: "test"}).managedService(authDesired) {
 		t.Fatal("auth per-node cap incorrectly restricted desired replicas")
 	}
+	authExcess := authDesired.Copy()
+	authExcess.GetReplicated().Replicas = 4
+	if _, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: authExcess}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("auth desired replicas exceeded the three manager domains: %v", err)
+	}
 	for _, placement := range []*api.Placement{
 		{Constraints: authSpec.Task.Placement.Constraints[:2], MaxReplicas: 1},
 		{Constraints: append(request.Spec.Task.Placement.Constraints[:2:2], "node.role==worker"), MaxReplicas: 1},
