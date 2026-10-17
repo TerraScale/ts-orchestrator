@@ -175,6 +175,9 @@ func (runtime *runtimeObservability) startDashboard(ctx context.Context, listene
 		}
 		board := dashboard.New(dashboard.Options{Health: runtime.health, Events: runtime.events, SignOut: true})
 		runtime.mountUsage(server)
+		if runtime.operationObservations != nil {
+			runtime.operationObservations.mount(server)
+		}
 		runtime.boardsMu.Lock()
 		if runtime.snapshots != nil {
 			server.HandleSnapshots(runtime.snapshots)

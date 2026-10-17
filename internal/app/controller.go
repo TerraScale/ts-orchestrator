@@ -737,6 +737,11 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 				Preparation: *materialService, Store: control},
 			policy: policy, responseKey: responseKey}
 	}
+	operationSources := &operationObservationSources{hosts: hostController, backup: backupRuntime, netbird: control}
+	if materialService != nil {
+		operationSources.credentials = managedmaterial.CredentialService{Preparation: *materialService, Store: control}
+	}
+	telemetry.operationObservations.sources.Store(operationSources)
 	placementHolds := new(placementHoldLog)
 	holdDecisions := newHoldJournal(cfg.NATS.Cell)
 	rolloutKnownBadReleases := newRolloutKnownBad()

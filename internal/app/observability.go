@@ -74,6 +74,8 @@ type runtimeObservability struct {
 	stopJournal context.CancelFunc
 	// logView is the controller's log summary; the rollup's errors come from it.
 	logView *logs.View
+
+	operationObservations *operationObservationAPI
 }
 
 func (r *runtimeObservability) recordHostLoad(load host.LoadSink, origin hostload.Origin, report hostload.Report, requests map[string]hostload.Request) error {
@@ -104,7 +106,8 @@ func startRuntimeObservability(ctx context.Context, cfg Config, role, member str
 		return nil, err
 	}
 	runtime := &runtimeObservability{config: settings, cell: cfg.NATS.Cell, member: member, role: role,
-		registry: observability.NewRegistry(true), health: new(observability.Health),
+		operationObservations: &operationObservationAPI{cell: cfg.NATS.Cell},
+		registry:              observability.NewRegistry(true), health: new(observability.Health),
 		events: observability.NewEventBus(observability.DefaultEventCapacity)}
 	logger, err := observability.NewLogger(os.Stderr,
 		observability.LogConfig{Format: settings.LogFormat, Level: settings.LogLevel}, runtime.events,
@@ -135,6 +138,7 @@ func startRuntimeObservability(ctx context.Context, cfg Config, role, member str
 		return runtime, nil
 	}
 	runtime.mountUsage(server)
+	runtime.operationObservations.mount(server)
 	// A token-protected listener issues browser sessions; a tokenless
 	// one is loopback only and refuses DNS names against rebinding.
 	board := dashboard.New(dashboard.Options{Health: runtime.health, Events: runtime.events,
