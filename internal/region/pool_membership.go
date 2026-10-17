@@ -34,6 +34,7 @@ type PoolMembershipBinding struct {
 // VerifiedPoolMembership is minted from the concrete signed source and its
 // original protected home store. Public JSON cannot construct this proof.
 type VerifiedPoolMembership struct {
+	ctx      context.Context
 	resolver FoundationResolver
 	binding  PoolMembershipBinding
 	digest   string
@@ -43,7 +44,7 @@ type VerifiedPoolMembership struct {
 func (v VerifiedPoolMembership) IsVerified() bool {
 	reader, signed := v.resolver.Footprint.(*SignedFootprint)
 	store, protected := v.resolver.Store.(*ObjectFoundationStore)
-	return signed && protected && reader != nil && store != nil && v.digest != "" &&
+	return v.ctx != nil && v.ctx.Err() == nil && signed && protected && reader != nil && store != nil && v.digest != "" &&
 		v.binding.Permission.Purpose == PoolMembershipQuarantineV1 &&
 		v.binding.Permission.Provenance == PoolMembershipProvenanceV1 && time.Now().Before(v.expires)
 }
@@ -186,7 +187,7 @@ func (r FoundationResolver) PoolMembership(ctx context.Context, cell, poolID, co
 	if !time.Now().Before(expires) {
 		return fail(errors.New("pool membership authority expired during observation"))
 	}
-	return VerifiedPoolMembership{resolver: r, binding: binding, digest: digest, expires: expires}, nil
+	return VerifiedPoolMembership{ctx: ctx, resolver: r, binding: binding, digest: digest, expires: expires}, nil
 }
 
 func poolMembershipConfiguration(record FoundationRecord, pool PoolResourceRecord, id string) (PoolConfigurationRecord, error) {
