@@ -1,7 +1,7 @@
 package netbird
 
 import (
-	"encoding/json/v2"
+	"encoding/json/jsontext"
 	"strings"
 	"testing"
 )
@@ -25,7 +25,7 @@ func TestBrokerRouteUsesExactMeshPeerWithoutGrantingIdentity(t *testing.T) {
 		{"ts-gru-2", strings.ReplaceAll(wire, "ts-gru-1.nb.ts.internal", "ts-gru-2.nb.ts.internal")},
 		{"ts-gru-2", strings.ReplaceAll(wire, `"status":"Idle"}`, `"status":"Idle"},{"fqdn":"ts-gru-2.nb.ts.internal","netbirdIp":"100.100.0.3"}`)},
 	} {
-		if !json.Valid([]byte(row.wire)) {
+		if !jsontext.Value(row.wire).IsValid() {
 			t.Fatal("test routing status is not valid JSON")
 		}
 		if _, err := brokerRoute([]byte(row.wire), row.name); err == nil {
