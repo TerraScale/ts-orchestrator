@@ -1,0 +1,24 @@
+{
+  "accepted_ledger_changes": 0,
+  "baseline_and_current_declarations_reconfirmed": 110,
+  "canonical_cited_source_files": 30,
+  "canonical_file_pin_versions_checked": 39,
+  "classification_json_sha256": "0bf0127bcc7915a633fe2ca78ab918703408eb69dd4c06dd554b86d3b72d3893",
+  "counts": {
+    "integration": 35,
+    "mixed": 11,
+    "total": 55,
+    "unit": 8,
+    "unresolved": 1
+  },
+  "duplicate_root_ids": 0,
+  "exact_allocated_root_ids": 55,
+  "excluded_original_root_count_checked": 200,
+  "excluded_root_intersection": 0,
+  "raw_spans_reconfirmed": 332,
+  "retirement_credit": 0,
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "scope": "Static independent reconstruction of artifact consistency and immutable source pins. No Go/build/runtime execution and no independent semantic peer verdict.",
+  "status": "PASS_STATIC_PACKET_INTEGRITY_NOT_PEER_CLASSIFICATION_REVIEW",
+  "unallocated_roots": 0
+}

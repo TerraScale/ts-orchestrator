@@ -1,0 +1,11 @@
+func TestResolveAdmittedArtifactRequiresCurrentAdmissionAndVerifiedBytes(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	intent := testIntent(t, service, ctx)
+	resolved, err := service.ResolveAdmittedArtifact(ctx, intent.ArtifactDigest, intent.Role, intent.Environment)
+	if err != nil || resolved.Digest != intent.ArtifactDigest || resolved.ManifestDigest != intent.ManifestDigest {
+		t.Fatalf("ResolveAdmittedArtifact() = %+v, %v", resolved, err)
+	}
+	if _, err := service.ResolveAdmittedArtifact(ctx, intent.ArtifactDigest, "missing", intent.Environment); !errors.Is(err, jetstream.ErrKeyNotFound) {
+		t.Fatalf("ResolveAdmittedArtifact(missing role) error = %v, want ErrKeyNotFound", err)
+	}
+}

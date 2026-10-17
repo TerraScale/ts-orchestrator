@@ -1,0 +1,26 @@
+{
+  "allocation_manifest": {
+    "path": "/tmp/ts-d4ac-next300-allocation-proposal-raxuc07l/allocation.json",
+    "sha256": "032cb201e692326da7274b12d7dfd15512b1befd325cce375188ae0447ca2523"
+  },
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "batch_id": "MESH55",
+  "classification_json_sha256": "0bf0127bcc7915a633fe2ca78ab918703408eb69dd4c06dd554b86d3b72d3893",
+  "counts": {
+    "integration": 35,
+    "mixed": 11,
+    "total": 55,
+    "unit": 8,
+    "unresolved": 1
+  },
+  "owner": "/root/mesh/material",
+  "retirement_authorized": false,
+  "retirement_credit": 0,
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+  "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+  "state": "CANDIDATE_PENDING_INDEPENDENT_PEER_REVIEW_AND_SEPARATE_PROMOTION",
+  "unresolved_root_ids": [
+    "internal/globalcontrol/fencing_test.go::TestConcurrentWritersNeverInterleaveTerms"
+  ]
+}

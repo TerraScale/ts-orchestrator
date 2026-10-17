@@ -1,0 +1,44 @@
+func TestDeliveryRunRecoversFromTransientFetchFailure(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		batchErr bool
+	}{
+		{name: "fetch request"},
+		{name: "fetch batch", batchErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service, ctx := testService(t, &testWriter{})
+			intent := testIntent(t, service, ctx)
+			if err := service.Submit(ctx, intent); err != nil {
+				t.Fatal(err)
+			}
+			consumer := &failingFetchConsumer{Consumer: service.consumer, err: jetstream.ErrServerShutdown, batchErr: test.batchErr}
+			service.consumer = consumer
+			runCtx, cancel := context.WithCancel(ctx)
+			done := make(chan error, 1)
+			go func() { done <- service.Run(runCtx) }()
+			defer cancel()
+			deadline := time.NewTimer(5 * time.Second)
+			defer deadline.Stop()
+			for {
+				receipt, err := service.Status(ctx, intent.OperationID)
+				if err == nil {
+					if receipt.Status != "accepted" || consumer.calls.Load() < 2 {
+						t.Fatalf("receipt=%+v fetches=%d", receipt, consumer.calls.Load())
+					}
+					return
+				}
+				if !errors.Is(err, ErrPending) {
+					t.Fatal(err)
+				}
+				select {
+				case runErr := <-done:
+					t.Fatalf("delivery stopped after transient fetch error: %v", runErr)
+				case <-deadline.C:
+					t.Fatal("delivery did not resume the durable intent")
+				case <-time.After(20 * time.Millisecond):
+				}
+			}
+		})
+	}
+}

@@ -1,0 +1,33 @@
+func TestPrepareArtifactUsesLeaderMetadataBeforeReplacingExistingObject(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	request := artifactTestRequest()
+	content := bytes.Repeat([]byte("same immutable artifact"), 1024)
+	existing, _, err := service.PrepareArtifact(ctx, bytes.NewReader(content), request)
+	if err != nil {
+		t.Fatalf("initial PrepareArtifact() error = %v", err)
+	}
+	store := &delayedVisibilityObjectStore{ObjectStore: service.artifacts, getInfoMisses: 1}
+	service.artifacts = store
+	before, err := store.ObjectStore.GetInfo(ctx, artifactKey(existing.Digest))
+	if err != nil {
+		t.Fatalf("GetInfo(before retry) error = %v", err)
+	}
+
+	retried, _, err := service.PrepareArtifact(ctx, bytes.NewReader(content), request)
+	if err != nil {
+		t.Fatalf("PrepareArtifact() with stale direct-read miss = %v", err)
+	}
+	if retried != existing {
+		t.Fatalf("retry changed immutable record: before=%+v after=%+v", existing, retried)
+	}
+	if store.putCalls != 0 {
+		t.Fatalf("Put calls after stale direct-read miss = %d, want no replacement", store.putCalls)
+	}
+	after, err := store.ObjectStore.GetInfo(ctx, artifactKey(existing.Digest))
+	if err != nil {
+		t.Fatalf("GetInfo(after retry) error = %v", err)
+	}
+	if after.NUID != before.NUID || after.Chunks != before.Chunks {
+		t.Fatalf("retry replaced stored chunks: before NUID=%s chunks=%d, after NUID=%s chunks=%d", before.NUID, before.Chunks, after.NUID, after.Chunks)
+	}
+}

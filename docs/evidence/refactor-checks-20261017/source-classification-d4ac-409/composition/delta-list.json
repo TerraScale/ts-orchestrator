@@ -1,0 +1,3621 @@
+{
+  "schema": "complete-composition-semantic-delta-list-v1",
+  "changes": [
+    {
+      "path": [
+        "completion",
+        "as_of"
+      ],
+      "operation": "replace",
+      "before_sha256": "31dfdb7d8e482936cfccacea4c8d20cea3f2549ed0d5cf662dba6a2b115d13a6",
+      "after_sha256": "c1bee14ffee1079e9f4a2b4f6e08fe04b117abf5f5ec55bee067ccca25e2bd45"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "all_original_root_accounting_proposal"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "447010e25d8d3faeff6a5dc26689bcb0785983d7697778084d0ca3539ff8f2a7"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "as_of"
+      ],
+      "operation": "replace",
+      "before_sha256": "f809887d998d0eac23dfd4ff3ba23b7fd4fc3128b73c8e30b40bbcdaac56c13f",
+      "after_sha256": "c1bee14ffee1079e9f4a2b4f6e08fe04b117abf5f5ec55bee067ccca25e2bd45"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "baseline_originals_total"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "2f4d707285019a3128e47af6065e7f94c99ad5f67e8dbb2331195e19f280a9dc"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "baseline_rows"
+      ],
+      "operation": "replace",
+      "before_sha256": "2811745d7b8d8874f6e653d176cefdd19e05e920ce389b9b7e83e5b2dfa546c7",
+      "after_sha256": "86b700fab5db37977a73700b53a0654b21bdad0896914cc19ad70dee5f5fb3f6"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "classification_unadjudicated_remaining"
+      ],
+      "operation": "replace",
+      "before_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+      "after_sha256": "f71cbfce4cd7b26781662e4a8f0230be3ce4690449091c3b6d905518dc02f872"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "integration"
+      ],
+      "operation": "replace",
+      "before_sha256": "ad57366865126e55649ecb23ae1d48887544976efea46a48eb5d85a6eeb4d306",
+      "after_sha256": "52f11620e397f867b7d9f19e48caeb64658356a6b5d17138c00dd9feaf5d7ad6"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "limits",
+        8
+      ],
+      "operation": "append",
+      "after_sha256": "627c115c42b6e5bd9f6081dc7553524d5385a041e3892dcceb754da6e41302d0"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "mixed"
+      ],
+      "operation": "replace",
+      "before_sha256": "59e19706d51d39f66711c2653cd7eb1291c94d9b55eb14bda74ce4dc636d015a",
+      "after_sha256": "108c995b953c8a35561103e2014cf828eb654a99e310f87fab94c2f4b7d2a04f"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "next300_controlling_evidence"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "70d8f84ed6ba381a62bf514feff927664b5d69dc783152bab23d0edeee41b15e"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "next300_delta_proposal"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "6037f28b68eb21eae99f3bc297d111746dc7d62bb670fac647ef79349c2fa511"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "next300_independent_delta_acceptance"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "6d91f3f7f795751af099917e342664f68ee7e02210fdcdec5dc4566ed957f9ff"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "package_groups",
+        6
+      ],
+      "operation": "append",
+      "after_sha256": "87d029e056259e359da8a7edafb916e5d3d88707225bd82131f633c03aea6f09"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "package_groups",
+        7
+      ],
+      "operation": "append",
+      "after_sha256": "7928f8cc11b70d2c648d2af0798db9fcd02a8a6c324360a236a8e7312dd57407"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "package_groups",
+        8
+      ],
+      "operation": "append",
+      "after_sha256": "335581de28eb6ee978a4129e9bb81bceb6e1936d7d73d166a1c0ba69924ee4e6"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "package_groups",
+        9
+      ],
+      "operation": "append",
+      "after_sha256": "9c9531d9d882e68fb8270125187501d4351002e20eb673aa03ebc8c2603a2b7a"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "package_groups",
+        10
+      ],
+      "operation": "append",
+      "after_sha256": "11117934e9e0a7b9bb079cd59278199a0128d4e74462f17580874bfa4eb89b9f"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "package_groups",
+        11
+      ],
+      "operation": "append",
+      "after_sha256": "53fc39f872fde12ce51735656df45866beb3fd77f64aa24133dc88832606f9cd"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "package_groups",
+        12
+      ],
+      "operation": "append",
+      "after_sha256": "3de2c26c9796fadc6fb3af44f0aaaeb08e9f0e521062740fe1d09dcda57ffaab"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "package_groups",
+        13
+      ],
+      "operation": "append",
+      "after_sha256": "19fbd61606577a82010ea50a89c6032fe689657b5d14a3ad453a151ef1a7eb52"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "package_groups",
+        14
+      ],
+      "operation": "append",
+      "after_sha256": "c041581d00a34c3bf21305f331bd9206eae255e4142b2015722631d05612b488"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "package_groups",
+        15
+      ],
+      "operation": "append",
+      "after_sha256": "2153c00b35183d2b55efcb8f35bce3181b135535b482fd03493a6bda372d83f7"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "package_groups",
+        16
+      ],
+      "operation": "append",
+      "after_sha256": "ae226ea09fe57acbd2bfe1665ee5b43644906768abd841cb2e35b74d70c88f00"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "package_groups",
+        17
+      ],
+      "operation": "append",
+      "after_sha256": "9ca0c649c641731d37d6bd7fa786902f05a9248e44be7b602d9c9478ca6a1f5c"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "package_groups",
+        18
+      ],
+      "operation": "append",
+      "after_sha256": "49695319dd7a884c6dc941667f4b554cf1572facb1639c5f01727d01aeb35767"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "package_groups",
+        19
+      ],
+      "operation": "append",
+      "after_sha256": "d0ba98ce904087e54c0738c18279949f9e64b0492290fdee56365916b72e7819"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "package_groups",
+        20
+      ],
+      "operation": "append",
+      "after_sha256": "d71e6469b1cbc2303f4babba33d692667c7627aeee0052d5e72f21bd5be22fba"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "prior171_actual_application_receipt"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "ab49b282f47b0a6b9ec5aa5fd6ff19ef8be48033f1214ae48fef9a792a166b61"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "proposed_next300_batch_classifications"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "5924f40d0d4799e6fd6212d5abbbaf010b99f8af2ed7d748d1c2a62ca81410d8"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "remaining_other_unadjudicated"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "f7cb9b960a2452c5c73e470e88eadbc2f4f1639d35bde895a7307dd350496580"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "retained_originals_classified"
+      ],
+      "operation": "replace",
+      "before_sha256": "284de502c9847342318c17d474733ef468fbdbe252cddf6e4b4be0676706d9d0",
+      "after_sha256": "480f5a496560ae4228bb7977ecf29b2c589d7a7aa6b609534566af8cbc229a9e"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "reviewed_unresolved_retained_originals"
+      ],
+      "operation": "replace",
+      "before_sha256": "4a44dc15364204a80fe80e9039455cc1608281820fe2b24f1e5233ade6af1dd5",
+      "after_sha256": "8722616204217eddb39e7df969e0698aed8e599ba62ed2de1ce49b03ade0fede"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "state"
+      ],
+      "operation": "replace",
+      "before_sha256": "77882889b8c2a04a5fe9bcc7481c838fd8d1c64cb2378650ada0282231dd987c",
+      "after_sha256": "02e1b881329cfe2a01b1386bcc4a1fe8a0594c3cbb0a50fce8fd73dc025cab59"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "unit"
+      ],
+      "operation": "replace",
+      "before_sha256": "44cb730c420480a0477b505ae68af508fb90f96cf0ec54c6ad16949dd427f13a",
+      "after_sha256": "a512db2741cd20693e4b16f19891e72b9ff12cead72761fc5e92d2aaf34740c1"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "unresolved_within_classified_package"
+      ],
+      "operation": "replace",
+      "before_sha256": "4a44dc15364204a80fe80e9039455cc1608281820fe2b24f1e5233ade6af1dd5",
+      "after_sha256": "8722616204217eddb39e7df969e0698aed8e599ba62ed2de1ce49b03ade0fede"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "all_original_root_accounting_proposal"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "447010e25d8d3faeff6a5dc26689bcb0785983d7697778084d0ca3539ff8f2a7"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "as_of"
+      ],
+      "operation": "replace",
+      "before_sha256": "f809887d998d0eac23dfd4ff3ba23b7fd4fc3128b73c8e30b40bbcdaac56c13f",
+      "after_sha256": "c1bee14ffee1079e9f4a2b4f6e08fe04b117abf5f5ec55bee067ccca25e2bd45"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "baseline_originals_total"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "2f4d707285019a3128e47af6065e7f94c99ad5f67e8dbb2331195e19f280a9dc"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "baseline_rows"
+      ],
+      "operation": "replace",
+      "before_sha256": "2811745d7b8d8874f6e653d176cefdd19e05e920ce389b9b7e83e5b2dfa546c7",
+      "after_sha256": "86b700fab5db37977a73700b53a0654b21bdad0896914cc19ad70dee5f5fb3f6"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "classification_unadjudicated_remaining"
+      ],
+      "operation": "replace",
+      "before_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+      "after_sha256": "f71cbfce4cd7b26781662e4a8f0230be3ce4690449091c3b6d905518dc02f872"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "integration"
+      ],
+      "operation": "replace",
+      "before_sha256": "ad57366865126e55649ecb23ae1d48887544976efea46a48eb5d85a6eeb4d306",
+      "after_sha256": "52f11620e397f867b7d9f19e48caeb64658356a6b5d17138c00dd9feaf5d7ad6"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "limits",
+        8
+      ],
+      "operation": "append",
+      "after_sha256": "627c115c42b6e5bd9f6081dc7553524d5385a041e3892dcceb754da6e41302d0"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "mixed"
+      ],
+      "operation": "replace",
+      "before_sha256": "59e19706d51d39f66711c2653cd7eb1291c94d9b55eb14bda74ce4dc636d015a",
+      "after_sha256": "108c995b953c8a35561103e2014cf828eb654a99e310f87fab94c2f4b7d2a04f"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "next300_controlling_evidence"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "70d8f84ed6ba381a62bf514feff927664b5d69dc783152bab23d0edeee41b15e"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "next300_delta_proposal"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "6037f28b68eb21eae99f3bc297d111746dc7d62bb670fac647ef79349c2fa511"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "next300_independent_delta_acceptance"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "6d91f3f7f795751af099917e342664f68ee7e02210fdcdec5dc4566ed957f9ff"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "package_groups",
+        6
+      ],
+      "operation": "append",
+      "after_sha256": "87d029e056259e359da8a7edafb916e5d3d88707225bd82131f633c03aea6f09"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "package_groups",
+        7
+      ],
+      "operation": "append",
+      "after_sha256": "7928f8cc11b70d2c648d2af0798db9fcd02a8a6c324360a236a8e7312dd57407"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "package_groups",
+        8
+      ],
+      "operation": "append",
+      "after_sha256": "335581de28eb6ee978a4129e9bb81bceb6e1936d7d73d166a1c0ba69924ee4e6"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "package_groups",
+        9
+      ],
+      "operation": "append",
+      "after_sha256": "9c9531d9d882e68fb8270125187501d4351002e20eb673aa03ebc8c2603a2b7a"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "package_groups",
+        10
+      ],
+      "operation": "append",
+      "after_sha256": "11117934e9e0a7b9bb079cd59278199a0128d4e74462f17580874bfa4eb89b9f"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "package_groups",
+        11
+      ],
+      "operation": "append",
+      "after_sha256": "53fc39f872fde12ce51735656df45866beb3fd77f64aa24133dc88832606f9cd"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "package_groups",
+        12
+      ],
+      "operation": "append",
+      "after_sha256": "3de2c26c9796fadc6fb3af44f0aaaeb08e9f0e521062740fe1d09dcda57ffaab"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "package_groups",
+        13
+      ],
+      "operation": "append",
+      "after_sha256": "19fbd61606577a82010ea50a89c6032fe689657b5d14a3ad453a151ef1a7eb52"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "package_groups",
+        14
+      ],
+      "operation": "append",
+      "after_sha256": "c041581d00a34c3bf21305f331bd9206eae255e4142b2015722631d05612b488"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "package_groups",
+        15
+      ],
+      "operation": "append",
+      "after_sha256": "2153c00b35183d2b55efcb8f35bce3181b135535b482fd03493a6bda372d83f7"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "package_groups",
+        16
+      ],
+      "operation": "append",
+      "after_sha256": "ae226ea09fe57acbd2bfe1665ee5b43644906768abd841cb2e35b74d70c88f00"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "package_groups",
+        17
+      ],
+      "operation": "append",
+      "after_sha256": "9ca0c649c641731d37d6bd7fa786902f05a9248e44be7b602d9c9478ca6a1f5c"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "package_groups",
+        18
+      ],
+      "operation": "append",
+      "after_sha256": "49695319dd7a884c6dc941667f4b554cf1572facb1639c5f01727d01aeb35767"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "package_groups",
+        19
+      ],
+      "operation": "append",
+      "after_sha256": "d0ba98ce904087e54c0738c18279949f9e64b0492290fdee56365916b72e7819"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "package_groups",
+        20
+      ],
+      "operation": "append",
+      "after_sha256": "d71e6469b1cbc2303f4babba33d692667c7627aeee0052d5e72f21bd5be22fba"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "prior171_actual_application_receipt"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "ab49b282f47b0a6b9ec5aa5fd6ff19ef8be48033f1214ae48fef9a792a166b61"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "proposed_next300_batch_classifications"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "5924f40d0d4799e6fd6212d5abbbaf010b99f8af2ed7d748d1c2a62ca81410d8"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "remaining_other_unadjudicated"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "f7cb9b960a2452c5c73e470e88eadbc2f4f1639d35bde895a7307dd350496580"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "retained_originals_classified"
+      ],
+      "operation": "replace",
+      "before_sha256": "284de502c9847342318c17d474733ef468fbdbe252cddf6e4b4be0676706d9d0",
+      "after_sha256": "480f5a496560ae4228bb7977ecf29b2c589d7a7aa6b609534566af8cbc229a9e"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "reviewed_unresolved_retained_originals"
+      ],
+      "operation": "replace",
+      "before_sha256": "4a44dc15364204a80fe80e9039455cc1608281820fe2b24f1e5233ade6af1dd5",
+      "after_sha256": "8722616204217eddb39e7df969e0698aed8e599ba62ed2de1ce49b03ade0fede"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "state"
+      ],
+      "operation": "replace",
+      "before_sha256": "77882889b8c2a04a5fe9bcc7481c838fd8d1c64cb2378650ada0282231dd987c",
+      "after_sha256": "02e1b881329cfe2a01b1386bcc4a1fe8a0594c3cbb0a50fce8fd73dc025cab59"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "unit"
+      ],
+      "operation": "replace",
+      "before_sha256": "44cb730c420480a0477b505ae68af508fb90f96cf0ec54c6ad16949dd427f13a",
+      "after_sha256": "a512db2741cd20693e4b16f19891e72b9ff12cead72761fc5e92d2aaf34740c1"
+    },
+    {
+      "path": [
+        "completion",
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "unresolved_within_classified_package"
+      ],
+      "operation": "replace",
+      "before_sha256": "4a44dc15364204a80fe80e9039455cc1608281820fe2b24f1e5233ade6af1dd5",
+      "after_sha256": "8722616204217eddb39e7df969e0698aed8e599ba62ed2de1ce49b03ade0fede"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "all_original_root_accounting_proposal"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "447010e25d8d3faeff6a5dc26689bcb0785983d7697778084d0ca3539ff8f2a7"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "as_of"
+      ],
+      "operation": "replace",
+      "before_sha256": "f809887d998d0eac23dfd4ff3ba23b7fd4fc3128b73c8e30b40bbcdaac56c13f",
+      "after_sha256": "c1bee14ffee1079e9f4a2b4f6e08fe04b117abf5f5ec55bee067ccca25e2bd45"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "baseline_originals_total"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "2f4d707285019a3128e47af6065e7f94c99ad5f67e8dbb2331195e19f280a9dc"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "baseline_rows"
+      ],
+      "operation": "replace",
+      "before_sha256": "2811745d7b8d8874f6e653d176cefdd19e05e920ce389b9b7e83e5b2dfa546c7",
+      "after_sha256": "86b700fab5db37977a73700b53a0654b21bdad0896914cc19ad70dee5f5fb3f6"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "classification_unadjudicated_remaining"
+      ],
+      "operation": "replace",
+      "before_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+      "after_sha256": "f71cbfce4cd7b26781662e4a8f0230be3ce4690449091c3b6d905518dc02f872"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "integration"
+      ],
+      "operation": "replace",
+      "before_sha256": "ad57366865126e55649ecb23ae1d48887544976efea46a48eb5d85a6eeb4d306",
+      "after_sha256": "52f11620e397f867b7d9f19e48caeb64658356a6b5d17138c00dd9feaf5d7ad6"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "limits",
+        8
+      ],
+      "operation": "append",
+      "after_sha256": "627c115c42b6e5bd9f6081dc7553524d5385a041e3892dcceb754da6e41302d0"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "mixed"
+      ],
+      "operation": "replace",
+      "before_sha256": "59e19706d51d39f66711c2653cd7eb1291c94d9b55eb14bda74ce4dc636d015a",
+      "after_sha256": "108c995b953c8a35561103e2014cf828eb654a99e310f87fab94c2f4b7d2a04f"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "next300_controlling_evidence"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "70d8f84ed6ba381a62bf514feff927664b5d69dc783152bab23d0edeee41b15e"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "next300_delta_proposal"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "6037f28b68eb21eae99f3bc297d111746dc7d62bb670fac647ef79349c2fa511"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "next300_independent_delta_acceptance"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "6d91f3f7f795751af099917e342664f68ee7e02210fdcdec5dc4566ed957f9ff"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        6
+      ],
+      "operation": "append",
+      "after_sha256": "87d029e056259e359da8a7edafb916e5d3d88707225bd82131f633c03aea6f09"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        7
+      ],
+      "operation": "append",
+      "after_sha256": "7928f8cc11b70d2c648d2af0798db9fcd02a8a6c324360a236a8e7312dd57407"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        8
+      ],
+      "operation": "append",
+      "after_sha256": "335581de28eb6ee978a4129e9bb81bceb6e1936d7d73d166a1c0ba69924ee4e6"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        9
+      ],
+      "operation": "append",
+      "after_sha256": "9c9531d9d882e68fb8270125187501d4351002e20eb673aa03ebc8c2603a2b7a"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        10
+      ],
+      "operation": "append",
+      "after_sha256": "11117934e9e0a7b9bb079cd59278199a0128d4e74462f17580874bfa4eb89b9f"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        11
+      ],
+      "operation": "append",
+      "after_sha256": "53fc39f872fde12ce51735656df45866beb3fd77f64aa24133dc88832606f9cd"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        12
+      ],
+      "operation": "append",
+      "after_sha256": "3de2c26c9796fadc6fb3af44f0aaaeb08e9f0e521062740fe1d09dcda57ffaab"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        13
+      ],
+      "operation": "append",
+      "after_sha256": "19fbd61606577a82010ea50a89c6032fe689657b5d14a3ad453a151ef1a7eb52"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        14
+      ],
+      "operation": "append",
+      "after_sha256": "c041581d00a34c3bf21305f331bd9206eae255e4142b2015722631d05612b488"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        15
+      ],
+      "operation": "append",
+      "after_sha256": "2153c00b35183d2b55efcb8f35bce3181b135535b482fd03493a6bda372d83f7"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        16
+      ],
+      "operation": "append",
+      "after_sha256": "ae226ea09fe57acbd2bfe1665ee5b43644906768abd841cb2e35b74d70c88f00"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        17
+      ],
+      "operation": "append",
+      "after_sha256": "9ca0c649c641731d37d6bd7fa786902f05a9248e44be7b602d9c9478ca6a1f5c"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        18
+      ],
+      "operation": "append",
+      "after_sha256": "49695319dd7a884c6dc941667f4b554cf1572facb1639c5f01727d01aeb35767"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        19
+      ],
+      "operation": "append",
+      "after_sha256": "d0ba98ce904087e54c0738c18279949f9e64b0492290fdee56365916b72e7819"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        20
+      ],
+      "operation": "append",
+      "after_sha256": "d71e6469b1cbc2303f4babba33d692667c7627aeee0052d5e72f21bd5be22fba"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "prior171_actual_application_receipt"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "ab49b282f47b0a6b9ec5aa5fd6ff19ef8be48033f1214ae48fef9a792a166b61"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "proposed_next300_batch_classifications"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "5924f40d0d4799e6fd6212d5abbbaf010b99f8af2ed7d748d1c2a62ca81410d8"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "remaining_other_unadjudicated"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "f7cb9b960a2452c5c73e470e88eadbc2f4f1639d35bde895a7307dd350496580"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "retained_originals_classified"
+      ],
+      "operation": "replace",
+      "before_sha256": "284de502c9847342318c17d474733ef468fbdbe252cddf6e4b4be0676706d9d0",
+      "after_sha256": "480f5a496560ae4228bb7977ecf29b2c589d7a7aa6b609534566af8cbc229a9e"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "reviewed_unresolved_retained_originals"
+      ],
+      "operation": "replace",
+      "before_sha256": "4a44dc15364204a80fe80e9039455cc1608281820fe2b24f1e5233ade6af1dd5",
+      "after_sha256": "8722616204217eddb39e7df969e0698aed8e599ba62ed2de1ce49b03ade0fede"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "state"
+      ],
+      "operation": "replace",
+      "before_sha256": "77882889b8c2a04a5fe9bcc7481c838fd8d1c64cb2378650ada0282231dd987c",
+      "after_sha256": "02e1b881329cfe2a01b1386bcc4a1fe8a0594c3cbb0a50fce8fd73dc025cab59"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "unit"
+      ],
+      "operation": "replace",
+      "before_sha256": "44cb730c420480a0477b505ae68af508fb90f96cf0ec54c6ad16949dd427f13a",
+      "after_sha256": "a512db2741cd20693e4b16f19891e72b9ff12cead72761fc5e92d2aaf34740c1"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "unresolved_within_classified_package"
+      ],
+      "operation": "replace",
+      "before_sha256": "4a44dc15364204a80fe80e9039455cc1608281820fe2b24f1e5233ade6af1dd5",
+      "after_sha256": "8722616204217eddb39e7df969e0698aed8e599ba62ed2de1ce49b03ade0fede"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "all_original_root_accounting_proposal"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "447010e25d8d3faeff6a5dc26689bcb0785983d7697778084d0ca3539ff8f2a7"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "as_of"
+      ],
+      "operation": "replace",
+      "before_sha256": "f809887d998d0eac23dfd4ff3ba23b7fd4fc3128b73c8e30b40bbcdaac56c13f",
+      "after_sha256": "c1bee14ffee1079e9f4a2b4f6e08fe04b117abf5f5ec55bee067ccca25e2bd45"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "baseline_originals_total"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "2f4d707285019a3128e47af6065e7f94c99ad5f67e8dbb2331195e19f280a9dc"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "baseline_rows"
+      ],
+      "operation": "replace",
+      "before_sha256": "2811745d7b8d8874f6e653d176cefdd19e05e920ce389b9b7e83e5b2dfa546c7",
+      "after_sha256": "86b700fab5db37977a73700b53a0654b21bdad0896914cc19ad70dee5f5fb3f6"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "classification_unadjudicated_remaining"
+      ],
+      "operation": "replace",
+      "before_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+      "after_sha256": "f71cbfce4cd7b26781662e4a8f0230be3ce4690449091c3b6d905518dc02f872"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "integration"
+      ],
+      "operation": "replace",
+      "before_sha256": "ad57366865126e55649ecb23ae1d48887544976efea46a48eb5d85a6eeb4d306",
+      "after_sha256": "52f11620e397f867b7d9f19e48caeb64658356a6b5d17138c00dd9feaf5d7ad6"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "limits",
+        8
+      ],
+      "operation": "append",
+      "after_sha256": "627c115c42b6e5bd9f6081dc7553524d5385a041e3892dcceb754da6e41302d0"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "mixed"
+      ],
+      "operation": "replace",
+      "before_sha256": "59e19706d51d39f66711c2653cd7eb1291c94d9b55eb14bda74ce4dc636d015a",
+      "after_sha256": "108c995b953c8a35561103e2014cf828eb654a99e310f87fab94c2f4b7d2a04f"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "next300_controlling_evidence"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "70d8f84ed6ba381a62bf514feff927664b5d69dc783152bab23d0edeee41b15e"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "next300_delta_proposal"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "6037f28b68eb21eae99f3bc297d111746dc7d62bb670fac647ef79349c2fa511"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "next300_independent_delta_acceptance"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "6d91f3f7f795751af099917e342664f68ee7e02210fdcdec5dc4566ed957f9ff"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        6
+      ],
+      "operation": "append",
+      "after_sha256": "87d029e056259e359da8a7edafb916e5d3d88707225bd82131f633c03aea6f09"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        7
+      ],
+      "operation": "append",
+      "after_sha256": "7928f8cc11b70d2c648d2af0798db9fcd02a8a6c324360a236a8e7312dd57407"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        8
+      ],
+      "operation": "append",
+      "after_sha256": "335581de28eb6ee978a4129e9bb81bceb6e1936d7d73d166a1c0ba69924ee4e6"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        9
+      ],
+      "operation": "append",
+      "after_sha256": "9c9531d9d882e68fb8270125187501d4351002e20eb673aa03ebc8c2603a2b7a"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        10
+      ],
+      "operation": "append",
+      "after_sha256": "11117934e9e0a7b9bb079cd59278199a0128d4e74462f17580874bfa4eb89b9f"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        11
+      ],
+      "operation": "append",
+      "after_sha256": "53fc39f872fde12ce51735656df45866beb3fd77f64aa24133dc88832606f9cd"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        12
+      ],
+      "operation": "append",
+      "after_sha256": "3de2c26c9796fadc6fb3af44f0aaaeb08e9f0e521062740fe1d09dcda57ffaab"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        13
+      ],
+      "operation": "append",
+      "after_sha256": "19fbd61606577a82010ea50a89c6032fe689657b5d14a3ad453a151ef1a7eb52"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        14
+      ],
+      "operation": "append",
+      "after_sha256": "c041581d00a34c3bf21305f331bd9206eae255e4142b2015722631d05612b488"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        15
+      ],
+      "operation": "append",
+      "after_sha256": "2153c00b35183d2b55efcb8f35bce3181b135535b482fd03493a6bda372d83f7"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        16
+      ],
+      "operation": "append",
+      "after_sha256": "ae226ea09fe57acbd2bfe1665ee5b43644906768abd841cb2e35b74d70c88f00"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        17
+      ],
+      "operation": "append",
+      "after_sha256": "9ca0c649c641731d37d6bd7fa786902f05a9248e44be7b602d9c9478ca6a1f5c"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        18
+      ],
+      "operation": "append",
+      "after_sha256": "49695319dd7a884c6dc941667f4b554cf1572facb1639c5f01727d01aeb35767"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        19
+      ],
+      "operation": "append",
+      "after_sha256": "d0ba98ce904087e54c0738c18279949f9e64b0492290fdee56365916b72e7819"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        20
+      ],
+      "operation": "append",
+      "after_sha256": "d71e6469b1cbc2303f4babba33d692667c7627aeee0052d5e72f21bd5be22fba"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "prior171_actual_application_receipt"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "ab49b282f47b0a6b9ec5aa5fd6ff19ef8be48033f1214ae48fef9a792a166b61"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "proposed_next300_batch_classifications"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "5924f40d0d4799e6fd6212d5abbbaf010b99f8af2ed7d748d1c2a62ca81410d8"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "remaining_other_unadjudicated"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "f7cb9b960a2452c5c73e470e88eadbc2f4f1639d35bde895a7307dd350496580"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "retained_originals_classified"
+      ],
+      "operation": "replace",
+      "before_sha256": "284de502c9847342318c17d474733ef468fbdbe252cddf6e4b4be0676706d9d0",
+      "after_sha256": "480f5a496560ae4228bb7977ecf29b2c589d7a7aa6b609534566af8cbc229a9e"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "reviewed_unresolved_retained_originals"
+      ],
+      "operation": "replace",
+      "before_sha256": "4a44dc15364204a80fe80e9039455cc1608281820fe2b24f1e5233ade6af1dd5",
+      "after_sha256": "8722616204217eddb39e7df969e0698aed8e599ba62ed2de1ce49b03ade0fede"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "state"
+      ],
+      "operation": "replace",
+      "before_sha256": "77882889b8c2a04a5fe9bcc7481c838fd8d1c64cb2378650ada0282231dd987c",
+      "after_sha256": "02e1b881329cfe2a01b1386bcc4a1fe8a0594c3cbb0a50fce8fd73dc025cab59"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "unit"
+      ],
+      "operation": "replace",
+      "before_sha256": "44cb730c420480a0477b505ae68af508fb90f96cf0ec54c6ad16949dd427f13a",
+      "after_sha256": "a512db2741cd20693e4b16f19891e72b9ff12cead72761fc5e92d2aaf34740c1"
+    },
+    {
+      "path": [
+        "completion",
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "unresolved_within_classified_package"
+      ],
+      "operation": "replace",
+      "before_sha256": "4a44dc15364204a80fe80e9039455cc1608281820fe2b24f1e5233ade6af1dd5",
+      "after_sha256": "8722616204217eddb39e7df969e0698aed8e599ba62ed2de1ce49b03ade0fede"
+    },
+    {
+      "path": [
+        "completion",
+        "classification_adjudication_history",
+        3
+      ],
+      "operation": "append",
+      "after_sha256": "045ce08f4b9b00c7a40f290b91e2f32f7383f56609a7c26dd3779189e459067c"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "all_original_root_accounting_proposal"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "447010e25d8d3faeff6a5dc26689bcb0785983d7697778084d0ca3539ff8f2a7"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "as_of"
+      ],
+      "operation": "replace",
+      "before_sha256": "f809887d998d0eac23dfd4ff3ba23b7fd4fc3128b73c8e30b40bbcdaac56c13f",
+      "after_sha256": "c1bee14ffee1079e9f4a2b4f6e08fe04b117abf5f5ec55bee067ccca25e2bd45"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "baseline_originals_total"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "2f4d707285019a3128e47af6065e7f94c99ad5f67e8dbb2331195e19f280a9dc"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "baseline_rows"
+      ],
+      "operation": "replace",
+      "before_sha256": "2811745d7b8d8874f6e653d176cefdd19e05e920ce389b9b7e83e5b2dfa546c7",
+      "after_sha256": "86b700fab5db37977a73700b53a0654b21bdad0896914cc19ad70dee5f5fb3f6"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "classification_unadjudicated_remaining"
+      ],
+      "operation": "replace",
+      "before_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+      "after_sha256": "f71cbfce4cd7b26781662e4a8f0230be3ce4690449091c3b6d905518dc02f872"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "integration"
+      ],
+      "operation": "replace",
+      "before_sha256": "ad57366865126e55649ecb23ae1d48887544976efea46a48eb5d85a6eeb4d306",
+      "after_sha256": "52f11620e397f867b7d9f19e48caeb64658356a6b5d17138c00dd9feaf5d7ad6"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "limits",
+        8
+      ],
+      "operation": "append",
+      "after_sha256": "627c115c42b6e5bd9f6081dc7553524d5385a041e3892dcceb754da6e41302d0"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "mixed"
+      ],
+      "operation": "replace",
+      "before_sha256": "59e19706d51d39f66711c2653cd7eb1291c94d9b55eb14bda74ce4dc636d015a",
+      "after_sha256": "108c995b953c8a35561103e2014cf828eb654a99e310f87fab94c2f4b7d2a04f"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "next300_controlling_evidence"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "70d8f84ed6ba381a62bf514feff927664b5d69dc783152bab23d0edeee41b15e"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "next300_delta_proposal"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "6037f28b68eb21eae99f3bc297d111746dc7d62bb670fac647ef79349c2fa511"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "next300_independent_delta_acceptance"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "6d91f3f7f795751af099917e342664f68ee7e02210fdcdec5dc4566ed957f9ff"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        6
+      ],
+      "operation": "append",
+      "after_sha256": "87d029e056259e359da8a7edafb916e5d3d88707225bd82131f633c03aea6f09"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        7
+      ],
+      "operation": "append",
+      "after_sha256": "7928f8cc11b70d2c648d2af0798db9fcd02a8a6c324360a236a8e7312dd57407"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        8
+      ],
+      "operation": "append",
+      "after_sha256": "335581de28eb6ee978a4129e9bb81bceb6e1936d7d73d166a1c0ba69924ee4e6"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        9
+      ],
+      "operation": "append",
+      "after_sha256": "9c9531d9d882e68fb8270125187501d4351002e20eb673aa03ebc8c2603a2b7a"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        10
+      ],
+      "operation": "append",
+      "after_sha256": "11117934e9e0a7b9bb079cd59278199a0128d4e74462f17580874bfa4eb89b9f"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        11
+      ],
+      "operation": "append",
+      "after_sha256": "53fc39f872fde12ce51735656df45866beb3fd77f64aa24133dc88832606f9cd"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        12
+      ],
+      "operation": "append",
+      "after_sha256": "3de2c26c9796fadc6fb3af44f0aaaeb08e9f0e521062740fe1d09dcda57ffaab"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        13
+      ],
+      "operation": "append",
+      "after_sha256": "19fbd61606577a82010ea50a89c6032fe689657b5d14a3ad453a151ef1a7eb52"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        14
+      ],
+      "operation": "append",
+      "after_sha256": "c041581d00a34c3bf21305f331bd9206eae255e4142b2015722631d05612b488"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        15
+      ],
+      "operation": "append",
+      "after_sha256": "2153c00b35183d2b55efcb8f35bce3181b135535b482fd03493a6bda372d83f7"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        16
+      ],
+      "operation": "append",
+      "after_sha256": "ae226ea09fe57acbd2bfe1665ee5b43644906768abd841cb2e35b74d70c88f00"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        17
+      ],
+      "operation": "append",
+      "after_sha256": "9ca0c649c641731d37d6bd7fa786902f05a9248e44be7b602d9c9478ca6a1f5c"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        18
+      ],
+      "operation": "append",
+      "after_sha256": "49695319dd7a884c6dc941667f4b554cf1572facb1639c5f01727d01aeb35767"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        19
+      ],
+      "operation": "append",
+      "after_sha256": "d0ba98ce904087e54c0738c18279949f9e64b0492290fdee56365916b72e7819"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups",
+        20
+      ],
+      "operation": "append",
+      "after_sha256": "d71e6469b1cbc2303f4babba33d692667c7627aeee0052d5e72f21bd5be22fba"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "prior171_actual_application_receipt"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "ab49b282f47b0a6b9ec5aa5fd6ff19ef8be48033f1214ae48fef9a792a166b61"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "proposed_next300_batch_classifications"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "5924f40d0d4799e6fd6212d5abbbaf010b99f8af2ed7d748d1c2a62ca81410d8"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "remaining_other_unadjudicated"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "f7cb9b960a2452c5c73e470e88eadbc2f4f1639d35bde895a7307dd350496580"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "retained_originals_classified"
+      ],
+      "operation": "replace",
+      "before_sha256": "284de502c9847342318c17d474733ef468fbdbe252cddf6e4b4be0676706d9d0",
+      "after_sha256": "480f5a496560ae4228bb7977ecf29b2c589d7a7aa6b609534566af8cbc229a9e"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "reviewed_unresolved_retained_originals"
+      ],
+      "operation": "replace",
+      "before_sha256": "4a44dc15364204a80fe80e9039455cc1608281820fe2b24f1e5233ade6af1dd5",
+      "after_sha256": "8722616204217eddb39e7df969e0698aed8e599ba62ed2de1ce49b03ade0fede"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "state"
+      ],
+      "operation": "replace",
+      "before_sha256": "77882889b8c2a04a5fe9bcc7481c838fd8d1c64cb2378650ada0282231dd987c",
+      "after_sha256": "02e1b881329cfe2a01b1386bcc4a1fe8a0594c3cbb0a50fce8fd73dc025cab59"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "unit"
+      ],
+      "operation": "replace",
+      "before_sha256": "44cb730c420480a0477b505ae68af508fb90f96cf0ec54c6ad16949dd427f13a",
+      "after_sha256": "a512db2741cd20693e4b16f19891e72b9ff12cead72761fc5e92d2aaf34740c1"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "unresolved_within_classified_package"
+      ],
+      "operation": "replace",
+      "before_sha256": "4a44dc15364204a80fe80e9039455cc1608281820fe2b24f1e5233ade6af1dd5",
+      "after_sha256": "8722616204217eddb39e7df969e0698aed8e599ba62ed2de1ce49b03ade0fede"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "all_original_root_accounting_proposal"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "447010e25d8d3faeff6a5dc26689bcb0785983d7697778084d0ca3539ff8f2a7"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "as_of"
+      ],
+      "operation": "replace",
+      "before_sha256": "f809887d998d0eac23dfd4ff3ba23b7fd4fc3128b73c8e30b40bbcdaac56c13f",
+      "after_sha256": "c1bee14ffee1079e9f4a2b4f6e08fe04b117abf5f5ec55bee067ccca25e2bd45"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "baseline_originals_total"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "2f4d707285019a3128e47af6065e7f94c99ad5f67e8dbb2331195e19f280a9dc"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "baseline_rows"
+      ],
+      "operation": "replace",
+      "before_sha256": "2811745d7b8d8874f6e653d176cefdd19e05e920ce389b9b7e83e5b2dfa546c7",
+      "after_sha256": "86b700fab5db37977a73700b53a0654b21bdad0896914cc19ad70dee5f5fb3f6"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "classification_unadjudicated_remaining"
+      ],
+      "operation": "replace",
+      "before_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+      "after_sha256": "f71cbfce4cd7b26781662e4a8f0230be3ce4690449091c3b6d905518dc02f872"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "integration"
+      ],
+      "operation": "replace",
+      "before_sha256": "ad57366865126e55649ecb23ae1d48887544976efea46a48eb5d85a6eeb4d306",
+      "after_sha256": "52f11620e397f867b7d9f19e48caeb64658356a6b5d17138c00dd9feaf5d7ad6"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "limits",
+        8
+      ],
+      "operation": "append",
+      "after_sha256": "627c115c42b6e5bd9f6081dc7553524d5385a041e3892dcceb754da6e41302d0"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "mixed"
+      ],
+      "operation": "replace",
+      "before_sha256": "59e19706d51d39f66711c2653cd7eb1291c94d9b55eb14bda74ce4dc636d015a",
+      "after_sha256": "108c995b953c8a35561103e2014cf828eb654a99e310f87fab94c2f4b7d2a04f"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "next300_controlling_evidence"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "70d8f84ed6ba381a62bf514feff927664b5d69dc783152bab23d0edeee41b15e"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "next300_delta_proposal"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "6037f28b68eb21eae99f3bc297d111746dc7d62bb670fac647ef79349c2fa511"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "next300_independent_delta_acceptance"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "6d91f3f7f795751af099917e342664f68ee7e02210fdcdec5dc4566ed957f9ff"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        6
+      ],
+      "operation": "append",
+      "after_sha256": "87d029e056259e359da8a7edafb916e5d3d88707225bd82131f633c03aea6f09"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        7
+      ],
+      "operation": "append",
+      "after_sha256": "7928f8cc11b70d2c648d2af0798db9fcd02a8a6c324360a236a8e7312dd57407"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        8
+      ],
+      "operation": "append",
+      "after_sha256": "335581de28eb6ee978a4129e9bb81bceb6e1936d7d73d166a1c0ba69924ee4e6"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        9
+      ],
+      "operation": "append",
+      "after_sha256": "9c9531d9d882e68fb8270125187501d4351002e20eb673aa03ebc8c2603a2b7a"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        10
+      ],
+      "operation": "append",
+      "after_sha256": "11117934e9e0a7b9bb079cd59278199a0128d4e74462f17580874bfa4eb89b9f"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        11
+      ],
+      "operation": "append",
+      "after_sha256": "53fc39f872fde12ce51735656df45866beb3fd77f64aa24133dc88832606f9cd"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        12
+      ],
+      "operation": "append",
+      "after_sha256": "3de2c26c9796fadc6fb3af44f0aaaeb08e9f0e521062740fe1d09dcda57ffaab"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        13
+      ],
+      "operation": "append",
+      "after_sha256": "19fbd61606577a82010ea50a89c6032fe689657b5d14a3ad453a151ef1a7eb52"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        14
+      ],
+      "operation": "append",
+      "after_sha256": "c041581d00a34c3bf21305f331bd9206eae255e4142b2015722631d05612b488"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        15
+      ],
+      "operation": "append",
+      "after_sha256": "2153c00b35183d2b55efcb8f35bce3181b135535b482fd03493a6bda372d83f7"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        16
+      ],
+      "operation": "append",
+      "after_sha256": "ae226ea09fe57acbd2bfe1665ee5b43644906768abd841cb2e35b74d70c88f00"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        17
+      ],
+      "operation": "append",
+      "after_sha256": "9ca0c649c641731d37d6bd7fa786902f05a9248e44be7b602d9c9478ca6a1f5c"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        18
+      ],
+      "operation": "append",
+      "after_sha256": "49695319dd7a884c6dc941667f4b554cf1572facb1639c5f01727d01aeb35767"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        19
+      ],
+      "operation": "append",
+      "after_sha256": "d0ba98ce904087e54c0738c18279949f9e64b0492290fdee56365916b72e7819"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        20
+      ],
+      "operation": "append",
+      "after_sha256": "d71e6469b1cbc2303f4babba33d692667c7627aeee0052d5e72f21bd5be22fba"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "prior171_actual_application_receipt"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "ab49b282f47b0a6b9ec5aa5fd6ff19ef8be48033f1214ae48fef9a792a166b61"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "proposed_next300_batch_classifications"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "5924f40d0d4799e6fd6212d5abbbaf010b99f8af2ed7d748d1c2a62ca81410d8"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "remaining_other_unadjudicated"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "f7cb9b960a2452c5c73e470e88eadbc2f4f1639d35bde895a7307dd350496580"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "retained_originals_classified"
+      ],
+      "operation": "replace",
+      "before_sha256": "284de502c9847342318c17d474733ef468fbdbe252cddf6e4b4be0676706d9d0",
+      "after_sha256": "480f5a496560ae4228bb7977ecf29b2c589d7a7aa6b609534566af8cbc229a9e"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "reviewed_unresolved_retained_originals"
+      ],
+      "operation": "replace",
+      "before_sha256": "4a44dc15364204a80fe80e9039455cc1608281820fe2b24f1e5233ade6af1dd5",
+      "after_sha256": "8722616204217eddb39e7df969e0698aed8e599ba62ed2de1ce49b03ade0fede"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "state"
+      ],
+      "operation": "replace",
+      "before_sha256": "77882889b8c2a04a5fe9bcc7481c838fd8d1c64cb2378650ada0282231dd987c",
+      "after_sha256": "02e1b881329cfe2a01b1386bcc4a1fe8a0594c3cbb0a50fce8fd73dc025cab59"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "unit"
+      ],
+      "operation": "replace",
+      "before_sha256": "44cb730c420480a0477b505ae68af508fb90f96cf0ec54c6ad16949dd427f13a",
+      "after_sha256": "a512db2741cd20693e4b16f19891e72b9ff12cead72761fc5e92d2aaf34740c1"
+    },
+    {
+      "path": [
+        "completion",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "unresolved_within_classified_package"
+      ],
+      "operation": "replace",
+      "before_sha256": "4a44dc15364204a80fe80e9039455cc1608281820fe2b24f1e5233ade6af1dd5",
+      "after_sha256": "8722616204217eddb39e7df969e0698aed8e599ba62ed2de1ce49b03ade0fede"
+    },
+    {
+      "path": [
+        "completion",
+        "open_categories"
+      ],
+      "operation": "replace",
+      "before_sha256": "51267a20f4b5a6e3823645a5fe7df4943aa31adc55bdba947dba4947a57dd197",
+      "after_sha256": "9faf374ecbe52ab4c302d59e1050d1ee2c07f8fe2a004b33485b8941aee739aa"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "all_original_root_accounting_proposal"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "447010e25d8d3faeff6a5dc26689bcb0785983d7697778084d0ca3539ff8f2a7"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "as_of"
+      ],
+      "operation": "replace",
+      "before_sha256": "f809887d998d0eac23dfd4ff3ba23b7fd4fc3128b73c8e30b40bbcdaac56c13f",
+      "after_sha256": "c1bee14ffee1079e9f4a2b4f6e08fe04b117abf5f5ec55bee067ccca25e2bd45"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "baseline_originals_total"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "2f4d707285019a3128e47af6065e7f94c99ad5f67e8dbb2331195e19f280a9dc"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "baseline_rows"
+      ],
+      "operation": "replace",
+      "before_sha256": "2811745d7b8d8874f6e653d176cefdd19e05e920ce389b9b7e83e5b2dfa546c7",
+      "after_sha256": "86b700fab5db37977a73700b53a0654b21bdad0896914cc19ad70dee5f5fb3f6"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "classification_unadjudicated_remaining"
+      ],
+      "operation": "replace",
+      "before_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+      "after_sha256": "f71cbfce4cd7b26781662e4a8f0230be3ce4690449091c3b6d905518dc02f872"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "integration"
+      ],
+      "operation": "replace",
+      "before_sha256": "ad57366865126e55649ecb23ae1d48887544976efea46a48eb5d85a6eeb4d306",
+      "after_sha256": "52f11620e397f867b7d9f19e48caeb64658356a6b5d17138c00dd9feaf5d7ad6"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "limits",
+        8
+      ],
+      "operation": "append",
+      "after_sha256": "627c115c42b6e5bd9f6081dc7553524d5385a041e3892dcceb754da6e41302d0"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "mixed"
+      ],
+      "operation": "replace",
+      "before_sha256": "59e19706d51d39f66711c2653cd7eb1291c94d9b55eb14bda74ce4dc636d015a",
+      "after_sha256": "108c995b953c8a35561103e2014cf828eb654a99e310f87fab94c2f4b7d2a04f"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "next300_controlling_evidence"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "70d8f84ed6ba381a62bf514feff927664b5d69dc783152bab23d0edeee41b15e"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "next300_delta_proposal"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "6037f28b68eb21eae99f3bc297d111746dc7d62bb670fac647ef79349c2fa511"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "next300_independent_delta_acceptance"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "6d91f3f7f795751af099917e342664f68ee7e02210fdcdec5dc4566ed957f9ff"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "package_groups",
+        6
+      ],
+      "operation": "append",
+      "after_sha256": "87d029e056259e359da8a7edafb916e5d3d88707225bd82131f633c03aea6f09"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "package_groups",
+        7
+      ],
+      "operation": "append",
+      "after_sha256": "7928f8cc11b70d2c648d2af0798db9fcd02a8a6c324360a236a8e7312dd57407"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "package_groups",
+        8
+      ],
+      "operation": "append",
+      "after_sha256": "335581de28eb6ee978a4129e9bb81bceb6e1936d7d73d166a1c0ba69924ee4e6"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "package_groups",
+        9
+      ],
+      "operation": "append",
+      "after_sha256": "9c9531d9d882e68fb8270125187501d4351002e20eb673aa03ebc8c2603a2b7a"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "package_groups",
+        10
+      ],
+      "operation": "append",
+      "after_sha256": "11117934e9e0a7b9bb079cd59278199a0128d4e74462f17580874bfa4eb89b9f"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "package_groups",
+        11
+      ],
+      "operation": "append",
+      "after_sha256": "53fc39f872fde12ce51735656df45866beb3fd77f64aa24133dc88832606f9cd"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "package_groups",
+        12
+      ],
+      "operation": "append",
+      "after_sha256": "3de2c26c9796fadc6fb3af44f0aaaeb08e9f0e521062740fe1d09dcda57ffaab"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "package_groups",
+        13
+      ],
+      "operation": "append",
+      "after_sha256": "19fbd61606577a82010ea50a89c6032fe689657b5d14a3ad453a151ef1a7eb52"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "package_groups",
+        14
+      ],
+      "operation": "append",
+      "after_sha256": "c041581d00a34c3bf21305f331bd9206eae255e4142b2015722631d05612b488"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "package_groups",
+        15
+      ],
+      "operation": "append",
+      "after_sha256": "2153c00b35183d2b55efcb8f35bce3181b135535b482fd03493a6bda372d83f7"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "package_groups",
+        16
+      ],
+      "operation": "append",
+      "after_sha256": "ae226ea09fe57acbd2bfe1665ee5b43644906768abd841cb2e35b74d70c88f00"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "package_groups",
+        17
+      ],
+      "operation": "append",
+      "after_sha256": "9ca0c649c641731d37d6bd7fa786902f05a9248e44be7b602d9c9478ca6a1f5c"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "package_groups",
+        18
+      ],
+      "operation": "append",
+      "after_sha256": "49695319dd7a884c6dc941667f4b554cf1572facb1639c5f01727d01aeb35767"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "package_groups",
+        19
+      ],
+      "operation": "append",
+      "after_sha256": "d0ba98ce904087e54c0738c18279949f9e64b0492290fdee56365916b72e7819"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "package_groups",
+        20
+      ],
+      "operation": "append",
+      "after_sha256": "d71e6469b1cbc2303f4babba33d692667c7627aeee0052d5e72f21bd5be22fba"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "prior171_actual_application_receipt"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "ab49b282f47b0a6b9ec5aa5fd6ff19ef8be48033f1214ae48fef9a792a166b61"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "proposed_next300_batch_classifications"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "5924f40d0d4799e6fd6212d5abbbaf010b99f8af2ed7d748d1c2a62ca81410d8"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "remaining_other_unadjudicated"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "f7cb9b960a2452c5c73e470e88eadbc2f4f1639d35bde895a7307dd350496580"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "retained_originals_classified"
+      ],
+      "operation": "replace",
+      "before_sha256": "284de502c9847342318c17d474733ef468fbdbe252cddf6e4b4be0676706d9d0",
+      "after_sha256": "480f5a496560ae4228bb7977ecf29b2c589d7a7aa6b609534566af8cbc229a9e"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "reviewed_unresolved_retained_originals"
+      ],
+      "operation": "replace",
+      "before_sha256": "4a44dc15364204a80fe80e9039455cc1608281820fe2b24f1e5233ade6af1dd5",
+      "after_sha256": "8722616204217eddb39e7df969e0698aed8e599ba62ed2de1ce49b03ade0fede"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "state"
+      ],
+      "operation": "replace",
+      "before_sha256": "77882889b8c2a04a5fe9bcc7481c838fd8d1c64cb2378650ada0282231dd987c",
+      "after_sha256": "02e1b881329cfe2a01b1386bcc4a1fe8a0594c3cbb0a50fce8fd73dc025cab59"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "unit"
+      ],
+      "operation": "replace",
+      "before_sha256": "44cb730c420480a0477b505ae68af508fb90f96cf0ec54c6ad16949dd427f13a",
+      "after_sha256": "a512db2741cd20693e4b16f19891e72b9ff12cead72761fc5e92d2aaf34740c1"
+    },
+    {
+      "path": [
+        "completion",
+        "source_classification_adjudication",
+        "unresolved_within_classified_package"
+      ],
+      "operation": "replace",
+      "before_sha256": "4a44dc15364204a80fe80e9039455cc1608281820fe2b24f1e5233ade6af1dd5",
+      "after_sha256": "8722616204217eddb39e7df969e0698aed8e599ba62ed2de1ce49b03ade0fede"
+    },
+    {
+      "path": [
+        "progress",
+        "as_of"
+      ],
+      "operation": "replace",
+      "before_sha256": "31dfdb7d8e482936cfccacea4c8d20cea3f2549ed0d5cf662dba6a2b115d13a6",
+      "after_sha256": "c1bee14ffee1079e9f4a2b4f6e08fe04b117abf5f5ec55bee067ccca25e2bd45"
+    },
+    {
+      "path": [
+        "progress",
+        "classification_adjudication_history",
+        3
+      ],
+      "operation": "append",
+      "after_sha256": "e13ba9baee48aa6b4006bdb57af15fdd3a9c078b450a731d292640475aea73cb"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "all_original_root_accounting_proposal"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "447010e25d8d3faeff6a5dc26689bcb0785983d7697778084d0ca3539ff8f2a7"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "as_of"
+      ],
+      "operation": "replace",
+      "before_sha256": "f809887d998d0eac23dfd4ff3ba23b7fd4fc3128b73c8e30b40bbcdaac56c13f",
+      "after_sha256": "c1bee14ffee1079e9f4a2b4f6e08fe04b117abf5f5ec55bee067ccca25e2bd45"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "baseline_originals_total"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "2f4d707285019a3128e47af6065e7f94c99ad5f67e8dbb2331195e19f280a9dc"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "baseline_rows"
+      ],
+      "operation": "replace",
+      "before_sha256": "2811745d7b8d8874f6e653d176cefdd19e05e920ce389b9b7e83e5b2dfa546c7",
+      "after_sha256": "86b700fab5db37977a73700b53a0654b21bdad0896914cc19ad70dee5f5fb3f6"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "classification_unadjudicated_remaining"
+      ],
+      "operation": "replace",
+      "before_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+      "after_sha256": "f71cbfce4cd7b26781662e4a8f0230be3ce4690449091c3b6d905518dc02f872"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "integration"
+      ],
+      "operation": "replace",
+      "before_sha256": "ad57366865126e55649ecb23ae1d48887544976efea46a48eb5d85a6eeb4d306",
+      "after_sha256": "52f11620e397f867b7d9f19e48caeb64658356a6b5d17138c00dd9feaf5d7ad6"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "limits",
+        8
+      ],
+      "operation": "append",
+      "after_sha256": "627c115c42b6e5bd9f6081dc7553524d5385a041e3892dcceb754da6e41302d0"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "mixed"
+      ],
+      "operation": "replace",
+      "before_sha256": "59e19706d51d39f66711c2653cd7eb1291c94d9b55eb14bda74ce4dc636d015a",
+      "after_sha256": "108c995b953c8a35561103e2014cf828eb654a99e310f87fab94c2f4b7d2a04f"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "next300_controlling_evidence"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "70d8f84ed6ba381a62bf514feff927664b5d69dc783152bab23d0edeee41b15e"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "next300_delta_proposal"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "6037f28b68eb21eae99f3bc297d111746dc7d62bb670fac647ef79349c2fa511"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "next300_independent_delta_acceptance"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "6d91f3f7f795751af099917e342664f68ee7e02210fdcdec5dc4566ed957f9ff"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        6
+      ],
+      "operation": "append",
+      "after_sha256": "87d029e056259e359da8a7edafb916e5d3d88707225bd82131f633c03aea6f09"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        7
+      ],
+      "operation": "append",
+      "after_sha256": "7928f8cc11b70d2c648d2af0798db9fcd02a8a6c324360a236a8e7312dd57407"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        8
+      ],
+      "operation": "append",
+      "after_sha256": "335581de28eb6ee978a4129e9bb81bceb6e1936d7d73d166a1c0ba69924ee4e6"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        9
+      ],
+      "operation": "append",
+      "after_sha256": "9c9531d9d882e68fb8270125187501d4351002e20eb673aa03ebc8c2603a2b7a"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        10
+      ],
+      "operation": "append",
+      "after_sha256": "11117934e9e0a7b9bb079cd59278199a0128d4e74462f17580874bfa4eb89b9f"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        11
+      ],
+      "operation": "append",
+      "after_sha256": "53fc39f872fde12ce51735656df45866beb3fd77f64aa24133dc88832606f9cd"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        12
+      ],
+      "operation": "append",
+      "after_sha256": "3de2c26c9796fadc6fb3af44f0aaaeb08e9f0e521062740fe1d09dcda57ffaab"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        13
+      ],
+      "operation": "append",
+      "after_sha256": "19fbd61606577a82010ea50a89c6032fe689657b5d14a3ad453a151ef1a7eb52"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        14
+      ],
+      "operation": "append",
+      "after_sha256": "c041581d00a34c3bf21305f331bd9206eae255e4142b2015722631d05612b488"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        15
+      ],
+      "operation": "append",
+      "after_sha256": "2153c00b35183d2b55efcb8f35bce3181b135535b482fd03493a6bda372d83f7"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        16
+      ],
+      "operation": "append",
+      "after_sha256": "ae226ea09fe57acbd2bfe1665ee5b43644906768abd841cb2e35b74d70c88f00"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        17
+      ],
+      "operation": "append",
+      "after_sha256": "9ca0c649c641731d37d6bd7fa786902f05a9248e44be7b602d9c9478ca6a1f5c"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        18
+      ],
+      "operation": "append",
+      "after_sha256": "49695319dd7a884c6dc941667f4b554cf1572facb1639c5f01727d01aeb35767"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        19
+      ],
+      "operation": "append",
+      "after_sha256": "d0ba98ce904087e54c0738c18279949f9e64b0492290fdee56365916b72e7819"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups",
+        20
+      ],
+      "operation": "append",
+      "after_sha256": "d71e6469b1cbc2303f4babba33d692667c7627aeee0052d5e72f21bd5be22fba"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "prior171_actual_application_receipt"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "ab49b282f47b0a6b9ec5aa5fd6ff19ef8be48033f1214ae48fef9a792a166b61"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "proposed_next300_batch_classifications"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "5924f40d0d4799e6fd6212d5abbbaf010b99f8af2ed7d748d1c2a62ca81410d8"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "remaining_other_unadjudicated"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "f7cb9b960a2452c5c73e470e88eadbc2f4f1639d35bde895a7307dd350496580"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "retained_originals_classified"
+      ],
+      "operation": "replace",
+      "before_sha256": "284de502c9847342318c17d474733ef468fbdbe252cddf6e4b4be0676706d9d0",
+      "after_sha256": "480f5a496560ae4228bb7977ecf29b2c589d7a7aa6b609534566af8cbc229a9e"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "reviewed_unresolved_retained_originals"
+      ],
+      "operation": "replace",
+      "before_sha256": "4a44dc15364204a80fe80e9039455cc1608281820fe2b24f1e5233ade6af1dd5",
+      "after_sha256": "8722616204217eddb39e7df969e0698aed8e599ba62ed2de1ce49b03ade0fede"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "state"
+      ],
+      "operation": "replace",
+      "before_sha256": "77882889b8c2a04a5fe9bcc7481c838fd8d1c64cb2378650ada0282231dd987c",
+      "after_sha256": "02e1b881329cfe2a01b1386bcc4a1fe8a0594c3cbb0a50fce8fd73dc025cab59"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "unit"
+      ],
+      "operation": "replace",
+      "before_sha256": "44cb730c420480a0477b505ae68af508fb90f96cf0ec54c6ad16949dd427f13a",
+      "after_sha256": "a512db2741cd20693e4b16f19891e72b9ff12cead72761fc5e92d2aaf34740c1"
+    },
+    {
+      "path": [
+        "progress",
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "unresolved_within_classified_package"
+      ],
+      "operation": "replace",
+      "before_sha256": "4a44dc15364204a80fe80e9039455cc1608281820fe2b24f1e5233ade6af1dd5",
+      "after_sha256": "8722616204217eddb39e7df969e0698aed8e599ba62ed2de1ce49b03ade0fede"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "all_original_root_accounting_proposal"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "447010e25d8d3faeff6a5dc26689bcb0785983d7697778084d0ca3539ff8f2a7"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "as_of"
+      ],
+      "operation": "replace",
+      "before_sha256": "f809887d998d0eac23dfd4ff3ba23b7fd4fc3128b73c8e30b40bbcdaac56c13f",
+      "after_sha256": "c1bee14ffee1079e9f4a2b4f6e08fe04b117abf5f5ec55bee067ccca25e2bd45"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "baseline_originals_total"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "2f4d707285019a3128e47af6065e7f94c99ad5f67e8dbb2331195e19f280a9dc"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "baseline_rows"
+      ],
+      "operation": "replace",
+      "before_sha256": "2811745d7b8d8874f6e653d176cefdd19e05e920ce389b9b7e83e5b2dfa546c7",
+      "after_sha256": "86b700fab5db37977a73700b53a0654b21bdad0896914cc19ad70dee5f5fb3f6"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "classification_unadjudicated_remaining"
+      ],
+      "operation": "replace",
+      "before_sha256": "3c365ff931ecb0e3c0f00231793fe32151463bfcc31a4fdf4eb0a5942f5b1ddb",
+      "after_sha256": "f71cbfce4cd7b26781662e4a8f0230be3ce4690449091c3b6d905518dc02f872"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "integration"
+      ],
+      "operation": "replace",
+      "before_sha256": "ad57366865126e55649ecb23ae1d48887544976efea46a48eb5d85a6eeb4d306",
+      "after_sha256": "52f11620e397f867b7d9f19e48caeb64658356a6b5d17138c00dd9feaf5d7ad6"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "limits",
+        8
+      ],
+      "operation": "append",
+      "after_sha256": "627c115c42b6e5bd9f6081dc7553524d5385a041e3892dcceb754da6e41302d0"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "mixed"
+      ],
+      "operation": "replace",
+      "before_sha256": "59e19706d51d39f66711c2653cd7eb1291c94d9b55eb14bda74ce4dc636d015a",
+      "after_sha256": "108c995b953c8a35561103e2014cf828eb654a99e310f87fab94c2f4b7d2a04f"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "next300_controlling_evidence"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "70d8f84ed6ba381a62bf514feff927664b5d69dc783152bab23d0edeee41b15e"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "next300_delta_proposal"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "6037f28b68eb21eae99f3bc297d111746dc7d62bb670fac647ef79349c2fa511"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "next300_independent_delta_acceptance"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "6d91f3f7f795751af099917e342664f68ee7e02210fdcdec5dc4566ed957f9ff"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "package_groups",
+        6
+      ],
+      "operation": "append",
+      "after_sha256": "87d029e056259e359da8a7edafb916e5d3d88707225bd82131f633c03aea6f09"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "package_groups",
+        7
+      ],
+      "operation": "append",
+      "after_sha256": "7928f8cc11b70d2c648d2af0798db9fcd02a8a6c324360a236a8e7312dd57407"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "package_groups",
+        8
+      ],
+      "operation": "append",
+      "after_sha256": "335581de28eb6ee978a4129e9bb81bceb6e1936d7d73d166a1c0ba69924ee4e6"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "package_groups",
+        9
+      ],
+      "operation": "append",
+      "after_sha256": "9c9531d9d882e68fb8270125187501d4351002e20eb673aa03ebc8c2603a2b7a"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "package_groups",
+        10
+      ],
+      "operation": "append",
+      "after_sha256": "11117934e9e0a7b9bb079cd59278199a0128d4e74462f17580874bfa4eb89b9f"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "package_groups",
+        11
+      ],
+      "operation": "append",
+      "after_sha256": "53fc39f872fde12ce51735656df45866beb3fd77f64aa24133dc88832606f9cd"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "package_groups",
+        12
+      ],
+      "operation": "append",
+      "after_sha256": "3de2c26c9796fadc6fb3af44f0aaaeb08e9f0e521062740fe1d09dcda57ffaab"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "package_groups",
+        13
+      ],
+      "operation": "append",
+      "after_sha256": "19fbd61606577a82010ea50a89c6032fe689657b5d14a3ad453a151ef1a7eb52"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "package_groups",
+        14
+      ],
+      "operation": "append",
+      "after_sha256": "c041581d00a34c3bf21305f331bd9206eae255e4142b2015722631d05612b488"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "package_groups",
+        15
+      ],
+      "operation": "append",
+      "after_sha256": "2153c00b35183d2b55efcb8f35bce3181b135535b482fd03493a6bda372d83f7"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "package_groups",
+        16
+      ],
+      "operation": "append",
+      "after_sha256": "ae226ea09fe57acbd2bfe1665ee5b43644906768abd841cb2e35b74d70c88f00"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "package_groups",
+        17
+      ],
+      "operation": "append",
+      "after_sha256": "9ca0c649c641731d37d6bd7fa786902f05a9248e44be7b602d9c9478ca6a1f5c"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "package_groups",
+        18
+      ],
+      "operation": "append",
+      "after_sha256": "49695319dd7a884c6dc941667f4b554cf1572facb1639c5f01727d01aeb35767"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "package_groups",
+        19
+      ],
+      "operation": "append",
+      "after_sha256": "d0ba98ce904087e54c0738c18279949f9e64b0492290fdee56365916b72e7819"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "package_groups",
+        20
+      ],
+      "operation": "append",
+      "after_sha256": "d71e6469b1cbc2303f4babba33d692667c7627aeee0052d5e72f21bd5be22fba"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "prior171_actual_application_receipt"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "ab49b282f47b0a6b9ec5aa5fd6ff19ef8be48033f1214ae48fef9a792a166b61"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "proposed_next300_batch_classifications"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "5924f40d0d4799e6fd6212d5abbbaf010b99f8af2ed7d748d1c2a62ca81410d8"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "remaining_other_unadjudicated"
+      ],
+      "operation": "add",
+      "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "after_sha256": "f7cb9b960a2452c5c73e470e88eadbc2f4f1639d35bde895a7307dd350496580"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "retained_originals_classified"
+      ],
+      "operation": "replace",
+      "before_sha256": "284de502c9847342318c17d474733ef468fbdbe252cddf6e4b4be0676706d9d0",
+      "after_sha256": "480f5a496560ae4228bb7977ecf29b2c589d7a7aa6b609534566af8cbc229a9e"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "reviewed_unresolved_retained_originals"
+      ],
+      "operation": "replace",
+      "before_sha256": "4a44dc15364204a80fe80e9039455cc1608281820fe2b24f1e5233ade6af1dd5",
+      "after_sha256": "8722616204217eddb39e7df969e0698aed8e599ba62ed2de1ce49b03ade0fede"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "state"
+      ],
+      "operation": "replace",
+      "before_sha256": "77882889b8c2a04a5fe9bcc7481c838fd8d1c64cb2378650ada0282231dd987c",
+      "after_sha256": "02e1b881329cfe2a01b1386bcc4a1fe8a0594c3cbb0a50fce8fd73dc025cab59"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "unit"
+      ],
+      "operation": "replace",
+      "before_sha256": "44cb730c420480a0477b505ae68af508fb90f96cf0ec54c6ad16949dd427f13a",
+      "after_sha256": "a512db2741cd20693e4b16f19891e72b9ff12cead72761fc5e92d2aaf34740c1"
+    },
+    {
+      "path": [
+        "progress",
+        "source_classification_adjudication",
+        "unresolved_within_classified_package"
+      ],
+      "operation": "replace",
+      "before_sha256": "4a44dc15364204a80fe80e9039455cc1608281820fe2b24f1e5233ade6af1dd5",
+      "after_sha256": "8722616204217eddb39e7df969e0698aed8e599ba62ed2de1ce49b03ade0fede"
+    }
+  ],
+  "allowed_scope": "12 source-classification summary replacements, root as_of, one append to each classification_adjudication_history; every other JSON value preserved."
+}

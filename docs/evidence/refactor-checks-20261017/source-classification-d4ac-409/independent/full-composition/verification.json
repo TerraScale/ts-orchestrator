@@ -1,0 +1,283 @@
+{
+  "actual_shared_before_after_pins": [
+    {
+      "bytes": 1294888,
+      "mode": "0600",
+      "path": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+      "sha256": "5d9aaea02f2f2b3d200872013d2dc33a185d2ccbd6d52df59e27e46fe6b3751e"
+    },
+    {
+      "bytes": 138535,
+      "mode": "0644",
+      "path": "/tmp/ts-qa-main-union-progress-20261016.json",
+      "sha256": "7a0c320bb4d7f3e71b30473a80e4e271ca9bfa97fba1032a98f7203ced046a1e"
+    }
+  ],
+  "all12_mirrors_equal_exact_summary": true,
+  "all300_new_runtime_UNKNOWN": true,
+  "all3_corrections_and_CORE_supplements_carried_exactly": true,
+  "all4319_original_root_disposition_counts": {
+    "integration": 184,
+    "mixed": 65,
+    "other_unadjudicated": 3819,
+    "retired": 19,
+    "reviewed_unresolved": 72,
+    "unit": 160
+  },
+  "all4319_unique_original_IDs_equal_prior_plus_delta_plus_inventory": true,
+  "all_assertions_passed": true,
+  "all_previous_summary_records_retained": true,
+  "all_prior_histories_limits_packagegroups_exact_prefixes": true,
+  "all_unrelated_full_ledger_evidence_values_unchanged": true,
+  "complete_ledger_preservation": [
+    {
+      "actual_before": {
+        "bytes": 1294888,
+        "mode": "0600",
+        "path": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+        "sha256": "5d9aaea02f2f2b3d200872013d2dc33a185d2ccbd6d52df59e27e46fe6b3751e"
+      },
+      "actual_entire_before_ledger_hash": "77fd7febd3c3f75771079955c46aefd4b725241bcb8e71cac93fb699f6bb14c9",
+      "existing_accepted_package_record_hash": "50765dd02bf8e579ae7cb55ebc4fbe7d0deba07d6a28eec3f90b70855c233693",
+      "existing_history_prefix_hash": "df20f33d370144525701d92970de3e21b97d890522cf55863c45c7398db52c52",
+      "ledger": "completion",
+      "mirrors": 10,
+      "new_history_entries": 4,
+      "new_summary_keys": 30,
+      "old_history_entries": 3,
+      "old_summary_keys": 22,
+      "proposed_after": {
+        "bytes": 1425931,
+        "mode": "0444",
+        "path": "/tmp/ts-qa-next300-full-composed-proposal-0hwlp02a/proposed-completion.json",
+        "sha256": "7b5975681576c2f4a7d0f9eb201d12946388c076ff03752490d96eb4ef17d3f4"
+      },
+      "restored_entire_proposed_ledger_hash": "77fd7febd3c3f75771079955c46aefd4b725241bcb8e71cac93fb699f6bb14c9",
+      "semantic_changes": 241,
+      "unrelated_values_preserved": true
+    },
+    {
+      "actual_before": {
+        "bytes": 138535,
+        "mode": "0644",
+        "path": "/tmp/ts-qa-main-union-progress-20261016.json",
+        "sha256": "7a0c320bb4d7f3e71b30473a80e4e271ca9bfa97fba1032a98f7203ced046a1e"
+      },
+      "actual_entire_before_ledger_hash": "df2d90399b584bfce7edc00fbf1e972f3bc46b7798eade51cece224bdc1d5a02",
+      "existing_accepted_package_record_hash": "50765dd02bf8e579ae7cb55ebc4fbe7d0deba07d6a28eec3f90b70855c233693",
+      "existing_history_prefix_hash": "a51d8473d1d7336887f1d9e8e979be17baf026019cdfeed446c29e1ef1482a1c",
+      "ledger": "progress",
+      "mirrors": 2,
+      "new_history_entries": 4,
+      "new_summary_keys": 30,
+      "old_history_entries": 3,
+      "old_summary_keys": 22,
+      "proposed_after": {
+        "bytes": 173356,
+        "mode": "0444",
+        "path": "/tmp/ts-qa-next300-full-composed-proposal-0hwlp02a/proposed-progress.json",
+        "sha256": "94284e85dfa6a3c8d04c9fcf536754ec8d710d2a16fc833397a8f5ae7e48da1a"
+      },
+      "restored_entire_proposed_ledger_hash": "df2d90399b584bfce7edc00fbf1e972f3bc46b7798eade51cece224bdc1d5a02",
+      "semantic_changes": 70,
+      "unrelated_values_preserved": true
+    }
+  ],
+  "five_batch_exact_pin_and_count_checks": [
+    {
+      "batch": "DATA75",
+      "counts": {
+        "integration": 2,
+        "unit": 16,
+        "unresolved": 57
+      },
+      "roots": 75
+    },
+    {
+      "batch": "CORE65",
+      "counts": {
+        "integration": 13,
+        "mixed": 15,
+        "unit": 36,
+        "unresolved": 1
+      },
+      "roots": 65
+    },
+    {
+      "batch": "CAP57",
+      "counts": {
+        "integration": 8,
+        "mixed": 2,
+        "unit": 46,
+        "unresolved": 1
+      },
+      "roots": 57
+    },
+    {
+      "batch": "MESH55",
+      "counts": {
+        "integration": 35,
+        "mixed": 11,
+        "unit": 8,
+        "unresolved": 1
+      },
+      "roots": 55
+    },
+    {
+      "batch": "NET48",
+      "counts": {
+        "integration": 26,
+        "mixed": 9,
+        "unit": 11,
+        "unresolved": 2
+      },
+      "roots": 48
+    }
+  ],
+  "independently_derived311_semantic_changes_match": true,
+  "input_files": [
+    {
+      "bytes": 9185,
+      "mode": "0444",
+      "path": "/tmp/ts-next300-final-delta-independent-storage-review-rilgr3fa/review.json",
+      "sha256": "842cec513f6cb3c82f9e189317aba6c8d85d403a4b72cc0ab6a7b2d8ecdd30fd"
+    },
+    {
+      "bytes": 391960,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/proposal.json",
+      "sha256": "f26ebe8d0abedc04a1b1b1a745da98665390dc09e015523fbc56298c284ded6a"
+    },
+    {
+      "bytes": 8118,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/inputs-manifest.json",
+      "sha256": "8460a793d54e91dc98a88e1d74d8d4d03a2f58af50f6ccb52695fde379bf2b0f"
+    },
+    {
+      "bytes": 7772,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/verify.py",
+      "sha256": "d5a85f970d92ebefd2bdb0d721d93094c532001722650c8aaacc3470ab637457"
+    },
+    {
+      "bytes": 306,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/verification.json",
+      "sha256": "cef17e647d225e291a2c098ee7fc80f4fe369bf37e560f88a73373a5d34cb3d5"
+    },
+    {
+      "bytes": 225913,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-classification69-delta-final-l6fu61l5/proposal.json",
+      "sha256": "7eaaa19a3ccb97b64e02d74021ec4bcdf0908ecc2f317f131ae7c9acd473c69e"
+    },
+    {
+      "bytes": 1640609,
+      "mode": "0400",
+      "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+      "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+    },
+    {
+      "bytes": 1893,
+      "mode": "0444",
+      "path": "/tmp/ts-qa-classification69-actual-apply-9wr2zuyd/receipt.json",
+      "sha256": "71738603201ae4863b725c2f843f085f2db929ff3dde1ad4fd982292cd5f209d"
+    }
+  ],
+  "no_source_rescan_build_test_runtime_or_supplied_verifier_execution": true,
+  "packet_files": [
+    {
+      "bytes": 1617,
+      "mode": "0444",
+      "path": "/tmp/ts-qa-next300-full-composed-proposal-0hwlp02a/README.md",
+      "sha256": "9fc34c202a16492ff35b2fe47d93bde2910fc584d28efb792a1f9098c73810b3"
+    },
+    {
+      "bytes": 1294888,
+      "mode": "0444",
+      "path": "/tmp/ts-qa-next300-full-composed-proposal-0hwlp02a/before/completion.json",
+      "sha256": "5d9aaea02f2f2b3d200872013d2dc33a185d2ccbd6d52df59e27e46fe6b3751e"
+    },
+    {
+      "bytes": 138535,
+      "mode": "0444",
+      "path": "/tmp/ts-qa-next300-full-composed-proposal-0hwlp02a/before/progress.json",
+      "sha256": "7a0c320bb4d7f3e71b30473a80e4e271ca9bfa97fba1032a98f7203ced046a1e"
+    },
+    {
+      "bytes": 114710,
+      "mode": "0444",
+      "path": "/tmp/ts-qa-next300-full-composed-proposal-0hwlp02a/delta-list.json",
+      "sha256": "8438e9575e3482f7b6c895ddfc254b568c49e37ff4b5be79ebbde8b8d06c662e"
+    },
+    {
+      "bytes": 4070,
+      "mode": "0444",
+      "path": "/tmp/ts-qa-next300-full-composed-proposal-0hwlp02a/inputs-manifest.json",
+      "sha256": "21b3a56c117093fb3d760148579b929dfabca541768ac8beba612d8ccbaf1ceb"
+    },
+    {
+      "bytes": 423442,
+      "mode": "0444",
+      "path": "/tmp/ts-qa-next300-full-composed-proposal-0hwlp02a/original-root-accounting.json",
+      "sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513"
+    },
+    {
+      "bytes": 29196,
+      "mode": "0444",
+      "path": "/tmp/ts-qa-next300-full-composed-proposal-0hwlp02a/proposed-classification-summary.json",
+      "sha256": "6192bc578aaf1db5833a54449ce1f2d52519d5834f0f5adc0901b2c2a0b1c717"
+    },
+    {
+      "bytes": 1425931,
+      "mode": "0444",
+      "path": "/tmp/ts-qa-next300-full-composed-proposal-0hwlp02a/proposed-completion.json",
+      "sha256": "7b5975681576c2f4a7d0f9eb201d12946388c076ff03752490d96eb4ef17d3f4"
+    },
+    {
+      "bytes": 173356,
+      "mode": "0444",
+      "path": "/tmp/ts-qa-next300-full-composed-proposal-0hwlp02a/proposed-progress.json",
+      "sha256": "94284e85dfa6a3c8d04c9fcf536754ec8d710d2a16fc833397a8f5ae7e48da1a"
+    },
+    {
+      "bytes": 3041,
+      "mode": "0444",
+      "path": "/tmp/ts-qa-next300-full-composed-proposal-0hwlp02a/receipt.json",
+      "sha256": "a3d8ec7fe4b6362b7ff97f7d9786f791605e62eb8979c1aee76fa338b5d7fbb1"
+    },
+    {
+      "bytes": 479,
+      "mode": "0444",
+      "path": "/tmp/ts-qa-next300-full-composed-proposal-0hwlp02a/verification.json",
+      "sha256": "d0dbb9eb3c5d37183320d69b8568a11808d54e21ac9fd90802039d2e7d4d7a12"
+    },
+    {
+      "bytes": 6171,
+      "mode": "0444",
+      "path": "/tmp/ts-qa-next300-full-composed-proposal-0hwlp02a/verify.py",
+      "sha256": "814f43fa22de289f75ff9a0a0e57a5c9b26882975e501ed27992779ac10497f6"
+    },
+    {
+      "bytes": 1039,
+      "mode": "0444",
+      "path": "/tmp/ts-qa-next300-full-composed-proposal-0hwlp02a/SHA256SUMS",
+      "sha256": "03ac6c442f1f4535ec5338bf31fba1482bd8589131b65b1eb72ab3164f721c0d"
+    }
+  ],
+  "prior171_classifications_10unresolved_19retirements_preserved": true,
+  "semantic_operations": {
+    "add": 72,
+    "append": 146,
+    "replace": 93
+  },
+  "shared_or_canonical_mutated": false,
+  "source_delta_review_reused_by_exact_pin": {
+    "bytes": 9185,
+    "mode": "0444",
+    "path": "/tmp/ts-next300-final-delta-independent-storage-review-rilgr3fa/review.json",
+    "sha256": "842cec513f6cb3c82f9e189317aba6c8d85d403a4b72cc0ab6a7b2d8ecdd30fd"
+  },
+  "strict_JSON_unique_keys_finite_numbers": true
+}

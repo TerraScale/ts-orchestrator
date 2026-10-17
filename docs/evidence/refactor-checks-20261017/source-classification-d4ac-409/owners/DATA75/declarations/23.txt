@@ -1,0 +1,12 @@
+func TestRetryArtifactMetadataReadStopsOnCallerCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	var reads int
+	info, missing, err := retryArtifactMetadataRead(ctx, func(context.Context) (*nats.RawStreamMsg, bool, error) {
+		reads++
+		cancel()
+		return nil, false, &nats.APIError{Code: 503, ErrorCode: 10008}
+	})
+	if info != nil || missing || !errors.Is(err, context.Canceled) || reads != 1 {
+		t.Fatalf("canceled metadata read = (%p, %t, %v), reads = %d; want cancellation after one attempt", info, missing, err, reads)
+	}
+}

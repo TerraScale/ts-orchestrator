@@ -1,0 +1,62 @@
+func TestArtifactAdmissionSignerReplacementUsesLeaderRevision(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	oldCodec := artifactTestCodec(t, "old-operator", 0x11)
+	newCodec := artifactTestCodec(t, "new-operator", 0x22)
+	currentActor := "old-operator"
+	service.config.AuthorizeArtifact = func(_ context.Context, actor string, _ ArtifactRecord) error {
+		if actor != currentActor {
+			return ErrUnauthorized
+		}
+		return nil
+	}
+	service.config.ArtifactSigner = oldCodec
+	service.config.ArtifactVerifier = oldCodec
+
+	content := []byte("artifact with replaced signer")
+	record, oldEnvelope, err := service.PrepareArtifact(ctx, bytes.NewReader(content), artifactTestRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AcceptArtifactClaim(ctx, oldEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	key := admissionKey(record.Digest, record.Cell, record.Role, record.Environment)
+	underlying := service.admissions
+	staleEntry, err := underlying.Get(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := underlying.Put(ctx, key, staleEntry.Value()); err != nil {
+		t.Fatal(err)
+	}
+	currentActor = "new-operator"
+	service.config.ArtifactSigner = newCodec
+	service.config.ArtifactVerifier = newCodec
+	_, newEnvelope, err := service.PrepareArtifact(ctx, bytes.NewReader(content), artifactTestRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var followerReads int
+	service.admissions = overriddenAdmissionGet{KeyValue: underlying, get: func(context.Context, string) (jetstream.KeyValueEntry, error) {
+		followerReads++
+		return staleEntry, nil
+	}}
+	admitted, err := service.AcceptArtifactClaim(ctx, newEnvelope)
+	if err != nil || admitted != record {
+		t.Fatalf("replacement admission = %+v, %v", admitted, err)
+	}
+	currentEntry, err := underlying.Get(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := decodeStoredAdmission(currentEntry.Value(), record.Digest, record.Cell, record.Role, record.Environment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Actor != "new-operator" || !bytes.Equal(stored.Envelope, newEnvelope) || currentEntry.Revision() <= staleEntry.Revision() {
+		t.Fatalf("replacement did not use leader revision: actor=%q revision=%d stale=%d", stored.Actor, currentEntry.Revision(), staleEntry.Revision())
+	}
+	if followerReads != 0 {
+		t.Fatalf("replacement made %d follower reads", followerReads)
+	}
+}

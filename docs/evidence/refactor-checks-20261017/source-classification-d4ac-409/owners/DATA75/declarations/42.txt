@@ -1,0 +1,19 @@
+func TestStatusForChecksPendingOperationFingerprint(t *testing.T) {
+	s, ctx := testService(t, &testWriter{})
+	i := testIntent(t, s, ctx)
+	fp, _ := i.Fingerprint()
+	wire, err := json.Marshal(operation{Intent: i, Fingerprint: fp, Actor: "operator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.operations.Create(ctx, operationKey(i.OperationID), wire); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.StatusFor(ctx, i); !errors.Is(err, ErrPending) {
+		t.Fatalf("matching pending request: %v", err)
+	}
+	i.Generation++
+	if _, err := s.StatusFor(ctx, i); !errors.Is(err, ErrConflict) {
+		t.Fatalf("pending operation ID collision: %v", err)
+	}
+}

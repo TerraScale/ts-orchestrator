@@ -1,0 +1,40 @@
+func TestPlannerRefusedIntentIsHeldAfterBoundedDeliveries(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	intent := testIntent(t, service, ctx)
+	service.config.MaxPlannerAttempts = 3
+	service.config.Planner = diagnosticPlanner{err: fmt.Errorf("no profile: %w", placement.ErrInvalidWorkload)}
+	wire := mustJSON(intent)
+	for delivered := uint64(1); delivered < 3; delivered++ {
+		if terminal, err := service.processDelivery(ctx, wire, delivered); terminal || err == nil {
+			t.Fatalf("delivery %d ended early: terminal=%t err=%v", delivered, terminal, err)
+		}
+	}
+	if terminal, err := service.processDelivery(ctx, wire, 3); !terminal || err != nil {
+		t.Fatalf("bounded delivery was not held: terminal=%t err=%v", terminal, err)
+	}
+	receipt, err := service.Status(ctx, intent.OperationID)
+	if err != nil || receipt.Status != "held" || !strings.Contains(receipt.Error, "invalid_workload") {
+		t.Fatalf("held receipt=%+v err=%v", receipt, err)
+	}
+	if terminal, err := service.processDelivery(ctx, wire, 4); !terminal || err != nil {
+		t.Fatalf("redelivery after the held receipt was not a replay: %t %v", terminal, err)
+	}
+
+	transient, ctx := testService(t, &testWriter{})
+	other := testIntent(t, transient, ctx)
+	transient.config.MaxPlannerAttempts = 1
+	transient.config.Planner = diagnosticPlanner{err: fmt.Errorf("read: %w", nats.ErrTimeout)}
+	if terminal, err := transient.processDelivery(ctx, mustJSON(other), 50); terminal || err == nil {
+		t.Fatalf("a transport failure counted toward the planner bound: %t %v", terminal, err)
+	}
+
+	// Redeliveries caused by leadership naks or transport errors raise the
+	// broker delivery count; a first planner refusal after them is not held.
+	inflated, ctx := testService(t, &testWriter{})
+	late := testIntent(t, inflated, ctx)
+	inflated.config.MaxPlannerAttempts = 3
+	inflated.config.Planner = diagnosticPlanner{err: fmt.Errorf("no profile: %w", placement.ErrInvalidWorkload)}
+	if terminal, err := inflated.processDelivery(ctx, mustJSON(late), 40); terminal || err == nil {
+		t.Fatalf("a first refusal after inflated redeliveries was held: %t %v", terminal, err)
+	}
+}

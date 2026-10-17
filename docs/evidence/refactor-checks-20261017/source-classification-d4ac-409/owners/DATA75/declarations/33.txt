@@ -1,0 +1,19 @@
+func TestOperationLeaderReadRejectsInvalidMessage(t *testing.T) {
+	const subject = "$KV." + OperationBucket + ".o_valid"
+	for _, test := range []struct {
+		name string
+		msg  *nats.RawStreamMsg
+	}{
+		{"nil", nil},
+		{"wrong subject", &nats.RawStreamMsg{Subject: subject + ".other", Sequence: 1, Data: []byte("{}")}},
+		{"zero sequence", &nats.RawStreamMsg{Subject: subject, Data: []byte("{}")}},
+		{"empty body", &nats.RawStreamMsg{Subject: subject, Sequence: 1}},
+		{"unknown operation", &nats.RawStreamMsg{Subject: subject, Sequence: 1, Data: []byte("{}"), Header: nats.Header{"KV-Operation": []string{"UNKNOWN"}}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := operationValueFromMsg(subject, test.msg); err == nil || errors.Is(err, jetstream.ErrKeyNotFound) {
+				t.Fatalf("invalid message returned %v", err)
+			}
+		})
+	}
+}

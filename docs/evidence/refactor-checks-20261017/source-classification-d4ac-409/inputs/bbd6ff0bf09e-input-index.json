@@ -1,0 +1,221 @@
+{
+  "all_five_completion_categories": "OPEN",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "batches": [
+    {
+      "allocated_roots": 75,
+      "batch_id": "DATA75",
+      "candidate_counts_unaccepted": {
+        "integration": 2,
+        "unit": 16,
+        "unresolved": 57
+      },
+      "candidate_pin": {
+        "bytes": 1958211,
+        "mode": "0444",
+        "path": "/tmp/ts-data75-d4ac-source-classification-y9dqe8af/classification.json",
+        "sha256": "5bd4d6d007d17894ee7f7957086841199e1075455fff49e36ba47399473fdf5f"
+      },
+      "peer_input": {
+        "bytes": 1085012,
+        "mode": "0444",
+        "path": "/tmp/ts-data75-d4ac-independent-peer-Do1wRkzl/peer-review.json",
+        "sha256": "a54e54c099ecae201f1028505e7d53d48a443a3a2396117d312f7b0c7ca6133a"
+      },
+      "peer_status": "DELIVERED_EXACT_AGREEMENT_NO_PROMOTION"
+    },
+    {
+      "allocated_roots": 65,
+      "batch_id": "CORE65",
+      "candidate_counts_unaccepted": {
+        "integration": 13,
+        "mixed": 15,
+        "unit": 36,
+        "unresolved": 1
+      },
+      "candidate_pin": {
+        "bytes": 4140297,
+        "mode": "0444",
+        "path": "/tmp/ts-core65-d4ac-source-classification-Yz6avQIW/classification.json",
+        "sha256": "0639658db2c0974d670483f31a4a644f7de32c97f7bb574f08d661975577612f"
+      },
+      "peer_input": null,
+      "peer_status": "Exact peer and rationale clarification pending."
+    },
+    {
+      "allocated_roots": 57,
+      "batch_id": "CAP57",
+      "candidate_counts_unaccepted": {
+        "integration": 7,
+        "mixed": 3,
+        "unit": 46,
+        "unresolved": 1
+      },
+      "candidate_pin": {
+        "bytes": 1458917,
+        "mode": "0444",
+        "path": "/tmp/ts-cap57-d4ac-source-classification-r9lqashl/classification.json",
+        "sha256": "e72f6069898051c2a1d22160d476f99583d89c60c936bca66376b1f807e685a0"
+      },
+      "peer_input": null,
+      "peer_status": "Exact peer and possible mixed-to-integration correction adjudication pending."
+    },
+    {
+      "allocated_roots": 55,
+      "batch_id": "MESH55",
+      "candidate_counts_unaccepted": {
+        "integration": 35,
+        "mixed": 11,
+        "unit": 8,
+        "unresolved": 1
+      },
+      "candidate_pin": {
+        "bytes": 733869,
+        "mode": "0444",
+        "path": "/tmp/ts-mesh55-d4ac-source-classification-pfjjhj7x/classification.json",
+        "sha256": "0bf0127bcc7915a633fe2ca78ab918703408eb69dd4c06dd554b86d3b72d3893"
+      },
+      "peer_input": null,
+      "peer_status": "Exact independent peer pending."
+    },
+    {
+      "allocated_roots": 48,
+      "batch_id": "NET48",
+      "candidate_counts_unaccepted": {
+        "integration": 26,
+        "mixed": 9,
+        "unit": 11,
+        "unresolved": 2
+      },
+      "candidate_pin": {
+        "bytes": 852352,
+        "mode": "0444",
+        "path": "/tmp/ts-net48-d4ac-source-classification-k9shja9e/classification.json",
+        "sha256": "c89d6e3558298634ed2f902d0a55fa2d95496e26800be31b283dbf4da3b409e2"
+      },
+      "peer_input": {
+        "bytes": 884164,
+        "mode": "0444",
+        "path": "/tmp/ts-net48-d4ac-independent-peer-z4u7bbzz/review.json",
+        "sha256": "5134c9fb091bf707943dec174a6b16d1416a6246440816201ed601ee048228ce"
+      },
+      "peer_status": "DELIVERED_EXACT_AGREEMENT_NO_PROMOTION"
+    }
+  ],
+  "complete": false,
+  "created_utc": "2026-10-17T16:01:54.344444+00:00",
+  "final_accepted_counts": null,
+  "final_accepted_delta": null,
+  "input_policy": "References and pins only; raw evidence not copied; originals untouched.",
+  "inputs": [
+    {
+      "bytes": 390556,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-allocation-proposal-raxuc07l/allocation.json",
+      "sha256": "032cb201e692326da7274b12d7dfd15512b1befd325cce375188ae0447ca2523"
+    },
+    {
+      "bytes": 715,
+      "mode": "0644",
+      "path": "/tmp/ts-qa-next300-allocation-independent-2ivixd0j/review.json",
+      "sha256": "4a1acb09fb4e6ee22f2d9eeb6ea610ed627c7de40851937676dfdc5bc96436a3"
+    },
+    {
+      "bytes": 225913,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-classification69-delta-final-l6fu61l5/proposal.json",
+      "sha256": "7eaaa19a3ccb97b64e02d74021ec4bcdf0908ecc2f317f131ae7c9acd473c69e"
+    },
+    {
+      "bytes": 1893,
+      "mode": "0444",
+      "path": "/tmp/ts-qa-classification69-actual-apply-9wr2zuyd/receipt.json",
+      "sha256": "71738603201ae4863b725c2f843f085f2db929ff3dde1ad4fd982292cd5f209d"
+    },
+    {
+      "bytes": 1294888,
+      "mode": "0600",
+      "path": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+      "sha256": "5d9aaea02f2f2b3d200872013d2dc33a185d2ccbd6d52df59e27e46fe6b3751e"
+    },
+    {
+      "bytes": 138535,
+      "mode": "0644",
+      "path": "/tmp/ts-qa-main-union-progress-20261016.json",
+      "sha256": "7a0c320bb4d7f3e71b30473a80e4e271ca9bfa97fba1032a98f7203ced046a1e"
+    },
+    {
+      "bytes": 1640609,
+      "mode": "0400",
+      "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+      "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+    },
+    {
+      "bytes": 1085012,
+      "mode": "0444",
+      "path": "/tmp/ts-data75-d4ac-independent-peer-Do1wRkzl/peer-review.json",
+      "sha256": "a54e54c099ecae201f1028505e7d53d48a443a3a2396117d312f7b0c7ca6133a"
+    },
+    {
+      "bytes": 1958211,
+      "mode": "0444",
+      "path": "/tmp/ts-data75-d4ac-source-classification-y9dqe8af/classification.json",
+      "sha256": "5bd4d6d007d17894ee7f7957086841199e1075455fff49e36ba47399473fdf5f"
+    },
+    {
+      "bytes": 4140297,
+      "mode": "0444",
+      "path": "/tmp/ts-core65-d4ac-source-classification-Yz6avQIW/classification.json",
+      "sha256": "0639658db2c0974d670483f31a4a644f7de32c97f7bb574f08d661975577612f"
+    },
+    {
+      "bytes": 1458917,
+      "mode": "0444",
+      "path": "/tmp/ts-cap57-d4ac-source-classification-r9lqashl/classification.json",
+      "sha256": "e72f6069898051c2a1d22160d476f99583d89c60c936bca66376b1f807e685a0"
+    },
+    {
+      "bytes": 733869,
+      "mode": "0444",
+      "path": "/tmp/ts-mesh55-d4ac-source-classification-pfjjhj7x/classification.json",
+      "sha256": "0bf0127bcc7915a633fe2ca78ab918703408eb69dd4c06dd554b86d3b72d3893"
+    },
+    {
+      "bytes": 852352,
+      "mode": "0444",
+      "path": "/tmp/ts-net48-d4ac-source-classification-k9shja9e/classification.json",
+      "sha256": "c89d6e3558298634ed2f902d0a55fa2d95496e26800be31b283dbf4da3b409e2"
+    },
+    {
+      "bytes": 884164,
+      "mode": "0444",
+      "path": "/tmp/ts-net48-d4ac-independent-peer-z4u7bbzz/review.json",
+      "sha256": "5134c9fb091bf707943dec174a6b16d1416a6246440816201ed601ee048228ce"
+    },
+    {
+      "bytes": 6767,
+      "mode": "0444",
+      "path": "/tmp/ts-net48-d4ac-independent-peer-z4u7bbzz/SHA256SUMS",
+      "sha256": "bc789655721ea9b5686b487aacc619b898f46380fd5a95e4beb79a1ade87eb88"
+    }
+  ],
+  "ledger_mutation": false,
+  "pending_inputs_or_adjudications": {
+    "CAP57": "Exact peer and possible mixed-to-integration correction adjudication pending.",
+    "CORE65": "Exact peer and rationale clarification pending.",
+    "MESH55": "Exact independent peer pending."
+  },
+  "qualification_transfer_to_bde_or_current_union": false,
+  "retirement_delta": 0,
+  "runtime": "ALL_300_UNKNOWN",
+  "runtime_delta": 0,
+  "schema": "next300-source-delta-draft-v1",
+  "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+  "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+  "state": "INCOMPLETE_DRAFT_NOT_ACCEPTED_NOT_PROMOTABLE",
+  "supersedes_incomplete_draft": {
+    "draft_sha256": "528f693bb9e2d1ecbdaaa252f28c592d7af0082a7c821d1f4eedc41bd2bfe417",
+    "input_index_sha256": "38b9c370c749f71c9c262289ce8b378162044e7ee7590b7948ec59b7007d84a7",
+    "path": "/tmp/ts-d4ac-next300-input-index-draft-2jpiegwu"
+  }
+}

@@ -1,0 +1,38 @@
+func TestStandbyLeavesDurableIntentForNewLeader(t *testing.T) {
+	w := &testWriter{}
+	s, ctx := testService(t, w)
+	fence := &testStandbyFence{}
+	s.config.Fencer = fence
+	i := testIntent(t, s, ctx)
+	if err := s.Submit(ctx, i); err != nil {
+		t.Fatal(err)
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- s.Run(runCtx) }()
+	defer func() { cancel(); <-done }()
+	time.Sleep(350 * time.Millisecond)
+	if r, err := s.StatusFor(ctx, i); !errors.Is(err, ErrPending) || w.count() != 0 {
+		t.Fatalf("standby processed intent: receipt=%+v err=%v calls=%d", r, err, w.count())
+	}
+	fence.leader.Store(true)
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	for {
+		r, err := s.StatusFor(ctx, i)
+		if err == nil {
+			if r.Status != "accepted" || w.count() != 1 {
+				t.Fatalf("leader receipt=%+v calls=%d", r, w.count())
+			}
+			return
+		}
+		if !errors.Is(err, ErrPending) {
+			t.Fatal(err)
+		}
+		select {
+		case <-deadline.C:
+			t.Fatal("new leader did not accept standby intent")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}

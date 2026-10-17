@@ -1,0 +1,7 @@
+func TestStrictIntentRejectsDuplicateAndUnknownFields(t *testing.T) {
+	for _, body := range []string{`{"schemaVersion":1,"schemaVersion":1}`, `{"unknown":1}`, `{"schemaVersion":1} {}`} {
+		if _, err := DecodeIntent([]byte(body)); err == nil {
+			t.Errorf("accepted %s", body)
+		}
+	}
+}

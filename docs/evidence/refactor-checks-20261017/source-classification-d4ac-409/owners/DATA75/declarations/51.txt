@@ -1,0 +1,30 @@
+func TestDeliveryRunSurvivesLostAckAfterDurableResult(t *testing.T) {
+	writer := &testWriter{}
+	service, ctx := testService(t, writer)
+	intent := testIntent(t, service, ctx)
+	if err := service.Submit(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	ackFailed := make(chan struct{})
+	service.consumer = &failingAckConsumer{Consumer: service.consumer, ackErr: ackFailed}
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- service.Run(runCtx) }()
+	defer cancel()
+	select {
+	case <-ackFailed:
+	case runErr := <-done:
+		t.Fatalf("delivery stopped before acknowledgement: %v", runErr)
+	case <-time.After(5 * time.Second):
+		t.Fatal("intent was not processed")
+	}
+	receipt, err := service.Status(ctx, intent.OperationID)
+	if err != nil || receipt.Status != "accepted" || writer.count() != 1 {
+		t.Fatalf("durable receipt=%+v err=%v desired writes=%d", receipt, err, writer.count())
+	}
+	select {
+	case runErr := <-done:
+		t.Fatalf("delivery stopped after transient acknowledgement error: %v", runErr)
+	case <-time.After(400 * time.Millisecond):
+	}
+}

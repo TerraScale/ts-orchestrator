@@ -1,0 +1,17 @@
+func TestVerifyArtifactFailsClosedAfterVisibilityRetryBound(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	record, _, err := service.PrepareArtifact(ctx, bytes.NewReader([]byte("artifact that must remain visible")), artifactTestRequest())
+	if err != nil {
+		t.Fatalf("PrepareArtifact() error = %v", err)
+	}
+	store := &delayedVisibilityObjectStore{ObjectStore: service.artifacts, getInfoMisses: artifactVisibilityAttempts}
+	service.artifacts = store
+
+	err = service.verifyArtifact(ctx, record)
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("verifyArtifact() after persistent absence = %v, want ErrInvalid", err)
+	}
+	if store.getInfoCalls != artifactVisibilityAttempts {
+		t.Fatalf("metadata read attempts = %d, want bounded limit %d", store.getInfoCalls, artifactVisibilityAttempts)
+	}
+}

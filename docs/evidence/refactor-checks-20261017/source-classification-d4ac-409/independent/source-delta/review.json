@@ -1,0 +1,196 @@
+{
+  "accepted_delta_only": {
+    "classified": 238,
+    "integration": 84,
+    "mixed": 37,
+    "retirement": 0,
+    "reviewed_unresolved_separate": 62,
+    "runtime": 0,
+    "unit": 117
+  },
+  "batch_counts": [
+    {
+      "batch": "DATA75",
+      "candidate_input": "/tmp/ts-data75-d4ac-source-classification-y9dqe8af/classification.json",
+      "counts": {
+        "integration": 2,
+        "unit": 16,
+        "unresolved": 57
+      },
+      "exact_allocation_author_peer_proposal_ids": true,
+      "peer_input": "/tmp/ts-data75-d4ac-independent-peer-Do1wRkzl/peer-review.json",
+      "roots": 75
+    },
+    {
+      "batch": "CORE65",
+      "candidate_input": "/tmp/ts-core65-d4ac-source-classification-Yz6avQIW/classification.json",
+      "counts": {
+        "integration": 13,
+        "mixed": 15,
+        "unit": 36,
+        "unresolved": 1
+      },
+      "exact_allocation_author_peer_proposal_ids": true,
+      "peer_input": "/tmp/ts-core65-d4ac-peer-net-sgmlxjwy/review.json",
+      "roots": 65
+    },
+    {
+      "batch": "CAP57",
+      "candidate_input": "/tmp/ts-cap57-d4ac-source-classification-r9lqashl/classification.json",
+      "counts": {
+        "integration": 8,
+        "mixed": 2,
+        "unit": 46,
+        "unresolved": 1
+      },
+      "exact_allocation_author_peer_proposal_ids": true,
+      "peer_input": "/tmp/ts-cap57-d4ac-independent-material-wb20g8i_/review.json",
+      "roots": 57
+    },
+    {
+      "batch": "MESH55",
+      "candidate_input": "/tmp/ts-mesh55-d4ac-source-classification-pfjjhj7x/classification.json",
+      "counts": {
+        "integration": 35,
+        "mixed": 11,
+        "unit": 8,
+        "unresolved": 1
+      },
+      "exact_allocation_author_peer_proposal_ids": true,
+      "peer_input": "/tmp/ts-mesh55-d4ac-independent-peer-v7epgz07/review.json",
+      "roots": 55
+    },
+    {
+      "batch": "NET48",
+      "candidate_input": "/tmp/ts-net48-d4ac-source-classification-k9shja9e/classification.json",
+      "counts": {
+        "integration": 26,
+        "mixed": 9,
+        "unit": 11,
+        "unresolved": 2
+      },
+      "exact_allocation_author_peer_proposal_ids": true,
+      "peer_input": "/tmp/ts-net48-d4ac-independent-peer-z4u7bbzz/review.json",
+      "roots": 48
+    }
+  ],
+  "blocking_findings": [],
+  "checks": [
+    "All6 packet files and30 referenced input hashes/sizes/modes match; exact SHA256SUMS bindings, strict JSON duplicate-key/nonfinite rejection and pre/post evidence hashes verified.",
+    "All300 unique proposal root IDs equal exact allocation/author/peer sets across five batches; author and peer pointers/category rationale resolve; peer owner pins and frozen d4ac tree match.",
+    "All600 actual bfca/d4ac declaration byte ranges match allocation/author/peer/inventory/proposal hashes; declaration names and complete balanced bodies checked; all300 old/current bytes equal; all144 full selected test-file pins verified.",
+    "Next300 disjoint from171 classified(102+69),10 reviewed-unresolved and19 retired; no overlap across batches. Source inventory retains4319 originals and19 qualified-retired IDs.",
+    "All three controlling findings match exact peer records and cited bytes. CAP mixed->integration is the sole category change; exact arithmetic yields238 classified84I117U37M+62 unresolved."
+  ],
+  "decision": "ACCEPT_EXACT_SOURCE_ONLY_DELTA_PROPOSAL_NOT_COMPOSITION_OR_PROMOTION",
+  "nonblocking_citation_limitation": {
+    "disposition": "Supplement precise actual source loci in this immutable independent review; no schema/category/count correction or raw history rewrite required.",
+    "root_id": "internal/swarmruntime/registry_integration_test.go::TestRegistryResolverAuthenticatedHTTPIntegration",
+    "scope": "Copied peer narrow-span metadata is incomplete for literal-return and byte/counter assertion claims; fullroot/controlannotation remain correct and decisive.",
+    "supplemental_loci": [
+      {
+        "bytes": 208,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "end_line": 66,
+        "path": "internal/swarmruntime/registry_integration_test.go",
+        "purpose": "literal credential callback including literal return65",
+        "sha256": "88e5ed9d8e51ca85f7d5d7a39e1aa09f9612074db7172cca4e5f8f74342363bf",
+        "start_line": 61
+      },
+      {
+        "bytes": 283,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "end_line": 84,
+        "path": "internal/swarmruntime/registry_integration_test.go",
+        "purpose": "read/close/manifest byte equality and authenticated request counter assertion82-83",
+        "sha256": "9844f70b3ac89d9e03e66549ded5bc2c5642b633c0e3bfde0207ee8dd0c6405a",
+        "start_line": 80
+      }
+    ]
+  },
+  "packet": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9",
+  "packet_files": [
+    {
+      "bytes": 1602,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/README.md",
+      "sha256": "0e4478569a802374bcb1829e2d5b7efc8a6e9dcda5faad630778a129076c0c91"
+    },
+    {
+      "bytes": 403,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/SHA256SUMS",
+      "sha256": "c2f3340a5c2dab391a69c25438028b411f58d8798939edb9cec46862165aa6a0"
+    },
+    {
+      "bytes": 8118,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/inputs-manifest.json",
+      "sha256": "8460a793d54e91dc98a88e1d74d8d4d03a2f58af50f6ccb52695fde379bf2b0f"
+    },
+    {
+      "bytes": 391960,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/proposal.json",
+      "sha256": "f26ebe8d0abedc04a1b1b1a745da98665390dc09e015523fbc56298c284ded6a"
+    },
+    {
+      "bytes": 306,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/verification.json",
+      "sha256": "cef17e647d225e291a2c098ee7fc80f4fe369bf37e560f88a73373a5d34cb3d5"
+    },
+    {
+      "bytes": 7772,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/verify.py",
+      "sha256": "d5a85f970d92ebefd2bdb0d721d93094c532001722650c8aaacc3470ab637457"
+    }
+  ],
+  "proposal_bytes": 391960,
+  "proposal_sha256": "f26ebe8d0abedc04a1b1b1a745da98665390dc09e015523fbc56298c284ded6a",
+  "prospective_counts_only": {
+    "classified": 409,
+    "integration": 184,
+    "mixed": 65,
+    "originals": 4319,
+    "other_unadjudicated": 3819,
+    "retained": 4300,
+    "retired": 19,
+    "reviewed_unresolved_included": 72,
+    "unadjudicated": 3891,
+    "unit": 160
+  },
+  "reviewed_utc": "2026-10-17T16:20:17.371766+00:00",
+  "reviewer_actions": {
+    "Go_code_written": false,
+    "build_test_or_runtime_executed": false,
+    "only_writes": "Fresh external independent report/verification/root-hash TSV/SHA256SUMS packet.",
+    "source_or_shared_ledgers_or_reviewed_packets_mutated": false,
+    "supplied_verifier_executed": false
+  },
+  "runtime": "All300 UNKNOWN; no execution, receipt qualification or runtime credit.",
+  "schema": "independent-next300-final-source-delta-storage-review-v1",
+  "scope_limits": [
+    "Accepts exact pinned final source delta proposal only. Full ledger composition requires a separately prepared proposal and independent exact acceptance before separate authorized actual promotion with rechecked before pins.",
+    "No shared/canonical/source/Git/retirement/classification mutation; allfive categories remain OPEN and complete=false. All62 unresolved keep zero classification credit and original safety obligations.",
+    "d4ac source-only; no bde/current-union qualification transfer, global/runtime gate qualification, vendor1449 retirement or central closure."
+  ],
+  "source_evidence_disposition": {
+    "CAP57": "Accept integration: authenticated HTTP Client.Query result is the object re-encoded/asserted. Token check covers typed Usage re-encoding only; no raw-wire or discarded unknown-field guarantee.",
+    "CORE65": "Accept mixed from full declaration and correct controlling annotation: real local TLS Basic-auth exchange, byte/counter assertions plus local guards. Credential callback returns literals; no successful Vault read, signed Vault response or rotation. The raw peer narrow58-64 span alone omits literal return65;33-81 alone omits assertion82-83. They are not accepted as sufficient evidence of those specific claims. Supplemental61-66 and80-84 loci independently close citation precision without rewriting raw owner/peer/proposal records or changing categories/counts.",
+    "MESH55": "Accept mixed; actual local regional guard assertion101-103 replaces inaccurate104-106. Exact corrected assertion bytes and hash verified."
+  },
+  "verification": {
+    "bytes": 15369,
+    "mode": "0644",
+    "path": "/tmp/ts-next300-final-delta-independent-storage-review-rilgr3fa/verification.json",
+    "sha256": "cbdc0041fd9b71c43b13681fa73e92094a53f9116a6374c6ccb12adbd02a0e80"
+  },
+  "verified_roots": {
+    "bytes": 74207,
+    "mode": "0644",
+    "path": "/tmp/ts-next300-final-delta-independent-storage-review-rilgr3fa/verified-roots.tsv",
+    "sha256": "d58a2e683f6e8a76c08cc12fcf379913352c2e1803df0234e94e6c3352160271"
+  }
+}

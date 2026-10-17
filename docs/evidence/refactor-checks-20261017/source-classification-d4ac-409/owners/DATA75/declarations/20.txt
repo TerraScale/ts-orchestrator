@@ -1,0 +1,12 @@
+func TestRetryArtifactMetadataReadFailsClosedOnPersistentLeaderFailure(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
+	defer cancel()
+	var calls int
+	info, missing, err := retryArtifactMetadataRead(ctx, func(context.Context) (*nats.RawStreamMsg, bool, error) {
+		calls++
+		return nil, false, &nats.APIError{Code: 503, ErrorCode: 10008, Description: "JetStream system temporarily unavailable"}
+	})
+	if info != nil || missing || !errors.Is(err, context.DeadlineExceeded) || calls < 1 {
+		t.Fatalf("persistent metadata read failure = (%p, %t, %v), calls = %d; want caller deadline and no object", info, missing, err, calls)
+	}
+}

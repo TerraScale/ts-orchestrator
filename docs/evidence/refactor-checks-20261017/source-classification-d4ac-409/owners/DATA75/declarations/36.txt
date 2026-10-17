@@ -1,0 +1,16 @@
+func TestPersistedPlanStopsWhenDesiredAuthorizationExpires(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	intent := testIntent(t, service, ctx)
+	writer := &revokedDesiredWriter{}
+	service.config.Writer = writer
+	wire := mustJSON(intent)
+	for delivered := uint64(1); delivered <= 2; delivered++ {
+		if terminal, err := service.processDelivery(ctx, wire, delivered); !terminal || err != nil {
+			t.Fatalf("delivery %d: terminal=%t err=%v", delivered, terminal, err)
+		}
+	}
+	receipt, err := service.StatusFor(ctx, intent)
+	if err != nil || receipt.Status != "held" || receipt.Error == "" || writer.calls != 1 {
+		t.Fatalf("receipt=%+v err=%v apply attempts=%d", receipt, err, writer.calls)
+	}
+}

@@ -1,0 +1,120 @@
+{
+  "actual_shared_before_pins": [
+    {
+      "bytes": 1294888,
+      "mode": "0600",
+      "path": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+      "sha256": "5d9aaea02f2f2b3d200872013d2dc33a185d2ccbd6d52df59e27e46fe6b3751e"
+    },
+    {
+      "bytes": 138535,
+      "mode": "0644",
+      "path": "/tmp/ts-qa-main-union-progress-20261016.json",
+      "sha256": "7a0c320bb4d7f3e71b30473a80e4e271ca9bfa97fba1032a98f7203ced046a1e"
+    }
+  ],
+  "controlling_evidence": {
+    "CAP": "Integration for actual transported HTTP Client.Query result; token assertion covers re-encoded typed Usage only, no raw-wire/discarded-unknown-field guarantee.",
+    "CORE": "Mixed retained; literal callback credentials, no successful Vault read/signed response/rotation. Exact independent citation disposition and supplemental61-66/80-84 loci retained to qualify incomplete rawpeer narrow spans.",
+    "MESH": "Mixed retained with actual guard assertion101-103.",
+    "all3_exact_corrections_in_both_new_history_entries": true,
+    "raw_author_peer_and_delta_records_preserved": true
+  },
+  "decision": "ACCEPT_EXACT_COMPLETE_COMPOSED_LEDGER_PROPOSAL_ONLY_NOT_AUTHORIZATION_OR_APPLICATION",
+  "findings": [],
+  "preservation_result": {
+    "JSON_field_removals": 0,
+    "all12_mirrors_equal_exact_proposed_summary": true,
+    "all13_packet_files_and8_references_verified": true,
+    "all4319_original_IDs_exactly_once": true,
+    "all_existing_classification_history_entries_exactly_preserved": true,
+    "all_existing_summary_keys_and_accepted_package_records_preserved": true,
+    "all_unrelated_execution_publication_adoption_retirement_evidence_and_history_values_exactly_preserved": true,
+    "full_actual_shared_files_equal_before_snapshots": true,
+    "independently_derived_semantic_path_changes": 311,
+    "one_new_classification_history_record_per_ledger": true,
+    "outside12_mirrors_root_asof_and_historyappend_all_full_ledger_values_unchanged": true,
+    "prior171classified_10reviewedunresolved_19retired_preserved": true,
+    "prior_limits_and_package_groups_exact_prefixes": true
+  },
+  "proposal_SHA256SUMS_sha256": "03ac6c442f1f4535ec5338bf31fba1482bd8589131b65b1eb72ab3164f721c0d",
+  "proposal_packet": "/tmp/ts-qa-next300-full-composed-proposal-0hwlp02a",
+  "proposal_receipt_sha256": "a3d8ec7fe4b6362b7ff97f7d9786f791605e62eb8979c1aee76fa338b5d7fbb1",
+  "proposed_completion": {
+    "bytes": 1425931,
+    "mode": "0444",
+    "path": "/tmp/ts-qa-next300-full-composed-proposal-0hwlp02a/proposed-completion.json",
+    "sha256": "7b5975681576c2f4a7d0f9eb201d12946388c076ff03752490d96eb4ef17d3f4"
+  },
+  "proposed_counts_only": {
+    "classified": 409,
+    "integration": 184,
+    "mixed": 65,
+    "originals": 4319,
+    "other_unadjudicated": 3819,
+    "retained": 4300,
+    "retired": 19,
+    "reviewed_unresolved_included": 72,
+    "unadjudicated": 3891,
+    "unit": 160
+  },
+  "proposed_delta_only": {
+    "classified": 238,
+    "integration": 84,
+    "mixed": 37,
+    "retirement": 0,
+    "reviewed_unresolved_separate": 62,
+    "runtime": 0,
+    "unit": 117
+  },
+  "proposed_progress": {
+    "bytes": 173356,
+    "mode": "0444",
+    "path": "/tmp/ts-qa-next300-full-composed-proposal-0hwlp02a/proposed-progress.json",
+    "sha256": "94284e85dfa6a3c8d04c9fcf536754ec8d710d2a16fc833397a8f5ae7e48da1a"
+  },
+  "reviewed_utc": "2026-10-17T16:27:39.938253+00:00",
+  "reviewer_actions": {
+    "build_test_runtime_executed": false,
+    "only_writes": "Fresh external immutable review/verification/SHA256SUMS packet; files0444, directory0555.",
+    "source_or_shared_or_reviewed_evidence_mutated": false,
+    "supplied_verifier_executed": false
+  },
+  "runtime": "All300 newly source-reviewed roots remain UNKNOWN; zero new runtime or retirement credit. Every existing historical runtime/execution record remains untouched.",
+  "schema": "independent-next300-complete-composition-storage-acceptance-v1",
+  "scope_limits": [
+    "Accepts exact COMPLETE composed proposal7b597568/94284e85 against actual before5d9aaea0/7a0c320b only. This acceptance grants no ROOT authorization or ledger application.",
+    "ROOT authorization and recheck of exact actual-before hashes/modes are required before separately applying the already reviewed exact replacement bytes.",
+    "No shared-ledger/canonical/source/Git mutation, source rescan, supplied-verifier execution, build/test/runtime, aggregate/global/runtime-gate qualification or source/runtime transfer."
+  ],
+  "source_anchor": {
+    "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "no_bde_current_union_qualification_transfer": true,
+    "tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82"
+  },
+  "source_delta_acceptance": {
+    "bytes": 9185,
+    "mode": "0444",
+    "path": "/tmp/ts-next300-final-delta-independent-storage-review-rilgr3fa/review.json",
+    "sha256": "842cec513f6cb3c82f9e189317aba6c8d85d403a4b72cc0ab6a7b2d8ecdd30fd"
+  },
+  "state": {
+    "actual_shared_before_pins_still_match": true,
+    "all_five_categories": "OPEN",
+    "complete": false,
+    "not_applied": true
+  },
+  "vendor": {
+    "central_closures": 0,
+    "existing_vendor_records_and_unrelated_evidence_preserved": true,
+    "no_fresh_source_qualification_claim": true,
+    "present": 1449,
+    "retired": 0
+  },
+  "verification": {
+    "bytes": 9911,
+    "mode": "0644",
+    "path": "/tmp/ts-next300-full-composition-independent-storage-review-0tzsng5z/verification.json",
+    "sha256": "8ff232ec518262276f4538ece3030704bdeddbc2c91acd4e1716c4de096eb45e"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "status": "PASS_STATIC_SOURCE_PACKET_VALIDATION_ONLY",
+  "counts": {
+    "integration": 2,
+    "unit": 16,
+    "mixed": 0,
+    "unresolved": 57,
+    "allocated": 75,
+    "accepted_source_dispositions": 75,
+    "category_corrections": 0,
+    "runtime_qualified": 0,
+    "retirement_delta": 0,
+    "ledger_promotion_delta": 0
+  },
+  "integrity": {
+    "baseline_and_current_declarations_verified": 150,
+    "owner_source_file_pins_verified": 43,
+    "owner_citation_catalog_pins_verified": 149,
+    "unique_nested_owner_citation_spans_verified": 383,
+    "raw_current_declaration_packet_copies_verified": 75,
+    "all_owner_checksums_and_modes_verified": true,
+    "shared_blocker_roots": 56,
+    "direct_blocker_roots": 1
+  },
+  "peer_review_sha256": "a54e54c099ecae201f1028505e7d53d48a443a3a2396117d312f7b0c7ca6133a"
+}

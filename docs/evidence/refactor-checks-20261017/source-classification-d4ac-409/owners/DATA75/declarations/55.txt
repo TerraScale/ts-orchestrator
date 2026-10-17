@@ -1,0 +1,49 @@
+func TestPreConsumerConflictingPublishCannotImpersonateReceipt(t *testing.T) {
+	s, ctx := testService(t, &testWriter{})
+	first := testIntent(t, s, ctx)
+	second := first
+	second.Generation++
+	if err := s.Submit(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Submit(ctx, second); err != nil {
+		t.Fatalf("content-bound publish: %v", err)
+	}
+	stream, err := s.js.Stream(ctx, IntentStream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := stream.Info(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.State.Msgs != 2 {
+		t.Fatalf("conflicting payload was deduplicated: %d messages", info.State.Msgs)
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- s.Run(runCtx) }()
+	defer func() { cancel(); <-done }()
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	for {
+		r, err := s.StatusFor(ctx, first)
+		if err == nil {
+			if r.Status != "accepted" {
+				t.Fatalf("first status %+v", r)
+			}
+			break
+		}
+		if !errors.Is(err, ErrPending) {
+			t.Fatal(err)
+		}
+		select {
+		case <-deadline.C:
+			t.Fatal("first intent not accepted")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	if _, err := s.StatusFor(ctx, second); !errors.Is(err, ErrConflict) {
+		t.Fatalf("conflicting status: %v", err)
+	}
+}

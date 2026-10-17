@@ -1,0 +1,1032 @@
+{
+  "allocation_manifest": "/tmp/ts-d4ac-next300-allocation-proposal-raxuc07l/allocation.json",
+  "allocation_sha256": "032cb201e692326da7274b12d7dfd15512b1befd325cce375188ae0447ca2523",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "batch": {
+    "batch_id": "NET48",
+    "bounded_scope_reads": [
+      {
+        "end_line": 45,
+        "path": "internal/netbird/manager/manager_test.go",
+        "role": "Complete sampled root: invalid plans rejected with zero HTTP calls; server setup alone gives no category.",
+        "span_sha256": "27db5311f475cd4e516e2a885bcc7e4c4a7aae095d32fe826a6abeb0d3452c2f",
+        "start_line": 21
+      },
+      {
+        "end_line": 150,
+        "path": "internal/netbird/manager/api.go",
+        "role": "Complete API.do: encode/guard, HTTP request, bounded response handling.",
+        "span_sha256": "6cec3d5f3546f7d90b0472669bbf1f8a4dc9e3c5016ec8711064afb7e948391d",
+        "start_line": 95
+      },
+      {
+        "end_line": 136,
+        "path": "internal/netbird/sshlogin/sshlogin.go",
+        "role": "Complete Session/Peers/Addresses: Vault login closure and command status path.",
+        "span_sha256": "2316351ddb810e129cfa1f41d067eaae89cddb368d6431b31d371de3dbc16f3a",
+        "start_line": 76
+      },
+      {
+        "end_line": 140,
+        "path": "internal/netbird/pathaudit/audit.go",
+        "role": "Complete Audit: injected fetch and local inspect delegation; follow concrete fetch before categorizing.",
+        "span_sha256": "5468a797baf05a8dac1f4610fc447585720b127f6c78b01ff286942ad05a545f",
+        "start_line": 110
+      },
+      {
+        "end_line": 89,
+        "path": "internal/netbird/dns/dns.go",
+        "role": "Complete Run: parse/guards, local rendering versus apply filesystem/process delegation.",
+        "span_sha256": "6f73fccd500b3e92429a8e1644e99eeb51127645bcd816f787bde1db3ab2788d",
+        "start_line": 30
+      },
+      {
+        "end_line": 134,
+        "path": "internal/netbird/foundation/backup.go",
+        "role": "Complete Backup: quiesce, file snapshot, object PutObject and read verification delegation; follow concrete test clients.",
+        "span_sha256": "01c4ca95b97a5b2a3b9db8c1163a5d90bfb4713c30e35695bd5938033cabaf35",
+        "start_line": 59
+      }
+    ],
+    "dispatch_state": "HOLD_PARENT_VERIFICATION_NO_DISPATCH",
+    "owner_status_observed": "completed",
+    "owner_status_source": "collaboration list_agents; fresh checks before proposal seal",
+    "package_scopes": [
+      "internal/netbird/manager",
+      "internal/netbird/sshlogin",
+      "internal/netbird/pathaudit",
+      "internal/netbird/dns",
+      "internal/netbird/foundation"
+    ],
+    "proposed_owner": "/root/net/service",
+    "root_count": 48,
+    "roots": [
+      {
+        "baseline_declaration": {
+          "end_line": 45,
+          "sha256": "cd4e3d2689020307e2bc17c97995f68e9fbb92d8a4f46987574e8f83eb33ea22",
+          "start_line": 13
+        },
+        "current_declaration_sha256": "cd4e3d2689020307e2bc17c97995f68e9fbb92d8a4f46987574e8f83eb33ea22",
+        "current_name": "TestOperatorDNSPermissionsWithPrivateUmask",
+        "kind": "test",
+        "original_declaration_sha256": "cd4e3d2689020307e2bc17c97995f68e9fbb92d8a4f46987574e8f83eb33ea22",
+        "original_name": "TestOperatorDNSPermissionsWithPrivateUmask",
+        "path": "internal/netbird/dns/dns_test.go",
+        "root_id": "internal/netbird/dns/dns_test.go::TestOperatorDNSPermissionsWithPrivateUmask",
+        "source_declaration": {
+          "end_line": 45,
+          "sha256": "cd4e3d2689020307e2bc17c97995f68e9fbb92d8a4f46987574e8f83eb33ea22",
+          "start_line": 13
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 68,
+          "sha256": "07f60be1fc62de1f7e2fb5adb4c55288691c65ef3d102052a6ae86ba2639979e",
+          "start_line": 47
+        },
+        "current_declaration_sha256": "07f60be1fc62de1f7e2fb5adb4c55288691c65ef3d102052a6ae86ba2639979e",
+        "current_name": "TestPlanAndRejectUnsafeDNSSetup",
+        "kind": "test",
+        "original_declaration_sha256": "07f60be1fc62de1f7e2fb5adb4c55288691c65ef3d102052a6ae86ba2639979e",
+        "original_name": "TestPlanAndRejectUnsafeDNSSetup",
+        "path": "internal/netbird/dns/dns_test.go",
+        "root_id": "internal/netbird/dns/dns_test.go::TestPlanAndRejectUnsafeDNSSetup",
+        "source_declaration": {
+          "end_line": 68,
+          "sha256": "07f60be1fc62de1f7e2fb5adb4c55288691c65ef3d102052a6ae86ba2639979e",
+          "start_line": 47
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 404,
+          "sha256": "31b1371b5ae1fb795a5cf6b48d4601aebf075dda53c53c51e1d3f0dad0f4e96a",
+          "start_line": 30
+        },
+        "current_declaration_sha256": "31b1371b5ae1fb795a5cf6b48d4601aebf075dda53c53c51e1d3f0dad0f4e96a",
+        "current_name": "TestBackupRestorePersistentIdentityAndProtectedCopies",
+        "kind": "test",
+        "original_declaration_sha256": "31b1371b5ae1fb795a5cf6b48d4601aebf075dda53c53c51e1d3f0dad0f4e96a",
+        "original_name": "TestBackupRestorePersistentIdentityAndProtectedCopies",
+        "path": "internal/netbird/foundation/backup_integration_test.go",
+        "root_id": "internal/netbird/foundation/backup_integration_test.go::TestBackupRestorePersistentIdentityAndProtectedCopies",
+        "source_declaration": {
+          "end_line": 404,
+          "sha256": "31b1371b5ae1fb795a5cf6b48d4601aebf075dda53c53c51e1d3f0dad0f4e96a",
+          "start_line": 30
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 83,
+          "sha256": "5b492ec1ded9765ac40f943a04a6ba6a84a0bd653c74593983063939105ac476",
+          "start_line": 14
+        },
+        "current_declaration_sha256": "5b492ec1ded9765ac40f943a04a6ba6a84a0bd653c74593983063939105ac476",
+        "current_name": "TestManagementAuthorityCancelsCommittedWriteAndRecoversFromSnapshot",
+        "kind": "test",
+        "original_declaration_sha256": "5b492ec1ded9765ac40f943a04a6ba6a84a0bd653c74593983063939105ac476",
+        "original_name": "TestManagementAuthorityCancelsCommittedWriteAndRecoversFromSnapshot",
+        "path": "internal/netbird/manager/authority_integration_test.go",
+        "root_id": "internal/netbird/manager/authority_integration_test.go::TestManagementAuthorityCancelsCommittedWriteAndRecoversFromSnapshot",
+        "source_declaration": {
+          "end_line": 83,
+          "sha256": "5b492ec1ded9765ac40f943a04a6ba6a84a0bd653c74593983063939105ac476",
+          "start_line": 14
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 120,
+          "sha256": "44818ea7fdafe85d00f476c8b6402d1684eaac08ee62fcc0798473cb0529c5bc",
+          "start_line": 85
+        },
+        "current_declaration_sha256": "44818ea7fdafe85d00f476c8b6402d1684eaac08ee62fcc0798473cb0529c5bc",
+        "current_name": "TestManagementAuthorityFencesEveryPeerRenameWriteAndRecovers",
+        "kind": "test",
+        "original_declaration_sha256": "44818ea7fdafe85d00f476c8b6402d1684eaac08ee62fcc0798473cb0529c5bc",
+        "original_name": "TestManagementAuthorityFencesEveryPeerRenameWriteAndRecovers",
+        "path": "internal/netbird/manager/authority_integration_test.go",
+        "root_id": "internal/netbird/manager/authority_integration_test.go::TestManagementAuthorityFencesEveryPeerRenameWriteAndRecovers",
+        "source_declaration": {
+          "end_line": 120,
+          "sha256": "44818ea7fdafe85d00f476c8b6402d1684eaac08ee62fcc0798473cb0529c5bc",
+          "start_line": 85
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 126,
+          "sha256": "738a9af0587d02388a9369c99253f89c08847515c50bf241fa4a4feea40146d2",
+          "start_line": 56
+        },
+        "current_declaration_sha256": "738a9af0587d02388a9369c99253f89c08847515c50bf241fa4a4feea40146d2",
+        "current_name": "TestAutomaticAccountAuthorityRecoversAcrossOwnerRestart",
+        "kind": "test",
+        "original_declaration_sha256": "738a9af0587d02388a9369c99253f89c08847515c50bf241fa4a4feea40146d2",
+        "original_name": "TestAutomaticAccountAuthorityRecoversAcrossOwnerRestart",
+        "path": "internal/netbird/manager/automatic_integration_test.go",
+        "root_id": "internal/netbird/manager/automatic_integration_test.go::TestAutomaticAccountAuthorityRecoversAcrossOwnerRestart",
+        "source_declaration": {
+          "end_line": 126,
+          "sha256": "738a9af0587d02388a9369c99253f89c08847515c50bf241fa4a4feea40146d2",
+          "start_line": 56
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 199,
+          "sha256": "574fe16fef2d93978752b28511e5b620bdf0673ebbebad982455cc2053af9403",
+          "start_line": 175
+        },
+        "current_declaration_sha256": "574fe16fef2d93978752b28511e5b620bdf0673ebbebad982455cc2053af9403",
+        "current_name": "TestAutomaticManagementGuardsWritesDuringAuthorityStoreLoss",
+        "kind": "test",
+        "original_declaration_sha256": "574fe16fef2d93978752b28511e5b620bdf0673ebbebad982455cc2053af9403",
+        "original_name": "TestAutomaticManagementGuardsWritesDuringAuthorityStoreLoss",
+        "path": "internal/netbird/manager/automatic_integration_test.go",
+        "root_id": "internal/netbird/manager/automatic_integration_test.go::TestAutomaticManagementGuardsWritesDuringAuthorityStoreLoss",
+        "source_declaration": {
+          "end_line": 199,
+          "sha256": "574fe16fef2d93978752b28511e5b620bdf0673ebbebad982455cc2053af9403",
+          "start_line": 175
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 173,
+          "sha256": "6248fca1453b39e483da39e78df0055d04a2c39fccaf99ce5925096049e55d0e",
+          "start_line": 158
+        },
+        "current_declaration_sha256": "6248fca1453b39e483da39e78df0055d04a2c39fccaf99ce5925096049e55d0e",
+        "current_name": "TestAutomaticManagementRefusesForeignRegionalAuthority",
+        "kind": "test",
+        "original_declaration_sha256": "6248fca1453b39e483da39e78df0055d04a2c39fccaf99ce5925096049e55d0e",
+        "original_name": "TestAutomaticManagementRefusesForeignRegionalAuthority",
+        "path": "internal/netbird/manager/automatic_integration_test.go",
+        "root_id": "internal/netbird/manager/automatic_integration_test.go::TestAutomaticManagementRefusesForeignRegionalAuthority",
+        "source_declaration": {
+          "end_line": 173,
+          "sha256": "6248fca1453b39e483da39e78df0055d04a2c39fccaf99ce5925096049e55d0e",
+          "start_line": 158
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 156,
+          "sha256": "e727fa0295e17a2af35536cae30523e385ee11fff3004b49fa6a7dfad2b8d533",
+          "start_line": 128
+        },
+        "current_declaration_sha256": "e727fa0295e17a2af35536cae30523e385ee11fff3004b49fa6a7dfad2b8d533",
+        "current_name": "TestAutomaticManagementWaitsForFoundationWithoutExiting",
+        "kind": "test",
+        "original_declaration_sha256": "e727fa0295e17a2af35536cae30523e385ee11fff3004b49fa6a7dfad2b8d533",
+        "original_name": "TestAutomaticManagementWaitsForFoundationWithoutExiting",
+        "path": "internal/netbird/manager/automatic_integration_test.go",
+        "root_id": "internal/netbird/manager/automatic_integration_test.go::TestAutomaticManagementWaitsForFoundationWithoutExiting",
+        "source_declaration": {
+          "end_line": 156,
+          "sha256": "e727fa0295e17a2af35536cae30523e385ee11fff3004b49fa6a7dfad2b8d533",
+          "start_line": 128
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 202,
+          "sha256": "c80da7b42115c4b237ca1469297dd7246b6bfe4dd24b11e2e1a1e9ca4ab991c2",
+          "start_line": 24
+        },
+        "current_declaration_sha256": "c80da7b42115c4b237ca1469297dd7246b6bfe4dd24b11e2e1a1e9ca4ab991c2",
+        "current_name": "TestEnrollmentRecoversCommittedResponsesAndDelivery",
+        "kind": "test",
+        "original_declaration_sha256": "c80da7b42115c4b237ca1469297dd7246b6bfe4dd24b11e2e1a1e9ca4ab991c2",
+        "original_name": "TestEnrollmentRecoversCommittedResponsesAndDelivery",
+        "path": "internal/netbird/manager/enrollment_integration_test.go",
+        "root_id": "internal/netbird/manager/enrollment_integration_test.go::TestEnrollmentRecoversCommittedResponsesAndDelivery",
+        "source_declaration": {
+          "end_line": 202,
+          "sha256": "c80da7b42115c4b237ca1469297dd7246b6bfe4dd24b11e2e1a1e9ca4ab991c2",
+          "start_line": 24
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 134,
+          "sha256": "e6983242500105084c00880d18e2cf86b7daf7e2bb4da161628687e66f540234",
+          "start_line": 107
+        },
+        "current_declaration_sha256": "e6983242500105084c00880d18e2cf86b7daf7e2bb4da161628687e66f540234",
+        "current_name": "TestSetupKeyCreatesOnlyItsCanonicalRegionalGroup",
+        "kind": "test",
+        "original_declaration_sha256": "e6983242500105084c00880d18e2cf86b7daf7e2bb4da161628687e66f540234",
+        "original_name": "TestSetupKeyCreatesOnlyItsCanonicalRegionalGroup",
+        "path": "internal/netbird/manager/live_regions_test.go",
+        "root_id": "internal/netbird/manager/live_regions_test.go::TestSetupKeyCreatesOnlyItsCanonicalRegionalGroup",
+        "source_declaration": {
+          "end_line": 134,
+          "sha256": "e6983242500105084c00880d18e2cf86b7daf7e2bb4da161628687e66f540234",
+          "start_line": 107
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 87,
+          "sha256": "208e1bebc7fb2ff0d9403722cedd6a345f7f6f1355c5af8dd4c4ba2691ad0664",
+          "start_line": 13
+        },
+        "current_declaration_sha256": "208e1bebc7fb2ff0d9403722cedd6a345f7f6f1355c5af8dd4c4ba2691ad0664",
+        "current_name": "TestSyncDiscoversRegionalGroupsWithoutNATSOrPeerHealth",
+        "kind": "test",
+        "original_declaration_sha256": "208e1bebc7fb2ff0d9403722cedd6a345f7f6f1355c5af8dd4c4ba2691ad0664",
+        "original_name": "TestSyncDiscoversRegionalGroupsWithoutNATSOrPeerHealth",
+        "path": "internal/netbird/manager/live_regions_test.go",
+        "root_id": "internal/netbird/manager/live_regions_test.go::TestSyncDiscoversRegionalGroupsWithoutNATSOrPeerHealth",
+        "source_declaration": {
+          "end_line": 87,
+          "sha256": "208e1bebc7fb2ff0d9403722cedd6a345f7f6f1355c5af8dd4c4ba2691ad0664",
+          "start_line": 13
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 105,
+          "sha256": "f84c6e05cf1b78903a3a70927ebe3abd62b951ddca7c825f0de2b6563d7c4ba1",
+          "start_line": 89
+        },
+        "current_declaration_sha256": "f84c6e05cf1b78903a3a70927ebe3abd62b951ddca7c825f0de2b6563d7c4ba1",
+        "current_name": "TestSyncRefusesUntrustedOrAmbiguousRegionalGroupsBeforeMutation",
+        "kind": "test",
+        "original_declaration_sha256": "f84c6e05cf1b78903a3a70927ebe3abd62b951ddca7c825f0de2b6563d7c4ba1",
+        "original_name": "TestSyncRefusesUntrustedOrAmbiguousRegionalGroupsBeforeMutation",
+        "path": "internal/netbird/manager/live_regions_test.go",
+        "root_id": "internal/netbird/manager/live_regions_test.go::TestSyncRefusesUntrustedOrAmbiguousRegionalGroupsBeforeMutation",
+        "source_declaration": {
+          "end_line": 105,
+          "sha256": "f84c6e05cf1b78903a3a70927ebe3abd62b951ddca7c825f0de2b6563d7c4ba1",
+          "start_line": 89
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 281,
+          "sha256": "62a958afe8ac1fb43b57a8eae2d67313cb5b95a4f5efe1d2a44c8a1894834ed5",
+          "start_line": 247
+        },
+        "current_declaration_sha256": "62a958afe8ac1fb43b57a8eae2d67313cb5b95a4f5efe1d2a44c8a1894834ed5",
+        "current_name": "TestAPIWrapsTransportErrorsWithoutTheToken",
+        "kind": "test",
+        "original_declaration_sha256": "62a958afe8ac1fb43b57a8eae2d67313cb5b95a4f5efe1d2a44c8a1894834ed5",
+        "original_name": "TestAPIWrapsTransportErrorsWithoutTheToken",
+        "path": "internal/netbird/manager/manager_test.go",
+        "root_id": "internal/netbird/manager/manager_test.go::TestAPIWrapsTransportErrorsWithoutTheToken",
+        "source_declaration": {
+          "end_line": 253,
+          "sha256": "62a958afe8ac1fb43b57a8eae2d67313cb5b95a4f5efe1d2a44c8a1894834ed5",
+          "start_line": 219
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 45,
+          "sha256": "27db5311f475cd4e516e2a885bcc7e4c4a7aae095d32fe826a6abeb0d3452c2f",
+          "start_line": 21
+        },
+        "current_declaration_sha256": "27db5311f475cd4e516e2a885bcc7e4c4a7aae095d32fe826a6abeb0d3452c2f",
+        "current_name": "TestAddressPlanRejectedBeforeManagerRequests",
+        "kind": "test",
+        "original_declaration_sha256": "27db5311f475cd4e516e2a885bcc7e4c4a7aae095d32fe826a6abeb0d3452c2f",
+        "original_name": "TestAddressPlanRejectedBeforeManagerRequests",
+        "path": "internal/netbird/manager/manager_test.go",
+        "root_id": "internal/netbird/manager/manager_test.go::TestAddressPlanRejectedBeforeManagerRequests",
+        "source_declaration": {
+          "end_line": 45,
+          "sha256": "27db5311f475cd4e516e2a885bcc7e4c4a7aae095d32fe826a6abeb0d3452c2f",
+          "start_line": 21
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 352,
+          "sha256": "b09d520122a7e12c0ae203a58d6367ee740322d16c4816b5f2028e234c501a0e",
+          "start_line": 299
+        },
+        "current_declaration_sha256": "b09d520122a7e12c0ae203a58d6367ee740322d16c4816b5f2028e234c501a0e",
+        "current_name": "TestCLIReadsPATSafelyAndPrintsNoSecrets",
+        "kind": "test",
+        "original_declaration_sha256": "b09d520122a7e12c0ae203a58d6367ee740322d16c4816b5f2028e234c501a0e",
+        "original_name": "TestCLIReadsPATSafelyAndPrintsNoSecrets",
+        "path": "internal/netbird/manager/manager_test.go",
+        "root_id": "internal/netbird/manager/manager_test.go::TestCLIReadsPATSafelyAndPrintsNoSecrets",
+        "source_declaration": {
+          "end_line": 324,
+          "sha256": "b09d520122a7e12c0ae203a58d6367ee740322d16c4816b5f2028e234c501a0e",
+          "start_line": 271
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 297,
+          "sha256": "e824080b8f7974b18f320f748690b7a262889567309fe29506d53e51a13f5fc4",
+          "start_line": 283
+        },
+        "current_declaration_sha256": "e824080b8f7974b18f320f748690b7a262889567309fe29506d53e51a13f5fc4",
+        "current_name": "TestCLIReportOmitsSummaryWhenTheRunFailed",
+        "kind": "test",
+        "original_declaration_sha256": "e824080b8f7974b18f320f748690b7a262889567309fe29506d53e51a13f5fc4",
+        "original_name": "TestCLIReportOmitsSummaryWhenTheRunFailed",
+        "path": "internal/netbird/manager/manager_test.go",
+        "root_id": "internal/netbird/manager/manager_test.go::TestCLIReportOmitsSummaryWhenTheRunFailed",
+        "source_declaration": {
+          "end_line": 269,
+          "sha256": "e824080b8f7974b18f320f748690b7a262889567309fe29506d53e51a13f5fc4",
+          "start_line": 255
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 419,
+          "sha256": "85b211a3e6be28988a3a0297f1d08d0684f330353d85340763e201f37e53e02d",
+          "start_line": 398
+        },
+        "current_declaration_sha256": "85b211a3e6be28988a3a0297f1d08d0684f330353d85340763e201f37e53e02d",
+        "current_name": "TestLoopPrunesEvenWhenSyncRefuses",
+        "kind": "test",
+        "original_declaration_sha256": "85b211a3e6be28988a3a0297f1d08d0684f330353d85340763e201f37e53e02d",
+        "original_name": "TestLoopPrunesEvenWhenSyncRefuses",
+        "path": "internal/netbird/manager/manager_test.go",
+        "root_id": "internal/netbird/manager/manager_test.go::TestLoopPrunesEvenWhenSyncRefuses",
+        "source_declaration": {
+          "end_line": 391,
+          "sha256": "85b211a3e6be28988a3a0297f1d08d0684f330353d85340763e201f37e53e02d",
+          "start_line": 370
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 396,
+          "sha256": "52d0fc4a24b2992dc280337703fea60534f454650ccb3aa11bd1cb678d62aae8",
+          "start_line": 354
+        },
+        "current_declaration_sha256": "52d0fc4a24b2992dc280337703fea60534f454650ccb3aa11bd1cb678d62aae8",
+        "current_name": "TestLoopSkipsFollowersAndSurvivesFailuresAndPanics",
+        "kind": "test",
+        "original_declaration_sha256": "52d0fc4a24b2992dc280337703fea60534f454650ccb3aa11bd1cb678d62aae8",
+        "original_name": "TestLoopSkipsFollowersAndSurvivesFailuresAndPanics",
+        "path": "internal/netbird/manager/manager_test.go",
+        "root_id": "internal/netbird/manager/manager_test.go::TestLoopSkipsFollowersAndSurvivesFailuresAndPanics",
+        "source_declaration": {
+          "end_line": 368,
+          "sha256": "52d0fc4a24b2992dc280337703fea60534f454650ccb3aa11bd1cb678d62aae8",
+          "start_line": 326
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 125,
+          "sha256": "80a0f19d061312cef583e1acfcc2eaabccf96abbd9c793ba497afc734fdffd80",
+          "start_line": 69
+        },
+        "current_declaration_sha256": "80a0f19d061312cef583e1acfcc2eaabccf96abbd9c793ba497afc734fdffd80",
+        "current_name": "TestPruneDeletesReplacedRevisionsAndRestoresSlotNames",
+        "kind": "test",
+        "original_declaration_sha256": "80a0f19d061312cef583e1acfcc2eaabccf96abbd9c793ba497afc734fdffd80",
+        "original_name": "TestPruneDeletesReplacedRevisionsAndRestoresSlotNames",
+        "path": "internal/netbird/manager/manager_test.go",
+        "root_id": "internal/netbird/manager/manager_test.go::TestPruneDeletesReplacedRevisionsAndRestoresSlotNames",
+        "source_declaration": {
+          "end_line": 125,
+          "sha256": "80a0f19d061312cef583e1acfcc2eaabccf96abbd9c793ba497afc734fdffd80",
+          "start_line": 69
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 150,
+          "sha256": "3a9385f86603ef5b056116f16a7f9aa966ef4de7753e29a908338264864f5309",
+          "start_line": 141
+        },
+        "current_declaration_sha256": "3a9385f86603ef5b056116f16a7f9aa966ef4de7753e29a908338264864f5309",
+        "current_name": "TestPruneLeavesAmbiguousSlotsAlone",
+        "kind": "test",
+        "original_declaration_sha256": "3a9385f86603ef5b056116f16a7f9aa966ef4de7753e29a908338264864f5309",
+        "original_name": "TestPruneLeavesAmbiguousSlotsAlone",
+        "path": "internal/netbird/manager/manager_test.go",
+        "root_id": "internal/netbird/manager/manager_test.go::TestPruneLeavesAmbiguousSlotsAlone",
+        "source_declaration": {
+          "end_line": 150,
+          "sha256": "3a9385f86603ef5b056116f16a7f9aa966ef4de7753e29a908338264864f5309",
+          "start_line": 141
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 189,
+          "sha256": "ac6fbe8cf5d6614d7225e5339f8b6bc7ab66843c004ee6e2c25aed7f18afdef1",
+          "start_line": 167
+        },
+        "current_declaration_sha256": "ac6fbe8cf5d6614d7225e5339f8b6bc7ab66843c004ee6e2c25aed7f18afdef1",
+        "current_name": "TestPruneLeavesSlotWhoseNameIsHeldByAnotherConnectedPeerAlone",
+        "kind": "test",
+        "original_declaration_sha256": "ac6fbe8cf5d6614d7225e5339f8b6bc7ab66843c004ee6e2c25aed7f18afdef1",
+        "original_name": "TestPruneLeavesSlotWhoseNameIsHeldByAnotherConnectedPeerAlone",
+        "path": "internal/netbird/manager/manager_test.go",
+        "root_id": "internal/netbird/manager/manager_test.go::TestPruneLeavesSlotWhoseNameIsHeldByAnotherConnectedPeerAlone",
+        "source_declaration": {
+          "end_line": 189,
+          "sha256": "ac6fbe8cf5d6614d7225e5339f8b6bc7ab66843c004ee6e2c25aed7f18afdef1",
+          "start_line": 167
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 139,
+          "sha256": "5c8e47e42c9f7064d29ef3bab5ce954cdce9a5743b790d84289a6ecd89c11ea9",
+          "start_line": 129
+        },
+        "current_declaration_sha256": "5c8e47e42c9f7064d29ef3bab5ce954cdce9a5743b790d84289a6ecd89c11ea9",
+        "current_name": "TestPruneRenamesAPeerAfterItsRenamedNode",
+        "kind": "test",
+        "original_declaration_sha256": "5c8e47e42c9f7064d29ef3bab5ce954cdce9a5743b790d84289a6ecd89c11ea9",
+        "original_name": "TestPruneRenamesAPeerAfterItsRenamedNode",
+        "path": "internal/netbird/manager/manager_test.go",
+        "root_id": "internal/netbird/manager/manager_test.go::TestPruneRenamesAPeerAfterItsRenamedNode",
+        "source_declaration": {
+          "end_line": 139,
+          "sha256": "5c8e47e42c9f7064d29ef3bab5ce954cdce9a5743b790d84289a6ecd89c11ea9",
+          "start_line": 129
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 165,
+          "sha256": "7989d87fac7fb124c3c81225337d4e57169a5beb104af05b265daacbd17a69e6",
+          "start_line": 152
+        },
+        "current_declaration_sha256": "7989d87fac7fb124c3c81225337d4e57169a5beb104af05b265daacbd17a69e6",
+        "current_name": "TestPruneReportsDNSLabelHeldOutsideTheServersGroup",
+        "kind": "test",
+        "original_declaration_sha256": "7989d87fac7fb124c3c81225337d4e57169a5beb104af05b265daacbd17a69e6",
+        "original_name": "TestPruneReportsDNSLabelHeldOutsideTheServersGroup",
+        "path": "internal/netbird/manager/manager_test.go",
+        "root_id": "internal/netbird/manager/manager_test.go::TestPruneReportsDNSLabelHeldOutsideTheServersGroup",
+        "source_declaration": {
+          "end_line": 165,
+          "sha256": "7989d87fac7fb124c3c81225337d4e57169a5beb104af05b265daacbd17a69e6",
+          "start_line": 152
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 483,
+          "sha256": "14802f1efbd03e891fd41b0ea65176703ee44ee894bf2e394dfd79f713c0277e",
+          "start_line": 447
+        },
+        "current_declaration_sha256": "14802f1efbd03e891fd41b0ea65176703ee44ee894bf2e394dfd79f713c0277e",
+        "current_name": "TestRemovePeersDeletesOnlyDisconnectedServerPeersOfTheNamedSlots",
+        "kind": "test",
+        "original_declaration_sha256": "14802f1efbd03e891fd41b0ea65176703ee44ee894bf2e394dfd79f713c0277e",
+        "original_name": "TestRemovePeersDeletesOnlyDisconnectedServerPeersOfTheNamedSlots",
+        "path": "internal/netbird/manager/manager_test.go",
+        "root_id": "internal/netbird/manager/manager_test.go::TestRemovePeersDeletesOnlyDisconnectedServerPeersOfTheNamedSlots",
+        "source_declaration": {
+          "end_line": 455,
+          "sha256": "14802f1efbd03e891fd41b0ea65176703ee44ee894bf2e394dfd79f713c0277e",
+          "start_line": 419
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 537,
+          "sha256": "c3b24bd809dfdf9b535207b785c60216ce403719a7f1ca6ccf519f196dd9c6a8",
+          "start_line": 485
+        },
+        "current_declaration_sha256": "c3b24bd809dfdf9b535207b785c60216ce403719a7f1ca6ccf519f196dd9c6a8",
+        "current_name": "TestSetupKeyCommandWritesTheKeyOnlyToANewOwnerOnlyFile",
+        "kind": "test",
+        "original_declaration_sha256": "c3b24bd809dfdf9b535207b785c60216ce403719a7f1ca6ccf519f196dd9c6a8",
+        "original_name": "TestSetupKeyCommandWritesTheKeyOnlyToANewOwnerOnlyFile",
+        "path": "internal/netbird/manager/manager_test.go",
+        "root_id": "internal/netbird/manager/manager_test.go::TestSetupKeyCommandWritesTheKeyOnlyToANewOwnerOnlyFile",
+        "source_declaration": {
+          "end_line": 509,
+          "sha256": "c3b24bd809dfdf9b535207b785c60216ce403719a7f1ca6ccf519f196dd9c6a8",
+          "start_line": 457
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 67,
+          "sha256": "d21f1f644ca94cbae1fc4a56c3e183845b5fff7cb70150851daafc21872d9e55",
+          "start_line": 58
+        },
+        "current_declaration_sha256": "d21f1f644ca94cbae1fc4a56c3e183845b5fff7cb70150851daafc21872d9e55",
+        "current_name": "TestSyncIgnoresRevokedSetupKeysWithTheServerKeyName",
+        "kind": "test",
+        "original_declaration_sha256": "d21f1f644ca94cbae1fc4a56c3e183845b5fff7cb70150851daafc21872d9e55",
+        "original_name": "TestSyncIgnoresRevokedSetupKeysWithTheServerKeyName",
+        "path": "internal/netbird/manager/manager_test.go",
+        "root_id": "internal/netbird/manager/manager_test.go::TestSyncIgnoresRevokedSetupKeysWithTheServerKeyName",
+        "source_declaration": {
+          "end_line": 67,
+          "sha256": "d21f1f644ca94cbae1fc4a56c3e183845b5fff7cb70150851daafc21872d9e55",
+          "start_line": 58
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 56,
+          "sha256": "645861f28abfaa0008c6a1cb8fa2153cd0d2625ed71127ce4eb2ef3c2b93938a",
+          "start_line": 47
+        },
+        "current_declaration_sha256": "645861f28abfaa0008c6a1cb8fa2153cd0d2625ed71127ce4eb2ef3c2b93938a",
+        "current_name": "TestSyncWarnsAboutSetupKeyWithoutChangingIt",
+        "kind": "test",
+        "original_declaration_sha256": "645861f28abfaa0008c6a1cb8fa2153cd0d2625ed71127ce4eb2ef3c2b93938a",
+        "original_name": "TestSyncWarnsAboutSetupKeyWithoutChangingIt",
+        "path": "internal/netbird/manager/manager_test.go",
+        "root_id": "internal/netbird/manager/manager_test.go::TestSyncWarnsAboutSetupKeyWithoutChangingIt",
+        "source_declaration": {
+          "end_line": 56,
+          "sha256": "645861f28abfaa0008c6a1cb8fa2153cd0d2625ed71127ce4eb2ef3c2b93938a",
+          "start_line": 47
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 445,
+          "sha256": "680818abd88a5013d1b7b6d494015ba7620cc3beb4e483f2e07e502112b35705",
+          "start_line": 421
+        },
+        "current_declaration_sha256": "680818abd88a5013d1b7b6d494015ba7620cc3beb4e483f2e07e502112b35705",
+        "current_name": "TestSyncWarnsAboutUnmanagedPoliciesAndBroadSetupKeysWithoutChangingThem",
+        "kind": "test",
+        "original_declaration_sha256": "680818abd88a5013d1b7b6d494015ba7620cc3beb4e483f2e07e502112b35705",
+        "original_name": "TestSyncWarnsAboutUnmanagedPoliciesAndBroadSetupKeysWithoutChangingThem",
+        "path": "internal/netbird/manager/manager_test.go",
+        "root_id": "internal/netbird/manager/manager_test.go::TestSyncWarnsAboutUnmanagedPoliciesAndBroadSetupKeysWithoutChangingThem",
+        "source_declaration": {
+          "end_line": 417,
+          "sha256": "680818abd88a5013d1b7b6d494015ba7620cc3beb4e483f2e07e502112b35705",
+          "start_line": 393
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 215,
+          "sha256": "12ecc064e1084832ec9dcdb7cfe820cb17e3aea020cba2fc182cf11b7fbb920d",
+          "start_line": 191
+        },
+        "current_declaration_sha256": "12ecc064e1084832ec9dcdb7cfe820cb17e3aea020cba2fc182cf11b7fbb920d",
+        "current_name": "TestValidateRejectsSlotsOutsideThePrivateCellSubnetAndUnknownAliasRoles",
+        "kind": "test",
+        "original_declaration_sha256": "12ecc064e1084832ec9dcdb7cfe820cb17e3aea020cba2fc182cf11b7fbb920d",
+        "original_name": "TestValidateRejectsSlotsOutsideThePrivateCellSubnetAndUnknownAliasRoles",
+        "path": "internal/netbird/manager/manager_test.go",
+        "root_id": "internal/netbird/manager/manager_test.go::TestValidateRejectsSlotsOutsideThePrivateCellSubnetAndUnknownAliasRoles",
+        "source_declaration": {
+          "end_line": 215,
+          "sha256": "12ecc064e1084832ec9dcdb7cfe820cb17e3aea020cba2fc182cf11b7fbb920d",
+          "start_line": 191
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 181,
+          "sha256": "8b529de9fb2eb098623b3b7350b217fdcf3dc098ff88b2a158ff1e1db52b3541",
+          "start_line": 33
+        },
+        "current_declaration_sha256": "8b529de9fb2eb098623b3b7350b217fdcf3dc098ff88b2a158ff1e1db52b3541",
+        "current_name": "TestPodmanManagerSyncAndPrune",
+        "kind": "test",
+        "original_declaration_sha256": "8b529de9fb2eb098623b3b7350b217fdcf3dc098ff88b2a158ff1e1db52b3541",
+        "original_name": "TestPodmanManagerSyncAndPrune",
+        "path": "internal/netbird/manager/podman_integration_test.go",
+        "root_id": "internal/netbird/manager/podman_integration_test.go::TestPodmanManagerSyncAndPrune",
+        "source_declaration": {
+          "end_line": 181,
+          "sha256": "8b529de9fb2eb098623b3b7350b217fdcf3dc098ff88b2a158ff1e1db52b3541",
+          "start_line": 33
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 132,
+          "sha256": "8c5f4e9894141c6be6cf9fefa726ceb800e4a096d7d27f76273db3ae1845065d",
+          "start_line": 112
+        },
+        "current_declaration_sha256": "8c5f4e9894141c6be6cf9fefa726ceb800e4a096d7d27f76273db3ae1845065d",
+        "current_name": "TestDirectPeerDNSRefusesAmbiguousOrInvalidAdmissionBeforeWrites",
+        "kind": "test",
+        "original_declaration_sha256": "8c5f4e9894141c6be6cf9fefa726ceb800e4a096d7d27f76273db3ae1845065d",
+        "original_name": "TestDirectPeerDNSRefusesAmbiguousOrInvalidAdmissionBeforeWrites",
+        "path": "internal/netbird/manager/policy_integration_test.go",
+        "root_id": "internal/netbird/manager/policy_integration_test.go::TestDirectPeerDNSRefusesAmbiguousOrInvalidAdmissionBeforeWrites",
+        "source_declaration": {
+          "end_line": 132,
+          "sha256": "8c5f4e9894141c6be6cf9fefa726ceb800e4a096d7d27f76273db3ae1845065d",
+          "start_line": 112
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 110,
+          "sha256": "0e65f32c79716644c9a17446b21cdb007b559c403142d13402367b6d8c7c3127",
+          "start_line": 16
+        },
+        "current_declaration_sha256": "0e65f32c79716644c9a17446b21cdb007b559c403142d13402367b6d8c7c3127",
+        "current_name": "TestDirectPeerPolicyAndDNSConvergeWithoutTSOps",
+        "kind": "test",
+        "original_declaration_sha256": "0e65f32c79716644c9a17446b21cdb007b559c403142d13402367b6d8c7c3127",
+        "original_name": "TestDirectPeerPolicyAndDNSConvergeWithoutTSOps",
+        "path": "internal/netbird/manager/policy_integration_test.go",
+        "root_id": "internal/netbird/manager/policy_integration_test.go::TestDirectPeerPolicyAndDNSConvergeWithoutTSOps",
+        "source_declaration": {
+          "end_line": 110,
+          "sha256": "0e65f32c79716644c9a17446b21cdb007b559c403142d13402367b6d8c7c3127",
+          "start_line": 16
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 156,
+          "sha256": "7359a429715d2ab858cf518a9096237d2d9377d7f17a443a650f9daf224d1ca5",
+          "start_line": 143
+        },
+        "current_declaration_sha256": "7359a429715d2ab858cf518a9096237d2d9377d7f17a443a650f9daf224d1ca5",
+        "current_name": "TestHistoricalFabricConflictStopsBeforeAccountWrites",
+        "kind": "test",
+        "original_declaration_sha256": "7359a429715d2ab858cf518a9096237d2d9377d7f17a443a650f9daf224d1ca5",
+        "original_name": "TestHistoricalFabricConflictStopsBeforeAccountWrites",
+        "path": "internal/netbird/manager/policy_integration_test.go",
+        "root_id": "internal/netbird/manager/policy_integration_test.go::TestHistoricalFabricConflictStopsBeforeAccountWrites",
+        "source_declaration": {
+          "end_line": 156,
+          "sha256": "7359a429715d2ab858cf518a9096237d2d9377d7f17a443a650f9daf224d1ca5",
+          "start_line": 143
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 180,
+          "sha256": "8adc6c8b468d1332aad299fe3889595faf19d3296e7d02af9b8eee4a091a29b2",
+          "start_line": 158
+        },
+        "current_declaration_sha256": "8adc6c8b468d1332aad299fe3889595faf19d3296e7d02af9b8eee4a091a29b2",
+        "current_name": "TestImageInputCLIWritesAllRegionsWithoutPeerMaps",
+        "kind": "test",
+        "original_declaration_sha256": "8adc6c8b468d1332aad299fe3889595faf19d3296e7d02af9b8eee4a091a29b2",
+        "original_name": "TestImageInputCLIWritesAllRegionsWithoutPeerMaps",
+        "path": "internal/netbird/manager/policy_integration_test.go",
+        "root_id": "internal/netbird/manager/policy_integration_test.go::TestImageInputCLIWritesAllRegionsWithoutPeerMaps",
+        "source_declaration": {
+          "end_line": 180,
+          "sha256": "8adc6c8b468d1332aad299fe3889595faf19d3296e7d02af9b8eee4a091a29b2",
+          "start_line": 158
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 162,
+          "sha256": "24e87a23c33b78be5835a1cd9e774a0bdb069fa19bee744eccd5b077fab89f30",
+          "start_line": 140
+        },
+        "current_declaration_sha256": "24e87a23c33b78be5835a1cd9e774a0bdb069fa19bee744eccd5b077fab89f30",
+        "current_name": "TestAuditContinuesAfterFailureButCannotPassMissingOrMixedNodes",
+        "kind": "test",
+        "original_declaration_sha256": "24e87a23c33b78be5835a1cd9e774a0bdb069fa19bee744eccd5b077fab89f30",
+        "original_name": "TestAuditContinuesAfterFailureButCannotPassMissingOrMixedNodes",
+        "path": "internal/netbird/pathaudit/audit_test.go",
+        "root_id": "internal/netbird/pathaudit/audit_test.go::TestAuditContinuesAfterFailureButCannotPassMissingOrMixedNodes",
+        "source_declaration": {
+          "end_line": 162,
+          "sha256": "24e87a23c33b78be5835a1cd9e774a0bdb069fa19bee744eccd5b077fab89f30",
+          "start_line": 140
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 138,
+          "sha256": "a9ce0717295dccfc6ae4091c3525de5d56b48f3a81c99700d3eba8a2ac017ea6",
+          "start_line": 101
+        },
+        "current_declaration_sha256": "a9ce0717295dccfc6ae4091c3525de5d56b48f3a81c99700d3eba8a2ac017ea6",
+        "current_name": "TestInspectRequiresLiveConsistentDaemonEvidence",
+        "kind": "test",
+        "original_declaration_sha256": "a9ce0717295dccfc6ae4091c3525de5d56b48f3a81c99700d3eba8a2ac017ea6",
+        "original_name": "TestInspectRequiresLiveConsistentDaemonEvidence",
+        "path": "internal/netbird/pathaudit/audit_test.go",
+        "root_id": "internal/netbird/pathaudit/audit_test.go::TestInspectRequiresLiveConsistentDaemonEvidence",
+        "source_declaration": {
+          "end_line": 138,
+          "sha256": "a9ce0717295dccfc6ae4091c3525de5d56b48f3a81c99700d3eba8a2ac017ea6",
+          "start_line": 101
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 99,
+          "sha256": "7ebbadd62b4eed83c2bfa951df1d50aa2ae654479977af807fffdb93db7f3cba",
+          "start_line": 38
+        },
+        "current_declaration_sha256": "7ebbadd62b4eed83c2bfa951df1d50aa2ae654479977af807fffdb93db7f3cba",
+        "current_name": "TestRemoteCommandStreamsLargeSocketInventory",
+        "kind": "test",
+        "original_declaration_sha256": "7ebbadd62b4eed83c2bfa951df1d50aa2ae654479977af807fffdb93db7f3cba",
+        "original_name": "TestRemoteCommandStreamsLargeSocketInventory",
+        "path": "internal/netbird/pathaudit/audit_test.go",
+        "root_id": "internal/netbird/pathaudit/audit_test.go::TestRemoteCommandStreamsLargeSocketInventory",
+        "source_declaration": {
+          "end_line": 99,
+          "sha256": "7ebbadd62b4eed83c2bfa951df1d50aa2ae654479977af807fffdb93db7f3cba",
+          "start_line": 38
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 245,
+          "sha256": "eb3801e6d3b8296271c7efd79014f7aa6348b2d7b355096deb5e0346aedc8cee",
+          "start_line": 231
+        },
+        "current_declaration_sha256": "eb3801e6d3b8296271c7efd79014f7aa6348b2d7b355096deb5e0346aedc8cee",
+        "current_name": "TestCopyOutputDropsOnlyTheLeadingLoginLine",
+        "kind": "test",
+        "original_declaration_sha256": "eb3801e6d3b8296271c7efd79014f7aa6348b2d7b355096deb5e0346aedc8cee",
+        "original_name": "TestCopyOutputDropsOnlyTheLeadingLoginLine",
+        "path": "internal/netbird/sshlogin/sshlogin_test.go",
+        "root_id": "internal/netbird/sshlogin/sshlogin_test.go::TestCopyOutputDropsOnlyTheLeadingLoginLine",
+        "source_declaration": {
+          "end_line": 245,
+          "sha256": "eb3801e6d3b8296271c7efd79014f7aa6348b2d7b355096deb5e0346aedc8cee",
+          "start_line": 231
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 307,
+          "sha256": "b6cf7987aa1ec776fb242abd904f25341cf130228b2b0b3567681bc024ec649d",
+          "start_line": 279
+        },
+        "current_declaration_sha256": "b6cf7987aa1ec776fb242abd904f25341cf130228b2b0b3567681bc024ec649d",
+        "current_name": "TestDestinationNamingAPeerUsesItsNetBirdIP",
+        "kind": "test",
+        "original_declaration_sha256": "b6cf7987aa1ec776fb242abd904f25341cf130228b2b0b3567681bc024ec649d",
+        "original_name": "TestDestinationNamingAPeerUsesItsNetBirdIP",
+        "path": "internal/netbird/sshlogin/sshlogin_test.go",
+        "root_id": "internal/netbird/sshlogin/sshlogin_test.go::TestDestinationNamingAPeerUsesItsNetBirdIP",
+        "source_declaration": {
+          "end_line": 307,
+          "sha256": "b6cf7987aa1ec776fb242abd904f25341cf130228b2b0b3567681bc024ec649d",
+          "start_line": 279
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 110,
+          "sha256": "3ced83247e72d0575d1ae4f2299172b0a3ced56775a3f9990f9cb138b0aeff70",
+          "start_line": 101
+        },
+        "current_declaration_sha256": "3ced83247e72d0575d1ae4f2299172b0a3ced56775a3f9990f9cb138b0aeff70",
+        "current_name": "TestDeviceLoginAnswersTheDexForms",
+        "kind": "test",
+        "original_declaration_sha256": "3ced83247e72d0575d1ae4f2299172b0a3ced56775a3f9990f9cb138b0aeff70",
+        "original_name": "TestDeviceLoginAnswersTheDexForms",
+        "path": "internal/netbird/sshlogin/sshlogin_test.go",
+        "root_id": "internal/netbird/sshlogin/sshlogin_test.go::TestDeviceLoginAnswersTheDexForms",
+        "source_declaration": {
+          "end_line": 110,
+          "sha256": "3ced83247e72d0575d1ae4f2299172b0a3ced56775a3f9990f9cb138b0aeff70",
+          "start_line": 101
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 146,
+          "sha256": "2f461e42feabf4b0c7bdae7f33a888d785bd33a479e00dc532b9a52576f7421e",
+          "start_line": 129
+        },
+        "current_declaration_sha256": "2f461e42feabf4b0c7bdae7f33a888d785bd33a479e00dc532b9a52576f7421e",
+        "current_name": "TestDeviceLoginRefusesMFAAndOtherOrigins",
+        "kind": "test",
+        "original_declaration_sha256": "2f461e42feabf4b0c7bdae7f33a888d785bd33a479e00dc532b9a52576f7421e",
+        "original_name": "TestDeviceLoginRefusesMFAAndOtherOrigins",
+        "path": "internal/netbird/sshlogin/sshlogin_test.go",
+        "root_id": "internal/netbird/sshlogin/sshlogin_test.go::TestDeviceLoginRefusesMFAAndOtherOrigins",
+        "source_declaration": {
+          "end_line": 146,
+          "sha256": "2f461e42feabf4b0c7bdae7f33a888d785bd33a479e00dc532b9a52576f7421e",
+          "start_line": 129
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 127,
+          "sha256": "b2294a31f8d3f929ceb667eb17216024ae98115433ec37bcb6e71bea5a1b64fb",
+          "start_line": 112
+        },
+        "current_declaration_sha256": "b2294a31f8d3f929ceb667eb17216024ae98115433ec37bcb6e71bea5a1b64fb",
+        "current_name": "TestDeviceLoginStopsWhenAFormComesBack",
+        "kind": "test",
+        "original_declaration_sha256": "b2294a31f8d3f929ceb667eb17216024ae98115433ec37bcb6e71bea5a1b64fb",
+        "original_name": "TestDeviceLoginStopsWhenAFormComesBack",
+        "path": "internal/netbird/sshlogin/sshlogin_test.go",
+        "root_id": "internal/netbird/sshlogin/sshlogin_test.go::TestDeviceLoginStopsWhenAFormComesBack",
+        "source_declaration": {
+          "end_line": 127,
+          "sha256": "b2294a31f8d3f929ceb667eb17216024ae98115433ec37bcb6e71bea5a1b64fb",
+          "start_line": 112
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 167,
+          "sha256": "61de6995aafa4028880f46d3abaa660339c3f668326256df91a81c572086d718",
+          "start_line": 151
+        },
+        "current_declaration_sha256": "61de6995aafa4028880f46d3abaa660339c3f668326256df91a81c572086d718",
+        "current_name": "TestHelperNetBird",
+        "kind": "test",
+        "original_declaration_sha256": "61de6995aafa4028880f46d3abaa660339c3f668326256df91a81c572086d718",
+        "original_name": "TestHelperNetBird",
+        "path": "internal/netbird/sshlogin/sshlogin_test.go",
+        "root_id": "internal/netbird/sshlogin/sshlogin_test.go::TestHelperNetBird",
+        "source_declaration": {
+          "end_line": 167,
+          "sha256": "61de6995aafa4028880f46d3abaa660339c3f668326256df91a81c572086d718",
+          "start_line": 151
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 277,
+          "sha256": "39754ebc6372856ceafaaf8dfa83edb14f65762898750e3cc1726d3cb0c8c97e",
+          "start_line": 260
+        },
+        "current_declaration_sha256": "39754ebc6372856ceafaaf8dfa83edb14f65762898750e3cc1726d3cb0c8c97e",
+        "current_name": "TestRunRejectsBadArgumentsBeforeVaultOrNetBird",
+        "kind": "test",
+        "original_declaration_sha256": "39754ebc6372856ceafaaf8dfa83edb14f65762898750e3cc1726d3cb0c8c97e",
+        "original_name": "TestRunRejectsBadArgumentsBeforeVaultOrNetBird",
+        "path": "internal/netbird/sshlogin/sshlogin_test.go",
+        "root_id": "internal/netbird/sshlogin/sshlogin_test.go::TestRunRejectsBadArgumentsBeforeVaultOrNetBird",
+        "source_declaration": {
+          "end_line": 277,
+          "sha256": "39754ebc6372856ceafaaf8dfa83edb14f65762898750e3cc1726d3cb0c8c97e",
+          "start_line": 260
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 210,
+          "sha256": "f53a76ad721acfc5b55da7732d1383b7723da4c7dc76dc04e0ca0f04fbfface0",
+          "start_line": 179
+        },
+        "current_declaration_sha256": "f53a76ad721acfc5b55da7732d1383b7723da4c7dc76dc04e0ca0f04fbfface0",
+        "current_name": "TestRunSignsInOnlyWhenNetBirdAsks",
+        "kind": "test",
+        "original_declaration_sha256": "f53a76ad721acfc5b55da7732d1383b7723da4c7dc76dc04e0ca0f04fbfface0",
+        "original_name": "TestRunSignsInOnlyWhenNetBirdAsks",
+        "path": "internal/netbird/sshlogin/sshlogin_test.go",
+        "root_id": "internal/netbird/sshlogin/sshlogin_test.go::TestRunSignsInOnlyWhenNetBirdAsks",
+        "source_declaration": {
+          "end_line": 210,
+          "sha256": "f53a76ad721acfc5b55da7732d1383b7723da4c7dc76dc04e0ca0f04fbfface0",
+          "start_line": 179
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 229,
+          "sha256": "841e40777f57b3e4cbce9ec4d459a1576e1881c6db6b15f4ae8e59ac3030c8bf",
+          "start_line": 212
+        },
+        "current_declaration_sha256": "841e40777f57b3e4cbce9ec4d459a1576e1881c6db6b15f4ae8e59ac3030c8bf",
+        "current_name": "TestRunStopsTheClientWhenLoginFailsAndKeepsItsExitStatus",
+        "kind": "test",
+        "original_declaration_sha256": "841e40777f57b3e4cbce9ec4d459a1576e1881c6db6b15f4ae8e59ac3030c8bf",
+        "original_name": "TestRunStopsTheClientWhenLoginFailsAndKeepsItsExitStatus",
+        "path": "internal/netbird/sshlogin/sshlogin_test.go",
+        "root_id": "internal/netbird/sshlogin/sshlogin_test.go::TestRunStopsTheClientWhenLoginFailsAndKeepsItsExitStatus",
+        "source_declaration": {
+          "end_line": 229,
+          "sha256": "841e40777f57b3e4cbce9ec4d459a1576e1881c6db6b15f4ae8e59ac3030c8bf",
+          "start_line": 212
+        },
+        "state": "retained_body_exact"
+      },
+      {
+        "baseline_declaration": {
+          "end_line": 258,
+          "sha256": "a57ea7115ec55be7f3b85d5dfc022f37a63fe7042da6e9d856f07fb97d568ff4",
+          "start_line": 247
+        },
+        "current_declaration_sha256": "a57ea7115ec55be7f3b85d5dfc022f37a63fe7042da6e9d856f07fb97d568ff4",
+        "current_name": "TestVerificationURL",
+        "kind": "test",
+        "original_declaration_sha256": "a57ea7115ec55be7f3b85d5dfc022f37a63fe7042da6e9d856f07fb97d568ff4",
+        "original_name": "TestVerificationURL",
+        "path": "internal/netbird/sshlogin/sshlogin_test.go",
+        "root_id": "internal/netbird/sshlogin/sshlogin_test.go::TestVerificationURL",
+        "source_declaration": {
+          "end_line": 258,
+          "sha256": "a57ea7115ec55be7f3b85d5dfc022f37a63fe7042da6e9d856f07fb97d568ff4",
+          "start_line": 247
+        },
+        "state": "retained_body_exact"
+      }
+    ],
+    "scope_rationale": "NetBird manager, SSH status/login, path audit, DNS and protected backup form operational network administration boundaries.",
+    "scope_read_limit": "Grouping evidence only; no claim all roots/helpers/asserted targets have been classified. Owner must fully inspect each allocated root and connected assertion target.",
+    "test_file_count": 11
+  },
+  "report_directory": "/tmp/ts-net48-d4ac-source-classification-k9shja9e",
+  "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+  "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82"
+}

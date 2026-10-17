@@ -1,0 +1,252 @@
+package workload
+
+import (
+	"errors"
+	"fmt"
+	"maps"
+	"slices"
+
+	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/placement"
+)
+
+// ReleaseShift splits a reconciled role's host desired generation into a
+// release (the signed delivery intent generation) and a reconciliation step.
+// Host desired generations are monotonic per node and role, so every write of
+// a reconciled role needs a fresh generation; keeping the release in the high
+// bits lets the next signed release supersede every reconciled step.
+const ReleaseShift = 24
+
+const maxRelease = uint64(1)<<(64-ReleaseShift) - 1
+
+var (
+	ErrNoRelease         = errors.New("workload has no active release to reconcile")
+	ErrGenerationSpace   = errors.New("workload release generation space is exhausted")
+	ErrReleaseSuperseded = errors.New("workload release has no active replicas")
+)
+
+// ReleaseGeneration is the first desired generation of a reconciled release.
+func ReleaseGeneration(release uint64) (uint64, error) {
+	if release == 0 || release > maxRelease {
+		return 0, fmt.Errorf("%w: release generation %d", ErrGenerationSpace, release)
+	}
+	return release << ReleaseShift, nil
+}
+
+// ReleaseOf returns the release part of a desired generation.
+func ReleaseOf(generation uint64) uint64 { return generation >> ReleaseShift }
+
+// Release is the role's newest active release and its replicas.
+type Release struct {
+	Release  uint64
+	Template host.Desired
+	// Current are the release's assignments; Stale are active allocations of
+	// an older release, which are retired once the release is ready.
+	Current []placement.Assignment
+	Stale   []placement.Assignment
+}
+
+// Converged reports whether every replica of the release is ready and no
+// older release remains.
+func (r Release) Converged() bool {
+	if len(r.Stale) != 0 {
+		return false
+	}
+	for _, assignment := range r.Current {
+		if !assignment.Ready {
+			return false
+		}
+	}
+	return true
+}
+
+// CurrentRelease selects the newest release among active allocations. Its
+// highest-generation allocation is the template for new replicas.
+func CurrentRelease(observation Observation) (Release, error) {
+	var release Release
+	found := false
+	for _, node := range slices.Sorted(maps.Keys(observation.Active)) {
+		desired := observation.Active[node]
+		if !found || ReleaseOf(desired.Generation) > release.Release ||
+			ReleaseOf(desired.Generation) == release.Release && desired.Generation > release.Template.Generation {
+			release.Release, release.Template, found = ReleaseOf(desired.Generation), desired, true
+		}
+	}
+	if !found {
+		return Release{}, ErrNoRelease
+	}
+	if ReleaseOf(observation.HighWater) != release.Release {
+		return Release{}, fmt.Errorf("%w: newest committed release %d", ErrReleaseSuperseded, ReleaseOf(observation.HighWater))
+	}
+	for _, assignment := range observation.Assignments {
+		if ReleaseOf(observation.Active[assignment.Node].Generation) == release.Release {
+			assignment.Ordinal = len(release.Current)
+			release.Current = append(release.Current, assignment)
+		} else {
+			release.Stale = append(release.Stale, assignment)
+		}
+	}
+	return release, nil
+}
+
+// StepInput is one bounded reconciliation request for a stateless service.
+type StepInput struct {
+	Cell        string
+	Spec        ServiceSpec
+	Resources   placement.Resources
+	Observation Observation
+	Release     Release
+	Replicas    int
+	Epoch       uint64
+}
+
+// Step is the set of host desired writes for one reconciliation, additions
+// then withdrawals, each sorted by node, sharing one fresh generation. An empty step means converged or
+// waiting for in-flight replicas.
+type Step struct {
+	Generation uint64
+	Writes     []host.Desired
+	Added      int
+	Withdrawn  int
+	Waiting    bool
+}
+
+// PlanStep plans toward Replicas with placement.PlanWorkload and then limits
+// the change: at most MaxSurge new replicas, failed replicas are replaced
+// immediately, and ready replicas (current or stale) are withdrawn only when
+// no replica is starting, at most MaxUnavailable per step. Writing the new
+// release over a node whose old replica is still serving stops that replica,
+// so such an in-place replacement is charged to the unavailability budget
+// rather than treated as a surge addition.
+//
+// Additions are ordered before withdrawals, so a step that fails part-way
+// never withdraws the last active replica (the release template) before its
+// replacement is committed.
+func PlanStep(in StepInput) (Step, error) {
+	assignments, err := placement.PlanWorkload(placement.WorkloadRequest{
+		Cell: in.Cell, Role: in.Spec.Role, Replicas: in.Replicas, Request: in.Resources,
+		Hosts: in.Observation.Candidates, Previous: in.Release.Current,
+		MaxPerFailureDomain: in.Spec.Placement.MaxPerFailureDomain,
+	})
+	if err != nil {
+		return Step{}, err
+	}
+	if err := checkDomainCap(in.Spec.Placement, in.Observation.Candidates, assignments); err != nil {
+		return Step{}, err
+	}
+	current := make(map[string]placement.Assignment, len(in.Release.Current))
+	for _, assignment := range in.Release.Current {
+		current[assignment.Node] = assignment
+	}
+	stale := make(map[string]placement.Assignment, len(in.Release.Stale))
+	for _, assignment := range in.Release.Stale {
+		stale[assignment.Node] = assignment
+	}
+	var additions, replacements, withdrawals []string
+	starting := false
+	for _, assignment := range assignments {
+		previous, existed := current[assignment.Node]
+		switch {
+		case assignment.Withdrawn && !previous.Ready:
+			// Failed, starting or unreachable replicas serve nothing.
+			withdrawals = append(withdrawals, assignment.Node)
+		case assignment.Withdrawn:
+			// Ready surplus waits for the unavailability budget below.
+		case !existed && stale[assignment.Node].Ready:
+			// The node still serves the old release: replacing it in place
+			// takes a serving replica down.
+			replacements = append(replacements, assignment.Node)
+		case !existed:
+			if len(additions) < in.Spec.Rollout.surge() {
+				additions = append(additions, assignment.Node)
+			}
+			starting = true
+		case !previous.Ready:
+			starting = true
+		}
+	}
+	if !starting {
+		budget := in.Spec.Rollout.unavailable()
+		for _, node := range replacements {
+			if budget > 0 {
+				additions = append(additions, node)
+				budget--
+			}
+		}
+		for _, assignment := range assignments {
+			if budget > 0 && assignment.Withdrawn && current[assignment.Node].Ready {
+				withdrawals = append(withdrawals, assignment.Node)
+				budget--
+			}
+		}
+		for _, old := range in.Release.Stale {
+			// A stale node the plan reuses is overwritten by its addition
+			// or kept for a later in-place replacement, never withdrawn.
+			if budget > 0 && !slices.Contains(additions, old.Node) && !slices.Contains(replacements, old.Node) {
+				withdrawals = append(withdrawals, old.Node)
+				budget--
+			}
+		}
+	}
+	if len(additions) == 0 && len(withdrawals) == 0 {
+		return Step{Waiting: starting}, nil
+	}
+	generation := in.Observation.HighWater + 1
+	for _, node := range slices.Concat(additions, withdrawals) {
+		// The host fences generations per node and role across
+		// environments, so a node formerly used elsewhere sets the floor.
+		if floor := in.Observation.NodeHighWater[node]; floor >= generation {
+			generation = floor + 1
+		}
+	}
+	if generation == 0 || ReleaseOf(generation) != in.Release.Release {
+		return Step{}, ErrGenerationSpace
+	}
+	step := Step{Generation: generation, Added: len(additions), Withdrawn: len(withdrawals), Waiting: starting}
+	template := in.Release.Template
+	slices.Sort(additions)
+	slices.Sort(withdrawals)
+	for _, node := range additions {
+		step.Writes = append(step.Writes, host.Desired{
+			Cell: in.Cell, Node: node, Environment: in.Spec.Environment, Role: in.Spec.Role,
+			Digest: template.Digest, Generation: generation, AuthorityEpoch: in.Epoch,
+			Args: slices.Clone(template.Args), Env: maps.Clone(template.Env), Secrets: maps.Clone(template.Secrets),
+		})
+	}
+	for _, node := range withdrawals {
+		// The host validates a withdrawal against its current registration,
+		// which may have moved to another environment since the allocation.
+		environment := in.Spec.Environment
+		if status, exists := in.Observation.Statuses[node]; exists {
+			environment = status.Registration.Environment
+		}
+		step.Writes = append(step.Writes, host.Desired{
+			Cell: in.Cell, Node: node, Environment: environment, Role: in.Spec.Role,
+			Generation: generation, AuthorityEpoch: in.Epoch, Withdrawn: true,
+		})
+	}
+	return step, nil
+}
+
+func checkDomainCap(constraints Constraints, hosts []placement.WorkloadHost, assignments []placement.Assignment) error {
+	if constraints.MaxPerFailureDomain == 0 {
+		return nil
+	}
+	domains := make(map[string]string, len(hosts))
+	for _, candidate := range hosts {
+		domains[candidate.Node] = candidate.FailureDomain
+	}
+	counts := make(map[string]int)
+	for _, assignment := range assignments {
+		if assignment.Withdrawn {
+			continue
+		}
+		domain := domains[assignment.Node]
+		counts[domain]++
+		if counts[domain] > constraints.MaxPerFailureDomain {
+			return fmt.Errorf("%w: failure domain %q exceeds %d replicas", placement.ErrInsufficientCapacity,
+				domain, constraints.MaxPerFailureDomain)
+		}
+	}
+	return nil
+}

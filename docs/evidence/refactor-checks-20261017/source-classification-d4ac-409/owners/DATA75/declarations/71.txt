@@ -1,0 +1,19 @@
+func TestSubmitRetriesWhenPublishAttemptDeadlineExpires(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	intent := testIntent(t, service, ctx)
+	calls := 0
+	service.js = &interceptedPublish{JetStream: service.js, publish: func(publishCtx context.Context, _ string, _ []byte, _ ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+		calls++
+		if calls == 1 {
+			<-publishCtx.Done()
+			return nil, publishCtx.Err()
+		}
+		return &jetstream.PubAck{}, nil
+	}}
+	if err := service.Submit(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if ctx.Err() != nil || calls != 2 {
+		t.Fatalf("parent context error=%v publish attempts=%d, want valid parent and 2 attempts", ctx.Err(), calls)
+	}
+}

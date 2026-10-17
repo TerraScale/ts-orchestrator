@@ -1,0 +1,18 @@
+func TestArtifactMetadataReadDistinguishesMissingObjectAndBucket(t *testing.T) {
+	s, ctx := testService(t, &testWriter{})
+	legacyJS, err := s.js.Conn().JetStream()
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, missing, err := authoritativeArtifactMetadata(ctx, legacyJS, "missing")
+	if info != nil || !missing || err != nil {
+		t.Fatalf("missing object = (%p, %t, %v); want object absence", info, missing, err)
+	}
+	if err := legacyJS.DeleteObjectStore(ArtifactBucket); err != nil {
+		t.Fatal(err)
+	}
+	info, missing, err = authoritativeArtifactMetadata(ctx, legacyJS, "missing")
+	if info != nil || missing || !errors.Is(err, nats.ErrStreamNotFound) {
+		t.Fatalf("missing bucket = (%p, %t, %v); want stream-not-found error", info, missing, err)
+	}
+}

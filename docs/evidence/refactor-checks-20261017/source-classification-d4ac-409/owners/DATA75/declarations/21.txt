@@ -1,0 +1,24 @@
+func TestRetryArtifactMetadataReadPreservesAbsenceAndPermanentErrors(t *testing.T) {
+	permanent := &nats.APIError{Code: 403, ErrorCode: 10039}
+	for _, test := range []struct {
+		name        string
+		wantMissing bool
+		wantErr     error
+	}{
+		{name: "absent object", wantMissing: true},
+		{name: "missing bucket", wantErr: nats.ErrStreamNotFound},
+		{name: "permanent API rejection", wantErr: permanent},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var reads int
+			info, missing, err := retryArtifactMetadataRead(t.Context(), func(context.Context) (*nats.RawStreamMsg, bool, error) {
+				reads++
+				return nil, test.wantMissing, test.wantErr
+			})
+			if info != nil || missing != test.wantMissing || (test.wantMissing && err != nil) ||
+				(test.wantErr != nil && !errors.Is(err, test.wantErr)) || reads != 1 {
+				t.Fatalf("metadata result = (%p, %t, %v), reads = %d; want absence = %t, error = %v", info, missing, err, reads, test.wantMissing, test.wantErr)
+			}
+		})
+	}
+}

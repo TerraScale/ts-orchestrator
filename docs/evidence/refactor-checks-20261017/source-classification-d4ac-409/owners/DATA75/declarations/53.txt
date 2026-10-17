@@ -1,0 +1,17 @@
+func TestFencedClaimIsHeldDurably(t *testing.T) {
+	w := &testWriter{fenceFirst: true}
+	s, ctx := testService(t, w)
+	i := testIntent(t, s, ctx)
+	terminal, err := s.process(ctx, mustJSON(i))
+	if !terminal || err != nil {
+		t.Fatalf("fenced process terminal=%t err=%v", terminal, err)
+	}
+	r, err := s.StatusFor(ctx, i)
+	if err != nil || r.Status != "held" || w.count() != 1 {
+		t.Fatalf("held receipt=%+v err=%v calls=%d", r, err, w.count())
+	}
+	terminal, err = s.process(ctx, mustJSON(i))
+	if !terminal || err != nil || w.count() != 1 {
+		t.Fatalf("held replay terminal=%t err=%v calls=%d", terminal, err, w.count())
+	}
+}

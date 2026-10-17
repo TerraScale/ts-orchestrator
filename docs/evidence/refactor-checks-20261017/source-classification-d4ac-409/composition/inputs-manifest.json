@@ -1,0 +1,127 @@
+{
+  "schema": "next300-full-composition-inputs-v1",
+  "inputs": [
+    {
+      "path": "/tmp/ts-next300-final-delta-independent-storage-review-rilgr3fa/review.json",
+      "sha256": "842cec513f6cb3c82f9e189317aba6c8d85d403a4b72cc0ab6a7b2d8ecdd30fd",
+      "bytes": 9185,
+      "mode": "0444"
+    },
+    {
+      "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/proposal.json",
+      "sha256": "f26ebe8d0abedc04a1b1b1a745da98665390dc09e015523fbc56298c284ded6a",
+      "bytes": 391960,
+      "mode": "0444"
+    },
+    {
+      "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/inputs-manifest.json",
+      "sha256": "8460a793d54e91dc98a88e1d74d8d4d03a2f58af50f6ccb52695fde379bf2b0f",
+      "bytes": 8118,
+      "mode": "0444"
+    },
+    {
+      "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/verify.py",
+      "sha256": "d5a85f970d92ebefd2bdb0d721d93094c532001722650c8aaacc3470ab637457",
+      "bytes": 7772,
+      "mode": "0444"
+    },
+    {
+      "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/verification.json",
+      "sha256": "cef17e647d225e291a2c098ee7fc80f4fe369bf37e560f88a73373a5d34cb3d5",
+      "bytes": 306,
+      "mode": "0444"
+    },
+    {
+      "path": "/tmp/ts-d4ac-classification69-delta-final-l6fu61l5/proposal.json",
+      "sha256": "7eaaa19a3ccb97b64e02d74021ec4bcdf0908ecc2f317f131ae7c9acd473c69e",
+      "bytes": 225913,
+      "mode": "0444"
+    },
+    {
+      "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+      "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+      "bytes": 1640609,
+      "mode": "0400"
+    },
+    {
+      "path": "/tmp/ts-qa-classification69-actual-apply-9wr2zuyd/receipt.json",
+      "sha256": "71738603201ae4863b725c2f843f085f2db929ff3dde1ad4fd982292cd5f209d",
+      "bytes": 1893,
+      "mode": "0444"
+    }
+  ],
+  "delta_path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/proposal.json",
+  "prior69_path": "/tmp/ts-d4ac-classification69-delta-final-l6fu61l5/proposal.json",
+  "inventory_path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+  "mirror_paths": {
+    "completion": [
+      [
+        "source_classification_adjudication"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication"
+      ],
+      [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "source_classification_adjudication"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication"
+      ]
+    ],
+    "progress": [
+      [
+        "source_classification_adjudication"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication"
+      ]
+    ]
+  },
+  "source_delta_inputs": "All30 original owner/peer/source references remain pinned transitively by exact source-delta inputs-manifest. No raw owner/peer packets copied."
+}

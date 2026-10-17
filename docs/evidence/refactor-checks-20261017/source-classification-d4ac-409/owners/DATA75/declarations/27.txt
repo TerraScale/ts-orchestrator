@@ -1,0 +1,20 @@
+func TestDeliveryProcessReportsPreclaimPlannerStage(t *testing.T) {
+	s, ctx := testService(t, &testWriter{})
+	intent := testIntent(t, s, ctx)
+	s.config.Planner = diagnosticPlanner{err: fmt.Errorf("placement could not fit: %w", placement.ErrInsufficientCapacity)}
+
+	terminal, err := s.process(ctx, mustJSON(intent))
+	if terminal || !errors.Is(err, placement.ErrInsufficientCapacity) {
+		t.Fatalf("process terminal=%t err=%v", terminal, err)
+	}
+	staged, ok := errors.AsType[deliveryStageError](err)
+	if !ok || staged.stage != "planner" {
+		t.Fatalf("preclaim stage = %+v, found=%t", staged, ok)
+	}
+	if class, _ := deliveryFailureClass(err); class != "insufficient_capacity" {
+		t.Fatalf("preclaim error class = %q", class)
+	}
+	if _, err := s.Status(ctx, intent.OperationID); !errors.Is(err, ErrPending) {
+		t.Fatalf("planner failure created an operation: %v", err)
+	}
+}

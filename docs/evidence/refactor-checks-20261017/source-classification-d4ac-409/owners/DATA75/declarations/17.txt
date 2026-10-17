@@ -1,0 +1,37 @@
+func TestPrepareArtifactSkipsPutWhenStoredDigestAndSizeVerify(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	counting := &putCountingObjectStore{ObjectStore: service.artifacts}
+	service.artifacts = counting
+
+	request := artifactTestRequest()
+	content := bytes.Repeat([]byte("artifact-chunk-"), 24_000)
+	first, _, err := service.PrepareArtifact(ctx, bytes.NewReader(content), request)
+	if err != nil {
+		t.Fatalf("first PrepareArtifact() error = %v", err)
+	}
+	firstInfo, err := counting.GetInfo(ctx, artifactKey(first.Digest))
+	if err != nil {
+		t.Fatalf("GetInfo(first) error = %v", err)
+	}
+	if got := counting.puts.Load(); got != 1 {
+		t.Fatalf("Put calls after initial upload = %d, want 1", got)
+	}
+
+	second, _, err := service.PrepareArtifact(ctx, bytes.NewReader(content), request)
+	if err != nil {
+		t.Fatalf("repeated PrepareArtifact() error = %v", err)
+	}
+	secondInfo, err := counting.GetInfo(ctx, artifactKey(second.Digest))
+	if err != nil {
+		t.Fatalf("GetInfo(second) error = %v", err)
+	}
+	if first != second {
+		t.Fatalf("repeated artifact record changed: first=%+v second=%+v", first, second)
+	}
+	if got := counting.puts.Load(); got != 1 {
+		t.Fatalf("Put calls after verified retry = %d, want 1", got)
+	}
+	if firstInfo.Chunks != secondInfo.Chunks {
+		t.Fatalf("stored object chunks changed on retry: first=%d second=%d", firstInfo.Chunks, secondInfo.Chunks)
+	}
+}

@@ -1,0 +1,24 @@
+func TestSubmitRetriesOtherTypedTransientPublishErrors(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	intent := testIntent(t, service, ctx)
+	for index, transientErr := range []error{nats.ErrNoResponders, nats.ErrTimeout, nats.ErrDisconnected, nats.ErrNoServers} {
+		t.Run(transientErr.Error(), func(t *testing.T) {
+			calls := 0
+			service.js = &interceptedPublish{JetStream: service.js, publish: func(context.Context, string, []byte, ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+				calls++
+				if calls == 1 {
+					return nil, transientErr
+				}
+				return &jetstream.PubAck{}, nil
+			}}
+			attempt := intent
+			attempt.OperationID = entityid.Derive("test-delivery", fmt.Sprintf("transient-%d", index))
+			if err := service.Submit(ctx, attempt); err != nil {
+				t.Fatal(err)
+			}
+			if calls != 2 {
+				t.Fatalf("publish attempts=%d, want 2", calls)
+			}
+		})
+	}
+}

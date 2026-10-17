@@ -1,0 +1,22 @@
+func TestDeliveryRetryDiagnosticIsRateLimitedAndOmitsRawError(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&output, nil))
+	var diagnostics deliveryRetryDiagnostics
+	err := stageDeliveryError("planner", fmt.Errorf("private tenant content: %w", placement.ErrInsufficientCapacity))
+
+	diagnostics.report(logger, err)
+	diagnostics.report(logger, err)
+	if count := strings.Count(output.String(), "delivery intent processing deferred"); count != 1 {
+		t.Fatalf("immediate warning count = %d", count)
+	}
+	diagnostics.next = time.Now().Add(-time.Second)
+	diagnostics.report(logger, err)
+	message := output.String()
+	if count := strings.Count(message, "delivery intent processing deferred"); count != 2 {
+		t.Fatalf("later warning count = %d", count)
+	}
+	if !strings.Contains(message, "stage=planner") || !strings.Contains(message, "cause_class=insufficient_capacity") ||
+		!strings.Contains(message, "suppressed=1") || strings.Contains(message, "private tenant content") {
+		t.Fatalf("warning fields are unsafe or incomplete: %s", message)
+	}
+}

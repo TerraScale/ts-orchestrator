@@ -1,0 +1,87 @@
+func TestRevokedArtifactSignerCanBeReplacedByAuthorizedSignerConcurrently(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	oldCodec := artifactTestCodec(t, "old-operator", 0x11)
+	newCodec := artifactTestCodec(t, "new-operator", 0x22)
+	currentActor := "old-operator"
+	service.config.AuthorizeArtifact = func(_ context.Context, actor string, _ ArtifactRecord) error {
+		if actor != currentActor {
+			return ErrUnauthorized
+		}
+		return nil
+	}
+	service.config.ArtifactSigner = oldCodec
+	service.config.ArtifactVerifier = oldCodec
+
+	request := artifactTestRequest()
+	content := []byte("same immutable artifact content")
+	original, oldEnvelope, err := service.PrepareArtifact(ctx, bytes.NewReader(content), request)
+	if err != nil {
+		t.Fatalf("PrepareArtifact(old signer) error = %v", err)
+	}
+	if admitted, err := service.AcceptArtifactClaim(ctx, oldEnvelope); err != nil || admitted != original {
+		t.Fatalf("AcceptArtifactClaim(old signer) = %+v, %v", admitted, err)
+	}
+
+	currentActor = "new-operator"
+	service.config.ArtifactSigner = newCodec
+	service.config.ArtifactVerifier = newCodec
+	if _, err := service.readAdmission(ctx, original.Digest, original.Cell, original.Role, original.Environment); err == nil {
+		t.Fatal("revoked signer admission remained readable")
+	}
+
+	refreshed, newEnvelope, err := service.PrepareArtifact(ctx, bytes.NewReader(content), request)
+	if err != nil {
+		t.Fatalf("PrepareArtifact(new signer) error = %v", err)
+	}
+	if refreshed != original {
+		t.Fatalf("fresh claim changed immutable artifact record: old=%+v new=%+v", original, refreshed)
+	}
+
+	const concurrentClaims = 8
+	var wait sync.WaitGroup
+	results := make(chan error, concurrentClaims)
+	for range concurrentClaims {
+		wait.Go(func() {
+			admitted, err := service.AcceptArtifactClaim(ctx, newEnvelope)
+			if err == nil && admitted != original {
+				err = ErrConflict
+			}
+			results <- err
+		})
+	}
+	wait.Wait()
+	close(results)
+	for err := range results {
+		if err != nil {
+			t.Fatalf("concurrent same-record admission failed: %v", err)
+		}
+	}
+
+	admitted, err := service.readAdmission(ctx, original.Digest, original.Cell, original.Role, original.Environment)
+	if err != nil || admitted != original {
+		t.Fatalf("read replaced admission = %+v, %v", admitted, err)
+	}
+	entry, err := service.admissions.Get(ctx, admissionKey(original.Digest, original.Cell, original.Role, original.Environment))
+	if err != nil {
+		t.Fatalf("read replacement entry: %v", err)
+	}
+	stored, err := decodeStoredAdmission(entry.Value(), original.Digest, original.Cell, original.Role, original.Environment)
+	if err != nil {
+		t.Fatalf("decode replacement entry: %v", err)
+	}
+	if stored.Actor != "new-operator" || !bytes.Equal(stored.Envelope, newEnvelope) {
+		t.Fatalf("stored signer was not replaced: actor=%q", stored.Actor)
+	}
+
+	otherSource := request.Source
+	otherSource.Commit = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	otherRequest := request
+	otherRequest.Source = otherSource
+	_, conflictingEnvelope, err := service.PrepareArtifact(ctx, bytes.NewReader(content), otherRequest)
+	if err != nil {
+		t.Fatalf("PrepareArtifact(other provenance) error = %v", err)
+	}
+	if _, err := service.AcceptArtifactClaim(ctx, conflictingEnvelope); !errors.Is(err, ErrConflict) {
+		t.Fatalf("same content with different provenance = %v, want ErrConflict", err)
+	}
+}

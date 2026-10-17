@@ -1,0 +1,14 @@
+func TestSubmitOperationReadUsesRecoveryBudgetAfterFiveTransientFailures(t *testing.T) {
+	want := &operationValue{value: []byte("durable operation"), revision: 7}
+	calls := 0
+	got, err := retrySubmitOperationRead(t.Context(), func(context.Context) (*operationValue, error) {
+		calls++
+		if calls <= 5 {
+			return nil, &nats.APIError{Code: 503, ErrorCode: 10008, Description: "JetStream system temporarily unavailable"}
+		}
+		return want, nil
+	})
+	if err != nil || got != want || calls != 6 {
+		t.Fatalf("operation leader read after recovery: value=%v error=%v calls=%d, want value and six attempts", got, err, calls)
+	}
+}

@@ -1,0 +1,21 @@
+func TestCancellationAfterHostEffectReplaysBeforeAck(t *testing.T) {
+	w := &testWriter{cancelFirst: true}
+	s, ctx := testService(t, w)
+	i := testIntent(t, s, ctx)
+	b := mustJSON(i)
+	terminal, err := s.process(ctx, b)
+	if terminal || !errors.Is(err, context.Canceled) {
+		t.Fatalf("first process terminal=%t err=%v", terminal, err)
+	}
+	if _, err := s.Status(ctx, i.OperationID); !errors.Is(err, ErrPending) {
+		t.Fatalf("premature receipt: %v", err)
+	}
+	terminal, err = s.process(ctx, b)
+	if !terminal || err != nil {
+		t.Fatalf("redelivery terminal=%t err=%v", terminal, err)
+	}
+	r, err := s.Status(ctx, i.OperationID)
+	if err != nil || r.Status != "accepted" || w.count() != 2 {
+		t.Fatalf("receipt=%+v err=%v calls=%d", r, err, w.count())
+	}
+}

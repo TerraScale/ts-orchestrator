@@ -1,0 +1,27 @@
+{
+  "state": "PASS",
+  "roots": 65,
+  "declaration_pins": 130,
+  "source_file_pins": 108,
+  "supplemental_source_file_pins": 1,
+  "total_peer_source_file_pins": 109,
+  "supplemental_citation_spans": 1,
+  "total_peer_citation_spans": 401,
+  "citation_index_spans": 400,
+  "assertion_sites": 777,
+  "referenced_citation_occurrences": 3885,
+  "allocation_bounded_spans": 4,
+  "owner_checksummed_files": 5,
+  "owner_sealed_files": 6,
+  "owner_packet_seal": "0444 files / 0555 directories",
+  "counts": {
+    "mixed": 15,
+    "integration": 13,
+    "unresolved": 1,
+    "unit": 36
+  },
+  "git_objects": "blob IDs, modes, bytes and SHA256 verified from immutable Git objects",
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "execution": false,
+  "retirement_delta": 0
+}

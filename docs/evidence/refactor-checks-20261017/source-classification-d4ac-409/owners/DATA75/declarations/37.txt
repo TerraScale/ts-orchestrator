@@ -1,0 +1,26 @@
+func TestUnpreparedIntentProducesDurableRefusalWithoutDesiredChanges(t *testing.T) {
+	writer := &testWriter{}
+	service, ctx := testService(t, writer)
+	intent := testIntent(t, service, ctx)
+	service.config.Planner = diagnosticPlanner{err: fmt.Errorf("native selection missing: %w", ErrInvalid)}
+	wire := mustJSON(intent)
+	for delivered := uint64(1); delivered <= 2; delivered++ {
+		if terminal, err := service.processDelivery(ctx, wire, delivered); !terminal || err != nil {
+			t.Fatalf("delivery %d: terminal=%t err=%v", delivered, terminal, err)
+		}
+	}
+	receipt, err := service.StatusFor(ctx, intent)
+	if err != nil || receipt.Status != "rejected" || receipt.Error == "" || writer.count() != 0 {
+		t.Fatalf("receipt=%+v err=%v writes=%d", receipt, err, writer.count())
+	}
+
+	transient, ctx := testService(t, &testWriter{})
+	other := testIntent(t, transient, ctx)
+	transient.config.Planner = diagnosticPlanner{err: fmt.Errorf("selection read: %w", nats.ErrTimeout)}
+	if terminal, err := transient.processDelivery(ctx, mustJSON(other), 100); terminal || !errors.Is(err, nats.ErrTimeout) {
+		t.Fatalf("transient lookup refused permanently: terminal=%t err=%v", terminal, err)
+	}
+	if _, err := transient.StatusFor(ctx, other); !errors.Is(err, ErrPending) {
+		t.Fatalf("transient receipt: %v", err)
+	}
+}

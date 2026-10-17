@@ -1,0 +1,63 @@
+{
+  "actual_future_external_path": "/tmp/ts-qa-next300-actual-application-0c6e9637/receipt.json",
+  "actual_receipt_exists": false,
+  "expected_blob": "f99934d6b2066214ecdb36248393d34e79ae25aa",
+  "expected_bytes": 2347,
+  "expected_receipt": {
+    "actual_application": true,
+    "all_five_categories": "OPEN",
+    "all_new300_runtime": "UNKNOWN",
+    "authorization": "ROOT conditional authorization: independent exact source-delta, full-composition and prospective-object acceptance required before application.",
+    "classified": 409,
+    "complete": false,
+    "files": [
+      {
+        "after_sha256": "7b5975681576c2f4a7d0f9eb201d12946388c076ff03752490d96eb4ef17d3f4",
+        "before_sha256": "5d9aaea02f2f2b3d200872013d2dc33a185d2ccbd6d52df59e27e46fe6b3751e",
+        "bytes": 1425931,
+        "mode": "0600",
+        "path": "/tmp/ts-qa-refactor-completion-open-20261016.json"
+      },
+      {
+        "after_sha256": "94284e85dfa6a3c8d04c9fcf536754ec8d710d2a16fc833397a8f5ae7e48da1a",
+        "before_sha256": "7a0c320bb4d7f3e71b30473a80e4e271ca9bfa97fba1032a98f7203ced046a1e",
+        "bytes": 173356,
+        "mode": "0644",
+        "path": "/tmp/ts-qa-main-union-progress-20261016.json"
+      }
+    ],
+    "full_composition_receipt_sha256": "a3d8ec7fe4b6362b7ff97f7d9786f791605e62eb8979c1aee76fa338b5d7fbb1",
+    "independent_full_composition_review": {
+      "path": "/tmp/ts-next300-full-composition-independent-storage-review-0tzsng5z/review.json",
+      "sha256": "cddddaf80308ce6317add68504be7d86a635adfd5a53451786ea44513d2aa29b"
+    },
+    "independent_source_delta_review": {
+      "path": "/tmp/ts-next300-final-delta-independent-storage-review-rilgr3fa/review.json",
+      "sha256": "842cec513f6cb3c82f9e189317aba6c8d85d403a4b72cc0ab6a7b2d8ecdd30fd"
+    },
+    "integration": 184,
+    "mixed": 65,
+    "other_unadjudicated": 3819,
+    "prospective_object_acceptance": "Required precondition; independently recorded outside this deterministic receipt to avoid a tree-hash cycle.",
+    "publication_commit_created_at_application": false,
+    "retained": 4300,
+    "retired": 19,
+    "retirement_delta": 0,
+    "reviewed_unresolved_in_unadjudicated": 72,
+    "runtime_delta": 0,
+    "schema": "actual-exact-reviewed-next300-ledger-promotion-v1",
+    "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "source_delta_proposal_sha256": "f26ebe8d0abedc04a1b1b1a745da98665390dc09e015523fbc56298c284ded6a",
+    "source_or_runtime_execution": false,
+    "source_qualification_transfer": false,
+    "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+    "state": "APPLIED_EXACT_REVIEWED_FULL_COMPOSED_BYTES",
+    "unadjudicated": 3891,
+    "unit": 160
+  },
+  "expected_sha256": "7c99243bebd63c72c23eb5aa107c7bf056a9b199a8587f4b709744067e71cdb3",
+  "materialization_rule": "Only after separately authorized exact actual shared application succeeds and before/after hashes, modes and all acceptance preconditions are verified. Do not copy this wrapper as an actual receipt.",
+  "prospective_publication_path": "docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/application/receipt.json",
+  "serialization": "json.dumps(expected_receipt, indent=2, sort_keys=True) plus LF, UTF-8",
+  "state": "PROPOSED_EXPECTED_BYTES_TEMPLATE_NOT_ACTUAL_EVENT_RECEIPT"
+}
