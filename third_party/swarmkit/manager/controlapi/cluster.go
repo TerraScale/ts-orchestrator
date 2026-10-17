@@ -90,7 +90,7 @@ func (s *Server) GetCluster(_ context.Context, request *api.GetClusterRequest) (
 		return nil, status.Errorf(codes.NotFound, "cluster %s not found", request.ClusterID)
 	}
 
-	redactedClusters := redactClusters([]*api.Cluster{cluster})
+	redactedClusters := RedactClusters([]*api.Cluster{cluster})
 
 	// WARN: we should never return cluster here. We need to redact the private fields first.
 	return &api.GetClusterResponse{
@@ -175,7 +175,7 @@ func (s *Server) UpdateCluster(ctx context.Context, request *api.UpdateClusterRe
 		return nil, err
 	}
 
-	redactedClusters := redactClusters([]*api.Cluster{cluster})
+	redactedClusters := RedactClusters([]*api.Cluster{cluster})
 
 	// WARN: we should never return cluster here. We need to redact the private fields first.
 	return &api.UpdateClusterResponse{
@@ -243,13 +243,13 @@ func (s *Server) ListClusters(_ context.Context, request *api.ListClustersReques
 
 	// WARN: we should never return cluster here. We need to redact the private fields first.
 	return &api.ListClustersResponse{
-		Clusters: redactClusters(clusters),
+		Clusters: RedactClusters(clusters),
 	}, nil
 }
 
-// redactClusters is a method that enforces a whitelist of fields that are ok to be
+// RedactClusters is a method that enforces a whitelist of fields that are ok to be
 // returned in the Cluster object. It should filter out all sensitive information.
-func redactClusters(clusters []*api.Cluster) []*api.Cluster {
+func RedactClusters(clusters []*api.Cluster) []*api.Cluster {
 	var redactedClusters []*api.Cluster
 	// Only add public fields to the new clusters
 	for _, cluster := range clusters {

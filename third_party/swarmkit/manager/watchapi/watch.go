@@ -2,6 +2,7 @@ package watchapi
 
 import (
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/moby/swarmkit/v2/manager/controlapi"
 	"github.com/moby/swarmkit/v2/manager/state"
 	"github.com/moby/swarmkit/v2/manager/state/store"
 	"google.golang.org/grpc/codes"
@@ -56,6 +57,11 @@ func (s *Server) Watch(request *api.WatchRequest, stream api.Watch_WatchServer) 
 			} else if eventMessage := api.WatchMessageEvent(event.(api.Event)); eventMessage != nil {
 				if !request.IncludeOldObject {
 					eventMessage.OldObject = nil
+				}
+				for _, object := range []*api.Object{eventMessage.Object, eventMessage.OldObject} {
+					if cluster := object.GetCluster(); cluster != nil {
+						object.Object = &api.Object_Cluster{Cluster: controlapi.RedactClusters([]*api.Cluster{cluster})[0]}
+					}
 				}
 				events = append(events, eventMessage)
 			}
