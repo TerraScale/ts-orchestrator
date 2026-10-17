@@ -63,7 +63,7 @@ func foundationProvisionSDKScenario(t *testing.T) {
 		t.Fatal(err)
 	}
 	approval := FoundationPreparationInput{TenancyID: "ocid1.tenancy.oc1..test", ParentCompartmentID: "ocid1.compartment.oc1..parent", SharedCompartmentID: "ocid1.compartment.oc1..shared", Currency: "USD", MonthlyLimitMinor: 12000, InfrastructureMonthlyLimitMinor: 10000, BootstrapReservedMinor: 4000, CleanupOwner: "scenario",
-		HomeStorageDomain: bootstrap.StorageDomain{Namespace: "ns", HeadBucket: foundationDiscoveryBucket, LedgerBucket: "gru-1-ledger", HeadKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head", LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head", Prefix: "bootstrap"},
+		HomeStorageDomain: bootstrap.StorageDomain{Namespace: "ns", HeadBucket: foundationDiscoveryBucket, LedgerBucket: "gru-1-ledger", HeadKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head", LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledger", Prefix: "bootstrap"},
 		SourceVaultTarget: bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..control", VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.home", KMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head"}, TrustedSigners: signers, GRUController: host, SFOController: host, FRAController: host, NetBirdManager: host}
 	approval.ReleaseAuthorities = provisionReleaseAuthorities(t, root, leafPublic, approval.HomeStorageDomain, now)
 	cloud := &provisionCloud{test: t, directory: t.TempDir(), rows: map[string]map[string]any{}, collections: map[string]string{}, tokens: map[string]string{}, rules: map[string][]any{}, retention: map[string][]any{}, launches: map[string]string{}, lostLaunch: true, lostPolicy: true}
