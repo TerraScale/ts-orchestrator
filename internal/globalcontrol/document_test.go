@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -234,5 +235,47 @@ func TestOpenHomeRaisesAnOldMessageBound(t *testing.T) {
 	if _, err := writer.PutDocument(ctx, global.Current().Epoch, KindCellSpec, "sfo",
 		bytes.Repeat([]byte("s"), maxRecordBytes), nil); err != nil {
 		t.Fatalf("largest document after the raise: %v", err)
+	}
+	// The upgraded stream still admits only valid region rosters.
+	epoch := global.Current().Epoch
+	want := testRoster(1)
+	sequence, err := writer.PutRoster(ctx, epoch, want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, gotSequence, err := writer.Roster(ctx)
+	if err != nil || gotSequence != sequence || stored.Generation != want.Generation ||
+		stored.HomeRegion != want.HomeRegion || !slices.Equal(stored.Regions, want.Regions) {
+		t.Fatalf("roster after the raise = %+v, %d, %v", stored, gotSequence, err)
+	}
+	if !stored.Active("sfo") || stored.Active("fra") || stored.Active("iad") {
+		t.Fatal("stored roster Active disagrees with entry states")
+	}
+	for name, mutate := range map[string]func(*Roster){
+		"zero generation": func(r *Roster) { r.Generation = 0 },
+		"empty":           func(r *Roster) { r.Regions = nil },
+		"unsorted":        func(r *Roster) { r.Regions[0], r.Regions[1] = r.Regions[1], r.Regions[0] },
+		"duplicate":       func(r *Roster) { r.Regions[2].Cell = "gru" },
+		"global cell":     func(r *Roster) { r.Regions[0].Cell = "global" },
+		"bad cell":        func(r *Roster) { r.Regions[0].Cell = "FRA" },
+		"bad OCI region":  func(r *Roster) { r.Regions[0].OCIRegion = "eu frankfurt" },
+		"unknown state":   func(r *Roster) { r.Regions[0].State = "paused" },
+		"missing home":    func(r *Roster) { r.HomeRegion = "iad" },
+		"home not active": func(r *Roster) { r.Regions[1].State = RegionRetiring },
+		"too many regions": func(r *Roster) {
+			r.Regions = make([]RosterEntry, maxRegions+1)
+		},
+	} {
+		candidate := testRoster(2)
+		candidate.Regions = slices.Clone(candidate.Regions)
+		mutate(&candidate)
+		if _, err := writer.PutRoster(ctx, epoch, candidate); err == nil {
+			t.Fatalf("%s roster was stored after the raise", name)
+		}
+		stored, gotSequence, err := writer.Roster(ctx)
+		if err != nil || gotSequence != sequence || stored.Generation != want.Generation ||
+			stored.HomeRegion != want.HomeRegion || !slices.Equal(stored.Regions, want.Regions) {
+			t.Fatalf("%s changed the stored roster: %+v, %d, %v", name, stored, gotSequence, err)
+		}
 	}
 }
