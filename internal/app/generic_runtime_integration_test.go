@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -323,6 +324,27 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 		}
 		return true
 	})
+	beforeReplay := ready(2)
+	current, err = client.GetService(ctx, &api.GetServiceRequest{ServiceID: serviceID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayVersion := current.Service.Meta.Version
+	replay := intent.Clone()
+	replay.OperationID = entityid.New()
+	if err := deliveries.Submit(ctx, replay); err != nil {
+		t.Fatal(err)
+	}
+	genericRuntimeEventually(t, ctx, func() bool {
+		receipt, err := deliveries.Status(ctx, replay.OperationID)
+		return err == nil && receipt.Status == "accepted"
+	})
+	afterReplay := ready(2)
+	current, err = client.GetService(ctx, &api.GetServiceRequest{ServiceID: serviceID})
+	if err != nil || current.Service.Meta.Version != replayVersion || current.Service.Spec.Annotations.Labels[swarmruntime.LabelOperationID] != intent.OperationID ||
+		!slices.Equal(genericRuntimeReadyTaskIDs(beforeReplay), genericRuntimeReadyTaskIDs(afterReplay)) {
+		t.Fatalf("equivalent signed replay changed healthy task authority, scale or locator: %+v %v", current, err)
+	}
 	rollout := func(sequence uint64) delivery.Intent {
 		t.Helper()
 		candidate, _ := genericRuntimeContainerRelease(t, signer, target, floors, sequence, bundle.Migration)
@@ -558,6 +580,17 @@ func genericRuntimeAssertSample(t *testing.T, samples []observability.Sample, me
 		}
 	}
 	t.Fatalf("manager history missing %s=%v: %+v", metric, want, samples)
+}
+
+func genericRuntimeReadyTaskIDs(view swarmruntime.ServiceObservation) []string {
+	var ids []string
+	for _, task := range view.Tasks {
+		if task.Ready {
+			ids = append(ids, task.TaskID)
+		}
+	}
+	slices.Sort(ids)
+	return ids
 }
 
 type genericRuntimeHostSession struct {
