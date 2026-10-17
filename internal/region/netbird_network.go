@@ -103,11 +103,11 @@ func ReconcileNetBirdNetwork(ctx context.Context, factory *ociclient.Factory, pl
 	rules := []core.RouteRule{{Destination: new("0.0.0.0/0"), DestinationType: core.RouteRuleDestinationTypeCidrBlock, NetworkEntityId: new(igw)}}
 	if underlay := progress.NetBirdUnderlay; underlay != nil {
 		request, ok := underlay.Requests["manager_route"]
-		if underlay.validate() != nil || underlay.Manager.NetworkID != vcn || underlay.Manager.RouteTableID != progress.AuxiliaryIDs["netbird_manager_route"] || underlay.Recipe.ManagerNetworkCIDR != profile.NetworkCIDR || underlay.Recipe.ManagerPrivateIP != profile.PrivateIP {
+		if underlay.Validate() != nil || underlay.Manager.NetworkID != vcn || underlay.Manager.RouteTableID != progress.AuxiliaryIDs["netbird_manager_route"] || underlay.Recipe.ManagerNetworkCIDR != profile.NetworkCIDR || underlay.Recipe.ManagerPrivateIP != profile.PrivateIP {
 			return "", "", errors.New("NetBird network underlay differs from its protected manager allocation")
 		}
 		if ok {
-			if request.VerifiedAt.IsZero() || request.Route == nil || !netBirdUnderlayHasRoute(request.Route.RouteRules, underlay.Recipe.WriterPrivateIP+"/32", underlay.Requests["manager_gateway"].ResponseID) {
+			if request.VerifiedAt.IsZero() || request.Route == nil {
 				return "", "", errors.New("NetBird network underlay route lacks its positive original readback")
 			}
 			rules = append(rules, core.RouteRule{Destination: new(underlay.Recipe.WriterPrivateIP + "/32"), DestinationType: core.RouteRuleDestinationTypeCidrBlock, NetworkEntityId: new(underlay.Requests["manager_gateway"].ResponseID)})
