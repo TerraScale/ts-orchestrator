@@ -102,6 +102,15 @@ class ZeroConfigCheckTests(unittest.TestCase):
         )})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_declaration_comment_brace_does_not_end_config(self):
+        path = "internal/app/workload_autoscale.go"
+        original = "package app\ntype AutoscaleConfig struct { // } documents a brace\n}\n"
+        result = self.check_diff({path: original}, {
+            path: original.replace("\n}", "\n\tHostTelemetry bool\n}")
+        })
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn(f"file={path},line=3::", result.stdout)
+
     def test_unchanged_switch_is_not_reported(self):
         path = "internal/app/workload_autoscale.go"
         original = "package app\ntype AutoscaleConfig struct {\n\tEnabled bool\n}\n"

@@ -88,7 +88,7 @@ def split_app_config_lines(path: str, head: str) -> set[int]:
             in_config = True
         if in_config:
             lines.add(lineno)
-        if line.startswith("}") or declaration and "}" in line:
+        if line.startswith("}") or declaration and "}" in line.split("//", 1)[0]:
             in_config = False
     return lines
 
