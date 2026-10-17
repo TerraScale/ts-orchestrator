@@ -138,6 +138,9 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := SignFoundationDiscovery(t.Context(), prepared.Grant, prepared.Anchor, chain, roots, root, now.Add(-time.Second), now.Add(foundationProvisionValidity-time.Minute)); err == nil {
+		t.Fatal("signed a foundation expiry shorter than its unchanged approved founder launch deadline")
+	}
 	bundle, err := SignFoundationDiscovery(t.Context(), prepared.Grant, prepared.Anchor, chain, roots, root, now.Add(-time.Second), now.Add(foundationProvisionValidity))
 	if err != nil {
 		t.Fatal(err)
