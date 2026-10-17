@@ -57,6 +57,18 @@ func (a *attempt) ensurePool(ctx context.Context, management core.ComputeManagem
 		if value(actual.InstanceConfigurationId) != child.ConfigurationID {
 			return "", "", errors.New("unresolved original child cannot move to a successor pool configuration")
 		}
+		if actual.LifecycleState != core.InstancePoolLifecycleStateRunning {
+			return "", "", fmt.Errorf("%w: original pool has not reached exact running readback", ErrPending)
+		}
+		if err := a.revalidateGrowth(ctx); err != nil {
+			return "", "", err
+		}
+		if create, exists := a.record.CapacityCreates[a.receipt.OperationID+":pool"]; exists && create.ResourceID == child.PoolID {
+			a.completedGrowthReadback(&create.Request)
+		}
+		if point, exists := pool.ConfigurationUpdates[a.operation]; exists && point.ConfigurationID == child.ConfigurationID {
+			a.completedGrowthReadback(&point.Request)
+		}
 		return child.PoolID, child.ConfigurationID, nil
 	}
 	name := nodescale.PoolName(a.recipe.Cell, a.recipe.Capacity)
@@ -110,11 +122,20 @@ func (a *attempt) ensurePool(ctx context.Context, management core.ComputeManagem
 	if response.LifecycleState != core.InstancePoolLifecycleStateRunning {
 		return "", "", fmt.Errorf("%w: original pool is still provisioning", ErrPending)
 	}
+	if err := a.revalidateGrowth(ctx); err != nil {
+		return "", "", err
+	}
+	if create, exists := a.record.CapacityCreates[a.receipt.OperationID+":pool"]; exists && create.ResourceID == poolID {
+		a.completedGrowthReadback(&create.Request)
+	}
 	_, pendingPoint := a.record.CapacityPools[poolID].ConfigurationUpdates[a.operation]
 	if value(response.InstanceConfigurationId) != configurationID || pendingPoint {
 		if err := a.pointConfiguration(ctx, management, response, configurationID); err != nil {
 			return "", "", err
 		}
+	}
+	if err := a.revalidateGrowth(ctx); err != nil {
+		return "", "", err
 	}
 	return poolID, configurationID, nil
 }
@@ -147,7 +168,7 @@ func (a *attempt) ensureConfiguration(ctx context.Context, management core.Compu
 	key := a.receipt.OperationID + ":configuration"
 	create, exists := a.record.CapacityCreates[key]
 	if !exists {
-		wire, err := prepareWire(request, http.MethodPost, configurationCreatePath)
+		wire, err := a.prepareGrowthWire(ctx, request, http.MethodPost, configurationCreatePath)
 		if err != nil {
 			return "", err
 		}
@@ -205,6 +226,12 @@ func (a *attempt) verifyConfiguration(ctx context.Context, management core.Compu
 	if err != nil || value(response.Id) != id || value(response.CompartmentId) != a.receipt.CompartmentID || actualSHA != expectedSHA {
 		return errors.Join(err, errors.New("original configuration readback differs from protected original SDK body"))
 	}
+	if err := a.revalidateGrowth(ctx); err != nil {
+		return err
+	}
+	if create, exists := a.record.CapacityCreates[a.receipt.OperationID+":configuration"]; exists && create.ResourceID == id {
+		a.completedGrowthReadback(&create.Request)
+	}
 	return nil
 }
 
@@ -218,7 +245,7 @@ func (a *attempt) createPool(ctx context.Context, management core.ComputeManagem
 	create, exists := a.record.CapacityCreates[key]
 	configuration := a.record.CapacityCreates[a.receipt.OperationID+":configuration"]
 	if !exists {
-		wire, err := prepareWire(request, http.MethodPost, poolCreatePath)
+		wire, err := a.prepareGrowthWire(ctx, request, http.MethodPost, poolCreatePath)
 		if err != nil {
 			return "", err
 		}
@@ -291,7 +318,7 @@ func (a *attempt) pointConfiguration(ctx context.Context, management core.Comput
 		}
 		request := core.UpdateInstancePoolRequest{InstancePoolId: new(a.poolID), IfMatch: observed.Etag,
 			UpdateInstancePoolDetails: core.UpdateInstancePoolDetails{InstanceConfigurationId: new(configurationID)}, RequestMetadata: noRetry()}
-		wire, err := prepareWire(request, http.MethodPut, "/instancePools/{instancePoolId}")
+		wire, err := a.prepareGrowthWire(ctx, request, http.MethodPut, "/instancePools/{instancePoolId}")
 		if err != nil {
 			return err
 		}
@@ -334,6 +361,10 @@ func (a *attempt) pointConfiguration(ctx context.Context, management core.Comput
 	if value(fresh.InstanceConfigurationId) != configurationID || fresh.LifecycleState != core.InstancePoolLifecycleStateRunning {
 		return fmt.Errorf("%w: original configuration point has not reached exact running readback", ErrPending)
 	}
+	if err := a.revalidateGrowth(ctx); err != nil {
+		return err
+	}
+	a.completedGrowthReadback(&point.Request)
 	pool.CurrentConfigurationID = configurationID
 	a.record.CapacityPools[a.poolID] = pool
 	return a.save(ctx)

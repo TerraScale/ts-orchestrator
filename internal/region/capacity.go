@@ -18,20 +18,30 @@ import (
 // PoolWireRecord retains the original request across retries and grants. A
 // later rejection never clears EverUnknown; a positive original result resolves it.
 type PoolWireRecord struct {
-	RequestSHA256    string    `json:"requestSha256"`
-	RetryToken       string    `json:"retryToken"`
-	IfMatch          string    `json:"ifMatch,omitempty"`
-	FirstAttemptAt   time.Time `json:"firstAttemptAt"`
-	ExpiresAt        time.Time `json:"expiresAt,omitzero"`
-	LastAttemptAt    time.Time `json:"lastAttemptAt"`
-	Attempts         uint64    `json:"attempts"`
-	PendingAttemptID string    `json:"pendingAttemptId,omitempty"`
-	EverUnknown      bool      `json:"everUnknown,omitzero"`
-	TokenInvalidated bool      `json:"tokenInvalidated,omitzero"`
-	AcceptedAt       time.Time `json:"acceptedAt,omitzero"`
-	OpcRequestID     string    `json:"opcRequestId,omitempty"`
-	WorkRequestID    string    `json:"workRequestId,omitempty"`
-	WorkCompletedAt  time.Time `json:"workCompletedAt,omitzero"`
+	RequestSHA256    string              `json:"requestSha256"`
+	RetryToken       string              `json:"retryToken"`
+	IfMatch          string              `json:"ifMatch,omitempty"`
+	FirstAttemptAt   time.Time           `json:"firstAttemptAt"`
+	ExpiresAt        time.Time           `json:"expiresAt,omitzero"`
+	GrowthAuthority  PoolGrowthAuthority `json:"growthAuthority,omitzero"`
+	LastAttemptAt    time.Time           `json:"lastAttemptAt"`
+	Attempts         uint64              `json:"attempts"`
+	PendingAttemptID string              `json:"pendingAttemptId,omitempty"`
+	EverUnknown      bool                `json:"everUnknown,omitzero"`
+	TokenInvalidated bool                `json:"tokenInvalidated,omitzero"`
+	AcceptedAt       time.Time           `json:"acceptedAt,omitzero"`
+	OpcRequestID     string              `json:"opcRequestId,omitempty"`
+	WorkRequestID    string              `json:"workRequestId,omitempty"`
+	WorkCompletedAt  time.Time           `json:"workCompletedAt,omitzero"`
+}
+
+// PoolGrowthAuthority describes the original signed purchase source and the
+// finite admission of this particular wire. It never grants live authority.
+type PoolGrowthAuthority struct {
+	SourceSHA256  string    `json:"sourceSha256"`
+	BindingSHA256 string    `json:"bindingSha256"`
+	ExpiresAt     time.Time `json:"expiresAt"`
+	BirthEpoch    uint64    `json:"birthEpoch"`
 }
 
 // PoolCreateRecord checkpoints before a configuration or pool ID exists. It
@@ -179,6 +189,9 @@ type PoolQuarantineRecord struct {
 
 func (w PoolWireRecord) validate(updated time.Time) error {
 	if !validFoundationDigest(w.RequestSHA256) || len(w.RetryToken) > 64 ||
+		w.GrowthAuthority != (PoolGrowthAuthority{}) && (!validFoundationDigest(w.GrowthAuthority.SourceSHA256) ||
+			!validFoundationDigest(w.GrowthAuthority.BindingSHA256) || w.GrowthAuthority.BirthEpoch == 0 ||
+			w.ExpiresAt.IsZero() || w.GrowthAuthority.ExpiresAt.Before(w.ExpiresAt)) ||
 		strings.ContainsAny(w.RetryToken+w.IfMatch+w.OpcRequestID, "\r\n") || len(w.IfMatch) > 512 || len(w.OpcRequestID) > 512 ||
 		w.FirstAttemptAt.IsZero() || w.LastAttemptAt.Before(w.FirstAttemptAt) || w.LastAttemptAt.After(updated) ||
 		!w.ExpiresAt.IsZero() && (!w.ExpiresAt.After(w.FirstAttemptAt) || !w.LastAttemptAt.Before(w.ExpiresAt)) ||

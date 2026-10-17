@@ -17,7 +17,8 @@ import (
 )
 
 // AdvancePoolChild resumes only the retained original launch and attach. Every
-// new invocation obtains current authority without replacing original IDs.
+// saved wire retains its original finite admission. Fresh authority never
+// renews an unresolved original phase or changes its original signed source.
 func (c *Controller) AdvancePoolChild(ctx context.Context, call rootoci.Call, request rootoci.PoolChildExpectation) (rootoci.PoolChildView, error) {
 	if call.Operation() != "" && call.Operation() != rootoci.OperationAdvancePoolChild {
 		return rootoci.PoolChildView{}, rootoci.ErrUnauthorized
@@ -40,6 +41,12 @@ func (c *Controller) AdvancePoolChild(ctx context.Context, call rootoci.Call, re
 			region.PoolChildDetached, region.PoolChildTerminating, region.PoolChildRetired:
 			return rootoci.PoolChildView{}, errors.New("original child has entered retirement and cannot attach again")
 		}
+	}
+	if _, _, err := a.call.AuthorityBindingSHA256(ctx); err != nil {
+		return rootoci.PoolChildView{}, err
+	}
+	if err := a.revalidateGrowth(ctx); err != nil {
+		return rootoci.PoolChildView{}, err
 	}
 	if err := a.reserveOriginal(ctx); err != nil {
 		return rootoci.PoolChildView{}, err
@@ -72,7 +79,7 @@ func (c *Controller) AdvancePoolChild(ctx context.Context, call rootoci.Call, re
 	}
 	if child.Stage == region.PoolChildReserved {
 		launch := a.launchRequest(child)
-		wire, err := prepareWire(launch, http.MethodPost, "/instanceConfigurations/{instanceConfigurationId}/actions/launch")
+		wire, err := a.prepareGrowthWire(ctx, launch, http.MethodPost, "/instanceConfigurations/{instanceConfigurationId}/actions/launch")
 		if err != nil {
 			return rootoci.PoolChildView{}, err
 		}
@@ -102,6 +109,9 @@ func (c *Controller) AdvancePoolChild(ctx context.Context, call rootoci.Call, re
 		}
 	}
 	if child.Stage == region.PoolChildBorn {
+		if err := matchGrowthRequest(a.launchRequest(child), http.MethodPost, "/instanceConfigurations/{instanceConfigurationId}/actions/launch", child.Launch); err != nil {
+			return rootoci.PoolChildView{}, err
+		}
 		facts, err := a.worker.ObservePoolWorker(a.readContext(ctx), a.factory, child.InstanceID, child.ConfigurationID, child.Descriptor)
 		if err != nil {
 			return rootoci.PoolChildView{}, err
@@ -109,6 +119,10 @@ func (c *Controller) AdvancePoolChild(ctx context.Context, call rootoci.Call, re
 		if facts.Recipe.AvailabilityDomains[0] != child.AvailabilityDomain || facts.Recipe.SubnetID != child.SubnetID {
 			return rootoci.PoolChildView{}, errors.New("original child boot was observed outside original signed placement")
 		}
+		if err := a.revalidateGrowth(ctx); err != nil {
+			return rootoci.PoolChildView{}, err
+		}
+		a.completedGrowthReadback(child.Launch)
 		if child.BootVolumeID == "" {
 			child.BootVolumeID, child.BootAttachmentID = facts.BootVolumeID, facts.BootAttachmentID
 			if err := a.record.CapacityLedger.BindBirth(a.receipt.OperationID, child.Launch.RequestSHA256, child.InstanceID, child.BootVolumeID, child.BornAt); err != nil {
@@ -122,7 +136,7 @@ func (c *Controller) AdvancePoolChild(ctx context.Context, call rootoci.Call, re
 			return rootoci.PoolChildView{}, errors.New("original child boot identity changed before attach")
 		}
 		attach := a.attachRequest(child)
-		wire, err := prepareWire(attach, http.MethodPost, "/instancePools/{instancePoolId}/instances")
+		wire, err := a.prepareGrowthWire(ctx, attach, http.MethodPost, "/instancePools/{instancePoolId}/instances")
 		if err != nil {
 			return rootoci.PoolChildView{}, err
 		}
@@ -167,6 +181,9 @@ func (c *Controller) AdvancePoolChild(ctx context.Context, call rootoci.Call, re
 		pool, err := management.GetInstancePool(a.readContext(ctx), core.GetInstancePoolRequest{InstancePoolId: new(child.PoolID)})
 		if err != nil || value(pool.Size) != child.TargetFrom+1 {
 			return rootoci.PoolChildView{}, errors.Join(err, errors.New("completed attach differs from original exact pool target"))
+		}
+		if err := a.revalidateGrowth(ctx); err != nil {
+			return rootoci.PoolChildView{}, err
 		}
 		child.ReadyAt, child.Stage = time.Now().UTC(), region.PoolChildReady
 		a.record.PoolChildren[a.receipt.OperationID] = child
@@ -227,12 +244,20 @@ func (a *attempt) prepareChild(ctx context.Context, management core.ComputeManag
 	if err != nil {
 		return region.PoolChildRecord{}, err
 	}
+	birthEpoch, err := a.growthBirthEpoch()
+	if err != nil {
+		return region.PoolChildRecord{}, err
+	}
 	child := region.PoolChildRecord{OperationID: a.receipt.OperationID, RecipeSHA256: a.recipe.SHA256(),
 		PublicCAPEM: bytes.Clone(request.PublicCAPEM), AvailabilityDomains: slices.Clone(request.AvailabilityDomains),
-		PoolID: poolID, ConfigurationID: configurationID, TargetFrom: value(pool.Size), BirthEpoch: a.original.Epoch, AvailabilityDomain: a.recipe.AvailabilityDomains[len(members)%len(a.recipe.AvailabilityDomains)],
+		PoolID: poolID, ConfigurationID: configurationID, TargetFrom: value(pool.Size), BirthEpoch: birthEpoch, AvailabilityDomain: a.recipe.AvailabilityDomains[len(members)%len(a.recipe.AvailabilityDomains)],
 		SubnetID: a.recipe.SubnetID, Stage: region.PoolChildReserved, Node: node, Descriptor: string(descriptor)}
 	a.record.PoolChildren[a.receipt.OperationID] = child
-	return child, a.save(ctx)
+	if err := a.save(ctx); err != nil {
+		return region.PoolChildRecord{}, err
+	}
+	a.growthChildPrepared = true
+	return child, nil
 }
 
 func (a *attempt) members(ctx context.Context, management core.ComputeManagementClient, poolID string) ([]core.InstanceSummary, error) {

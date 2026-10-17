@@ -31,29 +31,31 @@ var ErrPending = errors.New("protected capacity operation is pending")
 // attempt is constructed only after the home handler independently resolves
 // the original durable reservation, signed source and actual home connection.
 type attempt struct {
-	call           rootoci.Call
-	resolver       region.FoundationResolver
-	store          *region.ObjectFoundationStore
-	writer         *region.CapacityJournalWriter
-	factory        *ociclient.Factory
-	home           *globalcontrol.Reader
-	leader         *authority.Reader
-	credentials    *rootsecret.ControllerReader
-	original       authority.Snapshot
-	deadline       time.Time
-	receipt        budget.Reservation
-	worker         region.VerifiedWorkerRecipe
-	membership     region.VerifiedPoolMembership
-	lifecycle      region.VerifiedPoolLifecycle
-	drain          *drainwire.PoolReceipt
-	birthOperation string
-	recipe         nodescale.Recipe
-	record         region.FoundationRecord
-	etag           string
-	operation      string
-	poolID         string
-	leaseID        string
-	observation    *rootoci.PoolChildObservation
+	call                rootoci.Call
+	resolver            region.FoundationResolver
+	store               *region.ObjectFoundationStore
+	writer              *region.CapacityJournalWriter
+	factory             *ociclient.Factory
+	home                *globalcontrol.Reader
+	leader              *authority.Reader
+	credentials         *rootsecret.ControllerReader
+	original            authority.Snapshot
+	deadline            time.Time
+	receipt             budget.Reservation
+	worker              region.VerifiedWorkerRecipe
+	membership          region.VerifiedPoolMembership
+	lifecycle           region.VerifiedPoolLifecycle
+	drain               *drainwire.PoolReceipt
+	birthOperation      string
+	recipe              nodescale.Recipe
+	record              region.FoundationRecord
+	etag                string
+	operation           string
+	poolID              string
+	leaseID             string
+	observation         *rootoci.PoolChildObservation
+	growthReadbacks     map[string]bool
+	growthChildPrepared bool
 }
 
 func (a *attempt) guard(ctx context.Context) error {
@@ -255,6 +257,11 @@ func (a *attempt) writeContext(ctx context.Context, kind string) context.Context
 		if wire == nil || !wire.AcceptedAt.IsZero() {
 			return nil, errors.New("provider request has no unresolved protected preparation")
 		}
+		if growthKind(kind) {
+			if _, err := a.growthDeadline(request.Context(), kind); err != nil {
+				return nil, err
+			}
+		}
 		digest, err := wireSHA256(request)
 		if err != nil || digest != wire.RequestSHA256 || request.Header.Get("opc-retry-token") != wire.RetryToken || request.Header.Get("if-match") != wire.IfMatch {
 			return nil, errors.Join(err, errors.New("actual SDK wire differs from original protected request"))
@@ -295,7 +302,10 @@ func (a *attempt) writeContext(ctx context.Context, kind string) context.Context
 			}
 		case "quarantine":
 		default:
-			if err := a.worker.Revalidate(a.proofContext(ctx)); err != nil {
+			if err := a.revalidateGrowth(ctx); err != nil {
+				return nil, err
+			}
+			if _, err := a.growthDeadline(ctx, kind); err != nil {
 				return nil, err
 			}
 		}
@@ -324,18 +334,28 @@ func (a *attempt) writeContext(ctx context.Context, kind string) context.Context
 		if err := a.writer.Guard(a.proofContext(ctx)); err != nil {
 			return err
 		}
+		var err error
 		switch kind {
 		case "launch":
-			return a.authorizeLaunch(ctx)
+			err = a.authorizeLaunch(ctx)
 		case "attach":
-			return a.authorizeAttach(ctx)
+			err = a.authorizeAttach(ctx)
 		case "quarantine":
 			return a.authorizeQuarantine(ctx)
 		case "detach", "terminate", "delete-boot":
 			return a.authorizeRetirement(ctx, kind)
-		default:
-			return nil
 		}
+		if err != nil {
+			return err
+		}
+		if growthKind(kind) {
+			if err := a.revalidateGrowth(ctx); err != nil {
+				return err
+			}
+			_, err := a.growthDeadline(ctx, kind)
+			return err
+		}
+		return nil
 	}))
 }
 

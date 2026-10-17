@@ -124,6 +124,8 @@ func retainPoolWire(old, next *PoolWireRecord) bool {
 		return true
 	}
 	if next == nil || old.RequestSHA256 != next.RequestSHA256 || old.RetryToken != next.RetryToken || old.IfMatch != next.IfMatch ||
+		old.GrowthAuthority.SourceSHA256 != next.GrowthAuthority.SourceSHA256 || old.GrowthAuthority.BindingSHA256 != next.GrowthAuthority.BindingSHA256 ||
+		old.GrowthAuthority.BirthEpoch != next.GrowthAuthority.BirthEpoch || !old.GrowthAuthority.ExpiresAt.Equal(next.GrowthAuthority.ExpiresAt) ||
 		!old.FirstAttemptAt.Equal(next.FirstAttemptAt) || !old.ExpiresAt.Equal(next.ExpiresAt) || next.Attempts < old.Attempts || next.LastAttemptAt.Before(old.LastAttemptAt) ||
 		old.EverUnknown && !next.EverUnknown || old.TokenInvalidated && !next.TokenInvalidated ||
 		!retainedTime(old.AcceptedAt, next.AcceptedAt) || !retainedString(old.OpcRequestID, next.OpcRequestID) ||

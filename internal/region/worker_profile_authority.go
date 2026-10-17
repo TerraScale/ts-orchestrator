@@ -26,13 +26,14 @@ import (
 )
 
 type VerifiedWorkerProfile struct {
-	profile     WorkerProfile
-	image       release.VerifiedImage
-	grantDigest string
-	generation  uint64
-	expires     time.Time
-	reader      *SignedFootprint
-	bindings    foundationbinding.VerifiedBindings
+	profile              WorkerProfile
+	image                release.VerifiedImage
+	imageAuthoritySHA256 string
+	grantDigest          string
+	generation           uint64
+	expires              time.Time
+	reader               *SignedFootprint
+	bindings             foundationbinding.VerifiedBindings
 }
 
 func (p VerifiedWorkerProfile) IsVerified() bool {
@@ -136,7 +137,13 @@ func (s *SignedFootprint) WorkerProfiles(ctx context.Context, cell, role string)
 				deadline = envelope.ExpiresAt
 			}
 		}
-		result = append(result, VerifiedWorkerProfile{profile: cloneWorkerProfile(profile), image: image, grantDigest: s.home.GrantSHA256,
+		imageAuthority, err := json.Marshal(struct {
+			Receipt, Delegation, Qualification, QualificationDelegation []byte
+		}{current.ReceiptWire, current.DelegationWire, current.QualificationWire, current.QualificationDelegationWire}, json.Deterministic(true))
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, VerifiedWorkerProfile{profile: cloneWorkerProfile(profile), image: image, imageAuthoritySHA256: workerSHA256(imageAuthority), grantDigest: s.home.GrantSHA256,
 			generation: grant.Generation, expires: deadline, reader: s, bindings: bindings})
 	}
 	if len(result) == 0 {
@@ -279,6 +286,27 @@ func (v VerifiedWorkerRecipe) InventorySHA256() string {
 	return workerSHA256(v.source.Inventory())
 }
 
+// SourceIdentitySHA256 describes the exact independently verified signed source,
+// qualified image and worker specification. A matching digest is not authority;
+// callers must still retain live proof and call Revalidate around actual work.
+func (v VerifiedWorkerRecipe) SourceIdentitySHA256() (string, error) {
+	if !v.IsVerified() {
+		return "", errors.New("worker source identity lacks independent verification")
+	}
+	template := v.source.Template()
+	wire, err := json.Marshal(struct {
+		Profile                                                                  WorkerProfile
+		Image, ImageAuthority, Grant, StartupGrant, Template, Plan, Installation string
+		Source, Inventory                                                        string
+		Generation                                                               uint64
+	}{v.Profile().Profile(), v.profile.image.EnvelopeSHA256(), v.profile.imageAuthoritySHA256, v.profile.grantDigest, workerSHA256(template.GrantWire()),
+		template.TemplateDigest(), template.PlanDigest(), template.InstallationID(), v.SourceSHA256(), v.InventorySHA256(), v.profile.generation}, json.Deterministic(true))
+	if err != nil {
+		return "", err
+	}
+	return workerSHA256(wire), nil
+}
+
 func (v VerifiedWorkerRecipe) Match(candidate WorkerRecipe) error {
 	if !v.IsVerified() {
 		return errors.New("worker recipe has no independent authority")
@@ -329,7 +357,8 @@ func (v VerifiedWorkerRecipe) Revalidate(ctx context.Context) error {
 	want, _ := json.Marshal(v.profile.profile, json.Deterministic(true))
 	for _, profile := range profiles {
 		actual, _ := json.Marshal(profile.profile, json.Deterministic(true))
-		if profile.grantDigest == v.profile.grantDigest && profile.image.EnvelopeSHA256() == v.profile.image.EnvelopeSHA256() && bytes.Equal(actual, want) {
+		if profile.grantDigest == v.profile.grantDigest && profile.image.EnvelopeSHA256() == v.profile.image.EnvelopeSHA256() &&
+			profile.imageAuthoritySHA256 == v.profile.imageAuthoritySHA256 && bytes.Equal(actual, want) {
 			if !v.IsVerified() || !time.Now().Before(profile.ExpiresAt()) {
 				return errors.New("worker authority expired during independent source revalidation")
 			}
