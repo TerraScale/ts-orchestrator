@@ -44,13 +44,17 @@ func TestVerifySourcePinsRejectsChangedMissingOrEscapedSource(t *testing.T) {
 	if err := os.WriteFile(changed, []byte("internal/bootstrap/ledger.go"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := VerifySourcePins(root, pins); err != nil {
+		t.Fatal(err)
+	}
 	if err := VerifySourcePins(root, pins[:1]); err == nil {
 		t.Fatal("incomplete mandatory source baseline accepted")
 	}
-	bad := slices.Clone(pins)
-	bad[0].Path = "../outside"
+	bad := append([]SourcePin{{Path: "../outside", SHA256: pins[0].SHA256}}, pins...)
 	if err := VerifySourcePins(root, bad); err == nil {
 		t.Fatal("source traversal accepted")
+	} else if err.Error() != `invalid source pin "../outside"` {
+		t.Fatalf("source traversal error = %v, want invalid escaped pin", err)
 	}
 	bad = slices.Clone(pins)
 	bad[0].SHA256 = strings.Repeat("X", 64)
