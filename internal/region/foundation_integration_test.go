@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/core"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
@@ -123,7 +124,7 @@ func foundationProtocolStore(t *testing.T) (*ObjectFoundationStore, FoundationOb
 }
 
 func TestFoundationRecordsPersistAndFenceConcurrentWriters(t *testing.T) {
-	store, client, _ := foundationProtocolStore(t)
+	store, client, raw := foundationProtocolStore(t)
 	now := time.Now().UTC()
 	record := FoundationRecord{SchemaVersion: 1, Cell: "GRU", OCIRegion: "sa-saopaulo-1", TenancyID: "ocid1.tenancy.oc1..test",
 		ParentCompartmentID: "ocid1.compartment.oc1..parent", SharedCompartmentID: "ocid1.compartment.oc1..shared",
@@ -150,6 +151,72 @@ func TestFoundationRecordsPersistAndFenceConcurrentWriters(t *testing.T) {
 	}
 	if _, err := store.CompareAndSwap(t.Context(), record, ""); err != ErrFoundationConflict {
 		t.Fatalf("duplicate founder: %v", err)
+	}
+
+	// Extend the same signed SDK/disk scenario with original launch and IAM
+	// reservations; corrupting durable bytes must not widen replay authority.
+	current, currentETag, err := restarted.Load(t.Context(), "GRU")
+	if err != nil {
+		t.Fatal(err)
+	}
+	installation := entityid.New()
+	slotID := BootstrapSlotID(installation, "GRU", "controller", "controller-a")
+	writer := FoundationWriterRecord{Cell: "GRU", Slot: "controller-a", InstallationID: installation, Generation: 1, GrantSHA256: strings.Repeat("a", 64), ProfileSHA256: strings.Repeat("b", 64), RecipeSHA256: strings.Repeat("c", 64), ScopeSHA256: strings.Repeat("d", 64), PhysicalScopeSHA256: strings.Repeat("e", 64), SlotID: slotID, OperationID: BootstrapOperationID(installation, slotID), Namespace: "ns", Bucket: "heads", BucketCompartment: "ocid1.compartment.oc1..home", KMSKeyID: "ocid1.key.oc1.sa-saopaulo-1.home", FirstAttemptAt: now,
+		Request: core.LaunchInstanceDetails{CompartmentId: new("ocid1.compartment.oc1..home"), Shape: new("VM.Standard.E4.Flex"), SourceDetails: core.InstanceSourceViaImageDetails{ImageId: new("ocid1.image.oc1.sa-saopaulo-1.seed")}}}
+	writer.RequestDigest, err = netBirdRequestDigest(writer.Request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer.RetryToken = BootstrapRetryToken(writer.OperationID, writer.RequestDigest)
+	current.FoundationWriter = &writer
+	currentETag, err = restarted.CompareAndSwap(t.Context(), current, currentETag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, currentETag, err = restarted.Load(t.Context(), "GRU")
+	if err != nil || current.FoundationWriter == nil || current.FoundationWriter.RetryToken != writer.RetryToken || current.FoundationWriter.InstanceID != "" {
+		t.Fatalf("original pending launch lost: %v", err)
+	}
+	// Only a positive original SDK result is checkpointed by production code.
+	original := "ocid1.instance.oc1.sa-saopaulo-1.original"
+	writer = *current.FoundationWriter
+	writer.InstanceID = original
+	details, err := foundationWriterPolicy(writer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policyWire, err := json.Marshal(details, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	policyDigest := digestSource(policyWire)
+	writer.Policy = &FoundationWriterPolicy{Request: details, RequestDigest: policyDigest, RetryToken: digestSource([]byte(writer.RequestDigest + "\x00" + original + "\x00" + policyDigest)), FirstAttemptAt: now.Add(time.Second)}
+	current.FoundationWriter = &writer
+	if _, err = restarted.CompareAndSwap(t.Context(), current, currentETag); err != nil {
+		t.Fatal(err)
+	}
+	current, _, err = restarted.Load(t.Context(), "GRU")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.FoundationWriter.InstanceID != original || current.FoundationWriter.Policy.RequestDigest != policyDigest {
+		t.Fatal("restart transferred the original writer or IAM reservation")
+	}
+	for _, statement := range current.FoundationWriter.Policy.Request.Statements {
+		if strings.Contains(statement, "SFO.json") || strings.Contains(statement, "FRA.json") {
+			if strings.Contains(statement, "OBJECT_CREATE") || strings.Contains(statement, "OBJECT_OVERWRITE") {
+				t.Fatal("cross-cell writer permission")
+			}
+		}
+	}
+	current.FoundationWriter.Policy.Request.Statements = append(current.FoundationWriter.Policy.Request.Statements, "Allow any-user to manage objects in tenancy")
+	corrupt, err := json.Marshal(current, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw(foundationObjectPrefix+"GRU.json", corrupt)
+	if _, _, err := restarted.Load(t.Context(), "GRU"); err == nil {
+		t.Fatal("widened durable writer policy accepted")
 	}
 }
 
