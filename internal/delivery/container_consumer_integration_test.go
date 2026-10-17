@@ -7,14 +7,12 @@ import (
 	"crypto/rand"
 	"encoding/json/v2"
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
@@ -26,10 +24,7 @@ import (
 func TestContainerIntentSignedBrokerRecovery(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	runtime, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: "one", Replicas: 1, Lab: true, Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "js")}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	runtime := startDeliveryTestBroker(t, ctx)
 	defer runtime.Close()
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
