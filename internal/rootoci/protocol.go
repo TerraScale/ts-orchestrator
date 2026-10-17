@@ -111,7 +111,7 @@ func statusError(status string) error {
 // observationOnly does not grant the six-operation startup exemption.
 func (operation Operation) observationOnly() bool {
 	switch operation {
-	case OperationObservePoolChild, OperationInspectVolumeMount, OperationObserveTerminatedInstance,
+	case OperationObservePoolChild, OperationPreparePoolRetirement, OperationInspectVolumeMount, OperationObserveTerminatedInstance,
 		OperationObserveContainerGeneration, OperationContainerEvidence, OperationContainerAllocation,
 		OperationRetainedContainerEvidence, OperationRetainedContainerAllocation,
 		OperationNativeRelease, OperationReleaseBinaryChunk, OperationNativeReleaseBinaryChunk:

@@ -114,6 +114,10 @@ func newRootCapacityBackend(ctx context.Context, factory *ociclient.Factory, res
 	return &rootPoolBackend{cell: cell.Cell, local: local}, nil
 }
 
+func (b *rootPoolBackend) PreparePoolRetirement(ctx context.Context, call rootoci.Call, request rootoci.PoolRetirementSelector) (rootoci.PoolRetirementPreparation, error) {
+	return b.local.PreparePoolRetirement(ctx, call, request)
+}
+
 func (b *rootPoolBackend) ObservePoolChild(ctx context.Context, call rootoci.Call, request rootoci.PoolChildObservation) (rootoci.PoolChildView, error) {
 	return b.local.ObservePoolChild(ctx, call, request)
 }

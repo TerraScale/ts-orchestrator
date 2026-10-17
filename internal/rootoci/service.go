@@ -96,6 +96,9 @@ func (service *Service) validRequest(request wireRequest) bool {
 	case OperationAdvancePoolChild:
 		var input PoolChildExpectation
 		return decodePayload(request.Payload, &input) == nil && validPoolChild(input)
+	case OperationPreparePoolRetirement:
+		var input PoolRetirementSelector
+		return decodePayload(request.Payload, &input) == nil && validSelector(input.Cell) && validSelector(input.InstanceID)
 	case OperationRetirePoolChild:
 		var input PoolRetirementExpectation
 		return decodePayload(request.Payload, &input) == nil && validPoolChild(input.Child) &&
@@ -238,6 +241,12 @@ func (service *Service) dispatch(ctx context.Context, call Call, request wireReq
 			return nil, err
 		}
 		return service.backends.Capacity.AdvancePoolChild(ctx, call, input)
+	case OperationPreparePoolRetirement:
+		var input PoolRetirementSelector
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		return service.backends.Capacity.PreparePoolRetirement(ctx, call, input)
 	case OperationRetirePoolChild:
 		var input PoolRetirementExpectation
 		if err := decodePayload(request.Payload, &input); err != nil {
