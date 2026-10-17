@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/qualification"
 )
 
 // Scope is copied from the independently signed finite qualification approval.
@@ -32,13 +33,7 @@ type Scope struct {
 	ExpiresAt, CleanupUntil                                    time.Time
 }
 
-// ProductionDynamicGroup is a known production profile bound by the same
-// independent approval, never inferred from observed names or resource tags.
-type ProductionDynamicGroup struct {
-	ID                  string `json:"id"`
-	Name                string `json:"name"`
-	InstanceCompartment string `json:"instance_compartment"`
-}
+type ProductionDynamicGroup = qualification.ProductionDynamicGroup
 
 var identifier = regexp.MustCompile(`^[a-zA-Z0-9._:/-]+$`)
 
