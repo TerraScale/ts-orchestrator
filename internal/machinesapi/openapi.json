@@ -164,10 +164,10 @@
         "required": ["name", "id", "class", "version", "config"],
         "properties": {
           "name": {"type": "string"},
-          "id": {"type": "string", "description": "This incarnation of the app"},
+          "id": {"type": "string", "description": "Canonical ULID derived from the manager service, or stable business database identity for grouped database members"},
           "class": {"enum": ["platform", "tenant"]},
           "tenant": {"type": "string", "description": "The owning tenant of a tenant app"},
-          "version": {"type": "integer", "description": "One more on every config change"},
+          "version": {"type": "integer", "description": "Current manager service version; grouped database apps use the latest member service version"},
           "config": {"$ref": "#/components/schemas/MachineConfig"},
           "regions": {"type": "object", "additionalProperties": {"type": "integer"}, "description": "Machines per region"},
           "node_pool": {"type": "string"}
@@ -175,7 +175,7 @@
       },
       "MachineConfig": {
         "type": "object",
-        "description": "machines.MachineConfig: what a host runs",
+        "description": "Public manager task metadata; container environment, arguments and files are omitted because they may contain secrets",
         "required": ["role", "digest", "resources"],
         "properties": {
           "role": {"type": "string"},
@@ -204,7 +204,7 @@
           "desired": {"enum": ["started", "stopped", "destroyed"]},
           "status": {
             "type": "object",
-            "description": "The last observation of the machine, read apart from its record: it may lag a newer version or desired state; updated_at says when it was observed. Absent until the orchestrator first observes the machine.",
+            "description": "Current task lifecycle observed in the same authority-checked snapshot. Absent until the manager supplies a lifecycle timestamp. RUNNING remains starting until an independent application probe succeeds.",
             "properties": {
               "id": {"type": "string"},
               "app": {"type": "string"},

@@ -41,8 +41,7 @@ const maxConnections = 256
 var openAPI []byte
 
 var (
-	// appRE and machineRE are internal/machines' name and ID rules; a path
-	// value becomes part of a KV key only after it matches.
+	// appRE keeps the public DNS-label app-name contract.
 	appRE = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 )
 
