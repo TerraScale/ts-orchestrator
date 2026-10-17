@@ -64,6 +64,17 @@ type HomeIAMAuthority struct {
 	bucketCompartment string
 }
 
+// CheckOriginal checks retained lifetimes only; it performs no current reads.
+func (authority *HomeIAMAuthority) CheckOriginal() error {
+	if authority == nil || authority.operator != nil {
+		return bootstrapstart.ErrSourceFounder
+	}
+	if authority.proof.IsVerified() {
+		return authority.proof.CheckOriginal()
+	}
+	return authority.runtime.CheckOriginal()
+}
+
 func NewHomeIAMAuthority(ctx context.Context, proof bootstrapstart.VerifiedSourceFounder, resolver FoundationResolver) (*HomeIAMAuthority, error) {
 	genesis, err := trust.DiscoveryGenesis()
 	if err != nil {

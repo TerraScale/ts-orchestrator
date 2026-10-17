@@ -101,6 +101,27 @@ type StartupVaultTarget struct {
 func (verified VerifiedStartupTemplate) IsVerified() bool {
 	return verified.grantDigest != "" && verified.anchor.IsVerified() && verified.image.IsVerified()
 }
+
+// CheckOriginal checks retained lifetimes only; it performs no current reads.
+func (verified VerifiedStartupTemplate) CheckOriginal() error {
+	now := time.Now()
+	if !verified.IsVerified() || !now.Before(verified.expiresAt) {
+		return ErrManifestInvalid
+	}
+	if bindings := verified.bindings; bindings != nil {
+		if bindings.original == nil {
+			return ErrManifestInvalid
+		}
+		if err := bindings.original.Err(); err != nil {
+			return err
+		}
+		if deadline, ok := bindings.original.Deadline(); ok && !now.Before(deadline) {
+			return ErrManifestInvalid
+		}
+	}
+	return nil
+}
+
 func (verified VerifiedStartupTemplate) startupIdentity() BootstrapAnchor {
 	return cloneBootstrapAnchor(verified.identity)
 }

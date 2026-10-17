@@ -95,6 +95,14 @@ func (proof VerifiedSourceFounder) IsVerified() bool {
 	return proof.instance != "" && proof.template.IsVerified() && proof.factory != nil && proof.imds != nil && proof.observer != nil
 }
 
+// CheckOriginal checks retained lifetimes only; it performs no current reads.
+func (proof VerifiedSourceFounder) CheckOriginal() error {
+	if !proof.IsVerified() {
+		return ErrSourceFounder
+	}
+	return proof.template.CheckOriginal()
+}
+
 func (proof VerifiedSourceFounder) InstanceID() string     { return proof.instance }
 func (proof VerifiedSourceFounder) TenancyID() string      { return proof.tenancy }
 func (proof VerifiedSourceFounder) SeedSlot() string       { return proof.template.Template().SeedSlot }
