@@ -73,6 +73,8 @@ func (r FoundationResolver) CapacityJournalWriter(ctx context.Context, authority
 	if expiry.Before(w.expires) {
 		w.expires = expiry
 	}
+	ctx, finish := w.boundedContext(ctx)
+	defer finish()
 	record, _, err := store.Load(ctx, "GRU")
 	if err != nil || record.FoundationWriter == nil {
 		return nil, errors.Join(ErrFoundationFenced, err)
@@ -159,6 +161,8 @@ func (w *CapacityJournalWriter) guardBirth(ctx context.Context) error {
 		w.original.Err() != nil || !time.Now().Before(w.expires) {
 		return ErrFoundationFenced
 	}
+	ctx, finish := w.boundedContext(ctx)
+	defer finish()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -196,6 +200,13 @@ func (w *CapacityJournalWriter) guardBirth(ctx context.Context) error {
 			}
 		}
 	}
+	if err := w.authority.Guard(ctx, 0); err != nil {
+		return err
+	}
+	grant, generation, purpose, expiry, err = w.signedPurpose(ctx)
+	if err != nil || grant != w.grant || generation != w.generation || purpose != w.purpose || !expiry.Equal(w.signedExpiry) {
+		return errors.Join(ErrFoundationFenced, err)
+	}
 	if w.original.Err() != nil || !time.Now().Before(w.expires) {
 		return ErrFoundationFenced
 	}
@@ -203,6 +214,11 @@ func (w *CapacityJournalWriter) guardBirth(ctx context.Context) error {
 }
 
 func (w *CapacityJournalWriter) Guard(ctx context.Context) error {
+	if w == nil || w.original == nil {
+		return ErrFoundationFenced
+	}
+	ctx, finish := w.boundedContext(ctx)
+	defer finish()
 	if err := w.guardBirth(ctx); err != nil {
 		return err
 	}
@@ -221,16 +237,17 @@ func (w *CapacityJournalWriter) Guard(ctx context.Context) error {
 	if err := (&SourceFounder{iam: *w.iam}).verifyPolicy(ociclient.CheckpointContext(ctx), SourcePolicyRecord{Request: pending.CapacityJournal.Policy.Request, PolicyID: w.policy}); err != nil {
 		return err
 	}
-	if w.original.Err() != nil || !time.Now().Before(w.expires) {
-		return ErrFoundationFenced
-	}
-	return ociclient.LimitAdmission(ctx, w.expires)
+	return w.guardBirth(ctx)
+}
+
+func (w *CapacityJournalWriter) boundedContext(ctx context.Context) (context.Context, func()) {
+	bounded, cancel := context.WithDeadline(ctx, w.expires)
+	stop := context.AfterFunc(w.original, cancel)
+	return bounded, func() { stop(); cancel() }
 }
 
 func (w *CapacityJournalWriter) operationContext(ctx context.Context) (context.Context, func()) {
-	bounded, cancel := context.WithDeadline(ociclient.CheckpointContext(ctx), w.expires)
-	stop := context.AfterFunc(w.original, cancel)
-	return bounded, func() { stop(); cancel() }
+	return w.boundedContext(ociclient.CheckpointContext(ctx))
 }
 
 func (w *CapacityJournalWriter) Load(ctx context.Context, cell string) (FoundationRecord, string, error) {
@@ -284,7 +301,7 @@ func (w *CapacityJournalWriter) CompareAndSwap(ctx context.Context, record Found
 		if err := validateCapacityOnlyDelta(previous, next); err != nil {
 			return err
 		}
-		return ociclient.LimitAdmission(ctx, w.expires)
+		return w.Guard(ctx)
 	}
 	if err := admit(ctx); err != nil {
 		return "", err
@@ -413,6 +430,9 @@ func (w *CapacityJournalWriter) install(ctx context.Context) error {
 			current, _, err := w.store.Load(ociclient.CheckpointContext(ctx), "GRU")
 			if err != nil || current.FoundationWriter == nil || !sameCapacityPolicy(current.FoundationWriter.CapacityJournal, p) {
 				return nil, errors.Join(ErrFoundationFenced, err)
+			}
+			if err := w.guardBirth(ctx); err != nil {
+				return nil, err
 			}
 			if err := ociclient.LimitAdmission(ctx, until); err != nil {
 				return nil, err
