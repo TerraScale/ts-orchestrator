@@ -230,3 +230,11 @@ func brokerGenesisClaims(cfg Config) ([3]string, error) {
 	}
 	return result, nil
 }
+
+// RevalidateRuntime binds the observation to the exact live broker target.
+func (p VerifiedBrokerGenesis) RevalidateRuntime(ctx context.Context, runtime *Runtime) error {
+	if runtime == nil || p.runtime != runtime {
+		return errors.New("broker observation belongs to a different runtime")
+	}
+	return p.Revalidate(ctx)
+}
