@@ -347,19 +347,16 @@ func (authority *rootOCIAuthority) currentProcess(ctx context.Context, peer nati
 		}
 		return authority.child, nil
 	}
+	if authority.main != nil && authority.main.witness.Peer() == peer {
+		if err := authority.verifyProcess(ctx, authority.main); err != nil {
+			authority.main.cancel()
+			return nil, rootoci.ErrUnauthorized
+		}
+		return authority.main, nil
+	}
 	service, err := observeRootOCIController(ctx)
 	if err != nil || service.pid != peer.PID {
 		return nil, rootoci.ErrUnauthorized
-	}
-	if authority.main != nil && authority.main.witness.Peer() == peer {
-		if authority.main.witness.Verify() == nil {
-			if authority.main.invocation != service.invocation || !rootOCIProcessCgroup(authority.main.witness.Cgroup(), service.cgroup) {
-				authority.main.cancel()
-				return nil, rootoci.ErrUnauthorized
-			}
-			return authority.main, nil
-		}
-		authority.main.cancel()
 	}
 	witness, err := rootoci.CaptureProcess(peer.PID)
 	if err != nil {
