@@ -65,7 +65,7 @@ func (d *tlsFirstDialer) Dial(network, address string) (net.Conn, error) {
 			config = config.Clone()
 			config.ServerName = host
 		}
-		conn := tls.Client(raw, config)
+		conn := tls.Client(&contextSocket{Conn: raw, stop: stop}, config)
 		handshake, cancel := context.WithTimeout(d.ctx, d.timeout)
 		err = conn.HandshakeContext(handshake)
 		cancel()
@@ -81,6 +81,17 @@ func (d *tlsFirstDialer) Dial(network, address string) (net.Conn, error) {
 		return nil, err
 	}
 	return conn, nil
+}
+
+// A replaced connection must release its lifetime callback before reconnecting.
+type contextSocket struct {
+	net.Conn
+	stop func() bool
+}
+
+func (c *contextSocket) Close() error {
+	c.stop()
+	return c.Conn.Close()
 }
 
 func (*tlsFirstDialer) SkipTLSHandshake() bool { return true }
