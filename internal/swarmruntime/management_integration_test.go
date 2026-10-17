@@ -128,8 +128,35 @@ func TestManagementIntegration(t *testing.T) {
 	}
 	nodeSpec := nodeResult.Node.Spec.Copy()
 	nodeSpec.DesiredRole = api.NodeRoleWorker
+	nodeSpec.Availability = api.NodeAvailabilityPause
 	if _, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: id, NodeVersion: &nodeResult.Node.Meta.Version, Spec: nodeSpec}); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("certificate role mutation accepted: %v", err)
+	}
+	nodeSpec = nodeResult.Node.Spec.Copy()
+	nodeSpec.Availability = api.NodeAvailabilityActive
+	active, err := upstream.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: id, NodeVersion: &nodeResult.Node.Meta.Version, Spec: nodeSpec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: id, NodeVersion: &active.Node.Meta.Version, Spec: active.Node.Spec.Copy()}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("ordinary socket accepted no-op activation: %v", err)
+	}
+	nodeSpec = active.Node.Spec.Copy()
+	nodeSpec.Availability = api.NodeAvailabilityPause
+	paused, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: id, NodeVersion: &active.Node.Meta.Version, Spec: nodeSpec})
+	if err != nil {
+		t.Fatalf("ordinary socket rejected pause: %v", err)
+	}
+	for _, availability := range []api.NodeSpec_Availability{api.NodeAvailabilityActive, api.NodeAvailabilityDrain} {
+		nodeSpec = paused.Node.Spec.Copy()
+		nodeSpec.Availability = availability
+		if _, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: id, NodeVersion: &paused.Node.Meta.Version, Spec: nodeSpec}); status.Code(err) != codes.PermissionDenied {
+			t.Fatalf("ordinary socket accepted availability %v: %v", availability, err)
+		}
+	}
+	nodeResult, err = upstream.GetNode(ctx, &api.GetNodeRequest{NodeID: id})
+	if err != nil || nodeResult.Node.Spec.Availability != api.NodeAvailabilityPause {
+		t.Fatalf("denied node updates changed upstream node: %v %v", nodeResult, err)
 	}
 	labels := map[string]string{LabelIntentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", LabelRole: "api", LabelRegion: "sa-saopaulo-1", LabelEnvironment: "test"}
 	runtimeSpec, err := ContainerRuntime(&api.ContainerSpec{Image: "example.invalid/proof@sha256:" + strings.Repeat("0", 64), User: "65532:65532"})
@@ -141,6 +168,36 @@ func TestManagementIntegration(t *testing.T) {
 		Task:        api.TaskSpec{Runtime: runtimeSpec, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 100_000_000, MemoryBytes: 32 << 20}}, Placement: &api.Placement{Constraints: []string{"node.labels." + LabelRegion + "==sa-saopaulo-1", "node.labels." + LabelExecutionScope + "==platform"}, Platforms: []*api.Platform{{OS: "linux", Architecture: runtime.GOARCH}}}},
 		Mode:        &api.ServiceSpec_Replicated{Replicated: &api.ReplicatedService{Replicas: 0}},
 	}}
+	authSpec := request.Spec.Copy()
+	authSpec.Annotations.Name = "management-auth-proof"
+	authSpec.Annotations.Labels[LabelRole] = "ts-auth"
+	authSpec.Task.Placement.Constraints = append(authSpec.Task.Placement.Constraints, "node.role==manager")
+	authSpec.Task.Placement.MaxReplicas = 1
+	authDesired := authSpec.Copy()
+	authDesired.GetReplicated().Replicas = 3
+	if !(&managementServer{region: "sa-saopaulo-1", environment: "test"}).managedService(authDesired) {
+		t.Fatal("auth per-node cap incorrectly restricted desired replicas")
+	}
+	for _, placement := range []*api.Placement{
+		{Constraints: authSpec.Task.Placement.Constraints[:2], MaxReplicas: 1},
+		{Constraints: append(request.Spec.Task.Placement.Constraints[:2:2], "node.role==worker"), MaxReplicas: 1},
+		{Constraints: authSpec.Task.Placement.Constraints},
+		{Constraints: authSpec.Task.Placement.Constraints, MaxReplicas: 2},
+	} {
+		invalid := authSpec.Copy()
+		invalid.Task.Placement.Constraints = placement.Constraints
+		invalid.Task.Placement.MaxReplicas = placement.MaxReplicas
+		if _, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: invalid}); status.Code(err) != codes.PermissionDenied {
+			t.Fatalf("unsafe auth placement accepted: %v", err)
+		}
+	}
+	authService, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: authSpec})
+	if err != nil {
+		t.Fatalf("manager-only per-node-limited auth service rejected: %v", err)
+	}
+	if _, err := client.RemoveService(ctx, &api.RemoveServiceRequest{ServiceID: authService.Service.ID}); err != nil {
+		t.Fatal(err)
+	}
 	unsafe := request.Spec.Copy()
 	unsafe.Task.Placement.Constraints = nil
 	if _, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: unsafe}); status.Code(err) != codes.PermissionDenied {
