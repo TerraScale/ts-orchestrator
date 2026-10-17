@@ -115,6 +115,7 @@ type grant struct {
 }
 
 type intent struct {
+	ControlLineagePurpose     string         `json:"controlLineagePurpose"`
 	NetBirdBrokerPolicyWriter jsontext.Value `json:"netbirdBrokerPolicyWriter,omitempty"`
 	Generation                uint64         `json:"generation"`
 	Plan                      map[string]any `json:"plan"`
