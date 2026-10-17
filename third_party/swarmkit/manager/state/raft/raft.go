@@ -20,6 +20,7 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/ca"
 	"github.com/moby/swarmkit/v2/log"
+	"github.com/moby/swarmkit/v2/manager/internal/mutationcontext"
 	"github.com/moby/swarmkit/v2/manager/raftselector"
 	"github.com/moby/swarmkit/v2/manager/state"
 	"github.com/moby/swarmkit/v2/manager/state/raft/membership"
@@ -1848,6 +1849,11 @@ func (n *Node) processInternalRaftRequest(ctx context.Context, r *api.InternalRa
 		return nil, ErrRequestTooLarge
 	}
 
+	current := n.Status()
+	if err := mutationcontext.BeforeProposal(ctx, current.Term, current.Lead); err != nil {
+		n.wait.cancel(r.ID)
+		return nil, err
+	}
 	err = n.raftNode.Propose(waitCtx, data)
 	if err != nil {
 		n.wait.cancel(r.ID)

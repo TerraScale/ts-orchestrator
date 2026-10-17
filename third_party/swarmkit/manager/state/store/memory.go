@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"runtime"
@@ -334,8 +335,16 @@ func (s *MemoryStore) update(proposer state.Proposer, cb func(Tx) error) error {
 }
 
 func (s *MemoryStore) updateAt(proposer state.Proposer, appliedVersion *api.Version, cb func(Tx) error) error {
+	return s.updateAtContext(context.Background(), proposer, appliedVersion, cb)
+}
+
+func (s *MemoryStore) updateAtContext(ctx context.Context, proposer state.Proposer, appliedVersion *api.Version, cb func(Tx) error) error {
 	defer metrics.StartTimer(updateLatencyTimer)()
 	s.updateLock.Lock()
+	if err := ctx.Err(); err != nil {
+		s.updateLock.Unlock()
+		return err
+	}
 	memDBTx := s.memDB.Txn(true)
 
 	var curVersion *api.Version
@@ -364,7 +373,7 @@ func (s *MemoryStore) updateAt(proposer state.Proposer, appliedVersion *api.Vers
 
 			if err == nil {
 				if len(sa) != 0 {
-					err = proposeAt(proposer, sa, func(version *api.Version) {
+					err = proposeAtContext(ctx, proposer, sa, func(version *api.Version) {
 						select {
 						case <-commitGuard:
 							memDBTx.Commit()
@@ -409,6 +418,15 @@ func (s *MemoryStore) updateLocal(cb func(Tx) error) error {
 // Update executes a read/write transaction.
 func (s *MemoryStore) Update(cb func(Tx) error) error {
 	return s.update(s.proposer, cb)
+}
+
+// UpdateContext keeps the original caller lifetime through proposal admission
+// and waiting. Cancellation cannot retract an already admitted Raft proposal.
+func (s *MemoryStore) UpdateContext(ctx context.Context, cb func(Tx) error) error {
+	if ctx == nil {
+		return errors.New("store update requires an original context")
+	}
+	return s.updateAtContext(ctx, s.proposer, nil, cb)
 }
 
 // Batch provides a mechanism to batch updates to a store.

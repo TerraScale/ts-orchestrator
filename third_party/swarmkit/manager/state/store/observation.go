@@ -10,12 +10,19 @@ import (
 )
 
 func proposeAt(proposer state.Proposer, actions []api.StoreAction, commit func(*api.Version)) error {
+	return proposeAtContext(context.Background(), proposer, actions, commit)
+}
+
+func proposeAtContext(ctx context.Context, proposer state.Proposer, actions []api.StoreAction, commit func(*api.Version)) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if versioned, ok := proposer.(interface {
 		ProposeValueAt(context.Context, []api.StoreAction, func(api.Version)) error
 	}); ok {
-		return versioned.ProposeValueAt(context.Background(), actions, func(version api.Version) { commit(&version) })
+		return versioned.ProposeValueAt(ctx, actions, func(version api.Version) { commit(&version) })
 	}
-	return proposer.ProposeValue(context.Background(), actions, func() { commit(nil) })
+	return proposer.ProposeValue(ctx, actions, func() { commit(nil) })
 }
 
 // Observe captures a read-only view and live subscription at the same applied
