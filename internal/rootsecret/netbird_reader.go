@@ -213,6 +213,10 @@ func CheckNetBirdBrokerMaterial(m NetBirdBrokerMaterial, s NetBirdBrokerSource, 
 }
 
 func (s NetBirdBrokerSource) matchesFile(name string, wire []byte) bool {
+	if name == "cell.jwt" {
+		file, err := bootstrapmaterial.StartupControllerAccountFile(s.startup)
+		return err == nil && file.MaxBytes == int64(len(wire)) && file.SHA256 == netBirdDigest(wire)
+	}
 	for _, file := range s.record.Files {
 		if file.Name == name {
 			return file.MaxBytes == int64(len(wire)) && file.SHA256 == netBirdDigest(wire)
@@ -372,6 +376,9 @@ func OpenNetBirdReader(ctx context.Context, local region.VerifiedNetBirdManager,
 		return nil, ErrDelivery
 	}
 	deadline := material.ExpiresAt
+	if local.ExpiresAt().Before(deadline) {
+		deadline = local.ExpiresAt()
+	}
 	if recipient.ExpiresAt().Before(deadline) {
 		deadline = recipient.ExpiresAt()
 	}
