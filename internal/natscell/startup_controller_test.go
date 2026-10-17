@@ -172,6 +172,7 @@ func startupProtocolConnection(t *testing.T, ctx context.Context, region *testRe
 	if err != nil {
 		t.Fatal(err)
 	}
+	config.ServerName = testLeafServerName
 	var raw net.Conn
 	if transport == "private" {
 		admitted, initial := net.Pipe()
