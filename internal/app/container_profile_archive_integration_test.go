@@ -13,11 +13,13 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
+	"github.com/TerraScale/ts-orchestrator/internal/containermaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/workload"
 	"github.com/nats-io/nats.go/jetstream"
@@ -29,6 +31,10 @@ func TestContainerOriginalProfileArchiveBrokerIntegration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 	js := testRolloutJetStream(t)
+	channels, err := openChannelBucket(ctx, js, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
 	identity := cellspec.Identity{DeploymentID: entityid.New(), Cell: "gru", Environment: "production"}
 	keys := newTestSpecTrust(t, t.TempDir(), identity)
 	control, err := authority.Start(ctx, js, authority.Config{DeploymentID: identity.DeploymentID, Scope: identity.Cell, CandidateID: entityid.New(), Replicas: 1})
@@ -100,6 +106,31 @@ func TestContainerOriginalProfileArchiveBrokerIntegration(t *testing.T) {
 				err = errors.New("apply did not retain original full signed profile")
 			}
 		}
+		if err == nil {
+			// The actual protected operation exists before readiness/receipt.
+			var selected containerIntentSelection
+			selected, err = selectContainerIntent(ctx, js, archive.deliveries, admitted.OperationID)
+			if err == nil && selected.intent.OperationID != admitted.OperationID {
+				err = errors.New("in-progress operation lost its current actor authority")
+			}
+			if err == nil {
+				var stateWire []byte
+				stateWire, err = protocol.EncodeJSON(serviceReleaseState{Intent: new(admitted.Clone()), Actor: "release"})
+				key := releasechannel.ServiceStatusKey(strings.ToUpper(admitted.Cell), admitted.Role)
+				if err == nil {
+					_, err = channels.Put(ctx, key, stateWire)
+				}
+				if err == nil {
+					selected, err = selectContainerIntent(ctx, js, archive.deliveries, admitted.OperationID)
+				}
+				if err == nil {
+					_, err = channels.Put(ctx, key, stateWire)
+				}
+				if err == nil && !errors.Is(selected.guard(ctx), containermaterial.ErrPending) {
+					err = errors.New("replaced channel selector retained original admission")
+				}
+			}
+		}
 		applied <- err
 		return delivery.ErrUnauthorized
 	}}
@@ -169,6 +200,9 @@ func TestContainerOriginalProfileArchiveBrokerIntegration(t *testing.T) {
 		if _, err := read(ctx, intent.OperationID); !errors.Is(err, delivery.ErrUnauthorized) {
 			t.Fatal("descriptive archive admitted held execution", err)
 		}
+	}
+	if _, err := selectContainerIntent(ctx, js, recovered, intent.OperationID); !errors.Is(err, delivery.ErrUnauthorized) {
+		t.Fatal("channel selector admitted held original provenance", err)
 	}
 	if _, err := archiveKV.Get(ctx, policy.Role); !errors.Is(err, jetstream.ErrKeyNotFound) {
 		t.Fatal("container archive created native role history", err)

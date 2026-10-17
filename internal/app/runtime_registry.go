@@ -287,6 +287,8 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 		if err != nil {
 			return nil, err
 		}
+		ctx, stopDocument := context.WithDeadline(ctx, document.ExpiresAt)
+		defer stopDocument()
 		var snapshot runtimeRegistrySnapshot
 		if err := protocol.DecodeStrict(document.Document, &snapshot, runtimeRegistrySourceBytes); err != nil {
 			return nil, err
@@ -295,9 +297,14 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 		expected := snapshot.Service
 		if intent.Validate() != nil || intent.Container == nil || intent.Cell != strings.ToLower(identity.Cell) || intent.Environment != identity.Environment ||
 			expected.ID != entityid.Derive("platform-service", intent.Role, identity.Environment, identity.OCIRegion) ||
-			expected.OperationID != intent.OperationID || expected.OperationID != task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID] ||
+			!entityid.Valid(expected.OperationID) || expected.OperationID != task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID] ||
 			expected.Role != intent.Role || expected.Region != identity.OCIRegion || expected.Environment != identity.Environment || expected.Architecture != assigned.Node.Description.Platform.Architecture {
 			return nil, errors.New("registry source differs from admitted service identity")
+		}
+		ctx, stopProof, err := currentContainerIntentContext(ctx, intent)
+		defer stopProof()
+		if err != nil {
+			return nil, err
 		}
 		baked, err := bootstrapstart.LoadBakedInputs()
 		if err != nil {
@@ -496,6 +503,8 @@ func workerRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *host.
 		if err != nil {
 			return nil, err
 		}
+		ctx, stopDocument := context.WithDeadline(ctx, document.ExpiresAt)
+		defer stopDocument()
 		var snapshot runtimeRegistrySnapshot
 		if err := protocol.DecodeStrict(document.Document, &snapshot, runtimeRegistrySourceBytes); err != nil {
 			return nil, err
@@ -514,9 +523,14 @@ func workerRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *host.
 		intent, expected := snapshot.Intent, snapshot.Service
 		if intent.Validate() != nil || intent.Container == nil || intent.Cell != strings.ToLower(signed.Cell) || intent.Environment != signed.Environment ||
 			expected.ID != entityid.Derive("platform-service", intent.Role, signed.Environment, signed.OCIRegion) ||
-			expected.OperationID != intent.OperationID || expected.OperationID != task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID] ||
+			!entityid.Valid(expected.OperationID) || expected.OperationID != task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID] ||
 			expected.Role != intent.Role || expected.Region != signed.OCIRegion || expected.Environment != signed.Environment || expected.Architecture != signed.Architecture {
 			return nil, errors.New("registry worker source differs from enrolled recipient and task")
+		}
+		ctx, stopProof, err := currentContainerIntentContext(ctx, intent)
+		defer stopProof()
+		if err != nil {
+			return nil, err
 		}
 		location, err := instancePrincipalChannel(signed.OCIRegion, strings.ToUpper(signed.Cell)).get(ctx)
 		if err != nil {

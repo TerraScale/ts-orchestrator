@@ -868,7 +868,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	containerChannel := instancePrincipalChannel(capacityFoundation.factory.Region(), strings.ToUpper(cfg.NATS.Cell))
 	containers, stopContainers, err := startContainerMaterial(runCtx, containerMaterialConfig{
 		Root: workloadRoot, Factory: capacityFoundation.factory, Hosts: hostController, Authority: control, Client: functionClient, SnapshotMutations: functionClient,
-		Specs: services, Delivery: service, Founders: containerFounders, Accepted: acceptedRuntime, WorkerMembership: functionMembership,
+		Specs: services, Delivery: service, ContainerProfiles: nativeReleases, Founders: containerFounders, Accepted: acceptedRuntime, WorkerMembership: functionMembership,
 		JS: runtime.JetStream(), Mutations: containerMutations, Registrations: containerRegistrations, ResponsePublic: responseKey.Public().(ed25519.PublicKey),
 		Evidence: func(ctx context.Context, role, digest string) (io.ReadCloser, error) {
 			location, err := containerChannel.get(ctx)
