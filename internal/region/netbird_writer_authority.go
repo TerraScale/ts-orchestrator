@@ -184,12 +184,14 @@ func InstallNetBirdBrokerPolicyWriter(ctx context.Context, factory *ociclient.Fa
 	if err != nil {
 		return err
 	}
+	if authority.operator == nil {
+		return ErrFoundationFenced
+	}
+	ctx, cancelOperator := context.WithDeadline(ctx, authority.operator.deadline)
+	defer cancelOperator()
 	intent, original, authorization, expires, err := readNetBirdWriterCapability(ctx, resolver, cell)
 	if err != nil {
 		return err
-	}
-	if authority.operator == nil {
-		return ErrFoundationFenced
 	}
 	signedExpiry := expires
 	if authority.operator.deadline.Before(expires) {
