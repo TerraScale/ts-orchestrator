@@ -124,7 +124,7 @@ func NewDerivedFounderPlan(ctx context.Context, seed DerivedStartupAuthority, no
 	resources := template.template.FounderResources
 	if resources == nil || resources.Validate(identity.ControllerSlots) != nil ||
 		!resources.LaunchDeadline.After(seed.IssuedAt()) || resources.LaunchDeadline.After(seed.IssuedAt().Add(maxRetryAge)) ||
-		resources.LaunchDeadline.After(seed.ExpiresAt()) || resources.LaunchDeadline.After(template.ExpiresAt()) ||
+		resources.LaunchDeadline.After(seed.AuthorityExpiresAt()) || resources.LaunchDeadline.After(template.AuthorityExpiresAt()) ||
 		!resources.LaunchDeadline.Before(template.anchor.ExpiresAt()) {
 		return DerivedFounderPlan{}, ErrFounderPlanInvalid
 	}
@@ -301,6 +301,9 @@ func (verified DerivedFounderPlan) VerifyFounderPlanCurrent(ctx context.Context,
 func (verified DerivedFounderPlan) InitialManagedPeerIntent(slot string, createdAt time.Time) (Intent, error) {
 	if !verified.IsVerified() || !validFounderNow(createdAt) {
 		return Intent{}, ErrFounderPeerAuthorization
+	}
+	if err := verified.seed.VerifyCurrent(context.Background(), createdAt); err != nil {
+		return Intent{}, err
 	}
 	return initialManagedPeerIntent(verified.snapshotValue, slot, createdAt)
 }

@@ -230,13 +230,21 @@ func (ledger *Ledger) signedPayload(body []byte, scope BootstrapScope, domain st
 	verify := func() ([]byte, error) {
 		if authority := ledger.config.DerivedStartup; authority != nil && slices.Contains(BootstrapLedgerCapabilityDomains(), domain) && slices.Contains(ledger.config.ControllerSlots, scope.Slot) {
 			keyID, _ := trust.KeyID(authority.ledgerKey)
-			keys := trust.Keyring{keyID: authority.ledgerKey}
-			if current {
-				if payload, err := trust.VerifyCurrent(envelope, expected, keys, now, ledger.config.TrustPolicy); err == nil && !envelope.IssuedAt.Before(authority.IssuedAt()) && !envelope.ExpiresAt.After(authority.ExpiresAt()) {
-					return payload, nil
+			if envelope.KeyID == keyID {
+				if envelope.IssuedAt.Before(authority.IssuedAt()) || envelope.ExpiresAt.After(authority.AuthorityExpiresAt()) {
+					return nil, ErrRecordAuthorization
 				}
-			} else if payload, err := trust.VerifyHistorical(envelope, expected, keys, ledger.config.TrustPolicy); err == nil && !envelope.IssuedAt.Before(authority.IssuedAt()) && !envelope.ExpiresAt.After(authority.ExpiresAt()) {
-				return payload, nil
+				keys := trust.Keyring{keyID: authority.ledgerKey}
+				if current {
+					if !now.Before(authority.ExpiresAt()) || !time.Now().Before(authority.ExpiresAt()) {
+						return nil, ErrRecordAuthorization
+					}
+					if bindings := authority.template.bindings; bindings != nil && (bindings.original == nil || bindings.original.Err() != nil) {
+						return nil, ErrRecordAuthorization
+					}
+					return trust.VerifyCurrent(envelope, expected, keys, now, ledger.config.TrustPolicy)
+				}
+				return trust.VerifyHistorical(envelope, expected, keys, ledger.config.TrustPolicy)
 			}
 		}
 		if current {

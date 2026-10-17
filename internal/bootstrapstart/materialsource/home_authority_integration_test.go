@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json/v2"
 	"encoding/pem"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -172,6 +173,59 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 		t.Fatal(err)
 	}
 	defer clear(ledger)
+	plan, err := bootstrap.NewDerivedFounderPlan(t.Context(), bound, now)
+	if err != nil || !plan.Plan().LaunchDeadline.Equal(template.Template().FounderResources.LaunchDeadline) {
+		t.Fatalf("genuine source founder plan changed its approved launch deadline: %v", err)
+	}
+	createdAt := time.Now().UTC().Truncate(time.Second)
+	peerSlot := plan.Plan().Peers[0].Slot
+	peerIntent, err := plan.InitialManagedPeerIntent(peerSlot, createdAt)
+	if err != nil {
+		t.Fatalf("genuine source founder intent: %v", err)
+	}
+	if _, err := plan.InitialManagedPeerIntent(peerSlot, bound.ExpiresAt()); err == nil {
+		t.Fatal("founder intent outlived its retained local startup authority")
+	}
+	ledgerConfig, err := bound.LedgerConfig(roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledgerPublic := ed25519.PrivateKey(ledger).Public().(ed25519.PublicKey)
+	ledgerKeyID, err := trust.KeyID(ledgerPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledgerConfig.TrustRoots = make(trust.Keyring, len(roots)+1)
+	for keyID, key := range roots {
+		ledgerConfig.TrustRoots[keyID] = key
+	}
+	ledgerConfig.TrustRoots[ledgerKeyID] = ledgerPublic
+	ledgerClient, err := bootstrap.NewLedger(source.objects, ledgerConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signRecord := func(value any, domain string, expiresAt time.Time) []byte {
+		t.Helper()
+		payload, err := trust.EncodePayload(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		envelope, err := trust.Sign(payload, trust.Scope{Domain: domain, DeploymentID: peerIntent.DeploymentID, Cell: peerIntent.Cell, Environment: peerIntent.Environment, Role: peerIntent.Role, Slot: peerSlot}, createdAt, expiresAt, ed25519.PrivateKey(ledger))
+		if err != nil {
+			t.Fatal(err)
+		}
+		wire, err := trust.EncodeEnvelope(envelope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return wire
+	}
+	intentWire := signRecord(peerIntent, "bootstrap-intent", bound.AuthorityExpiresAt().Add(time.Second))
+	head := bootstrap.SlotHead{SchemaVersion: 1, DeploymentID: peerIntent.DeploymentID, Cell: peerIntent.Cell, Environment: peerIntent.Environment, Role: peerIntent.Role, Slot: peerSlot, Attempt: 1, Generation: 1, IntentDigest: digestWire(intentWire)}
+	headWire := signRecord(head, "bootstrap-slot-head", bound.AuthorityExpiresAt())
+	if _, err := ledgerClient.ReserveSlot(t.Context(), bootstrap.BootstrapScope{DeploymentID: peerIntent.DeploymentID, Cell: peerIntent.Cell, Slot: peerSlot}, intentWire, headWire); !errors.Is(err, bootstrap.ErrRecordAuthorization) {
+		t.Fatalf("source signature escaped its authenticated ceiling through root fallback: %v", err)
+	}
 	forged, err := trust.Sign(payload, bootstrap.DerivedStartupScope(proof.Manifest), proofEnvelope.IssuedAt, proofEnvelope.ExpiresAt, ed25519.PrivateKey(ledger))
 	if err != nil {
 		t.Fatal(err)
