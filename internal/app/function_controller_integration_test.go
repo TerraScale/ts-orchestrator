@@ -55,9 +55,10 @@ func TestFunctionControllerIngestsSignedChannelIntoDurableIntent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	publishFunctionRootHistory(t, js, roots)
 	bucket := newChannelBucket()
 	location := releasechannel.Location{Client: bucket, Namespace: "ns", Bucket: "gru-1-head"}
-	controller := functionController{config: functionControllerConfig{Authority: runtime, Roots: roots,
+	controller := functionController{config: functionControllerConfig{Authority: runtime, JS: js, Roots: roots,
 		Material: functionmaterial.Controller{Reader: functionmaterial.Reader{Authority: runtime, Artifacts: artifacts, Roots: roots.current}},
 		Channel:  &channelSource{location: &location}, Cell: "gru", Environment: "canary"}}
 	epoch := runtime.Current().Epoch

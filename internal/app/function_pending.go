@@ -18,7 +18,7 @@ import (
 // A failed authority or manager observation holds the entire scaling decision.
 func functionDemandSource(config functionControllerConfig) func(context.Context) ([]nodescale.CapacityDemand, error) {
 	return func(ctx context.Context) ([]nodescale.CapacityDemand, error) {
-		if config.Authority == nil || config.Client == nil || config.Roots == nil || config.Factory == nil || config.Worker == nil || config.Evidence == nil || config.Material.Reader.Roots == nil ||
+		if config.Authority == nil || config.JS == nil || config.Client == nil || config.Roots == nil || config.Factory == nil || config.Worker == nil || config.Evidence == nil || config.Material.Reader.Roots == nil ||
 			!release.ValidRegion(strings.ToUpper(config.Cell)) || !release.ValidEnvironment(config.Environment) {
 			return nil, errors.New("function capacity requires current authority, manager and qualified worker source")
 		}
@@ -32,7 +32,7 @@ func functionDemandSource(config functionControllerConfig) func(context.Context)
 		}
 		reader := config.Material.Reader
 		reader.Authority = config.Authority
-		current := functionIntentSource{reader: reader, authority: config.Authority, epoch: epoch, roots: config.Roots, rootHead: config.Roots.reply("").Head}
+		current := functionIntentSource{reader: reader, js: config.JS, authority: config.Authority, epoch: epoch, roots: config.Roots, rootHead: config.Roots.reply("").Head}
 		slots := map[string]uint64{}
 		for _, entry := range entries {
 			stored, err := authority.DecodeFunctionIntent(entry)

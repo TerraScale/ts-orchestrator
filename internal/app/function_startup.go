@@ -110,7 +110,7 @@ func startAutomaticFunctions(ctx context.Context, cfg Config, runtime *natscell.
 		return fail(err)
 	}
 	channel := instancePrincipalChannel(factory.Region(), strings.ToUpper(cfg.NATS.Cell))
-	config := functionControllerConfig{Authority: control, Startup: startup, Client: client, Roots: roots, Factory: factory,
+	config := functionControllerConfig{Authority: control, JS: runtime.JetStream(), Startup: startup, Client: client, Roots: roots, Factory: factory,
 		Cell: cfg.NATS.Cell, Environment: manifest.Environment, Channel: channel, Retirement: management,
 		Material: functionmaterial.Controller{Authority: control, Conn: runtime.Conn(), Issuer: issuer,
 			Vault: management, Versions: management, Target: target,
