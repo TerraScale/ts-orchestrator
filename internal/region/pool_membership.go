@@ -111,11 +111,11 @@ func (r FoundationResolver) PoolMembership(ctx context.Context, cell, poolID, co
 		pool.CompartmentID != record.ResourceIDs["workload_compartment"] {
 		return fail(errors.New("pool membership lacks the exact original accepted pool create"))
 	}
-	initial, err := poolMembershipConfiguration(record, pool, create.ConfigurationID)
+	initial, err := protectedPoolConfiguration(record, pool, create.ConfigurationID)
 	if err != nil || initial.ProfileSHA256 != pool.ProfileSHA256 || initial.RecipeSHA256 != pool.RecipeSHA256 || initial.ConfigurationSHA256 != create.ConfigurationSHA256 {
 		return fail(errors.Join(err, errors.New("pool inception differs from its original signed configuration")))
 	}
-	configuration, err := poolMembershipConfiguration(record, pool, configurationID)
+	configuration, err := protectedPoolConfiguration(record, pool, configurationID)
 	if err != nil {
 		return fail(err)
 	}
@@ -190,7 +190,7 @@ func (r FoundationResolver) PoolMembership(ctx context.Context, cell, poolID, co
 	return VerifiedPoolMembership{ctx: ctx, resolver: r, binding: binding, digest: digest, expires: expires}, nil
 }
 
-func poolMembershipConfiguration(record FoundationRecord, pool PoolResourceRecord, id string) (PoolConfigurationRecord, error) {
+func protectedPoolConfiguration(record FoundationRecord, pool PoolResourceRecord, id string) (PoolConfigurationRecord, error) {
 	configuration, exists := pool.Configurations[id]
 	create, created := record.CapacityCreates[configuration.OperationID+":configuration"]
 	if !exists || !created || create.Kind != "configuration" || create.ResourceID != id || configuration.ConfigurationID != id ||
