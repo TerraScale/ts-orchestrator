@@ -9,8 +9,6 @@ import (
 	"io"
 	"net/http"
 	"slices"
-	"strings"
-	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
