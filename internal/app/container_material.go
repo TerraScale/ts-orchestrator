@@ -34,6 +34,7 @@ type containerMaterialConfig struct {
 	Factory          *ociclient.Factory
 	Hosts            seatrollout.Hosts
 	Authority        authority.Fencer
+	ReadLease        *authority.LeaseAdmission
 	Client           api.ControlClient
 	Specs            *specRegistry
 	Delivery         *delivery.Service
@@ -241,8 +242,8 @@ func (controller *containerMaterialController) registryRecipient(ctx context.Con
 	if binding.HostID != registration.ID {
 		return fail()
 	}
-	epoch := config.Authority.Current().Epoch
-	if err := config.Authority.Guard(ctx, epoch); err != nil {
+	epoch, err := config.materialEpoch(ctx)
+	if err != nil {
 		return containerMaterialRecipient{}, err
 	}
 	taskResponse, err := config.Client.GetTask(ctx, &api.GetTaskRequest{TaskID: binding.TaskID})
@@ -335,7 +336,7 @@ func (controller *containerMaterialController) registryRecipient(ctx context.Con
 	if beforeErr != nil || afterErr != nil || before != after {
 		return fail()
 	}
-	if err := config.Authority.Guard(ctx, epoch); err != nil {
+	if err := config.guardMaterialEpoch(ctx, epoch); err != nil {
 		return containerMaterialRecipient{}, err
 	}
 	if controllerProof != nil {
@@ -355,9 +356,11 @@ func (controller *containerMaterialController) registryRecipient(ctx context.Con
 	config.Specs.mu.Lock()
 	currentRevision := config.Specs.revision
 	config.Specs.mu.Unlock()
-	currentAuthority := config.Authority.Current()
-	if currentRevision != entry.Revision() || config.Specs.roots.reply("").Head != rootHead || currentAuthority.Epoch != epoch || !currentAuthority.CanMutate() {
+	if currentRevision != entry.Revision() || config.Specs.roots.reply("").Head != rootHead {
 		return fail()
+	}
+	if err := config.guardMaterialEpoch(ctx, epoch); err != nil {
+		return containerMaterialRecipient{}, err
 	}
 	if ctx.Err() != nil || !verified.Valid(time.Now().UTC()) || controllerProof != nil && (!controllerProof.Valid(time.Now()) || !time.Now().Before(enrollment.ExpiresAt)) {
 		return fail()
@@ -392,10 +395,12 @@ func (controller *containerMaterialController) currentMaterialTask(ctx context.C
 	revision := config.Specs.revision
 	config.Specs.mu.Unlock()
 	now := time.Now().UTC()
-	currentAuthority := config.Authority.Current()
-	if revision != selected.SpecRevision || config.Specs.roots.reply("").Head != selected.rootHead || currentAuthority.Epoch != selected.epoch || !currentAuthority.CanMutate() ||
+	if revision != selected.SpecRevision || config.Specs.roots.reply("").Head != selected.rootHead ||
 		!selected.Verified.Valid(now) || selected.controllerProof != nil && (!selected.controllerProof.Valid(now) || !now.Before(selected.enrollmentExpiresAt)) {
 		return containermaterial.ErrPending
+	}
+	if err := config.guardMaterialEpoch(ctx, selected.epoch); err != nil {
+		return err
 	}
 	return ctx.Err()
 }
