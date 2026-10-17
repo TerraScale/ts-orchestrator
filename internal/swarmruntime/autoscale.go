@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -36,6 +37,7 @@ type ScaleResult struct {
 
 type scaleMemory struct {
 	serviceID string
+	task      *api.TaskSpec
 	history   autoscale.History
 }
 
@@ -57,7 +59,8 @@ func NewAutoscaler(client api.ControlClient, nodeID string, source autoscale.Sou
 	if client == nil || nodeID == "" || source == nil || probe == nil {
 		return nil, errors.New("autoscaling requires the local manager identity, control client, signal source and readiness probe")
 	}
-	a := &Autoscaler{client: client, nodeID: nodeID, source: source, probe: probe}
+	a := &Autoscaler{client: client, nodeID: nodeID, source: source, probe: probe,
+		history: make(map[autoscale.Target]scaleMemory), last: make(map[autoscale.Target]ScaleResult)}
 	if err := a.SetPolicies(policies); err != nil {
 		return nil, err
 	}
@@ -72,7 +75,7 @@ func (a *Autoscaler) SetPolicies(policies []ScalePolicy) error {
 		if policy.Target.Cell == "" || policy.Target.Environment == "" || policy.Target.Role == "" || seen[policy.Target] {
 			return errors.New("autoscaling requires unique regional service identities")
 		}
-		if catalog.OCIRegion(strings.ToUpper(policy.Target.Cell)) == "" {
+		if policy.Target.Cell != strings.ToLower(policy.Target.Cell) || catalog.OCIRegion(strings.ToUpper(policy.Target.Cell)) == "" {
 			return fmt.Errorf("autoscaling requires a catalogued cell: %q", policy.Target.Cell)
 		}
 		seen[policy.Target] = true
@@ -90,10 +93,32 @@ func (a *Autoscaler) SetPolicies(policies []ScalePolicy) error {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	for _, old := range a.policies {
+		index := slices.IndexFunc(policies, func(policy ScalePolicy) bool { return policy.Target == old.Target })
+		if index < 0 || !reflect.DeepEqual(old, policies[index]) {
+			delete(a.history, old.Target)
+			delete(a.last, old.Target)
+		}
+	}
 	a.policies = policies
-	a.history = make(map[autoscale.Target]scaleMemory)
-	a.last = make(map[autoscale.Target]ScaleResult)
 	return nil
+}
+
+// Reset drops decisions after authority or recipient-session loss. A source
+// retaining telemetry must implement Reset to discard its sample windows too.
+func (a *Autoscaler) Reset() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.reset()
+}
+
+func (a *Autoscaler) reset() {
+	a.leader = false
+	clear(a.history)
+	clear(a.last)
+	if source, ok := a.source.(interface{ Reset() }); ok {
+		source.Reset()
+	}
 }
 
 func (a *Autoscaler) Last() map[autoscale.Target]ScaleResult {
@@ -142,9 +167,7 @@ func (a *Autoscaler) Tick(ctx context.Context) error {
 	defer a.mu.Unlock()
 	leading, err := a.leading(ctx)
 	if err != nil || !leading {
-		a.leader = false
-		clear(a.history)
-		clear(a.last)
+		a.reset()
 		return err
 	}
 	if !a.leader {
@@ -159,6 +182,9 @@ func (a *Autoscaler) Tick(ctx context.Context) error {
 		if err != nil {
 			delete(a.last, policy.Target)
 			failures = append(failures, fmt.Errorf("autoscale %s/%s: %w", policy.Target.Environment, policy.Target.Role, err))
+			if !a.leader {
+				break
+			}
 			continue
 		}
 		a.last[policy.Target] = result
@@ -195,7 +221,8 @@ func (a *Autoscaler) scale(ctx context.Context, policy ScalePolicy, now time.Tim
 		result.Reason = "release-in-progress"
 		return result, nil
 	}
-	if replicated.Replicas > 0 {
+	// Exact zero bounds withdraw a service even when its applications are unhealthy.
+	if replicated.Replicas > 0 && policy.Bounds != (autoscale.Bounds{}) {
 		ready, err := ReadyService(ctx, a.client, service, a.probe)
 		if err != nil {
 			return result, err
@@ -207,7 +234,7 @@ func (a *Autoscaler) scale(ctx context.Context, policy ScalePolicy, now time.Tim
 	}
 	memory, exists := a.history[policy.Target]
 	history := memory.history
-	if !exists || memory.serviceID != service.ID {
+	if !exists || memory.serviceID != service.ID || !proto.Equal(memory.task, &service.Spec.Task) {
 		history = autoscale.Reset(now)
 	}
 	var signalPolicy autoscale.Policy
@@ -220,12 +247,11 @@ func (a *Autoscaler) scale(ctx context.Context, policy ScalePolicy, now time.Tim
 	result.Replicas, result.Target, result.Decision, result.Reason = decision.From, decision.To, decision, decision.Reason
 	if decision.Changed() {
 		leading, err := a.leading(ctx)
-		if err != nil {
-			return result, err
-		}
-		if !leading {
-			a.leader = false
-			clear(a.history)
+		if err != nil || !leading {
+			a.reset()
+			if err != nil {
+				return result, err
+			}
 			return result, errors.New("manager leadership changed before replica update")
 		}
 		spec := service.Spec.Copy()
@@ -235,6 +261,6 @@ func (a *Autoscaler) scale(ctx context.Context, policy ScalePolicy, now time.Tim
 			return result, err
 		}
 	}
-	a.history[policy.Target] = scaleMemory{serviceID: service.ID, history: decision.History}
+	a.history[policy.Target] = scaleMemory{serviceID: service.ID, task: service.Spec.Task.Copy(), history: decision.History}
 	return result, nil
 }

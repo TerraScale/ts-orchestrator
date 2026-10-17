@@ -170,7 +170,7 @@ func TestAutoscaleManagerIntegration(t *testing.T) {
 	// Lifecycle RUNNING cannot authorize overwriting rollback history while
 	// application readiness is unhealthy, even for a bounds correction.
 	healthy.Store(false)
-	if err := scaler.SetPolicies([]ScalePolicy{{Target: target, Bounds: autoscale.Bounds{}}}); err != nil {
+	if err := scaler.SetPolicies([]ScalePolicy{{Target: target, Bounds: autoscale.Bounds{Min: 1, Max: 1}}}); err != nil {
 		t.Fatal(err)
 	}
 	tick()
@@ -178,7 +178,16 @@ func TestAutoscaleManagerIntegration(t *testing.T) {
 	if got := scaler.Last()[target].Reason; got != "unready-replicas" {
 		t.Fatalf("HTTP-unhealthy replicas did not hold: %s", got)
 	}
+	if err := scaler.SetPolicies([]ScalePolicy{{Target: target, Bounds: autoscale.Bounds{}}}); err != nil {
+		t.Fatal(err)
+	}
+	tick()
+	assertReplicas(0)
 	healthy.Store(true)
+	scaler = newScaler(source)
+	tick()
+	assertReplicas(2)
+	ready(2)
 	racing := &releaseDuringSignal{Source: source, release: func() {
 		intent.Container.Image = "example.invalid/fixture@sha256:" + strings.Repeat("b", 64)
 		if _, err := applyService(ctx, client, intent); err != nil {
