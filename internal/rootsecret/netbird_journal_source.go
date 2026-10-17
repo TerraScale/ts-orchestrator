@@ -230,7 +230,8 @@ func (s NetBirdJournalSource) checkOriginal() error {
 		return ErrDelivery
 	}
 	if s.custody != nil {
-		if s.custody.original == nil || s.custody.original.Err() != nil || s.custody.Context() == nil || s.custody.Context().Err() != nil || !time.Now().Before(s.custody.ExpiresAt()) {
+		if s.custody.original == nil || s.custody.original.Err() != nil || s.custody.Context() == nil || s.custody.Context().Err() != nil ||
+			s.custody.home == nil || s.custody.home.CheckOriginal() != nil || !time.Now().Before(s.custody.ExpiresAt()) {
 			return ErrDelivery
 		}
 	} else if s.manager.CheckOriginal() != nil {
