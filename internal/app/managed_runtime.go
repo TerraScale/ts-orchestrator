@@ -109,7 +109,13 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 	if err != nil {
 		return err
 	}
+	ownhost.mu.Lock()
+	ownhost.node = node
+	ownhost.mu.Unlock()
 	defer func() {
+		ownhost.mu.Lock()
+		ownhost.node = nil
+		ownhost.mu.Unlock()
 		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		_ = node.Stop(stopCtx)

@@ -25,6 +25,7 @@ type managedRuntimeHost struct {
 	mu         sync.RWMutex
 	reader     *bootstrapstart.CurrentFounderAuthorityReader
 	accepted   bootstrapstart.AcceptedIdentity
+	node       *swarmruntime.Node
 	agent      *host.Agent
 	transport  hostenroll.WorkerTransport
 	registry   swarmruntime.RegistryResolver
