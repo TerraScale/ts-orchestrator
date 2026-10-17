@@ -72,7 +72,16 @@ func (b *Backend) source(ctx context.Context, call rootoci.Call) (sourceState, e
 			current.LeaseID != "" && time.Now().Before(current.ExpiresAt) {
 			return ErrScope
 		}
-		return founder.VerifyCurrent(ctx)
+		if err := founder.VerifyCurrent(ctx); err != nil {
+			return err
+		}
+		if err := call.Guard(ctx); err != nil {
+			return err
+		}
+		if !time.Now().Before(founder.ExpiresAt()) {
+			return ErrScope
+		}
+		return ctx.Err()
 	}
 	resolver.Store = guardedStore{FoundationStore: resolver.Store, guard: guard}
 	home, err := region.NewHomeIAMAuthority(ctx, founder, resolver)

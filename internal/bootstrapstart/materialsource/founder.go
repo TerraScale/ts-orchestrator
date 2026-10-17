@@ -3,6 +3,8 @@ package materialsource
 import (
 	"context"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 )
 
 func (source *ColdStartMaterial) currentActor() materialSourceActor {
@@ -27,7 +29,19 @@ func (source *ColdStartMaterial) guard(ctx context.Context) error {
 			return ErrMaterialSource
 		}
 	}
-	return source.actor.Guard(ctx)
+	if err := source.actor.Guard(ctx); err != nil {
+		return err
+	}
+	if !time.Now().Before(source.grant.ExpiresAt()) {
+		return ErrMaterialSource
+	}
+	if err := bootstrapmaterial.GuardPublication(ctx); err != nil {
+		return err
+	}
+	if !time.Now().Before(source.grant.ExpiresAt()) {
+		return ErrMaterialSource
+	}
+	return ctx.Err()
 }
 
 func (source *ColdStartMaterial) authorize(ctx context.Context) error {
@@ -41,4 +55,16 @@ func (source *ColdStartMaterial) authorize(ctx context.Context) error {
 		return source.actor.AuthorizeLinkObject(ctx, *source.link.recipient, source.key)
 	}
 	return source.actor.AuthorizeSourceObject(ctx, source.key)
+}
+
+func (source *ColdStartMaterial) guardPublication(ctx context.Context) error {
+	state, etag, err := source.read(ctx)
+	defer clear(state.Journal)
+	if err != nil {
+		return err
+	}
+	if etag != source.etag || state.Reference != source.state.Reference || state.Actor != source.state.Actor {
+		return ErrMaterialSource
+	}
+	return source.guard(ctx)
 }

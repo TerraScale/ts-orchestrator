@@ -149,6 +149,8 @@ func ResolveRegionalLink(ctx context.Context, regional VerifiedColdStartMaterial
 	if !regional.IsVerified() || objects == nil || bundles == nil || !filepath.IsAbs(directory) || filepath.Clean(directory) != directory || overlappingSourceDirectories(directory, regional.source.directory) || regional.VerifyCurrent(ctx) != nil || recipient.VerifyCurrent(ctx, now) != nil || recipient.GrantDigest() != digestWire(regional.Grant().FoundationGrantWire()) || recipient.SourceSHA256() != regional.Publication().MaterialSHA256 {
 		return deny()
 	}
+	ctx, cancel := context.WithDeadline(ctx, recipient.ExpiresAt())
+	defer cancel()
 	domain := recipient.StorageDomain()
 	response, err := objects.GetObject(ociclient.RequestContext(ctx), objectstorage.GetObjectRequest{NamespaceName: new(domain.Namespace), BucketName: new(domain.HeadBucket), ObjectName: new(recipient.LinkObjectKey())})
 	if service, ok := common.IsServiceError(err); ok && service.GetHTTPStatusCode() == 404 {
@@ -235,9 +237,29 @@ func linkPublication(evidence bootstrap.RegionalLinkEvidence, target bootstrap.S
 }
 
 func restoreRegionalLink(ctx context.Context, proof bootstrap.VerifiedStartupLink, record bootstrapmaterial.LinkRecord, publication bootstrapmaterial.Publication, bundles bootstrapmaterial.BundleClient, directory string, now time.Time) error {
+	ctx, cancel := context.WithDeadline(ctx, record.ExpiresAt)
+	defer cancel()
 	evidence := proof.Evidence()
+	guard := func() error {
+		if err := proof.VerifyCurrent(ctx, time.Now().UTC()); err != nil {
+			return err
+		}
+		if err := bootstrapmaterial.GuardPublication(ctx); err != nil {
+			return err
+		}
+		if !time.Now().Before(record.ExpiresAt) {
+			return ErrMaterialSource
+		}
+		return ctx.Err()
+	}
+	validate := func() error {
+		if err := bootstrapmaterial.ValidateLinkPublication(directory, publication, evidence.Journal, time.Now().UTC()); err != nil {
+			return err
+		}
+		return guard()
+	}
 	if _, err := os.Lstat(directory); err == nil {
-		return bootstrapmaterial.ValidateLinkPublication(directory, publication, evidence.Journal, now)
+		return validate()
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -247,7 +269,7 @@ func restoreRegionalLink(ctx context.Context, proof bootstrap.VerifiedStartupLin
 	}
 	defer os.RemoveAll(parent)
 	for _, ref := range evidence.References {
-		if err := proof.VerifyCurrent(ctx, now); err != nil {
+		if err := guard(); err != nil {
 			return err
 		}
 		response, err := bundles.GetSecretBundle(ociclient.RequestContext(ctx), ocisecrets.GetSecretBundleRequest{SecretId: new(ref.SecretOCID), VersionNumber: new(int64(1))})
@@ -274,22 +296,25 @@ func restoreRegionalLink(ctx context.Context, proof bootstrap.VerifiedStartupLin
 			return err
 		}
 	}
-	if err := bootstrapmaterial.ValidateLinkPublication(parent, publication, evidence.Journal, now); err != nil {
-		return err
-	}
-	if err := proof.VerifyCurrent(ctx, now); err != nil {
+	if err := bootstrapmaterial.ValidateLinkPublication(parent, publication, evidence.Journal, time.Now().UTC()); err != nil {
 		return err
 	}
 	if err := syncSourceDirectory(parent); err != nil {
+		return err
+	}
+	if err := guard(); err != nil {
 		return err
 	}
 	if err := unix.Renameat2(unix.AT_FDCWD, parent, unix.AT_FDCWD, directory, unix.RENAME_NOREPLACE); err != nil {
 		if !errors.Is(err, unix.EEXIST) {
 			return err
 		}
-		return bootstrapmaterial.ValidateLinkPublication(directory, publication, evidence.Journal, now)
+		return validate()
 	}
-	return syncSourceDirectory(filepath.Dir(directory))
+	if err := syncSourceDirectory(filepath.Dir(directory)); err != nil {
+		return err
+	}
+	return guard()
 }
 
 // ReconcileHomeLinks retries each independently admitted region. Pending source
