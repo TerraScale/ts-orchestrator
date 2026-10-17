@@ -404,13 +404,23 @@ func (s *EffectSessions) close(ctx context.Context, epoch uint64, held *runtimeE
 			if !exists {
 				return empty, errors.New("runtime stop challenge unavailable; request a fresh challenge")
 			}
-			sequence, err := s.authority.SettleRuntimeEffect(ctx, epoch, effect.Scope, effect.EffectID, effect.Sequence, func(check context.Context, latest authority.RuntimeEffect) error {
-				return s.verifyRuntimeStop(check, epoch, latest, challenge, *query.StopProof)
+			wire, err := json.Marshal(*query.StopProof, json.Deterministic(true))
+			if err != nil {
+				return empty, err
+			}
+			var proof executionwire.SignedRuntimeStop
+			if err := json.Unmarshal(wire, &proof, json.RejectUnknownMembers(true)); err != nil {
+				return empty, err
+			}
+			stop := authority.RuntimeStopRecord{SignedProof: wire, ClosingSequence: effect.Sequence, ChallengeEpoch: challenge.epoch, ChallengeIssuedAt: challenge.issued}
+			sequence, err := s.authority.SettleRuntimeEffectWithStop(ctx, epoch, effect.Scope, effect.EffectID, effect.Sequence, stop, func(check context.Context, latest authority.RuntimeEffect) error {
+				return s.verifyRuntimeStop(check, epoch, latest, challenge, proof)
 			})
 			if err != nil {
 				return empty, err
 			}
 			effect.Phase, effect.Sequence = authority.RuntimeEffectSettled, sequence
+			effect.Stop = new(stop)
 			delete(held.challenges, effect.EffectID)
 		} else {
 			challenge, exists := held.challenges[effect.EffectID]

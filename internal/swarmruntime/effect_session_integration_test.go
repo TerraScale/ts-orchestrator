@@ -257,7 +257,7 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 	if session.Epoch != 41 || session.Epoch == current.Current().Epoch {
 		t.Fatal("test did not separate host session and leader counters")
 	}
-	_, grantBytes, err := effectHostExchange(ctx, connection, fresh, freshKey, controllerPublic, currentSession, session.Epoch, "runtime-effect", query)
+	closingEnvelope, grantBytes, err := effectHostExchange(ctx, connection, fresh, freshKey, controllerPublic, currentSession, session.Epoch, "runtime-effect", query)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,10 +290,27 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 	if certificate == nil {
 		t.Fatal("manager did not retain worker certificate")
 	}
-	proof := executionwire.SignedRuntimeStop{Payload: executionwire.RuntimeStopPayload{EffectID: effect.EffectID, TaskSHA256: effect.TaskSHA256, InstanceID: effect.InstanceID,
+	closingWire, err := json.Marshal(closingEnvelope, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof := executionwire.SignedRuntimeStop{ClosingGrant: closingEnvelope, Payload: executionwire.RuntimeStopPayload{ClosingGrantSHA256: fmt.Sprintf("%x", sha256.Sum256(closingWire)), EffectID: effect.EffectID, TaskSHA256: effect.TaskSHA256, InstanceID: effect.InstanceID,
 		NodeID: effect.NodeID, ContainerID: "ts-" + effect.TaskID, KernelStart: "123", Cgroup: "0::/terrascale/ts-" + effect.TaskID + "\n", Challenge: challenge.nonce,
 		Epoch: effect.Epoch, Revision: effect.Sequence, PIDNamespace: 2, MountNamespace: 3, HostPID: 4, Deadline: effect.ExpiresAt, ObservedAt: time.Now().UTC()},
 		CertificateChain: [][]byte{certificate.Bytes}, Signature: []byte("invalid-signature")}
+	if err := verifyRuntimeStopGrant(effect, challenge, proof); err != nil {
+		t.Fatalf("actual signed closing response lost original grant binding: %v", err)
+	}
+	substituted := proof
+	substituted.ClosingGrant.Signature = "substituted-manager-signature"
+	if err := verifyRuntimeStopGrant(effect, challenge, substituted); err == nil {
+		t.Fatal("substituted original closing envelope retained its worker-signed digest")
+	}
+	wrongMaterial := effect
+	wrongMaterial.AdmissionSHA256 = strings.Repeat("f", 64)
+	if err := verifyRuntimeStopGrant(wrongMaterial, challenge, proof); err == nil {
+		t.Fatal("closing envelope accepted against another immutable runtime admission")
+	}
 	if err := sessions.verifyRuntimeStop(ctx, current.Current().Epoch, effect, challenge, proof); err == nil || !strings.Contains(err.Error(), "signature is invalid") {
 		t.Fatalf("actual worker certificate did not reach independent signature rejection: %v", err)
 	}
@@ -307,6 +324,9 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 	pending, err = current.ListUnresolvedRuntimeEffects(ctx, scope)
 	if err != nil || len(pending) != 1 || pending[0].Sequence != effect.Sequence {
 		t.Fatal("forged stop proof changed durable hold")
+	}
+	if pending[0].Stop != nil {
+		t.Fatal("forged stop proof retained signed evidence before genuine verification")
 	}
 	challenge.epoch--
 	if err := sessions.verifyRuntimeStop(ctx, current.Current().Epoch, effect, challenge, proof); err == nil {
