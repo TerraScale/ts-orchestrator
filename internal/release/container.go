@@ -219,6 +219,7 @@ type HistoricalContainer struct{ value VerifiedContainer }
 
 func (c HistoricalContainer) Claim() ContainerClaim   { return c.value.Claim() }
 func (c HistoricalContainer) Fingerprint() string     { return c.value.Fingerprint() }
+func (c HistoricalContainer) BundleSHA256() string    { return c.value.BundleSHA256() }
 func (c HistoricalContainer) ReleaseIdentity() string { return c.value.ReleaseIdentity() }
 
 // VerifyContainerHistorical authenticates an immutable channel floor, including expired

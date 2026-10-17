@@ -282,6 +282,10 @@ func TestContainerAdmissionHTTPIntegration(t *testing.T) {
 	if err != nil || history.ReleaseIdentity() != verified.ReleaseIdentity() || history.Claim().SourceRepository != claim.SourceRepository || history.Claim().SourceTreeSHA256 != claim.SourceTreeSHA256 {
 		t.Fatalf("retained expired source floor lost authenticated identity: %+v %v", history, err)
 	}
+	expectedHistoricalDigest, err := ContainerBundleSHA256(expiredBundle)
+	if err != nil || history.BundleSHA256() != expectedHistoricalDigest {
+		t.Fatal("historical bundle digest does not identify retained expired wire")
+	}
 	if _, err := VerifyContainerCurrent(ctx, expiredBundle, roots, target, now, now.Add(time.Minute), reader, allocations); err == nil {
 		t.Fatal("historical source floor authorized a new runtime operation")
 	}
@@ -336,8 +340,13 @@ func TestContainerAdmissionHTTPIntegration(t *testing.T) {
 	if _, err := VerifyContainerCurrent(ctx, transported, roots, target, now, now.Add(time.Minute), reader, allocations); err != nil {
 		t.Fatal("exact retained OCI index did not survive transport: ", err)
 	}
-	if _, err := VerifyContainerHistorical(transported, roots, target); err != nil {
+	transportedHistory, err := VerifyContainerHistorical(transported, roots, target)
+	if err != nil {
 		t.Fatal("historical index membership: ", err)
+	}
+	expectedTransportedDigest, err := ContainerBundleSHA256(transported)
+	if err != nil || transportedHistory.BundleSHA256() != expectedTransportedDigest {
+		t.Fatal("historical bundle digest does not identify retained OCI index wire")
 	}
 	missingIndex := withIndex
 	missingIndex.Index = nil
