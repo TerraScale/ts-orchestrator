@@ -348,7 +348,7 @@ func serverReady(ctx context.Context, embedded *server.Server) bool {
 // Start starts the embedded server when requested and establishes an authenticated
 // client connection. Multi-node callers must call WaitForCluster before mutations.
 func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
-	return start(ctx, cfg, false, nil)
+	return start(ctx, cfg, false, nil, nil)
 }
 
 // StartIdentityRekey joins only the existing regional quorum. The caller must
@@ -358,10 +358,10 @@ func StartIdentityRekey(ctx context.Context, cfg Config) (*Runtime, error) {
 	if cfg.Embedded == nil {
 		return nil, errors.New("identity rekey requires an installed production broker")
 	}
-	return start(ctx, cfg, true, nil)
+	return start(ctx, cfg, true, nil, nil)
 }
 
-func start(ctx context.Context, cfg Config, identityRekey bool, initial net.Conn) (_ *Runtime, err error) {
+func start(ctx context.Context, cfg Config, identityRekey bool, initial net.Conn, rootTransport nats.CustomDialer) (_ *Runtime, err error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
@@ -399,7 +399,7 @@ func start(ctx context.Context, cfg Config, identityRekey bool, initial net.Conn
 			return nil, fmt.Errorf("load regional cell account: %w", err)
 		}
 	}
-	options, err := clientOptionsWithInitial(cfg, initial)
+	options, err := clientOptionsForTransport(cfg, initial, rootTransport)
 	if err != nil {
 		return nil, err
 	}
@@ -786,6 +786,10 @@ func clientOptions(cfg Config) ([]nats.Option, error) {
 }
 
 func clientOptionsWithInitial(cfg Config, initial net.Conn) ([]nats.Option, error) {
+	return clientOptionsForTransport(cfg, initial, nil)
+}
+
+func clientOptionsForTransport(cfg Config, initial net.Conn, rootTransport nats.CustomDialer) ([]nats.Option, error) {
 	connectTimeout := 12 * time.Second
 	if cfg.ClientRole == "host" {
 		connectTimeout = 3 * time.Second
@@ -856,6 +860,9 @@ func clientOptionsWithInitial(cfg Config, initial net.Conn) ([]nats.Option, erro
 		options = append(options, nats.Nkey(public, func(nonce []byte) ([]byte, error) {
 			return signNKeyFile(cfg.NKeySeedFile, nonce)
 		}))
+	}
+	if rootTransport != nil {
+		return append(options, nats.IgnoreDiscoveredServers(), nats.SetCustomDialer(rootTransport)), nil
 	}
 	if cfg.TLS.complete() && cfg.Embedded == nil {
 		tlsConfig, err := loadTLS(cfg.TLS, false)

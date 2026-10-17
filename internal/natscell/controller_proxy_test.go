@@ -89,6 +89,27 @@ func TestControllerProxyNativeIdentity(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 	region, root := startupControllerBroker(t, ctx)
+	clientProxy, err := NewControllerProxy(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientStream, clientDone := controllerProxyUnix(t, func(conn net.Conn) error {
+		return clientProxy.ServeInitial(ctx, conn, time.Now().Add(10*time.Second))
+	})
+	clientConfig := region.cfg
+	clientConfig.ClientRole = "controller"
+	// The ordinary start must never open this private TLS path.
+	clientConfig.TLS.KeyFile = filepath.Join(t.TempDir(), "root-only-key-does-not-exist.pem")
+	client, err := StartRootControllerClient(ctx, clientConfig, &controllerProxySingleDial{connection: clientStream})
+	if err != nil {
+		t.Fatalf("native ordinary client through root TLS: %v", err)
+	}
+	if err := client.Conn().FlushTimeout(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	client.Close()
+	controllerProxyDone(t, ctx, clientDone)
+
 	proxy, err := NewControllerProxy(root)
 	if err != nil {
 		t.Fatal(err)
@@ -227,3 +248,17 @@ func controllerProxyDone(t *testing.T, ctx context.Context, done <-chan error) e
 		return ctx.Err()
 	}
 }
+
+// The real Unix stream is already paired with the genuine root proxy above.
+type controllerProxySingleDial struct{ connection net.Conn }
+
+func (dialer *controllerProxySingleDial) Dial(string, string) (net.Conn, error) {
+	if dialer.connection == nil {
+		return nil, errors.New("the test startup connection was consumed")
+	}
+	connection := dialer.connection
+	dialer.connection = nil
+	return connection, nil
+}
+
+func (*controllerProxySingleDial) SkipTLSHandshake() bool { return true }

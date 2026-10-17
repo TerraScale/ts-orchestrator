@@ -12,6 +12,7 @@ import (
 
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
 )
 
 // Pin the claim actually authenticated by this broker, never a later read of
@@ -54,7 +55,21 @@ func StartControllerClient(ctx context.Context, cfg Config, initial net.Conn) (_
 	// The private socket is always this root broker, regardless of URL order.
 	cfg.URL = "nats://" + net.JoinHostPort(cfg.Embedded.Host, fmt.Sprint(cfg.Embedded.Port))
 	cfg.Embedded = nil
-	return start(ctx, cfg, false, initial)
+	return start(ctx, cfg, false, initial, nil)
+}
+
+// StartRootControllerClient keeps native JWT authentication in the ordinary
+// client while its authenticated local transport delegates TLS to root.
+func StartRootControllerClient(ctx context.Context, cfg Config, transport nats.CustomDialer) (*Runtime, error) {
+	if ctx == nil || ctx.Err() != nil || transport == nil || cfg.ClientRole != "controller" || cfg.Embedded == nil || len(cfg.OperatorForward) != 0 {
+		return nil, errors.New("root controller transport requires the production controller role")
+	}
+	if err := cfg.validate(); err != nil {
+		return nil, err
+	}
+	cfg.URL = "nats://" + net.JoinHostPort(cfg.Embedded.Host, fmt.Sprint(cfg.Embedded.Port))
+	cfg.Embedded = nil
+	return start(ctx, cfg, false, nil, transport)
 }
 
 // ServeStartupController is called only by root after authenticating the exact

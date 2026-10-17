@@ -7,17 +7,19 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/nativerootoci"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 )
 
 // The first MainPID admission owns this immutable startup lifetime, including
 // failed TLS attempts. Neither reconnects nor ownhost sessions can renew it.
 type rootBrokerStartup struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
-	process  *rootOCIProcess
-	current  bootstrapstart.RuntimeAuthority
-	deadline time.Time
+	transport *natscell.ControllerProxy
+	ctx       context.Context
+	cancel    context.CancelFunc
+	process   *rootOCIProcess
+	current   bootstrapstart.RuntimeAuthority
+	deadline  time.Time
 }
 
 func (authority *rootOCIAuthority) readBrokerOrigin(ctx context.Context) (bootstrapstart.RuntimeAuthority, error) {

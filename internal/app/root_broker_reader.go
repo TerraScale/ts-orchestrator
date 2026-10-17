@@ -242,7 +242,7 @@ func (reader *rootBrokerReader) verify(socket *net.UnixConn, witness *rootoci.Pr
 }
 
 func rootBrokerPeerBinding(socket *net.UnixConn, witness *rootoci.ProcessWitness, path string) (string, error) {
-	if path != rootBrokerStartupSocket && path != rootBrokerObservationSocket && path != rootBrokerReconnectSocket {
+	if path != rootBrokerStartupSocket && path != rootBrokerObservationSocket && path != rootBrokerReconnectSocket && path != rootBrokerClientSocket {
 		return "", rootoci.ErrUnauthorized
 	}
 	peer, err := rootociwire.PeerCredential(socket)

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"time"
 
@@ -11,6 +12,9 @@ import (
 )
 
 func openControllerClientRuntime(ctx context.Context, cfg Config, _ func() error) (*natscell.Runtime, error) {
+	if ctx == nil || ctx.Err() != nil || cfg.NATS.Embedded == nil {
+		return nil, rootoci.ErrUnauthorized
+	}
 	probe, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	connection, err := new(net.Dialer).DialContext(probe, "unix", rootBrokerStartupSocket)
@@ -39,9 +43,11 @@ func openControllerClientRuntime(ctx context.Context, cfg Config, _ func() error
 		return nil, err
 	}
 	stop := context.AfterFunc(probe, func() { _ = socket.Close() })
-	runtime, err := natscell.StartControllerClient(probe, cfg.NATS, socket)
+	dialer := &rootControllerDialer{ctx: ctx, address: net.JoinHostPort(cfg.NATS.Embedded.Host, fmt.Sprint(cfg.NATS.Embedded.Port)), rootBinding: witness.Binding(), initial: socket}
+	runtime, err := natscell.StartRootControllerClient(probe, cfg.NATS, dialer)
 	stop()
 	if err != nil {
+		_ = socket.Close()
 		return nil, err
 	}
 	current, err := rootBrokerPeerBinding(socket, witness, rootBrokerStartupSocket)

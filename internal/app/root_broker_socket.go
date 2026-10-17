@@ -11,6 +11,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const rootBrokerClientSocket = "/run/terrascale-orchestrator/broker-client.sock"
 const rootBrokerStartupSocket = "/run/terrascale-orchestrator/broker-startup.sock"
 const rootBrokerReconnectSocket = "/run/terrascale-orchestrator/broker-reconnect.sock"
 
@@ -23,7 +24,7 @@ type rootBrokerSocket struct {
 }
 
 func listenRootBrokerSocket(path string, gid uint32) (*rootBrokerSocket, error) {
-	if path != rootBrokerStartupSocket && path != rootBrokerObservationSocket && path != rootBrokerReconnectSocket || gid == 0 {
+	if path != rootBrokerStartupSocket && path != rootBrokerObservationSocket && path != rootBrokerReconnectSocket && path != rootBrokerClientSocket || gid == 0 {
 		return nil, rootoci.ErrUnauthorized
 	}
 	directory, err := unix.Open("/", unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)

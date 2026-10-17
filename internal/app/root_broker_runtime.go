@@ -50,7 +50,7 @@ func startRootBrokerRuntime(ctx context.Context, cfg Config, authority *rootOCIA
 		_ = broker.Close()
 		return nil, err
 	}
-	for _, path := range []string{rootBrokerStartupSocket, rootBrokerObservationSocket, rootBrokerReconnectSocket} {
+	for _, path := range []string{rootBrokerStartupSocket, rootBrokerObservationSocket, rootBrokerReconnectSocket, rootBrokerClientSocket} {
 		socket, err := listenRootBrokerSocket(path, authority.gid)
 		if err != nil {
 			_ = broker.Close()
@@ -62,6 +62,8 @@ func startRootBrokerRuntime(ctx context.Context, cfg Config, authority *rootOCIA
 			handler = broker.serveStartup
 		} else if path == rootBrokerReconnectSocket {
 			handler = broker.serveReconnect
+		} else if path == rootBrokerClientSocket {
+			handler = broker.serveClientTransport
 		}
 		broker.workers.Go(func() { serveRootBrokerSocket(ctx, socket, handler) })
 	}
@@ -121,6 +123,17 @@ func (broker *rootBrokerRuntime) serveStartup(parent context.Context, conn *net.
 		return
 	}
 	defer startup.cancel()
+	transport, err := natscell.NewControllerProxy(broker.runtime)
+	if err != nil {
+		return
+	}
+	broker.authority.mu.Lock()
+	if broker.authority.main != startup.process || startup.process.brokerStartup != startup {
+		broker.authority.mu.Unlock()
+		return
+	}
+	startup.transport = transport
+	broker.authority.mu.Unlock()
 	ctx, stop := context.WithDeadline(parent, startup.deadline)
 	stopProcess := context.AfterFunc(startup.ctx, stop)
 	defer func() { stopProcess(); stop() }()
@@ -159,7 +172,7 @@ func (broker *rootBrokerRuntime) serveStartup(parent context.Context, conn *net.
 		}
 	}()
 	defer func() { stop(); <-sourceDone }()
-	_ = broker.runtime.ServeStartupController(ctx, conn, startup.deadline)
+	_ = transport.ServeInitial(ctx, conn, startup.deadline)
 }
 
 func (broker *rootBrokerRuntime) serveObservations(parent context.Context, conn *net.UnixConn) {
