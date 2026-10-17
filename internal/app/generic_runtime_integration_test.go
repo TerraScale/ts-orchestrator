@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -122,6 +123,50 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	type retainedNativeRecord struct {
+		revision uint64
+		data     string
+	}
+	nativeEvidence := func() map[string]retainedNativeRecord {
+		t.Helper()
+		state, _, err := history.load(ctx, policy.Role)
+		if err != nil {
+			t.Fatal(err)
+		}
+		records := map[string]retainedNativeRecord{}
+		retain := func(key string) {
+			t.Helper()
+			message, err := nativeLeaderGet(ctx, history.js, nativeHistoryBucket, key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			records[key] = retainedNativeRecord{revision: message.Sequence, data: string(message.Data)}
+		}
+		retain(policy.Role)
+		for _, binding := range nativeBindings(&state) {
+			retain(binding.ProfileRecord)
+			wire, err := history.immutable(ctx, binding.ProfileRecord)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var stored nativeStoredProfile
+			if err := protocol.DecodeStrict(wire, &stored, nativeHistoryMaxBytes); err != nil {
+				t.Fatal(err)
+			}
+			for _, refs := range [][]string{stored.Provenance.Spec, stored.Provenance.Manifest, stored.Provenance.Config, stored.Provenance.MaterialChain, stored.Provenance.Identity} {
+				for _, key := range refs {
+					retain(key)
+				}
+			}
+			claim, err := history.deliveries.RetainedArtifactClaim(ctx, binding.Artifact.Digest, policy.Role, identity.Environment)
+			if err != nil {
+				t.Fatal(err)
+			}
+			records["claim."+binding.Artifact.Digest] = retainedNativeRecord{data: string(claim)}
+		}
+		return records
+	}
+	originalNativeEvidence := nativeEvidence()
 	floors := []release.SequenceFloor{legacyFloor}
 	for _, cell := range []string{"sfo", "fra"} {
 		regionalCodec := codec
@@ -619,9 +664,11 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	if writer.writes.Load() != 0 {
 		t.Fatalf("migrated role wrote legacy per-host desired state %d times", writer.writes.Load())
 	}
-	retained, err := history.retainedContainerFloor(ctx, policy.Role, identity.Environment)
-	if err != nil || retained != legacyFloor {
-		t.Fatalf("generic drain/removal changed original native release evidence: %+v %v", retained, err)
+	if _, err := history.retainedContainerFloor(ctx, policy.Role, identity.Environment); err == nil || !strings.Contains(err.Error(), "retained native role is no longer approved") {
+		t.Fatalf("removed role retained current native release authority: %v", err)
+	}
+	if !maps.Equal(originalNativeEvidence, nativeEvidence()) {
+		t.Fatal("generic drain/removal changed original native history, profile, provenance or signed claim")
 	}
 }
 
