@@ -842,6 +842,12 @@ func renewalMemberImage(t *testing.T, client *containerd.Client, environment []s
 				found = true
 				if _, exists := files[path]; !exists {
 					files[path] = path
+					canonical, err := filepath.EvalSymlinks(path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					// Nix ELF lookup also needs the original immutable library destination.
+					files[canonical] = canonical
 					addELF(path)
 				}
 				break
@@ -1897,11 +1903,14 @@ func TestSourceBackupRenewalIntegration(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = transport.Close() })
 	ready := make(chan struct{})
+	// This fixture supplies clock health only; it earns no clock/NTP qualification credit.
+	clock := &testBrokerClock{}
+	clock.healthy.Store(true)
 	agent, err := host.NewAgent(host.AgentConfig{Cell: "gru", Node: state.HostNode, Environment: "production", Roles: registration.Roles,
 		Conn: transport.Conn(), Identity: private, NATSUserPublicKey: nkey, ControllerPublicKey: responsePublic,
 		InstallRoot: testHostInstallRoot(t), StateRoot: testHostStateRoot(t), ManagedRuntimeRoot: material.deployment.ManagedRuntimeRoot,
 		WorkloadIdentity: host.WorkloadIdentity{UID: 65532, GID: 65532}, BakedSystemReserveBytes: state.ManagedHostProfile.SystemReserveBytes,
-		ClockCheck: controllerClockCheck(hostClockProbe()), Initialized: func() { close(ready) }})
+		ClockCheck: controllerClockCheck(clock), Initialized: func() { close(ready) }})
 	if err != nil {
 		t.Fatal(err)
 	}
