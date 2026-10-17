@@ -3,7 +3,6 @@ package natscell
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -16,8 +15,7 @@ import (
 func TestObserveClusterReportsDisabledJetStream(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, Config{Cell: "lab", Instance: "solo", Replicas: 1, Lab: true,
-		Embedded: &Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "solo")}})
+	runtime, err := openTestBroker(t, ctx, productionTestConfig(t, "lab", "solo"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,8 +40,7 @@ func TestObserveClusterReportsDisabledJetStream(t *testing.T) {
 func TestStreamHealthReportsUnreplicatedStreamsOnThisBroker(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, Config{Cell: "lab", Instance: "solo", Replicas: 1, Lab: true,
-		Embedded: &Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "solo")}})
+	runtime, err := openTestBroker(t, ctx, productionTestConfig(t, "lab", "solo"))
 	if err != nil {
 		t.Fatal(err)
 	}
