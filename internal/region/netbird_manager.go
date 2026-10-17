@@ -45,15 +45,16 @@ type NetBirdManagerProfile struct {
 // NetBirdManagerIntent extends the same root-signed foundation footprint. Image
 // and runtime qualification are independent of permission to buy this slot.
 type NetBirdManagerIntent struct {
-	Role                        string                `json:"role"`
-	StoreOrigin                 string                `json:"storeOrigin"`
-	Profile                     NetBirdManagerProfile `json:"profile"`
-	ImageOCID                   string                `json:"imageOcid"`
-	Architecture                string                `json:"architecture"`
-	ImageReceiptWire            []byte                `json:"imageReceiptWire"`
-	ImageDelegationWire         []byte                `json:"imageDelegationWire"`
-	QualificationWire           []byte                `json:"qualificationWire"`
-	QualificationDelegationWire []byte                `json:"qualificationDelegationWire"`
+	Role                        string                          `json:"role"`
+	StoreOrigin                 string                          `json:"storeOrigin"`
+	Profile                     NetBirdManagerProfile           `json:"profile"`
+	ImageOCID                   string                          `json:"imageOcid"`
+	Architecture                string                          `json:"architecture"`
+	ImageReceiptWire            []byte                          `json:"imageReceiptWire"`
+	ImageDelegationWire         []byte                          `json:"imageDelegationWire"`
+	QualificationWire           []byte                          `json:"qualificationWire"`
+	QualificationDelegationWire []byte                          `json:"qualificationDelegationWire"`
+	JournalPurpose              bootstrap.NetBirdJournalPurpose `json:"journalPurpose"`
 }
 
 // NetBirdManagerLaunch is an immutable singleton reservation in the existing
