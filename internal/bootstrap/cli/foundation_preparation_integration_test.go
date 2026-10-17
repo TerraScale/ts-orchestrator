@@ -87,7 +87,13 @@ func TestFoundationPreparationSDKToOfflineCeremony(t *testing.T) {
 			}
 			fmt.Fprint(w, `[{"shape":"VM.Standard.A1.Flex","processorDescription":"Ampere Altra","isFlexible":true,"ocpuOptions":{"min":1,"max":80},"memoryOptions":{"minInGBs":1,"maxInGBs":1024,"minPerOcpuInGBs":1,"maxPerOcpuInGBs":64}},{"shape":"VM.Standard.E4.Flex","processorDescription":"AMD EPYC","isFlexible":true,"ocpuOptions":{"min":1,"max":64},"memoryOptions":{"minInGBs":1,"maxInGBs":1024,"minPerOcpuInGBs":1,"maxPerOcpuInGBs":64}}]`)
 		case strings.HasSuffix(r.URL.Path, "/services"):
-			fmt.Fprint(w, `[{"id":"ocid1.service.oc1..services","cidrBlock":"all-scenario-services-in-oracle-services-network"}]`)
+			region := strings.TrimSuffix(strings.TrimPrefix(r.Host, "iaas."), ".oraclecloud.com")
+			if !catalog.IsOCIRegion(region) {
+				t.Errorf("service request has an unexpected OCI host: %s", r.Host)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			fmt.Fprintf(w, `[{"id":%q,"cidrBlock":"all-scenario-services-in-oracle-services-network"}]`, "ocid1.service.oc1."+region+".services")
 		case r.URL.Path == "/n":
 			fmt.Fprint(w, `"ns"`)
 		case strings.Contains(r.URL.Path, "/o/"):
@@ -214,6 +220,25 @@ func TestFoundationPreparationSDKToOfflineCeremony(t *testing.T) {
 	}
 	if len(prepared.Grant.Regions) != 3 || len(prepared.Grant.InfrastructureSpend.Bootstrap.Slots) != 4 || len(prepared.Grant.WorkerProfiles) != 12 || prepared.Anchor.FoundationScope.GrantSHA256 != "" {
 		t.Fatal("preparation did not preserve unsigned fixed footprint")
+	}
+	publicMembers := map[string]string{"GRU": "gru-1-ctl-1", "SFO": "ts-sfo-1", "FRA": "ts-fra-1"}
+	for _, regional := range prepared.Grant.Regions {
+		cell, _ := regional.Plan["cell"].(string)
+		hosts, _ := regional.Plan["hosts"].([]any)
+		if len(hosts) != 1 {
+			t.Fatalf("%s plan did not retain exactly its funded initial controller", cell)
+		}
+		host, _ := hosts[0].(map[string]any)
+		public, _ := regional.Plan["public_api"].(map[string]any)
+		members, _ := public["terrabase_members"].([]any)
+		if host["slot"] != "controller-a" || host["architecture"] != "arm64" || len(members) != 1 || members[0] != publicMembers[cell] {
+			t.Fatalf("%s public plan differs from its funded ARM controller: host=%v members=%v", cell, host, members)
+		}
+		material := regional.BootstrapMaterial
+		if material == nil || material.Startup == nil || material.SourceRegistration == nil || len(material.Config.Slots) != 3 || len(material.Startup.Profiles) != 3 ||
+			!slices.Equal(material.SourceRegistration.ControllerSlots, []string{"controller-a", "controller-b", "controller-c"}) {
+			t.Fatalf("%s preparation changed the three-controller startup material", cell)
+		}
 	}
 	expectedRepositories := make(map[string]bool, len(approval.ReleaseAuthorities))
 	for _, authority := range approval.ReleaseAuthorities {
