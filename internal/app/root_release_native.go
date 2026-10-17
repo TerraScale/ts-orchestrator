@@ -10,12 +10,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/rootrelease"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 func (o *rootReleaseObservation) nativeRelease(ctx context.Context, role string) (rootoci.NativeReleaseObservation, delivery.ArtifactRecord, error) {
@@ -37,32 +40,18 @@ func (o *rootReleaseObservation) nativeRelease(ctx context.Context, role string)
 	if !found {
 		return result, delivery.ArtifactRecord{}, o.guard(ctx)
 	}
-	policy, err := buildSignerPolicy(o.b.cfg)
+	policy, delegation, err := o.nativeSignerPolicy(ctx, location)
 	if err != nil {
 		return result, delivery.ArtifactRecord{}, err
-	}
-	policy.services = o.registry
-	if err := policy.replaceSigners(o.registry.effectiveSigners(o.registry.current)); err != nil {
-		return result, delivery.ArtifactRecord{}, err
-	}
-	channel, present, err := releasechannel.ReadChannel(ctx, location)
-	if err != nil {
-		return result, delivery.ArtifactRecord{}, err
-	}
-	if present {
-		delegation, key, expires, verifyErr := release.VerifyReleaseDelegationCurrent(channel.Delegation, o.registry.roots.current(), o.source.Identity().Environment, time.Now().UTC())
-		if verifyErr == nil {
-			if err := policy.setReleaseDelegation(delegation, key, expires); err != nil {
-				return result, delivery.ArtifactRecord{}, err
-			}
-			o.capDeadline(expires)
-		}
 	}
 	record, actor, err := policy.codec.VerifyArchivedArtifact(ctx, claim)
 	if err != nil {
 		return result, delivery.ArtifactRecord{}, err
 	}
 	if err := policy.authorizeArtifact(ctx, actor, record); err != nil {
+		return result, delivery.ArtifactRecord{}, err
+	}
+	if err := verifyNativeDelegationWindow(claim, actor, delegation); err != nil {
 		return result, delivery.ArtifactRecord{}, err
 	}
 	if record.Role != role || record.Environment != o.source.Identity().Environment || record.Cell != o.b.cfg.NATS.Cell {
@@ -162,9 +151,8 @@ func (b *rootReleaseChannels) ReconcileNativeServiceStatus(ctx context.Context, 
 		if err := history.verifyProfile(request.Role, binding.Profile, binding.Provenance); err != nil {
 			return rootoci.NativeServiceStatusReceipt{}, err
 		}
-		admitted, err := b.sources.Intents.ResolveAdmittedArtifact(ctx, binding.Artifact.Digest, request.Role, binding.Intent.Environment)
-		if err != nil || !sameRootArtifact(admitted, binding.Artifact) {
-			return rootoci.NativeServiceStatusReceipt{}, errors.Join(rootrelease.ErrPending, err)
+		if err := o.retainedNativeArtifact(ctx, binding); err != nil {
+			return rootoci.NativeServiceStatusReceipt{}, err
 		}
 		receipt, err := b.sources.Intents.StatusFor(ctx, binding.Intent)
 		if err != nil || receipt.Status != "accepted" {
@@ -280,9 +268,8 @@ func (b *rootReleaseChannels) ReconcileNativeServiceStatus(ctx context.Context, 
 			return errors.Join(rootrelease.ErrPending, err)
 		}
 		for _, binding := range bindings {
-			admitted, err := b.sources.Intents.ResolveAdmittedArtifact(ctx, binding.Artifact.Digest, request.Role, binding.Intent.Environment)
-			if err != nil || !sameRootArtifact(admitted, binding.Artifact) {
-				return errors.Join(rootrelease.ErrPending, err)
+			if err := o.retainedNativeArtifact(ctx, binding); err != nil {
+				return err
 			}
 			receipt, err := b.sources.Intents.StatusFor(ctx, binding.Intent)
 			if err != nil || receipt.Status != "accepted" {
@@ -339,4 +326,99 @@ func (o *rootReleaseObservation) nativeProofs(ctx context.Context, intent delive
 		}
 	}
 	return nil, proofErr
+}
+
+func (o *rootReleaseObservation) nativeSignerPolicy(ctx context.Context, location releasechannel.Location) (signerPolicy, *trust.Envelope, error) {
+	policy, err := buildSignerPolicy(o.b.cfg)
+	if err != nil {
+		return policy, nil, err
+	}
+	policy.services = o.registry
+	if err := policy.replaceSigners(o.registry.effectiveSigners(o.registry.current)); err != nil {
+		return policy, nil, err
+	}
+	channel, present, err := releasechannel.ReadChannel(ctx, location)
+	if err != nil {
+		return policy, nil, err
+	}
+	if err := o.pinValue("native-delegation", []byte(channel.Delegation)); err != nil {
+		return policy, nil, err
+	}
+	if !present {
+		return policy, nil, nil
+	}
+	delegation, key, expires, err := release.VerifyReleaseDelegationCurrent(channel.Delegation, o.registry.roots.current(), o.source.Identity().Environment, time.Now().UTC())
+	if err != nil {
+		return policy, nil, nil
+	}
+	if err := policy.setReleaseDelegation(delegation, key, expires); err != nil {
+		return policy, nil, err
+	}
+	envelope, err := trust.DecodeEnvelope(channel.Delegation)
+	if err != nil {
+		return policy, nil, err
+	}
+	o.capDeadline(expires)
+	return policy, &envelope, nil
+}
+
+func verifyNativeDelegationWindow(wire []byte, actor string, delegation *trust.Envelope) error {
+	if !strings.HasPrefix(actor, release.DelegatedReleaseActorPrefix) {
+		return nil
+	}
+	var claim protocol.Envelope
+	if protocol.DecodeStrict(wire, &claim, delivery.MaxArtifactClaimBytes) != nil || delegation == nil || claim.IssuedAt.Before(delegation.IssuedAt) || claim.ExpiresAt.After(delegation.ExpiresAt) {
+		return rootrelease.ErrPending
+	}
+	return nil
+}
+
+// This verifies retained public scope; it grants no current artifact admission.
+func (o *rootReleaseObservation) retainedNativeArtifact(ctx context.Context, binding *nativeReleaseBinding) error {
+	archived, wire, err := o.b.sources.Intents.HistoricalArtifactClaim(ctx, binding.Artifact.Digest, binding.Artifact.Role, binding.Artifact.Environment)
+	if err != nil || !sameRootArtifact(archived, binding.Artifact) {
+		return errors.Join(rootrelease.ErrPending, err)
+	}
+	cfg := o.b.cfg
+	if len(binding.Provenance.Config) != 0 {
+		cfg, err = decodeConfig(binding.Provenance.Config)
+		if err != nil {
+			return err
+		}
+	}
+	registry, err := newSpecRegistry(cfg, "")
+	if err != nil {
+		return err
+	}
+	registry.roots = o.registry.roots
+	if len(binding.Provenance.Spec) != 0 {
+		verified, err := cellspec.VerifyHistorical(binding.Provenance.Spec, o.registry.roots.current(), o.registry.identity)
+		if err != nil {
+			return err
+		}
+		registry.current = verified.Spec
+	}
+	location, err := o.location(ctx)
+	if err != nil {
+		return err
+	}
+	policy, delegation, err := o.nativeSignerPolicy(ctx, location)
+	if err != nil {
+		return err
+	}
+	policy.services = registry
+	if err := policy.replaceSigners(registry.effectiveSigners(registry.current)); err != nil {
+		return err
+	}
+	verified, actor, err := policy.codec.VerifyArchivedArtifact(ctx, wire)
+	if err != nil || !sameRootArtifact(verified, binding.Artifact) {
+		return errors.Join(rootrelease.ErrPending, err)
+	}
+	if err := policy.authorizeArtifact(ctx, actor, verified); err != nil {
+		return err
+	}
+	if err := verifyNativeDelegationWindow(wire, actor, delegation); err != nil {
+		return err
+	}
+	return o.pinValue("artifact/"+binding.Fingerprint, wire)
 }
