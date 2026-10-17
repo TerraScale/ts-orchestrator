@@ -136,6 +136,22 @@ func (d readDispatcher) Do(request *http.Request) (*http.Response, error) {
 			return deny(errors.New("OCI current admission facts expired before dispatch"))
 		}
 	}
+	if guard, ok := request.Context().Value(requestGuardKey{}).(func(context.Context) error); ok {
+		var err error
+		if guard == nil {
+			err = errors.New("OCI request session is unavailable")
+		} else {
+			// Authorization may itself read OCI; those reads must not recurse
+			// into the guard they are currently establishing.
+			err = guard(context.WithValue(request.Context(), requestGuardKey{}, struct{}{}))
+		}
+		if err != nil {
+			if finish != nil {
+				err = errors.Join(err, finish(nil, err, false))
+			}
+			return nil, &readTransportError{err: err, ctx: request.Context()}
+		}
+	}
 	response, err := d.next.Do(request)
 	if finish != nil {
 		if recordErr := finish(response, err, true); recordErr != nil {

@@ -11,6 +11,13 @@ type authorityKey struct{}
 type admissionKey struct{}
 type wireAttemptKey struct{}
 type admissionDeadlineKey struct{}
+type requestGuardKey struct{}
+
+// WithRequestGuard rechecks a root IPC session immediately before every wire
+// attempt, including read retries. It does not confer cloud mutation authority.
+func WithRequestGuard(ctx context.Context, guard func(context.Context) error) context.Context {
+	return context.WithValue(ctx, requestGuardKey{}, guard)
+}
 
 type admissionDeadline struct{ until time.Time }
 
