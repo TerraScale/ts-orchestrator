@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json/v2"
 	"encoding/pem"
@@ -33,14 +34,24 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
 // This fixture crosses the real OCI SDK, public-price HTTP and disk-backed
 // Object Storage CAS; only the remote services and ARM64 binary measurement are fixtures.
 func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
-	store, objects, write := foundationProtocolStore(t)
+	store, objects, writeOriginal := foundationProtocolStore(t)
+	// Retain the original journal fixture while serving the signed home bucket.
+	write := func(name string, wire []byte) {
+		writeOriginal(name, wire)
+		_, err := objects.PutObject(ociclient.RequestContext(t.Context()), objectstorage.PutObjectRequest{NamespaceName: new("ns"), BucketName: new("gru-1-head"), ObjectName: new(name), PutObjectBody: io.NopCloser(bytes.NewReader(wire)), ContentLength: new(int64(len(wire)))})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +62,7 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	}
 	now := time.Now().UTC().Truncate(time.Second)
 	scope := trust.Scope{Domain: foundationGrantDomain, DeploymentID: entityid.New(), Cell: "GRU", Environment: "production", Role: "foundation", Slot: entityid.New()}
-	reader := &SignedFootprint{client: objects, storage: bootstrap.StorageDomain{Namespace: "ns", HeadBucket: "heads", Prefix: "bootstrap"}, scope: scope, expires: now.Add(time.Hour), roots: roots, tenancy: "ocid1.tenancy.oc1..test", home: bootstrap.FoundationScope{InstallationID: entityid.New(), GrantGeneration: 1}}
+	reader := &SignedFootprint{client: objects, storage: bootstrap.StorageDomain{Namespace: "ns", HeadBucket: "gru-1-head", LedgerBucket: "gru-1-ledger", LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledger", HeadKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head", Prefix: "bootstrap"}, scope: scope, expires: now.Add(time.Hour), roots: roots, tenancy: "ocid1.tenancy.oc1..test", home: bootstrap.FoundationScope{InstallationID: entityid.New(), GrantGeneration: 1}}
 	sign := func(value any, scope trust.Scope, key ed25519.PrivateKey) []byte {
 		t.Helper()
 		payload, err := trust.EncodePayload(value)
@@ -105,6 +116,15 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	const networkCompartment = "ocid1.compartment.oc1..network"
 	plan := map[string]any{"cell": "GRU", "region": foundationHomeRegion, "tenancy_id": reader.tenancy, "parent_compartment_id": "ocid1.compartment.oc1..parent", "shared_compartment_id": "ocid1.compartment.oc1..shared", "network_cidr": "10.251.0.0/24", "subnet_cidr": "10.251.0.0/25", "resource_ids": map[string]any{"control_compartment": control, "network_compartment": networkCompartment, "workload_compartment": "ocid1.compartment.oc1..workload", "vault": "ocid1.vault.oc1.sa-saopaulo-1.owned", "key": "ocid1.key.oc1.sa-saopaulo-1.owned"}}
 	grant := FoundationGrant{InstallationID: reader.home.InstallationID, SchemaVersion: 1, Generation: 1, TenancyID: reader.tenancy, ParentCompartmentID: plan["parent_compartment_id"].(string), SharedCompartmentID: plan["shared_compartment_id"].(string), Currency: "USD", MonthlyLimitMinor: 10000, CleanupOwner: "integration", Regions: []FoundationIntent{{Generation: 1, Plan: plan, NetBirdManager: &manager}}}
+	components := netBirdComponentFixtures(t, private, roots, reader.storage, objects, now, sign, write)
+	for _, component := range components {
+		grant.ReleaseAuthorities = append(grant.ReleaseAuthorities, component.authority)
+		principal, email, secret, err := OCIRServiceIdentity(grant.InstallationID, component.authority.ImageRepository)
+		if err != nil {
+			t.Fatal(err)
+		}
+		grant.OCIRIssuances = append(grant.OCIRIssuances, OCIRIssuerIntent{OCIRegion: foundationHomeRegion, RegistryHost: "gru.ocir.io", RepositoryCompartmentID: control, RepositoryName: component.claim.Role, RegistryNamespace: "ns", PrincipalName: principal, PrincipalEmail: email, VaultTarget: vaultsecret.Target{CompartmentID: control, VaultID: "ocid1.vault.oc1.sa-saopaulo-1.owned", KeyID: "ocid1.key.oc1.sa-saopaulo-1.owned"}, SecretName: secret})
+	}
 	profileSHA, err := NetBirdManagerProfileDigest(manager.Profile)
 	if err != nil {
 		t.Fatal(err)
@@ -137,6 +157,16 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	var mu sync.Mutex
+	blockedObjects := map[string]bool{}
+	channelOverrides := map[string][]byte{}
+	channelReads := map[string]int{}
+	var replaceChannel string
+	var replacement []byte
+	secretVersions := map[string]int64{}
+	for _, issuer := range grant.OCIRIssuances {
+		secretVersions[issuer.SecretName] = 1
+	}
+	componentReads, componentWrites := 0, 0
 	live := map[string]map[string]any{}
 	tokens := map[string]string{}
 	creates, launches, launchPosts := 0, 0, 0
@@ -169,6 +199,57 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 		if r.Header.Get("Authorization") == "" {
 			t.Error("unsigned manager OCI operation")
 			w.WriteHeader(401)
+			return
+		}
+		if name, ok := strings.CutPrefix(r.URL.Path, "/n/ns/b/gru-1-head/o/"); ok {
+			if r.Method != http.MethodGet {
+				componentWrites++
+				http.Error(w, "receiver attempted object mutation", 405)
+				return
+			}
+			componentReads++
+			channelReads[name]++
+			if blockedObjects[name] {
+				http.Error(w, `{"code":"ObjectNotFound","message":"absent"}`, 404)
+				return
+			}
+			if name == replaceChannel && channelReads[name] > 1 {
+				w.Header().Set("ETag", digest(replacement))
+				w.Write(replacement)
+				return
+			}
+			if wire, ok := channelOverrides[name]; ok {
+				w.Header().Set("ETag", digest(wire))
+				w.Write(wire)
+				return
+			}
+			response, err := objects.GetObject(ociclient.RequestContext(r.Context()), objectstorage.GetObjectRequest{NamespaceName: new("ns"), BucketName: new("gru-1-head"), ObjectName: new(name)})
+			if err != nil {
+				http.Error(w, `{"code":"ObjectNotFound","message":"absent"}`, 404)
+				return
+			}
+			defer response.Content.Close()
+			if response.ETag != nil {
+				w.Header().Set("ETag", *response.ETag)
+			}
+			io.Copy(w, response.Content)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/secretbundles/actions/getByName") {
+			componentReads++
+			name := r.URL.Query().Get("secretName")
+			version := secretVersions[name]
+			if r.Method != http.MethodPost || r.URL.Query().Get("stage") != "CURRENT" || r.URL.Query().Get("vaultId") != "ocid1.vault.oc1.sa-saopaulo-1.owned" || version == 0 {
+				http.Error(w, `{"code":"NotAuthorizedOrNotFound","message":"absent"}`, 404)
+				return
+			}
+			value, err := json.Marshal(map[string]string{"username": "ns/fixture-ocir", "password": "fixture-only-issued-token"})
+			if err != nil {
+				t.Error(err)
+				w.WriteHeader(500)
+				return
+			}
+			json.MarshalWrite(w, map[string]any{"secretId": "ocid1.vaultsecret.oc1.sa-saopaulo-1." + strings.ReplaceAll(name, "-", ""), "versionNumber": version, "secretBundleContent": map[string]string{"contentType": "BASE64", "content": base64.StdEncoding.EncodeToString(value)}})
 			return
 		}
 		path := strings.TrimPrefix(r.URL.Path, "/20160918/")
@@ -325,6 +406,7 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	reader.factory = factory
 	resume := func() (*foundationAttempt, FoundationProgress) {
 		saved, etag, err := store.Load(t.Context(), "GRU")
 		if err != nil {
@@ -441,6 +523,156 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	if claim.RecoveryRequired() {
 		t.Fatal("new explicitly funded store required restore")
 	}
+	beforeMaterial, beforeETag, err := reopened.Load(t.Context(), "GRU")
+	if err != nil {
+		t.Fatal(err)
+	}
+	material, err := ReadNetBirdComponents(t.Context(), factory, resolver, claim)
+	if err != nil {
+		t.Fatalf("actual admitted manager failed signed component material: %v", err)
+	}
+	for _, role := range netBirdComponentRoles() {
+		component, err := material.Component(t.Context(), role)
+		if err != nil || component.Role() != role || component.Release().Claim().Role != role || component.PullClaim().Version != 1 ||
+			component.PullClaim().Scope.TaskPrincipal != entityid.Derive("netbird-component", claim.StoreGeneration(), role) {
+			t.Fatalf("incomplete exact component metadata for %s: %v", role, err)
+		}
+		wire, err := json.Marshal(component.PullClaim())
+		if err != nil || bytes.Contains(wire, []byte("fixture-only-issued-token")) || bytes.Contains(wire, []byte("fixture-ocir")) {
+			t.Fatal("component material exposed credential bytes")
+		}
+	}
+	if _, err := material.Component(t.Context(), "terrabase"); err == nil {
+		t.Fatal("dedicated material admitted an arbitrary role")
+	}
+	if err := (NetBirdComponents{}).Check(t.Context()); err == nil {
+		t.Fatal("zero component material retained authority")
+	}
+	if _, err := ReadNetBirdComponents(t.Context(), factory, resolver, VerifiedNetBirdManager{}); err == nil {
+		t.Fatal("missing manager proof obtained component material")
+	}
+	first := components[0]
+	channelName := releasechannel.ContainerReleaseObject(first.claim.Role, "arm64")
+	for _, name := range []string{channelName, releasechannel.ContainerReleaseObject(components[1].claim.Role, "arm64"), releasechannel.ContainerReleaseObject(components[2].claim.Role, "arm64"), first.evidence[0], release.SequenceReservationObject(first.claim.Role, "production", first.claim.SequenceMigrationSHA256, first.claim.ReleaseSequence)} {
+		mu.Lock()
+		blockedObjects[name] = true
+		mu.Unlock()
+		if _, err := ReadNetBirdComponents(t.Context(), factory, resolver, claim); err == nil {
+			t.Fatalf("missing authenticated component object %s was accepted", name)
+		}
+		mu.Lock()
+		delete(blockedObjects, name)
+		mu.Unlock()
+	}
+	for _, fault := range []string{"cell", "role", "architecture", "environment", "repository", "source", "expired", "delegation", "migration"} {
+		broken := first.bundle
+		changed := first.claim
+		switch fault {
+		case "cell":
+			changed.Cell = "SFO"
+		case "role":
+			changed.Role = "terrabase"
+		case "architecture":
+			changed.Architecture = "amd64"
+		case "environment":
+			changed.Environment = "staging"
+		case "repository":
+			changed.Image = "gru.ocir.io/ns/unapproved@sha256:" + strings.Repeat("a", 64)
+		case "source":
+			changed.SourceRepository = "https://github.com/TerraScale/unapproved"
+		case "delegation":
+			broken.Delegation = components[1].bundle.Delegation
+		case "migration":
+			broken.Migration = components[1].bundle.Migration
+		}
+		if fault == "expired" {
+			payload, err := trust.EncodePayload(changed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			expired, err := trust.Sign(payload, release.ContainerScope(release.ContainerTarget{Cell: changed.Cell, Role: changed.Role, Environment: changed.Environment, Architecture: changed.Architecture}), now.Add(-2*time.Hour), now.Add(-time.Hour), first.signer)
+			if err != nil {
+				t.Fatal(err)
+			}
+			broken.Claim, err = trust.EncodeEnvelope(expired)
+			if err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			broken.Claim = sign(changed, release.ContainerScope(release.ContainerTarget{Cell: changed.Cell, Role: changed.Role, Environment: changed.Environment, Architecture: changed.Architecture}), first.signer)
+		}
+		wire, err := json.Marshal(broken)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mu.Lock()
+		channelOverrides[channelName] = wire
+		mu.Unlock()
+		if _, err := ReadNetBirdComponents(t.Context(), factory, resolver, claim); err == nil {
+			t.Fatalf("signed component %s mismatch was accepted", fault)
+		}
+		mu.Lock()
+		delete(channelOverrides, channelName)
+		mu.Unlock()
+	}
+	// Replace an otherwise valid channel between its original and final read.
+	alternate := first.bundle
+	alternate.Claim = sign(first.claim, release.ContainerScope(release.ContainerTarget{Cell: "GRU", Role: first.claim.Role, Environment: "production", Architecture: "arm64"}), first.signer)
+	alternate.Index = []byte("changed retained index")
+	changedWire, err := json.Marshal(alternate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	clear(channelReads)
+	replaceChannel, replacement = channelName, changedWire
+	mu.Unlock()
+	if _, err := ReadNetBirdComponents(t.Context(), factory, resolver, claim); err == nil {
+		t.Fatal("channel replaced during verification retained component material")
+	}
+	mu.Lock()
+	replaceChannel, replacement = "", nil
+	issuerName := grant.OCIRIssuances[0].SecretName
+	secretVersions[issuerName] = 0
+	mu.Unlock()
+	if _, err := ReadNetBirdComponents(t.Context(), factory, resolver, claim); err == nil {
+		t.Fatal("missing CURRENT credential returned component material")
+	}
+	mu.Lock()
+	secretVersions[issuerName] = 1
+	mu.Unlock()
+	rotationMaterial, err := ReadNetBirdComponents(t.Context(), factory, resolver, claim)
+	if err != nil {
+		t.Fatalf("fresh CURRENT material before rotation: %v", err)
+	}
+	mu.Lock()
+	secretVersions[issuerName] = 2
+	mu.Unlock()
+	if err := rotationMaterial.Check(t.Context()); err == nil {
+		t.Fatal("rotated CURRENT credential retained original component metadata")
+	}
+	mu.Lock()
+	secretVersions[issuerName] = 1
+	mu.Unlock()
+	sourceMaterial, err := ReadNetBirdComponents(t.Context(), factory, resolver, claim)
+	if err != nil {
+		t.Fatalf("fresh signed source material before replacement: %v", err)
+	}
+	issuers := grant.OCIRIssuances
+	grant.OCIRIssuances = grant.OCIRIssuances[1:]
+	publish()
+	if _, err := ReadNetBirdComponents(t.Context(), factory, resolver, claim); err == nil {
+		t.Fatal("missing same-grant OCIR issuer returned component material")
+	}
+	if err := sourceMaterial.Check(t.Context()); err == nil {
+		t.Fatal("replaced foundation source retained original component material")
+	}
+	grant.OCIRIssuances = issuers
+	publish()
+	afterMaterial, afterETag, err := reopened.Load(t.Context(), "GRU")
+	if err != nil || beforeETag != afterETag || !sameCapacityValue(beforeMaterial, afterMaterial) || componentWrites != 0 || componentReads == 0 || creates != 6 || launchPosts != 2 {
+		t.Fatalf("component reads mutated journal/cloud or bypassed actual protocol: %v", err)
+	}
 	mu.Lock()
 	observedImage += "OTHER"
 	mu.Unlock()
@@ -476,6 +708,16 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	restarted, err = admit()
 	if err != nil || !restarted.RecoveryRequired() || restarted.StoreGeneration() != claim.StoreGeneration() {
 		t.Fatalf("ready store identity was reset: %+v %v", restarted, err)
+	}
+	restartedMaterial, err := ReadNetBirdComponents(t.Context(), factory, resolver, restarted)
+	if err != nil {
+		t.Fatalf("restarted actual manager lost signed component material: %v", err)
+	}
+	for _, role := range netBirdComponentRoles() {
+		component, err := restartedMaterial.Component(t.Context(), role)
+		if err != nil || component.PullClaim().Scope.TaskPrincipal != entityid.Derive("netbird-component", claim.StoreGeneration(), role) {
+			t.Fatalf("unchanged store restart reset component principal: %s %v", role, err)
+		}
 	}
 	saved, _, err = reopened.Load(t.Context(), "GRU")
 	if err != nil || !sameCapacityValue(saved.NetBirdManager.OriginalQuote, &originalQuote) {
@@ -533,10 +775,103 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	}
 	grant.Regions[0].NetBirdManager = nil
 	publish()
+	if err := restartedMaterial.Check(t.Context()); err == nil {
+		t.Fatal("revoked actual manager retained component material")
+	}
 	if err := claim.Check(t.Context()); err == nil {
 		t.Fatal("revoked same-grant manager role retained secret/process authority")
 	}
 	if err := claim.MarkStoreReady(t.Context()); err == nil {
 		t.Fatal("revoked manager mutated store journal")
 	}
+}
+
+type netBirdComponentFixture struct {
+	authority ContainerReleaseAuthorityIntent
+	claim     release.ContainerClaim
+	bundle    release.ContainerBundle
+	signer    ed25519.PrivateKey
+	evidence  []string
+}
+
+func netBirdComponentFixtures(t *testing.T, root ed25519.PrivateKey, roots trust.Keyring, home bootstrap.StorageDomain, objects FoundationObjects, now time.Time,
+	sign func(any, trust.Scope, ed25519.PrivateKey) []byte, write func(string, []byte),
+) []netBirdComponentFixture {
+	t.Helper()
+	var result []netBirdComponentFixture
+	allocations := release.SequenceLocation{Client: objects, Namespace: home.Namespace, Bucket: home.HeadBucket}
+	for _, role := range netBirdComponentRoles() {
+		public, signer, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		keyID, err := trust.KeyID(public)
+		if err != nil {
+			t.Fatal(err)
+		}
+		keyWire, err := trust.EncodeDelegatedPublicKey(public)
+		if err != nil {
+			t.Fatal(err)
+		}
+		target := release.ContainerTarget{Cell: "GRU", Role: role, Environment: "production", Architecture: "arm64"}
+		scope := release.ContainerScope(target)
+		delegation, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: keyWire, Capabilities: []trust.Capability{{Domain: scope.Domain, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: scope.Environment, Role: scope.Role, Slots: []string{scope.Slot}, Actions: []string{"sign"}}}}, now.Add(-time.Minute), now.Add(time.Hour), root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		delegationWire, err := trust.EncodeEnvelope(delegation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		migration := release.SequenceMigration{Namespace: home.Namespace, Bucket: home.HeadBucket, Region: "GRU", Schema: release.SequenceMigrationSchema, SignerKeyID: keyID, SignerPublicKey: keyWire, Role: role, Environment: "production", SequenceFloor: 100}
+		for _, cell := range []string{"GRU", "SFO", "FRA"} {
+			migration.Regions = append(migration.Regions, release.SequenceFloor{Cell: cell, RunNumber: 100, EvidenceSHA256: strings.Repeat("1", 64)})
+		}
+		migrationEnvelope, err := release.SignSequenceMigration(migration, now.Add(-time.Minute), root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		migrationWire, err := trust.EncodeEnvelope(migrationEnvelope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		migrationSHA, err := trust.Fingerprint(migrationEnvelope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := allocations.ImportMigration(t.Context(), migrationEnvelope, roots, role, "production", now); err != nil {
+			t.Fatal(err)
+		}
+		claim := release.ContainerClaim{Schema: release.ContainerClaimSchema, Image: "gru.ocir.io/ns/" + role + "@sha256:" + strings.Repeat("a", 64), SourceRepository: "https://github.com/TerraScale/" + role, SourceRevision: strings.Repeat("b", 40), SourceTreeSHA256: strings.Repeat("c", 64), Cell: "GRU", Environment: "production", Role: role, Architecture: "arm64", SequenceMigrationSHA256: migrationSHA, QualificationSHA256: strings.Repeat("a", 64)}
+		family, err := claim.WorkerFamilyDigest()
+		if err != nil {
+			t.Fatal(err)
+		}
+		sequence, familyWire, err := allocations.AllocateWithEvidence(t.Context(), release.SequenceIdentity{Role: role, Environment: "production", SourceRevision: claim.SourceRevision, ManifestSHA256: family}, roots, signer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		claim.ReleaseSequence = sequence
+		qualification := release.ProductionQualification{Schema: release.ProductionQualificationSchema, Candidate: release.ProductionExpectation{SourceRevision: claim.SourceRevision, ArtifactSHA256: strings.Repeat("a", 64), QualificationSHA256: claim.QualificationSHA256, Cell: "GRU", Environment: "production", Runtime: release.ProductionRuntime, Architecture: "arm64", Role: role}}
+		var evidence []string
+		for _, gate := range []string{"runtime-ha", "workload-safety"} {
+			wire := []byte("test-only retained " + role + " " + gate)
+			sum := sha256.Sum256(wire)
+			digest := hex.EncodeToString(sum[:])
+			name := releasechannel.ContainerEvidenceObject(role, digest)
+			evidence = append(evidence, name)
+			write(name, wire)
+			qualification.Evidence = append(qualification.Evidence, release.ProductionGateEvidence{Gate: gate, SHA256: digest, Bytes: int64(len(wire)), CompletedAt: now.Add(-2 * time.Minute)})
+		}
+		claim.Production = release.ProductionProof{Qualification: sign(qualification, release.ProductionQualificationScope(qualification.Candidate), root)}
+		bundle := release.ContainerBundle{Claim: sign(claim, scope, signer), Delegation: delegationWire, Migration: migrationWire, Sequence: familyWire}
+		location := releasechannel.Location{Client: objects, Namespace: home.Namespace, Bucket: home.HeadBucket}
+		if err := releasechannel.PublishContainer(t.Context(), location, bundle, roots, target, now, now.Add(time.Minute), func(ctx context.Context, digest string) (io.ReadCloser, error) {
+			return releasechannel.ReadContainerEvidence(ctx, location, role, digest)
+		}, allocations); err != nil {
+			t.Fatal(err)
+		}
+		result = append(result, netBirdComponentFixture{authority: ContainerReleaseAuthorityIntent{Role: role, Environment: "production", Cells: []string{"GRU"}, Architectures: []string{"arm64"}, ImageRepository: "gru.ocir.io/ns/" + role, SourceRepository: claim.SourceRepository, DelegationWire: delegationWire, SequenceMigrationWire: migrationWire}, claim: claim, bundle: bundle, signer: signer, evidence: evidence})
+	}
+	return result
 }
