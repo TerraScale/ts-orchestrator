@@ -175,6 +175,9 @@ func TestProductionJWTBridgeClosedApplyOpenAndFence(t *testing.T) {
 			if timeout, ok := errors.AsType[net.Error](err); ok && timeout.Timeout() {
 				t.Fatal("privileged repeated CONNECT was not rejected before the protocol deadline")
 			}
+			if ctx.Err() != nil || !r.Bridge().Status().Open {
+				t.Fatal("privileged repeated CONNECT ended after its context or public gate expired")
+			}
 			if err != nil {
 				if !errors.Is(err, io.EOF) {
 					t.Fatalf("privileged repeated CONNECT failed without a native rejection: %v", err)
