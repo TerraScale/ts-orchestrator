@@ -82,7 +82,7 @@ func (c *edgeTestManager) GetNode(ctx context.Context, r *api.GetNodeRequest, _ 
 func (c *edgeTestManager) ListNodes(context.Context, *api.ListNodesRequest, ...grpc.CallOption) (*api.ListNodesResponse, error) {
 	response := &api.ListNodesResponse{}
 	for _, name := range c.nodeNames() {
-		response.Nodes = append(response.Nodes, &api.Node{ID: name, Role: api.NodeRoleManager, Spec: api.NodeSpec{Annotations: api.Annotations{Name: name, Labels: map[string]string{swarmruntime.LabelRegion: "sa-saopaulo-1"}}, Membership: api.NodeMembershipAccepted, Availability: api.NodeAvailabilityActive}, Status: api.NodeStatus{State: api.NodeStatus_READY}, ManagerStatus: &api.ManagerStatus{Leader: name == c.nodeNames()[0]}})
+		response.Nodes = append(response.Nodes, &api.Node{ID: name, Role: api.NodeRoleManager, Spec: api.NodeSpec{Annotations: api.Annotations{Name: name, Labels: map[string]string{swarmruntime.LabelRegion: "sa-saopaulo-1"}}, Membership: api.NodeMembershipAccepted, DesiredRole: api.NodeRoleManager, Availability: api.NodeAvailabilityActive}, Status: api.NodeStatus{State: api.NodeStatus_READY}, ManagerStatus: &api.ManagerStatus{Leader: name == c.nodeNames()[0]}})
 	}
 	return response, nil
 }
