@@ -66,7 +66,6 @@ func (r *capacityReservations) applyPool(ctx context.Context, source string, req
 			return nil, rootoci.ErrInvalid
 		}
 		retirement := *request.Retirement
-		retirement.Child.Epoch = epoch
 		view, err := client.RetirePoolChild(ctx, retirement)
 		if err != nil {
 			return nil, err
