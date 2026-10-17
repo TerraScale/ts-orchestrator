@@ -167,38 +167,53 @@ func OpenKVStore(ctx context.Context, js jetstream.JetStream, replicas int) (*KV
 	if js == nil || replicas < 1 || replicas > 5 {
 		return nil, errors.New("OCI resource store requires JetStream and one to five replicas")
 	}
-	open := func(bucket, description string, history uint8) (jetstream.KeyValue, error) {
-		kv, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: bucket, Description: description,
-			MaxValueSize: maxRecordBytes, History: history, Storage: jetstream.FileStorage, Replicas: replicas, Compression: true})
-		if err == nil {
-			return kv, nil
-		}
-		if !errors.Is(err, jetstream.ErrBucketExists) {
-			return nil, fmt.Errorf("create %s bucket: %w", bucket, err)
-		}
-		kv, err = js.KeyValue(ctx, bucket)
-		if err != nil {
-			return nil, fmt.Errorf("open %s bucket: %w", bucket, err)
-		}
-		status, err := kv.Status(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("inspect %s bucket: %w", bucket, err)
-		}
-		config := status.Config()
-		if config.Replicas != replicas || config.Storage != jetstream.FileStorage || config.MaxValueSize > maxRecordBytes {
-			return nil, fmt.Errorf("existing %s bucket has incompatible durability limits", bucket)
-		}
-		return kv, nil
-	}
-	desired, err := open(desiredBucket, "Desired OCI regional resource specs", 5)
+
+	desired, err := openBucket(ctx, js, replicas, desiredBucket, "Desired OCI regional resource specs", 5)
 	if err != nil {
 		return nil, err
 	}
-	observed, err := open(observedBucket, "Last observed OCI regional resource state and drift", 1)
+	observed, err := openBucket(ctx, js, replicas, observedBucket, "Last observed OCI regional resource state and drift", 1)
 	if err != nil {
 		return nil, err
 	}
 	return &KVStore{desired: desired, observed: observed}, nil
+}
+
+func openBucket(ctx context.Context, js jetstream.JetStream, replicas int, bucket, description string, history uint8) (jetstream.KeyValue, error) {
+	kv, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: bucket, Description: description,
+		MaxValueSize: maxRecordBytes, History: history, Storage: jetstream.FileStorage, Replicas: replicas, Compression: true})
+	if err == nil {
+		return kv, nil
+	}
+	if !errors.Is(err, jetstream.ErrBucketExists) {
+		return nil, fmt.Errorf("create %s bucket: %w", bucket, err)
+	}
+	kv, err = js.KeyValue(ctx, bucket)
+	if err != nil {
+		return nil, fmt.Errorf("open %s bucket: %w", bucket, err)
+	}
+	status, err := kv.Status(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("inspect %s bucket: %w", bucket, err)
+	}
+	config := status.Config()
+	if config.Replicas != replicas || config.Storage != jetstream.FileStorage || config.MaxValueSize > maxRecordBytes {
+		return nil, fmt.Errorf("existing %s bucket has incompatible durability limits", bucket)
+	}
+	return kv, nil
+}
+
+// OpenObservationStore opens only disposable observations; desired and original
+// mutation history belong to the protected foundation object.
+func OpenObservationStore(ctx context.Context, js jetstream.JetStream, replicas int) (*KVStore, error) {
+	if js == nil || replicas < 1 || replicas > 5 {
+		return nil, errors.New("OCI observations require regional JetStream durability")
+	}
+	observed, err := openBucket(ctx, js, replicas, observedBucket, "Last observed OCI regional resource state and drift", 1)
+	if err != nil {
+		return nil, err
+	}
+	return &KVStore{observed: observed}, nil
 }
 
 // NewKVStore wraps existing buckets.
@@ -330,7 +345,7 @@ func (s *KVStore) SaveOperation(ctx context.Context, desired Desired, epoch uint
 	if desired.Revision == 0 {
 		return Desired{}, ErrConflict
 	}
-	desired, err := operationRecord(desired, epoch, now, complete)
+	desired, err := OperationRecord(desired, epoch, now, complete)
 	if err != nil {
 		return Desired{}, err
 	}
@@ -346,7 +361,9 @@ func (s *KVStore) SaveOperation(ctx context.Context, desired Desired, epoch uint
 	return desired, nil
 }
 
-func operationRecord(desired Desired, epoch uint64, now time.Time, complete bool) (Desired, error) {
+// OperationRecord preserves an unfinished convergence's original identity and
+// work requests. A store must durably CAS the returned record before effects.
+func OperationRecord(desired Desired, epoch uint64, now time.Time, complete bool) (Desired, error) {
 	if epoch == 0 || now.IsZero() {
 		return Desired{}, errors.New("OCI operation requires an authority epoch and timestamp")
 	}

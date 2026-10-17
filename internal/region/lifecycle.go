@@ -16,6 +16,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 )
 
 const foundationLease = 45 * time.Second
@@ -145,6 +146,7 @@ type FoundationRecord struct {
 	SourcePolicyIDs     map[string]SourcePolicyRecord           `json:"sourcePolicyIds,omitempty"`
 	NetBirdManager      *NetBirdManagerLaunch                   `json:"netbirdManager,omitempty"`
 	WorkerPolicyIDs     map[string]WorkerPolicyRecord           `json:"workerPolicyIds,omitempty"`
+	OCIResources        *ociresource.ProtectedJournal           `json:"ociResources,omitempty"`
 }
 
 // FoundationStore uses conditional writes in an already-authorized durable home
