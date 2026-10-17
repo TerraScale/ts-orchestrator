@@ -48,7 +48,8 @@ func (client *Client) PreparePoolRetirement(ctx context.Context, request PoolRet
 func validPoolRetirementPreparation(response PoolRetirementPreparation, request PoolRetirementSelector) bool {
 	retirement := response.Retirement
 	child := retirement.Child
-	return validPoolChild(child) && child.Cell == request.Cell && retirement.InstanceID == request.InstanceID &&
+	return validDigest(response.CurrentGrantSHA256) && response.CurrentGeneration > 0 &&
+		validPoolChild(child) && child.Cell == request.Cell && retirement.InstanceID == request.InstanceID &&
 		entityid.Valid(child.OperationID) && child.OperationID == child.ReservationID && validSelector(child.PoolID) && validSelector(child.ConfigurationID) &&
 		retirement.RemovalOperationID == "" && retirement.DrainSHA256 == "" && naming.IsNode(response.Node, request.Cell)
 }
