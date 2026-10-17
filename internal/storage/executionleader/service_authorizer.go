@@ -31,8 +31,8 @@ type ServiceAuthorizerConfig struct {
 	Members           placement.MemberPinReader
 	Delivery          *delivery.Service
 	Roots             trust.Keyring
-	Evidence          func(context.Context, string) (io.ReadCloser, error)
-	Allocations       execution.ContainerAllocationResolver
+	Evidence          EvidenceReader
+	Allocations       AllocationResolver
 	Profile           func(context.Context, delivery.Intent) error
 	Guard             func(context.Context, uint64) error
 	Cell, Environment string
@@ -150,12 +150,15 @@ func (a *ServiceAuthorizer) AuthorizeStatefulService(ctx context.Context, reques
 		return err
 	}
 	target := release.ContainerTarget{Cell: strings.ToUpper(c.Cell), Environment: c.Environment, Role: "terrabase", Architecture: claim.Architecture}
-	allocations, err := c.Allocations(ctx, *intent.Container, c.Roots, target)
+	allocations, err := c.Allocations(ctx, intent.OperationID, *intent.Container, c.Roots, target)
 	if err != nil {
 		return err
 	}
+	open := func(ctx context.Context, digest string) (io.ReadCloser, error) {
+		return c.Evidence(ctx, intent.OperationID, digest)
+	}
 	now := time.Now().UTC()
-	qualified, err := execution.VerifyStatefulDeclared(ctx, *intent.Container, c.Roots, target, now, now.Add(15*time.Second), c.Evidence, allocations)
+	qualified, err := execution.VerifyStatefulDeclared(ctx, *intent.Container, c.Roots, target, now, now.Add(15*time.Second), open, allocations)
 	if err != nil {
 		return err
 	}
@@ -165,7 +168,7 @@ func (a *ServiceAuthorizer) AuthorizeStatefulService(ctx context.Context, reques
 		data.FileSystemType != manifest.FileSystemType {
 		return execution.ErrUnsafe
 	}
-	uid, gid, err := qualifiedUser(ctx, *intent.Container, c.Roots, target, c.Evidence, allocations)
+	uid, gid, err := qualifiedUser(ctx, *intent.Container, c.Roots, target, open, allocations)
 	if err != nil {
 		return err
 	}

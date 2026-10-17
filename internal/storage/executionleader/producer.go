@@ -30,6 +30,12 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 )
 
+// EvidenceReader reads only evidence retained by the exact delivery operation.
+type EvidenceReader func(context.Context, string, string) (io.ReadCloser, error)
+
+// AllocationResolver reads the exact signed reservation retained by one operation.
+type AllocationResolver func(context.Context, string, release.ContainerBundle, trust.Keyring, release.ContainerTarget) (release.SequenceLocation, error)
+
 type Producer struct {
 	control           api.ControlClient
 	authority         *authority.Runtime
@@ -37,12 +43,12 @@ type Producer struct {
 	releases          *delivery.Service
 	volumes           *oci.VolumeMountObserver
 	roots             trust.Keyring
-	evidence          func(context.Context, string) (io.ReadCloser, error)
-	allocations       execution.ContainerAllocationResolver
+	evidence          EvidenceReader
+	allocations       AllocationResolver
 	cell, environment string
 }
 
-func NewProducer(control api.ControlClient, fence *authority.Runtime, members placement.Store, releases *delivery.Service, volumes *oci.VolumeMountObserver, roots trust.Keyring, evidence func(context.Context, string) (io.ReadCloser, error), cell, environment string, allocations execution.ContainerAllocationResolver) (*Producer, error) {
+func NewProducer(control api.ControlClient, fence *authority.Runtime, members placement.Store, releases *delivery.Service, volumes *oci.VolumeMountObserver, roots trust.Keyring, evidence EvidenceReader, cell, environment string, allocations AllocationResolver) (*Producer, error) {
 	if allocations == nil || control == nil || fence == nil || members == nil || releases == nil || volumes == nil || len(roots) == 0 || evidence == nil || !release.ValidRegion(strings.ToUpper(cell)) || cell != strings.ToLower(cell) || environment == "" {
 		return nil, execution.ErrUnsafe
 	}
@@ -53,8 +59,10 @@ func NewProducer(control api.ControlClient, fence *authority.Runtime, members pl
 	return &Producer{control: control, authority: fence, members: members, releases: releases, volumes: volumes, roots: keys, evidence: evidence, allocations: allocations, cell: cell, environment: environment}, nil
 }
 
-func (p *Producer) open(ctx context.Context, digest string) (io.ReadCloser, error) {
-	return p.evidence(ctx, digest)
+func (p *Producer) open(operationID string) func(context.Context, string) (io.ReadCloser, error) {
+	return func(ctx context.Context, digest string) (io.ReadCloser, error) {
+		return p.evidence(ctx, operationID, digest)
+	}
 }
 
 // Resolve uses labels only to locate records; every value is checked against
@@ -186,15 +194,15 @@ func (p *Producer) Resolve(ctx context.Context, requested *api.Task, caller host
 		return executionwire.WorkerGrantMaterial{}, err
 	}
 	target := release.ContainerTarget{Cell: strings.ToUpper(p.cell), Environment: p.environment, Role: "terrabase", Architecture: claim.Architecture}
-	currentAllocations, err := p.allocations(ctx, *deployment.Container, p.roots, target)
+	currentAllocations, err := p.allocations(ctx, deployment.OperationID, *deployment.Container, p.roots, target)
 	if err != nil {
 		return executionwire.WorkerGrantMaterial{}, err
 	}
-	verified, err := release.VerifyContainerCurrent(ctx, *deployment.Container, p.roots, target, time.Now().UTC(), caller.ExpiresAt(), p.open, currentAllocations)
+	verified, err := release.VerifyContainerCurrent(ctx, *deployment.Container, p.roots, target, time.Now().UTC(), caller.ExpiresAt(), p.open(deployment.OperationID), currentAllocations)
 	if err != nil {
 		return executionwire.WorkerGrantMaterial{}, err
 	}
-	uid, gid, err := qualifiedUser(ctx, *deployment.Container, p.roots, target, p.open, currentAllocations)
+	uid, gid, err := qualifiedUser(ctx, *deployment.Container, p.roots, target, p.open(deployment.OperationID), currentAllocations)
 	if err != nil {
 		return executionwire.WorkerGrantMaterial{}, err
 	}
@@ -211,14 +219,14 @@ func (p *Producer) Resolve(ctx context.Context, requested *api.Task, caller host
 		return executionwire.WorkerGrantMaterial{}, execution.ErrUnsafe
 	}
 	retained := executionwire.RetainedData{DatabaseID: scope.DatabaseID, PartitionID: scope.PartitionID, VolumeID: state.VolumeID, FileSystemUUID: manifest.FileSystemUUID, FileSystemType: manifest.FileSystemType, SourceArtifactSHA256: manifest.ArtifactDigest, SourceTreeSHA256: manifest.SourceDigest}
-	previous, retained, err := p.previousWriter(ctx, scope, retained, task.ID, *deployment.Container, target, caller.ExpiresAt())
+	previous, retained, err := p.previousWriter(ctx, scope, retained, task.ID, deployment.OperationID, *deployment.Container, target, caller.ExpiresAt())
 	if err != nil {
 		return executionwire.WorkerGrantMaterial{}, err
 	}
 	if retained.DatabaseID != volume.DatabaseID || retained.PartitionID != volume.PartitionID || retained.VolumeID != volume.VolumeID || retained.FileSystemUUID != volume.FileSystemUUID || retained.FileSystemType != volume.FileSystemType {
 		return executionwire.WorkerGrantMaterial{}, execution.ErrUnsafe
 	}
-	declared, err := execution.VerifyStatefulDeclared(ctx, *deployment.Container, p.roots, target, time.Now().UTC(), caller.ExpiresAt(), p.open, currentAllocations)
+	declared, err := execution.VerifyStatefulDeclared(ctx, *deployment.Container, p.roots, target, time.Now().UTC(), caller.ExpiresAt(), p.open(deployment.OperationID), currentAllocations)
 	if err != nil || declared.Data() != retained {
 		return executionwire.WorkerGrantMaterial{}, errors.Join(execution.ErrUnsafe, err)
 	}
@@ -271,7 +279,7 @@ func (p *Producer) VerifyCurrent(ctx context.Context, task *api.Task, caller hos
 	return nil
 }
 
-func (p *Producer) previousWriter(ctx context.Context, scope authority.WorkloadScope, expected executionwire.RetainedData, taskID string, candidate release.ContainerBundle, target release.ContainerTarget, until time.Time) (release.ContainerBundle, executionwire.RetainedData, error) {
+func (p *Producer) previousWriter(ctx context.Context, scope authority.WorkloadScope, expected executionwire.RetainedData, taskID, operationID string, candidate release.ContainerBundle, target release.ContainerTarget, until time.Time) (release.ContainerBundle, executionwire.RetainedData, error) {
 	history, err := p.authority.ListRuntimeEffectHistory(ctx, scope)
 	if err != nil {
 		return release.ContainerBundle{}, expected, err
@@ -298,11 +306,11 @@ func (p *Producer) previousWriter(ctx context.Context, scope authority.WorkloadS
 		}
 	}
 	if latest == nil {
-		currentAllocations, err := p.allocations(ctx, candidate, p.roots, target)
+		currentAllocations, err := p.allocations(ctx, operationID, candidate, p.roots, target)
 		if err != nil {
 			return release.ContainerBundle{}, expected, err
 		}
-		retained, err := execution.VerifyNativeRetainedProvenance(ctx, candidate, p.roots, target, expected, time.Now().UTC(), until, p.open, currentAllocations)
+		retained, err := execution.VerifyNativeRetainedProvenance(ctx, candidate, p.roots, target, expected, time.Now().UTC(), until, p.open(operationID), currentAllocations)
 		return release.ContainerBundle{}, retained, err
 	}
 	envelope, err := trust.DecodeEnvelope(material.Container.Claim)
@@ -319,11 +327,11 @@ func (p *Producer) previousWriter(ctx context.Context, scope authority.WorkloadS
 	_, expected.SourceArtifactSHA256, _ = strings.Cut(claim.Image, "@sha256:")
 	expected.SourceTreeSHA256 = claim.SourceTreeSHA256
 	previousTarget := release.ContainerTarget{Cell: strings.ToUpper(p.cell), Environment: p.environment, Role: "terrabase", Architecture: claim.Architecture}
-	previousAllocations, err := p.allocations(ctx, material.Container, p.roots, previousTarget)
+	previousAllocations, err := p.allocations(ctx, material.OperationID, material.Container, p.roots, previousTarget)
 	if err != nil {
 		return release.ContainerBundle{}, expected, err
 	}
-	retained, err := execution.VerifyRetainedProvenance(ctx, material.Container, p.roots, previousTarget, expected, p.open, previousAllocations)
+	retained, err := execution.VerifyRetainedProvenance(ctx, material.Container, p.roots, previousTarget, expected, p.open(material.OperationID), previousAllocations)
 	return material.Container, retained, err
 }
 

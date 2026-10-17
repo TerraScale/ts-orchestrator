@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"io"
 	"sync/atomic"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
@@ -28,8 +27,8 @@ type statefulRuntimeConfig struct {
 	Delivery          *delivery.Service
 	Volumes           *oci.VolumeMountObserver
 	Roots             trust.Keyring
-	Evidence          func(context.Context, string) (io.ReadCloser, error)
-	Allocations       execution.ContainerAllocationResolver
+	Evidence          executionleader.EvidenceReader
+	Allocations       executionleader.AllocationResolver
 	SessionGuard      func(context.Context) error
 	Cell, Environment string
 }
