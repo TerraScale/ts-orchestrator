@@ -20,16 +20,17 @@ import (
 )
 
 type rootOCIProcess struct {
-	witness    *rootoci.ProcessWitness
-	ctx        context.Context
-	cancel     context.CancelFunc
-	startupEnd time.Time
-	generation uint64
-	runtime    bool
-	invocation string
-	session    context.Context
-	lease      context.Context
-	stopLease  func()
+	witness        *rootoci.ProcessWitness
+	ctx            context.Context
+	cancel         context.CancelFunc
+	startupEnd     time.Time
+	generation     uint64
+	runtime        bool
+	invocation     string
+	session        context.Context
+	lease          context.Context
+	stopLease      func()
+	managerBinding *rootManagerRuntimeBinding
 }
 
 func (process *rootOCIProcess) close() {
@@ -235,6 +236,9 @@ func (authority *rootOCIAuthority) authorizeProcess(request context.Context, pee
 	if err != nil || binding.ControllerSlot() != authority.accepted.Slot || binding.Identity() != currentAuthority.Identity() ||
 		authority.verifyMarker() != nil || authority.verifyProcess(ctx, process) != nil || ctx.Err() != nil || source.session.Err() != nil {
 		return rootoci.Lease{}, rootoci.ErrUnauthorized
+	}
+	if err := authority.publishManagerRuntimeBinding(ctx, process, binding, identity, currentAuthority); err != nil {
+		return rootoci.Lease{}, err
 	}
 	if process.session != source.session {
 		if process.stopLease != nil {
