@@ -449,7 +449,7 @@ func TestRegionalIdentityAndMutationAuthorityFenceOverVerifiedTLS(t *testing.T) 
 			return nil
 		})
 		_, err = client.CreateVcn(ociclient.RequestContext(ctx), core.CreateVcnRequest{
-			OpcRetryToken: new("durable-operation-vcn"),
+			OpcRetryToken:    new("durable-operation-vcn"),
 			CreateVcnDetails: core.CreateVcnDetails{CompartmentId: new("ocid1.compartment.oc1..owned"), CidrBlock: new("10.1.0.0/16")},
 		})
 		if !errors.Is(err, transferred) || !strings.Contains(err.Error(), "authority transferred") || writes.Load() != 1 {
