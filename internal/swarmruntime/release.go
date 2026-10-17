@@ -39,7 +39,11 @@ func ApplySignedService(ctx context.Context, client api.ControlClient, intent Se
 	if err != nil {
 		return nil, err
 	}
-	return AwaitServiceReady(ctx, client, requested, probe)
+	ready, err := AwaitServiceReady(ctx, client, requested, probe)
+	if currentErr := guard(ctx); currentErr != nil {
+		return nil, currentErr
+	}
+	return ready, err
 }
 
 // AwaitServiceReady consumes an already admitted upstream service revision.
