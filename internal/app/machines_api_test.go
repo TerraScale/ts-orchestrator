@@ -83,7 +83,8 @@ func TestMachinesManagerAuthenticatedHTTPIntegration(t *testing.T) {
 	if err := specs.load(entry); err != nil {
 		t.Fatal(err)
 	}
-	manager := startGenericRuntimeNode(t, ctx, genericRuntimeNodeConfig(t, "generic-manager", "manager"), &genericRuntimeExecutor{controllers: map[string]*genericRuntimeTask{}})
+	executor := &genericRuntimeExecutor{controllers: map[string]*genericRuntimeTask{}}
+	manager := startGenericRuntimeNode(t, ctx, genericRuntimeNodeConfig(t, "generic-manager", "manager"), executor)
 	client, err := manager.ControlClient(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -294,6 +295,32 @@ func TestMachinesManagerAuthenticatedHTTPIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	genericRuntimeEventually(t, ctx, func() bool { code, _ := get(tenantSub, "/v1/apps/"+databaseName); return code == http.StatusOK })
+	tasks, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{created.Service.ID}}})
+	if err != nil || len(tasks.Tasks) != 1 {
+		t.Fatalf("read original task before repair: %+v %v", tasks, err)
+	}
+	if err := executor.fail(tasks.Tasks[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	genericRuntimeEventually(t, ctx, func() bool {
+		code, wire := get(platformSub, "/v1/apps/api/machines")
+		var body struct {
+			Machines []machinesapi.MachineView `json:"machines"`
+		}
+		if code != http.StatusOK || json.Unmarshal(wire, &body) != nil || len(body.Machines) < 2 {
+			return false
+		}
+		failed, replaced := false, false
+		for _, machine := range body.Machines {
+			if machine.ID == first.ID && machine.Status != nil && machine.Status.State == machines.StateFailed {
+				failed = true
+			}
+			if machine.ID != first.ID && machine.Status != nil && machine.Status.State == machines.StateStarted {
+				replaced = true
+			}
+		}
+		return failed && replaced
+	})
 	changeDuringProbe.Store(true)
 	if code, wire := get(platformSub, "/v1/apps/api/machines"); code != http.StatusServiceUnavailable {
 		t.Fatalf("service version changed during probe: %d %s", code, wire)

@@ -20,6 +20,8 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/gogo/protobuf/types"
 	"github.com/moby/swarmkit/v2/api"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type managerMachinePlacements interface {
@@ -149,24 +151,29 @@ func (view *managerMachinesView) Snapshot(ctx context.Context) ([]machinesapi.Ap
 			state := managerMachineState(task.Status.State)
 			if task.NodeID != "" {
 				response, err := m.client.GetNode(ctx, &api.GetNodeRequest{NodeID: task.NodeID})
-				if err != nil || response == nil || response.Node == nil || response.Node.ID != task.NodeID {
-					return nil, errors.New("machines task host is unavailable")
-				}
-				node := response.Node
-				if node.Spec.Annotations.Labels[swarmruntime.LabelRegion] != region {
-					return nil, errors.New("machines task host is outside the admitted region")
-				}
-				if member != nil && (node.Spec.Annotations.Name != member.State.HostNode || node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] != member.State.InstanceID) {
-					return nil, errors.New("machines task host differs from current member placement")
-				}
-				nodes[node.ID] = node.Meta.Version.Index
-				machine.Host = node.Spec.Annotations.Name
-				machine.FailureDomain = node.Spec.Annotations.Labels["terrascale.failure-domain"]
-				if member != nil {
-					machine.FailureDomain = strings.ToLower(member.State.FailureDomain)
-				}
-				if node.Status.State == api.NodeStatus_DOWN {
+				if status.Code(err) == codes.NotFound {
 					state = machines.StateLost
+				} else {
+					if err != nil || response == nil || response.Node == nil || response.Node.ID != task.NodeID {
+						return nil, errors.New("machines task host is unavailable")
+					}
+					node := response.Node
+					if node.Spec.Annotations.Labels[swarmruntime.LabelRegion] != region {
+						return nil, errors.New("machines task host is outside the admitted region")
+					}
+					// Retained shutdown tasks may still name a member's previous host.
+					if member != nil && task.DesiredState == api.TaskStateRunning && (node.Spec.Annotations.Name != member.State.HostNode || node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] != member.State.InstanceID) {
+						return nil, errors.New("machines current task host differs from current member placement")
+					}
+					nodes[node.ID] = node.Meta.Version.Index
+					machine.Host = node.Spec.Annotations.Name
+					machine.FailureDomain = node.Spec.Annotations.Labels["terrascale.failure-domain"]
+					if member != nil && node.Spec.Annotations.Name == member.State.HostNode {
+						machine.FailureDomain = strings.ToLower(member.State.FailureDomain)
+					}
+					if node.Status.State == api.NodeStatus_DOWN {
+						state = machines.StateLost
+					}
 				}
 			}
 			// RUNNING is a lifecycle observation, not proof that the application serves.
