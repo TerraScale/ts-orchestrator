@@ -649,6 +649,13 @@ func (e *Engine) liveBuckets(plan, ids Object) string {
 			if duration["time-unit"] != "DAYS" || !eq(number(duration["time-amount"]), number(plan["bucket_retention_days"])) {
 				fail("live " + role + " bucket retention differs from the exact plan")
 			}
+			if role == "ledger" {
+				rule := obj(retention[0])
+				lockedAt, valid := parseTime(rule["time-rule-locked"])
+				if text(rule["id"]) == "" || !valid || lockedAt.IsZero() || lockedAt.After(e.now()) {
+					fail("live ledger bucket requires an effective locked retention rule")
+				}
+			}
 		}
 	}
 	return namespace

@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/identity"
 	"github.com/oracle/oci-go-sdk/v65/keymanagement"
@@ -278,11 +280,11 @@ func createBucket(ctx context.Context, c *SDKClient, command sdkcli.Command) (an
 }
 
 func createRetentionRule(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, error) {
-	values, err := flags(command, "namespace-name", "bucket-name", "display-name", "time-amount", "time-unit")
+	values, err := flags(command, "namespace-name", "bucket-name")
 	if err != nil {
 		return nil, err
 	}
-	amount, err := strconv.ParseInt(values[3], 10, 64)
+	details, err := retentionRuleDetails(command)
 	if err != nil {
 		return nil, err
 	}
@@ -290,10 +292,35 @@ func createRetentionRule(ctx context.Context, c *SDKClient, command sdkcli.Comma
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateRetentionRule(ociclient.RequestContext(ctx), objectstorage.CreateRetentionRuleRequest{NamespaceName: &values[0], BucketName: &values[1],
-		CreateRetentionRuleDetails: objectstorage.CreateRetentionRuleDetails{DisplayName: &values[2],
-			Duration: &objectstorage.Duration{TimeAmount: &amount, TimeUnit: objectstorage.DurationTimeUnitEnum(values[4])}}})
+	// OCI supplies no retry token for this create; an unknown result cannot replay.
+	noRetry := common.NoRetryPolicy()
+	response, err := client.CreateRetentionRule(ociclient.RequestContext(ctx), objectstorage.CreateRetentionRuleRequest{
+		NamespaceName: new(values[0]), BucketName: new(values[1]), CreateRetentionRuleDetails: details,
+		RequestMetadata: common.RequestMetadata{RetryPolicy: &noRetry}})
 	return response.RetentionRule, err
+}
+
+func retentionRuleDetails(command sdkcli.Command) (objectstorage.CreateRetentionRuleDetails, error) {
+	values, err := flags(command, "display-name", "time-amount", "time-unit")
+	if err != nil {
+		return objectstorage.CreateRetentionRuleDetails{}, err
+	}
+	amount, err := strconv.ParseInt(values[1], 10, 64)
+	unit := objectstorage.DurationTimeUnitEnum(values[2])
+	if err != nil || amount <= 0 || unit != objectstorage.DurationTimeUnitDays && unit != objectstorage.DurationTimeUnitYears {
+		return objectstorage.CreateRetentionRuleDetails{}, errors.New("retention requires a positive finite DAYS or YEARS duration")
+	}
+	details := objectstorage.CreateRetentionRuleDetails{DisplayName: new(values[0]),
+		Duration: &objectstorage.Duration{TimeAmount: new(amount), TimeUnit: unit}}
+	if value, exists := command.Flags["time-rule-locked"]; exists {
+		lockedAt, err := time.Parse(time.RFC3339Nano, value)
+		if err != nil || value != lockedAt.UTC().Format(time.RFC3339Nano) || lockedAt.IsZero() || !lockedAt.After(time.Now()) {
+			return objectstorage.CreateRetentionRuleDetails{}, errors.New("retention lock requires a future UTC RFC3339 timestamp")
+		}
+		// The caller must retain this exact reservation; OCI enforces its 14-day delay.
+		details.TimeRuleLocked = &common.SDKTime{Time: lockedAt}
+	}
+	return details, nil
 }
 
 // DecodeCreate checks a create command as its in-binary creator reads it,
@@ -313,6 +340,9 @@ func DecodeCreate(args []string) error {
 	}
 	targets := map[string]any{}
 	switch command.Path {
+	case "os retention-rule create":
+		_, err := retentionRuleDetails(command)
+		return err
 	case "iam policy create":
 		targets["statements"] = &[]string{}
 	case "network service-gateway create":

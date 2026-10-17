@@ -113,7 +113,7 @@ var createFlags = map[string][]string{
 	"kms management key create":      {"freeform-tags", "compartment-id", "display-name", "key-shape", "protection-mode", "endpoint"},
 	"os bucket create": {"freeform-tags", "namespace-name", "compartment-id", "name", "kms-key-id", "versioning", "public-access-type",
 		"storage-tier"},
-	"os retention-rule create": {"namespace-name", "bucket-name", "display-name", "time-amount", "time-unit"},
+	"os retention-rule create": {"namespace-name", "bucket-name", "display-name", "time-amount", "time-unit", "time-rule-locked"},
 }
 
 // unacceptedCreateFlags returns, sorted, the flags of a create command that
