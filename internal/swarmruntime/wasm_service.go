@@ -157,6 +157,8 @@ func ApplyFunctionService(ctx context.Context, client api.ControlClient, intent 
 	if !function.Valid() || function.ExpiresAt().Before(deadline) {
 		return nil, errors.New("function authority expires before rollout deadline")
 	}
+	ctx, cancelFunction := context.WithDeadline(ctx, function.ExpiresAt())
+	defer cancelFunction()
 	region, knownRegion := catalog.CellForOCIRegion(intent.Region)
 	if !knownRegion {
 		return nil, errors.New("function service requires an admitted OCI region")
@@ -166,6 +168,8 @@ func ApplyFunctionService(ctx context.Context, client api.ControlClient, intent 
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancelWorker := context.WithDeadline(ctx, worker.ExpiresAt())
+	defer cancelWorker()
 	spec, err := intent.serviceSpec(function, worker)
 	if err != nil {
 		return nil, err
@@ -199,19 +203,20 @@ func ApplyFunctionService(ctx context.Context, client api.ControlClient, intent 
 	}
 	// Worker ordering belongs to the regional role channel, independently of
 	// tenant function ordering retained by the current intent authority.
-	checkIntent := func() error {
+	checkIntent := func(ctx context.Context) error {
 		latest, err := current.CurrentFunction(ctx, intent.TenantID, intent.FunctionID)
 		if err != nil {
 			return err
 		}
-		if !latest.Valid() || latest.EnvelopeSHA256() != function.EnvelopeSHA256() {
+		if !function.Valid() || !worker.Valid(time.Now().UTC()) || !latest.Valid() || latest.EnvelopeSHA256() != function.EnvelopeSHA256() {
 			return errors.New("function intent changed during service admission")
 		}
 		return ctx.Err()
 	}
-	if err := checkIntent(); err != nil {
+	if err := checkIntent(ctx); err != nil {
 		return nil, err
 	}
+	client = guardedServiceClient{ControlClient: client, guard: checkIntent}
 	workerIntent := ServiceIntent{ID: entityid.Derive("function-worker-release", intent.Environment, intent.Region), Role: FunctionWorkerRole, Region: intent.Region, Environment: intent.Environment, Architecture: intent.Architecture}
 	_, err = reserveReleaseFloor(ctx, client, workerIntent, worker, roots, retained, 0)
 	if err != nil {
@@ -221,7 +226,7 @@ func ApplyFunctionService(ctx context.Context, client api.ControlClient, intent 
 		return nil, err
 	}
 	guard := func() error {
-		if err := checkIntent(); err != nil {
+		if err := checkIntent(ctx); err != nil {
 			return err
 		}
 		return intent.VerifyWorkerFloor(ctx, client, worker)
