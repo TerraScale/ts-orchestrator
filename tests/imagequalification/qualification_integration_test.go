@@ -210,7 +210,7 @@ func (f *cloudFixture) serve(w http.ResponseWriter, r *http.Request) {
 				reply(400, map[string]string{"message": err.Error()})
 				return
 			}
-			f.image["id"], f.image["lifecycleState"] = "ocid1.image.oc1..native", "AVAILABLE"
+			f.image["id"], f.image["lifecycleState"] = "ocid1.image.oc1.sa-saopaulo-1.native", "AVAILABLE"
 			f.creates++
 		}
 		reply(200, f.image)
@@ -267,7 +267,7 @@ func (f *cloudFixture) serve(w http.ResponseWriter, r *http.Request) {
 				reply(400, map[string]string{"message": err.Error()})
 				return
 			}
-			f.shape["shape"], f.shape["imageId"] = "VM.Standard.A1.Flex", "ocid1.image.oc1..native"
+			f.shape["shape"], f.shape["imageId"] = "VM.Standard.A1.Flex", "ocid1.image.oc1.sa-saopaulo-1.native"
 			reply(200, f.shape)
 		} else if f.shape == nil {
 			reply(200, []any{})
@@ -308,8 +308,8 @@ func (f *cloudFixture) serve(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("opc-retry-token")
 		id := f.tokens[token]
 		if id == "" {
-			id = fmt.Sprintf("ocid1.instance.oc1..native%d", len(f.hosts)+1)
-			input["id"], input["lifecycleState"], input["imageId"] = id, "RUNNING", "ocid1.image.oc1..native"
+			id = fmt.Sprintf("ocid1.instance.oc1.sa-saopaulo-1.native%d", len(f.hosts)+1)
+			input["id"], input["lifecycleState"], input["imageId"] = id, "RUNNING", "ocid1.image.oc1.sa-saopaulo-1.native"
 			f.hosts[id], f.tokens[token] = input, id
 			f.launches++
 		}

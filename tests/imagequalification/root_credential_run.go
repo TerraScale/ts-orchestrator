@@ -51,6 +51,12 @@ func runRootCredentialBoundary(ctx context.Context, preparationWire, delegationW
 	if err != nil {
 		return result, err
 	}
+	if original.Purpose != qualification.RootCredentialBoundaryPurpose {
+		return result, errors.New("root coordinator requires original root-credential-boundary purpose")
+	}
+	if handled, err := recoverRootCredentialBoundary(ctx, v, preparationWire, delegationWire, roots, issuer, paths); handled {
+		return result, err
+	}
 	if len(signer) != ed25519.PrivateKeySize {
 		return result, errors.New("original qualifier signing key required")
 	}
@@ -70,6 +76,7 @@ func runRootCredentialBoundary(ctx context.Context, preparationWire, delegationW
 		cleanup, stop := context.WithDeadline(context.Background(), prep.CleanupUntil)
 		defer stop()
 		runErr = errors.Join(runErr, producer.CleanupReaders(cleanup, v, paths.PrincipalDirectory))
+		settled := p.approvalSHA256 == ""
 		if p.approvalSHA256 != "" {
 			p.readerIAM = nil
 			scope, err := p.ConfinementScope(paths.Journal)
@@ -82,15 +89,19 @@ func runRootCredentialBoundary(ctx context.Context, preparationWire, delegationW
 				c, err = newConfinedCloud(cleanup, p, confined, paths.Journal)
 			}
 			if err == nil {
-				err = c.cleanup(cleanup, paths.Journal)
+				var observer *ociclient.Factory
+				observer, err = issuer.ForRegion(p.approval.OCIRegion)
+				if err == nil {
+					err = c.superviseRetainedImage(ctx, paths.Journal, observer)
+				}
 			}
-			if err == nil {
-				err = c.superviseRetainedImage(ctx, paths.Journal)
-			}
+			settled = err == nil
 			runErr = errors.Join(runErr, err)
 		}
-		_, err := producer.Cleanup(cleanup, v, paths.PrincipalDirectory)
-		runErr = errors.Join(runErr, err)
+		if settled {
+			_, err := producer.Cleanup(cleanup, v, paths.PrincipalDirectory)
+			runErr = errors.Join(runErr, err)
+		}
 	}()
 	preparedPrincipal, err = producer.Prepare(ctx, v, paths.PrincipalDirectory)
 	if err != nil {

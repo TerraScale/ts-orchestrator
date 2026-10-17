@@ -31,13 +31,14 @@ const (
 // unsigned-image adapter; only integration fixtures use it until the confined
 // principal producer can establish actual effective credential isolation.
 type cloud struct {
-	prepared Prepared
-	compute  core.ComputeClient
-	objects  objectstorage.ObjectStorageClient
-	network  core.VirtualNetworkClient
-	block    core.BlockstorageClient
-	uploader imageimport.API
-	now      func() time.Time
+	prepared      Prepared
+	compute       core.ComputeClient
+	objects       objectstorage.ObjectStorageClient
+	network       core.VirtualNetworkClient
+	block         core.BlockstorageClient
+	uploader      imageimport.API
+	now           func() time.Time
+	imageTransfer imageTransfer
 }
 
 type journal struct {
@@ -166,7 +167,7 @@ func (c *cloud) load(path string) (journal, error) {
 		return j, err
 	}
 	var restored journal
-	if err := protocol.DecodeStrict(wire, &restored, 64<<10); err != nil {
+	if err := protocol.DecodeStrict(wire, &restored, 512<<10); err != nil {
 		return j, err
 	}
 	if restored.RunID != j.RunID || restored.ApprovalSHA256 != j.ApprovalSHA256 || restored.Object != j.Object || restored.Hosts == nil || restored.Terminated == nil || restored.Intents == nil {
@@ -433,82 +434,15 @@ func (c *cloud) cleanup(ctx context.Context, path string) error {
 	if err := c.check(ctx, true); err != nil {
 		return err
 	}
-	a := c.prepared.approval
-	unresolved := false
-	for operation := range j.Intents {
-		if !j.resolved(operation) {
-			unresolved = true
-		}
-	}
-	if err := c.cleanupConsole(ctx, path, &j); err != nil {
+	if err := c.cleanupHosts(ctx, path, &j); err != nil {
 		return err
-	}
-	var pending []HostSpec
-	for _, host := range a.Hosts {
-		id := j.Hosts[host.Name]
-		if id == "" || j.Terminated[host.Name] {
-			continue
-		}
-		response, err := c.compute.GetInstance(ociclient.RequestContext(ctx), core.GetInstanceRequest{InstanceId: new(id)})
-		if err != nil && !isNotFound(err) {
-			return err
-		}
-		if err == nil {
-			if response.Id == nil || *response.Id != id || response.CompartmentId == nil || *response.CompartmentId != a.Compartment ||
-				response.DisplayName == nil || *response.DisplayName != c.name(host.Name) || !c.owns(response.FreeformTags) || response.ImageId == nil || *response.ImageId != j.ImageID {
-				return errors.New("qualification host ownership differs; refusing termination")
-			}
-			if response.LifecycleState != core.InstanceLifecycleStateTerminated {
-				if err := c.check(ctx, true); err != nil {
-					return err
-				}
-				_, err = c.compute.TerminateInstance(ociclient.RequestContext(ctx), core.TerminateInstanceRequest{InstanceId: new(id), PreserveBootVolume: new(false)})
-				if err != nil && !isNotFound(err) {
-					return err
-				}
-				pending = append(pending, host)
-				continue
-			}
-		}
-		j.Terminated[host.Name] = true
-		if err := checkpoint(path, j); err != nil {
-			return err
-		}
-	}
-	for len(pending) > 0 {
-		if err := c.check(ctx, true); err != nil {
-			return err
-		}
-		var next []HostSpec
-		for _, host := range pending {
-			r, err := c.compute.GetInstance(ociclient.RequestContext(ctx), core.GetInstanceRequest{InstanceId: new(j.Hosts[host.Name])})
-			if err != nil && !isNotFound(err) {
-				return err
-			}
-			if err == nil && r.LifecycleState != core.InstanceLifecycleStateTerminated {
-				next = append(next, host)
-				continue
-			}
-			j.Terminated[host.Name] = true
-			if err := checkpoint(path, j); err != nil {
-				return err
-			}
-		}
-		pending = next
-		if len(pending) > 0 {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(3 * time.Second):
-			}
-		}
-	}
-	if unresolved {
-		return errors.New("unresolved create intent: known hosts terminated; retain journal, image and object until authenticated resource recovery")
 	}
 	retain, err := c.retainImage(j)
 	if err != nil {
 		return err
+	}
+	if transfer := c.imageTransfer; transfer.manifestSHA256 != "" && transfer.imageID == j.ImageID && transfer.approvalSHA256 == c.prepared.approvalSHA256 && transfer.manifestSHA256 == j.ImageManifestSHA256 {
+		retain = true
 	}
 	if !retain {
 		if err := c.cleanupCapability(ctx, path, &j); err != nil {
@@ -550,6 +484,90 @@ func (c *cloud) cleanup(ctx context.Context, path string) error {
 			return err
 		}
 	}
+	return c.cleanupObject(ctx, path, &j)
+}
+
+func (c *cloud) cleanupHosts(ctx context.Context, path string, j *journal) (cleanupErr error) {
+	if err := c.check(ctx, true); err != nil {
+		return err
+	}
+	a := c.prepared.approval
+	unresolved := false
+	for operation := range j.Intents {
+		if !j.resolved(operation) {
+			unresolved = true
+		}
+	}
+	consoleErr := c.cleanupConsole(ctx, path, j)
+	defer func() { cleanupErr = errors.Join(cleanupErr, consoleErr) }()
+	var pending []HostSpec
+	for _, host := range a.Hosts {
+		id := j.Hosts[host.Name]
+		if id == "" || j.Terminated[host.Name] {
+			continue
+		}
+		response, err := c.compute.GetInstance(ociclient.RequestContext(ctx), core.GetInstanceRequest{InstanceId: new(id)})
+		if err != nil && !isNotFound(err) {
+			return err
+		}
+		if err == nil {
+			if response.Id == nil || *response.Id != id || response.CompartmentId == nil || *response.CompartmentId != a.Compartment ||
+				response.DisplayName == nil || *response.DisplayName != c.name(host.Name) || !c.owns(response.FreeformTags) || response.ImageId == nil || *response.ImageId != j.ImageID {
+				return errors.New("qualification host ownership differs; refusing termination")
+			}
+			if response.LifecycleState != core.InstanceLifecycleStateTerminated {
+				if err := c.check(ctx, true); err != nil {
+					return err
+				}
+				_, err = c.compute.TerminateInstance(ociclient.RequestContext(ctx), core.TerminateInstanceRequest{InstanceId: new(id), PreserveBootVolume: new(false)})
+				if err != nil && !isNotFound(err) {
+					return err
+				}
+				pending = append(pending, host)
+				continue
+			}
+		}
+		j.Terminated[host.Name] = true
+		if err := checkpoint(path, *j); err != nil {
+			return err
+		}
+	}
+	for len(pending) > 0 {
+		if err := c.check(ctx, true); err != nil {
+			return err
+		}
+		var next []HostSpec
+		for _, host := range pending {
+			r, err := c.compute.GetInstance(ociclient.RequestContext(ctx), core.GetInstanceRequest{InstanceId: new(j.Hosts[host.Name])})
+			if err != nil && !isNotFound(err) {
+				return err
+			}
+			if err == nil && r.LifecycleState != core.InstanceLifecycleStateTerminated {
+				next = append(next, host)
+				continue
+			}
+			j.Terminated[host.Name] = true
+			if err := checkpoint(path, *j); err != nil {
+				return err
+			}
+		}
+		pending = next
+		if len(pending) > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(3 * time.Second):
+			}
+		}
+	}
+	if unresolved {
+		return errors.New("unresolved create intent: known hosts terminated; retain journal, image and object until authenticated resource recovery")
+	}
+	return nil
+}
+
+func (c *cloud) cleanupObject(ctx context.Context, path string, j *journal) error {
+	a := c.prepared.approval
 	if !j.ObjectDeleted {
 		exists, metadata, err := c.uploader.HeadObject(ctx, a.Namespace, a.Bucket, j.Object)
 		if err != nil {
@@ -567,7 +585,7 @@ func (c *cloud) cleanup(ctx context.Context, path string) error {
 			}
 		}
 		j.ObjectDeleted = true
-		return checkpoint(path, j)
+		return checkpoint(path, *j)
 	}
 	return nil
 }

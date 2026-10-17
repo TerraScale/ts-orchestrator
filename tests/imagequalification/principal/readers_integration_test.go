@@ -2,6 +2,7 @@ package principal
 
 import (
 	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json/v2"
 	"fmt"
 	"testing"
@@ -87,6 +88,11 @@ func TestSDKExactReaderIAMRestartDriftExpiryAndCleanup(t *testing.T) {
 	if _, err := f.producer.PrepareReaders(t.Context(), f.verified, f.dir, proof); err == nil {
 		t.Fatal("expired original read IAM plan renewed")
 	}
+	writes := len(f.writes)
+	resumed, err := f.producer.ResumeForCleanup(t.Context(), f.verified, f.dir)
+	if err != nil || !resumed.Prepared() || len(f.writes) != writes {
+		t.Fatalf("cleanup resume recreated or failed to authenticate existing principal: %v", err)
+	}
 	if err := f.producer.CleanupReaders(t.Context(), f.verified, f.dir); err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +117,7 @@ func TestReaderIAMRequiresOriginalSignerPlanBeforeWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, other, err := ed25519.GenerateKey(nil)
+	_, other, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -24,6 +24,8 @@ import (
 
 var errPending = errors.New("disposable identity operation is still propagating")
 
+var ErrCleanupPrincipalUnavailable = errors.New("original disposable principal is no longer active for cleanup")
+
 type attempt struct {
 	producer *Producer
 	verified VerifiedPreparation
@@ -284,6 +286,57 @@ func (p *Producer) Prepare(ctx context.Context, v VerifiedPreparation, workdir s
 	}
 	if err := a.prepare(ctx, false); err != nil {
 		return a.result(), err
+	}
+	result := a.result()
+	provider := common.NewRawConfigurationProvider(prep.Tenancy, result.receipt.Principal, prep.OCIRegion, fingerprint, string(private), nil)
+	result.factory, err = ociclient.New(provider, ociclient.Options{Region: prep.OCIRegion})
+	if err != nil {
+		return Result{}, err
+	}
+	result.prepared = true
+	return result, nil
+}
+
+// ResumeForCleanup reopens only the exact already-created identity and escrow.
+// It never replays creation or issues a replacement key after a restart.
+func (p *Producer) ResumeForCleanup(ctx context.Context, v VerifiedPreparation, workdir string) (Result, error) {
+	a, err := p.attempt(ctx, v, workdir, true)
+	if err != nil {
+		return Result{}, err
+	}
+	defer a.store.close()
+	if a.journal.Cleaned {
+		return Result{}, ErrCleanupPrincipalUnavailable
+	}
+	for _, name := range []string{"user", "group", "policy", "key", "membership"} {
+		if op := a.journal.Operations[name]; op == nil || op.ID == "" || op.Deleted {
+			return Result{}, ErrCleanupPrincipalUnavailable
+		}
+		exists, _, err := a.observe(ctx, name)
+		if err != nil {
+			return Result{}, err
+		}
+		if !exists {
+			return Result{}, ErrCleanupPrincipalUnavailable
+		}
+	}
+	private, err := a.store.read("private.pem", 16<<10)
+	if err != nil {
+		return Result{}, err
+	}
+	defer clear(private)
+	key, err := privateKey(private)
+	if err != nil {
+		return Result{}, err
+	}
+	der, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		return Result{}, err
+	}
+	public, fingerprint, err := publicIdentity(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+	prep := v.preparation
+	if err != nil || public != prep.PublicKeyPEM || fingerprint != prep.PublicKeyFingerprint {
+		return Result{}, errors.New("cleanup escrow differs from original signed public key")
 	}
 	result := a.result()
 	provider := common.NewRawConfigurationProvider(prep.Tenancy, result.receipt.Principal, prep.OCIRegion, fingerprint, string(private), nil)

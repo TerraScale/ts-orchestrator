@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/qualification"
 	"github.com/TerraScale/ts-orchestrator/internal/qualification/hostadmission"
@@ -19,7 +20,7 @@ func (c *cloud) retainImage(j journal) (bool, error) {
 	}
 	a, p := c.prepared.approval, c.prepared
 	if a.Purpose != qualification.RootCredentialBoundaryPurpose || qualification.ValidateDisposition(a.Purpose, a.ArtifactDisposition, a.ReaderIAMAuthority, a.ImageRetainUntil, a.ImageTransferUntil, a.CleanupUntil) != nil ||
-		j.ImageDeleted || j.ImageID == "" || !validHash(j.RootGateSHA256) || j.RetainedAt.IsZero() || c.now().Before(j.RetainedAt) {
+		j.ImageID == "" || !validHash(j.RootGateSHA256) || j.RetainedAt.IsZero() || c.now().Before(j.RetainedAt) {
 		return false, errors.New("retained image lacks original purpose, exact image or retained gate binding")
 	}
 	var proof hostadmission.Proof
@@ -41,34 +42,77 @@ func (c *cloud) retainImage(j journal) (bool, error) {
 		}
 		return false, nil
 	}
-	return c.now().Before(a.ImageRetainUntil), nil
+	return !j.ImageDeleted && c.now().Before(a.ImageRetainUntil), nil
 }
 
 // superviseRetainedImage retains an active cleanup owner until the original
 // deadline. Cancellation ends retention and uses independent cleanup authority.
 // A typed root gate alone never relinquishes image ownership for promotion.
-func (c *cloud) superviseRetainedImage(ctx context.Context, path string) error {
+func (c *cloud) superviseRetainedImage(ctx context.Context, path string, observer *ociclient.Factory) error {
+	cleanup, cancel := context.WithDeadline(context.Background(), c.prepared.approval.CleanupUntil)
+	defer cancel()
 	j, err := c.load(path)
 	if err != nil {
 		return err
 	}
-	retained, err := c.retainImage(j)
-	if err != nil {
+	// Host cleanup cannot wait for a publication read or inherit image retention.
+	hostErr := c.cleanupHosts(cleanup, path, &j)
+	objectErr := c.cleanupObject(cleanup, path, &j)
+	if err := errors.Join(hostErr, objectErr); err != nil {
 		return err
 	}
-	if retained {
-		timer := time.NewTimer(time.Until(c.prepared.approval.ImageRetainUntil))
-		defer timer.Stop()
-		select {
-		case <-ctx.Done():
+	if len(j.RetainedReaderProof) == 0 {
+		return c.cleanup(cleanup, path)
+	}
+	var lastErr error
+	resourcesCleaned := false
+	for {
+		if err := cleanup.Err(); err != nil {
+			return errors.Join(lastErr, err)
+		}
+		observation, stop := context.WithTimeout(cleanup, 30*time.Second)
+		transfer, observeErr := c.observeImageTransfer(observation, observer, j)
+		stop()
+		if observeErr == nil && transfer.manifestSHA256 != "" {
+			j.ImageManifestSHA256 = transfer.manifestSHA256
+			if err := checkpoint(path, j); err != nil {
+				return err
+			}
+			c.imageTransfer = transfer
+			return c.cleanup(cleanup, path)
+		}
+		lastErr = observeErr
+		// Cancellation permits early cleanup, but an earlier completed transfer must
+		// still be authenticated before any exact-image deletion.
+		if ctx.Err() != nil && j.RetentionEndedAt.IsZero() {
 			j.RetentionEndedAt = c.now().UTC()
 			if err := checkpoint(path, j); err != nil {
 				return err
 			}
+		}
+		retained, err := c.retainImage(j)
+		if err != nil {
+			return err
+		}
+		if observeErr == nil && !retained {
+			return c.cleanup(cleanup, path)
+		}
+		if retained && !resourcesCleaned {
+			if err := c.cleanup(cleanup, path); err != nil {
+				return err
+			}
+			j, err = c.load(path)
+			if err != nil {
+				return err
+			}
+			resourcesCleaned = true
+		}
+		timer := time.NewTimer(3 * time.Second)
+		select {
+		case <-cleanup.Done():
+			timer.Stop()
+			return errors.Join(lastErr, cleanup.Err())
 		case <-timer.C:
 		}
 	}
-	cleanup, cancel := context.WithDeadline(context.Background(), c.prepared.approval.CleanupUntil)
-	defer cancel()
-	return c.cleanup(cleanup, path)
 }
