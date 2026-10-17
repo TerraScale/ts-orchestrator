@@ -58,6 +58,9 @@ func (i ServiceIntent) serviceSpec() (*api.ServiceSpec, error) {
 	if i.Replicas > autoscale.MaxReplicas {
 		return nil, errors.New("service replicas exceed the platform limit")
 	}
+	if i.Role == "ts-auth" && i.Replicas > 3 {
+		return nil, errors.New("TSAuth replicas exceed its three controller failure domains")
+	}
 	for _, value := range []string{i.Role, i.Region, i.Environment} {
 		if !intentName.MatchString(value) {
 			return nil, errors.New("invalid service intent identity or scope")
@@ -120,6 +123,12 @@ func (i ServiceIntent) serviceSpec() (*api.ServiceSpec, error) {
 		for _, port := range i.Ports {
 			spec.Endpoint.Ports = append(spec.Endpoint.Ports, port.Copy())
 		}
+	}
+	if i.Role == "ts-auth" {
+		spec.Task.Placement.Constraints = append(spec.Task.Placement.Constraints, "node.role==manager")
+		spec.Task.Placement.MaxReplicas = 1
+		// Three occupied controller domains leave no slot for start-first updates.
+		spec.Update.Order = api.UpdateConfig_STOP_FIRST
 	}
 	return spec, nil
 }
