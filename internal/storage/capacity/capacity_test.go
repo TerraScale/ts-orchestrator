@@ -254,6 +254,51 @@ func TestUsageStorePublishesWithTTLAndFeedsSignals(t *testing.T) {
 	if _, err := JetStreamReservation(nil, 1<<30)(ctx); err == nil {
 		t.Fatal("a reservation without a usage source was accepted")
 	}
+
+	// Broker expiry must remove the entry, independently of the age filter above.
+	expiring, err := OpenUsageStore(ctx, js, 1, 2*time.Second, Policy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := data
+	fresh.ObservedAt = time.Now().UTC()
+	if err := expiring.Publish(ctx, fresh); err != nil {
+		t.Fatal(err)
+	}
+	key := usageKey(fresh)
+	entry, err := expiring.kv.Get(ctx, key)
+	if err != nil || entry.Key() != key || entry.Revision() == 0 || len(entry.Value()) == 0 {
+		t.Fatalf("fresh broker entry %q = %v, %v", key, entry, err)
+	}
+	if usages, err := expiring.Usages(ctx); err != nil || len(usages) != 1 || usages[0] != fresh {
+		t.Fatalf("fresh broker usages = %+v, %v; want %+v", usages, err, fresh)
+	}
+	if signals, err := expiring.Signals(ctx); err != nil || len(signals) != 1 || signals[0].Usage != fresh || signals[0].Level != LevelScaleOut {
+		t.Fatalf("fresh broker signals = %+v, %v", signals, err)
+	}
+	expiryCtx, stopExpiry := context.WithTimeout(ctx, 5*time.Second)
+	defer stopExpiry()
+	poll := time.Tick(25 * time.Millisecond)
+	for {
+		entry, err := expiring.kv.Get(expiryCtx, key)
+		if errors.Is(err, jetstream.ErrKeyNotFound) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("broker expiry read %q = %v, %v; context = %v", key, entry, err, expiryCtx.Err())
+		}
+		select {
+		case <-expiryCtx.Done():
+			t.Fatalf("broker retained %q after TTL: entry = %v, error = %v, context = %v", key, entry, err, expiryCtx.Err())
+		case <-poll:
+		}
+	}
+	if usages, err := expiring.Usages(ctx); err != nil || len(usages) != 0 {
+		t.Fatalf("broker-expired usages = %+v, %v", usages, err)
+	}
+	if signals, err := expiring.Signals(ctx); err != nil || len(signals) != 0 {
+		t.Fatalf("broker-expired signals = %+v, %v", signals, err)
+	}
 }
 
 type recordingPublisher struct {
