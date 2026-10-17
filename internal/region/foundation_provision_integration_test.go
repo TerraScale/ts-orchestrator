@@ -96,7 +96,11 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	}
 	prepared, err := PrepareFoundationGrant(t.Context(), approval, images, func(_ context.Context, _ string, region string) (Live, error) {
 		entry, _ := catalog.CellForOCIRegion(region)
-		return Live{AvailabilityDomain: "scenario:AD-1", ServiceID: "ocid1.service.oc1..services", ServiceCIDR: "all-" + strings.ToLower(entry.OCIRegionKey) + "-services-in-oracle-services-network"}, nil
+		serviceID := "ocid1.service.oc1." + region + ".services"
+		serviceCIDR := "all-" + strings.ToLower(entry.OCIRegionKey) + "-services-in-oracle-services-network"
+		cloud.rows[serviceID] = map[string]any{"id": serviceID, "name": "All " + entry.OCIRegionKey + " Services In Oracle Services Network", "cidrBlock": serviceCIDR}
+		cloud.collections[serviceID] = "services"
+		return Live{AvailabilityDomain: "scenario:AD-1", ServiceID: serviceID, ServiceCIDR: serviceCIDR}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
