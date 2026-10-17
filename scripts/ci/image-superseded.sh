@@ -74,15 +74,35 @@ done
 # Retry supersession reads within the same budget instead of losing a
 # qualified image on a transient Actions API failure.
 while :; do
-	if latest=$(api_get --paginate --slurp "repos/TerraScale/ts-orchestrator/actions/workflows/ci.yml/runs?branch=main&status=success&per_page=100" |
+	if candidates=$(api_get --paginate --slurp "repos/TerraScale/ts-orchestrator/actions/workflows/ci.yml/runs?branch=main&status=success&per_page=100" |
 		jq -c '[.[].workflow_runs[] | select(.path == ".github/workflows/ci.yml" and
-		  .head_branch == "main" and .status == "completed" and .conclusion == "success")] | max_by(.id) // {}'); then
+		  .head_branch == "main" and .event != "pull_request" and .status == "completed" and
+		  .conclusion == "success")] | sort_by(.id) | reverse | .[]'); then
 		break
 	fi
 	status=supersession-poll-failed
 	echo "qualified run poll failed; retrying" >&2
 	wait_again
 done
+latest='{}'
+# A successful docs-only check has no retained runtime candidate and cannot
+# supersede the older executable/image candidate still waiting for delivery.
+while IFS= read -r candidate; do
+	[[ -n $candidate ]] || continue
+	latest_id=$(jq -r .id <<< "$candidate")
+	((latest_id > ci_run_id)) || break
+	latest_source=$(jq -er '.head_sha | select(test("^[0-9a-f]{40}$"))' <<< "$candidate")
+	tag=ci-$latest_source-run-$latest_id
+	if release=$(api_get "repos/TerraScale/ts-orchestrator/releases/tags/$tag") &&
+		jq -e --arg tag "$tag" '(.assets | map(.name)) as $assets |
+		  .tag_name == $tag and .draft == false and .prerelease == true and
+		  all(["qualification.json", "terrascale-orchestrator-linux-amd64",
+		    "terrascale-orchestrator-linux-arm64"][]; . as $name |
+		    [$assets[] | select(. == $name)] | length == 1)' <<< "$release" >/dev/null; then
+		latest=$candidate
+		break
+	fi
+done <<< "$candidates"
 latest_id=$(jq -r '.id // 0' <<< "$latest")
 if ((latest_id > ci_run_id)) && [[ $(jq -r .head_sha <<< "$latest") != "$source_sha" ]]; then
 	echo "skip=true" >> "$GITHUB_OUTPUT"

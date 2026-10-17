@@ -1,6 +1,6 @@
 name: TerraScale Orchestrator Go checks
 
-# Every main change is checked and deployed, including documentation.
+# Every change is checked. Only changed executable/image inputs publish bytes.
 on:
   push:
     branches: [develop, main]
@@ -47,6 +47,7 @@ jobs:
           python3 scripts/ci/zero-config-check.py "$ZERO_CONFIG_BASE" "$ZERO_CONFIG_HEAD"
           python3 scripts/ci/test_zero_config_check.py -v
           python3 -I -B -m unittest discover -s scripts/ci -p test_image_inputs_changed.py -v
+          python3 -I -B -m unittest discover -s scripts/ci -p test_ci_artifact_graph.py -v
 
   build:
     permissions:
@@ -75,6 +76,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Install the pinned Go toolchain
@@ -119,11 +121,32 @@ jobs:
         shell: bash
         run: go run ./scripts/ci/stablemtime
 
-      - name: Check, test and build static binaries in parallel
+      - name: Check and test every revision
         shell: bash
-        run: make ci-verify GO=go GOFMT=gofmt
+        run: make ci-check GO=go GOFMT=gofmt
+
+      - name: Compare executable and image inputs with retained qualification
+        id: inputs
+        shell: bash
+        env:
+          GITHUB_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          status=0
+          python3 -B scripts/ci/release-inputs-changed.py || status=$?
+          case $status in
+            0) echo 'publication=required' >> "$GITHUB_OUTPUT" ;;
+            3) echo 'publication=unchanged' >> "$GITHUB_OUTPUT" ;;
+            *) exit "$status" ;;
+          esac
+
+      - name: Build and verify this revision's static release binaries
+        if: ${{ steps.inputs.outputs.publication == 'required' }}
+        shell: bash
+        run: make --jobs=2 release-check GO=go
+
       - name: Retain verified binaries and qualification manifest
-        if: ${{ github.event_name != 'pull_request' }}
+        if: ${{ steps.inputs.outputs.publication == 'required' && github.event_name != 'pull_request' }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -133,7 +156,7 @@ jobs:
 
       # Deployment failure must not erase the time this build became qualified.
       - name: Record the qualified main build for the deployment-lag guard
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: ${{ steps.inputs.outputs.publication == 'required' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -150,17 +173,17 @@ jobs:
       # change to an image input (scripts/ci/image-inputs-changed.sh) or the
       # weekly schedule starts a build.
       - name: Start the image build for this revision
-        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+        if: ${{ steps.inputs.outputs.publication == 'required' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
         continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci/dispatch-image.sh
 
-      # Every successful main push starts fleet deployment after retention.
+      # A newly retained candidate starts fleet deployment after verification.
       # Dispatch failure must be visible in CI.
       - name: Start the fleet deployment for this revision
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        if: ${{ steps.inputs.outputs.publication == 'required' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

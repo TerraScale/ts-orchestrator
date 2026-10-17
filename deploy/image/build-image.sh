@@ -20,7 +20,6 @@ repository_root=$(cd -- "$(dirname -- "$(realpath -- "$0")")/../.." && pwd)
 cd "$repository_root"
 repository=TerraScale/ts-orchestrator
 export GH_HOST=github.com
-ci_job='verify/go + artifact/linux-amd64-arm64'
 image_job=
 
 source_sha=
@@ -62,11 +61,33 @@ output=$(realpath -e -- "$output")
 umask 077
 work=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/ts-image.XXXXXXXX")
 trap 'rm -rf -- "$work"' EXIT
-mkdir -m 0700 "$work/base" "$work/go" "$work/terrabase" "$work/tools" "$work/netbird"
+mkdir -m 0700 "$work/base" "$work/go" "$work/terrabase" "$work/netbird"
 source_tree=$(git rev-parse 'HEAD^{tree}')
 inputs=deploy/image/image-inputs.json
-go build -trimpath -buildvcs=true -o "$work/tools/ts-orch" ./cmd/terrascale-orchestrator
-export TS_ORCH_BIN="$work/tools/ts-orch"
+# Orchestrator candidate: the successful ci.yml run on main for this revision.
+deadline=$((SECONDS + wait_seconds))
+while :; do
+	gh api "repos/$repository/actions/workflows/ci.yml/runs?head_sha=$source_sha&branch=main&per_page=100" > "$work/go/runs.json"
+	run=$(jq -c --arg id "$ci_run_id" --arg number "$ci_run_number" --arg source "$source_sha" \
+		'[(.workflow_runs // [])[] | select(.head_branch == "main" and .head_sha == $source and .repository.full_name == "TerraScale/ts-orchestrator" and .head_repository.full_name == "TerraScale/ts-orchestrator" and
+		  ($id == "" or (.id | tostring) == $id) and ($number == "" or (.run_number | tostring) == $number) and .event != "pull_request")] | max_by(.id) // empty' "$work/go/runs.json")
+	status=$(jq -r 'if .status == "completed" then .conclusion else (.status // "absent") end' <<< "${run:-null}")
+	case $status in
+		success) break ;;
+		failure|cancelled|skipped|blocked|timed_out|action_required|neutral|stale|startup_failure)
+			echo "ci.yml run $(jq -r .id <<< "$run") for $source_sha ended $status; no image" >&2
+			exit 1 ;;
+	esac
+	((SECONDS < deadline)) || { echo "no successful ci.yml run on main for $source_sha (status $status)" >&2; exit 1; }
+	echo "waiting for ci.yml on $source_sha (status $status)"
+	sleep 15
+done
+go_run_id=$(jq -r .id <<< "$run")
+go_run_number=$(jq -r .run_number <<< "$run")
+go_tag="ci-${source_sha}-run-${go_run_id}"
+python3 -B scripts/ci/qualified_release.py "$source_sha" "$go_run_id" "$work/go"
+qualification="$work/go/qualification.json"
+export TS_ORCH_BIN="$work/go/terrascale-orchestrator-linux-amd64"
 "$TS_ORCH_BIN" image inputs check
 input_json() { jq -r "$1" "$inputs"; }
 architecture=$(input_json .base.checksum_name)
@@ -77,6 +98,7 @@ image_job="build/qualified-gru-${architecture}-image"
 image_name="terrascale-gru-${architecture}.qcow2"
 native_artifact="tb-server-linux-${architecture}"
 orchestrator_artifact="terrascale-orchestrator-linux-${architecture}"
+go_binary="$work/go/$orchestrator_artifact"
 
 sha256() { sha256sum -- "$1" | cut -d ' ' -f 1; }
 verify_file() {
@@ -86,7 +108,6 @@ verify_file() {
 		return 1
 	}
 }
-api_get() { gh api "repos/$repository$1"; }
 run_detail() { "$TS_ORCH_BIN" release run-detail --repository "$1" --run-id "$2"; }
 
 # Base image: retained once as a release, pinned by digest, and proven to be
@@ -166,68 +187,6 @@ else
 fi
 echo "terrabase verified tag=$terrabase_tag binary_sha256=$(input_json .terrabase.binary_sha256)"
 
-# Orchestrator candidate: the successful ci.yml run on main for this revision.
-deadline=$((SECONDS + wait_seconds))
-while :; do
-	api_get "/actions/workflows/ci.yml/runs?head_sha=$source_sha&branch=main&per_page=100" > "$work/go/runs.json"
-	run=$(jq -c --arg id "$ci_run_id" --arg number "$ci_run_number" --arg source "$source_sha" \
-		'[(.workflow_runs // [])[] | select(.head_branch == "main" and .head_sha == $source and .repository.full_name == "TerraScale/ts-orchestrator" and .head_repository.full_name == "TerraScale/ts-orchestrator" and
-		  ($id == "" or (.id | tostring) == $id) and ($number == "" or (.run_number | tostring) == $number) and .event != "pull_request")] | max_by(.id) // empty' "$work/go/runs.json")
-	status=$(jq -r 'if .status == "completed" then .conclusion else (.status // "absent") end' <<< "${run:-null}")
-	case $status in
-		success) break ;;
-		failure|cancelled|skipped|blocked|timed_out|action_required|neutral|stale|startup_failure)
-			echo "ci.yml run $(jq -r .id <<< "$run") for $source_sha ended $status; no image" >&2
-			exit 1 ;;
-	esac
-	((SECONDS < deadline)) || { echo "no successful ci.yml run on main for $source_sha (status $status)" >&2; exit 1; }
-	echo "waiting for ci.yml on $source_sha (status $status)"
-	sleep 15
-done
-go_run_id=$(jq -r .id <<< "$run")
-go_run_number=$(jq -r .run_number <<< "$run")
-go_tag="ci-${source_sha}-run-${go_run_id}"
-for asset in qualification.json "$orchestrator_artifact"; do
-	gh release download "$go_tag" --repo "$repository" --pattern "$asset" --output "$work/go/$asset" --clobber >/dev/null
-done
-qualification="$work/go/qualification.json"
-go_binary="$work/go/$orchestrator_artifact"
-jq -e --arg source "$source_sha" --arg tree "$source_tree" --arg job "$ci_job" \
-	--arg architecture "$architecture" --arg artifact "$orchestrator_artifact" \
-	--arg binary "$(sha256 "$go_binary")" --argjson bytes "$(stat -c '%s' -- "$go_binary")" \
-	--argjson run_id "$go_run_id" --argjson run_number "$go_run_number" '
-  .schema == "terrascale.release.qualification.v1" and
-  .repository == "TerraScale/ts-orchestrator" and .source_revision == $source and
-  .source_tree == $tree and .verification.workflow == "ci.yml" and .verification.job == $job and
-  .verification.run_id == $run_id and .verification.run_number == $run_number and
-  .verification.conclusion == "success" and
-  ([.artifacts[] | select(.name == $artifact and .architecture == $architecture and
-    .sha256 == $binary and .bytes == $bytes)] | length) == 1
-' "$qualification" >/dev/null || { echo "CI qualification of $go_tag does not match $source_sha" >&2; exit 1; }
-[[ $(jq -r .go_mod_sha256 "$qualification") == $(sha256 go.mod) &&
-	$(jq -r .go_sum_sha256 "$qualification") == $(sha256 go.sum) ]] || {
-	echo 'CI qualification module digests differ from the checkout' >&2
-	exit 1
-}
-run_detail "$repository" "$go_run_id" > "$work/go/run-detail.json"
-jq -e --arg source "$source_sha" --arg job "$ci_job" --argjson run_id "$go_run_id" \
-	--argjson run_number "$go_run_number" '
-  .run_id == $run_id and .run_number == $run_number and .head_sha == $source and
-  .workflow == "ci.yml" and .status == "success" and
-  ([.jobs[] | select(.run_id == $run_id and .name == $job and .status == "success")] | length) == 1
-' "$work/go/run-detail.json" >/dev/null || { echo "ci.yml run $go_run_id did not qualify $source_sha" >&2; exit 1; }
-# The CI job log binds the retained manifest bytes to the successful job.
-gh api "repos/$repository/actions/jobs/$(jq -er --arg job "$ci_job" '.jobs[] | select(.name == $job) | .id' "$work/go/run-detail.json")/logs" | tr -d '\r' > "$work/go/logs.txt"
-marker="TS_RELEASE_QUALIFICATION_V1 source_sha=$source_sha run_id=$go_run_id run_number=$go_run_number manifest_sha256=$(sha256 "$qualification")"
-[[ $(grep -c -E "^[0-9TZ:.-]+ ${marker}\$" "$work/go/logs.txt") == 1 ]] || {
-	echo "ci.yml job log lacks one exact qualification marker for $go_tag" >&2
-	exit 1
-}
-echo "orchestrator candidate verified tag=$go_tag binary_sha256=$(sha256 "$go_binary")"
-
-
-build_info=$(go version -m "$work/tools/ts-orch")
-grep -Fq "vcs.revision=$source_sha" <<< "$build_info" && grep -Fq 'vcs.modified=false' <<< "$build_info"
 
 kernel_release=$(input_json .base.kernel_release)
 "$TS_ORCH_BIN" netbird client fetch --architecture "$architecture" --out "$work/netbird/netbird"
@@ -244,7 +203,7 @@ deploy/image/build-offline.sh \
 	--netbird-binary "$work/netbird/netbird" \
 	--netbird-sha256 "$(input_json ".netbird.archives.$architecture.binary_sha256")" \
 	--netbird-config "$(input_json .netbird.enrollment_config.path)" \
-	--release-tool "$work/tools/ts-orch" \
+	--release-tool "$TS_ORCH_BIN" \
 	"${roots[@]}" \
 	--timesyncd-config "$(input_json .timesyncd_config.path)" \
 	--runtime-priority-profile-id "$(input_json .priority.profile_id)" \
@@ -279,7 +238,7 @@ jq -n --slurpfile inputs "$inputs" --argjson builder "$builder" \
 	--arg go_qualification "$(sha256 "$qualification")" --arg go_binary "$(sha256 "$go_binary")" \
 	--argjson go_bytes "$(stat -c '%s' -- "$go_binary")" \
 	--arg terrabase_tag "$terrabase_tag" \
-	--arg go_version "$(go env GOVERSION)" --arg ts_release "$(sha256 "$work/tools/ts-orch")" \
+	--arg go_version "$(go env GOVERSION)" --arg ts_release "$(sha256 "$TS_ORCH_BIN")" \
 	--arg qemu_img "$(qemu-img --version | head -n 1)" --arg guestfish "$(guestfish --version)" \
 	--arg gpgv "$(gpgv --version | head -n 1)" --arg tools "${TS_IMAGE_TOOLS_ID:-unrecorded}" \
 	--arg kernel_release "$kernel_release" --arg kernel "$(sha256 "$output/guest-kernel")" \

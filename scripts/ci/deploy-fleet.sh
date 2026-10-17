@@ -17,18 +17,11 @@ if [[ $1 == qualify ]]; then
     mkdir -m 0700 "$work"
     mkdir "$work/release"
     tag=ci-$SOURCE_SHA-run-$SOURCE_CI_RUN_ID
-    gh release download "$tag" --repo TerraScale/ts-orchestrator --pattern qualification.json \
-        --output "$work/release/qualification.json" >/dev/null
-    for architecture in amd64 arm64; do
-        asset=terrascale-orchestrator-linux-$architecture
-        gh release download "$tag" --repo TerraScale/ts-orchestrator --pattern "$asset" \
-            --output "$work/release/$asset" >/dev/null
-    done
+    python3 -B scripts/ci/qualified_release.py "$SOURCE_SHA" "$SOURCE_CI_RUN_ID" "$work/release"
     bash scripts/ci/fetch-production-evidence.sh "$tag" "$work/release"
-    make build GO=go
     # verify-production emits every serving region even when one is refused.
     admission_status=0
-    dist/ts-orch release verify-production --dir "$work/release" --root-key "$root_key" \
+    "$work/release/terrascale-orchestrator-linux-amd64" release verify-production --dir "$work/release" --root-key "$root_key" \
         > "$work/production-admission.jsonl" || admission_status=$?
     cat "$work/production-admission.jsonl"
     jq -ers --arg source "$SOURCE_SHA" 'length > 0 and all(
@@ -37,7 +30,8 @@ if [[ $1 == qualify ]]; then
         any(.state == "qualified")' "$work/production-admission.jsonl" >/dev/null || {
         echo "no serving region has exact retained production qualification (verifier exit $admission_status)" >&2; exit 1;
     }
-    sha256sum "$work/release/qualification.json" > "$work/qualification.sha256"
+    sha256sum "$work/release/qualification.json" "$work/release/terrascale-orchestrator-linux-"* \
+        > "$work/qualification.sha256"
     exit 0
 fi
 
@@ -52,7 +46,7 @@ for cell in "${cells[@]}"; do
 done
 # Recheck immediately before reading deployment credentials; deploy also checks
 # the evidence for the complete rollout deadline before loading signing keys.
-dist/ts-orch release verify-production --dir "$work/release" --root-key "$root_key" "${arguments[@]}"
+"$work/release/terrascale-orchestrator-linux-amd64" release verify-production --dir "$work/release" --root-key "$root_key" "${arguments[@]}"
 for variable in TS_OBJECT_NAMESPACE TS_RELEASE_VAULT_ID TS_RELEASE_LEAF_SECRET TS_DEPLOY_OCI_USER \
     TS_DEPLOY_OCI_TENANCY TS_DEPLOY_OCI_FINGERPRINT TS_DEPLOY_OCI_KEY; do
     [[ -n ${!variable:-} ]] || { echo "$variable is required" >&2; exit 2; }
@@ -66,7 +60,7 @@ printf '[DEFAULT]\nuser=%s\nfingerprint=%s\ntenancy=%s\nregion=sa-saopaulo-1\nke
 export OCI_CONFIG_FILE=$work/oci/config
 gh auth setup-git --hostname github.com
 deploy_status=0
-dist/ts-orch release deploy --dir "$work/release" --source-revision "$SOURCE_SHA" \
+"$work/release/terrascale-orchestrator-linux-amd64" release deploy --dir "$work/release" --source-revision "$SOURCE_SHA" \
     --update-delegation-secret release-delegation --root-key "$root_key" \
     --signing-key-secret "$TS_RELEASE_LEAF_SECRET" --vault-id "$TS_RELEASE_VAULT_ID" \
     --source-checkout . --namespace "$TS_OBJECT_NAMESPACE" --poll 5s "${arguments[@]}" || deploy_status=$?

@@ -43,8 +43,7 @@ work=$(mktemp -d "${RUNNER_TEMP:?RUNNER_TEMP is required}/image-production.XXXXX
 evidence=$work/image-production
 stage=retrieve-binary-qualification
 tag=ci-$SOURCE_SHA-run-$run_id
-gh release download "$tag" --repo TerraScale/ts-orchestrator --pattern qualification.json \
-    --output "$work/qualification.json" >/dev/null
+python3 -B scripts/ci/qualified_release.py "$SOURCE_SHA" "$run_id" "$work"
 [[ $(sha256sum "$work/qualification.json" | awk '{print $1}') == \
     "$(jq -er '.go_candidate.qualification_sha256' "$manifest")" ]] || {
     echo 'retained binary qualification differs from image build provenance' >&2; exit 1;
@@ -54,9 +53,7 @@ jq -e --arg source "$SOURCE_SHA" --argjson id "$run_id" --argjson number "$run_n
     "$work/qualification.json" >/dev/null || { echo 'retained binary qualification names another source or run' >&2; exit 1; }
 stage=retrieve-final-image-proof
 bash scripts/ci/fetch-image-production-evidence.sh "$tag" "$image_sha256" "$cell" arm64 "$evidence"
-stage=build-verifier
-go build -trimpath -buildvcs=true -o "$work/ts-orch" ./cmd/terrascale-orchestrator
 stage=verify-final-image-proof
-"$work/ts-orch" release verify-image-production --image-file "$image" --qualification "$work/qualification.json" \
+"$work/terrascale-orchestrator-linux-amd64" release verify-image-production --image-file "$image" --qualification "$work/qualification.json" \
     --root-key "$root" --cell "$cell" --environment production --arch arm64 \
     --production-evidence-dir "$evidence"

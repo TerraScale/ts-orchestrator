@@ -15,14 +15,15 @@ BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-s -w"
 TS_TEST_TIER ?= full
 export TS_TEST_TIER
 
-.PHONY: verify ci-verify format-check generate generate-check test test-fast vet fixturetest-check race-test nats-identity-check terrabase-walkthrough-process terrabase-release-process netbird-backup-check netbird-podman-test shellcheck build build-linux release-linux release-check image run host check clean
+.PHONY: verify ci-check ci-verify format-check generate generate-check test test-fast vet fixturetest-check race-test nats-identity-check terrabase-walkthrough-process terrabase-release-process netbird-backup-check netbird-podman-test shellcheck build build-linux release-linux release-check image run host check clean
 
 verify: format-check generate-check vet race-test nats-identity-check netbird-backup-check
 
-# CI runs the independent checks and the release build at once. The race
-# scheduler prints complete shard logs; stream them as each shard finishes.
-ci-verify:
-	$(MAKE) --jobs --keep-going --output-sync=none format-check generate-check vet shellcheck race-test nats-identity-check release-check netbird-backup-check \
+# Every revision runs checks; CI separately builds a changed release candidate.
+ci-verify: ci-check release-check
+
+ci-check:
+	$(MAKE) --jobs --keep-going --output-sync=none format-check generate-check vet shellcheck race-test nats-identity-check netbird-backup-check \
 		$(if $(filter pr,$(TS_TEST_TIER)),,fixturetest-check)
 
 format-check:

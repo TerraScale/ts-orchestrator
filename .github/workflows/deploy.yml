@@ -1,7 +1,7 @@
 name: Deploy ts-orch to every region
 
 # ci.yml dispatches this workflow as its last step on main (trigger "ci"),
-# once the revision's release is retained. Every green main push deploys;
+# once a changed candidate's release is retained. Docs-only checks do not deploy;
 # docs/deploy-pipeline.md lists every input. Each region signs, publishes and
 # rolls independently; quorum, health gates and automatic rollback remain.
 # A failure never cancels another region. Deployments
