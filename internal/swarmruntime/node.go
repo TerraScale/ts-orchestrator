@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/gofrs/flock"
@@ -43,15 +44,16 @@ type NodeConfig struct {
 
 // Node owns the upstream manager, agent, certificates and persistent task store.
 type Node struct {
-	upstream        *swarmnode.Node
-	cancel          context.CancelFunc
-	done            chan struct{}
-	err             error
-	role            string
-	admission       admittedIdentity
-	stateDir        string
-	workerAuthority *workerAuthority
-	workerDirectory string
+	controllerSources atomic.Pointer[controllerNodeSource]
+	upstream          *swarmnode.Node
+	cancel            context.CancelFunc
+	done              chan struct{}
+	err               error
+	role              string
+	admission         admittedIdentity
+	stateDir          string
+	workerAuthority   *workerAuthority
+	workerDirectory   string
 }
 
 type admittedIdentity struct {
