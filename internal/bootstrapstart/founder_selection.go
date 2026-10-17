@@ -90,6 +90,7 @@ type CurrentFounderAuthorityReader struct {
 	objects           FounderSelectionObjectReader
 	floor             *FounderSelectionFloorStore
 	derived           *bootstrap.DerivedStartupAuthority
+	runtimeSDK        controllerRuntimeSDKSource
 }
 
 func NewCurrentFounderAuthorityReader(baked BakedInputs, accepted AcceptedInstall,
@@ -120,7 +121,7 @@ func NewCurrentFounderAuthorityReader(baked BakedInputs, accepted AcceptedInstal
 		baked: baked, accepted: accepted, acceptedClusterID: anchor.Anchor().ClusterID,
 		acceptedSlots: slices.Clone(anchor.Anchor().ControllerSlots),
 		domain:        anchor.Anchor().StorageDomain,
-		objects:       objects, floor: floor,
+		objects:       objects, floor: floor, runtimeSDK: instancePrincipalControllerSDK{},
 	}, nil
 }
 
