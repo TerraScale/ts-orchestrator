@@ -7,15 +7,20 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -26,11 +31,13 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
+	"github.com/TerraScale/ts-orchestrator/internal/capacity"
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/containermaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/hostload"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
@@ -43,6 +50,7 @@ import (
 	swarmexec "github.com/moby/swarmkit/v2/agent/exec"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/api/genericresource"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -50,8 +58,10 @@ import (
 // broker, manager, dispatcher, scheduler, task repair and HTTP are real. The
 // supplied application probe substitutes the external OCI recipient source;
 // native execution and the production recipient adapter remain separate gates.
+// The local privileged observer proves applied history; authenticated Unix
+// management transport remains separately qualified.
 func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 240*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 360*time.Second)
 	defer cancel()
 	auth := newAuthenticatedNATS(t, "gru")
 	broker, err := auth.start(t, ctx, natscell.Config{Cell: "gru", Embedded: &natscell.Embedded{}})
@@ -99,16 +109,23 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 		}
 	}
 	adopt(1, []cellspec.Service{{Role: policy.Role, Profile: profile, Spec: &policy}})
-	session := startGenericRuntimeHostSession(t, ctx, auth, broker, fencer, policy.Role, identity.Environment)
 	executor := &genericRuntimeExecutor{controllers: map[string]*genericRuntimeTask{}}
+	session := startGenericRuntimeHostSession(t, ctx, auth, broker, fencer, policy.Role, identity.Environment, executor)
 	managerConfig := genericRuntimeNodeConfig(t, "generic-manager", "manager")
-	managerConfig.Admission.HostID, managerConfig.Admission.FounderID = session.registration.ID, session.registration.ID
+	managerConfig.Admission.HostID, managerConfig.Admission.FounderID = "controller-a", "controller-a"
 	manager := startGenericRuntimeNode(t, ctx, managerConfig, executor)
+	executor.mu.Lock()
+	executor.nodeID = manager.ID()
+	executor.mu.Unlock()
 	client, err := manager.ControlClient(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := swarmruntime.AdmitNode(ctx, client, manager.ID(), managerConfig.Admission); err != nil {
+		t.Fatal(err)
+	}
+	observer, err := manager.LocalManagementObservation(ctx, identity.Environment)
+	if err != nil {
 		t.Fatal(err)
 	}
 	target := release.ContainerTarget{Cell: "GRU", Environment: identity.Environment, Role: policy.Role, Architecture: runtime.GOARCH}
@@ -119,6 +136,7 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	codec := delivery.Ed25519Codec{Cell: identity.Cell, Actor: "release", PrivateKey: signer.leaf, Lifetime: time.Minute, MaxLifetime: time.Minute,
 		Trusted: map[string]delivery.TrustedSigner{keyID: {Actor: "release", PublicKey: signer.leaf.Public().(ed25519.PublicKey)}}}
 	history := retainGenericRuntimeNativeRelease(t, ctx, broker.JetStream(), specs, fencer, codec, profile, policy.Role, identity.Environment, session.registration.Node)
+	history.hosts = session.hosts
 	legacyFloor, err := history.retainedContainerFloor(ctx, policy.Role, identity.Environment)
 	if err != nil {
 		t.Fatal(err)
@@ -197,12 +215,12 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	t.Cleanup(server.Close)
 	var deliveries *delivery.Service
 	probeClient := client
-	probe := func(ctx context.Context, task *api.Task) error {
+	verifyTask := func(ctx context.Context, task *api.Task, allocation bool) error {
 		if err := session.verify(ctx); err != nil {
 			return err
 		}
 		node, err := probeClient.GetNode(ctx, &api.GetNodeRequest{NodeID: task.NodeID})
-		if err != nil || node.Node.Spec.Annotations.Name != session.registration.ID || node.Node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] != managerConfig.Admission.InstanceID {
+		if err != nil || node.Node.Spec.Annotations.Name != managerConfig.Admission.HostID || node.Node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] != managerConfig.Admission.InstanceID {
 			return errors.New("task recipient differs from current signed host session")
 		}
 		entry, err := specs.kv.Get(ctx, cellSpecKey)
@@ -225,7 +243,17 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if err := swarmruntime.VerifyRegistryTask(ctx, probeClient, task, expected, verified, specs.roots.current()); err != nil {
+		verify := swarmruntime.VerifyRegistryTask
+		if allocation {
+			verify = swarmruntime.VerifyTaskAllocation
+		}
+		if err := verify(ctx, probeClient, task, expected, verified, specs.roots.current()); err != nil {
+			return err
+		}
+		return session.verify(ctx)
+	}
+	probe := func(ctx context.Context, task *api.Task) error {
+		if err := verifyTask(ctx, task, false); err != nil {
 			return err
 		}
 		request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/readyz", nil)
@@ -241,10 +269,7 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 		if response.StatusCode != http.StatusOK {
 			return fmt.Errorf("application readiness HTTP %d", response.StatusCode)
 		}
-		if err := swarmruntime.VerifyRegistryTask(ctx, probeClient, task, expected, verified, specs.roots.current()); err != nil {
-			return err
-		}
-		return session.verify(ctx)
+		return verifyTask(ctx, task, false)
 	}
 	var controller *genericRuntime
 	var activeRuntime atomic.Pointer[genericRuntime]
@@ -276,6 +301,13 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	activeRuntime.Store(controller)
+	usageFixture := startGenericRuntimeUsage(t, ctx, session, history, client, observer, controller.owns,
+		func(ctx context.Context, registration host.Registration, task *api.Task) error {
+			if !reflect.DeepEqual(registration, session.registration) {
+				return errors.New("allocation observation differs from the actual signed host")
+			}
+			return verifyTask(ctx, task, true)
+		})
 	for name, mutate := range map[string]func(*release.ContainerBundle){
 		"signature": func(candidate *release.ContainerBundle) {
 			envelope, err := trust.DecodeEnvelope(candidate.Claim)
@@ -340,6 +372,11 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 		return view
 	}
 	first := ready(1)
+	initialUsage := usageFixture.wait(t, ctx, genericRuntimeReadyTaskIDs(first), 3, 0)
+	if initialUsage.Observation.CoveredSequence == 0 || initialUsage.Observation.Requests[policy.Role] != (hostload.Request{CPUCores: profile.Resources.CPU, MemoryBytes: profile.Resources.MemoryBytes}) {
+		t.Fatal("three stable signed load requests lost their prior manager interval or original signed resources")
+	}
+	usageFixture.assertExpiredAndThrottled(t, ctx, initialUsage)
 	assignment, err := client.GetTask(ctx, &api.GetTaskRequest{TaskID: first.Tasks[0].TaskID})
 	if err != nil {
 		t.Fatal(err)
@@ -385,7 +422,11 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	if err := controller.scaler.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
-	ready(2)
+	scaled := ready(2)
+	scaledUsage := usageFixture.wait(t, ctx, genericRuntimeReadyTaskIDs(scaled), 1, 0)
+	if scaledUsage.Observation.Requests[policy.Role] != (hostload.Request{CPUCores: 2 * profile.Resources.CPU, MemoryBytes: 2 * profile.Resources.MemoryBytes}) {
+		t.Fatal("actual replica CAS did not change the journal's aggregate signed requests")
+	}
 	view, err := newManagerWorkloadView(client, manager.ID(), fencer, controller.scaler, specs, probe)
 	if err != nil {
 		t.Fatal(err)
@@ -465,6 +506,7 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	if len(rolledForward.Tasks) == 0 {
 		t.Fatal("signed rollout has no actual manager task assignments")
 	}
+	forwardUsage := usageFixture.wait(t, ctx, genericRuntimeReadyTaskIDs(rolledForward), 1, 0)
 	if _, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: serviceID, ServiceVersion: &staleVersion, Spec: staleSpec}); err == nil {
 		t.Fatal("manager accepted pre-rollout stale service CAS")
 	}
@@ -488,7 +530,17 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 		return err == nil && service.Service.UpdateStatus != nil && service.Service.UpdateStatus.State == api.UpdateStatus_ROLLBACK_COMPLETED &&
 			service.Service.Spec.Annotations.Labels[swarmruntime.LabelOperationID] == next.OperationID
 	})
-	ready(2)
+	rolledBack := ready(2)
+	rollbackBoundary := usageFixture.points(t, ctx)
+	rollbackUsage := usageFixture.wait(t, ctx, genericRuntimeReadyTaskIDs(rolledBack), 1, rollbackBoundary[len(rollbackBoundary)-1].Entry.Sequence)
+	if rollbackUsage.Entry.Sequence <= forwardUsage.Entry.Sequence || len(rollbackUsage.Observation.Tasks) != 2 ||
+		rollbackUsage.Observation.Tasks[0].ReleaseSHA256 != forwardUsage.Observation.Tasks[0].ReleaseSHA256 {
+		t.Fatal("rollback rewrote signed release history")
+	}
+	intervals, err := usageFixture.load.managedExpectedUsage(history, usageFixture.usage, controller.owns)(ctx, forwardUsage.Entry.CreatedAt, rollbackUsage.Entry.CreatedAt)
+	if err != nil || !slices.ContainsFunc(intervals, func(interval hostload.UsageInterval) bool { return interval.Unknown != "" }) {
+		t.Fatal("failed release and rollback lost their unknown allocation gap", err)
+	}
 	if err := controller.apply(ctx, rejected); err == nil || !strings.Contains(err.Error(), "rolled back") {
 		t.Fatalf("rolled-back release replay was not refused: %v", err)
 	}
@@ -506,7 +558,12 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 		receipt, err := deliveries.Status(ctx, recovery.OperationID)
 		return err == nil && receipt.Status == "accepted"
 	})
-	ready(2)
+	recovered := ready(2)
+	recoveryUsage := usageFixture.wait(t, ctx, genericRuntimeReadyTaskIDs(recovered), 1, 0)
+	if recoveryUsage.Entry.Sequence <= rollbackUsage.Entry.Sequence ||
+		recoveryUsage.Observation.Tasks[0].ReleaseSHA256 == rollbackUsage.Observation.Tasks[0].ReleaseSHA256 {
+		t.Fatal("recovery failed to retain distinct rollback and successor releases")
+	}
 	current, err = client.GetService(ctx, &api.GetServiceRequest{ServiceID: serviceID})
 	if err != nil || current.Service.Spec.Task.Resources.Limits.NanoCPUs != int64(profile.Resources.CPU)*1_000_000_000 || current.Service.Spec.Task.Resources.Reservations.MemoryBytes != profile.Resources.MemoryBytes {
 		t.Fatalf("rollout/rollback/recovery changed exact signed resource request: %+v %v", current, err)
@@ -534,6 +591,7 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	}
 	healthy.Store(true)
 	session.stop(t)
+	usageFixture.assertRestarts(t, ctx)
 	if err := controller.refresh(ctx); err == nil || len(controller.scaler.Last()) != 0 {
 		t.Fatalf("ended authenticated session retained scaling authority: %+v %v", controller.scaler.Last(), err)
 	}
@@ -693,19 +751,306 @@ func genericRuntimeReadyTaskIDs(view swarmruntime.ServiceObservation) []string {
 	return ids
 }
 
+type genericRuntimeUsage struct {
+	mu      sync.Mutex
+	escaped context.Context
+	err     error
+	session *genericRuntimeHostSession
+	history *nativeHistory
+	load    *hostTelemetry
+	usage   *runtimeObservability
+	owns    func(string) bool
+	loads   chan protocol.Envelope
+}
+
+func startGenericRuntimeUsage(t *testing.T, ctx context.Context, session *genericRuntimeHostSession, history *nativeHistory,
+	client api.ControlClient, observer swarmruntime.ManagementObservationClient, owns func(string) bool,
+	verify func(context.Context, host.Registration, *api.Task) error,
+) *genericRuntimeUsage {
+	t.Helper()
+	f := &genericRuntimeUsage{session: session, history: history, owns: owns, loads: make(chan protocol.Envelope, 32),
+		load:  &hostTelemetry{fencer: history.fencer, load: hostload.NewAggregator(hostload.AggregatorConfig{})},
+		usage: &runtimeObservability{usage: capacity.NewStore(session.registration.Cell)}}
+	f.usage.usage.SetExpected(f.load.managedExpectedUsage(history, f.usage, owns))
+	subject, err := protocol.AgentObservationSubject(session.registration.Cell, session.registration.NATSUserPublicKey, "load")
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscription, err := history.js.Conn().Subscribe(subject, func(message *nats.Msg) {
+		var envelope protocol.Envelope
+		if protocol.DecodeStrict(message.Data, &envelope, 64<<10) == nil {
+			select {
+			case f.loads <- envelope:
+			default:
+			}
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = subscription.Unsubscribe() })
+	if err := history.js.Conn().Flush(); err != nil {
+		t.Fatal(err)
+	}
+	session.hosts.SetLoadObservationSink(func(requestCtx context.Context, origin hostload.Origin, report hostload.Report) error {
+		err := f.load.recordManaged(requestCtx, history, f.usage, client, observer, owns, verify, origin, report)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.err = err
+		if err == nil && f.escaped == nil {
+			f.escaped = context.WithoutCancel(requestCtx)
+		}
+		return err
+	})
+	t.Cleanup(func() {
+		if t.Failed() {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			t.Logf("last actual signed load observation: %v", f.err)
+		}
+	})
+	return f
+}
+
+func (f *genericRuntimeUsage) points(t *testing.T, ctx context.Context) []host.CommittedUsage {
+	t.Helper()
+	points, err := f.session.hosts.UsageObservations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return points
+}
+
+func (f *genericRuntimeUsage) wait(t *testing.T, ctx context.Context, tasks []string, count int, after uint64) host.CommittedUsage {
+	t.Helper()
+	var point host.CommittedUsage
+	genericRuntimeEventually(t, ctx, func() bool {
+		matched := 0
+		for _, candidate := range f.points(t, ctx) {
+			if candidate.Entry.Sequence <= after {
+				continue
+			}
+			var ids []string
+			for _, task := range candidate.Observation.Tasks {
+				ids = append(ids, task.Task.TaskID)
+			}
+			slices.Sort(ids)
+			if slices.Equal(ids, tasks) {
+				point = candidate
+				matched++
+			}
+		}
+		return matched >= count && (count < 3 || point.Observation.CoveredSequence != 0)
+	})
+	return point
+}
+
+func (f *genericRuntimeUsage) assertExpiredAndThrottled(t *testing.T, ctx context.Context, point host.CommittedUsage) {
+	t.Helper()
+	before := f.points(t, ctx)
+	f.mu.Lock()
+	escaped := f.escaped
+	f.mu.Unlock()
+	verified := false
+	if escaped == nil {
+		t.Fatal("actual signed load callback was not observed")
+	}
+	if _, err := f.session.hosts.CommitUsageObservation(escaped, point.Observation, func(context.Context) error {
+		verified = true
+		return nil
+	}); err == nil || verified {
+		t.Fatal("expired signed load callback reached the verifier or appended another valid observation")
+	}
+	var original protocol.Envelope
+	for len(f.loads) > 0 {
+		original = <-f.loads
+	}
+	if original.Kind != "host.load" {
+		t.Fatal("the real Agent did not send an observable signed load request")
+	}
+	lifetime := original.ExpiresAt.Sub(original.IssuedAt)
+	if err := protocol.VerifyEnvelope(original, protocol.EnvelopeScope{Region: original.Region, Kind: "host.load", Actor: f.session.registration.Node,
+		OperationID: original.OperationID, Epoch: point.Observation.Epoch}, f.session.config.Identity.Public().(ed25519.PublicKey), time.Now().UTC(),
+		protocol.VerifyPolicy{MaxLifetime: lifetime, ClockSkew: time.Second}); err != nil {
+		t.Fatal(err)
+	}
+	// Send a fresh signature under the actual Agent's current session. Replaying
+	// its nonce would exercise replay rejection instead of journal throttling.
+	var payload map[string]jsontext.Value
+	if err := json.Unmarshal(original.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256([]byte(entityid.New()))
+	nonce, now := hex.EncodeToString(digest[:16]), time.Now().UTC()
+	payload["nonce"], _ = json.Marshal(nonce)
+	payload["issued_at"], _ = json.Marshal(now)
+	wire, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := entityid.Derive("host-request", nonce)
+	signed, err := protocol.SignEnvelope(wire, protocol.EnvelopeScope{Region: original.Region, Kind: "host.load", Actor: original.Actor,
+		OperationID: operation, Epoch: original.Epoch}, now, now.Add(lifetime), f.session.config.Identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire, err = protocol.EncodeJSON(signed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subject, err := protocol.AgentObservationSubject(original.Region, f.session.registration.NATSUserPublicKey, "load")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	message, err := f.session.config.Conn.RequestWithContext(requestCtx, subject, wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response protocol.Envelope
+	if err := protocol.DecodeStrict(message.Data, &response, 512<<10); err != nil {
+		t.Fatal(err)
+	}
+	if err := protocol.VerifyEnvelope(response, protocol.EnvelopeScope{Region: original.Region, Kind: "host.response.load", Actor: "controller",
+		OperationID: operation, Epoch: original.Epoch}, f.session.config.ControllerPublicKey, time.Now().UTC(), protocol.VerifyPolicy{MaxLifetime: lifetime, ClockSkew: time.Second}); err != nil {
+		t.Fatal(err)
+	}
+	var reply struct {
+		Nonce     string `json:"nonce"`
+		Node      string `json:"node"`
+		SessionID string `json:"session_id"`
+		Operation string `json:"operation"`
+		Epoch     uint64 `json:"epoch"`
+		Error     string `json:"error"`
+		Payload   struct {
+			Accepted bool `json:"accepted"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(response.Payload, &reply); err != nil || reply.Nonce != nonce || reply.Node != f.session.registration.Node ||
+		reply.SessionID != point.Observation.SessionID || reply.Epoch != original.Epoch || reply.Operation != "load" || reply.Error != "" || reply.Payload.Accepted {
+		t.Fatalf("fresh signed load inside the minimum interval was not throttled: %+v %v", reply, err)
+	}
+	if after := f.points(t, ctx); !reflect.DeepEqual(before, after) {
+		t.Fatal("expired or throttled signed load grew or rewrote the durable usage journal")
+	}
+}
+
+func (f *genericRuntimeUsage) assertRestarts(t *testing.T, ctx context.Context) {
+	t.Helper()
+	points := f.points(t, ctx)
+	if len(points) < 6 {
+		t.Fatal("actual signed journal has insufficient rollout history")
+	}
+	from := points[0].Entry.CreatedAt.Truncate(time.Millisecond)
+	to := points[len(points)-1].Entry.CreatedAt.Truncate(time.Millisecond).Add(time.Millisecond)
+	query := func(usage *runtimeObservability) capacity.Usage {
+		t.Helper()
+		token := controllerSHA256([]byte(entityid.New()))
+		listener, err := observability.NewTokenServer(observability.Config{ListenAddress: "127.0.0.1:9463"}, token,
+			observability.ServerDeps{Registry: observability.NewRegistry(false), Health: new(observability.Health)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		listener.HandleAuthenticated("GET /v1/usage", usage.usage.Handler(usage.usage.Expected))
+		server := httptest.NewServer(listener)
+		defer server.Close()
+		values := url.Values{"region": {f.session.registration.Cell}, "from": {from.Format(time.RFC3339Nano)}, "to": {to.Format(time.RFC3339Nano)}}
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/v1/usage?"+values.Encode(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, bearer := range []string{"", "Bearer invalid"} {
+			request.Header.Set("Authorization", bearer)
+			response, err := server.Client().Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = response.Body.Close()
+			if response.StatusCode != http.StatusUnauthorized {
+				t.Fatal("usage listener accepted missing or incorrect bearer credentials")
+			}
+		}
+		request.Header.Set("Authorization", "Bearer "+token)
+		response, err := server.Client().Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		body, err := io.ReadAll(response.Body)
+		var result capacity.Usage
+		if err != nil || response.StatusCode != http.StatusOK || json.Unmarshal(body, &result) != nil {
+			t.Fatalf("actual usage HTTP failed: status=%d body=%s error=%v", response.StatusCode, body, err)
+		}
+		return result
+	}
+	original := query(f.usage)
+	if original.Complete || len(original.Gaps) == 0 || len(original.Replicas) != 1 || len(original.Services) != 1 || original.Services[0].CPU.Request != nil {
+		t.Fatalf("task/replica/rollback gaps became a partial numeric service total: %+v", original)
+	}
+	request := original.Replicas[0].CPU.Request
+	var sum, memorySum, minimum, maximum float64
+	var firstRequestAt, lastRequestAt time.Time
+	var samples int
+	sawOne, sawTwo := false, false
+	for _, point := range points {
+		if value, exists := point.Observation.Requests[f.session.registration.Roles[0]]; exists {
+			sum += value.CPUCores
+			memorySum += float64(value.MemoryBytes)
+			if samples == 0 {
+				minimum = value.CPUCores
+				firstRequestAt = point.Entry.CreatedAt.Truncate(time.Millisecond)
+			}
+			lastRequestAt = point.Entry.CreatedAt.Truncate(time.Millisecond)
+			minimum, maximum = min(minimum, value.CPUCores), max(maximum, value.CPUCores)
+			sawOne = sawOne || value.CPUCores == 1
+			sawTwo = sawTwo || value.CPUCores == 2
+			samples++
+		}
+	}
+	if !sawOne || !sawTwo || request == nil || request.Complete || request.Samples != samples || request.Min != minimum || request.Max != maximum || math.Abs(request.Mean-sum/float64(samples)) > 1e-9 ||
+		!request.From.Equal(firstRequestAt) || !request.To.Equal(lastRequestAt) {
+		t.Fatalf("usage HTTP rewrote original signed requests or server timestamps: %+v", request)
+	}
+	memory := original.Replicas[0].Memory.Request
+	if memory == nil || memory.Complete || memory.Samples != samples || math.Abs(memory.Mean-memorySum/float64(samples)) > 1e-3 ||
+		original.Replicas[0].CPU.Usage != nil || original.Replicas[0].Memory.Usage != nil {
+		t.Fatal("usage HTTP changed historical memory requests or invented native process measurements")
+	}
+	for restart := range 2 {
+		controller, err := host.NewController(ctx, f.session.controllerConfig)
+		if err != nil {
+			t.Fatal(err)
+		}
+		history := &nativeHistory{kv: f.history.kv, js: f.history.js, services: f.history.services,
+			deliveries: f.history.deliveries, hosts: controller, fencer: f.history.fencer}
+		load := &hostTelemetry{fencer: history.fencer, load: hostload.NewAggregator(hostload.AggregatorConfig{})}
+		usage := &runtimeObservability{usage: capacity.NewStore(f.session.registration.Cell)}
+		usage.usage.SetExpected(load.managedExpectedUsage(history, usage, f.owns))
+		restored, err := load.restoreManagedUsage(ctx, controller, usage)
+		if err != nil || !reflect.DeepEqual(restored, points) {
+			t.Fatalf("restart%d changed original task/release proof, requests or journal timestamps: %v", restart+1, err)
+		}
+		if actual := query(usage); !reflect.DeepEqual(original, actual) {
+			t.Fatalf("restart%d changed capacity HTTP history or erased unknown gaps: before=%+v after=%+v", restart+1, original, actual)
+		}
+	}
+}
+
 type genericRuntimeHostSession struct {
-	mu           sync.Mutex
-	config       host.AgentConfig
-	registration host.Registration
-	hosts        *host.Controller
-	agent        *host.Agent
-	ctx          context.Context
-	cancel       context.CancelFunc
-	done         chan error
+	mu               sync.Mutex
+	config           host.AgentConfig
+	registration     host.Registration
+	hosts            *host.Controller
+	controllerConfig host.ControllerConfig
+	agent            *host.Agent
+	ctx              context.Context
+	cancel           context.CancelFunc
+	done             chan error
 }
 
 func startGenericRuntimeHostSession(t *testing.T, ctx context.Context, auth *authenticatedNATS, broker *natscell.Runtime,
-	fencer *authority.Runtime, role, environment string,
+	fencer *authority.Runtime, role, environment string, taskLoad host.TaskLoadSource,
 ) *genericRuntimeHostSession {
 	t.Helper()
 	responsePublic, responseKey := testEd25519(t, t.TempDir(), "generic-response.key")
@@ -715,13 +1060,25 @@ func startGenericRuntimeHostSession(t *testing.T, ctx context.Context, auth *aut
 	if err != nil {
 		t.Fatal(err)
 	}
-	hosts, err := host.NewController(ctx, host.ControllerConfig{Cell: "gru", Conn: broker.Conn(), JS: broker.JetStream(), Artifacts: artifacts,
-		StateReplicas: 1, ResponseKey: responseKey, HostMutations: fencer, AuthorityEpoch: func() uint64 { return fencer.Current().Epoch }, AuthorityGuard: fencer.Guard})
+	controllerConfig := host.ControllerConfig{Cell: "gru", Conn: broker.Conn(), JS: broker.JetStream(), Artifacts: artifacts,
+		StateReplicas: 1, ResponseKey: responseKey, HostMutations: fencer, AuthorityEpoch: func() uint64 { return fencer.Current().Epoch }, AuthorityGuard: fencer.Guard,
+		TaskLoadRoles: func(ctx context.Context, _ host.Registration) ([]string, error) {
+			loads, err := taskLoad.ReadTaskLoad(ctx)
+			if err != nil {
+				return nil, err
+			}
+			var roles []string
+			for _, load := range loads {
+				roles = append(roles, load.Role)
+			}
+			return roles, nil
+		}}
+	hosts, err := host.NewController(ctx, controllerConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	registration := host.Registration{Cell: "gru", Node: "generic-manager", Environment: environment, Roles: []string{role}, Generation: 1,
-		ID: entityid.Derive("host", "gru", "generic-manager"), PublicKey: base64.StdEncoding.EncodeToString(public), NATSUserPublicKey: nkey,
+	registration := host.Registration{Cell: "gru", Node: "gru-1-ctl-1", Environment: environment, Roles: []string{role}, Generation: 1,
+		ID: entityid.Derive("host", "gru", "gru-1-ctl-1"), PublicKey: base64.StdEncoding.EncodeToString(public), NATSUserPublicKey: nkey,
 		FailureDomain: "fault-domain-1", Capacity: host.Capacity{CPU: 8, MemoryBytes: 8 << 30, DiskBytes: 16 << 30}}
 	if _, err := hosts.Register(ctx, registration); err != nil {
 		t.Fatal(err)
@@ -745,9 +1102,9 @@ func startGenericRuntimeHostSession(t *testing.T, ctx context.Context, auth *aut
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = transport.Close() })
-	session := &genericRuntimeHostSession{hosts: hosts, registration: registration, config: host.AgentConfig{Cell: "gru", Node: registration.Node,
+	session := &genericRuntimeHostSession{hosts: hosts, controllerConfig: controllerConfig, registration: registration, config: host.AgentConfig{Cell: "gru", Node: registration.Node,
 		Environment: environment, Roles: registration.Roles, Conn: transport.Conn(), Identity: private, NATSUserPublicKey: nkey, ControllerPublicKey: responsePublic,
-		Runner: &inMemoryRunner{}, InstallRoot: testHostInstallRoot(t), StateRoot: testHostStateRoot(t), WorkloadIdentity: testHostWorkloadIdentity(),
+		Runner: &inMemoryRunner{}, TaskLoad: taskLoad, InstallRoot: testHostInstallRoot(t), StateRoot: testHostStateRoot(t), WorkloadIdentity: testHostWorkloadIdentity(),
 		ClockCheck: func() error { return nil }}}
 	session.start(t, ctx)
 	t.Cleanup(func() { session.stop(t) })
@@ -1006,6 +1363,7 @@ type genericRuntimeExecutor struct {
 	mu          sync.Mutex
 	controllers map[string]*genericRuntimeTask
 	rejectImage string
+	nodeID      string
 }
 
 func (*genericRuntimeExecutor) Describe(context.Context) (*api.NodeDescription, error) {
@@ -1020,11 +1378,49 @@ func (executor *genericRuntimeExecutor) Controller(task *api.Task) (swarmexec.Co
 		return nil, err
 	}
 	executor.mu.Lock()
-	controller := &genericRuntimeTask{done: make(chan struct{}), reject: spec.Image == executor.rejectImage}
+	controller := &genericRuntimeTask{done: make(chan struct{}), reject: spec.Image == executor.rejectImage, assignment: task.Copy()}
 	executor.controllers[task.ID] = controller
 	executor.mu.Unlock()
 	return controller, nil
 }
+
+// Local controller pins are genuine assignments; this simulated executor has
+// no native cgroup measurements, so resource usage stays explicitly unknown.
+func (executor *genericRuntimeExecutor) ReadTaskLoad(ctx context.Context) ([]hostload.RoleUsage, error) {
+	executor.mu.Lock()
+	defer executor.mu.Unlock()
+	roles := make(map[string]hostload.RoleUsage)
+	for _, id := range slices.Sorted(maps.Keys(executor.controllers)) {
+		controller := executor.controllers[id]
+		controller.mu.Lock()
+		task := controller.assignment.Copy()
+		removed := controller.removed
+		controller.mu.Unlock()
+		if removed || executor.nodeID == "" || task.NodeID != executor.nodeID {
+			continue
+		}
+		select {
+		case <-controller.done:
+			continue
+		default:
+		}
+		fingerprint, err := swarmruntime.ContainerTaskFingerprint(task)
+		if err != nil {
+			return nil, err
+		}
+		role := task.ServiceAnnotations.Labels[swarmruntime.LabelRole]
+		usage := roles[role]
+		usage.Role = role
+		usage.Tasks = append(usage.Tasks, hostload.TaskPin{TaskID: task.ID, ServiceID: task.ServiceID, NodeID: task.NodeID, Fingerprint: fingerprint})
+		roles[role] = usage
+	}
+	var result []hostload.RoleUsage
+	for _, role := range slices.Sorted(maps.Keys(roles)) {
+		result = append(result, roles[role])
+	}
+	return result, ctx.Err()
+}
+
 func (executor *genericRuntimeExecutor) fail(id string) error {
 	executor.mu.Lock()
 	controller := executor.controllers[id]
@@ -1038,15 +1434,24 @@ func (executor *genericRuntimeExecutor) fail(id string) error {
 }
 
 type genericRuntimeTask struct {
-	done   chan struct{}
-	once   sync.Once
-	failed atomic.Bool
-	reject bool
+	mu         sync.Mutex
+	assignment *api.Task
+	removed    bool
+	done       chan struct{}
+	once       sync.Once
+	failed     atomic.Bool
+	reject     bool
 }
 
-func (*genericRuntimeTask) Update(context.Context, *api.Task) error { return nil }
+func (task *genericRuntimeTask) Update(_ context.Context, assignment *api.Task) error {
+	task.mu.Lock()
+	defer task.mu.Unlock()
+	task.assignment = assignment.Copy()
+	return nil
+}
 func (task *genericRuntimeTask) Prepare(context.Context) error {
 	if task.reject {
+		task.stop()
 		return errors.New("application rejected candidate release")
 	}
 	return nil
@@ -1066,8 +1471,18 @@ func (task *genericRuntimeTask) Wait(ctx context.Context) error {
 func (task *genericRuntimeTask) stop()                           { task.once.Do(func() { close(task.done) }) }
 func (task *genericRuntimeTask) Shutdown(context.Context) error  { task.stop(); return nil }
 func (task *genericRuntimeTask) Terminate(context.Context) error { task.stop(); return nil }
-func (*genericRuntimeTask) Remove(context.Context) error         { return nil }
-func (*genericRuntimeTask) Close() error                         { return nil }
+func (task *genericRuntimeTask) Remove(context.Context) error {
+	task.mu.Lock()
+	defer task.mu.Unlock()
+	task.removed = true
+	return nil
+}
+func (task *genericRuntimeTask) Close() error {
+	task.mu.Lock()
+	defer task.mu.Unlock()
+	task.removed = true
+	return nil
+}
 
 func genericRuntimeNodeConfigAdmission(name, role string) swarmruntime.Admission {
 	return swarmruntime.Admission{Region: "sa-saopaulo-1", HostID: name, InstanceID: "ocid1.instance.integration." + name, FounderID: "generic-manager", Role: role}
