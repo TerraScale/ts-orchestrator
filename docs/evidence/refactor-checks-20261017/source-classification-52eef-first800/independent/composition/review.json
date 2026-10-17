@@ -1,0 +1,146 @@
+{
+  "actual_shared_ledger_mutation": false,
+  "all_five_categories": [
+    {
+      "category": "Connected application and sole execution engine",
+      "status": "OPEN"
+    },
+    {
+      "category": "Provider authority and genuine worker creation lineage",
+      "status": "OPEN"
+    },
+    {
+      "category": "Native and live regional acceptance",
+      "status": "OPEN"
+    },
+    {
+      "category": "Integration-only test migration closure",
+      "status": "OPEN"
+    },
+    {
+      "category": "Operational parity and measured benefits",
+      "status": "OPEN"
+    }
+  ],
+  "candidate": {
+    "added_files_only": 264,
+    "clean": true,
+    "evidence_prefix": "docs/evidence/refactor-checks-20261017/source-classification-52eef-first800",
+    "head": "688ac95e8fb1f4e74951d08b8fe674208802b08b",
+    "parent": "22e878881ee8a4ae4fe36bcc89733bdc9669e299",
+    "pins_sha256": {
+      "SHA256SUMS": "326ec92224844014c0e611565add114e52861dbe9ee3f30823c06b8adc81f66a",
+      "composition/receipt.json": "69bc462af93110a35faa14a61a4ebd44f1d635ba79111367b85f9113e62c6500",
+      "manifest.json": "83f9156b1b253b450d5b5d6cbeff0f04628e5827ac0f10a4fb689903da8ea02d"
+    },
+    "tree": "d3fecc590857199a2fafd91c370e16bdc895e27f",
+    "worktree": "/tmp/ts-qa-first800-source-evidence-52eef"
+  },
+  "canonical_source_mutation": false,
+  "complete": false,
+  "counts_after": {
+    "classified": 1484,
+    "integration": 510,
+    "mixed": 267,
+    "originals": 4319,
+    "other_unadjudicated": 2719,
+    "retained": 4300,
+    "retired": 19,
+    "reviewed_unresolved_included": 97,
+    "unadjudicated": 2816,
+    "unit": 707
+  },
+  "counts_before": {
+    "classified": 695,
+    "integration": 258,
+    "mixed": 122,
+    "originals": 4319,
+    "other_unadjudicated": 3519,
+    "retained": 4300,
+    "retired": 19,
+    "reviewed_unresolved_included": 86,
+    "unadjudicated": 3605,
+    "unit": 315
+  },
+  "decision": "ACCEPTED_PROSPECTIVE_SOURCE_ACCOUNTING_COMPOSITION_ONLY_NO_PROMOTION_GRANT",
+  "delta": {
+    "classified": 789,
+    "integration": 252,
+    "mixed": 145,
+    "retirement": 0,
+    "reviewed": 800,
+    "reviewed_unresolved": 11,
+    "runtime": 0,
+    "unit": 392
+  },
+  "final_checks": {
+    "completion": {
+      "baseline_rows": 1586,
+      "history_appends_exactly_one": true,
+      "limits_prefix_preserved": true,
+      "mirrors_equal": 10,
+      "prior_summary_fields_preserved": true,
+      "sealed_and_live_before_hashes_match": true,
+      "unrelated_values_identical": true
+    },
+    "progress": {
+      "baseline_rows": 1586,
+      "history_appends_exactly_one": true,
+      "limits_prefix_preserved": true,
+      "mirrors_equal": 2,
+      "prior_summary_fields_preserved": true,
+      "sealed_and_live_before_hashes_match": true,
+      "unrelated_values_identical": true
+    }
+  },
+  "findings": [],
+  "limits": [
+    "Prospective composition acceptance only; ROOT exact promotion grant is separately required before any adoption or shared ledger mutation.",
+    "No compile, test, runtime, native, cloud, global completion, retirement or qualification transfer credit.",
+    "No Go, helper, compiler, tests, runtime, resource/lease/lock probes or source mutations performed.",
+    "Only this fresh immutable external report was written; candidate, canonical source, old evidence and live ledgers were not modified."
+  ],
+  "live_ledger_before_hashes": {
+    "completion": {
+      "path": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+      "sha256": "23ee27661856ecc7192e5883ce2d6b6ab6c4f07507b293835245932684154d29"
+    },
+    "progress": {
+      "path": "/tmp/ts-qa-main-union-progress-20261016.json",
+      "sha256": "c525ac5e5f8a1d7b99da51d8dbc142ae15e97ffea1c0b5f10b8c3696bb3ae9e2"
+    }
+  },
+  "promotion_granted": false,
+  "qualification_transfer": false,
+  "retirement_delta": 0,
+  "reviewed_at_utc": "2026-10-17T19:35:36.357128+00:00",
+  "reviewer": "/root/qa_integrator/root_discard_compile_source",
+  "runtime_credit": 0,
+  "schema": "first800-independent-prospective-composition-review-v1",
+  "scope": "Independent binding and composition/accounting review of accepted 40 owner/peer packets and corrected central SOURCEACK; no wholesale semantic reclassification of all 800 source records.",
+  "source_scope": {
+    "inherited695_scopes_unchanged": true,
+    "new800_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+    "new800_tree": "425f29503c1880f68c0499a8372e08b466f370de"
+  },
+  "verified_prior_to_final_gate_check": {
+    "all4319_identities_conserved_and_disjoint": true,
+    "all_copied_original_bytes_equal": true,
+    "central_source_ack_sha256": "4e3e91e7ffa22bd5132ef6d43a9de69ed181d75c444be085fe12ea25981afc75",
+    "corrected_aggregate_manifest_sha256": "7945e94559d4a7e56e117ab6534633e966a62304fa08192698ef838ac1c28906",
+    "current695_accounting_basis_sha256": "4049387b6dbc1ba27c7334be023f8bf0b78177346cac61bb8fb754ca4f9a25db",
+    "distinct_peer_receipts": 40,
+    "exact_accepted_owner_sha_in_each_peer": true,
+    "new800_from_prior_other_unadjudicated_only": true,
+    "original_records_verbatim": 800,
+    "owner_packets": 40,
+    "owner_reviewer_identities_differ": true,
+    "prior695_classifications_and86_unresolved_preserved": true,
+    "prior_aggregate_manifest_sha256": "8502aee68eb1ebddd326eef1d40f41c04a9e52527758b7805996067045516c78",
+    "prior_hold_sha256": "b04d46c4bd0a61345d7ff97eca58456fc115ce6e1bc2ce750b9c5fb07212fae5",
+    "retirement_authorized_on_all800": false,
+    "runtime_on_all800": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+    "safety_obligations_retained_on_all800": true,
+    "same19_retired": true
+  }
+}
