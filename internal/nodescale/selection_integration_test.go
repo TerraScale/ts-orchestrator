@@ -107,7 +107,7 @@ func TestCapacityDiscoveryOCIProtocol(t *testing.T) {
 					if r.URL.Query().Get("availabilityDomain") != wantDomain {
 						t.Errorf("limit scope lost: %s", r.URL)
 					}
-					available := float32(100)
+					available := float32(100.25)
 					if scenario.quotaExhausted {
 						available = 0
 					}
@@ -186,6 +186,37 @@ func TestCapacityDiscoveryOCIProtocol(t *testing.T) {
 				}
 				if selection.Candidates[0].MonthlyCents == 0 {
 					t.Fatal("nonzero actual usage rates lost")
+				}
+				chosen := selection.Candidates[0]
+				shapes, err := listAll(func(page *string) ([]core.Shape, *string, error) {
+					response, err := compute.ListShapes(t.Context(), core.ListShapesRequest{CompartmentId: new("compartment"), AvailabilityDomain: new("AD-1"), ImageId: new(chosen.ImageID), Page: page})
+					return response.Items, response.OpcNextPage, err
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				definitions, err := quotaClient.ListLimitDefinitions(t.Context(), limits.ListLimitDefinitionsRequest{CompartmentId: new("tenancy"), ServiceName: new("compute")})
+				if err != nil {
+					t.Fatal(err)
+				}
+				index := slices.IndexFunc(shapes, func(shape core.Shape) bool { return deref(shape.Shape) == chosen.Shape })
+				if index < 0 {
+					t.Fatal("selected shape vanished from actual compatibility response")
+				}
+				native := request
+				native.Prices, native.MonthlyHeadroomCents = nil, nil
+				facts, err := ObserveNativeCapacity(t.Context(), compute, quotaClient, native, chosen, shapes[index], definitions.Items)
+				if err != nil || facts.AvailableCount != 1 || len(facts.Quotas) != 2 || facts.Shape != chosen.Shape || facts.ImageID != chosen.ImageID {
+					t.Fatalf("native facts lost provider identity, whole quota or host count: %+v %v", facts, err)
+				}
+				for _, quota := range facts.Quotas {
+					required := float64(12)
+					if quota.Name == "standard-core-count" {
+						required = 2
+					}
+					if quota.Available != 100.25 || quota.Required != required || quota.Scope == "" {
+						t.Fatalf("fractional quota fact changed: %+v", quota)
+					}
 				}
 			} else if len(selection.Candidates) != 0 || !slices.ContainsFunc(selection.Pending, func(reason string) bool { return strings.Contains(reason, scenario.pending) }) {
 				t.Fatalf("selection=%+v, want pending %q", selection, scenario.pending)

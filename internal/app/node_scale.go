@@ -16,7 +16,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
-	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 )
 
@@ -32,7 +31,6 @@ type nodeScaling struct {
 	replicas  int
 	ready     func() bool
 	pool      *nodescale.OCIPool
-	factory   *ociclient.Factory
 	control   api.ControlClient
 	canRetire func(context.Context, string, string) error
 	load      *hostTelemetry
@@ -57,14 +55,14 @@ func startNodeScaler(ctx context.Context, in nodeScaling, store *nodescale.Store
 	if err != nil {
 		return boundNodePool{}, err
 	}
-	prober := &nodescale.Prober{Regions: ociRegionNames(in.factory), Dial: (&net.Dialer{}).DialContext, Now: time.Now}
+	prober := &nodescale.Prober{Regions: ociRegionNames(in.root), Dial: (&net.Dialer{}).DialContext, Now: time.Now}
 	recipe := func(ctx context.Context) (nodescale.Recipe, error) {
 		record, _, err := store.Load(ctx)
 		if err != nil {
 			return nodescale.Recipe{}, err
 		}
 		if record.Action != nil && record.Action.Kind == nodescale.Up && record.Recipe != nil {
-			return in.reservations.choose(ctx, *record.Recipe, in.pool, in.factory, store, "")
+			return in.reservations.choose(ctx, *record.Recipe, in.pool, store, "")
 		}
 		base, compartment, err := in.reservations.workerBase(ctx, nodescale.RoleContainer, "")
 		if err != nil {
@@ -73,7 +71,7 @@ func startNodeScaler(ctx context.Context, in nodeScaling, store *nodescale.Store
 		if compartment != in.pool.CompartmentID() {
 			return nodescale.Recipe{}, fmt.Errorf("%w: authorized worker compartment differs from bound pool", nodescale.ErrCapacityPending)
 		}
-		return in.reservations.choose(ctx, base, in.pool, in.factory, store, "")
+		return in.reservations.choose(ctx, base, in.pool, store, "")
 	}
 	pricedRecipe := func(ctx context.Context) (nodescale.Recipe, error) {
 		record, _, err := store.Load(ctx)
@@ -100,7 +98,7 @@ func startNodeScaler(ctx context.Context, in nodeScaling, store *nodescale.Store
 				return nodescale.Recipe{}, err
 			}
 			if record.Action != nil && record.Action.Kind == nodescale.Up && record.Recipe != nil {
-				return in.reservations.choose(ctx, *record.Recipe, in.pool, in.factory, store, architecture)
+				return in.reservations.choose(ctx, *record.Recipe, in.pool, store, architecture)
 			}
 			base, compartment, err := in.reservations.workerBase(ctx, nodescale.RoleWasm, architecture)
 			if err != nil {
@@ -109,7 +107,7 @@ func startNodeScaler(ctx context.Context, in nodeScaling, store *nodescale.Store
 			if compartment != in.pool.CompartmentID() {
 				return nodescale.Recipe{}, fmt.Errorf("%w: authorized worker compartment differs from bound pool", nodescale.ErrCapacityPending)
 			}
-			return in.reservations.choose(ctx, base, in.pool, in.factory, store, architecture)
+			return in.reservations.choose(ctx, base, in.pool, store, architecture)
 		},
 		Reserve: func(ctx context.Context, operationID string, recipe nodescale.Recipe) (budget.Reservation, error) {
 			request, err := in.reservations.prepare(ctx, operationID, recipe, in.pool.CompartmentID())
@@ -178,24 +176,17 @@ func (in nodeScaling) currentPoolAuthority(ctx context.Context, _ nodescale.Reco
 	return rootoci.PoolChildExpectation{Cell: in.cell, GrantSHA256: proof.GrantDigest(), Generation: proof.Generation(), Epoch: snapshot.Epoch}, nil
 }
 
-// ociRegionNames lists every OCI region's name through the instance principal the pool uses.
-func ociRegionNames(factory *ociclient.Factory) func(context.Context) ([]string, error) {
+// ociRegionNames obtains the actual finite provider catalog for TCP RTT probes.
+func ociRegionNames(client *rootoci.Client) func(context.Context) ([]string, error) {
 	return func(ctx context.Context) ([]string, error) {
-		identities, err := factory.Identity()
+		observed, err := client.ObserveNodeProbeRegions(ctx)
 		if err != nil {
 			return nil, err
 		}
-		listed, err := identities.ListRegions(ctx)
-		if err != nil {
-			return nil, err
+		if !time.Now().Before(observed.ExpiresAt) {
+			return nil, nodescale.ErrCapacityPending
 		}
-		var names []string
-		for _, region := range listed.Items {
-			if region.Name != nil {
-				names = append(names, *region.Name)
-			}
-		}
-		return names, nil
+		return observed.Regions, nil
 	}
 }
 

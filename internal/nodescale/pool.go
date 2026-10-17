@@ -131,6 +131,7 @@ type PoolInstance struct {
 
 // PoolState is what the pool holds now. Instances exclude terminated ones.
 type PoolState struct {
+	Pools                                   []rootoci.NodePoolObservation // lossless pool/config/membership facts, including empty and legacy pools
 	Exists                                  bool
 	PoolID, ConfigurationID, LifecycleState string
 	Size                                    int

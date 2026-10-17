@@ -43,6 +43,15 @@ func (p VerifiedWorkerProfile) GrantDigest() string    { return p.grantDigest }
 func (p VerifiedWorkerProfile) Generation() uint64     { return p.generation }
 func (p VerifiedWorkerProfile) ExpiresAt() time.Time   { return p.expires }
 
+// CurrentImage describes the independently retained current image, not seed evidence.
+func (p VerifiedWorkerProfile) CurrentImage() (id, sha256, envelopeSHA256 string) {
+	if !p.IsVerified() {
+		return "", "", ""
+	}
+	receipt := p.image.Receipt()
+	return receipt.OCIImageOCID, receipt.ImageSHA256, p.image.EnvelopeSHA256()
+}
+
 // WorkerProfiles loads authorization independently of the candidate requester.
 func (r FoundationResolver) WorkerProfiles(ctx context.Context, cell, role string) ([]VerifiedWorkerProfile, error) {
 	reader, ok := r.Footprint.(*SignedFootprint)

@@ -92,6 +92,32 @@ func TestRootReleaseChannelThroughSignedSDK(t *testing.T) {
 			}
 		})
 	}
+	for _, purpose := range []string{"node capacity", "node probe regions"} {
+		t.Run(purpose+" requires actual signed worker bindings", func(t *testing.T) {
+			f := newReadScenario(t)
+			call, err := rootoci.RootCall(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if purpose == "node capacity" {
+				observed, err := f.backend.ObserveNodeCapacity(t.Context(), call)
+				if err == nil || observed.WorkerCompartmentID != "" || len(observed.Pools) != 0 || len(observed.Candidates) != 0 {
+					t.Fatalf("missing signed worker bindings returned capacity: %+v %v", observed, err)
+				}
+			} else {
+				observed, err := f.backend.ObserveNodeProbeRegions(t.Context(), call)
+				if err == nil || len(observed.Regions) != 0 {
+					t.Fatalf("missing signed worker bindings returned probe regions: %+v %v", observed, err)
+				}
+			}
+			f.mu.Lock()
+			requests := f.requests
+			f.mu.Unlock()
+			if requests == 0 {
+				t.Fatal("worker observation bypassed the signed SDK source")
+			}
+		})
+	}
 }
 
 type readScenario struct {

@@ -11,8 +11,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
-	"github.com/TerraScale/ts-orchestrator/internal/oci"
-	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 )
 
 // The tags the node pool launches each instance with.
@@ -71,12 +70,12 @@ func bindNodeScaler(ctx context.Context, in nodeScaling) (boundNodePool, error) 
 		return boundNodePool{}, err
 	}
 	attempt, cancel := context.WithTimeout(ctx, 30*time.Second)
-	pool, factory, err := newNodePool(attempt, in.cell, in.reservations, store)
+	pool, err := newNodePool(attempt, in.cell, in.reservations, store, in.root)
 	cancel()
 	if err != nil {
 		return boundNodePool{}, err
 	}
-	in.pool, in.factory = pool, factory
+	in.pool = pool
 	bound, err := startNodeScaler(ctx, in, store)
 	if err != nil {
 		return boundNodePool{}, fmt.Errorf("start node scaler: %w", err)
@@ -114,18 +113,10 @@ func bindNodePool(ctx context.Context, binding *nodePoolBinding, retry time.Dura
 }
 
 // newNodePool binds only the independently authorized worker compartment.
-func newNodePool(ctx context.Context, cell string, reservations *capacityReservations, store nodescale.RecordStore) (*nodescale.OCIPool, *ociclient.Factory, error) {
-	ociRegion, err := oci.Region(strings.ToUpper(cell)).OCIRegion()
-	if err != nil {
-		return nil, nil, err
-	}
-	factory, err := ociclient.InstancePrincipal(ociRegion)
-	if err != nil {
-		return nil, nil, err
-	}
+func newNodePool(ctx context.Context, cell string, reservations *capacityReservations, store nodescale.RecordStore, client *rootoci.Client) (*nodescale.OCIPool, error) {
 	record, _, err := store.Load(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	// A retained action must reach root recovery before fresh image discovery.
 	if record.Recipe != nil && record.Reservation != nil {
@@ -135,18 +126,16 @@ func newNodePool(ctx context.Context, cell string, reservations *capacityReserva
 			receipt.Shape != recipe.Capacity.Shape || receipt.OCPUs != float64(recipe.OCPUs) ||
 			receipt.MemoryGB != float64(recipe.MemoryGB) || receipt.BootGB != nodescale.BootVolumeGB ||
 			record.Action != nil && record.Action.Kind == nodescale.Up && receipt.OperationID != record.Action.ID {
-			return nil, nil, fmt.Errorf("%w: retained capacity recipe differs from its original reservation", nodescale.ErrCapacityPending)
+			return nil, fmt.Errorf("%w: retained capacity recipe differs from its original reservation", nodescale.ErrCapacityPending)
 		}
-		pool, err := nodescale.NewOCIPool(factory, cell, receipt.CompartmentID, recipe.Capacity)
-		return pool, factory, err
+		return nodescale.NewRootPool(client, cell, receipt.CompartmentID, recipe.Capacity)
 	}
 	base, compartment, err := reservations.workerBase(ctx, nodescale.RoleContainer, "")
 	if err != nil {
 		base, compartment, err = reservations.workerBase(ctx, nodescale.RoleWasm, "")
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
-	pool, err := nodescale.NewOCIPool(factory, cell, compartment, base.Capacity)
-	return pool, factory, err
+	return nodescale.NewRootPool(client, cell, compartment, base.Capacity)
 }

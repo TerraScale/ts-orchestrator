@@ -5,16 +5,20 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"slices"
+	"strings"
+	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 )
 
 // Ownership tags separate each cell's capacity pools and their resources.
@@ -57,29 +61,13 @@ type networkAPI interface {
 
 // OCIPool observes regional OCI pools. Root lifecycle operations own every mutation.
 type OCIPool struct {
+	root          *rootoci.Client
 	management    computeManagementAPI
 	compute       computeAPI
 	network       networkAPI
 	cell          string
 	capacity      Capacity
 	compartmentID string
-}
-
-// NewOCIPool binds one cell's capacity pool to the factory's OCI clients.
-func NewOCIPool(factory *ociclient.Factory, cell, compartmentID string, capacity Capacity) (*OCIPool, error) {
-	management, err := factory.ComputeManagement()
-	if err != nil {
-		return nil, err
-	}
-	compute, err := factory.Compute()
-	if err != nil {
-		return nil, err
-	}
-	network, err := factory.Network()
-	if err != nil {
-		return nil, err
-	}
-	return newOCIPool(management, compute, network, cell, compartmentID, capacity)
 }
 
 // CompartmentID is the authenticated pool scope used by home spending admission.
@@ -97,6 +85,14 @@ func newOCIPool(management computeManagementAPI, compute computeAPI, network net
 }
 
 func (o *OCIPool) Observe(ctx context.Context) (PoolState, error) {
+	if o.root != nil {
+		observed, err := o.CapacityObservation(ctx)
+		if err != nil {
+			return PoolState{}, err
+		}
+		return poolState(observed.Pools), nil
+	}
+
 	pools, err := listAll(func(page *string) ([]core.InstancePoolSummary, *string, error) {
 		response, err := o.management.ListInstancePools(ctx, core.ListInstancePoolsRequest{
 			CompartmentId: new(o.compartmentID), Page: page})
@@ -105,7 +101,8 @@ func (o *OCIPool) Observe(ctx context.Context) (PoolState, error) {
 	if err != nil {
 		return PoolState{}, fmt.Errorf("list observed node pools: %w", err)
 	}
-	var state PoolState
+	var observed []rootoci.NodePoolObservation
+	memberIDs := map[string]bool{}
 	seen := map[string]bool{}
 	for _, summary := range pools {
 		name := deref(summary.DisplayName)
@@ -130,49 +127,75 @@ func (o *OCIPool) Observe(ctx context.Context) (PoolState, error) {
 			(pool.FreeformTags[tagPool] != name || pool.FreeformTags[tagCapacityRole] != capacity.Role || pool.FreeformTags[tagArchitecture] != capacity.Architecture || pool.FreeformTags[tagShape] != capacity.Shape) {
 			return PoolState{}, fmt.Errorf("observed pool %s changed ownership", name)
 		}
-		if legacy {
-			state.Pending = fmt.Sprintf("legacy pool %s (%s, size %d) requires verified migration; capacity is pending", name, deref(pool.Id), deref(pool.Size))
+		if pool.Size == nil || *pool.Size < 0 || *pool.Size > 1024 {
+			return PoolState{}, errors.New("observed pool has unknown or excessive size")
 		}
-		if len(seen) > 1 {
-			state.PoolID, state.ConfigurationID, state.LifecycleState = "", "", ""
+		detail := rootoci.NodePoolObservation{ID: deref(pool.Id), Name: name, ConfigurationID: deref(pool.InstanceConfigurationId), LifecycleState: string(pool.LifecycleState), Role: capacity.Role, Architecture: capacity.Architecture, Shape: capacity.Shape, Size: deref(pool.Size), Legacy: legacy}
+		configuration, configErr := o.configuration(ctx, detail.ConfigurationID)
+		if configErr != nil {
+			detail.Pending = append(detail.Pending, configErr.Error())
 		} else {
-			state.PoolID, state.ConfigurationID, state.LifecycleState = deref(pool.Id), deref(pool.InstanceConfigurationId), string(pool.LifecycleState)
+			detail.Configuration = configuration
 		}
-		state.Exists = true
-		state.Size += deref(pool.Size)
 		members, err := o.members(ctx, deref(pool.Id))
 		if err != nil {
 			return PoolState{}, err
-		}
-		if capacity.Role == RoleWasm && deref(pool.Size) > len(members) {
-			state.ProvisioningFunctions = append(state.ProvisioningFunctions, CapacityDemand{Architecture: capacity.Architecture, Slots: uint64(deref(pool.Size) - len(members))})
 		}
 		for _, member := range members {
 			instance, _, err := o.instance(ctx, deref(member.Id))
 			if err != nil {
 				return PoolState{}, err
 			}
-			if !absent(string(instance.LifecycleState)) && (instance.InstanceOptions == nil || !deref(instance.InstanceOptions.AreLegacyImdsEndpointsDisabled)) {
-				state.Pending = fmt.Sprintf("instance %s has not positively disabled legacy IMDS endpoints", deref(member.Id))
+			if absent(string(instance.LifecycleState)) {
+				continue
+			}
+			if memberIDs[deref(member.Id)] {
+				return PoolState{}, errors.New("observed member appears in multiple pools")
+			}
+			memberIDs[deref(member.Id)] = true
+			if deref(instance.Id) != deref(member.Id) || deref(instance.CompartmentId) != o.compartmentID {
+				return PoolState{}, errors.New("observed member differs from the signed worker compartment")
 			}
 			ip, err := o.privateIP(ctx, deref(member.Id))
 			if err != nil {
 				return PoolState{}, err
 			}
-			state.Instances = append(state.Instances, PoolInstance{ID: deref(member.Id), Name: deref(member.DisplayName),
-				State: deref(member.State), PrivateIP: ip, AvailabilityDomain: deref(member.AvailabilityDomain),
-				FaultDomain: deref(member.FaultDomain), Created: deref(member.TimeCreated).Time, Capacity: capacity,
-				PoolID: deref(pool.Id), ConfigurationID: deref(pool.InstanceConfigurationId)})
+			detail.Members = append(detail.Members, rootoci.NodeMemberObservation{ID: deref(member.Id), Name: deref(instance.DisplayName), State: string(instance.LifecycleState), PrivateIP: ip, AvailabilityDomain: deref(instance.AvailabilityDomain), FaultDomain: deref(instance.FaultDomain), Created: deref(instance.TimeCreated).Time, LegacyIMDSDisabled: memberIMDS(instance.InstanceOptions)})
+		}
+		if pool.Size != nil && *pool.Size > MaxPoolNodes {
+			detail.Pending = append(detail.Pending, "observed pool exceeds the fixed regional node limit")
+		}
+		observed = append(observed, detail)
+		if len(observed) > 128 || len(memberIDs) > 1024 {
+			return PoolState{}, errors.New("node pool observation exceeds its aggregate bound")
 		}
 	}
-	slices.SortFunc(state.Instances, func(a, b PoolInstance) int {
-		return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.ID, b.ID))
-	})
-	return state, nil
+	slices.SortFunc(observed, func(a, b rootoci.NodePoolObservation) int { return cmp.Compare(a.ID, b.ID) })
+	return poolState(observed), nil
 }
 
 // TargetSize reads the selected pool independently of the region's total size.
 func (o *OCIPool) TargetSize(ctx context.Context, recipe Recipe) (int, error) {
+	if o.root != nil {
+		if recipe.Cell != o.cell || recipe.Capacity != o.capacity {
+			return 0, errors.New("selected capacity differs from target pool")
+		}
+		observed, err := o.CapacityObservation(ctx)
+		if err != nil {
+			return 0, err
+		}
+		target := 0
+		for _, pool := range observed.Pools {
+			if pool.Legacy {
+				return 0, fmt.Errorf("legacy pool %s requires verified migration", pool.Name)
+			}
+			if pool.Role == recipe.Capacity.Role && pool.Architecture == recipe.Capacity.Architecture && pool.Shape == recipe.Capacity.Shape {
+				target = pool.Size
+			}
+		}
+		return target, nil
+	}
+
 	if recipe.Cell != o.cell || recipe.Capacity != o.capacity {
 		return 0, fmt.Errorf("selected capacity differs from target pool")
 	}
@@ -368,17 +391,26 @@ func (o *OCIPool) validateImage(ctx context.Context, recipe Recipe) error {
 func listAll[T any](fetch func(page *string) ([]T, *string, error)) ([]T, error) {
 	var all []T
 	var page *string
-	for {
+	seen := map[string]bool{}
+	for range 32 {
 		items, next, err := fetch(page)
 		if err != nil {
 			return nil, err
+		}
+		if len(items) > 4096-len(all) {
+			return nil, errors.New("OCI observation exceeds its item bound")
 		}
 		all = append(all, items...)
 		if next == nil {
 			return all, nil
 		}
+		if *next == "" || len(*next) > 4096 || seen[*next] {
+			return nil, errors.New("OCI observation has an invalid or repeated continuation")
+		}
+		seen[*next] = true
 		page = next
 	}
+	return nil, errors.New("OCI observation exceeds its page bound")
 }
 
 // retryToken makes a retried create of name idempotent in OCI.
@@ -409,4 +441,112 @@ func poolCreateRequestSHA256(request *http.Request) (string, error) {
 	_, _ = fmt.Fprintf(digest, "%s\n%s\n%s\n%s\n%s\n", request.Method, request.URL.EscapedPath(), request.Header.Get("Content-Type"), request.Header.Get("if-match"), request.Header.Get("opc-retry-token"))
 	_, _ = digest.Write(body)
 	return hex.EncodeToString(digest.Sum(nil)), nil
+}
+
+// ReadNodePoolCapacity executes only inside the root observation backend.
+func ReadNodePoolCapacity(ctx context.Context, factory *ociclient.Factory, cell, compartment string) (PoolState, error) {
+	management, err := factory.ComputeManagement()
+	if err != nil {
+		return PoolState{}, err
+	}
+	compute, err := factory.Compute()
+	if err != nil {
+		return PoolState{}, err
+	}
+	network, err := factory.Network()
+	if err != nil {
+		return PoolState{}, err
+	}
+	return (&OCIPool{management: management, compute: compute, network: network, cell: cell, compartmentID: compartment}).Observe(ctx)
+}
+
+// NewRootPool retains the lifecycle client and expected scope. The compartment
+// only narrows a later root-derived observation; it grants no provider access.
+func NewRootPool(client *rootoci.Client, cell, compartment string, capacity Capacity) (*OCIPool, error) {
+	if client == nil || !cellPattern.MatchString(cell) || compartment == "" {
+		return nil, ErrCapacityPending
+	}
+	if err := capacity.Validate(); err != nil {
+		return nil, err
+	}
+	return &OCIPool{root: client, cell: cell, compartmentID: compartment, capacity: capacity}, nil
+}
+
+func (o *OCIPool) CapacityObservation(ctx context.Context) (rootoci.NodeCapacityObservation, error) {
+	if o == nil || o.root == nil {
+		return rootoci.NodeCapacityObservation{}, ErrCapacityPending
+	}
+	observed, err := o.root.ObserveNodeCapacity(ctx)
+	if err != nil {
+		return rootoci.NodeCapacityObservation{}, err
+	}
+	if !strings.EqualFold(observed.Cell, o.cell) || observed.WorkerCompartmentID != o.compartmentID || !time.Now().Before(observed.ExpiresAt) {
+		return rootoci.NodeCapacityObservation{}, ErrCapacityPending
+	}
+	return observed, nil
+}
+
+func poolState(pools []rootoci.NodePoolObservation) PoolState {
+	state := PoolState{Pools: pools}
+	var pending []string
+	for _, pool := range pools {
+		state.Exists = true
+		state.Size += pool.Size
+		if len(pools) == 1 {
+			state.PoolID, state.ConfigurationID, state.LifecycleState = pool.ID, pool.ConfigurationID, pool.LifecycleState
+		}
+		pending = append(pending, pool.Pending...)
+		if pool.Legacy {
+			pending = append(pending, fmt.Sprintf("legacy pool %s (%s, size %d) requires verified migration; capacity is pending", pool.Name, pool.ID, pool.Size))
+		}
+		capacity := Capacity{Role: pool.Role, Architecture: pool.Architecture, Shape: pool.Shape}
+		if capacity.Role == RoleWasm && pool.Size > len(pool.Members) {
+			state.ProvisioningFunctions = append(state.ProvisioningFunctions, CapacityDemand{Architecture: capacity.Architecture, Slots: uint64(pool.Size - len(pool.Members))})
+		}
+		for _, member := range pool.Members {
+			if !deref(member.LegacyIMDSDisabled) {
+				pending = append(pending, fmt.Sprintf("instance %s has not positively disabled legacy IMDS endpoints", member.ID))
+			}
+			state.Instances = append(state.Instances, PoolInstance{ID: member.ID, Name: member.Name, State: member.State, PrivateIP: member.PrivateIP, AvailabilityDomain: member.AvailabilityDomain, FaultDomain: member.FaultDomain, Created: member.Created, Capacity: capacity, PoolID: pool.ID, ConfigurationID: pool.ConfigurationID})
+		}
+	}
+	slices.SortFunc(state.Instances, func(a, b PoolInstance) int { return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.ID, b.ID)) })
+	state.Pending = strings.Join(pending, "; ")
+	return state
+}
+
+func (o *OCIPool) configuration(ctx context.Context, id string) (*rootoci.NodeConfigurationObservation, error) {
+	if id == "" {
+		return nil, errors.New("observed pool configuration is unavailable")
+	}
+	response, err := o.management.GetInstanceConfiguration(ctx, core.GetInstanceConfigurationRequest{InstanceConfigurationId: new(id)})
+	if err != nil {
+		return nil, fmt.Errorf("observed configuration %s is unavailable: %w", id, err)
+	}
+	if deref(response.Id) != id || deref(response.CompartmentId) != o.compartmentID {
+		return nil, errors.New("observed configuration differs from the signed worker compartment")
+	}
+	details, ok := response.InstanceDetails.(core.ComputeInstanceDetails)
+	if !ok || details.LaunchDetails == nil {
+		return nil, errors.New("observed configuration has no compute launch details")
+	}
+	launch := details.LaunchDetails
+	source, ok := launch.SourceDetails.(core.InstanceConfigurationInstanceSourceViaImageDetails)
+	if !ok || launch.ShapeConfig == nil {
+		return nil, errors.New("observed configuration has unknown image or geometry")
+	}
+	return &rootoci.NodeConfigurationObservation{ID: id, Name: deref(response.DisplayName), Shape: deref(launch.Shape), ImageID: deref(source.ImageId), OCPUs: launch.ShapeConfig.Ocpus, MemoryGB: launch.ShapeConfig.MemoryInGBs, BootGB: source.BootVolumeSizeInGBs, LegacyIMDSDisabled: configurationIMDS(launch.InstanceOptions)}, nil
+}
+
+func memberIMDS(options *core.InstanceOptions) *bool {
+	if options == nil {
+		return nil
+	}
+	return options.AreLegacyImdsEndpointsDisabled
+}
+func configurationIMDS(options *core.InstanceConfigurationInstanceOptions) *bool {
+	if options == nil {
+		return nil
+	}
+	return options.AreLegacyImdsEndpointsDisabled
 }

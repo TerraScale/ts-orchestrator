@@ -6,10 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
-
-	"github.com/oracle/oci-go-sdk/v65/core"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
@@ -18,6 +17,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
@@ -97,7 +97,7 @@ func (r *capacityReservations) qualify(ctx context.Context, input nodescale.Imag
 // choose uses observed SDK compatibility and current tariffs across every native
 // candidate. The running controller's shape supplies no purchasing preference.
 func (r *capacityReservations) choose(ctx context.Context, base nodescale.Recipe, pool *nodescale.OCIPool,
-	factory *ociclient.Factory, store nodescale.RecordStore, architecture string,
+	store nodescale.RecordStore, architecture string,
 ) (nodescale.Recipe, error) {
 	if r == nil {
 		return nodescale.Recipe{}, fmt.Errorf("%w: home capacity authority is unavailable", nodescale.ErrCapacityPending)
@@ -116,50 +116,21 @@ func (r *capacityReservations) choose(ctx context.Context, base nodescale.Recipe
 	if err != nil {
 		return nodescale.Recipe{}, fmt.Errorf("%w: current complete spending facts: %v", nodescale.ErrCapacityPending, err)
 	}
-	compute, err := factory.Compute()
+	observed, err := pool.CapacityObservation(ctx)
 	if err != nil {
 		return nodescale.Recipe{}, err
 	}
-	quotas, err := factory.Limits()
-	if err != nil {
-		return nodescale.Recipe{}, err
+	if observed.GrantSHA256 != proof.GrantDigest() || observed.Generation != proof.Generation() || observed.WorkerCompartmentID != pool.CompartmentID() || !strings.EqualFold(observed.Cell, r.cell) {
+		return nodescale.Recipe{}, fmt.Errorf("%w: native worker facts differ from the independently signed spending grant", nodescale.ErrCapacityPending)
 	}
 	expires := snapshot.ExpiresAt
-	var images []nodescale.QualifiedImage
-	var shapes, pending []string
-	inputs, err := r.imageInputs(ctx, base.Capacity.Role)
-	if err != nil {
-		return nodescale.Recipe{}, err
+	if observed.ExpiresAt.Before(expires) {
+		expires = observed.ExpiresAt
 	}
-	for _, input := range inputs {
-		image, deadline, err := r.qualify(ctx, input)
-		if err != nil {
-			pending = append(pending, err.Error())
-			continue
-		}
-		images = append(images, image)
-		if deadline.Before(expires) {
-			expires = deadline
-		}
-		for _, domain := range base.AvailabilityDomains {
-			var page *string
-			for {
-				response, err := compute.ListShapes(ctx, core.ListShapesRequest{CompartmentId: new(pool.CompartmentID()),
-					AvailabilityDomain: new(domain), ImageId: new(image.ID), Page: page})
-				if err != nil {
-					return nodescale.Recipe{}, fmt.Errorf("%w: current candidate compatibility: %v", nodescale.ErrCapacityPending, err)
-				}
-				for _, shape := range response.Items {
-					if shape.Shape != nil {
-						shapes = append(shapes, *shape.Shape)
-					}
-				}
-				if response.OpcNextPage == nil {
-					break
-				}
-				page = response.OpcNextPage
-			}
-		}
+	var shapes []string
+	pending := append([]string(nil), observed.Pending...)
+	for _, candidate := range observed.Candidates {
+		shapes = append(shapes, candidate.Shape)
 	}
 	prices, priceErr := reader.Prices(ctx, proof.Footprint(), shapes)
 	if priceErr != nil {
@@ -169,22 +140,33 @@ func (r *capacityReservations) choose(ctx context.Context, base nodescale.Recipe
 	if err != nil {
 		return nodescale.Recipe{}, fmt.Errorf("%w: authorized headroom: %v", nodescale.ErrCapacityPending, err)
 	}
-	if deadline := time.Now().Add(2 * time.Minute); deadline.Before(expires) {
-		expires = deadline
+	selection := nodescale.CapacitySelection{}
+	for _, fact := range observed.Candidates {
+		if fact.Role != base.Capacity.Role || architecture != "" && fact.Architecture != architecture || fact.OCPUs != base.OCPUs || fact.MemoryGB != base.MemoryGB || fact.BootGB != nodescale.BootVolumeGB || !slices.Contains(base.AvailabilityDomains, fact.AvailabilityDomain) {
+			continue
+		}
+		deadline := expires
+		if fact.ExpiresAt.Before(deadline) {
+			deadline = fact.ExpiresAt
+		}
+		if !time.Now().Before(deadline) {
+			pending = append(pending, "native worker capacity or spending facts expired")
+			continue
+		}
+		monthly, known := ocicost.NodeMonthlyCents(prices, fact.Shape, float64(fact.OCPUs), float64(fact.MemoryGB), float64(fact.BootGB))
+		if !known {
+			pending = append(pending, fmt.Sprintf("%s actual shape/boot volume price is unknown", fact.Shape))
+			continue
+		}
+		if monthly > headroom {
+			pending = append(pending, fmt.Sprintf("monthly node cost %d exceeds authorized headroom %d cents", monthly, headroom))
+			continue
+		}
+		selection.Candidates = append(selection.Candidates, nodescale.CapacityCandidate{Capacity: nodescale.Capacity{Role: fact.Role, Architecture: fact.Architecture, Shape: fact.Shape}, ImageID: fact.ImageID, AvailabilityDomain: fact.AvailabilityDomain, RuntimeManifestDigest: fact.ImageSHA256, OCPUs: fact.OCPUs, MemoryGB: fact.MemoryGB, BootGB: fact.BootGB, FactsExpireAt: deadline, MonthlyCents: monthly})
 	}
-	architectures := []string{"arm64", "amd64"}
-	if architecture != "" {
-		architectures = []string{architecture}
-	}
-	selection, err := nodescale.DiscoverCapacity(ctx, compute, quotas, nodescale.CapacityRequest{
-		TenancyID: proof.Footprint().TenancyID, CompartmentID: pool.CompartmentID(), AvailabilityDomains: base.AvailabilityDomains,
-		Role: base.Capacity.Role, Architectures: architectures, OCPUs: base.OCPUs, MemoryGB: base.MemoryGB,
-		BootGB: nodescale.BootVolumeGB, Images: images, Prices: prices, MonthlyHeadroomCents: new(headroom), FactsExpireAt: expires})
-	if err != nil {
-		return nodescale.Recipe{}, err
-	}
+	nodescale.RankCapacityCandidates(selection.Candidates)
 	if len(selection.Candidates) == 0 {
-		return nodescale.Recipe{}, fmt.Errorf("%w: %s", nodescale.ErrCapacityPending, strings.Join(append(pending, selection.Pending...), "; "))
+		return nodescale.Recipe{}, fmt.Errorf("%w: %s", nodescale.ErrCapacityPending, strings.Join(pending, "; "))
 	}
 	for _, chosen := range selection.Candidates {
 		candidate := base
@@ -198,6 +180,9 @@ func (r *capacityReservations) choose(ctx context.Context, base nodescale.Recipe
 		if err != nil {
 			pending = append(pending, err.Error())
 			continue
+		}
+		if !time.Now().Before(chosen.FactsExpireAt) {
+			return nodescale.Recipe{}, fmt.Errorf("%w: native capacity or spending facts expired during worker authorization", nodescale.ErrCapacityPending)
 		}
 		return candidate, candidate.Validate()
 	}

@@ -25,7 +25,7 @@ type ChosenPool struct {
 }
 
 func NewChosenPool(observed *OCIPool, store RecordStore, client *rootoci.Client, current func(context.Context, Record) (rootoci.PoolChildExpectation, error)) (*ChosenPool, error) {
-	if observed == nil || store == nil || client == nil || current == nil {
+	if observed == nil || store == nil || client == nil || current == nil || observed.root != client {
 		return nil, errors.New("chosen capacity requires read-only OCI discovery, durable state and authenticated root lifecycle authority")
 	}
 	return &ChosenPool{observed: observed, store: store, root: client, current: current}, nil

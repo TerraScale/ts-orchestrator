@@ -43,22 +43,23 @@ var (
 // capacityCloud backs a loopback OCI HTTP simulator. It enforces ETags, configurations in use,
 // and two-item pages. It has no TerminateInstance, so the code under test cannot call one.
 type capacityCloud struct {
-	pools        map[string]*core.InstancePool
-	configs      map[string]*core.InstanceConfiguration
-	instances    map[string]*core.Instance
-	members      map[string]string // instance id -> pool id
-	attachments  map[string][]core.VnicAttachment
-	vnics        map[string]core.Vnic
-	etags        map[string]string
-	tokens       map[string]string // opc-retry-token -> the id it created
-	detaches     []core.DetachInstancePoolInstanceDetails
-	updates      int                                       // UpdateInstancePool calls
-	shrinks      int                                       // UpdateInstancePool calls that lowered a pool's size
-	applying     map[string]core.UpdateInstancePoolDetails // accepted configuration and placement updates; see settle
-	shapeRows    []core.Shape
-	rejectGrowth bool
-	staleWrite   bool
-	nextID       int
+	pools          map[string]*core.InstancePool
+	configs        map[string]*core.InstanceConfiguration
+	instances      map[string]*core.Instance
+	members        map[string]string // instance id -> pool id
+	attachments    map[string][]core.VnicAttachment
+	vnics          map[string]core.Vnic
+	etags          map[string]string
+	tokens         map[string]string // opc-retry-token -> the id it created
+	detaches       []core.DetachInstancePoolInstanceDetails
+	updates        int                                       // UpdateInstancePool calls
+	shrinks        int                                       // UpdateInstancePool calls that lowered a pool's size
+	applying       map[string]core.UpdateInstancePoolDetails // accepted configuration and placement updates; see settle
+	shapeRows      []core.Shape
+	rejectGrowth   bool
+	repeatPoolPage bool
+	staleWrite     bool
+	nextID         int
 }
 
 func newCapacityCloud() *capacityCloud {
@@ -90,7 +91,7 @@ func (f *capacityCloud) fresh(id string, ifMatch *string) error {
 func (f *capacityCloud) launch(name, poolID, ip string, state core.InstanceLifecycleStateEnum, tags map[string]string) string {
 	id := f.id("instance")
 	vnicID := f.id("vnic")
-	f.instances[id] = &core.Instance{Id: common.String(id), DisplayName: common.String(name),
+	f.instances[id] = &core.Instance{Id: common.String(id), CompartmentId: new(testCompartment), DisplayName: common.String(name),
 		LifecycleState: state, FreeformTags: tags, InstanceOptions: &core.InstanceOptions{AreLegacyImdsEndpointsDisabled: new(true)}}
 	f.vnics[vnicID] = core.Vnic{Id: common.String(vnicID), IsPrimary: common.Bool(true), PrivateIp: common.String(ip)}
 	f.attachments[id] = []core.VnicAttachment{{Id: common.String(f.id("attachment")), InstanceId: common.String(id),
@@ -135,6 +136,9 @@ func (f *capacityCloud) ListInstancePools(_ context.Context, request core.ListIn
 		}
 	}
 	page, next := pageOf(items, request.Page)
+	if f.repeatPoolPage {
+		next = new("1")
+	}
 	return core.ListInstancePoolsResponse{Items: page, OpcNextPage: next}, nil
 }
 
@@ -733,6 +737,10 @@ func TestCapacityPoolProtocolIsolationAndValidation(t *testing.T) {
 	if err != nil || state.Size != 0 {
 		t.Fatalf("stale etag changed size: %+v %v", state, err)
 	}
+	if len(state.Pools) != 1 || state.Pools[0].Size != 0 || state.Pools[0].ID == "" || state.Pools[0].ConfigurationID == "" || state.Pools[0].Configuration == nil {
+		t.Fatalf("empty pool or actual configuration disappeared: %+v", state.Pools)
+	}
+
 	if err := pool.Grow(ctx, 0); err == nil || cloud.updates != 0 {
 		t.Fatalf("412 refreshed immutable original growth request: updates=%d err=%v", cloud.updates, err)
 	}
@@ -1040,6 +1048,9 @@ func TestCapacityAdmissionAndLegacyObservationOverOCI(t *testing.T) {
 	if err != nil || observed.Size != 1 || len(observed.Instances) != 1 || observed.Instances[0].ID != instanceID || !strings.Contains(observed.Pending, "legacy pool") {
 		t.Fatalf("legacy capacity disappeared: %+v %v", observed, err)
 	}
+	if len(observed.Pools) != 1 || !observed.Pools[0].Legacy || observed.Pools[0].ConfigurationID != "ocid1.instanceconfiguration.old" || len(observed.Pools[0].Members) != 1 || len(observed.Pools[0].Pending) == 0 {
+		t.Fatalf("legacy configuration identity or membership disappeared: %+v", observed.Pools)
+	}
 	other := Capacity{Role: RoleContainer, Architecture: "amd64", Shape: "VM.Standard.E4.Flex"}
 	otherID := "ocid1.instancepool.oc1..other"
 	cloud.pools[otherID] = &core.InstancePool{Id: new(otherID), CompartmentId: new(testCompartment), DisplayName: new(PoolName("gru", other)), Size: new(1),
@@ -1049,6 +1060,14 @@ func TestCapacityAdmissionAndLegacyObservationOverOCI(t *testing.T) {
 	if err != nil || observed.Size != 2 || len(observed.Instances) != 2 || observed.PoolID != "" || observed.Pending == "" {
 		t.Fatalf("heterogeneous capacity was hidden or collapsed: %+v %v", observed, err)
 	}
+	if len(observed.Pools) != 2 {
+		t.Fatalf("heterogeneous per-pool facts collapsed: %+v", observed.Pools)
+	}
+	cloud.repeatPoolPage = true
+	if _, err := pool.Observe(ctx); err == nil || !strings.Contains(err.Error(), "repeated continuation") {
+		t.Fatalf("repeated provider page accepted: %v", err)
+	}
+	cloud.repeatPoolPage = false
 	pool.Admit = func(context.Context, Recipe) (func(), error) { return func() {}, nil }
 	if _, err := pool.Ensure(ctx, recipe); err == nil || !strings.Contains(err.Error(), "legacy pool") || len(cloud.configs) != 0 || len(cloud.pools) != 2 {
 		t.Fatalf("legacy migration mutated OCI: configs=%d pools=%d err=%v", len(cloud.configs), len(cloud.pools), err)

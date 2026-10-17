@@ -12,6 +12,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/limits"
 )
@@ -145,15 +146,7 @@ func DiscoverCapacity(ctx context.Context, compute CapacityComputeAPI, quotas Ca
 		result.Candidates = nil
 		result.Pending = append(result.Pending, "image qualification, prices or spending authority expired during discovery")
 	}
-	slices.SortFunc(result.Candidates, func(a, b CapacityCandidate) int {
-		preferred := func(shape string) int {
-			if shape == PreferredShape {
-				return 0
-			}
-			return 1
-		}
-		return cmp.Or(cmp.Compare(preferred(a.Shape), preferred(b.Shape)), cmp.Compare(a.MonthlyCents, b.MonthlyCents), cmp.Compare(a.Shape, b.Shape), cmp.Compare(a.Architecture, b.Architecture), cmp.Compare(a.ImageID, b.ImageID), cmp.Compare(a.AvailabilityDomain, b.AvailabilityDomain))
-	})
+	RankCapacityCandidates(result.Candidates)
 	result.Candidates = slices.Compact(result.Candidates)
 	slices.Sort(result.Pending)
 	result.Pending = slices.Compact(result.Pending)
@@ -178,15 +171,45 @@ func qualifyCapacity(ctx context.Context, compute CapacityComputeAPI, quotas Cap
 	if price > *request.MonthlyHeadroomCents {
 		return fmt.Errorf("monthly node cost %d exceeds authorized headroom %d cents", price, *request.MonthlyHeadroomCents)
 	}
+	_, err = ObserveNativeCapacity(ctx, compute, quotas, request, candidate, shape, definitions)
+	return err
+}
+
+// ObserveNativeCapacity retains actual whole-quota and host-capacity facts only.
+// It deliberately has no price or spending result; purchase admission stays separate.
+func ObserveNativeCapacity(ctx context.Context, compute CapacityComputeAPI, quotas CapacityLimitsAPI, request CapacityRequest, candidate CapacityCandidate, shape core.Shape, definitions []limits.LimitDefinitionSummary) (rootoci.NodeCandidateObservation, error) {
+	result := rootoci.NodeCandidateObservation{Role: candidate.Role, Architecture: candidate.Architecture,
+		Shape: candidate.Shape, ImageID: candidate.ImageID, ImageSHA256: candidate.RuntimeManifestDigest,
+		AvailabilityDomain: candidate.AvailabilityDomain, OCPUs: request.OCPUs, MemoryGB: request.MemoryGB,
+		BootGB: request.BootGB, ExpiresAt: request.FactsExpireAt}
+	fail := func(err error) (rootoci.NodeCandidateObservation, error) {
+		return rootoci.NodeCandidateObservation{}, err
+	}
+	if err := candidate.Capacity.Validate(); err != nil {
+		return fail(err)
+	}
+	architecture, err := catalog.ShapeArchitecture(deref(shape.ProcessorDescription))
+	if err != nil || architecture != candidate.Architecture {
+		return fail(fmt.Errorf("processor does not establish qualified %s architecture", candidate.Architecture))
+	}
+	if deref(shape.Shape) != candidate.Shape {
+		return fail(fmt.Errorf("provider shape differs from exact candidate"))
+	}
+	if err := ValidateResources(shape, request.OCPUs, request.MemoryGB); err != nil {
+		return fail(fmt.Errorf("requested OCPU/memory configuration: %w", err))
+	}
+	if !time.Now().Before(request.FactsExpireAt) || request.TenancyID == "" || request.CompartmentID == "" || candidate.AvailabilityDomain == "" || candidate.ImageID == "" || !runtimeManifestDigest.MatchString(candidate.RuntimeManifestDigest) || request.BootGB != BootVolumeGB {
+		return fail(fmt.Errorf("native capacity facts lack current exact image, scope or geometry"))
+	}
 	if len(shape.QuotaNames) == 0 {
-		return fmt.Errorf("shape quota identities are unknown")
+		return fail(fmt.Errorf("shape quota identities are unknown"))
 	}
 	for _, name := range shape.QuotaNames {
 		index := slices.IndexFunc(definitions, func(definition limits.LimitDefinitionSummary) bool {
 			return deref(definition.Name) == name && deref(definition.ServiceName) == "compute"
 		})
 		if index < 0 || !deref(definitions[index].IsResourceAvailabilitySupported) {
-			return fmt.Errorf("effective limit/quota availability for %s is unsupported", name)
+			return fail(fmt.Errorf("effective limit/quota availability for %s is unsupported", name))
 		}
 		needed := float32(0)
 		switch {
@@ -195,7 +218,7 @@ func qualifyCapacity(ctx context.Context, compute CapacityComputeAPI, quotas Cap
 		case strings.HasSuffix(name, "-memory-count"):
 			needed = request.MemoryGB
 		default:
-			return fmt.Errorf("shape quota unit for %s is unknown", name)
+			return fail(fmt.Errorf("shape quota unit for %s is unknown", name))
 		}
 		query := limits.GetResourceAvailabilityRequest{ServiceName: new("compute"), LimitName: new(name), CompartmentId: new(request.CompartmentID)}
 		switch definitions[index].ScopeType {
@@ -203,11 +226,11 @@ func qualifyCapacity(ctx context.Context, compute CapacityComputeAPI, quotas Cap
 			query.AvailabilityDomain = new(candidate.AvailabilityDomain)
 		case limits.LimitDefinitionSummaryScopeTypeRegion, limits.LimitDefinitionSummaryScopeTypeGlobal:
 		default:
-			return fmt.Errorf("limit scope for %s is unknown", name)
+			return fail(fmt.Errorf("limit scope for %s is unknown", name))
 		}
 		availability, err := quotas.GetResourceAvailability(ctx, query)
 		if err != nil {
-			return fmt.Errorf("read effective limit/quota %s: %w", name, err)
+			return fail(fmt.Errorf("read effective limit/quota %s: %w", name, err))
 		}
 		available := float64(-1)
 		if availability.Available != nil {
@@ -217,25 +240,40 @@ func qualifyCapacity(ctx context.Context, compute CapacityComputeAPI, quotas Cap
 			available = float64(*availability.FractionalAvailability)
 		}
 		if !(available >= float64(needed)) || math.IsInf(available, 0) {
-			return fmt.Errorf("effective limit/quota %s has insufficient or unknown remaining capacity", name)
+			return fail(fmt.Errorf("effective limit/quota %s has insufficient or unknown remaining capacity", name))
 		}
+		result.Quotas = append(result.Quotas, rootoci.NodeQuotaObservation{Name: name, Scope: string(definitions[index].ScopeType), Required: float64(needed), Available: available})
 	}
 	report, err := compute.CreateComputeCapacityReport(ctx, core.CreateComputeCapacityReportRequest{CreateComputeCapacityReportDetails: core.CreateComputeCapacityReportDetails{
 		CompartmentId: new(request.TenancyID), AvailabilityDomain: new(candidate.AvailabilityDomain),
 		ShapeAvailabilities: []core.CreateCapacityReportShapeAvailabilityDetails{{InstanceShape: new(candidate.Shape), InstanceShapeConfig: &core.CapacityReportInstanceShapeConfig{Ocpus: new(request.OCPUs), MemoryInGBs: new(request.MemoryGB)}}},
 	}})
 	if err != nil {
-		return fmt.Errorf("current host capacity report unavailable: %w", err)
+		return fail(fmt.Errorf("current host capacity report unavailable: %w", err))
 	}
 	if deref(report.AvailabilityDomain) != candidate.AvailabilityDomain {
-		return fmt.Errorf("host capacity report returned a different availability domain")
+		return fail(fmt.Errorf("host capacity report returned a different availability domain"))
 	}
 	for _, availability := range report.ShapeAvailabilities {
 		config := availability.InstanceShapeConfig
 		if deref(availability.InstanceShape) == candidate.Shape && config != nil && deref(config.Ocpus) == request.OCPUs && deref(config.MemoryInGBs) == request.MemoryGB &&
 			availability.AvailabilityStatus == core.CapacityReportShapeAvailabilityAvailabilityStatusAvailable && availability.AvailableCount != nil && *availability.AvailableCount > 0 {
-			return nil
+			result.AvailableCount = *availability.AvailableCount
+			return result, nil
 		}
 	}
-	return fmt.Errorf("no current host capacity for the requested shape configuration")
+	return fail(fmt.Errorf("no current host capacity for the requested shape configuration"))
+}
+
+// RankCapacityCandidates preserves the native A1 preference and price ordering.
+func RankCapacityCandidates(candidates []CapacityCandidate) {
+	slices.SortFunc(candidates, func(a, b CapacityCandidate) int {
+		preferred := func(shape string) int {
+			if shape == PreferredShape {
+				return 0
+			}
+			return 1
+		}
+		return cmp.Or(cmp.Compare(preferred(a.Shape), preferred(b.Shape)), cmp.Compare(a.MonthlyCents, b.MonthlyCents), cmp.Compare(a.Shape, b.Shape), cmp.Compare(a.Architecture, b.Architecture), cmp.Compare(a.ImageID, b.ImageID), cmp.Compare(a.AvailabilityDomain, b.AvailabilityDomain))
+	})
 }
