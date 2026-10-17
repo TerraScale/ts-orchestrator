@@ -15,7 +15,7 @@ func TestControllerRetirementReadsExactRootRetiredAttempt(t *testing.T) {
 	evidence := fixture.retirement(scope, completed, SlotRetirementDisposition)
 	wire := fixture.sign(t, scope, domainSlotRetirement, evidence, fixture.now)
 	checked, err := fixture.ledger.ReadControllerRetirement(t.Context(), scope, wire)
-	if err != nil || checked.Evidence != evidence || checked.PriorIntent.CreateKey != completed.Intent.CreateKey || checked.RetirementSHA256 != bodyDigest(wire) {
+	if err != nil || checked.Evidence != evidence || checked.PriorIntent.CreateKey != completed.Intent.CreateKey || checked.RetirementSHA256 != objectDigest(wire) {
 		t.Fatalf("current completed retirement failed exact binding: %+v %v", checked, err)
 	}
 	if _, err := fixture.ledger.ReadControllerRetirement(t.Context(), scope, nil); err == nil {
@@ -61,7 +61,7 @@ func TestControllerRetirementReadsProtectedImmediatePredecessor(t *testing.T) {
 		t.Fatalf("exact protected wire failed: %v", err)
 	}
 	wrong := checked.Evidence
-	wrong.ObservedEvidenceDigest = bodyDigest([]byte("another-observation"))
+	wrong.ObservedEvidenceDigest = objectDigest([]byte("another-observation"))
 	if _, err := fixture.ledger.ReadControllerRetirement(t.Context(), scope, fixture.sign(t, scope, domainSlotRetirement, wrong, fixture.now)); err == nil {
 		t.Fatal("another signed retirement replaced protected HEAD's exact retirement")
 	}
