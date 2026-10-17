@@ -38,6 +38,7 @@ type controller struct {
 	fingerprint         string
 	credentialExpiresAt time.Time
 	stateful            *statefulController
+	loadTerminal        bool // guarded by executor.mu
 }
 
 var _ exec.Controller = (*controller)(nil)
@@ -47,6 +48,9 @@ var _ exec.ControllerLogs = (*controller)(nil)
 func (c *controller) Update(_ context.Context, t *api.Task) error {
 	if _, err := DecodeContainer(t); err != nil || t.ID != c.task.ID || taskFingerprint(t) != c.fingerprint {
 		return exec.ErrTaskUpdateRejected
+	}
+	if taskLoadTerminalState(t.Status.State) {
+		c.finishTaskLoad()
 	}
 	return nil
 }
@@ -69,7 +73,8 @@ func (c *controller) container(ctx context.Context) (containerd.Container, error
 	return ctr, nil
 }
 
-func (c *controller) Prepare(ctx context.Context) error {
+func (c *controller) Prepare(ctx context.Context) (operationErr error) {
+	defer func() { c.finishTaskLoadOperation(api.TaskStatePreparing, operationErr) }()
 	if c.stateful != nil {
 		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
 			return execution.ErrUnsafe
@@ -258,7 +263,8 @@ func (c *controller) Prepare(ctx context.Context) error {
 	return c.verifyDisk(ctx, ctr)
 }
 
-func (c *controller) Start(ctx context.Context) error {
+func (c *controller) Start(ctx context.Context) (operationErr error) {
+	defer func() { c.finishTaskLoadOperation(api.TaskStateStarting, operationErr) }()
 	if c.stateful != nil {
 		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
 			return execution.ErrUnsafe
@@ -365,7 +371,8 @@ func exitError(code uint32) error {
 	return taskExitError(code)
 }
 
-func (c *controller) Wait(ctx context.Context) error {
+func (c *controller) Wait(ctx context.Context) (operationErr error) {
+	defer func() { c.finishTaskLoadOperation(api.TaskStateRunning, operationErr) }()
 	ctx = runtimeContext(ctx)
 	t, err := c.runtimeTask(ctx)
 	if err != nil {
@@ -389,7 +396,8 @@ func (c *controller) Wait(ctx context.Context) error {
 	}
 }
 
-func (c *controller) Shutdown(ctx context.Context) error {
+func (c *controller) Shutdown(ctx context.Context) (operationErr error) {
+	defer func() { c.finishTaskLoadOperation(api.TaskStateShutdown, operationErr) }()
 	if c.stateful != nil {
 		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
 			return execution.ErrUnsafe
