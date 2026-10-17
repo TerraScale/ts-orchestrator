@@ -45,7 +45,7 @@ func VerifyFoundationWriterImageCurrent(ctx context.Context, input HostImageQual
 	if !exists {
 		return VerifiedFoundationWriterImage{}, fmt.Errorf("%w: missing foundation writer qualification", ErrProductionQualification)
 	}
-	candidate := ProductionExpectation{SourceRevision: receipt.SourceRevision, ArtifactSHA256: receipt.ImageSHA256,
+	candidate := ProductionExpectation{ImageOCID: receipt.OCIImageOCID, SourceRevision: receipt.SourceRevision, ArtifactSHA256: receipt.ImageSHA256,
 		QualificationSHA256: receipt.QualificationSHA256, Cell: receipt.OCIRegion, Environment: input.Expected.Environment,
 		Runtime: ProductionRuntime, Architecture: receipt.Architecture, Role: FoundationWriterRole}
 	deadline, err := VerifyRetainedProductionCurrent(ctx, production, roots, candidate, openEvidence, now)

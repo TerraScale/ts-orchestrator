@@ -26,6 +26,7 @@ var ErrProductionQualification = errors.New("production qualification is missing
 // ProductionExpectation comes from inspected candidate bytes and the target's scope.
 // Build provenance alone never establishes runtime or workload qualification.
 type ProductionExpectation struct {
+	ImageOCID           string `json:"image_ocid,omitempty"`
 	SourceRevision      string `json:"source_revision"`
 	ArtifactSHA256      string `json:"artifact_sha256"`
 	QualificationSHA256 string `json:"qualification_sha256"`
@@ -69,6 +70,9 @@ func VerifyProductionCurrent(wire, delegationWire []byte, roots trust.Keyring, e
 		gates = append(gates, RootCredentialBoundaryGate)
 	}
 	validRuntime := expected.Runtime == ProductionRuntime
+	if expected.Role == FoundationWriterRole {
+		validRuntime = validRuntime && ValidOCIImageIDForRegion(expected.ImageOCID, expected.Cell)
+	}
 	if expected.Role == "netbird-manager" || expected.Runtime == NetBirdProductionRuntime {
 		validRuntime = expected.Role == "netbird-manager" && expected.Runtime == NetBirdProductionRuntime &&
 			expected.Cell == "GRU" && expected.Architecture == "arm64"
