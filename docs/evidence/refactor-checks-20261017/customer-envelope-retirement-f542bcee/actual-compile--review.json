@@ -1,0 +1,243 @@
+{
+  "state": "READY_EXACT_F542BCEE_SOURCE_AND_TWO_PACKAGE_TRUECOMPILE_REQUEST_ONLY",
+  "reviewed_at_utc": "2026-10-17T05:37:37.843753+00:00",
+  "reviewer": "/root/qa_integrator/storage_compare",
+  "packet": "/tmp/ts-customer-f542bcee-truecompile-shortb-sealed-rxyjweze",
+  "source": {
+    "worktree": "/tmp/ts-customer-retirement-d64-cysw70m3/source",
+    "commit": "f542bcee00e93adf636e392900864e05face8aa5",
+    "tree": "9a0c582da0662395b0979f56f3d12c74cfd37d87",
+    "parent": "d64ef0001b05639bc51371e94e7c195846b5ee0a",
+    "parent_tree": "c132cdd91829fce09fe45027845682b5b1259c61",
+    "clean": true,
+    "tracked_files": 4852,
+    "all_tracked_hashes_equal_manifest": true,
+    "no_renames_changes": [
+      "A\tinternal/bootstrap/cli/customer_open_boundary_integration_test.go",
+      "M\tinternal/bootstrap/cli/identity_rekey_test.go",
+      "D\tinternal/managedmaterial/customer_open_test.go"
+    ],
+    "all_other_paths_unchanged": true,
+    "current_ancestry_go_work_absent": true
+  },
+  "pins": {
+    "request_sha256": "a0a1f36b685c5d0eaff211991ddfeaf7123e4f815007ae24e9a560d1c611455f",
+    "runner_sha256": "9911d000b6e67fabb26cde2f2e42cc6038a587bb9a33083eeaf0a1dbdc7d521a",
+    "seal_sha256": "61712cbc497048d52fff30b02ca00550fda4c644a5d3a3d8ec5ca6955d9125fe",
+    "SHA256SUMS_sha256": "1c29e79a21521999267533eeedcdaf2e5c78bb1149bbab6ea4dfdcac0c7027a3",
+    "source_proof_sha256": "3032a5807cce9a47914aef691d8ab939d7219a9dd60e517a80d8c14ece480708",
+    "fullsource_manifest_sha256": "00f03b20dc16a9843ff261840bed4d9ade6bd152ab01d0e645566953fd114f8f",
+    "module_inputs_sha256": "de89f150712b2d2da8a24942bfb955df8063d99acf0d7428d3bb2fb09aaab7f6",
+    "embedded_inputs_sha256": "2a5f22496cc1681fccb1afacb5b4a9f00d8d418e149d5550850ff0e37856a7a3"
+  },
+  "packet_checks": {
+    "flat_regular_files": 53,
+    "all_file_modes": "0400",
+    "checksums": 52,
+    "bound_evidence": 49,
+    "byte_exact_original_bindings": 28,
+    "tool_hashes": 6,
+    "module_metadata_rows": 6,
+    "tracked_embed_inputs": 16,
+    "tracked_embed_directives": 8,
+    "qa_output_absent": true,
+    "AST_only": [
+      "run.py",
+      "packet-builder.py.txt",
+      "reviewed-attempt-runner-pattern.py.txt"
+    ],
+    "checks": "Every checksum/coverage, copied origin bytes/hash, source file hash/order/count, HEAD/tree/parent/clean status, tools, modules and all conservatively enumerated tracked embed directives/input files independently verified. No runner import/execution."
+  },
+  "prior_mapping": {
+    "path": "/tmp/ts-customer-retirement-source-independent-v64j4p_a/review.json",
+    "sha256": "b6c659e2a9f3f12b01ff8fc694302df124f28ad365a14fbfa39d4794384cf940",
+    "copied_review_exact": true,
+    "role": "Accepted bounded d64 source/assertion/current API mapping; reused as pinned supporting review, without repeating broad external initializer/module-cache audits."
+  },
+  "source_and_assertions": {
+    "accepted_commit": "67bc9eea1b118c7beff0c62914f20a53c3d3483d",
+    "accepted_tree": "e5d3f47d33441ff8b3e54a97fc98614151cd7f79",
+    "root": "TestCustomerEnvelopeFilesystemBoundary",
+    "root_sha256": "427cbd0b8915e25aed5a13c68dde44b90f01b028337573b706fa236da33604fd",
+    "fixture_sha256": "1f46d832fd901a6549c3dba569f08b8eafa721e335b3747e586a57c5303cc0b0",
+    "root_and_fixture_byte_exact_accepted67bc": true,
+    "all12_route_helper_snapshots_byte_exact_accepted67bc": true,
+    "deleted_original": {
+      "path": "internal/managedmaterial/customer_open_test.go",
+      "bytes": 1371,
+      "sha256": "12cd9030b4089418c7a79ec587496b63eebf096002ca439585159501b73378d9",
+      "test": "TestOpenCustomerEnvelopeUsesProducerWireAndRecipient",
+      "only_one_function_no_var_const_type_or_shared_helper": true,
+      "exact_file_deleted": true
+    },
+    "assertion_mapping": [
+      {
+        "assessment": "Preserved through real input/output files and public Run. Existing helper initially has one catalog; root adds the same second canonical catalog as initialFixture, re-signs recipient grant, regenerates with real producer, requires two catalogs/two members, re-signs receipt. Output strict-decodes and additionally requires mode0600.",
+        "original": "Producer wire opens for the matching X25519 recipient; Version1, tbk1. token, BEGIN CERTIFICATE CA.",
+        "replacement": "Success",
+        "source_lines": [
+          23,
+          25,
+          38,
+          115,
+          137,
+          150,
+          154,
+          160
+        ]
+      },
+      {
+        "assessment": "Preserved and strengthened: fresh wrong private key is PKCS8 PEM0600, exported reader confirms its identity, outer receipt succeeds, public Run must return exact customer envelope recipient or fields are invalid and Lstat must report no output.",
+        "original": "Fresh wrong X25519 recipient is rejected.",
+        "replacement": "WrongRecipient",
+        "source_lines": [
+          64,
+          74,
+          80,
+          87,
+          115,
+          137,
+          139,
+          142
+        ]
+      },
+      {
+        "assessment": "Preserved at the inner AEAD boundary: mutate A/B, re-pin envelope digest, clear/re-sign outer receipt with exact preparation V2 domain, explicitly pass VerifyPreparationReply, then public Run must return exact customer envelope authentication failed and no output. Producer Seal guarantees nonempty base ciphertext; mutation stays valid raw URL base64.",
+        "original": "Identical first-character A/B ciphertext mutation is rejected.",
+        "replacement": "FlippedCiphertext",
+        "source_lines": [
+          90,
+          95,
+          107,
+          115,
+          137,
+          139,
+          142
+        ]
+      },
+      {
+        "assessment": "Preserved at inner AAD/KDF boundary. Original ciphertext remains unchanged; spec/receipt partition and spec/object digests/path are re-pinned and outer receipt re-signed/verified. Exact inner authentication error and absent output are mandatory. Inner AAD contains recipientGrantMessage(spec), which binds partition.",
+        "original": "Alternate partition 00000000001WFHC56Q8NB0X6T8 with original ciphertext is rejected.",
+        "replacement": "AlternatePartition",
+        "source_lines": [
+          97,
+          99,
+          102,
+          104,
+          107,
+          115,
+          137,
+          139,
+          142
+        ]
+      }
+    ],
+    "independent_assessment": "Inspected original whole file, replacement root, CLI verify/open/write route and inner OpenCustomerEnvelope errors. Success retains version1/token-prefix/CA checks and adds strict filesystem/mode checks. Wrong fresh recipient must reach exact inner refusal after outer verification. Same A/B ciphertext mutation and alternate partition reach exact inner authentication failure after re-signing/re-pinning outer receipt; all failures require absent output. Two catalogs/two members retained. No original assertion missing.",
+    "helper_preservation": {
+      "initialFixture_file": "internal/managedmaterial/producer_test.go unchanged versus d64 and accepted67bc",
+      "customerOpenFixture_and_customerOpenArgs_file": "internal/bootstrap/cli/customer_open_test.go unchanged versus d64 and accepted67bc",
+      "identity_test_names_and_order": 10,
+      "all_other_repository_paths_held": true
+    },
+    "identity_fixture_review": "Exact accepted JWT/TLS prerequisite replaces removed Lab fields with generated production-format material, one authenticated local embedded replica, verified CA/client/server TLS and JWT credentials/inbox; all helper callers match new three-value return. Legacy lab JSON rejection uses strict decoding. Current Config/Embedded/TLSFiles, bootstrapmaterial.Config/Generate and Bridge.OpenUntil signatures/fields directly inspected. No production API/auth change.",
+    "runtime_limits": "Historical customer root/four leaves remain accepted only at67bc, vet off/nonrace. Identity-rekey siblings were compiled in that historical selection but not run; neither this review nor a future true-c grants their runtime PASS."
+  },
+  "compatibility_limits": {
+    "known_selected_delta": "Current vendored NATS accounts.go/server.go differ from accepted67bc; retained bounded review explains source/import/initializer limits. Historical NATS compile credit is not transferred.",
+    "current_effects": "The reviewed customer route uses local temp files, crypto randomness and clock. It does not call the identity broker helper or start cloud/host/controller/NATS services; dependency initialization remains a historical bounded-source assessment, not new runtime evidence.",
+    "no_fresh_transitive_seal": "Tracked repository, module metadata, tools and embed assets are pinned. External module cache, standard library and system inputs are not all transitively sealed; no new broad audit or Go-selected graph/typecheck performed.",
+    "two_package_reason": "True-c must qualify both changed bootstrap/cli test build and managedmaterial original-file deletion, including package siblings. Default-tag added root and fixture have no build constraints."
+  },
+  "runner_review": {
+    "argv": [
+      "/run/current-system/sw/bin/nice",
+      "-n",
+      "19",
+      "/run/current-system/sw/bin/timeout",
+      "--signal=TERM",
+      "--kill-after=5s",
+      "240s",
+      "/run/current-system/sw/bin/env",
+      "-i",
+      "HOME=/home/mariogk",
+      "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "GOMAXPROCS=2",
+      "GOFLAGS=-p=2",
+      "GOTOOLCHAIN=local",
+      "LANG=C.UTF-8",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "test",
+      "-c",
+      "-mod=readonly",
+      "-p=1",
+      "-o",
+      "/tmp/ts-customer-f542bcee-truecompile-shortb-sealed-rxyjweze/qa-output/binaries/",
+      "./internal/bootstrap/cli",
+      "./internal/managedmaterial"
+    ],
+    "expected_packages": [
+      "./internal/bootstrap/cli",
+      "./internal/managedmaterial"
+    ],
+    "expected_binaries": [
+      "/tmp/ts-customer-f542bcee-truecompile-shortb-sealed-rxyjweze/qa-output/binaries/cli.test",
+      "/tmp/ts-customer-f542bcee-truecompile-shortb-sealed-rxyjweze/qa-output/binaries/managedmaterial.test"
+    ],
+    "package_file_counts": {
+      "internal/bootstrap/cli": {
+        "go_files": 39,
+        "test_files": 18
+      },
+      "internal/managedmaterial": {
+        "go_files": 35,
+        "test_files": 16
+      }
+    },
+    "one_invocation": true,
+    "true_compile_only": true,
+    "default_vet": true,
+    "default_tags": true,
+    "race": false,
+    "no_run_vet_exec_tags_override": true,
+    "effective_child_environment": {
+      "HOME": "/home/mariogk",
+      "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "GOMAXPROCS": "2",
+      "GOFLAGS": "-p=2",
+      "GOTOOLCHAIN": "local",
+      "LANG": "C.UTF-8"
+    },
+    "GOROOT_present": false,
+    "launch": [
+      "/run/current-system/sw/bin/nice",
+      "-n",
+      "19",
+      "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+      "-I",
+      "-B",
+      "/tmp/ts-customer-f542bcee-truecompile-shortb-sealed-rxyjweze/run.py"
+    ],
+    "python": "Pinned -I -B asserted; executing interpreter identity/hash checked.",
+    "adaptation": "Compared with exact prior reviewed Attempt runner; bounded changes are pinned request, two package/output expectations,240s outer bound and two-ELF success condition.",
+    "one_attempt": "Exclusive qa-output0700 creation consumes attempt even if preflight/lock fails; no retry or binary execution path.",
+    "ShortB": "Nonblocking exclusive wrapper flock; no reviewer open/acquisition.",
+    "outer_timeout": "One240s TERM then5s KILL around the whole Go command.",
+    "pin_enforcement": "Full tracked source/HEAD/tree/status, six tools/Python, request/runner/checksum manifest/all assets checked before/after, with repeated preflight inside acquired lock.",
+    "output_enforcement": "Exclusive binaries0700; success requires exactly regular cli.test and managedmaterial.test, both ELF0600, compiler exit0, source/pre/post/assets unchanged; never executes either output.",
+    "external_admission": "Separate exact grant and fresh scheduler RAM>=16GiB/load1<12/max4 compiler-flow check required. Runner does not enforce external admission or hard RSS/scratch caps."
+  },
+  "push_supplement": {
+    "proof": "/tmp/ts-customer-f542-isolated-push-proof-5zf7yc3x/proof.json",
+    "proof_sha256": "84af77256598f08e8aa8dcd92121bf5e5d0a7293010fba98bb18cc48534bccf7",
+    "native_result": "/tmp/ts-customer-f542-isolated-push-native-result-7e87d0.json",
+    "native_result_sha256": "16208c39ea576f27f984e1436cb6875e1acbe4c44cfc0eb7c58f1b951241600c",
+    "review": "Both supplemental hashes checked and retained proof read. Owner reports isolated branch pushed/remote verified at f542; reviewer made no remote call. Historical committed-unpushed preparation records correctly remain byte-exact at their original time; later supplement is separate. Packet/source pins unchanged."
+  },
+  "findings": [],
+  "limits": [
+    "Readiness only; candidate remains uncompiled and no launch/grant issued by this review. A separate exact compile grant and fresh external resource admission are required.",
+    "No Go/build/test/discovery/formatter/runner/binary/native polling/lock/lease/process action, source edit, Git mutation or remote call by reviewer. Only this fresh exclusive report is written.",
+    "No current runtime rerun, full-suite/race/native/live/cloud qualification, source adoption, eighth retirement or canonical count change.",
+    "Historical accepted runtime stays67bc; exact current source compatibility and proposed true compile do not relabel it as f542 execution."
+  ]
+}

@@ -1,0 +1,584 @@
+{
+  "SHA256SUMS_sha256": "ab2522cfd0ad0c1a49c774a7bf7d8092f2e6ea5a4296684e61b0add67c02b85c",
+  "closure": {
+    "changed_go_files_in_historical_selected_directories": [
+      {
+        "path": "internal/bootstrap/cli/identity_rekey_test.go",
+        "status": "M"
+      },
+      {
+        "path": "internal/ociclient/factory_test.go",
+        "status": "M"
+      },
+      {
+        "path": "third_party/nats-server/server/accounts.go",
+        "status": "M"
+      },
+      {
+        "path": "third_party/nats-server/server/server.go",
+        "status": "M"
+      },
+      {
+        "path": "third_party/nats-server/server/service_import_lifecycle_test.go",
+        "status": "A"
+      }
+    ],
+    "external_hash_failures": [],
+    "external_missing": [],
+    "external_selected": 4881,
+    "historical_commit": "7a69bd63cf994beeac74260a7b7a4ef32becb2aa",
+    "historical_tree": "9ab23e5f321529367c8898a184f9e650060052a6",
+    "initializer_and_var_candidates": 6102,
+    "local_current_hash_differences": [
+      {
+        "current_sha256": null,
+        "historical_audit_sha256": "427cbd0b8915e25aed5a13c68dde44b90f01b028337573b706fa236da33604fd",
+        "path": "internal/bootstrap/cli/customer_open_boundary_integration_test.go"
+      },
+      {
+        "current_sha256": "495634680181eff181c7e028cfc573f2439d26e37b7757f47057b7e219531da6",
+        "historical_audit_sha256": "0b91c7e359341de80c9047273fad58751774f1bbbda2029637600a8991616f6f",
+        "path": "third_party/nats-server/server/accounts.go"
+      },
+      {
+        "current_sha256": "7ed8bd20eac4fadc8b0e4322bf7100dff639168d5b6752fb6a40c1f877d34d7e",
+        "historical_audit_sha256": "ea5a6eb27e4bf770fb30bfb2527b7a544b091c0f6fdc49d9d4d86545bd502dda",
+        "path": "third_party/nats-server/server/server.go"
+      }
+    ],
+    "local_selected": 1075,
+    "module_resolution_failures": [],
+    "packages": 702,
+    "selected_files": 5956,
+    "selected_local_changes": [
+      {
+        "path": "internal/bootstrap/cli/identity_rekey_test.go",
+        "status": "M"
+      },
+      {
+        "path": "third_party/nats-server/server/accounts.go",
+        "status": "M"
+      },
+      {
+        "path": "third_party/nats-server/server/server.go",
+        "status": "M"
+      }
+    ]
+  },
+  "evidence_copy_verification": [
+    {
+      "declared_sha_equal": true,
+      "git_copy_equal": true,
+      "path": "60e3843dfb0c7103a83579bc714e9de2a319429d:docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--COMPATIBILITY-REVIEW.json",
+      "sha256": "a3e635e9188915930580c2b9cd999f9a728d600d517089dfe19e3f16b157ff94"
+    },
+    {
+      "declared_sha_equal": true,
+      "git_copy_equal": true,
+      "path": "60e3843dfb0c7103a83579bc714e9de2a319429d:docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--INITIALIZER-closure.json",
+      "sha256": "078720616509a6d864ca6d13cd846b89d306a4b0aacdaf3ec338f0b947109f74"
+    },
+    {
+      "declared_sha_equal": true,
+      "git_copy_equal": true,
+      "path": "60e3843dfb0c7103a83579bc714e9de2a319429d:docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--PREREQUISITE-PROOF.json",
+      "sha256": "66c4390b7f38078b7d378a356e966e96123c53862d6850b108ae130dd4f521ad"
+    },
+    {
+      "declared_sha_equal": true,
+      "git_copy_equal": true,
+      "path": "60e3843dfb0c7103a83579bc714e9de2a319429d:docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--SOURCEPROOF.json",
+      "sha256": "e720486b4442ca7330cb35cb97176593849d99c9951515512c1c5ba02cd577ff"
+    },
+    {
+      "declared_sha_equal": true,
+      "git_copy_equal": true,
+      "path": "60e3843dfb0c7103a83579bc714e9de2a319429d:docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-packet--qa-output--receipt.json",
+      "sha256": "3c2861104770be7c406797fd91aaeaac531979d3de9e433a2b346aa7dfd020d4"
+    },
+    {
+      "declared_sha_equal": true,
+      "git_copy_equal": true,
+      "path": "60e3843dfb0c7103a83579bc714e9de2a319429d:docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-review--native-supplement.json",
+      "sha256": "c4ab9ba5fb7207952e0caaf8faa38276017423517446ccc01093e634ac07e69f"
+    },
+    {
+      "declared_sha_equal": true,
+      "git_copy_equal": true,
+      "path": "60e3843dfb0c7103a83579bc714e9de2a319429d:docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/customer-review--review.json",
+      "sha256": "145828034116228cacab564f0e1a0ce0037d7cd5e1b801d4a4e56d22d5d57b32"
+    }
+  ],
+  "head": "d64ef0001b05639bc51371e94e7c195846b5ee0a",
+  "nats_delta_init_checks": {
+    "third_party/nats-server/server/accounts.go": {
+      "current_sha256": "495634680181eff181c7e028cfc573f2439d26e37b7757f47057b7e219531da6",
+      "each_declaration_text_still_exact": true,
+      "historical_init_or_var_declarations": 4,
+      "historical_sha256": "0b91c7e359341de80c9047273fad58751774f1bbbda2029637600a8991616f6f",
+      "imports_byte_equal": true,
+      "no_func_init_in_either": true
+    },
+    "third_party/nats-server/server/server.go": {
+      "current_sha256": "7ed8bd20eac4fadc8b0e4322bf7100dff639168d5b6752fb6a40c1f877d34d7e",
+      "each_declaration_text_still_exact": true,
+      "historical_init_or_var_declarations": 3,
+      "historical_sha256": "ea5a6eb27e4bf770fb30bfb2527b7a544b091c0f6fdc49d9d4d86545bd502dda",
+      "imports_byte_equal": true,
+      "no_func_init_in_either": true
+    }
+  },
+  "packet_sum_count": 28,
+  "packet_sum_failures": [],
+  "patch_verification": [
+    {
+      "current_old_sha256": null,
+      "destination": "internal/bootstrap/cli/customer_open_boundary_integration_test.go",
+      "exact_accepted67bc": true,
+      "patch": "existing-boundary-addition-only.patch",
+      "patch_sha256": "5061a0c4908aa6ad1c83580549dfd1ca16b9aaddd221aa736a84857780492862",
+      "result_sha256": "427cbd0b8915e25aed5a13c68dde44b90f01b028337573b706fa236da33604fd"
+    },
+    {
+      "current_old_sha256": "dccdeffd30982100e893c3790d2b141484b81d29c0b718c35e2334067e63e935",
+      "destination": "internal/bootstrap/cli/identity_rekey_test.go",
+      "exact_accepted67bc": true,
+      "patch": "identity-rekey-current-to-accepted-fixture.patch",
+      "patch_sha256": "2f1c9f1a963b63a20413c86e84a8a1cae1686dabf5d3a6e10d404b6e2d94fd34",
+      "result_sha256": "1f46d832fd901a6549c3dba569f08b8eafa721e335b3747e586a57c5303cc0b0"
+    }
+  ],
+  "proposal_sha256": "2d2c21bf8d6aea24a701951ee1837eb1a903f23c0650da5f7d8a86fe8bdda837",
+  "since60e_changed_paths": [
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/MANIFEST.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/README.md",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/SHA256SUMS",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--assertion-map.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--external-postflight.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--external-preflight.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--final-seal.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--fullsource-manifest.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--locks-released.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--native-launch-receipt.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--native-launch.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--native-poll-1.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--native-poll-2.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--native-terminal.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--postflight.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--preflight.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--qa-grant.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--receipt.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--request.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--resource-check.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--run.py",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--runtime.stdout",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--seal.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--source-alias-manifest.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--started.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--static-import-closure.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-build--static-review.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-source-text--internal--app--generic_runtime_integration_test.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/corefac2-source-text--internal--app--managed_runtime.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/data697-compile--SEAL.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/data697-compile--SHA256SUMS",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/data697-compile--approved-base-manifest.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/data697-compile--composition-manifest.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/data697-compile--fullsource-manifest.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/data697-compile--qa-output--SHA256SUMS",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/data697-compile--qa-output--compile.stderr",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/data697-compile--qa-output--final-seal.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/data697-compile--qa-output--preflight.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/data697-compile--qa-output--receipt.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/data697-compile--qa-output--started.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/data697-compile--request.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/data697-compile--run.py",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/data697-compile--source-inputs.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/data697-compile--static-import-closure.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/data697-compile--static-review.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/data697-compile--tool-pins.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/data697-native-transcript--ts-data697-native-execution-transcript.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/data697-source-text--internal--app--managed_runtime.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-native--final-seal.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-native--full-event-review.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-native--launch.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-native--poll-001.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-native--poll-002.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-native--poll-003.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-native--poll-004.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-native--poll-005.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-native--poll-006.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-native--poll-007.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-native--poll-008.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-native--resource-preflight-native.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-native--resource-preflight.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-runner--RESULT-SHA256SUMS",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-runner--preflight.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-runner--receipt.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-runner--run.py",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-runner--started.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-runner--stderr.log",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-runner--stdout.jsonl",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-source--request.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-source--seal.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-source--static-effects.md",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-source--static-import-closure.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-source--tool-pins.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-source--tracked-source-manifest.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-source-text--internal--swarmruntime--admission.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-source-text--internal--swarmruntime--management.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-source-text--internal--swarmruntime--management_integration_test.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-source-text--internal--swarmruntime--management_observation.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-source-text--internal--swarmruntime--management_observation_integration_test.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-source-text--internal--swarmruntime--management_observation_local.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-source-text--internal--swarmruntime--management_observation_local_test.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-source-text--internal--swarmruntime--management_observation_send_test.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-source-text--internal--swarmruntime--management_observation_store_test.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-source-text--internal--swarmruntime--management_stateful_test.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/management6af-source-text--internal--swarmruntime--node.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-compile--delta-source-proof.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-compile--final-compile-seal.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-compile--final-seal.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-compile--fullsource-manifest.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-compile--native-launch.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-compile--native-poll-1.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-compile--native-poll-2.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-compile--native-poll-3.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-compile--native-resource-preflight.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-compile--preflight.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-compile--receipt.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-compile--request.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-compile--resource-preflight.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-compile--started.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-compile--terminal-index.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-runtime--final-runtime-seal.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-runtime--final-seal.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-runtime--native-launch.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-runtime--native-poll-1.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-runtime--native-poll-2.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-runtime--native-resource-preflight.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-runtime--preflight.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-runtime--readiness-supplement.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-runtime--receipt.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-runtime--request.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-runtime--resource-preflight.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-runtime--runtime-readiness.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-runtime--runtime.stdout",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-runtime--started.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-runtime--terminal-index.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-source-text--internal--region--foundation_integration_test.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-source-text--internal--region--foundation_provision_integration_test.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-source-text--internal--region--foundation_writer.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci5e-source-text--internal--region--lifecycle.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-compile--delta-source-proof.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-compile--final-compile-seal.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-compile--final-seal.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-compile--fresh-host-preflight.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-compile--fullsource-manifest.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-compile--native-launch.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-compile--native-poll-1.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-compile--native-poll-2.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-compile--native-poll-3.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-compile--native-poll-4.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-compile--native-resource-preflight.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-compile--preflight.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-compile--receipt.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-compile--request.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-compile--run.py",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-compile--started.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-compile--terminal-index.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-runtime--final-runtime-seal.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-runtime--final-seal.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-runtime--fresh-host-preflight.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-runtime--native-launch.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-runtime--native-poll-1.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-runtime--native-poll-2.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-runtime--native-resource-preflight.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-runtime--preflight.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-runtime--receipt.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-runtime--request.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-runtime--run.py",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-runtime--runtime-readiness.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-runtime--runtime.stdout",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-runtime--started.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-runtime--terminal-index.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-source-text--internal--foundationbinding--verify.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-source-text--internal--region--foundation_integration_test.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-source-text--internal--region--foundation_provision_integration_test.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-source-text--internal--region--foundation_writer.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-source-text--internal--region--lifecycle.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-source-text--internal--region--netbird_launch.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-source-text--internal--region--object.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-source-text--internal--region--provision.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/oci678-source-text--internal--region--source_founder.go.txt",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/prior-app6aab--review.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/prior-appaa0--review.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/prior-appd0b--review.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/prior-connected-publication--MANIFEST.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/prior-connected-publication--README.md",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/prior-connected-publication--SHA256SUMS",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/prior-management2d158--review.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/prior-oci64--ts-qa-provision64-terminal-failure-bkps8y8k.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/qa-corefac2--review.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/qa-data697--review.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/qa-management6af--review.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/qa-oci5e-compile--ts-qa-oci5e-truecompile-terminal-acceptance-67pd1y4t.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/qa-oci5e-runtime--ts-qa-oci5e-runtime-terminal-failure-z8dsewxr.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/qa-oci678-compile--ts-qa-oci678-truecompile-terminal-acceptance-b4lxjiu8.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/qa-oci678-runtime--ts-qa-oci678-runtime-terminal-failure-53vxp9c8.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/support-1--review.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/support-10--review.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/support-2--review.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/support-3--review.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/support-4--ts-qa-oci678-compile-readiness-ii2zqir0.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/support-5--ts-qa-oci678-runtime-readiness-n9bw5hnt.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/support-6--ts-qa-oci5e-truecompile-readiness-diy0th_1.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/support-7--ts-qa-oci5e-direct-runtime-readiness-g6b7j5ey.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/support-8--ts-oci-foundation-67854df12-security-source-ack.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/support-9--ts-oci-foundation-5e678c47a-security-source-ack.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/unused-oci443--delta-source-proof.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/unused-oci443--final-seal.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/unused-oci443--fullsource-manifest.json",
+    "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes/unused-oci443--request.json"
+  ],
+  "snapshot_verification": [
+    {
+      "copy": "current--internal--app--identity_rekey_cli.go.txt",
+      "currentd64_equal": true,
+      "git_copy_equal": true,
+      "path": "internal/app/identity_rekey_cli.go",
+      "sha256": "2c2f075d32594d89e18b39d75d2ad9a75787f63f3a234b9ff02347627f321090"
+    },
+    {
+      "copy": "current--internal--bootstrap--cli--customer_open.go.txt",
+      "currentd64_equal": true,
+      "git_copy_equal": true,
+      "path": "internal/bootstrap/cli/customer_open.go",
+      "sha256": "ff1ae2cc7272749d691fd5889323071ae79899becef63f0c926bf7e76d4186c9"
+    },
+    {
+      "copy": "current--internal--bootstrap--cli--customer_open_test.go.txt",
+      "currentd64_equal": true,
+      "git_copy_equal": true,
+      "path": "internal/bootstrap/cli/customer_open_test.go",
+      "sha256": "f56b2bc8d6e919cf13a1a8cd8b544f78061a39e31f93b9de015e70fab9c5c549"
+    },
+    {
+      "copy": "current--internal--bootstrap--cli--identity_rekey_test.go.txt",
+      "currentd64_equal": true,
+      "git_copy_equal": true,
+      "path": "internal/bootstrap/cli/identity_rekey_test.go",
+      "sha256": "dccdeffd30982100e893c3790d2b141484b81d29c0b718c35e2334067e63e935"
+    },
+    {
+      "copy": "current--internal--managedmaterial--customer_open.go.txt",
+      "currentd64_equal": true,
+      "git_copy_equal": true,
+      "path": "internal/managedmaterial/customer_open.go",
+      "sha256": "d106a2f52a619badc607299cedca04f00420892aebbb06929ab0e09fc6d0a5d4"
+    },
+    {
+      "copy": "current--internal--managedmaterial--customer_open_test.go.txt",
+      "currentd64_equal": true,
+      "git_copy_equal": true,
+      "path": "internal/managedmaterial/customer_open_test.go",
+      "sha256": "12cd9030b4089418c7a79ec587496b63eebf096002ca439585159501b73378d9"
+    },
+    {
+      "copy": "current--internal--managedmaterial--producer.go.txt",
+      "currentd64_equal": true,
+      "git_copy_equal": true,
+      "path": "internal/managedmaterial/producer.go",
+      "sha256": "c150b7a572d0af727d75ee8fd73c04cc042fc4b57937af131c4d07acb90a2650"
+    },
+    {
+      "copy": "current--internal--natscell--runtime.go.txt",
+      "currentd64_equal": true,
+      "git_copy_equal": true,
+      "path": "internal/natscell/runtime.go",
+      "sha256": "44804d1b0692d1b47fb37f4a9e1d99bfe7235d3fb317fc7c81c9090d80dc57cf"
+    },
+    {
+      "copy": "historical--internal--bootstrap--cli--customer_open.go.txt",
+      "currentd64_equal": true,
+      "git_copy_equal": true,
+      "path": "internal/bootstrap/cli/customer_open.go",
+      "sha256": "ff1ae2cc7272749d691fd5889323071ae79899becef63f0c926bf7e76d4186c9"
+    },
+    {
+      "copy": "historical--internal--bootstrap--cli--customer_open_boundary_integration_test.go.txt",
+      "currentd64_equal": true,
+      "git_copy_equal": true,
+      "path": "internal/bootstrap/cli/customer_open_boundary_integration_test.go",
+      "sha256": "427cbd0b8915e25aed5a13c68dde44b90f01b028337573b706fa236da33604fd"
+    },
+    {
+      "copy": "historical--internal--bootstrap--cli--customer_open_test.go.txt",
+      "currentd64_equal": true,
+      "git_copy_equal": true,
+      "path": "internal/bootstrap/cli/customer_open_test.go",
+      "sha256": "f56b2bc8d6e919cf13a1a8cd8b544f78061a39e31f93b9de015e70fab9c5c549"
+    },
+    {
+      "copy": "historical--internal--bootstrap--cli--identity_rekey_test.go.txt",
+      "currentd64_equal": true,
+      "git_copy_equal": true,
+      "path": "internal/bootstrap/cli/identity_rekey_test.go",
+      "sha256": "1f46d832fd901a6549c3dba569f08b8eafa721e335b3747e586a57c5303cc0b0"
+    },
+    {
+      "copy": "historical--internal--managedmaterial--customer_open.go.txt",
+      "currentd64_equal": true,
+      "git_copy_equal": true,
+      "path": "internal/managedmaterial/customer_open.go",
+      "sha256": "d106a2f52a619badc607299cedca04f00420892aebbb06929ab0e09fc6d0a5d4"
+    },
+    {
+      "copy": "historical--internal--managedmaterial--customer_open_test.go.txt",
+      "currentd64_equal": true,
+      "git_copy_equal": true,
+      "path": "internal/managedmaterial/customer_open_test.go",
+      "sha256": "12cd9030b4089418c7a79ec587496b63eebf096002ca439585159501b73378d9"
+    },
+    {
+      "copy": "historical--internal--managedmaterial--producer.go.txt",
+      "currentd64_equal": true,
+      "git_copy_equal": true,
+      "path": "internal/managedmaterial/producer.go",
+      "sha256": "c150b7a572d0af727d75ee8fd73c04cc042fc4b57937af131c4d07acb90a2650"
+    }
+  ],
+  "trees": {
+    "60e3843dfb0c7103a83579bc714e9de2a319429d": "4b1b80130abc5b9df413c21560869eaceb3c70ec",
+    "67bc9eea1b118c7beff0c62914f20a53c3d3483d": "e5d3f47d33441ff8b3e54a97fc98614151cd7f79",
+    "d64ef0001b05639bc51371e94e7c195846b5ee0a": "c132cdd91829fce09fe45027845682b5b1259c61"
+  },
+  "watched_and_modules": [
+    {
+      "current_declared_equal": true,
+      "current_sha256": null,
+      "historical_declared_equal": true,
+      "historical_sha256": "427cbd0b8915e25aed5a13c68dde44b90f01b028337573b706fa236da33604fd",
+      "path": "internal/bootstrap/cli/customer_open_boundary_integration_test.go"
+    },
+    {
+      "current_declared_equal": true,
+      "current_sha256": "12cd9030b4089418c7a79ec587496b63eebf096002ca439585159501b73378d9",
+      "historical_declared_equal": true,
+      "historical_sha256": "12cd9030b4089418c7a79ec587496b63eebf096002ca439585159501b73378d9",
+      "path": "internal/managedmaterial/customer_open_test.go"
+    },
+    {
+      "current_declared_equal": true,
+      "current_sha256": "f56b2bc8d6e919cf13a1a8cd8b544f78061a39e31f93b9de015e70fab9c5c549",
+      "historical_declared_equal": true,
+      "historical_sha256": "f56b2bc8d6e919cf13a1a8cd8b544f78061a39e31f93b9de015e70fab9c5c549",
+      "path": "internal/bootstrap/cli/customer_open_test.go"
+    },
+    {
+      "current_declared_equal": true,
+      "current_sha256": "dfc337cfcdd7bbddadac0935a56b5a42f0faa8757dc43ea4981cf9e525ce0590",
+      "historical_declared_equal": true,
+      "historical_sha256": "dfc337cfcdd7bbddadac0935a56b5a42f0faa8757dc43ea4981cf9e525ce0590",
+      "path": "internal/bootstrap/cli/run.go"
+    },
+    {
+      "current_declared_equal": true,
+      "current_sha256": "bcb10b041da3116c9288ac50ecbf62860dd424a1c6f39b6368c2844c163f6eeb",
+      "historical_declared_equal": true,
+      "historical_sha256": "bcb10b041da3116c9288ac50ecbf62860dd424a1c6f39b6368c2844c163f6eeb",
+      "path": "internal/bootstrap/cli/commands.go"
+    },
+    {
+      "current_declared_equal": true,
+      "current_sha256": "ff1ae2cc7272749d691fd5889323071ae79899becef63f0c926bf7e76d4186c9",
+      "historical_declared_equal": true,
+      "historical_sha256": "ff1ae2cc7272749d691fd5889323071ae79899becef63f0c926bf7e76d4186c9",
+      "path": "internal/bootstrap/cli/customer_open.go"
+    },
+    {
+      "current_declared_equal": true,
+      "current_sha256": "c150b7a572d0af727d75ee8fd73c04cc042fc4b57937af131c4d07acb90a2650",
+      "historical_declared_equal": true,
+      "historical_sha256": "c150b7a572d0af727d75ee8fd73c04cc042fc4b57937af131c4d07acb90a2650",
+      "path": "internal/managedmaterial/producer.go"
+    },
+    {
+      "current_declared_equal": true,
+      "current_sha256": "a09495557c429697b1d76b5713b8d5281c97728347aa913dfc0cca8a1903f15e",
+      "historical_declared_equal": true,
+      "historical_sha256": "a09495557c429697b1d76b5713b8d5281c97728347aa913dfc0cca8a1903f15e",
+      "path": "internal/managedmaterial/receipt.go"
+    },
+    {
+      "current_declared_equal": true,
+      "current_sha256": "d106a2f52a619badc607299cedca04f00420892aebbb06929ab0e09fc6d0a5d4",
+      "historical_declared_equal": true,
+      "historical_sha256": "d106a2f52a619badc607299cedca04f00420892aebbb06929ab0e09fc6d0a5d4",
+      "path": "internal/managedmaterial/customer_open.go"
+    },
+    {
+      "current_declared_equal": true,
+      "current_sha256": "6881998594e2890e246a42169bec053fb00c1ad40590d3b79420f5ca194840ca",
+      "historical_declared_equal": true,
+      "historical_sha256": "6881998594e2890e246a42169bec053fb00c1ad40590d3b79420f5ca194840ca",
+      "path": "internal/managedmaterial/keys.go"
+    },
+    {
+      "current_declared_equal": true,
+      "current_sha256": "5a0439798f0961019fe651bd7b6db2a8ef4934a1b7a891b1aa56917e413c104e",
+      "historical_declared_equal": true,
+      "historical_sha256": "5a0439798f0961019fe651bd7b6db2a8ef4934a1b7a891b1aa56917e413c104e",
+      "path": "internal/protocol/json.go"
+    },
+    {
+      "current_declared_equal": true,
+      "current_sha256": "dccdeffd30982100e893c3790d2b141484b81d29c0b718c35e2334067e63e935",
+      "historical_declared_equal": true,
+      "historical_sha256": "1f46d832fd901a6549c3dba569f08b8eafa721e335b3747e586a57c5303cc0b0",
+      "path": "internal/bootstrap/cli/identity_rekey_test.go"
+    },
+    {
+      "current_declared_equal": true,
+      "current_sha256": "345c588c26d7c60c0f79ca9cf0b4a8e5d2715906a46a1f9f0554e5e642035ea5",
+      "historical_declared_equal": true,
+      "historical_sha256": "345c588c26d7c60c0f79ca9cf0b4a8e5d2715906a46a1f9f0554e5e642035ea5",
+      "path": "e2e/go.mod"
+    },
+    {
+      "current_declared_equal": true,
+      "current_sha256": "42ed2d8a88356f17c6308006dedd5029c671d8f06ab2f4797816db651cc3daad",
+      "historical_declared_equal": true,
+      "historical_sha256": "42ed2d8a88356f17c6308006dedd5029c671d8f06ab2f4797816db651cc3daad",
+      "path": "e2e/go.sum"
+    },
+    {
+      "current_declared_equal": true,
+      "current_sha256": "3dcc9ecb65641323ccb85a6383ad370d328ccc3ef47545227abb38e7b8474d4f",
+      "historical_declared_equal": true,
+      "historical_sha256": "3dcc9ecb65641323ccb85a6383ad370d328ccc3ef47545227abb38e7b8474d4f",
+      "path": "go.mod"
+    },
+    {
+      "current_declared_equal": true,
+      "current_sha256": "8b66a5397e2d3eddd6f553f081eb34365352c104503b72a813bc21a4ebf3dca3",
+      "historical_declared_equal": true,
+      "historical_sha256": "8b66a5397e2d3eddd6f553f081eb34365352c104503b72a813bc21a4ebf3dca3",
+      "path": "go.sum"
+    },
+    {
+      "current_declared_equal": true,
+      "current_sha256": "2b2350c95a0730d197fb497583ff0c80356be0ef84a474efe4d5c861580dc8dc",
+      "historical_declared_equal": true,
+      "historical_sha256": "2b2350c95a0730d197fb497583ff0c80356be0ef84a474efe4d5c861580dc8dc",
+      "path": "third_party/nats-server/go.mod"
+    },
+    {
+      "current_declared_equal": true,
+      "current_sha256": "fd010ab554c50375154a06819a5dc94c348a1cd274de788560373865465c290e",
+      "historical_declared_equal": true,
+      "historical_sha256": "fd010ab554c50375154a06819a5dc94c348a1cd274de788560373865465c290e",
+      "path": "third_party/nats-server/go.sum"
+    }
+  ],
+  "worktree_status": ""
+}

@@ -1,0 +1,14 @@
+{
+  "arguments": {
+    "cmd": "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15 -I -B - <<'PY'\nfrom pathlib import Path\nimport hashlib,json,os,tempfile,time\npacket=Path('/tmp/ts-customer-f542bcee-truecompile-shortb-sealed-rxyjweze')\nsha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()\nassert os.getuid()==os.geteuid()==1000\npins={'request.json':'a0a1f36b685c5d0eaff211991ddfeaf7123e4f815007ae24e9a560d1c611455f','run.py':'9911d000b6e67fabb26cde2f2e42cc6038a587bb9a33083eeaf0a1dbdc7d521a','SEAL.json':'61712cbc497048d52fff30b02ca00550fda4c644a5d3a3d8ec5ca6955d9125fe'}\nfor n,h in pins.items():assert sha(packet/n)==h\nassert not (packet/'qa-output').exists()\ngrant=Path('/tmp/ts-qa-customer-f542-compile-grant-yw9r08os.json');ready=Path('/tmp/ts-qa-customer-f542bcee-readiness-s7_m405c/review.json')\nassert sha(grant)=='270e58485bf45f62cc6485551030e435a3218c4cfbd853432583b6c36ff28416'\nassert sha(ready)=='f4b00365361fbe96ae30f54a92efa21a3a88f68fcdcdb5c5b402b9dba8415172'\nmem={line.split(':',1)[0]:int(line.split()[1])*1024 for line in Path('/proc/meminfo').read_text().splitlines() if ':' in line and len(line.split())>1}\nresource={'epoch':time.time(),'uid':os.getuid(),'euid':os.geteuid(),'mem_available_bytes':mem['MemAvailable'],'load1':os.getloadavg()[0]}\nassert resource['mem_available_bytes']>=16*1024**3 and resource['load1']<12\nout=Path(tempfile.mkdtemp(prefix='ts-customer-f542-truecompile-native-results-'))\nfor p in [grant,ready]:(out/p.name).write_bytes(p.read_bytes())\n(out/'resource-admission.json').write_text(json.dumps(resource,indent=2)+'\\n')\nprint(json.dumps({'native_directory':str(out),'resource':resource,'admitted':True}))\nPY",
+    "login": false,
+    "max_output_tokens": 1200
+  },
+  "result": {
+    "chunk_id": "106d0f",
+    "wall_time_seconds": 0.000026497,
+    "exit_code": 0,
+    "original_token_count": 57,
+    "output": "{\"native_directory\": \"/tmp/ts-customer-f542-truecompile-native-results-63mpl6oq\", \"resource\": {\"epoch\": 1792215521.8186076, \"uid\": 1000, \"euid\": 1000, \"mem_available_bytes\": 27614650368, \"load1\": 0.251953125}, \"admitted\": true}\n"
+  }
+}

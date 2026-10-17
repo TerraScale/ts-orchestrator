@@ -1,0 +1,51 @@
+{
+  "state": "OWNER_TERMINAL_TRUECOMPILE_VERIFIED_PENDING_INDEPENDENT_ACCEPTANCE",
+  "commit": "f542bcee00e93adf636e392900864e05face8aa5",
+  "tree": "9a0c582da0662395b0979f56f3d12c74cfd37d87",
+  "session": 18865,
+  "terminal_chunk": "6226bf",
+  "native_polls": 5,
+  "exit_code": 0,
+  "wall_seconds": 142.20137609000085,
+  "max_child_rss_kib": 1189008,
+  "receipt_sha256": "2c3738c02d18d3a033dee60de10f20437e2f8dab7cc91ff42ef27b63d7cc67bd",
+  "original_output_manifest_sha256": "8208c60dcd19f18cd155f04831d054c5b107c6ef0748336d48d09741d255b124",
+  "full_source_files_verified": 4852,
+  "tools_verified": 6,
+  "module_metadata_files_verified": 6,
+  "tracked_embed_inputs_verified": 16,
+  "pre_post_current_exact": true,
+  "stdout_empty": true,
+  "stderr_empty": true,
+  "binaries": [
+    {
+      "path": "/tmp/ts-customer-f542bcee-truecompile-shortb-sealed-rxyjweze/qa-output/binaries/cli.test",
+      "bytes": 88015972,
+      "mode": "0o600",
+      "sha256": "0e373283a2e64f056c883aa6e12daa38039157688a0a471419bc08df774fb712",
+      "never_executed": true
+    },
+    {
+      "path": "/tmp/ts-customer-f542bcee-truecompile-shortb-sealed-rxyjweze/qa-output/binaries/managedmaterial.test",
+      "bytes": 49171133,
+      "mode": "0o600",
+      "sha256": "48aec81a6999d0c1bca9e664472d1a70e5208c309c556abeed2d68d28b02c3bf",
+      "never_executed": true
+    }
+  ],
+  "binary_execution_count": 0,
+  "observed_pids_still_present": {
+    "758562": false,
+    "758590": false,
+    "758591": false
+  },
+  "no_fresh_lock_probe": "Runner terminal releases its ShortB flock and all observed runner/timeout/Go PIDs are gone. No extra lock acquisition or comprehensive descendant lifecycle audit performed.",
+  "runtime_scope": "No target init/TestMain/tests/output binary execution. Historical67bc runtime stays source-specific; no identity-rekey runtime credit.",
+  "counts_unchanged": {
+    "firstparty_retired": 7,
+    "firstparty_globally_unadjudicated": 4312,
+    "vendor_originals_present": 1449,
+    "vendor_retired": 0,
+    "vendor_central_closures": 0
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "state": "ONE_EXACT_F542BCEE_TWO_PACKAGE_TRUECOMPILE_GRANT",
+  "created_utc": "2026-10-17T05:38:09.417269+00:00",
+  "owner": "/root/qa_integrator/test_inventory",
+  "head": "f542bcee00e93adf636e392900864e05face8aa5",
+  "tree": "9a0c582da0662395b0979f56f3d12c74cfd37d87",
+  "packet": "/tmp/ts-customer-f542bcee-truecompile-shortb-sealed-rxyjweze",
+  "pins": {
+    "request.json": "a0a1f36b685c5d0eaff211991ddfeaf7123e4f815007ae24e9a560d1c611455f",
+    "run.py": "9911d000b6e67fabb26cde2f2e42cc6038a587bb9a33083eeaf0a1dbdc7d521a",
+    "SEAL.json": "61712cbc497048d52fff30b02ca00550fda4c644a5d3a3d8ec5ca6955d9125fe"
+  },
+  "independent_readiness": "/tmp/ts-qa-customer-f542bcee-readiness-s7_m405c/review.json",
+  "independent_readiness_sha256": "f4b00365361fbe96ae30f54a92efa21a3a88f68fcdcdb5c5b402b9dba8415172",
+  "preflight": {
+    "uid": 1000,
+    "euid": 1000,
+    "load1": 0.35986328125,
+    "mem_available_bytes": 27545124864
+  },
+  "authorization": "Launch frozen pinnedPython -I -B runner exactlyONCE/nice19/loginfalse; true go test-c defaultvet/defaulttags/-modreadonly/pkg-p1/bothbootstrap-cli+managedmaterial/-o directory; exactenv6/GOMAX2/GOFLAGS-p2/240sTERM-KILL5/nonblockingexclusiveShortB. TwoexpectedELF0600neverexec; no target init/TestMain/tests/binaryexec. Retain immediateactualnative launchargument/result and everypoll; reportsession/PIDs promptly then finalreceipt/seal. Freshordinaryuser/RAM>=16GiB/load<12 admission immediatelybeforelaunch; busylockabort no wait/retry. No same-source retry/source mutation/modules/download/cloud/native/main/featureadoption/retirement grant. Exacthistorical67bc root+4leaf runtime preserved; no siblingidentityruntimecredit.",
+  "lease": "Reserve ONE ShortB compilerflow; no runtime/fixture lease. No other current QA compiler/runtime/fixture flows."
+}

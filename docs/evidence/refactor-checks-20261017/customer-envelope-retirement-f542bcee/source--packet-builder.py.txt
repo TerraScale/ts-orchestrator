@@ -1,0 +1,194 @@
+import ast
+import fnmatch
+import glob
+import hashlib
+import json
+import pathlib
+import re
+import subprocess
+import tempfile
+
+PREP = pathlib.Path('/tmp/ts-customer-retirement-d64-cysw70m3')
+W = PREP / 'source'
+OLD = pathlib.Path('/tmp/ts-attempt-458ff55-truecompile-shortb-sealed-7qtri3ou')
+PROPOSAL = pathlib.Path('/tmp/ts-next-customer-retirement-source-proposal-65k8m7lf')
+REVIEW = pathlib.Path('/tmp/ts-customer-retirement-source-independent-v64j4p_a')
+HIST = pathlib.Path('/tmp/ts-customer-envelope-67bc-short-b-sealed-56eiaadh')
+NATIVE = pathlib.Path('/tmp/ts-customer-67bc-shortb-native-results-eahwwmpb')
+OUT = pathlib.Path(tempfile.mkdtemp(prefix='ts-customer-f542bcee-truecompile-shortb-sealed-'))
+sha = lambda b: hashlib.sha256(b).hexdigest()
+encoded = lambda v: (json.dumps(v, indent=2) + '\n').encode()
+git = lambda *a: subprocess.check_output(['/run/current-system/sw/bin/git', '-C', str(W), *a])
+bindings = {}
+
+def put(name, wire):
+    with (OUT / name).open('xb') as f:
+        f.write(wire)
+
+def copy(path, name):
+    path = pathlib.Path(path)
+    wire = path.read_bytes()
+    assert not wire.startswith(b'\x7fELF')
+    put(name, wire)
+    bindings[name] = {'origin': str(path), 'sha256': sha(wire), 'copy_byte_exact': True}
+
+proof = json.loads((PREP / 'source-preparation.json').read_bytes())
+base, commit, tree = proof['base'], proof['commit'], proof['tree']
+assert commit == 'f542bcee00e93adf636e392900864e05face8aa5'
+assert tree == '9a0c582da0662395b0979f56f3d12c74cfd37d87'
+assert git('rev-parse', 'HEAD').decode().strip() == commit
+assert not git('status', '--porcelain=v1', '--untracked-files=all')
+tracked = git('ls-files', '-z').decode().strip('\0').split('\0')
+manifest = [{'path': p, 'sha256': sha((W / p).read_bytes())} for p in tracked]
+put('fullsource-manifest.json', encoded(manifest))
+copy(PREP / 'source-preparation.json', 'source-preparation.json')
+copy(PREP / 'modern-go-guidance.json', 'modern-go-guidance.json')
+copy(PREP / 'candidate.patch', 'candidate.patch')
+copy(__file__, 'packet-builder.py.txt')
+for name in ['proposal.json', 'SHA256SUMS', 'watched-source-and-module-comparison.json']:
+    copy(PROPOSAL / name, 'prior-proposal--' + name)
+for name in ['review.json', 'verified-inputs.json', 'closure-no-renames-supplement.json', 'verification.json', 'SHA256SUMS']:
+    copy(REVIEW / name, 'independent-source--' + name)
+assert sha((OUT / 'independent-source--review.json').read_bytes()) == 'b6c659e2a9f3f12b01ff8fc694302df124f28ad365a14fbfa39d4794384cf940'
+for name in ['SOURCEPROOF.json', 'PREREQUISITE-PROOF.json', 'COMPATIBILITY-REVIEW.json', 'INITIALIZER-closure.json', 'INITIALIZER-classification.json', 'INITIALIZER-AUDIT.md']:
+    copy(HIST / name, 'historical-source--' + name)
+for name in ['receipt.json', 'stdout.jsonl', 'stderr.log', 'SHA256SUMS']:
+    copy(HIST / 'qa-output' / name, 'historical-runtime--' + name)
+assert sha((OUT / 'historical-runtime--receipt.json').read_bytes()) == '3c2861104770be7c406797fd91aaeaac531979d3de9e433a2b346aa7dfd020d4'
+for name in ['launch-tool-result.json', 'poll-008-tool-result.json', 'final-review-tool-result.json', 'final-review.json', 'SHA256SUMS']:
+    copy(NATIVE / name, 'historical-native--' + name)
+publication = 'docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results/'
+for name in ['customer-review--review.json', 'customer-review--native-supplement.json']:
+    put('historical-' + name, git('show', base + ':' + publication + name))
+paths = ['internal/bootstrap/cli/customer_open_boundary_integration_test.go',
+         'internal/bootstrap/cli/identity_rekey_test.go',
+         'internal/bootstrap/cli/customer_open_test.go',
+         'internal/managedmaterial/producer_test.go',
+         'internal/bootstrap/cli/run.go', 'internal/bootstrap/cli/commands.go',
+         'internal/bootstrap/cli/customer_open.go',
+         'internal/managedmaterial/customer_open.go', 'internal/managedmaterial/producer.go',
+         'internal/managedmaterial/receipt.go', 'internal/managedmaterial/keys.go',
+         'internal/protocol/json.go']
+preservation = []
+for path in paths:
+    data = (W / path).read_bytes()
+    old = git('show', '67bc9eea1b118c7beff0c62914f20a53c3d3483d:' + path)
+    assert data == old, path
+    put('candidate-source--' + path.replace('/', '--') + '.txt', data)
+    preservation.append({'path': path, 'sha256': sha(data), 'accepted67bc_byte_exact': True})
+deleted = git('show', base + ':internal/managedmaterial/customer_open_test.go')
+put('deleted-original-customer_open_test.go.txt', deleted)
+assert len(deleted) == 1371
+assert not (W / 'internal/managedmaterial/customer_open_test.go').exists()
+assert len(re.findall(rb'^func \w+\(', deleted, re.M)) == 1
+assert git('diff', '--no-renames', '--name-status', base, commit).decode().splitlines() == proof['changed_paths_no_renames']
+put('ref-comparison.json', encoded({'base': base, 'candidate': commit,
+    'diff_no_renames': proof['changed_paths_no_renames'],
+    'accepted67bc_to_candidate_all_changes': git('diff', '--no-renames', '--name-status', '67bc9eea1b118c7beff0c62914f20a53c3d3483d', commit).decode().splitlines(),
+    'direct_route_and_helpers': preservation,
+    'historical_current_closure_review': 'independent-source--review.json; independent-source--closure-no-renames-supplement.json',
+    'limit': 'Historical runtime remains67bc; exact current source/body comparison and reviewed initializer assessment do not create candidate runtime or full dependency-build equivalence.'}))
+module_names = [p for p in tracked if pathlib.PurePosixPath(p).name in ('go.mod', 'go.sum', 'go.work', 'go.work.sum')]
+module_pins = [{'path': p, 'sha256': sha((W / p).read_bytes())} for p in module_names]
+put('module-inputs.json', encoded(module_pins))
+embed_rows, embed_pins = [], {}
+for path in tracked:
+    if not path.endswith('.go'):
+        continue
+    for line in (W / path).read_text().splitlines():
+        if not line.startswith('//go:embed '):
+            continue
+        patterns = line.removeprefix('//go:embed ').split()
+        resolved = []
+        for pattern in patterns:
+            assert not pattern.startswith(('all:', '"', '`')), pattern
+            for match in glob.glob(str(W / pathlib.PurePosixPath(path).parent / pattern)):
+                entry = pathlib.Path(match)
+                entries = list(entry.rglob('*')) if entry.is_dir() else [entry]
+                for asset in entries:
+                    if asset.is_file() and not any(part.startswith(('.', '_')) for part in asset.relative_to(entry if entry.is_dir() else entry.parent).parts):
+                        name = str(asset.relative_to(W))
+                        assert name in tracked
+                        embed_pins[name] = sha(asset.read_bytes())
+                        resolved.append(name)
+        assert resolved
+        embed_rows.append({'source': path, 'directive': line, 'tracked_inputs': sorted(set(resolved))})
+put('embedded-inputs.json', encoded({'method': 'Conservative static enumeration of every tracked repository go:embed directive, including unrelated packages; not Go build selection.', 'directives': embed_rows, 'pins': embed_pins}))
+source_proof = {**proof, 'all_other_paths_preserved': True,
+    'tracked_files': len(manifest), 'fullsource_manifest_sha256': sha(encoded(manifest)),
+    'source_preservation': preservation, 'module_inputs_sha256': sha(encoded(module_pins)),
+    'embedded_inputs_sha256': sha((OUT / 'embedded-inputs.json').read_bytes()),
+    'all_four_original_assertions_mapped': json.loads((REVIEW / 'review.json').read_bytes())['four_original_assertions'],
+    'original_declaration_sha256': '00d2e6f89706cd8e09ebed56d4e361f7af590b4f0511052708385a3a4e15b78c',
+    'shared_helpers_preserved': ['initialFixture', 'customerOpenFixture', 'customerOpenArgs'],
+    'identity_prerequisite_scope': 'All10roots/order retained; accepted exact fixture/helper arity/callers/imports. Truecompile proposed; identity-rekey runtime not qualified.',
+    'counts_unchanged': {'firstparty_retired': 7, 'firstparty_globally_unadjudicated': 4312, 'vendor_originals_present': 1449, 'vendor_retired': 0, 'vendor_central_closures': 0},
+    'no_compile_runtime_lock_push_adoption_count_change_at_seal': True}
+put('source-proof.json', encoded(source_proof))
+copy(OLD / 'run.py', 'reviewed-attempt-runner-pattern.py.txt')
+put('copied-evidence-bindings.json', encoded(bindings))
+template = json.loads((OLD / 'request.json').read_bytes())
+tools = template['tool_sha256']
+assert all(sha(pathlib.Path(path).read_bytes()) == digest for path, digest in tools.items())
+environment = template['environment']
+binary_dir = OUT / 'qa-output/binaries'
+packages = ['./internal/bootstrap/cli', './internal/managedmaterial']
+binaries = [str(binary_dir / 'cli.test'), str(binary_dir / 'managedmaterial.test')]
+argv = ['/run/current-system/sw/bin/nice', '-n', '19', '/run/current-system/sw/bin/timeout', '--signal=TERM', '--kill-after=5s', '240s', '/run/current-system/sw/bin/env', '-i']
+argv += [key + '=' + value for key, value in environment.items()]
+argv += [template['go_binary'], 'test', '-c', '-mod=readonly', '-p=1', '-o', str(binary_dir) + '/', *packages]
+request = {'state': 'SEALED_SOURCE_ONLY_NO_GRANT_NEVER_LAUNCHED', 'worktree': str(W),
+    'base': base, 'commit': commit, 'tree': tree, 'owned_changed_paths': proof['changed_paths_no_renames'],
+    'fullsource_manifest_sha256': sha(encoded(manifest)), 'tracked_files': len(manifest),
+    'tool_sha256': tools, 'python_binary': template['python_binary'], 'go_binary': template['go_binary'],
+    'environment': environment, 'GOROOT_present': False,
+    'expected_binaries': binaries, 'expected_packages': packages,
+    'module_inputs': module_pins, 'embedded_inputs_sha256': sha((OUT / 'embedded-inputs.json').read_bytes()),
+    'bound_evidence_sha256': {p.name: sha(p.read_bytes()) for p in sorted(OUT.iterdir())},
+    'request': {'argv': argv, 'cwd': str(W), 'compile_only': True, 'default_vet': True,
+        'default_tags': True, 'race': False, 'binary_execution_authorized': False,
+        'attempts': 1, 'retry_authorized': False,
+        'shared_lock': '/tmp/ts-orch-refactor-short-check-b.lock', 'lock_mode': 'nonblocking-exclusive',
+        'lease_required': True, 'grant_issued': False,
+        'output_mode': 'Exclusive qa-output0700/binaries0700; exactly cli.test and managedmaterial.test regular ELFs chmod0600; never executed.',
+        'resource_envelope': 'Fresh external QA resource check before grant: available RAM>=16GiB;load1<12;maximum4compiler flows. One outer TERM240s/KILL5s;GOMAXPROCS2;GOFLAGS-p2;package-p1;nice19. Resource estimates are not hard memory/disk limits.',
+        'scope': 'One true go test -c invocation compiles both named packages with default vet and default build tags. No -run/-vet/-exec/-tags flags or target initializer/test binary execution. One source-specific attempt only after separate exact QA grant.'},
+    'runner_launch_argv': ['/run/current-system/sw/bin/nice', '-n', '19', template['python_binary'], '-I', '-B', str(OUT / 'run.py')],
+    'historical_accepted_runtime': {'commit': '67bc9eea1b118c7beff0c62914f20a53c3d3483d', 'tree': 'e5d3f47d33441ff8b3e54a97fc98614151cd7f79', 'root': 'TestCustomerEnvelopeFilesystemBoundary', 'receipt_sha256': '3c2861104770be7c406797fd91aaeaac531979d3de9e433a2b346aa7dfd020d4', 'vet': 'off', 'nonrace': True, 'original_retained': True, 'never_relabel_as_candidate_execution': True},
+    'limits': ['No compile grant, launch, lock acquisition, runtime, feature adoption or retirement from this packet.', 'Current exact candidate compile/link only proposed. Historical runtime remains67bc; identity-rekey siblings have no runtime PASS.', 'Tracked local files, module metadata, tools and all tracked embed assets sealed. External module cache/standard library/system inputs are not all sealed transitively; historical static audit has explicit provenance limits.', 'No retry, binary execution, global/main/native/live/race qualification or canonical count change.']}
+assert set(environment) == {'HOME', 'PATH', 'GOMAXPROCS', 'GOFLAGS', 'GOTOOLCHAIN', 'LANG'}
+put('request.json', encoded(request))
+request_sha = sha(encoded(request))
+runner = (OLD / 'run.py').read_text()
+runner = re.sub(r"EXPECTED_REQUEST_SHA = '[a-f0-9]{64}'", "EXPECTED_REQUEST_SHA = '" + request_sha + "'", runner)
+runner = runner.replace("['test', '-c', '-mod=readonly', '-p=1', '-o', request['expected_binary'], './internal/attempt']", "['test', '-c', '-mod=readonly', '-p=1', '-o', str(RUN / 'binaries') + '/', *request['expected_packages']]")
+runner = runner.replace("assert pathlib.Path(request['expected_binary']).parent == binary_dir", "assert request['expected_packages'] == ['./internal/bootstrap/cli', './internal/managedmaterial']\nassert request['expected_binaries'] == [str(binary_dir / 'cli.test'), str(binary_dir / 'managedmaterial.test')]\nassert argv[:9] == ['/run/current-system/sw/bin/nice', '-n', '19', '/run/current-system/sw/bin/timeout', '--signal=TERM', '--kill-after=5s', '240s', '/run/current-system/sw/bin/env', '-i']")
+runner = runner.replace("and len(binaries) == 1 and binaries[0]['path'] == request['expected_binary']\n        and binaries[0]['magic_hex'] == '7f454c46' and binaries[0]['mode'] == '0o600')", "and [item['path'] for item in binaries] == request['expected_binaries']\n        and len(binaries) == 2\n        and all(item['magic_hex'] == '7f454c46' and item['mode'] == '0o600' for item in binaries))")
+runner = runner.replace('One true test-c compile/link with default vet;', 'One true test-c compile/link of both named packages with default vet/default tags;')
+assert 'expected_binary' not in runner
+assert './internal/attempt' not in runner
+assert 'len(binaries) == 2' in runner
+ast.parse(runner)
+put('run.py', runner.encode())
+put('SEAL.json', encoded({'state': 'SOURCE_ONLY_NEVER_LAUNCHED_NO_GRANT', 'base': base, 'commit': commit, 'tree': tree,
+    'request_sha256': request_sha, 'runner_sha256': sha(runner.encode()),
+    'fullsource_manifest_sha256': sha(encoded(manifest)), 'source_proof_sha256': sha(encoded(source_proof)),
+    'module_inputs_sha256': sha(encoded(module_pins)), 'embedded_inputs_sha256': sha((OUT / 'embedded-inputs.json').read_bytes()),
+    'tracked_files': len(manifest), 'expected_binaries': binaries, 'qa_output_exists': False,
+    'separate_exact_QA_review_and_launch_grant_required': True, 'binary_execution_authorized': False,
+    'runner_review': 'Mechanically adapted existing reviewed ShortB single-invocation true-c pattern for two named packages and one240second outer timeout. Python ast.parse only; runner not imported or executed.'}))
+files = sorted(OUT.iterdir())
+put('SHA256SUMS', ''.join(sha(p.read_bytes()) + '  ' + p.name + '\n' for p in files).encode())
+for line in (OUT / 'SHA256SUMS').read_text().splitlines():
+    digest, name = line.split('  ', 1)
+    assert sha((OUT / name).read_bytes()) == digest
+assert not (OUT / 'qa-output').exists()
+assert not git('status', '--porcelain=v1', '--untracked-files=all')
+for p in OUT.iterdir():
+    p.chmod(0o400)
+print(json.dumps({'packet': str(OUT), 'base': base, 'commit': commit, 'tree': tree,
+    'request_sha256': request_sha, 'runner_sha256': sha(runner.encode()),
+    'seal_sha256': sha((OUT / 'SEAL.json').read_bytes()), 'manifest_sha256': sha((OUT / 'SHA256SUMS').read_bytes()),
+    'fullsource_manifest_sha256': sha(encoded(manifest)), 'source_proof_sha256': sha(encoded(source_proof)),
+    'tracked_files': len(manifest), 'module_input_files': len(module_pins), 'tracked_embed_assets': len(embed_pins),
+    'packet_files': len(files) + 1, 'qa_output_exists': False, 'grant_issued': False}, indent=2))

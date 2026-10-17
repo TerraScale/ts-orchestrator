@@ -1,0 +1,14 @@
+{
+  "arguments": {
+    "cmd": "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15 -I -B - <<'PY'\nfrom pathlib import Path\nimport json,time\npid=758590\nids=[pid]\nchildren=Path(f'/proc/{pid}/task/{pid}/children')\nif children.exists(): ids += [int(x) for x in children.read_text().split()]\nrows=[]\nfor i in ids:\n p=Path('/proc')/str(i)\n try:\n  stat=(p/'stat').read_text().split();rows.append({'pid':i,'uid':p.stat().st_uid,'ppid':int(stat[3]),'nice':int(stat[18]),'argv':(p/'cmdline').read_bytes().decode().strip('\\0').split('\\0')})\n except FileNotFoundError: pass\nresult={'epoch':time.time(),'timeout_pid':pid,'observed_processes':rows,'read_only':True}\nPath('/tmp/ts-customer-f542-truecompile-native-results-63mpl6oq/running-process-proof.json').write_text(json.dumps(result,indent=2)+'\\n')\nprint(json.dumps(result))\nPY",
+    "login": false,
+    "max_output_tokens": 1500
+  },
+  "result": {
+    "chunk_id": "ab392b",
+    "wall_time_seconds": 0.00002163,
+    "exit_code": 0,
+    "original_token_count": 258,
+    "output": "{\"epoch\": 1792215540.6294882, \"timeout_pid\": 758590, \"observed_processes\": [{\"pid\": 758590, \"uid\": 1000, \"ppid\": 758562, \"nice\": 19, \"argv\": [\"/run/current-system/sw/bin/timeout\", \"--signal=TERM\", \"--kill-after=5s\", \"240s\", \"/run/current-system/sw/bin/env\", \"-i\", \"HOME=/home/mariogk\", \"PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin\", \"GOMAXPROCS=2\", \"GOFLAGS=-p=2\", \"GOTOOLCHAIN=local\", \"LANG=C.UTF-8\", \"/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go\", \"test\", \"-c\", \"-mod=readonly\", \"-p=1\", \"-o\", \"/tmp/ts-customer-f542bcee-truecompile-shortb-sealed-rxyjweze/qa-output/binaries/\", \"./internal/bootstrap/cli\", \"./internal/managedmaterial\"]}, {\"pid\": 758591, \"uid\": 1000, \"ppid\": 758590, \"nice\": 19, \"argv\": [\"/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go\", \"test\", \"-c\", \"-mod=readonly\", \"-p=1\", \"-o\", \"/tmp/ts-customer-f542bcee-truecompile-shortb-sealed-rxyjweze/qa-output/binaries/\", \"./internal/bootstrap/cli\", \"./internal/managedmaterial\"]}], \"read_only\": true}\n"
+  }
+}

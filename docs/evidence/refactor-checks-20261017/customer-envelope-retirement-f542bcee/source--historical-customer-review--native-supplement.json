@@ -1,0 +1,6 @@
+{
+  "native_terminal_exit0": true,
+  "native_output_contains_exact_receipt_object": true,
+  "native_result_sha256": "aced8062bd4f033b9d527ac4ca414bbef13d61f7e7830a9327e14155c545cfda",
+  "scope": "Actual owner-retained surfaced native terminal object independently parsed; no independent broker record access."
+}
