@@ -1253,7 +1253,7 @@ func (s *Server) configureAccounts(reloading bool) (map[string]struct{}, error) 
 	// until the proper server struct accounts have been swapped in properly. Doing it in
 	// place could lead to data loss or server panic since account under new si has no real
 	// account and hence no sublist, so will panic on inbound message.
-	siMap := make(map[*Account][][]byte)
+	siMap := make(map[*Account][]*serviceImportSubscription)
 
 	// Check opts and walk through them. We need to copy them here
 	// so that we do not keep a real one sitting in the options.
@@ -1272,19 +1272,20 @@ func (s *Server) configureAccounts(reloading bool) (map[string]struct{}, error) 
 					awcsti[acc.Name] = struct{}{}
 				}
 				a.mu.Lock()
-				// Collect the sids for the service imports since we are going to
+				// Collect owned subscriptions since we are going to
 				// replace with new ones.
-				var sids [][]byte
+				var subs []*serviceImportSubscription
 				for _, sis := range a.imports.services {
 					for _, si := range sis {
-						if si.sid != nil {
-							sids = append(sids, si.sid)
+						if si.serviceSub != nil {
+							subs = append(subs, si.serviceSub)
 						}
+						si.sid, si.serviceSub = nil, nil
 					}
 				}
 				// Setup to process later if needed.
-				if len(sids) > 0 || len(acc.imports.services) > 0 {
-					siMap[a] = sids
+				if len(subs) > 0 || len(acc.imports.services) > 0 {
+					siMap[a] = subs
 				}
 
 				// Now reset all export/imports fields since they are going to be
@@ -1429,13 +1430,13 @@ func (s *Server) configureAccounts(reloading bool) (map[string]struct{}, error) 
 
 	// Check if we need to process service imports pending from above.
 	// This processing needs to be after we swap in the real accounts above.
-	for acc, sids := range siMap {
-		c := acc.ic
-		for _, sid := range sids {
-			c.processUnsub(sid)
+	for acc, subs := range siMap {
+		// Registration and retirement can acquire account and leaf client locks.
+		s.mu.Unlock()
+		for _, sub := range subs {
+			acc.removeServiceImportSub(sub)
 		}
 		acc.addAllServiceImportSubs()
-		s.mu.Unlock()
 		s.registerSystemImports(acc)
 		s.mu.Lock()
 	}
