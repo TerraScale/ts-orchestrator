@@ -148,11 +148,12 @@ func (purpose NetBirdJournalPurpose) Clone() NetBirdJournalPurpose {
 // VerifiedNetBirdJournalPurpose proves signed intent only. Native births,
 // underlay readiness, issuer custody and each journal effect need their own proofs.
 type VerifiedNetBirdJournalPurpose struct {
-	original context.Context
-	startup  VerifiedStartupTemplate
-	purpose  NetBirdJournalPurpose
-	digest   string
-	expires  time.Time
+	original  context.Context
+	enclosing []context.Context
+	startup   VerifiedStartupTemplate
+	purpose   NetBirdJournalPurpose
+	digest    string
+	expires   time.Time
 }
 
 func (proof VerifiedNetBirdJournalPurpose) IsVerified() bool {
@@ -205,13 +206,17 @@ func (startup VerifiedStartupTemplate) NetBirdJournalPurposeForOperation(ctx, or
 }
 
 func (proof VerifiedNetBirdJournalPurpose) Revalidate(ctx context.Context) error {
-	if ctx == nil || !proof.IsVerified() || proof.original.Err() != nil || !time.Now().Before(proof.expires) {
+	if ctx == nil || !proof.IsVerified() || proof.originalError() != nil || !time.Now().Before(proof.expires) {
 		return ErrManifestInvalid
 	}
 	ctx, cancel := context.WithDeadline(ctx, proof.expires)
 	defer cancel()
 	stop := context.AfterFunc(proof.original, cancel)
 	defer stop()
+	for _, original := range proof.enclosing {
+		stop := context.AfterFunc(original, cancel)
+		defer stop()
+	}
 	purpose, err := proof.startup.currentNetBirdJournalPurpose(ctx)
 	if err != nil {
 		return err
@@ -220,10 +225,25 @@ func (proof VerifiedNetBirdJournalPurpose) Revalidate(ctx context.Context) error
 	if err != nil || digest != proof.digest {
 		return ErrManifestInvalid
 	}
-	if proof.original.Err() != nil {
-		return proof.original.Err()
+	if err := proof.originalError(); err != nil {
+		return err
 	}
 	return ociclient.LimitAdmission(ctx, proof.expires)
+}
+
+func (proof VerifiedNetBirdJournalPurpose) originalError() error {
+	if proof.original == nil {
+		return ErrManifestInvalid
+	}
+	if err := proof.original.Err(); err != nil {
+		return err
+	}
+	for _, original := range proof.enclosing {
+		if err := original.Err(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Limit preserves genuine provenance while carrying a shorter enclosing cap.
@@ -246,27 +266,11 @@ func (proof VerifiedNetBirdJournalPurpose) LimitForOperation(ctx, original conte
 	if ctx == nil || original == nil || original.Err() != nil || deadline.IsZero() || !proof.IsVerified() {
 		return VerifiedNetBirdJournalPurpose{}, ErrManifestInvalid
 	}
-	if deadline.Before(proof.expires) {
-		proof.expires = deadline
+	if enclosing, ok := original.Deadline(); ok && enclosing.Before(deadline) {
+		deadline = enclosing
 	}
-	if enclosing, ok := original.Deadline(); ok && enclosing.Before(proof.expires) {
-		proof.expires = enclosing
-	}
-	retained, cancel := context.WithDeadline(proof.original, proof.expires)
-	stop := context.AfterFunc(original, cancel)
-	context.AfterFunc(retained, func() { stop(); cancel() })
-	proof.original = retained
-	if err := proof.Revalidate(ctx); err != nil {
-		stop()
-		cancel()
-		return VerifiedNetBirdJournalPurpose{}, err
-	}
-	if err := original.Err(); err != nil {
-		stop()
-		cancel()
-		return VerifiedNetBirdJournalPurpose{}, err
-	}
-	return proof, nil
+	proof.enclosing = append(slices.Clone(proof.enclosing), original)
+	return proof.Limit(ctx, deadline)
 }
 
 // MatchesStartup binds issuance to the genuine original writer's installed
@@ -285,6 +289,10 @@ func (proof VerifiedNetBirdJournalPurpose) MatchesStartup(ctx context.Context, a
 	defer cancel()
 	stop := context.AfterFunc(proof.original, cancel)
 	defer stop()
+	for _, original := range proof.enclosing {
+		stop := context.AfterFunc(original, cancel)
+		defer stop()
+	}
 	if err := proof.Revalidate(ctx); err != nil {
 		return err
 	}
