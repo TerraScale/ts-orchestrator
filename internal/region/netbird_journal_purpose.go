@@ -157,6 +157,10 @@ func preparedNetBirdJournalPurpose(grant FoundationGrant, expires time.Time) (bo
 // validateNetBirdJournalPurpose is shared by preparation, signing and every
 // accepted current grant. A shorter final envelope cannot rewrite approved intent.
 func validateNetBirdJournalPurpose(grant FoundationGrant, envelopeExpiry time.Time) error {
+	return validateNetBirdJournalPurposeAt(grant, envelopeExpiry, time.Now())
+}
+
+func validateNetBirdJournalPurposeAt(grant FoundationGrant, envelopeExpiry, at time.Time) error {
 	var purpose *bootstrap.NetBirdJournalPurpose
 	for _, regional := range grant.Regions {
 		if regional.NetBirdManager == nil {
@@ -170,7 +174,7 @@ func validateNetBirdJournalPurpose(grant FoundationGrant, envelopeExpiry time.Ti
 	if purpose == nil {
 		return nil
 	}
-	if purpose.Validate() != nil || !time.Now().Before(purpose.ExpiresAt) || !envelopeExpiry.IsZero() && purpose.ExpiresAt.After(envelopeExpiry) {
+	if at.IsZero() || purpose.Validate() != nil || !at.Before(purpose.ExpiresAt) || !envelopeExpiry.IsZero() && purpose.ExpiresAt.After(envelopeExpiry) {
 		return errors.New("signed journal purpose is absent, invalid or outlives its grant")
 	}
 	expected, err := preparedNetBirdJournalPurpose(grant, purpose.ExpiresAt)
