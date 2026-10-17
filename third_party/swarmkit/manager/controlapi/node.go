@@ -200,7 +200,7 @@ func (s *Server) ListNodes(_ context.Context, request *api.ListNodesRequest) (*a
 // - Returns `NotFound` if the Node is not found.
 // - Returns `InvalidArgument` if the NodeSpec is malformed.
 // - Returns an error if the update fails.
-func (s *Server) UpdateNode(_ context.Context, request *api.UpdateNodeRequest) (*api.UpdateNodeResponse, error) {
+func (s *Server) UpdateNode(ctx context.Context, request *api.UpdateNodeRequest) (*api.UpdateNodeResponse, error) {
 	if request.NodeID == "" || request.NodeVersion == nil {
 		return nil, status.Error(codes.InvalidArgument, errInvalidArgument.Error())
 	}
@@ -213,7 +213,7 @@ func (s *Server) UpdateNode(_ context.Context, request *api.UpdateNodeRequest) (
 		member *membership.Member
 	)
 
-	err := s.store.Update(func(tx store.Tx) error {
+	err := s.updateObservedNode(ctx, func(tx store.Tx) error {
 		node = store.GetNode(tx, request.NodeID)
 		if node == nil {
 			return status.Errorf(codes.NotFound, "node %s not found", request.NodeID)
@@ -291,12 +291,12 @@ func orphanNodeTasks(tx store.Tx, nodeID string) error {
 // - Returns FailedPrecondition if the Node has manager role (and is part of the memberlist) or is not shut down.
 // - Returns InvalidArgument if NodeID or NodeVersion is not valid.
 // - Returns an error if the delete fails.
-func (s *Server) RemoveNode(_ context.Context, request *api.RemoveNodeRequest) (*api.RemoveNodeResponse, error) {
+func (s *Server) RemoveNode(ctx context.Context, request *api.RemoveNodeRequest) (*api.RemoveNodeResponse, error) {
 	if request.NodeID == "" {
 		return nil, status.Error(codes.InvalidArgument, errInvalidArgument.Error())
 	}
 
-	err := s.store.Update(func(tx store.Tx) error {
+	err := s.updateObservedNode(ctx, func(tx store.Tx) error {
 		node := store.GetNode(tx, request.NodeID)
 		if node == nil {
 			return status.Errorf(codes.NotFound, "node %s not found", request.NodeID)

@@ -2591,5 +2591,38 @@
       "sha256": "5b358959697efc769e81e3deed57459595820fa48e1f977881a12a503b45cee8"
     }
   ],
-  "version": "v2.1.2"
+  "version": "v2.1.2",
+  "local_observed_node_mutation_patch": {
+    "purpose": "Finite full-node CAS around native update and non-force removal; original context and Raft epoch checked at proposal submission. Admitted proposals can commit after cancellation and return an ambiguous outcome; deterministic follower apply is unchanged. Original upstream hashes remain unchanged.",
+    "files": [
+      {
+        "path": "manager/controlapi/node.go",
+        "sha256": "d4fd2d8d3160ae13979c69386d7181dca4edf52cee0e6ca5a26a65b85d8c5976"
+      },
+      {
+        "path": "manager/controlapi/node_observation.go",
+        "sha256": "9cec4077e6cb5f7e4c412fdf2aa65333e1eb6b3f9787a87a840ebd8511d3795c"
+      },
+      {
+        "path": "manager/internal/mutationcontext/context.go",
+        "sha256": "1556e2a4940cafc4c441ccf03651bb2e15b7680c12a87b32530dfd0cb400e5c7"
+      },
+      {
+        "path": "manager/node_observation.go",
+        "sha256": "83a9470fc4b160abe89ee9e06ac3da0497c568fa4e72beed23f7bf7c4f03918d"
+      },
+      {
+        "path": "manager/state/raft/raft.go",
+        "sha256": "a489db22b17d064152d50326061214a2bd317b502528dab716039def7f48fe42"
+      },
+      {
+        "path": "manager/state/store/memory.go",
+        "sha256": "18cf44a568e90680777462e01ed1fbf5a9c318719a6a3a63f57ed181d1e07628"
+      },
+      {
+        "path": "manager/state/store/observation.go",
+        "sha256": "c4e9d22c2bf37a133809044c22216dc2c207975e93ddc41e71c5fd973db25bb9"
+      }
+    ]
+  }
 }

@@ -158,6 +158,7 @@ func TestLocalManagementObservationIntegration(t *testing.T) {
 	if _, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: node.ID(), NodeVersion: &updated.Node.Meta.Version, Spec: original}); err != nil {
 		t.Fatal(err)
 	}
+	testObservedNativeNodeMutation(t, ctx, node)
 	reader := testLocalControlSocketIndependence(t, ctx, node, client)
 	if _, err := node.LocalManagementObservation(ctx, "test"); err != nil {
 		t.Fatalf("new local observer depended on closed socket: %v", err)
