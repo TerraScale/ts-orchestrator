@@ -4,6 +4,18 @@ package region
 // not copying metadata or privileges from a running controller.
 const WorkerBootstrapDerivationV1 = "terrascale.worker.bootstrap.v1"
 
+const (
+	PoolMembershipQuarantineV1 = "unknown-member-nonterminating-decrement-detach-v1"
+	PoolMembershipProvenanceV1 = "protected-original-pool-create-v1"
+)
+
+// WorkerPoolMembership permits only removing unknown membership from a pool
+// whose original root-created provenance the fixed derivation independently proves.
+type WorkerPoolMembership struct {
+	Purpose    string `json:"purpose"`
+	Provenance string `json:"provenance"`
+}
+
 // WorkerProfile is explicit worker authority in the existing root-signed grant.
 // Resource references remain logical until independently proven OCI readback.
 type WorkerImageSource struct {
@@ -35,6 +47,7 @@ type WorkerProfile struct {
 	Runtime             string                  `json:"runtime"`
 	RuntimeSHA256       string                  `json:"runtimeSha256,omitempty"`
 	Bootstrap           WorkerBootstrapTemplate `json:"bootstrap"`
+	PoolMembership      WorkerPoolMembership    `json:"poolMembership"`
 }
 
 type WorkerBootstrapTemplate struct {
