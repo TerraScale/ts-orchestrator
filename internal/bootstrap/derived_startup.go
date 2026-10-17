@@ -379,7 +379,7 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 	if count+len(linkRefs)-overrides != len(manifest.Secrets) || count != len(journal.Entries) {
 		return deny("publication completeness")
 	}
-	if ctx.Err() != nil || !time.Now().Before(expires) {
+	if ctx.Err() != nil || template.currentLifetimeError() != nil || !time.Now().Before(expires) {
 		return deny("authority lifetime")
 	}
 	return DerivedStartupAuthority{template: template, binding: binding, client: client, wire: bytes.Clone(wire), digest: digestBytes(wire), envelope: envelope, expires: expires, authorityExpires: authorityExpires, ledgerKey: bytes.Clone(ledgerKey), peerKey: bytes.Clone(peerKey)}, nil

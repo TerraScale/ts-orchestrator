@@ -288,7 +288,7 @@ func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, cl
 	}
 	expires := minTimeLink(deliveryExpires, minTimeLink(record.ExpiresAt, minTimeLink(regional.ExpiresAt(), minTimeLink(homeTemplate.ExpiresAt(), home.ExpiresAt()))))
 	authorityExpires := minTimeLink(deliveryAuthorityExpires, minTimeLink(record.ExpiresAt, minTimeLink(regional.AuthorityExpiresAt(), minTimeLink(homeTemplate.AuthorityExpiresAt(), home.AuthorityExpiresAt()))))
-	if ctx.Err() != nil || !time.Now().Before(expires) {
+	if ctx.Err() != nil || template.currentLifetimeError() != nil || homeTemplate.currentLifetimeError() != nil || !time.Now().Before(expires) {
 		return deny()
 	}
 	verified := VerifiedStartupLink{template: template, client: client, evidence: evidence, expires: expires, authorityExpires: authorityExpires}

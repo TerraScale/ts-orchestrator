@@ -76,7 +76,13 @@ func (source VerifiedRegionalSource) VerifyCurrent(ctx context.Context, now time
 	if !bytes.Equal(current.wire, source.wire) {
 		return ErrManifestInvalid
 	}
-	return ctx.Err()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !time.Now().Before(source.expiresAt) {
+		return ErrManifestInvalid
+	}
+	return source.template.currentLifetimeError()
 }
 
 // LoadRegionalSource uses only the exact public object named by the signed grant.
@@ -157,7 +163,7 @@ func LoadRegionalSource(ctx context.Context, template VerifiedStartupTemplate, c
 		return deny()
 	}
 	expires := minTimeLink(envelope.ExpiresAt, template.ExpiresAt())
-	if ctx.Err() != nil || !time.Now().Before(expires) {
+	if ctx.Err() != nil || template.currentLifetimeError() != nil || !time.Now().Before(expires) {
 		return deny()
 	}
 	return VerifiedRegionalSource{template: template, client: client, binding: binding, wire: bytes.Clone(state.Inventory), ledgerKey: bytes.Clone(key), expiresAt: expires, authorityExpiresAt: envelope.ExpiresAt}, nil

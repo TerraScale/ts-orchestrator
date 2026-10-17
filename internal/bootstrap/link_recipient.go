@@ -55,6 +55,9 @@ func VerifyLinkRecipient(ctx context.Context, regional, home VerifiedRegionalSou
 	if err := ctx.Err(); err != nil {
 		return LinkRecipient{}, err
 	}
+	if regional.template.currentLifetimeError() != nil || home.template.currentLifetimeError() != nil || !time.Now().Before(minTimeLink(regional.ExpiresAt(), home.ExpiresAt())) {
+		return LinkRecipient{}, ErrManifestInvalid
+	}
 	return LinkRecipient{regional: regional, home: home, sourceSHA256: sourceSHA, homeSHA256: homeSHA, bindingSHA256: binding, key: key}, nil
 }
 
@@ -70,6 +73,9 @@ func (recipient LinkRecipient) VerifyCurrent(ctx context.Context, now time.Time)
 		return err
 	}
 	if current.sourceSHA256 != recipient.sourceSHA256 || current.homeSHA256 != recipient.homeSHA256 || current.bindingSHA256 != recipient.bindingSHA256 || current.key != recipient.key {
+		return ErrManifestInvalid
+	}
+	if recipient.regional.template.currentLifetimeError() != nil || recipient.home.template.currentLifetimeError() != nil || !time.Now().Before(recipient.ExpiresAt()) {
 		return ErrManifestInvalid
 	}
 	return nil
@@ -154,6 +160,9 @@ func VerifyLinkDelivery(ctx context.Context, recipient LinkRecipient, wire []byt
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if recipient.regional.template.currentLifetimeError() != nil || recipient.home.template.currentLifetimeError() != nil || !time.Now().Before(minTimeLink(envelope.ExpiresAt, recipient.ExpiresAt())) {
+		return nil, ErrManifestInvalid
 	}
 	return payload, nil
 }
