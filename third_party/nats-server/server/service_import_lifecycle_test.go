@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"slices"
 	"testing"
+	"time"
 )
 
 func TestAccountServiceImportSubscriptionLifecycle(t *testing.T) {
@@ -169,6 +170,14 @@ func TestAccountServiceImportSubscriptionLifecycle(t *testing.T) {
 		leafClients := slices.Clone(a.lleafs)
 		a.lmu.RUnlock()
 		require_Equal(t, len(leafClients), 1)
+		checkFor(t, 2*time.Second, 10*time.Millisecond, func() error {
+			leafClients[0].mu.RLock()
+			defer leafClients[0].mu.RUnlock()
+			if leafClients[0].leaf.smap == nil {
+				return errors.New("leaf interest map is not initialized")
+			}
+			return nil
+		})
 		interest := func() int32 {
 			leafClients[0].mu.RLock()
 			defer leafClients[0].mu.RUnlock()
