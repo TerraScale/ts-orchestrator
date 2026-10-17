@@ -22,6 +22,7 @@ import (
 // Providers are bound before node startup and stay closed until its one real
 // ownhost session has independently completed enrollment.
 type managedRuntimeHost struct {
+	taskLoad  host.TaskLoadSource
 	mu        sync.RWMutex
 	reader    *bootstrapstart.CurrentFounderAuthorityReader
 	accepted  bootstrapstart.AcceptedIdentity
@@ -204,7 +205,7 @@ func runManagedRuntimeHostSession(ctx context.Context, controller Config, reader
 	ready := make(chan struct{})
 	agent, err := host.NewAgent(host.AgentConfig{Cell: cfg.NATS.Cell, Node: cfg.Host.Node, Environment: cfg.Host.Environment,
 		Roles: cfg.Host.Roles, Conn: broker.Conn(), Identity: key, NATSUserPublicKey: natsUser, ControllerPublicKey: public,
-		InstallRoot: cfg.Host.InstallRoot, StateRoot: cfg.Host.StateRoot,
+		InstallRoot: cfg.Host.InstallRoot, StateRoot: cfg.Host.StateRoot, TaskLoad: source.taskLoad,
 		WorkloadIdentity: host.WorkloadIdentity{UID: cfg.Host.WorkloadUID, GID: cfg.Host.WorkloadGID},
 		ClockCheck:       controllerClockCheck(hostClockProbe()),
 		FollowRollouts:   hostRollouts(cfg, key, public), FollowNetBird: hostNetBird(cfg, public), Initialized: func() { close(ready) },

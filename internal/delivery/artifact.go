@@ -540,6 +540,31 @@ func (s *Service) ResolveAdmittedArtifact(ctx context.Context, digest, role, env
 	return record, nil
 }
 
+// RetainedArtifactClaim returns the original public signed claim after archived
+// verification; migration consumers retain its exact issuance watermark.
+func (s *Service) RetainedArtifactClaim(ctx context.Context, digest, role, environment string) ([]byte, error) {
+	record, err := s.ResolveAdmittedArtifact(ctx, digest, role, environment)
+	if err != nil {
+		return nil, err
+	}
+	entry, err := s.getAdmission(ctx, admissionKey(digest, s.config.Cell, role, environment))
+	if err != nil {
+		return nil, err
+	}
+	signed, err := decodeStoredAdmission(entry.Value(), digest, s.config.Cell, role, environment)
+	if err != nil {
+		return nil, err
+	}
+	verified, actor, err := s.config.ArtifactVerifier.VerifyArchivedArtifact(ctx, signed.Envelope)
+	if err != nil || verified != record || actor == "" || actor != signed.Actor {
+		return nil, ErrUnauthorized
+	}
+	if err := s.config.AuthorizeArtifact(ctx, actor, record); err != nil {
+		return nil, err
+	}
+	return bytes.Clone(signed.Envelope), nil
+}
+
 func (s *Service) verifyArtifact(ctx context.Context, r ArtifactRecord) error {
 	delay := 20 * time.Millisecond
 	for attempt := range artifactVisibilityAttempts {

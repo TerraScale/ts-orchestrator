@@ -98,7 +98,7 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 	if err != nil {
 		return err
 	}
-	ownhost := &managedRuntimeHost{reader: reader, accepted: accepted.Clone()}
+	ownhost := &managedRuntimeHost{reader: reader, accepted: accepted.Clone(), taskLoad: executor}
 	if err := executor.BindContainerMaterial(admitted, ownhost); err != nil {
 		return err
 	}

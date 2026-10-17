@@ -327,7 +327,7 @@ func ServiceIntent(proof Profile, architecture string) (swarmruntime.ServiceInte
 		environment = append(environment, key+"="+profile.Env[key])
 	}
 	limits := &api.Resources{NanoCPUs: int64(profile.Resources.CPU) * 1_000_000_000, MemoryBytes: profile.Resources.MemoryBytes}
-	expected := swarmruntime.ServiceIntent{ID: entityid.Derive("platform-service", intent.Role, intent.Environment, region.OCIRegion), OperationID: intent.OperationID,
+	expected := swarmruntime.ServiceIntent{ID: entityid.Derive("platform-service", intent.Role, intent.Environment, region.OCIRegion), OperationID: intent.OperationID, Generation: intent.Generation,
 		Role: intent.Role, Region: region.OCIRegion, Environment: intent.Environment, Architecture: architecture, Replicas: uint64(intent.DesiredReplicas),
 		Container: &api.ContainerSpec{Image: claim.Image, User: "65532:65532", Args: slices.Clone(profile.Args), Env: environment},
 		Resources: &api.ResourceRequirements{Limits: limits, Reservations: limits.Copy()}}

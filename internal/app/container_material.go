@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
+	"net/netip"
+	"slices"
 	"strings"
 	"time"
 
@@ -28,19 +31,20 @@ import (
 )
 
 type containerMaterialConfig struct {
-	Factory        *ociclient.Factory
-	Hosts          seatrollout.Hosts
-	Authority      authority.Fencer
-	Client         api.ControlClient
-	Specs          *specRegistry
-	Delivery       *delivery.Service
-	Evidence       func(context.Context, string, string) (io.ReadCloser, error)
-	Founders       *bootstrapstart.CurrentFounderAuthorityReader
-	Accepted       bootstrapstart.AcceptedIdentity
-	JS             jetstream.JetStream
-	Mutations      *authority.Reader
-	Registrations  *host.Reader
-	ResponsePublic ed25519.PublicKey
+	Factory          *ociclient.Factory
+	Hosts            seatrollout.Hosts
+	Authority        authority.Fencer
+	Client           api.ControlClient
+	Specs            *specRegistry
+	Delivery         *delivery.Service
+	Evidence         func(context.Context, string, string) (io.ReadCloser, error)
+	Founders         *bootstrapstart.CurrentFounderAuthorityReader
+	Accepted         bootstrapstart.AcceptedIdentity
+	JS               jetstream.JetStream
+	Mutations        *authority.Reader
+	Registrations    *host.Reader
+	ResponsePublic   ed25519.PublicKey
+	WorkerMembership func(context.Context, string) (swarmruntime.VerifiedWorkerMembership, error)
 }
 
 type containerMaterialController struct{ config containerMaterialConfig }
@@ -58,6 +62,165 @@ type containerMaterialRecipient struct {
 	rootHead            string
 	epoch               uint64
 	enrollmentExpiresAt time.Time
+}
+
+func (controller *containerMaterialController) taskRegistration(ctx context.Context, task *api.Task) (host.Registration, host.ContainerMaterialBinding, error) {
+	if task == nil || task.NodeID == "" {
+		return host.Registration{}, host.ContainerMaterialBinding{}, containermaterial.ErrPending
+	}
+	node, err := controller.config.Client.GetNode(ctx, &api.GetNodeRequest{NodeID: task.NodeID})
+	if err != nil {
+		return host.Registration{}, host.ContainerMaterialBinding{}, err
+	}
+	if node == nil || node.Node == nil {
+		return host.Registration{}, host.ContainerMaterialBinding{}, containermaterial.ErrPending
+	}
+	fingerprint, err := swarmruntime.ContainerTaskFingerprint(task)
+	if err != nil {
+		return host.Registration{}, host.ContainerMaterialBinding{}, err
+	}
+	binding := host.ContainerMaterialBinding{TaskID: task.ID, ServiceID: task.ServiceID, NodeID: task.NodeID, InstanceID: node.Node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID], Region: node.Node.Spec.Annotations.Labels[swarmruntime.LabelRegion], HostID: node.Node.Spec.Annotations.Name, Fingerprint: fingerprint}
+	hosts, err := controller.config.Hosts.ListHosts(ctx)
+	if err != nil {
+		return host.Registration{}, binding, err
+	}
+	var selected *host.Registration
+	for _, status := range hosts {
+		if status.Retired {
+			continue
+		}
+		if node.Node.Role == api.NodeRoleManager {
+			grant, _, ok := controller.config.Specs.hostGrant(status.Registration.Node)
+			if !ok || grant.Controller == "" || grant.Controller != node.Node.Spec.Annotations.Name || grant.PrivateIP != node.Node.Status.Addr || status.Registration.ManagedOCI != nil {
+				continue
+			}
+		} else if status.Registration.ManagedOCI == nil || status.Registration.ID != binding.HostID || status.Registration.ManagedOCI.InstanceID != binding.InstanceID {
+			continue
+		}
+		if selected != nil {
+			return host.Registration{}, binding, containermaterial.ErrPending
+		}
+		current := status.Registration
+		selected = &current
+	}
+	if selected == nil {
+		return host.Registration{}, binding, containermaterial.ErrPending
+	}
+	binding.HostID = selected.ID
+	return *selected, binding, nil
+}
+
+func (controller *containerMaterialController) verifyTask(ctx context.Context, registration host.Registration, task *api.Task) error {
+	current, binding, err := controller.taskRegistration(ctx, task)
+	if err != nil {
+		return err
+	}
+	before, beforeErr := protocol.EncodeJSON(registration)
+	after, afterErr := protocol.EncodeJSON(current)
+	if beforeErr != nil || afterErr != nil || !bytes.Equal(before, after) {
+		return containermaterial.ErrPending
+	}
+	selected, err := controller.registryRecipient(ctx, registration, binding)
+	if err != nil {
+		return err
+	}
+	return controller.currentMaterialTask(ctx, selected, registration, binding)
+}
+
+func (controller *containerMaterialController) probe(ctx context.Context, task *api.Task) error {
+	registration, binding, err := controller.taskRegistration(ctx, task)
+	if err != nil {
+		return err
+	}
+	selected, err := controller.registryRecipient(ctx, registration, binding)
+	if err != nil {
+		return err
+	}
+	if err := controller.currentMaterialTask(ctx, selected, registration, binding); err != nil {
+		return err
+	}
+	address := ""
+	if selected.controllerProof != nil {
+		grant, _, ok := controller.config.Specs.hostGrant(registration.Node)
+		if !ok {
+			return containermaterial.ErrPending
+		}
+		address = grant.PrivateIP
+	} else if registration.ManagedOCI != nil {
+		if controller.config.WorkerMembership == nil {
+			return containermaterial.ErrPending
+		}
+		membership, err := controller.config.WorkerMembership(ctx, task.NodeID)
+		if err != nil || membership.RegistrationID() != registration.ID || membership.InstanceID() != binding.InstanceID || membership.OCIRegion() != binding.Region {
+			return containermaterial.ErrPending
+		}
+		address = membership.PrivateIP()
+	}
+	ip, err := netip.ParseAddr(address)
+	if err != nil {
+		return containermaterial.ErrPending
+	}
+	if err := swarmruntime.ProbeTask(ctx, selected.Task, ip); err != nil {
+		return err
+	}
+	return controller.currentMaterialTask(ctx, selected, registration, binding)
+}
+
+func (controller *containerMaterialController) managerSession(ctx context.Context, managerID string) error {
+	node, err := controller.config.Client.GetNode(ctx, &api.GetNodeRequest{NodeID: managerID})
+	if err != nil {
+		return err
+	}
+	if node == nil || node.Node == nil || node.Node.Role != api.NodeRoleManager || node.Node.Status.State != api.NodeStatus_READY || node.Node.Spec.Availability != api.NodeAvailabilityActive {
+		return containermaterial.ErrPending
+	}
+	hosts, err := controller.config.Hosts.ListHosts(ctx)
+	if err != nil {
+		return err
+	}
+	matched := false
+	for _, status := range hosts {
+		grant, _, ok := controller.config.Specs.hostGrant(status.Registration.Node)
+		if !ok || grant.Controller == "" || grant.Controller != node.Node.Spec.Annotations.Name || grant.PrivateIP != node.Node.Status.Addr || status.Registration.ManagedOCI != nil {
+			continue
+		}
+		if matched || status.Retired || !status.Verified || !time.Now().Before(status.SessionExpiresAt) {
+			return containermaterial.ErrPending
+		}
+		if _, err := completedControllerEnrollment(ctx, controller.config, status.Registration, node.Node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID]); err != nil {
+			return err
+		}
+		matched = true
+	}
+	if !matched {
+		return containermaterial.ErrPending
+	}
+	return controller.config.Authority.Guard(ctx, controller.config.Authority.Current().Epoch)
+}
+
+func (controller *containerMaterialController) taskLoadRoles(ctx context.Context, registration host.Registration) ([]string, error) {
+	tasks, err := controller.config.Client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{DesiredStates: []api.TaskState{api.TaskStateRunning}}})
+	if err != nil {
+		return nil, err
+	}
+	roles := map[string]bool{}
+	for _, task := range tasks.Tasks {
+		if task == nil || task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID] == "" {
+			continue
+		}
+		current, _, err := controller.taskRegistration(ctx, task)
+		if err != nil {
+			return nil, err
+		}
+		if current.ID != registration.ID {
+			continue
+		}
+		if err := controller.verifyTask(ctx, registration, task); err != nil {
+			return nil, err
+		}
+		roles[task.ServiceAnnotations.Labels[swarmruntime.LabelRole]] = true
+	}
+	return slices.Sorted(maps.Keys(roles)), nil
 }
 
 func startContainerMaterial(ctx context.Context, config containerMaterialConfig) (*containerMaterialController, func(), error) {

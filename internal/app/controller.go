@@ -23,6 +23,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/brokerauth"
+	"github.com/TerraScale/ts-orchestrator/internal/containermaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
@@ -45,7 +46,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
-	"github.com/TerraScale/ts-orchestrator/internal/workload"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -310,7 +310,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return fmt.Errorf("start broker admission gate: %w", err)
 	}
-	planner := &regionalDeliveryPlanner{profiles: services.profiles, address: services.nodeAddress}
+	var genericServices atomic.Pointer[genericRuntime]
+	planner := &regionalDeliveryPlanner{profiles: services.profiles, address: services.nodeAddress, migrated: func(role string) bool { return role != terrabase.Role }}
 	service, _, err := retryControllerOpen(ctx, "open regional delivery stores", fullClusterReady, false,
 		func(attempt context.Context) (*delivery.Service, error) {
 			return delivery.Open(attempt, delivery.Config{
@@ -319,6 +320,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 				Verifier:              policy.codec, ArtifactVerifier: policy.codec,
 				Authorize: policy.authorizeIntent, AuthorizeArtifact: policy.authorizeArtifact,
 				Fencer: control, Planner: planner, Writer: planner,
+				ContainerApply: func(ctx context.Context, intent delivery.Intent) error {
+					controller := genericServices.Load()
+					if controller == nil {
+						return containermaterial.ErrPending
+					}
+					return controller.apply(ctx, intent)
+				},
 			})
 		}, nil)
 	if err != nil {
@@ -553,6 +561,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 				ManagedMaterialProvider:     materialProvider,
 				ManagedCredentialFloor:      credentialFloor,
 				ManagedVolumeInspector:      volumeInspector,
+				TaskLoadRoles: func(ctx context.Context, registration host.Registration) ([]string, error) {
+					controller := automaticContainers.Load()
+					if controller == nil {
+						return nil, containermaterial.ErrPending
+					}
+					return controller.taskLoadRoles(ctx, registration)
+				},
 				FunctionMaterialProvider: func(ctx context.Context, registration host.Registration, binding host.FunctionMaterialBinding) (host.FunctionMaterialFiles, error) {
 					functionCalls.RLock()
 					defer functionCalls.RUnlock()
@@ -695,7 +710,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return err
 	}
 	planner.workloads = workloadReconciler
-	telemetry.usage.SetExpected(hostController.ExpectedUsage)
+	telemetry.usage.SetExpected(managerExpectedUsage)
 	inventoryCtx, stopInventory := context.WithCancel(ctx)
 	defer stopInventory()
 	go func() {
@@ -713,15 +728,6 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			}
 		}
 	}()
-	hostController.SetLoadSink(func(origin hostload.Origin, report hostload.Report) error {
-		return hostLoad.recordCommitted(ctx, nativeReleases, telemetry, origin, report)
-	})
-	services.changed = func(profiles map[string]WorkloadProfile, specs []workload.ServiceSpec) {
-		resources := profileResources(profiles)
-		if err := workloadReconciler.SetServices(specs, resources); err != nil {
-			slog.ErrorContext(ctx, "reconciler refused the adopted cell spec", observability.ComponentKey, "cellspec", "error", err)
-		}
-	}
 	if materialService != nil && managed != nil {
 		backupRuntime = &backupOperationRuntime{cell: cfg.NATS.Cell,
 			memberRole: managed.placement.MemberRole, control: control,
@@ -786,7 +792,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return err
 	}
-	functionClient, _, functionConnection, err := swarmruntime.DialManagement(runCtx, acceptedRuntime)
+	functionClient, managerID, functionConnection, err := swarmruntime.DialManagement(runCtx, acceptedRuntime)
 	if err != nil {
 		return fmt.Errorf("connect function runtime manager: %w", err)
 	}
@@ -821,7 +827,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	containerChannel := instancePrincipalChannel(capacityFoundation.factory.Region(), strings.ToUpper(cfg.NATS.Cell))
 	containers, stopContainers, err := startContainerMaterial(runCtx, containerMaterialConfig{
 		Factory: capacityFoundation.factory, Hosts: hostController, Authority: control, Client: functionClient,
-		Specs: services, Delivery: service, Founders: containerFounders, Accepted: acceptedRuntime,
+		Specs: services, Delivery: service, Founders: containerFounders, Accepted: acceptedRuntime, WorkerMembership: functionMembership,
 		JS: runtime.JetStream(), Mutations: containerMutations, Registrations: containerRegistrations, ResponsePublic: responseKey.Public().(ed25519.PublicKey),
 		Evidence: func(ctx context.Context, role, digest string) (io.ReadCloser, error) {
 			location, err := containerChannel.get(ctx)
@@ -841,6 +847,23 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		defer functionCalls.Unlock()
 		stopContainers()
 	}()
+	generic, err := newGenericRuntime(genericRuntimeConfig{Client: functionClient, ManagerID: managerID, Authority: control, Specs: services, Delivery: service, Factory: capacityFoundation.factory,
+		Evidence: containers.config.Evidence, Probe: containers.probe, RetainedFloor: nativeReleases.retainedContainerFloor,
+		SessionGuard: func(ctx context.Context) error { return containers.managerSession(ctx, managerID) },
+	}, hostLoad.load)
+	if err != nil {
+		return err
+	}
+	genericServices.Store(generic)
+	defer genericServices.Store(nil)
+	services.removalReady = generic.removalReady
+	managerView, err := newManagerWorkloadView(functionClient, managerID, control, generic.scaler, services, containers.probe)
+	if err != nil {
+		return err
+	}
+	hostController.SetLoadSink(func(origin hostload.Origin, report hostload.Report) error {
+		return hostLoad.recordManaged(runCtx, nativeReleases, telemetry, functionClient, generic.owns, containers.verifyTask, origin, report)
+	})
 	homeKey := func(ctx context.Context) (ed25519.PublicKey, error) {
 		local, derived, present, err := installedAutomaticStartup(ctx)
 		if err != nil || !present {
@@ -1084,7 +1107,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	go costViews.run(runCtx)
 	if err := telemetry.attachController(runCtx, controllerObservation{nats: runtime, replicas: cfg.NATS.Replicas,
 		brokerIDs: cfg.NATS.Embedded.BrokerIDs, authority: control, placements: placementStore,
-		holds: placementHolds, autoscalers: workloadReconciler, hostLoad: hostLoad, hosts: hostController, peers: peers,
+		holds: placementHolds, autoscalers: managerView, hostLoad: hostLoad, hosts: hostController, peers: peers,
 		linkProbes:            linkSupervisor.snapshot,
 		nativeTerraBaseRegion: func() string { return services.profiles()[terrabase.Role].Env[terrabase.EnvRegion] },
 		cost:                  costViews.view, costRollup: costViews.rollup,
@@ -1146,7 +1169,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if membershipSupervisor != nil {
 		workers.Go(func() { workerErrors <- membershipSupervisor.Run(runCtx) })
 	}
-	workers.Go(func() { workerErrors <- workloadReconciler.Run(runCtx) })
+	workers.Go(func() { workerErrors <- generic.Run(runCtx) })
 	atlasPublisher := &atlas.Loop{Publisher: atlas.Publisher{HTTP: &http.Client{Timeout: atlas.Interval}},
 		Config: atlasRoster(services.atlasConfig, cfg.NATS.Cell, peers), Authority: control, LoadKey: atlas.VaultKey}
 	workers.Go(func() { workerErrors <- atlasPublisher.Run(runCtx) })
