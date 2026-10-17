@@ -29,6 +29,7 @@ type VerifiedStartupTemplate struct {
 	grantDigest, templateDigest, planDigest, installationID string
 	generation                                              uint64
 	issuedAt, expiresAt                                     time.Time
+	authorityExpiresAt                                      time.Time
 	image                                                   release.VerifiedImage
 	vault, escrow                                           StartupVaultTarget
 	slotIPs                                                 map[string]string
@@ -105,14 +106,19 @@ func (verified VerifiedStartupTemplate) startupIdentity() BootstrapAnchor {
 	return cloneBootstrapAnchor(verified.identity)
 }
 
-func (verified VerifiedStartupTemplate) Template() StartupTemplate       { return verified.template.Clone() }
-func (verified VerifiedStartupTemplate) GrantWire() []byte               { return bytes.Clone(verified.grantWire) }
-func (verified VerifiedStartupTemplate) GrantDigest() string             { return verified.grantDigest }
-func (verified VerifiedStartupTemplate) TemplateDigest() string          { return verified.templateDigest }
-func (verified VerifiedStartupTemplate) PlanDigest() string              { return verified.planDigest }
-func (verified VerifiedStartupTemplate) InstallationID() string          { return verified.installationID }
-func (verified VerifiedStartupTemplate) Generation() uint64              { return verified.generation }
-func (verified VerifiedStartupTemplate) ExpiresAt() time.Time            { return verified.expiresAt }
+func (verified VerifiedStartupTemplate) Template() StartupTemplate { return verified.template.Clone() }
+func (verified VerifiedStartupTemplate) GrantWire() []byte         { return bytes.Clone(verified.grantWire) }
+func (verified VerifiedStartupTemplate) GrantDigest() string       { return verified.grantDigest }
+func (verified VerifiedStartupTemplate) TemplateDigest() string    { return verified.templateDigest }
+func (verified VerifiedStartupTemplate) PlanDigest() string        { return verified.planDigest }
+func (verified VerifiedStartupTemplate) InstallationID() string    { return verified.installationID }
+func (verified VerifiedStartupTemplate) Generation() uint64        { return verified.generation }
+func (verified VerifiedStartupTemplate) ExpiresAt() time.Time      { return verified.expiresAt }
+
+// AuthorityExpiresAt retains the signed ceiling independently of local consumption.
+func (verified VerifiedStartupTemplate) AuthorityExpiresAt() time.Time {
+	return verified.authorityExpiresAt
+}
 func (verified VerifiedStartupTemplate) IssuedAt() time.Time             { return verified.issuedAt }
 func (verified VerifiedStartupTemplate) Image() release.VerifiedImage    { return verified.image }
 func (verified VerifiedStartupTemplate) VaultTarget() StartupVaultTarget { return verified.vault }
@@ -359,6 +365,7 @@ func verifyStartupTemplateForIdentityBindings(wire []byte, roots trust.Keyring, 
 		if image.ExpiresAt().Before(expires) {
 			expires = image.ExpiresAt()
 		}
+		authorityExpires := expires
 		if bindings != nil {
 			if bindings.vault.ExpiresAt().Before(expires) {
 				expires = bindings.vault.ExpiresAt()
@@ -375,7 +382,7 @@ func verifyStartupTemplateForIdentityBindings(wire []byte, roots trust.Keyring, 
 			return VerifiedStartupTemplate{}, ErrManifestInvalid
 		}
 		return VerifiedStartupTemplate{template: template, anchor: anchor, identity: cloneBootstrapAnchor(identity), roots: clonedRoots, grantWire: bytes.Clone(wire), grantDigest: digestBytes(wire), templateDigest: digestBytes(templateWire),
-			planDigest: material.PlanSHA256, installationID: material.InstallationID, generation: grant.Generation, issuedAt: envelope.IssuedAt, expiresAt: expires, image: image, vault: vault, escrow: escrow, slotIPs: slotIPs, bindings: bindings}, nil
+			planDigest: material.PlanSHA256, installationID: material.InstallationID, generation: grant.Generation, issuedAt: envelope.IssuedAt, expiresAt: expires, authorityExpiresAt: authorityExpires, image: image, vault: vault, escrow: escrow, slotIPs: slotIPs, bindings: bindings}, nil
 	}
 	return VerifiedStartupTemplate{}, ErrManifestInvalid
 }

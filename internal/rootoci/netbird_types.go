@@ -19,6 +19,18 @@ type NetBirdIntentRequest struct {
 	ExpiresAt      time.Time `json:"expires_at"`
 }
 
+// NetBirdReadOpen is signed with the existing finite manager user's NKey.
+// Root independently pins the original recipient, source and delivery before use.
+type NetBirdReadOpen struct {
+	Schema       int       `json:"schema"`
+	Cell         string    `json:"cell"`
+	User         string    `json:"user"`
+	SourceSHA256 string    `json:"source_sha256"`
+	Nonce        string    `json:"nonce"`
+	ExpiresAt    time.Time `json:"expires_at"`
+	Signature    []byte    `json:"signature"`
+}
+
 // NetBirdIntentHost is one adopted host, never an arbitrary policy or API path.
 type NetBirdIntentHost struct {
 	Name      string `json:"name"`

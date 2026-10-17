@@ -35,13 +35,14 @@ type DerivedStartupBinding struct {
 // DerivedStartupAuthority retains distinct provenance: the original signed
 // grant, exact source CAS binding and source-key signature, not a root manifest.
 type DerivedStartupAuthority struct {
-	template           VerifiedStartupTemplate
-	binding            DerivedStartupBinding
-	client             ObjectStorageClient
-	wire               []byte
-	digest             string
-	envelope           trust.Envelope
-	ledgerKey, peerKey ed25519.PublicKey
+	template                  VerifiedStartupTemplate
+	binding                   DerivedStartupBinding
+	client                    ObjectStorageClient
+	wire                      []byte
+	digest                    string
+	envelope                  trust.Envelope
+	expires, authorityExpires time.Time
+	ledgerKey, peerKey        ed25519.PublicKey
 }
 
 func (authority DerivedStartupAuthority) IsVerified() bool {
@@ -55,9 +56,12 @@ func (authority DerivedStartupAuthority) StorageDomain() StorageDomain {
 	return authority.binding.Manifest.StorageDomain
 }
 func (authority DerivedStartupAuthority) IssuedAt() time.Time  { return authority.envelope.IssuedAt }
-func (authority DerivedStartupAuthority) ExpiresAt() time.Time { return authority.envelope.ExpiresAt }
-func (authority DerivedStartupAuthority) Wire() []byte         { return bytes.Clone(authority.wire) }
-func (authority DerivedStartupAuthority) GrantWire() []byte    { return authority.template.GrantWire() }
+func (authority DerivedStartupAuthority) ExpiresAt() time.Time { return authority.expires }
+func (authority DerivedStartupAuthority) AuthorityExpiresAt() time.Time {
+	return authority.authorityExpires
+}
+func (authority DerivedStartupAuthority) Wire() []byte      { return bytes.Clone(authority.wire) }
+func (authority DerivedStartupAuthority) GrantWire() []byte { return authority.template.GrantWire() }
 func (authority DerivedStartupAuthority) MaterialRecord() []byte {
 	return bytes.Clone(authority.binding.MaterialRecord)
 }
@@ -111,6 +115,11 @@ func (authority DerivedStartupAuthority) verifyStartupAuthority() error {
 	return nil
 }
 func (authority DerivedStartupAuthority) VerifyCurrent(ctx context.Context, now time.Time) error {
+	if ctx == nil || !authority.IsVerified() || !time.Now().Before(authority.expires) {
+		return ErrManifestInvalid
+	}
+	ctx, cancel := context.WithDeadline(ctx, authority.expires)
+	defer cancel()
 	_, err := VerifyDerivedStartupAuthority(ctx, authority.template, authority.client, authority.wire, now)
 	return err
 }
@@ -172,13 +181,20 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 	deny := func(reason string) (DerivedStartupAuthority, error) {
 		return DerivedStartupAuthority{}, fmt.Errorf("%w: derived startup %s", ErrManifestInvalid, reason)
 	}
-	if client == nil || ctx.Err() != nil || template.VerifyCurrentContext(ctx, now) != nil || len(wire) == 0 || len(wire) > MaxManifestBytes {
+	if client == nil || ctx == nil || ctx.Err() != nil || len(wire) == 0 || len(wire) > MaxManifestBytes {
 		return deny("current grant")
 	}
 	envelope, err := trust.DecodeEnvelope(wire)
 	if err != nil {
 		return deny("envelope")
 	}
+	ctx, cancelEnvelope := context.WithDeadline(ctx, minTimeLink(envelope.ExpiresAt, template.ExpiresAt()))
+	defer cancelEnvelope()
+	if template.VerifyCurrentContext(ctx, now) != nil {
+		return deny("current grant")
+	}
+	expires := minTimeLink(envelope.ExpiresAt, template.ExpiresAt())
+	authorityExpires := envelope.ExpiresAt
 	var binding DerivedStartupBinding
 	if json.Unmarshal(envelope.Payload, &binding, json.RejectUnknownMembers(true)) != nil || binding.SchemaVersion != 1 || binding.GrantSHA256 != template.GrantDigest() || binding.TemplateSHA256 != template.TemplateDigest() || !validDigest(binding.SourceSHA256) || binding.Manifest.validateStructure(true) != nil {
 		return deny("binding")
@@ -193,6 +209,11 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 		if err != nil {
 			return deny("Link provenance")
 		}
+		expires = minTimeLink(expires, link.ExpiresAt())
+		authorityExpires = minTimeLink(authorityExpires, link.AuthorityExpiresAt())
+		var cancelLink context.CancelFunc
+		ctx, cancelLink = context.WithDeadline(ctx, expires)
+		defer cancelLink()
 		evidence := link.Evidence()
 		binding.Link = &evidence
 		for _, ref := range link.References() {
@@ -236,7 +257,7 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 	} else if anchor.InitialSourceRegistration == nil {
 		return deny("source registration")
 	}
-	if _, err := trust.VerifyCurrent(envelope, DerivedStartupScope(manifest), trust.Keyring{keyID: ledgerKey}, now, ManifestTrustPolicy()); err != nil || envelope.IssuedAt.Before(template.IssuedAt()) || envelope.IssuedAt.Before(record.IssuedAt) || envelope.ExpiresAt.After(template.ExpiresAt()) || envelope.ExpiresAt.After(record.ExpiresAt) {
+	if _, err := trust.VerifyCurrent(envelope, DerivedStartupScope(manifest), trust.Keyring{keyID: ledgerKey}, now, ManifestTrustPolicy()); err != nil || envelope.IssuedAt.Before(template.IssuedAt()) || envelope.IssuedAt.Before(record.IssuedAt) || envelope.ExpiresAt.After(template.AuthorityExpiresAt()) || envelope.ExpiresAt.After(record.ExpiresAt) {
 		return deny("source signature")
 	}
 	domain := template.startupSourceDomain()
@@ -351,7 +372,10 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 	if count+len(linkRefs)-overrides != len(manifest.Secrets) || count != len(journal.Entries) {
 		return deny("publication completeness")
 	}
-	return DerivedStartupAuthority{template: template, binding: binding, client: client, wire: bytes.Clone(wire), digest: digestBytes(wire), envelope: envelope, ledgerKey: bytes.Clone(ledgerKey), peerKey: bytes.Clone(peerKey)}, nil
+	if ctx.Err() != nil || !time.Now().Before(expires) {
+		return deny("authority lifetime")
+	}
+	return DerivedStartupAuthority{template: template, binding: binding, client: client, wire: bytes.Clone(wire), digest: digestBytes(wire), envelope: envelope, expires: expires, authorityExpires: authorityExpires, ledgerKey: bytes.Clone(ledgerKey), peerKey: bytes.Clone(peerKey)}, nil
 }
 
 func derivedReceiptDomain(seed bool) string {
@@ -380,7 +404,7 @@ func SignDerivedReceipt(authority DerivedStartupAuthority, facts InstanceFacts, 
 }
 
 func verifyDerivedReceipt(envelope trust.Envelope, authority DerivedStartupAuthority, facts InstanceFacts, seed bool, now time.Time, policy trust.Policy) (VerifiedReceipt, error) {
-	if authority.verifyStartupAuthority() != nil || seed != (facts.Slot == authority.binding.Manifest.SeedSlot) || validateFactsAgainstManifest(authority.binding.Manifest, facts) != nil || envelope.IssuedAt.Before(authority.IssuedAt()) || envelope.ExpiresAt.After(authority.ExpiresAt()) {
+	if authority.verifyStartupAuthority() != nil || !now.Before(authority.ExpiresAt()) || seed != (facts.Slot == authority.binding.Manifest.SeedSlot) || validateFactsAgainstManifest(authority.binding.Manifest, facts) != nil || envelope.IssuedAt.Before(authority.IssuedAt()) || envelope.ExpiresAt.After(authority.AuthorityExpiresAt()) {
 		return VerifiedReceipt{}, ErrReceiptInvalid
 	}
 	key := authority.peerKey
@@ -402,7 +426,7 @@ func verifyDerivedReceipt(envelope trust.Envelope, authority DerivedStartupAutho
 	if err != nil {
 		return VerifiedReceipt{}, err
 	}
-	return VerifiedReceipt{receipt: receipt, manifestDigest: authority.Digest(), issuedAt: envelope.IssuedAt, expiresAt: envelope.ExpiresAt, verified: true}, nil
+	return VerifiedReceipt{receipt: receipt, manifestDigest: authority.Digest(), issuedAt: envelope.IssuedAt, expiresAt: minTimeLink(envelope.ExpiresAt, authority.ExpiresAt()), verified: true}, nil
 }
 
 // LedgerConfig retains the original buckets, floors, scope and exact domains.
@@ -469,7 +493,7 @@ func (authority DerivedStartupAuthority) VerifyPeerKey(key ed25519.PublicKey) er
 
 func (authority DerivedStartupAuthority) VerifyLedgerEnvelope(envelope trust.Envelope, scope trust.Scope, now time.Time) error {
 	manifest := authority.binding.Manifest
-	if authority.verifyStartupAuthority() != nil || !slices.Contains(BootstrapLedgerCapabilityDomains(), scope.Domain) || scope.DeploymentID != manifest.DeploymentID || scope.Cell != string(manifest.Cell) || scope.Environment != manifest.Environment || scope.Role != manifest.ControllerRole || !slices.Contains(manifest.ControllerSlots, scope.Slot) || envelope.IssuedAt.Before(authority.IssuedAt()) || envelope.ExpiresAt.After(authority.ExpiresAt()) {
+	if authority.verifyStartupAuthority() != nil || !now.Before(authority.ExpiresAt()) || !slices.Contains(BootstrapLedgerCapabilityDomains(), scope.Domain) || scope.DeploymentID != manifest.DeploymentID || scope.Cell != string(manifest.Cell) || scope.Environment != manifest.Environment || scope.Role != manifest.ControllerRole || !slices.Contains(manifest.ControllerSlots, scope.Slot) || envelope.IssuedAt.Before(authority.IssuedAt()) || envelope.ExpiresAt.After(authority.AuthorityExpiresAt()) {
 		return ErrRecordAuthorization
 	}
 	keyID, _ := trust.KeyID(authority.ledgerKey)

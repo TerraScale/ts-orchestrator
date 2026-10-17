@@ -56,6 +56,7 @@ type ControllerIssuer struct {
 	cert     *x509.Certificate
 	key      *ecdsa.PrivateKey
 	signer   nkeys.KeyPair
+	startup  bootstrap.DerivedStartupAuthority
 }
 
 type issuerIdentity struct {
@@ -117,6 +118,10 @@ func (issuer *ControllerIssuer) lifetime() time.Duration {
 // generation's issued lifetime and never past the issuer. certPEM holds the
 // leaf followed by the issuer, so peers can build the chain to the bundle.
 func (issuer *ControllerIssuer) RenewTLS(identity LeafIdentity, now time.Time) (certPEM, keyPEM []byte, err error) {
+	return issuer.renewTLSUntil(identity, now, time.Time{})
+}
+
+func (issuer *ControllerIssuer) renewTLSUntil(identity LeafIdentity, now, deadline time.Time) (certPEM, keyPEM []byte, err error) {
 	if issuer == nil || issuer.cert == nil || issuer.key == nil || !now.Before(issuer.identity.expiresAt) {
 		return nil, nil, errors.New("controller TLS issuer has expired")
 	}
@@ -135,6 +140,12 @@ func (issuer *ControllerIssuer) RenewTLS(identity LeafIdentity, now time.Time) (
 	notAfter := now.Add(issuer.lifetime() - issuedBackdate)
 	if notAfter.After(issuer.identity.expiresAt) {
 		notAfter = issuer.identity.expiresAt
+	}
+	if !deadline.IsZero() && deadline.Before(notAfter) {
+		notAfter = deadline
+	}
+	if !now.Before(notAfter) {
+		return nil, nil, errors.New("controller leaf authority is expired")
 	}
 	template := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: identity.CommonName},
 		NotBefore: now.Add(-issuedBackdate), NotAfter: notAfter, KeyUsage: x509.KeyUsageDigitalSignature,

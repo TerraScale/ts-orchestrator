@@ -5,6 +5,8 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/json/v2"
+	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -30,7 +32,11 @@ func LoadStartupControllerIssuer(ctx context.Context, authority bootstrap.Derive
 		record.Config.DeploymentID != manifest.DeploymentID || record.Config.ClusterID != manifest.ClusterID {
 		return nil, ErrMaterial
 	}
-	issuer, err := loadRecordedControllerIssuer(record, read, now)
+	account, err := StartupControllerAccountFile(authority)
+	if err != nil {
+		return nil, err
+	}
+	issuer, err := loadControllerIssuerFiles(record, account, read, now)
 	if err != nil {
 		return nil, err
 	}
@@ -42,10 +48,71 @@ func LoadStartupControllerIssuer(ctx context.Context, authority bootstrap.Derive
 		issuer.Wipe()
 		return nil, err
 	}
+	issuer.startup = authority
 	return issuer, nil
 }
 
+// StartupControllerAccountFile returns the account pin actually installed by
+// the sealed startup. HOME's signed Link publication replaces only cell.jwt.
+func StartupControllerAccountFile(authority bootstrap.DerivedStartupAuthority) (File, error) {
+	var record Record
+	if !authority.IsVerified() || json.Unmarshal(authority.MaterialRecord(), &record, json.RejectUnknownMembers(true)) != nil {
+		return File{}, ErrMaterial
+	}
+	var account File
+	for _, file := range record.Files {
+		if file.Name == "cell.jwt" {
+			if account.Name != "" {
+				return File{}, ErrMaterial
+			}
+			account = file
+		}
+	}
+	if account.Name == "" {
+		return File{}, ErrMaterial
+	}
+	linkWire := authority.LinkMaterialRecord()
+	if authority.Manifest().Cell == "GRU" && len(linkWire) != 0 {
+		var link LinkRecord
+		if json.Unmarshal(linkWire, &link, json.RejectUnknownMembers(true)) != nil || link.SchemaVersion != 1 ||
+			link.SourceSHA256 != authority.MaterialSHA256() || link.HomeSHA256 != authority.MaterialSHA256() ||
+			link.HomeLinkSHA256 != "" || link.HomeAccount != record.Public.CellAccountNKey ||
+			!reflect.DeepEqual(link.Config, record.Config) || !reflect.DeepEqual(link.Public, record.Public) {
+			return File{}, ErrMaterial
+		}
+		var replacement File
+		for _, file := range link.Files {
+			if file.Name == "link-cell.jwt" {
+				if replacement.Name != "" || file.Purpose != account.Purpose || file.Slot != account.Slot || file.MaxBytes <= 0 || file.MaxBytes > maxInterRegionFile {
+					return File{}, ErrMaterial
+				}
+				replacement = file
+			}
+		}
+		if replacement.Name == "" {
+			return File{}, ErrMaterial
+		}
+		replacement.Name = "cell.jwt"
+		account = replacement
+	}
+	refs := authority.Manifest().Secrets
+	index := slices.IndexFunc(refs, func(ref bootstrap.SecretReference) bool { return ref.TargetFile == "cell.jwt" })
+	if index < 0 || refs[index].Purpose != account.Purpose || refs[index].Slot != account.Slot || refs[index].SHA256 != account.SHA256 || refs[index].MaxBytes != account.MaxBytes {
+		return File{}, ErrMaterial
+	}
+	return account, nil
+}
+
 func loadRecordedControllerIssuer(record Record, read func(string) ([]byte, error), now time.Time) (*ControllerIssuer, error) {
+	for _, file := range record.Files {
+		if file.Name == "cell.jwt" {
+			return loadControllerIssuerFiles(record, file, read, now)
+		}
+	}
+	return nil, ErrMaterial
+}
+
+func loadControllerIssuerFiles(record Record, accountPin File, read func(string) ([]byte, error), now time.Time) (*ControllerIssuer, error) {
 	if record.SchemaVersion != 1 || record.Config.validate() != nil || now.Before(record.IssuedAt) || !now.Before(record.ExpiresAt) ||
 		record.ExpiresAt.Sub(record.IssuedAt) != time.Duration(record.Config.ValidityHours)*time.Hour ||
 		!nkeys.IsValidPublicOperatorKey(record.Public.OperatorNKey) || !nkeys.IsValidPublicAccountKey(record.Public.CellAccountNKey) ||
@@ -71,6 +138,12 @@ func loadRecordedControllerIssuer(record Record, read func(string) ([]byte, erro
 		file, exists := inventory[name]
 		if !exists {
 			return nil, ErrMaterial
+		}
+		if name == "cell.jwt" {
+			if accountPin.Name != file.Name || accountPin.Purpose != file.Purpose || accountPin.Slot != file.Slot {
+				return nil, ErrMaterial
+			}
+			file = accountPin
 		}
 		body, err := read(name)
 		if err != nil {

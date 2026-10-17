@@ -24,9 +24,11 @@ type LinkRecipient struct {
 // VerifyLinkRecipient checks both current public source objects. Neither source
 // escrow nor a caller-selected Vault or object path supplies recipient authority.
 func VerifyLinkRecipient(ctx context.Context, regional, home VerifiedRegionalSource, now time.Time) (LinkRecipient, error) {
-	if ctx.Err() != nil || now.IsZero() || !regional.IsVerified() || !home.IsVerified() {
+	if ctx == nil || ctx.Err() != nil || now.IsZero() || !regional.IsVerified() || !home.IsVerified() {
 		return LinkRecipient{}, ErrManifestInvalid
 	}
+	ctx, cancel := context.WithDeadline(ctx, minTimeLink(regional.ExpiresAt(), home.ExpiresAt()))
+	defer cancel()
 	if err := regional.VerifyCurrent(ctx, now); err != nil {
 		return LinkRecipient{}, err
 	}
@@ -46,6 +48,9 @@ func VerifyLinkRecipient(ctx context.Context, regional, home VerifiedRegionalSou
 	binding := digestBytes(bindingWire)
 	scope := sha256.Sum256([]byte(rt.InstallationID() + "\x00" + strings.ToLower(string(recipient.Cell)) + "\x00spoke-link-v1\x00" + binding))
 	key := home.StorageDomain().Prefix + "/bootstrap/v2/material-source/spoke-link-" + hex.EncodeToString(scope[:]) + ".json"
+	if err := ctx.Err(); err != nil {
+		return LinkRecipient{}, err
+	}
 	return LinkRecipient{regional: regional, home: home, sourceSHA256: sourceSHA, homeSHA256: homeSHA, bindingSHA256: binding, key: key}, nil
 }
 
@@ -84,6 +89,9 @@ func (recipient LinkRecipient) MaterialRecord() []byte { return recipient.region
 func (recipient LinkRecipient) ExpiresAt() time.Time {
 	return minTimeLink(recipient.regional.ExpiresAt(), recipient.home.ExpiresAt())
 }
+func (recipient LinkRecipient) AuthorityExpiresAt() time.Time {
+	return minTimeLink(recipient.regional.AuthorityExpiresAt(), recipient.home.AuthorityExpiresAt())
+}
 
 // VerifyHome binds a recovered home inventory to the public home proof without
 // exposing the private source or treating a hostname as an admission record.
@@ -116,20 +124,28 @@ func SignLinkDelivery(recipient LinkRecipient, payload []byte, key ed25519.Priva
 // VerifyLinkDelivery rechecks both source registrations before trusting the
 // home's public delivery. A regional founder cannot sign its own global grant.
 func VerifyLinkDelivery(ctx context.Context, recipient LinkRecipient, wire []byte, now time.Time) ([]byte, error) {
-	if len(wire) == 0 || len(wire) > 64<<10 || recipient.VerifyCurrent(ctx, now) != nil {
+	if ctx == nil || len(wire) == 0 || len(wire) > 64<<10 {
 		return nil, ErrManifestInvalid
 	}
 	envelope, err := trust.DecodeEnvelope(wire)
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := context.WithDeadline(ctx, minTimeLink(envelope.ExpiresAt, recipient.ExpiresAt()))
+	defer cancel()
+	if recipient.VerifyCurrent(ctx, now) != nil {
+		return nil, ErrManifestInvalid
+	}
 	keyID, err := trust.KeyID(recipient.home.ledgerKey)
 	if err != nil {
 		return nil, err
 	}
 	payload, err := trust.VerifyCurrent(envelope, recipient.deliveryScope(), trust.Keyring{keyID: recipient.home.ledgerKey}, now, ManifestTrustPolicy())
-	if err != nil || envelope.ExpiresAt.After(recipient.ExpiresAt()) {
+	if err != nil || envelope.ExpiresAt.After(recipient.AuthorityExpiresAt()) {
 		return nil, ErrManifestInvalid
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	return payload, nil
 }

@@ -34,12 +34,12 @@ type RegionalSourceInventory struct {
 }
 
 type VerifiedRegionalSource struct {
-	template  VerifiedStartupTemplate
-	client    ObjectStorageClient
-	binding   RegionalSourceInventory
-	wire      []byte
-	ledgerKey ed25519.PublicKey
-	expiresAt time.Time
+	template                      VerifiedStartupTemplate
+	client                        ObjectStorageClient
+	binding                       RegionalSourceInventory
+	wire                          []byte
+	ledgerKey                     ed25519.PublicKey
+	expiresAt, authorityExpiresAt time.Time
 }
 
 func (source VerifiedRegionalSource) OriginalActor() SourceInventoryActor {
@@ -54,6 +54,7 @@ func (source VerifiedRegionalSource) MaterialRecord() []byte {
 func (source VerifiedRegionalSource) Inventory() []byte                 { return bytes.Clone(source.wire) }
 func (source VerifiedRegionalSource) Template() VerifiedStartupTemplate { return source.template }
 func (source VerifiedRegionalSource) ExpiresAt() time.Time              { return source.expiresAt }
+func (source VerifiedRegionalSource) AuthorityExpiresAt() time.Time     { return source.authorityExpiresAt }
 func (source VerifiedRegionalSource) StorageDomain() StorageDomain {
 	home, _ := source.template.anchor.FoundationScope()
 	return home.StorageDomain
@@ -63,9 +64,11 @@ func (source VerifiedRegionalSource) Manifest() Manifest {
 	return manifest
 }
 func (source VerifiedRegionalSource) VerifyCurrent(ctx context.Context, now time.Time) error {
-	if !source.IsVerified() {
+	if ctx == nil || !source.IsVerified() || !now.Before(source.expiresAt) {
 		return ErrManifestInvalid
 	}
+	ctx, cancel := context.WithDeadline(ctx, source.expiresAt)
+	defer cancel()
 	current, err := LoadRegionalSource(ctx, source.template, source.client, now)
 	if err != nil {
 		return err
@@ -73,14 +76,19 @@ func (source VerifiedRegionalSource) VerifyCurrent(ctx context.Context, now time
 	if !bytes.Equal(current.wire, source.wire) {
 		return ErrManifestInvalid
 	}
-	return nil
+	return ctx.Err()
 }
 
 // LoadRegionalSource uses only the exact public object named by the signed grant.
 // The existing founder registration admits its source key; no Vault read occurs.
 func LoadRegionalSource(ctx context.Context, template VerifiedStartupTemplate, client ObjectStorageClient, now time.Time) (VerifiedRegionalSource, error) {
 	deny := func() (VerifiedRegionalSource, error) { return VerifiedRegionalSource{}, ErrManifestInvalid }
-	if client == nil || ctx.Err() != nil || template.VerifyCurrentContext(ctx, now) != nil || template.startupIdentity().InitialSourceRegistration == nil {
+	if client == nil || ctx == nil || ctx.Err() != nil {
+		return deny()
+	}
+	ctx, cancel := context.WithDeadline(ctx, template.ExpiresAt())
+	defer cancel()
+	if template.VerifyCurrentContext(ctx, now) != nil || template.startupIdentity().InitialSourceRegistration == nil {
 		return deny()
 	}
 	foundation, foundationErr := template.anchor.FoundationScope()
@@ -145,10 +153,14 @@ func LoadRegionalSource(ctx context.Context, template VerifiedStartupTemplate, c
 		return deny()
 	}
 	id, _ := trust.KeyID(key)
-	if _, err := trust.VerifyCurrent(envelope, RegionalSourceInventoryScope(template), trust.Keyring{id: key}, now, ManifestTrustPolicy()); err != nil || envelope.IssuedAt.Before(template.IssuedAt()) || envelope.IssuedAt.Before(record.IssuedAt) || envelope.ExpiresAt.After(template.ExpiresAt()) || envelope.ExpiresAt.After(record.ExpiresAt) {
+	if _, err := trust.VerifyCurrent(envelope, RegionalSourceInventoryScope(template), trust.Keyring{id: key}, now, ManifestTrustPolicy()); err != nil || envelope.IssuedAt.Before(template.IssuedAt()) || envelope.IssuedAt.Before(record.IssuedAt) || envelope.ExpiresAt.After(template.AuthorityExpiresAt()) || envelope.ExpiresAt.After(record.ExpiresAt) {
 		return deny()
 	}
-	return VerifiedRegionalSource{template: template, client: client, binding: binding, wire: bytes.Clone(state.Inventory), ledgerKey: bytes.Clone(key), expiresAt: envelope.ExpiresAt}, nil
+	expires := minTimeLink(envelope.ExpiresAt, template.ExpiresAt())
+	if ctx.Err() != nil || !time.Now().Before(expires) {
+		return deny()
+	}
+	return VerifiedRegionalSource{template: template, client: client, binding: binding, wire: bytes.Clone(state.Inventory), ledgerKey: bytes.Clone(key), expiresAt: expires, authorityExpiresAt: envelope.ExpiresAt}, nil
 }
 
 func RegionalSourceInventoryScope(template VerifiedStartupTemplate) trust.Scope {

@@ -57,6 +57,10 @@ func TestGeneratedStartupIssuerAuthenticatesFunctionToBroker(t *testing.T) {
 	if !issuer.cert.NotAfter.Equal(now.Add(controllerIssuedLifetime)) || issuer.identity.lifetime != controllerIssuedLifetime {
 		t.Fatal("controller issuer does not have the fixed 90-day lifetime")
 	}
+	if creds, err := issuer.IssueNetBirdJournalCredentials(t.Context(), now.Add(time.Minute), bootstrap.VerifiedNetBirdJournalPurpose{}); err == nil || len(creds) != 0 {
+		clear(creds)
+		t.Fatal("ordinary generated issuer minted journal credentials without genuine startup and signed purpose")
+	}
 	for _, name := range []string{"controller-tls-issuer-cert.pem", "controller-tls-issuer-key.pem", "controller-account-signer.seed"} {
 		if !slices.ContainsFunc(record.Files, func(file File) bool {
 			return file.Name == name && file.Purpose == bootstrap.SecretControllerIssuer && file.Slot == ""
