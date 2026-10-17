@@ -540,6 +540,29 @@ func (s *Service) ResolveAdmittedArtifact(ctx context.Context, digest, role, env
 	return record, nil
 }
 
+// HistoricalArtifactClaim reads public provenance from an exact protected record.
+// Callers must independently verify the envelope's historical signature and scope.
+// It grants no current authority and does not prove original actor admission,
+// execution, or existence before root retirement.
+func (s *Service) HistoricalArtifactClaim(ctx context.Context, digest, role, environment string) (ArtifactRecord, []byte, error) {
+	if s == nil || !sha256RE.MatchString(digest) || !nameRE.MatchString(role) || !nameRE.MatchString(environment) || !nameRE.MatchString(s.config.Cell) {
+		return ArtifactRecord{}, nil, fmt.Errorf("%w: historical artifact lookup", ErrInvalid)
+	}
+	entry, err := s.getAdmission(ctx, admissionKey(digest, s.config.Cell, role, environment))
+	if err != nil {
+		return ArtifactRecord{}, nil, err
+	}
+	signed, err := decodeStoredAdmission(entry.Value(), digest, s.config.Cell, role, environment)
+	if err != nil {
+		return ArtifactRecord{}, nil, err
+	}
+	var envelope protocol.Envelope
+	if err := protocol.DecodeStrict(signed.Envelope, &envelope, MaxArtifactClaimBytes); err != nil || envelope.Actor != signed.Actor {
+		return ArtifactRecord{}, nil, fmt.Errorf("%w: historical artifact actor or envelope", ErrInvalid)
+	}
+	return signed.Record, bytes.Clone(signed.Envelope), nil
+}
+
 func (s *Service) verifyArtifact(ctx context.Context, r ArtifactRecord) error {
 	delay := 20 * time.Millisecond
 	for attempt := range artifactVisibilityAttempts {
