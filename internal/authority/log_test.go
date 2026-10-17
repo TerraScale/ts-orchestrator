@@ -652,6 +652,79 @@ func TestPlacementIntentIdentityIncludesPartitionAndIgnoresLeaseHistory(t *testi
 	if _, err := runtime.CommitMaterialReceipt(ctx, epoch, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8", "0000000000W794HACRSCP7P4TY", 0, []byte("foreign")); !errors.Is(err, ErrConflict) {
 		t.Fatalf("second material receipt did not respect R3 CAS: %v", err)
 	}
+	if _, err := runtime.CommitMaterialReceiptVerified(ctx, epoch, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8", "00000000004RQWCSF109ZZXXMW", 0, []byte("signed-receipt"), nil); err == nil {
+		t.Fatal("verified material retry accepted a missing local verifier")
+	}
+	denied := errors.New("current material source denied")
+	if _, err := runtime.CommitMaterialReceiptVerified(ctx, epoch, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8", "00000000004RQWCSF109ZZXXMW", 0, []byte("signed-receipt"), func(context.Context) error {
+		return denied
+	}); !errors.Is(err, denied) {
+		t.Fatalf("identical material replay bypassed current source verification: %v", err)
+	}
+	verifyMaterial := func(check context.Context) error {
+		current, err := runtime.ReadMaterialReceipt(check, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8")
+		if err != nil {
+			return err
+		}
+		if current.Sequence != materialSequence || current.Epoch != epoch || !bytes.Equal(current.Payload, materialEntry.Payload) {
+			return denied
+		}
+		return check.Err()
+	}
+	if sequence, err := runtime.CommitMaterialReceiptVerified(ctx, epoch, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8", "00000000004RQWCSF109ZZXXMW", 0, []byte("signed-receipt"), verifyMaterial); err != nil || sequence != materialSequence {
+		t.Fatalf("verified material retry lost its exact committed receipt: %d, %v", sequence, err)
+	}
+	credentialOperation := entityid.New()
+	credentialPayload := []byte("signed-recipient-encrypted-credentials")
+	probeCtx, stopProbe := context.WithCancel(ctx)
+	defer stopProbe()
+	checks := 0
+	if _, err := runtime.CommitClientCredentialsVerified(probeCtx, epoch, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8", credentialOperation, 0, credentialPayload, func(check context.Context) error {
+		checks++
+		if err := verifyMaterial(check); err != nil {
+			return err
+		}
+		if checks == 2 {
+			stopProbe()
+		}
+		return nil
+	}); !errors.Is(err, context.Canceled) || checks != 2 {
+		t.Fatalf("original cancellation inside final credential verifier escaped: checks=%d, %v", checks, err)
+	}
+	if _, err := runtime.ReadClientCredentials(ctx, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("canceled credential verifier left a committed candidate: %v", err)
+	}
+	checks = 0
+	credentialSequence, err := runtime.CommitClientCredentialsVerified(ctx, epoch, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8", credentialOperation, 0, credentialPayload, func(check context.Context) error {
+		checks++
+		if err := verifyMaterial(check); err != nil {
+			return err
+		}
+		current, err := runtime.ReadClientCredentials(check, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8")
+		if errors.Is(err, ErrNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if current.OperationID == credentialOperation && bytes.Equal(current.Payload, credentialPayload) {
+			return denied
+		}
+		return ErrOperationConflict
+	})
+	if !errors.Is(err, denied) || credentialSequence == 0 || checks < 3 {
+		t.Fatalf("post-commit source refusal lost its applied sequence: sequence=%d, checks=%d, %v", credentialSequence, checks, err)
+	}
+	credentialEntry, err := runtime.ReadClientCredentials(ctx, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8")
+	if err != nil || credentialEntry.Sequence != credentialSequence || !bytes.Equal(credentialEntry.Payload, credentialPayload) {
+		t.Fatalf("post-commit refusal did not retain the exact applied candidate: %+v, %v", credentialEntry, err)
+	}
+	if sequence, err := runtime.CommitClientCredentialsVerified(ctx, epoch, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8", credentialOperation, 0, credentialPayload, verifyMaterial); err != nil || sequence != credentialSequence {
+		t.Fatalf("exact credential retry was rebased or replaced: %d, %v", sequence, err)
+	}
+	if _, err := runtime.CommitClientCredentialsVerified(ctx, epoch, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8", credentialOperation, 0, []byte("different-candidate"), verifyMaterial); !errors.Is(err, ErrOperationConflict) {
+		t.Fatalf("credential retry substituted another full payload: %v", err)
+	}
 
 	firstSequence, err := runtime.CommitPlacementIntent(ctx, epoch, "00000000001Y9Z8VKC1VV66J6B", "0000000000Z3WK359G2W66CVT8", "0000000000SR9J18DPZWQ44CD1", 0, []byte("first"))
 	if err != nil {
