@@ -64,3 +64,13 @@ func TestObservationCannotWriteProtectedHistory(t *testing.T) {
 		t.Fatal("observation gained protected capacity write admission")
 	}
 }
+
+func TestProofContextRetainsOriginalCancellation(t *testing.T) {
+	original, cancel := context.WithCancel(t.Context())
+	a := attempt{}
+	proof := a.proofContext(original)
+	cancel()
+	if proof.Err() != context.Canceled {
+		t.Fatal("SDK request wrapper detached opaque authority from original cancellation")
+	}
+}

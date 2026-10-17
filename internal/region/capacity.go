@@ -145,6 +145,7 @@ type PoolChildRecord struct {
 
 // PoolQuarantineRecord removes only membership; it grants no birth or deletion.
 type PoolQuarantineRecord struct {
+	ExpiresAt       time.Time       `json:"expiresAt"`
 	OperationID     string          `json:"operationId"`
 	PoolID          string          `json:"poolId"`
 	InstanceID      string          `json:"instanceId"`
@@ -296,7 +297,8 @@ func (r FoundationRecord) validateCapacity() error {
 		if key != quarantine.OperationID || !entityid.Valid(key) || !poolExists || !capacityOCID(quarantine.InstanceID, "instance") ||
 			!capacityOCID(quarantine.ConfigurationID, "instanceconfiguration") || quarantine.TargetFrom < 1 || quarantine.TargetFrom > 9 ||
 			!configExists || !validFoundationDigest(quarantine.PurposeSHA256) || !validFoundationDigest(quarantine.GrantSHA256) ||
-			quarantine.Generation == 0 || quarantine.Generation > r.Generation {
+			quarantine.Generation == 0 || quarantine.Generation > r.Generation || quarantine.ExpiresAt.IsZero() ||
+			quarantine.Detach != nil && !quarantine.ExpiresAt.After(quarantine.Detach.FirstAttemptAt) {
 			return errors.New("pool quarantine lacks exact protected membership purpose")
 		}
 		if quarantine.Detach != nil && (quarantine.Detach.validate(r.UpdatedAt) != nil || quarantine.Detach.RetryToken == "") ||

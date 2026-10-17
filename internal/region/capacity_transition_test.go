@@ -172,3 +172,19 @@ func TestCapacityTransitionRetainsConditionalConfigurationPoint(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestCapacityTransitionRetainsOriginalQuarantineExpiry(t *testing.T) {
+	child, _, updated := protectedChildFixture()
+	operation := entityid.New()
+	original := FoundationRecord{PoolQuarantines: map[string]PoolQuarantineRecord{operation: {
+		OperationID: operation, ExpiresAt: updated, Detach: child.Attach,
+	}}}
+	next := original
+	next.cloneCapacity()
+	quarantine := next.PoolQuarantines[operation]
+	quarantine.ExpiresAt = quarantine.ExpiresAt.Add(time.Minute)
+	next.PoolQuarantines[operation] = quarantine
+	if err := next.retainCapacity(original); err == nil {
+		t.Fatal("successor call extended the original quarantine permission lifetime")
+	}
+}
