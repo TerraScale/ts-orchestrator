@@ -1,6 +1,7 @@
 package bootstrapstart
 
 import (
+	"context"
 	"crypto/sha256"
 	"debug/elf"
 	"encoding/hex"
@@ -41,11 +42,26 @@ func VerifyAcceptedRunningBinary(pin identityrekey.BinaryPin) (RunningBinary, er
 // of a kernel-pinned process. The caller must verify its process witness before
 // and after this measurement; a PID alone does not authenticate a caller.
 func VerifyRestartProcessBinary(pid int, accepted AcceptedIdentity, layout selfupdate.Layout, roots trust.Keyring) error {
+	_, err := ReadVerifiedRestartProcessBinary(context.Background(), pid, accepted, layout, roots)
+	return err
+}
+
+// ReadVerifiedRestartProcessBinary returns the actual executable measurement
+// accepted by restart admission. The caller must verify its process witness
+// before and after this call; a PID alone does not authenticate a caller.
+func ReadVerifiedRestartProcessBinary(ctx context.Context, pid int, accepted AcceptedIdentity, layout selfupdate.Layout, roots trust.Keyring) (RunningBinary, error) {
+	if err := ctx.Err(); err != nil {
+		return RunningBinary{}, err
+	}
 	if os.Geteuid() != 0 || pid <= 0 || accepted.Validate() != nil {
-		return ErrAdmission
+		return RunningBinary{}, ErrAdmission
 	}
 	gate := Gate{Binary: processBinaryChecker{pid: pid}, SelfUpdate: layout}
-	return gate.verifyRestartBinary(accepted, roots)
+	binary, err := gate.readVerifiedRestartBinary(accepted, roots)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return RunningBinary{}, ctxErr
+	}
+	return binary, err
 }
 
 type processBinaryChecker struct {
