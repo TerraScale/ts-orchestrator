@@ -30,6 +30,29 @@ type foundationOperator struct {
 	buckets  map[string]string
 }
 
+func (authority *HomeIAMAuthority) publishFoundationPrerequisites(ctx context.Context) error {
+	if authority == nil || authority.operator == nil {
+		return errors.New("foundation prerequisites require the verified initial operator")
+	}
+	ctx, release, err := authority.HomeWrite(ctx, 0)
+	if err != nil {
+		return err
+	}
+	defer release()
+	for _, object := range []struct {
+		name string
+		wire []byte
+	}{
+		{foundationRootChainObject, authority.operator.bundle.RootChainWire},
+		{strings.TrimSuffix(authority.domain.Prefix, "/") + "/" + foundationGrantObject, authority.operator.bundle.GrantWire},
+	} {
+		if err := publishFoundationObject(ctx, authority.objects, authority.domain.Namespace, object.name, object.wire); err != nil {
+			return err
+		}
+	}
+	return authority.Guard(ctx, 0)
+}
+
 func (operator *foundationOperator) guard(ctx context.Context) error {
 	if operator == nil || ctx == nil || operator.factory == nil || operator.objects == nil {
 		return errors.New("initial foundation operator is unavailable")
