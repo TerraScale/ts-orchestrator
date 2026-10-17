@@ -208,7 +208,7 @@ func TestContainerReadinessAuthenticatedChallengeIsOneUse(t *testing.T) {
 	if err := <-result; err != nil {
 		t.Fatal(err)
 	}
-	if calls != 2 || acknowledged.Challenge == nil || *acknowledged.Challenge != *challenge {
+	if calls != 2 || acknowledged.Challenge == nil || !sameContainerReadinessChallenge(*acknowledged.Challenge, *challenge) {
 		t.Fatal("original session was not verified before and after the fresh observation")
 	}
 	if err := exchange(ctx, conn, registration.Cell, controllerKey.Public().(ed25519.PublicKey), signedHostRequest(t, private, "runtime-readiness", session.SessionID, session.Epoch, query), &acknowledged); err == nil {
