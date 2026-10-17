@@ -29,22 +29,23 @@ var ErrPending = errors.New("protected capacity operation is pending")
 // attempt is constructed only after the home handler independently resolves
 // the original durable reservation, signed source and actual home connection.
 type attempt struct {
-	call      rootoci.Call
-	resolver  region.FoundationResolver
-	store     *region.ObjectFoundationStore
-	factory   *ociclient.Factory
-	home      *globalcontrol.Reader
-	leader    *authority.Reader
-	original  authority.Snapshot
-	deadline  time.Time
-	receipt   budget.Reservation
-	worker    region.VerifiedWorkerRecipe
-	recipe    nodescale.Recipe
-	record    region.FoundationRecord
-	etag      string
-	operation string
-	poolID    string
-	leaseID   string
+	call       rootoci.Call
+	resolver   region.FoundationResolver
+	store      *region.ObjectFoundationStore
+	factory    *ociclient.Factory
+	home       *globalcontrol.Reader
+	leader     *authority.Reader
+	original   authority.Snapshot
+	deadline   time.Time
+	receipt    budget.Reservation
+	worker     region.VerifiedWorkerRecipe
+	membership region.VerifiedPoolMembership
+	recipe     nodescale.Recipe
+	record     region.FoundationRecord
+	etag       string
+	operation  string
+	poolID     string
+	leaseID    string
 }
 
 func (a *attempt) guard(ctx context.Context) error {
@@ -265,6 +266,8 @@ func (a *attempt) writeContext(ctx context.Context, kind string) context.Context
 			return a.authorizeLaunch(ctx)
 		case "attach":
 			return a.authorizeAttach(ctx)
+		case "quarantine":
+			return a.authorizeQuarantine(ctx)
 		default:
 			return nil
 		}
