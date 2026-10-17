@@ -2,6 +2,8 @@ package bootstrapstart
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"time"
 
@@ -35,6 +37,16 @@ type RuntimeAuthority struct {
 func (a RuntimeAuthority) Identity() RuntimeIdentity                 { return a.identity }
 func (a RuntimeAuthority) Anchor() bootstrap.VerifiedBootstrapAnchor { return a.anchor }
 func (a RuntimeAuthority) ExpiresAt() time.Time                      { return a.expires }
+
+// ManagerSourceSHA256 identifies only the verified anchor and plan; current
+// root/spec/channel adoption must be checked separately by their existing readers.
+func (a RuntimeAuthority) ManagerSourceSHA256() string {
+	if !a.anchor.IsVerified() || a.anchor.Digest() == "" || a.planDigest == "" || a.expires.IsZero() {
+		return ""
+	}
+	digest := sha256.Sum256([]byte("terrascale.manager-runtime-source.v1\x00" + a.anchor.Digest() + "\x00" + a.planDigest))
+	return hex.EncodeToString(digest[:])
+}
 
 // ReadRuntimeAuthority consumes the installation already checked by Gate and
 // the existing seed/accepted-peer selection readers. Discovery cannot elect a
