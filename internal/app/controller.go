@@ -316,6 +316,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return fmt.Errorf("start broker admission gate: %w", err)
 	}
+	var containerProfiles atomic.Pointer[nativeHistory]
 	var genericServices atomic.Pointer[genericRuntime]
 	var statefulServices statefulRuntimeSlot
 	planner := &regionalDeliveryPlanner{profiles: services.profiles, address: services.nodeAddress, migrated: func(role string) bool { return role != terrabase.Role }}
@@ -327,6 +328,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 				Verifier:              policy.codec, ArtifactVerifier: policy.codec,
 				Authorize: policy.authorizeIntent, AuthorizeArtifact: policy.authorizeArtifact,
 				Fencer: control, Planner: planner, Writer: planner,
+				CaptureContainerProfile: func(ctx context.Context, intent delivery.Intent) (string, error) {
+					archive := containerProfiles.Load()
+					if archive == nil {
+						return "", delivery.ErrPending
+					}
+					return archive.CaptureContainerProfile(ctx, intent)
+				},
 				ContainerApply: func(ctx context.Context, intent delivery.Intent) error {
 					if intent.Role == terrabase.Role {
 						return statefulServices.apply(ctx, intent)
@@ -357,6 +365,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	nativeReleases := &nativeHistory{kv: nativeKV, js: runtime.JetStream(), services: services,
 		deliveries: service, fencer: control, cfg: cfg}
 	planner.nativeHistory, services.nativeHistory = nativeReleases, nativeReleases
+	containerProfiles.Store(nativeReleases)
 	stopKVSnapshots, kvSnapshots, err := startKVSnapshots(ctx, cfg, runtime.JetStream(), control)
 	if err != nil {
 		return err
@@ -859,7 +868,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	containerChannel := instancePrincipalChannel(capacityFoundation.factory.Region(), strings.ToUpper(cfg.NATS.Cell))
 	containers, stopContainers, err := startContainerMaterial(runCtx, containerMaterialConfig{
 		Root: workloadRoot, Factory: capacityFoundation.factory, Hosts: hostController, Authority: control, Client: functionClient, SnapshotMutations: functionClient,
-		Specs: services, Delivery: service, Founders: containerFounders, Accepted: acceptedRuntime, WorkerMembership: functionMembership,
+		Specs: services, Delivery: service, ContainerProfiles: nativeReleases, Founders: containerFounders, Accepted: acceptedRuntime, WorkerMembership: functionMembership,
 		JS: runtime.JetStream(), Mutations: containerMutations, Registrations: containerRegistrations, ResponsePublic: responseKey.Public().(ed25519.PublicKey),
 		Evidence: func(ctx context.Context, role, digest string) (io.ReadCloser, error) {
 			location, err := containerChannel.get(ctx)
@@ -909,7 +918,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	defer statefulServices.Store(nil)
 	generic, err := newGenericRuntime(genericRuntimeConfig{Client: functionClient, ManagerID: managerID, Authority: control, Specs: services, Delivery: service, Factory: capacityFoundation.factory,
 		Evidence: containers.config.Evidence, Probe: containers.probe, RetainedFloor: nativeReleases.retainedContainerFloor,
-		SessionGuard: func(ctx context.Context) error { return containers.managerSession(ctx, managerID) },
+		OriginalProfile: nativeReleases.originalContainerProfile,
+		SessionGuard:    func(ctx context.Context) error { return containers.managerSession(ctx, managerID) },
 	}, hostLoad.load)
 	if err != nil {
 		return err

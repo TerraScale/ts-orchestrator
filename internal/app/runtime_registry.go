@@ -265,6 +265,8 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 		if err != nil || current.Identity() != identity {
 			return nil, errors.New("registry regional runtime authority changed")
 		}
+		ctx, stopAuthority := context.WithDeadline(ctx, current.ExpiresAt())
+		defer stopAuthority()
 		client, err := node.ControlClient(ctx)
 		if err != nil {
 			return nil, err
@@ -287,6 +289,8 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 		if err != nil {
 			return nil, err
 		}
+		ctx, stopDocument := context.WithDeadline(ctx, document.ExpiresAt)
+		defer stopDocument()
 		var snapshot runtimeRegistrySnapshot
 		if err := protocol.DecodeStrict(document.Document, &snapshot, runtimeRegistrySourceBytes); err != nil {
 			return nil, err
@@ -295,9 +299,14 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 		expected := snapshot.Service
 		if intent.Validate() != nil || intent.Container == nil || intent.Cell != strings.ToLower(identity.Cell) || intent.Environment != identity.Environment ||
 			expected.ID != entityid.Derive("platform-service", intent.Role, identity.Environment, identity.OCIRegion) ||
-			expected.OperationID != intent.OperationID || expected.OperationID != task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID] ||
+			!entityid.Valid(expected.OperationID) || expected.OperationID != task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID] ||
 			expected.Role != intent.Role || expected.Region != identity.OCIRegion || expected.Environment != identity.Environment || expected.Architecture != assigned.Node.Description.Platform.Architecture {
 			return nil, errors.New("registry source differs from admitted service identity")
+		}
+		ctx, stopProof, err := currentContainerIntentContext(ctx, intent)
+		defer stopProof()
+		if err != nil {
+			return nil, err
 		}
 		baked, err := bootstrapstart.LoadBakedInputs()
 		if err != nil {
@@ -328,6 +337,8 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 		if err != nil {
 			return nil, err
 		}
+		ctx, stopVerified := context.WithDeadline(ctx, verified.ExpiresAt())
+		defer stopVerified()
 		if err := swarmruntime.VerifyRegistryTask(ctx, client, task, expected, verified, roots); err != nil {
 			return nil, err
 		}
@@ -335,14 +346,21 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 		if err != nil {
 			return nil, err
 		}
+		ctx, stopIssuer := context.WithDeadline(ctx, admission.Deadline)
+		defer stopIssuer()
+		issuerGuard := admission.VerifyCurrent
 		confirmed, err := reader.ReadRuntimeAuthority(ctx, accepted, time.Now().UTC())
 		if err != nil || confirmed.Identity() != identity {
 			return nil, errors.New("registry runtime authority changed during credential admission")
 		}
+		ctx, stopConfirmedAuthority := context.WithDeadline(ctx, confirmed.ExpiresAt())
+		defer stopConfirmedAuthority()
 		confirmedDocument, err := agent.CurrentRegistryAdmission(ctx, binding)
 		if err != nil {
 			return nil, err
 		}
+		ctx, stopConfirmedDocument := context.WithDeadline(ctx, confirmedDocument.ExpiresAt)
+		defer stopConfirmedDocument()
 		var confirmedSnapshot runtimeRegistrySnapshot
 		if err := protocol.DecodeStrict(confirmedDocument.Document, &confirmedSnapshot, runtimeRegistrySourceBytes); err != nil {
 			return nil, err
@@ -364,7 +382,18 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 			rootState.reply("").Head != rootHead || ctx.Err() != nil {
 			return nil, errors.New("registry manager admission expired during final task verification")
 		}
+		admissionDeadline, _ := ctx.Deadline()
+		admission.Deadline = admissionDeadline
 		admission.VerifyCurrent = func(ctx context.Context) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if !time.Now().Before(admissionDeadline) {
+				return errors.New("registry manager original admission expired before Vault credential read")
+			}
+			if err := issuerGuard(ctx); err != nil {
+				return err
+			}
 			current, err := agent.CurrentRegistryAdmission(ctx, binding)
 			if err != nil {
 				return err
@@ -373,7 +402,7 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 				return errors.New("registry manager authority changed during Vault credential read")
 			}
 			now := time.Now().UTC()
-			if !now.Before(deadline) || !now.Before(document.ExpiresAt) || !now.Before(confirmedDocument.ExpiresAt) || !now.Before(current.ExpiresAt) ||
+			if !now.Before(admissionDeadline) || !now.Before(document.ExpiresAt) || !now.Before(confirmedDocument.ExpiresAt) || !now.Before(current.ExpiresAt) ||
 				!verified.Valid(now) || rootState.reply("").Head != rootHead {
 				return errors.New("registry manager admission expired during Vault credential read")
 			}
@@ -386,6 +415,8 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 // runtimeRegistryPullAdmission derives Vault references exclusively from the
 // fresh root-signed OCI issuer binding, never from a task or controller reply.
 func runtimeRegistryPullAdmission(ctx context.Context, factory *ociclient.Factory, task *api.Task, expected swarmruntime.ServiceIntent, verified release.VerifiedContainer, roots *rootRegistry) (*swarmruntime.RegistryAdmission, error) {
+	ctx, stopProof := context.WithDeadline(ctx, verified.ExpiresAt())
+	defer stopProof()
 	name, digest, ok := strings.Cut(verified.Claim().Image, "@")
 	if !ok || name == "" || digest == "" {
 		return nil, errors.New("signed release has no exact registry repository and digest")
@@ -406,6 +437,8 @@ func runtimeRegistryPullAdmission(ctx context.Context, factory *ociclient.Factor
 	if err != nil {
 		return nil, err
 	}
+	ctx, stopIssuer := context.WithDeadline(ctx, issuer.ExpiresAt())
+	defer stopIssuer()
 	if issuer.Intent().OCIRegion != expected.Region || issuer.ImageRepository() != name {
 		return nil, errors.New("registry issuer differs from admitted OCI region or signed image repository")
 	}
@@ -440,7 +473,23 @@ func runtimeRegistryPullAdmission(ctx context.Context, factory *ociclient.Factor
 	if !verified.Valid(time.Now().UTC()) {
 		return nil, errors.New("registry release authorization expired during credential admission")
 	}
-	return &swarmruntime.RegistryAdmission{ServiceID: task.ServiceID, Environment: expected.Environment, Region: expected.Region, Scope: scope, Secret: owned, Claim: claim}, nil
+	deadline, _ := ctx.Deadline()
+	issuerGuard := func(ctx context.Context) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !time.Now().Before(deadline) || roots.reply("").Head != currentRoots.Head {
+			return errors.New("registry original issuer admission expired or trusted roots changed")
+		}
+		if err := freshFoundations.GuardOCIRIssuer(ctx, issuer); err != nil {
+			return err
+		}
+		if !time.Now().Before(deadline) || roots.reply("").Head != currentRoots.Head || !verified.Valid(time.Now().UTC()) {
+			return errors.New("registry issuer admission changed during source verification")
+		}
+		return ctx.Err()
+	}
+	return &swarmruntime.RegistryAdmission{ServiceID: task.ServiceID, Environment: expected.Environment, Region: expected.Region, Scope: scope, Secret: owned, Claim: claim, Deadline: deadline, VerifyCurrent: issuerGuard}, nil
 }
 
 func (controller *containerMaterialController) registryAdmission(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding) (host.RegistryAdmissionDocument, error) {
@@ -486,6 +535,8 @@ func workerRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *host.
 		}
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
+		ctx, stopEnrollment := context.WithDeadline(ctx, signed.ExpiresAt)
+		defer stopEnrollment()
 		fingerprint, err := swarmruntime.ContainerTaskFingerprint(task)
 		if err != nil {
 			return nil, err
@@ -496,6 +547,8 @@ func workerRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *host.
 		if err != nil {
 			return nil, err
 		}
+		ctx, stopDocument := context.WithDeadline(ctx, document.ExpiresAt)
+		defer stopDocument()
 		var snapshot runtimeRegistrySnapshot
 		if err := protocol.DecodeStrict(document.Document, &snapshot, runtimeRegistrySourceBytes); err != nil {
 			return nil, err
@@ -514,9 +567,14 @@ func workerRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *host.
 		intent, expected := snapshot.Intent, snapshot.Service
 		if intent.Validate() != nil || intent.Container == nil || intent.Cell != strings.ToLower(signed.Cell) || intent.Environment != signed.Environment ||
 			expected.ID != entityid.Derive("platform-service", intent.Role, signed.Environment, signed.OCIRegion) ||
-			expected.OperationID != intent.OperationID || expected.OperationID != task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID] ||
+			!entityid.Valid(expected.OperationID) || expected.OperationID != task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID] ||
 			expected.Role != intent.Role || expected.Region != signed.OCIRegion || expected.Environment != signed.Environment || expected.Architecture != signed.Architecture {
 			return nil, errors.New("registry worker source differs from enrolled recipient and task")
+		}
+		ctx, stopProof, err := currentContainerIntentContext(ctx, intent)
+		defer stopProof()
+		if err != nil {
+			return nil, err
 		}
 		location, err := instancePrincipalChannel(signed.OCIRegion, strings.ToUpper(signed.Cell)).get(ctx)
 		if err != nil {
@@ -536,6 +594,8 @@ func workerRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *host.
 		if err != nil {
 			return nil, err
 		}
+		ctx, stopVerified := context.WithDeadline(ctx, verified.ExpiresAt())
+		defer stopVerified()
 		spec, err := swarmruntime.DecodeContainer(task)
 		if err != nil || expected.Container == nil || expected.Container.Image != verified.Claim().Image || spec.Image != verified.Claim().Image {
 			return nil, errors.New("registry worker task differs from signed OCI image")
@@ -544,10 +604,15 @@ func workerRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *host.
 		if err != nil {
 			return nil, err
 		}
+		ctx, stopIssuer := context.WithDeadline(ctx, admission.Deadline)
+		defer stopIssuer()
+		issuerGuard := admission.VerifyCurrent
 		confirmedDocument, err := agent.CurrentRegistryAdmission(ctx, binding)
 		if err != nil {
 			return nil, err
 		}
+		ctx, stopConfirmedDocument := context.WithDeadline(ctx, confirmedDocument.ExpiresAt)
+		defer stopConfirmedDocument()
 		var confirmed runtimeRegistrySnapshot
 		if err := protocol.DecodeStrict(confirmedDocument.Document, &confirmed, runtimeRegistrySourceBytes); err != nil {
 			return nil, err
@@ -559,13 +624,24 @@ func workerRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *host.
 			!time.Now().Before(document.ExpiresAt) || !time.Now().Before(confirmedDocument.ExpiresAt) || !verified.Valid(time.Now().UTC()) {
 			return nil, errors.New("registry worker authority changed during credential admission")
 		}
+		admissionDeadline, _ := ctx.Deadline()
+		admission.Deadline = admissionDeadline
 		admission.VerifyCurrent = func(ctx context.Context) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if !time.Now().Before(admissionDeadline) {
+				return errors.New("registry worker original admission expired before Vault credential read")
+			}
+			if err := issuerGuard(ctx); err != nil {
+				return err
+			}
 			current, err := agent.CurrentRegistryAdmission(ctx, binding)
 			if err != nil {
 				return err
 			}
 			now := time.Now().UTC()
-			if !bytes.Equal(document.Document, current.Document) || !now.Before(deadline) || !now.Before(document.ExpiresAt) ||
+			if !bytes.Equal(document.Document, current.Document) || !now.Before(admissionDeadline) || !now.Before(document.ExpiresAt) ||
 				!now.Before(confirmedDocument.ExpiresAt) || !now.Before(current.ExpiresAt) || !verified.Valid(now) ||
 				signed.Validate(now) != nil || roots.reply("").Head != rootHead {
 				return errors.New("registry worker authority changed during Vault credential read")

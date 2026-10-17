@@ -261,6 +261,12 @@ func (b *rootReleaseChannels) beginChannel(ctx context.Context, call rootoci.Cal
 	if err != nil {
 		return fail(err)
 	}
+	ctx, stopSource := context.WithDeadline(ctx, source.ExpiresAt())
+	stopCall := cancel
+	cancel = func() {
+		stopSource()
+		stopCall()
+	}
 	identity := source.Identity()
 	candidate := call.RuntimeID()
 	if candidate == "" || identity.OCIRegion != b.factory.Region() || call.Expected().Cell != "" && !strings.EqualFold(call.Expected().Cell, identity.Cell) {
@@ -269,6 +275,12 @@ func (b *rootReleaseChannels) beginChannel(ctx context.Context, call rootoci.Cal
 	lease, err := b.sources.Leases.AdmitRuntimeLease(ctx, identity.DeploymentID, candidate)
 	if err != nil {
 		return fail(err)
+	}
+	ctx, stopLease := context.WithDeadline(ctx, lease.Deadline())
+	stopSources := cancel
+	cancel = func() {
+		stopLease()
+		stopSources()
 	}
 	if expected := call.Expected().Epoch; expected != 0 && expected != lease.Epoch() {
 		return fail(rootoci.ErrUnauthorized)

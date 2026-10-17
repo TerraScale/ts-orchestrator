@@ -24,6 +24,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
+	"github.com/TerraScale/ts-orchestrator/internal/workload"
 	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/api/genericresource"
@@ -35,13 +36,16 @@ var ErrPending = errors.New("container material authority is pending")
 // Profile's zero value grants nothing. A signed no-secret profile is checked
 // through the same path as a profile with exact OCI Vault references.
 type Profile struct {
-	profile     cellspec.Profile
-	identity    cellspec.Identity
-	role        string
-	fingerprint string
-	specSHA256  string
-	hosts       []cellspec.HostGrant
-	intent      delivery.Intent
+	profile            cellspec.Profile
+	identity           cellspec.Identity
+	role               string
+	fingerprint        string
+	specSHA256         string
+	hosts              []cellspec.HostGrant
+	intent             delivery.Intent
+	runtimePolicy      string
+	runtimeOperationID string
+	continuation       *Profile
 }
 
 func (proof Profile) Profile() cellspec.Profile {
@@ -85,8 +89,15 @@ func VerifyProfile(wire []byte, roots trust.Keyring, identity cellspec.Identity,
 		if err != nil {
 			return Profile{}, err
 		}
+		runtimePolicy, err := protocol.EncodeJSON(struct {
+			Profile cellspec.Profile      `json:"profile"`
+			Spec    *workload.ServiceSpec `json:"spec"`
+		}{Profile: profile, Spec: service.Spec})
+		if err != nil {
+			return Profile{}, err
+		}
 		specSHA256 := sha256.Sum256(wire)
-		proof := Profile{profile: profile, identity: identity, role: intent.Role, fingerprint: fingerprint, specSHA256: hex.EncodeToString(specSHA256[:]), hosts: slices.Clone(signed.HostGrants), intent: intent.Clone()}
+		proof := Profile{profile: profile, identity: identity, role: intent.Role, fingerprint: fingerprint, specSHA256: hex.EncodeToString(specSHA256[:]), hosts: slices.Clone(signed.HostGrants), intent: intent.Clone(), runtimePolicy: string(runtimePolicy), runtimeOperationID: intent.OperationID}
 		proof.profile = proof.Profile()
 		return proof, nil
 	}
@@ -317,7 +328,7 @@ func verifyExpected(proof Profile, expected swarmruntime.ServiceIntent, verified
 func ServiceIntent(proof Profile, architecture string) (swarmruntime.ServiceIntent, error) {
 	intent, profile := proof.intent, proof.profile
 	region, known := catalog.LookupName(proof.identity.Cell)
-	if proof.fingerprint == "" || !known || intent.Container == nil {
+	if proof.fingerprint == "" || !known || intent.Container == nil || !entityid.Valid(proof.runtimeOperationID) {
 		return swarmruntime.ServiceIntent{}, ErrPending
 	}
 	envelope, err := trust.DecodeEnvelope(intent.Container.Claim)
@@ -334,7 +345,7 @@ func ServiceIntent(proof Profile, architecture string) (swarmruntime.ServiceInte
 		environment = append(environment, key+"="+profile.Env[key])
 	}
 	limits := &api.Resources{NanoCPUs: int64(profile.Resources.CPU) * 1_000_000_000, MemoryBytes: profile.Resources.MemoryBytes, Generic: []*api.GenericResource{genericresource.NewDiscrete(swarmruntime.DiskResource, profile.Resources.DiskBytes)}}
-	expected := swarmruntime.ServiceIntent{ID: entityid.Derive("platform-service", intent.Role, intent.Environment, region.OCIRegion), OperationID: intent.OperationID, Generation: intent.Generation,
+	expected := swarmruntime.ServiceIntent{ID: entityid.Derive("platform-service", intent.Role, intent.Environment, region.OCIRegion), OperationID: proof.runtimeOperationID, Generation: intent.Generation,
 		Role: intent.Role, Region: region.OCIRegion, Environment: intent.Environment, Architecture: architecture, Replicas: uint64(intent.DesiredReplicas),
 		Container: &api.ContainerSpec{Image: claim.Image, User: "65532:65532", Args: slices.Clone(profile.Args), Env: environment},
 		Resources: &api.ResourceRequirements{Limits: limits, Reservations: limits.Copy()}}

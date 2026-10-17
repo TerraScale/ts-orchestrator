@@ -54,6 +54,10 @@ type Sources struct {
 	Hosts     *host.Reader
 	Authority *bootstrapstart.CurrentFounderAuthorityReader
 	Accepted  bootstrapstart.AcceptedIdentity
+
+	ContainerProfiles interface {
+		ReadContainerProfile(context.Context, string) ([]byte, error)
+	}
 }
 
 var _ rootoci.ContainerReleases = (*Backend)(nil)
@@ -66,7 +70,7 @@ func New(factory *ociclient.Factory) (*Backend, error) {
 }
 
 func (b *Backend) Bind(s Sources) error {
-	if os.Geteuid() != 0 || b == nil || s.JS == nil || s.JS.Conn() == nil || s.Node == nil || s.Intents == nil || s.Specs == nil || s.Roots == nil || s.Leases == nil || s.Hosts == nil || s.Fleet == nil || s.Authority == nil || s.Accepted.Validate() != nil {
+	if os.Geteuid() != 0 || b == nil || s.JS == nil || s.JS.Conn() == nil || s.Node == nil || s.Intents == nil || s.Specs == nil || s.Roots == nil || s.Leases == nil || s.Hosts == nil || s.Fleet == nil || s.Authority == nil || s.Accepted.Validate() != nil || s.ContainerProfiles == nil {
 		return ErrPending
 	}
 	if s.Specs.Bucket() != "TS_SERVICE_SET" || s.Roots.Bucket() != "TS_TRUST_ROOTS" {
@@ -112,6 +116,8 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 	if err != nil {
 		return pending(err)
 	}
+	ctx, stopSource := context.WithDeadline(ctx, source.ExpiresAt())
+	defer stopSource()
 	identity := source.Identity()
 	if identity.OCIRegion != b.factory.Region() || call.Expected().Cell != "" && !strings.EqualFold(call.Expected().Cell, identity.Cell) {
 		return pending(rootoci.ErrUnauthorized)
@@ -132,6 +138,11 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 		call.Expected().OperationID != "" && call.Expected().OperationID != intent.OperationID || call.Expected().Epoch != 0 && call.Expected().Epoch != intent.AuthorityEpoch {
 		return pending(rootoci.ErrUnauthorized)
 	}
+	ctx, stopProof, err := containerProofContext(ctx, *intent.Container)
+	defer stopProof()
+	if err != nil {
+		return pending(err)
+	}
 	intentFingerprint, err := intent.Fingerprint()
 	if err != nil {
 		return pending(err)
@@ -140,6 +151,8 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 	if err != nil {
 		return pending(err)
 	}
+	ctx, stopLease := context.WithDeadline(ctx, lease.Deadline())
+	defer stopLease()
 	specEntry, err := s.current(ctx, "TS_SERVICE_SET", "current")
 	if err != nil {
 		return pending(err)
@@ -174,14 +187,6 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 	if policy == nil || policy.Kind != workload.KindStateless || policy.Validate() != nil {
 		return pending(nil)
 	}
-	location, err := b.location(ctx, identity.Cell)
-	if err != nil {
-		return pending(err)
-	}
-	allocations, err := b.allocations(ctx, *intent.Container, roots.Current, release.ContainerTarget{Cell: identity.Cell, Environment: intent.Environment, Role: intent.Role, Architecture: claim.Architecture})
-	if err != nil {
-		return pending(err)
-	}
 	deadline, _ := ctx.Deadline()
 	deadline = earlier(deadline, source.ExpiresAt(), lease.Deadline())
 	for _, wire := range [][]byte{intent.Container.Claim, intent.Container.Delegation, claim.Production.Qualification, claim.Production.Delegation} {
@@ -197,6 +202,23 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 
 	ctx, finish := context.WithDeadline(ctx, deadline)
 	defer finish()
+	location, err := b.location(ctx, identity.Cell)
+	if err != nil {
+		return pending(err)
+	}
+	channelBundle, found, err := releasechannel.ReadContainerBundle(ctx, location, intent.Role, claim.Architecture)
+	if err != nil || !found {
+		return pending(err)
+	}
+	channelDigest, err := release.ContainerBundleSHA256(channelBundle)
+	intentDigest, digestErr := release.ContainerBundleSHA256(*intent.Container)
+	if err != nil || digestErr != nil || channelDigest != intentDigest {
+		return pending(errors.Join(err, digestErr))
+	}
+	allocations, err := b.allocations(ctx, *intent.Container, roots.Current, release.ContainerTarget{Cell: identity.Cell, Environment: intent.Environment, Role: intent.Role, Architecture: claim.Architecture})
+	if err != nil {
+		return pending(err)
+	}
 	verified, err := release.VerifyContainerCurrent(ctx, *intent.Container, roots.Current, release.ContainerTarget{Cell: identity.Cell, Environment: intent.Environment, Role: intent.Role, Architecture: claim.Architecture}, time.Now().UTC(), deadline, func(ctx context.Context, digest string) (io.ReadCloser, error) {
 		return releasechannel.ReadContainerEvidence(ctx, location, intent.Role, digest)
 	}, allocations)
@@ -215,32 +237,49 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 	if err != nil || !entityid.Valid(originalOperation) {
 		return pending(err)
 	}
-	original := intent.Clone()
-	if originalOperation != intent.OperationID {
-		original, err = s.Intents.ContainerIntent(ctx, originalOperation)
-		if err != nil || !equivalentIntents(intent, original) {
-			return pending(err)
-		}
-		profile, err = containermaterial.VerifyProfile(specEntry.Value(), roots.Current, specIdentity, original)
-		if err != nil {
-			return pending(err)
-		}
-		expected, err = containermaterial.ServiceIntent(profile, claim.Architecture)
-		if err != nil {
-			return pending(err)
-		}
+	original, originalReference, err := s.Intents.ContainerProvenance(ctx, originalOperation)
+	if err != nil {
+		return pending(err)
+	}
+	originalWire, err := s.ContainerProfiles.ReadContainerProfile(ctx, originalReference)
+	if err != nil {
+		return pending(err)
+	}
+	originalProfile, err := containermaterial.VerifyProfile(originalWire, roots.Historical, specIdentity, original)
+	if err != nil {
+		return pending(err)
+	}
+	historical, err := release.VerifyContainerHistorical(*original.Container, roots.Historical, release.ContainerTarget{Cell: identity.Cell, Environment: intent.Environment, Role: intent.Role, Architecture: claim.Architecture})
+	if err != nil {
+		return pending(err)
+	}
+	profile, err = containermaterial.ContinueProfile(originalProfile, historical, profile, verified, time.Now().UTC())
+	if err != nil {
+		return pending(err)
+	}
+	expected, err = containermaterial.ServiceIntent(profile, claim.Architecture)
+	if err != nil {
+		return pending(err)
 	}
 	originalFingerprint, err := original.Fingerprint()
 	if err != nil {
 		return pending(err)
 	}
 
-	sourceGuard := func(ctx context.Context) error {
+	currentSourceGuard := func(ctx context.Context) error {
 		if err := call.Guard(ctx); err != nil {
 			return err
 		}
 		if !time.Now().Before(deadline) || !verified.Valid(time.Now().UTC()) {
 			return ErrPending
+		}
+		channelNow, found, err := releasechannel.ReadContainerBundle(ctx, location, intent.Role, claim.Architecture)
+		if err != nil || !found {
+			return errors.Join(ErrPending, err)
+		}
+		digestNow, err := release.ContainerBundleSHA256(channelNow)
+		if err != nil || digestNow != channelDigest {
+			return errors.Join(ErrPending, err)
 		}
 		current, err := s.Authority.ReadRuntimeAuthority(ctx, s.Accepted, time.Now().UTC())
 		if err != nil || current.Identity() != identity || !time.Now().Before(current.ExpiresAt()) {
@@ -265,16 +304,28 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 		if err := lease.Guard(ctx); err != nil {
 			return err
 		}
-
-		originalNow, err := s.Intents.ContainerIntent(ctx, original.OperationID)
+		if !time.Now().Before(deadline) || !verified.Valid(time.Now().UTC()) {
+			return ErrPending
+		}
+		return call.Guard(ctx)
+	}
+	sourceGuard := func(ctx context.Context) error {
+		if err := currentSourceGuard(ctx); err != nil {
+			return err
+		}
+		originalNow, referenceNow, err := s.Intents.ContainerProvenance(ctx, original.OperationID)
 		if err != nil {
 			return err
 		}
 		originalNowFingerprint, err := originalNow.Fingerprint()
-		if err != nil || originalNowFingerprint != originalFingerprint {
+		if err != nil || originalNowFingerprint != originalFingerprint || referenceNow != originalReference {
 			return ErrPending
 		}
-		return nil
+		wireNow, err := s.ContainerProfiles.ReadContainerProfile(ctx, referenceNow)
+		if err != nil || !bytes.Equal(wireNow, originalWire) {
+			return ErrPending
+		}
+		return currentSourceGuard(ctx)
 	}
 	sessions := map[string]*host.ContainerGenerationSession{}
 	controllers := map[string]*bootstrapstart.ControllerHostRecipient{}
@@ -419,19 +470,4 @@ func (b *Backend) allocations(ctx context.Context, bundle release.ContainerBundl
 		return release.SequenceLocation{}, err
 	}
 	return release.SequenceLocation{Client: sdkObjects{client}, Namespace: migration.Namespace, Bucket: migration.Bucket}, ctx.Err()
-}
-
-// Equivalent metadata may retain the original task operation. Both journal
-// entries remain independently authorized; no new operation execution is implied.
-func equivalentIntents(request, original delivery.Intent) bool {
-	if request.Container == nil || original.Container == nil {
-		return false
-	}
-	request = request.Clone()
-	original = original.Clone()
-	request.OperationID = original.OperationID
-	request.AuthorityEpoch = original.AuthorityEpoch
-	before, err := request.Fingerprint()
-	after, otherErr := original.Fingerprint()
-	return err == nil && otherErr == nil && before == after
 }
