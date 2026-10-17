@@ -3,6 +3,7 @@ package swarmruntime
 import (
 	"context"
 	"crypto/sha256"
+	jsonv1 "encoding/json"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -360,7 +361,7 @@ func serviceIntentFingerprint(spec *api.ServiceSpec) (string, error) {
 	spec.Task.ForceUpdate = 0
 	delete(spec.Annotations.Labels, LabelOperationID)
 	delete(spec.Annotations.Labels, labelIntentFingerprint)
-	wire, err := json.Marshal(spec, json.Deterministic(true))
+	wire, err := json.Marshal(spec, json.Deterministic(true), jsonv1.FormatDurationAsNano(true))
 	if err != nil {
 		return "", err
 	}
