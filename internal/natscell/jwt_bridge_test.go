@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/nats-io/jwt/v2"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
 )
 
@@ -206,7 +207,7 @@ func TestProductionJWTBridgeClosedApplyOpenAndFence(t *testing.T) {
 	t.Run("acquisition-detaches-original-lifetime-remains", func(t *testing.T) {
 		original, cancelOriginal := context.WithCancel(t.Context())
 		defer cancelOriginal()
-		operation, cancelOperation := context.WithCancel(t.Context())
+		operation, cancelOperation := context.WithTimeout(t.Context(), time.Second)
 		defer cancelOperation()
 		connection, lease, err := ConnectMemoryLeaseForOperation(original, operation, "gru", r.URL(), credentials, clientTLS)
 		if err != nil {
@@ -217,6 +218,25 @@ func TestProductionJWTBridgeClosedApplyOpenAndFence(t *testing.T) {
 		if lease.Err() != nil || connection.FlushTimeout(time.Second) != nil {
 			t.Fatal("completed acquisition cancellation revoked the original lease")
 		}
+		reconnected := make(chan struct{}, 1)
+		connection.SetReconnectHandler(func(*nats.Conn) {
+			select {
+			case reconnected <- struct{}{}:
+			default:
+			}
+		})
+		if err := connection.ForceReconnect(); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-reconnected:
+		case <-time.After(time.Second):
+			t.Fatal("completed acquisition cancellation blocked reconnect under the original lease")
+		}
+		if lease.Err() != nil || connection.FlushTimeout(time.Second) != nil {
+			t.Fatal("reconnected session lost the original lease")
+		}
+
 		cancelOriginal()
 		select {
 		case <-lease.Done():

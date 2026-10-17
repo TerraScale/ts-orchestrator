@@ -106,9 +106,6 @@ func ConnectMemoryLeaseForOperation(ctx, operationCtx context.Context, cell, end
 	if original, ok := ctx.Deadline(); ok {
 		timeout = min(timeout, time.Until(original))
 	}
-	if until, ok := operationCtx.Deadline(); ok {
-		timeout = min(timeout, time.Until(until))
-	}
 	conn, err := nats.Connect(bridgeClientURLs(endpoint), nats.Name("terrascale-"+cell+"-root-reader"),
 		nats.Timeout(timeout), nats.ErrorHandler(ErrorHandler), nats.CustomInboxPrefix(inboxPrefix(cell, public)),
 		nats.SetCustomDialer(&tlsFirstDialer{ctx: ctx, config: config.Clone(), timeout: timeout}),
