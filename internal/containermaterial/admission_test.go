@@ -18,6 +18,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/moby/swarmkit/v2/api/genericresource"
 	"github.com/moby/swarmkit/v2/ca"
 )
 
@@ -31,6 +32,9 @@ func TestTaskRecipientRequiresRoleSpecificAuthority(t *testing.T) {
 	node := &api.Node{Role: api.NodeRoleWorker, Spec: api.NodeSpec{Annotations: api.Annotations{Labels: map[string]string{swarmruntime.LabelHostRole: "container"}}}}
 	if err := verifyTaskRecipient(Profile{}, registration, binding, node, nil); err != nil {
 		t.Fatalf("exact managed worker recipient: %v", err)
+	}
+	if err := verifyAllocationRecipient(Profile{}, registration, binding, node, "arm64", nil, swarmruntime.VerifiedWorkerMembership{}); !errors.Is(err, ErrPending) {
+		t.Fatal("worker allocation accepted without independently verified membership")
 	}
 	for _, name := range []string{"missing OCI identity", "other instance", "other region", "other host", "manager proof on worker"} {
 		t.Run(name, func(t *testing.T) {
@@ -72,9 +76,10 @@ func TestTaskAssignmentRejectsChangesDuringVerification(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	limits := &api.Resources{NanoCPUs: 1_000_000_000, MemoryBytes: 32 << 20, Generic: []*api.GenericResource{genericresource.NewDiscrete(swarmruntime.DiskResource, 64<<20)}}
 	task := &api.Task{ID: "task1", ServiceID: "service1", NodeID: "node1", DesiredState: api.TaskStateRunning,
 		Status: api.TaskStatus{State: api.TaskStateRunning}, Spec: api.TaskSpec{Runtime: runtime,
-			Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 1_000_000_000, MemoryBytes: 32 << 20}}}}
+			Resources: &api.ResourceRequirements{Limits: limits, Reservations: limits.Copy()}}}
 	fingerprint, err := swarmruntime.ContainerTaskFingerprint(task)
 	if err != nil {
 		t.Fatal(err)
@@ -143,10 +148,12 @@ func TestTaskNodeRejectsChangesDuringVerification(t *testing.T) {
 	if err := verifyTaskNode(worker, binding, "arm64"); err != nil {
 		t.Fatalf("current worker certificate rejected: %v", err)
 	}
-	for _, name := range []string{"drained", "down", "revoked", "certificate role changed", "platform changed", "certificate pending", "certificate CN changed", "certificate subject changed", "certificate OU changed", "certificate expired", "certificate not yet valid", "certificate missing"} {
+	for _, name := range []string{"paused", "drained", "down", "revoked", "certificate role changed", "platform changed", "certificate pending", "certificate CN changed", "certificate subject changed", "certificate OU changed", "certificate expired", "certificate not yet valid", "certificate missing"} {
 		t.Run(name, func(t *testing.T) {
 			current := node.Copy()
 			switch name {
+			case "paused":
+				current.Spec.Availability = api.NodeAvailabilityPause
 			case "drained":
 				current.Spec.Availability = api.NodeAvailabilityDrain
 			case "down":
@@ -174,6 +181,14 @@ func TestTaskNodeRejectsChangesDuringVerification(t *testing.T) {
 			}
 			if err := verifyTaskNode(current, binding, "arm64"); !errors.Is(err, ErrPending) {
 				t.Fatalf("changed node admission accepted: %v", err)
+			}
+			err := verifyTaskNodeIdentity(current, binding, "arm64")
+			if name == "paused" || name == "drained" || name == "down" {
+				if err != nil {
+					t.Fatalf("node lifecycle erased reservation identity: %v", err)
+				}
+			} else if !errors.Is(err, ErrPending) {
+				t.Fatalf("changed allocation identity accepted: %v", err)
 			}
 		})
 	}
