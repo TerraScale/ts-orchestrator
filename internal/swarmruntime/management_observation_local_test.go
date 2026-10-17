@@ -139,7 +139,10 @@ func TestLocalManagementObservationIntegration(t *testing.T) {
 	original := self.Node.Spec.Copy()
 	changed := original.Copy()
 	changed.Annotations.Labels[LabelInstanceID] = "different-instance"
-	updated, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: node.ID(), NodeVersion: &self.Node.Meta.Version, Spec: changed})
+	if _, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: node.ID(), NodeVersion: &self.Node.Meta.Version, Spec: changed}); err == nil {
+		t.Fatal("ordinary management API changed admitted manager identity")
+	}
+	updated, err := updateObservedNativeNodeFixture(ctx, node, &api.UpdateNodeRequest{NodeID: node.ID(), NodeVersion: &self.Node.Meta.Version, Spec: changed})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +158,7 @@ func TestLocalManagementObservationIntegration(t *testing.T) {
 	if _, err := node.ReadOnlyControlClient(ctx); err == nil {
 		t.Fatal("new readonly source adopted changed manager identity")
 	}
-	if _, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: node.ID(), NodeVersion: &updated.Node.Meta.Version, Spec: original}); err != nil {
+	if _, err := updateObservedNativeNodeFixture(ctx, node, &api.UpdateNodeRequest{NodeID: node.ID(), NodeVersion: &updated.Node.Meta.Version, Spec: original}); err != nil {
 		t.Fatal(err)
 	}
 	testObservedNativeNodeMutation(t, ctx, node)

@@ -21,25 +21,77 @@ import (
 	"github.com/moby/swarmkit/v2/manager/state/store"
 )
 
-const managerRetirementLabel = "terrascale.manager-retirement"
+const (
+	managerRetirementLabel = "terrascale.manager-retirement"
+	managerRemovalLabel    = "terrascale.manager-removal"
+)
 
 // ManagerRetirementResult reports the native stage. DemotionVersion is the
 // observed node version carrying the same immutable retirement operation.
 type ManagerRetirementResult struct {
 	Stage           string
 	DemotionVersion uint64
+	node            *api.Node
 }
 
 type managerRetirementPin struct {
 	NodeID, InstanceID, Slot, Region, RetirementSHA256, CertificateSHA256 string
 	PreviousAttempt, OriginalVersion, LeaseEpoch, RaftTerm, RaftLeader    uint64
+	SourceSHA256, ObservationSHA256, OperationSHA256                      string
+	FirstExpiresAt                                                        time.Time
+}
+
+type managerRemovalPin struct {
+	NodeID, InstanceID, DemotionOperationSHA256, SourceSHA256, ObservationSHA256 string
+	OriginalVersion, LeaseEpoch, RaftTerm, RaftLeader                            uint64
+	FirstExpiresAt                                                               time.Time
+}
+
+type controllerRetirementRequest struct {
+	constraints manager.ControllerNodeConstraints
+	update      *api.UpdateNodeRequest
+	remove      *api.RemoveNodeRequest
+}
+
+func (n *Node) updateControllerRetirementAtConstraints(ctx context.Context, proof *bootstrapstart.ManagerRetirement, constraints *manager.ControllerNodeConstraints, request *api.UpdateNodeRequest) (*api.UpdateNodeResponse, error) {
+	if constraints == nil || request == nil || request.NodeVersion == nil || request.Spec == nil || constraints.Operation != manager.ControllerNodeRetire {
+		return nil, errors.New("retirement update requires original finite native constraints")
+	}
+	result, err := n.retireControllerManager(ctx, proof, request.NodeID, request.NodeVersion.Index, constraints.LeaseEpoch,
+		&controllerRetirementRequest{constraints: *constraints, update: request.Copy()})
+	if err != nil {
+		return nil, err
+	}
+	if result == nil || result.Stage != "demoted" || result.node == nil {
+		return nil, fmt.Errorf("%w: native demotion response unavailable", manager.ErrMutationAmbiguous)
+	}
+	return &api.UpdateNodeResponse{Node: result.node.Copy()}, nil
+}
+
+func (n *Node) removeControllerRetirementAtConstraints(ctx context.Context, proof *bootstrapstart.ManagerRetirement, constraints *manager.ControllerNodeConstraints, request *api.RemoveNodeRequest) (*api.RemoveNodeResponse, error) {
+	if constraints == nil || request == nil || request.Force || constraints.Operation != manager.ControllerNodeRetire {
+		return nil, errors.New("retirement removal requires original finite native constraints and Force=false")
+	}
+	result, err := n.retireControllerManager(ctx, proof, request.NodeID, 0, constraints.LeaseEpoch,
+		&controllerRetirementRequest{constraints: *constraints, remove: request.Copy()})
+	if err != nil {
+		return nil, err
+	}
+	if result == nil || result.Stage != "removed" {
+		return nil, errors.New("retirement removal requires completed native demotion")
+	}
+	return &api.RemoveNodeResponse{}, nil
 }
 
 // RetireControllerManager uses only root-retired/current-terminated evidence
 // and the actual applied node. It never looks up a replacement by slot name and
 // never forces removal. An ambiguous result must retain this exact operation.
 func (n *Node) RetireControllerManager(ctx context.Context, proof *bootstrapstart.ManagerRetirement, expectedNodeID string, expectedVersion, epoch uint64) (*ManagerRetirementResult, error) {
-	if n == nil || ctx == nil || proof == nil || expectedNodeID == "" || expectedVersion == 0 || epoch == 0 ||
+	return n.retireControllerManager(ctx, proof, expectedNodeID, expectedVersion, epoch, nil)
+}
+
+func (n *Node) retireControllerManager(ctx context.Context, proof *bootstrapstart.ManagerRetirement, expectedNodeID string, expectedVersion, epoch uint64, transported *controllerRetirementRequest) (*ManagerRetirementResult, error) {
+	if n == nil || ctx == nil || proof == nil || expectedNodeID == "" || expectedVersion == 0 && transported == nil || epoch == 0 ||
 		n.upstream == nil || n.role != "manager" || expectedNodeID == n.ID() {
 		return nil, errors.New("manager retirement requires exact admitted old node and original version")
 	}
@@ -92,18 +144,55 @@ func (n *Node) RetireControllerManager(ctx context.Context, proof *bootstrapstar
 	if err := managerRetirementCertificate(target, cluster); err != nil {
 		return nil, err
 	}
+	retained := target.Spec.Annotations.Labels[managerRetirementLabel]
+	if retained == "" && target.Spec.Annotations.Labels[managerRemovalLabel] != "" {
+		return nil, errors.New("native removal reservation has no original retirement pin")
+	}
+	if transported != nil {
+		digest, err := manager.ControllerNodeTargetSHA256(target)
+		if err != nil || digest != transported.constraints.TargetSHA256 || observed.Term != transported.constraints.RaftTerm || observed.Leader != transported.constraints.RaftLeader {
+			return nil, errors.New("transported retirement target or original native epoch changed")
+		}
+		if transported.update != nil && transported.update.NodeVersion.Index != target.Meta.Version.Index {
+			return nil, errors.New("transported retirement requires current exact NodeVersion")
+		}
+		if retained != "" {
+			var original managerRetirementPin
+			if protocol.DecodeStrict([]byte(retained), &original, 8<<10) != nil || original.OriginalVersion == 0 {
+				return nil, errors.New("transported retirement original pin invalid")
+			}
+			expectedVersion = original.OriginalVersion
+		} else if transported.remove != nil {
+			return nil, errors.New("transported retirement removal has no immutable demotion pin")
+		}
+	}
 	pin := managerRetirementPin{NodeID: target.ID, InstanceID: proof.PriorInstanceID(), Slot: proof.Slot(), Region: proof.OCIRegion(),
 		RetirementSHA256: proof.RetirementSHA256(), CertificateSHA256: managerRetirementDigest(target.Certificate.Certificate),
-		PreviousAttempt: proof.PreviousAttempt(), OriginalVersion: expectedVersion, LeaseEpoch: epoch, RaftTerm: observed.Term, RaftLeader: observed.Leader}
-	retained := target.Spec.Annotations.Labels[managerRetirementLabel]
+		PreviousAttempt: proof.PreviousAttempt(), OriginalVersion: expectedVersion, LeaseEpoch: epoch, RaftTerm: observed.Term, RaftLeader: observed.Leader,
+		SourceSHA256: proof.SourceSHA256(), ObservationSHA256: proof.ObservationSHA256(), FirstExpiresAt: proof.ExpiresAt().UTC().Round(0)}
+	if deadline, ok := ctx.Deadline(); ok && deadline.Before(pin.FirstExpiresAt) {
+		pin.FirstExpiresAt = deadline.UTC().Round(0)
+	}
+	operation, err := protocol.EncodeJSON(pin)
+	if err != nil {
+		return nil, err
+	}
+	pin.OperationSHA256 = managerRetirementDigest(operation)
 	if retained != "" {
 		var original managerRetirementPin
 		if protocol.DecodeStrict([]byte(retained), &original, 8<<10) != nil || original.NodeID != pin.NodeID || original.InstanceID != pin.InstanceID ||
 			original.Slot != pin.Slot || original.Region != pin.Region || original.RetirementSHA256 != pin.RetirementSHA256 ||
 			original.CertificateSHA256 != pin.CertificateSHA256 || original.PreviousAttempt != pin.PreviousAttempt || original.OriginalVersion != expectedVersion ||
-			original.LeaseEpoch == 0 || original.RaftTerm == 0 || original.RaftLeader == 0 || target.Spec.DesiredRole != api.NodeRoleWorker ||
+			original.LeaseEpoch == 0 || original.RaftTerm == 0 || original.RaftLeader == 0 || original.SourceSHA256 == "" || original.ObservationSHA256 == "" ||
+			original.OperationSHA256 == "" || original.FirstExpiresAt.IsZero() || target.Spec.DesiredRole != api.NodeRoleWorker ||
 			target.Spec.Availability != api.NodeAvailabilityPause {
 			return nil, errors.New("partial manager demotion differs from its immutable original retirement")
+		}
+		check := original
+		check.OperationSHA256 = ""
+		wire, err := protocol.EncodeJSON(check)
+		if err != nil || managerRetirementDigest(wire) != original.OperationSHA256 {
+			return nil, errors.New("retained retirement operation digest changed")
 		}
 		pin = original
 	} else if target.Meta.Version.Index != expectedVersion || target.Role != api.NodeRoleManager || target.Spec.DesiredRole != api.NodeRoleManager {
@@ -156,18 +245,30 @@ func (n *Node) RetireControllerManager(ctx context.Context, proof *bootstrapstar
 	if err := proof.Verify(ctx); err != nil {
 		return nil, err
 	}
+	if transported != nil && transported.update != nil && retained != "" {
+		if !proto.Equal(transported.update.Spec, &target.Spec) {
+			return nil, errors.New("transported retirement retry differs from retained native demotion")
+		}
+		if err := ociclient.CheckRequestGuard(ctx); err != nil {
+			return nil, err
+		}
+		return &ManagerRetirementResult{Stage: "demoted", DemotionVersion: target.Meta.Version.Index, node: target.Copy()}, nil
+	}
 	if retained == "" {
 		wire, err := protocol.EncodeJSON(pin)
 		if err != nil {
 			return nil, err
 		}
 		spec := target.Spec.Copy()
+		spec.DesiredRole = api.NodeRoleWorker
+		spec.Availability = api.NodeAvailabilityPause
+		if transported != nil && !proto.Equal(transported.update.Spec, spec) {
+			return nil, errors.New("transported retirement spec differs from independently reconstructed demotion")
+		}
 		if spec.Annotations.Labels == nil {
 			spec.Annotations.Labels = map[string]string{}
 		}
 		spec.Annotations.Labels[managerRetirementLabel] = string(wire)
-		spec.DesiredRole = api.NodeRoleWorker
-		spec.Availability = api.NodeAvailabilityPause
 		if err := ociclient.CheckRequestGuard(ctx); err != nil {
 			return nil, err
 		}
@@ -178,23 +279,64 @@ func (n *Node) RetireControllerManager(ctx context.Context, proof *bootstrapstar
 		if err := proof.Verify(ctx); err != nil {
 			return nil, fmt.Errorf("%w: %w", manager.ErrMutationAmbiguous, err)
 		}
-		return &ManagerRetirementResult{Stage: "demoted", DemotionVersion: response.Node.Meta.Version.Index}, nil
+		return &ManagerRetirementResult{Stage: "demoted", DemotionVersion: response.Node.Meta.Version.Index, node: response.Node.Copy()}, nil
 	}
+	if target.Spec.Annotations.Labels[managerRemovalLabel] != "" {
+		return nil, fmt.Errorf("%w: exact native removal was already reserved; observe its outcome without resubmission", manager.ErrMutationAmbiguous)
+	}
+	// A refreshed source may observe this demotion, but cannot turn an old
+	// operation into fresh removal authority after its original call ended.
+	if proof.ObservationSHA256() != pin.ObservationSHA256 || proof.SourceSHA256() != pin.SourceSHA256 || epoch != pin.LeaseEpoch || !time.Now().Before(pin.FirstExpiresAt) {
+		return &ManagerRetirementResult{Stage: "demoted", DemotionVersion: target.Meta.Version.Index, node: target.Copy()}, nil
+	}
+	ctx, cancelOriginal := context.WithDeadline(ctx, pin.FirstExpiresAt)
+	defer cancelOriginal()
 	if target.Role != api.NodeRoleWorker {
 		// Native roleManager owns asynchronous voter removal; never resubmit the
 		// demotion or create a fresh permission when that work is still pending.
-		return &ManagerRetirementResult{Stage: "demoted", DemotionVersion: target.Meta.Version.Index}, nil
+		return &ManagerRetirementResult{Stage: "demoted", DemotionVersion: target.Meta.Version.Index, node: target.Copy()}, nil
 	}
 	for _, member := range members {
 		if member.NodeID == target.ID {
 			return nil, errors.New("retired manager remains a current Raft voter")
 		}
 	}
+	removal := managerRemovalPin{NodeID: target.ID, InstanceID: pin.InstanceID, DemotionOperationSHA256: pin.OperationSHA256,
+		SourceSHA256: pin.SourceSHA256, ObservationSHA256: pin.ObservationSHA256, OriginalVersion: target.Meta.Version.Index,
+		LeaseEpoch: epoch, RaftTerm: observed.Term, RaftLeader: observed.Leader, FirstExpiresAt: pin.FirstExpiresAt}
+	if deadline, ok := ctx.Deadline(); ok && deadline.Before(removal.FirstExpiresAt) {
+		removal.FirstExpiresAt = deadline.UTC().Round(0)
+	}
+	removalWire, err := protocol.EncodeJSON(removal)
+	if err != nil {
+		return nil, err
+	}
+	reserved := target.Spec.Copy()
+	reserved.Annotations.Labels[managerRemovalLabel] = string(removalWire)
+	if err := proof.Verify(ctx); err != nil {
+		return nil, err
+	}
 	if err := ociclient.CheckRequestGuard(ctx); err != nil {
 		return nil, err
 	}
-	if _, err := m.RemoveNodeAtObservation(ctx, observed, target, live); err != nil {
+	reservation, err := m.UpdateNodeAtObservation(ctx, observed, target, &api.UpdateNodeRequest{NodeID: target.ID, NodeVersion: target.Meta.Version.Copy(), Spec: reserved}, live)
+	if err != nil {
 		return nil, err
+	}
+	for index, node := range nodes {
+		if node.ID == target.ID {
+			nodes[index] = reservation.Node.Copy()
+		}
+	}
+	target = reservation.Node.Copy()
+	if err := proof.Verify(ctx); err != nil {
+		return nil, fmt.Errorf("%w: %w", manager.ErrMutationAmbiguous, err)
+	}
+	if err := ociclient.CheckRequestGuard(ctx); err != nil {
+		return nil, fmt.Errorf("%w: %w", manager.ErrMutationAmbiguous, err)
+	}
+	if _, err := m.RemoveNodeAtObservation(ctx, observed, target, live); err != nil {
+		return nil, fmt.Errorf("%w: %w", manager.ErrMutationAmbiguous, err)
 	}
 	if err := proof.Verify(ctx); err != nil {
 		return nil, fmt.Errorf("%w: %w", manager.ErrMutationAmbiguous, err)

@@ -78,6 +78,23 @@ func (p *ManagerRetirement) PriorInstanceID() string  { return p.captured.PriorI
 func (p *ManagerRetirement) PreviousAttempt() uint64  { return p.captured.PreviousAttempt }
 func (p *ManagerRetirement) RetirementSHA256() string { return p.captured.RetirementSHA256 }
 func (p *ManagerRetirement) ExpiresAt() time.Time     { return p.until }
+func (p *ManagerRetirement) SourceSHA256() string     { return p.captured.Pins }
+
+// ObservationSHA256 identifies this original finite observation, not a renewed
+// read of the same signed records. It grants no independent authority.
+func (p *ManagerRetirement) ObservationSHA256() string {
+	if p == nil || p.captured.Pins == "" {
+		return ""
+	}
+	wire, err := protocol.EncodeJSON(struct {
+		Source              string
+		ObservedAt, Expires time.Time
+	}{p.captured.Pins, p.started.UTC().Round(0), p.until.UTC().Round(0)})
+	if err != nil {
+		return ""
+	}
+	return digestWire(wire)
+}
 func (p *ManagerRetirement) Survivors() []ManagerRetirementSurvivor {
 	return slices.Clone(p.captured.Survivors)
 }
