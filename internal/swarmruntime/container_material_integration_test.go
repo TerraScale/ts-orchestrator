@@ -82,7 +82,7 @@ while :; do sleep 1; done
 	}
 	task := &api.Task{ID: fmt.Sprintf("secrets%d", time.Now().UnixNano()), ServiceID: "containersecretsintegration", NodeID: "secretsnode",
 		ServiceAnnotations: api.Annotations{Labels: map[string]string{LabelRole: "ts-auth"}},
-		Spec:               api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 250_000_000, MemoryBytes: 64 << 20}}}}
+		Spec:               api.TaskSpec{Runtime: runtime, Resources: containerTestResources(250_000_000, 64<<20)}}
 	controllerFor := func(executor *Executor, task *api.Task) *controller {
 		t.Helper()
 		c, err := executor.Controller(task)
@@ -280,7 +280,7 @@ func testContainerCredentialExpiry(t *testing.T, role string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task := &api.Task{ID: fmt.Sprintf("expiry%d", time.Now().UnixNano()), ServiceID: "credentialexpiryintegration", NodeID: "expirynode", Spec: api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 250_000_000, MemoryBytes: 64 << 20}}}}
+	task := &api.Task{ID: fmt.Sprintf("expiry%d", time.Now().UnixNano()), ServiceID: "credentialexpiryintegration", NodeID: "expirynode", Spec: api.TaskSpec{Runtime: runtime, Resources: containerTestResources(250_000_000, 64<<20)}}
 	if role == "function-worker" {
 		task.ServiceAnnotations.Labels = map[string]string{LabelRole: role, "terrascale.function-proof": "expiry-fixture"}
 		task.Spec.Resources.Limits.Generic = []*api.GenericResource{genericresource.NewDiscrete(FunctionWorkerSlot, 1)}

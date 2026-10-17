@@ -58,7 +58,7 @@ func TestRuntimeServiceSurvivesNodeRestart(t *testing.T) {
 	service, err := applyService(ctx, client, ServiceIntent{
 		ID: entityid.Derive("integration", "runtime-restart"), Role: "smoke", Region: "gru", Environment: "integration", Architecture: runtime.GOARCH, Replicas: 1,
 		Container: &api.ContainerSpec{Image: integrationImage, User: "65532:65532", Command: []string{"/bin/sh", "-c", command}},
-		Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 250_000_000, MemoryBytes: 64 << 20}},
+		Resources: containerTestResources(250_000_000, 64<<20),
 		Ports:     []*api.PortConfig{{Name: "ready", Protocol: api.ProtocolTCP, PublishMode: api.PublishModeHost, TargetPort: port, PublishedPort: port}},
 	})
 	if err != nil {
