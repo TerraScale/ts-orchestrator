@@ -33,7 +33,7 @@ func TestMemoryClientRejectsExpiredAndMismatchedCredentials(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	if conn, err := ConnectMemory(t.Context(), "gru", "tls://127.0.0.1:1", expired, config); conn != nil || err == nil || !strings.Contains(err.Error(), "authority expired") {
+	if conn, lease, err := ConnectMemoryLease(t.Context(), "gru", "tls://127.0.0.1:1", expired, config); conn != nil || lease != nil || err == nil || !strings.Contains(err.Error(), "authority expired") {
 		t.Fatal("expired JWT reached a dial attempt", err)
 	}
 	public, _ := user.PublicKey()
