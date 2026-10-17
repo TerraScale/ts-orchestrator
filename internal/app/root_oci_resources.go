@@ -411,17 +411,23 @@ func (b *rootOCIResources) ReconcileFoundation(ctx context.Context, call rootoci
 	if err != nil {
 		return rootoci.FoundationReceipt{}, err
 	}
-	if err := desiredPass(cell, store, fencer, sets, false, pruneDelay).Run(ctx, receipt.Epoch); err != nil {
-		return rootoci.FoundationReceipt{}, err
+	// A changed spec cannot replace unfinished original history. Retain the
+	// publication error while protected reconcilers observe that old outcome.
+	pendingErr := desiredPass(cell, store, fencer, sets, false, pruneDelay).Run(ctx, receipt.Epoch)
+	if errors.Is(pendingErr, ociresource.ErrFenced) || ctx.Err() != nil {
+		return rootoci.FoundationReceipt{}, errors.Join(pendingErr, ctx.Err())
 	}
 	for _, set := range sets {
 		if authorized.PruneKinds[set.kind] {
 			if err := desiredPass(cell, store, fencer, []ociDesiredSet{set}, true, pruneDelay).Run(ctx, receipt.Epoch); err != nil {
-				return rootoci.FoundationReceipt{}, err
+				if errors.Is(err, ociresource.ErrFenced) || ctx.Err() != nil {
+					return rootoci.FoundationReceipt{}, errors.Join(err, ctx.Err())
+				}
+				pendingErr = errors.Join(pendingErr, err)
 			}
 		}
 	}
-	passes, lbAPI, err := rootResourcePasses(cell, factory, store, fencer, snapshot.managed.region.Owner, config)
+	passes, lbAPI, err := rootResourcePasses(cell, factory, store, fencer, snapshot.managed.region.Owner)
 	if err != nil {
 		return rootoci.FoundationReceipt{}, err
 	}
@@ -430,8 +436,14 @@ func (b *rootOCIResources) ReconcileFoundation(ctx context.Context, call rootoci
 			return rootoci.FoundationReceipt{}, err
 		}
 		if err := pass.Run(ctx, receipt.Epoch); err != nil {
-			return rootoci.FoundationReceipt{}, fmt.Errorf("root OCI %s: %w", pass.Name, err)
+			if errors.Is(err, ociresource.ErrFenced) || ctx.Err() != nil {
+				return rootoci.FoundationReceipt{}, errors.Join(err, ctx.Err())
+			}
+			pendingErr = errors.Join(pendingErr, fmt.Errorf("root OCI %s: %w", pass.Name, err))
 		}
+	}
+	if pendingErr != nil {
+		return rootoci.FoundationReceipt{}, pendingErr
 	}
 	if config != nil && config.PublicLB != nil {
 		receipt.SeatBackends, err = rootPublicSeatBackends(ctx, lbAPI, *config.PublicLB, snapshot.services.profiles(), cell, snapshot.managed.region.Owner)
@@ -446,7 +458,7 @@ func (b *rootOCIResources) ReconcileFoundation(ctx context.Context, call rootoci
 }
 
 func rootResourcePasses(cell string, factory *ociclient.Factory, store *rootfoundation.ResourceStore,
-	fencer rootResourceFencer, owner string, config *OciReconcileConfig,
+	fencer rootResourceFencer, owner string,
 ) ([]ociresource.Pass, lb.API, error) {
 	ownership := ociresource.Ownership{Owner: owner}
 	if err := ownership.Validate(); err != nil {
@@ -474,22 +486,18 @@ func rootResourcePasses(cell string, factory *ociclient.Factory, store *rootfoun
 		ociresource.ControllerPass(&ociresource.Controller[routetable.Spec, routetable.Table]{Region: cell, Resource: routetable.Reconciler{API: tableAPI}, Store: store, Ownership: ownership, Authority: fencer}),
 		ociresource.ControllerPass(&ociresource.Controller[bucket.Spec, bucket.Observed]{Region: cell, Resource: rootBucketResource{Reconciler: bucket.Reconciler{API: bucketAPI}}, Store: store, Ownership: ownership, Authority: fencer}),
 	}
-	if config != nil && config.PublicNLB != nil {
-		api, err := nlb.NewSDKAPI(factory)
-		if err != nil {
-			return nil, nil, err
-		}
-		passes = append(passes, ociresource.ControllerPass(&ociresource.Controller[nlb.Spec, nlb.Observed]{Region: cell, Resource: nlb.Reconciler{API: api}, Store: store, Ownership: ownership, Authority: fencer}))
+	// Protected prior operations still need observation after configuration
+	// stops naming these amendment kinds; the Store denies revoked effects.
+	nlbAPI, err := nlb.NewSDKAPI(factory)
+	if err != nil {
+		return nil, nil, err
 	}
-	var api lb.API
-	if config != nil && config.PublicLB != nil {
-		var err error
-		api, err = lb.NewSDKAPI(factory)
-		if err != nil {
-			return nil, nil, err
-		}
-		passes = append(passes, ociresource.ControllerPass(&ociresource.Controller[lb.Spec, lb.Observed]{Region: cell, Resource: lb.Reconciler{API: api}, Store: store, Ownership: ownership, Authority: fencer}))
+	passes = append(passes, ociresource.ControllerPass(&ociresource.Controller[nlb.Spec, nlb.Observed]{Region: cell, Resource: nlb.Reconciler{API: nlbAPI}, Store: store, Ownership: ownership, Authority: fencer}))
+	api, err := lb.NewSDKAPI(factory)
+	if err != nil {
+		return nil, nil, err
 	}
+	passes = append(passes, ociresource.ControllerPass(&ociresource.Controller[lb.Spec, lb.Observed]{Region: cell, Resource: lb.Reconciler{API: api}, Store: store, Ownership: ownership, Authority: fencer}))
 	return passes, api, nil
 }
 
