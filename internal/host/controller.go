@@ -833,6 +833,12 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 		return
 	}
 	req.Envelope = envelope
+	var materialDeadline time.Time
+	if req.Operation == "container-material" {
+		materialDeadline = (ContainerMaterialEvidence{Request: envelope}).Deadline()
+		ctx, cancel = context.WithDeadline(ctx, materialDeadline)
+		defer cancel()
+	}
 	expectedSubject, err := protocol.AgentObservationSubject(c.cell, req.NATSUserPublicKey, req.Operation)
 	if err != nil || expectedSubject != msg.Subject || envelope.Actor != req.Node || envelope.Kind != "host."+req.Operation {
 		return
@@ -862,17 +868,32 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 	} else if payload != nil {
 		result.Payload, _ = json.Marshal(payload)
 	}
+	if req.Operation == "container-material" {
+		if reply, ok := payload.(containerMaterialReply); ok {
+			materialDeadline = containerMaterialDeadline(materialDeadline, reply.InventoryExpiresAt)
+		}
+		if ctx.Err() != nil || !time.Now().Before(materialDeadline) {
+			return
+		}
+	}
 	data, err := protocol.EncodeJSON(result)
 	if err != nil {
 		return
 	}
 	issued := time.Now().UTC()
-	signed, err := protocol.SignEnvelope(data, protocol.EnvelopeScope{Region: c.cell, Kind: "host.response." + req.Operation, Actor: "controller", OperationID: entityid.Derive("host-request", req.Nonce), Epoch: req.Epoch}, issued, issued.Add(requestTTL), c.responseKey)
+	expires := issued.Add(requestTTL)
+	if req.Operation == "container-material" {
+		expires = containerMaterialDeadline(expires, materialDeadline)
+	}
+	signed, err := protocol.SignEnvelope(data, protocol.EnvelopeScope{Region: c.cell, Kind: "host.response." + req.Operation, Actor: "controller", OperationID: entityid.Derive("host-request", req.Nonce), Epoch: req.Epoch}, issued, expires, c.responseKey)
 	if err != nil {
 		return
 	}
 	wire, err := protocol.EncodeJSON(signed)
 	if err != nil {
+		return
+	}
+	if req.Operation == "container-material" && (ctx.Err() != nil || !time.Now().Before(materialDeadline)) {
 		return
 	}
 	_ = msg.Respond(wire)

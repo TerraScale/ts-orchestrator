@@ -117,6 +117,8 @@ func clearContainerMaterial(files ContainerMaterialFiles) {
 }
 
 func (c *Controller) serveContainerMaterial(ctx context.Context, req request, registration Registration, current session) (any, error) {
+	ctx, cancel := context.WithDeadline(ctx, (ContainerMaterialEvidence{Request: req.Envelope}).Deadline())
+	defer cancel()
 	if c.containerMaterial == nil || c.authorityEpoch == nil || registration.Generation != current.RegistrationGeneration || registration.Node != req.Node {
 		return nil, errors.New("container material authority is pending for this host")
 	}
@@ -139,6 +141,8 @@ func (c *Controller) serveContainerMaterial(ctx context.Context, req request, re
 		return nil, err
 	}
 	defer clearContainerMaterial(files)
+	ctx, materialCancel := context.WithDeadline(ctx, files.ExpiresAt)
+	defer materialCancel()
 	if err := validateContainerMaterial(files); err != nil {
 		return nil, err
 	}
@@ -176,6 +180,9 @@ func (c *Controller) serveContainerMaterial(ctx context.Context, req request, re
 	}
 	end := min(len(wire), query.Offset+query.Length)
 	reply, err := encryptHostMaterialChunk(aad, query.EphemeralPublicKey, containerMaterialDocument, query.Offset, wire[query.Offset:end], len(wire), wire)
+	if ctx.Err() != nil || !time.Now().Before(files.ExpiresAt) {
+		return nil, errors.New("container material deadline expired before encryption completed")
+	}
 	return containerMaterialReply{materialReply: reply, InventoryExpiresAt: files.ExpiresAt}, err
 }
 
