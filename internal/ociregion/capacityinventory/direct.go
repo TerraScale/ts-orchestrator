@@ -2,8 +2,10 @@ package capacityinventory
 
 import (
 	"context"
+
 	"errors"
 	"fmt"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/resourcesearch"
@@ -14,21 +16,21 @@ import (
 func directResources(ctx context.Context, compute core.ComputeClient, block core.BlockstorageClient, compartment string) ([]resourcesearch.ResourceSummary, error) {
 	var resources []resourcesearch.ResourceSummary
 	instances, instanceErr := inventoryPages(func(page *string) ([]core.Instance, *string, error) {
-		response, err := compute.ListInstances(ctx, core.ListInstancesRequest{CompartmentId: new(compartment), Page: page})
+		response, err := compute.ListInstances(ociclient.RequestContext(ctx), core.ListInstancesRequest{CompartmentId: new(compartment), Page: page})
 		return response.Items, response.OpcNextPage, err
 	})
 	for _, instance := range instances {
 		resources = append(resources, resourcesearch.ResourceSummary{Identifier: instance.Id, CompartmentId: instance.CompartmentId, ResourceType: new("Instance"), LifecycleState: new(string(instance.LifecycleState))})
 	}
 	volumes, volumeErr := inventoryPages(func(page *string) ([]core.Volume, *string, error) {
-		response, err := block.ListVolumes(ctx, core.ListVolumesRequest{CompartmentId: new(compartment), Page: page})
+		response, err := block.ListVolumes(ociclient.RequestContext(ctx), core.ListVolumesRequest{CompartmentId: new(compartment), Page: page})
 		return response.Items, response.OpcNextPage, err
 	})
 	for _, volume := range volumes {
 		resources = append(resources, resourcesearch.ResourceSummary{Identifier: volume.Id, CompartmentId: volume.CompartmentId, ResourceType: new("Volume"), LifecycleState: new(string(volume.LifecycleState))})
 	}
 	boots, bootErr := inventoryPages(func(page *string) ([]core.BootVolume, *string, error) {
-		response, err := block.ListBootVolumes(ctx, core.ListBootVolumesRequest{CompartmentId: new(compartment), Page: page})
+		response, err := block.ListBootVolumes(ociclient.RequestContext(ctx), core.ListBootVolumesRequest{CompartmentId: new(compartment), Page: page})
 		return response.Items, response.OpcNextPage, err
 	})
 	for _, boot := range boots {
@@ -70,7 +72,7 @@ func bootAttribution(ctx context.Context, compute core.ComputeClient, boot core.
 		return errors.New("boot attribution requires exact compartment and AD readback")
 	}
 	attachments, err := inventoryPages(func(page *string) ([]core.BootVolumeAttachment, *string, error) {
-		response, err := compute.ListBootVolumeAttachments(ctx, core.ListBootVolumeAttachmentsRequest{CompartmentId: boot.CompartmentId, AvailabilityDomain: boot.AvailabilityDomain, BootVolumeId: boot.Id, Page: page})
+		response, err := compute.ListBootVolumeAttachments(ociclient.RequestContext(ctx), core.ListBootVolumeAttachmentsRequest{CompartmentId: boot.CompartmentId, AvailabilityDomain: boot.AvailabilityDomain, BootVolumeId: boot.Id, Page: page})
 		return response.Items, response.OpcNextPage, err
 	})
 	if err != nil {
@@ -92,7 +94,7 @@ func bootAttribution(ctx context.Context, compute core.ComputeClient, boot core.
 	if instanceID == "" {
 		return errors.New("boot operation membership requires a retained immutable journal binding")
 	}
-	response, err := compute.GetInstance(ctx, core.GetInstanceRequest{InstanceId: new(instanceID)})
+	response, err := compute.GetInstance(ociclient.RequestContext(ctx), core.GetInstanceRequest{InstanceId: new(instanceID)})
 	if err != nil {
 		return err
 	}

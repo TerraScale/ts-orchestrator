@@ -162,19 +162,19 @@ func (r *Reader) observeJournalResource(ctx context.Context, region RegionScope,
 	var actualID, compartment *string
 	switch kind {
 	case "Instance":
-		response, err := compute.GetInstance(ctx, core.GetInstanceRequest{InstanceId: new(id)})
+		response, err := compute.GetInstance(ociclient.RequestContext(ctx), core.GetInstanceRequest{InstanceId: new(id)})
 		if err != nil {
 			return fmt.Errorf("read retained instance: %w", err)
 		}
 		actualID, compartment = response.Id, response.CompartmentId
 	case "Volume":
-		response, err := block.GetVolume(ctx, core.GetVolumeRequest{VolumeId: new(id)})
+		response, err := block.GetVolume(ociclient.RequestContext(ctx), core.GetVolumeRequest{VolumeId: new(id)})
 		if err != nil {
 			return fmt.Errorf("read retained volume: %w", err)
 		}
 		actualID, compartment = response.Id, response.CompartmentId
 	case "BootVolume":
-		response, err := block.GetBootVolume(ctx, core.GetBootVolumeRequest{BootVolumeId: new(id)})
+		response, err := block.GetBootVolume(ociclient.RequestContext(ctx), core.GetBootVolumeRequest{BootVolumeId: new(id)})
 		if err != nil {
 			return fmt.Errorf("read retained boot volume: %w", err)
 		}
