@@ -18,6 +18,7 @@ type Observation struct {
 	Leader  uint64
 	Replay  []state.Change
 	Events  <-chan events.Event
+	Closed  <-chan struct{}
 	Cancel  func()
 }
 
@@ -31,11 +32,11 @@ func (m *Manager) Observe(from *api.Version, view func(store.ReadTx) error, spec
 	if current.Lead == 0 || current.Term == 0 || !m.raftNode.IsMember() {
 		return nil, errors.New("manager observation requires current Raft membership and leader")
 	}
-	at, replay, live, cancel, err := m.raftNode.MemoryStore().Observe(from, view, specifiers...)
+	at, replay, live, closed, cancel, err := m.raftNode.MemoryStore().Observe(from, view, specifiers...)
 	if err != nil {
 		return nil, err
 	}
-	observation := &Observation{Version: at, Term: current.Term, Leader: current.Lead, Replay: replay, Events: live, Cancel: cancel}
+	observation := &Observation{Version: at, Term: current.Term, Leader: current.Lead, Replay: replay, Events: live, Closed: closed, Cancel: cancel}
 	if err := m.ValidateObservation(observation); err != nil {
 		cancel()
 		return nil, err

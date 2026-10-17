@@ -21,24 +21,24 @@ func proposeAt(proposer state.Proposer, actions []api.StoreAction, commit func(*
 // Observe captures a read-only view and live subscription at the same applied
 // Raft boundary. Replay contains every committed action after from through at;
 // historical update events have no old object and must not imply no change.
-func (s *MemoryStore) Observe(from *api.Version, view func(ReadTx) error, specifiers ...api.Event) (at api.Version, replay []state.Change, live chan events.Event, cancel func(), err error) {
+func (s *MemoryStore) Observe(from *api.Version, view func(ReadTx) error, specifiers ...api.Event) (at api.Version, replay []state.Change, live chan events.Event, closed <-chan struct{}, cancel func(), err error) {
 	s.updateLock.Lock()
 	if s.appliedVersion == nil || s.proposer == nil {
 		s.updateLock.Unlock()
-		return at, nil, nil, nil, errors.New("applied Raft observation version unavailable")
+		return at, nil, nil, nil, nil, errors.New("applied Raft observation version unavailable")
 	}
 	at = *s.appliedVersion
 	if from != nil && from.Index > at.Index {
 		s.updateLock.Unlock()
-		return at, nil, nil, nil, errors.New("observation resume version is ahead of applied state")
+		return at, nil, nil, nil, nil, errors.New("observation resume version is ahead of applied state")
 	}
 	s.View(func(tx ReadTx) { err = view(tx) })
 	if err == nil {
-		live, cancel = s.queue.CallbackWatchBounded(state.Matcher(specifiers...))
+		live, cancel, closed = s.queue.CallbackWatchBounded(state.Matcher(specifiers...))
 	}
 	s.updateLock.Unlock()
 	if err != nil {
-		return at, nil, nil, nil, err
+		return at, nil, nil, nil, nil, err
 	}
 	if from != nil {
 		if history, ok := s.proposer.(interface {
@@ -50,8 +50,8 @@ func (s *MemoryStore) Observe(from *api.Version, view func(ReadTx) error, specif
 		}
 		if err != nil {
 			cancel()
-			return at, nil, nil, nil, err
+			return at, nil, nil, nil, nil, err
 		}
 	}
-	return at, replay, live, cancel, nil
+	return at, replay, live, closed, cancel, nil
 }
