@@ -19,8 +19,10 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/functionmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
@@ -28,6 +30,7 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -232,7 +235,43 @@ func (producer *rootMaterialAdmission) functionSource(ctx context.Context, call 
 		Material: functionmaterial.Controller{Reader: functionmaterial.Reader{Authority: config.Mutations, Artifacts: config.Delivery.Artifacts(), Roots: config.Specs.roots.current,
 			Accounts: accounts, Trust: public}},
 		Evidence: func(ctx context.Context, digest string) (io.ReadCloser, error) {
-			return config.Evidence(ctx, swarmruntime.FunctionWorkerRole, digest)
+			// Task guards reverify this evidence, so retain the source guard without recursing.
+			guard := func(checkCtx context.Context) error {
+				if err := checkCtx.Err(); err != nil {
+					return err
+				}
+				return admitted.sourceGuard(ctx)
+			}
+			if err := guard(ctx); err != nil {
+				return nil, err
+			}
+			client, err := producer.factory.ObjectStorage()
+			if err != nil {
+				return nil, err
+			}
+			client.HTTPClient = nativeCanaryDispatcher{next: client.HTTPClient, guard: guard}
+			readCtx := ociclient.WithRequestGuard(ctx, guard)
+			namespace, err := client.GetNamespace(readCtx, objectstorage.GetNamespaceRequest{})
+			if err != nil || namespace.Value == nil || *namespace.Value == "" {
+				return nil, errors.Join(rootoci.ErrUnauthorized, err)
+			}
+			bucket, err := releasechannel.BucketName(accepted.Cell)
+			if err != nil {
+				return nil, err
+			}
+			location := releasechannel.Location{Client: client, Namespace: *namespace.Value, Bucket: bucket}
+			if err := guard(readCtx); err != nil {
+				return nil, err
+			}
+			evidence, err := releasechannel.ReadContainerEvidence(readCtx, location, swarmruntime.FunctionWorkerRole, digest)
+			if err != nil {
+				return nil, err
+			}
+			if err := guard(readCtx); err != nil {
+				_ = evidence.Close()
+				return nil, err
+			}
+			return evidence, nil
 		}}
 	admitted.store = functionmaterial.RootStore{Reader: admitted.controller.config.Material.Reader,
 		Vault: management, Versions: management, Bundles: bundles,
