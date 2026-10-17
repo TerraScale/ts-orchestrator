@@ -128,7 +128,14 @@ func SignLinkDelivery(recipient LinkRecipient, payload []byte, key ed25519.Priva
 	if err != nil {
 		return nil, err
 	}
-	return trust.EncodeEnvelope(envelope)
+	wire, err := trust.EncodeEnvelope(envelope)
+	if err != nil {
+		return nil, err
+	}
+	if recipient.regional.template.currentLifetimeError() != nil || recipient.home.template.currentLifetimeError() != nil || !time.Now().Before(recipient.ExpiresAt()) {
+		return nil, ErrManifestInvalid
+	}
+	return wire, nil
 }
 
 // VerifyLinkDelivery rechecks both source registrations before trusting the

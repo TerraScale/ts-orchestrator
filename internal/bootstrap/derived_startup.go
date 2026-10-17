@@ -407,7 +407,14 @@ func SignDerivedReceipt(authority DerivedStartupAuthority, facts InstanceFacts, 
 	if !bytes.Equal(key.Public().(ed25519.PublicKey), wantKey) {
 		return trust.Envelope{}, ErrReceiptInvalid
 	}
-	return signReceipt(receipt, derivedReceiptDomain(seed), issuedAt, expiresAt, key)
+	envelope, err := signReceipt(receipt, derivedReceiptDomain(seed), issuedAt, expiresAt, key)
+	if err != nil {
+		return trust.Envelope{}, err
+	}
+	if authority.template.currentLifetimeError() != nil || !time.Now().Before(authority.ExpiresAt()) {
+		return trust.Envelope{}, ErrReceiptInvalid
+	}
+	return envelope, nil
 }
 
 func verifyDerivedReceipt(envelope trust.Envelope, authority DerivedStartupAuthority, facts InstanceFacts, seed bool, now time.Time, policy trust.Policy) (VerifiedReceipt, error) {
