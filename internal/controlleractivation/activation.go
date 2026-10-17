@@ -5,6 +5,7 @@ package controlleractivation
 import (
 	"context"
 	"errors"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/manager"
@@ -20,6 +21,13 @@ func (admitted *Admission) Activate(ctx context.Context, nodeID string, expected
 		return nil, err
 	}
 	defer cancel()
+	original := ctx
+	ctx = ociclient.WithRequestGuard(ctx, func(check context.Context) error {
+		if err := ociclient.CheckRequestGuard(original); err != nil {
+			return err
+		}
+		return admitted.guard(check)
+	})
 	updated, err := admitted.node.ActivateControllerNode(ctx, nodeID, expectedVersion, admitted.lease.Epoch())
 	if err != nil {
 		return nil, err

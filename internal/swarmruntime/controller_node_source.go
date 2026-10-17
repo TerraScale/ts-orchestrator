@@ -290,30 +290,6 @@ func (admitted *controllerActivationAdmission) constraints(operation string, tar
 	return manager.ControllerNodeConstraints{Operation: operation, LeaseEpoch: admitted.origin.LeaseEpoch(), RaftTerm: admitted.local.observation.Term, RaftLeader: admitted.local.observation.Leader, TargetSHA256: targetHash, SourceSHA256: hex.EncodeToString(digest[:])}, nil
 }
 
-func (n *Node) controllerNodeConstraints(ctx context.Context, operation string, expected *api.Node, epoch uint64) (manager.ControllerNodeConstraints, error) {
-	if n == nil || expected == nil || epoch == 0 {
-		return manager.ControllerNodeConstraints{}, ErrControllerActivationPending
-	}
-	source := n.controllerSources.Load()
-	if source == nil {
-		return manager.ControllerNodeConstraints{}, ErrControllerActivationPending
-	}
-	ctx, cancel, err := source.operationContext(ctx)
-	if err != nil {
-		return manager.ControllerNodeConstraints{}, err
-	}
-	defer cancel()
-	admitted, target, err := source.read(ctx, n.ID(), expected.ID, operation == manager.ControllerNodeActivate)
-	if err != nil {
-		return manager.ControllerNodeConstraints{}, err
-	}
-	defer admitted.release()
-	if admitted.origin.LeaseEpoch() != epoch || !proto.Equal(target, expected) {
-		return manager.ControllerNodeConstraints{}, ErrControllerActivationPending
-	}
-	return admitted.constraints(operation, target)
-}
-
 func (source *controllerNodeSource) UpdateControllerNode(ctx context.Context, origin string, request *api.UpdateNodeRequest) (*api.UpdateNodeResponse, error) {
 	ctx, cancelSource, err := source.operationContext(ctx)
 	if err != nil {
@@ -426,6 +402,7 @@ func (n *Node) ActivateControllerNode(ctx context.Context, nodeID string, expect
 	stop := context.AfterFunc(admitted.original, cancel)
 	defer cancel()
 	defer stop()
+	ctx = admitted.requestContext(ctx)
 	ctx, err = manager.WithControllerNodeConstraints(ctx, constraints)
 	if err != nil {
 		return nil, err
@@ -436,6 +413,9 @@ func (n *Node) ActivateControllerNode(ctx context.Context, nodeID string, expect
 	}
 	spec := target.Spec.Copy()
 	spec.Availability = api.NodeAvailabilityActive
+	if err := ociclient.CheckRequestGuard(ctx); err != nil {
+		return nil, err
+	}
 	response, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: nodeID, NodeVersion: target.Meta.Version.Copy(), Spec: spec})
 	if err != nil {
 		return nil, errors.Join(manager.ErrMutationAmbiguous, err)
