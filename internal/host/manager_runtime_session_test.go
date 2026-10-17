@@ -222,3 +222,71 @@ func TestManagerRuntimeSessionRejectsShortenedCurrentExpiry(t *testing.T) {
 		t.Fatal("shorter current source cannot be freshly observed:", err)
 	}
 }
+
+func TestManagerRuntimeSessionSourceExpiryIsIndependentOfOperationDeadline(t *testing.T) {
+	c, _, _, _, _ := testController(t)
+	key := registerTestHost(t, c)
+	id := entityid.New()
+	acquire := signedHostRequest(t, key, "session", id, 0, sessionOperation{Kind: "acquire"})
+	if _, err := c.handleSession(t.Context(), acquire); err != nil {
+		t.Fatal(err)
+	}
+	original, _, _, err := c.sessionSnapshot(t.Context(), sessionKey("gru", "node-a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	operationDeadline, _ := ctx.Deadline()
+	reader := &Reader{controller: c}
+	held, err := reader.ReadManagerRuntimeSession(ctx, "node-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !held.ExpiresAt().Equal(operationDeadline) || !held.SessionSourceExpiresAt().Equal(original.ExpiresAt) ||
+		!held.ExpiresAt().Before(held.SessionSourceExpiresAt()) {
+		t.Fatal("source expiry followed the shorter operation deadline")
+	}
+	renew := signedHostRequest(t, key, "session", id, original.Epoch, sessionOperation{Kind: "renew"})
+	if _, err := c.handleSession(ctx, renew); err != nil {
+		t.Fatal(err)
+	}
+	if err := held.Revalidate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !held.SessionSourceExpiresAt().Equal(original.ExpiresAt) || !held.ExpiresAt().Equal(operationDeadline) {
+		t.Fatal("held source adopted a later session renewal")
+	}
+	current, revision, _, err := c.sessionSnapshot(ctx, sessionKey("gru", "node-a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !current.ExpiresAt.After(held.SessionSourceExpiresAt()) {
+		t.Fatal("renewal did not advance actual stored expiry")
+	}
+	current.ExpiresAt = operationDeadline.Add(5 * time.Second)
+	if !current.ExpiresAt.After(held.ExpiresAt()) || !current.ExpiresAt.Before(held.SessionSourceExpiresAt()) {
+		t.Fatal("fixture did not shorten the source above the operation deadline")
+	}
+	if _, err := c.cas(ctx, sessionKey("gru", "node-a"), current, revision); err != nil {
+		t.Fatal(err)
+	}
+	if held.Revalidate(context.Background()) == nil {
+		t.Fatal("held raw source survived shortening above operation cap")
+	}
+	fresh, err := reader.ReadManagerRuntimeSession(ctx, "node-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fresh.SessionSourceExpiresAt().Equal(current.ExpiresAt) || !fresh.ExpiresAt().Equal(operationDeadline) {
+		t.Fatal("fresh source did not retain its own exact stored expiry")
+	}
+	cancel()
+	if fresh.Revalidate(context.Background()) == nil {
+		t.Fatal("raw source getter revived cancelled original observation")
+	}
+	var zero ManagerRuntimeSession
+	if !zero.SessionSourceExpiresAt().IsZero() || zero.Revalidate(context.Background()) == nil {
+		t.Fatal("zero source snapshot qualified")
+	}
+}
