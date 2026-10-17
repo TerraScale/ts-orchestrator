@@ -221,10 +221,6 @@ func (producer *rootMaterialAdmission) readers(ctx context.Context, call rootoci
 	if err != nil {
 		return fail(err)
 	}
-	registrations, err := host.NewReader(ctx, host.ReaderConfig{Cell: cfg.NATS.Cell, Conn: conn, JS: js, StateReplicas: cfg.NATS.Replicas, HostMutations: mutations})
-	if err != nil {
-		return fail(err)
-	}
 	launch, err := bootstrapstart.LoadAcceptedHostLaunchMaterial(accepted)
 	if err != nil {
 		return fail(err)
@@ -238,9 +234,9 @@ func (producer *rootMaterialAdmission) readers(ctx context.Context, call rootoci
 		return fail(rootoci.ErrUnauthorized)
 	}
 	channel := instancePrincipalChannel(producer.factory.Region(), strings.ToUpper(cfg.NATS.Cell))
-	controller := &containerMaterialController{config: containerMaterialConfig{Factory: producer.factory, Hosts: registrations, Client: client,
+	controller := &containerMaterialController{config: containerMaterialConfig{Factory: producer.factory, Client: client,
 		credentialSource: credentials, credentialContext: ctx,
-		Specs: services, Delivery: service, Founders: reader, Accepted: accepted, JS: js, Mutations: mutations, Registrations: registrations, ResponsePublic: public,
+		Specs: services, Delivery: service, Founders: reader, Accepted: accepted, JS: js, Mutations: mutations, ResponsePublic: public,
 		Evidence: func(ctx context.Context, role, digest string) (io.ReadCloser, error) {
 			location, err := channel.get(ctx)
 			if err != nil {
@@ -251,6 +247,16 @@ func (producer *rootMaterialAdmission) readers(ctx context.Context, call rootoci
 	if delegated := policy.release.Load(); delegated != nil {
 		controller.config.releaseDeadline = delegated.expires
 	}
+	floor, err := producer.credentialFloor(ctx, call, cfg, controller.config)
+	if err != nil {
+		return fail(err)
+	}
+	registrations, err := host.NewReader(ctx, host.ReaderConfig{Cell: cfg.NATS.Cell, Conn: conn, JS: js, StateReplicas: cfg.NATS.Replicas,
+		HostMutations: mutations, ManagedCredentialFloor: floor})
+	if err != nil {
+		return fail(err)
+	}
+	controller.config.Hosts, controller.config.Registrations = registrations, registrations
 	sources := containermaterial.CurrentTaskSources{Client: client, JS: js, Delivery: service, Mutations: mutations,
 		Genesis: services.roots.genesis, RootIdentity: services.roots.identity, RootHead: services.roots.reply("").Head, ResponsePublic: public, Credentials: credentials}
 	if call.Guard(ctx) != nil || credentials.Guard(ctx) != nil || call.Guard(ctx) != nil {
