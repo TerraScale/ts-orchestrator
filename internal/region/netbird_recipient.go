@@ -23,6 +23,7 @@ type VerifiedNetBirdManagerRecipient struct {
 	expires, authorityExpires                                           time.Time
 	check                                                               func(context.Context) error
 	journal                                                             NetBirdManagerJournalExpectation
+	original                                                            context.Context
 }
 
 // NetBirdManagerJournalExpectation describes independently authenticated launch
@@ -56,6 +57,16 @@ func (v VerifiedNetBirdManagerRecipient) ExpiresAt() time.Time            { retu
 // AuthorityExpiresAt binds the shared signed snapshot; local effects must
 // still honor ExpiresAt and Check, including the original caller cancellation.
 func (v VerifiedNetBirdManagerRecipient) AuthorityExpiresAt() time.Time { return v.authorityExpires }
+
+// CheckOriginal seals the retained caller and first cap without another read.
+// Source currentness still requires the independent full Check.
+func (v VerifiedNetBirdManagerRecipient) CheckOriginal() error {
+	if !v.IsVerified() || v.original == nil || v.expires.IsZero() {
+		return errors.New("remote NetBird manager original recipient is absent")
+	}
+	return checkNetBirdManagerDeadline(v.original, v.expires)
+}
+
 func (v VerifiedNetBirdManagerRecipient) Check(ctx context.Context) error {
 	if !v.IsVerified() || !time.Now().Before(v.expires) {
 		return errors.New("remote NetBird manager recipient is absent or expired")
@@ -143,7 +154,7 @@ func retainNetBirdRecipient(originalContext context.Context, original netBirdRec
 	}
 	proof := VerifiedNetBirdManagerRecipient{installationID: original.installationID, grantDigest: original.grantDigest,
 		instanceID: original.launch.InstanceID, privateIP: original.privateIP, storeGeneration: original.storeGeneration,
-		target: original.target, expires: expires, authorityExpires: original.expires, journal: original.journal}
+		target: original.target, expires: expires, authorityExpires: original.expires, journal: original.journal, original: originalContext}
 	proof.check = func(ctx context.Context) error {
 		if err := originalContext.Err(); err != nil {
 			return err
