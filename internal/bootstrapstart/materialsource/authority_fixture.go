@@ -1,3 +1,5 @@
+//go:build fixturetest
+
 package materialsource
 
 import (
@@ -22,6 +24,11 @@ import (
 )
 
 func sourceImageRecipe(t *testing.T, root ed25519.PrivateKey, roots trust.Keyring, now time.Time, config bootstrapmaterial.Config, ids map[string]any, initialIntent []byte) (bootstrap.StartupTemplate, release.ImageReceipt) {
+	t.Helper()
+	return sourceImageRecipeForDerivation(t, root, roots, now, config, ids, initialIntent, bootstrap.ControllerConfigDerivationV1)
+}
+
+func sourceImageRecipeForDerivation(t *testing.T, root ed25519.PrivateKey, roots trust.Keyring, now time.Time, config bootstrapmaterial.Config, ids map[string]any, initialIntent []byte, derivation string) (bootstrap.StartupTemplate, release.ImageReceipt) {
 	t.Helper()
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -93,7 +100,7 @@ func sourceImageRecipe(t *testing.T, root ed25519.PrivateKey, roots trust.Keyrin
 	if err != nil {
 		t.Fatal(err)
 	}
-	template := bootstrap.StartupTemplate{SeedSlot: config.Slots[0].Name, ImageOCID: receipt.OCIImageOCID, ImageArchitecture: "linux-" + runtime.GOARCH, ReleaseImageReceiptWire: imageWire, ReleaseDelegationWire: delegationWire, TrustedSigners: signers, ControllerConfigDerivation: bootstrap.ControllerConfigDerivationV1}
+	template := bootstrap.StartupTemplate{SeedSlot: config.Slots[0].Name, ImageOCID: receipt.OCIImageOCID, ImageArchitecture: "linux-" + runtime.GOARCH, ReleaseImageReceiptWire: imageWire, ReleaseDelegationWire: delegationWire, TrustedSigners: signers, ControllerConfigDerivation: derivation}
 	template.FounderResources = &bootstrap.StartupFounderResources{LaunchDeadline: now.Add(15 * time.Minute)}
 	for index, slot := range config.Slots {
 		template.FounderResources.Slots = append(template.FounderResources.Slots, bootstrap.StartupSlotResources{Slot: slot.Name, ImageCompartmentOCID: ids["control_compartment"].(string), WholeOCPUs: 1, MemoryInGB: 8, BootVolumeGB: 50, BootVolumeTier: bootstrap.FounderBootVolumeTierBalanced})

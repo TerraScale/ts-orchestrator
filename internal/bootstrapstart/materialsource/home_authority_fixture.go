@@ -34,9 +34,8 @@ import (
 )
 
 // This extends the real generation/publication fixture across a signed SFO
-// anchor and a public-only SDK endpoint. Config markers exercise proof binding;
-// house-rendered controller startup remains the app/CLI scenario's contract.
-func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, material VerifiedColdStartMaterial, link *LinkSource, home bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, root ed25519.PrivateKey, server *materialProtocol, now time.Time) bootstrap.VerifiedBootstrapAnchor {
+// anchor and a public-only SDK endpoint. The app boundary supplies its renderer.
+func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, material VerifiedColdStartMaterial, link *LinkSource, home bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, root ed25519.PrivateKey, server *materialProtocol, now time.Time, render func(bootstrap.Manifest, bootstrapmaterial.Record, bootstrapmaterial.LinkRecord, []byte, time.Time) (bootstrap.Manifest, error)) bootstrap.VerifiedBootstrapAnchor {
 	t.Helper()
 	grantWire := material.Grant().FoundationGrantWire()
 	template, err := bootstrap.VerifyStartupTemplate(grantWire, roots, home, now)
@@ -57,7 +56,16 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 	}
 	configs := make(map[string][]byte)
 	for _, slot := range home.Anchor().ControllerSlots {
-		configs[slot], err = json.Marshal(map[string]any{"nats": map[string]any{}, "controller": map[string]string{"cell": "gru", "slot": slot}})
+		if render == nil {
+			configs[slot], err = json.Marshal(map[string]any{"nats": map[string]any{}, "controller": map[string]string{"cell": "gru", "slot": slot}})
+		} else {
+			manifest, manifestErr := template.ManifestFor(slot, projection.Manifest().Secrets)
+			if manifestErr != nil {
+				t.Fatal(manifestErr)
+			}
+			manifest, err = render(manifest, material.Record(), link.record, template.Template().TrustedSigners, now)
+			configs[slot] = bytes.Clone(manifest.ControllerConfig)
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
