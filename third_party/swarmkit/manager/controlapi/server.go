@@ -25,6 +25,10 @@ type Server struct {
 	// NetworkHooks intercept and mutate API server responses for GetNetwork
 	// and ListNetworks API requests when set.
 	NetworkHooks NetworkViewResponseMutator
+
+	// ControllerNodeSource reconstructs signed authority for constrained native
+	// node requests. Manager.Run always supplies its single-install holder.
+	ControllerNodeSource ControllerNodeSource
 }
 
 // NewServer creates a Cluster API server.

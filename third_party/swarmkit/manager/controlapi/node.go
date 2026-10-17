@@ -201,11 +201,15 @@ func (s *Server) ListNodes(_ context.Context, request *api.ListNodesRequest) (*a
 // - Returns `InvalidArgument` if the NodeSpec is malformed.
 // - Returns an error if the update fails.
 func (s *Server) UpdateNode(ctx context.Context, request *api.UpdateNodeRequest) (*api.UpdateNodeResponse, error) {
-	if request.NodeID == "" || request.NodeVersion == nil {
+	if request == nil || request.NodeID == "" || request.NodeVersion == nil {
 		return nil, status.Error(codes.InvalidArgument, errInvalidArgument.Error())
 	}
 	if err := validateNodeSpec(request.Spec); err != nil {
 		return nil, err
+	}
+	_, observed := ctx.Value(nodeObservationKey{}).(nodeObservation)
+	if !observed && controllerNodeTagged(ctx) {
+		return s.dispatchControllerNodeUpdate(ctx, request)
 	}
 
 	var (
@@ -217,6 +221,9 @@ func (s *Server) UpdateNode(ctx context.Context, request *api.UpdateNodeRequest)
 		node = store.GetNode(tx, request.NodeID)
 		if node == nil {
 			return status.Errorf(codes.NotFound, "node %s not found", request.NodeID)
+		}
+		if !observed && s.ControllerNodeSource != nil && controllerNodeUnobservedUpdate(node, request.Spec) {
+			return status.Error(codes.PermissionDenied, "controller node change requires independently admitted source")
 		}
 
 		// Demotion sanity checks.
@@ -292,14 +299,21 @@ func orphanNodeTasks(tx store.Tx, nodeID string) error {
 // - Returns InvalidArgument if NodeID or NodeVersion is not valid.
 // - Returns an error if the delete fails.
 func (s *Server) RemoveNode(ctx context.Context, request *api.RemoveNodeRequest) (*api.RemoveNodeResponse, error) {
-	if request.NodeID == "" {
+	if request == nil || request.NodeID == "" {
 		return nil, status.Error(codes.InvalidArgument, errInvalidArgument.Error())
+	}
+	_, observed := ctx.Value(nodeObservationKey{}).(nodeObservation)
+	if !observed && controllerNodeTagged(ctx) {
+		return s.dispatchControllerNodeRemoval(ctx, request)
 	}
 
 	err := s.updateObservedNode(ctx, func(tx store.Tx) error {
 		node := store.GetNode(tx, request.NodeID)
 		if node == nil {
 			return status.Errorf(codes.NotFound, "node %s not found", request.NodeID)
+		}
+		if !observed && s.ControllerNodeSource != nil && controllerNodeManaged(node) {
+			return status.Error(codes.PermissionDenied, "controller manager removal requires independently admitted source")
 		}
 		if node.Spec.DesiredRole == api.NodeRoleManager {
 			if s.raft == nil {

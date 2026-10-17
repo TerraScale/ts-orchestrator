@@ -12267,7 +12267,11 @@ func (p *raftProxyControlServer) UpdateNode(ctx context.Context, r *UpdateNodeRe
 		conn, err := p.pollNewLeaderConn(ctx)
 		if err != nil {
 			if err == raftselector.ErrIsLeader {
-				return p.local.UpdateNode(ctx, r)
+				localCtx, localErr := p.runCtxMods(ctx, p.localCtxMods)
+				if localErr != nil {
+					return nil, localErr
+				}
+				return p.local.UpdateNode(localCtx, r)
 			}
 			return nil, err
 		}
@@ -12302,7 +12306,11 @@ func (p *raftProxyControlServer) RemoveNode(ctx context.Context, r *RemoveNodeRe
 		conn, err := p.pollNewLeaderConn(ctx)
 		if err != nil {
 			if err == raftselector.ErrIsLeader {
-				return p.local.RemoveNode(ctx, r)
+				localCtx, localErr := p.runCtxMods(ctx, p.localCtxMods)
+				if localErr != nil {
+					return nil, localErr
+				}
+				return p.local.RemoveNode(localCtx, r)
 			}
 			return nil, err
 		}

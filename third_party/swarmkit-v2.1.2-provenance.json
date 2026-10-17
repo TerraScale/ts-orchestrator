@@ -2597,7 +2597,7 @@
     "files": [
       {
         "path": "manager/controlapi/node.go",
-        "sha256": "d4fd2d8d3160ae13979c69386d7181dca4edf52cee0e6ca5a26a65b85d8c5976"
+        "sha256": "4e5cdaebd84234a5367dc6cfaeb792b90f40eb3c0f6aa88a10e29e7a713f1e47"
       },
       {
         "path": "manager/controlapi/node_observation.go",
@@ -2622,6 +2622,39 @@
       {
         "path": "manager/state/store/observation.go",
         "sha256": "c4e9d22c2bf37a133809044c22216dc2c207975e93ddc41e71c5fd973db25bb9"
+      }
+    ]
+  },
+  "local_controller_node_forwarding_patch": {
+    "purpose": "Existing native UpdateNode/RemoveNode carry finite narrowing constraints and original deadline; the actual leader dispatches only to its single-installed signed source and authenticates original manager identity using native TLS. Raw controller ACTIVE/demotion/removal remains denied; initial identity attachment and worker membership retain their existing path. Reconnect local fallback reapplies native identity context. No RPC or authority is added by metadata.",
+    "files": [
+      {
+        "path": "api/control.pb.go",
+        "sha256": "ee6f43c982f3cc72aff096f4844e764f7ac3b7ad1137b503ca670ee0d1a36f3d"
+      },
+      {
+        "path": "manager/controller_node.go",
+        "sha256": "ea8c8ba9953a69da35e6917ff8bef2b60667f49d83d7527d2097eda4e7efdf49"
+      },
+      {
+        "path": "manager/controlapi/controller_node.go",
+        "sha256": "6ba519eadf7cc5a290311100290d426bef1ba77caafb7d9ea0929d349bfac6cd"
+      },
+      {
+        "path": "manager/controlapi/controller_node_test.go",
+        "sha256": "622f3f1bc21f5bb2e2f29c6020671e03eef8077a9f01af35b2c4ae816b647b8f"
+      },
+      {
+        "path": "manager/controlapi/node.go",
+        "sha256": "4e5cdaebd84234a5367dc6cfaeb792b90f40eb3c0f6aa88a10e29e7a713f1e47"
+      },
+      {
+        "path": "manager/controlapi/server.go",
+        "sha256": "937ebd4bb3cc668de6f28773b811ce06831067d0896402112f5dded6b3dfd475"
+      },
+      {
+        "path": "manager/manager.go",
+        "sha256": "324f802e3332352cfdc8510d1b97a5f96e0567ab3f9e311ab953431d4c058b38"
       }
     ]
   }
