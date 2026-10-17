@@ -29,15 +29,47 @@ type NetBirdBrokerSource struct {
 	objects   bootstrap.ObjectStorageClient
 	record    bootstrapmaterial.Record
 	endpoints []NetBirdBrokerEndpoint
+	expires   time.Time
 }
 
 func (s NetBirdBrokerSource) Source() bootstrap.VerifiedRegionalSource   { return s.source }
 func (s NetBirdBrokerSource) Startup() bootstrap.DerivedStartupAuthority { return s.startup }
 func (s NetBirdBrokerSource) Resolver() region.FoundationResolver        { return s.resolver }
+
+// ExpiresAt is the shortest retained original and authenticated source lifetime.
+func (s NetBirdBrokerSource) ExpiresAt() time.Time {
+	if s.snapshot == nil {
+		return time.Time{}
+	}
+	deadline := minDeadline(s.expires, minDeadline(s.snapshot.ExpiresAt(), minDeadline(s.snapshot.Anchor().ExpiresAt(), minDeadline(s.source.ExpiresAt(), s.startup.ExpiresAt()))))
+	if until, ok := s.snapshot.Context().Deadline(); ok {
+		deadline = minDeadline(deadline, until)
+	}
+	return deadline
+}
+
+func netBirdReadContext(ctx, original context.Context, deadline time.Time) (context.Context, context.CancelFunc) {
+	if until, ok := original.Deadline(); ok {
+		deadline = minDeadline(deadline, until)
+	}
+	ctx, cancel := context.WithDeadline(ctx, deadline)
+	stop := context.AfterFunc(original, cancel)
+	if original.Err() != nil {
+		cancel()
+	}
+	return ctx, func() { stop(); cancel() }
+}
+
+func (s NetBirdBrokerSource) readContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return netBirdReadContext(ctx, s.snapshot.Context(), minDeadline(s.ExpiresAt(), time.Now().Add(30*time.Second)))
+}
+
 func (s NetBirdBrokerSource) Guard(ctx context.Context) error {
 	if ctx == nil || ctx.Err() != nil || s.snapshot == nil || !s.source.IsVerified() || !s.startup.IsVerified() {
 		return ErrDelivery
 	}
+	ctx, cancel := s.readContext(ctx)
+	defer cancel()
 	if err := s.snapshot.Guard(ctx); err != nil {
 		return ErrDelivery
 	}
@@ -59,16 +91,31 @@ func (s NetBirdBrokerSource) Guard(ctx context.Context) error {
 // LoadNetBirdBrokerSource uses fixed authenticated HOME discovery and one signed
 // regional slot. An empty slot selects the source's original seed slot.
 func LoadNetBirdBrokerSource(ctx context.Context, factory *ociclient.Factory, cell, slot string) (NetBirdBrokerSource, error) {
+	if ctx == nil {
+		return NetBirdBrokerSource{}, ErrDelivery
+	}
+	readCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return LoadNetBirdBrokerSourceForOperation(readCtx, ctx, factory, cell, slot)
+}
+
+// LoadNetBirdBrokerSourceForOperation retains the original lifecycle while all
+// discovery reads use the caller's independently bounded operation context.
+func LoadNetBirdBrokerSourceForOperation(ctx, originalCtx context.Context, factory *ociclient.Factory, cell, slot string) (NetBirdBrokerSource, error) {
 	var result NetBirdBrokerSource
-	if factory == nil || ctx == nil || ctx.Err() != nil || cell != strings.ToUpper(cell) {
+	if factory == nil || ctx == nil || originalCtx == nil || ctx.Err() != nil || originalCtx.Err() != nil || cell != strings.ToUpper(cell) {
 		return result, ErrDelivery
 	}
-	snapshot, err := region.DiscoverCurrentFoundationSnapshot(ctx, factory)
+	ctx, cancelOriginal := netBirdReadContext(ctx, originalCtx, time.Now().Add(30*time.Second))
+	defer cancelOriginal()
+	snapshot, err := region.DiscoverCurrentFoundationSnapshotForOperation(ctx, originalCtx, factory)
 	if err != nil {
 		return result, ErrDelivery
 	}
 	result.snapshot = snapshot
 	result.resolver = snapshot.Resolver()
+	ctx, cancelSnapshot := context.WithDeadline(ctx, minDeadline(snapshot.ExpiresAt(), snapshot.Anchor().ExpiresAt()))
+	defer cancelSnapshot()
 	documents := snapshot.Documents()
 	anchor := snapshot.Anchor()
 	home, err := anchor.FoundationScope()
@@ -79,10 +126,15 @@ func LoadNetBirdBrokerSource(ctx context.Context, factory *ociclient.Factory, ce
 	if err != nil || !bytes.Equal(material.FoundationGrantWire(), documents.GrantWire) {
 		return result, ErrDelivery
 	}
+	ctx, cancelMaterial := context.WithDeadline(ctx, material.ExpiresAt())
+	defer cancelMaterial()
 	template, err := bootstrap.VerifyBoundRegionalStartupTemplate(ctx, factory, documents.GrantWire, snapshot.Roots(), anchor, oci.Region(cell), time.Now().UTC())
 	if err != nil || template.Template().ControllerConfigDerivation != bootstrap.ControllerConfigDerivationV2 {
 		return result, ErrDelivery
 	}
+	ctx, cancelTemplate := context.WithDeadline(ctx, template.ExpiresAt())
+	defer cancelTemplate()
+	result.expires = minDeadline(material.ExpiresAt(), template.ExpiresAt())
 	homeFactory, err := factory.ForRegion(home.OCIRegion)
 	if err != nil {
 		return result, ErrDelivery
@@ -96,6 +148,8 @@ func LoadNetBirdBrokerSource(ctx context.Context, factory *ociclient.Factory, ce
 	if err != nil {
 		return result, ErrDelivery
 	}
+	ctx, cancelSource := context.WithDeadline(ctx, result.source.ExpiresAt())
+	defer cancelSource()
 	if slot == "" {
 		slot = template.Template().SeedSlot
 	}
@@ -104,6 +158,8 @@ func LoadNetBirdBrokerSource(ctx context.Context, factory *ociclient.Factory, ce
 		json.Unmarshal(result.source.MaterialRecord(), &result.record, json.RejectUnknownMembers(true)) != nil {
 		return NetBirdBrokerSource{}, ErrDelivery
 	}
+	ctx, cancelStartup := context.WithDeadline(ctx, result.startup.ExpiresAt())
+	defer cancelStartup()
 	for _, controller := range result.source.Manifest().ControllerSlots {
 		ip, err := netbird.BrokerRoute(ctx, netBirdControllerPeerName(cell, controller))
 		if err != nil {
@@ -120,11 +176,21 @@ func LoadNetBirdBrokerSource(ctx context.Context, factory *ociclient.Factory, ce
 // ForStartupSlot authenticates another original slot under this same frozen
 // snapshot, template and source. The slot string conveys no authority.
 func (s NetBirdBrokerSource) ForStartupSlot(ctx context.Context, slot string) (NetBirdBrokerSource, error) {
-	if s.Guard(ctx) != nil || s.objects == nil {
+	if ctx == nil || s.snapshot == nil || s.objects == nil {
+		return NetBirdBrokerSource{}, ErrDelivery
+	}
+	ctx, cancel := s.readContext(ctx)
+	defer cancel()
+	if s.Guard(ctx) != nil {
 		return NetBirdBrokerSource{}, ErrDelivery
 	}
 	startup, err := bootstrap.LoadDerivedStartupAuthority(ctx, s.source.Template(), s.objects, slot, time.Now().UTC())
-	if err != nil || startup.TemplateDigest() != s.startup.TemplateDigest() || startup.AnchorDigest() != s.startup.AnchorDigest() ||
+	if err != nil {
+		return NetBirdBrokerSource{}, ErrDelivery
+	}
+	ctx, cancelStartup := context.WithDeadline(ctx, startup.ExpiresAt())
+	defer cancelStartup()
+	if startup.TemplateDigest() != s.startup.TemplateDigest() || startup.AnchorDigest() != s.startup.AnchorDigest() ||
 		startup.SourceSHA256() != s.startup.SourceSHA256() || startup.MaterialSHA256() != s.startup.MaterialSHA256() ||
 		!bytes.Equal(startup.MaterialRecord(), s.source.MaterialRecord()) || s.Guard(ctx) != nil {
 		return NetBirdBrokerSource{}, ErrDelivery

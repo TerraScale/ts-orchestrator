@@ -1,6 +1,7 @@
 package natscell
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 // performs the same TLS-first handshake on every initial/reconnect attempt;
 // nats.go then runs its native JWT authentication over the established socket.
 type tlsFirstDialer struct {
+	ctx     context.Context
 	config  *tls.Config
 	timeout time.Duration
 	forward map[string]string
@@ -45,6 +47,15 @@ func (d *tlsFirstDialer) Dial(network, address string) (net.Conn, error) {
 		destination = mapped
 		config = config.Clone()
 		config.ServerName = host
+	}
+	if d.ctx != nil {
+		dialer := tls.Dialer{NetDialer: &net.Dialer{Timeout: d.timeout}, Config: config}
+		conn, err := dialer.DialContext(d.ctx, network, destination)
+		if err != nil {
+			return nil, err
+		}
+		context.AfterFunc(d.ctx, func() { conn.Close() })
+		return conn, nil
 	}
 	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: d.timeout}, network, destination, config)
 	if err != nil {

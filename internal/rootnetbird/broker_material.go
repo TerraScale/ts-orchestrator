@@ -51,6 +51,18 @@ func (b *Backend) ReconcileManagerReader(ctx context.Context, sourceGuard func(c
 		return previous.guard(ctx)
 	}
 	original := ctx
+	credentialCtx := s.Credentials.Context()
+	if credentialCtx == nil {
+		return rootoci.ErrUnauthorized
+	}
+	credentialDeadline, ok := credentialCtx.Deadline()
+	if !ok {
+		return rootoci.ErrUnauthorized
+	}
+	deadline := earlier(originalDeadline, credentialDeadline)
+	ctx, cancelCredential := context.WithDeadline(ctx, deadline)
+	stopCredential := context.AfterFunc(credentialCtx, cancelCredential)
+	defer func() { stopCredential(); cancelCredential() }()
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	baseGuard := func(check context.Context) error {
@@ -66,30 +78,41 @@ func (b *Backend) ReconcileManagerReader(ctx context.Context, sourceGuard func(c
 	if err != nil {
 		return rootoci.ErrUnauthorized
 	}
+	deadline = earlier(deadline, runtime.ExpiresAt())
+	ctx, cancelRuntime := context.WithDeadline(ctx, deadline)
+	defer cancelRuntime()
 	identity := runtime.Identity()
 	if identity.Cell != s.Accepted.Cell || identity.OCIRegion != b.factory.Region() {
 		return rootoci.ErrUnauthorized
 	}
-	source, err := rootsecret.LoadNetBirdBrokerSource(original, b.factory, identity.Cell, identity.Slot)
+	source, err := rootsecret.LoadNetBirdBrokerSourceForOperation(ctx, original, b.factory, identity.Cell, identity.Slot)
 	if err != nil {
 		return rootoci.ErrUnauthorized
 	}
+	deadline = earlier(deadline, source.ExpiresAt())
+	ctx, cancelSource := context.WithDeadline(ctx, deadline)
+	defer cancelSource()
 	manifest := source.Startup().Manifest()
 	if manifest.DeploymentID != identity.DeploymentID || manifest.ClusterID != identity.ClusterID || manifest.Environment != identity.Environment || manifest.Slot != identity.Slot ||
 		source.Startup().Digest() != s.Accepted.ManifestSHA256 || source.Startup().AnchorDigest() != s.Accepted.AnchorSHA256 {
 		return rootoci.ErrUnauthorized
 	}
-	recipient, err := region.VerifyNetBirdManagerRecipient(original, b.factory, source.Resolver(), source.Source())
+	recipient, err := region.VerifyNetBirdManagerRecipientForOperation(ctx, original, b.factory, source.Resolver(), source.Source())
 	if err != nil {
 		return rootoci.ErrUnauthorized
 	}
-	credentialDeadline, ok := s.Credentials.Context().Deadline()
-	if !ok {
-		return rootoci.ErrUnauthorized
-	}
+	deadline = earlier(deadline, recipient.ExpiresAt())
+	ctx, cancelRecipient := context.WithDeadline(ctx, deadline)
+	defer cancelRecipient()
 	publication := source
-	deadline := earlier(originalDeadline, earlier(credentialDeadline, earlier(runtime.ExpiresAt(), earlier(source.Source().ExpiresAt(), earlier(source.Startup().ExpiresAt(), recipient.ExpiresAt())))))
 	guard := func(check context.Context) error {
+		if check == nil {
+			return rootoci.ErrUnauthorized
+		}
+		check, stop := context.WithDeadline(check, deadline)
+		stopOriginal := context.AfterFunc(original, stop)
+		stopCredentials := context.AfterFunc(credentialCtx, stop)
+		defer func() { stopOriginal(); stopCredentials(); stop() }()
 		check = ociclient.WithRequestGuard(check, baseGuard)
 		if baseGuard(check) != nil || !time.Now().Before(deadline) || source.Guard(check) != nil || recipient.Check(check) != nil {
 			return rootoci.ErrUnauthorized
@@ -186,7 +209,15 @@ func (b *Backend) ReconcileManagerReader(ctx context.Context, sourceGuard func(c
 		return rootoci.ErrUnauthorized
 	}
 	current, err := vaultsecret.ReadCurrent(ctx, &bundles, ref)
-	if err != nil || current.ID != stored.ID || guard(ctx) != nil {
+	if err != nil || current.ID != stored.ID {
+		return rootoci.ErrUnauthorized
+	}
+	if !current.ExpiresAt.IsZero() {
+		deadline = earlier(deadline, current.ExpiresAt)
+	}
+	ctx, cancelCurrent := context.WithDeadline(ctx, deadline)
+	defer cancelCurrent()
+	if guard(ctx) != nil {
 		return rootoci.ErrUnauthorized
 	}
 	material, err := rootsecret.DecodeNetBirdBrokerMaterial([]byte(current.Value()))
@@ -195,8 +226,11 @@ func (b *Backend) ReconcileManagerReader(ctx context.Context, sourceGuard func(c
 	}
 	defer clear(material.Credentials)
 	defer clear(material.Key)
+	deadline = earlier(deadline, material.ExpiresAt)
+	ctx, cancelMaterial := context.WithDeadline(ctx, deadline)
+	defer cancelMaterial()
 	if material.StartupSlot != source.Startup().Manifest().Slot {
-		publication, err = source.ForStartupSlot(original, material.StartupSlot)
+		publication, err = source.ForStartupSlot(ctx, material.StartupSlot)
 		if err != nil {
 			return rootoci.ErrUnauthorized
 		}
@@ -221,19 +255,22 @@ func (b *Backend) ReconcileManagerReader(ctx context.Context, sourceGuard func(c
 	if policyErr != nil || guard(ctx) != nil {
 		return errors.Join(rootoci.ErrUnauthorized, policyErr)
 	}
-	if !current.ExpiresAt.IsZero() {
-		deadline = earlier(deadline, current.ExpiresAt)
-	}
-	deadline = earlier(deadline, material.ExpiresAt)
 	contentDigest := digest([]byte(current.Value()))
 	secretID, secretVersion, secretExpiry := current.ID, current.Version, current.ExpiresAt
 	state := &managerReaderState{cell: material.Cell, user: user, source: material.SourceSHA256, deadline: material.ExpiresAt}
 	state.guard = func(check context.Context) error {
+		if check == nil {
+			return rootoci.ErrUnauthorized
+		}
+		check, stopDeadline := context.WithDeadline(check, deadline)
+		stopOriginal := context.AfterFunc(original, stopDeadline)
+		stopCredentials := context.AfterFunc(credentialCtx, stopDeadline)
+		defer func() { stopOriginal(); stopCredentials(); stopDeadline() }()
+		check, stop := context.WithTimeout(check, 30*time.Second)
+		defer stop()
 		if guard(check) != nil || !time.Now().Before(deadline) {
 			return rootoci.ErrUnauthorized
 		}
-		check, stop := context.WithTimeout(check, 30*time.Second)
-		defer stop()
 		observed, err := vaultsecret.ReadCurrent(ociclient.WithRequestGuard(check, guard), &bundles, ref)
 		if err != nil || observed.ID != secretID || observed.Version != secretVersion || !observed.ExpiresAt.Equal(secretExpiry) || digest([]byte(observed.Value())) != contentDigest {
 			return rootoci.ErrUnauthorized

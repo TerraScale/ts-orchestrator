@@ -2,6 +2,7 @@ package rootsecret
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -10,6 +11,34 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/nats-io/nkeys"
 )
+
+func TestNetBirdReadContextKeepsOriginalCancellationAndShortestDeadline(t *testing.T) {
+	now := time.Now()
+	original, cancelOriginal := context.WithDeadline(t.Context(), now.Add(time.Minute))
+	defer cancelOriginal()
+	caller, cancelCaller := context.WithDeadline(t.Context(), now.Add(2*time.Minute))
+	defer cancelCaller()
+	read, cancelRead := netBirdReadContext(caller, original, now.Add(3*time.Minute))
+	defer cancelRead()
+	if deadline, _ := read.Deadline(); !deadline.Equal(now.Add(time.Minute)) {
+		t.Fatal("read outlives the retained original deadline")
+	}
+	cancelOriginal()
+	select {
+	case <-read.Done():
+	case <-time.After(time.Second):
+		t.Fatal("original cancellation did not interrupt the active read")
+	}
+	read, stop := netBirdReadContext(caller, t.Context(), now.Add(30*time.Second))
+	defer stop()
+	if deadline, _ := read.Deadline(); !deadline.Equal(now.Add(30 * time.Second)) {
+		t.Fatal("read outlives the learned material expiry")
+	}
+	cancelCaller()
+	if read.Err() == nil {
+		t.Fatal("retained material lifetime revived a canceled caller")
+	}
+}
 
 func TestNetBirdBrokerMaterialBoundsAndRedaction(t *testing.T) {
 	secret := []byte("private-manager-key-never-format")
