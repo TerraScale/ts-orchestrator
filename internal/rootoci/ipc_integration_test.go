@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -71,6 +72,7 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 		"session_cancel", "raw_sign", "unknown_member", "wrong_process", "expired", "effect_then_revoke", "backend_unknown",
 		"retained_negative_offset", "retained_startup", "channel_bad_role", "channel_offset_limit", "channel_startup",
 		"native_bad_node", "native_startup",
+		"container_release_bad_role", "container_release_bad_architecture", "container_release_unknown_member", "container_release_startup",
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -102,13 +104,16 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 					return Lease{}, ErrUnauthorized
 				}
 				expectedOperation := OperationObserveLocalInstance
-				if scenario == "retained_startup" || scenario == "channel_startup" || scenario == "native_startup" {
+				if scenario == "retained_startup" || scenario == "channel_startup" || scenario == "native_startup" || scenario == "container_release_startup" {
 					if !operation.ReadOnly() {
 						return Lease{}, ErrUnauthorized
 					}
 					expectedOperation = OperationRetainedContainerEvidence
 					if scenario == "channel_startup" {
 						expectedOperation = OperationNativeRelease
+					}
+					if scenario == "container_release_startup" {
+						expectedOperation = OperationContainerRelease
 					}
 					if scenario == "native_startup" {
 						expectedOperation = OperationMaterializeNativeCanary
@@ -170,6 +175,23 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 				request.Payload, err = json.Marshal(input)
 				if err != nil {
 					t.Fatal(err)
+				}
+			}
+			if strings.HasPrefix(scenario, "container_release_") {
+				input := ContainerReleaseRequest{Role: "ts-auth", Architecture: "arm64"}
+				if scenario == "container_release_bad_role" {
+					input.Role = "signer"
+				}
+				if scenario == "container_release_bad_architecture" {
+					input.Architecture = "../arm64"
+				}
+				request.Operation = OperationContainerRelease
+				request.Payload, err = json.Marshal(input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if scenario == "container_release_unknown_member" {
+					request.Payload = []byte(`{"Role":"ts-auth","Architecture":"arm64","bucket":"other"}`)
 				}
 			}
 			if scenario == "channel_bad_role" || scenario == "channel_startup" {
@@ -253,7 +275,7 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 			} else {
 				var response wireResponse
 				expected := "invalid"
-				if scenario == "wrong_process" || scenario == "expired" || scenario == "retained_startup" || scenario == "channel_startup" || scenario == "native_startup" {
+				if scenario == "wrong_process" || scenario == "expired" || scenario == "retained_startup" || scenario == "channel_startup" || scenario == "native_startup" || scenario == "container_release_startup" {
 					expected = "unauthorized"
 				}
 				if json.Unmarshal(output.Bytes(), &response) != nil || response.Status != expected || reader.calls.Load() != 0 ||

@@ -114,7 +114,7 @@ func (operation Operation) observationOnly() bool {
 	case OperationObservePoolChild, OperationInspectVolumeMount, OperationObserveTerminatedInstance,
 		OperationObserveContainerGeneration, OperationContainerEvidence, OperationContainerAllocation,
 		OperationRetainedContainerEvidence, OperationRetainedContainerAllocation,
-		OperationNativeRelease, OperationReleaseBinaryChunk, OperationNativeReleaseBinaryChunk:
+		OperationNativeRelease, OperationReleaseBinaryChunk, OperationNativeReleaseBinaryChunk, OperationContainerRelease:
 		return true
 	default:
 		return operation.ReadOnly()
