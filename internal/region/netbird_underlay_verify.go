@@ -72,6 +72,8 @@ func (v VerifiedNetBirdJournalUnderlay) BootstrapPurpose(ctx context.Context) (b
 	if err != nil {
 		return bootstrap.VerifiedNetBirdJournalPurpose{}, err
 	}
+	ctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
 	lower, err := v.purpose.BootstrapPurpose(ctx)
 	if err != nil {
 		return bootstrap.VerifiedNetBirdJournalPurpose{}, err
