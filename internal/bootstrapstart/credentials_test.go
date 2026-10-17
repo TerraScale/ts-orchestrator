@@ -69,6 +69,22 @@ func TestCredentialCheckerBindsPathsAndExactInventory(t *testing.T) {
 	if err := check.verifyInitialPaths(ManifestPins(expected), peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
 		t.Fatalf("unassigned signed material = %v, want refusal", err)
 	}
+
+	t.Run("privileged role aliases", func(t *testing.T) {
+		for _, role := range []string{"system", "membership"} {
+			t.Run(role, func(t *testing.T) {
+				check, expected := credentialPathFixture(t)
+				if role == "system" {
+					check.Config.Embedded.SystemCredentialsFile = check.Config.CredentialsFile
+				} else {
+					check.Config.Embedded.MembershipCredentialsFile = check.Config.CredentialsFile
+				}
+				if err := check.verifyInitialPaths(ManifestPins(expected), peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
+					t.Fatalf("privileged %s alias = %v, want refusal", role, err)
+				}
+			})
+		}
+	})
 }
 
 // The signed TerraBase member CA needs its configured role, at the fixed

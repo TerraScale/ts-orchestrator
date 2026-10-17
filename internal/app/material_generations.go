@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
@@ -195,10 +196,8 @@ func runMaterialGenerationStager(ctx context.Context, roots *rootRegistry) {
 	}
 	client := rootoci.NewClient(rootoci.Expectations{Cell: string(target.Expected.Cell)})
 	stager := &generationinstall.Stager{KV: roots.kv, Target: target, Roots: roots.current,
-		Deliver: func(ctx context.Context, chain []byte) error {
-			_, err := client.DeliverControllerGeneration(ctx,
-				rootoci.DeliverControllerGenerationRequest{Chain: chain})
-			return err
+		Deliver: func(ctx context.Context, chain []byte) (rootoci.SecretDeliveryReceipt, error) {
+			return client.DeliverControllerGeneration(ctx, rootoci.DeliverControllerGenerationRequest{Chain: chain})
 		},
 		Installed:     filepath.Join(bootstrapstart.MaterialDirectory, bootstrapstart.MaterialGenerationsFile),
 		Spool:         bootstrapstart.GenerationSpoolDirectory,
@@ -208,9 +207,19 @@ func runMaterialGenerationStager(ctx context.Context, roots *rootRegistry) {
 
 // exactSecretReader reads exact Vault versions with the instance principal of
 // the cell cell returns, connecting on the first read.
-func exactSecretReader(cell func() (oci.Region, error)) bootstrapstart.SecretReader {
+func exactSecretReader(cell func() (oci.Region, error)) (bootstrapstart.SecretReader, func() error) {
 	var vault *bootstrap.Vault
-	return func(ctx context.Context, reference bootstrap.SecretReference) ([]byte, error) {
+	var originalExpiry time.Time
+	live := func() error {
+		if !originalExpiry.IsZero() && !time.Now().Before(originalExpiry) {
+			return bootstrapstart.ErrMaterial
+		}
+		return nil
+	}
+	read := func(ctx context.Context, reference bootstrap.SecretReference) ([]byte, error) {
+		if err := live(); err != nil {
+			return nil, err
+		}
 		if vault == nil {
 			cell, err := cell()
 			if err != nil {
@@ -228,8 +237,20 @@ func exactSecretReader(cell func() (oci.Region, error)) bootstrapstart.SecretRea
 				return nil, err
 			}
 		}
-		return vault.ReadGenerationSecret(ctx, reference)
+		content, expires, err := vault.ReadGenerationSecretWithExpiry(ctx, reference)
+		if err != nil {
+			return nil, err
+		}
+		if !expires.IsZero() && (originalExpiry.IsZero() || expires.Before(originalExpiry)) {
+			originalExpiry = expires
+		}
+		if err := live(); err != nil {
+			clear(content)
+			return nil, err
+		}
+		return content, nil
 	}
+	return read, live
 }
 
 // runRestoreControllerMaterial rebuilds the in-memory credential directory
@@ -250,10 +271,11 @@ func runRestoreControllerMaterial(ctx context.Context, args []string, output io.
 	if moved, err := selfupdate.RunInHostMounts(ctx, output, os.Stderr); moved || err != nil {
 		return err
 	}
-	note, err := bootstrapstart.RestoreMaterial(ctx, exactSecretReader(func() (oci.Region, error) {
+	read, sourceLive := exactSecretReader(func() (oci.Region, error) {
 		target, err := bootstrapstart.AcceptedGenerationTarget()
 		return target.Expected.Cell, err
-	}), *remove, *check)
+	})
+	note, err := bootstrapstart.RestoreMaterial(ctx, read, sourceLive, *remove, *check)
 	if err != nil {
 		return err
 	}

@@ -1,0 +1,85 @@
+package host
+
+import (
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/pem"
+	"math/big"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/nats-io/nkeys"
+)
+
+func managerBindingFixture(t *testing.T) (SignedManagerRuntimeBinding, []byte, []byte, *ecdsa.PrivateKey) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	clusterID, nodeID := strings.Repeat("a", 25), strings.Repeat("b", 25)
+	ca := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "native cluster"}, NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
+	caDER, err := x509.CreateCertificate(rand.Reader, ca, ca, &caKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca, err = x509.ParseCertificate(caDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: nodeID, Organization: []string{clusterID}, OrganizationalUnit: []string{"swarm-manager"}}, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
+	der, err := x509.CreateCertificate(rand.Reader, leaf, ca, &key.PublicKey, caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certPEM, caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})
+	hostKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	natsKey, err := nkeys.CreateUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	natsPublic, err := natsKey.PublicKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	certHash, caHash := sha256.Sum256(der), sha256.Sum256(caPEM)
+	b := ManagerRuntimeBinding{Version: 1, DeploymentID: entityid.New(), ClusterID: entityid.New(), SwarmClusterID: clusterID,
+		Environment: "production", Cell: "gru", OCIRegion: "sa-saopaulo-1", NodeID: nodeID, InstanceID: "ocid1.instance.oc1.sa-saopaulo-1.manager",
+		HostID: entityid.Derive("host", "gru", "controller-a"), HostNode: "controller-a", HostSessionID: entityid.New(), HostSessionEpoch: 1,
+		RegistrationGeneration: 1, RegistrationRevision: 3, SourceRevision: 7, HostPublicKey: base64.StdEncoding.EncodeToString(hostKey), NATSUserPublicKey: natsPublic,
+		RuntimeCandidateID: entityid.New(), BinarySHA256: strings.Repeat("a", 64), AcceptanceSHA256: strings.Repeat("1", 64), AnchorSHA256: strings.Repeat("2", 64), SourceSHA256: strings.Repeat("3", 64),
+		CertificateSHA256: hex.EncodeToString(certHash[:]), ClusterCASHA256: hex.EncodeToString(caHash[:]), IssuedAt: now, ExpiresAt: now.Add(20 * time.Second)}
+	signed := SignedManagerRuntimeBinding{Binding: b, CertificateChain: [][]byte{der, caDER}}
+	signManagerBindingFixture(t, &signed, key)
+	return signed, certPEM, caPEM, key
+}
+
+func signManagerBindingFixture(t *testing.T, signed *SignedManagerRuntimeBinding, key *ecdsa.PrivateKey) {
+	t.Helper()
+	wire, err := ManagerRuntimeSigningBytes(signed.Binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(wire)
+	signed.Signature, err = ecdsa.SignASN1(rand.Reader, key, digest[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+}

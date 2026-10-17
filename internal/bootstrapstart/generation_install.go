@@ -25,16 +25,15 @@ import (
 )
 
 // A controller installs a published material generation (TS-668) in two
-// halves. Its unprivileged process stages the chain, its slot's config and
-// the files its slot holds in GenerationSpoolDirectory, and writes
-// GenerationArmedFile there while the cell arms the slot. selfupdate prepare,
+// halves. Its unprivileged process stages the public chain, config, receipt
+// and GenerationArmedFile in GenerationSpoolDirectory. Root delivers every
+// raw file into GenerationPrivateSpoolDirectory. selfupdate prepare,
 // root before every start of the controller unit, installs an armed stage.
 // It trusts only root-signed content and the digests it pins, never the
 // spool's owner.
 const (
 	// GenerationSpoolDirectory is the stager's directory, inside the
-	// controller's state directory. selfupdate prepare mounts it in memory:
-	// the staged files are secrets (TS-745).
+	// controller's state directory. It holds only public generation metadata.
 	GenerationSpoolDirectory = "/var/lib/terrascale-orchestrator-controller/material-generation"
 	// GenerationArmedFile holds the fingerprint of the spooled generation
 	// the cell armed this slot for.
@@ -219,7 +218,7 @@ func InstallGeneration(now time.Time) (string, error) {
 	if !inMemory {
 		return "", fmt.Errorf("%w: restore controller credentials into memory before generation adoption", ErrMaterial)
 	}
-	return generationInstaller{store: store, target: target, roots: inputs.Roots.Current, historicalRoots: inputs.Roots.Historical, spool: GenerationSpoolDirectory,
+	return generationInstaller{store: store, target: target, roots: inputs.Roots.Current, historicalRoots: inputs.Roots.Historical, spool: GenerationSpoolDirectory, privateSpool: GenerationPrivateSpoolDirectory,
 		config: controllerConfigFile}.install(now)
 }
 
@@ -229,6 +228,7 @@ type generationInstaller struct {
 	roots           trust.Keyring
 	historicalRoots trust.Keyring
 	spool           string
+	privateSpool    string
 	// config is controller.json; its directory holds the pending copy.
 	config string
 }
@@ -301,7 +301,10 @@ func (installer generationInstaller) stagedGenerations() ([]trust.Envelope, erro
 }
 
 func (installer generationInstaller) finishAdoption(now time.Time) error {
-	original := installer.store.FinishMaterialAdoption(installer.target, installer.roots, installer.config, now)
+	original := installer.requireDeliveredStage(now)
+	if original == nil {
+		original = installer.store.FinishMaterialAdoption(installer.target, installer.roots, installer.config, now)
+	}
 	if original == nil {
 		return nil
 	}
@@ -309,7 +312,7 @@ func (installer generationInstaller) finishAdoption(now time.Time) error {
 	if err != nil {
 		return errors.Join(original, err)
 	}
-	wire, chain, files, _, err := installer.armedStage(held, now)
+	wire, chain, files, _, delivery, err := installer.armedStage(held, now)
 	if err != nil || wire == nil {
 		return errors.Join(original, err)
 	}
@@ -324,7 +327,7 @@ func (installer generationInstaller) finishAdoption(now time.Time) error {
 		return err
 	}
 	defer unix.Close(dir)
-	return installer.store.finish(dir, installer.target, installer.historicalRoots, installer.config, now, nil, replacement)
+	return installer.store.finishWithDelivery(dir, installer.target, installer.historicalRoots, installer.config, now, nil, replacement, delivery)
 }
 
 // install completes interrupted adoption first. The chain's rename is the
@@ -339,7 +342,7 @@ func (installer generationInstaller) install(now time.Time) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	wire, chain, files, config, err := installer.armedStage(held, now)
+	wire, chain, files, config, delivery, err := installer.armedStage(held, now)
 	if err != nil {
 		if heldErr := installer.convergeConfig(held, now); heldErr != nil {
 			return "", errors.Join(err, heldErr)
@@ -352,24 +355,30 @@ func (installer generationInstaller) install(now time.Time) (string, error) {
 		}
 		return "none", nil
 	}
-	return installer.installArmed(held, wire, chain, files, config, now)
+	return installer.installArmed(held, wire, chain, files, config, delivery, now)
 }
 
 func (installer generationInstaller) installArmed(held []trust.Envelope, wire []byte, chain []trust.Envelope,
-	files map[string][]byte, config []byte, now time.Time,
+	files map[string][]byte, config []byte, delivery *GenerationDeliveryLifetime, now time.Time,
 ) (string, error) {
 	defer clearContents(files)
+	if delivery == nil || installer.store.publicationLive(delivery) != nil {
+		return "", ErrMaterial
+	}
 	// Preserve the committed config before its pending copy becomes the successor's.
 	// Adopted signature checks permit an expired predecessor to be replaced.
-	if err := installer.preserveConfig(held); err != nil {
+	if err := installer.preserveConfig(held, delivery); err != nil {
 		return "", err
 	}
 	if config != nil {
-		if err := writeSynced(filepath.Join(filepath.Dir(installer.config), pendingControllerConfig), config); err != nil {
+		if err := installer.store.publicationLive(delivery); err != nil {
+			return "", err
+		}
+		if err := installer.store.writeSyncedWithDelivery(filepath.Join(filepath.Dir(installer.config), pendingControllerConfig), config, delivery); err != nil {
 			return "", fmt.Errorf("write pending controller config: %w", err)
 		}
 	}
-	if err := installer.store.AdoptGeneration(installer.target, installer.roots, wire, files, config, now); err != nil {
+	if err := installer.store.adoptGenerationWithDelivery(installer.target, installer.roots, wire, files, config, now, nil, delivery); err != nil {
 		if finishErr := installer.store.FinishMaterialAdoption(installer.target, installer.roots, installer.config, now); finishErr != nil {
 			return "", errors.Join(err, finishErr)
 		}
@@ -377,13 +386,16 @@ func (installer generationInstaller) installArmed(held []trust.Envelope, wire []
 			return "", err
 		}
 	}
-	if err := installer.convergeConfig(chain, now); err != nil {
+	if err := installer.store.publicationLive(delivery); err != nil {
+		return "", err
+	}
+	if err := installer.convergeConfigWithDelivery(chain, now, delivery); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("installed generation %d", len(chain)), nil
 }
 
-func (installer generationInstaller) preserveConfig(held []trust.Envelope) error {
+func (installer generationInstaller) preserveConfig(held []trust.Envelope, delivery *GenerationDeliveryLifetime) error {
 	if len(held) != 0 {
 		verified, err := installer.target.VerifyAdoptedChain(held, installer.historicalRoots)
 		if err != nil {
@@ -394,6 +406,9 @@ func (installer generationInstaller) preserveConfig(held []trust.Envelope) error
 			return err
 		}
 		if pending {
+			if err := installer.store.publicationLive(delivery); err != nil {
+				return err
+			}
 			if err := os.Rename(filepath.Join(filepath.Dir(installer.config), pendingControllerConfig), installer.config); err != nil {
 				return err
 			}
@@ -408,6 +423,10 @@ func (installer generationInstaller) preserveConfig(held []trust.Envelope) error
 // convergeConfig verifies installed material and both config candidates before
 // replacing controller.json or removing its exact matching pending copy.
 func (installer generationInstaller) convergeConfig(chain []trust.Envelope, now time.Time) error {
+	return installer.convergeConfigWithDelivery(chain, now, nil)
+}
+
+func (installer generationInstaller) convergeConfigWithDelivery(chain []trust.Envelope, now time.Time, delivery *GenerationDeliveryLifetime) error {
 	if len(chain) == 0 {
 		if installer.target.MaterialGenerationSHA256 != "" {
 			return fmt.Errorf("%w: accepted generation chain is missing", ErrMaterial)
@@ -446,6 +465,10 @@ func (installer generationInstaller) convergeConfig(chain []trust.Envelope, now 
 	}
 	if !usePending {
 		return nil
+	}
+	installer.store.restoreChain = chain
+	if err := installer.store.publicationLive(delivery); err != nil {
+		return err
 	}
 	if err := os.Rename(filepath.Join(filepath.Dir(installer.config), pendingControllerConfig), installer.config); err != nil {
 		return err
@@ -493,64 +516,65 @@ func materialReader(files map[string][]byte) func(string) ([]byte, error) {
 // every file the slot holds by pin and by CheckGenerationFiles. It returns
 // no wire when nothing is armed or the stage is already installed.
 func (installer generationInstaller) armedStage(held []trust.Envelope, now time.Time,
-) ([]byte, []trust.Envelope, map[string][]byte, []byte, error) {
+) ([]byte, []trust.Envelope, map[string][]byte, []byte, *GenerationDeliveryLifetime, error) {
 	spool, err := os.OpenRoot(installer.spool)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil, nil, nil, nil
+		return nil, nil, nil, nil, nil, nil
 	}
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 	defer spool.Close()
 	armed, err := readSpooled(spool, GenerationArmedFile, 128)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil, nil, nil, nil
+		return nil, nil, nil, nil, nil, nil
 	}
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 	wire, err := readSpooled(spool, MaterialGenerationsFile, maxGenerationChainBytes)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 	chain, err := bootstrap.DecodeMaterialGenerationChain(wire)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 	verified, err := installer.target.VerifyChain(chain, installer.roots, now)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 	newest := verified[len(verified)-1]
 	if strings.TrimSpace(string(armed)) != newest.Fingerprint() {
-		return nil, nil, nil, nil, errors.New("the slot is armed for another generation")
+		return nil, nil, nil, nil, nil, errors.New("the slot is armed for another generation")
 	}
 	if chainIs(held, wire) {
-		return nil, nil, nil, nil, nil
+		return nil, nil, nil, nil, nil, nil
 	}
 	if !bootstrap.ExtendsMaterialGenerationChain(chain, held) {
-		return nil, nil, nil, nil, errors.New("the staged chain does not extend the installed generations")
+		return nil, nil, nil, nil, nil, errors.New("the staged chain does not extend the installed generations")
 	}
 	slot := installer.target.Slot
 	generation := newest.Generation()
-	files := map[string][]byte{}
-	for _, secret := range generation.Secrets {
-		if secret.Slot != "" && secret.Slot != slot {
-			continue
-		}
-		if files[secret.TargetFile], err = readSpooled(spool, secret.TargetFile, secret.MaxBytes); err != nil {
-			return nil, nil, nil, nil, err
-		}
+	files, delivery, err := installer.readPrivateGeneration(wire, newest, now)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
 	}
+	keep := false
+	defer func() {
+		if !keep {
+			clearContents(files)
+		}
+	}()
 	var config []byte
 	if index := slices.IndexFunc(generation.ControllerConfigs, func(pin bootstrap.GenerationControllerConfig) bool {
 		return pin.Slot == slot
 	}); index >= 0 {
 		if generation.ControllerConfigs[index].AcceptanceSHA256 != installer.target.AcceptanceSHA256 {
-			return nil, nil, nil, nil, errors.New("the generation's config is for another acceptance of this slot")
+			return nil, nil, nil, nil, nil, errors.New("the generation's config is for another acceptance of this slot")
 		}
 		if config, err = readSpooled(spool, GenerationConfigFile(slot), bootstrap.MaxControllerConfigBytes); err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, err
 		}
 	}
 	if err := installer.target.VerifyFiles(generation, func(name string) ([]byte, error) {
@@ -563,9 +587,13 @@ func (installer generationInstaller) armedStage(held []trust.Envelope, now time.
 		return nil, fs.ErrNotExist
 	}, now); err != nil {
 		clearContents(files)
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
-	return wire, chain, files, config, nil
+	if installer.store.publicationLive(delivery) != nil {
+		return nil, nil, nil, nil, nil, ErrMaterial
+	}
+	keep = true
+	return wire, chain, files, config, delivery, nil
 }
 
 func chainIs(chain []trust.Envelope, wire []byte) bool {
@@ -626,6 +654,10 @@ func readLimited(reader io.Reader, name string, limit int64) ([]byte, error) {
 // writeSynced replaces path with data (mode 0644, the writer's owner)
 // through a synced temporary file in its directory, then syncs the directory.
 func writeSynced(path string, data []byte) error {
+	return (MaterialStore{}).writeSyncedWithDelivery(path, data, nil)
+}
+
+func (store MaterialStore) writeSyncedWithDelivery(path string, data []byte, delivery *GenerationDeliveryLifetime) error {
 	file, err := os.CreateTemp(filepath.Dir(path), ".generation-config-")
 	if err != nil {
 		return err
@@ -642,6 +674,9 @@ func writeSynced(path string, data []byte) error {
 		return err
 	}
 	if err := file.Close(); err != nil {
+		return err
+	}
+	if err := store.publicationLive(delivery); err != nil {
 		return err
 	}
 	if err := os.Rename(file.Name(), path); err != nil {

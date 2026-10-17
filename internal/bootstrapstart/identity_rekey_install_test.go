@@ -231,6 +231,20 @@ func TestRootInstallerAdoptionRequiresExactInterruptedMaterial(t *testing.T) {
 			target.MaterialGenerationSHA256 = staged.fingerprint
 			store := staged.installer.store
 			before := staged.read("ca.pem")
+			chain, err := bootstrap.DecodeMaterialGenerationChain(staged.wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			generation, err := bootstrap.MaterialGenerationPayload(chain[len(chain)-1])
+			if err != nil {
+				t.Fatal(err)
+			}
+			stageRefs := map[string]bootstrap.SecretReference{}
+			for _, ref := range generation.Secrets {
+				if ref.Slot == "" || ref.Slot == target.Slot {
+					stageRefs[ref.TargetFile] = ref
+				}
+			}
 			switch fault {
 			case "exact partial":
 				staged.stage(map[string][]byte{"ca.pem": staged.files["ca.pem"]})
@@ -288,7 +302,10 @@ func TestRootInstallerAdoptionRequiresExactInterruptedMaterial(t *testing.T) {
 				}
 				staged.stage(map[string][]byte{MaterialGenerationsFile: wire})
 			}
-			err := store.VerifyIdentityRekeyMaterialAdoption(target, staged.roots, staged.wire, time.Now())
+			if err := os.Remove(filepath.Join(store.installedDirectory, generationStaging, GenerationDeliveryFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+				t.Fatal(err)
+			}
+			err = store.verifyIdentityRekeyMaterialAdoption(target, staged.roots, staged.wire, stageRefs, time.Now())
 			wantValid := fault == "exact partial" || fault == "exact committed" || fault == "truncated partial" || fault == "empty partial" || fault == "chain write interrupted"
 			if (err == nil) != wantValid {
 				t.Fatalf("exact-operation stage admission = %v, want valid %t", err, wantValid)
@@ -352,7 +369,10 @@ func TestRootInstallerInstalledMaterialBindsConfigAndRecoversExactChain(t *testi
 					t.Fatal(err)
 				}
 			}
-			if err := store.VerifyIdentityRekeyMaterialAdoption(target, staged.roots, staged.wire, time.Now()); err != nil {
+			if err := os.Remove(filepath.Join(store.installedDirectory, generationStaging, GenerationDeliveryFile)); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.verifyIdentityRekeyMaterialAdoption(target, staged.roots, staged.wire, refs, time.Now()); err != nil {
 				t.Fatal(err)
 			}
 			for range 2 {
@@ -384,6 +404,12 @@ func TestRootInstallerInstalledMaterialBindsConfigAndRecoversExactChain(t *testi
 			}
 			if staged.staged() {
 				t.Fatal("exact native recovery left its committed stage")
+			}
+			if _, err := os.Stat(filepath.Join(staged.dir, GenerationConfigFile(target.Slot))); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("recovery treated its verification-only config as installed material")
+			}
+			if pending, err := os.ReadFile(staged.pending()); err != nil || !bytes.Equal(pending, staged.config) {
+				t.Fatal("material recovery lost the normal pending config sidecar")
 			}
 		})
 	}

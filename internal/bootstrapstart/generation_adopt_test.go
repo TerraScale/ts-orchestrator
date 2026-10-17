@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/nats-io/jwt/v2"
 	"golang.org/x/sys/unix"
 )
 
@@ -164,6 +166,24 @@ func (install *generationInstall) stage(files map[string][]byte) {
 		if err := os.WriteFile(filepath.Join(staging, name), content, 0o600); err != nil {
 			install.t.Fatal(err)
 		}
+		if name == MaterialGenerationsFile && os.Geteuid() == 0 {
+			chain, err := bootstrap.DecodeMaterialGenerationChain(content)
+			if err != nil {
+				install.t.Fatal(err)
+			}
+			fingerprint, err := trust.Fingerprint(chain[len(chain)-1])
+			if err != nil {
+				install.t.Fatal(err)
+			}
+			metadata, err := protocol.EncodeJSON(GenerationDeliveryLifetime{AcceptanceSHA256: install.acceptance(),
+				ChainSHA256: digest(content), GenerationSHA256: fingerprint, ExpiresAt: chain[len(chain)-1].ExpiresAt})
+			if err != nil {
+				install.t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(staging, GenerationDeliveryFile), metadata, 0o600); err != nil {
+				install.t.Fatal(err)
+			}
+		}
 	}
 }
 
@@ -200,6 +220,49 @@ func TestAdoptGenerationInstallsWhatRestartAdmits(t *testing.T) {
 			t.Errorf("adopted %s", name)
 		}
 	}
+
+	t.Run("root broker expiry observation", func(t *testing.T) {
+		if os.Geteuid() != 0 {
+			t.Skip("root broker observation requires root")
+		}
+		install := newGenerationInstall(t)
+		install.adopt(install.material, install.expected, install.rootKey)
+		views, err := install.store().BrokerCredentialExpiries(t.Context(), install.accepted, install.roots)
+		if err != nil {
+			t.Fatal(err)
+		}
+		token, err := jwt.ParseDecoratedJWT(install.material.Files["system.creds"])
+		if err != nil {
+			t.Fatal(err)
+		}
+		user, err := jwt.DecodeUserClaims(token)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(views) != 1 || views[0].Name != "nats system credentials" || views[0].Kind != "nats-jwt" ||
+			!views[0].NotAfter.Equal(time.Unix(user.Expires, 0).UTC()) {
+			t.Fatalf("public SYSTEM expiry = %+v", views)
+		}
+		if _, err := install.store().BrokerCredentialExpiries(t.Context(), install.accepted, newGenerationInstall(t).roots); err == nil {
+			t.Fatal("accepted an adopted generation under foreign roots")
+		}
+		path := filepath.Join(install.dir, "system.creds")
+		if err := os.Chown(path, 65534, 65534); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := install.store().BrokerCredentialExpiries(t.Context(), install.accepted, install.roots); err == nil {
+			t.Fatal("accepted service-owned SYSTEM credentials")
+		}
+		if err := os.Chown(path, 0, 0); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("replaced credentials"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := install.store().BrokerCredentialExpiries(t.Context(), install.accepted, install.roots); err == nil {
+			t.Fatal("accepted SYSTEM bytes differing from signed pins")
+		}
+	})
 }
 
 // A crash leaves a stage behind; FinishMaterialAdoption, which runs before

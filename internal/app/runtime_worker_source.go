@@ -19,7 +19,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/naming"
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -80,10 +79,7 @@ func runRuntimeWorkerAdmissionSource(ctx context.Context, args []string, input i
 	if descriptor.Cell != cfg.NATS.Cell || !strings.EqualFold(descriptor.Region, accepted.Cell) {
 		return errors.New("worker source query belongs to another region")
 	}
-	// The controller already owns the broker; this child opens only its client.
-	cfg.NATS.Embedded = nil
-	cfg.NATS.ClientRole = "controller"
-	runtime, err := natscell.Start(ctx, cfg.NATS)
+	runtime, err := openRootBrokerSourceClient(ctx, cfg, "runtime-worker-admission-source", wire)
 	if err != nil {
 		return err
 	}

@@ -11,8 +11,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func openSpool(uid, gid uint32) (int, error) {
-	fd, err := unix.Openat2(unix.AT_FDCWD, bootstrapstart.GenerationSpoolDirectory, &unix.OpenHow{
+func openSpool() (int, error) {
+	if bootstrapstart.PrepareGenerationPrivateSpool() != nil {
+		return -1, ErrDelivery
+	}
+	fd, err := unix.Openat2(unix.AT_FDCWD, bootstrapstart.GenerationPrivateSpoolDirectory, &unix.OpenHow{
 		Flags:   unix.O_RDONLY | unix.O_DIRECTORY | unix.O_CLOEXEC,
 		Resolve: unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
 	})
@@ -21,7 +24,7 @@ func openSpool(uid, gid uint32) (int, error) {
 	}
 	var stat unix.Stat_t
 	var filesystem unix.Statfs_t
-	if unix.Fstat(fd, &stat) != nil || stat.Uid != uid || stat.Gid != gid || stat.Mode&0o7777 != 0o700 ||
+	if unix.Fstat(fd, &stat) != nil || stat.Uid != 0 || stat.Gid != 0 || stat.Mode&0o7777 != 0o700 ||
 		unix.Fstatfs(fd, &filesystem) != nil || filesystem.Type != unix.TMPFS_MAGIC || !vaultsecret.SwapOff() {
 		unix.Close(fd)
 		return -1, ErrDelivery

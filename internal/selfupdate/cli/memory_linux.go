@@ -64,6 +64,9 @@ var memoryRuntime = func(unit string) error {
 		}
 		// A staged generation may be far larger than 16 MiB: keep tmpfs's
 		// default cap, as the credential directory does.
+		if err := bootstrapstart.PrepareGenerationPrivateSpool(); err != nil {
+			return err
+		}
 		return mountRuntime(bootstrapstart.GenerationSpoolDirectory, uint32(uid), uint32(gid), 0o700, "")
 	}
 	return nil

@@ -153,7 +153,10 @@ func TestControllerObservabilityServesSnapshotAndCluster(t *testing.T) {
 	lease := observedAuthority{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Leader: true, Ready: true, Epoch: 3, Revision: 8,
 		ExpiresAt: time.Now().Add(time.Minute)}}
 	probeTime := time.Now().UTC().Add(-time.Minute)
-	if err := telemetry.attachController(ctx, controllerObservation{nats: nats, replicas: 1,
+	if err := telemetry.attachController(ctx, controllerObservation{nats: nats, replicas: 1, authority: lease}, nil); err == nil {
+		t.Fatal("transport-only broker substituted for native controller observations")
+	}
+	if err := telemetry.attachController(ctx, controllerObservation{nats: nats, native: fixtureBrokerNative{nats}, replicas: 1,
 		brokerIDs: []string{"one", "two"}, authority: lease, linkProbes: func() []regionview.LinkProbe {
 			return []regionview.LinkProbe{{Region: "sfo", ObservedAt: probeTime, Reach: "not_linked", WAN: "unknown", Detail: "private-probe-detail"}}
 		}}, nil); err != nil {

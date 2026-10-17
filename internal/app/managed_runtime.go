@@ -87,6 +87,11 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 		return fmt.Errorf("listen for admitted root operations: %w", err)
 	}
 	defer listener.Close()
+	// Full secret inventory and broker preflight finish in root before the
+	// registered ordinary child receives its configuration or SDK read scope.
+	if err := admitProductionControllerRootRestartLocal(ctx, cfg); err != nil {
+		return fmt.Errorf("admit root-owned controller material: %w", err)
+	}
 	if err := superviseControllerAdmissionWithAuthority(ctx, cfg, "bootstrap-admit-restart", "/proc/self/exe", authority); err != nil {
 		return fmt.Errorf("admit root runtime: %w", err)
 	}
@@ -151,6 +156,18 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 	if err := setManagedRuntimeAvailability(ctx, node, admitted, api.NodeAvailabilityPause); err != nil {
 		return err
 	}
+	broker, err := startRootBrokerRuntime(ctx, cfg, authority)
+	if err != nil {
+		return fmt.Errorf("start root-owned regional broker: %w", err)
+	}
+	defer broker.Close()
+	authority.children.Store(broker.children)
+	ownhost.mu.Lock()
+	ownhost.children = broker.children
+	ownhost.mu.Unlock()
+	ctx = swarmruntime.WithSourceChildRegistrar(ctx, broker.children)
+	stopBroker := context.AfterFunc(broker.ctx, func() { stopRuntime(errors.New("root-owned regional broker authority ended")) })
+	defer stopBroker()
 	notifier := sdnotify.FromEnvironment()
 	if err := notifier.Ready("admitted regional runtime management is ready"); err != nil {
 		return err
@@ -166,7 +183,7 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 		runManagedRuntimeOwnHost(ownhostCtx, cfg, reader, accepted, node, admitted, ownhost)
 	}()
 	defer func() { stopOwnhost(); <-ownhostDone }()
-	// The ordinary controller starts its broker only after this unit is ready.
+	// The ordinary controller consumes its one private connection after READY.
 	sourcesCtx, stopSources := context.WithCancel(authority.ctx)
 	sourcesDone := make(chan struct{})
 	go func() {

@@ -203,13 +203,13 @@ func brokerLifetimeEnded(parent, ctx context.Context) bool {
 // startClusterHealth supervises the local broker's view of the regional
 // cluster until ctx ends. stopped is closed once the embedded broker is seen
 // dead, so the controller can exit and let the service manager restart it.
-func startClusterHealth(ctx context.Context, runtime *natscell.Runtime, reporter clusterhealth.Reporter,
+func startClusterHealth(ctx context.Context, native controllerBrokerNative, reporter clusterhealth.Reporter,
 ) (supervisor *clusterhealth.Supervisor, stopped <-chan struct{}, wait func()) {
 	brokerStopped := make(chan struct{})
 	var once sync.Once
 	supervisor = &clusterhealth.Supervisor{
 		Observe: func() (clusterhealth.Observation, error) {
-			observed, err := runtime.ObserveCluster()
+			observed, err := native.ObserveCluster()
 			return clusterHealthObservation(observed), err
 		},
 		Logger: slog.Default(),

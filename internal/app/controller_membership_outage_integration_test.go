@@ -77,7 +77,7 @@ func TestMembershipProviderOutageKeepsRegionalNATSServing(t *testing.T) {
 		source := &fakeSlotOCI{}
 		reconciler, err := membership.New(membership.Topology{Cell: "gru", Slots: []string{"controller-a", "controller-b", "controller-c"},
 			SeedSlot: "controller-a", SelfSlot: "controller-a"}, membership.Dependencies{Leadership: control,
-			Peers: natsMembershipPeers{runtime: broker}, Ledger: source, Instances: source, Evidence: source})
+			Peers: natsMembershipPeers{native: fixtureBrokerNative{broker}}, Ledger: source, Instances: source, Evidence: source})
 		if err != nil {
 			return nil, err
 		}

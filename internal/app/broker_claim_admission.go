@@ -312,7 +312,11 @@ func verifyAndApplyBrokerClaim(ctx context.Context, wire []byte, cell string, po
 		return brokerClaimApplyResponse{}, errors.New("broker claim belongs to another cell or account")
 	}
 	claim, err := brokerauth.DecodeAccountJWT(request.JWT, request.Account)
-	if err != nil || !gate.runtime.SignedByPinnedOperator(claim) {
+	if err != nil {
+		return brokerClaimApplyResponse{}, errors.New("broker account JWT is not signed by the pinned operator")
+	}
+	current, err := gate.native.ReadControllerAccount(ctx)
+	if err != nil || current.Account != gate.account || !current.Operator.DidSign(claim) {
 		return brokerClaimApplyResponse{}, errors.New("broker account JWT is not signed by the pinned operator")
 	}
 	grant, exists := policy.grant(envelope.Actor)

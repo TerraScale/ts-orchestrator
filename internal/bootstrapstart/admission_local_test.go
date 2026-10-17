@@ -56,6 +56,37 @@ func TestLocalRestartAdmissionNeedsNoInitialInputsOCIOrClock(t *testing.T) {
 			}
 		})
 	}
+	if _, err := NewControllerClientGate(local); !errors.Is(err, ErrAdmission) {
+		t.Fatalf("ordinary gate accepted replaceable material/credential interfaces: %v", err)
+	}
+	inputs, err := local.acceptedTrustInputs(accepted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := ControllerClientGate{proof: local}
+	pins, floor, err := client.clientPins(accepted, inputs.Roots.Historical)
+	if err != nil || len(floor) != 0 {
+		t.Fatalf("ordinary baseline without a generation floor: %v", err)
+	}
+	if config, err := pins.controllerConfigSHA256(accepted); err != nil || config != accepted.ConfigSHA256["controller.json"] {
+		t.Fatalf("ordinary public config pin: %q, %v", config, err)
+	}
+	floorPath := filepath.Join(local.Markers.directory, MaterialGenerationsFile)
+	if err := os.WriteFile(floorPath, []byte("unsigned generation floor"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := client.clientPins(accepted, inputs.Roots.Historical); err == nil {
+		t.Fatal("ordinary gate accepted an unsigned durable generation floor")
+	}
+	if err := os.Chmod(floorPath, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := local.Markers.readClientGenerationFloor(); !errors.Is(err, ErrMaterial) {
+		t.Fatalf("ordinary gate accepted a writable generation floor: %v", err)
+	}
+	if err := os.Remove(floorPath); err != nil {
+		t.Fatal(err)
+	}
 	fixture.credentials.err = ErrLiveCredentials
 	if _, err := local.AdmitRestartLocal(t.Context()); !errors.Is(err, ErrLiveCredentials) {
 		t.Fatalf("invalid live credentials admitted: %v", err)

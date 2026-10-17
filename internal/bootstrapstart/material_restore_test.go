@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -112,6 +113,36 @@ func TestRestoreIntactMaterialDoesNotReadVault(t *testing.T) {
 	if _, err := store.readRestoreReferences(t.Context(), refs, missing, read); err == nil || reads != 1 {
 		t.Fatalf("missing inventory bypassed Vault: reads=%d, error=%v", reads, err)
 	}
+	for _, failure := range []string{"context cancellation", "source expiry"} {
+		t.Run(failure, func(t *testing.T) {
+			install := newGenerationInstall(t)
+			store := install.store()
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			sourceExpired := false
+			store.restoreCurrent = func([]trust.Envelope) error {
+				if sourceExpired {
+					return ErrMaterial
+				}
+				return ctx.Err()
+			}
+			refs := materialReferences(install.accepted, nil)
+			reads := 0
+			contents, err := store.readGuardedReferences(ctx, refs, func(_ context.Context, ref bootstrap.SecretReference) ([]byte, error) {
+				reads++
+				if failure == "context cancellation" {
+					cancel()
+				} else {
+					sourceExpired = true
+				}
+				return bytes.Clone(install.read(ref.TargetFile)), nil
+			}, nil)
+			if err == nil || reads != 1 || len(contents) != 0 {
+				t.Fatalf("restore retained bytes after %s: reads=%d, error=%v", failure, reads, err)
+			}
+		})
+	}
+
 }
 
 func rebootArmedSuccessor(t *testing.T) (*spooledInstall, map[string][]byte, time.Time) {
@@ -491,69 +522,44 @@ func TestRestoreAcceptsOlderDiskPrefixButRejectsDivergentChain(t *testing.T) {
 }
 
 func TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles(t *testing.T) {
-	for _, fault := range []string{"none", "response rotation", "root", "baseline", "reference", "immutable", "vault"} {
+	for _, fault := range []string{"none", "response rotation", "root", "baseline", "reference", "immutable", "vault", "predecessor", "opaque unchanged", "opaque baseline rotation", "retired predecessor root", "foreign deployment", "missing baseline", "broken link", "read canceled", "read source expiry"} {
 		t.Run(fault, func(t *testing.T) {
-			install := newGenerationInstall(t)
-			wire, generationFiles := install.signedGeneration()
-			chain, err := bootstrap.DecodeMaterialGenerationChain(wire)
-			if err != nil {
-				t.Fatal(err)
+			predecessor := ""
+			if strings.HasPrefix(fault, "opaque") {
+				predecessor = "opaque"
+			} else if fault == "retired predecessor root" || fault == "foreign deployment" || fault == "missing baseline" || fault == "broken link" {
+				predecessor = fault
 			}
-			generation, err := bootstrap.MaterialGenerationPayload(chain[0])
-			if err != nil {
-				t.Fatal(err)
-			}
-			accepted := install.accepted.Clone()
-			accepted.MaterialGenerationSHA256, err = trust.Fingerprint(chain[0])
-			if err != nil {
-				t.Fatal(err)
-			}
-			accepted.Broker.AccountSigner = generation.AccountSigner
-			refs := materialReferences(accepted, nil)
-			files := maps.Clone(generationFiles)
-			for name := range refs {
-				if files[name] == nil {
-					files[name] = install.read(name)
-				}
-			}
-			for _, ref := range generation.Secrets {
-				refs[ref.TargetFile] = ref
-			}
-			accepted.MaterialReferences = nil
-			for _, ref := range refs {
-				accepted.MaterialReferences = append(accepted.MaterialReferences, ref)
-			}
-			roots := install.roots
+			install, store, verified, inputs, _, files, markers := identityRekeyMaterialFixtureWithPredecessor(t, predecessor, fault != "opaque unchanged")
+			refs := materialReferences(verified.Accepted(), nil)
+			var err error
 			switch fault {
-			case "response rotation":
-				name := accepted.Slot + "-response.key"
-				files[name] = []byte("root-authorized fresh response key")
-				ref := refs[name]
-				ref.VersionNumber++
-				ref.SHA256 = digest(files[name])
-				refs[name] = ref
-				for i := range accepted.MaterialReferences {
-					if accepted.MaterialReferences[i].TargetFile == name {
-						accepted.MaterialReferences[i] = ref
-					}
-				}
 			case "root":
-				roots = newGenerationInstall(t).roots
+				inputs.Roots.Current = newGenerationInstall(t).roots
 			case "baseline":
-				accepted.MaterialGenerationSHA256 = digest([]byte("different baseline"))
+				verified.journal.Values[2] = []byte("different signed baseline")
 			case "reference":
-				for i := range accepted.MaterialReferences {
-					if accepted.MaterialReferences[i].TargetFile == "ca.pem" {
-						accepted.MaterialReferences[i].VersionNumber++
-					}
+				accepted := verified.Accepted()
+				accepted.MaterialReferences[0].VersionNumber++
+				verified.journal.AcceptedWire, err = EncodeAcceptedIdentity(accepted)
+				if err != nil {
+					t.Fatal(err)
 				}
 			case "immutable":
 				install.write("ticket.key", []byte("unapproved replacement"))
+			case "predecessor":
+				if err := os.WriteFile(filepath.Join(markers.directory, markerName), []byte("different old acceptance"), 0o644); err != nil {
+					t.Fatal(err)
+				}
 			}
 			before, err := os.ReadDir(install.dir)
 			if err != nil {
 				t.Fatal(err)
 			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			expired := false
+			var returned []byte
 			reads := 0
 			read := func(_ context.Context, ref bootstrap.SecretReference) ([]byte, error) {
 				reads++
@@ -563,10 +569,24 @@ func TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles
 				if fault == "vault" && ref.TargetFile == "ticket.key" {
 					return []byte("wrong Vault version"), nil
 				}
-				return bytes.Clone(files[ref.TargetFile]), nil
+				returned = bytes.Clone(files[ref.TargetFile])
+				if fault == "read canceled" {
+					cancel()
+				}
+				if fault == "read source expiry" {
+					expired = true
+				}
+				return returned, nil
 			}
-			contents, err := install.store().ReadIdentityRekeyMaterial(t.Context(), accepted, wire, roots, read, time.Now())
-			if fault == "none" || fault == "response rotation" {
+			sourceLive := func() error {
+				if expired {
+					return ErrMaterial
+				}
+				return nil
+			}
+			contents, err := store.readIdentityRekeyMaterial(ctx, markers, verified, inputs, read, sourceLive, time.Now())
+			defer clearContents(contents)
+			if fault == "none" || fault == "response rotation" || fault == "opaque unchanged" || fault == "retired predecessor root" {
 				if err != nil || len(contents) != len(refs) || reads != len(refs) {
 					t.Fatalf("full union: files=%d reads=%d error=%v", len(contents), reads, err)
 				}
@@ -575,18 +595,16 @@ func TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles
 						t.Fatalf("missing baseline or generation file %s", name)
 					}
 				}
-				if err := install.target().VerifyFiles(generation, materialReader(contents), time.Now()); err != nil {
-					t.Fatal(err)
+			} else if fault == "read canceled" || fault == "read source expiry" {
+				if err == nil || contents != nil || reads != 1 || !bytes.Equal(returned, make([]byte, len(returned))) {
+					t.Fatalf("expired read retained material: reads=%d error=%v", reads, err)
 				}
 			} else if err == nil || contents != nil || fault != "vault" && reads != 0 {
 				t.Fatalf("%s: reads=%d error=%v", fault, reads, err)
 			}
 			after, err := os.ReadDir(install.dir)
-			if err != nil || len(before) != len(after) {
-				t.Fatal("preinstall retrieval changed installed files")
-			}
-			if install.staged() {
-				t.Fatal("preinstall retrieval created a stage")
+			if err != nil || len(before) != len(after) || install.staged() {
+				t.Fatal("preinstall retrieval changed installed files or created a stage")
 			}
 		})
 	}
