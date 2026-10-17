@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -129,11 +130,28 @@ func TestFoundationPreparationSDKToOfflineCeremony(t *testing.T) {
 		}
 	}))
 	defer server.Close()
+	listener, ok := server.Listener.Addr().(*net.TCPAddr)
+	if !ok || !listener.IP.IsLoopback() || listener.Port <= 0 {
+		t.Fatal("fixture requires its own literal loopback TCP listener")
+	}
+	// The OCI SDK otherwise replaces proxy/dial guards while enabling Expect headers.
+	t.Setenv(common.UsingExpectHeaderEnvVar, "false")
 	original := http.DefaultTransport
 	transport := original.(*http.Transport).Clone()
-	transport.Proxy = nil
+	transport.Proxy = func(request *http.Request) (*url.URL, error) {
+		if request.URL == nil || request.URL.Scheme != "https" || request.URL.Opaque != "" || request.URL.User != nil || request.Response != nil || request.Method == http.MethodConnect {
+			return nil, fmt.Errorf("fixture refuses plaintext, proxy and redirect requests")
+		}
+		return nil, nil
+	}
+	transport.DialContext = func(context.Context, string, string) (net.Conn, error) {
+		return nil, fmt.Errorf("fixture refuses plaintext and proxy dial fallback")
+	}
 	transport.DialTLSContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
-		return (&tls.Dialer{Config: server.Client().Transport.(*http.Transport).TLSClientConfig}).DialContext(ctx, network, strings.TrimPrefix(server.URL, "https://"))
+		if network != "tcp" {
+			return nil, fmt.Errorf("fixture refuses non-TCP transport %s", network)
+		}
+		return (&tls.Dialer{Config: server.Client().Transport.(*http.Transport).TLSClientConfig}).DialContext(ctx, "tcp", listener.String())
 	}
 	http.DefaultTransport = transport
 	t.Cleanup(func() { http.DefaultTransport = original; transport.CloseIdleConnections() })
