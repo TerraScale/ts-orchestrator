@@ -40,7 +40,7 @@ func (s *ContainerMaterialSession) Registration() (Registration, error) {
 // AdmitContainerMaterialSession performs the actual material admission in root.
 // A renewed session cannot extend this admission's original deadline.
 func (r *Reader) AdmitContainerMaterialSession(ctx context.Context, evidence ContainerMaterialEvidence) (*ContainerMaterialSession, error) {
-	if r == nil || r.controller == nil || ctx.Err() != nil {
+	if r == nil || r.controller == nil || ctx == nil || ctx.Err() != nil {
 		return nil, errors.New("container material session source is unavailable")
 	}
 	wire, err := protocol.EncodeJSON(evidence.Request)
@@ -96,7 +96,7 @@ func containerMaterialDeadline(a, b time.Time) time.Time {
 }
 
 func (s *ContainerMaterialSession) Guard(ctx context.Context) error {
-	if s == nil || s.reader == nil || s.original == nil || s.original.Err() != nil || ctx.Err() != nil || !time.Now().Before(s.deadline) {
+	if s == nil || s.reader == nil || s.original == nil || ctx == nil || s.original.Err() != nil || ctx.Err() != nil || !time.Now().Before(s.deadline) {
 		return errors.New("original container material admission expired or was cancelled")
 	}
 	ctx, cancel := context.WithCancel(ctx)
