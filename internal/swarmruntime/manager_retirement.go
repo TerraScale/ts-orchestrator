@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/api"
@@ -167,6 +168,9 @@ func (n *Node) RetireControllerManager(ctx context.Context, proof *bootstrapstar
 		spec.Annotations.Labels[managerRetirementLabel] = string(wire)
 		spec.DesiredRole = api.NodeRoleWorker
 		spec.Availability = api.NodeAvailabilityPause
+		if err := ociclient.CheckRequestGuard(ctx); err != nil {
+			return nil, err
+		}
 		response, err := m.UpdateNodeAtObservation(ctx, observed, target, &api.UpdateNodeRequest{NodeID: target.ID, NodeVersion: target.Meta.Version.Copy(), Spec: spec}, live)
 		if err != nil {
 			return nil, err
@@ -185,6 +189,9 @@ func (n *Node) RetireControllerManager(ctx context.Context, proof *bootstrapstar
 		if member.NodeID == target.ID {
 			return nil, errors.New("retired manager remains a current Raft voter")
 		}
+	}
+	if err := ociclient.CheckRequestGuard(ctx); err != nil {
+		return nil, err
 	}
 	if _, err := m.RemoveNodeAtObservation(ctx, observed, target, live); err != nil {
 		return nil, err
