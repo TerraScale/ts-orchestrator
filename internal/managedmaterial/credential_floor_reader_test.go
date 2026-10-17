@@ -34,8 +34,8 @@ func TestCredentialFloorVerifiesPinnedAuthorityAndRejectsMidReadOverlay(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	ns.Start()
-	t.Cleanup(ns.Shutdown)
+	go ns.Start()
+	t.Cleanup(func() { ns.Shutdown(); ns.WaitForShutdown() })
 	if !ns.ReadyForConnections(5 * time.Second) {
 		t.Fatal("floor fixture broker did not start")
 	}
