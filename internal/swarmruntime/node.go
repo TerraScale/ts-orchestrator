@@ -64,6 +64,10 @@ type admittedIdentity struct {
 // StartNode starts an admitted node and waits for upstream registration. The
 // supplied context governs its lifetime; Stop preserves running containers.
 func StartNode(ctx context.Context, cfg NodeConfig, executor exec.Executor) (*Node, error) {
+	return startNode(ctx, cfg, executor, api.NodeAvailabilityActive)
+}
+
+func startNode(ctx context.Context, cfg NodeConfig, executor exec.Executor, initialAvailability api.NodeSpec_Availability) (*Node, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -194,7 +198,7 @@ func StartNode(ctx context.Context, cfg NodeConfig, executor exec.Executor) (*No
 		if hasIdentity {
 			security, cleanup, err = ca.LoadSecurityConfig(ctx, rootCA, keys, false)
 		} else {
-			security, cleanup, err = rootCA.CreateSecurityConfig(ctx, keys, ca.CertificateRequestConfig{Token: joinToken, ConnBroker: broker})
+			security, cleanup, err = rootCA.CreateSecurityConfig(ctx, keys, ca.CertificateRequestConfig{Token: joinToken, ConnBroker: broker, Availability: initialAvailability})
 		}
 		if err != nil {
 			return nil, err
@@ -220,6 +224,7 @@ func StartNode(ctx context.Context, cfg NodeConfig, executor exec.Executor) (*No
 		ListenRemoteAPI:    cfg.ListenAddress,
 		AdvertiseRemoteAPI: cfg.AdvertiseAddress,
 		Executor:           executor,
+		Availability:       initialAvailability,
 	})
 	if err != nil {
 		return nil, err

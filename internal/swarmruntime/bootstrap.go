@@ -179,9 +179,10 @@ func startAcceptedNodeAt(ctx context.Context, stateDir string, identity bootstra
 	if err := refresh(ctx); err != nil {
 		return nil, err
 	}
-	n, err := StartNode(ctx, NodeConfig{StateDir: nodeDir,
+	// Registration stays paused until the fenced controller admission owner activates execution.
+	n, err := startNode(ctx, NodeConfig{StateDir: nodeDir,
 		ListenAddress:    net.JoinHostPort(identity.PrivateIP, swarmManagerPort),
-		AdvertiseAddress: net.JoinHostPort(identity.PrivateIP, swarmManagerPort), Admission: admission}, executor)
+		AdvertiseAddress: net.JoinHostPort(identity.PrivateIP, swarmManagerPort), Admission: admission}, executor, api.NodeAvailabilityPause)
 	if err != nil {
 		return nil, err
 	}
