@@ -78,6 +78,14 @@ type PoolChildView struct {
 	Epoch                uint64    `json:"epoch"`
 	Node                 string    `json:"node,omitempty"`
 	PrivateIP            string    `json:"private_ip,omitempty"`
+	CompartmentID        string    `json:"compartment_id"`
+	AvailabilityDomain   string    `json:"availability_domain"`
+	FaultDomain          string    `json:"fault_domain"`
+	ImageID              string    `json:"image_id"`
+	Shape                string    `json:"shape"`
+	OCPUs                float32   `json:"ocpus"`
+	MemoryGB             float32   `json:"memory_gb"`
+	BootGB               int64     `json:"boot_gb"`
 	Role                 string    `json:"role"`
 	Architecture         string    `json:"architecture"`
 	Descriptor           string    `json:"descriptor,omitempty"`

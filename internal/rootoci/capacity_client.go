@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"math"
 	"net/netip"
 	"reflect"
 	"slices"
@@ -129,6 +130,8 @@ func validPoolChildAdmission(view PoolChildView, now time.Time) bool {
 	if view.Stage != "attached" || !knownCell ||
 		!entityid.Valid(view.OperationID) || !entityid.Valid(view.ReservationID) || view.SlotID == "" || len(view.SlotID) > 256 ||
 		view.Generation == 0 || view.Epoch == 0 || view.Node == "" || len(view.Node) > 128 ||
+		view.AvailabilityDomain == "" || view.FaultDomain == "" || view.Shape == "" ||
+		!(view.OCPUs > 0) || !(view.MemoryGB > 0) || math.IsInf(float64(view.OCPUs), 0) || math.IsInf(float64(view.MemoryGB), 0) || view.BootGB <= 0 ||
 		view.Descriptor == "" || len(view.Descriptor) > 64<<10 ||
 		(view.Role != "container" && view.Role != "wasm") ||
 		(view.Architecture != "arm64" && view.Architecture != "amd64") ||
@@ -147,6 +150,7 @@ func validPoolChildAdmission(view PoolChildView, now time.Time) bool {
 	for _, id := range []struct{ value, prefix string }{
 		{view.InstanceID, "ocid1.instance."}, {view.PoolID, "ocid1.instancepool."},
 		{view.ConfigurationID, "ocid1.instanceconfiguration."}, {view.BootVolumeIDs[0], "ocid1.bootvolume."},
+		{view.CompartmentID, "ocid1.compartment."}, {view.ImageID, "ocid1.image."},
 	} {
 		if !strings.HasPrefix(id.value, id.prefix) || len(id.value) > 512 || strings.ContainsAny(id.value, " \t\r\n") {
 			return false
