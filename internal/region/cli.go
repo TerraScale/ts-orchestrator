@@ -127,7 +127,7 @@ func provisionFromFile(ctx context.Context, args []string, out io.Writer) error 
 	if err != nil {
 		return err
 	}
-	if err := ProvisionFoundationBundle(ctx, factory, genesis, bundle); err != nil {
+	if err := provisionOriginalFoundationCompartments(ctx, factory, genesis, bundle); err != nil {
 		return err
 	}
 	_, err = fmt.Fprintln(out, "provisioned exact signed foundation footprint")

@@ -1,6 +1,7 @@
 package budget
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"crypto/ed25519"
@@ -520,6 +521,107 @@ func TestReservationLedgerSurvivesPeriodicWritesThroughHomeCAS(t *testing.T) {
 				t.Fatalf("unknown outcome was changed or retired: %+v", receipt)
 			}
 		}
+	}
+	storedBudget, found, err := ReadBudget(ctx, &concurrent.Reader)
+	if err != nil || !found || storedBudget.Schema != monthly.Schema || storedBudget.ID != monthly.ID ||
+		storedBudget.MonthlyCapCents != monthly.MonthlyCapCents || storedBudget.Currency != monthly.Currency ||
+		storedBudget.SetBy != monthly.SetBy || !storedBudget.SetAt.Equal(monthly.SetAt) {
+		t.Fatalf("committed monthly budget = %+v, found=%v, err=%v", storedBudget, found, err)
+	}
+	budgetDocument, err := concurrent.Document(ctx, globalcontrol.KindBudget, protocol.GlobalScope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*Budget){
+		"schema":         func(b *Budget) { b.Schema = 2 },
+		"bad ULID":       func(b *Budget) { b.ID = "not-a-ulid" },
+		"zero cap":       func(b *Budget) { b.MonthlyCapCents = 0 },
+		"cap too large":  func(b *Budget) { b.MonthlyCapCents = 1_000_000_000_001 },
+		"lower currency": func(b *Budget) { b.Currency = "brl" },
+		"short currency": func(b *Budget) { b.Currency = "BR" },
+		"long currency":  func(b *Budget) { b.Currency = "BRLX" },
+		"empty set_by":   func(b *Budget) { b.SetBy = "" },
+		"control set_by": func(b *Budget) { b.SetBy = "mariogk\n@terrascale.tech" },
+		"long set_by":    func(b *Budget) { b.SetBy = strings.Repeat("a", 255) },
+		"zero set_at":    func(b *Budget) { b.SetAt = time.Time{} },
+	} {
+		t.Run("budget/"+name, func(t *testing.T) {
+			b := testBudget()
+			mutate(&b)
+			if err := WriteBudget(ctx, writer, epoch, b); err == nil {
+				t.Fatal("malformed budget was committed")
+			}
+			stored, found, err := ReadBudget(ctx, &concurrent.Reader)
+			if err != nil || !found || stored.Schema != monthly.Schema || stored.ID != monthly.ID ||
+				stored.MonthlyCapCents != monthly.MonthlyCapCents || stored.Currency != monthly.Currency ||
+				stored.SetBy != monthly.SetBy || !stored.SetAt.Equal(monthly.SetAt) {
+				t.Fatalf("rejected budget changed committed fields: %+v, found=%v, err=%v", stored, found, err)
+			}
+			document, err := concurrent.Document(ctx, globalcontrol.KindBudget, protocol.GlobalScope)
+			if err != nil || string(document.Payload) != string(budgetDocument.Payload) ||
+				document.Generation != budgetDocument.Generation || document.Epoch != budgetDocument.Epoch || document.Sequence != budgetDocument.Sequence {
+				t.Fatalf("rejected budget changed committed record: %+v, err=%v", document, err)
+			}
+		})
+	}
+
+	want := testBudget()
+	encoded, err := want.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.PutDocument(ctx, epoch, globalcontrol.KindBudget, protocol.GlobalScope, encoded, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, found, err := ReadBudget(ctx, &concurrent.Reader)
+	if err != nil || !found || got.ID != want.ID || got.MonthlyCapCents != want.MonthlyCapCents || got.Currency != want.Currency ||
+		got.SetBy != want.SetBy || !got.SetAt.Equal(want.SetAt) || got.Schema != want.Schema {
+		t.Fatalf("stored round trip = %+v, found=%v, err=%v; want %+v", got, found, err, want)
+	}
+	again, err := got.Encode()
+	if err != nil || !bytes.Equal(again, encoded) {
+		t.Fatalf("stored re-encode = %s, %v; want %s", again, err, encoded)
+	}
+
+	id := entityid.New()
+	valid := `"schema":1,"id":"` + id + `","monthly_cap_cents":1,"currency":"BRL","set_by":"x","set_at":"2026-10-10T20:00:00Z"`
+	if _, err := writer.PutDocument(ctx, epoch, globalcontrol.KindBudget, protocol.GlobalScope, []byte("{"+valid+"}"), nil); err != nil {
+		t.Fatal(err)
+	}
+	got, found, err = ReadBudget(ctx, &concurrent.Reader)
+	if err != nil || !found || got.Schema != 1 || got.ID != id || got.MonthlyCapCents != 1 || got.Currency != "BRL" ||
+		got.SetBy != "x" || !got.SetAt.Equal(time.Date(2026, 10, 10, 20, 0, 0, 0, time.UTC)) {
+		t.Fatalf("stored valid raw budget = %+v, found=%v, err=%v", got, found, err)
+	}
+	for _, hostile := range []struct {
+		name    string
+		payload []byte
+	}{
+		{"unknown field", []byte("{" + valid + `,"extra":true}`)},
+		{"invalid currency", []byte("{" + strings.Replace(valid, `"currency":"BRL"`, `"currency":"brl"`, 1) + "}")},
+		{"garbage", []byte("not json")},
+	} {
+		if _, err := writer.PutDocument(ctx, epoch, globalcontrol.KindBudget, protocol.GlobalScope, hostile.payload, nil); err != nil {
+			t.Fatalf("store %s: %v", hostile.name, err)
+		}
+		got, found, err := ReadBudget(ctx, &concurrent.Reader)
+		if err == nil || found || got != (Budget{}) {
+			t.Fatalf("stored %s decoded = %+v, found=%v, err=%v", hostile.name, got, found, err)
+		}
+	}
+
+	if _, err := writer.PutDocument(ctx, epoch, globalcontrol.KindBudget, protocol.GlobalScope, budgetDocument.Payload, nil); err != nil {
+		t.Fatal(err)
+	}
+	restoredDocument, err := concurrent.Document(ctx, globalcontrol.KindBudget, protocol.GlobalScope)
+	if err != nil || !bytes.Equal(restoredDocument.Payload, budgetDocument.Payload) {
+		t.Fatalf("restored monthly payload = %s, err=%v; want %s", restoredDocument.Payload, err, budgetDocument.Payload)
+	}
+	storedBudget, found, err = ReadBudget(ctx, &concurrent.Reader)
+	if err != nil || !found || storedBudget.Schema != monthly.Schema || storedBudget.ID != monthly.ID ||
+		storedBudget.MonthlyCapCents != monthly.MonthlyCapCents || storedBudget.Currency != monthly.Currency ||
+		storedBudget.SetBy != monthly.SetBy || !storedBudget.SetAt.Equal(monthly.SetAt) {
+		t.Fatalf("restored monthly budget = %+v, found=%v, err=%v", storedBudget, found, err)
 	}
 }
 

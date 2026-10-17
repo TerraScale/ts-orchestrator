@@ -14,27 +14,12 @@ import (
 // ProvisionFoundationBundle is the explicit paid provisioning path. Every
 // resource comes from the same offline-approved bundle; discovery is last.
 func ProvisionFoundationBundle(ctx context.Context, factory *ociclient.Factory, genesis trust.Keyring, bundle RetainedFoundation) error {
-	if err := VerifyFoundationProvisionBundle(ctx, genesis, bundle); err != nil {
-		return err
-	}
-	authority, resolver, err := newOperatorHomeIAMAuthority(ctx, factory, genesis, bundle)
+	stage, err := provisionFoundationMaterial(ctx, factory, genesis, bundle)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithDeadline(ctx, authority.operator.deadline)
-	defer cancel()
-	if err := authority.reserveNetBirdMaterialBirth(ctx); err != nil {
-		return fmt.Errorf("reserve original material birth before origins: %w", err)
-	}
-	if err := authority.checkOriginalSourceProducerBirth(ctx); err != nil {
-		return fmt.Errorf("verify complete original producer birth before origins: %w", err)
-	}
-	if err := authority.reserveFoundationWorkloadOrigin(ctx); err != nil {
-		return fmt.Errorf("reserve original workload lineage before foundation effects: %w", err)
-	}
-	if err := authority.produceNetBirdMaterial(ctx); err != nil {
-		return fmt.Errorf("retain original NetBird material: %w", err)
-	}
+	defer stage.cancel()
+	ctx, authority, resolver := stage.ctx, stage.authority, stage.resolver
 	if err := authority.verifyFoundationWorkloadStartup(ctx); err != nil {
 		return err
 	}
@@ -88,6 +73,46 @@ func ProvisionFoundationBundle(ctx context.Context, factory *ociclient.Factory, 
 		return err
 	}
 	return PublishFoundationBundle(guarded, authority.factory, genesis, bundle)
+}
+
+// foundationMaterialStage carries only the successful original material stage.
+// Its caller owns cancellation for the full remaining original operation.
+type foundationMaterialStage struct {
+	ctx       context.Context
+	cancel    context.CancelFunc
+	authority *HomeIAMAuthority
+	resolver  FoundationResolver
+}
+
+// provisionFoundationMaterial preserves the original pre-origin birth, all-nine
+// origin and Vault ordering. No runtime failure is a successful stage result.
+func provisionFoundationMaterial(ctx context.Context, factory *ociclient.Factory, genesis trust.Keyring, bundle RetainedFoundation) (_ foundationMaterialStage, err error) {
+	if err := VerifyFoundationProvisionBundle(ctx, genesis, bundle); err != nil {
+		return foundationMaterialStage{}, err
+	}
+	authority, resolver, err := newOperatorHomeIAMAuthority(ctx, factory, genesis, bundle)
+	if err != nil {
+		return foundationMaterialStage{}, err
+	}
+	ctx, cancel := context.WithDeadline(ctx, authority.operator.deadline)
+	defer func() {
+		if err != nil {
+			cancel()
+		}
+	}()
+	if err := authority.reserveNetBirdMaterialBirth(ctx); err != nil {
+		return foundationMaterialStage{}, fmt.Errorf("reserve original material birth before origins: %w", err)
+	}
+	if err := authority.checkOriginalSourceProducerBirth(ctx); err != nil {
+		return foundationMaterialStage{}, fmt.Errorf("verify complete original producer birth before origins: %w", err)
+	}
+	if err := authority.reserveFoundationWorkloadOrigin(ctx); err != nil {
+		return foundationMaterialStage{}, fmt.Errorf("reserve original workload lineage before foundation effects: %w", err)
+	}
+	if err := authority.produceNetBirdMaterial(ctx); err != nil {
+		return foundationMaterialStage{}, fmt.Errorf("retain original NetBird material: %w", err)
+	}
+	return foundationMaterialStage{ctx: ctx, cancel: cancel, authority: authority, resolver: resolver}, nil
 }
 
 // VerifyFoundationProvisionBundle rejects invalid authority before a CLI opens

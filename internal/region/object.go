@@ -30,9 +30,10 @@ type FoundationObjects interface {
 // ObjectFoundationStore uses a pre-existing protected home-region bucket. IAM
 // access to the bucket alone does not authorize a regional footprint.
 type ObjectFoundationStore struct {
-	originalSourceBirth *[3]OriginalSourceProducerBirth
-	client              FoundationObjects
-	namespace, bucket   string
+	originalCompartmentScope *OriginalFoundationCompartments
+	originalSourceBirth      *[3]OriginalSourceProducerBirth
+	client                   FoundationObjects
+	namespace, bucket        string
 }
 
 func NewObjectFoundationStore(client FoundationObjects, namespace, bucket string) (*ObjectFoundationStore, error) {
@@ -84,6 +85,11 @@ func (s *ObjectFoundationStore) Load(ctx context.Context, cell string) (Foundati
 }
 
 func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record FoundationRecord, etag string) (string, error) {
+	// The original prerequisite section is born only after the existing complete
+	// material record has been independently read and conditionally extended.
+	if etag == "" && record.OriginalFoundationCompartments != nil {
+		return "", ErrOriginalSourceProducerHold
+	}
 	// Attach the complete purpose array to the SAME original NetBird birth CAS.
 	// Only the verified original operator binds this private initial scope.
 	if etag == "" && record.NetBirdMaterial != nil && record.OriginalSourceProducers == nil && s.originalSourceBirth != nil {
@@ -127,6 +133,13 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 		}
 		if err := record.retainOriginalSourceProducers(previous); err != nil {
 			return "", err
+		}
+		if err := record.retainOriginalFoundationCompartments(previous); err != nil {
+			return "", err
+		}
+		if previous.OriginalFoundationCompartments == nil && record.OriginalFoundationCompartments != nil &&
+			(s.originalCompartmentScope == nil || !sameOriginalSourceValue(record.OriginalFoundationCompartments, s.originalCompartmentScope)) {
+			return "", ErrOriginalSourceProducerHold
 		}
 		if err := previous.retainOCIRIssuances(record); err != nil {
 			return "", err
@@ -176,6 +189,9 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 }
 
 func (r FoundationRecord) validate() error {
+	if err := r.validateOriginalFoundationCompartments(); err != nil {
+		return err
+	}
 	if err := r.validateOriginalSourceProducers(); err != nil {
 		return err
 	}
@@ -203,8 +219,12 @@ func (r FoundationRecord) validate() error {
 		return errors.New("foundation record lease is invalid")
 	}
 	switch r.Stage {
+	case "original-foundation":
+		if r.OriginalFoundationCompartments == nil || !r.netBirdMaterialOnly() {
+			return errors.New("original foundation prerequisites cannot authorize runtime progress")
+		}
 	case "material":
-		if !r.netBirdMaterialOnly() {
+		if r.OriginalFoundationCompartments != nil || !r.netBirdMaterialOnly() {
 			return errors.New("material-only reservation cannot authorize foundation progress")
 		}
 	case "foundation":

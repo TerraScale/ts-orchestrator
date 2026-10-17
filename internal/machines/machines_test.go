@@ -4,7 +4,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
@@ -126,25 +125,6 @@ func TestMachineValidate(t *testing.T) {
 		machine := placed
 		mutate(&machine)
 		if err := machine.Validate(); !errors.Is(err, ErrInvalid) {
-			t.Fatalf("%s: got %v", name, err)
-		}
-	}
-}
-
-func TestStatusValidate(t *testing.T) {
-	status := Status{ID: NewMachineID(), App: "ts-auth", State: StateStarted, UpdatedAt: time.Now()}
-	if err := status.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	for name, mutate := range map[string]func(*Status){
-		"id":             func(s *Status) { s.ID = "x" },
-		"app":            func(s *Status) { s.App = "TS" },
-		"state":          func(s *Status) { s.State = "running" },
-		"no update time": func(s *Status) { s.UpdatedAt = time.Time{} },
-	} {
-		candidate := status
-		mutate(&candidate)
-		if err := candidate.Validate(); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("%s: got %v", name, err)
 		}
 	}

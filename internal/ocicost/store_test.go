@@ -3,7 +3,10 @@ package ocicost
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,6 +32,70 @@ func TestStoreRoundTrip(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("report round trip = %+v, want %+v", got, want)
 	}
+
+	t.Run("valid", func(t *testing.T) {
+		want := validReport()
+		if err := store.Put(t.Context(), want); err != nil {
+			t.Fatal(err)
+		}
+		got, err := store.Report(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("report round trip = %+v, want %+v", got, want)
+		}
+		if err := got.Validate(); err != nil {
+			t.Errorf("Validate() = %v, want nil", err)
+		}
+		if got.Empty() {
+			t.Error("Empty() = true for a report with usage days")
+		}
+	})
+
+	t.Run("valid prices", func(t *testing.T) {
+		want := validReport()
+		want.Prices = []Price{{SKU: "B91961", PerUnit: 0.1335}, {SKU: "B93297", PerUnit: 0}}
+		if err := store.Put(t.Context(), want); err != nil {
+			t.Fatal(err)
+		}
+		got, err := store.Report(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("report round trip = %+v, want %+v", got, want)
+		}
+		if err := got.Validate(); err != nil {
+			t.Errorf("Validate() = %v, want nil", err)
+		}
+	})
+
+	t.Run("empty without currency passes", func(t *testing.T) {
+		want := Report{
+			Version:    Version,
+			Cell:       "gru",
+			OCIRegion:  "sa-saopaulo-1",
+			ObservedAt: time.Date(2026, time.October, 10, 19, 0, 0, 0, time.UTC),
+			Through:    time.Date(2026, time.October, 8, 0, 0, 0, 0, time.UTC),
+		}
+		if err := store.Put(t.Context(), want); err != nil {
+			t.Fatal(err)
+		}
+		got, err := store.Report(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("report round trip = %+v, want %+v", got, want)
+		}
+		if err := got.Validate(); err != nil {
+			t.Errorf("Validate() = %v, want nil", err)
+		}
+		if !got.Empty() {
+			t.Error("Empty() = false for a report without days")
+		}
+	})
 }
 
 func TestStoreReportBeforePutIsNoReport(t *testing.T) {
@@ -65,6 +132,61 @@ func TestStorePutRejectsInvalidReport(t *testing.T) {
 		{name: "upper-case cell", mutate: func(r *Report) { r.Cell = "GRU" }},
 		{name: "empty OCI region", mutate: func(r *Report) { r.OCIRegion = "" }},
 		{name: "lower-case currency", mutate: func(r *Report) { r.Currency = "usd" }},
+		{name: "zero observed time", mutate: func(r *Report) { r.ObservedAt = time.Time{} }},
+		{name: "through not midnight", mutate: func(r *Report) {
+			r.Through = time.Date(2026, time.October, 8, 0, 0, 0, 0, time.UTC).Add(time.Hour)
+		}},
+		{name: "through after observed", mutate: func(r *Report) {
+			r.Through = time.Date(2026, time.October, 11, 0, 0, 0, 0, time.UTC)
+		}},
+		{name: "through not in UTC", mutate: func(r *Report) {
+			r.Through = time.Date(2026, time.October, 8, 0, 0, 0, 0, time.UTC).In(time.FixedZone("UTC+0", 0))
+		}},
+		{name: "unsorted days", mutate: func(r *Report) {
+			r.Days = []Day{{Day: time.Date(2026, time.October, 3, 0, 0, 0, 0, time.UTC)}, {Day: time.Date(2026, time.October, 2, 0, 0, 0, 0, time.UTC)}}
+		}},
+		{name: "duplicate day", mutate: func(r *Report) {
+			r.Days = []Day{{Day: time.Date(2026, time.October, 2, 0, 0, 0, 0, time.UTC)}, {Day: time.Date(2026, time.October, 2, 0, 0, 0, 0, time.UTC)}}
+		}},
+		{name: "day cents over bound", mutate: func(r *Report) { r.Days[0].Cents = maxCents + 1 }},
+		{name: "65 days", mutate: func(r *Report) {
+			r.Days = nil
+			for index := range 65 {
+				r.Days = append(r.Days, Day{Day: time.Date(2026, time.January, 1+index, 0, 0, 0, 0, time.UTC)})
+			}
+		}},
+		{name: "empty line name", mutate: func(r *Report) { r.Services[0].Name = "" }},
+		{name: "duplicate service", mutate: func(r *Report) {
+			r.Services = append(r.Services, Line{Name: "Block Storage", Cents: 1})
+		}},
+		{name: "unknown component", mutate: func(r *Report) {
+			r.Components = []Line{{Name: "db", Cents: 1}}
+		}},
+		{name: "cost without currency", mutate: func(r *Report) { r.Currency = "" }},
+		{name: "65 prices", mutate: func(r *Report) {
+			r.Prices = nil
+			for index := range 65 {
+				r.Prices = append(r.Prices, Price{SKU: fmt.Sprintf("B%05d", index)})
+			}
+		}},
+		{name: "empty SKU", mutate: func(r *Report) { r.Prices = []Price{{SKU: "", PerUnit: 1}} }},
+		{name: "SKU over bound", mutate: func(r *Report) {
+			r.Prices = []Price{{SKU: strings.Repeat("x", maxNameBytes+1), PerUnit: 1}}
+		}},
+		{name: "unsorted prices", mutate: func(r *Report) {
+			r.Prices = []Price{{SKU: "B93298", PerUnit: 1}, {SKU: "B93297", PerUnit: 1}}
+		}},
+		{name: "duplicate price SKU", mutate: func(r *Report) {
+			r.Prices = []Price{{SKU: "B93297", PerUnit: 1}, {SKU: "B93297", PerUnit: 2}}
+		}},
+		{name: "NaN price", mutate: func(r *Report) { r.Prices = []Price{{SKU: "B93297", PerUnit: math.NaN()}} }},
+		{name: "infinite price", mutate: func(r *Report) {
+			r.Prices = []Price{{SKU: "B93297", PerUnit: math.Inf(1)}}
+		}},
+		{name: "negative price", mutate: func(r *Report) { r.Prices = []Price{{SKU: "B93297", PerUnit: -0.01}} }},
+		{name: "price over bound", mutate: func(r *Report) {
+			r.Prices = []Price{{SKU: "B93297", PerUnit: maxUnitPrice + 1}}
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			report := validReport()
