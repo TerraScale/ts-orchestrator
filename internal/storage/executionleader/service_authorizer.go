@@ -106,6 +106,11 @@ func (a *ServiceAuthorizer) AuthorizeStatefulService(ctx context.Context, reques
 	if err != nil || row != state.CanonicalRosterRow {
 		return errors.Join(execution.ErrUnsafe, err)
 	}
+	expectedScope := host.MemberScope{
+		ClusterID: placementIntent.CanonicalRoster.ClusterID, TenantID: placementIntent.CanonicalRoster.TenantID,
+		DatabaseID: placementIntent.CanonicalRoster.DatabaseID, ShardID: placementIntent.CanonicalRoster.ShardID,
+		MemberID: row.MemberID, Incarnation: row.Incarnation,
+	}
 	profile, err := placementIntent.ManagedHostProfile(state.Region)
 	if err != nil || profile != state.ManagedHostProfile {
 		return errors.Join(execution.ErrUnsafe, err)
@@ -138,7 +143,7 @@ func (a *ServiceAuthorizer) AuthorizeStatefulService(ctx context.Context, reques
 		registration.ManagedOCI.InstanceID != state.InstanceID || registration.ManagedOCI.CreateKey != state.CreateKey ||
 		registration.ManagedPlacement.DatabaseID != db || registration.ManagedPlacement.PartitionID != partition || registration.ManagedPlacement.SeatID != seat ||
 		registration.ManagedPlacement.IntentGeneration != state.IntentGeneration || registration.ManagedPlacement.IntentPayloadDigest != state.IntentPayloadDigest ||
-		registration.ManagedMember.HostAttempt != state.HostAttempt || registration.ManagedMember.Scope.MemberID != row.MemberID || registration.ManagedMember.Scope.Incarnation != row.Incarnation {
+		registration.ManagedMember.HostAttempt != state.HostAttempt || registration.ManagedMember.Scope != expectedScope {
 		return execution.ErrUnsafe
 	}
 	envelope, err := trust.DecodeEnvelope(intent.Container.Claim)
