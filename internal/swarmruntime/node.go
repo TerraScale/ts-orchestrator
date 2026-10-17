@@ -43,15 +43,17 @@ type NodeConfig struct {
 
 // Node owns the upstream manager, agent, certificates and persistent task store.
 type Node struct {
-	upstream        *swarmnode.Node
-	cancel          context.CancelFunc
-	done            chan struct{}
-	err             error
-	role            string
-	admission       admittedIdentity
-	stateDir        string
-	workerAuthority *workerAuthority
-	workerDirectory string
+	upstream         *swarmnode.Node
+	cancel           context.CancelFunc
+	done             chan struct{}
+	err              error
+	role             string
+	admission        admittedIdentity
+	stateDir         string
+	workerAuthority  *workerAuthority
+	workerDirectory  string
+	createdGenesis   bool
+	genesisStartedAt time.Time
 }
 
 type admittedIdentity struct {
@@ -130,6 +132,7 @@ func StartNode(ctx context.Context, cfg NodeConfig, executor exec.Executor) (*No
 		}
 	}
 	joinAddress, joinToken := "", ""
+	var genesisStartedAt time.Time
 	if !hasIdentity {
 		if a.HostID == a.FounderID {
 			// A failed/partial founder initialization requires explicit recovery;
@@ -146,6 +149,7 @@ func StartNode(ctx context.Context, cfg NodeConfig, executor exec.Executor) (*No
 					return nil, errors.New("regional founder requires empty initial state or complete persisted identity")
 				}
 			}
+			genesisStartedAt = time.Now().UTC()
 		} else {
 			if _, _, err := net.SplitHostPort(a.ManagerAddress); err != nil {
 				return nil, errors.New("joining node requires an admitted manager address")
@@ -230,7 +234,8 @@ func StartNode(ctx context.Context, cfg NodeConfig, executor exec.Executor) (*No
 		cancel()
 		return nil, err
 	}
-	n = &Node{upstream: upstream, cancel: cancel, done: make(chan struct{}), role: a.Role, admission: identity, stateDir: cfg.StateDir}
+	n = &Node{upstream: upstream, cancel: cancel, done: make(chan struct{}), role: a.Role, admission: identity, stateDir: cfg.StateDir,
+		createdGenesis: !genesisStartedAt.IsZero(), genesisStartedAt: genesisStartedAt}
 	go func() {
 		n.err = errors.Join(upstream.Err(context.Background()), lock.Unlock())
 		close(n.done)
