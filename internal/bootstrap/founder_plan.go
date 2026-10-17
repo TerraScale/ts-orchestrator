@@ -148,6 +148,7 @@ type VerifiedCompletedFounderPlan struct {
 	launchDeadline time.Time
 	digest         string
 	verified       bool
+	failureDomains map[string]ControllerFailureDomain
 }
 
 // VerifiedFounderPeer is a short-lived, typed pre-quorum launch capability.
@@ -392,9 +393,11 @@ func VerifyFounderPlanForCompletedPeerContinuation(
 	if err != nil {
 		return VerifiedCompletedFounderPlan{}, err
 	}
+	// Historical continuation stays readable; execution separately requires this projection.
+	domains, _ := current.ControllerFailureDomains()
 	return VerifiedCompletedFounderPlan{seedSlot: current.plan.SeedSlot,
 		peers: cloneFounderPlan(current.plan).Peers, launchDeadline: current.plan.LaunchDeadline,
-		digest: current.digest, verified: true}, nil
+		digest: current.digest, verified: true, failureDomains: domains}, nil
 }
 
 func verifyFounderPlan(

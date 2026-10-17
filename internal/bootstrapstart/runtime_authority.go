@@ -30,11 +30,18 @@ type RuntimeAuthority struct {
 	planDigest, selectionDigest string
 	manifests                   map[string][]byte
 	derived                     *bootstrap.DerivedFounderPlan
+	failureDomains              map[string]bootstrap.ControllerFailureDomain
 }
 
 func (a RuntimeAuthority) Identity() RuntimeIdentity                 { return a.identity }
 func (a RuntimeAuthority) Anchor() bootstrap.VerifiedBootstrapAnchor { return a.anchor }
 func (a RuntimeAuthority) ExpiresAt() time.Time                      { return a.expires }
+
+// ControllerFailureDomain returns only the captured verified topology projection.
+func (a RuntimeAuthority) ControllerFailureDomain(slot string) (bootstrap.ControllerFailureDomain, bool) {
+	domain, ok := a.failureDomains[slot]
+	return domain, ok && a.anchor.IsVerified() && time.Now().Before(a.expires)
+}
 
 // ReadRuntimeAuthority consumes the installation already checked by Gate and
 // the existing seed/accepted-peer selection readers. Discovery cannot elect a
@@ -58,6 +65,7 @@ func (reader *CurrentFounderAuthorityReader) ReadRuntimeAuthority(ctx context.Co
 	var manifests map[string][]byte
 	var planDigest, selectionDigest string
 	var derived *bootstrap.DerivedFounderPlan
+	var failureDomains map[string]bootstrap.ControllerFailureDomain
 	if marker.Slot == marker.SeedSlot {
 		selected, err := reader.ReadCurrent(ctx, now)
 		if err != nil {
@@ -65,6 +73,10 @@ func (reader *CurrentFounderAuthorityReader) ReadRuntimeAuthority(ctx context.Co
 		}
 		plan, anchor, expires, manifests = selected.Plan.Plan(), selected.Anchor, selected.SelectionExpiresAt, selected.ManifestWires
 		planDigest, selectionDigest, derived = selected.Plan.Digest(), selected.SelectionSHA256, selected.Derived
+		failureDomains, err = selected.Plan.ControllerFailureDomains()
+		if err != nil {
+			return RuntimeAuthority{}, err
+		}
 	} else {
 		selected, err := reader.readCurrentCompletedPeer(ctx, now, true)
 		if err != nil {
@@ -81,6 +93,10 @@ func (reader *CurrentFounderAuthorityReader) ReadRuntimeAuthority(ctx context.Co
 		}
 		anchor, expires, manifests = selected.Anchor, selected.SelectionExpiresAt, selected.ManifestWires
 		planDigest, selectionDigest, derived = selected.Plan.Digest(), selected.SelectionSHA256, selected.derived
+		failureDomains, err = selected.Plan.ControllerFailureDomains()
+		if err != nil {
+			return RuntimeAuthority{}, err
+		}
 	}
 	if !anchor.IsVerified() || anchor.Digest() != marker.AnchorSHA256 ||
 		anchor.Anchor().ClusterID != accepted.ClusterID || anchor.Anchor().Environment != accepted.Environment ||
@@ -107,7 +123,7 @@ func (reader *CurrentFounderAuthorityReader) ReadRuntimeAuthority(ctx context.Co
 		Slot:      accepted.Slot, SeedSlot: accepted.SeedSlot, InstanceID: accepted.InstanceOCID,
 		PrivateIP: privateIP, SeedPrivateIP: plan.SeedPrivateIP,
 	}, anchor: anchor, expires: expires, plan: plan, planDigest: planDigest,
-		selectionDigest: selectionDigest, manifests: manifests, derived: derived}, nil
+		selectionDigest: selectionDigest, manifests: manifests, derived: derived, failureDomains: failureDomains}, nil
 }
 
 // RuntimeInstanceObserver shares the admission transport and accepted root scope.

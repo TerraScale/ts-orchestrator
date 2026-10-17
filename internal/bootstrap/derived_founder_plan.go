@@ -16,6 +16,7 @@ type FounderPlanAuthority interface {
 	IsVerified() bool
 	Plan() FounderPlan
 	Digest() string
+	ControllerFailureDomains() (map[string]ControllerFailureDomain, error)
 	InitialManagedPeerIntent(string, time.Time) (Intent, error)
 	ReplacementManagedPeerIntent(string, SlotState, []byte, time.Time) (Intent, error)
 	VerifyFounderPlanCurrent(context.Context, trust.Keyring, time.Time, trust.Policy) error
@@ -29,6 +30,7 @@ type FounderPlanAuthority interface {
 type FounderPlanContinuation interface {
 	IsVerified() bool
 	Digest() string
+	ControllerFailureDomains() (map[string]ControllerFailureDomain, error)
 	SeedSlot() string
 	PeerRow(string) (FounderPeerRow, bool)
 	StoredCompletionBeforeLaunchDeadline(time.Time, time.Time) bool
@@ -344,9 +346,10 @@ func (verified DerivedFounderPlan) AuthorizeFounderPeerRecovery(ctx context.Cont
 // DerivedCompletedFounderPlan keeps derived provenance distinct after launch
 // authority ends. All original signatures and source proofs must remain current.
 type DerivedCompletedFounderPlan struct {
-	plan   FounderPlan
-	digest string
-	seed   DerivedStartupAuthority
+	plan           FounderPlan
+	digest         string
+	seed           DerivedStartupAuthority
+	failureDomains map[string]ControllerFailureDomain
 }
 
 func (verified DerivedFounderPlan) ForCompletedPeerContinuation(ctx context.Context, now time.Time) (DerivedCompletedFounderPlan, error) {
@@ -354,7 +357,9 @@ func (verified DerivedFounderPlan) ForCompletedPeerContinuation(ctx context.Cont
 	if err != nil {
 		return DerivedCompletedFounderPlan{}, err
 	}
-	return DerivedCompletedFounderPlan{plan: current.Plan(), digest: current.Digest(), seed: current.seed}, nil
+	// Historical continuation stays readable; execution separately requires this projection.
+	domains, _ := current.ControllerFailureDomains()
+	return DerivedCompletedFounderPlan{plan: current.Plan(), digest: current.Digest(), seed: current.seed, failureDomains: domains}, nil
 }
 
 func (DerivedCompletedFounderPlan) sealedFounderPlanContinuation() {}

@@ -345,7 +345,8 @@ func (f *controllerRecipientFixture) read(t *testing.T, slot string) (*Controlle
 
 func recipientRegistration(proof *ControllerHostRecipient) host.Registration {
 	return host.Registration{ID: entityid.Derive("host", "gru", proof.Node()), Node: proof.Node(), Cell: "gru",
-		Environment: proof.Environment(), Roles: []string{"ts-auth"}, Generation: 1}
+		Environment: proof.Environment(), Roles: []string{"ts-auth"}, Generation: 1,
+		FailureDomain: strings.ToLower(proof.FailureDomain().FaultDomain)}
 }
 
 func TestControllerHostRecipientSignedSDKIntegration(t *testing.T) {
@@ -362,6 +363,18 @@ func TestControllerHostRecipientSignedSDKIntegration(t *testing.T) {
 				!proof.Valid(time.Now()) || f.sdkReads <= reads || f.objectReads == 0 {
 				t.Fatal("recipient lost the actual signed slot, protected completion, or live SDK identity")
 			}
+			expected := bootstrap.ControllerFailureDomain{Region: "sa-saopaulo-1",
+				AvailabilityDomain: f.states[slot].Intent.AvailabilityDomain, FaultDomain: f.states[slot].Intent.FaultDomain}
+			if proof.FailureDomain() != expected {
+				t.Fatal("recipient lost its signed and independently observed failure domain")
+			}
+			authority, err := f.reader.ReadRuntimeAuthority(t.Context(), f.issuer, time.Now().UTC())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if domain, ok := authority.ControllerFailureDomain(slot); !ok || domain != expected {
+				t.Fatal("runtime authority disagrees with the recipient's verified topology")
+			}
 			deadline := proof.validUntil
 			if err := proof.Verify(t.Context()); err != nil {
 				t.Fatal(err)
@@ -370,6 +383,11 @@ func TestControllerHostRecipientSignedSDKIntegration(t *testing.T) {
 			if err := proof.VerifyRegistration(t.Context(), registration); err != nil {
 				t.Fatal(err)
 			}
+			registration.FailureDomain = "copied-failure-domain"
+			if err := proof.VerifyRegistration(t.Context(), registration); err == nil {
+				t.Fatal("controller accepted a registration outside its observed failure domain")
+			}
+			registration = recipientRegistration(proof)
 			if proof.validUntil != deadline || proof.Valid(proof.started.Add(bootstrap.ManagedPeerObservationMaxAge)) {
 				t.Fatal("verification extended the constructor's observation deadline")
 			}
@@ -421,6 +439,85 @@ func TestControllerHostRecipientRejectsSignedSubstitution(t *testing.T) {
 	}
 }
 
+func TestControllerHostRecipientRejectsSignedDomainTopology(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(string, *bootstrap.Manifest)
+	}{
+		{"duplicate_seed_domain", func(_ string, manifest *bootstrap.Manifest) {
+			for i := range manifest.Profiles {
+				if manifest.Profiles[i].Slot == "controller-c" {
+					manifest.Profiles[i].FaultDomain = "FAULT-DOMAIN-1"
+				}
+			}
+		}},
+		{"conflicting_signed_profile", func(slot string, manifest *bootstrap.Manifest) {
+			if slot == "controller-b" {
+				for i := range manifest.Profiles {
+					if manifest.Profiles[i].Slot == "controller-c" {
+						manifest.Profiles[i].FaultDomain = "FAULT-DOMAIN-2"
+					}
+				}
+			}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f := newControllerRecipientFixtureWithSetup(t, func(founder *founderSignerFixture) {
+				resignRecipientTopology(t, founder, test.mutate)
+			})
+			if _, err := f.read(t, "controller-b"); err == nil {
+				t.Fatal("signed unsafe controller topology authorized execution")
+			}
+		})
+	}
+}
+
+func resignRecipientTopology(t *testing.T, founder *founderSignerFixture, mutate func(string, *bootstrap.Manifest)) {
+	t.Helper()
+	for slot, wire := range founder.manifests {
+		envelope, err := trust.DecodeEnvelope(wire)
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest, err := bootstrap.ManifestPayload(envelope.Payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mutate(slot, &manifest)
+		envelope, err = bootstrap.SignManifest(manifest, envelope.IssuedAt, envelope.ExpiresAt, founder.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		founder.manifests[slot] = envelopeWire(t, envelope)
+	}
+	founder.accepted.ManifestSHA256 = digestWire(founder.manifests[founder.plan.SeedSlot])
+	founder.plan.SeedManifestSHA256 = founder.accepted.ManifestSHA256
+	for i := range founder.plan.Peers {
+		founder.plan.Peers[i].ManifestSHA256 = digestWire(founder.manifests[founder.plan.Peers[i].Slot])
+	}
+	payload, err := trust.EncodePayload(founder.plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := trust.Sign(payload, trust.Scope{Domain: bootstrap.FounderPlanDomain,
+		DeploymentID: founder.plan.DeploymentID, Cell: string(founder.plan.Cell), Environment: founder.plan.Environment,
+		Role: "controller", Slot: founder.plan.SeedSlot}, founder.now.Add(-time.Minute), founder.now.Add(22*time.Hour), founder.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	founder.planWire = envelopeWire(t, envelope)
+	founder.selection.Generation++
+	founder.selection.PlanSHA256 = digestWire(founder.planWire)
+	for i := range founder.selection.Manifests {
+		founder.selection.Manifests[i].SHA256 = digestWire(founder.manifests[founder.selection.Manifests[i].Slot])
+	}
+	founder.publish(t, founder.selection)
+	founder.current, err = founder.reader(t).ReadCurrent(t.Context(), founder.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestControllerHostRecipientRejectsLiveSDKMismatch(t *testing.T) {
 	f := newControllerRecipientFixture(t)
 	slot := "controller-b"
@@ -433,10 +530,16 @@ func TestControllerHostRecipientRejectsLiveSDKMismatch(t *testing.T) {
 		{"image", func(observed *InstanceObservation) { observed.ImageOCID += "-foreign" }},
 		{"primary_ip", func(observed *InstanceObservation) { observed.PrimaryPrivateIP = "10.44.0.99" }},
 		{"shape", func(observed *InstanceObservation) { observed.Shape = "VM.Standard.E4.Flex" }},
+		{"availability_domain", func(observed *InstanceObservation) { observed.AvailabilityDomain += "-foreign" }},
+		{"fault_domain", func(observed *InstanceObservation) { observed.FaultDomain = "FAULT-DOMAIN-3" }},
 		{"lifecycle", func(observed *InstanceObservation) { observed.LifecycleState = "TERMINATED" }},
 		{"nsg", func(observed *InstanceObservation) { observed.NSGOCIDs = nil }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			proof, err := f.read(t, slot)
+			if err != nil {
+				t.Fatal(err)
+			}
 			changed := original
 			test.mutate(&changed)
 			f.live[instance] = changed
@@ -447,6 +550,9 @@ func TestControllerHostRecipientRejectsLiveSDKMismatch(t *testing.T) {
 			if _, err := readControllerHostRecipient(t.Context(), f.reader, f.issuer, f.spec(t, grant), grant.Node,
 				instance, grant.PrivateIP, f.sources); err == nil {
 				t.Fatal("live OCI mismatch was accepted")
+			}
+			if err := proof.Verify(t.Context()); err == nil {
+				t.Fatal("recipient revalidation accepted changed live OCI facts")
 			}
 		})
 	}
