@@ -62,7 +62,7 @@ func (ledger *Ledger) ReadControllerRetirement(ctx context.Context, scope Bootst
 		prior = state.Intent
 	case state.Head.Attempt == evidence.PreviousAttempt+1:
 		if state.Head.PreviousAttempt != evidence.PreviousAttempt || state.Head.PreviousGeneration != evidence.PreviousGeneration ||
-			state.Head.PreviousResultDigest != evidence.PreviousResultDigest || state.Head.RetirementDigest != bodyDigest(wire) {
+			state.Head.PreviousResultDigest != evidence.PreviousResultDigest || state.Head.RetirementDigest != objectDigest(wire) {
 			return fail()
 		}
 		record, err := ledger.read(ctx, scope, state.Head.Attempt, ledgerRetirement)
@@ -95,5 +95,5 @@ func (ledger *Ledger) ReadControllerRetirement(ctx context.Context, scope Bootst
 	if err := ctx.Err(); err != nil {
 		return ControllerRetirement{}, err
 	}
-	return ControllerRetirement{Evidence: evidence, PriorIntent: prior, Current: state, RetirementSHA256: bodyDigest(wire)}, nil
+	return ControllerRetirement{Evidence: evidence, PriorIntent: prior, Current: state, RetirementSHA256: objectDigest(wire)}, nil
 }
