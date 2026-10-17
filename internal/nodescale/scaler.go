@@ -1,6 +1,7 @@
 package nodescale
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"errors"
@@ -20,6 +21,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/naming"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/moby/swarmkit/v2/api"
 )
 
@@ -187,6 +189,35 @@ func (s *Scaler) Tick(ctx context.Context) error {
 			return err
 		}
 	}
+	// Save and read back the exact original retirement before HOME consumes
+	// it. Cost/status reads and the next tick can outlive stop freshness.
+	if t.record.Retirement != nil && (record.Retirement == nil || record.Retirement.RemovalOperationID != t.record.Retirement.RemovalOperationID) {
+		want, err := protocol.EncodeJSON(t.record)
+		if err != nil {
+			return err
+		}
+		if err := s.Leader.Guard(ctx, t.epoch); err != nil {
+			return err
+		}
+		revision, err = s.Store.Save(ctx, t.record, revision)
+		if err != nil {
+			return fmt.Errorf("retain original node retirement: %w", err)
+		}
+		saved, readRevision, err := s.Store.Load(ctx)
+		if err != nil {
+			return err
+		}
+		got, err := protocol.EncodeJSON(saved)
+		if err != nil || readRevision != revision || !bytes.Equal(want, got) {
+			return errors.Join(ErrRecordChanged, err)
+		}
+		if err := s.Leader.Guard(ctx, t.epoch); err != nil {
+			return err
+		}
+		if err := s.Pool.Remove(ctx, t.record.Retirement.InstanceID); err != nil {
+			return fmt.Errorf("advance retained original node retirement: %w", err)
+		}
+	}
 	if t.record.Action == nil && t.pool.Pending != "" {
 		if err := s.Leader.Guard(ctx, t.epoch); err != nil {
 			return err
@@ -219,16 +250,6 @@ func (s *Scaler) Tick(ctx context.Context) error {
 	s.mu.Unlock()
 	for _, entry := range t.journal {
 		s.Journal(ctx, entry)
-	}
-	// HOME must consume the stopped receipt before its original authority
-	// expires; the next scaler tick is already too late. Save precedes effects.
-	if t.record.Retirement != nil && (record.Retirement == nil || record.Retirement.RemovalOperationID != t.record.Retirement.RemovalOperationID) {
-		if err := s.Leader.Guard(ctx, t.epoch); err != nil {
-			return err
-		}
-		if err := s.Pool.Remove(ctx, t.record.Retirement.InstanceID); err != nil {
-			return fmt.Errorf("advance retained original node retirement: %w", err)
-		}
 	}
 	return nil
 }

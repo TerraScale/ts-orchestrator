@@ -195,7 +195,9 @@ func (pool *ChosenPool) Remove(ctx context.Context, instanceID string) error {
 		return err
 	}
 	original := *record.Retirement
-	original.Child.GrantSHA256, original.Child.Generation, original.Child.Epoch = selected.GrantSHA256, selected.Generation, selected.Epoch
+	if original.Child.Cell != selected.Cell || original.Child.GrantSHA256 != selected.GrantSHA256 || original.Child.Generation != selected.Generation || original.Child.Epoch != selected.Epoch {
+		return fmt.Errorf("%w: current selectors differ from the original retained retirement authority", ErrCapacityPending)
+	}
 	view, err := pool.root.RetirePoolChild(ctx, original)
 	if err != nil {
 		return errors.Join(ErrCapacityPending, err)
