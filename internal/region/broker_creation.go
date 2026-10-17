@@ -44,6 +44,27 @@ func (proof VerifiedBrokerCreation) Revalidate(ctx context.Context) error {
 	return proof.actual.Revalidate(ctx)
 }
 
+func (proof VerifiedBrokerCreation) RevalidateRuntime(ctx context.Context, runtime *natscell.Runtime) error {
+	if err := proof.actual.RevalidateRuntime(ctx, runtime); err != nil {
+		return err
+	}
+	return proof.Revalidate(ctx)
+}
+
+// BoundContext carries the original source's cancellation and earliest cap
+// through blocking effects; it grants no permission without revalidation.
+func (proof VerifiedBrokerCreation) BoundContext(ctx context.Context) (context.Context, func(), error) {
+	if err := proof.Revalidate(ctx); err != nil {
+		return nil, nil, err
+	}
+	bound, finish, err := proof.permit.bound(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	bound, cancel := context.WithDeadline(bound, proof.ExpiresAt())
+	return bound, func() { cancel(); finish() }, nil
+}
+
 // InitialRootChain returns only the exact authenticated chain reserved before
 // broker creation; the ordinary registry receives no cloud or genesis authority.
 func (proof VerifiedBrokerCreation) InitialRootChain(ctx context.Context) ([]byte, error) {
