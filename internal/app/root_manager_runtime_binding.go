@@ -145,23 +145,24 @@ func (authority *rootOCIAuthority) publishManagerRuntimeBinding(ctx context.Cont
 	if err := guard(ctx); err != nil {
 		return err
 	}
+	var signed host.SignedManagerRuntimeBinding
 	if retained := process.managerBinding; retained != nil && retained.session == source.session {
 		old := retained.signed.Binding
 		expected := payload
 		expected.SourceRevision, expected.IssuedAt, expected.ExpiresAt = old.SourceRevision, old.IssuedAt, old.ExpiresAt
-		if old == expected && old.SourceRevision <= payload.SourceRevision && !old.ExpiresAt.After(deadline) && time.Now().Before(old.ExpiresAt) {
-			if err := source.agent.SetManagerRuntimeBinding(ctx, retained.signed); err != nil {
-				return err
-			}
-			return guard(ctx)
-		}
-		if payload.SourceRevision <= old.SourceRevision {
+		if old != expected || old.SourceRevision > payload.SourceRevision || old.ExpiresAt.After(deadline) || !time.Now().Before(old.ExpiresAt) {
 			return rootoci.ErrUnauthorized
 		}
-	}
-	signed, err := source.node.SignManagerRuntimeBinding(ctx, payload, guard)
-	if err != nil {
-		return err
+		deadline = old.ExpiresAt
+		var cancelRetained context.CancelFunc
+		ctx, cancelRetained = context.WithDeadline(ctx, deadline)
+		defer cancelRetained()
+		signed = retained.signed
+	} else {
+		signed, err = source.node.SignManagerRuntimeBinding(ctx, payload, guard)
+		if err != nil {
+			return err
+		}
 	}
 	if err := guard(ctx); err != nil {
 		return err
@@ -176,7 +177,7 @@ func (authority *rootOCIAuthority) publishManagerRuntimeBinding(ctx context.Cont
 	actual, found := published.SignedBinding()
 	if !found || !reflect.DeepEqual(actual, signed) || !reflect.DeepEqual(published.Registration(), registration) ||
 		published.SessionID() != worker.HostSessionID || published.SessionEpoch() != identity.SessionEpoch() ||
-		published.RegistrationRevision() != payload.RegistrationRevision || published.SourceRevision() <= payload.SourceRevision ||
+		published.RegistrationRevision() != payload.RegistrationRevision || published.SourceRevision() <= signed.Binding.SourceRevision ||
 		published.ExpiresAt().Before(deadline) {
 		return rootoci.ErrUnauthorized
 	}
