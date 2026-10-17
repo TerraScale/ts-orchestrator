@@ -506,6 +506,10 @@ func TestVerifyControlStreamConfigRejectsMessageEviction(t *testing.T) {
 		{name: "limited message size", mutate: func(config *jetstream.StreamConfig) { config.MaxMsgSize = 128 }},
 		{name: "no publish acknowledgements", mutate: func(config *jetstream.StreamConfig) { config.NoAck = true }},
 		{name: "message TTL", mutate: func(config *jetstream.StreamConfig) { config.AllowMsgTTL = true }},
+		{name: "message counter", mutate: func(config *jetstream.StreamConfig) { config.AllowMsgCounter = true }},
+		{name: "atomic publish", mutate: func(config *jetstream.StreamConfig) { config.AllowAtomicPublish = true }},
+		{name: "batch publish", mutate: func(config *jetstream.StreamConfig) { config.AllowBatchPublish = true }},
+		{name: "async persistence", mutate: func(config *jetstream.StreamConfig) { config.PersistMode = jetstream.AsyncPersistMode }},
 		{name: "subject transform", mutate: func(config *jetstream.StreamConfig) { config.SubjectTransform = &jetstream.SubjectTransformConfig{} }},
 	}
 

@@ -143,6 +143,8 @@ func verifyControlStreamConfig(actual jetstream.StreamConfig, replicas int) erro
 		!actual.DenyDelete || !actual.DenyPurge || len(actual.Subjects) != 1 ||
 		actual.Subjects[0] != controlStreamSubject || actual.Mirror != nil || len(actual.Sources) != 0 ||
 		actual.SubjectTransform != nil || actual.RePublish != nil || actual.AllowMsgTTL ||
+		actual.AllowMsgCounter || actual.AllowAtomicPublish || actual.AllowBatchPublish ||
+		actual.PersistMode != jetstream.DefaultPersistMode ||
 		actual.SubjectDeleteMarkerTTL != 0 || actual.AllowMsgSchedules ||
 		actual.Metadata["terrascale-contract"] != "authority-log-v1" {
 		return errors.New("existing control log has incompatible consistency, durability, or subject configuration")
