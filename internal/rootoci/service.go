@@ -29,6 +29,7 @@ type Backends struct {
 	Workloads         WorkloadCredentials
 	Backups           VolumeBackups
 	ContainerMaterial ContainerMaterial
+	NodeOperations    NodeOperations
 }
 
 type Service struct{ backends Backends }
@@ -44,7 +45,7 @@ func NewService(backends Backends) (*Service, error) {
 }
 
 func validBackends(backends Backends) bool {
-	for _, backend := range []any{backends.Readers, backends.Foundations, backends.Credentials, backends.Capacity, backends.NetBird, backends.Releases, backends.Volumes, backends.Workloads, backends.Backups, backends.ContainerMaterial} {
+	for _, backend := range []any{backends.Readers, backends.Foundations, backends.Credentials, backends.Capacity, backends.NetBird, backends.Releases, backends.Volumes, backends.Workloads, backends.Backups, backends.ContainerMaterial, backends.NodeOperations} {
 		if !validDependency(backend) {
 			return false
 		}
@@ -72,6 +73,9 @@ func (service *Service) validRequest(request wireRequest) bool {
 		return false
 	}
 	switch request.Operation {
+	case OperationReconcileNodeOperation:
+		var input NodeOperationRequest
+		return decodePayload(request.Payload, &input) == nil && entityid.Valid(input.OperationID)
 	case OperationReconcileFoundation:
 		var input ReconcileFoundationRequest
 		return decodePayload(request.Payload, &input) == nil && validSelector(input.Cell) &&
@@ -214,6 +218,19 @@ func (service *Service) dispatch(ctx context.Context, call Call, request wireReq
 		return dispatchRead(ctx, service.backends.Readers, call, request)
 	}
 	switch request.Operation {
+	case OperationReconcileNodeOperation:
+		var input NodeOperationRequest
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		receipt, err := service.backends.NodeOperations.ReconcileNodeOperation(ctx, call, input)
+		if err != nil {
+			return nil, err
+		}
+		if !validNodeOperationReceipt(receipt, input, time.Now()) || !validResponseExpiry(receipt.ExpiresAt, call) {
+			return nil, ErrOutcomeUnknown
+		}
+		return receipt, nil
 	case OperationReconcileFoundation:
 		var input ReconcileFoundationRequest
 		if err := decodePayload(request.Payload, &input); err != nil {
