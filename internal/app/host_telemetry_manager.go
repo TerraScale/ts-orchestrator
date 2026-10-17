@@ -50,7 +50,9 @@ func (t *hostTelemetry) recordManaged(ctx context.Context, history *nativeHistor
 	if err != nil {
 		return err
 	}
-	desired = slices.DeleteFunc(desired, func(d host.Desired) bool { return owns(d.Role) })
+	desired = slices.DeleteFunc(desired, func(d host.Desired) bool {
+		return owns(d.Role) || d.Node != registration.Node || d.Environment != registration.Environment
+	})
 	profiles := profileResources(history.services.profiles())
 	for role := range profiles {
 		if owns(role) {
@@ -210,7 +212,9 @@ func (t *hostTelemetry) recordManaged(ctx context.Context, history *nativeHistor
 		if err != nil {
 			return err
 		}
-		currentDesired = slices.DeleteFunc(currentDesired, func(d host.Desired) bool { return owns(d.Role) })
+		currentDesired = slices.DeleteFunc(currentDesired, func(d host.Desired) bool {
+			return owns(d.Role) || d.Node != registration.Node || d.Environment != registration.Environment
+		})
 		if !reflect.DeepEqual(currentDesired, desired) {
 			return errors.New("native allocations changed while reading host telemetry")
 		}
