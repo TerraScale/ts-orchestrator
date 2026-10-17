@@ -11,6 +11,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/globalview"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
 func TestJournalAPIExposesRegionalResourceObservations(t *testing.T) {
@@ -18,8 +19,12 @@ func TestJournalAPIExposesRegionalResourceObservations(t *testing.T) {
 	now := time.Now().UTC()
 	view := globalview.NewView("gru", func() []string { return []string{"sfo"} }, func() time.Time { return now })
 	if !view.Accept(globalview.Rollup{Version: globalview.Version, Cell: "gru", ObservedAt: now,
-		Nodes:   []globalview.Node{{Name: "node-a", Services: []globalview.Service{{Role: "gateway", State: "running"}}}},
-		Volumes: []globalview.Volume{{ID: "volume-a", Node: "node-a", State: "attached"}},
+		Nodes:               []globalview.Node{{Name: "node-a", Services: []globalview.Service{{Role: "gateway", State: "running"}}}},
+		Volumes:             []globalview.Volume{{ID: "volume-a", Node: "node-a", State: "attached"}},
+		ServicesObservedAt:  now,
+		Services:            []swarmruntime.ServiceObservation{{ServiceID: "manager-api", RequestedReplicas: 2, Readiness: "unknown", ObservedAt: now}},
+		FunctionsObservedAt: now,
+		Functions:           []globalview.FunctionObservation{{TenantID: "tenant-a", FunctionID: "echo", State: "unplaced", ObservedAt: now}},
 	}) {
 		t.Fatal("regional observation was refused")
 	}
@@ -43,6 +48,12 @@ func TestJournalAPIExposesRegionalResourceObservations(t *testing.T) {
 		{"/v1/regions/gru/nodes/node-a/services/gateway", "current", "running", http.StatusOK},
 		{"/v1/regions/gru/volumes", "current", "volume-a", http.StatusOK},
 		{"/v1/regions/gru/volumes/volume-a", "current", "attached", http.StatusOK},
+		{"/v1/regions/gru/services", "current", "manager-api", http.StatusOK},
+		{"/v1/regions/gru/services/manager-api", "current", "unknown", http.StatusOK},
+		{"/v1/regions/gru/functions", "current", "echo", http.StatusOK},
+		{"/v1/regions/gru/functions/tenant-a/echo", "current", "unplaced", http.StatusOK},
+		{"/v1/regions/gru/services/absent", "not_found", "", http.StatusNotFound},
+		{"/v1/regions/gru/functions/tenant-b/echo", "not_found", "", http.StatusNotFound},
 		{"/v1/regions/gru/nodes/absent", "not_found", "", http.StatusNotFound},
 		{"/v1/regions/sfo/nodes", "missing", "", http.StatusServiceUnavailable},
 	} {

@@ -343,7 +343,8 @@ func mountJournalAPI(server *observability.Server, providers journalProviders) {
 	regions := globalview.Handler(providers.Global)
 	server.Handle("GET /v1/regions", regions)
 	server.Handle("GET /v1/regions/{region}", regions)
-	for _, resource := range []string{"nodes", "nodes/{node}", "nodes/{node}/services", "nodes/{node}/services/{service}", "volumes", "volumes/{volume}"} {
+	for _, resource := range []string{"nodes", "nodes/{node}", "nodes/{node}/services", "nodes/{node}/services/{service}", "volumes", "volumes/{volume}",
+		"services", "services/{service}", "functions", "functions/{tenant}/{function}"} {
 		server.Handle("GET /v1/regions/{region}/"+resource, regions)
 	}
 }
