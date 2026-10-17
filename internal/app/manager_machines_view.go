@@ -360,7 +360,7 @@ func sameManagerTasks(before, after []*api.Task) bool {
 		if task == nil || versions[task.ID] != task.Meta.Version.Index {
 			return false
 		}
-		delete(versions)
+		delete(versions, task.ID)
 	}
 	return len(versions) == 0
 }
@@ -380,7 +380,7 @@ func sameManagerServices(before, after []*api.Service) bool {
 		if service == nil || versions[service.ID] != service.Meta.Version.Index {
 			return false
 		}
-		delete(versions)
+		delete(versions, service.ID)
 	}
 	return len(versions) == 0
 }
