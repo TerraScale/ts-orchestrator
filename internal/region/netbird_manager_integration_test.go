@@ -140,6 +140,8 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	creates, launches, launchPosts := 0, 0, 0
 	lost := true
 	observedImage := manager.ImageOCID
+	var afterSDKObservation func()
+	awaitObservedSubnet := false
 	idFor := func(kind string) string { return "ocid1." + kind + ".oc1.sa-saopaulo-1.manager" }
 	kinds := map[string]string{"vcns": "vcn", "internetGateways": "internetgateway", "routeTables": "routetable", "securityLists": "securitylist", "networkSecurityGroups": "networksecuritygroup", "subnets": "subnet"}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -236,6 +238,7 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 				json.MarshalWrite(w, []map[string]any{{"instanceId": idFor("instance"), "compartmentId": control, "vnicId": idFor("vnic"), "subnetId": idFor("subnet"), "lifecycleState": "ATTACHED"}})
 				return
 			case "vnics":
+				awaitObservedSubnet = true
 				json.MarshalWrite(w, map[string]any{"id": idFor("vnic"), "compartmentId": networkCompartment, "availabilityDomain": "AD-1", "subnetId": idFor("subnet"), "nsgIds": []string{idFor("networksecuritygroup")}, "privateIp": manager.Profile.PrivateIP, "publicIp": "203.0.113.10", "isPrimary": true, "skipSourceDestCheck": false, "lifecycleState": "AVAILABLE"})
 				return
 			case "bootVolumeAttachments":
@@ -250,6 +253,11 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 				return
 			}
 			if len(parts) == 2 && live[collection] != nil {
+				if collection == "subnets" && awaitObservedSubnet && afterSDKObservation != nil {
+					callback := afterSDKObservation
+					afterSDKObservation, awaitObservedSubnet = nil, false
+					callback()
+				}
 				json.MarshalWrite(w, live[collection])
 				return
 			}
@@ -379,6 +387,31 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	observedAgain, err := observeNetBirdRecipient(t.Context(), factory, resolver, reader)
 	if err != nil || observedAgain != remote {
 		t.Fatalf("fresh observations changed the original recipient or deadline: %v", err)
+	}
+	mu.Lock()
+	awaitObservedSubnet = false
+	afterSDKObservation = func() {
+		changed, etag, err := store.Load(t.Context(), "GRU")
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		changed.Epoch++
+		if _, err := store.CompareAndSwap(t.Context(), changed, etag); err != nil {
+			t.Error(err)
+		}
+	}
+	mu.Unlock()
+	if _, err := observeNetBirdRecipient(t.Context(), factory, resolver, reader); err == nil {
+		t.Fatal("remote recipient accepted original foundation epoch changed during final SDK observation")
+	}
+	changed, changedETag, err := store.Load(t.Context(), "GRU")
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed.Epoch = remote.foundationEpoch
+	if _, err := store.CompareAndSwap(t.Context(), changed, changedETag); err != nil {
+		t.Fatal(err)
 	}
 	originalDeadline := time.Now().Add(time.Minute)
 	originalContext, cancelRecipient := context.WithDeadline(t.Context(), originalDeadline)

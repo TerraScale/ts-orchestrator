@@ -155,6 +155,12 @@ func (authority *HomeIAMAuthority) EnsureNetBirdBrokerReader(ctx context.Context
 				}
 			}
 		}
+		if err := source.VerifyCurrent(ctx, time.Now().UTC()); err != nil {
+			return err
+		}
+		if err := recipient.Check(ctx); err != nil {
+			return err
+		}
 		if err := ociclient.LimitAdmission(ctx, source.ExpiresAt()); err != nil {
 			return err
 		}
