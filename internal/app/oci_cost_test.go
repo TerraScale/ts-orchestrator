@@ -80,7 +80,7 @@ func TestNodeCostHoldsWithoutInfrastructureAuthority(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	report := ocicost.Report{Version: ocicost.Version, Cell: "gru", OCIRegion: "sa-saopaulo-1", Currency: "BRL",
-		ObservedAt: now, Through: now.Add(-24 * time.Hour),
+		ObservedAt: now, Through: now.Add(-24 * time.Hour).Truncate(24 * time.Hour),
 		Days:   []ocicost.Day{{Day: now.Add(-24 * time.Hour).Truncate(24 * time.Hour), Cents: 1}},
 		Prices: []ocicost.Price{{SKU: "B91961", PerUnit: 0.1335}, {SKU: "B91962", PerUnit: 0.0089}, {SKU: "B93297", PerUnit: 0}, {SKU: "B93298", PerUnit: 0}}}
 	if err := store.Put(ctx, report); err != nil {

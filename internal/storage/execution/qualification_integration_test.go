@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -43,9 +44,9 @@ func TestStatefulQualificationHTTPIntegration(t *testing.T) {
 	qualifierID, _ := trust.KeyID(qualifierPublic)
 	roots := trust.Keyring{rootID: rootPublic, qualifierID: qualifierPublic}
 	now := time.Now().UTC().Truncate(time.Second)
-	target := release.ContainerTarget{Cell: "GRU", Environment: "production", Role: "terrabase", Architecture: "amd64"}
-	data := RetainedData{DatabaseID: entityid.Derive("database", "fixture"), PartitionID: entityid.Derive("partition", "fixture"), VolumeID: "ocid1.volume.fixture", FileSystemUUID: "12345678-1234-1234-1234-123456789abc", FileSystemType: "ext4", DiskFormatSHA256: strings.Repeat("d", 64), SourceArtifactSHA256: strings.Repeat("e", 64), SourceTreeSHA256: strings.Repeat("f", 64), SourceArchitecture: "amd64"}
-	cpu := CPUProfile{Architecture: "amd64", FeaturesSHA256: strings.Repeat("c", 64)}
+	target := release.ContainerTarget{Cell: "GRU", Environment: "production", Role: "terrabase", Architecture: runtime.GOARCH}
+	data := RetainedData{DatabaseID: entityid.Derive("database", "fixture"), PartitionID: entityid.Derive("partition", "fixture"), VolumeID: "ocid1.volume.fixture", FileSystemUUID: "12345678-1234-1234-1234-123456789abc", FileSystemType: "ext4", DiskFormatSHA256: strings.Repeat("d", 64), SourceArtifactSHA256: strings.Repeat("e", 64), SourceTreeSHA256: strings.Repeat("f", 64), SourceArchitecture: target.Architecture}
+	cpu := CPUProfile{Architecture: target.Architecture, FeaturesSHA256: strings.Repeat("c", 64)}
 	var lock sync.RWMutex
 	blobs := make(map[string][]byte)
 	put := func(wire []byte) string {
@@ -113,7 +114,7 @@ func TestStatefulQualificationHTTPIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	grant, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: signerID, SubjectPublicKey: base64.RawURLEncoding.EncodeToString(signerPublic), Capabilities: []trust.Capability{{Domain: release.ContainerClaimDomain, DeploymentID: release.ContainerScope(target).DeploymentID, Cell: target.Cell, Environment: target.Environment, Role: target.Role, Slots: []string{"linux-amd64"}, Actions: []string{"sign"}}}}, now, now.Add(time.Hour), root)
+	grant, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: signerID, SubjectPublicKey: base64.RawURLEncoding.EncodeToString(signerPublic), Capabilities: []trust.Capability{{Domain: release.ContainerClaimDomain, DeploymentID: release.ContainerScope(target).DeploymentID, Cell: target.Cell, Environment: target.Environment, Role: target.Role, Slots: []string{"linux-" + target.Architecture}, Actions: []string{"sign"}}}}, now, now.Add(time.Hour), root)
 	if err != nil {
 		t.Fatal(err)
 	}

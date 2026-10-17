@@ -26,6 +26,7 @@ const (
 // Image always names the executable child, never a platform index or a tag.
 type ContainerImage struct {
 	Image          string
+	Index          []byte
 	IndexSHA256    string
 	ManifestSHA256 string
 	Architecture   string
@@ -98,6 +99,7 @@ func InspectContainerImageLayout(ctx context.Context, directory, pinnedImage, ar
 			return ContainerImage{}, errors.New("invalid pinned OCI platform index")
 		}
 		result.IndexSHA256 = descriptor.Digest.Encoded()
+		result.Index = wire
 		descriptor = ocispec.Descriptor{}
 		for _, child := range platforms.Manifests {
 			if child.Platform != nil && child.Platform.OS == "linux" && child.Platform.Architecture == architecture {

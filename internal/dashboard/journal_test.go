@@ -28,18 +28,24 @@ import (
 
 // fakeDecisions answers queries with the real matcher and chain builder.
 type fakeDecisions struct {
-	decisions []decisionlog.Decision
-	queries   atomic.Int64
-	chains    atomic.Int64
-	err       error
-	chainErr  error
+	decisions   []decisionlog.Decision
+	queries     atomic.Int64
+	chains      atomic.Int64
+	err         error
+	chainErr    error
+	beforeQuery func(context.Context, decisionlog.Query) error
 	// complete answers every region in full instead of the default
 	// partial result with SFO unreachable.
 	complete bool
 }
 
-func (source *fakeDecisions) Query(_ context.Context, query decisionlog.Query) (decisionlog.Result, error) {
+func (source *fakeDecisions) Query(ctx context.Context, query decisionlog.Query) (decisionlog.Result, error) {
 	source.queries.Add(1)
+	if source.beforeQuery != nil {
+		if err := source.beforeQuery(ctx, query); err != nil {
+			return decisionlog.Result{}, err
+		}
+	}
 	if source.err != nil {
 		return decisionlog.Result{}, source.err
 	}
@@ -608,30 +614,237 @@ func TestDecisionCacheBoundsDistinctHTTPQueries(t *testing.T) {
 	}
 }
 
+// cacheWaitContext reports when an HTTP handler starts waiting on cancellation.
+type cacheWaitContext struct {
+	context.Context
+	waiting chan<- struct{}
+	once    sync.Once
+}
+
+func (ctx *cacheWaitContext) Done() <-chan struct{} {
+	ctx.once.Do(func() { ctx.waiting <- struct{}{} })
+	return ctx.Context.Done()
+}
+
 func TestDecisionCacheServesConcurrentHTTPReaders(t *testing.T) {
 	t.Parallel()
-	board, _, source := journalDashboard(Options{})
-	server := httptest.NewServer(board.Handler())
-	defer server.Close()
-	var group sync.WaitGroup
-	for range 16 {
-		group.Go(func() {
-			response, err := server.Client().Get(server.URL + "/decisions")
-			if err != nil {
-				t.Error(err)
-				return
+	wait := func(t *testing.T, signal <-chan struct{}) {
+		t.Helper()
+		select {
+		case <-signal:
+		case <-time.After(5 * time.Second):
+			t.Fatal("HTTP cache synchronization timed out")
+		}
+	}
+	read := func(t *testing.T, server *httptest.Server, path, waiter string, ctx context.Context) error {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+path, nil)
+		if err != nil {
+			return err
+		}
+		request.Header.Set("X-Cache-Waiter", waiter)
+		response, err := server.Client().Do(request)
+		if err != nil {
+			return err
+		}
+		defer response.Body.Close()
+		body, err := io.ReadAll(response.Body)
+		if err != nil || response.StatusCode != http.StatusOK || !strings.Contains(string(body), "Decision journal") {
+			t.Errorf("concurrent request failed: %d %v", response.StatusCode, err)
+		}
+		return nil
+	}
+	serve := func(t *testing.T, board *Dashboard, waiting chan<- struct{}, finished chan<- struct{}) *httptest.Server {
+		t.Helper()
+		// Readiness derives a context before the cache and would signal a false wait.
+		board.options.Health = nil
+		handler := board.Handler()
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if request.Header.Get("X-Cache-Waiter") != "" {
+				request = request.WithContext(&cacheWaitContext{Context: request.Context(), waiting: waiting})
+				if finished != nil {
+					defer func() { finished <- struct{}{} }()
+				}
 			}
-			defer response.Body.Close()
-			body, err := io.ReadAll(response.Body)
-			if err != nil || response.StatusCode != http.StatusOK || !strings.Contains(string(body), "Decision journal") {
-				t.Errorf("concurrent request failed: %d %v", response.StatusCode, err)
+			handler.ServeHTTP(writer, request)
+		}))
+		return server
+	}
+
+	board, _, source := journalDashboard(Options{})
+	started, release := make(chan struct{}), make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
+	var startedOnce sync.Once
+	source.beforeQuery = func(ctx context.Context, _ decisionlog.Query) error {
+		startedOnce.Do(func() { close(started) })
+		select {
+		case <-release:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	waiting := make(chan struct{}, 16)
+	server := serve(t, board, waiting, nil)
+	var group sync.WaitGroup
+	defer func() {
+		unblock()
+		group.Wait()
+		server.Close()
+	}()
+	for index := range 16 {
+		group.Go(func() {
+			waiter := ""
+			if index != 0 {
+				waiter = "yes"
+			}
+			if err := read(t, server, "/decisions", waiter, t.Context()); err != nil {
+				t.Error(err)
 			}
 		})
+		if index == 0 {
+			wait(t, started)
+		}
 	}
+	for range 15 {
+		wait(t, waiting)
+	}
+	unblock()
 	group.Wait()
 	if source.queries.Load() != 1 {
 		t.Fatalf("concurrent clients triggered %d provider queries", source.queries.Load())
 	}
+
+	t.Run("different keys", func(t *testing.T) {
+		board, _, source := journalDashboard(Options{})
+		started, release := make(chan struct{}), make(chan struct{})
+		unblock := sync.OnceFunc(func() { close(release) })
+		source.beforeQuery = func(ctx context.Context, query decisionlog.Query) error {
+			if query.Subject != "blocked" {
+				return nil
+			}
+			close(started)
+			select {
+			case <-release:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		server := serve(t, board, nil, nil)
+		var group sync.WaitGroup
+		defer func() {
+			unblock()
+			group.Wait()
+			server.Close()
+		}()
+		group.Go(func() {
+			if err := read(t, server, "/decisions?q=blocked", "", t.Context()); err != nil {
+				t.Error(err)
+			}
+		})
+		wait(t, started)
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+		if err := read(t, server, "/decisions?q=independent", "", ctx); err != nil {
+			t.Fatal("different key waited for blocked load:", err)
+		}
+		if source.queries.Load() != 2 {
+			t.Fatal("different keys did not load independently")
+		}
+	})
+
+	t.Run("waiter cancellation", func(t *testing.T) {
+		board, _, source := journalDashboard(Options{})
+		started, release := make(chan struct{}), make(chan struct{})
+		unblock := sync.OnceFunc(func() { close(release) })
+		var startedOnce sync.Once
+		source.beforeQuery = func(ctx context.Context, _ decisionlog.Query) error {
+			startedOnce.Do(func() { close(started) })
+			select {
+			case <-release:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		waiting, finished := make(chan struct{}, 1), make(chan struct{}, 1)
+		server := serve(t, board, waiting, finished)
+		var group sync.WaitGroup
+		defer func() {
+			unblock()
+			group.Wait()
+			server.Close()
+		}()
+		group.Go(func() {
+			if err := read(t, server, "/decisions", "", t.Context()); err != nil {
+				t.Error(err)
+			}
+		})
+		wait(t, started)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		group.Go(func() {
+			if err := read(t, server, "/decisions", "yes", ctx); !errors.Is(err, context.Canceled) {
+				t.Errorf("canceled waiter returned %v", err)
+			}
+		})
+		wait(t, waiting)
+		cancel()
+		wait(t, finished)
+		if source.queries.Load() != 1 {
+			t.Fatal("canceled waiter started another provider query")
+		}
+		unblock()
+		group.Wait()
+		if err := read(t, server, "/decisions", "", t.Context()); err != nil || source.queries.Load() != 1 {
+			t.Fatalf("waiter cancellation disturbed cached owner result: %v", err)
+		}
+	})
+
+	t.Run("canceled loader retry", func(t *testing.T) {
+		board, _, source := journalDashboard(Options{})
+		started := make(chan struct{})
+		source.beforeQuery = func(ctx context.Context, _ decisionlog.Query) error {
+			if source.queries.Load() != 1 {
+				return nil
+			}
+			close(started)
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		waiting := make(chan struct{}, 1)
+		server := serve(t, board, waiting, nil)
+		ctx, cancel := context.WithCancel(t.Context())
+		var group sync.WaitGroup
+		defer func() {
+			cancel()
+			group.Wait()
+			server.Close()
+		}()
+		group.Go(func() {
+			if err := read(t, server, "/decisions", "", ctx); !errors.Is(err, context.Canceled) {
+				t.Errorf("canceled loader returned %v", err)
+			}
+		})
+		wait(t, started)
+		group.Go(func() {
+			if err := read(t, server, "/decisions", "yes", t.Context()); err != nil {
+				t.Error(err)
+			}
+		})
+		wait(t, waiting)
+		cancel()
+		group.Wait()
+		if source.queries.Load() != 2 {
+			t.Fatal("waiting request did not retry canceled load exactly once")
+		}
+		if err := read(t, server, "/decisions", "", t.Context()); err != nil || source.queries.Load() != 2 {
+			t.Fatalf("canceled load poisoned replacement cache entry: %v", err)
+		}
+	})
 }
 
 func TestEventFilterSearchAndTimeWindow(t *testing.T) {

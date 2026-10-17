@@ -16,8 +16,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/api"
 )
 
@@ -137,6 +139,18 @@ func TestSignedReleaseRaftIntegration(t *testing.T) {
 	}
 	legacy := release.SequenceFloor{Cell: "GRU", RunNumber: 100, EvidenceSHA256: strings.Repeat("1", 64)}
 	first := bundle(101, strings.Repeat("c", 40))
+	readFloor := func(candidate release.ContainerBundle) (ServiceReleaseFloor, bool, error) {
+		deadline, _ := ctx.Deadline()
+		verified, err := release.VerifyContainerCurrent(ctx, candidate, roots, target, time.Now().UTC(), deadline, readEvidence, allocations)
+		if err != nil {
+			return ServiceReleaseFloor{}, false, err
+		}
+		metadata := ServiceIntent{ID: intent.ID, Role: intent.Role, Region: intent.Region, Environment: intent.Environment, Architecture: intent.Architecture}
+		return ReadServiceReleaseFloor(ctx, client, metadata, verified, roots)
+	}
+	if floor, found, err := readFloor(first); err != nil || found {
+		t.Fatalf("absent release floor was not observed: %+v %v %v", floor, found, err)
+	}
 	wrongRegion := intent
 	wrongRegion.Region = "gru"
 	if _, err := ApplySignedService(ctx, client, wrongRegion, first, roots, legacy, readEvidence, probe, allocations, guard); err == nil {
@@ -172,7 +186,9 @@ func TestSignedReleaseRaftIntegration(t *testing.T) {
 		view, err := ObserveService(ctx, client, created.ID, nil)
 		return err == nil && view.RunningReplicas == 1
 	})
-	replayed, err := ApplySignedService(ctx, client, intent, first, roots, legacy, readEvidence, probe, allocations, guard)
+	replay := intent
+	replay.OperationID = entityid.Derive("operation", "service-equal-generation-replay")
+	replayed, err := ApplySignedService(ctx, client, replay, first, roots, legacy, readEvidence, probe, allocations, guard)
 	if err != nil || replayed.ID != created.ID {
 		t.Fatalf("signed replay not idempotent: %+v %v", replayed, err)
 	}
@@ -187,11 +203,35 @@ func TestSignedReleaseRaftIntegration(t *testing.T) {
 	if _, err := ApplySignedService(ctx, client, intent, bundle(101, strings.Repeat("d", 40)), roots, legacy, readEvidence, probe, allocations, guard); err == nil {
 		t.Fatal("same signed sequence admitted different provenance")
 	}
+	floor, found, err := readFloor(first)
+	if err != nil || !found || floor.OperationID != intent.OperationID || floor.Generation != 1 || floor.ReleaseSequence != 101 {
+		t.Fatalf("original delivered operation was not retained: %+v %v %v", floor, found, err)
+	}
+	originalFloor, err := client.ListConfigs(ctx, &api.ListConfigsRequest{})
+	if err != nil || len(originalFloor.Configs) != 1 {
+		t.Fatalf("original release floor: %+v %v", originalFloor, err)
+	}
+	intent.Generation++
+	intent.OperationID = entityid.Derive("operation", "service-reconfigured")
+	intent.Container = intent.Container.Copy()
+	intent.Container.Args = []string{"reconfigured"}
+	if _, err := ApplySignedService(ctx, client, intent, first, roots, legacy, readEvidence, probe, allocations, guard); err != nil {
+		t.Fatal("same signed release with a new admitted workload profile: ", err)
+	}
+	reconfiguredFloor, err := client.ListConfigs(ctx, &api.ListConfigsRequest{})
+	if err != nil || len(reconfiguredFloor.Configs) != 1 || reconfiguredFloor.Configs[0].Spec.Annotations.Labels[labelReleaseBaseline] != originalFloor.Configs[0].Spec.Annotations.Labels[labelReleaseBaseline] {
+		t.Fatalf("same signed sequence replaced the original rollback baseline: %+v %v", reconfiguredFloor, err)
+	}
+	floor, found, err = readFloor(first)
+	if err != nil || !found || floor.OperationID != intent.OperationID || floor.Generation != 2 || floor.ReleaseSequence != 101 {
+		t.Fatalf("new admitted profile lost its original operation: %+v %v %v", floor, found, err)
+	}
 	second := bundle(102, strings.Repeat("d", 40))
 	if _, err := ApplySignedService(ctx, client, intent, second, roots, legacy, readEvidence, probe, allocations, guard); err == nil {
 		t.Fatal("new release reused the same delivery generation")
 	}
 	intent.Generation++
+	intent.OperationID = entityid.Derive("operation", "service-rejected")
 	intent.Container = intent.Container.Copy()
 	intent.Container.Args = []string{"reject"}
 	if restored, err := ApplySignedService(ctx, client, intent, second, roots, legacy, readEvidence, probe, allocations, guard); err == nil || restored == nil || restored.Spec.Annotations.Labels[labelReleaseSequence] != "101" {
@@ -211,8 +251,49 @@ func TestSignedReleaseRaftIntegration(t *testing.T) {
 	if err != nil || len(configs.Configs) != 1 {
 		t.Fatalf("durable release evidence: %+v %v", configs, err)
 	}
-	if !bytes.Equal(configs.Configs[0].Spec.Data, migrationWire) || configs.Configs[0].Spec.Annotations.Labels["terrascale.legacy-evidence"] != legacy.EvidenceSHA256 || configs.Configs[0].Spec.Annotations.Labels[labelReleaseSequence] != "102" || configs.Configs[0].Spec.Annotations.Labels[LabelIntentGeneration] != "2" {
+	if !bytes.Equal(configs.Configs[0].Spec.Data, migrationWire) || configs.Configs[0].Spec.Annotations.Labels["terrascale.legacy-evidence"] != legacy.EvidenceSHA256 || configs.Configs[0].Spec.Annotations.Labels[labelReleaseSequence] != "102" || configs.Configs[0].Spec.Annotations.Labels[LabelIntentGeneration] != "3" {
 		t.Fatal("legacy signed provenance or high-water was lost")
+	}
+	floor, found, err = readFloor(second)
+	if err != nil || !found || floor.OperationID != intent.OperationID || floor.Generation != intent.Generation || floor.ReleaseSequence != 102 || floor.IntentSHA256 != configs.Configs[0].Spec.Annotations.Labels[labelIntentFingerprint] || floor.ReleaseIdentity != configs.Configs[0].Spec.Annotations.Labels[labelReleaseFingerprint] {
+		t.Fatalf("rollback lost the failed release's original delivered operation: %+v %v %v", floor, found, err)
+	}
+	historical, err := release.VerifyContainerHistorical(second, roots, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intentSHA, err := HistoricalServiceIntentSHA256(intent, historical)
+	if err != nil || intentSHA != floor.IntentSHA256 {
+		t.Fatalf("historical original profile differs from the actual retained floor: %s %+v %v", intentSHA, floor, err)
+	}
+	changedProfile := intent
+	changedProfile.Container = intent.Container.Copy()
+	changedProfile.Container.Args = nil
+	if digest, err := HistoricalServiceIntentSHA256(changedProfile, historical); err != nil || digest == floor.IntentSHA256 {
+		t.Fatalf("different workload profile matched the retained original: %s %v", digest, err)
+	}
+	wrongTarget := intent
+	wrongTarget.Region = "us-sanjose-1"
+	if _, err := HistoricalServiceIntentSHA256(wrongTarget, historical); err == nil {
+		t.Fatal("historical fingerprint admitted a different signed target")
+	}
+	if _, err := HistoricalServiceIntentSHA256(intent, release.HistoricalContainer{}); err == nil {
+		t.Fatal("historical fingerprint admitted missing signed release evidence")
+	}
+	retry := intent
+	retry.Generation++
+	retry.OperationID = entityid.Derive("operation", "service-rollback-retry")
+	retry.Container = intent.Container.Copy()
+	retry.Container.Args = nil
+	if _, err := ApplySignedService(ctx, client, retry, second, roots, legacy, readEvidence, probe, allocations, guard); err == nil {
+		t.Fatal("higher intent generation reapplied the same rolled-back signed release")
+	}
+	afterRetry, err := client.ListConfigs(ctx, &api.ListConfigsRequest{})
+	if err != nil || len(afterRetry.Configs) != 1 || !proto.Equal(afterRetry.Configs[0], configs.Configs[0]) {
+		t.Fatalf("rejected retry changed retained baseline, generation or operation: %+v %v", afterRetry, err)
+	}
+	if _, err := ApplySignedService(ctx, client, intent, second, roots, legacy, readEvidence, probe, allocations, guard); err == nil {
+		t.Fatal("higher-generation retry erased original rollback refusal")
 	}
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	err = node.Stop(stopCtx)
@@ -259,8 +340,32 @@ func TestSignedReleaseRaftIntegration(t *testing.T) {
 		t.Fatal("application rollback allowed failed release replay")
 	}
 	configs, err = client.ListConfigs(ctx, &api.ListConfigsRequest{})
-	if err != nil || len(configs.Configs) != 1 || configs.Configs[0].Spec.Annotations.Labels[labelReleaseSequence] != "104" || configs.Configs[0].Spec.Annotations.Labels[LabelIntentGeneration] != "4" {
+	if err != nil || len(configs.Configs) != 1 || configs.Configs[0].Spec.Annotations.Labels[labelReleaseSequence] != "104" || configs.Configs[0].Spec.Annotations.Labels[LabelIntentGeneration] != "5" {
 		t.Fatalf("application rollback reset durable floor: %+v %v", configs, err)
 	}
-
+	original := configs.Configs[0]
+	for _, corrupt := range []struct {
+		label, value string
+	}{
+		{LabelOperationID, ""},
+		{LabelIntentGeneration, "05"},
+		{labelReleaseSequence, "0104"},
+		{labelReleaseFingerprint, strings.Repeat("A", 64)},
+		{labelIntentFingerprint, "missing"},
+	} {
+		spec := original.Spec.Copy()
+		spec.Annotations.Labels[corrupt.label] = corrupt.value
+		changed, err := client.UpdateConfig(ctx, &api.UpdateConfigRequest{ConfigID: original.ID, ConfigVersion: &original.Meta.Version, Spec: spec})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if floor, found, err := readFloor(unhealthy); err == nil || found {
+			t.Fatalf("corrupt floor %s returned an original operation: %+v %v %v", corrupt.label, floor, found, err)
+		}
+		repaired, err := client.UpdateConfig(ctx, &api.UpdateConfigRequest{ConfigID: original.ID, ConfigVersion: &changed.Config.Meta.Version, Spec: &original.Spec})
+		if err != nil {
+			t.Fatal(err)
+		}
+		original = repaired.Config
+	}
 }

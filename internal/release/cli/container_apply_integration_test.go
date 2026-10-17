@@ -85,6 +85,25 @@ func TestSignedContainerProducerApplyHTTPRecovery(t *testing.T) {
 	if err := c.containerBundleWith(producerArgs, env); err != nil {
 		t.Fatal(err)
 	}
+	expectedIndex, err := os.ReadFile(filepath.Join(layout, "index.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+		for architecture := range children {
+			wire, err := os.ReadFile(filepath.Join(outputDirectory, cell, architecture, "container.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var bundle release.ContainerBundle
+			if err := json.Unmarshal(wire, &bundle); err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(bundle.Index, expectedIndex) {
+				t.Fatalf("%s/%s signed bundle lost exact retained OCI index", cell, architecture)
+			}
+		}
+	}
 	applyArgs := []string{"--dir", outputDirectory, "--root-key", base.rootPath, "--namespace", "ns"}
 	f.mu.Lock()
 	f.failure = "storage"

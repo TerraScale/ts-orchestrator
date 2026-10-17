@@ -213,7 +213,17 @@ func TestQueueRealWorkerReceiptsReplayPoisonAndScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope, _ := QueueIdentity(worker.Manifest())
+	manifest := worker.Manifest()
+	scope, err := QueueIdentity(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSubject := "ts.functions." + manifest.TenantID + "." + manifest.FunctionID + "." + manifest.Revision
+	wantIdentity := fmt.Sprintf("%x", sha256.Sum256([]byte(wantSubject)))
+	wantScope := QueueScope{Subject: wantSubject, Stream: "TS_FUNCTION_" + wantIdentity, ReceiptBucket: "TS_FUNCTION_RECEIPTS_" + wantIdentity}
+	if scope != wantScope || queue.Subject() != wantSubject {
+		t.Fatalf("queue wire identity: scope=%+v subject=%q, want %+v", scope, queue.Subject(), wantScope)
+	}
 	receipts, err := js.KeyValue(t.Context(), scope.ReceiptBucket)
 	if err != nil {
 		t.Fatal(err)
@@ -233,6 +243,9 @@ func TestQueueRealWorkerReceiptsReplayPoisonAndScope(t *testing.T) {
 	info, err := queue.consumer.Info(t.Context())
 	if err != nil || info.Config.MaxAckPending != 1 || info.Config.MaxRequestBatch != 1 {
 		t.Fatalf("consumer limits: %+v, %v", info, err)
+	}
+	if info.Stream != wantScope.Stream || info.Config.FilterSubject != wantSubject {
+		t.Fatalf("broker queue identity: %+v, want %+v", info, wantScope)
 	}
 	stop()
 	if err := worker.Close(t.Context()); err != nil {

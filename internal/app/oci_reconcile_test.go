@@ -179,9 +179,9 @@ func TestOciDesiredFollowsTheCellSpec(t *testing.T) {
 		t.Fatalf("signed resource amendment with discovered regional authority: %v", err)
 	}
 
-	// The signed list is what a section amends: restating it is ordinary,
-	// and so is a list that prunes nothing, but a pruning list that drops
-	// one of its entries needs a root.
+	// Restating the signed list needs no root; adding an enforcing route
+	// table does. With pruning on, dropping either signed bucket also
+	// needs a root.
 	current := registry.current
 	pruning := section
 	pruning.Prune = true
@@ -190,8 +190,8 @@ func TestOciDesiredFollowsTheCellSpec(t *testing.T) {
 		root    []string
 	}{
 		"restate":      {section: &signed},
-		"no prune":     {section: &section},
-		"prune others": {section: &pruning, root: []string{"oci_desired buckets backups pruned", "oci_desired buckets logs pruned"}},
+		"no prune":     {section: &section, root: []string{"oci_desired route_tables private"}},
+		"prune others": {section: &pruning, root: []string{"oci_desired route_tables private", "oci_desired buckets backups pruned", "oci_desired buckets logs pruned"}},
 	} {
 		next := cellspec.Spec{Schema: cellspec.Schema, Generation: 1, RequiresBinary: 7, OCIDesired: test.section}
 		if changes := cellspec.AuthorityChanges(registry.withSigned(current), registry.withSigned(next), nil); !slices.Equal(changes, test.root) {

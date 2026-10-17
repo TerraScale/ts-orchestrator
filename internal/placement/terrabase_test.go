@@ -50,7 +50,7 @@ func TestDesiredSeatsRejectsSameFailureDomain(t *testing.T) {
 func TestIntentRejectsUnselectedRegionAliasesDuplicatesAndStaleGeneration(t *testing.T) {
 	cases := []Intent{
 		{SchemaVersion: IntentSchemaVersion, DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003K6TBW31R91GBDRD", ActiveRegions: []oci.Region{"LAX"}, Generation: 1},
-		{SchemaVersion: 1, DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003K6TBW31R91GBDRD", ActiveRegions: []oci.Region{oci.RegionGRU, oci.RegionGRU}, Generation: 1},
+		{SchemaVersion: IntentSchemaVersion, DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003K6TBW31R91GBDRD", ActiveRegions: []oci.Region{oci.RegionGRU, oci.RegionGRU}, Generation: 1},
 		{SchemaVersion: IntentSchemaVersion, DatabaseID: "0000000000T8H7NEY8XQ530245", PartitionID: "00000000003K6TBW31R91GBDRD", ActiveRegions: []oci.Region{oci.RegionGRU}, Generation: 0},
 	}
 	for _, intent := range cases {

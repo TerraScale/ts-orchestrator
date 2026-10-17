@@ -158,6 +158,15 @@ func applySignedService(ctx context.Context, client api.ControlClient, intent Se
 	if len(services.Services) == 1 {
 		baseline = services.Services[0].Meta.Version.Index
 	}
+	previousFloor, err := readReleaseFloorRecord(operation, client, intent, verified, roots)
+	if err != nil {
+		return nil, err
+	}
+	if len(services.Services) == 1 && previousFloor != nil && previousFloor.Spec.Annotations.Labels[labelReleaseSequence] == strconv.FormatUint(claim.ReleaseSequence, 10) {
+		if err := checkReleaseRollback(services.Services[0], previousFloor, intent, verified); err != nil {
+			return nil, err
+		}
+	}
 	floor, err := reserveReleaseFloor(operation, client, intent, verified, roots, retained, baseline)
 	if err != nil {
 		return nil, err
@@ -185,16 +194,22 @@ func applySignedService(ctx context.Context, client api.ControlClient, intent Se
 		return nil
 	}
 	if len(services.Services) == 1 {
-		current := services.Services[0]
-		storedBaseline, err := strconv.ParseUint(floor.Spec.Annotations.Labels[labelReleaseBaseline], 10, 64)
-		if err != nil {
-			return nil, errors.New("invalid durable release baseline")
-		}
-		if current.UpdateStatus != nil && (current.UpdateStatus.State == api.UpdateStatus_ROLLBACK_COMPLETED || current.UpdateStatus.State == api.UpdateStatus_ROLLBACK_STARTED || current.UpdateStatus.State == api.UpdateStatus_ROLLBACK_PAUSED) && current.Meta.Version.Index > storedBaseline && (current.Spec.Annotations.Labels[labelReleaseSequence] != strconv.FormatUint(claim.ReleaseSequence, 10) || current.Spec.Annotations.Labels[labelReleaseFingerprint] != verified.ReleaseIdentity() || intent.Generation != 0 && (current.Spec.Annotations.Labels[LabelIntentGeneration] != strconv.FormatUint(intent.Generation, 10) || current.Spec.Annotations.Labels[labelIntentFingerprint] != intent.intentFingerprint)) {
-			return nil, errors.New("signed release already rolled back; a newer signed release is required")
+		if err := checkReleaseRollback(services.Services[0], floor, intent, verified); err != nil {
+			return nil, err
 		}
 	}
 	return applyServiceGuarded(operation, client, intent, guard)
+}
+
+func checkReleaseRollback(current *api.Service, floor *api.Config, intent ServiceIntent, verified release.VerifiedContainer) error {
+	storedBaseline, err := strconv.ParseUint(floor.Spec.Annotations.Labels[labelReleaseBaseline], 10, 64)
+	if err != nil {
+		return errors.New("invalid durable release baseline")
+	}
+	if current.UpdateStatus != nil && (current.UpdateStatus.State == api.UpdateStatus_ROLLBACK_COMPLETED || current.UpdateStatus.State == api.UpdateStatus_ROLLBACK_STARTED || current.UpdateStatus.State == api.UpdateStatus_ROLLBACK_PAUSED) && current.Meta.Version.Index > storedBaseline && (current.Spec.Annotations.Labels[labelReleaseSequence] != strconv.FormatUint(verified.Claim().ReleaseSequence, 10) || current.Spec.Annotations.Labels[labelReleaseFingerprint] != verified.ReleaseIdentity() || intent.Generation != 0 && (current.Spec.Annotations.Labels[LabelIntentGeneration] != strconv.FormatUint(intent.Generation, 10) || current.Spec.Annotations.Labels[labelIntentFingerprint] != intent.intentFingerprint)) {
+		return errors.New("signed release already rolled back; a newer signed release is required")
+	}
+	return nil
 }
 
 // The Raft config is release evidence, not a second task store. Its immutable
@@ -228,12 +243,12 @@ func reserveReleaseFloorRecord(ctx context.Context, client api.ControlClient, in
 	if err != nil {
 		return nil, err
 	}
-	listed, err := client.ListConfigs(ctx, &api.ListConfigsRequest{Filters: &api.ListConfigsRequest_Filters{Names: []string{name}}})
+	current, err := readReleaseFloorRecord(ctx, client, intent, verified, roots)
 	if err != nil {
 		return nil, err
 	}
 	claim := verified.Claim()
-	if len(listed.Configs) == 0 {
+	if current == nil {
 		if verified.Claim().Role == "function-worker" {
 			legacyIdentity := sha256.Sum256([]byte(intent.Environment + "/" + intent.Region + "/" + intent.Role))
 			legacy, err := client.ListConfigs(ctx, &api.ListConfigsRequest{Filters: &api.ListConfigsRequest_Filters{Names: []string{fmt.Sprintf("ts-release-%x", legacyIdentity[:16])}}})
@@ -260,6 +275,7 @@ func reserveReleaseFloorRecord(ctx context.Context, client api.ControlClient, in
 		if intent.Generation != 0 {
 			labels[LabelIntentGeneration] = strconv.FormatUint(intent.Generation, 10)
 			labels[labelIntentFingerprint] = intent.intentFingerprint
+			labels[LabelOperationID] = intent.OperationID
 		}
 		if claim.Role == "function-worker" {
 			labels[labelReleaseArchitecture] = claim.Architecture
@@ -273,39 +289,11 @@ func reserveReleaseFloorRecord(ctx context.Context, client api.ControlClient, in
 		}
 		return created.Config, nil
 	}
-	if len(listed.Configs) != 1 {
-		return nil, errors.New("ambiguous durable release floor")
-	}
-	current := listed.Configs[0]
 	labels := current.Spec.Annotations.Labels
 	if err := checkIntentGeneration(labels, intent); err != nil {
 		return nil, err
 	}
-	if claim.Role == "function-worker" && labels[labelReleaseArchitecture] != claim.Architecture {
-		return nil, errors.New("worker release floor architecture mismatch")
-	}
-	if labels[LabelIntentID] != intent.ID || labels[LabelRole] != intent.Role || labels[LabelRegion] != intent.Region || labels[LabelEnvironment] != intent.Environment {
-		return nil, errors.New("release floor ownership mismatch")
-	}
-	envelope, err := trust.DecodeEnvelope(current.Spec.Data)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := release.VerifySequenceMigrationHistorical(envelope, roots, intent.Role, intent.Environment); err != nil {
-		return nil, err
-	}
-	fingerprint, err := trust.Fingerprint(envelope)
-	if err != nil {
-		return nil, err
-	}
-	if fingerprint != claim.SequenceMigrationSHA256 {
-		// shortcut: ordering namespace changes are refused, add root-authorized rotation when the producer signer rotates.
-		return nil, errors.New("release ordering namespace differs from durable migration")
-	}
-	floor, err := strconv.ParseUint(labels[labelReleaseSequence], 10, 64)
-	if err != nil || floor == 0 {
-		return nil, errors.New("invalid durable release sequence")
-	}
+	floor, _ := strconv.ParseUint(labels[labelReleaseSequence], 10, 64)
 	if claim.ReleaseSequence < floor || claim.ReleaseSequence == floor && labels[labelReleaseFingerprint] != verified.ReleaseIdentity() {
 		return nil, errors.New("stale or equivocating signed release")
 	}
@@ -315,10 +303,13 @@ func reserveReleaseFloorRecord(ctx context.Context, client api.ControlClient, in
 	spec := current.Spec.Copy()
 	spec.Annotations.Labels[labelReleaseSequence] = strconv.FormatUint(claim.ReleaseSequence, 10)
 	spec.Annotations.Labels[labelReleaseFingerprint] = verified.ReleaseIdentity()
-	spec.Annotations.Labels[labelReleaseBaseline] = strconv.FormatUint(baseline, 10)
+	if claim.ReleaseSequence > floor {
+		spec.Annotations.Labels[labelReleaseBaseline] = strconv.FormatUint(baseline, 10)
+	}
 	if intent.Generation != 0 {
 		spec.Annotations.Labels[LabelIntentGeneration] = strconv.FormatUint(intent.Generation, 10)
 		spec.Annotations.Labels[labelIntentFingerprint] = intent.intentFingerprint
+		spec.Annotations.Labels[LabelOperationID] = intent.OperationID
 	}
 	if !verified.Valid(time.Now().UTC()) {
 		return nil, errors.New("signed container authorization expired before floor reservation")

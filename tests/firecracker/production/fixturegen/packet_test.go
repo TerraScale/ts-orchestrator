@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -242,7 +243,7 @@ func TestPacketRejectsUnlistedTamperSymlinkAndWrongRoot(t *testing.T) {
 }
 
 func TestPacketRequiresTrustedCurrentRunClock(t *testing.T) {
-	root, manifest, _, roots := packetFixture(t)
+	root, manifest, private, roots := packetFixture(t)
 	if _, err := ValidatePacket(root, roots, time.Time{}); err == nil {
 		t.Fatal("packet accepted missing trusted clock")
 	}
@@ -254,6 +255,33 @@ func TestPacketRequiresTrustedCurrentRunClock(t *testing.T) {
 	}
 	if _, err := ValidatePacket(root, roots, manifest.FixtureNow.Add(2*time.Hour)); err == nil {
 		t.Fatal("expired signature accepted at run time")
+	}
+	wire, err := trust.EncodePayload(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := trust.Sign(wire, manifest.scope(), manifest.FixtureNow.Add(-time.Minute),
+		manifest.FixtureNow.Add(time.Minute), private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed, err := trust.EncodeEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "manifest.sig"), signed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ValidatePacket(root, roots, manifest.FixtureNow); err != nil {
+		t.Fatalf("packet with current short-lived signature rejected: %v", err)
+	}
+	runNow := manifest.FixtureNow.Add(2 * time.Minute)
+	if _, err := trust.VerifyCurrent(envelope, manifest.scope(), roots, runNow,
+		trust.Policy{MaxLifetime: 365 * 24 * time.Hour, ClockSkew: time.Minute}); !errors.Is(err, trust.ErrExpired) {
+		t.Fatalf("short-lived signature error = %v, want ErrExpired", err)
+	}
+	if _, err := ValidatePacket(root, roots, runNow); err == nil || err.Error() != "packet manifest root signature is invalid" {
+		t.Fatalf("expired packet signature error = %v, want root signature rejection", err)
 	}
 }
 
