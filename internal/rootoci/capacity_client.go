@@ -130,7 +130,7 @@ func validPoolChildAdmission(view PoolChildView, now time.Time) bool {
 	_, knownCell := catalog.Lookup(view.Cell)
 	if view.Stage != "attached" || !knownCell ||
 		!entityid.Valid(view.OperationID) || !entityid.Valid(view.ReservationID) || view.SlotID == "" || len(view.SlotID) > 256 ||
-		view.Generation == 0 || view.Epoch == 0 || view.Node == "" || len(view.Node) > 128 ||
+		view.Generation == 0 || view.OriginalBirthGeneration == 0 || view.Epoch == 0 || view.Node == "" || len(view.Node) > 128 ||
 		view.AvailabilityDomain == "" || view.FaultDomain == "" || view.Shape == "" ||
 		!(view.OCPUs > 0) || !(view.MemoryGB > 0) || math.IsInf(float64(view.OCPUs), 0) || math.IsInf(float64(view.MemoryGB), 0) || view.BootGB <= 0 ||
 		view.Descriptor == "" || len(view.Descriptor) > 64<<10 ||
@@ -148,7 +148,7 @@ func validPoolChildAdmission(view PoolChildView, now time.Time) bool {
 		registration.Architecture != view.Architecture || registration.DescriptorSHA256 != hex.EncodeToString(descriptorSHA256[:]) {
 		return false
 	}
-	for _, digest := range []string{view.RecipeSHA256, view.GrantSHA256, view.ProfileSHA256, view.SourceSHA256,
+	for _, digest := range []string{view.RecipeSHA256, view.GrantSHA256, view.OriginalBirthGrantSHA256, view.ProfileSHA256, view.SourceSHA256,
 		view.BirthSHA256, view.AttachSHA256, view.SessionBindingSHA256} {
 		decoded, err := hex.DecodeString(digest)
 		if err != nil || len(decoded) != 32 || hex.EncodeToString(decoded) != digest {
