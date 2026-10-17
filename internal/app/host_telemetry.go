@@ -14,11 +14,12 @@ import (
 
 // hostTelemetry owns collection freshness even when no scaling policy uses it.
 type hostTelemetry struct {
-	mu       sync.Mutex
-	fencer   authority.Fencer
-	load     *hostload.Aggregator
-	epoch    uint64
-	requests map[string]hostload.Request
+	mu              sync.Mutex
+	fencer          authority.Fencer
+	load            *hostload.Aggregator
+	epoch           uint64
+	requests        map[string]hostload.Request
+	managedRequests map[hostload.Origin]map[string]hostload.Request
 }
 
 // current is called with mu held before accepting or charting reports.
@@ -26,11 +27,13 @@ func (t *hostTelemetry) current() bool {
 	snapshot := t.fencer.Current()
 	if !snapshot.CanMutate() {
 		t.load.Reset()
+		clear(t.managedRequests)
 		t.epoch = 0
 		return false
 	}
 	if t.epoch != snapshot.Epoch {
 		t.load.Reset()
+		clear(t.managedRequests)
 		t.epoch = snapshot.Epoch
 	}
 	return true
