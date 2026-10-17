@@ -14,6 +14,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/natstest"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
@@ -540,9 +541,11 @@ func confirm(t *testing.T, api *providerState, store ociresource.Store) {
 func TestDurableWorkRequestRecoversAfterNATSAndControllerRestart(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	config := natscell.Config{Cell: "lab", Instance: "oci-restart", Replicas: 1, Lab: true,
+	fixture := natstest.NATS(t, "gru")
+	config := natscell.Config{Cell: "gru", Instance: "oci-restart", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: t.TempDir()}}
-	runtime, err := natscell.Start(ctx, config)
+	config = fixture.Config(t, config)
+	runtime, err := fixture.Start(t, ctx, config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -587,7 +590,7 @@ func TestDurableWorkRequestRecoversAfterNATSAndControllerRestart(t *testing.T) {
 	if err := runtime.Close(); err != nil {
 		t.Fatal(err)
 	}
-	runtime, err = natscell.Start(ctx, config)
+	runtime, err = fixture.Start(t, ctx, config)
 	if err != nil {
 		t.Fatal(err)
 	}

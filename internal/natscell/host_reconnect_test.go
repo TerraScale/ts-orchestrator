@@ -16,16 +16,17 @@ import (
 func TestHostClientLeavesBlackholedPeerBeforeSessionReserve(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
-	primary, err := Start(ctx, Config{Cell: "lab", Instance: "primary", Replicas: 1, Lab: true,
-		Embedded: &Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "primary")}})
+	region := productionTestRegion(t, "lab", "primary")
+	primary, err := openTestBroker(t, ctx, region.cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = primary.Close() })
 	proxy := newBlackholeProxy(t, primary.ClientAddress().String())
 	secondaryPort := freeClientPort(t)
-	host, err := Start(ctx, Config{Cell: "lab", Instance: "host", Replicas: 1, Lab: true, ClientRole: "host",
-		URL: fmt.Sprintf("nats://%s,nats://127.0.0.1:%d", proxy.listener.Addr(), secondaryPort)})
+	hostConfig, _ := productionTestUser(t, region, "host", "host", false)
+	hostConfig.URL = fmt.Sprintf("tls://%s,tls://127.0.0.1:%d", proxy.listener.Addr(), secondaryPort)
+	host, err := Start(ctx, hostConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,8 +34,14 @@ func TestHostClientLeavesBlackholedPeerBeforeSessionReserve(t *testing.T) {
 	if got := host.Conn().ConnectedUrl(); got != "nats://"+proxy.listener.Addr().String() {
 		t.Fatalf("host initially connected to %q, want proxy", got)
 	}
-	secondary, err := Start(ctx, Config{Cell: "lab", Instance: "secondary", Replicas: 1, Lab: true,
-		Embedded: &Embedded{Host: "127.0.0.1", Port: secondaryPort, StoreDir: filepath.Join(t.TempDir(), "secondary")}})
+	secondaryConfig := region.cfg
+	secondaryEmbedded := *secondaryConfig.Embedded
+	secondaryConfig.Embedded = &secondaryEmbedded
+	secondaryConfig.Instance = "secondary"
+	secondaryEmbedded.Port = secondaryPort
+	secondaryEmbedded.StoreDir = filepath.Join(t.TempDir(), "secondary")
+	secondaryEmbedded.BrokerIDs = []string{"secondary"}
+	secondary, err := openTestBroker(t, ctx, secondaryConfig)
 	if err != nil {
 		t.Fatal(err)
 	}

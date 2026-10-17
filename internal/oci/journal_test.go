@@ -13,6 +13,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/natstest"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -369,8 +370,9 @@ func testJournalBucket(t *testing.T) jetstream.KeyValue {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
-	runtime, err := natscell.Start(ctx, natscell.Config{
-		Cell: "lab", Instance: "oci-journal-test", Replicas: 1, Lab: true,
+	fixture := natstest.NATS(t, "lab")
+	runtime, err := fixture.Start(t, ctx, natscell.Config{
+		Cell: "lab", Instance: "oci-journal-test", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "jetstream")},
 	})
 	if err != nil {

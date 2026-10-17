@@ -13,14 +13,15 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/natstest"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
 func TestMemberPinReaderOpensExistingDurableStateWithoutWrites(t *testing.T) {
-	runtime, err := natscell.Start(t.Context(), natscell.Config{Cell: "gru", Instance: "member-reader", Replicas: 1, Lab: true,
-		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "nats")}})
+	auth := natstest.NATS(t, "gru")
+	runtime, err := auth.Start(t, t.Context(), natscell.Config{Cell: "gru", Instance: "member-reader", Replicas: 1, Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "nats")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,17 +34,18 @@ func TestMemberPinReaderOpensExistingDurableStateWithoutWrites(t *testing.T) {
 	} else if prefix == "" {
 		prefix = "$JS.API"
 	}
-	leader, err := js.Conn().SubscribeSync(prefix + ".STREAM.MSG.GET.KV_" + stateBucketName)
+	observer := auth.Observer(t, runtime.URL(), prefix+".STREAM.MSG.GET.KV_"+stateBucketName, prefix+".DIRECT.GET.>")
+	leader, err := observer.SubscribeSync(prefix + ".STREAM.MSG.GET.KV_" + stateBucketName)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer leader.Unsubscribe()
-	direct, err := js.Conn().SubscribeSync(prefix + ".DIRECT.GET.>")
+	direct, err := observer.SubscribeSync(prefix + ".DIRECT.GET.>")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer direct.Unsubscribe()
-	if err := js.Conn().Flush(); err != nil {
+	if err := observer.Flush(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := OpenMemberPinReader(t.Context(), js, "gru", 1); err == nil {
@@ -106,7 +108,7 @@ func TestMemberPinReaderOpensExistingDurableStateWithoutWrites(t *testing.T) {
 	if _, err := reader.ReadMember(t.Context(), state.DatabaseID, state.PartitionID, state.MemberID); !errors.Is(err, ErrStoreCorrupt) {
 		t.Fatalf("ordered member reader accepted a tombstone: %v", err)
 	}
-	if err := js.Conn().Flush(); err != nil {
+	if err := observer.Flush(); err != nil {
 		t.Fatal(err)
 	}
 	reads, _, err := leader.Pending()

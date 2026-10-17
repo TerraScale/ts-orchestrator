@@ -24,21 +24,23 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/natstest"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
 )
 
 func TestDiagnosticUsesAuthenticatedReplyInboxes(t *testing.T) {
-	controllerPublic, controllerSeed := diagnosticIdentity(t, "controller")
-	operatorPublic, operatorSeed := diagnosticIdentity(t, "operator")
+	auth := natstest.NATS(t, "lab", "controller")
+	_, controllerSeed := diagnosticIdentity(t, "controller")
+	_, operatorSeed := diagnosticIdentity(t, "operator")
+	controllerConfig := auth.Config(t, natscell.Config{Instance: "diagnostic", NKeySeedFile: controllerSeed})
+	operatorConfig := auth.Config(t, natscell.Config{Instance: "operator", ClientRole: "operator", NKeySeedFile: operatorSeed})
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
-	regional, err := natscell.Start(ctx, natscell.Config{
-		Cell: "lab", Instance: "controller", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
-		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: t.TempDir(),
-			Users: []natscell.NKeyGrant{{PublicKey: controllerPublic, Role: "controller"},
-				{PublicKey: operatorPublic, Role: "operator"}}},
+	regional, err := auth.Start(t, ctx, natscell.Config{
+		Cell: "lab", Instance: "controller", Replicas: 1, NKeySeedFile: controllerSeed,
+		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: t.TempDir()},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -91,8 +93,9 @@ func TestDiagnosticUsesAuthenticatedReplyInboxes(t *testing.T) {
 
 	probeCtx, probeCancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer probeCancel()
-	command := exec.CommandContext(probeCtx, "go", "run", "natsdiag.go", "--seed", controllerSeed,
-		"--operator-seed", operatorSeed, "--cell", "lab", "--replicas", "1", "--urls", regional.URL(),
+	command := exec.CommandContext(probeCtx, "go", "run", "natsdiag.go", "--creds", controllerConfig.CredentialsFile,
+		"--operator-creds", operatorConfig.CredentialsFile, "--ca", controllerConfig.TLS.CAFile,
+		"--cert", controllerConfig.TLS.CertFile, "--key", controllerConfig.TLS.KeyFile, "--cell", "lab", "--replicas", "1", "--urls", regional.URL(),
 		"--operation-id", "fc-diagnostic-2")
 	output, err := command.CombinedOutput()
 	if err != nil {
@@ -190,8 +193,9 @@ func TestDiagnosticUsesAuthenticatedReplyInboxes(t *testing.T) {
 		`{"intent":{"operationId":"fc-diagnostic-2","generation":2,"authorityEpoch":3},"plan":[{}]}`)); err != nil {
 		t.Fatal(err)
 	}
-	command = exec.CommandContext(probeCtx, "go", "run", "natsdiag.go", "--seed", controllerSeed,
-		"--operator-seed", operatorSeed, "--cell", "lab", "--replicas", "1", "--urls", regional.URL(),
+	command = exec.CommandContext(probeCtx, "go", "run", "natsdiag.go", "--creds", controllerConfig.CredentialsFile,
+		"--operator-creds", operatorConfig.CredentialsFile, "--ca", controllerConfig.TLS.CAFile,
+		"--cert", controllerConfig.TLS.CertFile, "--key", controllerConfig.TLS.KeyFile, "--cell", "lab", "--replicas", "1", "--urls", regional.URL(),
 		"--operation-id", "fc-diagnostic-2")
 	output, err = command.CombinedOutput()
 	if err != nil {
@@ -628,8 +632,11 @@ func TestDiagnosticMarshalsReplicatedClusterMetadata(t *testing.T) {
 }
 
 func TestDiagnosticReadsLiveReplicatedCluster(t *testing.T) {
-	controllerPublic, controllerSeed := diagnosticIdentity(t, "controller")
-	operatorPublic, operatorSeed := diagnosticIdentity(t, "operator")
+	auth := natstest.NATS(t, "lab", "c1", "c2", "c3")
+	_, controllerSeed := diagnosticIdentity(t, "controller")
+	_, operatorSeed := diagnosticIdentity(t, "operator")
+	controllerConfig := auth.Config(t, natscell.Config{Instance: "diagnostic", NKeySeedFile: controllerSeed})
+	operatorConfig := auth.Config(t, natscell.Config{Instance: "operator", ClientRole: "operator", NKeySeedFile: operatorSeed})
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 	ports := make([]int, 3)
@@ -647,14 +654,12 @@ func TestDiagnosticReadsLiveReplicatedCluster(t *testing.T) {
 	}
 	runtimes := make([]*natscell.Runtime, len(ports))
 	for index := range runtimes {
-		runtime, err := natscell.Start(ctx, natscell.Config{
-			Cell: "lab", Instance: fmt.Sprintf("c%d", index+1), Replicas: 3, Lab: true,
-			NKeySeedFile: controllerSeed,
+		runtime, err := auth.Start(t, ctx, natscell.Config{
+			Cell: "lab", Instance: fmt.Sprintf("c%d", index+1), Replicas: 3, NKeySeedFile: controllerSeed,
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1,
 				RouteHost: "127.0.0.1", RoutePort: ports[index], Routes: routes,
 				StoreDir: filepath.Join(t.TempDir(), "jetstream"),
-				Users: []natscell.NKeyGrant{{PublicKey: controllerPublic, Role: "controller"},
-					{PublicKey: operatorPublic, Role: "operator"}}},
+			},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -711,8 +716,9 @@ func TestDiagnosticReadsLiveReplicatedCluster(t *testing.T) {
 	for index, runtime := range runtimes {
 		urls[index] = runtime.URL()
 	}
-	command := exec.CommandContext(ctx, "go", "run", "natsdiag.go", "--seed", controllerSeed,
-		"--operator-seed", operatorSeed, "--cell", "lab", "--replicas", "3",
+	command := exec.CommandContext(ctx, "go", "run", "natsdiag.go", "--creds", controllerConfig.CredentialsFile,
+		"--operator-creds", operatorConfig.CredentialsFile, "--ca", controllerConfig.TLS.CAFile,
+		"--cert", controllerConfig.TLS.CertFile, "--key", controllerConfig.TLS.KeyFile, "--cell", "lab", "--replicas", "3",
 		"--members", "lab-c1,lab-c2,lab-c3", "--urls", strings.Join(urls, ","),
 		"--operation-id", "fc-one-node-loss-2")
 	output, err := command.CombinedOutput()

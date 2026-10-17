@@ -3,6 +3,7 @@ package natscell
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/json/v2"
 	"fmt"
 	"net"
@@ -21,6 +22,8 @@ func TestPrepareNodeIdentityPreservesR3State(t *testing.T) {
 	tier.Integration(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 120*time.Second)
 	defer cancel()
+	region := productionTestRegion(t, "gru", "controller-a")
+	routeSecret := productionRouteSecret(t)
 	cluster := &labCluster{stores: make([]string, 3), runtimes: make([]*Runtime, 3)}
 	for index := range 3 {
 		cluster.stores[index] = filepath.Join(t.TempDir(), "store")
@@ -41,10 +44,16 @@ func TestPrepareNodeIdentityPreservesR3State(t *testing.T) {
 		if len(routes) == 0 {
 			routes = []string{"nats-route://127.0.0.1:1"}
 		}
-		runtime, err := Start(ctx, Config{Cell: "gru", Instance: instance, Replicas: 3, Lab: true,
-			Embedded: &Embedded{Host: "127.0.0.1", Port: -1, RouteHost: "127.0.0.1",
-				RoutePort: -1, Routes: routes,
-				StoreDir: cluster.stores[index], BrokerIDs: []string{"controller-a", "controller-b", "controller-c"}}})
+		cfg := region.cfg
+		embedded := *cfg.Embedded
+		cfg.Embedded = &embedded
+		cfg.Instance, cfg.Replicas = instance, 3
+		embedded.Port = freeClientPort(t)
+		embedded.RouteHost, embedded.RoutePort = "127.0.0.1", -1
+		embedded.Routes, embedded.StoreDir = routes, cluster.stores[index]
+		embedded.RoutePasswordFile = routeSecret
+		embedded.BrokerIDs = []string{"controller-a", "controller-b", "controller-c"}
+		runtime, err := openTestBroker(t, ctx, cfg)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -149,7 +158,7 @@ func TestPrepareNodeIdentityPreservesR3State(t *testing.T) {
 	start(1)
 	for index := range 3 {
 		waitUntil(t, ctx, "full metadata quorum", func() bool { return cluster.runtimes[index].FullClusterReady(3) })
-		assertAdvertisedNodeID(t, cluster.runtimes[index].server.ClusterAddr().Port, identities[index].NodeID)
+		assertAdvertisedNodeID(t, cluster.runtimes[index].server.ClusterAddr().Port, identities[index].NodeID, region.cfg.TLS)
 	}
 	waitForReplicas()
 	// Each rolling restart misses a write and must catch up using the same ID.
@@ -196,9 +205,13 @@ func TestPrepareNodeIdentityPreservesR3State(t *testing.T) {
 	}
 }
 
-func assertAdvertisedNodeID(t *testing.T, port int, want string) {
+func assertAdvertisedNodeID(t *testing.T, port int, want string, files TLSFiles) {
 	t.Helper()
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 5*time.Second)
+	config, err := loadTLS(files, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", fmt.Sprintf("127.0.0.1:%d", port), config)
 	if err != nil {
 		t.Fatal(err)
 	}

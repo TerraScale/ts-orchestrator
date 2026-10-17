@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/natstest"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -84,9 +85,11 @@ func TestVolumeTerminationProofRequiresSuccessfulWrite(t *testing.T) {
 func TestVolumeTerminationProofSurvivesBrokerRestart(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
-	cfg := natscell.Config{Cell: "lab", Instance: "volume-termination", Replicas: 1, Lab: true,
+	fixture := natstest.NATS(t, "lab")
+	cfg := natscell.Config{Cell: "lab", Instance: "volume-termination", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "jetstream")}}
-	runtime, err := natscell.Start(ctx, cfg)
+	cfg = fixture.Config(t, cfg)
+	runtime, err := fixture.Start(t, ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +107,7 @@ func TestVolumeTerminationProofSurvivesBrokerRestart(t *testing.T) {
 	if err := runtime.Close(); err != nil {
 		t.Fatal(err)
 	}
-	runtime, err = natscell.Start(ctx, cfg)
+	runtime, err = fixture.Start(t, ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

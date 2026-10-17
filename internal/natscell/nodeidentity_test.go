@@ -133,7 +133,7 @@ func TestStartRejectsConflictingNodeIdentityBeforeListening(t *testing.T) {
 	if err := pinNodeIdentity(dir, "sfo", "controller-a", "abc123XY"); err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := Start(t.Context(), labController("controller-a", dir))
+	runtime, err := Start(t.Context(), labController(t, "controller-a", dir))
 	if runtime != nil || !errors.Is(err, ErrStoreIdentity) {
 		t.Fatalf("broker started with another controller's pin: %v, %v", runtime, err)
 	}

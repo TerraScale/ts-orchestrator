@@ -11,12 +11,14 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/natstest"
 )
 
 func integrationStore(t *testing.T) *KVStore {
 	t.Helper()
-	runtime, err := natscell.Start(t.Context(), natscell.Config{
-		Cell: "lab", Instance: "oci-resource-test", Replicas: 1, Lab: true,
+	fixture := natstest.NATS(t, "lab")
+	runtime, err := fixture.Start(t, t.Context(), natscell.Config{
+		Cell: "lab", Instance: "oci-resource-test", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "jetstream")},
 	})
 	if err != nil {
@@ -307,8 +309,9 @@ func TestDesiredRecordsAreValidatedAndGenerationsMonotonic(t *testing.T) {
 func TestKVStoreRoundTripAndCompareAndSet(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	runtime, err := natscell.Start(ctx, natscell.Config{
-		Cell: "lab", Instance: "oci-resource-test", Replicas: 1, Lab: true,
+	fixture := natstest.NATS(t, "lab")
+	runtime, err := fixture.Start(t, ctx, natscell.Config{
+		Cell: "lab", Instance: "oci-resource-test", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "jetstream")},
 	})
 	if err != nil {
