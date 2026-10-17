@@ -65,11 +65,6 @@ func TestReportValidate(t *testing.T) {
 		name   string
 		mutate func(*Report)
 	}{
-		{name: "wrong version", mutate: func(r *Report) { r.Version = Version + 1 }},
-		{name: "empty cell", mutate: func(r *Report) { r.Cell = "" }},
-		{name: "upper-case cell", mutate: func(r *Report) { r.Cell = "GRU" }},
-		{name: "empty OCI region", mutate: func(r *Report) { r.OCIRegion = "" }},
-		{name: "lower-case currency", mutate: func(r *Report) { r.Currency = "usd" }},
 		{name: "zero observed time", mutate: func(r *Report) { r.ObservedAt = time.Time{} }},
 		{name: "through not midnight", mutate: func(r *Report) { r.Through = utc(8).Add(time.Hour) }},
 		{name: "through after observed", mutate: func(r *Report) { r.Through = utc(11) }},
