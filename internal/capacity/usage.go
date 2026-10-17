@@ -249,6 +249,7 @@ func (s *Store) Query(from, to time.Time, expected []hostload.UsageInterval) (Us
 		if interval.Unknown != "" {
 			result.Gaps = append(result.Gaps, Gap{Node: interval.Node, Environment: interval.Environment, From: interval.From, To: interval.To, Reason: interval.Unknown})
 			result.Complete = false
+			result.Truncated = result.Truncated || interval.Truncated
 			continue
 		}
 		key := keyFor(interval.Node, interval.Environment, interval.Role)

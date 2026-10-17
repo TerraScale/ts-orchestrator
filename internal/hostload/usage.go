@@ -8,5 +8,6 @@ type UsageInterval struct {
 	Node, Environment, Role string
 	From, To                time.Time
 	// Unknown marks an unproven span; it never asserts an active allocation.
-	Unknown string
+	Unknown   string
+	Truncated bool
 }

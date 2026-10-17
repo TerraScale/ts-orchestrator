@@ -24,9 +24,9 @@ func TestCommittedUsageReplayPreservesHistoricalResourcesAndUnknownGaps(t *testi
 			}
 		}
 		from, to := first.Truncate(time.Millisecond), second.Add(time.Second)
-		unknown := []hostload.UsageInterval{{Node: origin.Node, Environment: origin.Environment, From: from, To: to, Unknown: "manager source changed"}}
+		unknown := []hostload.UsageInterval{{Node: origin.Node, Environment: origin.Environment, From: from, To: to, Unknown: "retained manager history was truncated", Truncated: true}}
 		result, err := store.Query(from, to, unknown)
-		if err != nil || result.Complete || len(result.Gaps) != 1 || len(result.Replicas) != 1 {
+		if err != nil || result.Complete || !result.Truncated || len(result.Gaps) != 1 || len(result.Replicas) != 1 {
 			t.Fatalf("restart%d erased unknown coverage or samples: %+v %v", restart, result, err)
 		}
 		request := result.Replicas[0].CPU.Request

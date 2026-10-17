@@ -90,7 +90,7 @@ func (t *hostTelemetry) managedExpectedUsage(history *nativeHistory, usage *runt
 		native, nativeErr := history.hosts.ExpectedUsage(ctx, from, to)
 		result := managedUsageIntervals(observations, native, nativeErr, owns, from, to)
 		if errors.Is(err, authority.ErrUsageHistoryTruncated) {
-			result = append(result, hostload.UsageInterval{From: from, To: to, Unknown: "retained manager usage history was truncated"})
+			result = append(result, hostload.UsageInterval{From: from, To: to, Unknown: "retained manager usage history was truncated", Truncated: true})
 		}
 		return result, nil
 	}
