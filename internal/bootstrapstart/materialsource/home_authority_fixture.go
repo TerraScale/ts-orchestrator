@@ -74,6 +74,10 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 	if err != nil {
 		t.Fatalf("home startup config binding: %v", err)
 	}
+	if render != nil {
+		assertSourceAuthenticatedNATS(t, source, link, bound)
+		server.logProgress(t, "same-source JWT and mutual TLS authenticated over actual NATS TCP")
+	}
 	server.logProgress(t, "home startup configs bound; checking derived founder authority")
 	assertDerivedFounderAuthority(t, source, bound, roots, now)
 	server.logProgress(t, "derived founder authority verified; publishing genuine seed ledger")
