@@ -209,8 +209,32 @@ func (s NetBirdJournalSource) CurrentDeadline(ctx context.Context) (time.Time, e
 			return time.Time{}, ErrDelivery
 		}
 	}
-	if ctx.Err() != nil || s.original.Err() != nil || !time.Now().Before(deadline) {
+	if ctx.Err() != nil || s.checkOriginal() != nil || !time.Now().Before(deadline) {
 		return time.Time{}, ErrDelivery
 	}
 	return deadline, nil
+}
+
+// checkOriginal seals retained cancellation after the final blocking check. It
+// supplies no currentness authority and never replaces CurrentDeadline.
+func (s NetBirdJournalSource) checkOriginal() error {
+	if s.original == nil || s.original.Err() != nil || s.expires.IsZero() || !time.Now().Before(s.expires) ||
+		s.underlay.CheckOriginal() != nil || s.recipient.CheckOriginal() != nil || s.public.snapshot == nil ||
+		s.public.snapshot.Context() == nil || s.public.snapshot.Context().Err() != nil {
+		return ErrDelivery
+	}
+	if s.readonly.startup.IsVerified() && (s.readonly.snapshot == nil || s.readonly.snapshot.Context() == nil || s.readonly.snapshot.Context().Err() != nil || !time.Now().Before(s.readonly.ExpiresAt())) {
+		return ErrDelivery
+	}
+	if (s.custody == nil) == (s.manager == nil) {
+		return ErrDelivery
+	}
+	if s.custody != nil {
+		if s.custody.original == nil || s.custody.original.Err() != nil || s.custody.Context() == nil || s.custody.Context().Err() != nil || !time.Now().Before(s.custody.ExpiresAt()) {
+			return ErrDelivery
+		}
+	} else if s.manager.CheckOriginal() != nil {
+		return ErrDelivery
+	}
+	return nil
 }

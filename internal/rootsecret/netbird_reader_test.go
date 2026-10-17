@@ -47,17 +47,29 @@ func TestNetBirdBrokerMaterialBoundsAndRedaction(t *testing.T) {
 	if _, err := OpenNetBirdReaderFromJournal(t.Context(), nil); err == nil {
 		t.Fatal("late broker reader opened without the retained journal client")
 	}
-	if _, _, err := openNetBirdJournalWriterTLS(t.Context(), NetBirdJournalSource{}); err == nil {
+	if _, err := openNetBirdJournalWriterTLS(t.Context(), NetBirdJournalSource{}); err == nil {
 		t.Fatal("writer server TLS opened without genuine root startup custody")
 	}
 	if _, err := readNetBirdJournalWriterTLSFile("../controller-a-tls-key.pem", 0, 0); err == nil {
 		t.Fatal("writer server TLS accepted a caller-selected path")
 	}
+	if _, err := openNetBirdJournalPublication(t.Context(), nil); err == nil {
+		t.Fatal("journal publication opened without genuine root startup custody")
+	}
+	if _, err := (*netBirdJournalWriterTLS)(nil).currentDeadline(t.Context()); err == nil {
+		t.Fatal("nil writer supplied installed-material authority")
+	}
+	if _, err := (*netBirdJournalPublication)(nil).currentDeadline(t.Context()); err == nil {
+		t.Fatal("nil publication supplied CURRENT authority")
+	}
+	if (NetBirdJournalSource{}).checkOriginal() == nil {
+		t.Fatal("zero journal source supplied original lifetime authority")
+	}
 	secret := []byte("private-manager-key-never-format")
 	material := NetBirdBrokerMaterial{Schema: 1, Credentials: secret, Key: secret}
 	journal := NetBirdJournalMaterial{NetBirdBrokerMaterial: material, JournalCredentials: secret}
 	journal.Schema = 2
-	for _, value := range []any{material, &NetBirdReader{material: material}, journal} {
+	for _, value := range []any{material, &NetBirdReader{material: material}, journal, &netBirdJournalPublication{material: journal}, &netBirdJournalWriterTLS{}} {
 		for _, format := range []string{"%v", "%+v", "%#v", "%s"} {
 			if text := fmt.Sprintf(format, value); strings.Contains(text, string(secret)) || strings.Contains(text, fmt.Sprint([]byte(secret))) {
 				t.Fatal("formatting exposed broker material")
