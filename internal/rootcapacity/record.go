@@ -32,6 +32,7 @@ type attempt struct {
 	call      rootoci.Call
 	resolver  region.FoundationResolver
 	store     *region.ObjectFoundationStore
+	factory   *ociclient.Factory
 	home      *globalcontrol.Reader
 	leader    *authority.Reader
 	original  authority.Snapshot
@@ -151,8 +152,36 @@ func (a *attempt) wire(kind string) *region.PoolWireRecord {
 		return child.DeleteBoot
 	case "quarantine":
 		return a.record.PoolQuarantines[a.operation].Detach
+	case "configuration", "pool":
+		create, exists := a.record.CapacityCreates[a.receipt.OperationID+":"+kind]
+		if !exists {
+			return nil
+		}
+		return &create.Request
+	case "point":
+		point, exists := a.record.CapacityPools[a.poolID].ConfigurationUpdates[a.operation]
+		if !exists {
+			return nil
+		}
+		return &point.Request
 	default:
 		return nil
+	}
+}
+
+func (a *attempt) setWire(kind string, wire *region.PoolWireRecord) {
+	switch kind {
+	case "configuration", "pool":
+		key := a.receipt.OperationID + ":" + kind
+		create := a.record.CapacityCreates[key]
+		create.Request = *wire
+		a.record.CapacityCreates[key] = create
+	case "point":
+		pool := a.record.CapacityPools[a.poolID]
+		point := pool.ConfigurationUpdates[a.operation]
+		point.Request = *wire
+		pool.ConfigurationUpdates[a.operation] = point
+		a.record.CapacityPools[a.poolID] = pool
 	}
 }
 
@@ -188,6 +217,7 @@ func (a *attempt) writeContext(ctx context.Context, kind string) context.Context
 		attemptID := entityid.New()
 		wire.PendingAttemptID, wire.LastAttemptAt = attemptID, time.Now().UTC()
 		wire.Attempts++
+		a.setWire(kind, wire)
 		if err := a.save(request.Context()); err != nil {
 			return nil, err
 		}
@@ -200,16 +230,19 @@ func (a *attempt) writeContext(ctx context.Context, kind string) context.Context
 				wire.EverUnknown = true
 				a.unknownStage(kind)
 			}
+			a.setWire(kind, wire)
 			return a.save(request.Context())
 		}, nil
 	})
 	ctx = ociclient.WithAdmission(ctx, func(ctx context.Context) (func(), error) {
 		wire := a.wire(kind)
-		if wire == nil || wire.TokenInvalidated || wire.FirstAttemptAt.IsZero() || !time.Now().Before(wire.FirstAttemptAt.Add(23*time.Hour)) {
+		if wire == nil || wire.TokenInvalidated || wire.FirstAttemptAt.IsZero() || wire.RetryToken != "" && !time.Now().Before(wire.FirstAttemptAt.Add(23*time.Hour)) {
 			return nil, fmt.Errorf("%w: original provider retry token is expired or invalidated", ErrPending)
 		}
-		if err := a.worker.Revalidate(ociclient.CheckpointContext(ctx)); err != nil && kind != "quarantine" {
-			return nil, err
+		if kind != "quarantine" {
+			if err := a.worker.Revalidate(ociclient.CheckpointContext(ctx)); err != nil {
+				return nil, err
+			}
 		}
 		if err := a.guard(ociclient.CheckpointContext(ctx)); err != nil {
 			return nil, err
@@ -223,7 +256,19 @@ func (a *attempt) writeContext(ctx context.Context, kind string) context.Context
 		}
 		return func() {}, nil
 	})
-	return ociclient.RequestContext(ociclient.WithRequestGuard(ctx, a.guard))
+	return ociclient.RequestContext(ociclient.WithRequestGuard(ctx, func(ctx context.Context) error {
+		if err := a.guard(ctx); err != nil {
+			return err
+		}
+		switch kind {
+		case "launch":
+			return a.authorizeLaunch(ctx)
+		case "attach":
+			return a.authorizeAttach(ctx)
+		default:
+			return nil
+		}
+	}))
 }
 
 // wireSHA256 reads the SDK's current signed bytes. Preserve GetBody, headers and
