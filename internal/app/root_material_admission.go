@@ -39,8 +39,8 @@ func newRootMaterialAdmission(source *managedRuntimeHost, factory *ociclient.Fac
 
 func (producer *rootMaterialAdmission) container(ctx context.Context, call rootoci.Call, evidence host.ContainerMaterialEvidence) (containermaterial.Admission, error) {
 	// Unverified envelope dates can only shorten the outer operation cap.
-	deadline := earlier(evidence.Request.IssuedAt.Add(10*time.Second), evidence.Request.ExpiresAt)
-	if !time.Now().Before(deadline) {
+	deadline := earlier(call.Deadline(), earlier(evidence.Request.IssuedAt.Add(10*time.Second), evidence.Request.ExpiresAt))
+	if ctx == nil || !time.Now().Before(deadline) {
 		return containermaterial.Admission{}, containermaterial.ErrPending
 	}
 	original := ctx
@@ -81,6 +81,12 @@ func (producer *rootMaterialAdmission) container(ctx context.Context, call rooto
 }
 
 func (producer *rootMaterialAdmission) generation(ctx context.Context, call rootoci.Call, taskID string) (containermaterial.GenerationAdmission, error) {
+	if ctx == nil || !time.Now().Before(call.Deadline()) {
+		return containermaterial.GenerationAdmission{}, rootoci.ErrUnauthorized
+	}
+	original := ctx
+	ctx, stop := context.WithDeadline(ctx, call.Deadline())
+	context.AfterFunc(original, stop)
 	ctx = ociclient.WithRequestGuard(ctx, call.Guard)
 	controller, sources, err := producer.readers(ctx, call)
 	if err != nil {
