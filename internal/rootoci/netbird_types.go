@@ -5,8 +5,9 @@ import (
 	"time"
 )
 
-// NetBirdIntentRequest names a proposal already committed through the regional
-// lease CAS. Every field is an expectation; root derives process and authority.
+// NetBirdIntentRequest prepares public desired facts at revision zero, then
+// verifies the exact committed proposal at its lease-CAS revision. Every field
+// is an expectation; root derives process, source and actual lease authority.
 type NetBirdIntentRequest struct {
 	Cell           string    `json:"cell"`
 	IntentRevision uint64    `json:"intent_revision"`
@@ -37,6 +38,8 @@ type NetBirdIntent struct {
 	SpecSHA256             string              `json:"spec_sha256"`
 	SubnetCIDR             string              `json:"subnet_cidr"`
 	Hosts                  []NetBirdIntentHost `json:"hosts"`
+	SignedSpec             []byte              `json:"signed_spec"`
+	RootChain              []byte              `json:"root_chain"`
 	SourceSlot             string              `json:"source_slot"`
 	SourceInstanceID       string              `json:"source_instance_id"`
 	ManagerStoreGeneration string              `json:"manager_store_generation"`
@@ -50,17 +53,15 @@ type NetBirdIntent struct {
 	ExpiresAt              time.Time           `json:"expires_at"`
 }
 
-// NetBirdIntentReceipt contains public attestation only. Its certificate never
-// supplies a trust anchor; the receiver authenticates it against current source.
+// NetBirdIntentReceipt contains rederived public facts. It grants no remote
+// authority: the manager independently reads the committed intent and lease.
 type NetBirdIntentReceipt struct {
-	Intent          NetBirdIntent `json:"intent"`
-	NodeCertificate []byte        `json:"node_certificate"`
-	Signature       []byte        `json:"signature"`
+	Intent NetBirdIntent `json:"intent"`
 }
 
 // NetBird authorizes only the current committed regional proposal. It must
 // rederive the payload and target, bind the supervised process to its original
-// leader lease, and check Call.Guard immediately before the finite attestation.
+// leader lease, and check Call.Guard before returning the finite public facts.
 type NetBird interface {
 	AuthorizeNetBirdIntent(context.Context, Call, NetBirdIntentRequest) (NetBirdIntentReceipt, error)
 }
