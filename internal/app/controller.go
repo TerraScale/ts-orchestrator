@@ -1232,6 +1232,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	workers.Go(func() { workerErrors <- linkSupervisor.Run(runCtx) })
 	workers.Go(func() { workerErrors <- hostController.Run(runCtx) })
 	workers.Go(func() { workerErrors <- service.Run(runCtx) })
+	workers.Go(func() { workerErrors <- runNetBirdIntentProducer(runCtx, cfg, runtime.Conn(), control, workloadRoot) })
 	if backupRuntime != nil {
 		workers.Go(func() { workerErrors <- backupRuntime.Run(runCtx) })
 	}

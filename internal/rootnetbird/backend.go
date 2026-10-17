@@ -103,6 +103,11 @@ func (b *Backend) AuthorizeNetBirdIntent(ctx context.Context, call rootoci.Call,
 		return s.Credentials.Guard(ctx)
 	}
 	ctx = ociclient.WithRequestGuard(ctx, guard)
+	if request.ReadOpen != nil {
+		if err := b.checkManagerReadOpen(ctx, *request.ReadOpen); err != nil {
+			return fail(err)
+		}
+	}
 	if err := guard(ctx); err != nil {
 		return fail(err)
 	}
@@ -183,6 +188,17 @@ func (b *Backend) AuthorizeNetBirdIntent(ctx context.Context, call rootoci.Call,
 	specPin, err := s.current(ctx, "TS_SERVICE_SET", "current")
 	if err != nil || !specPin.created.Equal(originalFacts.SpecStreamCreated) || specPin.revision != originalFacts.SpecRevision || !bytes.Equal(specPin.wire, originalFacts.SignedSpec) {
 		return fail(err)
+	}
+	if err := lease.Guard(ctx); err != nil {
+		return fail(err)
+	}
+	if err := guard(ctx); err != nil {
+		return fail(err)
+	}
+	if request.ReadOpen != nil {
+		if err := b.checkManagerReadOpen(ctx, *request.ReadOpen); err != nil {
+			return fail(err)
+		}
 	}
 	if ctx.Err() != nil || !time.Now().Before(request.ExpiresAt) {
 		return fail(ctx.Err())
