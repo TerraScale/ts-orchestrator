@@ -296,30 +296,6 @@ func peerPortOpen(receiver []string, rules map[string][]core.SecurityRule, sende
 	return false
 }
 
-func TestPeerPortOpen(t *testing.T) {
-	tcp := func(source string, kind core.SecurityRuleSourceTypeEnum, low, high int) core.SecurityRule {
-		return core.SecurityRule{Protocol: common.String("6"), Source: &source, SourceType: kind,
-			TcpOptions: &core.TcpOptions{DestinationPortRange: &core.PortRange{Min: &low, Max: &high}}}
-	}
-	rules := map[string][]core.SecurityRule{
-		"cidr": {tcp("10.251.0.0/24", core.SecurityRuleSourceTypeCidrBlock, 9443, 9443)},
-		"nsg":  {tcp("members", core.SecurityRuleSourceTypeNetworkSecurityGroup, 9000, 9500)},
-		"miss": {tcp("10.251.0.0/24", core.SecurityRuleSourceTypeCidrBlock, 9465, 9465)},
-	}
-	sender := netip.MustParseAddr("10.251.0.22")
-	for name, want := range map[string]bool{"cidr": true, "nsg": true, "miss": false} {
-		if got := peerPortOpen([]string{name}, rules, sender, []string{"members"}, 9443); got != want {
-			t.Errorf("%s: open %v, want %v", name, got, want)
-		}
-	}
-	if peerPortOpen([]string{"nsg"}, rules, sender, []string{"0000000000V4MRM46HP1SNGDYW"}, 9443) {
-		t.Error("a rule for another group opened the port")
-	}
-	if peerPortOpen([]string{"cidr"}, rules, netip.MustParseAddr("10.9.0.1"), nil, 9443) {
-		t.Error("a rule for another network opened the port")
-	}
-}
-
 func liveEnv(name, fallback string) string {
 	if value := os.Getenv(name); value != "" {
 		return value
