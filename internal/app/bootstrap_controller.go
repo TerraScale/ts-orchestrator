@@ -461,6 +461,42 @@ func (observer acceptedControllerInstanceObserver) ObserveInstance(ctx context.C
 	return observed, nil
 }
 
+// The signed accepted slot is returned only after root observes its exact VM.
+type acceptedControllerLocalDescriptor struct {
+	accepted bootstrapstart.AcceptedIdentity
+}
+
+func (descriptor acceptedControllerLocalDescriptor) observe(ctx context.Context) (bootstrapstart.InstanceObservation, error) {
+	accepted := descriptor.accepted
+	if ctx == nil || ctx.Err() != nil || accepted.Validate() != nil {
+		return bootstrapstart.InstanceObservation{}, bootstrapstart.ErrInstanceObservation
+	}
+	client := rootoci.NewClient(rootoci.Expectations{Cell: accepted.Cell})
+	defer client.Close()
+	observer := acceptedControllerInstanceObserver{client: client, expectedID: accepted.InstanceOCID}
+	observed, err := observer.ObserveInstance(ctx, accepted.InstanceOCID)
+	if err != nil {
+		return bootstrapstart.InstanceObservation{}, err
+	}
+	if observed.ImageOCID != accepted.ImageOCID || observed.PrimaryVNICOCID != accepted.PrimaryVNICOCID ||
+		observed.PrimaryPrivateIP != accepted.PrimaryPrivateIP || !observed.PrimaryVNIC || observed.LifecycleState != "RUNNING" || ctx.Err() != nil {
+		return bootstrapstart.InstanceObservation{}, bootstrapstart.ErrInstanceObservation
+	}
+	return observed, nil
+}
+
+func (descriptor acceptedControllerLocalDescriptor) FetchDescriptor(ctx context.Context) (bootstrapstart.Descriptor, error) {
+	if _, err := descriptor.observe(ctx); err != nil {
+		return bootstrapstart.Descriptor{}, err
+	}
+	return bootstrapstart.Descriptor{SchemaVersion: 1, Slot: descriptor.accepted.Slot}, nil
+}
+
+func (descriptor acceptedControllerLocalDescriptor) FetchInstanceID(ctx context.Context) (string, error) {
+	observed, err := descriptor.observe(ctx)
+	return observed.InstanceOCID, err
+}
+
 func acceptedControllerGate(cfg Config, markers bootstrapstart.MarkerStore, clockCheck func() error) (bootstrapstart.Gate, bootstrapstart.AcceptedIdentity, error) {
 	fail := func(err error) (bootstrapstart.Gate, bootstrapstart.AcceptedIdentity, error) {
 		return bootstrapstart.Gate{}, bootstrapstart.AcceptedIdentity{}, err
@@ -509,8 +545,12 @@ func acceptedControllerGate(cfg Config, markers bootstrapstart.MarkerStore, cloc
 	if err != nil {
 		return fail(err)
 	}
+	var descriptor bootstrapstart.DescriptorSource = acceptedControllerLocalDescriptor{accepted: accepted.Clone()}
+	if os.Geteuid() == 0 {
+		descriptor = bootstrapstart.NewIMDSClient()
+	}
 	return bootstrapstart.Gate{Roots: inputs.Roots.Historical, LoadedControllerConfigSHA256: controllerSHA256(loadedWire),
-		LoadedControllerConfig: loadedWire, Descriptor: bootstrapstart.NewIMDSClient(), Material: material, Credentials: checker,
+		LoadedControllerConfig: loadedWire, Descriptor: descriptor, Material: material, Credentials: checker,
 		Markers: markers, ClockCheck: clockCheck, ObserveIdentity: controllerIdentityObserver(cfg),
 		SelfUpdate: selfupdate.NewLayout(selfUpdateRoot(cfg.Controller.SelfUpdateRoot))}, accepted, nil
 }
