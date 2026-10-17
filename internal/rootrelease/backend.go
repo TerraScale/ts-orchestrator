@@ -56,7 +56,7 @@ type Sources struct {
 	Accepted  bootstrapstart.AcceptedIdentity
 }
 
-var _ rootoci.Releases = (*Backend)(nil)
+var _ rootoci.ContainerReleases = (*Backend)(nil)
 
 func New(factory *ociclient.Factory) (*Backend, error) {
 	if os.Geteuid() != 0 || factory == nil || !catalog.IsOCIRegion(factory.Region()) {
