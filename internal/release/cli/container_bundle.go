@@ -141,7 +141,7 @@ func (c command) containerBundleWith(args []string, env deployEnv) error {
 			if err != nil {
 				return err
 			}
-			targets = append(targets, candidate{claim: claim, bundle: release.ContainerBundle{Delegation: delegationWire, Migration: migrationWire}})
+			targets = append(targets, candidate{claim: claim, bundle: release.ContainerBundle{Index: inspected.Index, Delegation: delegationWire, Migration: migrationWire}})
 		}
 	}
 	var private ed25519.PrivateKey
