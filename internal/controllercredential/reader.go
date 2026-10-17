@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/json/v2"
+	"encoding/pem"
 	"io"
 	"os"
 	"path/filepath"
@@ -169,7 +170,11 @@ func openControllerReaderLease(ctx context.Context) (*ControllerReader, error) {
 	if err != nil {
 		return nil, ErrDelivery
 	}
-	readCtx, stopReads := context.WithTimeout(ctx, 30*time.Second)
+	readDeadline := time.Now().Add(30 * time.Second)
+	if !snapshot.expires.IsZero() && snapshot.expires.Before(readDeadline) {
+		readDeadline = snapshot.expires
+	}
+	readCtx, stopReads := context.WithDeadline(ctx, readDeadline)
 	defer stopReads()
 	client.HTTPClient = Dispatcher{Next: client.HTTPClient, Guard: func() error {
 		if readCtx.Err() != nil {
@@ -201,18 +206,41 @@ func openControllerReaderLease(ctx context.Context) (*ControllerReader, error) {
 		if !deadline.IsZero() && (expires.IsZero() || deadline.Before(expires)) {
 			expires = deadline
 		}
-	}
-	if natscell.ValidateBrokerControllerCredentialBytes(values[0], snapshot.nats.Cell, snapshot.nats.Instance) != nil {
-		return nil, ErrDelivery
-	}
-	raw, err := jwt.ParseDecoratedJWT(values[0])
-	if err != nil {
-		return nil, ErrDelivery
-	}
-	claim, err := jwt.DecodeUserClaims(raw)
-	if err != nil || claim.IssuerAccount != snapshot.accepted.Broker.CellAccount &&
-		(claim.IssuerAccount != "" || claim.Issuer != snapshot.accepted.Broker.CellAccount) {
-		return nil, ErrDelivery
+		if index == 0 {
+			if natscell.ValidateBrokerControllerCredentialBytes(value, snapshot.nats.Cell, snapshot.nats.Instance) != nil {
+				return nil, ErrDelivery
+			}
+			raw, err := jwt.ParseDecoratedJWT(value)
+			if err != nil {
+				return nil, ErrDelivery
+			}
+			claim, err := jwt.DecodeUserClaims(raw)
+			if err != nil || claim.IssuerAccount != snapshot.accepted.Broker.CellAccount &&
+				(claim.IssuerAccount != "" || claim.Issuer != snapshot.accepted.Broker.CellAccount) {
+				return nil, ErrDelivery
+			}
+			if claim.Expires > 0 && (expires.IsZero() || time.Unix(claim.Expires, 0).Before(expires)) {
+				expires = time.Unix(claim.Expires, 0)
+			}
+		}
+		if index == 2 {
+			certificateExpiry, err := controllerReaderCertificateExpiry(value, values[1])
+			if err != nil {
+				return nil, ErrDelivery
+			}
+			if expires.IsZero() || certificateExpiry.Before(expires) {
+				expires = certificateExpiry
+			}
+		}
+		if !expires.IsZero() && expires.Before(readDeadline) {
+			readDeadline = expires
+			var stopCap context.CancelFunc
+			readCtx, stopCap = context.WithDeadline(readCtx, readDeadline)
+			defer stopCap()
+		}
+		if readCtx.Err() != nil || guard() != nil {
+			return nil, ErrDelivery
+		}
 	}
 	certificate, err := tls.X509KeyPair(values[2], values[3])
 	if err != nil {
@@ -221,30 +249,6 @@ func openControllerReaderLease(ctx context.Context) (*ControllerReader, error) {
 	roots := x509.NewCertPool()
 	if !roots.AppendCertsFromPEM(values[1]) || guard() != nil || readCtx.Err() != nil || !expires.IsZero() && !time.Now().Before(expires) {
 		return nil, ErrDelivery
-	}
-	leaf, err := x509.ParseCertificate(certificate.Certificate[0])
-	if err != nil {
-		return nil, ErrDelivery
-	}
-	intermediates := x509.NewCertPool()
-	for _, der := range certificate.Certificate[1:] {
-		intermediate, err := x509.ParseCertificate(der)
-		if err != nil {
-			return nil, ErrDelivery
-		}
-		intermediates.AddCert(intermediate)
-	}
-	chains, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
-	if err != nil || len(chains) == 0 {
-		return nil, ErrDelivery
-	}
-	for _, verified := range chains[0] {
-		if expires.IsZero() || verified.NotAfter.Before(expires) {
-			expires = verified.NotAfter
-		}
-	}
-	if claim.Expires > 0 && time.Unix(claim.Expires, 0).Before(expires) {
-		expires = time.Unix(claim.Expires, 0)
 	}
 	sourceIdentity, err := controllerReaderSourceIdentity(snapshot, materials, expires)
 	if err != nil {
@@ -286,6 +290,38 @@ func openControllerReaderLease(ctx context.Context) (*ControllerReader, error) {
 		}
 	}()
 	return &ControllerReader{conn: conn, lease: lease, snapshot: snapshot, sourceIdentity: sourceIdentity, sourceExpires: expires}, nil
+}
+
+func controllerReaderCertificateExpiry(certificatePEM, rootPEM []byte) (time.Time, error) {
+	var certificates []*x509.Certificate
+	for block, rest := pem.Decode(certificatePEM); block != nil; block, rest = pem.Decode(rest) {
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		certificate, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return time.Time{}, ErrDelivery
+		}
+		certificates = append(certificates, certificate)
+	}
+	roots, intermediates := x509.NewCertPool(), x509.NewCertPool()
+	if len(certificates) == 0 || !roots.AppendCertsFromPEM(rootPEM) {
+		return time.Time{}, ErrDelivery
+	}
+	for _, intermediate := range certificates[1:] {
+		intermediates.AddCert(intermediate)
+	}
+	chains, err := certificates[0].Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
+	if err != nil || len(chains) == 0 {
+		return time.Time{}, ErrDelivery
+	}
+	expires := certificates[0].NotAfter
+	for _, certificate := range chains[0] {
+		if certificate.NotAfter.Before(expires) {
+			expires = certificate.NotAfter
+		}
+	}
+	return expires, nil
 }
 
 func (snapshot controllerReaderSnapshot) acceptedRegion() (string, error) {

@@ -1,7 +1,12 @@
 package controllercredential
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
+	"math/big"
 	"testing"
 	"time"
 
@@ -66,6 +71,37 @@ func TestControllerReaderSourceIdentityRejectsUnopenedReader(t *testing.T) {
 		identity, expires, err := reader.SourceIdentity(t.Context())
 		if !errors.Is(err, ErrDelivery) || identity != "" || !expires.IsZero() {
 			t.Fatalf("unopened reader returned source identity %q, %s, %v", identity, expires, err)
+		}
+	}
+}
+
+func TestControllerReaderCertificateExpiryIncludesVerifiedRoot(t *testing.T) {
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	root := &x509.Certificate{SerialNumber: big.NewInt(1), NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour),
+		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
+	rootDER, err := x509.CreateCertificate(rand.Reader, root, root, public, private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf := &x509.Certificate{SerialNumber: big.NewInt(2), NotBefore: now.Add(-time.Minute), NotAfter: now.Add(2 * time.Hour),
+		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
+	leafDER, err := x509.CreateCertificate(rand.Reader, leaf, root, public, private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: rootDER})
+	leafPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER})
+	expires, err := controllerReaderCertificateExpiry(leafPEM, rootPEM)
+	if err != nil || !expires.Equal(root.NotAfter) {
+		t.Fatalf("source cap must include verified root: %s, %v", expires, err)
+	}
+	for _, bad := range [][]byte{nil, []byte("invalid certificate")} {
+		if _, err := controllerReaderCertificateExpiry(bad, rootPEM); !errors.Is(err, ErrDelivery) {
+			t.Fatalf("invalid certificate accepted: %v", err)
 		}
 	}
 }
