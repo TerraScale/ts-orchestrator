@@ -324,7 +324,7 @@ func foundationWriterPolicy(record FoundationWriterRecord) (identity.CreatePolic
 		return identity.CreatePolicyDetails{}, errors.New("home writer policy has invalid exact scope")
 	}
 	principal := fmt.Sprintf("request.principal.type='instance', request.principal.id='%s'", record.InstanceID)
-	statements := make([]string, 0, 5)
+	statements := make([]string, 0, 7)
 	for _, cell := range []string{"GRU", "SFO", "FRA"} {
 		key := "orchestrator/regions/v1/" + cell + ".json"
 		permissions := "request.permission='OBJECT_READ'"
@@ -332,6 +332,9 @@ func foundationWriterPolicy(record FoundationWriterRecord) (identity.CreatePolic
 			permissions += ", request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'"
 		}
 		statements = append(statements, fmt.Sprintf("Allow any-user to manage objects in compartment id %s where all {%s, target.bucket.name='%s', target.object.name='%s', any {%s}}", record.BucketCompartment, principal, record.Bucket, key, permissions))
+	}
+	for _, key := range []string{foundationDiscoveryObject, foundationRootChainObject} {
+		statements = append(statements, fmt.Sprintf("Allow any-user to manage objects in compartment id %s where all {%s, target.bucket.name='%s', target.object.name='%s', request.permission='OBJECT_READ'}", record.BucketCompartment, principal, record.Bucket, key))
 	}
 	statements = append(statements, fmt.Sprintf("Allow any-user to manage objects in compartment id %s where all {%s, target.bucket.name='%s', target.object.name='%s', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}", record.BucketCompartment, principal, record.Bucket, homeIAMObject))
 	// OCI cannot constrain a created policy body; the root process confines this principal.

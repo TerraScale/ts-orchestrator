@@ -13,6 +13,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -85,6 +87,27 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 	}
 	if bootstrapReads != 2 || bootstrapWrites != 2 {
 		t.Fatalf("reserved source IAM reads=%d writes=%d", bootstrapReads, bootstrapWrites)
+	}
+	homePlan, err := ociregion.LoadPlan(filepath.Join("..", "..", "..", "deploy", "oci-region", "plan.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	homeController, err := ociregion.RequiredControllerStatements(homePlan, Object{"key": sourceTarget.KeyID}, "owned/bootstrap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		"Allow dynamic-group gru-1-controllers to manage objects in compartment gru-1-control where all {target.bucket.name='gru-1-head', target.object.name='orchestrator/foundation/v1/anchor.json', request.permission='OBJECT_READ'}",
+		"Allow dynamic-group gru-1-controllers to manage objects in compartment gru-1-control where all {target.bucket.name='gru-1-head', target.object.name='orchestrator/foundation/v1/root-chain.json', request.permission='OBJECT_READ'}",
+	} {
+		if !slices.Contains(homeController, statement) {
+			t.Fatalf("controller lacks exact home discovery read: %s", statement)
+		}
+	}
+	for _, statement := range controller {
+		if strings.Contains(statement, "orchestrator/foundation/v1/") {
+			t.Fatalf("nonhome local plan acquired discovery authority: %s", statement)
+		}
 	}
 	var live Object
 	var state sync.Mutex
