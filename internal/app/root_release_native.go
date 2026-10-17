@@ -111,6 +111,7 @@ func (b *rootReleaseChannels) NativeReleaseBinaryChunk(ctx context.Context, call
 	if err != nil || current.ClaimSHA256 != request.ExpectedClaimSHA256 {
 		return rootoci.ReleaseBinaryChunk{}, errors.Join(rootrelease.ErrPending, err)
 	}
+	result.ExpiresAt = o.deadline
 	return result, nil
 }
 
