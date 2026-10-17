@@ -27,6 +27,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -54,6 +55,13 @@ type ControllerSDKAcquisitionFixture struct {
 	ledgerRead *bootstrap.Ledger
 	source     controllerSDKFixtureSource
 	wire       []byte
+	lifetime   context.Context
+	file       atomic.Pointer[controllerSDKFixtureFilePin]
+}
+
+type controllerSDKFixtureFilePin struct {
+	directory unix.Stat_t
+	file      unix.Stat_t
 }
 
 type controllerSDKFixtureSource struct {
@@ -220,7 +228,7 @@ func NewControllerSDKAcquisitionFixture(t *testing.T, ctx context.Context, fixtu
 	if err != nil {
 		t.Fatal(err)
 	}
-	acquired, err := acquireControllerSDKFixture(ctx, wire)
+	acquired, err := acquireControllerSDKFixture(ctx, wire, nil)
 	if err != nil {
 		t.Fatal("reacquire actual controller SDK protocol sources", err)
 	}
@@ -259,7 +267,18 @@ func (source *ControllerSDKAcquisitionFixture) InstallChildSource() error {
 		return err
 	}
 	_, writeErr := file.Write(source.wire)
-	return errors.Join(writeErr, file.Sync(), file.Close())
+	if err := errors.Join(writeErr, file.Sync(), file.Close()); err != nil {
+		return err
+	}
+	wire, pin, err := readControllerSDKFixtureFile()
+	if err != nil {
+		return err
+	}
+	source.file.Store(pin)
+	if !bytes.Equal(wire, source.wire) {
+		return ErrAdmission
+	}
+	return nil
 }
 
 // AcquireControllerSDKAcquisitionFixture is available only in fixture binaries.
@@ -271,27 +290,35 @@ func AcquireControllerSDKAcquisitionFixture(ctx context.Context) (*ControllerSDK
 	if _, _, err := controllerSDKFixtureNamespace(); err != nil {
 		return nil, err
 	}
+	wire, pin, err := readControllerSDKFixtureFile()
+	if err != nil {
+		return nil, err
+	}
+	return acquireControllerSDKFixture(ctx, wire, pin)
+}
+
+func readControllerSDKFixtureFile() ([]byte, *controllerSDKFixtureFilePin, error) {
 	var directory unix.Stat_t
 	if err := unix.Lstat(controllerSDKFixtureDirectory, &directory); err != nil || directory.Uid != 0 || directory.Gid != 0 || directory.Mode != unix.S_IFDIR|0o755 {
-		return nil, ErrAdmission
+		return nil, nil, ErrAdmission
 	}
 	file, err := os.OpenFile(controllerSDKFixtureFile, os.O_RDONLY|unix.O_NOFOLLOW, 0)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer file.Close()
 	var stat unix.Stat_t
 	if unix.Fstat(int(file.Fd()), &stat) != nil || stat.Uid != 0 || stat.Gid != 0 || stat.Mode != unix.S_IFREG|0o444 || stat.Nlink != 1 || stat.Size <= 0 || stat.Size > controllerSDKFixtureMaxBytes {
-		return nil, ErrAdmission
+		return nil, nil, ErrAdmission
 	}
 	wire, err := io.ReadAll(io.LimitReader(file, controllerSDKFixtureMaxBytes+1))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return acquireControllerSDKFixture(ctx, wire)
+	return wire, &controllerSDKFixtureFilePin{directory: directory, file: stat}, nil
 }
 
-func acquireControllerSDKFixture(ctx context.Context, wire []byte) (*ControllerSDKAcquisitionFixture, error) {
+func acquireControllerSDKFixture(ctx context.Context, wire []byte, pin *controllerSDKFixtureFilePin) (*ControllerSDKAcquisitionFixture, error) {
 	if ctx == nil || ctx.Err() != nil || len(wire) == 0 || len(wire) > controllerSDKFixtureMaxBytes {
 		return nil, ErrAdmission
 	}
@@ -320,7 +347,9 @@ func acquireControllerSDKFixture(ctx context.Context, wire []byte) (*ControllerS
 		return nil, ErrAdmission
 	}
 	transport := &http.Transport{Proxy: nil, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}, ResponseHeaderTimeout: imdsTimeout}
-	client := &http.Client{Transport: &controllerSDKFixtureTransport{base: transport, endpoint: descriptor.Endpoint, expires: descriptor.ExpiresAt},
+	acquired := &ControllerSDKAcquisitionFixture{source: descriptor, wire: bytes.Clone(wire), lifetime: ctx}
+	acquired.file.Store(pin)
+	client := &http.Client{Transport: &controllerSDKFixtureTransport{base: transport, endpoint: descriptor.Endpoint, expires: descriptor.ExpiresAt, source: acquired},
 		Timeout: imdsTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return ErrAdmission }}
 	provider := common.NewRawConfigurationProvider(descriptor.Tenancy, "ocid1.user.oc1..controllerfixture", "sa-saopaulo-1", "fixture-sdk", descriptor.PrivateKey, nil)
 	storage, err := objectstorage.NewObjectStorageClientWithConfigurationProvider(provider)
@@ -362,9 +391,9 @@ func acquireControllerSDKFixture(ctx context.Context, wire []byte) (*ControllerS
 	if err != nil {
 		return nil, err
 	}
-	acquired := &ControllerSDKAcquisitionFixture{reader: reader, accepted: accepted, storage: &storage,
-		observer: &OCIInstanceObserver{compute: &compute, network: &networkClient}, descriptor: &IMDSClient{client: client},
-		source: descriptor, wire: bytes.Clone(wire)}
+	acquired.reader, acquired.accepted, acquired.storage = reader, accepted, &storage
+	acquired.observer = &OCIInstanceObserver{compute: &compute, network: &networkClient}
+	acquired.descriptor = &IMDSClient{client: client}
 	reader.runtimeSDK = acquired
 	authority, err := acquired.current(ctx)
 	if err != nil {
@@ -379,7 +408,7 @@ func acquireControllerSDKFixture(ctx context.Context, wire []byte) (*ControllerS
 }
 
 func (source *ControllerSDKAcquisitionFixture) current(ctx context.Context) (RuntimeAuthority, error) {
-	if source == nil || ctx == nil || ctx.Err() != nil || !time.Now().Before(source.source.ExpiresAt) {
+	if ctx == nil || ctx.Err() != nil || source.local() != nil {
 		return RuntimeAuthority{}, ErrAdmission
 	}
 	accepted, err := NewMarkerStore().ReadIdentity()
@@ -395,6 +424,20 @@ func (source *ControllerSDKAcquisitionFixture) current(ctx context.Context) (Run
 		return RuntimeAuthority{}, ErrAdmission
 	}
 	return authority, nil
+}
+
+func (source *ControllerSDKAcquisitionFixture) local() error {
+	if source == nil || source.lifetime == nil || source.lifetime.Err() != nil || !time.Now().Before(source.source.ExpiresAt) {
+		return ErrAdmission
+	}
+	if original := source.file.Load(); original != nil {
+		wire, current, err := readControllerSDKFixtureFile()
+		if err != nil || !bytes.Equal(wire, source.wire) || original.directory.Dev != current.directory.Dev || original.directory.Ino != current.directory.Ino ||
+			original.file.Dev != current.file.Dev || original.file.Ino != current.file.Ino || original.file.Size != current.file.Size || original.file.Mtim != current.file.Mtim || original.file.Ctim != current.file.Ctim {
+			return ErrAdmission
+		}
+	}
+	return source.lifetime.Err()
 }
 
 func (source *ControllerSDKAcquisitionFixture) instanceObserver(ctx context.Context, config bootstrap.LedgerConfig) (*OCIInstanceObserver, error) {
@@ -427,27 +470,34 @@ type controllerSDKFixtureTransport struct {
 	base     *http.Transport
 	endpoint string
 	expires  time.Time
+	source   *ControllerSDKAcquisitionFixture
 }
 
 func (transport *controllerSDKFixtureTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	if !time.Now().Before(transport.expires) {
+	if transport.source.local() != nil {
 		return nil, ErrAdmission
 	}
 	ctx, cancel := context.WithDeadline(request.Context(), transport.expires)
+	stop := context.AfterFunc(transport.source.lifetime, cancel)
+	finish := func() { stop(); cancel() }
 	clone := request.Clone(ctx)
 	endpoint, _ := url.Parse(transport.endpoint)
 	if request.URL.Scheme == "http" && request.URL.Host == "169.254.169.254" {
 		clone.URL.Scheme, clone.URL.Host, clone.Host = endpoint.Scheme, endpoint.Host, endpoint.Host
 	} else if request.URL.Scheme != endpoint.Scheme || request.URL.Host != endpoint.Host {
-		cancel()
+		finish()
+		return nil, ErrAdmission
+	}
+	if transport.source.local() != nil || ctx.Err() != nil {
+		finish()
 		return nil, ErrAdmission
 	}
 	response, err := transport.base.RoundTrip(clone)
 	if err != nil {
-		cancel()
+		finish()
 		return nil, err
 	}
-	response.Body = &controllerSDKFixtureBody{ReadCloser: response.Body, cancel: cancel}
+	response.Body = &controllerSDKFixtureBody{ReadCloser: response.Body, cancel: finish}
 	return response, nil
 }
 
