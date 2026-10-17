@@ -13,6 +13,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/rootociwire"
@@ -239,10 +240,14 @@ func (enrollment *managedHostEnrollment) admitStartupHostEnrollment(request *htt
 	}
 	identity := conn.preface.Startup
 	accepted := enrollment.runtimeIdentity
+	// Accepted/root identity uses the exact cell code and OCI region; signed
+	// host descriptors use the catalog's lower-case cell and region code.
+	cell, known := catalog.Lookup(accepted.Cell)
 	grant, _, granted := enrollment.services.hostGrant(descriptor.Node)
-	return conn.guard(request.Context()) == nil && descriptor.IsController() &&
-		identity.Cell == accepted.Cell && identity.Cell == enrollment.cell && identity.Region == string(enrollment.region) &&
+	return known && conn.guard(request.Context()) == nil && descriptor.IsController() &&
+		identity.Cell == accepted.Cell && identity.Region == cell.OCIRegion && enrollment.cell == cell.Name() &&
 		identity.InstanceID == accepted.InstanceOCID && identity.PrivateIP == accepted.PrimaryPrivateIP && identity.Slot == accepted.Slot &&
-		descriptor.Cell == identity.Cell && descriptor.Region == identity.Region && enrolled.InstanceID == identity.InstanceID &&
+		descriptor.Cell == cell.Name() && descriptor.Region == cell.Cell && string(enrollment.region) == cell.Cell &&
+		enrolled.InstanceID == identity.InstanceID &&
 		peerIP == identity.PrivateIP && granted && grant.Controller == identity.Slot && grant.PrivateIP == identity.PrivateIP
 }
