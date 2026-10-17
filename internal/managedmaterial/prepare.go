@@ -120,8 +120,15 @@ func (service PreparationService) Current(ctx context.Context, database, partiti
 // CurrentBundle returns the authenticated exact OCI bytes with the receipt so
 // confidential delivery can use one pinned object read per host request.
 func (service PreparationService) CurrentBundle(ctx context.Context, database, partition string) (PreparationReceipt, InitialBundle, error) {
+	if len(service.ControllerKey) != ed25519.PrivateKeySize {
+		return PreparationReceipt{}, InitialBundle{}, errors.New("managed material receipt reader is incomplete")
+	}
+	return service.currentBundle(ctx, database, partition, service.ControllerKey.Public().(ed25519.PublicKey))
+}
+
+func (service PreparationService) currentBundle(ctx context.Context, database, partition string, controllerKey ed25519.PublicKey) (PreparationReceipt, InitialBundle, error) {
 	if ctx == nil || service.Repository == nil || service.Receipts == nil ||
-		len(service.ControllerKey) != ed25519.PrivateKeySize ||
+		len(controllerKey) != ed25519.PublicKeySize ||
 		!entityid.Valid(database) || !entityid.Valid(partition) ||
 		service.Cell != service.Repository.config.Cell {
 		return PreparationReceipt{}, InitialBundle{}, errors.New("managed material receipt reader is incomplete")
@@ -135,7 +142,7 @@ func (service PreparationService) CurrentBundle(ctx context.Context, database, p
 		receipt.Spec.PlacementDatabaseID != database || receipt.Spec.PartitionID != partition {
 		return PreparationReceipt{}, InitialBundle{}, ErrMaterialConflict
 	}
-	return service.verifyCurrent(ctx, entry, partition, receipt.Spec)
+	return service.verifyCurrent(ctx, entry, partition, receipt.Spec, controllerKey)
 }
 
 func (service PreparationService) validateSubnet(spec InitialSpec) error {
@@ -165,12 +172,12 @@ func (service PreparationService) current(ctx context.Context, partition string,
 	if err != nil {
 		return PreparationReceipt{}, err
 	}
-	receipt, _, err := service.verifyCurrent(ctx, entry, partition, spec)
+	receipt, _, err := service.verifyCurrent(ctx, entry, partition, spec, service.ControllerKey.Public().(ed25519.PublicKey))
 	return receipt, err
 }
 
 func (service PreparationService) verifyCurrent(ctx context.Context, entry authority.LogEntry,
-	partition string, spec InitialSpec,
+	partition string, spec InitialSpec, controllerKey ed25519.PublicKey,
 ) (PreparationReceipt, InitialBundle, error) {
 	if err := service.validateLiveS3Region(spec); err != nil {
 		return PreparationReceipt{}, InitialBundle{}, err
@@ -193,11 +200,11 @@ func (service PreparationService) verifyCurrent(ctx context.Context, entry autho
 	if err != nil || receipt.SpecSHA256 != specSHA {
 		return PreparationReceipt{}, InitialBundle{}, ErrMaterialConflict
 	}
-	bundle, err := service.Repository.ReadPinned(ctx, receipt.Object, service.ControllerKey.Public().(ed25519.PublicKey))
+	bundle, err := service.Repository.ReadPinned(ctx, receipt.Object, controllerKey)
 	if err != nil {
 		return PreparationReceipt{}, InitialBundle{}, err
 	}
-	if err := VerifyPreparationReceipt(receipt, service.ControllerKey.Public().(ed25519.PublicKey),
+	if err := VerifyPreparationReceipt(receipt, controllerKey,
 		service.Cell, partition, bundle); err != nil {
 		return PreparationReceipt{}, InitialBundle{}, err
 	}
