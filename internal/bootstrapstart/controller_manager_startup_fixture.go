@@ -69,6 +69,44 @@ func NewControllerManagerStartupFixture(t *testing.T, enrollment []byte, broker 
 	root ed25519.PrivateKey, foundation bootstrap.FoundationScope,
 ) *ControllerManagerStartupFixture {
 	t.Helper()
+	return newControllerManagerStartupFixture(t, enrollment, broker, root, foundation,
+		RunningBinary{SHA256: strings.Repeat("a", 64), Bytes: 13, Architecture: runtime.GOARCH}, managerStartupChecks{})
+}
+
+// NewMeasuredControllerManagerStartupFixture signs the actual test executable
+// and admits it through the production binary checker. Material, HomeIAM and
+// native image execution retain the original fixture's explicit exclusions.
+func NewMeasuredControllerManagerStartupFixture(t *testing.T, enrollment []byte, broker identityrekey.BrokerIdentity,
+	root ed25519.PrivateKey, foundation bootstrap.FoundationScope,
+) *ControllerManagerStartupFixture {
+	t.Helper()
+	executable, err := os.Open("/proc/self/exe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer executable.Close()
+	info, err := executable.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > release.MaxArtifactBytes {
+		t.Fatal("measured manager fixture requires a bounded regular executable", err)
+	}
+	hash := sha256.New()
+	count, err := io.Copy(hash, io.NewSectionReader(executable, 0, info.Size()))
+	if err != nil || count != info.Size() {
+		t.Fatal("measure manager fixture executable", err)
+	}
+	binary := RunningBinary{SHA256: hex.EncodeToString(hash.Sum(nil)), Bytes: count, Architecture: runtime.GOARCH}
+	fixture := newControllerManagerStartupFixture(t, enrollment, broker, root, foundation, binary, executableBinaryChecker{})
+	measured, err := VerifyAcceptedRunningBinary(fixture.Accepted.Binary)
+	if err != nil || measured != binary {
+		t.Fatal("accepted manager fixture lost the actual executable measurement", err)
+	}
+	return fixture
+}
+
+func newControllerManagerStartupFixture(t *testing.T, enrollment []byte, broker identityrekey.BrokerIdentity,
+	root ed25519.PrivateKey, foundation bootstrap.FoundationScope, binary RunningBinary, checker BinaryChecker,
+) *ControllerManagerStartupFixture {
+	t.Helper()
 	bundle, err := hostenroll.ParsePublicBundle(enrollment)
 	if err != nil || bundle.MatchesImageLayout() != nil || bundle.Cell != "gru" || bundle.Environment != "production" || bundle.CellAccountNKey != broker.CellAccount {
 		t.Fatalf("manager fixture requires its actual production-scope public enrollment bundle: %v", err)
@@ -123,7 +161,7 @@ func NewControllerManagerStartupFixture(t *testing.T, enrollment []byte, broker 
 		}
 		return wire
 	}
-	imageWire, imageGrantWire := managerStartupImage(t, roots, root, now)
+	imageWire, imageGrantWire := managerStartupImage(t, roots, root, now, binary)
 	domain := bootstrap.StorageDomain{Namespace: "namespace-a", LedgerBucket: "ledger-bucket",
 		LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledger", HeadBucket: "head-bucket",
 		HeadKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head", Prefix: "private/bootstrap"}
@@ -379,7 +417,7 @@ func NewControllerManagerStartupFixture(t *testing.T, enrollment []byte, broker 
 	gate := Gate{Roots: roots, AnchorWire: anchorWire, Expected: baked.Identity.AnchorExpectation(),
 		LoadedControllerConfigSHA256: seedManifest.ControllerConfigSHA256,
 		Descriptor:                   managerStartupDescriptor{instance: observed.InstanceOCID}, Instances: observer,
-		Ledgers: managerStartupLedger{ledger}, Binary: managerStartupChecks{}, Material: managerStartupChecks{}, Credentials: managerStartupChecks{},
+		Ledgers: managerStartupLedger{ledger}, Binary: checker, Material: managerStartupChecks{}, Credentials: managerStartupChecks{},
 		InitialIdentity: func(bootstrap.Manifest) (identityrekey.BrokerIdentity, identityrekey.StoreIdentity, error) {
 			return broker, store, nil
 		},
@@ -470,7 +508,7 @@ func (managerStartupChecks) VerifyLiveCredentials(context.Context, MaterialPins,
 	return ErrLiveCredentials
 }
 
-func managerStartupImage(t *testing.T, roots trust.Keyring, root ed25519.PrivateKey, now time.Time) ([]byte, []byte) {
+func managerStartupImage(t *testing.T, roots trust.Keyring, root ed25519.PrivateKey, now time.Time, binary RunningBinary) ([]byte, []byte) {
 	t.Helper()
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -494,7 +532,7 @@ func managerStartupImage(t *testing.T, roots trust.Keyring, root ed25519.Private
 		t.Fatal(err)
 	}
 	receipt := release.ImageReceipt{Schema: release.ImageSchema, SourceRevision: revision, GoVersion: release.DefaultGoVersion,
-		Architecture: runtime.GOARCH, BinaryBytes: 13, BinarySHA256: strings.Repeat("a", 64), QualificationSHA256: strings.Repeat("e", 64),
+		Architecture: binary.Architecture, BinaryBytes: binary.Bytes, BinarySHA256: binary.SHA256, QualificationSHA256: strings.Repeat("e", 64),
 		BaseImageOCID: "ocid1.image.oc1.sa-saopaulo-1.base", BaseImageRegion: "GRU", BaseImageSHA256: strings.Repeat("b", 64),
 		KernelRelease: "6.1.0-test+1", KernelSHA256: strings.Repeat("c", 64), ImageFormat: "qcow2", ImageBytes: 1024,
 		ImageSHA256: strings.Repeat("d", 64), OCIImageOCID: image, OCIRegion: "GRU"}
