@@ -152,6 +152,9 @@ type provenance struct {
 // These private wire views avoid importing the region/bootstrap packages:
 // their consumers must be able to call this verifier without an import cycle.
 type record struct {
+	PoolDrains          jsontext.Value           `json:"poolDrains,omitempty"`
+	RuntimeLineage      jsontext.Value           `json:"runtimeLineage,omitempty"`
+	OCIRIssuances       jsontext.Value           `json:"ocirIssuances,omitempty"`
 	FoundationWriter    jsontext.Value           `json:"foundationWriter,omitempty"`
 	CapacityLedger      *capacityledger.Ledger   `json:"capacityLedger,omitempty"`
 	PoolChildren        jsontext.Value           `json:"poolChildren,omitempty"`

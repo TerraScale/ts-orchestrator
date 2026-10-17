@@ -30,6 +30,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -217,6 +218,13 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	}
 	for _, cell := range []string{"GRU", "SFO", "FRA"} {
 		saved := cloud.journal(cell)
+		if cell == "GRU" {
+			for _, role := range []string{"control_compartment", "vault", "key"} {
+				if _, exists := saved.ResourceProvenance[role]; exists {
+					t.Fatalf("preexisting exact GRU pin acquired invented birth provenance: %s", role)
+				}
+			}
+		}
 		for _, key := range []string{"instances", "boot_volumes", "data_volumes"} {
 			if _, exists := saved.ResourceIDs[key]; exists {
 				t.Fatalf("%s host slot map entered scalar foundation journal: %s", cell, key)
@@ -232,6 +240,41 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	}
 	if !cloud.hasAnchor() || len(cloud.launches) != 4 {
 		t.Fatalf("complete footprint anchor=%v unique hosts=%d", cloud.hasAnchor(), len(cloud.launches))
+	}
+	anchor, err := verifyDiscoveryAnchor(bundle.AnchorWire, roots, approval.TenancyID, approval.HomeStorageDomain.Namespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startup, err := bootstrap.VerifyBoundStartupTemplate(t.Context(), factoryFor(), bundle.GrantWire, roots, anchor, time.Now())
+	if err != nil {
+		t.Fatalf("independent pinned GRU startup: %v", err)
+	}
+	if startup.VaultTarget().VaultOCID != approval.SourceVaultTarget.VaultOCID || !bytes.Equal(startup.GrantWire(), bundle.GrantWire) {
+		t.Fatal("pinned startup lost original target or signed bytes")
+	}
+	for _, cell := range []oci.Region{oci.RegionSFO, oci.RegionFRA} {
+		sibling, err := startup.ForCell(t.Context(), cell, time.Now())
+		if err != nil {
+			t.Fatalf("independent %s startup from original GRU anchor: %v", cell, err)
+		}
+		if err := sibling.VerifyCurrentContext(t.Context(), time.Now()); err != nil {
+			t.Fatalf("revalidate %s startup: %v", cell, err)
+		}
+		if sibling.ExpiresAt().After(startup.ExpiresAt()) || !bytes.Equal(sibling.GrantWire(), bundle.GrantWire) {
+			t.Fatalf("%s startup extended original scope", cell)
+		}
+	}
+	objects, err := factoryFor().ObjectStorage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := NewSignedFootprint(&objects, anchor, roots, approval.TenancyID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader.factory = factoryFor()
+	if _, err := reader.resourceBindings(t.Context(), "GRU", bundle.GrantWire); err == nil || !strings.Contains(err.Error(), "persisted create provenance") {
+		t.Fatalf("full worker binding promoted preexisting GRU pins: %v", err)
 	}
 	posts, creates := cloud.launchPosts, cloud.creates
 	if err := ProvisionFoundationBundle(t.Context(), factoryFor(), roots, bundle); err != nil {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"maps"
-	"strings"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
@@ -66,11 +65,15 @@ func (s *SignedFootprint) resourceBindingsFor(ctx context.Context, cell string, 
 }
 
 func (s *SignedFootprint) boundStartup(ctx context.Context, startup BootstrapStartupIntent, plan map[string]any, wire []byte) (BootstrapStartupIntent, map[string]any, error) {
-	if !hasFoundationReference(startup) {
+	cell, _ := plan["cell"].(string)
+	keys, err := startup.FoundationReferenceKeys(cell)
+	if err != nil {
+		return BootstrapStartupIntent{}, nil, err
+	}
+	if len(keys) == 0 {
 		return startup, plan, nil
 	}
-	cell, _ := plan["cell"].(string)
-	bindings, err := s.resourceBindings(ctx, cell, wire)
+	bindings, err := s.resourceBindingsFor(ctx, cell, wire, keys...)
 	if err != nil {
 		return BootstrapStartupIntent{}, nil, err
 	}
@@ -92,34 +95,4 @@ func (s *SignedFootprint) boundStartup(ctx context.Context, startup BootstrapSta
 	}
 	bound["resource_ids"] = ids
 	return projected, bound, nil
-}
-
-func hasFoundationReference(startup BootstrapStartupIntent) bool {
-	for _, profile := range startup.Profiles {
-		if strings.HasPrefix(profile.CompartmentOCID, "foundation:") || strings.HasPrefix(profile.SubnetOCID, "foundation:") {
-			return true
-		}
-		for _, id := range profile.NetworkSecurityGroupOCIDs {
-			if strings.HasPrefix(id, "foundation:") {
-				return true
-			}
-		}
-	}
-	for _, file := range startup.ControllerFiles {
-		if strings.Contains(string(file.Bytes), "foundation:") {
-			return true
-		}
-	}
-	if startup.FounderResources != nil {
-		for _, slot := range startup.FounderResources.Slots {
-			if strings.HasPrefix(slot.ImageCompartmentOCID, "foundation:") {
-				return true
-			}
-		}
-	}
-	if startup.ManagedMaterial != nil {
-		domain := startup.ManagedMaterial
-		return strings.HasPrefix(domain.KMSKeyOCID, "foundation:") || strings.HasPrefix(domain.MemberCompartmentOCID, "foundation:") || strings.HasPrefix(domain.MemberSubnetOCID, "foundation:")
-	}
-	return false
 }
