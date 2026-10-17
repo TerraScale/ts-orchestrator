@@ -209,6 +209,24 @@ func (proof VerifiedNetBirdJournalPurpose) Digest() string       { return proof.
 func (proof VerifiedNetBirdJournalPurpose) GrantDigest() string  { return proof.proof.GrantDigest() }
 func (proof VerifiedNetBirdJournalPurpose) ExpiresAt() time.Time { return proof.expires }
 
+// CheckOriginal checks retained lifetimes only; it performs no current reads.
+func (proof VerifiedNetBirdJournalPurpose) CheckOriginal() error {
+	if proof.original == nil || proof.reader == nil || !proof.material.IsVerified() {
+		return errors.New("original signed journal purpose is absent or canceled")
+	}
+	if err := proof.proof.CheckOriginal(); err != nil {
+		return err
+	}
+	if err := proof.original.Err(); err != nil {
+		return err
+	}
+	now := time.Now()
+	if !now.Before(proof.expires) || !now.Before(proof.material.ExpiresAt()) {
+		return errors.New("original signed journal purpose or material expired")
+	}
+	return proof.material.original.Err()
+}
+
 func (resolver FoundationResolver) NetBirdJournalPurposeForOperation(ctx, original context.Context) (VerifiedNetBirdJournalPurpose, error) {
 	reader, ok := resolver.Footprint.(*SignedFootprint)
 	if !ok || reader == nil || ctx == nil || original == nil || original.Err() != nil {

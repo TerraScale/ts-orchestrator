@@ -54,6 +54,24 @@ func (v VerifiedNetBirdJournalUnderlay) WriterPrivateIP() string {
 }
 func (v VerifiedNetBirdJournalUnderlay) ExpiresAt() time.Time { return v.expires }
 
+// CheckOriginal checks retained lifetimes only; live native evidence still
+// requires CurrentDeadline or Revalidate.
+func (v VerifiedNetBirdJournalUnderlay) CheckOriginal() error {
+	if !v.IsVerified() {
+		return errors.New("NetBird private underlay proof is absent")
+	}
+	if err := v.original.Err(); err != nil {
+		return err
+	}
+	if err := v.purpose.CheckOriginal(); err != nil {
+		return err
+	}
+	if !time.Now().Before(v.expires) {
+		return errors.New("NetBird private underlay original cap expired")
+	}
+	return v.original.Err()
+}
+
 func (v VerifiedNetBirdJournalUnderlay) Revalidate(ctx context.Context) error {
 	_, err := v.CurrentDeadline(ctx)
 	return err
