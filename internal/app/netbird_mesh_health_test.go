@@ -20,7 +20,7 @@ type netbirdMeshHosts struct {
 }
 
 func (h netbirdMeshHosts) ListHosts(context.Context) ([]host.HostStatus, error) {
-	status := host.HostStatus{Registration: host.Registration{Node: "joining-node", Roles: h.roles}}
+	status := host.HostStatus{Registration: host.Registration{ID: "joining-node", Cell: "gru", Environment: "production", Node: "joining-node", Roles: h.roles}, Verified: true, SessionExpiresAt: edgeTestSessionExpiry}
 	for _, desired := range h.desired {
 		status.Reports = append(status.Reports, host.Report{Node: desired.Node, Role: desired.Role,
 			Generation: desired.Generation, State: "running", ObservedAt: time.Now()})
@@ -64,6 +64,18 @@ func TestNetBirdMeshConfirmationRequiresSelectedIPTraffic(t *testing.T) {
 				spec: func() (*cellspec.ReleaseFence, map[string]string) {
 					return &cellspec.ReleaseFence{}, map[string]string{}
 				}}}
+			hosts := &nodeHosts{states: map[string]string{}, down: map[string]bool{}, withdrawn: map[string]bool{}}
+			r.fence.fencer = &fenceLease{}
+			client := bindEdgeTestManager(r.fence, hosts)
+			client.names = []string{"joining-node"}
+			client.roles = []string{}
+			for _, desired := range test.hosts.desired {
+				if !desired.Withdrawn {
+					client.roles = append(client.roles, desired.Role)
+				}
+			}
+			r.fence.manager.managerID = "joining-node"
+			r.fence.manager.specs.current.HostGrants = []cellspec.HostGrant{{Node: "joining-node", Controller: "joining-node"}}
 			status := network.Status{Connected: true, IP: "10.200.1.2", DNS: "joining-node.nb.ts.internal"}
 			if err := r.healthy(t.Context(), "joining-node", status, time.Time{}); err == nil || !strings.Contains(err.Error(), "no active service endpoint") {
 				t.Fatalf("management, DNS and host reports confirmed an unprobed mesh IP: %v", err)

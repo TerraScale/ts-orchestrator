@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
@@ -131,10 +132,11 @@ func (r fenceRecord) holders() []string {
 // makes is guarded by the authority epoch it started under, so a deposed
 // leader stops.
 type releaseFence struct {
-	manager *managerWorkloadView
-	kv      jetstream.KeyValue
-	hosts   seatrollout.Hosts
-	fencer  authority.Fencer
+	manager   *managerWorkloadView
+	recipient func(context.Context, *api.Node, host.Registration) (managerEdgeRecipient, error)
+	kv        jetstream.KeyValue
+	hosts     seatrollout.Hosts
+	fencer    authority.Fencer
 	// spec returns the cell spec's release fence, nil without one, and the
 	// private address of each granted node.
 	spec func() (*cellspec.ReleaseFence, map[string]string)
