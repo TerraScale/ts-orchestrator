@@ -10,6 +10,9 @@ import (
 
 func TestRuntimeCreationRejectsUnverifiedAndCanceledSource(t *testing.T) {
 	for _, permit := range []*RuntimeCreationPermit{nil, {}} {
+		if home, err := permit.GuardedHomeIAM(t.Context()); err == nil || home != nil {
+			t.Fatal("unverified creation permit exposed a home authority")
+		}
 		if err := permit.GuardCreateFor(t.Context(), nil, bootstrapstart.AcceptedIdentity{}); err == nil {
 			t.Fatal("unverified creation permit authorized a founder")
 		}

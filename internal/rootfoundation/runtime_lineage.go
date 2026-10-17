@@ -31,6 +31,7 @@ func (b *Backend) PrepareRuntimeCreation(ctx context.Context, reader *bootstraps
 	if err := b.guard(ctx, call); err != nil {
 		return nil, err
 	}
+	ctx = ociclient.WithRequestGuard(ctx, call.Guard)
 	permit, err := region.PrepareRuntimeCreation(ctx, b.factory, reader, accepted)
 	if err != nil || permit == nil {
 		return nil, err
@@ -112,6 +113,7 @@ func (permit *RuntimeCreationPermit) Commit(ctx context.Context, proof swarmrunt
 		}
 		return proof.Revalidate(ctx)
 	})
+	ctx = ociclient.WithAuthority(ctx, permit.permit.ValidateSource)
 	if _, err := resolver.Store.CompareAndSwap(ctx, record, etag); err != nil {
 		return err
 	}
