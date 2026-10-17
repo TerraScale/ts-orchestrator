@@ -90,10 +90,10 @@ func TestAcceptedManagersRegisterPausedBeforeExecutionAdmission(t *testing.T) {
 		if err != nil || len(tasks.Tasks) != 1 {
 			return false, err
 		}
-		if tasks.Tasks[0].NodeID != "" || tasks.Tasks[0].Status.State > api.TaskState_PENDING {
+		if tasks.Tasks[0].NodeID != "" || tasks.Tasks[0].Status.State > api.TaskStatePending {
 			t.Fatal("scheduler assigned work before controller execution admission")
 		}
-		return tasks.Tasks[0].Status.State == api.TaskState_PENDING, nil
+		return tasks.Tasks[0].Status.State == api.TaskStatePending, nil
 	})
 	for _, executor := range executors {
 		if executor.unpaused.Load() || executor.assignments.Load() != 0 {
