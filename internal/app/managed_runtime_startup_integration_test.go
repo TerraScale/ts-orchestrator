@@ -119,6 +119,18 @@ func TestManagedRuntimeReadyBeforeSingleOwnHostSession(t *testing.T) {
 	defer clear(root)
 	foundation, grantWire, intent := managerStartupFoundation(t, root)
 	fixture := bootstrapstart.NewControllerManagerStartupFixture(t, enrollment, broker, root, foundation)
+	localDescriptor := acceptedControllerLocalDescriptor{accepted: fixture.Accepted.Clone()}
+	canceledAdmission, cancelAdmission := context.WithCancel(ctx)
+	cancelAdmission()
+	if _, err := localDescriptor.FetchDescriptor(canceledAdmission); !errors.Is(err, bootstrapstart.ErrInstanceObservation) {
+		t.Fatalf("ordinary descriptor ignored original admission cancellation: %v", err)
+	}
+	if _, err := localDescriptor.FetchInstanceID(canceledAdmission); !errors.Is(err, bootstrapstart.ErrInstanceObservation) {
+		t.Fatalf("ordinary instance read ignored original admission cancellation: %v", err)
+	}
+	if _, err := (acceptedControllerLocalDescriptor{}).FetchDescriptor(ctx); !errors.Is(err, bootstrapstart.ErrInstanceObservation) {
+		t.Fatalf("ordinary descriptor accepted an unbound identity: %v", err)
+	}
 	foundations := managerStartupFoundationResolver(t, fixture, grantWire, intent)
 	vaultClient, bundles := managerStartupVault(t)
 	admitted, err := swarmruntime.ReadAcceptedManagerAdmission(ctx, fixture.Reader, fixture.Accepted)
