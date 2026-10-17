@@ -41,6 +41,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/workload"
 	swarmexec "github.com/moby/swarmkit/v2/agent/exec"
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/moby/swarmkit/v2/api/genericresource"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -289,6 +290,37 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 		return view
 	}
 	first := ready(1)
+	assignment, err := client.GetTask(ctx, &api.GetTaskRequest{TaskID: first.Tasks[0].TaskID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin, err := swarmruntime.ContainerTaskFingerprint(assignment.Task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	materialBinding := host.ContainerMaterialBinding{Region: managerConfig.Admission.Region, HostID: session.registration.ID,
+		InstanceID: managerConfig.Admission.InstanceID, NodeID: assignment.Task.NodeID, ServiceID: serviceID, TaskID: assignment.Task.ID, Fingerprint: pin}
+	materialProof, err := protocol.EncodeJSON(materialBinding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var escaped context.Context
+	// This exercises the real signed task/SDK chain under the journal guard;
+	// the external production OCI recipient proof remains a separate gate.
+	_, err = fencer.CommitHostMutationVerified(ctx, fencer.Current().Epoch, authority.MutationMaterialReceipt,
+		identity.Cell+"."+session.registration.Node, entityid.New(), 0, materialProof, func(check context.Context) error {
+			escaped = check
+			if err := probe(check, assignment.Task); err != nil {
+				return err
+			}
+			return fencer.Guard(check, fencer.Current().Epoch)
+		})
+	if err != nil {
+		t.Fatal("signed task/SDK verification under authority commit", err)
+	}
+	if escaped == nil || escaped.Err() == nil || !errors.Is(fencer.Guard(escaped, fencer.Current().Epoch), authority.ErrFenced) {
+		t.Fatal("task/SDK callback retained authority after its verified commit ended")
+	}
 	if err := controller.refresh(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -310,6 +342,9 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	current, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: serviceID})
 	if err != nil || current.Service.Spec.Task.Resources.Limits.NanoCPUs != int64(profile.Resources.CPU)*1_000_000_000 || current.Service.Spec.Task.Resources.Reservations.MemoryBytes != profile.Resources.MemoryBytes {
 		t.Fatalf("replica CAS lost signed resources: %+v %v", current, err)
+	}
+	if disk, err := swarmruntime.DiskBytes(current.Service.Spec.Task.Resources); err != nil || disk != profile.Resources.DiskBytes {
+		t.Fatalf("replica CAS lost exact signed disk reservation/limit: %d %v", disk, err)
 	}
 	staleVersion := current.Service.Meta.Version
 	staleSpec := current.Service.Spec.Copy()
@@ -419,6 +454,9 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	current, err = client.GetService(ctx, &api.GetServiceRequest{ServiceID: serviceID})
 	if err != nil || current.Service.Spec.Task.Resources.Limits.NanoCPUs != int64(profile.Resources.CPU)*1_000_000_000 || current.Service.Spec.Task.Resources.Reservations.MemoryBytes != profile.Resources.MemoryBytes {
 		t.Fatalf("rollout/rollback/recovery changed exact signed resource request: %+v %v", current, err)
+	}
+	if disk, err := swarmruntime.DiskBytes(current.Service.Spec.Task.Resources); err != nil || disk != profile.Resources.DiskBytes {
+		t.Fatalf("rollout/rollback/recovery changed exact signed disk budget: %d %v", disk, err)
 	}
 	if err := controller.refresh(ctx); err != nil {
 		t.Fatal(err)
@@ -913,7 +951,8 @@ type genericRuntimeExecutor struct {
 }
 
 func (*genericRuntimeExecutor) Describe(context.Context) (*api.NodeDescription, error) {
-	return &api.NodeDescription{Platform: &api.Platform{OS: "linux", Architecture: runtime.GOARCH}, Resources: &api.Resources{NanoCPUs: 8_000_000_000, MemoryBytes: 8 << 30}}, nil
+	return &api.NodeDescription{Platform: &api.Platform{OS: "linux", Architecture: runtime.GOARCH}, Resources: &api.Resources{NanoCPUs: 8_000_000_000, MemoryBytes: 8 << 30,
+		Generic: []*api.GenericResource{genericresource.NewDiscrete(swarmruntime.DiskResource, 16<<30)}}}, nil
 }
 func (*genericRuntimeExecutor) Configure(context.Context, *api.Node) error         { return nil }
 func (*genericRuntimeExecutor) SetNetworkBootstrapKeys([]*api.EncryptionKey) error { return nil }
