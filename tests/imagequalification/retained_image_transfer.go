@@ -58,6 +58,9 @@ func (c *cloud) observeImageTransfer(ctx context.Context, observer *ociclient.Fa
 	if err != nil || !found {
 		return empty, err
 	}
+	if j.ImageManifestSHA256 != "" && current.ManifestSHA256 != j.ImageManifestSHA256 {
+		return empty, errors.New("authenticated image publication substituted the retained immutable reference")
+	}
 	publishedAt := current.ManifestLastModified
 	publicationUpper := publishedAt.Add(time.Second)
 	plan, err := hostadmission.VerifyReaderBinding(j.RetainedReaderProof, p.roots, publishedAt)
