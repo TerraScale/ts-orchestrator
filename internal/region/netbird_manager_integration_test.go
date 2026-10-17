@@ -362,8 +362,8 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	admit := func() (VerifiedNetBirdManager, error) {
-		return admitNetBirdManager(t.Context(), resolver, reader, netBirdObservedInstance{factory: factory, resolver: resolver, reader: reader, observer: observer}, idFor("instance"), func(image release.VerifiedImage) (bootstrapstart.RunningBinary, error) {
+	admitWithContext := func(ctx context.Context) (VerifiedNetBirdManager, error) {
+		return admitNetBirdManager(ctx, resolver, reader, netBirdObservedInstance{factory: factory, resolver: resolver, reader: reader, observer: observer}, idFor("instance"), func(image release.VerifiedImage) (bootstrapstart.RunningBinary, error) {
 			if !image.IsVerified() {
 				return bootstrapstart.RunningBinary{}, errors.New("unverified image")
 			}
@@ -371,6 +371,7 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 			return bootstrapstart.RunningBinary{SHA256: receipt.BinarySHA256, Bytes: receipt.BinaryBytes, Architecture: receipt.Architecture}, nil
 		})
 	}
+	admit := func() (VerifiedNetBirdManager, error) { return admitWithContext(t.Context()) }
 	claim, err := admit()
 	if err != nil {
 		t.Fatal(err)
@@ -394,6 +395,23 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	expected := NetBirdManagerJournalExpectation{AdmissionSHA256: observation.AdmissionSHA256, LaunchRecipeSHA256: recipeSHA, BinarySHA256: receipt.BinarySHA256}
 	if current, err := recipient.JournalExpectation(t.Context()); err != nil || current != expected {
 		t.Fatalf("independent SDK-backed recipient expectation = %+v, %v", current, err)
+	}
+	sealContext, cancelSeal := context.WithCancel(t.Context())
+	defer cancelSeal()
+	sealedManager, err := admitWithContext(sealContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealedRecipient, err := retainNetBirdRecipient(sealContext, remote, remoteCurrent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sealedManager.CheckOriginal() != nil || sealedRecipient.CheckOriginal() != nil {
+		t.Fatal("live SDK-backed originals failed their local cancellation seals")
+	}
+	cancelSeal()
+	if sealedManager.CheckOriginal() == nil || sealedRecipient.CheckOriginal() == nil {
+		t.Fatal("synchronous original cancellation retained a local seal")
 	}
 	if claim.RecoveryRequired() {
 		t.Fatal("new explicitly funded store required restore")

@@ -203,6 +203,16 @@ func (v VerifiedNetBirdManager) VaultTarget() vaultsecret.Target { return v.targ
 func (v VerifiedNetBirdManager) StoreGeneration() string         { return v.storeGeneration }
 func (v VerifiedNetBirdManager) RecoveryRequired() bool          { return v.recovery }
 func (v VerifiedNetBirdManager) ExpiresAt() time.Time            { return v.expires }
+
+// CheckOriginal is a synchronous local seal after other proofs have waited.
+// It grants no source currentness or account authority without Check.
+func (v VerifiedNetBirdManager) CheckOriginal() error {
+	if v.check == nil || v.storeGeneration == "" || v.original == nil {
+		return errors.New("dedicated NetBird manager original admission is absent")
+	}
+	return checkNetBirdManagerDeadline(v.original, v.expires)
+}
+
 func (v VerifiedNetBirdManager) ClaimGenesis(ctx context.Context) error {
 	if v.transition == nil {
 		return errors.New("dedicated manager store authority is absent")
