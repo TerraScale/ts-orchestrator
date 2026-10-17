@@ -183,6 +183,17 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 	}
 	deadline, _ := ctx.Deadline()
 	deadline = earlier(deadline, source.ExpiresAt(), lease.Deadline())
+	for _, wire := range [][]byte{intent.Container.Claim, intent.Container.Delegation, claim.Production.Qualification, claim.Production.Delegation} {
+		if len(wire) == 0 {
+			continue
+		}
+		finite, err := trust.DecodeEnvelope(wire)
+		if err != nil {
+			return pending(err)
+		}
+		deadline = earlier(deadline, finite.ExpiresAt.Add(-time.Nanosecond))
+	}
+
 	ctx, finish := context.WithDeadline(ctx, deadline)
 	defer finish()
 	verified, err := release.VerifyContainerCurrent(ctx, *intent.Container, roots.Current, release.ContainerTarget{Cell: identity.Cell, Environment: intent.Environment, Role: intent.Role, Architecture: claim.Architecture}, time.Now().UTC(), deadline, func(ctx context.Context, digest string) (io.ReadCloser, error) {
@@ -264,6 +275,8 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 		}
 		return nil
 	}
+	sessions := map[string]*host.ContainerGenerationSession{}
+	controllers := map[string]*bootstrapstart.ControllerHostRecipient{}
 	guard := func(ctx context.Context) error {
 		if err := sourceGuard(ctx); err != nil {
 			return err
@@ -280,7 +293,7 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 		if replicas < uint64(policy.Replicas.Min) || replicas > uint64(policy.Replicas.Max) {
 			return ErrPending
 		}
-		readyUntil, err := b.ready(ctx, s, client, service, expected, verified, roots.Current, profile, specEntry.Value())
+		readyUntil, err := b.ready(ctx, s, client, service, expected, verified, roots.Current, profile, specEntry.Value(), sessions, controllers)
 		if err != nil {
 			return err
 		}
