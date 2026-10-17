@@ -18,54 +18,60 @@ import (
 // These records belong to the HTTPS service, never to the Provider interface.
 type memberSDKVolume struct {
 	ID, CompartmentID, AvailabilityDomain, LifecycleState, ETag string
-	SizeGB, VPUsPerGB int64
-	FreeformTags map[string]string
+	SizeGB, VPUsPerGB                                           int64
+	FreeformTags                                                map[string]string
 }
 
 type memberSDKInstance struct {
 	ID, DisplayName, CompartmentID, AvailabilityDomain, LifecycleState, ETag string
-	ConsistentVolumeNamingEnabled *bool
+	ConsistentVolumeNamingEnabled                                            *bool
 }
 
 type memberSDKAttachment struct {
-	ID, VolumeID, InstanceID, LifecycleState, ETag, Device string
+	ID, VolumeID, InstanceID, LifecycleState, ETag, Device  string
 	IsReadOnly, IsShareable, IsPvEncryptionInTransitEnabled *bool
 }
 
-type memberSDKDevice struct { Name string; IsAvailable *bool }
+type memberSDKDevice struct {
+	Name        string
+	IsAvailable *bool
+}
 type memberSDKBackup struct {
 	ID, VolumeID, LifecycleState string
-	SizeGB int64
-	CreatedAt time.Time
+	SizeGB                       int64
+	CreatedAt                    time.Time
 }
 type memberSDKPolicy struct {
 	ID, DisplayName string
-	Schedules []BackupSchedule
-	FreeformTags map[string]string
+	Schedules       []BackupSchedule
+	FreeformTags    map[string]string
 }
 
 type memberSDKLedger struct {
-	mu sync.Mutex
-	t *testing.T
-	config RegionConfig
-	instances map[string]memberSDKInstance
-	volumes map[string]memberSDKVolume
-	attachments map[string]memberSDKAttachment
-	devices map[string][]memberSDKDevice
-	volumeBackups []memberSDKBackup
-	backupPolicies []memberSDKPolicy
-	backupPolicyAssignments map[string]string
+	mu                                                                sync.Mutex
+	t                                                                 *testing.T
+	config                                                            RegionConfig
+	instances                                                         map[string]memberSDKInstance
+	volumes                                                           map[string]memberSDKVolume
+	attachments                                                       map[string]memberSDKAttachment
+	devices                                                           map[string][]memberSDKDevice
+	volumeBackups                                                     []memberSDKBackup
+	backupPolicies                                                    []memberSDKPolicy
+	backupPolicyAssignments                                           map[string]string
 	volumeRetryTokens, attachmentRetryTokens, backupPolicyRetryTokens map[string]string
-	volumeCreateRequests []VolumeCreateRequest
-	volumeCreateCalls, volumeCreates, attachCalls, deviceListCalls int
-	backupPolicyCreates, updates, detaches, deletes, writes int
-	afterVolumeCreate func()
-	volumeCreateErrorAfterCreate, updateErr, detachErr error
-	updateApplies, stayBusy bool
+	volumeCreateRequests                                              []VolumeCreateRequest
+	volumeCreateCalls, volumeCreates, attachCalls, deviceListCalls    int
+	backupPolicyCreates, updates, detaches, deletes, writes           int
+	afterVolumeCreate                                                 func()
+	volumeCreateErrorAfterCreate, updateErr, detachErr                error
+	updateApplies, stayBusy                                           bool
 }
 
 // The transport only synchronizes test edits with the real HTTPS handler.
-type memberSDKTransport struct { ledger *memberSDKLedger; next http.RoundTripper }
+type memberSDKTransport struct {
+	ledger *memberSDKLedger
+	next   http.RoundTripper
+}
 
 func (transport memberSDKTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	transport.ledger.mu.Lock()
@@ -80,7 +86,9 @@ func memberSDKFixture(t *testing.T) (*MemberVolumes, *memberSDKLedger) {
 	t.Helper()
 	config := testMemberVolumeConfig()
 	region, err := config.regionConfig()
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	ledger := &memberSDKLedger{t: t, config: region,
 		instances: make(map[string]memberSDKInstance), volumes: make(map[string]memberSDKVolume),
 		attachments: make(map[string]memberSDKAttachment), devices: make(map[string][]memberSDKDevice),
@@ -90,7 +98,9 @@ func memberSDKFixture(t *testing.T) (*MemberVolumes, *memberSDKLedger) {
 	client := provider.storage.HTTPClient.(*http.Client)
 	client.Transport = memberSDKTransport{ledger: ledger, next: client.Transport}
 	volumes, err := newMemberVolumes(config, memberVolumeProvider{provider})
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	volumes.fleet.attachmentSettle = 50 * time.Millisecond
 	volumes.restoreSettle = 50 * time.Millisecond
 	return volumes, ledger
@@ -106,14 +116,21 @@ func memberSDKAddInstance(p *memberSDKLedger, id, name string) memberSDKInstance
 
 func memberSDKOnlyVolume(t *testing.T, p *memberSDKLedger) memberSDKVolume {
 	t.Helper()
-	if len(p.volumes) != 1 { t.Fatalf("volumes = %d, want 1", len(p.volumes)) }
-	for volume := range maps.Values(p.volumes) { return volume }
+	if len(p.volumes) != 1 {
+		t.Fatalf("volumes = %d, want 1", len(p.volumes))
+	}
+	for volume := range maps.Values(p.volumes) {
+		return volume
+	}
 	return memberSDKVolume{}
 }
 
 func memberSDKSetVolumeStates(p *memberSDKLedger, from, to string) {
 	for id, volume := range p.volumes {
-		if volume.LifecycleState == from { volume.LifecycleState = to; p.volumes[id] = volume }
+		if volume.LifecycleState == from {
+			volume.LifecycleState = to
+			p.volumes[id] = volume
+		}
 	}
 }
 
@@ -129,7 +146,9 @@ func memberSDKRetireFixture(t *testing.T) (*MemberVolumes, *memberSDKLedger, Mem
 	memberSDKAddInstance(ledger, "ocid1.instance.old", testMember)
 	request := MemberVolumeRequest{Member: testMember, InstanceID: "ocid1.instance.old", SizeGB: 50}
 	attachment, err := volumes.Ensure(t.Context(), request)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	request.VolumeID = attachment.VolumeID
 	return volumes, ledger, request, attachment
 }
@@ -142,7 +161,9 @@ func memberSDKRestoreFixture(t *testing.T) (*MemberVolumes, *memberSDKLedger, Re
 	ledger.volumeBackups = []memberSDKBackup{{ID: "ocid1.volumebackup.daily", VolumeID: member.VolumeID,
 		LifecycleState: "AVAILABLE", SizeGB: 50, CreatedAt: time.Now()}}
 	restored, err := volumes.Restore(t.Context(), RestoreRequest{Member: testMember, ScratchInstanceID: scratch.ID, SourceVolumeID: member.VolumeID})
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	return volumes, ledger, restored
 }
 
@@ -179,20 +200,33 @@ func (p *memberSDKLedger) ServeHTTP(w http.ResponseWriter, request *http.Request
 	value, status, drop := p.exchange(request, w.Header())
 	wire, err := json.Marshal(value)
 	p.mu.Unlock()
-	if err != nil { p.t.Error(err); http.Error(w, "encoding failed", 500); return }
+	if err != nil {
+		p.t.Error(err)
+		http.Error(w, "encoding failed", 500)
+		return
+	}
 	if drop {
 		connection, _, err := http.NewResponseController(w).Hijack()
-		if err != nil { p.t.Error(err); return }
+		if err != nil {
+			p.t.Error(err)
+			return
+		}
 		_ = connection.Close()
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	if status != http.StatusNoContent { if _, err := w.Write(wire); err != nil { p.t.Error(err) } }
+	if status != http.StatusNoContent {
+		if _, err := w.Write(wire); err != nil {
+			p.t.Error(err)
+		}
+	}
 }
 
 func (p *memberSDKLedger) exchange(r *http.Request, header http.Header) (any, int, bool) {
-	if r.Method != http.MethodGet { p.writes++ }
+	if r.Method != http.MethodGet {
+		p.writes++
+	}
 	path := strings.TrimPrefix(r.URL.Path, "/20160918")
 	query := r.URL.Query()
 	fail := func(status int, code string) (any, int, bool) {
@@ -200,8 +234,13 @@ func (p *memberSDKLedger) exchange(r *http.Request, header http.Header) (any, in
 	}
 	decode := func(value any) bool {
 		wire, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-		if err == nil { err = json.Unmarshal(wire, value) }
-		if err != nil { p.t.Error(err); return false }
+		if err == nil {
+			err = json.Unmarshal(wire, value)
+		}
+		if err != nil {
+			p.t.Error(err)
+			return false
+		}
 		return true
 	}
 	if r.Method == http.MethodGet {
@@ -209,61 +248,103 @@ func (p *memberSDKLedger) exchange(r *http.Request, header http.Header) (any, in
 		case strings.HasPrefix(path, "/instances/") && strings.HasSuffix(path, "/devices"):
 			id := strings.TrimSuffix(strings.TrimPrefix(path, "/instances/"), "/devices")
 			p.deviceListCalls++
-			if query.Get("isAvailable") != "true" { p.t.Error("device read lost availability filter") }
+			if query.Get("isAvailable") != "true" {
+				p.t.Error("device read lost availability filter")
+			}
 			devices, exists := p.devices[id]
-			if !exists { devices = []memberSDKDevice{{Name: MemberVolumeDevice, IsAvailable: new(true)}} }
+			if !exists {
+				devices = []memberSDKDevice{{Name: MemberVolumeDevice, IsAvailable: new(true)}}
+			}
 			wire := make([]map[string]any, 0, len(devices))
-			for _, device := range devices { wire = append(wire, map[string]any{"name": device.Name, "isAvailable": device.IsAvailable}) }
+			for _, device := range devices {
+				wire = append(wire, map[string]any{"name": device.Name, "isAvailable": device.IsAvailable})
+			}
 			return wire, 200, false
 		case strings.HasPrefix(path, "/instances/"):
 			instance, exists := p.instances[strings.TrimPrefix(path, "/instances/")]
-			if !exists { return fail(404, "NotAuthorizedOrNotFound") }
+			if !exists {
+				return fail(404, "NotAuthorizedOrNotFound")
+			}
 			header.Set("etag", instance.ETag)
 			return map[string]any{"id": instance.ID, "displayName": instance.DisplayName, "compartmentId": instance.CompartmentID,
 				"availabilityDomain": instance.AvailabilityDomain, "lifecycleState": instance.LifecycleState,
 				"launchOptions": map[string]any{"isConsistentVolumeNamingEnabled": instance.ConsistentVolumeNamingEnabled}}, 200, false
 		case path == "/volumes":
-			if query.Get("compartmentId") != p.config.CompartmentID || query.Get("availabilityDomain") != p.config.AvailabilityDomain { p.t.Error("volume read widened scope") }
+			if query.Get("compartmentId") != p.config.CompartmentID || query.Get("availabilityDomain") != p.config.AvailabilityDomain {
+				p.t.Error("volume read widened scope")
+			}
 			wire := make([]map[string]any, 0, len(p.volumes))
-			for volume := range maps.Values(p.volumes) { wire = append(wire, p.volumeWire(volume)) }
+			for volume := range maps.Values(p.volumes) {
+				wire = append(wire, p.volumeWire(volume))
+			}
 			return wire, 200, false
 		case strings.HasPrefix(path, "/volumes/"):
 			volume, exists := p.volumes[strings.TrimPrefix(path, "/volumes/")]
-			if !exists { return fail(404, "NotAuthorizedOrNotFound") }
+			if !exists {
+				return fail(404, "NotAuthorizedOrNotFound")
+			}
 			header.Set("etag", volume.ETag)
 			return p.volumeWire(volume), 200, false
 		case path == "/volumeAttachments":
-			if query.Get("compartmentId") != p.config.CompartmentID { p.t.Error("attachment read widened compartment") }
-			if query.Get("volumeId") == "" && query.Get("instanceId") == "" { p.t.Error("attachment read lost exact filter") }
-			if query.Get("volumeId") != "" && query.Get("availabilityDomain") != p.config.AvailabilityDomain { p.t.Error("attachment read widened domain") }
+			if query.Get("compartmentId") != p.config.CompartmentID {
+				p.t.Error("attachment read widened compartment")
+			}
+			if query.Get("volumeId") == "" && query.Get("instanceId") == "" {
+				p.t.Error("attachment read lost exact filter")
+			}
+			if query.Get("volumeId") != "" && query.Get("availabilityDomain") != p.config.AvailabilityDomain {
+				p.t.Error("attachment read widened domain")
+			}
 			wire := make([]map[string]any, 0, len(p.attachments))
 			for attachment := range maps.Values(p.attachments) {
-				if query.Get("volumeId") != "" && query.Get("volumeId") != attachment.VolumeID { continue }
-				if query.Get("instanceId") != "" && query.Get("instanceId") != attachment.InstanceID { continue }
+				if query.Get("volumeId") != "" && query.Get("volumeId") != attachment.VolumeID {
+					continue
+				}
+				if query.Get("instanceId") != "" && query.Get("instanceId") != attachment.InstanceID {
+					continue
+				}
 				wire = append(wire, p.attachmentWire(attachment))
 			}
 			return wire, 200, false
 		case strings.HasPrefix(path, "/volumeAttachments/"):
 			attachment, exists := p.attachments[strings.TrimPrefix(path, "/volumeAttachments/")]
-			if !exists { return fail(404, "NotAuthorizedOrNotFound") }
+			if !exists {
+				return fail(404, "NotAuthorizedOrNotFound")
+			}
 			header.Set("etag", attachment.ETag)
 			return p.attachmentWire(attachment), 200, false
 		case path == "/volumeBackupPolicies":
-			if query.Get("compartmentId") != p.config.CompartmentID { p.t.Error("policy read widened scope") }
+			if query.Get("compartmentId") != p.config.CompartmentID {
+				p.t.Error("policy read widened scope")
+			}
 			wire := make([]map[string]any, 0, len(p.backupPolicies))
-			for _, policy := range p.backupPolicies { wire = append(wire, p.policyWire(policy)) }
+			for _, policy := range p.backupPolicies {
+				wire = append(wire, p.policyWire(policy))
+			}
 			return wire, 200, false
 		case path == "/volumeBackupPolicyAssignments":
 			wire := make([]map[string]any, 0, 1)
-			if id := p.backupPolicyAssignments[query.Get("assetId")]; id != "" { wire = append(wire, map[string]any{"id": "assignment", "policyId": id}) }
+			if id := p.backupPolicyAssignments[query.Get("assetId")]; id != "" {
+				wire = append(wire, map[string]any{"id": "assignment", "policyId": id})
+			}
 			return wire, 200, false
 		case path == "/volumeBackups":
-			if query.Get("compartmentId") != p.config.CompartmentID || query.Get("volumeId") == "" || query.Get("sortBy") != "TIMECREATED" || query.Get("sortOrder") != "DESC" { p.t.Error("backup read lost bounded source ordering") }
+			if query.Get("compartmentId") != p.config.CompartmentID || query.Get("volumeId") == "" || query.Get("sortBy") != "TIMECREATED" || query.Get("sortOrder") != "DESC" {
+				p.t.Error("backup read lost bounded source ordering")
+			}
 			wire := make([]map[string]any, 0, len(p.volumeBackups))
-			for _, backup := range p.volumeBackups { if backup.VolumeID == query.Get("volumeId") { wire = append(wire, p.backupWire(backup)) } }
+			for _, backup := range p.volumeBackups {
+				if backup.VolumeID == query.Get("volumeId") {
+					wire = append(wire, p.backupWire(backup))
+				}
+			}
 			return wire, 200, false
 		case strings.HasPrefix(path, "/volumeBackups/"):
-			for _, backup := range p.volumeBackups { if backup.ID == strings.TrimPrefix(path, "/volumeBackups/") { return p.backupWire(backup), 200, false } }
+			for _, backup := range p.volumeBackups {
+				if backup.ID == strings.TrimPrefix(path, "/volumeBackups/") {
+					return p.backupWire(backup), 200, false
+				}
+			}
 			return fail(404, "NotAuthorizedOrNotFound")
 		}
 	}
@@ -273,17 +354,26 @@ func (p *memberSDKLedger) exchange(r *http.Request, header http.Header) (any, in
 		case "/volumes":
 			p.volumeCreateCalls++
 			var details struct {
-				Name string `json:"displayName"`
-				Compartment string `json:"compartmentId"`
-				Domain string `json:"availabilityDomain"`
-				Size int64 `json:"sizeInGBs"`
-				Tier int64 `json:"vpusPerGB"`
-				Tags map[string]string `json:"freeformTags"`
-				Source struct { ID string `json:"id"`; Type string `json:"type"` } `json:"sourceDetails"`
+				Name        string            `json:"displayName"`
+				Compartment string            `json:"compartmentId"`
+				Domain      string            `json:"availabilityDomain"`
+				Size        int64             `json:"sizeInGBs"`
+				Tier        int64             `json:"vpusPerGB"`
+				Tags        map[string]string `json:"freeformTags"`
+				Source      struct {
+					ID   string `json:"id"`
+					Type string `json:"type"`
+				} `json:"sourceDetails"`
 			}
-			if !decode(&details) { return fail(400, "BadRequest") }
-			if token == "" || details.Compartment != p.config.CompartmentID || details.Domain != p.config.AvailabilityDomain || details.Tier != 10 { p.t.Error("create lost retry identity, scope or performance tier") }
-			if details.Source.ID != "" && details.Source.Type != "volumeBackup" { p.t.Error("restore lost source backup discriminator") }
+			if !decode(&details) {
+				return fail(400, "BadRequest")
+			}
+			if token == "" || details.Compartment != p.config.CompartmentID || details.Domain != p.config.AvailabilityDomain || details.Tier != 10 {
+				p.t.Error("create lost retry identity, scope or performance tier")
+			}
+			if details.Source.ID != "" && details.Source.Type != "volumeBackup" {
+				p.t.Error("restore lost source backup discriminator")
+			}
 			id, replay := p.volumeRetryTokens[token]
 			if !replay {
 				p.volumeCreates++
@@ -292,20 +382,35 @@ func (p *memberSDKLedger) exchange(r *http.Request, header http.Header) (any, in
 				p.volumes[id] = memberSDKVolume{ID: id, CompartmentID: details.Compartment, AvailabilityDomain: details.Domain,
 					SizeGB: details.Size, VPUsPerGB: details.Tier, LifecycleState: "AVAILABLE", ETag: "volume-etag", FreeformTags: maps.Clone(details.Tags)}
 				p.volumeCreateRequests = append(p.volumeCreateRequests, VolumeCreateRequest{Name: details.Name, SizeGB: details.Size, SourceBackupID: details.Source.ID})
-				if p.afterVolumeCreate != nil { p.afterVolumeCreate() }
+				if p.afterVolumeCreate != nil {
+					p.afterVolumeCreate()
+				}
 			}
-			if p.volumeCreateErrorAfterCreate != nil { return nil, 200, true }
+			if p.volumeCreateErrorAfterCreate != nil {
+				return nil, 200, true
+			}
 			header.Set("etag", p.volumes[id].ETag)
 			return p.volumeWire(p.volumes[id]), 200, false
 		case "/volumeAttachments":
 			p.attachCalls++
 			var details struct {
-				InstanceID string `json:"instanceId"`; VolumeID string `json:"volumeId"`; Device string `json:"device"`; Type string `json:"type"`
-				ReadOnly *bool `json:"isReadOnly"`; Shareable *bool `json:"isShareable"`; Encrypted *bool `json:"isPvEncryptionInTransitEnabled"`
+				InstanceID string `json:"instanceId"`
+				VolumeID   string `json:"volumeId"`
+				Device     string `json:"device"`
+				Type       string `json:"type"`
+				ReadOnly   *bool  `json:"isReadOnly"`
+				Shareable  *bool  `json:"isShareable"`
+				Encrypted  *bool  `json:"isPvEncryptionInTransitEnabled"`
 			}
-			if !decode(&details) { return fail(400, "BadRequest") }
-			if token == "" || details.Type != "paravirtualized" || details.ReadOnly == nil || *details.ReadOnly || details.Shareable == nil || *details.Shareable || details.Encrypted == nil || !*details.Encrypted { p.t.Error("attachment lost retry identity or exclusive encrypted flags") }
-			if volume := p.volumes[details.VolumeID]; volume.FreeformTags[tagResource] == resourceMemberData && p.backupPolicyAssignments[details.VolumeID] == "" { p.t.Error("attachment preceded the member backup policy") }
+			if !decode(&details) {
+				return fail(400, "BadRequest")
+			}
+			if token == "" || details.Type != "paravirtualized" || details.ReadOnly == nil || *details.ReadOnly || details.Shareable == nil || *details.Shareable || details.Encrypted == nil || !*details.Encrypted {
+				p.t.Error("attachment lost retry identity or exclusive encrypted flags")
+			}
+			if volume := p.volumes[details.VolumeID]; volume.FreeformTags[tagResource] == resourceMemberData && p.backupPolicyAssignments[details.VolumeID] == "" {
+				p.t.Error("attachment preceded the member backup policy")
+			}
 			id, replay := p.attachmentRetryTokens[token]
 			if !replay {
 				id = fmt.Sprintf("attachment-%d", len(p.attachmentRetryTokens)+1)
@@ -318,27 +423,49 @@ func (p *memberSDKLedger) exchange(r *http.Request, header http.Header) (any, in
 			return p.attachmentWire(p.attachments[id]), 200, false
 		case "/volumeBackupPolicies":
 			var details struct {
-				Name string `json:"displayName"`; Compartment string `json:"compartmentId"`; Tags map[string]string `json:"freeformTags"`
-				Schedules []struct {
-					Type string `json:"backupType"`; Period string `json:"period"`; Retention int `json:"retentionSeconds"`
-					Offset string `json:"offsetType"`; Hour int `json:"hourOfDay"`; Day string `json:"dayOfWeek"`; Zone string `json:"timeZone"`
+				Name        string            `json:"displayName"`
+				Compartment string            `json:"compartmentId"`
+				Tags        map[string]string `json:"freeformTags"`
+				Schedules   []struct {
+					Type      string `json:"backupType"`
+					Period    string `json:"period"`
+					Retention int    `json:"retentionSeconds"`
+					Offset    string `json:"offsetType"`
+					Hour      int    `json:"hourOfDay"`
+					Day       string `json:"dayOfWeek"`
+					Zone      string `json:"timeZone"`
 				} `json:"schedules"`
 			}
-			if !decode(&details) { return fail(400, "BadRequest") }
-			if token == "" || details.Compartment != p.config.CompartmentID { p.t.Error("policy create lost scope or retry token") }
+			if !decode(&details) {
+				return fail(400, "BadRequest")
+			}
+			if token == "" || details.Compartment != p.config.CompartmentID {
+				p.t.Error("policy create lost scope or retry token")
+			}
 			if id := p.backupPolicyRetryTokens[token]; id != "" {
-				for _, policy := range p.backupPolicies { if policy.ID == id { return p.policyWire(policy), 200, false } }
+				for _, policy := range p.backupPolicies {
+					if policy.ID == id {
+						return p.policyWire(policy), 200, false
+					}
+				}
 			}
 			p.backupPolicyCreates++
 			policy := memberSDKPolicy{ID: fmt.Sprintf("ocid1.volumebackuppolicy.created-%d", p.backupPolicyCreates), DisplayName: details.Name, FreeformTags: details.Tags}
-			for _, schedule := range details.Schedules { policy.Schedules = append(policy.Schedules, BackupSchedule{Type: schedule.Type, Period: schedule.Period,
-				RetentionSeconds: schedule.Retention, OffsetType: schedule.Offset, HourOfDay: schedule.Hour, DayOfWeek: schedule.Day, TimeZone: schedule.Zone}) }
+			for _, schedule := range details.Schedules {
+				policy.Schedules = append(policy.Schedules, BackupSchedule{Type: schedule.Type, Period: schedule.Period,
+					RetentionSeconds: schedule.Retention, OffsetType: schedule.Offset, HourOfDay: schedule.Hour, DayOfWeek: schedule.Day, TimeZone: schedule.Zone})
+			}
 			p.backupPolicies = append(p.backupPolicies, policy)
 			p.backupPolicyRetryTokens[token] = policy.ID
 			return p.policyWire(policy), 200, false
 		case "/volumeBackupPolicyAssignments":
-			var details struct { Asset string `json:"assetId"`; Policy string `json:"policyId"` }
-			if !decode(&details) { return fail(400, "BadRequest") }
+			var details struct {
+				Asset  string `json:"assetId"`
+				Policy string `json:"policyId"`
+			}
+			if !decode(&details) {
+				return fail(400, "BadRequest")
+			}
 			p.backupPolicyAssignments[details.Asset] = details.Policy
 			return map[string]string{"id": "assignment", "assetId": details.Asset, "policyId": details.Policy}, 200, false
 		}
@@ -347,16 +474,30 @@ func (p *memberSDKLedger) exchange(r *http.Request, header http.Header) (any, in
 		p.updates++
 		id := strings.TrimPrefix(path, "/volumes/")
 		volume, exists := p.volumes[id]
-		if !exists { return fail(404, "NotAuthorizedOrNotFound") }
-		if r.Header.Get("If-Match") == "" || r.Header.Get("If-Match") != volume.ETag { p.t.Error("volume update lost exact If-Match"); return fail(412, "PreconditionFailed") }
-		if errors.Is(p.updateErr, ErrStaleETag) { return fail(412, "PreconditionFailed") }
-		var details struct { Size int64 `json:"sizeInGBs"`; Tags map[string]string `json:"freeformTags"` }
-		if !decode(&details) { return fail(400, "BadRequest") }
+		if !exists {
+			return fail(404, "NotAuthorizedOrNotFound")
+		}
+		if r.Header.Get("If-Match") == "" || r.Header.Get("If-Match") != volume.ETag {
+			p.t.Error("volume update lost exact If-Match")
+			return fail(412, "PreconditionFailed")
+		}
+		if errors.Is(p.updateErr, ErrStaleETag) {
+			return fail(412, "PreconditionFailed")
+		}
+		var details struct {
+			Size int64             `json:"sizeInGBs"`
+			Tags map[string]string `json:"freeformTags"`
+		}
+		if !decode(&details) {
+			return fail(400, "BadRequest")
+		}
 		if p.updateErr == nil || p.updateApplies {
 			volume.SizeGB, volume.FreeformTags, volume.ETag = details.Size, details.Tags, fmt.Sprintf("updated-%d", p.updates)
 			p.volumes[id] = volume
 		}
-		if p.updateErr != nil { return nil, 200, true }
+		if p.updateErr != nil {
+			return nil, 200, true
+		}
 		header.Set("etag", volume.ETag)
 		return p.volumeWire(volume), 200, false
 	}
@@ -364,15 +505,26 @@ func (p *memberSDKLedger) exchange(r *http.Request, header http.Header) (any, in
 		p.detaches++
 		id := strings.TrimPrefix(path, "/volumeAttachments/")
 		attachment, exists := p.attachments[id]
-		if !exists { return fail(404, "NotAuthorizedOrNotFound") }
-		if r.Header.Get("If-Match") == "" || r.Header.Get("If-Match") != attachment.ETag { p.t.Error("detach lost exact If-Match"); return fail(412, "PreconditionFailed") }
+		if !exists {
+			return fail(404, "NotAuthorizedOrNotFound")
+		}
+		if r.Header.Get("If-Match") == "" || r.Header.Get("If-Match") != attachment.ETag {
+			p.t.Error("detach lost exact If-Match")
+			return fail(412, "PreconditionFailed")
+		}
 		attachment.LifecycleState = attachmentStateDetached
-		if p.stayBusy { attachment.LifecycleState = attachmentStateDetaching }
+		if p.stayBusy {
+			attachment.LifecycleState = attachmentStateDetaching
+		}
 		p.attachments[id] = attachment
-		if p.detachErr != nil { return nil, 204, true }
+		if p.detachErr != nil {
+			return nil, 204, true
+		}
 		return nil, 204, false
 	}
-	if r.Method == http.MethodDelete && strings.HasPrefix(path, "/volumes/") { p.deletes++ }
+	if r.Method == http.MethodDelete && strings.HasPrefix(path, "/volumes/") {
+		p.deletes++
+	}
 	p.t.Errorf("unexpected member-volume SDK request: %s %s", r.Method, r.URL.RequestURI())
 	return fail(400, "UnexpectedRequest")
 }
