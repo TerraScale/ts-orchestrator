@@ -140,22 +140,22 @@ func TestWatchdogConfirmsOrRollsBackFromTheRoleConfig(t *testing.T) {
 		confirmed bool
 	}{
 		{"controller-default-proof", controller, func(key, proof, _ string) (string, string) {
-			return `{"version":1,"nats":{"cell":"gru"},"controller":{"response_key_file":"` + key + `","added_later":true},"future":{}}`, proof
+			return `{"version":2,"nats":{"cell":"gru"},"controller":{"response_key_file":"` + key + `","added_later":true},"future":{}}`, proof
 		}, false, true},
 		{"host-configured-proof", host, func(key, _, dir string) (string, string) {
 			proof := filepath.Join(dir, "custom-proof.json")
-			return `{"version":1,"host":{"identity_key_file":"` + key + `","self_update_proof_file":"` + proof + `"}}`, proof
+			return `{"version":2,"host":{"identity_key_file":"` + key + `","self_update_proof_file":"` + proof + `"}}`, proof
 		}, false, true},
 		{"proof-signed-by-another-key", controller, func(key, proof, _ string) (string, string) {
-			return `{"version":1,"controller":{"response_key_file":"` + key + `"}}`, proof
+			return `{"version":2,"controller":{"response_key_file":"` + key + `"}}`, proof
 		}, true, false},
 		{"key-of-the-other-role", controller, func(key, proof, _ string) (string, string) {
-			return `{"version":1,"host":{"identity_key_file":"` + key + `"}}`, proof
+			return `{"version":2,"host":{"identity_key_file":"` + key + `"}}`, proof
 		}, false, false},
 		{"role-not-configured", host, func(_, proof, _ string) (string, string) { return "", proof }, false, false},
-		{"unreadable-config", host, func(_, proof, _ string) (string, string) { return `{"version":1,"host":`, proof }, false, false},
+		{"unreadable-config", host, func(_, proof, _ string) (string, string) { return `{"version":2,"host":`, proof }, false, false},
 		{"other-release-root", host, func(key, proof, dir string) (string, string) {
-			return `{"version":1,"host":{"identity_key_file":"` + key + `","self_update_root":"` + filepath.Join(dir, "elsewhere") + `"}}`, proof
+			return `{"version":2,"host":{"identity_key_file":"` + key + `","self_update_root":"` + filepath.Join(dir, "elsewhere") + `"}}`, proof
 		}, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -397,5 +397,22 @@ func TestRootStepsRunTheKnownGoodRelease(t *testing.T) {
 	}
 	if current, err := layout.Current(); err != nil || current == unproven {
 		t.Fatalf("unproven target still current: %v", err)
+	}
+}
+
+func TestLegacyRoleConfigCannotAuthorizeRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "controller.json")
+	wire := []byte(`{"version":1,"nats":{"cell":"gru","instance":"controller-a"},"controller":{"response_key_file":"legacy.key"}}`)
+	if err := os.WriteFile(path, wire, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readRolloutRole(path); err == nil {
+		t.Fatal("legacy role config authorized a rollout")
+	}
+	if _, _, err := roleProof(path, t.TempDir(), selfupdate.ControllerUnit); err == nil {
+		t.Fatal("legacy role config authorized restart proof")
+	}
+	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, wire) {
+		t.Fatalf("historical config changed: %s, %v", got, err)
 	}
 }

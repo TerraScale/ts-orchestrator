@@ -205,7 +205,12 @@ func (u *Usage) each(ctx context.Context, details usageapi.RequestSummarizedUsag
 		Dimensions: []usageapi.Dimension{{Key: common.String("region"), Value: common.String(u.OCIRegion)}}}
 	var page *string
 	for range maxUsagePages {
-		response, err := u.API.RequestSummarizedUsages(ctx, usageapi.RequestSummarizedUsagesRequest{
+		requestCtx := ctx
+		switch u.API.(type) {
+		case usageapi.UsageapiClient, *usageapi.UsageapiClient:
+			requestCtx = ociclient.RequestContext(ctx)
+		}
+		response, err := u.API.RequestSummarizedUsages(requestCtx, usageapi.RequestSummarizedUsagesRequest{
 			RequestSummarizedUsagesDetails: details, Page: page})
 		if err != nil {
 			return fmt.Errorf("read OCI usage: %w", err)

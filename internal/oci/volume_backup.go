@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
@@ -40,21 +42,54 @@ type VolumeBackupProvider interface {
 	DeleteVolumeBackup(ctx context.Context, backupID, etag string) error
 }
 
-// NewInstancePrincipalVolumeBackupProvider builds the region-pinned SDK
-// backup seam with instance-principal authentication.
-func NewInstancePrincipalVolumeBackupProvider(config RegionConfig, intent RegionIntent, journal *KVJournal) (VolumeBackupProvider, error) {
+// NewRootVolumeBackupProvider uses the root's principal and existing journal.
+// The guard also fences the non-HTTP termination checkpoint after observation.
+func NewRootVolumeBackupProvider(config RegionConfig, intent RegionIntent, factory *ociclient.Factory, journal JournalReader, guard func(context.Context) error) (VolumeBackupProvider, error) {
+	if os.Geteuid() != 0 || factory == nil || journal.journal == nil || guard == nil {
+		return nil, errors.New("volume backups require root-owned clients, journal and live authority")
+	}
 	if err := config.Validate(intent); err != nil {
 		return nil, err
 	}
-	if journal == nil {
-		return nil, errors.New("volume backups require the durable OCI journal")
+	region, err := config.Region.OCIRegion()
+	if err != nil || factory.Region() != region {
+		return nil, errors.New("volume backup principal differs from accepted region")
 	}
-	provider, err := newSDKProvider(config, nil)
+	provider, err := sdkProviderFrom(factory, config, nil)
 	if err != nil {
 		return nil, err
 	}
-	provider.terminations = journal
-	return provider, nil
+	provider.terminations, provider.backupGuard = journal.journal, guard
+	return rootVolumeBackups{sdkProvider: provider, ownership: &fleet{
+		config: config, provider: provider, journal: volumeObservationJournal{journal.journal},
+	}}, nil
+}
+
+type rootVolumeBackups struct {
+	*sdkProvider
+	ownership *fleet
+}
+
+func (provider rootVolumeBackups) CreateVolumeBackup(ctx context.Context, volumeID, displayName, backupType string, tags map[string]string, retryToken string) (CloudVolumeBackup, error) {
+	volume, err := provider.ownership.ownedVolume(ctx, volumeID)
+	if err != nil {
+		return CloudVolumeBackup{}, err
+	}
+	if volume.LifecycleState != "AVAILABLE" {
+		return CloudVolumeBackup{}, ErrRetainedVolumeInUse
+	}
+	return provider.sdkProvider.CreateVolumeBackup(ctx, volumeID, displayName, backupType, tags, retryToken)
+}
+
+func (provider rootVolumeBackups) VolumeGone(ctx context.Context, volumeID string) (bool, error) {
+	terminated, err := provider.terminations.volumeTerminated(ctx, provider.config, volumeID)
+	if err != nil || terminated {
+		return terminated, err
+	}
+	if _, err := provider.ownership.ownedVolume(ctx, volumeID); err != nil {
+		return false, err
+	}
+	return provider.sdkProvider.VolumeGone(ctx, volumeID)
 }
 
 func (provider *sdkProvider) CreateVolumeBackup(ctx context.Context, volumeID, displayName, backupType string, tags map[string]string, retryToken string) (CloudVolumeBackup, error) {
@@ -62,7 +97,7 @@ func (provider *sdkProvider) CreateVolumeBackup(ctx context.Context, volumeID, d
 	if !ok || volumeID == "" || retryToken == "" {
 		return CloudVolumeBackup{}, errors.New("OCI volume backup request is incomplete")
 	}
-	response, err := provider.storage.CreateVolumeBackup(ctx, core.CreateVolumeBackupRequest{
+	response, err := provider.storage.CreateVolumeBackup(ociclient.RequestContext(ctx), core.CreateVolumeBackupRequest{
 		CreateVolumeBackupDetails: core.CreateVolumeBackupDetails{
 			VolumeId: new(volumeID), DisplayName: new(displayName), Type: kind,
 			FreeformTags: cloneStringMap(tags),
@@ -90,7 +125,7 @@ func (provider *sdkProvider) newestVolumeBackups(ctx context.Context, volumeID s
 	var backups []CloudVolumeBackup
 	var page *string
 	for {
-		response, err := provider.storage.ListVolumeBackups(ctx, core.ListVolumeBackupsRequest{
+		response, err := provider.storage.ListVolumeBackups(ociclient.RequestContext(ctx), core.ListVolumeBackupsRequest{
 			CompartmentId: new(provider.config.CompartmentID), VolumeId: new(volumeID), Page: page, Limit: new(100),
 			SortBy: core.ListVolumeBackupsSortByTimecreated, SortOrder: core.ListVolumeBackupsSortOrderDesc,
 		})
@@ -121,7 +156,7 @@ func (provider *sdkProvider) listVolumeBackups(ctx context.Context, volumeID *st
 	var backups []CloudVolumeBackup
 	var page *string
 	for {
-		response, err := provider.storage.ListVolumeBackups(ctx, core.ListVolumeBackupsRequest{
+		response, err := provider.storage.ListVolumeBackups(ociclient.RequestContext(ctx), core.ListVolumeBackupsRequest{
 			CompartmentId: new(provider.config.CompartmentID), VolumeId: volumeID, Page: page, Limit: new(100),
 		})
 		if err != nil {
@@ -162,6 +197,11 @@ func (provider *sdkProvider) VolumeGone(ctx context.Context, volumeID string) (b
 	if volume.LifecycleState != "TERMINATED" {
 		return false, nil
 	}
+	if provider.backupGuard != nil {
+		if err := provider.backupGuard(ctx); err != nil {
+			return false, err
+		}
+	}
 	if err := provider.terminations.RecordVolumeTermination(ctx, provider.config, volumeID); err != nil {
 		return false, err
 	}
@@ -169,7 +209,7 @@ func (provider *sdkProvider) VolumeGone(ctx context.Context, volumeID string) (b
 }
 
 func (provider *sdkProvider) GetVolumeBackup(ctx context.Context, backupID string) (CloudVolumeBackup, error) {
-	response, err := provider.storage.GetVolumeBackup(ctx, core.GetVolumeBackupRequest{VolumeBackupId: new(backupID)})
+	response, err := provider.storage.GetVolumeBackup(ociclient.RequestContext(ctx), core.GetVolumeBackupRequest{VolumeBackupId: new(backupID)})
 	if err != nil {
 		return CloudVolumeBackup{}, fmt.Errorf("get OCI volume backup: %w", err)
 	}
@@ -184,7 +224,7 @@ func (provider *sdkProvider) DeleteVolumeBackup(ctx context.Context, backupID, e
 	if backupID == "" || etag == "" {
 		return errors.New("OCI volume backup deletion requires an exact ID and ETag")
 	}
-	if _, err := provider.storage.DeleteVolumeBackup(ctx, core.DeleteVolumeBackupRequest{
+	if _, err := provider.storage.DeleteVolumeBackup(ociclient.RequestContext(ctx), core.DeleteVolumeBackupRequest{
 		VolumeBackupId: new(backupID), IfMatch: new(etag),
 	}); err != nil {
 		return fmt.Errorf("delete OCI volume backup: %w", err)
@@ -240,7 +280,7 @@ func (provider *sdkProvider) ListVolumeBackupPolicies(ctx context.Context) ([]Cl
 	var policies []CloudBackupPolicy
 	var page *string
 	for {
-		response, err := provider.storage.ListVolumeBackupPolicies(ctx, core.ListVolumeBackupPoliciesRequest{
+		response, err := provider.storage.ListVolumeBackupPolicies(ociclient.RequestContext(ctx), core.ListVolumeBackupPoliciesRequest{
 			CompartmentId: new(provider.config.CompartmentID), Page: page, Limit: new(100),
 		})
 		if err != nil {
@@ -271,7 +311,7 @@ func (provider *sdkProvider) CreateVolumeBackupPolicy(ctx context.Context, name 
 			TimeZone: core.VolumeBackupScheduleTimeZoneEnum(schedule.TimeZone),
 		})
 	}
-	response, err := provider.storage.CreateVolumeBackupPolicy(ctx, core.CreateVolumeBackupPolicyRequest{
+	response, err := provider.storage.CreateVolumeBackupPolicy(ociclient.RequestContext(ctx), core.CreateVolumeBackupPolicyRequest{
 		CreateVolumeBackupPolicyDetails: details, OpcRetryToken: new(retryToken),
 	})
 	if err != nil {
@@ -281,7 +321,7 @@ func (provider *sdkProvider) CreateVolumeBackupPolicy(ctx context.Context, name 
 }
 
 func (provider *sdkProvider) VolumeBackupPolicyAssignment(ctx context.Context, volumeID string) (string, error) {
-	response, err := provider.storage.GetVolumeBackupPolicyAssetAssignment(ctx, core.GetVolumeBackupPolicyAssetAssignmentRequest{AssetId: new(volumeID)})
+	response, err := provider.storage.GetVolumeBackupPolicyAssetAssignment(ociclient.RequestContext(ctx), core.GetVolumeBackupPolicyAssetAssignmentRequest{AssetId: new(volumeID)})
 	if err != nil {
 		return "", fmt.Errorf("get OCI volume backup policy assignment: %w", err)
 	}
@@ -295,7 +335,7 @@ func (provider *sdkProvider) VolumeBackupPolicyAssignment(ctx context.Context, v
 }
 
 func (provider *sdkProvider) AssignVolumeBackupPolicy(ctx context.Context, volumeID, policyID string) error {
-	if _, err := provider.storage.CreateVolumeBackupPolicyAssignment(ctx, core.CreateVolumeBackupPolicyAssignmentRequest{
+	if _, err := provider.storage.CreateVolumeBackupPolicyAssignment(ociclient.RequestContext(ctx), core.CreateVolumeBackupPolicyAssignmentRequest{
 		CreateVolumeBackupPolicyAssignmentDetails: core.CreateVolumeBackupPolicyAssignmentDetails{AssetId: new(volumeID), PolicyId: new(policyID)},
 	}); err != nil {
 		return fmt.Errorf("assign OCI volume backup policy: %w", err)

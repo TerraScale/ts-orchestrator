@@ -207,15 +207,19 @@ func (source *ColdStartMaterial) Provision(ctx context.Context, target bootstrap
 	if source == nil || !now.Before(source.grant.ExpiresAt()) || source.verifySource(ctx) != nil || !source.publicationTargetAllowed(target) {
 		return bootstrapmaterial.Publication{}, ErrMaterialSource
 	}
+	ctx, cancel := context.WithDeadline(ctx, source.record.ExpiresAt)
+	defer cancel()
 	ctx = ociclient.WithAuthority(ctx, source.guard)
 	provision := bootstrapmaterial.ProvisionDurable
 	if source.link != nil {
 		provision = bootstrapmaterial.ProvisionLinkDurable
 	}
+	sourceContext := ctx
+	ctx = bootstrapmaterial.WithPublicationGuard(ctx, source.guardPublication)
 	publication, err := provision(ctx, source.directory, target, management, bundles, now, func(journal []byte) error {
 		next := source.state
 		next.Journal = bytes.Clone(journal)
-		etag, err := source.write(ctx, next, source.etag)
+		etag, err := source.write(sourceContext, next, source.etag)
 		if err != nil {
 			clear(next.Journal)
 			return err
@@ -481,6 +485,8 @@ func (source *ColdStartMaterial) restore(ctx context.Context) error {
 	if err != nil || digestWire(configWire) != source.grant.PlanDigest() || !time.Now().Before(record.ExpiresAt) {
 		return ErrMaterialSource
 	}
+	ctx, cancel := context.WithDeadline(ctx, record.ExpiresAt)
+	defer cancel()
 	if len(source.state.Journal) > 0 {
 		if err := writeSourceFile(filepath.Join(parent, "publication.json"), source.state.Journal); err != nil {
 			return err
@@ -496,12 +502,21 @@ func (source *ColdStartMaterial) restore(ctx context.Context) error {
 		if err := syncSourceDirectory(parent); err != nil {
 			return err
 		}
+		if err := source.guardPublication(ctx); err != nil {
+			return err
+		}
+		if !time.Now().Before(record.ExpiresAt) {
+			return ErrMaterialSource
+		}
 		if err := os.Rename(parent, source.directory); err != nil {
 			return err
 		}
 		if err := syncSourceDirectory(filepath.Dir(source.directory)); err != nil {
 			return err
 		}
+	}
+	if err := source.guardPublication(ctx); err != nil {
+		return err
 	}
 	source.record = record
 	return nil
@@ -558,6 +573,10 @@ func (source *ColdStartMaterial) restoreJournal(ctx context.Context) error {
 			os.Remove(file.Name())
 			return err
 		}
+		if err := source.guardPublication(ctx); err != nil {
+			os.Remove(temporary)
+			return err
+		}
 		if err := unix.Renameat(unix.AT_FDCWD, temporary, dir, name); err != nil {
 			os.Remove(file.Name())
 			return err
@@ -567,10 +586,16 @@ func (source *ColdStartMaterial) restoreJournal(ctx context.Context) error {
 		return err
 	}
 	if len(source.state.Journal) == 0 {
+		if err := source.guardPublication(ctx); err != nil {
+			return err
+		}
 		if err := unix.Unlinkat(dir, "publication.json", 0); err != nil && !errors.Is(err, unix.ENOENT) {
 			return err
 		}
-		return unix.Fsync(dir)
+		if err := unix.Fsync(dir); err != nil {
+			return err
+		}
+		return source.guardPublication(ctx)
 	}
 	file, err := os.CreateTemp(filepath.Dir(source.directory), ".restore-journal-")
 	if err != nil {
@@ -588,10 +613,16 @@ func (source *ColdStartMaterial) restoreJournal(ctx context.Context) error {
 	if err := file.Close(); err != nil {
 		return err
 	}
+	if err := source.guardPublication(ctx); err != nil {
+		return err
+	}
 	if err := unix.Renameat(unix.AT_FDCWD, file.Name(), dir, "publication.json"); err != nil {
 		return err
 	}
-	return unix.Fsync(dir)
+	if err := unix.Fsync(dir); err != nil {
+		return err
+	}
+	return source.guardPublication(ctx)
 }
 
 func writeSourceFile(path string, body []byte) error {

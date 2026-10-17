@@ -62,8 +62,8 @@ type rootRegistry struct {
 	repairPending atomic.Bool
 	repairing     atomic.Bool
 	repairs       sync.WaitGroup
-	// adopting serializes adoption, file write included, so readers under mu
-	// never wait on I/O.
+	// adopting orders root writes/adoption with function intent admission;
+	// readers under mu never wait on I/O.
 	adopting sync.Mutex
 	// fence is the spec registry's launch fence: a root switch waits for
 	// in-flight launches, which qualify their image under the current roots.
@@ -211,6 +211,8 @@ func (r *rootRegistry) startRepair(ctx context.Context) {
 // a failure to adopt it (a disk error, say) is returned, never answered by
 // writing the older chain over it.
 func (r *rootRegistry) repair(ctx context.Context) error {
+	r.adopting.Lock()
+	defer r.adopting.Unlock()
 	r.mu.Lock()
 	adopted := r.chain
 	r.mu.Unlock()
@@ -222,7 +224,7 @@ func (r *rootRegistry) repair(ctx context.Context) error {
 		chain, err := trust.DecodeRootChain(entry.Value())
 		if err == nil && chain.Extends(adopted) {
 			if _, err := trust.VerifyRootChain(r.genesis, r.identity, chain); err == nil {
-				return r.adopt(chain)
+				return r.adoptLocked(chain)
 			}
 		}
 	case !errors.Is(err, jetstream.ErrKeyNotFound):
@@ -249,6 +251,10 @@ func (r *rootRegistry) repair(ctx context.Context) error {
 func (r *rootRegistry) adopt(chain trust.RootChain) error {
 	r.adopting.Lock()
 	defer r.adopting.Unlock()
+	return r.adoptLocked(chain)
+}
+
+func (r *rootRegistry) adoptLocked(chain trust.RootChain) error {
 	r.mu.Lock()
 	held := r.chain
 	r.mu.Unlock()
@@ -301,6 +307,8 @@ func (r *rootRegistry) reply(status string) rootChainReply {
 // already on the chain is a no-op; otherwise it must extend the newer of
 // the adopted chain and the stored record and still be current.
 func (r *rootRegistry) apply(ctx context.Context, wire []byte, epoch uint64, fencer authority.Fencer) (rootChainReply, error) {
+	r.adopting.Lock()
+	defer r.adopting.Unlock()
 	var signed trust.SignedRotation
 	if err := protocol.DecodeStrict(wire, &signed, maxRegistrationBytes); err != nil {
 		return rootChainReply{}, fmt.Errorf("decode root rotation: %w", err)
@@ -375,7 +383,7 @@ func (r *rootRegistry) apply(ctx context.Context, wire []byte, epoch uint64, fen
 			return rootChainReply{}, fmt.Errorf("store root chain: %w", err)
 		}
 	}
-	if err := r.adopt(next); err != nil {
+	if err := r.adoptLocked(next); err != nil {
 		return rootChainReply{}, err
 	}
 	if !onChain {

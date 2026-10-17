@@ -80,7 +80,9 @@ while :; do sleep 1; done
 	if err != nil {
 		t.Fatal(err)
 	}
-	task := &api.Task{ID: fmt.Sprintf("secrets%d", time.Now().UnixNano()), ServiceID: "containersecretsintegration", NodeID: "secretsnode", Spec: api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 250_000_000, MemoryBytes: 64 << 20}}}}
+	task := &api.Task{ID: fmt.Sprintf("secrets%d", time.Now().UnixNano()), ServiceID: "containersecretsintegration", NodeID: "secretsnode",
+		ServiceAnnotations: api.Annotations{Labels: map[string]string{LabelRole: "ts-auth"}},
+		Spec:               api.TaskSpec{Runtime: runtime, Resources: containerTestResources(250_000_000, 64<<20)}}
 	controllerFor := func(executor *Executor, task *api.Task) *controller {
 		t.Helper()
 		c, err := executor.Controller(task)
@@ -103,7 +105,11 @@ while :; do sleep 1; done
 	admitted := Admission{Role: "container", Region: "sa-saopaulo-1", HostID: "secretshost", InstanceID: "ocid1.instance.secretsfixture"}
 	binding := ContainerTaskBinding{TaskID: task.ID, ServiceID: task.ServiceID, NodeID: task.NodeID, InstanceID: admitted.InstanceID, Region: admitted.Region, HostID: admitted.HostID, Fingerprint: c.fingerprint}
 	material := ContainerMaterial{Binding: binding, ExpiresAt: time.Now().Add(time.Hour), User: "10001:10002", Files: map[string][]byte{"database_password_file": []byte("fixture-database-password")}, FileEnvironment: map[string]string{"DATABASE_PASSWORD_FILE": "database_password_file"}}
+	var providerError error
 	provider := containerMaterialFixture(func(_ context.Context, requested ContainerTaskBinding) (ContainerMaterial, error) {
+		if providerError != nil {
+			return ContainerMaterial{}, providerError
+		}
 		if requested != binding {
 			return ContainerMaterial{}, errors.New("fixture rejected unassigned recipient")
 		}
@@ -167,6 +173,8 @@ while :; do sleep 1; done
 	if err := c.Update(ctx, changed); !errors.Is(err, swarmexec.ErrTaskUpdateRejected) {
 		t.Fatalf("renewal reused old task: %v", err)
 	}
+	// The negative calls above reuse a fixture controller after upstream would reject it.
+	c = controllerFor(e, task)
 	if err := c.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -174,6 +182,7 @@ while :; do sleep 1; done
 	if err != nil || first.PID == 0 {
 		t.Fatalf("secret consumer did not start: %v", err)
 	}
+	checkExecutorTaskLoad(t, ctx, e, c, func(err error) { providerError = err })
 	for deadline := time.Now().Add(10 * time.Second); ; {
 		var logs bytes.Buffer
 		err := c.Logs(ctx, swarmexec.LogPublisherFunc(func(_ context.Context, message api.LogMessage) error { _, err := logs.Write(message.Data); return err }), api.LogSubscriptionOptions{})
@@ -211,6 +220,7 @@ while :; do sleep 1; done
 	if err != nil || first.PID != second.PID {
 		t.Fatalf("recovery duplicated process: %v", err)
 	}
+	checkExecutorTaskLoad(t, ctx, e, c, func(err error) { providerError = err })
 	file := filepath.Join(c.containerMaterialPath(), "database_password_file")
 	if err := os.Chmod(file, 0640); err != nil {
 		t.Fatal(err)
@@ -233,9 +243,8 @@ while :; do sleep 1; done
 		t.Fatalf("transport grant expiry stopped a running consumer: %v, %v", status, err)
 	}
 	material.ExpiresAt = time.Now().Add(time.Hour)
-	if err := c.Shutdown(ctx); err != nil {
-		t.Fatal(err)
-	}
+	c = controllerFor(e, task)
+	checkExecutorTerminalTaskLoad(t, ctx, e, c)
 	if err := c.Wait(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +285,7 @@ func testContainerCredentialExpiry(t *testing.T, role string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task := &api.Task{ID: fmt.Sprintf("expiry%d", time.Now().UnixNano()), ServiceID: "credentialexpiryintegration", NodeID: "expirynode", Spec: api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 250_000_000, MemoryBytes: 64 << 20}}}}
+	task := &api.Task{ID: fmt.Sprintf("expiry%d", time.Now().UnixNano()), ServiceID: "credentialexpiryintegration", NodeID: "expirynode", Spec: api.TaskSpec{Runtime: runtime, Resources: containerTestResources(250_000_000, 64<<20)}}
 	if role == "function-worker" {
 		task.ServiceAnnotations.Labels = map[string]string{LabelRole: role, "terrascale.function-proof": "expiry-fixture"}
 		task.Spec.Resources.Limits.Generic = []*api.GenericResource{genericresource.NewDiscrete(FunctionWorkerSlot, 1)}

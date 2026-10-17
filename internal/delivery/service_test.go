@@ -11,7 +11,6 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,7 +21,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
@@ -210,14 +208,11 @@ func testService(t *testing.T, writer *testWriter) (*Service, context.Context) {
 	return s, ctx
 }
 
-func testServiceWithRuntime(t *testing.T, writer *testWriter) (*Service, *natscell.Runtime, context.Context) {
+func testServiceWithRuntime(t *testing.T, writer *testWriter) (*Service, *deliveryTestBroker, context.Context) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	t.Cleanup(cancel)
-	r, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: "one", Replicas: 1, Lab: true, Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "js")}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	r := startDeliveryTestBroker(t, ctx)
 	t.Cleanup(func() { _ = r.Close() })
 	s, err := Open(ctx, Config{Conn: r.Conn(), JS: r.JetStream(), Cell: "lab", Replicas: 1, Signer: testCodec{}, Verifier: testCodec{}, ArtifactSigner: testCodec{}, ArtifactVerifier: testCodec{}, AuthorizeArtifact: func(context.Context, string, ArtifactRecord) error { return nil }, Authorize: func(context.Context, string, Intent) error { return nil }, Fencer: testFence{}, Planner: testPlanner{}, Writer: writer})
 	if err != nil {

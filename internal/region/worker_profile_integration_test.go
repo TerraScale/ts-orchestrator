@@ -47,7 +47,9 @@ func TestWorkerProfileAuthorityRequiresIndependentCurrentSources(t *testing.T) {
 	for _, role := range []string{"container", "wasm"} {
 		for _, arch := range []string{"arm64", "amd64"} {
 			grant.WorkerProfiles = append(grant.WorkerProfiles, WorkerProfile{Cell: "GRU", Environment: "production", Role: role, Architecture: arch, Shape: "VM.Standard.A1.Flex", OCPUs: 2, MemoryGB: 12, BootGB: 50, AvailabilityDomains: []string{"test:AD-1"}, CompartmentRef: ref("workload_compartment"), SubnetRef: ref("subnet"), NSGRef: ref("workload_network_security_group"), Runtime: release.ProductionRuntime,
-				ImageSource: WorkerImageSource{OCIRegion: "sa-saopaulo-1", Namespace: "ns", Bucket: bucket, CurrentObject: releasechannel.CurrentImageObject(role, arch, "production"), ImageDomain: release.ImageDomain, QualificationDomain: release.ProductionQualificationDomain}, Bootstrap: WorkerBootstrapTemplate{Derivation: WorkerBootstrapDerivationV1, MaterialPlanSHA256: strings.Repeat("a", 64), VaultRef: ref("vault"), KMSKeyRef: ref("key"), RecipientPermission: "SECRET_BUNDLE_READ"}})
+				PoolMembership:  WorkerPoolMembership{Purpose: PoolMembershipQuarantineV1, Provenance: PoolMembershipProvenanceV1},
+				CapacityJournal: WorkerCapacityJournal{Purpose: CapacityJournalPurposeV1, Principal: CapacityJournalPrincipalV1, Delta: CapacityJournalDeltaV1},
+				ImageSource:     WorkerImageSource{OCIRegion: "sa-saopaulo-1", Namespace: "ns", Bucket: bucket, CurrentObject: releasechannel.CurrentImageObject(role, arch, "production"), ImageDomain: release.ImageDomain, QualificationDomain: release.ProductionQualificationDomain}, Bootstrap: WorkerBootstrapTemplate{Derivation: WorkerBootstrapDerivationV1, MaterialPlanSHA256: strings.Repeat("a", 64), VaultRef: ref("vault"), KMSKeyRef: ref("key"), RecipientPermission: "SECRET_BUNDLE_READ"}})
 		}
 	}
 	if err := ValidateWorkerProfiles(grant, grant.WorkerProfiles, roots, now); err != nil {
@@ -84,6 +86,21 @@ func TestWorkerProfileAuthorityRequiresIndependentCurrentSources(t *testing.T) {
 	}
 	grant.InfrastructureSpend = spending
 	original, _ := json.Marshal(grant.WorkerProfiles, json.Deterministic(true))
+	for _, permission := range []WorkerCapacityJournal{
+		{},
+		{Purpose: "general-foundation-write", Principal: CapacityJournalPrincipalV1, Delta: CapacityJournalDeltaV1},
+		{Purpose: CapacityJournalPurposeV1, Principal: "current-regional-writer", Delta: CapacityJournalDeltaV1},
+		{Purpose: CapacityJournalPurposeV1, Principal: CapacityJournalPrincipalV1, Delta: "replace-record"},
+	} {
+		if err := json.Unmarshal(original, &grant.WorkerProfiles); err != nil {
+			t.Fatal(err)
+		}
+		grant.WorkerProfiles[0].CapacityJournal = permission
+		write()
+		if _, err := reader.WorkerProfiles(t.Context(), "GRU", "container"); err == nil || strings.Contains(err.Error(), "independently authenticated OCI source") {
+			t.Fatalf("signed worker profile without exact HOME capacity purpose reached runtime source: %v", err)
+		}
+	}
 	for _, alter := range []func(){func() { grant.WorkerProfiles[0].NSGRef = ref("network_security_group") }, func() { grant.WorkerProfiles[0].ImageSource.CurrentObject = "caller-selected" }, func() { grant.WorkerProfiles[0].Bootstrap.RecipientPermission = "MANAGE_SECRETS" }, func() { grant.WorkerProfiles[0].OCPUs = 4 }, func() { grant.WorkerProfiles[0].Bootstrap.MaterialPlanSHA256 = strings.Repeat("b", 64) }, func() { grant.WorkerProfiles[0].AvailabilityDomains = []string{"test:AD-1", "test:AD-1"} }} {
 		if err := json.Unmarshal(original, &grant.WorkerProfiles); err != nil {
 			t.Fatal(err)

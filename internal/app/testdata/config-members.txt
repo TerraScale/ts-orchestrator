@@ -1,10 +1,7 @@
-version 1
+version 2
 .Controller struct json:"controller"
 .Controller.ArtifactStoreMaxBytes int64 json:"artifact_store_max_bytes,omitzero"
 .Controller.Autoscale *struct json:"autoscale,omitempty"
-.Controller.Autoscale.Enabled bool json:"enabled"
-.Controller.Autoscale.HostTelemetry bool json:"host_telemetry,omitzero"
-.Controller.Autoscale.IntervalSeconds int json:"interval_seconds,omitzero"
 .Controller.Autoscale.Services []struct json:"services,omitempty"
 .Controller.Autoscale.Services.Environment string json:"environment"
 .Controller.Autoscale.Services.Kind string json:"kind"
@@ -141,10 +138,6 @@ version 1
 .Controller.SpecTrust.RootPublicKeyFile string json:"root_public_key_file"
 .Controller.TerraBaseCACertFile string json:"terrabase_ca_cert_file,omitempty"
 .Controller.TerraBaseCAKeyFile string json:"terrabase_ca_key_file,omitempty"
-.Controller.TerraBaseSeats *struct json:"terrabase_seats,omitempty"
-.Controller.TerraBaseSeats.DrainGraceSeconds int json:"drain_grace_seconds,omitzero"
-.Controller.TerraBaseSeats.Enabled bool json:"enabled"
-.Controller.TerraBaseSeats.SettleSeconds int json:"settle_seconds,omitzero"
 .Controller.TrustKeyFile string json:"trust_key_file,omitempty"
 .Controller.TrustedSigners []struct json:"trusted_signers,omitempty"
 .Controller.TrustedSigners.Actor string json:"actor"

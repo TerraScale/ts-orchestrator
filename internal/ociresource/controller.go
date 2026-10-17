@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -60,6 +61,8 @@ func (c *Controller[S, O]) validate() error {
 // independently: a failure is recorded in its status and does not stop the
 // other records. Context and fencing errors abort the pass.
 func (c *Controller[S, O]) Reconcile(ctx context.Context, epoch uint64) (Result, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := c.validate(); err != nil {
@@ -140,6 +143,9 @@ func (c *Controller[S, O]) reconcileOne(ctx context.Context, epoch uint64, desir
 	bindOperation := func(ctx context.Context) context.Context {
 		target.OperationID = desired.Operation.ID
 		status.OperationID = target.OperationID
+		ctx = ociclient.WithWireAttempt(ctx, func(request *http.Request) (func(*http.Response, error, bool) error, error) {
+			return checkpointRequest(request.Context(), request, &desired, c.Store, epoch, c.now)
+		})
 		return context.WithValue(ociclient.WithAuthority(ctx, target.Fence), operationContextKey{}, operationContext{id: target.OperationID,
 			record: func(ctx context.Context, id string) error {
 				if id == "" {
@@ -159,7 +165,9 @@ func (c *Controller[S, O]) reconcileOne(ctx context.Context, epoch uint64, desir
 			}})
 	}
 	if desired.Operation != nil && len(desired.Operation.WorkRequests) != 0 {
-		if err := target.Fence(ctx); err != nil {
+		// Reading an original accepted work request needs live authority but
+		// must not claim a new mutation before its outcome is known.
+		if err := c.guard(ctx, epoch); err != nil {
 			return status, err
 		}
 		recovery, ok := any(c.Resource).(interface {
@@ -189,7 +197,7 @@ func (c *Controller[S, O]) reconcileOne(ctx context.Context, epoch uint64, desir
 			}
 			return status, fmt.Errorf("previous OCI operation failed: %w", recoveryErr)
 		}
-		if err := target.Fence(ctx); err != nil {
+		if err := c.guard(ctx, epoch); err != nil {
 			return status, err
 		}
 	}

@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/gofrs/flock"
@@ -40,10 +41,36 @@ const managementBinding = "terrascale-accepted-identity"
 const managementNodeID = "terrascale-manager-node-id"
 const controllerCgroup = "/system.slice/terrascale-orchestrator-controller.service"
 
+// StatefulServiceAuthorizer derives the exact current signed service in root.
+// The unprivileged socket caller cannot supply its readers or a cached seal.
+// The callback runs synchronously once and must not be retained.
+type StatefulServiceAuthorizer interface {
+	WithStatefulService(context.Context, *api.ServiceSpec, func(context.Context) error) error
+}
+
+// ManagementPeerPID returns the kernel-authenticated Unix peer for root's exact
+// process witness. RPC payloads cannot construct this private credential type.
+func ManagementPeerPID(ctx context.Context) (int32, error) {
+	if admitted, _ := ctx.Value(managementAdmission{}).(bool); !admitted {
+		return 0, denied()
+	}
+	remote, ok := peer.FromContext(ctx)
+	if !ok {
+		return 0, denied()
+	}
+	identity, ok := remote.AuthInfo.(unixPeer)
+	if !ok || identity.pid <= 0 {
+		return 0, denied()
+	}
+	return identity.pid, nil
+}
+
+type managementAdmission struct{}
+
 // StartManagementServer exposes only controller operations beside the root-owned
 // manager. The private upstream control and containerd sockets remain root-only.
-func StartManagementServer(ctx context.Context, node *Node, reader *bootstrapstart.CurrentFounderAuthorityReader, accepted bootstrapstart.AcceptedIdentity) (io.Closer, error) {
-	if os.Geteuid() != 0 || node == nil || reader == nil {
+func StartManagementServer(ctx context.Context, node *Node, reader *bootstrapstart.CurrentFounderAuthorityReader, accepted bootstrapstart.AcceptedIdentity, stateful StatefulServiceAuthorizer) (io.Closer, error) {
+	if os.Geteuid() != 0 || node == nil || reader == nil || stateful == nil {
 		return nil, errors.New("management requires the root-owned admitted manager")
 	}
 	authority, err := reader.ReadRuntimeAuthority(ctx, accepted, time.Now().UTC())
@@ -80,7 +107,7 @@ func StartManagementServer(ctx context.Context, node *Node, reader *bootstrapsta
 		}
 		return nil
 	}
-	return startManagementAt(ctx, managementSocket, uint32(uid), uint32(gid), controllerCgroup, binding, node, region, identity.Environment, client, refresh)
+	return startManagementAt(ctx, managementSocket, uint32(uid), uint32(gid), controllerCgroup, binding, node, region, identity.Environment, client, refresh, stateful)
 }
 
 // DialManagement authenticates the root manager over the fixed local socket.
@@ -171,11 +198,12 @@ type managementServer struct {
 	api.UnimplementedControlServer
 	client              api.ControlClient
 	region, environment string
+	stateful            StatefulServiceAuthorizer
 }
 type managementListener struct{ close func() }
 
 func (s *managementListener) Close() error { s.close(); return nil }
-func startManagementAt(ctx context.Context, path string, uid, gid uint32, cgroup, binding string, node *Node, region, environment string, client api.ControlClient, refresh func(context.Context) error) (io.Closer, error) {
+func startManagementAt(ctx context.Context, path string, uid, gid uint32, cgroup, binding string, node *Node, region, environment string, client api.ControlClient, refresh func(context.Context) error, stateful StatefulServiceAuthorizer) (io.Closer, error) {
 	parent, err := os.Lstat(filepath.Dir(path))
 	if err != nil {
 		return nil, err
@@ -237,11 +265,11 @@ func startManagementAt(ctx context.Context, path string, uid, gid uint32, cgroup
 			return nil, err
 		}
 		switch info.FullMethod {
-		case "/docker.swarmkit.v1.Control/ListClusters", workerPrepareMethod, workerAdmitMethod, workerAuditMethod, workerReadMembershipMethod, "/docker.swarmkit.v1.Control/GetNode", "/docker.swarmkit.v1.Control/ListNodes", "/docker.swarmkit.v1.Control/UpdateNode", "/docker.swarmkit.v1.Control/GetTask", "/docker.swarmkit.v1.Control/ListTasks", "/docker.swarmkit.v1.Control/GetService", "/docker.swarmkit.v1.Control/ListServices", "/docker.swarmkit.v1.Control/CreateService", "/docker.swarmkit.v1.Control/UpdateService", "/docker.swarmkit.v1.Control/GetConfig", "/docker.swarmkit.v1.Control/ListConfigs", "/docker.swarmkit.v1.Control/CreateConfig", "/docker.swarmkit.v1.Control/UpdateConfig":
+		case "/docker.swarmkit.v1.Control/ListClusters", workerPrepareMethod, workerAdmitMethod, workerAuditMethod, workerReadMembershipMethod, "/docker.swarmkit.v1.Control/GetNode", "/docker.swarmkit.v1.Control/ListNodes", "/docker.swarmkit.v1.Control/UpdateNode", "/docker.swarmkit.v1.Control/GetTask", "/docker.swarmkit.v1.Control/ListTasks", "/docker.swarmkit.v1.Control/GetService", "/docker.swarmkit.v1.Control/ListServices", "/docker.swarmkit.v1.Control/CreateService", "/docker.swarmkit.v1.Control/UpdateService", "/docker.swarmkit.v1.Control/RemoveService", "/docker.swarmkit.v1.Control/GetConfig", "/docker.swarmkit.v1.Control/ListConfigs", "/docker.swarmkit.v1.Control/CreateConfig", "/docker.swarmkit.v1.Control/UpdateConfig":
 		default:
 			return nil, denied()
 		}
-		result, err := handler(ctx, req)
+		result, err := handler(context.WithValue(ctx, managementAdmission{}, true), req)
 		if err != nil {
 			return nil, status.Error(status.Code(err), "management operation failed")
 		}
@@ -249,8 +277,10 @@ func startManagementAt(ctx context.Context, path string, uid, gid uint32, cgroup
 			return nil, status.Error(codes.PermissionDenied, "current controller authority changed")
 		}
 		return result, nil
-	}))
-	api.RegisterControlServer(server, &managementServer{client: client, region: region, environment: environment})
+	}), grpc.StreamInterceptor(managementStreamInterceptor(uid, cgroup, binding, refresh)))
+	scope := &managementServer{client: client, region: region, environment: environment, stateful: stateful}
+	api.RegisterControlServer(server, scope)
+	registerManagementObservation(server, node, scope)
 	registerWorkerManagement(server, node)
 	stop := context.AfterFunc(ctx, func() { server.Stop(); _ = listener.Close(); _ = lock.Unlock() })
 	serving := &managementListener{close: sync.OnceFunc(func() { stop(); server.Stop(); _ = listener.Close(); _ = lock.Unlock() })}
@@ -263,6 +293,8 @@ func dialManagementAt(ctx context.Context, path string, serverUID uint32, bindin
 		return (&net.Dialer{}).DialContext(ctx, "unix", path)
 	}), grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		return invoker(metadata.AppendToOutgoingContext(ctx, managementBinding, binding), method, req, reply, cc, opts...)
+	}), grpc.WithStreamInterceptor(func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+		return streamer(metadata.AppendToOutgoingContext(ctx, managementBinding, binding), desc, cc, method, opts...)
 	}))
 	if err != nil {
 		return nil, "", nil, err
@@ -285,18 +317,57 @@ func (s *managementServer) scoped(a api.Annotations) bool {
 	return a.Labels[LabelRegion] == s.region && a.Labels[LabelEnvironment] == s.environment && entityid.Valid(a.Labels[LabelIntentID]) && intentName.MatchString(a.Labels[LabelRole])
 }
 func (s *managementServer) floor(spec *api.ConfigSpec) bool {
-	if spec == nil || spec.Templating != nil || !s.scoped(spec.Annotations) {
+	if spec == nil || spec.Templating != nil || !s.scoped(spec.Annotations) || !validIntentLabels(spec.Annotations.Labels) {
 		return false
 	}
 	sequence, err := strconv.ParseUint(spec.Annotations.Labels["terrascale.release-sequence"], 10, 64)
 	if err != nil || sequence == 0 {
 		return false
 	}
-	identity := sha256.Sum256([]byte(s.environment + "/" + s.region + "/" + spec.Annotations.Labels[LabelRole]))
+	labels := spec.Annotations.Labels
+	if strings.HasPrefix(spec.Annotations.Name, "ts-worker-family-") {
+		migration := labels[labelReleaseMigration]
+		digest, err := hex.DecodeString(migration)
+		if labels[LabelRole] != "function-worker" || err != nil || len(digest) != sha256.Size || migration != strings.ToLower(migration) {
+			return false
+		}
+		identity := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%d", migration, labels[LabelRole], s.environment, sequence)))
+		return spec.Annotations.Name == fmt.Sprintf("ts-worker-family-%x", identity[:16])
+	}
+	scope := s.environment + "/" + s.region + "/" + labels[LabelRole]
+	if architecture := labels[labelReleaseArchitecture]; architecture != "" {
+		if labels[LabelRole] != "function-worker" || architecture != "arm64" && architecture != "amd64" {
+			return false
+		}
+		scope += "/" + architecture
+	}
+	identity := sha256.Sum256([]byte(scope))
 	return spec.Annotations.Name == fmt.Sprintf("ts-release-%x", identity[:16])
 }
 func denied() error {
 	return status.Error(codes.PermissionDenied, "management operation outside admitted scope")
+}
+
+func validIntentLabels(labels map[string]string) bool {
+	stored, hasGeneration := labels[LabelIntentGeneration]
+	fingerprint, hasFingerprint := labels[labelIntentFingerprint]
+	if !hasGeneration && !hasFingerprint {
+		return true
+	}
+	generation, err := strconv.ParseUint(stored, 10, 64)
+	if err != nil || generation == 0 || strconv.FormatUint(generation, 10) != stored {
+		return false
+	}
+	digest, err := hex.DecodeString(fingerprint)
+	return err == nil && len(digest) == sha256.Size && fingerprint == strings.ToLower(fingerprint)
+}
+
+func retainsIntentGeneration(before, after map[string]string) bool {
+	if !validIntentLabels(before) || !validIntentLabels(after) {
+		return false
+	}
+	generation, _ := strconv.ParseUint(after[LabelIntentGeneration], 10, 64)
+	return checkIntentGeneration(before, ServiceIntent{Generation: generation, intentFingerprint: after[labelIntentFingerprint]}) == nil
 }
 
 func (s *managementServer) GetNode(ctx context.Context, req *api.GetNodeRequest) (*api.GetNodeResponse, error) {
@@ -306,7 +377,7 @@ func (s *managementServer) ListNodes(ctx context.Context, req *api.ListNodesRequ
 	return s.client.ListNodes(ctx, req)
 }
 func (s *managementServer) UpdateNode(ctx context.Context, req *api.UpdateNodeRequest) (*api.UpdateNodeResponse, error) {
-	if req.Spec == nil {
+	if req.Spec == nil || req.Spec.Availability != api.NodeAvailabilityPause {
 		return nil, denied()
 	}
 	current, err := s.client.GetNode(ctx, &api.GetNodeRequest{NodeID: req.NodeID})
@@ -350,7 +421,7 @@ func (s *managementServer) ListServices(ctx context.Context, req *api.ListServic
 	return result, nil
 }
 func (s *managementServer) managedService(spec *api.ServiceSpec) bool {
-	if spec == nil || !s.scoped(spec.Annotations) || spec.GetReplicated() == nil || len(spec.Networks) != 0 {
+	if spec == nil || !s.scoped(spec.Annotations) || !validIntentLabels(spec.Annotations.Labels) || spec.GetReplicated() == nil || spec.GetReplicated().Replicas > autoscale.MaxReplicas || len(spec.Networks) != 0 {
 		return false
 	}
 	placement := spec.Task.Placement
@@ -361,6 +432,12 @@ func (s *managementServer) managedService(spec *api.ServiceSpec) bool {
 	if spec.Annotations.Labels[LabelRole] == "function-worker" {
 		constraints[1] = "node.labels." + LabelExecutionScope + "==tenant"
 		constraints = append(constraints, "node.labels."+LabelHostRole+"==wasm")
+	}
+	if spec.Annotations.Labels[LabelRole] == "ts-auth" {
+		constraints = append(constraints, "node.role==manager")
+		if placement.MaxReplicas != 1 || spec.GetReplicated().Replicas > 3 {
+			return false
+		}
 	}
 	if !slices.Equal(placement.Constraints, constraints) {
 		return false
@@ -373,28 +450,54 @@ func (s *managementServer) managedService(spec *api.ServiceSpec) bool {
 }
 
 func (s *managementServer) CreateService(ctx context.Context, req *api.CreateServiceRequest) (*api.CreateServiceResponse, error) {
-	if !s.managedService(req.Spec) {
+	if s.managedService(req.Spec) {
+		return s.client.CreateService(ctx, req)
+	}
+	var result *api.CreateServiceResponse
+	err := s.withStatefulService(ctx, req.Spec, func(effectCtx context.Context) error {
+		var err error
+		result, err = s.client.CreateService(effectCtx, req)
+		return err
+	})
+	if err == nil && result == nil {
 		return nil, denied()
 	}
-	return s.client.CreateService(ctx, req)
+	return result, err
 }
 func (s *managementServer) UpdateService(ctx context.Context, req *api.UpdateServiceRequest) (*api.UpdateServiceResponse, error) {
-	if !s.managedService(req.Spec) {
+	stateful := statefulService(req.Spec)
+	if !s.managedService(req.Spec) && !stateful {
 		return nil, denied()
 	}
 	current, err := s.GetService(ctx, &api.GetServiceRequest{ServiceID: req.ServiceID})
 	if err != nil {
 		return nil, err
 	}
+	if stateful != statefulService(&current.Service.Spec) {
+		return nil, denied()
+	}
+	if stateful {
+		if req.Rollback != api.UpdateServiceRequest_NONE || req.Spec.Annotations.Name != current.Service.Spec.Annotations.Name {
+			return nil, denied()
+		}
+		for _, key := range []string{"terrascale.database-id", "terrascale.partition-id", "terrascale.member-id"} {
+			if req.Spec.Annotations.Labels[key] != current.Service.Spec.Annotations.Labels[key] {
+				return nil, denied()
+			}
+		}
+	}
 	effective := req.Spec
 	switch req.Rollback {
 	case api.UpdateServiceRequest_NONE:
+		if !retainsIntentGeneration(current.Service.Spec.Annotations.Labels, effective.Annotations.Labels) {
+			return nil, denied()
+		}
 	case api.UpdateServiceRequest_PREVIOUS:
 		effective = current.Service.PreviousSpec
 	default:
 		return nil, denied()
 	}
-	if !s.managedService(effective) {
+	if !stateful && !s.managedService(effective) {
 		return nil, denied()
 	}
 	for _, key := range []string{LabelIntentID, LabelRole, LabelRegion, LabelEnvironment} {
@@ -402,7 +505,62 @@ func (s *managementServer) UpdateService(ctx context.Context, req *api.UpdateSer
 			return nil, denied()
 		}
 	}
+	if stateful {
+		var result *api.UpdateServiceResponse
+		err := s.withStatefulService(ctx, effective, func(effectCtx context.Context) error {
+			var err error
+			result, err = s.client.UpdateService(effectCtx, req)
+			return err
+		})
+		if err == nil && result == nil {
+			return nil, denied()
+		}
+		return result, err
+	}
 	return s.client.UpdateService(ctx, req)
+}
+
+func statefulService(spec *api.ServiceSpec) bool {
+	return spec != nil && spec.Annotations.Labels[LabelRole] == "terrabase" && spec.Annotations.Labels["terrascale.stateful"] == "true"
+}
+
+func (s *managementServer) withStatefulService(ctx context.Context, spec *api.ServiceSpec, effect func(context.Context) error) error {
+	if !statefulService(spec) || !s.scoped(spec.Annotations) || !validIntentLabels(spec.Annotations.Labels) || s.stateful == nil {
+		return denied()
+	}
+	called := false
+	invalid := false
+	var effectErr error
+	err := s.stateful.WithStatefulService(ctx, spec, func(effectCtx context.Context) error {
+		if called {
+			invalid = true
+			return denied()
+		}
+		called = true
+		if effectCtx == nil || effectCtx.Err() != nil {
+			invalid = true
+			return denied()
+		}
+		effectErr = effect(effectCtx)
+		return effectErr
+	})
+	if !called || invalid {
+		return denied()
+	}
+	if effectErr != nil {
+		return effectErr
+	}
+	return err
+}
+func (s *managementServer) RemoveService(ctx context.Context, req *api.RemoveServiceRequest) (*api.RemoveServiceResponse, error) {
+	current, err := s.GetService(ctx, &api.GetServiceRequest{ServiceID: req.ServiceID})
+	if err != nil {
+		return nil, err
+	}
+	if !s.managedService(&current.Service.Spec) {
+		return nil, denied()
+	}
+	return s.client.RemoveService(ctx, req)
 }
 func (s *managementServer) GetConfig(ctx context.Context, req *api.GetConfigRequest) (*api.GetConfigResponse, error) {
 	result, err := s.client.GetConfig(ctx, req)
@@ -432,7 +590,7 @@ func (s *managementServer) CreateConfig(ctx context.Context, req *api.CreateConf
 	return s.client.CreateConfig(ctx, req)
 }
 func (s *managementServer) UpdateConfig(ctx context.Context, req *api.UpdateConfigRequest) (*api.UpdateConfigResponse, error) {
-	if !s.floor(req.Spec) {
+	if !s.floor(req.Spec) || strings.HasPrefix(req.Spec.Annotations.Name, "ts-worker-family-") {
 		return nil, denied()
 	}
 	current, err := s.GetConfig(ctx, &api.GetConfigRequest{ConfigID: req.ConfigID})
@@ -443,12 +601,20 @@ func (s *managementServer) UpdateConfig(ctx context.Context, req *api.UpdateConf
 		return nil, denied()
 	}
 	before, after := current.Config.Spec.Annotations.Labels, req.Spec.Annotations.Labels
-	if len(before) != len(after) {
+	if !retainsIntentGeneration(before, after) {
 		return nil, denied()
 	}
+	for key := range after {
+		if _, exists := before[key]; !exists && key != LabelIntentGeneration && key != labelIntentFingerprint {
+			return nil, denied()
+		}
+	}
 	for key, value := range before {
+		if _, exists := after[key]; !exists {
+			return nil, denied()
+		}
 		switch key {
-		case "terrascale.release-sequence", "terrascale.release-fingerprint", "terrascale.release-baseline":
+		case "terrascale.release-sequence", "terrascale.release-fingerprint", "terrascale.release-baseline", LabelIntentGeneration, labelIntentFingerprint:
 		default:
 			if after[key] != value {
 				return nil, denied()

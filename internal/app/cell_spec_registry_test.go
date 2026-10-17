@@ -193,14 +193,14 @@ func TestSpecRegistryStartupRefusesRetiredStoredPolicy(t *testing.T) {
 }
 
 // The generation 0 set is the signed config's generic workloads; TerraBase
-// stays with placement, and only an enabled autoscale config reconciles.
+// stays with placement, and explicit signed service policies reconcile.
 func TestSpecRegistryBaselineFromSignedConfig(t *testing.T) {
 	resources := placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
 	spec := workload.ServiceSpec{Role: "web", Environment: "test", Kind: workload.KindStateless,
 		Replicas: workload.ReplicaBounds{Min: 1, Max: 2}}
 	cfg := Config{NATS: natscell.Config{Cell: "gru"}, Controller: ControllerConfig{
 		Workloads: map[string]WorkloadProfile{"terrabase": {Resources: resources}, "web": {Resources: resources}},
-		Autoscale: &AutoscaleConfig{Enabled: true, Services: []workload.ServiceSpec{spec}}}}
+		Autoscale: &AutoscaleConfig{Services: []workload.ServiceSpec{spec}}}}
 	newAcceptedSpecTrust(t, &cfg)
 	registry, err := newSpecRegistry(cfg, "")
 	if err != nil {
@@ -211,12 +211,12 @@ func TestSpecRegistryBaselineFromSignedConfig(t *testing.T) {
 		len(specs) != 1 || specs[0].Role != "web" || len(profiles) != 2 {
 		t.Fatalf("baseline %+v, profiles %v, specs %v", registry.current, profiles, specs)
 	}
-	cfg.Controller.Autoscale.Enabled = false
+	cfg.Controller.Autoscale = nil
 	if registry, err = newSpecRegistry(cfg, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, specs := registry.effective(); len(specs) != 0 {
-		t.Fatalf("a disabled autoscale config reconciles %v", specs)
+		t.Fatalf("an absent autoscale declaration reconciles %v", specs)
 	}
 	if registry.roots == nil || len(registry.roots.current()) == 0 {
 		t.Fatal("accepted image roots are missing")

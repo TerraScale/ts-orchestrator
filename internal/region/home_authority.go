@@ -30,6 +30,7 @@ type homeIAMRecord struct {
 	TenancyID       string    `json:"tenancyId"`
 	InstallationID  string    `json:"installationId"`
 	InstanceID      string    `json:"instanceId"`
+	OperatorID      string    `json:"operatorId,omitempty"`
 	GrantDigest     string    `json:"grantDigest"`
 	GrantGeneration uint64    `json:"grantGeneration"`
 	Generation      uint64    `json:"generation"`
@@ -48,6 +49,7 @@ type HomeIAMAuthority struct {
 	proof             bootstrapstart.VerifiedSourceFounder
 	runtime           bootstrapstart.VerifiedRuntimeIAM
 	instanceID        string
+	operator          *foundationOperator
 	tenancyID         string
 	installationID    string
 	grantDigest       string
@@ -107,18 +109,23 @@ func (authority *HomeIAMAuthority) initialize(ctx context.Context, factory *ocic
 	if !ok {
 		return nil, bootstrapstart.ErrSourceFounder
 	}
-	grant, err := resolver.BootstrapMaterial(ctx, entry.Cell)
-	if err != nil || !grant.IsVerified() || homeGrantDigest(grant.FoundationGrantWire()) != authority.grantDigest || grant.InstallationID() != authority.installationID || grant.Generation() != authority.grantGeneration {
-		return nil, errors.Join(bootstrapstart.ErrSourceFounder, err)
-	}
-	domain := grant.StorageDomain()
-	if authority.runtime.IsVerified() {
-		if domain != authority.runtime.FoundationScope().StorageDomain {
+	var domain bootstrap.StorageDomain
+	if authority.operator != nil {
+		domain = authority.operator.domain
+	} else {
+		grant, err := resolver.BootstrapMaterial(ctx, entry.Cell)
+		if err != nil || !grant.IsVerified() || homeGrantDigest(grant.FoundationGrantWire()) != authority.grantDigest || grant.InstallationID() != authority.installationID || grant.Generation() != authority.grantGeneration {
+			return nil, errors.Join(bootstrapstart.ErrSourceFounder, err)
+		}
+		domain = grant.StorageDomain()
+		if authority.runtime.IsVerified() {
+			if domain != authority.runtime.FoundationScope().StorageDomain {
+				return nil, bootstrapstart.ErrSourceFounder
+			}
+			authority.planDigest = grant.PlanDigest()
+		} else if !authority.proof.IsVerified() || grant.PlanDigest() != authority.planDigest {
 			return nil, bootstrapstart.ErrSourceFounder
 		}
-		authority.planDigest = grant.PlanDigest()
-	} else if !authority.proof.IsVerified() || grant.PlanDigest() != authority.planDigest {
-		return nil, bootstrapstart.ErrSourceFounder
 	}
 	parts := strings.Split(domain.HeadKMSKeyOCID, ".")
 	if domain.Validate() != nil || len(parts) < 5 || !catalog.IsOCIRegion(parts[3]) {
@@ -155,6 +162,9 @@ func (authority *HomeIAMAuthority) initialize(ctx context.Context, factory *ocic
 func (authority *HomeIAMAuthority) guardScope(ctx context.Context) error {
 	if authority == nil || authority.objects == nil || authority.resolver.Footprint == nil || authority.resolver.Store == nil {
 		return bootstrapstart.ErrSourceFounder
+	}
+	if authority.operator != nil {
+		return authority.operator.guard(ctx)
 	}
 	if authority.proof.IsVerified() {
 		if err := authority.proof.VerifyCurrent(ctx); err != nil {
@@ -228,6 +238,9 @@ func (authority *HomeIAMAuthority) HomeWrite(ctx context.Context, epoch uint64) 
 		InstanceID: authority.instanceID, GrantDigest: authority.grantDigest, GrantGeneration: authority.grantGeneration,
 		Generation: previous.Generation + 1, OwnerID: authority.ownerID, OperationID: entityid.New(), LeaseID: entityid.New(),
 		AcquiredAt: now, UpdatedAt: now, ExpiresAt: now.Add(foundationLease)}
+	if authority.operator != nil {
+		record.OperatorID = authority.operator.id
+	}
 	etag, err = authority.put(ctx, record, etag)
 	if err != nil {
 		// A lost conditional response can only recover this exact owner tuple.
@@ -273,8 +286,10 @@ func (authority *HomeIAMAuthority) load(ctx context.Context) (homeIAMRecord, str
 
 func (authority *HomeIAMAuthority) validate(record homeIAMRecord) error {
 	digest, err := hex.DecodeString(record.GrantDigest)
+	principalValid := strings.HasPrefix(record.InstanceID, "ocid1.instance.oc1.") && len(record.InstanceID) <= 512 && record.OperatorID == "" ||
+		record.InstanceID == "" && strings.HasPrefix(record.OperatorID, "ocid1.user.oc1..") && len(record.OperatorID) <= 512
 	if record.SchemaVersion != 1 || record.TenancyID != authority.tenancyID || record.InstallationID != authority.installationID ||
-		!strings.HasPrefix(record.InstanceID, "ocid1.instance.oc1.") || len(record.InstanceID) > 512 || err != nil || len(digest) != 32 ||
+		!principalValid || err != nil || len(digest) != 32 ||
 		record.Generation == 0 || record.GrantGeneration == 0 || !entityid.Valid(record.OwnerID) || !entityid.Valid(record.OperationID) || !entityid.Valid(record.LeaseID) ||
 		record.AcquiredAt.IsZero() || record.UpdatedAt.Before(record.AcquiredAt) || record.ExpiresAt.Before(record.UpdatedAt) || record.ExpiresAt.After(record.UpdatedAt.Add(foundationLease)) ||
 		!record.ReleasedAt.IsZero() && (record.ReleasedAt.Before(record.AcquiredAt) || record.ReleasedAt.After(record.UpdatedAt)) {
@@ -328,7 +343,7 @@ type homeIAMLease struct {
 
 func sameHomeIAMOwner(a, b homeIAMRecord) bool {
 	return a.Generation == b.Generation && a.OwnerID == b.OwnerID && a.OperationID == b.OperationID && a.LeaseID == b.LeaseID &&
-		a.InstanceID == b.InstanceID && a.GrantDigest == b.GrantDigest && a.GrantGeneration == b.GrantGeneration &&
+		a.InstanceID == b.InstanceID && a.OperatorID == b.OperatorID && a.GrantDigest == b.GrantDigest && a.GrantGeneration == b.GrantGeneration &&
 		a.TenancyID == b.TenancyID && a.InstallationID == b.InstallationID && a.AcquiredAt.Equal(b.AcquiredAt)
 }
 

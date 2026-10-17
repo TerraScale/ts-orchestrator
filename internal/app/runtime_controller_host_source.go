@@ -74,7 +74,7 @@ func controllerHostSpecCurrent(ctx context.Context, js jetstream.JetStream, serv
 		!bytes.Equal(latest.Data, entry.Value()) || services.roots.reply("").Head != rootHead {
 		return errors.New("controller host profile or roots changed during recipient verification")
 	}
-	return nil
+	return rootTrustHeadCurrent(ctx, js, services.roots, rootHead)
 }
 
 func controllerHostRegistration(query swarmruntime.WorkerRegistrationQuery, snapshot swarmruntime.WorkerRegistrationSnapshot,

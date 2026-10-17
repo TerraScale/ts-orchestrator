@@ -10,13 +10,14 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/roleconfig"
 )
 
 const maxConfigBytes = 1 << 20
 
 // ConfigVersion is the only supported role-config contract.
-// Removed settings must be deleted from signed configs before rollout.
-const ConfigVersion = 1
+// Legacy configs require newly produced and signed desired state before rollout.
+const ConfigVersion = roleconfig.Version
 
 // Config is the one binary's role-specific configuration. A controller and a
 // host can share the same schema while holding separate credentials and files.
@@ -59,10 +60,6 @@ type ControllerConfig struct {
 	// OciReconcile enables the declarative OCI resource reconcilers; nil or
 	// disabled keeps them off.
 	OciReconcile *OciReconcileConfig `json:"oci_reconcile,omitempty"`
-	// TerraBaseSeats restarts static TerraBase members one seat at a time,
-	// drained on the public load balancer first (TS-571). Off when nil or
-	// not enabled.
-	TerraBaseSeats *TerraBaseSeatsConfig `json:"terrabase_seats,omitempty"`
 	// SelfUpdateProofFile is where a ready controller writes the version
 	// proof for a pending self-update activation, signed with its response
 	// key; empty means selfupdate.DefaultProofFile, which the image's

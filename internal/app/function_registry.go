@@ -35,7 +35,7 @@ type functionRegistrySnapshot struct {
 
 func (controller functionController) registryAdmission(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding) (host.RegistryAdmissionDocument, error) {
 	config := controller.config
-	if config.Authority == nil || config.Client == nil || config.Roots == nil || config.Factory == nil || config.Evidence == nil ||
+	if config.Authority == nil || config.JS == nil || config.Client == nil || config.Roots == nil || config.Factory == nil || config.Evidence == nil ||
 		!entityid.Valid(registration.ID) || registration.ID != binding.HostID || registration.Cell != strings.ToLower(config.Cell) || registration.Environment != config.Environment {
 		return host.RegistryAdmissionDocument{}, errors.New("function registry requires current authority and its admitted recipient")
 	}
@@ -69,12 +69,14 @@ func (controller functionController) registryAdmission(ctx context.Context, regi
 	}
 	reader := config.Material.Reader
 	reader.Authority = config.Authority
-	current := functionIntentSource{reader: reader, authority: config.Authority, epoch: epoch, roots: config.Roots, rootHead: config.Roots.reply("").Head}
+	current := functionIntentSource{reader: reader, js: config.JS, authority: config.Authority, epoch: epoch, roots: config.Roots, rootHead: config.Roots.reply("").Head}
 	labels := task.ServiceAnnotations.Labels
 	proof, err := current.CurrentFunction(ctx, labels[swarmruntime.LabelFunctionTenant], labels[swarmruntime.LabelFunctionID])
 	if err != nil {
 		return host.RegistryAdmissionDocument{}, err
 	}
+	ctx, cancelFunction := context.WithDeadline(ctx, proof.ExpiresAt())
+	defer cancelFunction()
 	claim := proof.Claim()
 	if claim.Cell != strings.ToUpper(config.Cell) || claim.Environment != config.Environment || catalog.OCIRegion(claim.Cell) != binding.Region {
 		return host.RegistryAdmissionDocument{}, release.ErrExpectationMismatch
@@ -95,6 +97,8 @@ func (controller functionController) registryAdmission(ctx context.Context, regi
 	if err != nil {
 		return host.RegistryAdmissionDocument{}, err
 	}
+	ctx, cancelWorker := context.WithDeadline(ctx, verified.ExpiresAt())
+	defer cancelWorker()
 	admission, err := swarmruntime.AdmitFunctionRegistryTask(ctx, config.Client, task, intent, current, verified)
 	if err != nil {
 		return host.RegistryAdmissionDocument{}, err
@@ -107,6 +111,12 @@ func (controller functionController) registryAdmission(ctx context.Context, regi
 	}
 	if err := admission.VerifyCurrent(ctx); err != nil {
 		return host.RegistryAdmissionDocument{}, err
+	}
+	if err := rootTrustHeadCurrent(ctx, config.JS, config.Roots, chain.Head); err != nil {
+		return host.RegistryAdmissionDocument{}, err
+	}
+	if !proof.Valid() || !verified.Valid(time.Now().UTC()) || ctx.Err() != nil {
+		return host.RegistryAdmissionDocument{}, errors.New("function registry proof expired during final root verification")
 	}
 	currentAuthority := config.Authority.Current()
 	if !currentAuthority.CanMutate() || currentAuthority.Epoch != epoch || config.Roots.reply("").Head != chain.Head {

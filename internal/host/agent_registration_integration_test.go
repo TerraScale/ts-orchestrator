@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"testing"
+	"time"
 )
 
 func TestOwnRegistrationBindsActualSignedSessionAndKeys(t *testing.T) {
@@ -23,6 +24,9 @@ func TestOwnRegistrationBindsActualSignedSessionAndKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := agent.RuntimeWorkerIdentity("accepted-instance", "accepted-node"); err == nil {
+		t.Fatal("unacquired agent exposed a runtime session identity")
+	}
 	if err := agent.acquire(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -33,6 +37,11 @@ func TestOwnRegistrationBindsActualSignedSessionAndKeys(t *testing.T) {
 	registration := statuses[0].Registration
 	if err := agent.VerifyOwnRegistration(registration, public); err != nil {
 		t.Fatal("actual signed session did not bind its own current registration", err)
+	}
+	identity, err := agent.RuntimeWorkerIdentity("accepted-instance", "accepted-node")
+	if err != nil || !time.Now().Before(identity.ExpiresAt()) || !identity.ExpiresAt().Before(statuses[0].SessionExpiresAt) ||
+		identity.Identity().HostSessionID == "" || identity.Identity().RegistrationGeneration != registration.Generation {
+		t.Fatal("runtime identity lost its actual signed session or safe execution deadline", err)
 	}
 	for _, mutate := range []func(*Registration){
 		func(r *Registration) { r.Node = "another-host" },

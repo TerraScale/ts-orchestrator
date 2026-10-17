@@ -10,6 +10,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/storage"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/backup"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/capacity"
@@ -68,16 +69,16 @@ func startVolumeBackups(ctx context.Context, managed *managedControllerConfig,
 	if managed == nil || store == nil || fencer == nil {
 		return nil, errors.New("volume backups require a managed OCI controller")
 	}
-	provider, err := oci.NewInstancePrincipalVolumeBackupProvider(managed.region, managed.intent, journal)
-	if err != nil {
-		return nil, fmt.Errorf("start OCI volume backup client: %w", err)
-	}
-	runner := backup.Runner{
-		Provider: provider, Fencer: fencer,
-		Scope:   backup.Scope{Owner: managed.region.Owner, Region: managed.region.Region},
-		Volumes: func(ctx context.Context) ([]string, error) { return placementVolumeIDs(ctx, store) },
-	}
-	return ownedLoop(ctx, "volume backup runner", runner.Run), nil
+	client := rootoci.NewClient(rootoci.Expectations{Cell: string(managed.region.Region)})
+	return ownedLoop(ctx, "volume backup runner", func(ctx context.Context) error {
+		return backup.RunPolicy(ctx, func(ctx context.Context) (backup.Report, error) {
+			if !fencer.Current().CanMutate() {
+				return backup.Report{}, authority.ErrNotLeader
+			}
+			report, err := client.ReconcileVolumeBackups(ctx)
+			return backup.Report{Created: report.Created, Deleted: report.Deleted, Skipped: report.Skipped}, err
+		})
+	}), nil
 }
 
 // placementVolumeIDs lists the retained volumes of every placed member. An

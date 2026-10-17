@@ -91,6 +91,7 @@ const (
 	MutationRegistration      HostMutationKind = "registration"
 	MutationRetirement        HostMutationKind = "retirement"
 	MutationDesired           HostMutationKind = "desired"
+	MutationUsageObservation  HostMutationKind = "usage-observation"
 	MutationPlacementIntent   HostMutationKind = "placement-intent"
 	MutationMaterialReceipt   HostMutationKind = "material-receipt"
 	MutationClientCredentials HostMutationKind = "client-credentials"
@@ -100,6 +101,7 @@ const (
 	MutationManagedUpdate     HostMutationKind = "managed-update"
 	MutationBackupOperation   HostMutationKind = "backup-operation"
 	MutationNetBirdState      HostMutationKind = "netbird-state"
+	MutationNetBirdIntent     HostMutationKind = "netbird-intent"
 	MutationFunctionIntent    HostMutationKind = "function-intent"
 	MutationFunctionGrant     HostMutationKind = "function-grant"
 )

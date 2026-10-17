@@ -49,8 +49,8 @@ type Hosts interface {
 }
 
 // Controller restarts TerraBase seats one group member at a time. The
-// controller process runs it on the leader when controller.terrabase_seats
-// is enabled, which also makes Store.Granted the host restart gate. It only
+// controller process always runs it on the leader, with Store.Granted as
+// the host restart gate. It only
 // writes seat records; the load balancer publisher drains the seats they
 // hold drained, and the host restart gate (Store.Granted) lets a seat
 // restart only into a permitted generation. Each tick it derives every
@@ -71,11 +71,8 @@ type Controller struct {
 	// Hold, when set and it names a reason, starts no seat's restart: no
 	// seat that is not drained already is drained or permitted, so another
 	// restart in the cell (an orchestrator host rollout) finishes first.
-	Hold       func(ctx context.Context) (string, error)
-	DrainGrace time.Duration
-	Settle     time.Duration
-	Interval   time.Duration
-	Now        func() time.Time
+	Hold func(ctx context.Context) (string, error)
+	Now  func() time.Time
 
 	// ready and drained are leader-local: when each drained seat was first
 	// seen serving its permitted generation, and first seen drained on the
@@ -87,7 +84,7 @@ type Controller struct {
 // Run drives the seats until ctx ends. A tick error is logged and the next
 // tick retries; a seat only ever waits.
 func (c *Controller) Run(ctx context.Context) error {
-	ticker := time.NewTicker(cmp.Or(c.Interval, DefaultInterval))
+	ticker := time.NewTicker(DefaultInterval)
 	defer ticker.Stop()
 	for {
 		if err := c.Tick(ctx); err != nil && ctx.Err() == nil {
@@ -166,7 +163,7 @@ func (c *Controller) Tick(ctx context.Context) error {
 				c.ready[v.seat.Node] = now
 				first = now
 			}
-			if now.Sub(first) < cmp.Or(c.Settle, DefaultSettle) {
+			if now.Sub(first) < DefaultSettle {
 				busy[v.seat.Group] = true
 				continue
 			}
@@ -194,7 +191,7 @@ func (c *Controller) Tick(ctx context.Context) error {
 				}
 				since = first
 			}
-			if now.Sub(since) < cmp.Or(c.DrainGrace, DefaultDrainGrace) {
+			if now.Sub(since) < DefaultDrainGrace {
 				continue
 			}
 			record.Permit = target
@@ -313,6 +310,9 @@ func (c *Controller) observe(ctx context.Context) ([]view, error) {
 			}
 		}
 		v.backend, v.inLB = backends[seat.Backend]
+		if seat.Backend != "" && !v.inLB {
+			return nil, fmt.Errorf("seat %s: expected load balancer backend %s is unobserved", seat.Node, seat.Backend)
+		}
 		v.inLB = v.inLB && seat.Backend != ""
 		views = append(views, v)
 	}

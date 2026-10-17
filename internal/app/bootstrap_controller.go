@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -105,6 +104,11 @@ func acceptedControllerInstallPresent(read func() (bootstrapstart.AcceptedIdenti
 }
 
 func superviseControllerRestart(ctx context.Context, cfg Config) error {
+	if os.Geteuid() != 0 {
+		ctx, cancel := context.WithTimeout(ctx, controllerAdmissionTimeout)
+		defer cancel()
+		return admitProductionControllerRestart(ctx, cfg)
+	}
 	return superviseControllerAdmission(ctx, cfg, "bootstrap-admit-restart", "/proc/self/exe")
 }
 
@@ -114,8 +118,15 @@ func superviseControllerRestart(ctx context.Context, cfg Config) error {
 // grandchild before the caller can continue toward NATS. This uses Linux
 // /proc/self/exe and process-group semantics, as does the single-binary image.
 func superviseControllerAdmission(ctx context.Context, cfg Config, commandName, executable string) error {
+	return superviseControllerAdmissionWithAuthority(ctx, cfg, commandName, executable, nil)
+}
+
+func superviseControllerAdmissionWithAuthority(ctx context.Context, cfg Config, commandName, executable string, authority *rootOCIAuthority) error {
 	if commandName != "bootstrap-admit-initial" && commandName != "bootstrap-admit-restart" || executable == "" {
 		return errors.New("invalid controller admission child command")
+	}
+	if authority != nil && (commandName != "bootstrap-admit-restart" || os.Geteuid() != 0) {
+		return errors.New("registered admission requires the root restart supervisor")
 	}
 	// The child digests the exact signed bytes, not a re-encoding.
 	wire, err := cfg.signedWire()
@@ -125,7 +136,11 @@ func superviseControllerAdmission(ctx context.Context, cfg Config, commandName, 
 	childCtx, cancel := context.WithTimeout(ctx, controllerAdmissionTimeout)
 	defer cancel()
 	child := exec.CommandContext(childCtx, executable, commandName)
-	child.Stdin = bytes.NewReader(wire)
+	stdin, err := child.StdinPipe()
+	if err != nil {
+		return err
+	}
+	defer stdin.Close()
 	child.Stdout = io.Discard
 	// Admission errors carry no secret values; keep them in the unit journal.
 	child.Stderr = os.Stderr
@@ -148,7 +163,29 @@ func superviseControllerAdmission(ctx context.Context, cfg Config, commandName, 
 		return nil
 	}
 	child.WaitDelay = 5 * time.Second
-	err = child.Run()
+	if err := child.Start(); err != nil {
+		return fmt.Errorf("start controller admission child: %w", err)
+	}
+	if authority != nil {
+		unregister, err := authority.registerAdmissionChild(child.Process.Pid)
+		if err != nil {
+			cancel()
+			_ = child.Wait()
+			return fmt.Errorf("register exact controller admission child: %w", err)
+		}
+		defer unregister()
+	}
+	if _, err := stdin.Write(wire); err != nil {
+		cancel()
+		_ = child.Wait()
+		return fmt.Errorf("deliver controller admission configuration: %w", err)
+	}
+	if err := stdin.Close(); err != nil {
+		cancel()
+		_ = child.Wait()
+		return err
+	}
+	err = child.Wait()
 	if ctxErr := childCtx.Err(); ctxErr != nil {
 		return fmt.Errorf("controller admission exceeded its startup deadline: %w", ctxErr)
 	}

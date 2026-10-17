@@ -23,6 +23,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/keymanagement"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
+	"github.com/TerraScale/ts-orchestrator/internal/capacityledger"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
@@ -50,11 +51,16 @@ type Authority struct {
 
 // VerifiedBindings has no public constructor from observed IDs or maps.
 type VerifiedBindings struct {
-	factory   *ociclient.Factory
-	authority Authority
-	wire      []byte
-	expires   time.Time
-	ids       map[string]string
+	factory              *ociclient.Factory
+	authority            Authority
+	wire                 []byte
+	expires              time.Time
+	ids                  map[string]string
+	capacityLedger       *capacityledger.Ledger
+	capacityCompartments []string
+	capacityCurrency     string
+	capacityChildren     jsontext.Value
+	observedAt           time.Time
 }
 
 func (v VerifiedBindings) GrantSHA256() string  { return v.authority.GrantSHA256 }
@@ -146,35 +152,48 @@ type provenance struct {
 // These private wire views avoid importing the region/bootstrap packages:
 // their consumers must be able to call this verifier without an import cycle.
 type record struct {
-	SourcePolicyIDs     jsontext.Value           `json:"sourcePolicyIds,omitempty"`
-	NetBirdManager      jsontext.Value           `json:"netbirdManager,omitempty"`
-	SchemaVersion       int                      `json:"schemaVersion"`
-	Cell                string                   `json:"cell"`
-	OCIRegion           string                   `json:"ociRegion"`
-	TenancyID           string                   `json:"tenancyId"`
-	ParentCompartmentID string                   `json:"parentCompartmentId"`
-	SharedCompartmentID string                   `json:"sharedCompartmentId"`
-	Generation          uint64                   `json:"generation"`
-	GrantSHA256         string                   `json:"grantSha256"`
-	IntentDigest        string                   `json:"intentDigest"`
-	OperationID         string                   `json:"operationId"`
-	Epoch               uint64                   `json:"epoch"`
-	LeaseID             string                   `json:"leaseId,omitempty"`
-	ExpiresAt           time.Time                `json:"expiresAt,omitzero"`
-	Stage               string                   `json:"stage"`
-	BlockedReason       string                   `json:"blockedReason,omitempty"`
-	StartedAt           time.Time                `json:"startedAt"`
-	UpdatedAt           time.Time                `json:"updatedAt"`
-	CompletedAt         time.Time                `json:"completedAt,omitzero"`
-	ResourceIDs         map[string]string        `json:"resourceIds"`
-	AuxiliaryIDs        map[string]string        `json:"auxiliaryIds,omitempty"`
-	PendingCreates      map[string]pendingCreate `json:"pendingCreates,omitempty"`
-	ResourceProvenance  map[string]provenance    `json:"resourceProvenance,omitempty"`
+	PoolDrains            jsontext.Value           `json:"poolDrains,omitempty"`
+	NetBirdBrokerPolicies jsontext.Value           `json:"netbirdBrokerPolicies,omitempty"`
+	RuntimeLineage        jsontext.Value           `json:"runtimeLineage,omitempty"`
+	OCIRIssuances         jsontext.Value           `json:"ocirIssuances,omitempty"`
+	FoundationWriter      jsontext.Value           `json:"foundationWriter,omitempty"`
+	CapacityLedger        *capacityledger.Ledger   `json:"capacityLedger,omitempty"`
+	PoolChildren          jsontext.Value           `json:"poolChildren,omitempty"`
+	CapacityPools         jsontext.Value           `json:"capacityPools,omitempty"`
+	CapacityCreates       jsontext.Value           `json:"capacityCreates,omitempty"`
+	PoolQuarantines       jsontext.Value           `json:"poolQuarantines,omitempty"`
+	WorkerPolicyIDs       jsontext.Value           `json:"workerPolicyIds,omitempty"`
+	OCIResources          jsontext.Value           `json:"ociResources,omitempty"`
+	SourcePolicyIDs       jsontext.Value           `json:"sourcePolicyIds,omitempty"`
+	NetBirdManager        jsontext.Value           `json:"netbirdManager,omitempty"`
+	SchemaVersion         int                      `json:"schemaVersion"`
+	Cell                  string                   `json:"cell"`
+	OCIRegion             string                   `json:"ociRegion"`
+	TenancyID             string                   `json:"tenancyId"`
+	ParentCompartmentID   string                   `json:"parentCompartmentId"`
+	SharedCompartmentID   string                   `json:"sharedCompartmentId"`
+	Generation            uint64                   `json:"generation"`
+	GrantSHA256           string                   `json:"grantSha256"`
+	IntentDigest          string                   `json:"intentDigest"`
+	OperationID           string                   `json:"operationId"`
+	Epoch                 uint64                   `json:"epoch"`
+	LeaseID               string                   `json:"leaseId,omitempty"`
+	ExpiresAt             time.Time                `json:"expiresAt,omitzero"`
+	Stage                 string                   `json:"stage"`
+	BlockedReason         string                   `json:"blockedReason,omitempty"`
+	StartedAt             time.Time                `json:"startedAt"`
+	UpdatedAt             time.Time                `json:"updatedAt"`
+	CompletedAt           time.Time                `json:"completedAt,omitzero"`
+	ResourceIDs           map[string]string        `json:"resourceIds"`
+	AuxiliaryIDs          map[string]string        `json:"auxiliaryIds,omitempty"`
+	PendingCreates        map[string]pendingCreate `json:"pendingCreates,omitempty"`
+	ResourceProvenance    map[string]provenance    `json:"resourceProvenance,omitempty"`
 }
 
 // Verify authenticates the root-signed wire before reading its protected
 // regional record, then checks each owned role through fresh real OCI clients.
 func Verify(ctx context.Context, factory *ociclient.Factory, authority Authority, grantWire []byte) (VerifiedBindings, error) {
+	observedAt := time.Now()
 	if factory == nil || !catalog.IsCell(authority.Cell) || !canonicalDigest(authority.GrantSHA256) || authority.Generation == 0 ||
 		!entityid.Valid(authority.InstallationID) || !resourceID(authority.TenancyID, "tenancy", "") ||
 		authority.Namespace == "" || authority.Bucket == "" || authority.Prefix == "" || strings.ContainsAny(authority.Prefix, "\\\r\n\x00") || strings.ContainsAny(authority.Namespace+authority.Bucket, "/\\\r\n\x00") ||
@@ -291,6 +310,21 @@ func Verify(ctx context.Context, factory *ociclient.Factory, authority Authority
 	if err := validateRecord(current, approved, authority, selectedDigest, selected.Plan, requested); err != nil {
 		return VerifiedBindings{}, err
 	}
+	var financial *capacityledger.Ledger
+	if current.CapacityLedger != nil {
+		if err := current.CapacityLedger.Validate(); err != nil {
+			return VerifiedBindings{}, fmt.Errorf("protected capacity ledger: %w", err)
+		}
+		financial = new(current.CapacityLedger.Clone())
+	}
+	compartments := []string{approved.ParentCompartmentID, approved.SharedCompartmentID}
+	for key, id := range current.ResourceIDs {
+		if strings.HasSuffix(key, "_compartment") {
+			compartments = append(compartments, id)
+		}
+	}
+	slices.Sort(compartments)
+	compartments = slices.Compact(compartments)
 	needed := dependencyClosure(requested)
 	current.ResourceIDs = maps.Clone(current.ResourceIDs)
 	maps.DeleteFunc(current.ResourceIDs, func(key, _ string) bool { return !needed[key] })
@@ -307,7 +341,9 @@ func Verify(ctx context.Context, factory *ociclient.Factory, authority Authority
 	if current.Stage == "foundation" && current.ExpiresAt.Before(expires) {
 		expires = current.ExpiresAt
 	}
-	return VerifiedBindings{factory: factory, authority: authority, wire: bytes.Clone(grantWire), expires: expires, ids: current.ResourceIDs}, nil
+	return VerifiedBindings{factory: factory, authority: authority, wire: bytes.Clone(grantWire), expires: expires, ids: current.ResourceIDs,
+		capacityLedger: financial, capacityCompartments: compartments, capacityCurrency: approved.Currency,
+		capacityChildren: bytes.Clone(current.PoolChildren), observedAt: observedAt}, nil
 }
 
 func verifyCurrentGrant(ctx context.Context, factory *ociclient.Factory, authority Authority, expected []byte) error {

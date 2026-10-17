@@ -24,8 +24,10 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
@@ -71,6 +73,7 @@ type workerAuthority struct {
 	refresh     func(context.Context) error
 	homeIAM     *region.HomeIAMAuthority
 	foundations region.FoundationResolver
+	root        *rootoci.Service
 }
 
 func readCurrentWorkerRegistration(ctx context.Context, query WorkerRegistrationQuery) (WorkerRegistrationSnapshot, error) {
@@ -122,15 +125,25 @@ func (output *workerSourceOutput) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
-func (authority *workerAuthority) current(ctx context.Context, query WorkerRegistrationQuery) (hostenroll.Request, hostenroll.Response, host.Registration, bootstrapstart.InstanceObservation, string, error) {
-	return authority.currentInPhase(ctx, query, workerCompletedAdmission)
+func (operation *workerOperation) current(ctx context.Context, query WorkerRegistrationQuery) (hostenroll.Request, hostenroll.Response, host.Registration, bootstrapstart.InstanceObservation, string, error) {
+	return operation.currentInPhase(ctx, query, workerCompletedAdmission)
 }
 
-func (authority *workerAuthority) currentInPhase(ctx context.Context, query WorkerRegistrationQuery, phase workerRegistrationPhase) (hostenroll.Request, hostenroll.Response, host.Registration, bootstrapstart.InstanceObservation, string, error) {
+func (operation *workerOperation) currentInPhase(ctx context.Context, query WorkerRegistrationQuery, phase workerRegistrationPhase) (hostenroll.Request, hostenroll.Response, host.Registration, bootstrapstart.InstanceObservation, string, error) {
 	fail := func(err error) (hostenroll.Request, hostenroll.Response, host.Registration, bootstrapstart.InstanceObservation, string, error) {
 		return hostenroll.Request{}, hostenroll.Response{}, host.Registration{}, bootstrapstart.InstanceObservation{}, "", err
 	}
-	if authority == nil || authority.observer == nil {
+	authority := operation.authority
+	if authority == nil {
+		return fail(errors.New("worker admission source unavailable"))
+	}
+	if hostenroll.RequestSHA256(query.Request) != operation.requestSHA256 {
+		return fail(errors.New("worker request changed during its original creation admission"))
+	}
+	if operation.poolRequest.InstanceID != "" && authority.root == nil {
+		return fail(ErrWorkerCreationLineagePending)
+	}
+	if authority.observer == nil {
 		return fail(errors.New("worker admission source unavailable"))
 	}
 	if err := authority.refresh(ctx); err != nil {
@@ -142,9 +155,6 @@ func (authority *workerAuthority) currentInPhase(ctx context.Context, query Work
 	}
 	response, err := hostenroll.VerifyResponse(query.Response, authority.public, request, query.Request, descriptor)
 	if err != nil {
-		return fail(err)
-	}
-	if err := refuseUnprovenStaticWorker(descriptor); err != nil {
 		return fail(err)
 	}
 	if !strings.EqualFold(descriptor.Region, authority.identity.Cell) {
@@ -165,9 +175,11 @@ func (authority *workerAuthority) currentInPhase(ctx context.Context, query Work
 		registration.Generation != response.RegistrationReceipt.Generation || current.Sequence != response.RegistrationReceipt.Revision {
 		return fail(errors.New("worker enrollment differs from current registered identity or generation"))
 	}
-	if err := requireWorkerManagedBindings(descriptor, request.InstanceID, registration); err != nil {
+	if err := operation.requireBindings(ctx, descriptor, request.InstanceID, registration); err != nil {
 		return fail(err)
 	}
+	ctx, cancel := operation.boundedContext(ctx)
+	defer cancel()
 	if len(registration.Roles) == 0 {
 		return fail(errors.New("worker registration grants no execution role"))
 	}
@@ -195,6 +207,9 @@ func (authority *workerAuthority) currentInPhase(ctx context.Context, query Work
 	}
 	architecture, err := authority.observer.ObserveWorkerArchitecture(ctx, observed)
 	if err != nil {
+		return fail(err)
+	}
+	if err := operation.requireObservation(ctx, descriptor, observed, role, architecture); err != nil {
 		return fail(err)
 	}
 	return request, response, registration, observed, role + ":" + architecture, nil
@@ -232,10 +247,17 @@ func (n *Node) PrepareEnrolledWorker(ctx context.Context, query WorkerRegistrati
 		return nil, errors.New("worker projection is derived only by the root manager")
 	}
 	authority := n.workerAuthority
-	request, response, registration, observed, execution, err := authority.currentInPhase(ctx, query, workerEnrollmentPreparation)
+	operation, err := authority.begin(ctx, query)
 	if err != nil {
 		return nil, err
 	}
+	defer operation.close()
+	request, response, registration, observed, execution, err := operation.currentInPhase(ctx, query, workerEnrollmentPreparation)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := operation.boundedContext(ctx)
+	defer cancel()
 	role, architecture, _ := strings.Cut(execution, ":")
 	client, err := n.ControlClient(ctx)
 	if err != nil {
@@ -256,8 +278,9 @@ func (n *Node) PrepareEnrolledWorker(ctx context.Context, query WorkerRegistrati
 	// Replacement instances and rotated upstream tokens need separate immutable records.
 	digest := sha256.Sum256(wire)
 	name := vaultsecret.Name(strings.ToLower(authority.identity.Cell)+"-"+strings.ToLower(authority.identity.ClusterID)+"-"+strings.ToLower(registration.ID)+"-"+hex.EncodeToString(digest[:]), "TS_ORCHESTRATOR_SWARM_WORKER")
+	ctx = ociclient.WithAuthority(ctx, operation.revalidate)
 	stored, err := vaultsecret.Ensure(ctx, authority.vault, authority.target, name, "Recipient-bound SwarmKit worker enrollment", func(ctx context.Context) (string, error) {
-		if err := authority.refresh(ctx); err != nil {
+		if err := operation.revalidate(ctx); err != nil {
 			return "", err
 		}
 		return string(wire), nil
@@ -273,11 +296,11 @@ func (n *Node) PrepareEnrolledWorker(ctx context.Context, query WorkerRegistrati
 	if err != nil || version.SecretID != stored.ID || version.Value != string(wire) {
 		return nil, errors.New("recipient worker Vault version differs from current upstream cluster")
 	}
-	if _, _, _, _, _, err := authority.currentInPhase(ctx, query, workerEnrollmentPreparation); err != nil {
+	if _, _, _, _, _, err := operation.currentInPhase(ctx, query, workerEnrollmentPreparation); err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC()
-	expires := minTime(now.Add(10*time.Minute), response.ExpiresAt)
+	expires := operation.expiresAt(minTime(now.Add(10*time.Minute), response.ExpiresAt))
 	worker := hostenroll.SwarmWorker{Version: 1, DeploymentID: material.DeploymentID, ClusterID: material.ClusterID, Environment: material.Environment, Cell: registration.Cell, Region: material.Region,
 		OCIRegion: authority.identity.OCIRegion, FounderID: material.FounderID, RegistrationID: registration.ID, Generation: registration.Generation, Revision: response.RegistrationReceipt.Revision,
 		InstanceID: request.InstanceID, PrivateIP: observed.PrimaryPrivateIP, Architecture: architecture, Role: role, ManagerAddress: material.ManagerAddress, SwarmID: material.SwarmID, CAPEM: material.CAPEM,
@@ -304,10 +327,13 @@ func (n *Node) PrepareEnrolledWorker(ctx context.Context, query WorkerRegistrati
 		return nil, errors.New("worker source signed another recipient projection")
 	}
 	currentQuery := WorkerRegistrationQuery{Request: query.Request, Response: signed.Response}
-	if _, _, _, _, _, err := authority.currentInPhase(ctx, currentQuery, workerEnrollmentPreparation); err != nil {
+	if _, _, _, _, _, err := operation.currentInPhase(ctx, currentQuery, workerEnrollmentPreparation); err != nil {
 		return nil, err
 	}
-	if err := n.authorizeWorkerVaultRead(ctx, verified, currentQuery, workerEnrollmentPreparation); err != nil {
+	if err := n.authorizeWorkerVaultRead(ctx, operation, verified, currentQuery, workerEnrollmentPreparation); err != nil {
+		return nil, err
+	}
+	if err := operation.revalidate(ctx); err != nil {
 		return nil, err
 	}
 	return signed.Response, nil
@@ -326,10 +352,17 @@ func (n *Node) AdmitEnrolledWorker(ctx context.Context, query WorkerRegistration
 		return errors.New("worker projection is supplied only inside the signed response")
 	}
 	authority := n.workerAuthority
-	request, response, registration, observed, execution, err := authority.current(ctx, query)
+	operation, err := authority.begin(ctx, query)
 	if err != nil {
 		return err
 	}
+	defer operation.close()
+	request, response, registration, observed, execution, err := operation.current(ctx, query)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := operation.boundedContext(ctx)
+	defer cancel()
 	transport, err := protocol.EncodeJSON(hostenroll.WorkerTransport{Request: query.Request, Response: query.Response})
 	if err != nil {
 		return err
@@ -354,6 +387,7 @@ func (n *Node) AdmitEnrolledWorker(ctx context.Context, query WorkerRegistration
 	if err != nil {
 		return err
 	}
+	client = workerControlClient{ControlClient: client, operation: operation}
 	node, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: binding.NodeID})
 	if err != nil {
 		return err
@@ -365,7 +399,7 @@ func (n *Node) AdmitEnrolledWorker(ctx context.Context, query WorkerRegistration
 	if err := hostenroll.VerifyWorkerBinding(binding, verified, hostPublic, node.Node.Certificate.Certificate, time.Now().UTC()); err != nil {
 		return err
 	}
-	if _, _, _, _, _, err := authority.current(ctx, query); err != nil {
+	if _, _, _, _, _, err := operation.current(ctx, query); err != nil {
 		return err
 	}
 	record := hostenroll.SwarmMembership{Transport: hostenroll.WorkerTransport{Request: query.Request, Response: query.Response}, Binding: binding, Certificate: node.Node.Certificate.Certificate}
@@ -387,8 +421,14 @@ func (n *Node) AdmitEnrolledWorker(ctx context.Context, query WorkerRegistration
 	if err != nil || actualErr != nil || !bytes.Equal(expectedRegistration, actualRegistration) {
 		return errors.New("worker registration changed during durable admission publication")
 	}
+	if err := operation.revalidate(ctx); err != nil {
+		return err
+	}
 	admitted, err := AdmitNode(ctx, client, binding.NodeID, Admission{Region: worker.Region, HostID: worker.RegistrationID, InstanceID: worker.InstanceID, FounderID: worker.FounderID, Role: worker.Role})
 	if err != nil || admitted.Spec.Availability == api.NodeAvailabilityActive {
+		return err
+	}
+	if err := operation.revalidate(ctx); err != nil {
 		return err
 	}
 	spec := admitted.Spec.Copy()

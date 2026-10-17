@@ -158,7 +158,9 @@ func (runs fakeQualification) Qualifications(context.Context) ([]Qualification, 
 
 type fakeInventory []InventoryItem
 
-func (items fakeInventory) Inventory(context.Context) ([]InventoryItem, error) { return items, nil }
+func (items fakeInventory) Inventory(context.Context) (InventoryObservation, error) {
+	return InventoryObservation{Items: items}, nil
+}
 
 var (
 	release   = decisionlog.Subject{Kind: "release", ID: "sha256:aaaa", Name: "v0.43.0"}

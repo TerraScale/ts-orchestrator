@@ -1,13 +1,13 @@
 # Zero-downtime TerraBase rollouts (TS-571)
 
 The [zero-configuration contract](zero-configuration.md) requires rollout
-coordination always on. Existing seat/profile switches below are legacy runtime
-inventory pending TS-796; there is no enable step. Drain, current-peer proofs,
+coordination always on. Seat configuration and timing overrides are removed;
+there is no enable step. Drain, current-peer proofs,
 minimum-serving, writer-stop and destructive-operation checks remain mandatory.
 
 Status: design note. Slices 1 to 4 are implemented: the L7 backend-set
 reconciler, seats as backends, `running` needs `/readyz`, and one seat at a
-time behind its drain (`controller.terrabase_seats`). Slice 5's in-process
+time behind its drain. Slice 5's in-process
 acceptance under load passes; the gru-1 run waits for TS-561 and is
 **PROPOSED**. See the risks at the end.
 
@@ -168,12 +168,14 @@ a seat a deposed leader left drained stays drained until its step finishes.
 Only the authority leader writes, and every write is fenced by its epoch.
 
 Implemented (slice 4c): the controller and its tests. Implemented (slice
-4d): `controller.terrabase_seats` turns it on: the controller opens the seat
-records, sets them as the host restart gate and runs the seat controller on
-the leader; with `public_lb` it reads the load balancer's backends and wakes
+4d): every controller opens the seat records, sets them as the host restart
+gate and runs the seat controller on the leader. Missing signed `public_lb`
+authority or backend observations hold restarts, including previously permitted
+generations. The controller reads the load balancer's backends and wakes
 the OCI reconcile runner after every step (`ociresource.Runner.Wake`), so a
 drain applies at once instead of on the next pass. `terrabase-release` waits
-five minutes per seat when that exceeds its ten-minute default.
+five minutes per seat when that exceeds its ten-minute default. Drain grace,
+readiness settle and polling are fixed at 15 seconds, 10 seconds and 2 seconds.
 
 The drain set is generic. Host reboots for OS updates (TS-570) and
 self-healing (TS-568) can drain a seat through it before they restart its

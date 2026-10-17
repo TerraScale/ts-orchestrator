@@ -131,6 +131,7 @@ const ContainerStatusSchema = "terrascale.release.container-status.v1"
 
 type ContainerStatus struct {
 	Schema          string    `json:"schema"`
+	OperationID     string    `json:"operation_id,omitempty"`
 	Cell            string    `json:"cell"`
 	Environment     string    `json:"environment"`
 	Role            string    `json:"role"`

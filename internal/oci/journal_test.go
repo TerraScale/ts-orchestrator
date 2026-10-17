@@ -37,6 +37,10 @@ func TestRegionIntentUsesFixedProductMapping(t *testing.T) {
 
 func TestJournalBootBindingSurvivesReopenAndRejectsRebinding(t *testing.T) {
 	kv := testJournalBucket(t)
+	if (JournalReader{}).Valid() || (JournalReader{journal: &KVJournal{}}).Valid() ||
+		!(JournalReader{journal: &KVJournal{kv: kv}}).Valid() {
+		t.Fatal("root fleet binding requires an existing durable journal")
+	}
 	journal, err := NewKVJournal(kv)
 	if err != nil {
 		t.Fatal(err)

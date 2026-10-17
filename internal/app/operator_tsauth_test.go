@@ -44,7 +44,7 @@ func TestTSAuthGRUConfigIsValid(t *testing.T) {
 	if err := validateWorkloadProfiles("sfo", profiles); err == nil {
 		t.Fatal("sfo accepted gru-1's ts-auth endpoints")
 	}
-	if err := validateAutoscaleConfig(&AutoscaleConfig{Enabled: true, Services: []workload.ServiceSpec{spec}}, profiles); err != nil {
+	if err := validateAutoscaleConfig(&AutoscaleConfig{Services: []workload.ServiceSpec{spec}}, profiles); err != nil {
 		t.Fatal(err)
 	}
 	if spec.Kind != workload.KindStateless || spec.Replicas.Min != tsauth.Replicas || spec.Replicas.Max != tsauth.Replicas ||
@@ -132,7 +132,7 @@ func TestTSAuthAutoscaleBoundsAreFixed(t *testing.T) {
 	} {
 		bad := spec
 		mutate(&bad)
-		if err := validateAutoscaleConfig(&AutoscaleConfig{Enabled: true, Services: []workload.ServiceSpec{bad}}, profiles); err == nil {
+		if err := validateAutoscaleConfig(&AutoscaleConfig{Services: []workload.ServiceSpec{bad}}, profiles); err == nil {
 			t.Errorf("%s: accepted ts-auth bounds %+v", name, bad)
 		}
 	}
@@ -210,7 +210,7 @@ func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
 			SpecTrust:             specKeys.config(),
 			ArtifactStoreMaxBytes: 512 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 			Workloads: map[string]WorkloadProfile{tsauth.Role: profile},
-			Autoscale: &AutoscaleConfig{Enabled: true, IntervalSeconds: 1, Services: []workload.ServiceSpec{spec}}},
+			Autoscale: &AutoscaleConfig{Services: []workload.ServiceSpec{spec}}},
 	}
 	auth.controller(t, &controllerConfig)
 	controllerConfigPath := testJSONFile(t, root, "controller.json", controllerConfig)
@@ -417,7 +417,7 @@ func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
 	}
 	// A fresh reconciler, after leader replay, keeps the recovery template and
 	// reservations despite today's larger B/C placement profile.
-	config := &AutoscaleConfig{Enabled: true, IntervalSeconds: 1, Services: []workload.ServiceSpec{spec}}
+	config := &AutoscaleConfig{Services: []workload.ServiceSpec{spec}}
 	reconciler, _, err := startWorkloadAutoscale("gru", config, map[string]WorkloadProfile{tsauth.Role: profile}, []workload.ServiceSpec{spec}, history.hosts, history.fencer, history)
 	if err != nil {
 		t.Fatal(err)

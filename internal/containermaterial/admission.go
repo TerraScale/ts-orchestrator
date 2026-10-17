@@ -26,6 +26,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/moby/swarmkit/v2/api/genericresource"
 	"github.com/moby/swarmkit/v2/ca"
 )
 
@@ -95,7 +96,7 @@ func VerifyProfile(wire []byte, roots trust.Keyring, identity cellspec.Identity,
 // VerifyTask authenticates the complete signed profile, OCI release and current
 // upstream assignment. Registration must come from the existing ownhost session.
 // Managers additionally require current requested-controller authority.
-func VerifyTask(ctx context.Context, client api.ControlClient, task *api.Task, expected swarmruntime.ServiceIntent,
+func VerifyTask(ctx context.Context, client api.ControlReader, task *api.Task, expected swarmruntime.ServiceIntent,
 	verified release.VerifiedContainer, roots trust.Keyring, proof Profile, registration host.Registration, binding host.ContainerMaterialBinding,
 	controller *bootstrapstart.ControllerHostRecipient,
 ) error {
@@ -127,7 +128,7 @@ func VerifyTask(ctx context.Context, client api.ControlClient, task *api.Task, e
 // VerifyCurrentTask repeats final assignment, certificate and finite authority
 // checks without observing OCI again. Registry pulls may retain PreviousSpec;
 // material callers must additionally require the current service revision.
-func VerifyCurrentTask(ctx context.Context, client api.ControlClient, task *api.Task, expected swarmruntime.ServiceIntent,
+func VerifyCurrentTask(ctx context.Context, client api.ControlReader, task *api.Task, expected swarmruntime.ServiceIntent,
 	verified release.VerifiedContainer, roots trust.Keyring, proof Profile, registration host.Registration, binding host.ContainerMaterialBinding,
 	controller *bootstrapstart.ControllerHostRecipient,
 ) error {
@@ -139,7 +140,7 @@ func VerifyCurrentTask(ctx context.Context, client api.ControlClient, task *api.
 
 // VerifyCurrentMaterialTask additionally requires the current service revision
 // before the final task and node reads. It never repeats OCI verification.
-func VerifyCurrentMaterialTask(ctx context.Context, client api.ControlClient, task *api.Task, expected swarmruntime.ServiceIntent,
+func VerifyCurrentMaterialTask(ctx context.Context, client api.ControlReader, task *api.Task, expected swarmruntime.ServiceIntent,
 	verified release.VerifiedContainer, roots trust.Keyring, proof Profile, registration host.Registration, binding host.ContainerMaterialBinding,
 	controller *bootstrapstart.ControllerHostRecipient,
 ) error {
@@ -157,7 +158,7 @@ func VerifyCurrentMaterialTask(ctx context.Context, client api.ControlClient, ta
 	return verifyCurrentRecipient(ctx, client, task, expected, verified, proof, registration, binding, controller)
 }
 
-func verifyCurrentAuthority(ctx context.Context, client api.ControlClient, task *api.Task, expected swarmruntime.ServiceIntent,
+func verifyCurrentAuthority(ctx context.Context, client api.ControlReader, task *api.Task, expected swarmruntime.ServiceIntent,
 	verified release.VerifiedContainer, roots trust.Keyring, proof Profile, registration host.Registration, binding host.ContainerMaterialBinding,
 ) error {
 	if client == nil || verifyExpected(proof, expected, verified) != nil || registration.Cell != proof.identity.Cell || registration.Environment != proof.identity.Environment ||
@@ -170,7 +171,7 @@ func verifyCurrentAuthority(ctx context.Context, client api.ControlClient, task 
 	return swarmruntime.VerifyRegistryTask(ctx, client, task, expected, verified, roots)
 }
 
-func verifyCurrentRecipient(ctx context.Context, client api.ControlClient, task *api.Task, expected swarmruntime.ServiceIntent,
+func verifyCurrentRecipient(ctx context.Context, client api.ControlReader, task *api.Task, expected swarmruntime.ServiceIntent,
 	verified release.VerifiedContainer, proof Profile, registration host.Registration, binding host.ContainerMaterialBinding,
 	controller *bootstrapstart.ControllerHostRecipient,
 ) error {
@@ -213,8 +214,14 @@ func verifyTaskAssignment(task *api.Task, binding host.ContainerMaterialBinding)
 }
 
 func verifyTaskNode(node *api.Node, binding host.ContainerMaterialBinding, architecture string) error {
-	if node == nil || node.ID != binding.NodeID || node.Spec.Membership != api.NodeMembershipAccepted || node.Status.State != api.NodeStatus_READY ||
-		node.Spec.Availability != api.NodeAvailabilityActive || node.Spec.Annotations.Name != binding.HostID ||
+	if node == nil || node.Status.State != api.NodeStatus_READY || node.Spec.Availability != api.NodeAvailabilityActive {
+		return ErrPending
+	}
+	return verifyTaskNodeIdentity(node, binding, architecture)
+}
+
+func verifyTaskNodeIdentity(node *api.Node, binding host.ContainerMaterialBinding, architecture string) error {
+	if node == nil || node.ID != binding.NodeID || node.Spec.Membership != api.NodeMembershipAccepted || node.Spec.Annotations.Name != binding.HostID ||
 		node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] != binding.InstanceID ||
 		node.Spec.Annotations.Labels[swarmruntime.LabelRegion] != binding.Region ||
 		node.Spec.Annotations.Labels[swarmruntime.LabelExecutionScope] != "platform" ||
@@ -326,8 +333,8 @@ func ServiceIntent(proof Profile, architecture string) (swarmruntime.ServiceInte
 	for _, key := range slices.Sorted(maps.Keys(profile.Env)) {
 		environment = append(environment, key+"="+profile.Env[key])
 	}
-	limits := &api.Resources{NanoCPUs: int64(profile.Resources.CPU) * 1_000_000_000, MemoryBytes: profile.Resources.MemoryBytes}
-	expected := swarmruntime.ServiceIntent{ID: entityid.Derive("platform-service", intent.Role, intent.Environment, region.OCIRegion), OperationID: intent.OperationID,
+	limits := &api.Resources{NanoCPUs: int64(profile.Resources.CPU) * 1_000_000_000, MemoryBytes: profile.Resources.MemoryBytes, Generic: []*api.GenericResource{genericresource.NewDiscrete(swarmruntime.DiskResource, profile.Resources.DiskBytes)}}
+	expected := swarmruntime.ServiceIntent{ID: entityid.Derive("platform-service", intent.Role, intent.Environment, region.OCIRegion), OperationID: intent.OperationID, Generation: intent.Generation,
 		Role: intent.Role, Region: region.OCIRegion, Environment: intent.Environment, Architecture: architecture, Replicas: uint64(intent.DesiredReplicas),
 		Container: &api.ContainerSpec{Image: claim.Image, User: "65532:65532", Args: slices.Clone(profile.Args), Env: environment},
 		Resources: &api.ResourceRequirements{Limits: limits, Reservations: limits.Copy()}}

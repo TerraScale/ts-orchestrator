@@ -35,6 +35,7 @@ type functionWorkerRelease struct {
 // Function/task labels select records; neither labels nor a requested image grant authority.
 type functionControllerConfig struct {
 	Authority         *authority.Runtime
+	JS                jetstream.JetStream
 	Startup           bootstrap.DerivedStartupAuthority
 	Material          functionmaterial.Controller
 	Retirement        functionmaterial.RetirementClient
@@ -52,6 +53,7 @@ type functionController struct{ config functionControllerConfig }
 
 type functionIntentSource struct {
 	reader    functionmaterial.Reader
+	js        jetstream.JetStream
 	authority *authority.Runtime
 	epoch     uint64
 	roots     *rootRegistry
@@ -59,7 +61,7 @@ type functionIntentSource struct {
 }
 
 func (source functionIntentSource) CurrentFunction(ctx context.Context, tenant, function string) (release.VerifiedFunction, error) {
-	if source.roots == nil || source.roots.reply("").Head != source.rootHead {
+	if source.authority == nil || source.js == nil || source.roots == nil || source.roots.reply("").Head != source.rootHead {
 		return release.VerifiedFunction{}, errors.New("function roots changed during current intent observation")
 	}
 	if err := source.authority.Guard(ctx, source.epoch); err != nil {
@@ -69,17 +71,29 @@ func (source functionIntentSource) CurrentFunction(ctx context.Context, tenant, 
 	if err != nil {
 		return release.VerifiedFunction{}, err
 	}
+	ctx, cancel := context.WithDeadline(ctx, proof.ExpiresAt())
+	defer cancel()
 	if err := source.authority.Guard(ctx, source.epoch); err != nil {
 		return release.VerifiedFunction{}, err
 	}
-	if source.roots.reply("").Head != source.rootHead {
-		return release.VerifiedFunction{}, errors.New("function roots changed during current intent observation")
+	if err := rootTrustHeadCurrent(ctx, source.js, source.roots, source.rootHead); err != nil {
+		return release.VerifiedFunction{}, err
+	}
+	state := source.authority.Current()
+	if !state.CanMutate() || state.Epoch != source.epoch {
+		return release.VerifiedFunction{}, authority.ErrFenced
+	}
+	if source.roots.reply("").Head != source.rootHead || !proof.Valid() {
+		return release.VerifiedFunction{}, errors.New("function authority changed during current intent observation")
+	}
+	if err := ctx.Err(); err != nil {
+		return release.VerifiedFunction{}, err
 	}
 	return proof, nil
 }
 
 func startFunctionController(ctx context.Context, config functionControllerConfig) (host.FunctionMaterialProvider, func(), error) {
-	if config.Authority == nil || !config.Startup.IsVerified() || config.Client == nil || config.Roots == nil || config.Factory == nil || config.Worker == nil || config.Evidence == nil || config.Probe == nil || config.Retirement == nil ||
+	if config.Authority == nil || config.JS == nil || !config.Startup.IsVerified() || config.Client == nil || config.Roots == nil || config.Factory == nil || config.Worker == nil || config.Evidence == nil || config.Probe == nil || config.Retirement == nil ||
 		config.Channel == nil || config.Material.Reader.Roots == nil || config.Material.Reader.Artifacts == nil ||
 		config.Material.Conn == nil || config.Material.Issuer == nil || config.Material.Vault == nil || config.Material.Versions == nil ||
 		config.Material.Reader.Bundles == nil || config.Material.Reader.Accounts == nil || config.Material.Reader.VaultID == "" || config.Material.Target.VaultID != config.Material.Reader.VaultID ||
@@ -155,6 +169,10 @@ func (controller functionController) ingest(ctx context.Context, epoch uint64) e
 }
 
 func (controller functionController) ingestRelease(ctx context.Context, epoch uint64, location releasechannel.Location, entry releasechannel.FunctionRelease) error {
+	if controller.config.Roots == nil {
+		return errors.New("function publication requires current regional roots")
+	}
+	rootHead := controller.config.Roots.reply("").Head
 	claim, err := entry.Claim()
 	if err != nil {
 		return err
@@ -201,6 +219,19 @@ func (controller functionController) ingestRelease(ctx context.Context, epoch ui
 	}
 	if stored == nil || stored.Size != uint64(proof.Claim().Bytes) || stored.Opts != nil && stored.Opts.Link != nil {
 		return errors.New("function artifact readback differs from verified module")
+	}
+	// Root adoption and its leader's KV writes wait until this intent CAS completes.
+	controller.config.Roots.adopting.Lock()
+	defer controller.config.Roots.adopting.Unlock()
+	if controller.config.Roots.reply("").Head != rootHead {
+		return errors.New("function roots changed during artifact publication")
+	}
+	proof, err = release.VerifyFunctionCurrent(entry.Envelope, entry.Delegation, module, controller.config.Roots.current(), release.FunctionExpectation{
+		Environment: controller.config.Environment, Cell: strings.ToUpper(controller.config.Cell), TenantID: claim.TenantID,
+		FunctionID: claim.FunctionID, Revision: claim.Revision, Digest: claim.Digest, MinimumSequence: minimum,
+	}, time.Now())
+	if err != nil {
+		return err
 	}
 	_, err = controller.config.Authority.CommitFunctionIntent(ctx, epoch, entityid.Derive("function-publication", proof.EnvelopeSHA256()), expected, proof)
 	return err
@@ -250,7 +281,7 @@ func (controller functionController) apply(ctx context.Context, epoch uint64, te
 	if err != nil {
 		return err
 	}
-	source := functionIntentSource{reader: controller.config.Material.Reader, authority: controller.config.Authority, epoch: epoch,
+	source := functionIntentSource{reader: controller.config.Material.Reader, js: controller.config.JS, authority: controller.config.Authority, epoch: epoch,
 		roots: controller.config.Roots, rootHead: controller.config.Roots.reply("").Head}
 	_, err = swarmruntime.ApplyFunctionService(ctx, controller.config.Client, intent, source,
 		worker.Bundle, controller.config.Material.Reader.Roots(), worker.Floor, controller.config.Evidence, controller.config.Probe, allocations)
@@ -266,9 +297,11 @@ func functionServiceTarget(proof release.VerifiedFunction, architecture string) 
 func (controller functionController) material(ctx context.Context, registration host.Registration, request host.FunctionMaterialBinding) (host.FunctionMaterialFiles, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	if controller.config.Authority == nil || controller.config.Roots == nil {
+	if controller.config.Authority == nil || controller.config.JS == nil || controller.config.Roots == nil {
 		return host.FunctionMaterialFiles{}, functionmaterial.ErrMaterial
 	}
+	ctx, cancelStartup := context.WithDeadline(ctx, controller.config.Startup.ExpiresAt())
+	defer cancelStartup()
 	epoch, rootHead := controller.config.Authority.Current().Epoch, controller.config.Roots.reply("").Head
 	if err := controller.config.Authority.Guard(ctx, epoch); err != nil {
 		return host.FunctionMaterialFiles{}, err
@@ -279,6 +312,8 @@ func (controller functionController) material(ctx context.Context, registration 
 	if err != nil {
 		return host.FunctionMaterialFiles{}, err
 	}
+	ctx, cancelFunction := context.WithDeadline(ctx, proof.ExpiresAt())
+	defer cancelFunction()
 	material := controller.config.Material
 	material.AuthorizeRecipient = func(ctx context.Context, selected functionmaterial.Binding) error {
 		_, err := controller.recipient(ctx, registration, selected)
@@ -291,13 +326,21 @@ func (controller functionController) material(ctx context.Context, registration 
 	if !delivery.Valid() || delivery.Binding() != binding || delivery.Function().EnvelopeSHA256() != proof.EnvelopeSHA256() {
 		return host.FunctionMaterialFiles{}, functionmaterial.ErrMaterial
 	}
+	ctx, cancelDelivery := context.WithDeadline(ctx, delivery.ExpiresAt())
+	defer cancelDelivery()
+	ctx, cancelCredentials := context.WithDeadline(ctx, delivery.CredentialExpiresAt())
+	defer cancelCredentials()
 	if err := controller.config.Authority.Guard(ctx, epoch); err != nil {
 		return host.FunctionMaterialFiles{}, err
 	}
-	if controller.config.Roots.reply("").Head != rootHead {
+	if err := rootTrustHeadCurrent(ctx, controller.config.JS, controller.config.Roots, rootHead); err != nil {
+		return host.FunctionMaterialFiles{}, err
+	}
+	state := controller.config.Authority.Current()
+	if !state.CanMutate() || state.Epoch != epoch || controller.config.Roots.reply("").Head != rootHead {
 		return host.FunctionMaterialFiles{}, errors.New("function roots changed during material preparation")
 	}
-	if !delivery.Valid() {
+	if !proof.Valid() || !delivery.Valid() || ctx.Err() != nil {
 		return host.FunctionMaterialFiles{}, functionmaterial.ErrMaterial
 	}
 	return host.FunctionMaterialFiles{Files: delivery.Files(), ExpiresAt: delivery.ExpiresAt(), CredentialExpiresAt: delivery.CredentialExpiresAt()}, nil
@@ -310,6 +353,8 @@ func (controller functionController) recipient(ctx context.Context, registration
 	if err := controller.config.Startup.VerifyCurrent(ctx, time.Now().UTC()); err != nil {
 		return release.VerifiedFunction{}, err
 	}
+	ctx, cancelStartup := context.WithDeadline(ctx, controller.config.Startup.ExpiresAt())
+	defer cancelStartup()
 	if !entityid.Valid(registration.ID) || binding.HostID != registration.ID || registration.Cell != strings.ToLower(controller.config.Cell) || registration.Environment != controller.config.Environment {
 		return fail()
 	}
@@ -344,12 +389,14 @@ func (controller functionController) recipient(ctx context.Context, registration
 		return fail()
 	}
 	labels := service.Spec.Annotations.Labels
-	source := functionIntentSource{reader: controller.config.Material.Reader, authority: controller.config.Authority, epoch: epoch,
+	source := functionIntentSource{reader: controller.config.Material.Reader, js: controller.config.JS, authority: controller.config.Authority, epoch: epoch,
 		roots: controller.config.Roots, rootHead: rootHead}
 	proof, err := source.CurrentFunction(ctx, labels[swarmruntime.LabelFunctionTenant], labels[swarmruntime.LabelFunctionID])
 	if err != nil {
 		return release.VerifiedFunction{}, err
 	}
+	ctx, cancelFunction := context.WithDeadline(ctx, proof.ExpiresAt())
+	defer cancelFunction()
 	claim := proof.Claim()
 	if claim.Cell != strings.ToUpper(controller.config.Cell) || claim.Environment != controller.config.Environment || catalog.OCIRegion(claim.Cell) != binding.Region {
 		return fail()
@@ -390,6 +437,8 @@ func (controller functionController) recipient(ctx context.Context, registration
 	if err != nil {
 		return release.VerifiedFunction{}, err
 	}
+	ctx, cancelWorker := context.WithDeadline(ctx, verifiedWorker.ExpiresAt())
+	defer cancelWorker()
 	if err := swarmruntime.VerifyFunctionMaterialTask(ctx, controller.config.Client, task, intent, source, verifiedWorker); err != nil {
 		return release.VerifiedFunction{}, err
 	}
@@ -413,10 +462,14 @@ func (controller functionController) recipient(ctx context.Context, registration
 	if err := controller.config.Authority.Guard(ctx, epoch); err != nil {
 		return release.VerifiedFunction{}, err
 	}
-	if controller.config.Roots.reply("").Head != rootHead {
+	if err := rootTrustHeadCurrent(ctx, controller.config.JS, controller.config.Roots, rootHead); err != nil {
+		return release.VerifiedFunction{}, err
+	}
+	state := controller.config.Authority.Current()
+	if !state.CanMutate() || state.Epoch != epoch || controller.config.Roots.reply("").Head != rootHead {
 		return fail()
 	}
-	if !proof.Valid() || !verifiedWorker.Valid(time.Now().UTC()) {
+	if !proof.Valid() || !verifiedWorker.Valid(time.Now().UTC()) || ctx.Err() != nil {
 		return fail()
 	}
 	return proof, nil

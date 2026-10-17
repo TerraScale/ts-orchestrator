@@ -9,6 +9,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -23,6 +24,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/brokerauth"
+	"github.com/TerraScale/ts-orchestrator/internal/containermaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
@@ -41,11 +43,12 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
 	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
-	"github.com/TerraScale/ts-orchestrator/internal/workload"
+	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -280,7 +283,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err := restoreControllerKV(ctx, cfg, runtime.JetStream(), fullClusterReady); err != nil {
 		return err
 	}
-	candidateID := entityid.New()
+	candidateID, err := controllerRuntimeID()
+	if err != nil {
+		return fmt.Errorf("identify supervised regional authority candidate: %w", err)
+	}
 	control, stopAuthority, err := retryControllerOpen(ctx, "start regional authority", fullClusterReady, true,
 		func(attempt context.Context) (*authority.Runtime, error) {
 			return authority.Start(attempt, runtime.JetStream(), authority.Config{
@@ -310,7 +316,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return fmt.Errorf("start broker admission gate: %w", err)
 	}
-	planner := &regionalDeliveryPlanner{profiles: services.profiles, address: services.nodeAddress}
+	var genericServices atomic.Pointer[genericRuntime]
+	var statefulServices statefulRuntimeSlot
+	planner := &regionalDeliveryPlanner{profiles: services.profiles, address: services.nodeAddress, migrated: func(role string) bool { return role != terrabase.Role }}
 	service, _, err := retryControllerOpen(ctx, "open regional delivery stores", fullClusterReady, false,
 		func(attempt context.Context) (*delivery.Service, error) {
 			return delivery.Open(attempt, delivery.Config{
@@ -319,6 +327,16 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 				Verifier:              policy.codec, ArtifactVerifier: policy.codec,
 				Authorize: policy.authorizeIntent, AuthorizeArtifact: policy.authorizeArtifact,
 				Fencer: control, Planner: planner, Writer: planner,
+				ContainerApply: func(ctx context.Context, intent delivery.Intent) error {
+					if intent.Role == terrabase.Role {
+						return statefulServices.apply(ctx, intent)
+					}
+					controller := genericServices.Load()
+					if controller == nil {
+						return containermaterial.ErrPending
+					}
+					return controller.apply(ctx, intent)
+				},
 			})
 		}, nil)
 	if err != nil {
@@ -350,7 +368,6 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	var credentialFloor func(context.Context, host.Registration) (uint64, error)
 	var placementStore placement.Store
 	var fleet oci.Fleet
-	var managedJournal *oci.KVJournal
 	var volumeInspector host.ManagedVolumeInspector
 	var terminalExecutor oci.TerminalExecutor
 	var materialService *managedmaterial.PreparationService
@@ -390,7 +407,6 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		if err != nil {
 			return err
 		}
-		managedJournal = journal
 		acceptedLaunch, err := bootstrapstart.NewMarkerStore().ReadIdentity()
 		if err != nil {
 			return err
@@ -450,15 +466,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			return fmt.Errorf("start volume backup policy: %w", err)
 		}
 		defer stopBackups()
-		if reconcile := cfg.Controller.OciReconcile; reconcile != nil && reconcile.Enabled {
-			ociReconcile, _, err = retryControllerOpen(ctx, "open OCI resource reconcile state", fullClusterReady, false,
-				func(attempt context.Context) (*ociReconcileRuntime, error) {
-					return newOCIReconcileRunner(attempt, *reconcile, managed.region, runtime.JetStream(),
-						cfg.NATS.Replicas, control, fleet, services.profiles, services.ociDesired)
-				}, nil)
-			if err != nil {
-				return err
-			}
+		ociReconcile, _, err = retryControllerOpen(ctx, "open OCI resource reconcile state", fullClusterReady, false,
+			func(attempt context.Context) (*ociReconcileRuntime, error) {
+				return newOCIReconcileRunner(attempt, cfg.Controller.OciReconcile, managed.region, runtime.JetStream(),
+					cfg.NATS.Replicas, control)
+			}, nil)
+		if err != nil {
+			return err
 		}
 		registrationVerifier, err = newManagedRegistrationVerifier(
 			cfg.NATS.Cell, managed.region.Region, managed.region.Owner, managed.region.Generation,
@@ -494,21 +508,16 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	// TerraBase seat rollouts hold a static member's restart until its seat
 	// is permitted, so the host controller needs the seat records first.
-	var seatStore *seatrollout.Store
-	var restartGate func(context.Context, string, host.Desired) (bool, error)
-	if seats := cfg.Controller.TerraBaseSeats; seats != nil && seats.Enabled {
-		if _, _, err := seats.durations(); err != nil {
-			return err
-		}
-		if seatStore, _, err = retryControllerOpen(ctx, "open TerraBase seat records", fullClusterReady, false,
-			func(attempt context.Context) (*seatrollout.Store, error) {
-				return seatrollout.Open(attempt, runtime.JetStream(), cfg.NATS.Replicas, control)
-			}, nil); err != nil {
-			return err
-		}
-		restartGate = seatStore.Granted
-		policy.rollouts.drainedSeats = seatStore.Drained
+	seatStore, _, err := retryControllerOpen(ctx, "open TerraBase seat records", fullClusterReady, false,
+		func(attempt context.Context) (*seatrollout.Store, error) {
+			return seatrollout.Open(attempt, runtime.JetStream(), cfg.NATS.Replicas, control)
+		}, nil)
+	if err != nil {
+		return err
 	}
+	seats := newSeatController(cfg, seatStore, control, nil, services.profiles, ociReconcile)
+	restartGate := seatRestartGate(seats)
+	policy.rollouts.drainedSeats = seatStore.Drained
 	// Service releases sequenced by a release fence (TS-610) hold a host's
 	// restart until the leader permits its node, on every controller.
 	var releaseChannel jetstream.KeyValue
@@ -517,15 +526,12 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			return err
 		}
 		release := releaseGate(releaseChannel)
-		if seats := restartGate; seats != nil {
-			restartGate = func(ctx context.Context, node string, desired host.Desired) (bool, error) {
-				if granted, err := seats(ctx, node, desired); err != nil || !granted {
-					return granted, err
-				}
-				return release(ctx, node, desired)
+		seatGate := restartGate
+		restartGate = func(ctx context.Context, node string, desired host.Desired) (bool, error) {
+			if granted, err := seatGate(ctx, node, desired); err != nil || !granted {
+				return granted, err
 			}
-		} else {
-			restartGate = release
+			return release(ctx, node, desired)
 		}
 	}
 	// A cell that enrolls hosts issues its placed roles' NATS identities with
@@ -553,6 +559,31 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 				ManagedMaterialProvider:     materialProvider,
 				ManagedCredentialFloor:      credentialFloor,
 				ManagedVolumeInspector:      volumeInspector,
+				RuntimeEffects:              &statefulServices,
+				TaskLoadRoles: func(ctx context.Context, registration host.Registration) ([]string, error) {
+					functionCalls.RLock()
+					defer functionCalls.RUnlock()
+					controller := automaticContainers.Load()
+					functions := automaticFunctions.Load()
+					generic := genericServices.Load()
+					if controller == nil || functions == nil || generic == nil {
+						return nil, containermaterial.ErrPending
+					}
+					owns := func(role string) bool {
+						return role == swarmruntime.FunctionWorkerRole || generic.owns(role)
+					}
+					roles, err := controller.taskLoadRoles(ctx, registration, owns)
+					if err != nil {
+						return nil, err
+					}
+					functionRoles, err := functions.taskLoadRoles(ctx, registration, controller.config.WorkerMembership)
+					if err != nil {
+						return nil, err
+					}
+					roles = append(roles, functionRoles...)
+					slices.Sort(roles)
+					return roles, nil
+				},
 				FunctionMaterialProvider: func(ctx context.Context, registration host.Registration, binding host.FunctionMaterialBinding) (host.FunctionMaterialFiles, error) {
 					functionCalls.RLock()
 					defer functionCalls.RUnlock()
@@ -562,14 +593,14 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 					}
 					return controller.material(ctx, registration, binding)
 				},
-				ContainerMaterialProvider: func(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding) (host.ContainerMaterialFiles, error) {
+				ContainerMaterialProvider: func(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding, evidence host.ContainerMaterialEvidence) (host.ContainerMaterialFiles, error) {
 					functionCalls.RLock()
 					defer functionCalls.RUnlock()
 					controller := automaticContainers.Load()
 					if controller == nil {
 						return host.ContainerMaterialFiles{}, errors.New("automatic container authority is unavailable")
 					}
-					return controller.material(ctx, registration, binding)
+					return controller.material(ctx, registration, binding, evidence)
 				},
 				RegistryAdmissionProvider: func(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding) (host.RegistryAdmissionDocument, error) {
 					functionCalls.RLock()
@@ -597,6 +628,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return err
 	}
 	planner.hosts = hostController
+	seats.Hosts = hostController
 	// One release fence takes nodes out of rotation for service releases,
 	// controller rollouts and node operations (TS-632).
 	var fences *releaseFence
@@ -606,7 +638,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if releaseChannel != nil {
 		fences = &releaseFence{kv: releaseChannel, hosts: hostController, fencer: control,
 			spec:  withPoolAddresses(services.releaseFence, &poolScaler),
-			seats: seatStore != nil,
+			seats: true,
 			open: func(context.Context) (lb.API, error) {
 				factory, err := ociclient.InstancePrincipal(region)
 				if err != nil {
@@ -688,14 +720,17 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if terraBaseCA != nil {
 		nativeMemberCA = terraBaseCA.CertificatePEM()
 	}
-	nativeReleases.canary = newSmokeGate(nativeMemberCA).check
+	workloadRoot := rootoci.NewClient(rootoci.Expectations{Cell: cfg.NATS.Cell})
+	defer workloadRoot.Close()
+	rootInventory := &rootInventoryViews{client: workloadRoot}
+	nativeReleases.canary = newSmokeGate(nativeMemberCA, workloadRoot).check
 	workloadReconciler, hostLoad, err := startWorkloadAutoscale(cfg.NATS.Cell, cfg.Controller.Autoscale,
 		profiles, specs, hostController, control, nativeReleases)
 	if err != nil {
 		return err
 	}
 	planner.workloads = workloadReconciler
-	telemetry.usage.SetExpected(hostController.ExpectedUsage)
+	telemetry.usage.SetExpected(managerExpectedUsage)
 	inventoryCtx, stopInventory := context.WithCancel(ctx)
 	defer stopInventory()
 	go func() {
@@ -713,15 +748,6 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			}
 		}
 	}()
-	hostController.SetLoadSink(func(origin hostload.Origin, report hostload.Report) error {
-		return hostLoad.recordCommitted(ctx, nativeReleases, telemetry, origin, report)
-	})
-	services.changed = func(profiles map[string]WorkloadProfile, specs []workload.ServiceSpec) {
-		resources := profileResources(profiles)
-		if err := workloadReconciler.SetServices(specs, resources); err != nil {
-			slog.ErrorContext(ctx, "reconciler refused the adopted cell spec", observability.ComponentKey, "cellspec", "error", err)
-		}
-	}
 	if materialService != nil && managed != nil {
 		backupRuntime = &backupOperationRuntime{cell: cfg.NATS.Cell,
 			memberRole: managed.placement.MemberRole, control: control,
@@ -730,6 +756,11 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 				Preparation: *materialService, Store: control},
 			policy: policy, responseKey: responseKey}
 	}
+	operationSources := &operationObservationSources{hosts: hostController, backup: backupRuntime, netbird: control}
+	if materialService != nil {
+		operationSources.credentials = managedmaterial.CredentialService{Preparation: *materialService, Store: control}
+	}
+	telemetry.operationObservations.sources.Store(operationSources)
 	placementHolds := new(placementHoldLog)
 	holdDecisions := newHoldJournal(cfg.NATS.Cell)
 	rolloutKnownBadReleases := newRolloutKnownBad()
@@ -764,6 +795,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		}
 	}
 	runCtx, stop := context.WithCancel(ctx)
+	rootInventoryCtx, stopRootInventory := context.WithCancel(runCtx)
+	rootInventoryDone := make(chan struct{})
+	go func() {
+		defer close(rootInventoryDone)
+		rootInventory.run(rootInventoryCtx)
+	}()
+	defer func() { stopRootInventory(); <-rootInventoryDone }()
 	defer stop()
 	if networkControl != nil {
 		go networkControl.meshListener(runCtx)
@@ -786,7 +824,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return err
 	}
-	functionClient, _, functionConnection, err := swarmruntime.DialManagement(runCtx, acceptedRuntime)
+	functionClient, observationClient, managerID, functionConnection, err := swarmruntime.DialManagementClients(runCtx, acceptedRuntime)
 	if err != nil {
 		return fmt.Errorf("connect function runtime manager: %w", err)
 	}
@@ -820,8 +858,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	containerChannel := instancePrincipalChannel(capacityFoundation.factory.Region(), strings.ToUpper(cfg.NATS.Cell))
 	containers, stopContainers, err := startContainerMaterial(runCtx, containerMaterialConfig{
-		Factory: capacityFoundation.factory, Hosts: hostController, Authority: control, Client: functionClient,
-		Specs: services, Delivery: service, Founders: containerFounders, Accepted: acceptedRuntime,
+		Root: workloadRoot, Factory: capacityFoundation.factory, Hosts: hostController, Authority: control, Client: functionClient, SnapshotMutations: functionClient,
+		Specs: services, Delivery: service, Founders: containerFounders, Accepted: acceptedRuntime, WorkerMembership: functionMembership,
 		JS: runtime.JetStream(), Mutations: containerMutations, Registrations: containerRegistrations, ResponsePublic: responseKey.Public().(ed25519.PublicKey),
 		Evidence: func(ctx context.Context, role, digest string) (io.ReadCloser, error) {
 			location, err := containerChannel.get(ctx)
@@ -841,6 +879,70 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		defer functionCalls.Unlock()
 		stopContainers()
 	}()
+	statefulVolumes, err := workloadRoot.VolumeMountObserver()
+	if err != nil {
+		return fmt.Errorf("open stateful volume observations: %w", err)
+	}
+	statefulMembers := placementStore
+	if statefulMembers == nil {
+		statefulMembers, _, err = retryControllerOpen(runCtx, "open stateful member observations", fullClusterReady, false,
+			func(attempt context.Context) (placement.Store, error) {
+				return placement.NewJetStreamStore(attempt, runtime.JetStream(), cfg.NATS.Cell, cfg.NATS.Replicas,
+					admittedPlacementReader{cell: cfg.NATS.Cell, store: control, material: materialAdmission})
+			}, nil)
+		if err != nil {
+			return err
+		}
+	}
+	statefulMaterial := statefulReleaseReader{client: workloadRoot, deliveries: service}
+	stateful, err := newStatefulRuntime(statefulRuntimeConfig{
+		Client: functionClient, Authority: control, Members: statefulMembers, Delivery: service,
+		Volumes: statefulVolumes, Roots: services.roots.current(), HistoricalRoots: services.roots.historical(), Evidence: statefulMaterial.evidence, Allocations: statefulMaterial.allocations,
+		RetainedEvidence: statefulMaterial.retainedEvidence, RetainedAllocations: statefulMaterial.retainedAllocations,
+		SessionGuard: func(ctx context.Context) error { return containers.managerSession(ctx, managerID) },
+		Cell:         cfg.NATS.Cell, Environment: services.identity.Environment,
+	})
+	if err != nil {
+		return fmt.Errorf("start stateful container runtime: %w", err)
+	}
+	statefulServices.Store(stateful)
+	defer statefulServices.Store(nil)
+	generic, err := newGenericRuntime(genericRuntimeConfig{Client: functionClient, ManagerID: managerID, Authority: control, Specs: services, Delivery: service, Factory: capacityFoundation.factory,
+		Evidence: containers.config.Evidence, Probe: containers.probe, RetainedFloor: nativeReleases.retainedContainerFloor,
+		SessionGuard: func(ctx context.Context) error { return containers.managerSession(ctx, managerID) },
+	}, hostLoad.load)
+	if err != nil {
+		return err
+	}
+	ownsAllocation := func(role string) bool {
+		return role == swarmruntime.FunctionWorkerRole || generic.owns(role)
+	}
+	telemetry.usage.SetExpected(hostLoad.managedExpectedUsage(nativeReleases, telemetry, ownsAllocation))
+	genericServices.Store(generic)
+	defer genericServices.Store(nil)
+	services.removalReady = generic.removalReady
+	managerView, err := newManagerWorkloadView(functionClient, managerID, control, generic.scaler, services, containers.probe)
+	if err != nil {
+		return err
+	}
+	hostController.SetLoadObservationSink(func(requestCtx context.Context, origin hostload.Origin, report hostload.Report) error {
+		functionCalls.RLock()
+		defer functionCalls.RUnlock()
+		verify := func(ctx context.Context, registration host.Registration, task *api.Task) error {
+			if task == nil {
+				return containermaterial.ErrPending
+			}
+			if task.ServiceAnnotations.Labels[swarmruntime.LabelRole] == swarmruntime.FunctionWorkerRole {
+				controller := automaticFunctions.Load()
+				if controller == nil {
+					return containermaterial.ErrPending
+				}
+				return controller.verifyAllocation(ctx, registration, task, functionMembership)
+			}
+			return containers.verifyAllocation(ctx, registration, task)
+		}
+		return hostLoad.recordManaged(requestCtx, nativeReleases, telemetry, functionClient, observationClient, ownsAllocation, verify, origin, report)
+	})
 	homeKey := func(ctx context.Context) (ed25519.PublicKey, error) {
 		local, derived, present, err := installedAutomaticStartup(ctx)
 		if err != nil || !present {
@@ -915,7 +1017,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 					return control.Guard(ctx, control.Current().Epoch)
 				}, load: hostLoad, global: global, fencer: control, fences: fences,
 				enrollment: managedEnrollment, scaler: &poolScaler, costViews: costViews,
-				reservations: reservations, journal: managedJournal, functionDemand: functionDemandSource(functions.config)})
+				reservations: reservations, root: workloadRoot, functionDemand: functionDemandSource(functions.config)})
 			if err != nil {
 				_ = connection.Close()
 				return boundNodePool{}, err
@@ -1084,11 +1186,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	go costViews.run(runCtx)
 	if err := telemetry.attachController(runCtx, controllerObservation{nats: runtime, replicas: cfg.NATS.Replicas,
 		brokerIDs: cfg.NATS.Embedded.BrokerIDs, authority: control, placements: placementStore,
-		holds: placementHolds, autoscalers: workloadReconciler, hostLoad: hostLoad, hosts: hostController, peers: peers,
+		holds: placementHolds, autoscalers: managerView, hostLoad: hostLoad, hosts: hostController, peers: peers,
 		linkProbes:            linkSupervisor.snapshot,
 		nativeTerraBaseRegion: func() string { return services.profiles()[terrabase.Role].Env[terrabase.EnvRegion] },
 		cost:                  costViews.view, costRollup: costViews.rollup,
-		rollouts: rollouts, budgets: capacityBudgets{global: global, allocator: allocator}, ociResources: ociReconcile.resources(),
+		inventory:  dashboardInventory{source: rootInventory},
+		foundation: capacityFoundation.foundations,
+		rollouts:   rollouts, budgets: capacityBudgets{global: global, allocator: allocator}, ociResources: ociReconcile.resources(),
 		credentials: controllerCredentialFiles(cfg),
 		kvSnapshots: kvSnapshots,
 		nodes:       topologySource(cfg.NATS.Cell, cfg.NATS.Embedded.BrokerIDs, services, hostController, policy.nodes),
@@ -1124,6 +1228,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	linkSupervisor.source = regions
 	startRegionSuggestions(runCtx, cfg, runtime.JetStream(), global, telemetry.regionRollups, fullClusterReady, capacitySource)
 	workers.Go(func() { workerErrors <- linkSupervisor.Run(runCtx) })
+	workers.Go(func() { workerErrors <- newGlobalSourceLinks(workloadRoot, global).Run(runCtx) })
 	workers.Go(func() { workerErrors <- hostController.Run(runCtx) })
 	workers.Go(func() { workerErrors <- service.Run(runCtx) })
 	if backupRuntime != nil {
@@ -1138,15 +1243,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if ociReconcile != nil {
 		workers.Go(func() { workerErrors <- ociReconcile.runner.Run(runCtx) })
 	}
-	if seatStore != nil {
-		seats := newSeatController(cfg, seatStore, control, hostController, services.profiles, ociReconcile)
-		seats.Hold = policy.rollouts.hostRolloutActive
-		workers.Go(func() { workerErrors <- seats.Run(runCtx) })
-	}
+	seats.Hold = policy.rollouts.hostRolloutActive
+	workers.Go(func() { workerErrors <- seats.Run(runCtx) })
 	if membershipSupervisor != nil {
 		workers.Go(func() { workerErrors <- membershipSupervisor.Run(runCtx) })
 	}
-	workers.Go(func() { workerErrors <- workloadReconciler.Run(runCtx) })
+	workers.Go(func() { workerErrors <- stateful.effects.Run(runCtx) })
+	workers.Go(func() { workerErrors <- generic.Run(runCtx) })
 	atlasPublisher := &atlas.Loop{Publisher: atlas.Publisher{HTTP: &http.Client{Timeout: atlas.Interval}},
 		Config: atlasRoster(services.atlasConfig, cfg.NATS.Cell, peers), Authority: control, LoadKey: atlas.VaultKey}
 	workers.Go(func() { workerErrors <- atlasPublisher.Run(runCtx) })

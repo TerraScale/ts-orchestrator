@@ -110,7 +110,7 @@ func startAutomaticFunctions(ctx context.Context, cfg Config, runtime *natscell.
 		return fail(err)
 	}
 	channel := instancePrincipalChannel(factory.Region(), strings.ToUpper(cfg.NATS.Cell))
-	config := functionControllerConfig{Authority: control, Startup: startup, Client: client, Roots: roots, Factory: factory,
+	config := functionControllerConfig{Authority: control, JS: runtime.JetStream(), Startup: startup, Client: client, Roots: roots, Factory: factory,
 		Cell: cfg.NATS.Cell, Environment: manifest.Environment, Channel: channel, Retirement: management,
 		Material: functionmaterial.Controller{Authority: control, Conn: runtime.Conn(), Issuer: issuer,
 			Vault: management, Versions: management, Target: target,
@@ -127,6 +127,10 @@ func startAutomaticFunctions(ctx context.Context, cfg Config, runtime *natscell.
 		if err := startup.VerifyCurrent(ctx, time.Now().UTC()); err != nil {
 			return functionWorkerRelease{}, err
 		}
+		ctx, cancelStartup := context.WithDeadline(ctx, startup.ExpiresAt())
+		defer cancelStartup()
+		ctx, cancelFunction := context.WithDeadline(ctx, proof.ExpiresAt())
+		defer cancelFunction()
 		location, err := channel.get(ctx)
 		if err != nil {
 			return functionWorkerRelease{}, err
@@ -144,17 +148,12 @@ func startAutomaticFunctions(ctx context.Context, cfg Config, runtime *natscell.
 				failures = append(failures, err)
 				continue
 			}
-			verified, err := release.VerifyContainerCurrent(ctx, bundle, roots.current(), target, time.Now().UTC(), proof.ExpiresAt(), config.Evidence, allocations)
+			_, err = release.VerifyContainerCurrent(ctx, bundle, roots.current(), target, time.Now().UTC(), proof.ExpiresAt(), config.Evidence, allocations)
 			if err != nil {
 				failures = append(failures, err)
 				continue
 			}
-			for _, floor := range verified.Migration().Regions {
-				if floor.Cell == string(manifest.Cell) {
-					return functionWorkerRelease{Architecture: architecture, Bundle: bundle, Floor: floor}, nil
-				}
-			}
-			return functionWorkerRelease{}, errors.New("function worker migration lacks its signed regional floor")
+			return functionWorkerRelease{Architecture: architecture, Bundle: bundle}, nil
 		}
 		return functionWorkerRelease{}, errors.Join(failures...)
 	}

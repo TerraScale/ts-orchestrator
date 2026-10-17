@@ -104,8 +104,10 @@ func PrepareWorkerProfilesSDK(ctx context.Context, factory *ociclient.Factory, n
 					}
 					p := WorkerProfile{ImageSource: WorkerImageSource{OCIRegion: ociRegion, Namespace: namespace, Bucket: bucket, CurrentObject: releasechannel.CurrentImageObject(role, architecture, "production"), ImageDomain: release.ImageDomain, QualificationDomain: release.ProductionQualificationDomain}, Cell: cell, Environment: "production", Role: role, Architecture: architecture, Shape: shape, OCPUs: 2, MemoryGB: 12, BootGB: 50,
 						AvailabilityDomains: slices.Compact(placements[shape]), CompartmentRef: ref("workload_compartment"), SubnetRef: ref("subnet"), NSGRef: ref("workload_network_security_group"),
-						Runtime:   release.ProductionRuntime,
-						Bootstrap: WorkerBootstrapTemplate{Derivation: WorkerBootstrapDerivationV1, MaterialPlanSHA256: region.BootstrapMaterial.PlanSHA256, VaultRef: ref("vault"), KMSKeyRef: ref("key"), RecipientPermission: "SECRET_BUNDLE_READ"}}
+						Runtime:         release.ProductionRuntime,
+						PoolMembership:  WorkerPoolMembership{Purpose: PoolMembershipQuarantineV1, Provenance: PoolMembershipProvenanceV1},
+						CapacityJournal: WorkerCapacityJournal{Purpose: CapacityJournalPurposeV1, Principal: CapacityJournalPrincipalV1, Delta: CapacityJournalDeltaV1},
+						Bootstrap:       WorkerBootstrapTemplate{Derivation: WorkerBootstrapDerivationV1, MaterialPlanSHA256: region.BootstrapMaterial.PlanSHA256, VaultRef: ref("vault"), KMSKeyRef: ref("key"), RecipientPermission: "SECRET_BUNDLE_READ"}}
 					if found {
 						p.ImageReceipt = current.ReceiptWire
 						p.ImageDelegation = current.DelegationWire

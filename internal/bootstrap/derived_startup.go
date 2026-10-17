@@ -81,6 +81,15 @@ func (authority DerivedStartupAuthority) LinkMaterialRecord() []byte {
 	}
 	return bytes.Clone(authority.binding.Link.MaterialRecord)
 }
+
+// RendererDerivation returns the exact renderer approved by the signed startup recipe.
+func (authority DerivedStartupAuthority) RendererDerivation() string {
+	if !authority.IsVerified() {
+		return ""
+	}
+	return authority.template.Template().ControllerConfigDerivation
+}
+
 func (authority DerivedStartupAuthority) TrustedSigners() jsontext.Value {
 	return bytes.Clone(authority.template.template.TrustedSigners)
 }

@@ -19,7 +19,7 @@ import (
 // SamplerConfig names what a host samples.
 type SamplerConfig struct {
 	// CgroupRoot is the cgroup v2 directory holding one child group per
-	// native role (the host runner's role parent). Empty skips role usage.
+	// role or executor task. Empty skips cgroup usage.
 	CgroupRoot string
 	Roles      []string
 	// CgroupMount bounds ancestor limit reads; defaults to /sys/fs/cgroup.
@@ -137,32 +137,9 @@ func (s *Sampler) Sample(terrabase map[string]memberstatus.Load) Report {
 		if len(report.Roles) == MaxRoles {
 			break
 		}
-		usage := RoleUsage{Role: role}
-		if s.config.CgroupRoot != "" {
-			group := filepath.Join(s.config.CgroupRoot, role)
-			usage.CPULimit, usage.MemoryLimit, usage.LimitsRead = readLimits(group, s.config.CgroupMount)
-			if usage.MemoryLimit != nil && memTotal > 0 {
-				limit := min(*usage.MemoryLimit, memTotal)
-				usage.MemoryLimit = &limit
-			}
-			if seconds, identity, ok := readGroupCPUSeconds(group); ok {
-				present[role] = struct{}{}
-				previous, seen := s.roles[role]
-				// A group recreated between samples (a restart or rollout)
-				// has a new identity: its counter restarts the baseline even
-				// when it already exceeds the old group's counter.
-				sameGroup := seen && os.SameFile(previous.group, identity)
-				if elapsed := now.Sub(previous.at).Seconds(); sameGroup && elapsed > 0 && seconds >= previous.usage {
-					cores := (seconds - previous.usage) / elapsed
-					if finiteWithin(cores, MaxCPUCores) {
-						usage.CPUCores = &cores
-					}
-				}
-				s.roles[role] = cpuPoint{usage: seconds, at: now, group: identity}
-			}
-			if memory, ok := readWorkingSet(group); ok && memory <= MaxMemoryBytes && (memTotal == 0 || memory <= memTotal) {
-				usage.MemoryBytes = &memory
-			}
+		usage, seen := s.sampleCgroup(role, now, memTotal)
+		if seen {
+			present[role] = struct{}{}
 		}
 		if load, ok := terrabase[role]; ok && load.Validate() == nil {
 			usage.TerraBase = &load
@@ -173,12 +150,72 @@ func (s *Sampler) Sample(terrabase map[string]memberstatus.Load) Report {
 	}
 	// A role whose group vanished (stopped workload) restarts its CPU
 	// baseline when it comes back, so a restart never reads as a burst.
+	s.forgetCgroups(present)
+	return report
+}
+
+// SampleCgroups reads executor-owned child groups without resampling the host.
+// Missing groups remain unknown, and absent groups lose their CPU baseline.
+// Callers must independently bind each group to its current local task.
+func (s *Sampler) SampleCgroups(groups []string) []RoleUsage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.config.Now()
+	present := make(map[string]struct{}, len(groups))
+	usages := make([]RoleUsage, 0, len(groups))
+	for _, group := range groups {
+		if group == "." || group == ".." || filepath.Base(group) != group {
+			continue
+		}
+		usage, seen := s.sampleCgroup(group, now, 0)
+		if seen {
+			present[group] = struct{}{}
+		}
+		usages = append(usages, usage)
+	}
+	s.forgetCgroups(present)
+	return usages
+}
+
+func (s *Sampler) sampleCgroup(role string, now time.Time, memTotal uint64) (RoleUsage, bool) {
+	usage := RoleUsage{Role: role}
+	if s.config.CgroupRoot == "" {
+		return usage, false
+	}
+	present := false
+	group := filepath.Join(s.config.CgroupRoot, role)
+	usage.CPULimit, usage.MemoryLimit, usage.LimitsRead = readLimits(group, s.config.CgroupMount)
+	if usage.MemoryLimit != nil && memTotal > 0 {
+		limit := min(*usage.MemoryLimit, memTotal)
+		usage.MemoryLimit = &limit
+	}
+	if seconds, identity, ok := readGroupCPUSeconds(group); ok {
+		present = true
+		previous, seen := s.roles[role]
+		// A group recreated between samples (a restart or rollout)
+		// has a new identity: its counter restarts the baseline even
+		// when it already exceeds the old group's counter.
+		sameGroup := seen && os.SameFile(previous.group, identity)
+		if elapsed := now.Sub(previous.at).Seconds(); sameGroup && elapsed > 0 && seconds >= previous.usage {
+			cores := (seconds - previous.usage) / elapsed
+			if finiteWithin(cores, MaxCPUCores) {
+				usage.CPUCores = &cores
+			}
+		}
+		s.roles[role] = cpuPoint{usage: seconds, at: now, group: identity}
+	}
+	if memory, ok := readWorkingSet(group); ok && memory <= MaxMemoryBytes && (memTotal == 0 || memory <= memTotal) {
+		usage.MemoryBytes = &memory
+	}
+	return usage, present
+}
+
+func (s *Sampler) forgetCgroups(present map[string]struct{}) {
 	for role := range s.roles {
 		if _, ok := present[role]; !ok {
 			delete(s.roles, role)
 		}
 	}
-	return report
 }
 
 // A nil memory limit with LimitsRead means every ancestor reports "max".

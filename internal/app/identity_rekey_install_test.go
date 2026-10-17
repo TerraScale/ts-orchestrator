@@ -85,7 +85,7 @@ func identityRekeyConfigFixture(t *testing.T) (bootstrapstart.AcceptedIdentity, 
 	path := func(name string) string { return filepath.Join(bootstrapstart.MaterialDirectory, name) }
 	tls := natscell.TLSFiles{CAFile: path("ca.pem"), CertFile: path("controller-a-tls-cert.pem"), KeyFile: path("controller-a-tls-key.pem")}
 	publicSigner, _ := testEd25519(t, t.TempDir(), "operator.key")
-	config := Config{Version: 1, NATS: natscell.Config{Cell: "gru", Instance: accepted.Slot, Replicas: 3, ClientRole: "controller",
+	config := Config{Version: ConfigVersion, NATS: natscell.Config{Cell: "gru", Instance: accepted.Slot, Replicas: 3, ClientRole: "controller",
 		URL: "tls://10.251.0.11:4222", CredentialsFile: path("controller-a.creds"), TLS: tls,
 		Embedded: &natscell.Embedded{Host: "10.251.0.11", Port: 4222, RouteHost: "10.251.0.11", RoutePort: 6222,
 			Routes: []string{"nats-route://10.251.0.12:6222", "nats-route://10.251.0.13:6222"}, BrokerIDs: accepted.ControllerSlots,
@@ -194,7 +194,7 @@ func TestIdentityRekeyInstallerReplacesOnlyRegularFilesAndRecoversExactBytes(t *
 	}
 	defer unix.Close(dir)
 	uid, gid := uint32(os.Getuid()), uint32(os.Getgid())
-	files := map[string][]byte{"controller.json": []byte(`{"version":1}`), "placement.json": []byte(`{"environment":"canary"}`)}
+	files := map[string][]byte{"controller.json": []byte(`{"version":2}`), "placement.json": []byte(`{"environment":"canary"}`)}
 	for name := range files {
 		if err := os.WriteFile(filepath.Join(directory, name), []byte("opaque retired bytes"), 0o644); err != nil {
 			t.Fatal(err)

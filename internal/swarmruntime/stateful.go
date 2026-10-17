@@ -53,7 +53,7 @@ func decodeStateful(task *api.Task) (*api.ContainerSpec, error) {
 			delete(labels, LabelRole)
 		}
 	}
-	spec, err := DecodeContainer(check)
+	spec, err := decodeContainer(check)
 	if err != nil {
 		return nil, err
 	}

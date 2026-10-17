@@ -7,14 +7,12 @@ import (
 	"crypto/rand"
 	"encoding/json/v2"
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
@@ -26,10 +24,7 @@ import (
 func TestContainerIntentSignedBrokerRecovery(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	runtime, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: "one", Replicas: 1, Lab: true, Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "js")}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	runtime := startDeliveryTestBroker(t, ctx)
 	defer runtime.Close()
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -180,6 +175,23 @@ func TestContainerIntentSignedBrokerRecovery(t *testing.T) {
 	}
 	if terminal, err := recovered.process(ctx, wire); !terminal || err != nil || calls != 2 {
 		t.Fatal("restart lost completion", err)
+	}
+	// Retired release actors retain public provenance, never current admission.
+	recovered.config.Authorize = func(context.Context, string, Intent) error { return ErrUnauthorized }
+	if _, err := recovered.ContainerIntent(ctx, intent.OperationID); !errors.Is(err, ErrUnauthorized) {
+		t.Fatal("retired actor retained current admission", err)
+	}
+	retained, err := recovered.RetainedContainerIntent(ctx, intent.OperationID)
+	if err != nil || !bytes.Equal(retained.Container.Claim, claimWire) {
+		t.Fatal("retired actor lost protected provenance", err)
+	}
+	retained.Container.Claim[0] = '!'
+	retained, err = recovered.RetainedContainerIntent(ctx, intent.OperationID)
+	if err != nil || !bytes.Equal(retained.Container.Claim, claimWire) {
+		t.Fatal("historical reader mutated retained proof", err)
+	}
+	if _, err := recovered.RetainedContainerIntent(ctx, pending.OperationID); !errors.Is(err, ErrUnauthorized) {
+		t.Fatal("held operation supplied retained provenance", err)
 	}
 }
 

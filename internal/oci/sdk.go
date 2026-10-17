@@ -18,6 +18,7 @@ const maxProviderItems = 512
 type sdkProvider struct {
 	config       RegionConfig
 	terminations *KVJournal
+	backupGuard  func(context.Context) error
 	hostMetadata map[string]string
 	compute      core.ComputeClient
 	storage      core.BlockstorageClient
@@ -80,7 +81,7 @@ func (provider *sdkProvider) ListInstances(ctx context.Context, compartmentID st
 	var instances []CloudInstance
 	var page *string
 	for {
-		response, err := provider.compute.ListInstances(ctx, core.ListInstancesRequest{
+		response, err := provider.compute.ListInstances(ociclient.RequestContext(ctx), core.ListInstancesRequest{
 			CompartmentId: new(compartmentID), Page: page, Limit: new(100),
 		})
 		if err != nil {
@@ -100,7 +101,7 @@ func (provider *sdkProvider) ListInstances(ctx context.Context, compartmentID st
 }
 
 func (provider *sdkProvider) GetInstance(ctx context.Context, id string) (CloudInstance, error) {
-	response, err := provider.compute.GetInstance(ctx, core.GetInstanceRequest{InstanceId: new(id)})
+	response, err := provider.compute.GetInstance(ociclient.RequestContext(ctx), core.GetInstanceRequest{InstanceId: new(id)})
 	if err != nil {
 		return CloudInstance{}, fmt.Errorf("get OCI instance: %w", err)
 	}
@@ -146,7 +147,7 @@ func verifyInstanceStorageAndNetwork(ctx context.Context, config RegionConfig, i
 		instance.AvailabilityDomain != config.AvailabilityDomain {
 		return "", ErrForeignResource
 	}
-	boots, err := compute.ListBootVolumeAttachments(ctx, core.ListBootVolumeAttachmentsRequest{
+	boots, err := compute.ListBootVolumeAttachments(sdkObservationContext(ctx, compute), core.ListBootVolumeAttachmentsRequest{
 		CompartmentId: new(instance.CompartmentID), AvailabilityDomain: new(instance.AvailabilityDomain),
 		InstanceId: new(instance.ID),
 	})
@@ -168,7 +169,7 @@ func verifyInstanceStorageAndNetwork(ctx context.Context, config RegionConfig, i
 		stringValue(boots.Items[0].BootVolumeId) == "" {
 		return "", fmt.Errorf("%w: instance has no single attached boot volume", ErrForeignResource)
 	}
-	boot, err := storage.GetBootVolume(ctx, core.GetBootVolumeRequest{
+	boot, err := storage.GetBootVolume(sdkObservationContext(ctx, storage), core.GetBootVolumeRequest{
 		BootVolumeId: boots.Items[0].BootVolumeId,
 	})
 	if err != nil {
@@ -182,7 +183,7 @@ func verifyInstanceStorageAndNetwork(ctx context.Context, config RegionConfig, i
 		return "", errors.Join(ErrForeignResource,
 			fmt.Errorf("%w: instance boot image, size, or tier differs from the instance image and fleet pins", ErrImageNotQualified))
 	}
-	attachments, err := compute.ListVnicAttachments(ctx, core.ListVnicAttachmentsRequest{
+	attachments, err := compute.ListVnicAttachments(sdkObservationContext(ctx, compute), core.ListVnicAttachmentsRequest{
 		CompartmentId: new(instance.CompartmentID), InstanceId: new(instance.ID),
 	})
 	if err != nil {
@@ -203,7 +204,7 @@ func verifyInstanceStorageAndNetwork(ctx context.Context, config RegionConfig, i
 		stringValue(attachments.Items[0].VnicId) == "" {
 		return "", fmt.Errorf("%w: instance has no single attached primary VNIC", ErrForeignResource)
 	}
-	vnic, err := network.GetVnic(ctx, core.GetVnicRequest{VnicId: attachments.Items[0].VnicId})
+	vnic, err := network.GetVnic(sdkObservationContext(ctx, network), core.GetVnicRequest{VnicId: attachments.Items[0].VnicId})
 	if err != nil {
 		return "", fmt.Errorf("get exact instance VNIC: %w", err)
 	}
@@ -350,7 +351,7 @@ func (provider *sdkProvider) ListVolumeAttachments(ctx context.Context, compartm
 		if instanceID != "" {
 			request.InstanceId = new(instanceID)
 		}
-		response, err := provider.compute.ListVolumeAttachments(ctx, request)
+		response, err := provider.compute.ListVolumeAttachments(ociclient.RequestContext(ctx), request)
 		if err != nil {
 			return nil, fmt.Errorf("list OCI volume attachments: %w", err)
 		}
@@ -368,7 +369,7 @@ func (provider *sdkProvider) ListVolumeAttachments(ctx context.Context, compartm
 }
 
 func (provider *sdkProvider) GetVolumeAttachment(ctx context.Context, id string) (CloudAttachment, error) {
-	response, err := provider.compute.GetVolumeAttachment(ctx, core.GetVolumeAttachmentRequest{VolumeAttachmentId: new(id)})
+	response, err := provider.compute.GetVolumeAttachment(ociclient.RequestContext(ctx), core.GetVolumeAttachmentRequest{VolumeAttachmentId: new(id)})
 	if err != nil {
 		return CloudAttachment{}, fmt.Errorf("get OCI volume attachment: %w", err)
 	}
@@ -379,7 +380,7 @@ func (provider *sdkProvider) ListInstanceDevices(ctx context.Context, instanceID
 	var devices []CloudDevice
 	var page *string
 	for {
-		response, err := provider.compute.ListInstanceDevices(ctx, core.ListInstanceDevicesRequest{
+		response, err := provider.compute.ListInstanceDevices(ociclient.RequestContext(ctx), core.ListInstanceDevicesRequest{
 			InstanceId: new(instanceID), IsAvailable: new(true), Page: page, Limit: new(100),
 		})
 		if err != nil {
@@ -434,7 +435,7 @@ func (provider *sdkProvider) ListVolumes(ctx context.Context, compartmentID, ava
 	var volumes []CloudVolume
 	var page *string
 	for {
-		response, err := provider.storage.ListVolumes(ctx, core.ListVolumesRequest{
+		response, err := provider.storage.ListVolumes(ociclient.RequestContext(ctx), core.ListVolumesRequest{
 			CompartmentId:      new(compartmentID),
 			AvailabilityDomain: new(availabilityDomain),
 			Page:               page,
@@ -479,7 +480,7 @@ func (provider *sdkProvider) CreateVolume(ctx context.Context, request VolumeCre
 }
 
 func (provider *sdkProvider) GetVolume(ctx context.Context, id string) (CloudVolume, error) {
-	response, err := provider.storage.GetVolume(ctx, core.GetVolumeRequest{VolumeId: new(id)})
+	response, err := provider.storage.GetVolume(ociclient.RequestContext(ctx), core.GetVolumeRequest{VolumeId: new(id)})
 	if err != nil {
 		return CloudVolume{}, fmt.Errorf("get retained OCI volume: %w", err)
 	}
@@ -499,7 +500,7 @@ func (provider *sdkProvider) GetVolume(ctx context.Context, id string) (CloudVol
 // GetAttachedBootVolume reads the instance's single attached boot volume. The
 // fleet checks its image against the instance and the allowed images.
 func (provider *sdkProvider) GetAttachedBootVolume(ctx context.Context, instanceID string) (CloudBootVolume, error) {
-	response, err := provider.compute.ListBootVolumeAttachments(ctx, core.ListBootVolumeAttachmentsRequest{
+	response, err := provider.compute.ListBootVolumeAttachments(ociclient.RequestContext(ctx), core.ListBootVolumeAttachmentsRequest{
 		CompartmentId: new(provider.config.CompartmentID), AvailabilityDomain: new(provider.config.AvailabilityDomain),
 		InstanceId: new(instanceID),
 	})
@@ -524,7 +525,7 @@ func (provider *sdkProvider) GetAttachedBootVolume(ctx context.Context, instance
 }
 
 func (provider *sdkProvider) GetBootVolume(ctx context.Context, id string) (CloudBootVolume, error) {
-	response, err := provider.storage.GetBootVolume(ctx, core.GetBootVolumeRequest{BootVolumeId: new(id)})
+	response, err := provider.storage.GetBootVolume(ociclient.RequestContext(ctx), core.GetBootVolumeRequest{BootVolumeId: new(id)})
 	if err != nil {
 		return CloudBootVolume{}, fmt.Errorf("get OCI boot volume: %w", err)
 	}
@@ -540,7 +541,7 @@ func (provider *sdkProvider) ListBootVolumeAttachments(ctx context.Context, boot
 	var attachments []CloudBootAttachment
 	var page *string
 	for {
-		response, err := provider.compute.ListBootVolumeAttachments(ctx, core.ListBootVolumeAttachmentsRequest{
+		response, err := provider.compute.ListBootVolumeAttachments(ociclient.RequestContext(ctx), core.ListBootVolumeAttachmentsRequest{
 			CompartmentId: new(provider.config.CompartmentID), AvailabilityDomain: new(provider.config.AvailabilityDomain),
 			BootVolumeId: new(bootID), Page: page, Limit: new(100),
 		})

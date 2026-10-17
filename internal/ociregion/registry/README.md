@@ -75,7 +75,7 @@ REL/task admission integration; these source checks do not qualify live IAM.
 
 `NewIssuer` adds the first-party IAM-to-Vault producer. It consumes the sealed
 `region.VerifiedOCIRIssuer` from the same root-signed foundation grant, the
-existing persistent non-expiring regional KV, a fresh authority guard and the
+existing protected regional foundation CAS journal, a fresh authority guard and the
 existing tenancy-wide home IAM write lease. `OCIRIssuances` covers every distinct
 same-grant release repository exactly once, with at most 64 entries. Each has
 an independent IAM principal, email and Vault recipient. Short and long OCIR
@@ -101,8 +101,22 @@ Vault JSON. A new CURRENT version must match its recorded hash, and its token
 must be active, before the old token is revoked. Rotation is fixed at thirty
 days. Unknown identity, token or Vault values are not adopted.
 
-The always-on controller caller, protected KV ownership and fresh-root guard
-remain integration requirements. Runtime pulls need only map the sealed scope
+`rootfoundation.Backend.ReconcileOCIR` owns startup, recovery and periodic
+rotation through that backend's existing home IAM authority. Root's caller must
+retain its original deadline and source guard, complete initial reconciliation
+before private task admission, and join subsequent reconciliation on shutdown.
+Every scope is rediscovered from the current trusted lineage and compared by
+exact grant digest, generation, intent and protected foundation operation/epoch.
+The finite `ocirIssuances` sibling preserves unrelated foundation fields in one
+non-retried protected object CAS; ordinary controller KV grants no authority.
+It stores no credential bytes. Original token operations and public SDK request
+hashes, retry tokens, first deadlines and every dispatch outcome survive restart
+and rotation. History is never pruned: 64 scope keys, 64 token operations per key,
+256 distinct requests and 16 dispatches per request are ceilings; the 32 KiB
+entry and unchanged 128 KiB whole-record limits can be reached sooner and fail
+closed. A later runtime cannot extend an original token/request deadline.
+
+Runtime pulls need only map the sealed scope
 to `PullSecret` and use `Describe`/`Resolve`; workers gain no IAM write authority.
 No live IAM, token, policy or Vault writes were performed by these source tests.
 

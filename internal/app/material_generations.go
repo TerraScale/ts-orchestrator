@@ -22,6 +22,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
@@ -192,8 +193,13 @@ func runMaterialGenerationStager(ctx context.Context, roots *rootRegistry) {
 		slog.WarnContext(ctx, "material generation stager is off", observability.ComponentKey, "trust", "error", err)
 		return
 	}
+	client := rootoci.NewClient(rootoci.Expectations{Cell: string(target.Expected.Cell)})
 	stager := &generationinstall.Stager{KV: roots.kv, Target: target, Roots: roots.current,
-		Read:          exactSecretReader(func() (oci.Region, error) { return target.Expected.Cell, nil }),
+		Deliver: func(ctx context.Context, chain []byte) error {
+			_, err := client.DeliverControllerGeneration(ctx,
+				rootoci.DeliverControllerGenerationRequest{Chain: chain})
+			return err
+		},
 		Installed:     filepath.Join(bootstrapstart.MaterialDirectory, bootstrapstart.MaterialGenerationsFile),
 		Spool:         bootstrapstart.GenerationSpoolDirectory,
 		RequireMemory: vaultsecret.RequireMemoryFilesystem}

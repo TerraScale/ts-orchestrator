@@ -11,7 +11,6 @@ import (
 	"encoding/json/v2"
 	"encoding/pem"
 	"errors"
-	"io"
 	"maps"
 	"net"
 	"net/http"

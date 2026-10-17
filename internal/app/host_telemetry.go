@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostload"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
@@ -14,11 +15,15 @@ import (
 
 // hostTelemetry owns collection freshness even when no scaling policy uses it.
 type hostTelemetry struct {
-	mu       sync.Mutex
-	fencer   authority.Fencer
-	load     *hostload.Aggregator
-	epoch    uint64
-	requests map[string]hostload.Request
+	mu              sync.Mutex
+	fencer          authority.Fencer
+	load            *hostload.Aggregator
+	epoch           uint64
+	requests        map[string]hostload.Request
+	managedRequests map[hostload.Origin]map[string]hostload.Request
+	usagePoints     map[hostload.Origin][]host.CommittedUsage
+	usageHistoryMu  sync.Mutex
+	usageSequence   uint64
 }
 
 // current is called with mu held before accepting or charting reports.
@@ -26,11 +31,15 @@ func (t *hostTelemetry) current() bool {
 	snapshot := t.fencer.Current()
 	if !snapshot.CanMutate() {
 		t.load.Reset()
+		clear(t.managedRequests)
+		clear(t.usagePoints)
 		t.epoch = 0
 		return false
 	}
 	if t.epoch != snapshot.Epoch {
 		t.load.Reset()
+		clear(t.managedRequests)
+		clear(t.usagePoints)
 		t.epoch = snapshot.Epoch
 	}
 	return true

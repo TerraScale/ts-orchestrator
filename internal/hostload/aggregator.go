@@ -219,14 +219,27 @@ func (a *Aggregator) Read(ctx context.Context, target autoscale.Target, signal a
 // Record accepts one validated report. The caller must already have
 // authenticated the host and filtered Roles to roles it currently runs.
 func (a *Aggregator) Record(origin Origin, report Report) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.record(origin, report, a.config.Requests)
+}
+
+// RecordRequests normalizes one authenticated host against its actual summed
+// task reservations. Other hosts keep their own requests and sample windows.
+func (a *Aggregator) RecordRequests(origin Origin, report Report, requests map[string]Request) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.record(origin, report, requests)
+}
+
+// record is called with the aggregator lock held.
+func (a *Aggregator) record(origin Origin, report Report, requests map[string]Request) error {
 	if err := report.Validate(); err != nil {
 		return err
 	}
 	now := a.config.Now()
-	a.mu.Lock()
 	node, known := a.nodes[origin.Node]
 	if known && now.Sub(node.latest.At) < a.config.MinInterval {
-		a.mu.Unlock()
 		return ErrTooFrequent
 	}
 	if !known {
@@ -236,7 +249,6 @@ func (a *Aggregator) Record(origin Origin, report Report) error {
 			a.pruneLocked(now, a.config.StaleAfter)
 		}
 		if len(a.nodes) >= maxNodes {
-			a.mu.Unlock()
 			return ErrTooManyNodes
 		}
 		node = &nodeState{store: autoscale.NewWindowStore(nodeRetention, a.nodePoints()),
@@ -248,7 +260,7 @@ func (a *Aggregator) Record(origin Origin, report Report) error {
 	// receive order and its store from being pruned mid-record.
 	for _, role := range report.Roles {
 		target := autoscale.Target{Cell: origin.Cell, Environment: origin.Environment, Role: role.Role}
-		for name, value := range roleSignals(role, report.Host, a.config.Requests[role.Role]) {
+		for name, value := range roleSignals(role, report.Host, requests[role.Role]) {
 			node.store.Record(target, name, autoscale.Sample{At: now, Value: value})
 			key := seriesKey{target: target, signal: name}
 			node.series[key] = now
@@ -269,7 +281,6 @@ func (a *Aggregator) Record(origin Origin, report Report) error {
 			a.runs[key] = current
 		}
 	}
-	a.mu.Unlock()
 	return nil
 }
 

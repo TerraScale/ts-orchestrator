@@ -1,6 +1,22 @@
 package dashboard
 
-import "github.com/TerraScale/ts-orchestrator/internal/observability"
+import (
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"time"
+)
+
+templ inventoryProvenance(scope string, observed, expires time.Time, currency string, monthly uint64) {
+	<dl class="kv">
+		<dt>Scope SHA-256</dt>
+		<dd><code>{ orDash(scope) }</code></dd>
+		<dt>Observed at</dt>
+		<dd>{ observed.Format(time.RFC3339Nano) }</dd>
+		<dt>Expires at</dt>
+		<dd>{ expires.Format(time.RFC3339Nano) }</dd>
+		<dt>Monthly subtotal</dt>
+		<dd>{ majorUnits(monthly) + " " + currency }</dd>
+	</dl>
+}
 
 templ ociBody(current view) {
 	<div id="content">
@@ -79,29 +95,90 @@ templ ociBody(current view) {
 			</div>
 			if current.Journal == nil || current.Journal.Inventory == nil {
 				@unavailable("The OCI resource inventory and drift report appear once the OCI inventory provider is attached.")
-			} else if current.failed("OCI inventory") {
-				@unavailable("OCI inventory could not be read; owned resources and drift are unknown.")
-			} else if len(current.Inventory) == 0 {
-				<p class="empty">No OCI resource is owned by this region.</p>
 			} else {
-				<div class="table-scroll">
-					<table>
-						<thead><tr><th>Kind</th><th>Name</th><th>State</th><th>Drift</th><th>OCID</th></tr></thead>
-						<tbody>
-							for _, item := range current.Inventory {
-								<tr class={ templ.KV("drift", item.Drift != "in_sync") }>
-									<td>{ item.Kind }</td>
-									<td>{ item.Name }</td>
-									<td>{ item.State }</td>
-									<td>
-										@statusPill(driftStatus(item.Drift), item.Drift)
-									</td>
-									<td><code>{ short(item.ID, 48) }</code></td>
-								</tr>
-							}
-						</tbody>
-					</table>
-				</div>
+				if current.failed("OCI inventory") {
+					@unavailable("OCI inventory could not be read completely; owned resources and drift are unknown. Any returned observations are retained below.")
+				}
+				if observed := current.InventoryObservation; observed != nil && !observed.ObservedAt.IsZero() {
+					@inventoryProvenance(observed.ScopeSHA256, observed.ObservedAt, observed.ExpiresAt, observed.Currency, observed.MonthlyCents)
+					if observed.ExpiresAt.IsZero() || !current.Now.Before(observed.ExpiresAt) {
+						<p class="note warn" role="status">This inventory observation has expired; values are last-known.</p>
+					}
+					<h3>Covered compartments</h3>
+					<ul>
+						for _, compartment := range observed.CoveredCompartments {
+							<li><code>{ compartment }</code></li>
+						}
+					</ul>
+				} else {
+					<p class="note warn" role="status">Inventory scope and observation time are unavailable.</p>
+				}
+				if observed := current.InventoryObservation; observed != nil {
+					for _, reason := range observed.Pending {
+						<p class="note warn" role="status">{ reason }</p>
+					}
+				}
+				<p class="legend-note">Live resource subtotal only. Omitted resources, unsupported costs and drift remain unknown.</p>
+				if len(current.Inventory) == 0 {
+					<p class="empty">No resources were returned by this observation; this does not establish that the region owns none.</p>
+				} else {
+					<div class="table-scroll">
+						<table>
+							<thead><tr><th>Kind</th><th>Name</th><th>Region</th><th>State</th><th>Drift</th><th>OCID</th><th>Compartment</th><th>Operation</th></tr></thead>
+							<tbody>
+								for _, item := range current.Inventory {
+									<tr class={ templ.KV("drift", item.Drift != "in_sync") }>
+										<td>{ item.Kind }</td>
+										<td>{ orDash(item.Name) }</td>
+										<td>{ item.Region }</td>
+										<td>{ item.State }</td>
+										<td>
+											@statusPill(driftStatus(item.Drift), item.Drift)
+										</td>
+										<td class="wrap"><code>{ item.ID }</code></td>
+										<td class="wrap"><code>{ orDash(item.CompartmentID) }</code></td>
+										<td class="wrap"><code>{ orDash(item.OperationID) }</code></td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+				}
+				if observed := current.InventoryObservation; observed != nil {
+					<h3>Original liabilities</h3>
+					<p class="legend-note">Descriptive original-tariff subtotal. It overlaps the live resource subtotal; never add these amounts. Neither subtotal establishes complete accounting or spending authority.</p>
+					{{ liabilities := observed.KnownLiabilities }}
+					if liabilities.ObservedAt.IsZero() {
+						@unavailable("Original liability observations are unavailable.")
+					} else {
+						@inventoryProvenance(liabilities.ScopeSHA256, liabilities.ObservedAt, liabilities.ExpiresAt, liabilities.Currency, liabilities.MonthlyCents)
+						if liabilities.ExpiresAt.IsZero() || !current.Now.Before(liabilities.ExpiresAt) {
+							<p class="note warn" role="status">Original liability observations have expired; values are last-known.</p>
+						}
+						<div class="table-scroll">
+							<table>
+								<thead><tr><th>Original operation</th><th>Reserved at</th><th>Original quoted monthly amount</th><th>Quote SHA-256</th></tr></thead>
+								<tbody>
+									for _, commitment := range liabilities.Commitments {
+										<tr><td><code>{ commitment.OperationID }</code></td><td>{ commitment.ReservedAt.Format(time.RFC3339Nano) }</td><td>{ majorUnits(commitment.Quote.MonthlyCents) + " " + commitment.Quote.Currency }</td><td class="wrap"><code>{ commitment.QuoteSHA256 }</code></td></tr>
+									}
+								</tbody>
+							</table>
+						</div>
+					}
+					for _, operation := range liabilities.UnknownOperations {
+						<p class="note warn">Unresolved operation: <code>{ operation }</code></p>
+					}
+					for _, resource := range liabilities.UnboundResources {
+						<p class="note warn">Resource without an original liability binding: <code>{ resource }</code></p>
+					}
+					for _, compartment := range liabilities.UnboundedCompartments {
+						<p class="note warn">Financial coverage is incomplete for compartment: <code>{ compartment }</code></p>
+					}
+					for _, reason := range liabilities.Pending {
+						<p class="note warn" role="status">{ reason }</p>
+					}
+				}
 			}
 		</article>
 		{{ reported := 0 }}

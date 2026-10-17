@@ -15,7 +15,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"uuid"
 
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
 
@@ -346,7 +348,7 @@ func setupIssuer(t *testing.T) (*Issuer, *issuerProtocol, *atomic.Bool) {
 		ociclient.PinHost(client, endpoint)
 		client.Configuration.RetryPolicy = new(common.NoRetryPolicy())
 	}
-	i := &Issuer{identity: iam, vault: vault, secrets: secrets, artifacts: artifacts, journal: controller.journal, scope: proof, guard: controller.guard, homeWrite: func(ctx context.Context) (context.Context, func(), error) { return ctx, func() {}, nil }, host: proof.Intent().RegistryHost}
+	i := &Issuer{identity: iam, vault: vault, secrets: secrets, artifacts: artifacts, journal: issuerKVJournal{controller.journal}, scope: proof, guard: controller.guard, homeWrite: func(ctx context.Context) (context.Context, func(), error) { return ctx, func() {}, nil }, host: proof.Intent().RegistryHost}
 	return i, remote, fenced
 }
 
@@ -372,11 +374,15 @@ func TestIssuerSignedScopeIAMVaultAndRotationHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry, err := i.journal.Get(t.Context(), a.key)
+	state, _, err := i.journal.Load(t.Context(), a.key)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(entry.Value()), "private-issued") || strings.Contains(string(entry.Value()), "terrascale-pull@") {
+	wire, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(wire), "private-issued") || strings.Contains(string(wire), "terrascale-pull@") {
 		t.Fatal("issuer journal contains credentials or username")
 	}
 	a.state.PublishedAt = time.Now().Add(-tokenRotation - time.Hour)
@@ -407,7 +413,9 @@ func TestIssuerLostTokenAndVaultResponsesRecoverWithoutBlindMint(t *testing.T) {
 			if scenario == "token" && firstErr == nil {
 				t.Fatal("lost once-returned token incorrectly succeeded")
 			}
-			if _, err := i.Ensure(t.Context()); err != nil {
+			// A new issuer has no in-memory attempt state; recovery reads the disk KV.
+			reopened := &Issuer{identity: i.identity, vault: i.vault, secrets: i.secrets, artifacts: i.artifacts, journal: issuerKVJournal{i.journal.(issuerKVJournal).KeyValue}, scope: i.scope, guard: i.guard, homeWrite: i.homeWrite, host: i.host}
+			if _, err := reopened.Ensure(t.Context()); err != nil {
 				t.Fatal(err)
 			}
 			remote.mu.Lock()
@@ -512,5 +520,87 @@ func TestIssuerHomeLeaseLossCancelsJoinedTokenHTTP(t *testing.T) {
 	defer remote.mu.Unlock()
 	if remote.created != 1 || remote.secret != "" {
 		t.Fatal("lost home lease published credentials or minted another token")
+	}
+}
+
+// Ordinary JetStream is used only in this controlled protocol fixture. Root's
+// production issuer uses the protected foundation CAS journal.
+type issuerKVJournal struct{ jetstream.KeyValue }
+
+func (j issuerKVJournal) Load(ctx context.Context, key string) (region.OCIRIssuanceState, uint64, error) {
+	status, err := j.Status(ctx)
+	if err != nil || status.Config().Storage != jetstream.FileStorage || status.Config().TTL != 0 {
+		return region.OCIRIssuanceState{}, 0, ErrIssuer
+	}
+	entry, err := j.Get(ctx, key)
+	if err != nil {
+		return region.OCIRIssuanceState{}, 0, err
+	}
+	var state region.OCIRIssuanceState
+	if len(entry.Value()) > 32<<10 || json.Unmarshal(entry.Value(), &state, json.RejectUnknownMembers(true)) != nil {
+		return state, 0, ErrIssuer
+	}
+	return state, entry.Revision(), nil
+}
+func (j issuerKVJournal) CompareAndSwap(ctx context.Context, key string, state region.OCIRIssuanceState, revision uint64) (uint64, error) {
+	wire, err := json.Marshal(state)
+	if err != nil {
+		return 0, err
+	}
+	if revision == 0 {
+		return j.Create(ctx, key, wire)
+	}
+	return j.Update(ctx, key, wire, revision)
+}
+
+func (j issuerKVJournal) BeginEffect(*http.Request) (func(*http.Response, error, bool) error, error) {
+	return func(*http.Response, error, bool) error { return nil }, nil
+}
+
+func TestIssuerExpiredTokenOperationObservesBeforeFreshMint(t *testing.T) {
+	i, remote, _ := setupIssuer(t)
+	a, err := i.begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.repository(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.ensureIdentity(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	operation := uuid.New().String()
+	a.state.TokenOperation = operation
+	a.state.TokenStarted = time.Now().UTC().Add(-2 * time.Minute)
+	a.state.TokenExpires = a.state.TokenStarted.Add(time.Minute)
+	a.state.Stage = "token-pending"
+	a.state.LeaseID = ""
+	a.state.LeaseUntil = time.Time{}
+	if err := a.save(t.Context(), false); err != nil {
+		t.Fatal(err)
+	}
+	remote.mu.Lock()
+	remote.created = 1
+	remote.tokens["ocid1.credential.oc1..expired"] = map[string]any{"id": "ocid1.credential.oc1..expired", "userId": a.state.UserID, "description": "terrascale-ocir:" + operation, "timeCreated": a.state.TokenStarted.Add(time.Second).Format(time.RFC3339Nano), "lifecycleState": "ACTIVE"}
+	remote.mu.Unlock()
+	if _, err := i.Ensure(t.Context()); err == nil {
+		t.Fatal("lost once-returned value became successful credentials")
+	}
+	remote.mu.Lock()
+	if remote.created != 1 || remote.revoked != 0 || remote.secret != "" {
+		t.Fatal("restart replayed an expired create or published an unknown credential")
+	}
+	remote.mu.Unlock()
+	state, _, err := i.journal.Load(t.Context(), a.key)
+	if err != nil || state.TokenOperation != operation || !state.TokenExpires.Equal(a.state.TokenExpires) || state.TokenID != "ocid1.credential.oc1..expired" || state.Stage != "vault-pending" {
+		t.Fatal("expired attempt was reset rather than positively observed")
+	}
+	if _, err := i.Ensure(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	remote.mu.Lock()
+	defer remote.mu.Unlock()
+	if remote.created != 2 || remote.revoked != 1 || len(remote.tokens) != 1 || remote.version != 1 {
+		t.Fatal("fresh issuance did not follow confirmed exact old-token revocation")
 	}
 }

@@ -147,6 +147,17 @@ func TestReleasePinsAfterHostJoins(t *testing.T) {
 func TestHostRolloutExchangeVerifiesTheProofAndRelaysTheStep(t *testing.T) {
 	f := newHostSinkFixture(t)
 	ctx := t.Context()
+	f.control.conn = f.js.Conn()
+	subscription, err := f.js.Conn().SubscribeSync(protocol.RolloutProofSubject("gru", f.host.Node))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = subscription.Unsubscribe() })
+	flushCtx, flushCancel := context.WithTimeout(ctx, 2*time.Second)
+	defer flushCancel()
+	if err := f.js.Conn().FlushWithContext(flushCtx); err != nil {
+		t.Fatal(err)
+	}
 	_, other, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -154,12 +165,43 @@ func TestHostRolloutExchangeVerifiesTheProofAndRelaysTheStep(t *testing.T) {
 	if _, err := f.exchange(t, host.RolloutExchange{Proof: f.proof(t, other)}); err == nil || f.joined(t, f.host.Node) {
 		t.Fatalf("a proof another key signed was accepted (%v) or joined the host", err)
 	}
-	step, err := f.exchange(t, host.RolloutExchange{Proof: f.proof(t, f.key)})
+	wire := f.proof(t, f.key)
+	step, err := f.exchange(t, host.RolloutExchange{Proof: wire})
 	if err != nil || len(step.Step) != 0 || !f.joined(t, f.host.Node) {
 		t.Fatalf("first exchange = %+v %v, joined %v", step, err, f.joined(t, f.host.Node))
 	}
 	if _, ok := f.control.hosts.Load().collector.Latest(f.host.Node); !ok {
 		t.Fatal("the host's proof did not reach the executor")
+	}
+	readCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	message, err := subscription.NextMsgWithContext(readCtx)
+	if err != nil || !bytes.Equal(message.Data, wire) {
+		t.Fatalf("root observer did not receive the original authenticated proof: %v", err)
+	}
+	entry, err := (rootReleaseKV{KeyValue: f.board, js: f.js}).Get(ctx, rollout.HostMembershipKey(f.host.Node))
+	if err != nil || len(entry.Value()) == 0 {
+		t.Fatalf("proof was published before retained membership: %v", err)
+	}
+	keys, err := trust.ParseKeyring(f.key.Public().(ed25519.PublicKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootCollector := rolloutexec.NewCollector("gru", func(string) (trust.Keyring, error) { return keys, nil }, nil)
+	if err := rootCollector.Observe(message.Subject, message.Data); err != nil {
+		t.Fatal(err)
+	}
+	root := &rootReleaseChannels{proofs: rootCollector, keys: func(string) (trust.Keyring, error) { return keys, nil }, proofWires: map[string][]byte{f.host.Node: bytes.Clone(message.Data)}}
+	root.cfg.NATS.Cell = "gru"
+	if _, ok := (rootChannelProofs{b: root, ctx: ctx}).Latest(f.host.Node); !ok {
+		t.Fatal("root rejected the current registered proof")
+	}
+	keys, err = trust.ParseKeyring(other.Public().(ed25519.PublicKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := (rootChannelProofs{b: root, ctx: ctx}).Latest(f.host.Node); ok {
+		t.Fatal("root reused a proof after the registered signing key changed")
 	}
 	if _, err := f.board.Put(ctx, rolloutexec.StepKey(f.host.Node), []byte("signed step")); err != nil {
 		t.Fatal(err)

@@ -610,7 +610,7 @@ func TestRunRefusesBadArguments(t *testing.T) {
 			t.Fatalf("%v accepted", args)
 		}
 	}
-	if err := Run(t.Context(), []string{"--help"}, &out, &out); err != nil || !strings.Contains(out.String(), "create  REGION") {
+	if err := Run(t.Context(), []string{"--help"}, &out, &out); err != nil || !strings.Contains(out.String(), "create  BUNDLE") {
 		t.Fatal(out.String(), err)
 	}
 }

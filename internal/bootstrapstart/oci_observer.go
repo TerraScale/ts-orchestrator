@@ -8,6 +8,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
@@ -39,11 +40,25 @@ func NewOCIInstanceObserver(region oci.Region, provider common.ConfigurationProv
 	if err != nil {
 		return nil, err
 	}
-	compute, err := core.NewComputeClientWithConfigurationProvider(provider)
+	factory, err := ociclient.New(provider, ociclient.Options{Region: ociRegion})
+	if err != nil {
+		return nil, err
+	}
+	return NewOCIInstanceObserverWithFactory(region, factory)
+}
+
+// NewOCIInstanceObserverWithFactory retains the root process's shared limiter
+// and retry policy without exporting its provider to observation consumers.
+func NewOCIInstanceObserverWithFactory(region oci.Region, factory *ociclient.Factory) (*OCIInstanceObserver, error) {
+	ociRegion, err := region.OCIRegion()
+	if err != nil || factory == nil || factory.Region() != ociRegion {
+		return nil, ErrInstanceObservation
+	}
+	compute, err := core.NewComputeClientWithConfigurationProvider(factory.Provider())
 	if err != nil {
 		return nil, fmt.Errorf("create OCI Compute observer: %w", err)
 	}
-	network, err := core.NewVirtualNetworkClientWithConfigurationProvider(provider)
+	network, err := core.NewVirtualNetworkClientWithConfigurationProvider(factory.Provider())
 	if err != nil {
 		return nil, fmt.Errorf("create OCI Networking observer: %w", err)
 	}
@@ -57,7 +72,18 @@ func NewOCIInstanceObserver(region oci.Region, provider common.ConfigurationProv
 	if err != nil {
 		return nil, fmt.Errorf("configure OCI Networking HTTP transport: %w", err)
 	}
+	factory.Configure(&compute.BaseClient, ociclient.ServiceCompute)
+	factory.Configure(&network.BaseClient, ociclient.ServiceNetwork)
 	return &OCIInstanceObserver{compute: &compute, network: &network}, nil
+}
+
+func observationContext(ctx context.Context, client any) context.Context {
+	switch client.(type) {
+	case core.ComputeClient, *core.ComputeClient, core.VirtualNetworkClient, *core.VirtualNetworkClient:
+		return ociclient.RequestContext(ctx)
+	default:
+		return ctx
+	}
 }
 
 func observerRegion(region oci.Region, provider common.ConfigurationProvider) (string, error) {
@@ -79,7 +105,7 @@ func (observer *OCIInstanceObserver) ObserveInstance(ctx context.Context, candid
 		!instanceIDRE.MatchString(candidateID) {
 		return InstanceObservation{}, ErrInstanceObservation
 	}
-	response, err := observer.compute.GetInstance(ctx, core.GetInstanceRequest{InstanceId: new(candidateID)})
+	response, err := observer.compute.GetInstance(observationContext(ctx, observer.compute), core.GetInstanceRequest{InstanceId: new(candidateID)})
 	if err != nil {
 		return InstanceObservation{}, fmt.Errorf("GetInstance exact IMDS candidate: %w", err)
 	}
@@ -102,7 +128,7 @@ func (observer *OCIInstanceObserver) ObserveInstance(ctx context.Context, candid
 	seenPages := make(map[string]struct{})
 	count := 0
 	for {
-		attachments, err := observer.compute.ListVnicAttachments(ctx, core.ListVnicAttachmentsRequest{
+		attachments, err := observer.compute.ListVnicAttachments(observationContext(ctx, observer.compute), core.ListVnicAttachmentsRequest{
 			CompartmentId: new(observation.CompartmentOCID), InstanceId: new(candidateID),
 			Limit: new(50), Page: page,
 		})
@@ -125,7 +151,7 @@ func (observer *OCIInstanceObserver) ObserveInstance(ctx context.Context, candid
 			if !strings.HasPrefix(vnicID, "ocid1.vnic.") {
 				return InstanceObservation{}, ErrInstanceObservation
 			}
-			vnicResponse, err := observer.network.GetVnic(ctx, core.GetVnicRequest{VnicId: new(vnicID)})
+			vnicResponse, err := observer.network.GetVnic(observationContext(ctx, observer.network), core.GetVnicRequest{VnicId: new(vnicID)})
 			if err != nil {
 				return InstanceObservation{}, fmt.Errorf("GetVnic attached to exact instance: %w", err)
 			}
@@ -136,7 +162,7 @@ func (observer *OCIInstanceObserver) ObserveInstance(ctx context.Context, candid
 				value(vnic.SubnetId) != value(attachment.SubnetId) {
 				return InstanceObservation{}, ErrInstanceObservation
 			}
-			subnetResponse, err := observer.network.GetSubnet(ctx, core.GetSubnetRequest{SubnetId: vnic.SubnetId})
+			subnetResponse, err := observer.network.GetSubnet(observationContext(ctx, observer.network), core.GetSubnetRequest{SubnetId: vnic.SubnetId})
 			if err != nil {
 				return InstanceObservation{}, fmt.Errorf("GetSubnet attached VNIC: %w", err)
 			}

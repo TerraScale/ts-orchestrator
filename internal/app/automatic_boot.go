@@ -250,7 +250,7 @@ type VerifiedAutomaticInstall struct {
 }
 
 func newVerifiedAutomaticInstall(ctx context.Context, local *automaticFoundation, template bootstrap.VerifiedStartupTemplate, material materialsource.VerifiedColdStartMaterial, link bootstrap.VerifiedStartupLink) (VerifiedAutomaticInstall, error) {
-	if local == nil || local.factory == nil || !template.IsVerified() || !material.IsVerified() || !link.IsVerified() ||
+	if local == nil || local.factory == nil || !template.IsVerified() || template.Template().ControllerConfigDerivation != bootstrap.ControllerConfigDerivationV2 || !material.IsVerified() || !link.IsVerified() ||
 		!bytes.Equal(template.GrantWire(), material.Grant().FoundationGrantWire()) ||
 		template.InstallationID() != material.Grant().InstallationID() || template.Generation() != material.Grant().Generation() ||
 		template.PlanDigest() != material.Grant().PlanDigest() {
@@ -389,8 +389,8 @@ func automaticPeerAuthority(ctx context.Context, local *automaticFoundation, gra
 }
 
 func validateAutomaticAuthorityRendering(authority bootstrap.DerivedStartupAuthority) error {
-	if !authority.IsVerified() {
-		return errors.New("automatic installation authority is unverified")
+	if !authority.IsVerified() || authority.RendererDerivation() != bootstrap.ControllerConfigDerivationV2 {
+		return errors.New("automatic installation requires the root-approved v2 controller renderer")
 	}
 	var record bootstrapmaterial.Record
 	if err := protocol.DecodeStrict(authority.MaterialRecord(), &record, 1<<20); err != nil {

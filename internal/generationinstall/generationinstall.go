@@ -289,7 +289,10 @@ type Stager struct {
 	KV     jetstream.KeyValue
 	Target bootstrapstart.GenerationTarget
 	Roots  func() trust.Keyring
-	// Read returns one secret's exact pinned bytes from Vault.
+	// Deliver asks the root OCI service to install this signed generation's
+	// own-slot secrets in Spool without giving this process OCI credentials.
+	Deliver func(context.Context, []byte) error
+	// Read is used by root-owned callers and existing boundary fixtures.
 	Read func(context.Context, bootstrap.SecretReference) ([]byte, error)
 	// Installed is the credential directory's adopted chain.
 	Installed string
@@ -464,11 +467,24 @@ func (s *Stager) write(ctx context.Context, spool *os.Root, generation bootstrap
 		}
 		files[bootstrapstart.GenerationConfigFile(slot)] = record.Configs[slot]
 	}
+	if s.Deliver != nil {
+		if err := s.Deliver(ctx, record.Chain); err != nil {
+			return errors.New("root delivery of material generation failed")
+		}
+	}
 	for _, secret := range generation.Secrets {
 		if secret.Slot != "" && secret.Slot != slot {
 			continue
 		}
-		data, err := s.Read(ctx, secret)
+		var data []byte
+		var err error
+		if s.Deliver != nil {
+			data, err = readSpooled(spool, secret.TargetFile, secret.MaxBytes)
+		} else if s.Read != nil {
+			data, err = s.Read(ctx, secret)
+		} else {
+			return errors.New("material generation requires root credential delivery")
+		}
 		if err != nil {
 			return fmt.Errorf("read %s from Vault: %w", secret.TargetFile, err)
 		}

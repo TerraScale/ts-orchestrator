@@ -126,6 +126,10 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return app.RunAutomaticBootstrap(ctx, args[1:])
 	case "managed-runtime-start":
 		return app.RunManagedRuntime(ctx, args[1:], output)
+	case "root-oci-qualification":
+		return app.RunRootOCIQualification(ctx, args[1:], os.Stdin, output)
+	case "root-oci-qualification-read", "root-oci-qualification-probe":
+		return app.RunRootOCIQualificationReader(ctx, args[0], args[1:], os.Stdin, output)
 	case "observe":
 		return runObserve(ctx, args[1:], output)
 	case "usage":

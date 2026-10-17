@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strconv"
@@ -57,6 +58,7 @@ type sourceEntry struct {
 	pins         *RuntimePins
 	observed     RuntimeObservation
 	publication  *publication
+	backupCancel context.CancelFunc
 	revoked      bool
 }
 
@@ -129,7 +131,7 @@ func (s *Source) admit(ctx context.Context, task *api.Task) (*sourceEntry, error
 		material.PlacementSHA256 != registration.ManagedPlacement.IntentPayloadDigest || material.RosterSHA256 != registration.ManagedPlacement.CanonicalRosterDigest ||
 		material.MemberRevision == 0 || !digestValid(material.MemberSHA256) || material.HostAttempt != launch.Member.HostAttempt ||
 		material.Scope != memberstatus.Scope(launch.Member.Scope) || material.MemberAuthority != memberstatus.Authority(launch.Authority) ||
-		material.Volume.DatabaseID != material.Scope.DatabaseID || material.Volume.PartitionID != registration.ManagedPlacement.PartitionID ||
+		material.Volume.DatabaseID != registration.ManagedPlacement.DatabaseID || material.Volume.PartitionID != registration.ManagedPlacement.PartitionID ||
 		material.Volume.InstanceID != identity.InstanceID || material.Volume.HostCreateKey != launch.OCI.CreateKey ||
 		material.Volume.VolumeID != launch.VolumeID || material.Volume.AttachmentID != launch.AttachmentID || material.Volume.AttachmentETag != launch.AttachmentETag ||
 		material.Volume.Device != launch.Runtime.DevicePath || material.Volume.FileSystemUUID != launch.Runtime.FileSystemUUID || material.Volume.FileSystemType != launch.Runtime.FileSystemType ||
@@ -295,9 +297,23 @@ func (s *Source) ResolveRuntime(ctx context.Context, task *api.Task) (RuntimePin
 	if base.Process.Cwd == "" {
 		base.Process.Cwd = "/"
 	}
-	base.Process.Env = slices.Clone(imageConfig.Env)
-	for _, key := range slices.Sorted(maps.Keys(plan.Workload.Env)) {
-		base.Process.Env = append(base.Process.Env, key+"="+plan.Workload.Env[key])
+	environment := make(map[string]string, len(imageConfig.Env)+len(plan.Workload.Env))
+	for _, value := range imageConfig.Env {
+		key, value, ok := strings.Cut(value, "=")
+		if !ok || key == "" || strings.ContainsAny(key, "\x00\r\n") || strings.ContainsRune(value, 0) {
+			return RuntimePins{}, ErrUnsafe
+		}
+		if _, duplicate := environment[key]; duplicate {
+			return RuntimePins{}, ErrUnsafe
+		}
+		environment[key] = value
+	}
+	for key, value := range plan.Workload.Env {
+		environment[key] = value
+	}
+	base.Process.Env = nil
+	for _, key := range slices.Sorted(maps.Keys(environment)) {
+		base.Process.Env = append(base.Process.Env, key+"="+environment[key])
 	}
 	base.Mounts = append(base.Mounts, runtimespec.Mount{Source: plan.MountPath, Destination: plan.MountPath, Type: "bind", Options: []string{"bind", "rw", "nosuid", "nodev", "noexec", "noatime"}}, runtimespec.Mount{Source: plan.MaterialPath, Destination: plan.MaterialPath, Type: "bind", Options: []string{"bind", "ro", "nosuid", "nodev", "noexec"}}, runtimespec.Mount{Source: plan.ControlDirectory, Destination: plan.ControlDirectory, Type: "bind", Options: []string{"bind", "rw", "nosuid", "nodev", "noexec"}}, runtimespec.Mount{Source: plan.PublicationSocket, Destination: plan.PublicationSocket, Type: "bind", Options: []string{"bind", "rw", "nosuid", "nodev", "noexec"}})
 	pins := RuntimePins{Task: task.Copy(), ContainerSpecSHA256: entry.binding.TaskSHA256, Image: expected.Image, Process: *base.Process, Resources: *base.Linux.Resources, Mounts: base.Mounts, Namespaces: base.Linux.Namespaces, Volume: material.Mount, VolumeDestination: material.Mount.MountPath}
@@ -309,7 +325,15 @@ func (s *Source) ResolveRuntime(ctx context.Context, task *api.Task) (RuntimePin
 		s.mu.Unlock()
 		return RuntimePins{}, ErrUnsafe
 	}
-	entry.pins = &pins
+	if previous := entry.pins; previous != nil {
+		if previous.ContainerSpecSHA256 != pins.ContainerSpecSHA256 || previous.Image != pins.Image || previous.Volume != pins.Volume || previous.VolumeDestination != pins.VolumeDestination || !reflect.DeepEqual(previous.Process, pins.Process) || !reflect.DeepEqual(previous.Resources, pins.Resources) || !reflect.DeepEqual(previous.Mounts, pins.Mounts) || !reflect.DeepEqual(previous.Namespaces, pins.Namespaces) {
+			s.mu.Unlock()
+			return RuntimePins{}, ErrUnsafe
+		}
+		pins = *previous
+	} else {
+		entry.pins = &pins
+	}
 	s.mu.Unlock()
 	return pins, nil
 }
@@ -334,6 +358,9 @@ func (s *Source) RecordRuntime(ctx context.Context, task *api.Task, caller Runti
 	}
 	entry.observed = actual
 	s.mu.Unlock()
+	if actual.State == containerd.Running {
+		return s.startBackup(task, entry)
+	}
 	return nil
 }
 

@@ -17,25 +17,20 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 	"github.com/TerraScale/ts-orchestrator/internal/insights"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
-	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/bucket"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
-	"github.com/TerraScale/ts-orchestrator/internal/ociresource/nlb"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/nsg"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/routetable"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/seclist"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
-// OciReconcileConfig enables the declarative OCI reconcile framework on the
-// regional authority leader. It is off unless Enabled is set.
+// OciReconcileConfig carries signed resource amendments beside the always-on
+// regional foundation. Its absence never disables foundation reconciliation.
 type OciReconcileConfig struct {
-	Enabled         bool   `json:"enabled,omitzero"`
-	IntervalSeconds int    `json:"interval_seconds,omitzero"`
-	TagMode         string `json:"tag_mode,omitempty"`
-	TagNamespace    string `json:"tag_namespace,omitempty"`
 	// PublicNLB keeps the public API NLB's backend set in step with the
 	// RUNNING member hosts placement observes.
 	PublicNLB *OciReconcileNLBConfig `json:"public_nlb,omitempty"`
@@ -44,7 +39,7 @@ type OciReconcileConfig struct {
 	PublicLB *OciReconcileLBConfig `json:"public_lb,omitempty"`
 	// Desired publishes desired specs listed in this controller
 	// configuration (bound to the signed controller manifest on baked
-	// controllers) into TS_OCI_DESIRED before every pass. Off when nil.
+	// controllers) into the protected foundation journal before every pass.
 	Desired *OciDesiredConfig `json:"desired,omitempty"`
 }
 
@@ -87,13 +82,9 @@ func (c OciReconcileLBConfig) key(cell string) (ociresource.Key, error) {
 	return key, nil
 }
 
-// publicLBKey validates public_lb against the rest of the configuration.
-// public-api apply stamps freeform ownership only, so a defined tag_mode
-// could never own the load balancer.
+// publicLBKey validates the signed public backend identity. Ownership always
+// uses the freeform tags stamped by public-api apply.
 func (c OciReconcileConfig) publicLBKey(cell string) (ociresource.Key, error) {
-	if c.TagMode != "" && c.TagMode != string(ociresource.TagModeFreeform) {
-		return ociresource.Key{}, errors.New("OCI reconcile public_lb requires freeform tag_mode: public-api apply stamps freeform ownership")
-	}
 	return c.PublicLB.key(cell)
 }
 
@@ -136,30 +127,10 @@ type (
 )
 
 const (
-	minOciReconcileInterval = 30 * time.Second
-	maxOciReconcileInterval = time.Hour
-	defaultOciPruneDelay    = time.Hour
-	maxOciPruneDelay        = 7 * 24 * time.Hour
+	ociReconcileInterval = time.Minute
+	defaultOciPruneDelay = time.Hour
+	maxOciPruneDelay     = 7 * 24 * time.Hour
 )
-
-func (c OciReconcileConfig) interval() (time.Duration, error) {
-	if c.IntervalSeconds == 0 {
-		return time.Minute, nil
-	}
-	interval := time.Duration(c.IntervalSeconds) * time.Second
-	if interval < minOciReconcileInterval || interval > maxOciReconcileInterval {
-		return 0, errors.New("OCI reconcile interval must be between 30 seconds and one hour")
-	}
-	return interval, nil
-}
-
-func (c OciReconcileConfig) ownership(owner string) (ociresource.Ownership, error) {
-	ownership := ociresource.Ownership{Mode: ociresource.TagModeFreeform, Namespace: c.TagNamespace, Owner: owner}
-	if c.TagMode != "" {
-		ownership.Mode = ociresource.TagMode(c.TagMode)
-	}
-	return ownership, ownership.Validate()
-}
 
 // ociDesiredSet is one kind's validated entries.
 type ociDesiredSet struct {
@@ -230,24 +201,6 @@ func desiredSets(c OciDesiredConfig, cell string, region oci.RegionConfig) ([]oc
 	return sets, delay, nil
 }
 
-// currentDesiredPass publishes the desired resources in force at each leader
-// pass: the cell spec's oci_desired section, else the signed config's.
-func currentDesiredPass(cell string, region oci.RegionConfig, store ociresource.Store, fencer authority.Fencer,
-	desired func() *OciDesiredConfig,
-) ociresource.Pass {
-	return ociresource.Pass{Name: "publish-desired", Run: func(ctx context.Context, epoch uint64) error {
-		config := desired()
-		if config == nil {
-			return nil
-		}
-		sets, delay, err := desiredSets(*config, cell, region)
-		if err != nil {
-			return err
-		}
-		return desiredPass(cell, store, fencer, sets, config.Prune, delay).Run(ctx, epoch)
-	}}
-}
-
 // desiredPass publishes the configured specs at the start of every leader
 // pass, so a new controller configuration converges without a tool.
 func desiredPass(cell string, store ociresource.Store, fencer authority.Fencer, sets []ociDesiredSet, prune bool,
@@ -286,30 +239,6 @@ func desiredPass(cell string, store ociresource.Store, fencer authority.Fencer, 
 	}}
 }
 
-// publicLBPass publishes the TerraBase seats as the public load balancer's
-// backend set, draining the seats the seat rollout holds drained. A profile
-// that yields no serving seat, or seat records it cannot read, is an error,
-// and the previous set stays in force.
-func publicLBPass(store ociresource.Store, fencer authority.Fencer, key ociresource.Key, public OciReconcileLBConfig,
-	profiles func() map[string]WorkloadProfile, drained func(context.Context) (map[string]bool, error),
-) ociresource.Pass {
-	return ociresource.Pass{Name: "publish-" + lb.Kind, Run: func(ctx context.Context, epoch uint64) error {
-		if err := fencer.Guard(ctx, epoch); err != nil {
-			return fmt.Errorf("%w: %w", ociresource.ErrFenced, err)
-		}
-		seats, err := drained(ctx)
-		if err != nil {
-			return fmt.Errorf("public load balancer: %w", err)
-		}
-		spec, err := public.spec(profiles(), seats)
-		if err != nil {
-			return err
-		}
-		_, err = lb.Publish(ctx, store, key, ociresource.PolicyEnforce, spec)
-		return err
-	}}
-}
-
 // ociReconcileRuntime is the leader-only runner and the read side the
 // insights engine uses on every controller.
 type ociReconcileRuntime struct {
@@ -330,8 +259,7 @@ func (r *ociReconcileRuntime) wakeRunner() {
 	}
 }
 
-// resources returns the insights provider, or a nil interface when the
-// reconcile is off.
+// resources returns the insights provider once regional state is open.
 func (r *ociReconcileRuntime) resources() insights.OCIResourceProvider {
 	if r == nil || r.store == nil {
 		return nil
@@ -366,124 +294,79 @@ func (s ociResourceStatuses) OCIResources(ctx context.Context) ([]insights.OCIRe
 	return out, nil
 }
 
-// newOCIReconcileRunner builds the leader-only reconcile runner for one
-// region: configured desired specs, NSG rule sets, security lists, route
-// tables, bucket protection and, when configured, the public NLB backends
-// published from placement's fleet observation and the public load
-// balancer's TerraBase backends published from the cell's current profiles.
-func newOCIReconcileRunner(ctx context.Context, config OciReconcileConfig, region oci.RegionConfig,
-	js jetstream.JetStream, replicas int, fencer authority.Fencer, fleet oci.Fleet, profiles func() map[string]WorkloadProfile,
-	desired func() *OciDesiredConfig,
+// newOCIReconcileRunner retains only the typed root operation in the ordinary
+// controller. It never constructs a provider or an amendment ownership engine.
+func newOCIReconcileRunner(ctx context.Context, config *OciReconcileConfig, region oci.RegionConfig,
+	js jetstream.JetStream, replicas int, fencer authority.Fencer,
 ) (*ociReconcileRuntime, error) {
-	if fencer == nil || fleet == nil {
-		return nil, errors.New("OCI reconcile requires authority and the regional fleet")
-	}
-	interval, err := config.interval()
-	if err != nil {
-		return nil, err
-	}
-	ownership, err := config.ownership(region.Owner)
-	if err != nil {
-		return nil, err
+	if fencer == nil {
+		return nil, errors.New("regional OCI reconciliation requires authority")
 	}
 	cell := string(region.Region)
-	if config.Desired != nil {
-		if _, _, err := desiredSets(*config.Desired, cell, region); err != nil {
+	store, err := ociresource.OpenObservationStore(ctx, js, replicas)
+	if err != nil {
+		return nil, err
+	}
+	runtime := &ociReconcileRuntime{store: store, cell: cell, wake: make(chan struct{}, 1)}
+	client := rootoci.NewClient(rootoci.Expectations{Cell: cell})
+	runtime.runner = &ociresource.Runner{Authority: fencer,
+		Passes:   []ociresource.Pass{regionalReconcilePass(cell, fencer, client)},
+		Interval: ociReconcileInterval, Jitter: rand.Float64, Wake: runtime.wake}
+	if config != nil && config.PublicLB != nil {
+		if _, err := config.publicLBKey(cell); err != nil {
 			return nil, err
 		}
-	}
-	ociRegion, err := region.Region.OCIRegion()
-	if err != nil {
-		return nil, err
-	}
-	store, err := ociresource.OpenKVStore(ctx, js, replicas)
-	if err != nil {
-		return nil, err
-	}
-	factory, err := ociclient.InstancePrincipal(ociRegion)
-	if err != nil {
-		return nil, err
-	}
-	nsgAPI, err := nsg.NewSDKAPI(factory)
-	if err != nil {
-		return nil, err
-	}
-	listAPI, err := seclist.NewSDKAPI(factory)
-	if err != nil {
-		return nil, err
-	}
-	tableAPI, err := routetable.NewSDKAPI(factory)
-	if err != nil {
-		return nil, err
-	}
-	bucketAPI, err := bucket.NewSDKAPI(factory)
-	if err != nil {
-		return nil, err
-	}
-	var passes []ociresource.Pass
-	var seatBackends func(context.Context) (map[string]seatrollout.Backend, error)
-	passes = append(passes, currentDesiredPass(cell, region, store, fencer, desired),
-		ociresource.ControllerPass(&ociresource.Controller[nsg.Spec, nsg.Observed]{
-			Region: cell, Resource: nsg.Reconciler{API: nsgAPI}, Store: store, Ownership: ownership, Authority: fencer}),
-		ociresource.ControllerPass(&ociresource.Controller[seclist.Spec, seclist.List]{
-			Region: cell, Resource: seclist.Reconciler{API: listAPI}, Store: store, Ownership: ownership, Authority: fencer}),
-		ociresource.ControllerPass(&ociresource.Controller[routetable.Spec, routetable.Table]{
-			Region: cell, Resource: routetable.Reconciler{API: tableAPI}, Store: store, Ownership: ownership, Authority: fencer}),
-		ociresource.ControllerPass(&ociresource.Controller[bucket.Spec, bucket.Observed]{
-			Region: cell, Resource: bucket.Reconciler{API: bucketAPI}, Store: store, Ownership: ownership, Authority: fencer}))
-	if public := config.PublicNLB; public != nil {
-		key := ociresource.Key{Region: cell, Kind: nlb.Kind, Name: public.Name}
-		if err := key.Validate(); err != nil {
-			return nil, err
+		runtime.seatBackends = func(ctx context.Context) (map[string]seatrollout.Backend, error) {
+			receipt, err := client.ReconcileFoundation(ctx, rootoci.ReconcileFoundationRequest{Cell: cell})
+			if err != nil {
+				return nil, err
+			}
+			if err := regionalReceipt(cell, receipt); err != nil {
+				return nil, err
+			}
+			if len(receipt.SeatBackends) == 0 || len(receipt.SeatBackends) > 64 {
+				return nil, errors.New("root public backend observation is absent or exceeds its bound")
+			}
+			backends := make(map[string]seatrollout.Backend, len(receipt.SeatBackends))
+			for key, backend := range receipt.SeatBackends {
+				backends[key] = seatrollout.Backend{Drained: backend.Drained, Healthy: backend.Healthy}
+			}
+			return backends, nil
 		}
-		if err := (nlb.Spec{NLBID: public.NLBID, BackendSet: public.BackendSet, AllowEmpty: true}).Validate(); err != nil {
-			return nil, err
-		}
-		if public.Port < 1 || public.Port > 65535 {
-			return nil, errors.New("OCI reconcile public NLB port is invalid")
-		}
-		nlbAPI, err := nlb.NewSDKAPI(factory)
-		if err != nil {
-			return nil, err
-		}
-		passes = append(passes, ociresource.Pass{Name: "publish-" + nlb.Kind, Run: func(ctx context.Context, epoch uint64) error {
+	}
+	return runtime, nil
+}
+
+// The root backend derives the current signed intent and original creation
+// journal itself; foundation resources never enter the amendment ownership engine.
+func regionalReconcilePass(cell string, fencer authority.Fencer, client *rootoci.Client) ociresource.Pass {
+	return ociresource.Pass{Name: "regional-foundation", Run: func(ctx context.Context, epoch uint64) error {
+		guard := func() error {
 			if err := fencer.Guard(ctx, epoch); err != nil {
 				return fmt.Errorf("%w: %w", ociresource.ErrFenced, err)
 			}
-			instances, err := fleet.Observe(ctx)
-			if err != nil {
-				return fmt.Errorf("observe fleet for NLB backends: %w", err)
-			}
-			spec := nlb.FromPlacement(public.NLBID, public.BackendSet, public.Port, instances)
-			if len(spec.Backends) == 0 {
-				// Keep the previous backend set rather than black-holing the
-				// public API on a transient empty observation.
-				return nil
-			}
-			_, err = nlb.Publish(ctx, store, key, ociresource.PolicyEnforce, spec)
+			return nil
+		}
+		if err := guard(); err != nil {
 			return err
-		}}, ociresource.ControllerPass(&ociresource.Controller[nlb.Spec, nlb.Observed]{
-			Region: cell, Resource: nlb.Reconciler{API: nlbAPI}, Store: store, Ownership: ownership, Authority: fencer}))
+		}
+		receipt, err := client.ReconcileFoundation(ctx, rootoci.ReconcileFoundationRequest{Cell: cell})
+		if err != nil {
+			return fmt.Errorf("reconcile signed regional foundation: %w", err)
+		}
+		if err := guard(); err != nil {
+			return err
+		}
+		if err := regionalReceipt(cell, receipt); err != nil {
+			return err
+		}
+		return nil
+	}}
+}
+
+func regionalReceipt(cell string, receipt rootoci.FoundationReceipt) error {
+	if receipt.Cell != cell || receipt.GrantDigest == "" || receipt.OperationID == "" || receipt.Generation == 0 || receipt.Epoch == 0 || receipt.Stage != "reconciled" {
+		return errors.New("root foundation receipt is incomplete or outside the regional scope")
 	}
-	if public := config.PublicLB; public != nil {
-		key, err := config.publicLBKey(cell)
-		if err != nil {
-			return nil, err
-		}
-		lbAPI, err := lb.NewSDKAPI(factory)
-		if err != nil {
-			return nil, err
-		}
-		seats, err := seatrollout.Open(ctx, js, replicas, fencer)
-		if err != nil {
-			return nil, err
-		}
-		seatBackends = lbSeatBackends(lbAPI, *public)
-		passes = append(passes, publicLBPass(store, fencer, key, *public, profiles, seats.Drained),
-			ociresource.ControllerPass(&ociresource.Controller[lb.Spec, lb.Observed]{
-				Region: cell, Resource: lb.Reconciler{API: lbAPI}, Store: store, Ownership: ownership, Authority: fencer}))
-	}
-	wake := make(chan struct{}, 1)
-	return &ociReconcileRuntime{runner: &ociresource.Runner{Authority: fencer, Passes: passes, Interval: interval,
-		Jitter: rand.Float64, Wake: wake}, store: store, cell: cell, wake: wake, seatBackends: seatBackends}, nil
+	return nil
 }

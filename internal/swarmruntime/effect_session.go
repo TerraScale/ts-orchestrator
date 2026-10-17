@@ -481,6 +481,9 @@ func (s *EffectSessions) Reconcile(ctx context.Context) error {
 				if !observation.IsVerified() || observation.InstanceID() != latest.InstanceID {
 					return errors.New("runtime stop OCI identity differs")
 				}
+				if err := observation.Revalidate(check); err != nil {
+					return err
+				}
 				return s.authority.Guard(check, epoch)
 			})
 			if err != nil {

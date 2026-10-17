@@ -72,7 +72,7 @@ func TestRegistryResolverRequiresCurrentAdmissionAfterVault(t *testing.T) {
 		t.Fatal(err)
 	}
 	task := &api.Task{ID: "task1", ServiceID: "service1", NodeID: "node1", Spec: api.TaskSpec{Runtime: runtime,
-		Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 1_000_000_000, MemoryBytes: 32 << 20}}},
+		Resources: containerTestResources(1_000_000_000, 32<<20)},
 		ServiceAnnotations: api.Annotations{Labels: map[string]string{LabelEnvironment: "production", LabelRegion: "sa-saopaulo-1", LabelIntentID: scope.TaskPrincipal}}}
 	node := &api.Node{ID: task.NodeID, Spec: api.NodeSpec{Annotations: api.Annotations{Labels: map[string]string{LabelRegion: "sa-saopaulo-1"}}}}
 	stale := errors.New("task admission changed during Vault read")

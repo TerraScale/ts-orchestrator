@@ -2,8 +2,10 @@ package oci
 
 import (
 	"context"
+
 	"errors"
 	"fmt"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
@@ -25,7 +27,7 @@ func (provider *sdkProvider) ListVolumeAttachmentsByVolume(ctx context.Context, 
 	var attachments []CloudAttachment
 	var page *string
 	for {
-		response, err := provider.compute.ListVolumeAttachments(ctx, core.ListVolumeAttachmentsRequest{
+		response, err := provider.compute.ListVolumeAttachments(ociclient.RequestContext(ctx), core.ListVolumeAttachmentsRequest{
 			CompartmentId: new(compartmentID), AvailabilityDomain: new(availabilityDomain),
 			VolumeId: new(volumeID), Page: page, Limit: new(100),
 		})

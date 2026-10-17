@@ -17,7 +17,7 @@ func TestControllerInstallRetriesExactBytesAndRejectsChangedFiles(t *testing.T) 
 	}
 	defer unix.Close(dir)
 	uid, gid := uint32(os.Getuid()), uint32(os.Getgid())
-	config := []byte(`{"version":1,"nats":{"cell":"gru"},"controller":{}}`)
+	config := []byte(`{"version":2,"nats":{"cell":"gru"},"controller":{}}`)
 	for range 2 {
 		if err := installExactControllerFile(dir, controllerConfigFilename, config, uid, gid, 0o600); err != nil {
 			t.Fatalf("install or exact retry: %v", err)
@@ -27,7 +27,7 @@ func TestControllerInstallRetriesExactBytesAndRejectsChangedFiles(t *testing.T) 
 	if err != nil || loaded.NATS.Cell != "gru" {
 		t.Fatalf("installed config did not reach the real loader: cfg=%+v err=%v", loaded, err)
 	}
-	if err := installExactControllerFile(dir, controllerConfigFilename, []byte(`{"version":1,"nats":{}}`), uid, gid, 0o600); err == nil {
+	if err := installExactControllerFile(dir, controllerConfigFilename, []byte(`{"version":2,"nats":{}}`), uid, gid, 0o600); err == nil {
 		t.Fatal("retry replaced different installed config")
 	}
 	stored, err := os.ReadFile(filepath.Join(directory, controllerConfigFilename))

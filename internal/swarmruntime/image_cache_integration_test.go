@@ -75,7 +75,7 @@ func TestContainerdImportedImageWithoutRegistryEgress(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		task := &api.Task{ID: fmt.Sprintf("cache%d", time.Now().UnixNano()), ServiceID: "cacheintegration", Spec: api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 250_000_000, MemoryBytes: 64 << 20}}}}
+		task := &api.Task{ID: fmt.Sprintf("cache%d", time.Now().UnixNano()), ServiceID: "cacheintegration", Spec: api.TaskSpec{Runtime: runtime, Resources: containerTestResources(250_000_000, 64<<20)}}
 		c, err := integrationContainerController(e, task)
 		if err != nil {
 			t.Fatal(err)
