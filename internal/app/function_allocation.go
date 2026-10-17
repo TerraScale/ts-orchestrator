@@ -20,11 +20,13 @@ func (controller functionController) verifyAllocation(ctx context.Context, regis
 	membership func(context.Context, string) (swarmruntime.VerifiedWorkerMembership, error),
 ) error {
 	config := controller.config
-	if config.Authority == nil || config.Roots == nil || config.Client == nil || config.Factory == nil || config.Evidence == nil || membership == nil ||
+	if config.Authority == nil || config.JS == nil || config.Roots == nil || config.Client == nil || config.Factory == nil || config.Evidence == nil || membership == nil ||
 		task == nil || task.NodeID == "" || !entityid.Valid(registration.ID) || registration.Cell != strings.ToLower(config.Cell) ||
 		registration.Environment != config.Environment || !slices.Equal(registration.Roles, []string{swarmruntime.FunctionWorkerRole}) || registration.ManagedOCI == nil {
 		return errors.New("function allocation requires its exact registered worker and current sources")
 	}
+	ctx, cancelStartup := context.WithDeadline(ctx, config.Startup.ExpiresAt())
+	defer cancelStartup()
 	if err := config.Startup.VerifyCurrent(ctx, time.Now().UTC()); err != nil {
 		return err
 	}
@@ -58,7 +60,7 @@ func (controller functionController) verifyAllocation(ctx context.Context, regis
 	}
 	reader := config.Material.Reader
 	reader.Authority = config.Authority
-	current := functionIntentSource{reader: reader, authority: config.Authority, epoch: epoch, roots: config.Roots, rootHead: head}
+	current := functionIntentSource{reader: reader, js: config.JS, authority: config.Authority, epoch: epoch, roots: config.Roots, rootHead: head}
 	labels := task.ServiceAnnotations.Labels
 	proof, err := current.CurrentFunction(ctx, labels[swarmruntime.LabelFunctionTenant], labels[swarmruntime.LabelFunctionID])
 	if err != nil {
@@ -110,7 +112,11 @@ func (controller functionController) verifyAllocation(ctx context.Context, regis
 	if err := config.Authority.Guard(ctx, epoch); err != nil {
 		return err
 	}
-	if config.Roots.reply("").Head != head || !proof.Valid() || !worker.Valid(time.Now().UTC()) || member.Validate() != nil || confirmed.Validate() != nil {
+	if err := rootTrustHeadCurrent(ctx, config.JS, config.Roots, head); err != nil {
+		return err
+	}
+	state := config.Authority.Current()
+	if !state.CanMutate() || state.Epoch != epoch || config.Roots.reply("").Head != head || !proof.Valid() || !worker.Valid(time.Now().UTC()) || member.Validate() != nil || confirmed.Validate() != nil {
 		return errors.New("function allocation authority changed during observation")
 	}
 	return ctx.Err()
@@ -122,7 +128,7 @@ func (controller functionController) taskLoadRoles(ctx context.Context, registra
 	if !slices.Contains(registration.Roles, swarmruntime.FunctionWorkerRole) {
 		return nil, nil
 	}
-	if controller.config.Client == nil || !slices.Equal(registration.Roles, []string{swarmruntime.FunctionWorkerRole}) {
+	if controller.config.Client == nil || controller.config.JS == nil || !slices.Equal(registration.Roles, []string{swarmruntime.FunctionWorkerRole}) {
 		return nil, errors.New("function task roles require their dedicated registered worker")
 	}
 	nodes, err := controller.config.Client.ListNodes(ctx, &api.ListNodesRequest{})

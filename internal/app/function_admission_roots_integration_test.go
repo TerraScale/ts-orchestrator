@@ -73,7 +73,7 @@ func newFunctionRootAdmissionFixture(t *testing.T) functionRootAdmissionFixture 
 	if err != nil {
 		t.Fatal(err)
 	}
-	return functionRootAdmissionFixture{controller: functionController{config: functionControllerConfig{Authority: control, Roots: roots,
+	return functionRootAdmissionFixture{controller: functionController{config: functionControllerConfig{Authority: control, JS: js, Roots: roots,
 		Cell: "gru", Environment: "canary", Material: functionmaterial.Controller{Reader: functionmaterial.Reader{Authority: control, Artifacts: artifacts, Roots: roots.current}}}},
 		location: releasechannel.Location{Client: newChannelBucket(), Namespace: "ns", Bucket: "gru-1-head"}, signer: signer, rotation: rotation}
 }
