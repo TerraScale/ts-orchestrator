@@ -28,10 +28,19 @@ type RootFunctionIssuer struct {
 
 func (issuer RootFunctionIssuer) ExpiresAt() time.Time { return issuer.deadline }
 
+// CheckOriginal seals retained lifetimes locally after the final awaited guard.
+func (issuer RootFunctionIssuer) CheckOriginal(ctx context.Context) error {
+	if os.Geteuid() != 0 || ctx == nil || issuer.original == nil || issuer.original.Err() != nil || ctx.Err() != nil || issuer.reader == nil || issuer.Issuer == nil || !issuer.Startup.IsVerified() ||
+		!time.Now().Before(issuer.deadline) || !time.Now().Before(issuer.Issuer.ExpiresAt()) || issuer.deadline.After(issuer.authority.ExpiresAt()) || issuer.deadline.After(issuer.Startup.ExpiresAt()) || issuer.Issuer.ExpiresAt().After(issuer.deadline) {
+		return ErrAdmission
+	}
+	return nil
+}
+
 // Guard retains the first founder selection and its deadline across rereads.
 func (issuer RootFunctionIssuer) Guard(ctx context.Context) error {
-	if os.Geteuid() != 0 || ctx == nil || issuer.original == nil || issuer.original.Err() != nil || ctx.Err() != nil || issuer.reader == nil || !time.Now().Before(issuer.deadline) {
-		return ErrAdmission
+	if err := issuer.CheckOriginal(ctx); err != nil {
+		return err
 	}
 	ctx, cancel := context.WithDeadline(ctx, issuer.deadline)
 	stop := context.AfterFunc(issuer.original, cancel)
@@ -41,7 +50,10 @@ func (issuer RootFunctionIssuer) Guard(ctx context.Context) error {
 	if err != nil || current.identity != issuer.authority.identity || current.planDigest != issuer.authority.planDigest || current.selectionDigest != issuer.authority.selectionDigest || current.expires.Before(issuer.deadline) {
 		return ErrAdmission
 	}
-	return issuer.Startup.VerifyCurrent(ctx, time.Now().UTC())
+	if err := issuer.Startup.VerifyCurrent(ctx, time.Now().UTC()); err != nil {
+		return err
+	}
+	return issuer.CheckOriginal(ctx)
 }
 
 // ReadRootFunctionIssuer never takes source authority or key bytes from the caller.

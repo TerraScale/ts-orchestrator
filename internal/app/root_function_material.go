@@ -30,26 +30,30 @@ import (
 
 // This admission and both broad signing keys remain inside the root service.
 type rootFunctionAdmission struct {
-	producer     *rootMaterialAdmission
-	call         rootoci.Call
-	original     context.Context
-	issuer       bootstrapstart.RootFunctionIssuer
-	controller   functionController
-	credentials  containerMaterialConfig
-	lease        *authority.LeaseAdmission
-	node         *swarmruntime.Node
-	membership   *hostenroll.WorkerMembershipSource
-	member       swarmruntime.VerifiedWorkerMembership
-	registration host.Registration
-	binding      functionmaterial.Binding
-	function     release.VerifiedFunction
-	account      brokerauth.Claim
-	rootChain    jetstream.KeyValueEntry
-	accepted     string
-	vault        vaultsecret.VaultClient
-	target       vaultsecret.Target
-	deadline     time.Time
-	close        context.CancelFunc
+	producer           *rootMaterialAdmission
+	call               rootoci.Call
+	original           context.Context
+	issuer             bootstrapstart.RootFunctionIssuer
+	controller         functionController
+	credentials        containerMaterialConfig
+	credentialOriginal context.Context
+	credentialDeadline time.Time
+	lease              *authority.LeaseAdmission
+	node               *swarmruntime.Node
+	founder            *bootstrapstart.CurrentFounderAuthorityReader
+	membership         *hostenroll.WorkerMembershipSource
+	member             swarmruntime.VerifiedWorkerMembership
+	registration       host.Registration
+	binding            functionmaterial.Binding
+	function           release.VerifiedFunction
+	account            brokerauth.Claim
+	rootChain          jetstream.KeyValueEntry
+	rootHead           string
+	accepted           string
+	vault              vaultsecret.VaultClient
+	target             vaultsecret.Target
+	deadline           time.Time
+	close              context.CancelFunc
 }
 
 func (service *rootWorkloadCredentials) IssueFunctionTaskMaterial(ctx context.Context, call rootoci.Call, request rootoci.FunctionTaskRequest) (rootoci.FunctionTaskMaterialReceipt, error) {
@@ -122,10 +126,21 @@ func (producer *rootMaterialAdmission) function(ctx context.Context, call rootoc
 	}
 	config := controller.config
 	ctx = config.credentialContext
+	if config.credentialSource == nil {
+		return nil, rootoci.ErrUnauthorized
+	}
+	credentialOriginal := config.credentialSource.Context()
+	if credentialOriginal == nil || credentialOriginal.Done() == nil || credentialOriginal.Err() != nil {
+		return nil, rootoci.ErrUnauthorized
+	}
+	credentialDeadline, bounded := credentialOriginal.Deadline()
+	if !bounded || !time.Now().Before(credentialDeadline) {
+		return nil, rootoci.ErrUnauthorized
+	}
 	producer.ownhost.mu.RLock()
 	node, founder, accepted := producer.ownhost.node, producer.ownhost.reader, producer.ownhost.accepted.Clone()
 	producer.ownhost.mu.RUnlock()
-	if node == nil || founder == nil {
+	if node == nil || founder == nil || founder != config.Founders {
 		return nil, rootoci.ErrUnauthorized
 	}
 	acceptance, err := accepted.AcceptanceSHA256()
@@ -153,7 +168,7 @@ func (producer *rootMaterialAdmission) function(ctx context.Context, call rootoc
 	if err != nil {
 		return nil, err
 	}
-	deadline := earlier(call.Deadline(), earlier(lease.Deadline(), issuer.ExpiresAt()))
+	deadline := earlier(credentialDeadline, earlier(call.Deadline(), earlier(lease.Deadline(), issuer.ExpiresAt())))
 	if !config.releaseDeadline.IsZero() {
 		deadline = earlier(deadline, config.releaseDeadline)
 	}
@@ -204,7 +219,8 @@ func (producer *rootMaterialAdmission) function(ctx context.Context, call rootoc
 		return nil, err
 	}
 	signedTarget := template.VaultTarget()
-	admitted := &rootFunctionAdmission{close: cancel, vault: management, target: vaultsecret.Target{VaultID: signedTarget.VaultOCID, CompartmentID: signedTarget.CompartmentOCID, KeyID: signedTarget.KMSKeyOCID}, producer: producer, call: call, original: ctx, issuer: issuer, credentials: config, lease: lease, node: node, membership: membership, rootChain: rootChain, accepted: acceptance, deadline: deadline}
+	admitted := &rootFunctionAdmission{close: cancel, vault: management, target: vaultsecret.Target{VaultID: signedTarget.VaultOCID, CompartmentID: signedTarget.CompartmentOCID, KeyID: signedTarget.KMSKeyOCID}, producer: producer, call: call, original: ctx, issuer: issuer, credentials: config,
+		credentialOriginal: credentialOriginal, credentialDeadline: credentialDeadline, lease: lease, node: node, founder: founder, membership: membership, rootChain: rootChain, rootHead: roots.Head, accepted: acceptance, deadline: deadline}
 	management.HTTPClient = nativeCanaryDispatcher{next: management.HTTPClient, guard: admitted.sourceGuard}
 	bundles.HTTPClient = nativeCanaryDispatcher{next: bundles.HTTPClient, guard: admitted.sourceGuard}
 	admitted.controller.config = functionControllerConfig{ReadLease: lease, JS: config.JS, Startup: issuer.Startup, ReadClient: config.Client, Roots: config.Specs.roots, Factory: producer.factory,
@@ -284,19 +300,37 @@ func (admitted *rootFunctionAdmission) selectTask(ctx context.Context, taskID st
 }
 
 func (admitted *rootFunctionAdmission) sourceGuard(ctx context.Context) error {
-	if admitted == nil || ctx == nil || admitted.original == nil || admitted.original.Err() != nil || ctx.Err() != nil || !time.Now().Before(admitted.deadline) ||
-		admitted.call.Guard(ctx) != nil || admitted.credentials.credentialSource == nil || admitted.credentials.credentialSource.Guard(ctx) != nil || admitted.lease.Guard(ctx) != nil ||
+	if err := admitted.checkOriginal(ctx); err != nil {
+		return err
+	}
+	if admitted.call.Guard(ctx) != nil || admitted.credentials.credentialSource.Guard(ctx) != nil || admitted.lease.Guard(ctx) != nil ||
 		admitted.issuer.Guard(ctx) != nil || rootTrustChainCurrent(ctx, admitted.credentials.JS, admitted.rootChain) != nil {
 		return rootoci.ErrUnauthorized
 	}
-	admitted.producer.ownhost.mu.RLock()
-	accepted, node := admitted.producer.ownhost.accepted.Clone(), admitted.producer.ownhost.node
-	admitted.producer.ownhost.mu.RUnlock()
-	fingerprint, err := accepted.AcceptanceSHA256()
-	if err != nil || fingerprint != admitted.accepted || node != admitted.node {
+	if err := admitted.call.Guard(ctx); err != nil {
+		return err
+	}
+	return admitted.checkOriginal(ctx)
+}
+
+// Check retained pins and lifetimes without another network guard.
+func (admitted *rootFunctionAdmission) checkOriginal(ctx context.Context) error {
+	if admitted == nil || ctx == nil || admitted.original == nil || admitted.credentialOriginal == nil || admitted.credentials.credentialContext == nil ||
+		admitted.credentials.credentialSource == nil || admitted.lease == nil || admitted.producer == nil || admitted.producer.ownhost == nil || admitted.credentials.Specs == nil || admitted.credentials.Specs.roots == nil {
 		return rootoci.ErrUnauthorized
 	}
-	return admitted.call.Guard(ctx)
+	admitted.producer.ownhost.mu.RLock()
+	accepted, node, founder := admitted.producer.ownhost.accepted.Clone(), admitted.producer.ownhost.node, admitted.producer.ownhost.reader
+	admitted.producer.ownhost.mu.RUnlock()
+	fingerprint, err := accepted.AcceptanceSHA256()
+	if err != nil || fingerprint != admitted.accepted || node != admitted.node || founder != admitted.founder || admitted.credentials.Specs.roots.reply("").Head != admitted.rootHead {
+		return rootoci.ErrUnauthorized
+	}
+	if admitted.issuer.CheckOriginal(ctx) != nil || admitted.original.Err() != nil || admitted.credentialOriginal.Err() != nil || admitted.credentials.credentialContext.Err() != nil || ctx.Err() != nil ||
+		!time.Now().Before(admitted.deadline) || !time.Now().Before(admitted.credentialDeadline) || !time.Now().Before(admitted.lease.Deadline()) || !time.Now().Before(admitted.call.Deadline()) {
+		return rootoci.ErrUnauthorized
+	}
+	return nil
 }
 
 func (admitted *rootFunctionAdmission) guard(ctx context.Context) error {
