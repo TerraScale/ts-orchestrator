@@ -178,6 +178,7 @@ func (r *netBirdSourceCursor) state(ctx context.Context) (*jetstream.StreamInfo,
 	if cfg.Name != r.source.stream || !slices.Equal(cfg.Subjects, []string{"$KV." + strings.TrimPrefix(r.source.stream, "KV_") + ".>"}) ||
 		cfg.Replicas != 3 || cfg.Storage != jetstream.FileStorage || cfg.Retention != jetstream.LimitsPolicy ||
 		cfg.MaxAge != 0 || cfg.MaxMsgsPerSubject != 4 || cfg.MaxMsgs != -1 || cfg.MaxBytes != -1 ||
+		!cfg.DenyDelete || !cfg.AllowRollup || cfg.SubjectTransform != nil ||
 		len(cfg.Sources) != 0 || cfg.Mirror != nil || info.Cluster == nil || info.Cluster.Leader == "" ||
 		len(info.State.Deleted) != info.State.NumDeleted {
 		return nil, errors.New("NetBird public source stream differs from its fixed retained contract")
@@ -224,7 +225,7 @@ func (r *netBirdSourceCursor) read(ctx context.Context) (NetBirdSourceRecord, er
 		if r.latest == nil || after.State.Subjects[r.source.subject] == 0 {
 			return NetBirdSourceRecord{}, ErrNotFound
 		}
-		if r.latest.Sequence < after.State.FirstSeq || slices.Contains(after.State.Deleted, r.latest.Sequence) ||
+		if r.latest.Sequence < after.State.FirstSeq || r.latest.Sequence > after.State.LastSeq || slices.Contains(after.State.Deleted, r.latest.Sequence) ||
 			r.latest.Header.Get("KV-Operation") != "" || r.latest.Header.Get(jetstream.MarkerReasonHeader) != "" || len(r.latest.Data) == 0 {
 			return NetBirdSourceRecord{}, ErrConflict
 		}

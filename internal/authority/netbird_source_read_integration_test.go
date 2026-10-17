@@ -89,16 +89,15 @@ func TestNetBirdPublicSourcesAuthenticatedR3(t *testing.T) {
 	if err != nil || spec.Revision != specRevision || !bytes.Equal(spec.Wire, []byte("public-spec-v8")) {
 		t.Fatalf("overwritten public source = %+v %v", spec, err)
 	}
-	// Deleting the latest retained value must never return the cached deleted value.
-	stream, err := js.Stream(ctx, netBirdPublicSources[0].stream)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := stream.DeleteMsg(ctx, specRevision); err != nil {
+	// KV deletion is a retained marker; it must never authorize the cached value.
+	if err := buckets[0].Delete(ctx, "current"); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := reader.Read(ctx); err == nil {
 		t.Fatal("deleted latest public source remained authorized")
+	}
+	if _, err := buckets[0].Put(ctx, "current", []byte("public-spec-after-delete")); err != nil {
+		t.Fatal(err)
 	}
 	nonce = entityid.New()
 	if err := runtime.OpenNetBirdSourceRead(ctx, nonce); err != nil {
@@ -109,7 +108,7 @@ func TestNetBirdPublicSourcesAuthenticatedR3(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, _, err := reader.Read(ctx); err != nil {
-		t.Fatalf("fresh cursor could not observe retained predecessor: %v", err)
+		t.Fatalf("fresh cursor could not observe current value after deletion: %v", err)
 	}
 	if err := runtime.OpenNetBirdSourceRead(ctx, entityid.New()); err != nil {
 		t.Fatal(err)
