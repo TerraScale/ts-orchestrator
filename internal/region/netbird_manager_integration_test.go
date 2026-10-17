@@ -380,6 +380,21 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	if err != nil || !bootstrapSHA256.MatchString(observation.AdmissionSHA256) || observation.LaunchRecipeSHA256 != recipeSHA || observation.Binary != wantBinary {
 		t.Fatalf("original SDK-backed manager observation = %+v, %v", observation, err)
 	}
+	remoteCurrent := func(ctx context.Context) (netBirdRecipientObservation, error) {
+		return observeNetBirdRecipient(ctx, factory, resolver, reader)
+	}
+	remote, err := remoteCurrent(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipient, err := retainNetBirdRecipient(t.Context(), remote, remoteCurrent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := NetBirdManagerJournalExpectation{AdmissionSHA256: observation.AdmissionSHA256, LaunchRecipeSHA256: recipeSHA, BinarySHA256: receipt.BinarySHA256}
+	if current, err := recipient.JournalExpectation(t.Context()); err != nil || current != expected {
+		t.Fatalf("independent SDK-backed recipient expectation = %+v, %v", current, err)
+	}
 	if claim.RecoveryRequired() {
 		t.Fatal("new explicitly funded store required restore")
 	}
@@ -391,6 +406,9 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	}
 	if observed, err := claim.AdmissionObservation(t.Context()); err == nil || observed != (NetBirdManagerAdmissionObservation{}) {
 		t.Fatalf("native image drift returned original metadata: %+v, %v", observed, err)
+	}
+	if current, err := recipient.JournalExpectation(t.Context()); err == nil || current != (NetBirdManagerJournalExpectation{}) {
+		t.Fatalf("native image drift returned recipient expectation: %+v, %v", current, err)
 	}
 	mu.Lock()
 	observedImage = manager.ImageOCID
@@ -425,10 +443,16 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	if current, err := claim.AdmissionObservation(t.Context()); err != nil || current != observation {
 		t.Fatalf("store transitions changed original admission observation: %+v, %v", current, err)
 	}
+	if current, err := recipient.JournalExpectation(t.Context()); err != nil || current != expected {
+		t.Fatalf("store transitions changed original recipient expectation: %+v, %v", current, err)
+	}
 	grant.Regions[0].NetBirdManager = nil
 	publish()
 	if err := claim.Check(t.Context()); err == nil {
 		t.Fatal("revoked same-grant manager role retained secret/process authority")
+	}
+	if current, err := recipient.JournalExpectation(t.Context()); err == nil || current != (NetBirdManagerJournalExpectation{}) {
+		t.Fatalf("revoked manager returned recipient expectation: %+v, %v", current, err)
 	}
 	if err := claim.MarkStoreReady(t.Context()); err == nil {
 		t.Fatal("revoked manager mutated store journal")
