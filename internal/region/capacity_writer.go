@@ -134,7 +134,7 @@ func (w *CapacityJournalWriter) signedPurpose(ctx context.Context) (string, uint
 	if err := json.Unmarshal(envelope.Payload, &grant, json.RejectUnknownMembers(true)); err != nil {
 		return "", 0, "", time.Time{}, err
 	}
-	if len(grant.WorkerProfiles) == 0 || len(grant.WorkerProfiles) > 512 || grant.InfrastructureSpend == nil || grant.InfrastructureSpend.MonthlyLimitMinor <= 0 {
+	if len(grant.WorkerProfiles) == 0 || len(grant.WorkerProfiles) > 512 {
 		return "", 0, "", time.Time{}, ErrFoundationFenced
 	}
 	cells, profiles := map[string]bool{}, map[string]bool{}
