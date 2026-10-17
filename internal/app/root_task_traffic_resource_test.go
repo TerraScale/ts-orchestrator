@@ -60,6 +60,9 @@ func TestTaskTrafficSDKPinsExactSetAndSignedQuorum(t *testing.T) {
 			if mode == "incomplete health" {
 				count = 2
 			}
+			if mode == "contradictory health" {
+				status = "CRITICAL"
+			}
 			response = map[string]any{"status": status, "totalBackendCount": count, "warningStateBackendNames": unhealthy, "criticalStateBackendNames": []string{}, "unknownStateBackendNames": []string{}}
 		default:
 			t.Errorf("unexpected actual SDK path %s", r.URL.Path)
@@ -94,7 +97,7 @@ func TestTaskTrafficSDKPinsExactSetAndSignedQuorum(t *testing.T) {
 	if err := resource.quorum(t.Context(), spec, "10.0.0.11"); err != nil {
 		t.Fatalf("two actual alternatives refused: %v", err)
 	}
-	for _, scenario := range []string{"foreign compartment", "foreign set", "one healthy alternative", "unknown health", "incomplete health"} {
+	for _, scenario := range []string{"foreign compartment", "foreign set", "one healthy alternative", "unknown health", "incomplete health", "contradictory health"} {
 		t.Run(scenario, func(t *testing.T) {
 			mu.Lock()
 			mode = scenario

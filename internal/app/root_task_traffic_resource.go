@@ -161,6 +161,13 @@ func (r rootTaskTrafficResource) quorum(ctx context.Context, spec rootTaskTraffi
 		}
 		unhealthy[name] = true
 	}
+	healthy := len(current) - len(unhealthy)
+	if health.Status == loadbalancer.BackendSetHealthStatusOk && len(unhealthy) != 0 ||
+		health.Status == loadbalancer.BackendSetHealthStatusWarning && (len(unhealthy) == 0 || 2*healthy < len(current)) ||
+		health.Status == loadbalancer.BackendSetHealthStatusCritical && (len(unhealthy) == 0 || 2*healthy >= len(current)) ||
+		2*len(health.UnknownStateBackendNames) > len(current) {
+		return errors.New("task traffic aggregate health contradicts its backend health inventory")
+	}
 	serving := 0
 	seen := map[string]bool{}
 	for _, backend := range current {
