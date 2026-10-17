@@ -30,6 +30,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
+	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/regionview"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
@@ -197,6 +198,7 @@ type controllerObservation struct {
 	// costRollup is the region's cost for the dashboard rollup, cached.
 	costRollup func() *globalview.Cost
 	inventory  dashboard.InventorySource
+	foundation region.FoundationResolver
 	// rollouts is the rollout store, when the controller runs one. budgets is
 	// the monthly budget insight's source.
 	rollouts *rollout.Store
@@ -335,6 +337,7 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 // mountJournalAPI serves the journal, history, insights, summary and region
 // providers as JSON on the authenticated private listener.
 func mountJournalAPI(server *observability.Server, providers journalProviders) {
+	mountFoundationObservation(server, providers.Foundation)
 	decisions := decisionlog.Handler(providers.Decisions)
 	server.Handle("GET /v1/decisions", decisions)
 	server.Handle("GET /v1/decisions/{id}", decisions)
