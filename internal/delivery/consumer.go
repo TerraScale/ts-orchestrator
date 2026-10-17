@@ -412,6 +412,9 @@ func (s *Service) processDelivery(ctx context.Context, wire []byte, delivered ui
 		if existing.Intent.OperationID != intent.OperationID || existing.Fingerprint != fingerprint || existing.Actor != actor {
 			return s.reject(ctx, wire, "operation ID already binds a different request")
 		}
+		if existing.Intent.Container != nil && !validContainerProfileRecord(existing.ProfileRecord) {
+			return false, stageDeliveryError("container_profile", ErrPending)
+		}
 		if existing.Receipt != nil {
 			return true, nil
 		}
