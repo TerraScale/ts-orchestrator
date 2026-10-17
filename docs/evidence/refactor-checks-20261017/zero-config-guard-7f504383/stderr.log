@@ -1,0 +1,15 @@
+test_customer_and_authority_state_in_split_file_stay_out_of_scope (__main__.ZeroConfigCheckTests.test_customer_and_authority_state_in_split_file_stay_out_of_scope) ... ok
+test_declaration_comment_brace_does_not_end_config (__main__.ZeroConfigCheckTests.test_declaration_comment_brace_does_not_end_config) ... ok
+test_exception_needs_a_reason_and_only_exempts_its_line (__main__.ZeroConfigCheckTests.test_exception_needs_a_reason_and_only_exempts_its_line) ... ok
+test_existing_config_and_env_surfaces_remain_checked (__main__.ZeroConfigCheckTests.test_existing_config_and_env_surfaces_remain_checked) ... ok
+test_go_tests_stay_out_of_scope (__main__.ZeroConfigCheckTests.test_go_tests_stay_out_of_scope) ... ok
+test_host_telemetry_is_an_operator_switch (__main__.ZeroConfigCheckTests.test_host_telemetry_is_an_operator_switch) ... ok
+test_inline_config_does_not_capture_following_state (__main__.ZeroConfigCheckTests.test_inline_config_does_not_capture_following_state) ... ok
+test_removing_switch_is_allowed (__main__.ZeroConfigCheckTests.test_removing_switch_is_allowed) ... ok
+test_split_config_fields_use_unchanged_head_context (__main__.ZeroConfigCheckTests.test_split_config_fields_use_unchanged_head_context) ... ok
+test_unchanged_switch_is_not_reported (__main__.ZeroConfigCheckTests.test_unchanged_switch_is_not_reported) ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 1.799s
+
+OK

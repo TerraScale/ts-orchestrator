@@ -1,0 +1,10 @@
+{
+  "candidate": "7f504383cc8e8703031e1bb901fbac99223f05ae",
+  "tree": "00fcaa65e0544a967a04c6d656470e4585414fc0",
+  "runner": "/tmp/ts-qa-zero-config-7f504383-zmcjnb40/run.py",
+  "runner_sha256": "adaaccf7c2ecdb9305be737e11f6d10422201b63360bb822bf335e2dfc58ea00",
+  "source_review": "QA reviewed exact two-file change and minimal comment-brace correction before first test run.",
+  "methods": 10,
+  "source_counted_scenarios": 16,
+  "Go": false
+}
