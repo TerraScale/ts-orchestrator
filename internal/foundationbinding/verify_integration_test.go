@@ -199,6 +199,7 @@ func TestLogicalBindingsReadSignedGrantPersistedBirthAndFreshOCI(t *testing.T) {
 	s.grant.WorkerProfiles = jsontext.Value(`[{"cell":"SFO","compartmentOcid":"foundation:SFO:control_compartment"}]`)
 	s.record.SourcePolicyIDs = jsontext.Value(`{"retained":{"policyId":"ocid1.policy.oc1..retained"}}`)
 	s.record.NetBirdManager = jsontext.Value(`{"slotId":"owned-by-netbird"}`)
+	s.record.FoundationWriter = jsontext.Value(`{"instanceId":"ocid1.instance.oc1.us-sanjose-1.original"}`)
 	s.publish()
 	verified, err := Verify(t.Context(), s.factory, s.authority, s.wire)
 	if err != nil {
