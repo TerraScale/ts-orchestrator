@@ -7,6 +7,7 @@ import (
 	"math"
 	"reflect"
 	"slices"
+	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
@@ -80,6 +81,9 @@ func (c *Controller) CommitUsageObservation(ctx context.Context, observation Usa
 	previous, err := c.mutations.ReadHostMutation(ctx, authority.MutationUsageObservation, key)
 	if err != nil && !errors.Is(err, authority.ErrNotFound) {
 		return CommittedUsage{}, err
+	}
+	if previous.Sequence != 0 && time.Since(previous.CreatedAt) < hostload.DefaultMinInterval {
+		return CommittedUsage{}, hostload.ErrTooFrequent
 	}
 	observation.PriorSequence = previous.Sequence
 	var prior UsageObservation
