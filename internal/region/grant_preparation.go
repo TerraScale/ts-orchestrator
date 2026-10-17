@@ -18,6 +18,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/naming"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
@@ -234,6 +235,11 @@ func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInpu
 		first := hosts[0].(map[string]any)
 		first["ocpus"], first["memory_gb"], first["boot_gb"] = host.OCPUs, host.MemoryGB, host.BootGB
 		plan["hosts"] = []any{first}
+		memberName, err := naming.RegionCell(cell).ControllerSlot(first["slot"].(string))
+		if err != nil {
+			return FoundationPreparation{}, err
+		}
+		plan["public_api"].(map[string]any)["terrabase_members"] = []any{memberName}
 		ids["instances"] = map[string]any{"controller-a": nil}
 		ids["boot_volumes"] = map[string]any{"controller-a": nil}
 		plan["budget"].(map[string]any)["currency"] = input.Currency
