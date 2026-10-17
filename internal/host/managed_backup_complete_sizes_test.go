@@ -105,7 +105,14 @@ func backupSizeCommand(envelope []byte, kind string) ManagedBackupCommand {
 			CertificateSHA256: strings.Repeat("d", 64), TLSLeafSHA256: leafSHA},
 		OCI: ManagedOCIBinding{Region: "GRU", InstanceID: "ocid1.instance.oc1..host-a",
 			Owner: "terrascale", FleetGeneration: 1, CreateKey: "0000000000R58Y74PAABAQ7X2V"},
-		ExpectedProcess: memberstatus.Process{PID: 1234, StartNonce: "0000000000004b6858ab4a6dea005577"},
+		SessionID: "00000000000000000000000004",
+		Container: &ManagedContainerRuntime{TaskID: strings.Repeat("t", 25), TaskSHA256: strings.Repeat("1", 64),
+			AdmissionSHA256: strings.Repeat("2", 64), EffectID: "00000000000000000000000005",
+			ContainerID: "ts-" + strings.Repeat("t", 25), HostPID: int(^uint(0) >> 1), MemberPID: 1,
+			KernelStart: strings.Repeat("9", 20), Cgroup: "/terrascale/ts-" + strings.Repeat("t", 25),
+			PIDNamespace: ^uint64(0), MountNamespace: ^uint64(0), MountID: ^uint64(0),
+			ControlDevice: ^uint64(0), ControlInode: ^uint64(0), PublicationDevice: ^uint64(0), PublicationInode: ^uint64(0)},
+		ExpectedProcess: memberstatus.Process{PID: 1, StartNonce: "0000000000004b6858ab4a6dea005577"},
 		Envelope:        bytes.Clone(envelope), EnvelopeSHA256: hex.EncodeToString(sum[:]),
 	}
 }
