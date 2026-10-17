@@ -226,23 +226,10 @@ func (reader *rootBrokerReader) invoke(parent context.Context, operation rootBro
 }
 
 func (reader *rootBrokerReader) verify(socket *net.UnixConn, witness *rootoci.ProcessWitness) error {
-	peer, err := rootociwire.PeerCredential(socket)
-	if err != nil || peer.UID != 0 || peer.GID != 0 || witness.Peer().PID != peer.PID ||
-		witness.Peer().UID != peer.UID || witness.Peer().GID != peer.GID || witness.Verify() != nil {
-		return rootoci.ErrUnauthorized
+	binding, err := rootBrokerPeerBinding(socket, witness, rootBrokerObservationSocket)
+	if err != nil {
+		return err
 	}
-	for _, path := range []string{"/", "/run", "/run/terrascale-orchestrator"} {
-		var stat unix.Stat_t
-		if unix.Lstat(path, &stat) != nil || stat.Uid != 0 || stat.Mode&unix.S_IFMT != unix.S_IFDIR || stat.Mode&0o022 != 0 {
-			return rootoci.ErrUnauthorized
-		}
-	}
-	var stat unix.Stat_t
-	if unix.Lstat(rootBrokerObservationSocket, &stat) != nil || stat.Uid != 0 ||
-		stat.Mode&unix.S_IFMT != unix.S_IFSOCK || stat.Mode&0o7777 != 0o660 {
-		return rootoci.ErrUnauthorized
-	}
-	binding := fmt.Sprintf("%s:%d:%d", witness.Binding(), stat.Dev, stat.Ino)
 	reader.mu.Lock()
 	defer reader.mu.Unlock()
 	if reader.binding == "" {
@@ -252,6 +239,29 @@ func (reader *rootBrokerReader) verify(socket *net.UnixConn, witness *rootoci.Pr
 		return rootoci.ErrUnauthorized
 	}
 	return nil
+}
+
+func rootBrokerPeerBinding(socket *net.UnixConn, witness *rootoci.ProcessWitness, path string) (string, error) {
+	if path != rootBrokerStartupSocket && path != rootBrokerObservationSocket && path != rootBrokerReconnectSocket {
+		return "", rootoci.ErrUnauthorized
+	}
+	peer, err := rootociwire.PeerCredential(socket)
+	if err != nil || peer.UID != 0 || peer.GID != 0 || witness.Peer().PID != peer.PID ||
+		witness.Peer().UID != peer.UID || witness.Peer().GID != peer.GID || witness.Verify() != nil {
+		return "", rootoci.ErrUnauthorized
+	}
+	for _, path := range []string{"/", "/run", "/run/terrascale-orchestrator"} {
+		var stat unix.Stat_t
+		if unix.Lstat(path, &stat) != nil || stat.Uid != 0 || stat.Mode&unix.S_IFMT != unix.S_IFDIR || stat.Mode&0o022 != 0 {
+			return "", rootoci.ErrUnauthorized
+		}
+	}
+	var stat unix.Stat_t
+	if unix.Lstat(path, &stat) != nil || stat.Uid != 0 ||
+		stat.Mode&unix.S_IFMT != unix.S_IFSOCK || stat.Mode&0o7777 != 0o660 {
+		return "", rootoci.ErrUnauthorized
+	}
+	return fmt.Sprintf("%s:%d:%d", witness.Binding(), stat.Dev, stat.Ino), nil
 }
 
 func decodeRootBrokerResponse(wire []byte, operation rootBrokerOperation) (rootBrokerResponse, error) {

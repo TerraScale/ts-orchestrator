@@ -58,7 +58,8 @@ import (
 var controllerBrokerClockProbe = func() brokerauth.ClockProbe { return brokerauth.KernelClockProbe{} }
 
 var controllerFounderProduction = runAdmittedControllerFounder
-var controllerRuntimeProduction = openControllerRuntime
+var controllerRuntimeProduction = openControllerClientRuntime
+var controllerBrokerGateProduction = startBrokerGate
 
 func runAdmittedControllerFounder(ctx context.Context) error {
 	identity, err := bootstrapstart.NewMarkerStore().ReadIdentity()
@@ -209,6 +210,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return err
 	}
 	defer runtime.Close()
+	nativeBroker, err := controllerBrokerNativeProduction(ctx, cfg, runtime)
+	if err != nil {
+		return fmt.Errorf("open root broker observations: %w", err)
+	}
 	healthCtx, stopHealth := context.WithCancel(ctx)
 	var healthReporter clusterhealth.Reporter
 
@@ -217,7 +222,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	healthReporter = &clusterhealth.StatusFile{Path: membership.DefaultClusterHealthFile,
 		Logger: slog.Default().With("component", "membership")}
 
-	_, brokerStopped, waitHealth := startClusterHealth(healthCtx, runtime, healthReporter)
+	_, brokerStopped, waitHealth := startClusterHealth(healthCtx, nativeBroker, healthReporter)
 	defer waitHealth()
 	defer stopHealth()
 	// Every later startup step runs under the broker's lifetime: a broker
@@ -232,12 +237,11 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			err = natscell.ErrEmbeddedServerStopped
 		}
 	}()
-	defer stepDownMetaLeaderOnShutdown(runtime, cfg.NATS.Embedded.MembershipCredentialsFile)
-	fullClusterReady := func() bool { return runtime.FullClusterReady(cfg.NATS.Replicas) }
+	fullClusterReady := func() bool { return runtime.Ready() && nativeBroker.FullClusterReady(cfg.NATS.Replicas) }
 	waitCluster := func(waitCtx context.Context) error {
 		_, _, err := retryControllerOpen(waitCtx, "wait for regional NATS cluster", fullClusterReady, false,
 			func(attempt context.Context) (struct{}, error) {
-				return struct{}{}, runtime.WaitForCluster(attempt, cfg.NATS.Replicas)
+				return struct{}{}, nativeBroker.WaitForCluster(attempt, cfg.NATS.Replicas)
 			}, nil)
 		return err
 	}
@@ -302,7 +306,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	defer stopAuthority()
 	defer control.Close()
-	membershipSupervisor, err := startControllerMembership(ctx, cfg, runtime, control)
+	membershipSupervisor, err := startControllerMembership(ctx, cfg, runtime, nativeBroker, control)
 	if err != nil {
 		return fmt.Errorf("start controller membership supervision: %w", err)
 	}
@@ -312,7 +316,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	defer global.close()
 	peers := &rosterPeers{}
-	gate, err := startBrokerGate(ctx, cfg, runtime, control, services.identity.DeploymentID, candidateID, ticketPrivate, ticketPublic, clockProbe)
+	gate, err := controllerBrokerGateProduction(ctx, cfg, runtime, nativeBroker, control, services.identity.DeploymentID, candidateID, ticketPrivate, ticketPublic, clockProbe)
 	if err != nil {
 		return fmt.Errorf("start broker admission gate: %w", err)
 	}
@@ -342,7 +346,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return err
 	}
-	stopCapacity, err := startControllerStorageCapacity(ctx, cfg, runtime, fullClusterReady)
+	stopCapacity, err := startControllerStorageCapacity(ctx, cfg, runtime, nativeBroker, fullClusterReady)
 	if err != nil {
 		return fmt.Errorf("start storage capacity collector: %w", err)
 	}
@@ -538,11 +542,11 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	// the same issuer (TS-651).
 	var roleIdentity host.RoleIdentityIssuer
 	if managed != nil {
-		issuer, err := loadHostIssuer(cfg, runtime)
+		issuer, err := loadHostIssuer(ctx, cfg, nativeBroker)
 		if err != nil {
 			return err
 		}
-		roleIdentity = roleIdentityIssuer(issuer, runtime, cfg.NATS.Replicas)
+		roleIdentity = roleIdentityIssuer(issuer, runtime, nativeBroker, cfg.NATS.Replicas)
 	}
 	var automaticFunctions atomic.Pointer[functionController]
 	var automaticContainers atomic.Pointer[containerMaterialController]
@@ -660,7 +664,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		policy.nodes = newNodeOps(fences, func(context.Context) (nodeCompute, error) { return newOCINodeCompute(region) },
 			func(ctx context.Context, node string) error {
 				server, controller := serverOf(node)
-				gate := rolloutexec.ClusterGate{Cluster: runtime, ServerOf: func(string) (string, bool) { return server, true }}
+				gate := rolloutexec.ClusterGate{Cluster: nativeBroker, ServerOf: func(string) (string, bool) { return server, true }}
 				if !controller {
 					return gate.Check(ctx, rollout.Record{Kind: rollout.KindHost}, "")
 				}
@@ -804,7 +808,6 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	defer func() { stopRootInventory(); <-rootInventoryDone }()
 	defer stop()
 	if networkControl != nil {
-		go networkControl.meshListener(runCtx)
 		recoverySub, err := networkControl.serveRecovery(runCtx, netbirdSSH)
 		if err != nil {
 			return fmt.Errorf("serve NetBird recovery proofs: %w", err)
@@ -977,7 +980,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	var pool *nodePoolBinding
 	if managed != nil {
 		pool = &nodePoolBinding{}
-		server, listener, serveErrors, err := startManagedHostEnrollment(runCtx, cfg, runtime,
+		server, listener, serveErrors, err := startManagedHostEnrollment(runCtx, cfg, runtime, nativeBroker,
 			managed, fleet, control, placementStore, hostController, registrationVerifier, responseKey, control,
 			services, pool)
 		if err != nil {
@@ -1156,7 +1159,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return fmt.Errorf("start rollout store: %w", err)
 	}
 	policy.rollouts.store.Store(rollouts)
-	rolloutExecutor, err := policy.rollouts.start(runCtx, cfg, runtime, control, responseKey, hostController)
+	rolloutExecutor, err := policy.rollouts.start(runCtx, cfg, runtime, nativeBroker, control, responseKey, hostController)
 	if err != nil {
 		return fmt.Errorf("start rollout executor: %w", err)
 	}
@@ -1181,10 +1184,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	// runController refused a configuration without an embedded broker at
 	// its top, so Embedded is always set here.
 	linkSupervisor := &regionLinkSupervisor{cell: cfg.NATS.Cell, member: cfg.NATS.Instance,
-		reconnect: runtime.ReconnectInterRegion, recorder: telemetry.journal}
+		reconnect: reconnectRootBroker, recorder: telemetry.journal}
 	telemetry.registry.RegisterWriter(linkSupervisor.writeMetrics)
 	go costViews.run(runCtx)
-	if err := telemetry.attachController(runCtx, controllerObservation{nats: runtime, replicas: cfg.NATS.Replicas,
+	if err := telemetry.attachController(runCtx, controllerObservation{nats: runtime, native: nativeBroker, replicas: cfg.NATS.Replicas,
 		brokerIDs: cfg.NATS.Embedded.BrokerIDs, authority: control, placements: placementStore,
 		holds: placementHolds, autoscalers: managerView, hostLoad: hostLoad, hosts: hostController, peers: peers,
 		linkProbes:            linkSupervisor.snapshot,
@@ -1282,7 +1285,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		workers.Go(func() { networkControl.run(runCtx) })
 	}
 	workers.Go(func() { workerErrors <- rolloutExecutor(runCtx) })
-	workers.Go(func() { policy.rollouts.publishProofs(runCtx, cfg, runtime, responseKey) })
+	workers.Go(func() { policy.rollouts.publishProofs(runCtx, cfg, runtime, nativeBroker, responseKey) })
 	if services.roots != nil {
 		workers.Go(func() { workerErrors <- services.roots.Run(runCtx) })
 
@@ -1342,7 +1345,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	// Watchdog keepalives stop when the embedded broker or its in-process
 	// client is no longer usable, so WatchdogSec= restarts a wedged
 	// controller instead of leaving a silent Raft peer.
-	go notifier.RunWatchdog(runCtx, runtime.Ready)
+	go notifier.RunWatchdog(runCtx, func() bool { return runtime.Ready() && nativeBroker.Ready() })
 	emitSelfUpdateProof(cfg.Controller.SelfUpdateProofFile, cfg.Controller.SelfUpdateRoot, cfg.Controller.ResponseKeyFile, controllerUnit, output)
 	select {
 	case <-parentCtx.Done():

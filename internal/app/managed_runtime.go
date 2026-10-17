@@ -151,6 +151,13 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 	if err := setManagedRuntimeAvailability(ctx, node, admitted, api.NodeAvailabilityPause); err != nil {
 		return err
 	}
+	broker, err := startRootBrokerRuntime(ctx, cfg, authority)
+	if err != nil {
+		return fmt.Errorf("start root-owned regional broker: %w", err)
+	}
+	defer broker.Close()
+	stopBroker := context.AfterFunc(broker.ctx, func() { stopRuntime(errors.New("root-owned regional broker authority ended")) })
+	defer stopBroker()
 	notifier := sdnotify.FromEnvironment()
 	if err := notifier.Ready("admitted regional runtime management is ready"); err != nil {
 		return err
@@ -166,7 +173,7 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 		runManagedRuntimeOwnHost(ownhostCtx, cfg, reader, accepted, node, admitted, ownhost)
 	}()
 	defer func() { stopOwnhost(); <-ownhostDone }()
-	// The ordinary controller starts its broker only after this unit is ready.
+	// The ordinary controller consumes its one private connection after READY.
 	sourcesCtx, stopSources := context.WithCancel(authority.ctx)
 	sourcesDone := make(chan struct{})
 	go func() {

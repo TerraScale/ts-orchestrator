@@ -20,16 +20,17 @@ import (
 )
 
 type rootOCIProcess struct {
-	witness    *rootoci.ProcessWitness
-	ctx        context.Context
-	cancel     context.CancelFunc
-	startupEnd time.Time
-	generation uint64
-	runtime    bool
-	invocation string
-	session    context.Context
-	lease      context.Context
-	stopLease  func()
+	witness       *rootoci.ProcessWitness
+	ctx           context.Context
+	cancel        context.CancelFunc
+	startupEnd    time.Time
+	generation    uint64
+	runtime       bool
+	invocation    string
+	session       context.Context
+	lease         context.Context
+	stopLease     func()
+	brokerStartup *rootBrokerStartup
 }
 
 func (process *rootOCIProcess) close() {

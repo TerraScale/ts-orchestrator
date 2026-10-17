@@ -1,0 +1,349 @@
+package app
+
+import (
+	"context"
+	"crypto/ed25519"
+	"encoding/json/v2"
+	"errors"
+	"fmt"
+	"log/slog"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/brokerauth"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/nats-io/nats.go"
+)
+
+// Historical native broker scenarios retain their real JWT/R3 coverage here.
+// This fixture grants no root MainPID, source custody or production gate credit.
+type nativeBrokerGateFixture struct {
+	mu                                sync.Mutex
+	commitMu                          sync.Mutex
+	runtime                           *natscell.Runtime
+	store                             *brokerauth.Store
+	control                           *authority.Runtime
+	issuer                            *brokerauth.Issuer
+	public                            ed25519.PublicKey
+	clock                             brokerauth.ClockProbe
+	cell, broker, account, initialJWT string
+	deploymentID                      string
+	applied                           uint64
+	brokers                           []string
+	ackedSequence                     uint64
+	ackedHash                         string
+	acked                             map[string]fenceAck
+}
+
+func startNativeBrokerGateFixture(ctx context.Context, cfg Config, runtime *natscell.Runtime,
+	control *authority.Runtime, deploymentID, candidateID string, private ed25519.PrivateKey,
+	public ed25519.PublicKey, clock brokerauth.ClockProbe) (*nativeBrokerGateFixture, error) {
+	if runtime.Bridge() == nil || clock == nil || len(private) != ed25519.PrivateKeySize || len(public) != ed25519.PublicKeySize || !entityid.Valid(deploymentID) {
+		return nil, errors.New("production broker gate prerequisites are unavailable")
+	}
+	if err := natscell.ValidateBrokerControllerCredentials(cfg.NATS.CredentialsFile, cfg.NATS.Cell, cfg.NATS.Instance); err != nil {
+		return nil, err
+	}
+	store, err := brokerauth.OpenStore(ctx, runtime.JetStream(), cfg.NATS.Cell, control)
+	if err != nil {
+		return nil, err
+	}
+	allowed := make(map[string]struct{}, len(cfg.NATS.Embedded.BrokerIDs))
+	for _, broker := range cfg.NATS.Embedded.BrokerIDs {
+		allowed[broker] = struct{}{}
+	}
+	gate := &nativeBrokerGateFixture{runtime: runtime, store: store, control: control, public: public, clock: clock,
+		deploymentID: deploymentID,
+		cell:         cfg.NATS.Cell, broker: cfg.NATS.Instance, account: runtime.CellAccount(), initialJWT: runtime.InitialCellJWT(),
+		brokers: append([]string(nil), cfg.NATS.Embedded.BrokerIDs...)}
+	gate.issuer = &brokerauth.Issuer{Store: store, Account: gate.account, Brokers: allowed, Key: private, Clock: clock}
+	subject := brokerRPCSubject(gate.cell, "ticket", candidateID)
+	subscription, err := runtime.Conn().Subscribe(subject, func(message *nats.Msg) {
+		if len(message.Data) == 0 || len(message.Data) > brokerTicketRequestMaxBytes || message.Reply == "" {
+			return
+		}
+		var request brokerauth.TicketRequest
+		if json.Unmarshal(message.Data, &request, json.RejectUnknownMembers(true)) != nil {
+			return
+		}
+		requestCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		signed, err := gate.issuer.Issue(requestCtx, request)
+		if err != nil {
+			return
+		}
+		wire, err := json.Marshal(signed)
+		if err == nil {
+			_ = message.Respond(wire)
+		}
+	})
+	if err != nil {
+		return nil, fmt.Errorf("serve broker ticket requests: %w", err)
+	}
+	fenceSubject := brokerRPCSubject(gate.cell, "fence", gate.broker)
+	fenceSubscription, err := runtime.Conn().Subscribe(fenceSubject, func(message *nats.Msg) {
+		if message.Reply == "" || len(message.Data) == 0 || len(message.Data) > brokerTicketRequestMaxBytes {
+			return
+		}
+		var request fenceRequest
+		if json.Unmarshal(message.Data, &request, json.RejectUnknownMembers(true)) != nil {
+			return
+		}
+		requestCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		ack, err := gate.fenceClaim(requestCtx, request)
+		if err != nil {
+			return
+		}
+		wire, err := json.Marshal(ack)
+		if err == nil {
+			_ = message.Respond(wire)
+		}
+	})
+	if err != nil {
+		_ = subscription.Unsubscribe()
+		return nil, fmt.Errorf("serve broker claim fences: %w", err)
+	}
+	go func() {
+		defer subscription.Unsubscribe()
+		defer fenceSubscription.Unsubscribe()
+		defer runtime.Bridge().Fence()
+		ticker := time.NewTicker(3 * time.Second)
+		defer ticker.Stop()
+		lastError := ""
+		for {
+			ctx := observability.StartTrace(ctx)
+			if err := gate.renew(ctx); err != nil {
+				runtime.Bridge().Fence()
+				cause := err.Error()
+				if cause != lastError {
+					slog.WarnContext(ctx, "regional broker gate closed", "cause", cause)
+					lastError = cause
+				}
+			} else if lastError != "" {
+				slog.InfoContext(ctx, "regional broker gate renewed")
+				lastError = ""
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	return gate, nil
+}
+
+func (g *nativeBrokerGateFixture) renew(ctx context.Context) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if _, err := g.clock.Measure(); err != nil {
+		return err
+	}
+	lease, err := authority.Observe(ctx, g.runtime.JetStream(), g.cell)
+	if err != nil || !lease.Ready || lease.DeploymentID != g.deploymentID || lease.CandidateID == "" {
+		return authority.ErrNotLeader
+	}
+	claim, err := g.store.Read(ctx, g.account)
+	if errors.Is(err, brokerauth.ErrNoClaim) && g.control.Current().CanMutate() {
+		claim, err = g.store.Commit(ctx, g.control.Current().Epoch, g.account, g.initialJWT, 0)
+	}
+	if err != nil {
+		return err
+	}
+	if claim.Sequence != g.applied {
+		if err := g.runtime.ApplyCellClaim(ctx, claim.Sequence, claim.JWT); err != nil {
+			return err
+		}
+		g.applied = claim.Sequence
+	}
+	request, err := brokerauth.NewRequest(g.cell, g.broker, g.account)
+	if err != nil {
+		return err
+	}
+	wire, err := json.Marshal(request)
+	if err != nil {
+		return err
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, brokerauth.MaxTicketRoundTrip)
+	defer cancel()
+	started := time.Now()
+	reply, err := g.runtime.Conn().RequestWithContext(requestCtx,
+		brokerRPCSubject(g.cell, "ticket", lease.CandidateID), wire)
+	finished := time.Now()
+	if err != nil {
+		return err
+	}
+	if len(reply.Data) == 0 || len(reply.Data) > brokerauth.MaxTicketWireBytes {
+		return errors.New("broker ticket reply is too large")
+	}
+	var signed brokerauth.SignedTicket
+	if err := json.Unmarshal(reply.Data, &signed, json.RejectUnknownMembers(true)); err != nil {
+		return err
+	}
+	current, err := g.store.Read(ctx, g.account)
+	if err != nil {
+		return err
+	}
+	lease, err = authority.Observe(ctx, g.runtime.JetStream(), g.cell)
+	if err != nil {
+		return err
+	}
+	if lease.DeploymentID != g.deploymentID {
+		return authority.ErrFenced
+	}
+	bound, err := g.clock.Measure()
+	if err != nil {
+		return err
+	}
+	_, deadline, err := brokerauth.VerifyTicket(signed, g.public, request, started, finished, bound, current, lease)
+	if err != nil {
+		return err
+	}
+	if current.Sequence != g.applied {
+		return brokerauth.ErrClaimChanged
+	}
+	return g.runtime.Bridge().OpenUntil(current.Sequence, current.JWT, deadline)
+}
+
+// commitAndFence uses the issuer's Store, so the local signing mutex orders
+// the replacement behind every earlier ticket. A replacement is effective
+// only when each named broker proves local application and old socket closure.
+func (g *nativeBrokerGateFixture) commitAndFence(ctx context.Context, raw string, expectedSequence uint64) (fenceResult, error) {
+	result := fenceResult{Acks: make(map[string]fenceAck)}
+	if g == nil {
+		return result, authority.ErrNotLeader
+	}
+	if current := g.control.Current(); !current.CanMutate() || current.DeploymentID != g.deploymentID {
+		return result, authority.ErrFenced
+	}
+	g.commitMu.Lock()
+	defer g.commitMu.Unlock()
+	g.mu.Lock()
+	prior, err := g.store.Read(ctx, g.account)
+	if errors.Is(err, brokerauth.ErrNoClaim) {
+		err = nil
+	}
+	if err != nil {
+		g.mu.Unlock()
+		return result, err
+	}
+	if prior.Sequence != expectedSequence && prior.JWT != raw {
+		g.mu.Unlock()
+		return result, authority.ErrConflict
+	}
+	if prior.JWT != raw {
+		g.runtime.Bridge().Fence()
+	}
+	epoch := g.control.Current().Epoch
+	claim, err := g.store.Commit(ctx, epoch, g.account, raw, expectedSequence)
+	g.mu.Unlock()
+	if err != nil {
+		return result, err
+	}
+	result.Claim = claim
+	if g.ackedSequence == claim.Sequence && g.ackedHash == claim.Hash {
+		for broker, ack := range g.acked {
+			result.Acks[broker] = ack
+		}
+	} else {
+		g.ackedSequence, g.ackedHash = claim.Sequence, claim.Hash
+		g.acked = make(map[string]fenceAck)
+	}
+	request := fenceRequest{Cell: g.cell, Account: g.account, Sequence: claim.Sequence, Hash: claim.Hash}
+	wire, err := json.Marshal(request)
+	if err != nil {
+		return result, err
+	}
+	for _, broker := range g.brokers {
+		if _, ok := result.Acks[broker]; ok {
+			continue
+		}
+		var ack fenceAck
+		if broker == g.broker {
+			ack, err = g.fenceClaim(ctx, request)
+		} else {
+			requestCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			var reply *nats.Msg
+			reply, err = g.runtime.Conn().RequestWithContext(requestCtx,
+				brokerRPCSubject(g.cell, "fence", broker), wire)
+			cancel()
+			if err == nil && len(reply.Data) <= brokerTicketRequestMaxBytes {
+				err = json.Unmarshal(reply.Data, &ack, json.RejectUnknownMembers(true))
+			} else if err == nil {
+				err = errors.New("broker fence acknowledgement is too large")
+			}
+		}
+		if err != nil || ack.Broker != broker || ack.Cell != g.cell || ack.Account != g.account ||
+			ack.Sequence != claim.Sequence || ack.Hash != claim.Hash {
+			result.Pending = append(result.Pending, broker)
+			continue
+		}
+		result.Acks[broker] = ack
+		g.acked[broker] = ack
+	}
+	if len(result.Pending) > 0 {
+		return result, ErrBrokerFencePending
+	}
+	return result, nil
+}
+
+func (g *nativeBrokerGateFixture) fenceClaim(ctx context.Context, request fenceRequest) (fenceAck, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if request.Cell != g.cell || request.Account != g.account || request.Sequence == 0 || request.Hash == "" {
+		return fenceAck{}, errors.New("broker fence target is invalid")
+	}
+	claim, err := g.store.Read(ctx, g.account)
+	if err != nil {
+		return fenceAck{}, err
+	}
+	if claim.Sequence != request.Sequence || claim.Hash != request.Hash {
+		return fenceAck{}, brokerauth.ErrClaimChanged
+	}
+	g.runtime.Bridge().FenceClaim(request.Sequence)
+	if err := g.runtime.ApplyCellClaim(ctx, claim.Sequence, claim.JWT); err != nil {
+		return fenceAck{}, err
+	}
+	g.applied = claim.Sequence
+	for g.runtime.Bridge().Status().ActiveSessions != 0 {
+		if err := ctx.Err(); err != nil {
+			return fenceAck{}, err
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	status := g.runtime.Bridge().Status()
+	if status.Open || status.ActiveSessions != 0 {
+		return fenceAck{}, errors.New("broker gate did not close its old sessions")
+	}
+	return fenceAck{Broker: g.broker, Cell: g.cell, Account: g.account,
+		Sequence: claim.Sequence, Hash: claim.Hash}, nil
+}
+
+func (g *nativeBrokerGateFixture) issuerView() *brokerGate {
+	return &brokerGate{runtime: g.runtime, native: g.runtime, store: g.store, control: g.control,
+		issuer: g.issuer, public: g.public, clock: g.clock, cell: g.cell, broker: g.broker,
+		account: g.account, deploymentID: g.deploymentID, brokers: g.brokers}
+}
+
+func installNativeBrokerControllerFixture(t *testing.T) {
+	t.Helper()
+	previousNative, previousGate := controllerBrokerNativeProduction, controllerBrokerGateProduction
+	controllerBrokerNativeProduction = func(_ context.Context, _ Config, runtime *natscell.Runtime) (controllerBrokerNative, error) {
+		return runtime, nil
+	}
+	controllerBrokerGateProduction = func(ctx context.Context, cfg Config, runtime *natscell.Runtime, _ controllerBrokerNative, control *authority.Runtime, deploymentID, candidateID string, private ed25519.PrivateKey, public ed25519.PublicKey, clock brokerauth.ClockProbe) (*brokerGate, error) {
+		gate, err := startNativeBrokerGateFixture(ctx, cfg, runtime, control, deploymentID, candidateID, private, public, clock)
+		if err != nil {
+			return nil, err
+		}
+		return gate.issuerView(), nil
+	}
+	t.Cleanup(func() {
+		controllerBrokerNativeProduction, controllerBrokerGateProduction = previousNative, previousGate
+	})
+}
