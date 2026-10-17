@@ -40,6 +40,8 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
+const foundationProvisionValidity = 20 * time.Minute
+
 // This extends the existing signed SDK/disk journal scenario through the actual
 // operator entrypoint. Only remote OCI resources and offline keys are fixtures.
 func foundationProvisionSDKScenario(t *testing.T) {
@@ -136,7 +138,7 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bundle, err := SignFoundationDiscovery(t.Context(), prepared.Grant, prepared.Anchor, chain, roots, root, now.Add(-time.Second), now.Add(20*time.Minute))
+	bundle, err := SignFoundationDiscovery(t.Context(), prepared.Grant, prepared.Anchor, chain, roots, root, now.Add(-time.Second), now.Add(foundationProvisionValidity))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -662,9 +664,9 @@ func provisionImage(t *testing.T, root, leaf ed25519.PrivateKey, roots trust.Key
 	}
 	var signed trust.Envelope
 	if role == "netbird-manager" {
-		signed, err = release.SignNetBirdImageReceipt(image, "production", delegation, roots, leaf, now, time.Hour)
+		signed, err = release.SignNetBirdImageReceipt(image, "production", delegation, roots, leaf, now, foundationProvisionValidity)
 	} else {
-		signed, err = release.SignImageReceipt(image, "production", delegation, roots, leaf, now, time.Hour)
+		signed, err = release.SignImageReceipt(image, "production", delegation, roots, leaf, now, foundationProvisionValidity)
 	}
 	if err != nil {
 		t.Fatal(err)
