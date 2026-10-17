@@ -78,7 +78,7 @@ func TestContainerOriginalProfileArchiveBrokerIntegration(t *testing.T) {
 	for _, cell := range []string{"GRU", "SFO", "FRA"} {
 		floors = append(floors, release.SequenceFloor{Cell: cell, IssuedAt: time.Now().UTC().Add(-time.Hour), EvidenceSHA256: strings.Repeat("d", 64)})
 	}
-	currentBundle, _ := genericRuntimeContainerRelease(t, releaseSigner, target, floors, 101, nil)
+	currentBundle, currentEvidence := genericRuntimeContainerRelease(t, releaseSigner, target, floors, 101, nil)
 	originalBundle := currentBundle
 	resign := func(wire []byte, issued, expires time.Time, key ed25519.PrivateKey) []byte {
 		t.Helper()
@@ -294,8 +294,9 @@ func TestContainerOriginalProfileArchiveBrokerIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	currentService := cellspec.Service{Role: policy.Role, Profile: profile, Spec: &policy, Releasers: []string{"current-actor"}}
 	currentSpec, err := cellspec.Sign(cellspec.Spec{Schema: cellspec.Schema, Identity: identity, Generation: 8, RequiresBinary: cellspec.BinaryLevel,
-		Services: []cellspec.Service{{Role: policy.Role, Profile: profile, Spec: &policy}}}, nil, releaseSigner.roots, now, time.Hour, releaseSigner.root)
+		Services: []cellspec.Service{currentService}}, nil, releaseSigner.roots, now, time.Hour, releaseSigner.root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,6 +318,70 @@ func TestContainerOriginalProfileArchiveBrokerIntegration(t *testing.T) {
 	candidate, err := containermaterial.VerifyProfile(currentSpec, releaseSigner.roots, identity, proposal)
 	if err != nil || containermaterial.VerifyHistoricalContinuity(originalProof, historical, candidate, renewed) != nil {
 		t.Fatal("protected archive did not cross full shared historical continuity", err)
+	}
+	verificationDeadline, _ := ctx.Deadline()
+	currentRelease, err := release.VerifyContainerCurrent(ctx, currentBundle, releaseSigner.roots, target, time.Now().UTC(),
+		earlier(verificationDeadline, observation.ExpiresAt).Add(-time.Nanosecond), currentEvidence, releaseSigner.allocations)
+	if err != nil {
+		t.Fatal("renewal did not independently authenticate current signed SDK allocation and evidence", err)
+	}
+	continued, err := containermaterial.ContinueProfile(originalProof, historical, candidate, currentRelease, time.Now().UTC())
+	if err != nil {
+		t.Fatal("protected archive did not continue under independently current authority", err)
+	}
+	continuedService, err := containermaterial.ServiceIntent(continued, target.Architecture)
+	if err != nil || continuedService.OperationID != retained.OperationID || continuedService.Generation != retained.Generation || continued.Intent().OperationID != proposal.OperationID {
+		t.Fatal("current continuation changed the original protected runtime operation or generation", err)
+	}
+	if _, err := containermaterial.ContinueProfile(continued, historical, candidate, currentRelease, time.Now().UTC()); err == nil {
+		t.Fatal("continued archive proof rebound to a successor source")
+	}
+	if containermaterial.VerifyContinuity(originalProof, historical, candidate, currentRelease, currentRelease.ExpiresAt()) == nil {
+		t.Fatal("expired independent current proof retained archive continuity")
+	}
+	if containermaterial.VerifyRuntimePolicy(containermaterial.Profile{}, candidate) == nil || containermaterial.VerifyRuntimePolicy(originalProof, containermaterial.Profile{}) == nil {
+		t.Fatal("missing signed archive or current profile granted runtime continuity")
+	}
+	if _, err := containermaterial.ContinueProfile(originalProof, release.HistoricalContainer{}, candidate, release.VerifiedContainer{}, time.Now().UTC()); err == nil {
+		t.Fatal("signed runtime policy alone granted current continuation")
+	}
+	for _, change := range []string{"resources", "rollout policy", "replica policy", "desired generation", "desired replicas"} {
+		driftedService := currentService
+		driftedService.Profile = cloneNativeProfile(profile)
+		driftedService.Spec = new(policy)
+		driftedIntent := proposal.Clone()
+		switch change {
+		case "resources":
+			driftedService.Profile.Resources.CPU++
+		case "rollout policy":
+			driftedService.Spec.Rollout.MaxSurge++
+		case "replica policy":
+			driftedService.Spec.Replicas.Max++
+		case "desired generation":
+			driftedIntent.Generation++
+		case "desired replicas":
+			driftedIntent.DesiredReplicas++
+		}
+		driftedWire, err := cellspec.Sign(cellspec.Spec{Schema: cellspec.Schema, Identity: identity, Generation: 9, RequiresBinary: cellspec.BinaryLevel,
+			Services: []cellspec.Service{driftedService}}, nil, releaseSigner.roots, now, time.Hour, releaseSigner.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		driftedProof, err := containermaterial.VerifyProfile(driftedWire, releaseSigner.roots, identity, driftedIntent)
+		if err != nil || containermaterial.VerifyHistoricalContinuity(originalProof, historical, driftedProof, renewed) == nil {
+			t.Fatalf("protected original archive accepted changed %s: %v", change, err)
+		}
+	}
+	if _, err := containerChannelIntent(state, observation, renewed, currentService, identity.Cell, proposal.AuthorityEpoch, historicalRoots); !errors.Is(err, containermaterial.ErrPending) {
+		t.Fatal("renewed proof bypassed original protected floor continuity", err)
+	}
+	missingFloor := observation
+	missingFloor.Floor = nil
+	if _, err := containerChannelIntent(state, missingFloor, renewed, currentService, identity.Cell, proposal.AuthorityEpoch, historicalRoots); !errors.Is(err, containermaterial.ErrPending) {
+		t.Fatal("missing original floor invented a recovery generation", err)
+	}
+	if _, err := containerChannelIntent(serviceReleaseState{}, observation, renewed, currentService, identity.Cell, proposal.AuthorityEpoch, historicalRoots); !errors.Is(err, containermaterial.ErrPending) {
+		t.Fatal("protected floor without its original state invented a recovery generation", err)
 	}
 	swapped := originalBundle
 	swapped.Delegation = resign(originalBundle.Delegation, now.Add(-time.Minute), now.Add(time.Minute), releaseSigner.root)
