@@ -201,6 +201,7 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 	mode := ""
 	removeJournalOnIAM := ""
 	var cancelOnManifest context.CancelFunc
+	var cancelOnCleanup context.CancelFunc
 	now := f.now.Add(2 * time.Second)
 	reads, writes := 0, 0
 	c := &cloud{prepared: prepared, now: func() time.Time { mu.Lock(); defer mu.Unlock(); return now }}
@@ -236,6 +237,11 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 		}
 		if strings.HasPrefix(r.URL.Path, "/20160918/instances/") && r.Method == http.MethodGet {
 			reads++
+			if mode == "cancel-during-host-cleanup" && cancelOnCleanup != nil {
+				now = f.now.Add(18 * time.Minute)
+				cancelOnCleanup()
+				cancelOnCleanup = nil
+			}
 			if mode == "remaining-host" {
 				id := strings.TrimPrefix(r.URL.Path, "/20160918/instances/")
 				_ = json.MarshalWrite(w, core.Instance{Id: new(id), CompartmentId: new(a.Compartment), ImageId: new(imageID), LifecycleState: core.InstanceLifecycleStateRunning})
@@ -266,6 +272,11 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 		}
 		if strings.HasPrefix(r.URL.Path, "/n/"+a.Namespace+"/b/"+a.Bucket+"/o/") && r.Method == http.MethodHead {
 			reads++
+			if mode == "cancel-during-source-cleanup" && cancelOnCleanup != nil {
+				now = f.now.Add(18 * time.Minute)
+				cancelOnCleanup()
+				cancelOnCleanup = nil
+			}
 			if mode == "remaining-source" {
 				w.WriteHeader(200)
 				return
@@ -315,7 +326,7 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 				body = []byte("changed root gate")
 			}
 			modified := f.now
-			if mode == "cancel-during-observation" {
+			if strings.HasPrefix(mode, "cancel-during-") {
 				modified = f.now.Add(15 * time.Minute)
 				if strings.Contains(name, "/manifests/") && cancelOnManifest != nil {
 					now = f.now.Add(18 * time.Minute)
@@ -653,6 +664,53 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 				}
 				if (scenario == "unresolved-create" || scenario == "cleanup-expired" || scenario == "omitted-bound-host" || scenario == "invalid-manifest-reference" || scenario == "missing-journal") && afterReads != beforeReads {
 					t.Fatal("invalid settled cleanup authority reached SDK")
+				}
+			})
+		}
+		for _, stage := range []string{"host", "source"} {
+			t.Run("cancellation-during-"+stage+"-cleanup", func(t *testing.T) {
+				copyJournal := saved
+				copyJournal.Terminated = make(map[string]bool)
+				for name := range saved.Hosts {
+					copyJournal.Terminated[name] = stage != "host"
+				}
+				copyJournal.ObjectDeleted = stage != "source"
+				if err := checkpoint(path, copyJournal); err != nil {
+					t.Fatal(err)
+				}
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				mu.Lock()
+				now = f.now.Add(10 * time.Minute)
+				mode, cancelOnCleanup = "cancel-during-"+stage+"-cleanup", cancel
+				mu.Unlock()
+				copyCloud := *c
+				copyCloud.compute, err = observer.Compute()
+				if err != nil {
+					t.Fatal(err)
+				}
+				copyCloud.uploader, err = imageimport.NewClient(observer, "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				copyCloud.prepared.approval.CleanupUntil = time.Now().UTC().Add(100 * time.Millisecond)
+				if err := copyCloud.superviseRetainedImage(ctx, path, observer); !errors.Is(err, context.DeadlineExceeded) {
+					t.Fatalf("cleanup-overlapping cancellation relinquished image: %v", err)
+				}
+				canceled, err := c.loadExisting(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if canceled.ImageManifestSHA256 != "" || !canceled.RetentionEndedAt.Equal(f.now.Add(10*time.Minute)) {
+					t.Fatal("cleanup cancellation advanced the last known-live cutoff")
+				}
+				mu.Lock()
+				afterWrites := writes
+				mode, cancelOnCleanup = "", nil
+				now = f.now.Add(90 * time.Minute)
+				mu.Unlock()
+				if afterWrites != publicationWrites {
+					t.Fatal("cleanup cancellation observer dispatched a write")
 				}
 			})
 		}
