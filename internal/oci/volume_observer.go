@@ -192,27 +192,15 @@ func (o *VolumeMountObserver) InspectVolumeMount(ctx context.Context, pins Volum
 	return VerifiedVolumeObservation{pins: pins, descriptor: instance.BootDescriptorSHA256, predecessor: predecessorInstanceID, observedAt: time.Now().UTC()}, nil
 }
 
-// Only provider HTTP reads get the SDK retry context; journal reads retain the
-// caller's original cancellation and delegated workload-effect context.
+// The SDK boundary preserves cancellation; provider and journal work share the
+// caller's original delegated workload-effect context.
 type volumeObservationProvider struct{ Provider }
 
-func (p volumeObservationProvider) GetInstance(ctx context.Context, id string) (CloudInstance, error) {
-	return p.Provider.GetInstance(ociclient.RequestContext(ctx), id)
-}
-func (p volumeObservationProvider) GetVolume(ctx context.Context, id string) (CloudVolume, error) {
-	return p.Provider.GetVolume(ociclient.RequestContext(ctx), id)
-}
-func (p volumeObservationProvider) GetVolumeAttachment(ctx context.Context, id string) (CloudAttachment, error) {
-	return p.Provider.GetVolumeAttachment(ociclient.RequestContext(ctx), id)
-}
-func (p volumeObservationProvider) ListVolumeAttachments(ctx context.Context, compartment, instance string) ([]CloudAttachment, error) {
-	return p.Provider.ListVolumeAttachments(ociclient.RequestContext(ctx), compartment, instance)
-}
 func (p volumeObservationProvider) ListVolumeAttachmentsByVolume(ctx context.Context, compartment, domain, volume string) ([]CloudAttachment, error) {
 	if reader, ok := p.Provider.(VolumeAttachmentLister); ok {
-		return reader.ListVolumeAttachmentsByVolume(ociclient.RequestContext(ctx), compartment, domain, volume)
+		return reader.ListVolumeAttachmentsByVolume(ctx, compartment, domain, volume)
 	}
-	return p.Provider.ListVolumeAttachments(ociclient.RequestContext(ctx), compartment, "")
+	return p.Provider.ListVolumeAttachments(ctx, compartment, "")
 }
 
 // Normal fleet ownership reads may repair journal projections. This observer
