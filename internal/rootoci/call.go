@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"reflect"
 	"time"
@@ -141,7 +142,8 @@ func (call Call) Guard(ctx context.Context) error {
 }
 
 func validLease(lease Lease) bool {
-	return lease.Context != nil && lease.Context.Err() == nil && lease.Binding != "" && len(lease.Binding) <= 4096 &&
+	return lease.Context != nil && lease.Context.Done() != nil && lease.Context.Err() == nil && lease.Binding != "" && len(lease.Binding) <= 4096 &&
+		(lease.RuntimeID == "" || validSelector(lease.RuntimeID)) &&
 		!lease.Deadline.IsZero() && time.Now().Before(lease.Deadline)
 }
 
@@ -172,6 +174,6 @@ func RootCall(ctx context.Context) (Call, error) {
 }
 
 func sessionBinding(witness *ProcessWitness, lease Lease) string {
-	digest := sha256.Sum256([]byte(witness.Binding() + "\x00" + lease.Binding + "\x00" + lease.RuntimeID + "\x00" + lease.Deadline.UTC().Format(time.RFC3339Nano)))
+	digest := sha256.Sum256([]byte(witness.Binding() + "\x00" + lease.Binding + "\x00" + lease.RuntimeID + "\x00" + lease.Deadline.UTC().Format(time.RFC3339Nano) + "\x00" + fmt.Sprintf("%p", lease.Context.Done())))
 	return hex.EncodeToString(digest[:])
 }
