@@ -109,7 +109,8 @@ func bindRootRuntimeSources(ctx context.Context, cfg Config, factory *ociclient.
 		return nil, err
 	}
 	bindings := rootrelease.Sources{JS: sources.js, Fleet: fleet, Node: node, Intents: sources.intents,
-		Specs: sources.specs.kv, Roots: rootKV, Leases: sources.mutations, Hosts: sources.hosts, Authority: authority, Accepted: accepted}
+		Specs: sources.specs.kv, Roots: rootKV, Leases: sources.mutations, Hosts: sources.hosts, Authority: authority, Accepted: accepted,
+		ContainerProfiles: bound}
 	if err := netbird.Bind(rootnetbird.Sources{JS: sources.js, Specs: sources.specs.kv, Roots: rootKV,
 		Leases: sources.mutations, Authority: authority, Accepted: accepted, Credentials: sources.credentials}); err != nil {
 		return nil, errors.Join(errRootRuntimeSourceBinding, err)
@@ -127,6 +128,28 @@ func bindRootRuntimeSources(ctx context.Context, cfg Config, factory *ociclient.
 		return nil, errors.Join(errRootRuntimeSourceBinding, err)
 	}
 	return bound, nil
+}
+
+// ReadContainerProfile reads immutable public provenance through the original
+// root connection. The archived bytes grant no current execution authority.
+func (bound *rootBoundRuntimeSources) ReadContainerProfile(ctx context.Context, reference string) ([]byte, error) {
+	if bound == nil || ctx == nil || bound.deadline.IsZero() {
+		return nil, rootoci.ErrUnauthorized
+	}
+	ctx, cancel := context.WithDeadline(ctx, bound.deadline)
+	defer cancel()
+	if err := bound.guard(ctx); err != nil {
+		return nil, err
+	}
+	history := &nativeHistory{js: bound.js}
+	wire, err := history.ReadContainerProfile(ctx, reference)
+	if err != nil {
+		return nil, err
+	}
+	if err := bound.guard(ctx); err != nil {
+		return nil, err
+	}
+	return wire, nil
 }
 
 func (bound *rootBoundRuntimeSources) guard(ctx context.Context) error {

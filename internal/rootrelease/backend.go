@@ -54,6 +54,10 @@ type Sources struct {
 	Hosts     *host.Reader
 	Authority *bootstrapstart.CurrentFounderAuthorityReader
 	Accepted  bootstrapstart.AcceptedIdentity
+
+	ContainerProfiles interface {
+		ReadContainerProfile(context.Context, string) ([]byte, error)
+	}
 }
 
 var _ rootoci.ContainerReleases = (*Backend)(nil)
@@ -66,7 +70,7 @@ func New(factory *ociclient.Factory) (*Backend, error) {
 }
 
 func (b *Backend) Bind(s Sources) error {
-	if os.Geteuid() != 0 || b == nil || s.JS == nil || s.JS.Conn() == nil || s.Node == nil || s.Intents == nil || s.Specs == nil || s.Roots == nil || s.Leases == nil || s.Hosts == nil || s.Fleet == nil || s.Authority == nil || s.Accepted.Validate() != nil {
+	if os.Geteuid() != 0 || b == nil || s.JS == nil || s.JS.Conn() == nil || s.Node == nil || s.Intents == nil || s.Specs == nil || s.Roots == nil || s.Leases == nil || s.Hosts == nil || s.Fleet == nil || s.Authority == nil || s.Accepted.Validate() != nil || s.ContainerProfiles == nil {
 		return ErrPending
 	}
 	if s.Specs.Bucket() != "TS_SERVICE_SET" || s.Roots.Bucket() != "TS_TRUST_ROOTS" {
