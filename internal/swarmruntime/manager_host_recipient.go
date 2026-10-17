@@ -3,6 +3,8 @@ package swarmruntime
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"slices"
 	"strings"
@@ -100,6 +102,17 @@ func (n *Node) ReadManagerHostRecipient(ctx context.Context, hosts *host.Reader,
 	got, err := control.GetNode(ctx, &api.GetNodeRequest{NodeID: nodeID})
 	if err != nil || got == nil || got.Node == nil {
 		return nil, errors.New("manager host recipient native target unavailable")
+	}
+	block, _ := pem.Decode(got.Node.Certificate.Certificate)
+	if block == nil || block.Type != "CERTIFICATE" {
+		return nil, errors.New("manager host recipient native certificate unavailable")
+	}
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	if err := limit(certificate.NotAfter); err != nil {
+		return nil, err
 	}
 	session, err := hosts.FindManagerRuntimeSession(ctx, nodeID)
 	if err != nil {
