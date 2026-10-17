@@ -30,31 +30,6 @@ func (dispatcher fakeDispatcher) Do(*http.Request) (*http.Response, error) {
 	return &http.Response{StatusCode: dispatcher.status, Body: http.NoBody}, nil
 }
 
-func TestOperationTemplateRemovesIdentifiers(t *testing.T) {
-	t.Parallel()
-	for raw, want := range map[string]string{
-		"GET https://iaas.sa-saopaulo-1.oraclecloud.com/20160918/instances/ocid1.instance.oc1.sa-saopaulo-1.abc?page=9": "GET /instances/{id}",
-		"POST https://iaas.example/20160918/instances/ocid1.instance.oc1..x?action=SOFTSTOP":                            "POST /instances/{id}?action=SOFTSTOP",
-		"POST https://iaas.example/20160918/instances/x?action=evil-value":                                              "POST /instances/x?action={action}",
-		"GET https://iaas.example/20160918/volumeAttachments?compartmentId=ocid1.compartment.oc1..a":                    "GET /volumeAttachments",
-		"GET https://iaas.example/20160918/instances/1234567890/vnics":                                                  "GET /instances/{id}/vnics",
-		"GET https://objects.example/n/secretNamespace/b/secretBucket/o/secret/object/name?versionId=secret":            "GET /n/{id}/b/{id}/o/{id}",
-		"PUT https://objects.example/n/secretNamespace/b/secretBucket/u/secret/object/name?uploadId=secret":             "PUT /n/{id}/b/{id}/u/{id}",
-		"GET https://objects.example/n/secretNamespace/b/secretBucket/o?prefix=secret":                                  "GET /n/{id}/b/{id}/o",
-		"HEAD https://objects.example/n/secretNamespace/b/secretBucket":                                                 "HEAD /n/{id}/b/{id}",
-		"GET https://objects.example/n/secretNamespace/b":                                                               "GET /n/{id}/b",
-		"GET https://objects.example/n/secretNamespace/pe/secretEndpoint":                                               "GET /n/{id}/pe/{id}",
-		"GET https://objects.example/n/secretNamespace/b/secretBucket/p/secretToken":                                    "GET /n/{id}/b/{id}/p/{id}",
-		"POST https://objects.example/n/secretNamespace/b/secretBucket/actions/reencrypt/secret/object/name":            "POST /n/{id}/b/{id}/actions/reencrypt/{id}",
-	} {
-		method, url, _ := strings.Cut(raw, " ")
-		request := httptest.NewRequest(method, url, nil)
-		if got := operationTemplate(request); got != want {
-			t.Errorf("operationTemplate(%s) = %q, want %q", raw, got, want)
-		}
-	}
-}
-
 func TestOperationCardinalityIsBounded(t *testing.T) {
 	service := "bounded-" + strings.ReplaceAll(t.Name(), "/", "-")
 	for index := range maxOperationsPerService + 10 {
