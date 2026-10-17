@@ -118,6 +118,13 @@ func TestInstalledManagerProcessRetainsMeasuredWitness(t *testing.T) {
 	defer cancel()
 	installed := newInstalledControllerFixture(t)
 	child := newInstalledManagerProcess(t, ctx, installed)
+	brokers := startInstalledControllerBrokers(t, ctx, installed)
+	for _, broker := range brokers {
+		observation, err := broker.ObserveCluster()
+		if err != nil || !observation.Running || observation.MetaSize != 3 || len(observation.Routes) != 2 || observation.MetaLeader == "" {
+			t.Fatal("original generated material did not form its actual three-broker cluster", err)
+		}
+	}
 	ownhost := &managedRuntimeHost{reader: installed.Bootstrap.Reader, accepted: installed.Bootstrap.Accepted.Clone()}
 	layout := selfupdate.NewLayout(selfUpdateRoot(installed.Config.Controller.SelfUpdateRoot))
 	authority, err := newRootOCIAuthority(ctx, installed.Bootstrap.Accepted, ownhost, layout, installed.ServiceUID, installed.ServiceGID)

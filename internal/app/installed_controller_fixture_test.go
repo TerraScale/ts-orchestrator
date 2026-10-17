@@ -132,6 +132,8 @@ printf 'passwd: files\ngroup: files\n' > /etc/nsswitch.conf
 "$mount_command" -t tmpfs -o size=512m,mode=1777 ts-installed-controller-tmp /tmp
 "$ip_command" link set lo up
 "$ip_command" addr add 10.44.0.10/32 dev lo
+"$ip_command" addr add 10.44.0.11/32 dev lo
+"$ip_command" addr add 10.44.0.12/32 dev lo
 TS_INSTALLED_CONTROLLER_PARENT_MOUNT="$parent_mount" TMPDIR=/tmp GOMAXPROCS=2 exec /var/lib/installed-controller-bin/app.test -test.v -test.run="$test_pattern" -test.timeout=110s
 `
 	args := []string{unshare, "--mount", "--net", "--fork", "--kill-child=SIGKILL", "--",
