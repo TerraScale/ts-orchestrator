@@ -245,6 +245,7 @@ func ControllerSubscriptions(cell string) []string {
 		protocol.DeliveryArtifactAdmitSubject(cell), protocol.HostRegisterSubject(cell),
 		protocol.PlacementApplySubject(cell), protocol.ManagedUpdatePrepareSubject(cell),
 		protocol.BackupOperationSubject(cell), protocol.TerminalSubject(cell, ">"),
+		protocol.Regional(cell, "netbird", "read-open"),
 		// The seed answers epoch-fenced slot replacement requests from a
 		// non-seed authority leader. Material issued before this grant
 		// existed lacks it; the request then has no responder and the

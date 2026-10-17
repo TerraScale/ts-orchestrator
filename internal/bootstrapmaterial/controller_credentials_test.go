@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -30,6 +31,17 @@ func TestCheckControllerCredentialsRequiresExactRoleGrants(t *testing.T) {
 	account := record.Public.CellAccountNKey
 	if err := CheckControllerCredentials(current, "gru", "controller-a", account); err != nil {
 		t.Fatalf("founding credentials refused: %v", err)
+	}
+	raw, err := jwt.ParseDecoratedJWT(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := jwt.DecodeUserClaims(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(claim.Sub.Allow, protocol.Regional("gru", "netbird", "read-open")) {
+		t.Fatal("new controller material lacks the manager read-open subscription")
 	}
 	reissue := func(change func(*jwt.UserClaims)) []byte {
 		t.Helper()
@@ -64,11 +76,27 @@ func TestCheckControllerCredentialsRequiresExactRoleGrants(t *testing.T) {
 			c.Pub.Allow.Remove(protocol.AnyRegionObservabilitySubject(protocol.ObservabilityRegionLeaf))
 		},
 		"wrong account": func(c *jwt.UserClaims) { c.IssuerAccount = record.Public.SystemAccountNKey },
+		"wildcard manager subscription": func(c *jwt.UserClaims) {
+			c.Sub.Allow.Add(protocol.Regional("gru", "netbird", ">"))
+		},
+		"another region manager subscription": func(c *jwt.UserClaims) {
+			c.Sub.Allow.Add(protocol.Regional("sfo", "netbird", "read-open"))
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if CheckControllerCredentials(reissue(change), "gru", "controller-a", account) == nil {
 				t.Fatal("invalid controller credentials accepted")
 			}
 		})
+	}
+	retained := reissue(func(c *jwt.UserClaims) {
+		c.Sub.Allow.Remove(protocol.Regional("gru", "netbird", "read-open"))
+	})
+	before := bytes.Clone(retained)
+	if err := CheckControllerCredentials(retained, "gru", "controller-a", account); err != nil {
+		t.Fatalf("retained material without the new grant refused: %v", err)
+	}
+	if !bytes.Equal(before, retained) {
+		t.Fatal("validation rewrote retained credential bytes")
 	}
 }
