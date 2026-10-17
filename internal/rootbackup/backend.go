@@ -79,7 +79,7 @@ func (b *Backend) ReconcileVolumeBackups(ctx context.Context, call rootoci.Call)
 		return rootoci.VolumeBackupReport{}, err
 	}
 	cell := strings.ToLower(accepted.Cell)
-	lease, err := authority.Observe(ctx, js, cell)
+	lease, err := observeLease(ctx, js, cell)
 	if err != nil || !matchesCaller(lease, accepted, call.RuntimeID()) ||
 		call.Expected().Epoch != 0 && call.Expected().Epoch != lease.Epoch || call.Expected().OperationID != "" {
 		return rootoci.VolumeBackupReport{}, errors.Join(rootoci.ErrUnauthorized, err)
@@ -127,11 +127,18 @@ func (b *Backend) ReconcileVolumeBackups(ctx context.Context, call rootoci.Call)
 			currentSpend.PhysicalScopeDigest() != spend.PhysicalScopeDigest() || currentSpend.BindingDigest() != spend.BindingDigest() {
 			return errors.Join(rootoci.ErrUnauthorized, err)
 		}
-		currentListing, err := capture(ctx, placements, config.Region)
+		currentPlacements, err := placement.OpenReadStore(ctx, js, cell, 3, verifiedIntents{AdmittedIntentReader: intents, material: material})
+		if err != nil {
+			return err
+		}
+		if _, err := oci.OpenJournalReader(ctx, js, 3); err != nil {
+			return err
+		}
+		currentListing, err := capture(ctx, currentPlacements, config.Region)
 		if err != nil && !errors.Is(err, backup.ErrPartialVolumes) || !reflect.DeepEqual(currentListing, listed) {
 			return errors.Join(rootoci.ErrUnauthorized, err)
 		}
-		currentLease, err := authority.Observe(ctx, js, cell)
+		currentLease, err := observeLease(ctx, js, cell)
 		if err != nil || !sameLease(lease, currentLease) || !matchesCaller(currentLease, accepted, call.RuntimeID()) {
 			return errors.Join(authority.ErrFenced, err)
 		}
@@ -227,6 +234,21 @@ func matchesCaller(lease authority.Snapshot, accepted bootstrapstart.AcceptedIde
 func sameLease(before, after authority.Snapshot) bool {
 	return before.Scope == after.Scope && before.DeploymentID == after.DeploymentID && before.Epoch == after.Epoch &&
 		before.CandidateID == after.CandidateID && before.OwnerID == after.OwnerID
+}
+
+func observeLease(ctx context.Context, js jetstream.JetStream, cell string) (authority.Snapshot, error) {
+	stream, err := js.Stream(ctx, authority.ControlStreamName)
+	if err != nil {
+		return authority.Snapshot{}, err
+	}
+	info, err := stream.Info(ctx)
+	if err != nil {
+		return authority.Snapshot{}, err
+	}
+	if info.Config.Replicas != 3 || info.Config.Storage != jetstream.FileStorage {
+		return authority.Snapshot{}, authority.ErrFenced
+	}
+	return authority.Observe(ctx, js, cell)
 }
 
 var _ rootoci.VolumeBackups = (*Backend)(nil)
