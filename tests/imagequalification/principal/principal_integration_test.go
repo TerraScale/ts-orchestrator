@@ -92,7 +92,7 @@ func newFixture(t *testing.T) *sdkFixture {
 		Object: "qualification/testrun/" + strings.Repeat("b", 64) + ".qcow2", RunnerCIDR: "10.72.0.1/32", PeerCIDR: "10.72.1.0/24", VCNCIDR: "10.72.0.0/16",
 		WorkloadImage: "registry.example.test/qualification/workload@sha256:" + strings.Repeat("d", 64), WorkloadArchiveSHA256: strings.Repeat("e", 64), ImageBytes: 1 << 20, MaxSpendMicros: 5_000_000,
 		BinarySHA256: strings.Repeat("1", 64), KernelSHA256: strings.Repeat("2", 64), ContainerdSHA256: strings.Repeat("3", 64), RuncSHA256: strings.Repeat("4", 64), RunnerSHA256: strings.Repeat("5", 64), ExpiresAt: now.Add(47 * time.Hour), CleanupUntil: now.Add(60 * time.Hour)}
-	f.prep.ProfileIdentity = cellspec.Identity{DeploymentID: entityid.Derive("qualification-profile", f.prep.RunID), Cell: f.prep.Candidate.Cell, Environment: f.prep.Candidate.Environment}
+	f.prep.ProfileIdentity = cellspec.Identity{DeploymentID: entityid.Derive("qualification-profile", f.prep.RunID), Cell: strings.ToLower(f.prep.Candidate.Cell), Environment: f.prep.Candidate.Environment}
 	f.prep.KernelRelease = "6.12.57-terrascale"
 	for _, scenario := range []string{"ready", "after-loss", "after-partition", "unready", "failed-update"} {
 		f.prep.MaterialFixtures = append(f.prep.MaterialFixtures, MaterialApproval{Scenario: scenario, SignedProfileSHA256: hash([]byte("profile/" + scenario)), ContainerIntentSHA256: hash([]byte("intent/" + scenario))})

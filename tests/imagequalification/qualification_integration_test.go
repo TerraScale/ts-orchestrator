@@ -65,7 +65,7 @@ func fixture(t *testing.T) qualificationFixture {
 		WorkloadArchiveSHA256: hashBytes([]byte("archive")), ImageBytes: int64(len(disk)), MaxSpendMicros: 10_000_000,
 		KernelRelease: "6.12.fixture", CleanupUntil: now.Add(2 * time.Hour), BinarySHA256: q.Artifacts[1].SHA256, KernelSHA256: hashBytes([]byte("kernel")),
 		ContainerdSHA256: hashBytes([]byte("containerd")), RuncSHA256: hashBytes([]byte("runc")), RunnerSHA256: hashBytes([]byte("runner"))}
-	a.ProfileIdentity = cellspec.Identity{DeploymentID: entityid.Derive("qualification", a.RunID), Cell: a.Candidate.Cell, Environment: a.Candidate.Environment}
+	a.ProfileIdentity = cellspec.Identity{DeploymentID: entityid.Derive("qualification", a.RunID), Cell: strings.ToLower(a.Candidate.Cell), Environment: a.Candidate.Environment}
 	for _, scenario := range []string{"ready", "after-loss", "after-partition", "unready", "failed-update"} {
 		a.MaterialFixtures = append(a.MaterialFixtures, MaterialApproval{Scenario: scenario, SignedProfileSHA256: hashBytes([]byte("profile-" + scenario)), ContainerIntentSHA256: hashBytes([]byte("intent-" + scenario))})
 	}
