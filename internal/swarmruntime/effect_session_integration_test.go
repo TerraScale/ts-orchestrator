@@ -28,6 +28,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
+	"google.golang.org/grpc"
 )
 
 // This recovery scenario seeds an actual possible-writer journal, then crosses
@@ -217,8 +218,11 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	callers := make(chan host.RuntimeEffectCaller, 8)
+	callerDeadlines := make(chan time.Time, 8)
+	observeCaller := effectSessionCallerObserver{RuntimeEffectHandler: sessions, callers: callers, deadlines: callerDeadlines}
 	controller, err := host.NewController(ctx, host.ControllerConfig{Cell: "gru", Conn: connection, JS: js, State: state, StateReplicas: 3, Artifacts: artifacts, ResponseKey: controllerKey,
-		HostMutations: current, AuthorityEpoch: func() uint64 { return current.Current().Epoch }, AuthorityGuard: current.Guard, RuntimeEffects: sessions})
+		HostMutations: current, AuthorityEpoch: func() uint64 { return current.Current().Epoch }, AuthorityGuard: current.Guard, RuntimeEffects: observeCaller})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,9 +261,16 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 	if session.Epoch != 41 || session.Epoch == current.Current().Epoch {
 		t.Fatal("test did not separate host session and leader counters")
 	}
+	requestStarted := time.Now().UTC()
 	closingEnvelope, grantBytes, err := effectHostExchange(ctx, connection, fresh, freshKey, controllerPublic, currentSession, session.Epoch, "runtime-effect", query)
 	if err != nil {
 		t.Fatal(err)
+	}
+	caller := <-callers
+	<-callerDeadlines
+	if !caller.ExpiresAt().Equal(session.ExpiresAt) || caller.RequestExpiresAt().Before(requestStarted.Add(10*time.Second)) ||
+		caller.RequestExpiresAt().After(time.Now().Add(10*time.Second)) || !caller.RequestExpiresAt().Before(caller.ExpiresAt()) {
+		t.Fatal("genuine host caller lost its original signed request or retained session expiry")
 	}
 	var closing executionwire.WorkerGrantPayload
 	if err := json.Unmarshal(grantBytes, &closing, json.RejectUnknownMembers(true)); err != nil {
@@ -276,6 +287,8 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 	if _, _, err := effectHostExchange(ctx, connection, fresh, freshKey, controllerPublic, currentSession, session.Epoch, "runtime-effect", renew); err == nil {
 		t.Fatal("refreshed registration renewed original old-key execution")
 	}
+	<-callers
+	<-callerDeadlines
 
 	if closing.Phase != authority.RuntimeEffectClosing || closing.Epoch != effect.Epoch || closing.LeaderEpoch != current.Current().Epoch || closing.StopChallenge == "" || held.release == nil {
 		t.Fatal("close after leader change released authority or lost original grant")
@@ -301,6 +314,47 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 	if err := verifyRuntimeStopGrant(effect, challenge, proof); err != nil {
 		t.Fatalf("actual signed closing response lost original grant binding: %v", err)
 	}
+	deadline, err := runtimeStopDeadline(challenge, proof)
+	if err != nil || !deadline.Equal(challenge.issued.Add(10*time.Second)) {
+		t.Fatalf("original stop challenge lifetime was rebased: %v", err)
+	}
+	laterChallenge := challenge
+	laterChallenge.issued = closingEnvelope.ExpiresAt
+	grantDeadline, err := runtimeStopDeadline(laterChallenge, proof)
+	if err != nil || !grantDeadline.Equal(closingEnvelope.ExpiresAt) {
+		t.Fatalf("original signed closing grant lifetime was extended: %v", err)
+	}
+	expiredContext, cancelExpired := context.WithDeadline(ctx, requestStarted.Add(-time.Second))
+	if err := checkRuntimeStopContext(expiredContext); !errors.Is(err, context.DeadlineExceeded) {
+		cancelExpired()
+		t.Fatalf("expired original caller deadline survived synchronous seal: %v", err)
+	}
+	cancelExpired()
+	// Delay only delivery of actual manager replies; the invalid proof never gains authority.
+	for _, boundary := range []string{"node", "cluster"} {
+		bounded, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+		observed := make(chan time.Time, 1)
+		slow := &EffectSessions{control: effectStopDelayedControl{ControlClient: control, boundary: boundary, observed: observed}, authority: current}
+		if err := slow.verifyRuntimeStop(bounded, current.Current().Epoch, effect, challenge, proof); !errors.Is(err, context.DeadlineExceeded) {
+			cancel()
+			t.Fatalf("%s manager await extended original caller context: %v", boundary, err)
+		}
+		select {
+		case actual := <-observed:
+			want, _ := bounded.Deadline()
+			if !actual.Equal(want) {
+				t.Fatalf("%s manager call lost original caller deadline", boundary)
+			}
+		default:
+			t.Fatalf("%s did not cross the genuine manager read", boundary)
+		}
+		cancel()
+	}
+	cancelled, cancelStop := context.WithCancel(ctx)
+	cancelStop()
+	if err := sessions.verifyRuntimeStop(cancelled, current.Current().Epoch, effect, challenge, proof); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled original caller context was replaced: %v", err)
+	}
 	substituted := proof
 	substituted.ClosingGrant.Signature = "substituted-manager-signature"
 	if err := verifyRuntimeStopGrant(effect, challenge, substituted); err == nil {
@@ -315,6 +369,13 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 		t.Fatalf("actual worker certificate did not reach independent signature rejection: %v", err)
 	}
 	query.StopProof = &proof
+	if _, _, err := effectHostExchange(ctx, connection, fresh, freshKey, controllerPublic, currentSession, session.Epoch, "runtime-effect", query); err == nil || !strings.Contains(err.Error(), "signature is invalid") {
+		t.Fatalf("genuine signed host submission accepted forged stopped proof: %v", err)
+	}
+	stopCaller, stopDeadline := <-callers, <-callerDeadlines
+	if !stopDeadline.Equal(stopCaller.RequestExpiresAt()) || !stopCaller.ExpiresAt().Equal(session.ExpiresAt) {
+		t.Fatal("actual host settlement context outlived its original signed request or replaced its retained session")
+	}
 	held.mu.Lock()
 	_, err = sessions.close(ctx, current.Current().Epoch, held, effect, query)
 	held.mu.Unlock()
@@ -365,6 +426,45 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("cancelled terminal writer did not return after test gate cleanup")
 	}
+}
+
+type effectSessionCallerObserver struct {
+	host.RuntimeEffectHandler
+	callers   chan<- host.RuntimeEffectCaller
+	deadlines chan<- time.Time
+}
+
+func (o effectSessionCallerObserver) HandleRuntimeEffect(ctx context.Context, caller host.RuntimeEffectCaller, query executionwire.RuntimeEffectQuery) (executionwire.WorkerGrantPayload, error) {
+	o.callers <- caller
+	deadline, _ := ctx.Deadline()
+	o.deadlines <- deadline
+	return o.RuntimeEffectHandler.HandleRuntimeEffect(ctx, caller, query)
+}
+
+type effectStopDelayedControl struct {
+	api.ControlClient
+	boundary string
+	observed chan<- time.Time
+}
+
+func (c effectStopDelayedControl) GetNode(ctx context.Context, query *api.GetNodeRequest, options ...grpc.CallOption) (*api.GetNodeResponse, error) {
+	actual, err := c.ControlClient.GetNode(ctx, query, options...)
+	if err == nil && c.boundary == "node" {
+		deadline, _ := ctx.Deadline()
+		c.observed <- deadline
+		<-ctx.Done()
+	}
+	return actual, err
+}
+
+func (c effectStopDelayedControl) ListClusters(ctx context.Context, query *api.ListClustersRequest, options ...grpc.CallOption) (*api.ListClustersResponse, error) {
+	actual, err := c.ControlClient.ListClusters(ctx, query, options...)
+	if err == nil && c.boundary == "cluster" {
+		deadline, _ := ctx.Deadline()
+		c.observed <- deadline
+		<-ctx.Done()
+	}
+	return actual, err
 }
 
 func effectSessionR3(t *testing.T) (jetstream.JetStream, *nats.Conn) {
