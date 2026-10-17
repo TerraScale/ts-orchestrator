@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 )
 
 func TestRootNodeOperationJournalPinsPresenceAndAbsence(t *testing.T) {
@@ -64,5 +65,22 @@ func TestRootNodeOperationZeroAndExpiredProofsDeny(t *testing.T) {
 	expired := rootNodeOperations{source: &rootNodeOperationSource{lifetime: t.Context(), deadline: time.Now().Add(-time.Second)}}
 	if err := expired.Revalidate(t.Context()); err == nil {
 		t.Fatal("expired original set admitted")
+	}
+}
+
+func TestRootNodeOperationExactIDDoesNotAdmitCallerShapeOrMissingProducer(t *testing.T) {
+	var producer *rootMaterialAdmission
+	for _, id := range []string{"", "not-an-operation", entityid.Derive("node-operation", "exact-missing-source")} {
+		if _, err := producer.nodeOperation(t.Context(), rootoci.Call{}, id); err == nil {
+			t.Fatalf("operation %q admitted without actual root sources", id)
+		}
+	}
+	signed := rootNodeOperationAdmission{op: nodeOp{Op: nodeOpResize, OCPUs: 2, MemoryGB: 16}}
+	cpu, memory := signed.Shape()
+	if cpu != 2 || memory != 16 {
+		t.Fatalf("signed shape %v/%v", cpu, memory)
+	}
+	if err := signed.Revalidate(t.Context()); err == nil {
+		t.Fatal("shape alone granted a provider action")
 	}
 }
