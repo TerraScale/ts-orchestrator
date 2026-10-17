@@ -181,6 +181,23 @@ func TestContainerIntentSignedBrokerRecovery(t *testing.T) {
 	if terminal, err := recovered.process(ctx, wire); !terminal || err != nil || calls != 2 {
 		t.Fatal("restart lost completion", err)
 	}
+	// Retired release actors retain public provenance, never current admission.
+	recovered.config.Authorize = func(context.Context, string, Intent) error { return ErrUnauthorized }
+	if _, err := recovered.ContainerIntent(ctx, intent.OperationID); !errors.Is(err, ErrUnauthorized) {
+		t.Fatal("retired actor retained current admission", err)
+	}
+	retained, err := recovered.RetainedContainerIntent(ctx, intent.OperationID)
+	if err != nil || !bytes.Equal(retained.Container.Claim, claimWire) {
+		t.Fatal("retired actor lost protected provenance", err)
+	}
+	retained.Container.Claim[0] = '!'
+	retained, err = recovered.RetainedContainerIntent(ctx, intent.OperationID)
+	if err != nil || !bytes.Equal(retained.Container.Claim, claimWire) {
+		t.Fatal("historical reader mutated retained proof", err)
+	}
+	if _, err := recovered.RetainedContainerIntent(ctx, pending.OperationID); !errors.Is(err, ErrUnauthorized) {
+		t.Fatal("held operation supplied retained provenance", err)
+	}
 }
 
 type containerTestFence struct {
