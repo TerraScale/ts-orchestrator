@@ -119,6 +119,13 @@ func (c *controller) Prepare(ctx context.Context) error {
 		return err
 	}
 	if errdefs.IsNotFound(err) {
+		if c.diskAccounted() {
+			budget, budgetErr := DiskBytes(c.task.Spec.Resources)
+			available, capacityErr := c.executor.diskCapacity(ctx)
+			if budgetErr != nil || capacityErr != nil || available < budget {
+				return errors.Join(ErrDiskPending, budgetErr, capacityErr)
+			}
+		}
 		image, err := c.executor.client.GetImage(ctx, c.spec.Image)
 		if errdefs.IsNotFound(err) {
 			image, err = c.executor.client.Pull(ctx, c.spec.Image, containerd.WithResolver(resolved))
@@ -182,6 +189,14 @@ func (c *controller) Prepare(ctx context.Context) error {
 			opts = append(opts, oci.WithMounts(containerMounts), oci.WithEnv(containerEnv))
 		}
 		labels := map[string]string{"terrascale.task": c.task.ID, "terrascale.service": c.task.ServiceID, "terrascale.spec": c.fingerprint, portsLabel: ports, credentialExpiryLabel: c.credentialExpiryLabel()}
+		if c.diskAccounted() {
+			witness, err := c.prepareDisk(ctx, image)
+			if err != nil {
+				return err
+			}
+			labels[diskBytesLabel] = strconv.FormatInt(witness.DiskBytes, 10)
+			labels[diskImageBytesLabel] = strconv.FormatInt(witness.ImageBytes, 10)
+		}
 		if c.stateful != nil {
 			qualified, err := c.stateful.specOption(ctx)
 			if err != nil {
@@ -240,7 +255,7 @@ func (c *controller) Prepare(ctx context.Context) error {
 			return err
 		}
 	}
-	return nil
+	return c.verifyDisk(ctx, ctr)
 }
 
 func (c *controller) Start(ctx context.Context) error {
@@ -268,6 +283,9 @@ func (c *controller) Start(ctx context.Context) error {
 		return err
 	}
 	if err := c.verifyContainerMaterial(ctx, ctr, containerMounts, containerEnv); err != nil {
+		return err
+	}
+	if err := c.verifyDisk(ctx, ctr); err != nil {
 		return err
 	}
 	t, err := ctr.Task(ctx, nil)
@@ -298,6 +316,16 @@ func (c *controller) Start(ctx context.Context) error {
 	case containerd.Running:
 		return exec.ErrTaskStarted
 	case containerd.Created:
+		if c.diskAccounted() {
+			witness, err := readDiskWitness(c.executor.logRoot, c.id)
+			if err != nil {
+				return err
+			}
+			available, err := c.executor.diskCapacity(ctx)
+			if err != nil || available < witness.LogBytes {
+				return errors.Join(ErrDiskPending, err)
+			}
+		}
 		if err := c.waitRuntimeCredentialGuard(ctx, ctr, t.Pid()); err != nil {
 			return err
 		}
@@ -443,7 +471,7 @@ func (c *controller) Remove(ctx context.Context) error {
 	ctx = runtimeContext(ctx)
 	ctr, err := c.container(ctx)
 	if errdefs.IsNotFound(err) {
-		return errors.Join(os.RemoveAll(filepath.Join(c.executor.logRoot, c.id)), os.RemoveAll(c.functionMaterialPath()), os.RemoveAll(c.containerMaterialPath()))
+		return errors.Join(c.removeDiskLogs(), os.RemoveAll(c.functionMaterialPath()), os.RemoveAll(c.containerMaterialPath()))
 	}
 	if err != nil {
 		return err
@@ -479,7 +507,7 @@ func (c *controller) Remove(ctx context.Context) error {
 	if err := ctr.Delete(ctx, containerd.WithSnapshotCleanup); err != nil {
 		return err
 	}
-	return errors.Join(os.RemoveAll(filepath.Join(c.executor.logRoot, c.id)), os.RemoveAll(c.functionMaterialPath()), os.RemoveAll(c.containerMaterialPath()))
+	return errors.Join(c.removeDiskLogs(), os.RemoveAll(c.functionMaterialPath()), os.RemoveAll(c.containerMaterialPath()))
 }
 
 func (c *controller) Close() error {
