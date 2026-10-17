@@ -510,6 +510,12 @@ func (controller *containerMaterialController) registryRecipient(ctx context.Con
 	if err := selected.continuityGuard(ctx); err != nil {
 		return containerMaterialRecipient{}, err
 	}
+	config.Specs.mu.Lock()
+	currentRevision = config.Specs.revision
+	config.Specs.mu.Unlock()
+	if currentRevision != entry.Revision() || config.Specs.roots.reply("").Head != rootHead {
+		return fail()
+	}
 	if ctx.Err() != nil || !verified.Valid(time.Now().UTC()) || controllerProof != nil && (!controllerProof.Valid(time.Now()) || !time.Now().Before(enrollment.ExpiresAt)) {
 		return fail()
 	}
@@ -576,6 +582,12 @@ func (controller *containerMaterialController) currentMaterialTask(ctx context.C
 	}
 	if err := selected.continuityGuard(ctx); err != nil {
 		return err
+	}
+	config.Specs.mu.Lock()
+	revision = config.Specs.revision
+	config.Specs.mu.Unlock()
+	if revision != selected.SpecRevision || config.Specs.roots.reply("").Head != selected.rootHead {
+		return containermaterial.ErrPending
 	}
 	if now := time.Now().UTC(); !selected.Verified.Valid(now) || selected.controllerProof != nil && (!selected.controllerProof.Valid(now) || !now.Before(selected.enrollmentExpiresAt)) {
 		return containermaterial.ErrPending
