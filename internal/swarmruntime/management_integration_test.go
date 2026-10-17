@@ -169,18 +169,49 @@ func TestManagementIntegration(t *testing.T) {
 	if _, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: actual.Service.ID, ServiceVersion: &actual.Service.Meta.Version, Spec: unsafe}); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("service update exceeded replica limit: %v", err)
 	}
+	migrated := actual.Service.Spec.Copy()
+	migrated.Annotations.Labels[LabelIntentGeneration] = "1"
+	migrated.Annotations.Labels[labelIntentFingerprint] = strings.Repeat("a", 64)
+	adopted, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: actual.Service.ID, ServiceVersion: &actual.Service.Meta.Version, Spec: migrated})
+	if err != nil {
+		t.Fatalf("legacy service intent generation adoption denied: %v", err)
+	}
+	actual.Service = adopted.Service
 	changed := actual.Service.Spec.Copy()
 	changed.Task.ForceUpdate++
+	changed.Annotations.Labels[LabelIntentGeneration] = "2"
+	changed.Annotations.Labels[labelIntentFingerprint] = strings.Repeat("b", 64)
 	changedService, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: actual.Service.ID, ServiceVersion: &actual.Service.Meta.Version, Spec: changed})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: actual.Service.ID, ServiceVersion: &actual.Service.Meta.Version, Spec: &actual.Service.Spec}); err == nil {
+	if _, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: actual.Service.ID, ServiceVersion: &actual.Service.Meta.Version, Spec: changed}); err == nil {
 		t.Fatal("management accepted stale service CAS")
+	}
+	for _, invalid := range []struct{ generation, fingerprint string }{
+		{"1", strings.Repeat("a", 64)},
+		{"2", strings.Repeat("c", 64)},
+		{"02", strings.Repeat("b", 64)},
+		{"3", strings.Repeat("A", 64)},
+		{"", ""},
+	} {
+		unsafe := changed.Copy()
+		unsafe.Annotations.Labels[LabelIntentGeneration] = invalid.generation
+		unsafe.Annotations.Labels[labelIntentFingerprint] = invalid.fingerprint
+		if invalid.generation == "" {
+			delete(unsafe.Annotations.Labels, LabelIntentGeneration)
+			delete(unsafe.Annotations.Labels, labelIntentFingerprint)
+		}
+		if _, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: actual.Service.ID, ServiceVersion: &changedService.Service.Meta.Version, Spec: unsafe}); status.Code(err) != codes.PermissionDenied {
+			t.Fatalf("invalid service intent generation %q accepted: %v", invalid.generation, err)
+		}
 	}
 	rolledBack, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: actual.Service.ID, ServiceVersion: &changedService.Service.Meta.Version, Spec: &changedService.Service.Spec, Rollback: api.UpdateServiceRequest_PREVIOUS})
 	if err != nil {
 		t.Fatalf("valid admitted rollback denied: %v", err)
+	}
+	if rolledBack.Service.Spec.Annotations.Labels[LabelIntentGeneration] != "1" {
+		t.Fatal("rollback did not restore the genuine previous intent generation")
 	}
 	waitRuntime(t, ctx, func() (bool, error) {
 		current, err := upstream.GetService(ctx, &api.GetServiceRequest{ServiceID: actual.Service.ID})
@@ -236,6 +267,30 @@ func TestManagementIntegration(t *testing.T) {
 	if _, err := client.CreateConfig(ctx, &api.CreateConfigRequest{Spec: &api.ConfigSpec{Annotations: api.Annotations{Name: "other-secret"}, Data: []byte("must not store")}}); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("arbitrary config accepted: %v", err)
 	}
+	intentFloor := config.Config.Spec.Copy()
+	intentFloor.Annotations.Labels[LabelIntentGeneration] = "1"
+	intentFloor.Annotations.Labels[labelIntentFingerprint] = strings.Repeat("a", 64)
+	adoptedFloor, err := client.UpdateConfig(ctx, &api.UpdateConfigRequest{ConfigID: config.Config.ID, ConfigVersion: &config.Config.Meta.Version, Spec: intentFloor})
+	if err != nil {
+		t.Fatalf("legacy floor intent generation adoption denied: %v", err)
+	}
+	intentFloor.Annotations.Labels[LabelIntentGeneration] = "2"
+	intentFloor.Annotations.Labels[labelIntentFingerprint] = strings.Repeat("b", 64)
+	advancedFloor, err := client.UpdateConfig(ctx, &api.UpdateConfigRequest{ConfigID: config.Config.ID, ConfigVersion: &adoptedFloor.Config.Meta.Version, Spec: intentFloor})
+	if err != nil {
+		t.Fatalf("floor intent generation advance denied: %v", err)
+	}
+	for _, invalid := range []struct{ key, value string }{
+		{LabelIntentGeneration, "1"},
+		{labelIntentFingerprint, strings.Repeat("c", 64)},
+		{"unexpected", "mutable"},
+	} {
+		unsafe := intentFloor.Copy()
+		unsafe.Annotations.Labels[invalid.key] = invalid.value
+		if _, err := client.UpdateConfig(ctx, &api.UpdateConfigRequest{ConfigID: config.Config.ID, ConfigVersion: &advancedFloor.Config.Meta.Version, Spec: unsafe}); status.Code(err) != codes.PermissionDenied {
+			t.Fatalf("invalid floor intent mutation %s accepted: %v", invalid.key, err)
+		}
+	}
 	for _, architecture := range []string{"arm64", "amd64"} {
 		workerFloor := config.Config.Spec.Copy()
 		workerFloor.Annotations.Labels[LabelRole] = "function-worker"
@@ -262,7 +317,7 @@ func TestManagementIntegration(t *testing.T) {
 	}
 	family := config.Config.Spec.Copy()
 	family.Annotations.Labels[LabelRole] = "function-worker"
-	family.Annotations.Labels["terrascale.release-migration"] = strings.Repeat("a", 64)
+	family.Annotations.Labels[labelReleaseMigration] = strings.Repeat("a", 64)
 	familyIdentity := sha256.Sum256([]byte(strings.Repeat("a", 64) + "/function-worker/test/3"))
 	family.Annotations.Name = fmt.Sprintf("ts-worker-family-%x", familyIdentity[:16])
 	createdFamily, err := client.CreateConfig(ctx, &api.CreateConfigRequest{Spec: family})
@@ -279,7 +334,7 @@ func TestManagementIntegration(t *testing.T) {
 		{LabelRegion, "eu-frankfurt-1"},
 		{LabelRole, "api"},
 		{labelReleaseSequence, "4"},
-		{"terrascale.release-migration", strings.Repeat("A", 64)},
+		{labelReleaseMigration, strings.Repeat("A", 64)},
 	} {
 		invalid := family.Copy()
 		invalid.Annotations.Labels[wrong.key] = wrong.value
