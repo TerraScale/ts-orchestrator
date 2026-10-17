@@ -38,7 +38,7 @@ func TestPoolRetirementDiscoveryIsDescriptive(t *testing.T) {
 
 func TestPoolRetirementPreparationKeepsOriginalSelectors(t *testing.T) {
 	selector := PoolRetirementSelector{Cell: "GRU", InstanceID: "ocid1.instance.oc1..original"}
-	original := PoolRetirementPreparation{Node: "ts-gru-4", Retirement: PoolRetirementExpectation{
+	original := PoolRetirementPreparation{Node: "ts-gru-4", CurrentGrantSHA256: strings.Repeat("c", 64), CurrentGeneration: 2, Retirement: PoolRetirementExpectation{
 		Child: PoolChildExpectation{Cell: selector.Cell, OperationID: entityid.Derive("original-birth"), ReservationID: entityid.Derive("original-birth"),
 			RecipeSHA256: strings.Repeat("a", 64), PoolID: "ocid1.instancepool.oc1..original", ConfigurationID: "ocid1.instanceconfiguration.oc1..original",
 			GrantSHA256: strings.Repeat("b", 64), Generation: 1, Epoch: 2}, InstanceID: selector.InstanceID}}
@@ -66,6 +66,9 @@ func TestPoolRetirementPreparationKeepsOriginalSelectors(t *testing.T) {
 		{"missing_original_configuration", func(p *PoolRetirementPreparation) { p.Retirement.Child.ConfigurationID = "" }},
 		{"action_in_discovery", func(p *PoolRetirementPreparation) { p.Retirement.RemovalOperationID = entityid.Derive("removal") }},
 		{"drain_in_discovery", func(p *PoolRetirementPreparation) { p.Retirement.DrainSHA256 = strings.Repeat("c", 64) }},
+		{"missing_current_grant", func(p *PoolRetirementPreparation) { p.CurrentGrantSHA256 = "" }},
+		{"malformed_current_grant", func(p *PoolRetirementPreparation) { p.CurrentGrantSHA256 = strings.Repeat("C", 64) }},
+		{"missing_current_generation", func(p *PoolRetirementPreparation) { p.CurrentGeneration = 0 }},
 		{"foreign_node", func(p *PoolRetirementPreparation) { p.Node = "ts-fra-4" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
