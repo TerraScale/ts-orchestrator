@@ -27,7 +27,7 @@ ci-check:
 		$(if $(filter pr,$(TS_TEST_TIER)),,fixturetest-check)
 
 format-check:
-	@unformatted="$$(find . -type f -name '*.go' -not -path './.git/*' -not -path './third_party/*' -print0 | xargs -0 $(GOFMT) -l)"; \
+	@unformatted="$$(find . -type f -name '*.go' -not -path './.git/*' -not -path './third_party/*' -not -path './docs/*' -print0 | xargs -0 $(GOFMT) -l)"; \
 	if [ -n "$$unformatted" ]; then \
 		printf 'Go files need gofmt:\n%s\n' "$$unformatted" >&2; \
 		exit 1; \
@@ -36,7 +36,7 @@ format-check:
 # Regenerate the committed templ Go files with the generator pinned by the
 # go.mod tool directive, so a plain go build never needs the templ tool.
 # Formats exactly the sources generate-check discovers (no third_party).
-TEMPL_SOURCES = $(shell find . -type f -name '*.templ' -not -path './.git/*' -not -path './third_party/*')
+TEMPL_SOURCES = $(shell find . -type f -name '*.templ' -not -path './.git/*' -not -path './third_party/*' -not -path './docs/*')
 
 generate:
 	$(if $(TEMPL_SOURCES),$(GO) tool templ fmt $(TEMPL_SOURCES))

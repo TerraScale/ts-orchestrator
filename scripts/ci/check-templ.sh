@@ -15,7 +15,7 @@ trap 'rm -rf "$scratch"' EXIT
 sources=()
 while IFS= read -r -d '' source; do
 	sources+=("$source")
-done < <(find . -type f -name '*.templ' -not -path './.git/*' -not -path './third_party/*' -print0)
+done < <(find . -type f -name '*.templ' -not -path './.git/*' -not -path './third_party/*' -not -path './docs/*' -print0)
 # With no sources the checks below are no-ops, but orphaned generated files
 # are still found.
 for source in ${sources[@]+"${sources[@]}"}; do
@@ -53,5 +53,5 @@ while IFS= read -r -d '' generated; do
 		echo "$generated has no .templ source" >&2
 		status=1
 	fi
-done < <(find . -type f -name '*_templ.go' -not -path './.git/*' -not -path './third_party/*' -print0)
+done < <(find . -type f -name '*_templ.go' -not -path './.git/*' -not -path './third_party/*' -not -path './docs/*' -print0)
 exit "$status"
