@@ -1,0 +1,368 @@
+{
+  "schema": "independent-root100-source-peer-v1",
+  "reviewer": "/root/classification_100_dispatch/peer_00_20",
+  "verdict": "ACCEPT",
+  "acceptance_scope": "Frozen source-only candidate categories and retained unresolved blocker; no ledger promotion or runtime acceptance.",
+  "reviewed_packet": {
+    "path": "/tmp/ts-source-classification-00-20-jsk32x28/classification.json",
+    "sha256": "0ffabdc49cdc66d1015e51f76503e496aefb59effbccee6a8df7100c3268c111",
+    "checksum_path": "/tmp/ts-source-classification-00-20-jsk32x28/SHA256SUMS",
+    "checksum_sha256": "a4764ffebe59005418064dcc8581bf51bc9f090e117b21b6c37fe5b71321ba39"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root100-source-dispatch-jeov3BoT/allocation-and-exclusions.json",
+    "sha256": "70e4dc811d59ef0c1ec6847fe8ed632964059169973bfe164585b9eaef2b73e5",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[0:20]"
+  },
+  "input_pins": {
+    "/tmp/ts-root100-source-dispatch-jeov3BoT/allocation-and-exclusions.json": "70e4dc811d59ef0c1ec6847fe8ed632964059169973bfe164585b9eaef2b73e5",
+    "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513",
+    "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+  },
+  "independent_verification": {
+    "exact_allocated_root_ids": 20,
+    "baseline_current_raw_declarations": 40,
+    "canonical_file_blob_mode_size_sha256_pins": 21,
+    "canonical_assertion_and_connected_text_spans": 64,
+    "all_passed": true,
+    "method": "Read immutable Git blobs and manually inspected root/helper/fixture/production paths independently. Metadata-only checks validate explicitly reviewed report spans, survival TSV fields, hashes and allocation; no new source scanner or parser."
+  },
+  "counts": {
+    "unresolved": 1,
+    "integration": 6,
+    "unit": 9,
+    "mixed": 4
+  },
+  "roots": [
+    {
+      "root_id": "cmd/terrascale-orchestrator/main_test.go::TestCommandSignalChild",
+      "verdict": "ACCEPT",
+      "category": "unresolved",
+      "finding": "ACCEPT unresolved: default invocation returns without assertions. Conditional child endpoint supports three parent scenarios but adds no independent parent-observed proof; retain helper-root accounting blocker and all source obligations.",
+      "baseline_declaration_sha256": "227bd875fa11b849646af0d35db04daaae3420a7799ac4391c3c5f7568e19b0c",
+      "current_declaration_sha256": "227bd875fa11b849646af0d35db04daaae3420a7799ac4391c3c5f7568e19b0c",
+      "current_source": {
+        "path": "cmd/terrascale-orchestrator/main_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "eb8388375483bf35182f4959df36346dc1ba4f15",
+        "line": 66,
+        "end_line": 85
+      }
+    },
+    {
+      "root_id": "cmd/terrascale-orchestrator/main_test.go::TestOperatorCommandsTerminateOnFirstSignal",
+      "verdict": "ACCEPT",
+      "category": "integration",
+      "finding": "ACCEPT I: actual test executable, pipe readiness, OS SIGINT/SIGTERM delivery and WaitStatus signal result are the asserted boundary. No cli.Run or live bootstrap behavior inferred.",
+      "baseline_declaration_sha256": "df1f723e3ee641cf04c11df3d030150abe4774db5a464c0997f6b8445df3291c",
+      "current_declaration_sha256": "df1f723e3ee641cf04c11df3d030150abe4774db5a464c0997f6b8445df3291c",
+      "current_source": {
+        "path": "cmd/terrascale-orchestrator/main_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "eb8388375483bf35182f4959df36346dc1ba4f15",
+        "line": 16,
+        "end_line": 29
+      }
+    },
+    {
+      "root_id": "cmd/terrascale-orchestrator/main_test.go::TestRuntimeCommandsShutDownGracefullyOnFirstSignal",
+      "verdict": "ACCEPT",
+      "category": "integration",
+      "finding": "ACCEPT I: actual child uses production commandContext; pipe cancellation and successful Wait are observed after first signal. Workload cleanup remains outside scope.",
+      "baseline_declaration_sha256": "ba0798845dbee32834fad856786644fc03f1e5fab29a7c2ce269dbc95941c3b1",
+      "current_declaration_sha256": "ba0798845dbee32834fad856786644fc03f1e5fab29a7c2ce269dbc95941c3b1",
+      "current_source": {
+        "path": "cmd/terrascale-orchestrator/main_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "eb8388375483bf35182f4959df36346dc1ba4f15",
+        "line": 31,
+        "end_line": 45
+      }
+    },
+    {
+      "root_id": "cmd/terrascale-orchestrator/main_test.go::TestRuntimeCommandsTerminateOnSecondSignal",
+      "verdict": "ACCEPT",
+      "category": "integration",
+      "finding": "ACCEPT I: actual first signal cancels production context; actual second signal terminates child and parent checks WaitStatus. No live host shutdown inferred.",
+      "baseline_declaration_sha256": "af076df8ff88a7dd1913d13a2c13552292cbfc9c7dfa39a8abbb14d4b4b8762c",
+      "current_declaration_sha256": "af076df8ff88a7dd1913d13a2c13552292cbfc9c7dfa39a8abbb14d4b4b8762c",
+      "current_source": {
+        "path": "cmd/terrascale-orchestrator/main_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "eb8388375483bf35182f4959df36346dc1ba4f15",
+        "line": 47,
+        "end_line": 64
+      }
+    },
+    {
+      "root_id": "deploy/oci-region/attempt_test.go::TestAttemptAdmissionRetriesRemainInUnifiedBinary",
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "ACCEPT U: injected Runner only records command vectors and returns two transient errors; final counts and generated path strings do not show real admission or inventory I/O.",
+      "baseline_declaration_sha256": "40c97adf6fd36c779b2f55efba0be364a307f82ec0397447c05b948321bf0f31",
+      "current_declaration_sha256": "40c97adf6fd36c779b2f55efba0be364a307f82ec0397447c05b948321bf0f31",
+      "current_source": {
+        "path": "deploy/oci-region/attempt_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5ce011ba493c596cd7027d2036cadc7fa7062797",
+        "line": 175,
+        "end_line": 199
+      }
+    },
+    {
+      "root_id": "deploy/oci-region/attempt_test.go::TestAttemptBuildToolsAndReuse",
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "ACCEPT U: fake Runner writes compiled fixture; command vectors and cache existence guard remain local/mock assertions. No Go compiler runs.",
+      "baseline_declaration_sha256": "ddd7f500a42e5f88e0b0de374f6953f8f92a5d37cdc17e34c8b36db8051000bd",
+      "current_declaration_sha256": "ddd7f500a42e5f88e0b0de374f6953f8f92a5d37cdc17e34c8b36db8051000bd",
+      "current_source": {
+        "path": "deploy/oci-region/attempt_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5ce011ba493c596cd7027d2036cadc7fa7062797",
+        "line": 51,
+        "end_line": 74
+      }
+    },
+    {
+      "root_id": "deploy/oci-region/attempt_test.go::TestAttemptCheckoutPinnedSource",
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "ACCEPT U: callback renames pre-existing fixture and captures git vector; no checkout or build process is exercised by target assertions.",
+      "baseline_declaration_sha256": "9cb150a7bfa5af38329d2805cd5195aa72e60ee0112043bc1bb7a227aec9f5d6",
+      "current_declaration_sha256": "9cb150a7bfa5af38329d2805cd5195aa72e60ee0112043bc1bb7a227aec9f5d6",
+      "current_source": {
+        "path": "deploy/oci-region/attempt_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5ce011ba493c596cd7027d2036cadc7fa7062797",
+        "line": 155,
+        "end_line": 174
+      }
+    },
+    {
+      "root_id": "deploy/oci-region/attempt_test.go::TestAttemptFreshAdmissionAndEmptyPrefixPrecedeReservation",
+      "verdict": "ACCEPT",
+      "category": "mixed",
+      "finding": "ACCEPT M: stale/occupied branches and fakeCloud launch arguments remain U; valid branch invokes actual production submission/OCID writes and reads back exact submit evidence. No cloud qualification.",
+      "baseline_declaration_sha256": "fddda31ae439af7ad9640cb84da7e07a214fab520e831f3664c5c1933dc1a024",
+      "current_declaration_sha256": "fddda31ae439af7ad9640cb84da7e07a214fab520e831f3664c5c1933dc1a024",
+      "current_source": {
+        "path": "deploy/oci-region/attempt_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5ce011ba493c596cd7027d2036cadc7fa7062797",
+        "line": 212,
+        "end_line": 273
+      }
+    },
+    {
+      "root_id": "deploy/oci-region/attempt_test.go::TestAttemptImageBuilderBakesConfiguredNetBird",
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "ACCEPT U: sentinel Runner fails before builder; only NetBird flag vector and sentinel propagation are asserted.",
+      "baseline_declaration_sha256": "aa95ac30db0339c2c808a1ef87766b7e8127938cfdf95254ef7e625d2785e018",
+      "current_declaration_sha256": "aa95ac30db0339c2c808a1ef87766b7e8127938cfdf95254ef7e625d2785e018",
+      "current_source": {
+        "path": "deploy/oci-region/attempt_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5ce011ba493c596cd7027d2036cadc7fa7062797",
+        "line": 319,
+        "end_line": 331
+      }
+    },
+    {
+      "root_id": "deploy/oci-region/attempt_test.go::TestAttemptImageBuilderReleaseTool",
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "ACCEPT U: builder path, working directory and release flag are observed at injected Runner before image execution.",
+      "baseline_declaration_sha256": "308c35f4fb64ae331a478f4497da51f125e9a10741711a633f119d36b1808d27",
+      "current_declaration_sha256": "308c35f4fb64ae331a478f4497da51f125e9a10741711a633f119d36b1808d27",
+      "current_source": {
+        "path": "deploy/oci-region/attempt_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5ce011ba493c596cd7027d2036cadc7fa7062797",
+        "line": 145,
+        "end_line": 154
+      }
+    },
+    {
+      "root_id": "deploy/oci-region/attempt_test.go::TestAttemptLaunchUsesUnifiedTools",
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "ACCEPT U: synthetic inventory/admit responses precede sentinel seed-preflight capture; binary/tool flag assertions do not execute preview or cloud clients.",
+      "baseline_declaration_sha256": "22796b0206b8cbf64da274354d45abae9cf4b6c8232b295ea0214d53789c1174",
+      "current_declaration_sha256": "22796b0206b8cbf64da274354d45abae9cf4b6c8232b295ea0214d53789c1174",
+      "current_source": {
+        "path": "deploy/oci-region/attempt_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5ce011ba493c596cd7027d2036cadc7fa7062797",
+        "line": 115,
+        "end_line": 144
+      }
+    },
+    {
+      "root_id": "deploy/oci-region/attempt_test.go::TestAttemptMaterialWritesCanonicalIdentity",
+      "verdict": "ACCEPT",
+      "category": "integration",
+      "finding": "ACCEPT I: production PhaseMaterial reads base plan, writes canonical identity through writeJSON/WriteNew, and test reads exact bytes; later command seam fails deliberately.",
+      "baseline_declaration_sha256": "424934082a9a39db09d8e8c1ac5591d160415f19f6f570f8a5da6770e026b54d",
+      "current_declaration_sha256": "424934082a9a39db09d8e8c1ac5591d160415f19f6f570f8a5da6770e026b54d",
+      "current_source": {
+        "path": "deploy/oci-region/attempt_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5ce011ba493c596cd7027d2036cadc7fa7062797",
+        "line": 332,
+        "end_line": 345
+      }
+    },
+    {
+      "root_id": "deploy/oci-region/attempt_test.go::TestAttemptMembersBindsLaunchedSeedBeforeAdmission",
+      "verdict": "ACCEPT",
+      "category": "integration",
+      "finding": "ACCEPT I: actual bindSeed reads recorded OCID, writes temporary plan and renames it before downstream failure; test reads updated plan binding.",
+      "baseline_declaration_sha256": "5024e271d2263ed2d92fe04d4d9b3a2cb0538a7c4a7112ddba61f6c5a8e5eb60",
+      "current_declaration_sha256": "5024e271d2263ed2d92fe04d4d9b3a2cb0538a7c4a7112ddba61f6c5a8e5eb60",
+      "current_source": {
+        "path": "deploy/oci-region/attempt_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5ce011ba493c596cd7027d2036cadc7fa7062797",
+        "line": 374,
+        "end_line": 391
+      }
+    },
+    {
+      "root_id": "deploy/oci-region/attempt_test.go::TestAttemptReleaseRequiresRunID",
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "ACCEPT U: missing ci_run_id is rejected before Runner; fixture setup does not alter local guard category.",
+      "baseline_declaration_sha256": "a3538cb3c53941f52b12f621fea944bce030cd4c15d70ce9c197e2391230c823",
+      "current_declaration_sha256": "a3538cb3c53941f52b12f621fea944bce030cd4c15d70ce9c197e2391230c823",
+      "current_source": {
+        "path": "deploy/oci-region/attempt_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5ce011ba493c596cd7027d2036cadc7fa7062797",
+        "line": 393,
+        "end_line": 404
+      }
+    },
+    {
+      "root_id": "deploy/oci-region/attempt_test.go::TestAttemptReleaseUsesSourceCommandConvention",
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "ACCEPT U: gh run/jobs and signing commands are synthetic Runner records; actual sign/verify or network operations do not execute.",
+      "baseline_declaration_sha256": "0b27a30a470ca45884fac6f7badf84f291a44785da2138b8aac6831ca77b62dd",
+      "current_declaration_sha256": "0b27a30a470ca45884fac6f7badf84f291a44785da2138b8aac6831ca77b62dd",
+      "current_source": {
+        "path": "deploy/oci-region/attempt_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5ce011ba493c596cd7027d2036cadc7fa7062797",
+        "line": 75,
+        "end_line": 114
+      }
+    },
+    {
+      "root_id": "deploy/oci-region/attempt_test.go::TestAttemptReservationCannotLaunchAgain",
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "ACCEPT U: pre-existing reservation drives local no-command guard; no production reservation write/readback is asserted.",
+      "baseline_declaration_sha256": "21e678544754ed22acab5859a49d0fa6586eca31a0cf097c812b03e5ad900660",
+      "current_declaration_sha256": "21e678544754ed22acab5859a49d0fa6586eca31a0cf097c812b03e5ad900660",
+      "current_source": {
+        "path": "deploy/oci-region/attempt_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5ce011ba493c596cd7027d2036cadc7fa7062797",
+        "line": 200,
+        "end_line": 211
+      }
+    },
+    {
+      "root_id": "deploy/oci-region/attempt_test.go::TestAttemptSignEmbedsThePeerDelegationVerbatim",
+      "verdict": "ACCEPT",
+      "category": "integration",
+      "finding": "ACCEPT I: actual envelope bytes are read, embedded as raw JSON in actual candidate output, and test reads back unsorted peer payload; signing is stubbed.",
+      "baseline_declaration_sha256": "945d79fcd2e5ed42230b888fad5aff0a63972bb6c12467db976efeed41d9bafe",
+      "current_declaration_sha256": "945d79fcd2e5ed42230b888fad5aff0a63972bb6c12467db976efeed41d9bafe",
+      "current_source": {
+        "path": "deploy/oci-region/attempt_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5ce011ba493c596cd7027d2036cadc7fa7062797",
+        "line": 346,
+        "end_line": 373
+      }
+    },
+    {
+      "root_id": "deploy/oci-region/preview_base_inventory_test.go::TestPreviewBaseInventoryContracts",
+      "verdict": "ACCEPT",
+      "category": "mixed",
+      "finding": "ACCEPT M: selected successful CLI cases write real output receipts and assert contents/modes; negative pre-output predicates and synthetic dependency records remain U. Case driver source mismatch limits executability claims.",
+      "baseline_declaration_sha256": "a95751b99e0e68b4895b4c87f54e15a3c5999f785153562ca9bddc9f7528fd51",
+      "current_declaration_sha256": "a95751b99e0e68b4895b4c87f54e15a3c5999f785153562ca9bddc9f7528fd51",
+      "current_source": {
+        "path": "deploy/oci-region/preview_base_inventory_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "dd83fe825a0bc21be75fbdfc447d959b4f5b0792",
+        "line": 5,
+        "end_line": 7
+      }
+    },
+    {
+      "root_id": "deploy/oci-region/preview_test.go::TestPreviewAdmissionContracts",
+      "verdict": "ACCEPT",
+      "category": "mixed",
+      "finding": "ACCEPT M: cases1/3 materially write/read production receipts; independent require_ocid/prefix/estimate and synthetic provider assertions remain U. Incidental unchanged input-file checks get no I credit.",
+      "baseline_declaration_sha256": "814ad582fcb6cae22bda15fdbc8a57b95d7407fa5b8fcaeeb587d9ef807895b1",
+      "current_declaration_sha256": "814ad582fcb6cae22bda15fdbc8a57b95d7407fa5b8fcaeeb587d9ef807895b1",
+      "current_source": {
+        "path": "deploy/oci-region/preview_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3cacfec66fe22c1a3f19f48df968eee1a2ef4ce4",
+        "line": 60,
+        "end_line": 62
+      }
+    },
+    {
+      "root_id": "deploy/oci-region/private_peer_test.go::TestPrivatePeerConfigurationReceipt",
+      "verdict": "ACCEPT",
+      "category": "mixed",
+      "finding": "ACCEPT M: Engine.Run writes actual private-peer receipt and test reads it; mocked network state, budget predicates, fixed qualification fields and recorded regions remain independent U blocks.",
+      "baseline_declaration_sha256": "da382e0ad2510ca27f6e2c86e20b92d6d383895a4d12428ead15af36818a1fcf",
+      "current_declaration_sha256": "da382e0ad2510ca27f6e2c86e20b92d6d383895a4d12428ead15af36818a1fcf",
+      "current_source": {
+        "path": "deploy/oci-region/private_peer_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6d941dec3e338a135863176ea27cbb0e9ff7ef05",
+        "line": 368,
+        "end_line": 416
+      }
+    }
+  ],
+  "findings": [
+    {
+      "root_ids": [
+        "cmd/terrascale-orchestrator/main_test.go::TestCommandSignalChild"
+      ],
+      "kind": "RETAIN_UNRESOLVED",
+      "detail": "Conditional helper TestCommandSignalChild has no standalone safety assertion in its default invocation. Parent process observations are credited only to allocated parent scenarios; helper accounting rule remains required."
+    },
+    {
+      "root_ids": [
+        "deploy/oci-region/preview_base_inventory_test.go::TestPreviewBaseInventoryContracts",
+        "deploy/oci-region/preview_test.go::TestPreviewAdmissionContracts"
+      ],
+      "kind": "STATIC_SOURCE_DISCREPANCY_RETAINED",
+      "detail": "Canonical preview_test.go:210 names Engine.Backend and sdkcli.BackendCLI while canonical Engine has no Backend field. Independently observed source mismatch; no Go/compiler check performed, runtime remains UNKNOWN."
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "repository_or_ledger_mutation": false,
+  "qualification_limits": [
+    "Source categories alone do not establish compilability, passing tests or runtime behavior.",
+    "No process tests, Go, build, lint, network/cloud, signing/crypto or TerraBase execution occurred.",
+    "Production output-file observations prove only specific local write/readback paths; no crash durability or cloud persistence is inferred.",
+    "No source retirement, accepted count change or completion claim is authorized."
+  ]
+}

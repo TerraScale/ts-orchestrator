@@ -1,0 +1,95 @@
+{
+  "schema": "central-qa-root100-independent-acceptance-v1",
+  "state": "ACCEPT_SOURCE_CLASSIFICATION_ONLY_PENDING_ROOT_PUBLICATION",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "manifest_path": "/tmp/ts-root100-source-dispatch-jeov3BoT/manifest.json",
+  "manifest_sha256": "bfbef84fe8540e67cfb4813c4bae1d91e104d2bd62a5848cfebcf0c8ea605409",
+  "results_sha256": "027d44b80c61c13380fd601e8f6978cc4ebe5924c55a9b92196dead799105199",
+  "literal_roots": 100,
+  "unique_roots": 100,
+  "allocation_exact_other_unadjudicated_slice": [
+    0,
+    100
+  ],
+  "counts": {
+    "unresolved": 5,
+    "integration": 22,
+    "unit": 52,
+    "mixed": 21
+  },
+  "distinct_peer_reviews": [
+    {
+      "range": [
+        0,
+        20
+      ],
+      "reviewer": "/root/classification_100_dispatch/peer_00_20",
+      "verdict": "ACCEPT",
+      "packet_sha256": "0ffabdc49cdc66d1015e51f76503e496aefb59effbccee6a8df7100c3268c111",
+      "peer_sha256": "f4353ceb226561503d1708e90d7f051eb70f2eac05611fc721a6681627f49d13"
+    },
+    {
+      "range": [
+        20,
+        40
+      ],
+      "reviewer": "/root/classification_100_dispatch/peer_20_40",
+      "verdict": "ACCEPT_SOURCE_CLASSIFICATION_ONLY",
+      "packet_sha256": "63386625cb286bf62406ff7c1db4a354399299449bac244b8b3cbe1ef799616e",
+      "peer_sha256": "e8cde8ecd21ce2019be7f59cd7c07589a30d5772c91b645c59dc44c3bcae4571"
+    },
+    {
+      "range": [
+        40,
+        60
+      ],
+      "reviewer": "/root/classification_100_dispatch/peer_40_60",
+      "verdict": "ACCEPT_SOURCE_ONLY_CANDIDATE_WITH_ONE_EXPLICIT_UNRESOLVED_HELPER",
+      "packet_sha256": "ee04fe125dae6c73b45a42f22d96c9b14121c3910e613e1bb96e3b9e5197855e",
+      "peer_sha256": "b1057b2468efaced0344d0206577bbef9c8d3a8fd2f53f09a776e19a9d204813"
+    },
+    {
+      "range": [
+        60,
+        80
+      ],
+      "reviewer": "/root/classification_100_dispatch/peer_60_80",
+      "verdict": "ACCEPT_FROZEN_SOURCE_CLASSIFICATION_WITH_EXPLICIT_UNRESOLVED_LIMITS",
+      "packet_sha256": "0fcb5af4fb5b0d7796d0342feaf6d677a653beafe6ed185b4645f824be2f9734",
+      "peer_sha256": "61313d05295ebbc52463c620efe2177971e573a97d7571d737e9c9709f82d34f"
+    },
+    {
+      "range": [
+        80,
+        100
+      ],
+      "reviewer": "/root/classification_100_dispatch/peer_80_100",
+      "verdict": "ACCEPT_SOURCE_ONLY_CLASSIFICATION",
+      "packet_sha256": "992a5b97d965b06f3d6242a1a50e6f42e0c95366420ef978468469fba014a683",
+      "peer_sha256": "a6ecf6eef527b33c16fef4bfe79838645bf41c4ef4ca21b4d4e37fda047dbc4a"
+    }
+  ],
+  "independently_verified_declarations": 200,
+  "independently_verified_assertion_citations": 50,
+  "verified_checksum_entries": 50,
+  "unresolved_roots": [
+    "cmd/terrascale-orchestrator/main_test.go::TestCommandSignalChild",
+    "internal/app/bootstrap_admission_test.go::TestHiddenAdmissionGateChildHelper",
+    "internal/app/bootstrap_credential_launcher_test.go::TestPublicControllerRunRejectsBeforeNATSThroughSameBinaryAdmission",
+    "internal/app/capacity_alert_test.go::TestCapacityAlertJournalsMissingTokenOnce",
+    "internal/app/capacity_alert_test.go::TestCapacityAlertOpensAtWarnResolvesBelowClearAndSurvivesLeaderChange"
+  ],
+  "runtime": "UNKNOWN_NO_EXECUTION",
+  "retirement_authorized": false,
+  "deletion_credit": false,
+  "ledger_mutation": false,
+  "count_promotion": false,
+  "completion_promotion": false,
+  "limits": [
+    "Central verification checks exact allocation, artifact hashes, raw declarations and assertion citations; source category reasoning uses five distinct frozen peer acceptances.",
+    "No Go, compiler, test binary, fixture, runtime or cloud operation executed.",
+    "Remote/zip provenance for cached SDK source was not reverified.",
+    "Prior nineteen retired identities and seventy-two reviewed-unresolved identities retain original accounting."
+  ]
+}

@@ -1,0 +1,1487 @@
+{
+  "schema": "root100-independent-source-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/peer_60_80",
+  "decision": "ACCEPT_FROZEN_SOURCE_CLASSIFICATION_WITH_EXPLICIT_UNRESOLVED_LIMITS",
+  "reviewed_packet": {
+    "path": "/tmp/ts-source-classification-60-80-final-7l1pgumw/classification.json",
+    "sha256": "0fcb5af4fb5b0d7796d0342feaf6d677a653beafe6ed185b4645f824be2f9734",
+    "checksum_manifest_path": "/tmp/ts-source-classification-60-80-final-7l1pgumw/SHA256SUMS",
+    "checksum_manifest_sha256": "30121e5624f718a7e8218b13b50ff0fff1ff3e2d6a3512f8236dd4166c83e58c"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation_path": "/tmp/ts-root100-source-dispatch-jeov3BoT/allocation-and-exclusions.json",
+  "allocation_sha256": "70e4dc811d59ef0c1ec6847fe8ed632964059169973bfe164585b9eaef2b73e5",
+  "counts": {
+    "integration": 4,
+    "unit": 5,
+    "mixed": 8,
+    "unresolved": 3,
+    "total": 20
+  },
+  "literal_root_ids": [
+    "internal/app/bootstrap_credential_launcher_test.go::TestPublicControllerRunRejectsBeforeNATSThroughSameBinaryAdmission",
+    "internal/app/broker_claim_controller_test.go::TestRunControllerOperatorBrokerClaimApply",
+    "internal/app/broker_claim_reply_test.go::TestBrokerClaimReplyRejectsForgedReceipts",
+    "internal/app/broker_gate_test.go::TestBrokerGateR3TicketRevocationAndOfflineFence",
+    "internal/app/canary_test.go::TestNativeCanaryUsesPredecessorAndSelectedPorts",
+    "internal/app/canary_test.go::TestReleaseCanaryFailureStopsTheRelease",
+    "internal/app/canary_test.go::TestReleaseCanaryGatesTheFirstNode",
+    "internal/app/canary_test.go::TestSmokeGateChecksTheCanary",
+    "internal/app/capacity_alert_test.go::TestCapacityAlertJournalsMissingTokenOnce",
+    "internal/app/capacity_alert_test.go::TestCapacityAlertOpensAtWarnResolvesBelowClearAndSurvivesLeaderChange",
+    "internal/app/capacity_allocator_test.go::TestCapacityAllocatorWritesAndJournalsOnChange",
+    "internal/app/capacity_allocator_test.go::TestCapacityBudgetsShowOnlyKnownSpend",
+    "internal/app/capacity_allocator_test.go::TestCapacityRegionsMapRollupStatuses",
+    "internal/app/capacity_allocator_test.go::TestRosterCellsWithoutAViewHoldGrowth",
+    "internal/app/capacity_budget_test.go::TestBudgetSetIsSilentOnAFollower",
+    "internal/app/capacity_budget_test.go::TestBudgetSetOutsideTheHomeIsRefused",
+    "internal/app/capacity_budget_test.go::TestBudgetSetRefusesAnInvalidPayloadAndWritesNothing",
+    "internal/app/capacity_budget_test.go::TestBudgetSetWritesJournalsAndAnswers",
+    "internal/app/capacity_budget_test.go::TestCapacityPageReadsBudgetCapacityAndSuggestionAtHome",
+    "internal/app/capacity_checkpoint_integration_test.go::TestCapacityCheckpointPrecedesActualSDKRequestAndRetainsOriginalReceipt"
+  ],
+  "verification": {
+    "method": "Independent manual source/connected-path review plus byte comparison at explicit manually reviewed source spans; no source scanner or test execution.",
+    "literal_root_mapping_checks": 20,
+    "declaration_sha256_checks": 40,
+    "pinned_git_file_mode_blob_sha256_byte_checks": 50,
+    "quoted_assertion_and_connected_span_checks": 117,
+    "input_pin_checks": 3,
+    "allocation_exclusions_and_other_batch_disjoint": true,
+    "final_packet_delta_from_previous": "Only root64 baseline_source.end_line352 to350",
+    "source_pins": {
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/capacity_allocator_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/capacity_allocator_test.go",
+        "mode": "100644",
+        "git_blob": "a243edfb2b21c2982a614b15516bc58ba86f9b78",
+        "sha256": "1eb1af0631e299b6d5b4cb342f8d3974690759d3757567220a772c24b11520cc",
+        "bytes": 7360
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/bootstrap_credential_launcher_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/bootstrap_credential_launcher_test.go",
+        "mode": "100644",
+        "git_blob": "01d497d4a007d0d8ef065b64c2111f97d34ebcd5",
+        "sha256": "46a02ebebef9ba13905ae7aba98ee86b3865d19a779da3f39c026732a890f5d6",
+        "bytes": 15981
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/bootstrapstart/accepted_identity.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/bootstrapstart/accepted_identity.go",
+        "mode": "100644",
+        "git_blob": "083a3edd66ae10d00e337ea1e3a3855be6a1d75d",
+        "sha256": "6c8efb7fcce496606ffb3dce550f4c784ca5c5df18d54f403715fc06a8ca3237",
+        "bytes": 28476
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/controller_formation.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/controller_formation.go",
+        "mode": "100644",
+        "git_blob": "87a906949b8063ba59bfeb493a6b3825e37dfda8",
+        "sha256": "a555820c7bcac1ebf9df948c3783eb25310309f7adbb5ea8b63c6075e02c325f",
+        "bytes": 9034
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/bootstrap_controller.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/bootstrap_controller.go",
+        "mode": "100644",
+        "git_blob": "adc42636200aec8f77b1a5e379f9fdcdb6365a34",
+        "sha256": "3d88ae29c382766a2e651d06985ec300d8cf604beb42db15d6e8e3e63e592f02",
+        "bytes": 18740
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/controller.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/controller.go",
+        "mode": "100644",
+        "git_blob": "cc89be1dbedb1ff4bce154c1380565b36d02eaa0",
+        "sha256": "cba704cb334d583661cff14bd366d1e7a614473ea7b031de1cb04ea5ddf7f48f",
+        "bytes": 62331
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/broker_claim_admission.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/broker_claim_admission.go",
+        "mode": "100644",
+        "git_blob": "c45fb1e73eb0a8a199a9f26e416b796a5e24698e",
+        "sha256": "e905c2f2a7a1efa003ef62a07a8f0d8d3432d86f9d1f38637371baaa0fe554d2",
+        "bytes": 13962
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/protocol/envelope.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/protocol/envelope.go",
+        "mode": "100644",
+        "git_blob": "601cfc280ce409564934d73ef6460a5588682937",
+        "sha256": "616be7414db5d8a024250657c24db9525aa259602bbd9eebc2c566184a156cd0",
+        "bytes": 9245
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/broker_gate.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/broker_gate.go",
+        "mode": "100644",
+        "git_blob": "ea5543c1d8f57e7ac4d1c96958395d3f303f3053",
+        "sha256": "d22c43b89d49366ec81f903327f5b5c20c1a82d9d0a4ca4e55c5710f2624a202",
+        "bytes": 12599
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/brokerauth/claim.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/brokerauth/claim.go",
+        "mode": "100644",
+        "git_blob": "8446b6ced59e453ac707921a67724f009345fa04",
+        "sha256": "b7637296a53351074195d7d439a4d9d51065fa06b773b4df13d6c0cf7d4ab0a5",
+        "bytes": 8242
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/natscell/runtime.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/natscell/runtime.go",
+        "mode": "100644",
+        "git_blob": "b7d9b16bf34c966d722a17bea21a3ccb76cc396b",
+        "sha256": "44804d1b0692d1b47fb37f4a9e1d99bfe7235d3fb317fc7c81c9090d80dc57cf",
+        "bytes": 35509
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/controller_host_tls_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/controller_host_tls_test.go",
+        "mode": "100644",
+        "git_blob": "697bf180ed9588eec78cf6d5aae10f6affce62e6",
+        "sha256": "0ebbecbe5a74ae45835aeefb6a44a2007155e8feb05a27b7956b8b73910c4ed2",
+        "bytes": 3972
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/broker_gate_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/broker_gate_test.go",
+        "mode": "100644",
+        "git_blob": "7814281c34c17e75bddf2b097e484a53459c9338",
+        "sha256": "9d0c8cefecee7965a00a01bfd0108546e31d04a66645e76da7aa87037f9389c2",
+        "bytes": 23993
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/natscell/accounts.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/natscell/accounts.go",
+        "mode": "100644",
+        "git_blob": "f3a8d6d028bc77fe07e3ff3bad376b9edd8756d4",
+        "sha256": "428fa212a2fe06f0e701a5c119eead1460a58769d6af4c7d999411626db8c2e7",
+        "bytes": 16586
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/operator_integration_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/operator_integration_test.go",
+        "mode": "100644",
+        "git_blob": "e717f55964fea7003d6f6770f321cf00e85c6fca",
+        "sha256": "2e5169ccabb85ec8b1a50f75ff7bdfd4511c8deb980611218feb3849fe59d7ec",
+        "bytes": 19133
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/release_fence_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/release_fence_test.go",
+        "mode": "100644",
+        "git_blob": "9f700b02fd71dac8d44a4fb7aef25d1b685e3161",
+        "sha256": "449a98dea46425233de8ff8faa3edad45027c6f22923604eeaf40c1dacbeea87",
+        "bytes": 37374
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/canary_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/canary_test.go",
+        "mode": "100644",
+        "git_blob": "e592a21d66a94845d43cfe884598d5e067f76e70",
+        "sha256": "23af75a86c13f5ca4f61f57f0610a1ac6b7857548998e2f4f139fdcbf67dbe54",
+        "bytes": 14111
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/release_fence.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/release_fence.go",
+        "mode": "100644",
+        "git_blob": "0ca7bb5d8aa1b88f10a748b5af39d14ef8f6ac38",
+        "sha256": "c850e167554ff9c3443fc5dba60d56b70449c08f9ac12adf4ab84ed0560de400",
+        "bytes": 32074
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/native_canary_profile.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/native_canary_profile.go",
+        "mode": "100644",
+        "git_blob": "3912e24744c747bf84824c4779e5f65771b37ed8",
+        "sha256": "d787f93a9c26e0a8d508fef3950a7930fe6b706f1d3a90843007cf902fd012b8",
+        "bytes": 563
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/canary.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/canary.go",
+        "mode": "100644",
+        "git_blob": "f4b2a3edf1e54b3060919744b5da261ecebd5507",
+        "sha256": "9ad13e039a225a74de08da702cf6131a244e5564768df2dda8801096fb87abe9",
+        "bytes": 15752
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/capacity_alert_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/capacity_alert_test.go",
+        "mode": "100644",
+        "git_blob": "aeace2b6c52ed4e3e5e47e9779da9818a8330594",
+        "sha256": "374c1da688e865c87009044a02bda3a6857ed4c9870a9b86327bf3386081b20e",
+        "bytes": 6068
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/capacity_allocator.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/capacity_allocator.go",
+        "mode": "100644",
+        "git_blob": "92bf8b15a6d918031c68856f2def83ce32441c96",
+        "sha256": "3f9a94445c5af9d428d07494aff4bf199336886eb7b652b33b56a77743f36846",
+        "bytes": 7484
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/capacity_reservation.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/capacity_reservation.go",
+        "mode": "100644",
+        "git_blob": "b7dbd3685cd6ff87dd5f8988d34adf5e65182437",
+        "sha256": "4b38e47a76a9de6134027dc0efdbabb37ef1f1ee28890ec120240f6abdc4ff45",
+        "bytes": 20167
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/capacity_alert.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/capacity_alert.go",
+        "mode": "100644",
+        "git_blob": "1c74704b466b95b449e838c79cdc66e328086a2e",
+        "sha256": "46e77e4cb8abf7529bfc3f8d02d1fc86e57370a28de5184b848f3345a42f3a51",
+        "bytes": 6476
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/capacity_budget.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/capacity_budget.go",
+        "mode": "100644",
+        "git_blob": "8931c8228a152954dadb5b5a99e38ec847b843e8",
+        "sha256": "47c476d13481e838242afdd90735ed608e3bacddb95f2fd2167e35b4c77bedc4",
+        "bytes": 3409
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/capacity_page.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/capacity_page.go",
+        "mode": "100644",
+        "git_blob": "f2ae95d6f4531f16bd4e741f40e956c4291993bb",
+        "sha256": "558ffa93a5d247c46855eaf3d24e0deed0aebd03a4355130649982b47aab18b1",
+        "bytes": 2665
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/budget/budget.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/budget/budget.go",
+        "mode": "100644",
+        "git_blob": "21e55978a2d022b6e4db1ff2ecfe7180fde3a44c",
+        "sha256": "82fd1bd5ad45727f4df136873e37406174e3e361c48efc7e33d53f54bb5d3ecf",
+        "bytes": 3829
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/budget/allowance.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/budget/allowance.go",
+        "mode": "100644",
+        "git_blob": "e21377e28bec5d161912a12f4174a3522b8d9ba2",
+        "sha256": "71a03ec356fdfc7fbdbbc460508535735efbdaefc7388e3513d2657f2c1db2c8",
+        "bytes": 14825
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/globalcontrol/store.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/globalcontrol/store.go",
+        "mode": "100644",
+        "git_blob": "a2163225675bebd7951ec173f9afe259887bedc7",
+        "sha256": "54f193b6b2ad04c312bcf6a59a9d922dc63cd8d7cf0ab124dcf29eed714ac3cf",
+        "bytes": 18341
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/regionsuggest/store.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/regionsuggest/store.go",
+        "mode": "100644",
+        "git_blob": "173d0c31561a111c12185581b67c37439e9e4900",
+        "sha256": "c39f9affe0c6f6f21f50be839f8127dded2896deb55251da96be347551576c9d",
+        "bytes": 3281
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/capacity_checkpoint.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/capacity_checkpoint.go",
+        "mode": "100644",
+        "git_blob": "2f03450eabcbd81067573df2d6711e36f006162b",
+        "sha256": "8abf78c138288ba4e0890314303ceaa71055074f6d1138f5e5759592e85700a2",
+        "bytes": 10151
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/nodescale/store.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/nodescale/store.go",
+        "mode": "100644",
+        "git_blob": "8faf5cf49e905f8b529412a92ca31784394f0cb9",
+        "sha256": "86b804e3930b72f78dd0cbbaf7c6021e04345ee69c987c3aaae23c922714fab2",
+        "bytes": 3807
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/oci/capacity_request.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/oci/capacity_request.go",
+        "mode": "100644",
+        "git_blob": "8e20018d585f33e098c3821f1ff56c48c1e06a07",
+        "sha256": "6871a893d8fd31c204c3b4673008c732b9e1a677433f8b552683ff67171cd78e",
+        "bytes": 5203
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/oci/journal.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/oci/journal.go",
+        "mode": "100644",
+        "git_blob": "e51e17f165ec36020295a4fe5d7120352b29480c",
+        "sha256": "c4f6d28a3abb8bea6fca9714c31985e06568b0c6118cc7ac8b8764d96d261c5b",
+        "bytes": 33200
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/bootstrap_credential_launcher_test.go": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/app/bootstrap_credential_launcher_test.go",
+        "mode": "100644",
+        "git_blob": "4e04e9b3a4dfdae470017db9c0a02922574eb00b",
+        "sha256": "373f8b4dbaa6bdf2393d735306a36d07d3e1763d3f6e7bb76a0758d8c0beef48",
+        "bytes": 15981
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/broker_claim_controller_test.go": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/app/broker_claim_controller_test.go",
+        "mode": "100644",
+        "git_blob": "544b6f8d2473e6387b5eb13b0e8727559b71e7ba",
+        "sha256": "608963229671e872149583bfdb6ba8c260e05d5013ac7c35ff45628d909c74bb",
+        "bytes": 13559
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/broker_claim_controller_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/broker_claim_controller_test.go",
+        "mode": "100644",
+        "git_blob": "544b6f8d2473e6387b5eb13b0e8727559b71e7ba",
+        "sha256": "608963229671e872149583bfdb6ba8c260e05d5013ac7c35ff45628d909c74bb",
+        "bytes": 13559
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/broker_claim_reply_test.go": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/app/broker_claim_reply_test.go",
+        "mode": "100644",
+        "git_blob": "5127e85ace4cc83e303e9719fd79f30866afccfd",
+        "sha256": "59823e602ea8ed6b9496ff77add6335b4aaca65ec0a8e88d140a800de88f9da5",
+        "bytes": 5136
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/broker_claim_reply_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/broker_claim_reply_test.go",
+        "mode": "100644",
+        "git_blob": "5127e85ace4cc83e303e9719fd79f30866afccfd",
+        "sha256": "59823e602ea8ed6b9496ff77add6335b4aaca65ec0a8e88d140a800de88f9da5",
+        "bytes": 5136
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/broker_gate_test.go": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/app/broker_gate_test.go",
+        "mode": "100644",
+        "git_blob": "7814281c34c17e75bddf2b097e484a53459c9338",
+        "sha256": "9d0c8cefecee7965a00a01bfd0108546e31d04a66645e76da7aa87037f9389c2",
+        "bytes": 23993
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/canary_test.go": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/app/canary_test.go",
+        "mode": "100644",
+        "git_blob": "746f09a3f4f7db25e669ea4b024a5848eeb9e9c5",
+        "sha256": "c843322a80e186e432bf40951c9f86107d8506c7d0499df1eb53e83880fcd82a",
+        "bytes": 13905
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/capacity_alert_test.go": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/app/capacity_alert_test.go",
+        "mode": "100644",
+        "git_blob": "aeace2b6c52ed4e3e5e47e9779da9818a8330594",
+        "sha256": "374c1da688e865c87009044a02bda3a6857ed4c9870a9b86327bf3386081b20e",
+        "bytes": 6068
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/capacity_allocator_test.go": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/app/capacity_allocator_test.go",
+        "mode": "100644",
+        "git_blob": "a243edfb2b21c2982a614b15516bc58ba86f9b78",
+        "sha256": "1eb1af0631e299b6d5b4cb342f8d3974690759d3757567220a772c24b11520cc",
+        "bytes": 7360
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/capacity_budget_test.go": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/app/capacity_budget_test.go",
+        "mode": "100644",
+        "git_blob": "24606e8fb894c9e84a19642c9690316f4e645a23",
+        "sha256": "ed884335fa0b2eecbf0b7a8ff0b7ac3b5a7b7ceb07e24f5e1f4b4b0529c8f38b",
+        "bytes": 5905
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/capacity_budget_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/capacity_budget_test.go",
+        "mode": "100644",
+        "git_blob": "24606e8fb894c9e84a19642c9690316f4e645a23",
+        "sha256": "ed884335fa0b2eecbf0b7a8ff0b7ac3b5a7b7ceb07e24f5e1f4b4b0529c8f38b",
+        "bytes": 5905
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/capacity_checkpoint_integration_test.go": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/app/capacity_checkpoint_integration_test.go",
+        "mode": "100644",
+        "git_blob": "176359f3a7a86b6df9b5f07522d692e85441e6d7",
+        "sha256": "b63ab9b3f184ca44ea5f7cbb5382d2a9a8efa313c30bc80e7ebc7d8b2b4461e0",
+        "bytes": 5316
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/capacity_checkpoint_integration_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/capacity_checkpoint_integration_test.go",
+        "mode": "100644",
+        "git_blob": "176359f3a7a86b6df9b5f07522d692e85441e6d7",
+        "sha256": "b63ab9b3f184ca44ea5f7cbb5382d2a9a8efa313c30bc80e7ebc7d8b2b4461e0",
+        "bytes": 5316
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:AGENTS.md": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "AGENTS.md",
+        "mode": "100644",
+        "git_blob": "b4d66e516730887842a18637cad0c756fe3010b1",
+        "sha256": "d690413c4ea3bc880746571ebd311e66dac3d8d13e9aa22cfae87bfe0bfa6cf4",
+        "bytes": 3407
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:REFACTOR.md": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "REFACTOR.md",
+        "mode": "100644",
+        "git_blob": "593d4b544684df951072b63afe8badfb28431ed9",
+        "sha256": "4ec6ca3e1c007e635f35b707b2d60df6eecf88cb53fa5694d5153ecf2c68aa4a",
+        "bytes": 97007
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/allocation/OUTPUT-CONTRACT.md": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/allocation/OUTPUT-CONTRACT.md",
+        "mode": "100644",
+        "git_blob": "7ea55cf85042c3903d47494765d313a6fdd6c54b",
+        "sha256": "83ddfcf95cb31877ab2c40cab8ee8963e7491287e4780f29d9d6fcefabcd852b",
+        "bytes": 5642
+      }
+    }
+  },
+  "root_reviews": [
+    {
+      "root_id": "internal/app/bootstrap_credential_launcher_test.go::TestPublicControllerRunRejectsBeforeNATSThroughSameBinaryAdmission",
+      "allocation_index": 60,
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unresolved",
+      "independent_assessment": "Unresolved: fixture identity mode0444 fails production MarkerStore.readIdentityBytes mode0644 requirement through marker probe before asserted hidden child; namespace process alone is incidental to that claim.",
+      "baseline_source": {
+        "path": "internal/app/bootstrap_credential_launcher_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "4e04e9b3a4dfdae470017db9c0a02922574eb00b",
+        "start_line": 312,
+        "end_line": 333
+      },
+      "current_source": {
+        "path": "internal/app/bootstrap_credential_launcher_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "01d497d4a007d0d8ef065b64c2111f97d34ebcd5",
+        "start_line": 312,
+        "end_line": 333
+      },
+      "original_declaration_sha256": "1cdab35ed8bb058da47372405181d0da2fb83db0f6d78c32cedbeb5e224c9081",
+      "current_declaration_sha256": "1cdab35ed8bb058da47372405181d0da2fb83db0f6d78c32cedbeb5e224c9081",
+      "survival_state": "retained_body_exact",
+      "assertion_blocks": [
+        {
+          "start_line": 319,
+          "end_line": 326,
+          "category": "unresolved"
+        }
+      ],
+      "connected_citation_ids": [
+        "public_fixture",
+        "testmain",
+        "marker",
+        "marker_bytes",
+        "formation",
+        "marker_probe",
+        "accepted_probe",
+        "supervise",
+        "controller"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/broker_claim_controller_test.go::TestRunControllerOperatorBrokerClaimApply",
+      "allocation_index": 61,
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "mixed",
+      "independent_assessment": "Mixed: actual controller/operator TLS-NATS request, durable claim and receipt/retry/shutdown blocks; independent credential predicate, mismatched pin and local unauthorized grant guards stay unit. Fixture admission/founder/clock/trust hooks are substituted.",
+      "baseline_source": {
+        "path": "internal/app/broker_claim_controller_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "544b6f8d2473e6387b5eb13b0e8727559b71e7ba",
+        "start_line": 25,
+        "end_line": 292
+      },
+      "current_source": {
+        "path": "internal/app/broker_claim_controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "544b6f8d2473e6387b5eb13b0e8727559b71e7ba",
+        "start_line": 25,
+        "end_line": 292
+      },
+      "original_declaration_sha256": "186292f94635f396dcedd9f585e32a3fc63df85e8a728e1e5aec2b00db991ca9",
+      "current_declaration_sha256": "186292f94635f396dcedd9f585e32a3fc63df85e8a728e1e5aec2b00db991ca9",
+      "survival_state": "retained_body_exact",
+      "assertion_blocks": [
+        {
+          "start_line": 94,
+          "end_line": 108,
+          "category": "unit"
+        },
+        {
+          "start_line": 175,
+          "end_line": 178,
+          "category": "unit"
+        },
+        {
+          "start_line": 229,
+          "end_line": 233,
+          "category": "integration"
+        },
+        {
+          "start_line": 238,
+          "end_line": 242,
+          "category": "unit"
+        },
+        {
+          "start_line": 256,
+          "end_line": 282,
+          "category": "integration"
+        },
+        {
+          "start_line": 283,
+          "end_line": 291,
+          "category": "integration"
+        }
+      ],
+      "connected_citation_ids": [
+        "tls_fixture",
+        "jwt_fixture",
+        "jwt_claim_fixture",
+        "jwt_user",
+        "ed_fixture",
+        "json_fixture",
+        "nats_start",
+        "operator_claim",
+        "claim_admission",
+        "gate",
+        "fence",
+        "claim_read",
+        "claim_commit",
+        "cred_validate"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/broker_claim_reply_test.go::TestBrokerClaimReplyRejectsForgedReceipts",
+      "allocation_index": 62,
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: locally generated signed receipt bytes are passed directly to verifyBrokerClaimReply and envelope validation; no service or store boundary supports the target.",
+      "baseline_source": {
+        "path": "internal/app/broker_claim_reply_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "5127e85ace4cc83e303e9719fd79f30866afccfd",
+        "start_line": 20,
+        "end_line": 126
+      },
+      "current_source": {
+        "path": "internal/app/broker_claim_reply_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5127e85ace4cc83e303e9719fd79f30866afccfd",
+        "start_line": 20,
+        "end_line": 126
+      },
+      "original_declaration_sha256": "ebddae8c2ea5486d5607fb62f368ebdb5e5a06910d6b99c15078b6fd9ed68994",
+      "current_declaration_sha256": "ebddae8c2ea5486d5607fb62f368ebdb5e5a06910d6b99c15078b6fd9ed68994",
+      "survival_state": "retained_body_exact",
+      "assertion_blocks": [
+        {
+          "start_line": 65,
+          "end_line": 72,
+          "category": "unit"
+        },
+        {
+          "start_line": 78,
+          "end_line": 125,
+          "category": "unit"
+        }
+      ],
+      "connected_citation_ids": [
+        "receipt_verify",
+        "envelope"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/broker_gate_test.go::TestBrokerGateR3TicketRevocationAndOfflineFence",
+      "allocation_index": 63,
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: three real embedded brokers, host/operator connections, durable claim readback, revoked-session closure and offline pending retry; foreign deployment renew itself observes the real authority stream before refusal.",
+      "baseline_source": {
+        "path": "internal/app/broker_gate_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "7814281c34c17e75bddf2b097e484a53459c9338",
+        "start_line": 42,
+        "end_line": 502
+      },
+      "current_source": {
+        "path": "internal/app/broker_gate_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "7814281c34c17e75bddf2b097e484a53459c9338",
+        "start_line": 42,
+        "end_line": 502
+      },
+      "original_declaration_sha256": "cd2a7dca9e32c072dd694e451a8b01931ac8e589a44b8ae10c2bab094cabbeed",
+      "current_declaration_sha256": "cd2a7dca9e32c072dd694e451a8b01931ac8e589a44b8ae10c2bab094cabbeed",
+      "survival_state": "retained_body_exact",
+      "assertion_blocks": [
+        {
+          "start_line": 149,
+          "end_line": 160,
+          "category": "integration"
+        },
+        {
+          "start_line": 234,
+          "end_line": 238,
+          "category": "integration"
+        },
+        {
+          "start_line": 266,
+          "end_line": 285,
+          "category": "integration"
+        },
+        {
+          "start_line": 353,
+          "end_line": 369,
+          "category": "integration"
+        },
+        {
+          "start_line": 383,
+          "end_line": 418,
+          "category": "integration"
+        },
+        {
+          "start_line": 477,
+          "end_line": 501,
+          "category": "integration"
+        }
+      ],
+      "connected_citation_ids": [
+        "tls_fixture",
+        "jwt_fixture",
+        "jwt_claim_fixture",
+        "jwt_user",
+        "wait_gate",
+        "nats_start",
+        "operator_claim",
+        "claim_admission",
+        "gate",
+        "renew",
+        "fence",
+        "fence_claim",
+        "claim_read",
+        "claim_commit"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/canary_test.go::TestNativeCanaryUsesPredecessorAndSelectedPorts",
+      "allocation_index": 64,
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "mixed",
+      "independent_assessment": "Mixed: predecessor/candidate HTTP-TLS endpoint counters and persistent canary reads are genuine; host restart and load-balancer effects remain modeled. Baseline declaration is285-350, current288-355; changed original obligation retained.",
+      "baseline_source": {
+        "path": "internal/app/canary_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "746f09a3f4f7db25e669ea4b024a5848eeb9e9c5",
+        "start_line": 285,
+        "end_line": 350
+      },
+      "current_source": {
+        "path": "internal/app/canary_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "e592a21d66a94845d43cfe884598d5e067f76e70",
+        "start_line": 288,
+        "end_line": 355
+      },
+      "original_declaration_sha256": "9fbaeb1b49d0921a8d23be9c996e0a121863ab142c5ee12634e9e20d9e353789",
+      "current_declaration_sha256": "5ce8ad29de1e38ce5a4f65b85afb4e7a9be6de4d68eff31bc3b7d89e9a9b8f0f",
+      "survival_state": "retained_body_changed_since_frozen_mapping",
+      "assertion_blocks": [
+        {
+          "start_line": 338,
+          "end_line": 344,
+          "category": "integration"
+        },
+        {
+          "start_line": 345,
+          "end_line": 351,
+          "category": "mixed"
+        }
+      ],
+      "connected_citation_ids": [
+        "fence_broker",
+        "fence_setup",
+        "fence_cell",
+        "release_gate",
+        "sequence",
+        "canary_read",
+        "select",
+        "smoke",
+        "call",
+        "crud"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/canary_test.go::TestReleaseCanaryFailureStopsTheRelease",
+      "allocation_index": 65,
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "mixed",
+      "independent_assessment": "Mixed: persisted canary read and resume depend on real KV; independent failure maps/callback counts/restart and balancer observations are synthetic.",
+      "baseline_source": {
+        "path": "internal/app/canary_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "746f09a3f4f7db25e669ea4b024a5848eeb9e9c5",
+        "start_line": 85,
+        "end_line": 113
+      },
+      "current_source": {
+        "path": "internal/app/canary_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "e592a21d66a94845d43cfe884598d5e067f76e70",
+        "start_line": 86,
+        "end_line": 114
+      },
+      "original_declaration_sha256": "a6eeb7200f73739fa667cf279d064ffdd272907dd63277d197301d875b8a86f7",
+      "current_declaration_sha256": "a6eeb7200f73739fa667cf279d064ffdd272907dd63277d197301d875b8a86f7",
+      "survival_state": "retained_body_exact",
+      "assertion_blocks": [
+        {
+          "start_line": 90,
+          "end_line": 103,
+          "category": "unit"
+        },
+        {
+          "start_line": 106,
+          "end_line": 113,
+          "category": "integration"
+        }
+      ],
+      "connected_citation_ids": [
+        "gated_fixture",
+        "fence_broker",
+        "fence_setup",
+        "fence_cell",
+        "release_gate",
+        "sequence",
+        "canary_read",
+        "canary_save"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/canary_test.go::TestReleaseCanaryGatesTheFirstNode",
+      "allocation_index": 66,
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "mixed",
+      "independent_assessment": "Mixed: production permit and sequenced-marker KV materially drive sequence; independent callback/restart assertions use test state and prove no actual workload restart.",
+      "baseline_source": {
+        "path": "internal/app/canary_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "746f09a3f4f7db25e669ea4b024a5848eeb9e9c5",
+        "start_line": 60,
+        "end_line": 83
+      },
+      "current_source": {
+        "path": "internal/app/canary_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "e592a21d66a94845d43cfe884598d5e067f76e70",
+        "start_line": 61,
+        "end_line": 84
+      },
+      "original_declaration_sha256": "973552d9a8c7e39b1acdd1ae20afc0406398b85e598a23285cb1ebeb8d036d66",
+      "current_declaration_sha256": "973552d9a8c7e39b1acdd1ae20afc0406398b85e598a23285cb1ebeb8d036d66",
+      "survival_state": "retained_body_exact",
+      "assertion_blocks": [
+        {
+          "start_line": 68,
+          "end_line": 73,
+          "category": "mixed"
+        },
+        {
+          "start_line": 77,
+          "end_line": 83,
+          "category": "mixed"
+        }
+      ],
+      "connected_citation_ids": [
+        "gated_fixture",
+        "fence_broker",
+        "fence_setup",
+        "fence_cell",
+        "release_gate",
+        "sequence",
+        "canary_save"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/canary_test.go::TestSmokeGateChecksTheCanary",
+      "allocation_index": 67,
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "mixed",
+      "independent_assessment": "Mixed: production HTTP-TLS client performs conditional CRUD/auth/dashboard exchanges with protocol simulators; separate missing-CA, malformed-key and error-redaction assertions are local. Real TerraBase was not run.",
+      "baseline_source": {
+        "path": "internal/app/canary_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "746f09a3f4f7db25e669ea4b024a5848eeb9e9c5",
+        "start_line": 207,
+        "end_line": 283
+      },
+      "current_source": {
+        "path": "internal/app/canary_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "e592a21d66a94845d43cfe884598d5e067f76e70",
+        "start_line": 208,
+        "end_line": 286
+      },
+      "original_declaration_sha256": "33318f4b8dccea99786a0fc4b65133b0f3ea9c94d88e22a771e55ad9b706c547",
+      "current_declaration_sha256": "a19a01bf5f1fb9ee1dc9f47a64602fc7da70d1607be0efb6b65f3a6571b3bb7c",
+      "survival_state": "retained_body_changed_since_frozen_mapping",
+      "assertion_blocks": [
+        {
+          "start_line": 238,
+          "end_line": 253,
+          "category": "integration"
+        },
+        {
+          "start_line": 255,
+          "end_line": 260,
+          "category": "unit"
+        },
+        {
+          "start_line": 263,
+          "end_line": 275,
+          "category": "integration"
+        },
+        {
+          "start_line": 276,
+          "end_line": 285,
+          "category": "unit"
+        }
+      ],
+      "connected_citation_ids": [
+        "smoke",
+        "call",
+        "crud",
+        "keys",
+        "member"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/capacity_alert_test.go::TestCapacityAlertJournalsMissingTokenOnce",
+      "allocation_index": 68,
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unresolved",
+      "independent_assessment": "Unresolved: reservations nil produces signed-spending-authority error, tick returns nonnil, and test Fatal precedes asserted missing-token recorder behavior; HTTP server setup alone gives no target credit.",
+      "baseline_source": {
+        "path": "internal/app/capacity_alert_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "aeace2b6c52ed4e3e5e47e9779da9818a8330594",
+        "start_line": 124,
+        "end_line": 164
+      },
+      "current_source": {
+        "path": "internal/app/capacity_alert_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "aeace2b6c52ed4e3e5e47e9779da9818a8330594",
+        "start_line": 124,
+        "end_line": 164
+      },
+      "original_declaration_sha256": "3669c213e3ebc5084a42c926f6887d00670d092c635cdb7dfbaacb59e506ce26",
+      "current_declaration_sha256": "3669c213e3ebc5084a42c926f6887d00670d092c635cdb7dfbaacb59e506ce26",
+      "survival_state": "retained_body_exact",
+      "assertion_blocks": [
+        {
+          "start_line": 144,
+          "end_line": 163,
+          "category": "unresolved"
+        }
+      ],
+      "connected_citation_ids": [
+        "home",
+        "embedded",
+        "journal_fake",
+        "status_fixture",
+        "tick",
+        "facts",
+        "alert"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/capacity_alert_test.go::TestCapacityAlertOpensAtWarnResolvesBelowClearAndSurvivesLeaderChange",
+      "allocation_index": 69,
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unresolved",
+      "independent_assessment": "Unresolved: same nil signed-spending authority premise fails first nil-error tick requirement before hysteresis/request and stored-incident assertions; replacing allocator object does not prove an authority transfer.",
+      "baseline_source": {
+        "path": "internal/app/capacity_alert_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "aeace2b6c52ed4e3e5e47e9779da9818a8330594",
+        "start_line": 59,
+        "end_line": 122
+      },
+      "current_source": {
+        "path": "internal/app/capacity_alert_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "aeace2b6c52ed4e3e5e47e9779da9818a8330594",
+        "start_line": 59,
+        "end_line": 122
+      },
+      "original_declaration_sha256": "f93bd95bd0f58f86eafb3c55c2d0c3efa36b6e0aa926cf5ba1506a3c896c89b6",
+      "current_declaration_sha256": "f93bd95bd0f58f86eafb3c55c2d0c3efa36b6e0aa926cf5ba1506a3c896c89b6",
+      "survival_state": "retained_body_exact",
+      "assertion_blocks": [
+        {
+          "start_line": 76,
+          "end_line": 120,
+          "category": "unresolved"
+        }
+      ],
+      "connected_citation_ids": [
+        "home",
+        "embedded",
+        "status_fixture",
+        "status_take",
+        "tick",
+        "facts",
+        "alert",
+        "alert_load"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/capacity_allocator_test.go::TestCapacityAllocatorWritesAndJournalsOnChange",
+      "allocation_index": 70,
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "mixed",
+      "independent_assessment": "Mixed: actual global-store held-plan write and durable readback coexist with independent in-memory decision recorder dedup/metadata assertions.",
+      "baseline_source": {
+        "path": "internal/app/capacity_allocator_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "a243edfb2b21c2982a614b15516bc58ba86f9b78",
+        "start_line": 116,
+        "end_line": 164
+      },
+      "current_source": {
+        "path": "internal/app/capacity_allocator_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "a243edfb2b21c2982a614b15516bc58ba86f9b78",
+        "start_line": 116,
+        "end_line": 164
+      },
+      "original_declaration_sha256": "47bf85df685c94276235bea1225387c76080eeb7235edb217875f1bce260d95f",
+      "current_declaration_sha256": "47bf85df685c94276235bea1225387c76080eeb7235edb217875f1bce260d95f",
+      "survival_state": "retained_body_exact",
+      "assertion_blocks": [
+        {
+          "start_line": 142,
+          "end_line": 154,
+          "category": "integration"
+        },
+        {
+          "start_line": 155,
+          "end_line": 163,
+          "category": "unit"
+        }
+      ],
+      "connected_citation_ids": [
+        "home",
+        "embedded",
+        "journal_fake",
+        "tick",
+        "facts",
+        "read_capacity",
+        "write_capacity",
+        "global_read",
+        "global_write"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/capacity_allocator_test.go::TestCapacityBudgetsShowOnlyKnownSpend",
+      "allocation_index": 71,
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: supplied cached capacity takes latest in-memory branch; state filtering and cents-to-display conversion use no global reader.",
+      "baseline_source": {
+        "path": "internal/app/capacity_allocator_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "a243edfb2b21c2982a614b15516bc58ba86f9b78",
+        "start_line": 166,
+        "end_line": 194
+      },
+      "current_source": {
+        "path": "internal/app/capacity_allocator_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "a243edfb2b21c2982a614b15516bc58ba86f9b78",
+        "start_line": 166,
+        "end_line": 194
+      },
+      "original_declaration_sha256": "dcc7a799e609fba3149bd8d5fbf44bd3b26f0c0a5fef7a2075b2d52cfd6f63d0",
+      "current_declaration_sha256": "dcc7a799e609fba3149bd8d5fbf44bd3b26f0c0a5fef7a2075b2d52cfd6f63d0",
+      "survival_state": "retained_body_exact",
+      "assertion_blocks": [
+        {
+          "start_line": 180,
+          "end_line": 192,
+          "category": "unit"
+        }
+      ],
+      "connected_citation_ids": [
+        "budgets",
+        "latest"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/capacity_allocator_test.go::TestCapacityRegionsMapRollupStatuses",
+      "allocation_index": 72,
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: synthetic rollup structs map locally into demand records, including missing views.",
+      "baseline_source": {
+        "path": "internal/app/capacity_allocator_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "a243edfb2b21c2982a614b15516bc58ba86f9b78",
+        "start_line": 25,
+        "end_line": 42
+      },
+      "current_source": {
+        "path": "internal/app/capacity_allocator_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "a243edfb2b21c2982a614b15516bc58ba86f9b78",
+        "start_line": 25,
+        "end_line": 42
+      },
+      "original_declaration_sha256": "024fba48662fd9dbdbea817ed313da08cd8eeb9af5ce0435704657daec8112a1",
+      "current_declaration_sha256": "024fba48662fd9dbdbea817ed313da08cd8eeb9af5ce0435704657daec8112a1",
+      "survival_state": "retained_body_exact",
+      "assertion_blocks": [
+        {
+          "start_line": 29,
+          "end_line": 41,
+          "category": "unit"
+        }
+      ],
+      "connected_citation_ids": [
+        "regions"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/capacity_allocator_test.go::TestRosterCellsWithoutAViewHoldGrowth",
+      "allocation_index": 73,
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: direct local roster/region union and dedup; no roster service read.",
+      "baseline_source": {
+        "path": "internal/app/capacity_allocator_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "a243edfb2b21c2982a614b15516bc58ba86f9b78",
+        "start_line": 44,
+        "end_line": 51
+      },
+      "current_source": {
+        "path": "internal/app/capacity_allocator_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "a243edfb2b21c2982a614b15516bc58ba86f9b78",
+        "start_line": 44,
+        "end_line": 51
+      },
+      "original_declaration_sha256": "26aecc481c1114ecbdc912eb00a6a3643107c33d776862cc27d42bb85dbf17f0",
+      "current_declaration_sha256": "26aecc481c1114ecbdc912eb00a6a3643107c33d776862cc27d42bb85dbf17f0",
+      "survival_state": "retained_body_exact",
+      "assertion_blocks": [
+        {
+          "start_line": 45,
+          "end_line": 50,
+          "category": "unit"
+        }
+      ],
+      "connected_citation_ids": [
+        "roster"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/capacity_budget_test.go::TestBudgetSetIsSilentOnAFollower",
+      "allocation_index": 74,
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: actual NATS request/reply timeout exercises production subscriber silence under fake follower snapshot; authority election itself is not qualified.",
+      "baseline_source": {
+        "path": "internal/app/capacity_budget_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "24606e8fb894c9e84a19642c9690316f4e645a23",
+        "start_line": 82,
+        "end_line": 95
+      },
+      "current_source": {
+        "path": "internal/app/capacity_budget_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "24606e8fb894c9e84a19642c9690316f4e645a23",
+        "start_line": 82,
+        "end_line": 95
+      },
+      "original_declaration_sha256": "3b8b2d76f81fce96d07520aecf0141253491437de336298747faba61969e2c85",
+      "current_declaration_sha256": "3b8b2d76f81fce96d07520aecf0141253491437de336298747faba61969e2c85",
+      "survival_state": "retained_body_exact",
+      "assertion_blocks": [
+        {
+          "start_line": 85,
+          "end_line": 94,
+          "category": "integration"
+        }
+      ],
+      "connected_citation_ids": [
+        "embedded",
+        "budget_set",
+        "set"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/capacity_budget_test.go::TestBudgetSetOutsideTheHomeIsRefused",
+      "allocation_index": 75,
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: nil-home writer guard returns ErrBudgetNotHome before any request; no connection is supplied.",
+      "baseline_source": {
+        "path": "internal/app/capacity_budget_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "24606e8fb894c9e84a19642c9690316f4e645a23",
+        "start_line": 97,
+        "end_line": 102
+      },
+      "current_source": {
+        "path": "internal/app/capacity_budget_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "24606e8fb894c9e84a19642c9690316f4e645a23",
+        "start_line": 97,
+        "end_line": 102
+      },
+      "original_declaration_sha256": "920db9699aa2dcd1063937eaf587b953106782ee89eebfc98b158e85b1ac44b3",
+      "current_declaration_sha256": "920db9699aa2dcd1063937eaf587b953106782ee89eebfc98b158e85b1ac44b3",
+      "survival_state": "retained_body_exact",
+      "assertion_blocks": [
+        {
+          "start_line": 98,
+          "end_line": 101,
+          "category": "unit"
+        }
+      ],
+      "connected_citation_ids": [
+        "set"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/capacity_budget_test.go::TestBudgetSetRefusesAnInvalidPayloadAndWritesNothing",
+      "allocation_index": 76,
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: invalid zero cap crosses actual NATS to production handler; actual global-store read verifies absence.",
+      "baseline_source": {
+        "path": "internal/app/capacity_budget_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "24606e8fb894c9e84a19642c9690316f4e645a23",
+        "start_line": 65,
+        "end_line": 80
+      },
+      "current_source": {
+        "path": "internal/app/capacity_budget_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "24606e8fb894c9e84a19642c9690316f4e645a23",
+        "start_line": 65,
+        "end_line": 80
+      },
+      "original_declaration_sha256": "dee8a0650b4c7d0304884dbc58de5b00145aa50064f4a79b15c99b98e7230bb1",
+      "current_declaration_sha256": "dee8a0650b4c7d0304884dbc58de5b00145aa50064f4a79b15c99b98e7230bb1",
+      "survival_state": "retained_body_exact",
+      "assertion_blocks": [
+        {
+          "start_line": 72,
+          "end_line": 79,
+          "category": "integration"
+        }
+      ],
+      "connected_citation_ids": [
+        "home",
+        "embedded",
+        "budget_set",
+        "budget_apply",
+        "set",
+        "read_budget",
+        "global_read"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/capacity_budget_test.go::TestBudgetSetWritesJournalsAndAnswers",
+      "allocation_index": 77,
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "mixed",
+      "independent_assessment": "Mixed: actual budget NATS request and durable ID/cap readback; independent journal summary/count/kind assertions use substituted recorder.",
+      "baseline_source": {
+        "path": "internal/app/capacity_budget_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "24606e8fb894c9e84a19642c9690316f4e645a23",
+        "start_line": 35,
+        "end_line": 63
+      },
+      "current_source": {
+        "path": "internal/app/capacity_budget_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "24606e8fb894c9e84a19642c9690316f4e645a23",
+        "start_line": 35,
+        "end_line": 63
+      },
+      "original_declaration_sha256": "1a43b515ad20cf5b2479260df3fb10d5ba6a34a3fa90721ae89588b247c18aab",
+      "current_declaration_sha256": "1a43b515ad20cf5b2479260df3fb10d5ba6a34a3fa90721ae89588b247c18aab",
+      "survival_state": "retained_body_exact",
+      "assertion_blocks": [
+        {
+          "start_line": 46,
+          "end_line": 54,
+          "category": "integration"
+        },
+        {
+          "start_line": 55,
+          "end_line": 62,
+          "category": "unit"
+        }
+      ],
+      "connected_citation_ids": [
+        "home",
+        "embedded",
+        "journal_fake",
+        "budget_set",
+        "budget_apply",
+        "set",
+        "write_budget",
+        "read_budget",
+        "global_write",
+        "global_read"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/capacity_budget_test.go::TestCapacityPageReadsBudgetCapacityAndSuggestionAtHome",
+      "allocation_index": 78,
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "mixed",
+      "independent_assessment": "Mixed: actual global documents and suggestion KV save/read; independent scale callback/home shaping local. Mirror object reuses same reader and proves no cross-region replication.",
+      "baseline_source": {
+        "path": "internal/app/capacity_budget_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "24606e8fb894c9e84a19642c9690316f4e645a23",
+        "start_line": 104,
+        "end_line": 151
+      },
+      "current_source": {
+        "path": "internal/app/capacity_budget_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "24606e8fb894c9e84a19642c9690316f4e645a23",
+        "start_line": 104,
+        "end_line": 151
+      },
+      "original_declaration_sha256": "c6601807c792554e7b82a5d17150f7468afca5ae53b62bf393500236f6f8d4d0",
+      "current_declaration_sha256": "c6601807c792554e7b82a5d17150f7468afca5ae53b62bf393500236f6f8d4d0",
+      "survival_state": "retained_body_exact",
+      "assertion_blocks": [
+        {
+          "start_line": 110,
+          "end_line": 130,
+          "category": "integration"
+        },
+        {
+          "start_line": 137,
+          "end_line": 142,
+          "category": "mixed"
+        },
+        {
+          "start_line": 144,
+          "end_line": 150,
+          "category": "mixed"
+        }
+      ],
+      "connected_citation_ids": [
+        "home",
+        "embedded",
+        "page",
+        "write_budget",
+        "write_capacity",
+        "read_budget",
+        "read_capacity",
+        "suggest_load",
+        "suggest_save",
+        "global_read",
+        "global_write"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/capacity_checkpoint_integration_test.go::TestCapacityCheckpointPrecedesActualSDKRequestAndRetainsOriginalReceipt",
+      "allocation_index": 79,
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration core only: lines66-96 reread durable journal inside actual SDK HTTP handler and bind body/headers/original receipt. Lines97-105 replay expectation contradicts changed-token rejection; later quote and nil-journal blocks are explicitly unresolved and provide no credit. Nil-journal source target is unit; incidental node-store Load does not integrate it. Signer is no-op; reopen is handle-level.",
+      "baseline_source": {
+        "path": "internal/app/capacity_checkpoint_integration_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "176359f3a7a86b6df9b5f07522d692e85441e6d7",
+        "start_line": 30,
+        "end_line": 120
+      },
+      "current_source": {
+        "path": "internal/app/capacity_checkpoint_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "176359f3a7a86b6df9b5f07522d692e85441e6d7",
+        "start_line": 30,
+        "end_line": 120
+      },
+      "original_declaration_sha256": "7f1733105ebcde84d5b71d14a405930df37e10fccc0dd42ce54c806df494c612",
+      "current_declaration_sha256": "7f1733105ebcde84d5b71d14a405930df37e10fccc0dd42ce54c806df494c612",
+      "survival_state": "retained_body_exact",
+      "assertion_blocks": [
+        {
+          "start_line": 66,
+          "end_line": 96,
+          "category": "integration"
+        },
+        {
+          "start_line": 97,
+          "end_line": 105,
+          "category": "unresolved"
+        },
+        {
+          "start_line": 106,
+          "end_line": 115,
+          "category": "unresolved"
+        },
+        {
+          "start_line": 117,
+          "end_line": 119,
+          "category": "unresolved"
+        }
+      ],
+      "connected_citation_ids": [
+        "embedded",
+        "checkpoint",
+        "node_load",
+        "node_save",
+        "request_record",
+        "request_read",
+        "oci_read"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    }
+  ],
+  "findings": [
+    {
+      "root_indices": [
+        64
+      ],
+      "status": "corrected_in_accepted_successor",
+      "detail": "Previous packets claimed baseline EOF352; independently observed declaration285-350 and SHA verified."
+    },
+    {
+      "root_indices": [
+        79
+      ],
+      "status": "corrected_classification_annotations_retained_source_limitation",
+      "detail": "Late replay and later assertion blocks explicitly unresolved; nil-journal intended/source target local, no integration credit from incidental Load."
+    },
+    {
+      "root_indices": [
+        60,
+        68,
+        69
+      ],
+      "status": "retained_unresolved",
+      "detail": "No integration/unit/mixed promotion for three unresolved roots; all safety obligations remain."
+    }
+  ],
+  "rejected_predecessors": [
+    {
+      "path": "/tmp/ts-source-classification-60-80-dp9u18x2/classification.json",
+      "sha256": "5435ee63808c99f9f30a655b13c70e6ab2dd83a66c59400740a756b8fa2d5a97",
+      "reason": "Baseline root64 end bound beyond EOF; root79 late unreachable/local guard labeling needed correction."
+    },
+    {
+      "path": "/tmp/ts-source-classification-60-80-corrected-zmi8x8ye/classification.json",
+      "sha256": "47edb189a3e5c52340f03d1326971c12af3e5d52f1139bb2bc3b2f234ecc60a3",
+      "reason": "Baseline root64 end bound beyond EOF."
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "ledger_mutation": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "canonical_count_promotion": false,
+    "global_completion": false
+  },
+  "not_checked": [
+    "No Go/test/build/format/lint/benchmark/runtime or TerraBase execution; no process/resource/privilege/cloud/signing operations or downloads.",
+    "No runtime receipts reviewed and no test pass/fail or deployment qualification inferred."
+  ],
+  "scope": "Exactly allocated other_unadjudicated[60:80], source candidate review only; no repository or ledger mutation."
+}

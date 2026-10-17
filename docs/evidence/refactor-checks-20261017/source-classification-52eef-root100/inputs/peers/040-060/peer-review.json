@@ -1,0 +1,461 @@
+{
+  "state": "ACCEPT_SOURCE_ONLY_CANDIDATE_WITH_ONE_EXPLICIT_UNRESOLVED_HELPER",
+  "peer": "/root/classification_100_dispatch/peer_40_60",
+  "owner_packet": {
+    "path": "/tmp/ts-root100-batch40-60-source-hhw_88jt/classification.json",
+    "sha256": "ee04fe125dae6c73b45a42f22d96c9b14121c3910e613e1bb96e3b9e5197855e",
+    "checksum_path": "/tmp/ts-root100-batch40-60-source-hhw_88jt/SHA256SUMS",
+    "checksum_sha256": "f5e875bed696a33a7f074d84fe4080ee3cc31c24c8a5967b8347ec6b274e9176"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root100-source-dispatch-jeov3BoT/allocation-and-exclusions.json",
+    "sha256": "70e4dc811d59ef0c1ec6847fe8ed632964059169973bfe164585b9eaef2b73e5"
+  },
+  "inventory": {
+    "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+    "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+  },
+  "counts": {
+    "allocated_originals": 20,
+    "integration": 5,
+    "unit": 12,
+    "mixed": 2,
+    "unresolved": 1
+  },
+  "checks": {
+    "exact_allocated_root_order_and_coverage": 20,
+    "unique_survival_mappings": 20,
+    "baseline_and_current_raw_declarations": 40,
+    "whole_current_root_texts": 20,
+    "canonical_source_file_pins_mode_blob_sha256_bytes": 40,
+    "exact_assertion_and_connected_spans": 83,
+    "checksum_manifest": "PASS",
+    "source_reads": "Immutable canonical Git blobs; six original root files and connected fixture/helper/production assertion paths inspected; no source parser/scanner or runtime execution."
+  },
+  "roots": [
+    {
+      "root_id": "internal/app/backup_history_test.go::TestBackupHistoryCursorBindsActorQueryAndExpiry",
+      "category": "unit",
+      "decision": "ACCEPT_SOURCE_CLASSIFICATION",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "277cd4596f4be04eb1707157712cf07358aac0b1",
+        "start_line": 16,
+        "end_line": 55
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "277cd4596f4be04eb1707157712cf07358aac0b1",
+        "start_line": 16,
+        "end_line": 55
+      },
+      "original_declaration_sha256": "1dd68305710ec448fb0896ae89220dcf467fba6625d102e656b51afc6e9026ff",
+      "current_declaration_sha256": "1dd68305710ec448fb0896ae89220dcf467fba6625d102e656b51afc6e9026ff",
+      "independent_reason": "Local signing/codec/actor-query-expiry-tamper assertions; no store boundary."
+    },
+    {
+      "root_id": "internal/app/backup_operation_integration_test.go::TestBackupAdmissionRechecksRosterAtFinalR3Commit",
+      "category": "integration",
+      "decision": "ACCEPT_SOURCE_CLASSIFICATION",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "ba49b35666b3444afb94e801043a82089f3e8d09",
+        "start_line": 30,
+        "end_line": 152
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "ba49b35666b3444afb94e801043a82089f3e8d09",
+        "start_line": 30,
+        "end_line": 152
+      },
+      "original_declaration_sha256": "588a9fff1905b622530854b2f9988dba2b47d8e7ba61e2d7a2ca4e061805cb0f",
+      "current_declaration_sha256": "588a9fff1905b622530854b2f9988dba2b47d8e7ba61e2d7a2ca4e061805cb0f",
+      "independent_reason": "Real singleton embedded NATS/JetStream read/commit path, final roster callback rejection and absence readback; fake ObjectStorage and roster explicitly limited."
+    },
+    {
+      "root_id": "internal/app/backup_roster_replacement_test.go::TestBackupRosterFollowsAReplacedMembersCurrentHostAttempt",
+      "category": "unit",
+      "decision": "ACCEPT_SOURCE_CLASSIFICATION",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "7580177390443d867616f16958c1dc89022c4667",
+        "start_line": 11,
+        "end_line": 37
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "7580177390443d867616f16958c1dc89022c4667",
+        "start_line": 11,
+        "end_line": 37
+      },
+      "original_declaration_sha256": "0e9868bd6d62f440df69a22a4998ba13f4de934dbe5107ee9b1f95282fbb6dd5",
+      "current_declaration_sha256": "0e9868bd6d62f440df69a22a4998ba13f4de934dbe5107ee9b1f95282fbb6dd5",
+      "independent_reason": "Synthetic member-state predicate and four local invalid-state mutations."
+    },
+    {
+      "root_id": "internal/app/bootstrap_admission_test.go::TestControllerAdmissionChildReceivesTheLoadedBytes",
+      "category": "mixed",
+      "decision": "ACCEPT_SOURCE_CLASSIFICATION",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "9ba7c3d13c117c9932e178e8c761c9321fa1bbc5",
+        "start_line": 118,
+        "end_line": 144
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "0b59eae163f2bf7c10d82c5b2de195ffc3d25d1f",
+        "start_line": 118,
+        "end_line": 144
+      },
+      "original_declaration_sha256": "fffcbf35c385e5d3f4c5896f47c15ba190b3a3f1a91cae443c05163031806109",
+      "current_declaration_sha256": "b59e918f7473cfc6c1a6fec783d01f7a22c3c0e2dc1fedf154ff61ca306a0c75",
+      "independent_reason": "Actual LoadConfig/file-to-child-stdin-to-file readback plus independent direct decoder/hash block; current body drift correctly retained."
+    },
+    {
+      "root_id": "internal/app/bootstrap_admission_test.go::TestControllerAdmissionChildRejectsInvalidOrOversizedStdin",
+      "category": "unit",
+      "decision": "ACCEPT_SOURCE_CLASSIFICATION",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "9ba7c3d13c117c9932e178e8c761c9321fa1bbc5",
+        "start_line": 146,
+        "end_line": 155
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "0b59eae163f2bf7c10d82c5b2de195ffc3d25d1f",
+        "start_line": 146,
+        "end_line": 155
+      },
+      "original_declaration_sha256": "f044b844598640fa8d02f7e155e91f46845a8775594880ff92f8bad29734526c",
+      "current_declaration_sha256": "f044b844598640fa8d02f7e155e91f46845a8775594880ff92f8bad29734526c",
+      "independent_reason": "Strings.Reader malformed/oversize rejection precedes privilege/admission target."
+    },
+    {
+      "root_id": "internal/app/bootstrap_admission_test.go::TestControllerAdmissionSupervisorBoundsAndRoundTripsStrictConfig",
+      "category": "mixed",
+      "decision": "ACCEPT_SOURCE_CLASSIFICATION",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "9ba7c3d13c117c9932e178e8c761c9321fa1bbc5",
+        "start_line": 36,
+        "end_line": 114
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "0b59eae163f2bf7c10d82c5b2de195ffc3d25d1f",
+        "start_line": 36,
+        "end_line": 114
+      },
+      "original_declaration_sha256": "b222afa6b3e9ef140e3feb24a2eecdd5a06c86f56186e88daef33ace41f78db1",
+      "current_declaration_sha256": "b222afa6b3e9ef140e3feb24a2eecdd5a06c86f56186e88daef33ace41f78db1",
+      "independent_reason": "Actual child config/environment readback plus separate oversized and unknown-command prelaunch validation."
+    },
+    {
+      "root_id": "internal/app/bootstrap_admission_test.go::TestControllerAdmissionTimeoutStopsServiceUIDDescendant",
+      "category": "integration",
+      "decision": "ACCEPT_SOURCE_CLASSIFICATION",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "9ba7c3d13c117c9932e178e8c761c9321fa1bbc5",
+        "start_line": 157,
+        "end_line": 210
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "0b59eae163f2bf7c10d82c5b2de195ffc3d25d1f",
+        "start_line": 157,
+        "end_line": 210
+      },
+      "original_declaration_sha256": "098c1013d05047535cf96f0f31fdca2494a16326c8b26d43c774768a797acace",
+      "current_declaration_sha256": "098c1013d05047535cf96f0f31fdca2494a16326c8b26d43c774768a797acace",
+      "independent_reason": "Actual UID1000 descendant/process-group timeout and marker/proc readback; privileged capability preconditions retained."
+    },
+    {
+      "root_id": "internal/app/bootstrap_admission_test.go::TestHiddenAdmissionChildPrivilegeGatesInPrivateNamespace",
+      "category": "integration",
+      "decision": "ACCEPT_SOURCE_CLASSIFICATION",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "9ba7c3d13c117c9932e178e8c761c9321fa1bbc5",
+        "start_line": 212,
+        "end_line": 329
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "0b59eae163f2bf7c10d82c5b2de195ffc3d25d1f",
+        "start_line": 212,
+        "end_line": 329
+      },
+      "original_declaration_sha256": "43f15e2a72c7c7412c7cdac742b83a6db13ae540a04d27f37c2642a386b45b6e",
+      "current_declaration_sha256": "43f15e2a72c7c7412c7cdac742b83a6db13ae540a04d27f37c2642a386b45b6e",
+      "independent_reason": "Parent-owned unshare/setpriv/NSS/material process matrix returns observable success; fake clock does not establish live NTP."
+    },
+    {
+      "root_id": "internal/app/bootstrap_admission_test.go::TestHiddenAdmissionGateChildHelper",
+      "category": "unresolved",
+      "decision": "ACCEPT_AS_EXPLICIT_UNRESOLVED",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "9ba7c3d13c117c9932e178e8c761c9321fa1bbc5",
+        "start_line": 331,
+        "end_line": 348
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "0b59eae163f2bf7c10d82c5b2de195ffc3d25d1f",
+        "start_line": 331,
+        "end_line": 348
+      },
+      "original_declaration_sha256": "1487c414f2e25ab284b510e4df5e9c67acac66e45a7a4a9ab0bbc7e6786ec335",
+      "current_declaration_sha256": "1487c414f2e25ab284b510e4df5e9c67acac66e45a7a4a9ab0bbc7e6786ec335",
+      "independent_reason": "Allocated fixture root remains source-unresolved; ordinary invocation returns, parent owns subprocess assertions, no independent integration credit."
+    },
+    {
+      "root_id": "internal/app/bootstrap_admission_test.go::TestServiceCredentialChildChecksCredentialsAndTicketKeyAsServiceUser",
+      "category": "integration",
+      "decision": "ACCEPT_SOURCE_CLASSIFICATION",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "9ba7c3d13c117c9932e178e8c761c9321fa1bbc5",
+        "start_line": 350,
+        "end_line": 394
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "0b59eae163f2bf7c10d82c5b2de195ffc3d25d1f",
+        "start_line": 350,
+        "end_line": 394
+      },
+      "original_declaration_sha256": "9d31deb0be4234606251c63238e0ceee5ce8a67e62e52044419f66c47de57ba9",
+      "current_declaration_sha256": "9d31deb0be4234606251c63238e0ceee5ce8a67e62e52044419f66c47de57ba9",
+      "independent_reason": "Service-UID same-executable production credential reads accept real files and reject rewritten ticket pin; no NATS connection."
+    },
+    {
+      "root_id": "internal/app/bootstrap_controller_test.go::TestBootstrapControllerCommandDispatchesSameBinary",
+      "category": "unit",
+      "decision": "ACCEPT_SOURCE_CLASSIFICATION",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "095f8751ce2445404e24b5466f295d45e0220682",
+        "start_line": 103,
+        "end_line": 129
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "095f8751ce2445404e24b5466f295d45e0220682",
+        "start_line": 103,
+        "end_line": 129
+      },
+      "original_declaration_sha256": "8ca3df39f38509e1a9e7788f2db30bfa7b6a625808ed64291e59913faa6f8d6d",
+      "current_declaration_sha256": "8ca3df39f38509e1a9e7788f2db30bfa7b6a625808ed64291e59913faa6f8d6d",
+      "independent_reason": "Bootstrap dispatch closure replaced; config fixture incidental to stub call-count/config routing."
+    },
+    {
+      "root_id": "internal/app/bootstrap_controller_test.go::TestControllerBakedPresenceErrorStopsStartup",
+      "category": "unit",
+      "decision": "ACCEPT_SOURCE_CLASSIFICATION",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "095f8751ce2445404e24b5466f295d45e0220682",
+        "start_line": 239,
+        "end_line": 247
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "095f8751ce2445404e24b5466f295d45e0220682",
+        "start_line": 239,
+        "end_line": 247
+      },
+      "original_declaration_sha256": "e5a0394bd8f17ca85528e59f38fb1ab8900e7cd95e46bb3cd96f110d4d049844",
+      "current_declaration_sha256": "e5a0394bd8f17ca85528e59f38fb1ab8900e7cd95e46bb3cd96f110d4d049844",
+      "independent_reason": "Injected baked-presence permission error; no real file-permission failure target."
+    },
+    {
+      "root_id": "internal/app/bootstrap_controller_test.go::TestDamagedAcceptedIdentityCannotEnterInitialFormation",
+      "category": "unit",
+      "decision": "ACCEPT_SOURCE_CLASSIFICATION",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "095f8751ce2445404e24b5466f295d45e0220682",
+        "start_line": 249,
+        "end_line": 256
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "095f8751ce2445404e24b5466f295d45e0220682",
+        "start_line": 249,
+        "end_line": 256
+      },
+      "original_declaration_sha256": "39c6a5f7932b6d4a1d844e8fdd448b7c269ddac983bd622140c659a7cdf69279",
+      "current_declaration_sha256": "39c6a5f7932b6d4a1d844e8fdd448b7c269ddac983bd622140c659a7cdf69279",
+      "independent_reason": "Injected marker-presence permission error; local propagation before formation."
+    },
+    {
+      "root_id": "internal/app/bootstrap_controller_test.go::TestDirectControllerRunChecksAcceptedAdmissionBeforeNATS",
+      "category": "unit",
+      "decision": "ACCEPT_SOURCE_CLASSIFICATION",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "095f8751ce2445404e24b5466f295d45e0220682",
+        "start_line": 154,
+        "end_line": 181
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "095f8751ce2445404e24b5466f295d45e0220682",
+        "start_line": 154,
+        "end_line": 181
+      },
+      "original_declaration_sha256": "e06fb3b665f214907e1594a026dc7ab15ddffb5d931a9b8933685713e6dfbfcf",
+      "current_declaration_sha256": "e06fb3b665f214907e1594a026dc7ab15ddffb5d931a9b8933685713e6dfbfcf",
+      "independent_reason": "Synthetic marker/baked/clock/admission hooks target local sentinel routing before NATS."
+    },
+    {
+      "root_id": "internal/app/bootstrap_controller_test.go::TestProductionControllerRejectsUnhealthyClockBeforeAdmission",
+      "category": "unit",
+      "decision": "ACCEPT_SOURCE_CLASSIFICATION",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "095f8751ce2445404e24b5466f295d45e0220682",
+        "start_line": 183,
+        "end_line": 237
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "095f8751ce2445404e24b5466f295d45e0220682",
+        "start_line": 183,
+        "end_line": 237
+      },
+      "original_declaration_sha256": "044d590cce2cf445d6dc24a24ff7d93a6aed895469515bfc374830bb5c6fb199",
+      "current_declaration_sha256": "044d590cce2cf445d6dc24a24ff7d93a6aed895469515bfc374830bb5c6fb199",
+      "independent_reason": "Synthetic unhealthy/stale clock guards; zero MarkerStore rejects empty directory before syscall; root-only fixed-path prerequisite incidental."
+    },
+    {
+      "root_id": "internal/app/bootstrap_controller_test.go::TestRetryControllerOpenDoesNotRetryPermanentAuthorityErrors",
+      "category": "unit",
+      "decision": "ACCEPT_SOURCE_CLASSIFICATION",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "095f8751ce2445404e24b5466f295d45e0220682",
+        "start_line": 65,
+        "end_line": 90
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "095f8751ce2445404e24b5466f295d45e0220682",
+        "start_line": 65,
+        "end_line": 90
+      },
+      "original_declaration_sha256": "5923a96895f84a3b3b07ebe4d98b7ded8b6e62fad178d3ea741f3466126d9f1c",
+      "current_declaration_sha256": "5923a96895f84a3b3b07ebe4d98b7ded8b6e62fad178d3ea741f3466126d9f1c",
+      "independent_reason": "Synthetic permanent-error callback and local one-attempt/error-wrapping assertions."
+    },
+    {
+      "root_id": "internal/app/bootstrap_controller_test.go::TestRetryControllerOpenRetriesAuthorityConflict",
+      "category": "unit",
+      "decision": "ACCEPT_SOURCE_CLASSIFICATION",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "095f8751ce2445404e24b5466f295d45e0220682",
+        "start_line": 43,
+        "end_line": 63
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "095f8751ce2445404e24b5466f295d45e0220682",
+        "start_line": 43,
+        "end_line": 63
+      },
+      "original_declaration_sha256": "b74b7f78745c4ee4bfa370bba97975cd8936b31a168cbb583ef70f1f778c3815",
+      "current_declaration_sha256": "b74b7f78745c4ee4bfa370bba97975cd8936b31a168cbb583ef70f1f778c3815",
+      "independent_reason": "Synthetic conflict-then-string callback and two-attempt result; no authority opened."
+    },
+    {
+      "root_id": "internal/app/bootstrap_controller_test.go::TestRootBootstrapExistingMarkerDelegatesToControllerRestartAdmission",
+      "category": "unit",
+      "decision": "ACCEPT_SOURCE_CLASSIFICATION",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "095f8751ce2445404e24b5466f295d45e0220682",
+        "start_line": 131,
+        "end_line": 152
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "095f8751ce2445404e24b5466f295d45e0220682",
+        "start_line": 131,
+        "end_line": 152
+      },
+      "original_declaration_sha256": "6166f839f28c045a44a235126c9778786c0543c0a392df723ce4d43ccf76f14a",
+      "current_declaration_sha256": "6166f839f28c045a44a235126c9778786c0543c0a392df723ce4d43ccf76f14a",
+      "independent_reason": "Three injected marker reader outcomes; no persistent marker/restart call."
+    },
+    {
+      "root_id": "internal/app/bootstrap_controller_test.go::TestTransientControllerBootstrapErrorAuthorityClassifications",
+      "category": "unit",
+      "decision": "ACCEPT_SOURCE_CLASSIFICATION",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "095f8751ce2445404e24b5466f295d45e0220682",
+        "start_line": 21,
+        "end_line": 41
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "095f8751ce2445404e24b5466f295d45e0220682",
+        "start_line": 21,
+        "end_line": 41
+      },
+      "original_declaration_sha256": "62fbe6fcde9ba13459336d9e8859b960704892d86538a6415a6e48d0e89b7ff8",
+      "current_declaration_sha256": "62fbe6fcde9ba13459336d9e8859b960704892d86538a6415a6e48d0e89b7ff8",
+      "independent_reason": "Constructed wrapped error table directly exercises classifier."
+    },
+    {
+      "root_id": "internal/app/bootstrap_credential_launcher_test.go::TestDefaultLiveCredentialLauncherAndDeadline",
+      "category": "integration",
+      "decision": "ACCEPT_SOURCE_CLASSIFICATION",
+      "baseline_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "4e04e9b3a4dfdae470017db9c0a02922574eb00b",
+        "start_line": 72,
+        "end_line": 128
+      },
+      "current_source": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "01d497d4a007d0d8ef065b64c2111f97d34ebcd5",
+        "start_line": 72,
+        "end_line": 128
+      },
+      "original_declaration_sha256": "06fb59b630700d165a6f4665f9cc8e2fc65450d7aa07d473ac6c57de1b962d6a",
+      "current_declaration_sha256": "06fb59b630700d165a6f4665f9cc8e2fc65450d7aa07d473ac6c57de1b962d6a",
+      "independent_reason": "Actual namespace credential inventory/default same-executable service-user launcher and timeout PID disappearance; TestMain delay injection retained."
+    }
+  ],
+  "findings": [
+    {
+      "root_id": "internal/app/bootstrap_admission_test.go::TestControllerAdmissionChildReceivesTheLoadedBytes",
+      "severity": "retained_limitation",
+      "finding": "Survival current hash is stale after fixture version1 to2; packet records fresh canonical b59e918f7473cfc6c1a6fec783d01f7a22c3c0e2dc1fedf154ff61ca306a0c75 and original fffcbf35c385e5d3f4c5896f47c15ba190b3a3f1a91cae443c05163031806109 correctly."
+    },
+    {
+      "root_id": "internal/app/bootstrap_admission_test.go::TestHiddenAdmissionGateChildHelper",
+      "severity": "source_unresolved",
+      "finding": "Conditional helper category/accounting remains unresolved pending QA rule; no independent category credit or all-resolved claim accepted."
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "limits": [
+    "No Go/tests/helpers/build/format/lint/cloud/privilege/process probe/executable-runtime/download execution.",
+    "No repository/source/Git/ledger/count mutations or retirement/completion promotion; this accepts only the exact source candidate with its unresolved helper.",
+    "NATS case uses singleton InProcessServer, not distributed R3 or external network/provider acceptance. Privileged fixture execution and environmental assumptions remain UNKNOWN."
+  ],
+  "blocking_packet_findings": []
+}

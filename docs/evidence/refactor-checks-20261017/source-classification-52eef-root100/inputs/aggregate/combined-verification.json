@@ -1,0 +1,23 @@
+{
+  "literal_results": 100,
+  "unique_results": 100,
+  "counts": {
+    "integration": 22,
+    "mixed": 21,
+    "unit": 52,
+    "unresolved": 5
+  },
+  "allocation_missing": [],
+  "allocation_extra": [],
+  "unresolved_roots": [
+    "cmd/terrascale-orchestrator/main_test.go::TestCommandSignalChild",
+    "internal/app/bootstrap_admission_test.go::TestHiddenAdmissionGateChildHelper",
+    "internal/app/bootstrap_credential_launcher_test.go::TestPublicControllerRunRejectsBeforeNATSThroughSameBinaryAdmission",
+    "internal/app/capacity_alert_test.go::TestCapacityAlertJournalsMissingTokenOnce",
+    "internal/app/capacity_alert_test.go::TestCapacityAlertOpensAtWarnResolvesBelowClearAndSurvivesLeaderChange"
+  ],
+  "runtime": "UNKNOWN_NO_EXECUTION",
+  "ledger_mutation_by_this_work": false,
+  "retirement_credit": false,
+  "completion_promotion": false
+}

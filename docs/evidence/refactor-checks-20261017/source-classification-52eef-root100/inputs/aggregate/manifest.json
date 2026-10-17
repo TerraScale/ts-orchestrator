@@ -1,0 +1,152 @@
+{
+  "schema": "root100-combined-source-classification-manifest-v1",
+  "owner": "/root/classification_100_dispatch",
+  "state": "INDEPENDENTLY_PEER_ACCEPTED_SOURCE_ONLY_PENDING_CENTRAL_QA_ADOPTION",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root100-source-dispatch-jeov3BoT/allocation-and-exclusions.json",
+    "sha256": "70e4dc811d59ef0c1ec6847fe8ed632964059169973bfe164585b9eaef2b73e5"
+  },
+  "batches": [
+    {
+      "range": [
+        0,
+        20
+      ],
+      "packet": "/tmp/ts-source-classification-00-20-jsk32x28/classification.json",
+      "sha256": "0ffabdc49cdc66d1015e51f76503e496aefb59effbccee6a8df7100c3268c111",
+      "sums_sha256": "a4764ffebe59005418064dcc8581bf51bc9f090e117b21b6c37fe5b71321ba39",
+      "counts": {
+        "integration": 6,
+        "unit": 9,
+        "mixed": 4,
+        "unresolved": 1
+      },
+      "peer": "/tmp/ts-root100-peer-00-20-q__86qcl/review.json",
+      "peer_sha256": "f4353ceb226561503d1708e90d7f051eb70f2eac05611fc721a6681627f49d13",
+      "peer_sums_sha256": "b554b6b2cb1a23575fd35eeb866fc42e7d2ab2d8ed760cb48b37a04ebe327cf4",
+      "state": "accepted_source_only"
+    },
+    {
+      "range": [
+        20,
+        40
+      ],
+      "packet": "/tmp/ts-root100-batch20-40-source-corrected-imrhdam0/classification.json",
+      "sha256": "63386625cb286bf62406ff7c1db4a354399299449bac244b8b3cbe1ef799616e",
+      "sums_sha256": "16d22b00fcad7f60aa9c6a813fa6315eb81271308683cb6dc435bd4f602602fe",
+      "counts": {
+        "integration": 3,
+        "unit": 15,
+        "mixed": 2,
+        "unresolved": 0
+      },
+      "state": "accepted_source_only",
+      "peer": "/tmp/ts-root100-peer20-40-source-p60mfoJY/peer-review.json",
+      "peer_sha256": "e8cde8ecd21ce2019be7f59cd7c07589a30d5772c91b645c59dc44c3bcae4571",
+      "peer_sums_sha256": "96b312545cd66a612818f9edc8a1fde34b27f1b8b2656c2b7d4c62d403eba5a6"
+    },
+    {
+      "range": [
+        40,
+        60
+      ],
+      "packet": "/tmp/ts-root100-batch40-60-source-hhw_88jt/classification.json",
+      "sha256": "ee04fe125dae6c73b45a42f22d96c9b14121c3910e613e1bb96e3b9e5197855e",
+      "sums_sha256": "f5e875bed696a33a7f074d84fe4080ee3cc31c24c8a5967b8347ec6b274e9176",
+      "counts": {
+        "integration": 5,
+        "unit": 12,
+        "mixed": 2,
+        "unresolved": 1
+      },
+      "peer": "/tmp/ts-root100-peer40-60-source-x8_rwr41/peer-review.json",
+      "peer_sha256": "b1057b2468efaced0344d0206577bbef9c8d3a8fd2f53f09a776e19a9d204813",
+      "peer_sums_sha256": "a4e7ce66aedd6e5f1aa90d2990a26184dc8897819718afbd17c482b20c4027aa",
+      "state": "accepted_source_only"
+    },
+    {
+      "range": [
+        60,
+        80
+      ],
+      "packet": "/tmp/ts-source-classification-60-80-final-7l1pgumw/classification.json",
+      "sha256": "0fcb5af4fb5b0d7796d0342feaf6d677a653beafe6ed185b4645f824be2f9734",
+      "sums_sha256": "30121e5624f718a7e8218b13b50ff0fff1ff3e2d6a3512f8236dd4166c83e58c",
+      "counts": {
+        "integration": 4,
+        "unit": 5,
+        "mixed": 8,
+        "unresolved": 3
+      },
+      "state": "accepted_source_only",
+      "peer": "/tmp/ts-root100-peer-60-80-uld0x6d3/peer-review.json",
+      "peer_sha256": "61313d05295ebbc52463c620efe2177971e573a97d7571d737e9c9709f82d34f",
+      "peer_sums_sha256": "c4d62ccfe9e98e81e00b5af2ac4c5c1079a35bee3d998ab6560193432328a30a"
+    },
+    {
+      "range": [
+        80,
+        100
+      ],
+      "state": "accepted_source_only",
+      "packet": "/tmp/ts-source-classification-52eef-batch80-100-0wgsoo78/classification.json",
+      "sha256": "992a5b97d965b06f3d6242a1a50e6f42e0c95366420ef978468469fba014a683",
+      "sums_sha256": "d625c09bb6067800eb3c91777f8044c55352b4b48fa65b7978b7137c8557f98f",
+      "counts": {
+        "integration": 4,
+        "unit": 11,
+        "mixed": 5,
+        "unresolved": 0
+      },
+      "peer": "/tmp/ts-root100-peer80-receipt-dtgltbgf/receipt.json",
+      "peer_sha256": "a6ecf6eef527b33c16fef4bfe79838645bf41c4ef4ca21b4d4e37fda047dbc4a",
+      "peer_sums_sha256": "3f36383143b5470e3e853d97eecdcc2cf00c5f7c743c2c88e956878b7ceb154e"
+    }
+  ],
+  "counts": {
+    "integration": 22,
+    "unit": 52,
+    "mixed": 21,
+    "unresolved": 5,
+    "reviewed_total": 100
+  },
+  "qualification": {
+    "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+    "retirement_authorized": false,
+    "safety_obligations_retained": true,
+    "ledger_mutation_by_this_work": false,
+    "count_promotion": false,
+    "deletion_credit": false,
+    "completion_promotion": false,
+    "canonical_scope_only": true
+  },
+  "limits": [
+    "Literal conditional helper roots TestCommandSignalChild and TestHiddenAdmissionGateChildHelper remain unresolved; parent-owned process assertions confer no extra standalone helper credit.",
+    "Public controller-admission and two capacity-alert roots retain canonical fixture reachability blockers; fixes on successor commits do not transfer.",
+    "Preview Engine.Backend source discrepancy and checkpoint late retry-token contradiction remain explicit; no compilation/runtime outcome is asserted.",
+    "Existing cached SDK source/metadata is pinned, but remote/zip provenance was not reverified."
+  ],
+  "results": {
+    "path": "/tmp/ts-root100-source-dispatch-jeov3BoT/classification-results.json",
+    "sha256": "027d44b80c61c13380fd601e8f6978cc4ebe5924c55a9b92196dead799105199"
+  },
+  "combined_verification": {
+    "path": "/tmp/ts-root100-source-dispatch-jeov3BoT/combined-verification.json",
+    "sha256": "085900c2ce54dea172f4a9943c421af068418968831b5caa3f457527b1ecaa4f"
+  },
+  "source_preservation_proof": {
+    "path": "/tmp/ts-root100-source-dispatch-jeov3BoT/source-preservation-proof.json",
+    "sha256": "e883987f54d9c61a1d518d00a1527101eac9598d3de1c6a03245503d39bda8b1"
+  },
+  "input_hash_list": {
+    "path": "/tmp/ts-root100-source-dispatch-jeov3BoT/INPUT_SHA256SUMS",
+    "sha256": "4bd235bda7983bdb61acaba016331a6dc415cc01e5b4523f5842f30be5be7780"
+  },
+  "input_verification": {
+    "path": "/tmp/ts-root100-source-dispatch-jeov3BoT/input-verification.txt",
+    "sha256": "43c2e50f3dece3d79506317db0b800c6cc7bc9b6eba59e355287ed68286180f7"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "schema": "root100-isolated-evidence-proposal-v1",
+  "state": "FROZEN_PROPOSAL_PENDING_INDEPENDENT_COMPOSITION_REVIEW",
+  "base_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "base_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "source_scope": "New100 exact52eef only; inherited evidence retains original source and runtime pins. Evidence-only successor earns no52eef compile/runtime credit.",
+  "controlling_original_aggregate": {
+    "path": "/tmp/ts-root100-source-dispatch-jeov3BoT/manifest.json",
+    "sha256": "bfbef84fe8540e67cfb4813c4bae1d91e104d2bd62a5848cfebcf0c8ea605409"
+  },
+  "central_source_acceptance": {
+    "path": "/tmp/ts-qa-root100-independent-zdu8umfw/review.json",
+    "sha256": "ddbe349fe9929bb0d507c0b360def363e7038c061c4af37458c4187c51ee598c"
+  },
+  "original409_accounting_sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513",
+  "source_preservation_proof": "inputs/aggregate/source-preservation-proof.json",
+  "proposed_composition": "composition/receipt.json",
+  "counts_after": {
+    "classified": 504,
+    "integration": 206,
+    "mixed": 86,
+    "originals": 4319,
+    "other_unadjudicated": 3719,
+    "retained": 4300,
+    "retired": 19,
+    "reviewed_unresolved_included": 77,
+    "unadjudicated": 3796,
+    "unit": 212
+  },
+  "all_five_categories": "OPEN",
+  "complete": false,
+  "actual_shared_ledger_mutation": false,
+  "runtime_credit": 0,
+  "retirement_delta": 0,
+  "limits": [
+    "Source classification category reasoning relies on five distinct frozen peer acceptances, with central exact artifact/declaration verification.",
+    "Copied author/peer JSON and original checksum manifests retain their original absolute references; no paths/hashes were rewritten. All original bytes remain available in their frozen /tmp locations.",
+    "Full before/after ledger bytes preserve every unrelated field and history prefix; application requires independent composition acceptance and fresh before hashes.",
+    "Cached SDK remote/zip provenance was not reverified. No code/compiler/test/runtime/cloud operations executed."
+  ]
+}
