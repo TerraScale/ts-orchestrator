@@ -553,7 +553,7 @@ func (e *Engine) liveIAM(plan, ids Object, prefix string) {
 	secretConfig := obj(plan["host_credential_secret"])
 	compartment, secretID := secretConfig["compartment_id"], secretConfig["secret_id"]
 	hp := requireLiveID(e.oci("", "iam", "policy", "get", "--policy-id", str(ids["host_policy"])), ids["host_policy"], "host LiveS3Credential IAM policy")
-	statement = fmt.Sprintf("Allow dynamic-group %s to read secret-bundles in compartment id %s where target.secret.id = '%s'", str(identity["host_dynamic_group_name"]), str(compartment), str(secretID))
+	statement := fmt.Sprintf("Allow dynamic-group %s to read secret-bundles in compartment id %s where target.secret.id = '%s'", str(identity["host_dynamic_group_name"]), str(compartment), str(secretID))
 	if hp["lifecycle-state"] != "ACTIVE" || hp["name"] != identity["host_policy_name"] || hp["compartment-id"] != compartment || !eq(hp["statements"], []string{statement}) {
 		fail("host LiveS3Credential policy is not limited to the selected secret and compartment")
 	}
