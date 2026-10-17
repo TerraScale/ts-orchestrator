@@ -43,6 +43,7 @@ type Agent struct {
 	runner           Runner
 	mu               sync.RWMutex
 	sessionRenewMu   sync.Mutex
+	sessionRequestMu sync.RWMutex
 	session          session
 	sessionSafeUntil time.Time
 	managerRenewal   *managerRuntimeRenewalEvent
@@ -441,6 +442,18 @@ func (a *Agent) makeRequest(operation string, payload any) (request, error) {
 func (a *Agent) sendToLeader(ctx context.Context, operation string, payload, out any,
 	signedOut *protocol.Envelope, prepare func(*request) error,
 ) (request, error) {
+	a.sessionRequestMu.RLock()
+	defer a.sessionRequestMu.RUnlock()
+	return a.sendToLeaderLocked(ctx, operation, payload, out, signedOut, prepare)
+}
+
+// The caller holds the shared request gate or the exclusive typed handoff.
+func (a *Agent) sendToLeaderLocked(ctx context.Context, operation string, payload, out any,
+	signedOut *protocol.Envelope, prepare func(*request) error,
+) (request, error) {
+	if ctx == nil || ctx.Err() != nil {
+		return request{}, errors.New("host request context expired or absent")
+	}
 	for attempt := 1; ; attempt++ {
 		r, err := a.makeRequest(operation, payload)
 		if err != nil {
@@ -450,6 +463,9 @@ func (a *Agent) sendToLeader(ctx context.Context, operation string, payload, out
 			if err := prepare(&r); err != nil {
 				return request{}, err
 			}
+		}
+		if err := ctx.Err(); err != nil {
+			return request{}, err
 		}
 		err = exchangeWithEnvelope(ctx, a.cfg.Conn, a.cfg.Cell, a.cfg.ControllerPublicKey, r, out, signedOut)
 		if !errors.Is(err, errControllerNotLeader) || attempt == leaderRequestAttempts {
@@ -534,10 +550,10 @@ func (a *Agent) wallTime() time.Time {
 }
 
 func (a *Agent) acceptSession(s session) error {
-	return a.acceptSessionRenewal(s, nil)
+	return a.acceptSessionContext(nil, s, nil, nil)
 }
 
-func (a *Agent) acceptSessionRenewal(s session, renewal *managerRuntimeRenewalEvent) error {
+func (a *Agent) acceptSessionContext(ctx context.Context, s session, renewal *managerRuntimeRenewalEvent, seal *managerRuntimeInstallSeal) error {
 	if err := a.checkClock(); err != nil {
 		return err
 	}
@@ -550,6 +566,18 @@ func (a *Agent) acceptSessionRenewal(s session, renewal *managerRuntimeRenewalEv
 	// extend this locally bounded execution lease.
 	deadline := receivedAt.Add(min(remaining, sessionTTL-sessionExecutionReserve))
 	a.mu.Lock()
+	if ctx != nil && ctx.Err() != nil {
+		a.mu.Unlock()
+		return ctx.Err()
+	}
+	if renewal != nil && renewal.work.Err() != nil {
+		a.mu.Unlock()
+		return renewal.work.Err()
+	}
+	if seal != nil && !seal.validLocked(a, s) {
+		a.mu.Unlock()
+		return errors.New("original manager renewal installation lost its local acceptance seal")
+	}
 	a.session = s
 	a.sessionSafeUntil = deadline
 	if renewal != nil {
@@ -609,7 +637,7 @@ func (a *Agent) maintainSessionLease(ctx context.Context, fail func(error)) {
 	defer ticker.Stop()
 	for {
 		ctx := observability.StartTrace(ctx)
-		current, deadline, err := a.executionLease()
+		_, deadline, err := a.executionLease()
 		if err != nil {
 			fail(err)
 			return
@@ -619,32 +647,15 @@ func (a *Agent) maintainSessionLease(ctx context.Context, fail func(error)) {
 			return
 		case <-ticker.C:
 		}
-		current, deadline, err = a.executionLease()
+		_, deadline, err = a.executionLease()
 		if err != nil {
 			fail(err)
 			return
 		}
 		a.sessionRenewMu.Lock()
-		current, deadline, err = a.executionLease()
-		if err != nil {
-			a.sessionRenewMu.Unlock()
-			fail(err)
-			return
-		}
-		var next session
-		var signed protocol.Envelope
-		renewCtx, renewCancel := context.WithDeadline(ctx, deadline)
-		req, err := a.sendToLeader(renewCtx, "session", sessionOperation{Kind: "renew", ManagerRuntimeBinding: current.ManagerRuntimeBinding}, &next, &signed, nil)
-		renewCancel()
-		if err == nil {
-			if next.SessionID != current.SessionID || next.Epoch != current.Epoch || !next.ExpiresAt.After(current.ExpiresAt) {
-				err = errors.New("renewed session binding mismatch")
-			} else if _, _, err = a.executionLease(); err == nil {
-				if err = a.acceptSessionRenewal(next, newManagerRuntimeRenewalEvent(work, current, next, req.Envelope, signed)); err == nil {
-					a.logSessionAccepted("renew", next)
-				}
-			}
-		}
+		a.sessionRequestMu.RLock()
+		err = a.renewSessionLocked(ctx, work)
+		a.sessionRequestMu.RUnlock()
 		a.sessionRenewMu.Unlock()
 		_, _, leaseErr := a.executionLease()
 		if leaseErr != nil {
@@ -662,6 +673,33 @@ func (a *Agent) maintainSessionLease(ctx context.Context, fail func(error)) {
 		}
 		a.sessionRecovered()
 	}
+}
+
+// Both sessionRenewMu and the request gate are already held by the caller.
+func (a *Agent) renewSessionLocked(ctx, work context.Context) error {
+	current, deadline, err := a.executionLease()
+	if err != nil {
+		return err
+	}
+	renewCtx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	var next session
+	var signed protocol.Envelope
+	req, err := a.sendToLeaderLocked(renewCtx, "session", sessionOperation{Kind: "renew", ManagerRuntimeBinding: current.ManagerRuntimeBinding}, &next, &signed, nil)
+	if err != nil {
+		return err
+	}
+	if next.SessionID != current.SessionID || next.Epoch != current.Epoch || !next.ExpiresAt.After(current.ExpiresAt) {
+		return errors.New("renewed session binding mismatch")
+	}
+	if _, _, err := a.executionLease(); err != nil {
+		return err
+	}
+	if err := a.acceptSessionContext(renewCtx, next, newManagerRuntimeRenewalEvent(work, current, next, req.Envelope, signed), nil); err != nil {
+		return err
+	}
+	a.logSessionAccepted("renew", next)
+	return nil
 }
 
 // logSessionAccepted is called only after exchange has verified the signed

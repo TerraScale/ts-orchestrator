@@ -5,6 +5,7 @@ package host
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"crypto/ed25519"
 	"testing"
 	"time"
@@ -16,10 +17,13 @@ import (
 
 // This exercises actual host signatures, transport, maintenance and durable CAS.
 // Its inert carrier is not a positive native manager/process/root admission.
-func managerRenewalTransport(t *testing.T) (*Reader, *Agent, SignedManagerRuntimeBinding, context.CancelFunc) {
+func managerRenewalTransport(t *testing.T, options ...func(*Controller)) (*Reader, *Agent, SignedManagerRuntimeBinding, context.CancelFunc, *ecdsa.PrivateKey) {
 	t.Helper()
 	c, conn, _, _, controllerKey := testController(t)
 	key := registerTestHost(t, c)
+	for _, option := range options {
+		option(c)
+	}
 	controllerCtx, stopController := context.WithCancel(t.Context())
 	controllerDone := make(chan error, 1)
 	go func() { controllerDone <- c.Run(controllerCtx) }()
@@ -71,7 +75,7 @@ func managerRenewalTransport(t *testing.T) (*Reader, *Agent, SignedManagerRuntim
 	}()
 	stop := func() { cancel(); <-done }
 	t.Cleanup(stop)
-	return r, a, signed, stop
+	return r, a, signed, stop, nativeKey
 }
 
 func awaitManagerRenewal(t *testing.T, r *Reader, a *Agent, predecessor SignedManagerRuntimeBinding, after uint64) *ManagerRuntimeRenewal {
@@ -97,7 +101,7 @@ func awaitManagerRenewal(t *testing.T, r *Reader, a *Agent, predecessor SignedMa
 }
 
 func TestManagerRuntimeRenewalTransportPinsReceiptAndFirstDeadline(t *testing.T) {
-	r, a, predecessor, stop := managerRenewalTransport(t)
+	r, a, predecessor, stop, _ := managerRenewalTransport(t)
 	held := awaitManagerRenewal(t, r, a, predecessor, 0)
 	deadline, digest, revision := held.ExpiresAt(), held.Digest(), held.SourceRevision()
 	if digest == "" || revision == 0 || !deadline.Equal(held.event.deadline) || !deadline.After(time.Now().Add(requestTTL)) {
@@ -170,7 +174,7 @@ func TestManagerRuntimeRenewalTransportPinsReceiptAndFirstDeadline(t *testing.T)
 }
 
 func TestManagerRuntimeRenewalRejectsChangedSourceAndOriginalCancellation(t *testing.T) {
-	r, a, predecessor, _ := managerRenewalTransport(t)
+	r, a, predecessor, _, _ := managerRenewalTransport(t)
 	held := awaitManagerRenewal(t, r, a, predecessor, 0)
 	operation, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	cancelled, err := r.AdmitManagerRuntimeRenewal(operation, a, predecessor)
@@ -215,7 +219,7 @@ func TestManagerRuntimeRenewalRejectsChangedSourceAndOriginalCancellation(t *tes
 func TestManagerRuntimeRenewalRejectsReplacedCarrierAndRegistration(t *testing.T) {
 	for _, change := range []string{"carrier", "registration"} {
 		t.Run(change, func(t *testing.T) {
-			r, a, predecessor, _ := managerRenewalTransport(t)
+			r, a, predecessor, _, _ := managerRenewalTransport(t)
 			held := awaitManagerRenewal(t, r, a, predecessor, 0)
 			a.sessionRenewMu.Lock()
 			defer a.sessionRenewMu.Unlock()
@@ -245,7 +249,7 @@ func TestManagerRuntimeRenewalRejectsReplacedCarrierAndRegistration(t *testing.T
 }
 
 func TestManagerRuntimeRenewalRequiresExactReceiptAtFirstAdmission(t *testing.T) {
-	r, a, predecessor, _ := managerRenewalTransport(t)
+	r, a, predecessor, _, _ := managerRenewalTransport(t)
 	held := awaitManagerRenewal(t, r, a, predecessor, 0)
 	a.sessionRenewMu.Lock()
 	defer a.sessionRenewMu.Unlock()
