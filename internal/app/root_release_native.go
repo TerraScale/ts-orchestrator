@@ -396,6 +396,9 @@ func (o *rootReleaseObservation) retainedNativeArtifact(ctx context.Context, bin
 		if err != nil {
 			return err
 		}
+		if len(verified.Spec.Signers) == 0 {
+			return rootrelease.ErrPending
+		}
 		registry.current = verified.Spec
 	}
 	location, err := o.location(ctx)
