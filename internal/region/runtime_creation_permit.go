@@ -58,7 +58,7 @@ func PrepareRuntimeCreation(ctx context.Context, factory *ociclient.Factory, rea
 	if err != nil {
 		return nil, err
 	}
-	factory, _, err = home.GuardedFactory(operation)
+	factory, operation, err = home.GuardedFactory(operation)
 	if err != nil {
 		return nil, err
 	}
@@ -90,12 +90,18 @@ func PrepareRuntimeCreation(ctx context.Context, factory *ociclient.Factory, rea
 	}
 	permit := &RuntimeCreationPermit{ctx: ctx, factory: factory, home: home, reader: reader, accepted: accepted.Clone(),
 		identity: identity, creation: creation, origin: *record.RuntimeLineage, expires: expires}
+	operation, finish, err := permit.bound(operation)
+	if err != nil {
+		return nil, err
+	}
+	defer finish()
 	if err := permit.ValidateSource(operation); err != nil {
 		return nil, err
 	}
 	lineage := *record.RuntimeLineage
 	lineage.Creation = new(creation)
 	record.RuntimeLineage, record.UpdatedAt = &lineage, now
+	operation = ociclient.WithAuthority(operation, permit.ValidateSource)
 	if _, err := resolver.Store.CompareAndSwap(operation, record, etag); err != nil {
 		return nil, err
 	}
@@ -124,6 +130,15 @@ func (permit *RuntimeCreationPermit) ExpiresAt() time.Time {
 		return time.Time{}
 	}
 	return permit.expires
+}
+
+// GuardedHomeIAM returns only the exact independently verified home authority
+// retained by this original creation capability.
+func (permit *RuntimeCreationPermit) GuardedHomeIAM(ctx context.Context) (*HomeIAMAuthority, error) {
+	if err := permit.ValidateSource(ctx); err != nil {
+		return nil, err
+	}
+	return permit.home, nil
 }
 
 func (permit *RuntimeCreationPermit) GuardCreate(ctx context.Context) error {
