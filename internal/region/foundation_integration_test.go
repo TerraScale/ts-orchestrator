@@ -327,6 +327,39 @@ func TestFoundationRecordsPersistAndFenceConcurrentWriters(t *testing.T) {
 	if _, err := restarted.CompareAndSwap(t.Context(), candidate, currentETag); err == nil {
 		t.Fatal("whole-record CAS replaced the completed writer authority")
 	}
+	// Public provenance only: no successful sealed-source read is claimed.
+	brokerTarget := vaultsecret.Target{CompartmentID: "ocid1.compartment.oc1..owncontrol", VaultID: "ocid1.vault.oc1.sa-saopaulo-1.test", KeyID: writer.KMSKeyID}
+	completedReader := NetBirdBrokerPolicyRecord{Cell: "GRU", InstallationID: installation, GrantSHA256: writer.GrantSHA256, SourceSHA256: strings.Repeat("a", 64),
+		ActorInstanceID: original, OperationID: current.OperationID, Epoch: current.Epoch, IntentDigest: current.IntentDigest,
+		InstanceID: "ocid1.instance.oc1.sa-saopaulo-1.manager", PrivateIP: "10.251.0.21", StoreGeneration: entityid.Derive("netbird-foundation-store", installation) + ":1",
+		ManagerVaultTarget: brokerTarget, VaultTarget: brokerTarget, SecretName: "gru-1-netbird-broker", SecretID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.broker",
+		FirstAttemptAt: now.Add(-2 * time.Hour), ExpiresAt: now.Add(-time.Hour), Dispatches: 1, LastDispatchedAt: now.Add(-2 * time.Hour), PolicyID: "ocid1.policy.oc1..reader"}
+	readerKey := netBirdBrokerPolicyKey(completedReader.InstanceID, completedReader.SecretID)
+	completedReader.Request = netBirdBrokerPolicyRequest(completedReader)
+	readerWire, err := json.Marshal(completedReader.Request, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	completedReader.RequestDigest = digestSource(readerWire)
+	completedReader.RetryToken = digestSource([]byte(completedReader.OperationID + "\x00" + readerKey + "\x00" + completedReader.RequestDigest))
+	domain := bootstrap.StorageDomain{Namespace: writer.Namespace, HeadBucket: writer.Bucket, HeadKMSKeyOCID: writer.KMSKeyID}
+	historyRecord := clone()
+	historyRecord.FoundationWriter.FirstAttemptAt = now.Add(-3 * time.Hour)
+	historyRecord.FoundationWriter.Policy.FirstAttemptAt = now.Add(-3*time.Hour + time.Second)
+	historyRecord.FoundationWriter.Policy.VerifiedAt = now.Add(-3*time.Hour + 2*time.Second)
+	if err := netBirdBrokerReaderOriginal(historyRecord, completedReader, domain); err != nil {
+		t.Fatalf("expired historic dispatch invalidated completed original provenance: %v", err)
+	}
+	otherActor := completedReader
+	otherActor.ActorInstanceID = "ocid1.instance.oc1.sa-saopaulo-1.replacement"
+	if err := netBirdBrokerReaderOriginal(historyRecord, otherActor, domain); err == nil {
+		t.Fatal("completed broker receipt transferred original writer provenance")
+	}
+	unknown := completedReader
+	unknown.PolicyID, unknown.Uncertain = "", true
+	if err := netBirdBrokerReaderOriginal(historyRecord, unknown, domain); err == nil {
+		t.Fatal("unknown broker dispatch became a completed receipt")
+	}
 	current.FoundationWriter.Policy.Request.Statements = append(current.FoundationWriter.Policy.Request.Statements, "Allow any-user to manage objects in tenancy")
 	corrupt, err := json.Marshal(current, json.Deterministic(true))
 	if err != nil {
@@ -335,6 +368,13 @@ func TestFoundationRecordsPersistAndFenceConcurrentWriters(t *testing.T) {
 	raw(foundationObjectPrefix+"GRU.json", corrupt)
 	if _, _, err := restarted.Load(t.Context(), "GRU"); err == nil {
 		t.Fatal("widened durable writer policy accepted")
+	}
+}
+
+func TestNetBirdBrokerReaderRequiresSealedSource(t *testing.T) {
+	err := VerifyNetBirdBrokerReader(t.Context(), nil, FoundationResolver{}, bootstrap.VerifiedRegionalSource{}, VerifiedNetBirdManagerRecipient{})
+	if err == nil || errors.Is(err, ErrNetBirdBrokerPolicyAbsent) || errors.Is(err, ErrNetBirdBrokerPolicyPending) {
+		t.Fatalf("missing source produced broker discovery authority: %v", err)
 	}
 }
 
