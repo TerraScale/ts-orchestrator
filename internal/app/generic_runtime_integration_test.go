@@ -307,17 +307,23 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	var escaped context.Context
 	// This exercises the real signed task/SDK chain under the journal guard;
 	// the external production OCI recipient proof remains a separate gate.
-	_, err = fencer.CommitHostMutationVerified(ctx, fencer.Current().Epoch, authority.MutationMaterialReceipt,
-		identity.Cell+"."+session.registration.Node, entityid.New(), 0, materialProof, func(check context.Context) error {
-			escaped = check
-			if err := probe(check, assignment.Task); err != nil {
-				return err
-			}
-			return fencer.Guard(check, fencer.Current().Epoch)
-		})
-	if err != nil {
-		t.Fatal("signed task/SDK verification under authority commit", err)
-	}
+	genericRuntimeEventually(t, ctx, func() bool {
+		_, err := fencer.CommitHostMutationVerified(ctx, fencer.Current().Epoch, authority.MutationMaterialReceipt,
+			identity.Cell+"."+session.registration.Node, entityid.New(), 0, materialProof, func(check context.Context) error {
+				escaped = check
+				if err := probe(check, assignment.Task); err != nil {
+					return err
+				}
+				return fencer.Guard(check, fencer.Current().Epoch)
+			})
+		if errors.Is(err, authority.ErrConflict) {
+			return false
+		}
+		if err != nil {
+			t.Fatal("signed task/SDK verification under authority commit", err)
+		}
+		return true
+	})
 	if escaped == nil || escaped.Err() == nil || !errors.Is(fencer.Guard(escaped, fencer.Current().Epoch), authority.ErrFenced) {
 		t.Fatal("task/SDK callback retained authority after its verified commit ended")
 	}
