@@ -266,7 +266,7 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 		return pending(err)
 	}
 
-	sourceGuard := func(ctx context.Context) error {
+	currentSourceGuard := func(ctx context.Context) error {
 		if err := call.Guard(ctx); err != nil {
 			return err
 		}
@@ -304,7 +304,15 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 		if err := lease.Guard(ctx); err != nil {
 			return err
 		}
-
+		if !time.Now().Before(deadline) || !verified.Valid(time.Now().UTC()) {
+			return ErrPending
+		}
+		return call.Guard(ctx)
+	}
+	sourceGuard := func(ctx context.Context) error {
+		if err := currentSourceGuard(ctx); err != nil {
+			return err
+		}
 		originalNow, referenceNow, err := s.Intents.ContainerProvenance(ctx, original.OperationID)
 		if err != nil {
 			return err
@@ -317,7 +325,7 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 		if err != nil || !bytes.Equal(wireNow, originalWire) {
 			return ErrPending
 		}
-		return nil
+		return currentSourceGuard(ctx)
 	}
 	sessions := map[string]*host.ContainerGenerationSession{}
 	controllers := map[string]*bootstrapstart.ControllerHostRecipient{}
