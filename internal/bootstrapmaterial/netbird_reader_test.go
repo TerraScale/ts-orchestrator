@@ -61,6 +61,7 @@ func TestNetBirdReaderUsesExistingIssuerAndClosedReadRole(t *testing.T) {
 		"other inbox":              func(c *jwt.UserClaims) { c.Sub.Allow = jwt.StringList{"_INBOX.>"} },
 		"response grant":           func(c *jwt.UserClaims) { c.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: time.Second} },
 		"bearer":                   func(c *jwt.UserClaims) { c.BearerToken = true },
+		"native TCP connection":    func(c *jwt.UserClaims) { c.AllowedConnectionTypes = jwt.StringList{jwt.ConnectionTypeStandard} },
 		"leaf connection":          func(c *jwt.UserClaims) { c.AllowedConnectionTypes = jwt.StringList{jwt.ConnectionTypeLeafnode} },
 		"extended deadline":        func(c *jwt.UserClaims) { c.Expires++ },
 	} {

@@ -42,7 +42,7 @@ func (issuer *ControllerIssuer) IssueNetBirdReadCredentials(deadline time.Time) 
 	claim.Name, claim.IssuerAccount, claim.Expires = "netbird-manager-read", issuer.identity.CellAccount, deadline.Unix()
 	claim.Pub.Allow = natscell.NetBirdReaderPublishes(cell)
 	claim.Sub.Allow = jwt.StringList{protocol.InboxGrant(cell, public)}
-	claim.AllowedConnectionTypes = jwt.StringList{jwt.ConnectionTypeStandard}
+	claim.AllowedConnectionTypes = jwt.StringList{jwt.ConnectionTypeInProcess}
 	creds, err := credentials(claim, issuer.signer, user)
 	if err != nil {
 		return nil, err
