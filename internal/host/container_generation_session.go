@@ -57,7 +57,7 @@ func (s *ContainerGenerationSession) Guard(ctx context.Context) error {
 	if s == nil || s.reader == nil || s.original == nil || ctx == nil || s.original.Err() != nil || ctx.Err() != nil || !time.Now().Before(s.deadline) {
 		return errors.New("original container generation session expired or was cancelled")
 	}
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithDeadline(ctx, s.deadline)
 	stop := context.AfterFunc(s.original, cancel)
 	defer cancel()
 	defer stop()
@@ -86,6 +86,15 @@ func (r *Reader) currentContainerGenerationSession(ctx context.Context, node str
 	if err != nil || retired.Retired {
 		return Registration{}, session{}, errors.New("container generation host is retired or unavailable")
 	}
+	current, _, exists, err := c.sessionSnapshot(ctx, sessionKey(c.cell, node))
+	if err != nil {
+		return Registration{}, session{}, err
+	}
+	if !exists || current.RegistrationGeneration != registration.Generation || current.SessionID == "" || current.Epoch == 0 || !time.Now().Before(current.ExpiresAt) {
+		return Registration{}, session{}, errors.New("container generation host has no current session")
+	}
+	ctx, cancel := context.WithDeadline(ctx, current.ExpiresAt)
+	defer cancel()
 	if registration.ManagedPlacement != nil {
 		if c.credentialFloor == nil {
 			return Registration{}, session{}, errors.New("container generation credential floor is unavailable")
@@ -94,12 +103,10 @@ func (r *Reader) currentContainerGenerationSession(ctx context.Context, node str
 			return Registration{}, session{}, errors.New("container generation credential floor is not current")
 		}
 	}
-	current, _, exists, err := c.sessionSnapshot(ctx, sessionKey(c.cell, node))
-	if err != nil {
-		return Registration{}, session{}, err
-	}
-	if !exists || current.RegistrationGeneration != registration.Generation || current.SessionID == "" || current.Epoch == 0 || !time.Now().Before(current.ExpiresAt) {
-		return Registration{}, session{}, errors.New("container generation host has no current session")
+	confirmed, _, exists, err := c.sessionSnapshot(ctx, sessionKey(c.cell, node))
+	if err != nil || !exists || confirmed.RegistrationGeneration != current.RegistrationGeneration ||
+		confirmed.SessionID != current.SessionID || confirmed.Epoch != current.Epoch || !time.Now().Before(confirmed.ExpiresAt) || ctx.Err() != nil {
+		return Registration{}, session{}, errors.New("container generation session changed during credential verification")
 	}
 	return registration, current, nil
 }

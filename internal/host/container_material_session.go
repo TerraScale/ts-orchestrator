@@ -110,7 +110,7 @@ func (s *ContainerMaterialSession) Guard(ctx context.Context) error {
 	if s == nil || s.reader == nil || s.original == nil || ctx == nil || s.original.Err() != nil || ctx.Err() != nil || !time.Now().Before(s.deadline) {
 		return errors.New("original container material admission expired or was cancelled")
 	}
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithDeadline(ctx, s.deadline)
 	stop := context.AfterFunc(s.original, cancel)
 	defer cancel()
 	defer stop()
@@ -145,15 +145,22 @@ func (r *Reader) currentContainerMaterialSession(ctx context.Context, req reques
 	if registration.ManagedPlacement != nil && c.credentialFloor == nil {
 		return Registration{}, session{}, errors.New("container material managed credential floor is unavailable")
 	}
-	if err := c.verifyCredentialProtocol(ctx, req, registration); err != nil {
-		return Registration{}, session{}, err
-	}
 	current, _, exists, err := c.sessionSnapshot(ctx, sessionKey(c.cell, req.Node))
 	if err != nil {
 		return Registration{}, session{}, err
 	}
 	if !exists || !currentAuthorizedSession(current, registration, req, time.Now()) {
 		return Registration{}, session{}, errors.New("original container material host session is not current")
+	}
+	deadline := containerMaterialDeadline(current.ExpiresAt, (ContainerMaterialEvidence{Request: req.Envelope}).Deadline())
+	ctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	if err := c.verifyCredentialProtocol(ctx, req, registration); err != nil {
+		return Registration{}, session{}, err
+	}
+	confirmed, _, exists, err := c.sessionSnapshot(ctx, sessionKey(c.cell, req.Node))
+	if err != nil || !exists || !currentAuthorizedSession(confirmed, registration, req, time.Now()) || ctx.Err() != nil {
+		return Registration{}, session{}, errors.New("original container material host session changed during credential verification")
 	}
 	return registration, current, nil
 }
