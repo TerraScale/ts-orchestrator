@@ -5,6 +5,7 @@ import (
 	"errors"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
@@ -60,11 +61,26 @@ func (authority *HomeIAMAuthority) ReconcileNetBirdJournalUnderlay(ctx context.C
 	if authority.operator.deadline.Before(expected.ExpiresAt) {
 		expected.ExpiresAt = authority.operator.deadline
 	}
+	expected.Origin = bootstrap.NetBirdJournalOriginReference{Namespace: authority.domain.Namespace,
+		GrantObject: strings.TrimSuffix(authority.domain.Prefix, "/") + "/" + foundationGrantObject,
+		GrantSHA256: purpose.GrantDigest(), RootChainSHA256: digestSource(authority.operator.bundle.RootChainWire)}
 	ctx, capCancel := context.WithDeadline(ctx, expected.ExpiresAt)
 	defer capCancel()
 	current, etag, err := resolver.Store.Load(ctx, "GRU")
 	if err != nil {
 		return err
+	}
+	startedAt := expected.StartedAt
+	if current.NetBirdUnderlay != nil {
+		startedAt = current.NetBirdUnderlay.StartedAt
+	}
+	origin, err := netBirdJournalOrigin(ctx, factory, authority.operator.genesis, expected.Origin, startedAt)
+	if err != nil {
+		return err
+	}
+	originDigest, err := origin.Purpose().Digest()
+	if err != nil || originDigest != expected.PurposeSHA256 || origin.GrantDigest() != expected.GrantSHA256 {
+		return errors.Join(errors.New("NetBird underlay archive differs from its exact original signed purpose"), err)
 	}
 	if current.NetBirdUnderlay == nil {
 		current.NetBirdUnderlay = &expected
@@ -331,7 +347,15 @@ func netBirdUnderlayBirth(ctx, originalCtx context.Context, factory *ociclient.F
 			expires = cap
 		}
 	}
-	return NetBirdUnderlayRecord{PurposeSHA256: purpose.Digest(), GrantSHA256: purpose.GrantDigest(), OperationID: record.OperationID, IntentDigest: record.IntentDigest, Epoch: record.Epoch,
+	var origin bootstrap.NetBirdJournalOriginReference
+	if record.NetBirdUnderlay != nil {
+		origin = record.NetBirdUnderlay.Origin
+		if origin.Validate() != nil || origin.Namespace != p.Storage.Namespace || origin.GrantSHA256 != purpose.GrantDigest() ||
+			origin.GrantObject != strings.TrimSuffix(p.Storage.Prefix, "/")+"/"+foundationGrantObject {
+			return zero, errors.New("NetBird underlay archive reference differs from its protected original signed source")
+		}
+	}
+	return NetBirdUnderlayRecord{PurposeSHA256: purpose.Digest(), GrantSHA256: purpose.GrantDigest(), Origin: origin, OperationID: record.OperationID, IntentDigest: record.IntentDigest, Epoch: record.Epoch,
 		Recipe: p.Underlay, Manager: manager, Writer: writer, StartedAt: time.Now().UTC(), ExpiresAt: expires, Requests: map[string]NetBirdUnderlayRequest{}}, nil
 }
 
