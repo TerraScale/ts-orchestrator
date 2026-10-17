@@ -370,6 +370,16 @@ func TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+				if !boundedStartup.AuthorityExpiresAt().Equal(now.Add(30*time.Minute)) || !boundedStartup.ExpiresAt().Equal(leaseDeadline) {
+					t.Fatal("startup signature ceiling adopted its finite local observation lifetime")
+				}
+				shortDeadline := leaseDeadline.Add(-time.Minute)
+				shortOriginal, cancelShortOriginal := context.WithDeadline(originalContext, shortDeadline)
+				defer cancelShortOriginal()
+				shortStartup, err := bootstrap.VerifyBoundRegionalStartupTemplateForOperation(operation, shortOriginal, factory, wire, roots, anchor, oci.RegionSFO, now)
+				if err != nil || !shortStartup.ExpiresAt().Equal(shortDeadline) || !shortStartup.AuthorityExpiresAt().Equal(boundedStartup.AuthorityExpiresAt()) {
+					t.Fatalf("shorter original changed signed startup ceiling or lost consumption cap: %v", err)
+				}
 				cancelOperation()
 				assertStartup(boundedStartup, "SFO")
 				if err := boundedMaterial.Revalidate(t.Context()); err != nil {
