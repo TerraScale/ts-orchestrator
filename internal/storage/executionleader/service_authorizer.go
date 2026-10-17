@@ -33,6 +33,7 @@ type ServiceAuthorizerConfig struct {
 	Roots             trust.Keyring
 	Evidence          func(context.Context, string) (io.ReadCloser, error)
 	Allocations       execution.ContainerAllocationResolver
+	Profile           func(context.Context, delivery.Intent) error
 	Guard             func(context.Context, uint64) error
 	Cell, Environment string
 }
@@ -41,7 +42,7 @@ type ServiceAuthorizer struct{ config ServiceAuthorizerConfig }
 
 func NewServiceAuthorizer(config ServiceAuthorizerConfig) (*ServiceAuthorizer, error) {
 	if config.Client == nil || config.Authority == nil || config.Members == nil || config.Delivery == nil || len(config.Roots) == 0 ||
-		config.Evidence == nil || config.Allocations == nil || config.Guard == nil || !release.ValidRegion(strings.ToUpper(config.Cell)) ||
+		config.Evidence == nil || config.Allocations == nil || config.Profile == nil || config.Guard == nil || !release.ValidRegion(strings.ToUpper(config.Cell)) ||
 		config.Cell != strings.ToLower(config.Cell) || config.Environment == "" {
 		return nil, execution.ErrUnsafe
 	}
@@ -77,6 +78,9 @@ func (a *ServiceAuthorizer) AuthorizeStatefulService(ctx context.Context, reques
 	if err := c.Guard(ctx, intent.AuthorityEpoch); err != nil {
 		return err
 	}
+	if err := c.Profile(ctx, intent); err != nil {
+		return err
+	}
 	if _, err := c.Authority.ReadTerminalIntent(ctx, db, partition); !errors.Is(err, authority.ErrNotFound) {
 		return errors.Join(execution.ErrUnsafe, err)
 	}
@@ -100,6 +104,18 @@ func (a *ServiceAuthorizer) AuthorizeStatefulService(ctx context.Context, reques
 	}
 	row, err := placementIntent.RosterRowForSeat(placement.Seat{MemberID: state.MemberID, Region: state.Region, FailureDomain: state.FailureDomain, Kind: state.Kind})
 	if err != nil || row != state.CanonicalRosterRow {
+		return errors.Join(execution.ErrUnsafe, err)
+	}
+	profile, err := placementIntent.ManagedHostProfile(state.Region)
+	if err != nil || profile != state.ManagedHostProfile {
+		return errors.Join(execution.ErrUnsafe, err)
+	}
+	manifestPin, err := placementIntent.RuntimeManifestForSeat(placement.Seat{MemberID: state.MemberID, Region: state.Region, FailureDomain: state.FailureDomain, Kind: state.Kind})
+	if err != nil {
+		return err
+	}
+	manifestDigest, err := manifestPin.Digest()
+	if err != nil || manifestDigest != state.RuntimeManifestDigest {
 		return errors.Join(execution.ErrUnsafe, err)
 	}
 	rosterDigest, err := placementIntent.CanonicalRosterDigest()
@@ -217,6 +233,9 @@ func (a *ServiceAuthorizer) AuthorizeStatefulService(ctx context.Context, reques
 	if err != nil || currentNode == nil || currentNode.Node == nil || !proto.Equal(&currentNode.Node.Spec, &node.Spec) ||
 		!proto.Equal(currentNode.Node.Description, node.Description) || !time.Now().Before(qualified.ValidUntil()) {
 		return errors.Join(execution.ErrUnsafe, err)
+	}
+	if err := c.Profile(ctx, intent); err != nil {
+		return err
 	}
 	return c.Guard(ctx, intent.AuthorityEpoch)
 }
