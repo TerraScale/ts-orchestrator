@@ -86,7 +86,7 @@ func LoadRegionalSource(ctx context.Context, template VerifiedStartupTemplate, c
 	if client == nil || ctx == nil || ctx.Err() != nil {
 		return deny()
 	}
-	ctx, cancel := context.WithDeadline(ctx, template.ExpiresAt())
+	ctx, cancel := template.currentReadContext(ctx)
 	defer cancel()
 	if template.VerifyCurrentContext(ctx, now) != nil || template.startupIdentity().InitialSourceRegistration == nil {
 		return deny()

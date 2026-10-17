@@ -141,7 +141,12 @@ func RestoreDerivedStartupAuthority(ctx context.Context, grantWire []byte, ancho
 // LoadDerivedStartupAuthority discovers a joining slot's immutable public
 // proof directly; first-boot metadata never needs a dynamic config payload.
 func LoadDerivedStartupAuthority(ctx context.Context, template VerifiedStartupTemplate, client ObjectStorageClient, slot string, now time.Time) (DerivedStartupAuthority, error) {
-	if client == nil || template.VerifyCurrentContext(ctx, now) != nil || !slices.Contains(template.startupIdentity().ControllerSlots, slot) {
+	if ctx == nil || client == nil {
+		return DerivedStartupAuthority{}, ErrManifestInvalid
+	}
+	ctx, cancel := template.currentReadContext(ctx)
+	defer cancel()
+	if template.VerifyCurrentContext(ctx, now) != nil || !slices.Contains(template.startupIdentity().ControllerSlots, slot) {
 		return DerivedStartupAuthority{}, ErrManifestInvalid
 	}
 	domain := template.startupSourceDomain()
@@ -188,6 +193,8 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 	if err != nil {
 		return deny("envelope")
 	}
+	ctx, cancelTemplate := template.currentReadContext(ctx)
+	defer cancelTemplate()
 	ctx, cancelEnvelope := context.WithDeadline(ctx, minTimeLink(envelope.ExpiresAt, template.ExpiresAt()))
 	defer cancelEnvelope()
 	if template.VerifyCurrentContext(ctx, now) != nil {

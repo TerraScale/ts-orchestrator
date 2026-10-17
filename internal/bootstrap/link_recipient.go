@@ -27,6 +27,10 @@ func VerifyLinkRecipient(ctx context.Context, regional, home VerifiedRegionalSou
 	if ctx == nil || ctx.Err() != nil || now.IsZero() || !regional.IsVerified() || !home.IsVerified() {
 		return LinkRecipient{}, ErrManifestInvalid
 	}
+	ctx, cancelRegional := regional.template.currentReadContext(ctx)
+	defer cancelRegional()
+	ctx, cancelHome := home.template.currentReadContext(ctx)
+	defer cancelHome()
 	ctx, cancel := context.WithDeadline(ctx, minTimeLink(regional.ExpiresAt(), home.ExpiresAt()))
 	defer cancel()
 	if err := regional.VerifyCurrent(ctx, now); err != nil {
@@ -131,6 +135,10 @@ func VerifyLinkDelivery(ctx context.Context, recipient LinkRecipient, wire []byt
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancelRegional := recipient.regional.template.currentReadContext(ctx)
+	defer cancelRegional()
+	ctx, cancelHome := recipient.home.template.currentReadContext(ctx)
+	defer cancelHome()
 	ctx, cancel := context.WithDeadline(ctx, minTimeLink(envelope.ExpiresAt, recipient.ExpiresAt()))
 	defer cancel()
 	if recipient.VerifyCurrent(ctx, now) != nil {

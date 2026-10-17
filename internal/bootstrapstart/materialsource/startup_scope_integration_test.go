@@ -385,7 +385,28 @@ func TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS(t *testing.T) {
 				if err := boundedMaterial.Revalidate(t.Context()); err != nil {
 					t.Fatalf("completed read canceled original regional material: %v", err)
 				}
+				blockedSource := &startupSourceCancellationClient{ObjectStorageClient: &objects, started: make(chan struct{})}
+				readResult := make(chan error, 1)
+				go func() {
+					_, err := bootstrap.LoadRegionalSource(t.Context(), boundedStartup, blockedSource, now)
+					readResult <- err
+				}()
+				select {
+				case <-blockedSource.started:
+				case err := <-readResult:
+					t.Fatalf("regional source read did not reach the SDK after startup verification: %v", err)
+				case <-time.After(5 * time.Second):
+					t.Fatal("regional source read did not reach the SDK")
+				}
 				cancelOriginal()
+				select {
+				case err := <-readResult:
+					if err == nil {
+						t.Fatal("regional source read ignored original caller cancellation")
+					}
+				case <-time.After(5 * time.Second):
+					t.Fatal("original cancellation did not interrupt the in-flight regional source SDK read")
+				}
 				if err := boundedStartup.VerifyCurrentContext(t.Context(), now); err == nil {
 					t.Fatal("regional startup ignored original caller cancellation")
 				}
@@ -447,6 +468,17 @@ func TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS(t *testing.T) {
 			}
 		})
 	}
+}
+
+type startupSourceCancellationClient struct {
+	bootstrap.ObjectStorageClient
+	started chan struct{}
+}
+
+func (client *startupSourceCancellationClient) GetObject(ctx context.Context, _ objectstorage.GetObjectRequest) (objectstorage.GetObjectResponse, error) {
+	close(client.started)
+	<-ctx.Done()
+	return objectstorage.GetObjectResponse{}, ctx.Err()
 }
 
 func startupScopeJSON(t *testing.T, value any) []byte {

@@ -93,6 +93,8 @@ func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, cl
 		deliveryAuthorityExpires = minTimeLink(deliveryAuthorityExpires, envelope.ExpiresAt)
 	}
 	// Unverified input can only shorten the read budget; provenance still follows.
+	ctx, cancelOriginal := template.currentReadContext(ctx)
+	defer cancelOriginal()
 	ctx, cancelTemplate := context.WithDeadline(ctx, minTimeLink(deliveryExpires, candidate.ExpiresAt))
 	defer cancelTemplate()
 	if template.VerifyCurrentContext(ctx, now) != nil {
