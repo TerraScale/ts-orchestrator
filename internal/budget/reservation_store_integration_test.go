@@ -521,6 +521,48 @@ func TestReservationLedgerSurvivesPeriodicWritesThroughHomeCAS(t *testing.T) {
 			}
 		}
 	}
+	storedBudget, found, err := ReadBudget(ctx, &concurrent.Reader)
+	if err != nil || !found || storedBudget.Schema != monthly.Schema || storedBudget.ID != monthly.ID ||
+		storedBudget.MonthlyCapCents != monthly.MonthlyCapCents || storedBudget.Currency != monthly.Currency ||
+		storedBudget.SetBy != monthly.SetBy || !storedBudget.SetAt.Equal(monthly.SetAt) {
+		t.Fatalf("committed monthly budget = %+v, found=%v, err=%v", storedBudget, found, err)
+	}
+	budgetDocument, err := concurrent.Document(ctx, globalcontrol.KindBudget, protocol.GlobalScope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*Budget){
+		"schema":         func(b *Budget) { b.Schema = 2 },
+		"bad ULID":       func(b *Budget) { b.ID = "not-a-ulid" },
+		"zero cap":       func(b *Budget) { b.MonthlyCapCents = 0 },
+		"cap too large":  func(b *Budget) { b.MonthlyCapCents = 1_000_000_000_001 },
+		"lower currency": func(b *Budget) { b.Currency = "brl" },
+		"short currency": func(b *Budget) { b.Currency = "BR" },
+		"long currency":  func(b *Budget) { b.Currency = "BRLX" },
+		"empty set_by":   func(b *Budget) { b.SetBy = "" },
+		"control set_by": func(b *Budget) { b.SetBy = "mariogk\n@terrascale.tech" },
+		"long set_by":    func(b *Budget) { b.SetBy = strings.Repeat("a", 255) },
+		"zero set_at":    func(b *Budget) { b.SetAt = time.Time{} },
+	} {
+		t.Run("budget/"+name, func(t *testing.T) {
+			b := testBudget()
+			mutate(&b)
+			if err := WriteBudget(ctx, writer, epoch, b); err == nil {
+				t.Fatal("malformed budget was committed")
+			}
+			stored, found, err := ReadBudget(ctx, &concurrent.Reader)
+			if err != nil || !found || stored.Schema != monthly.Schema || stored.ID != monthly.ID ||
+				stored.MonthlyCapCents != monthly.MonthlyCapCents || stored.Currency != monthly.Currency ||
+				stored.SetBy != monthly.SetBy || !stored.SetAt.Equal(monthly.SetAt) {
+				t.Fatalf("rejected budget changed committed fields: %+v, found=%v, err=%v", stored, found, err)
+			}
+			document, err := concurrent.Document(ctx, globalcontrol.KindBudget, protocol.GlobalScope)
+			if err != nil || string(document.Payload) != string(budgetDocument.Payload) ||
+				document.Generation != budgetDocument.Generation || document.Epoch != budgetDocument.Epoch || document.Sequence != budgetDocument.Sequence {
+				t.Fatalf("rejected budget changed committed record: %+v, err=%v", document, err)
+			}
+		})
+	}
 }
 
 func reservationStoreHome(t *testing.T, ctx context.Context) (*globalcontrol.Writer, *globalcontrol.Writer, uint64) {
