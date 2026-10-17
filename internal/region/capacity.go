@@ -1,13 +1,17 @@
 package region
 
 import (
+	"bytes"
 	"errors"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/capacityledger"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
 // PoolWireRecord retains the original request across retries and grants. A
@@ -19,6 +23,7 @@ type PoolWireRecord struct {
 	FirstAttemptAt   time.Time `json:"firstAttemptAt"`
 	LastAttemptAt    time.Time `json:"lastAttemptAt"`
 	Attempts         uint64    `json:"attempts"`
+	PendingAttemptID string    `json:"pendingAttemptId,omitempty"`
 	EverUnknown      bool      `json:"everUnknown,omitzero"`
 	TokenInvalidated bool      `json:"tokenInvalidated,omitzero"`
 	AcceptedAt       time.Time `json:"acceptedAt,omitzero"`
@@ -94,12 +99,16 @@ const (
 type PoolChildRecord struct {
 	OperationID          string          `json:"operationId"`
 	RecipeSHA256         string          `json:"recipeSha256"`
+	PublicCAPEM          []byte          `json:"publicCaPem"`
+	AvailabilityDomains  []string        `json:"availabilityDomains"`
 	PoolID               string          `json:"poolId"`
 	ConfigurationID      string          `json:"configurationId"`
 	TargetFrom           int             `json:"targetFrom"`
 	AvailabilityDomain   string          `json:"availabilityDomain"`
 	SubnetID             string          `json:"subnetId"`
 	Stage                PoolChildStage  `json:"stage"`
+	Node                 string          `json:"node"`
+	Descriptor           string          `json:"descriptor"`
 	Launch               *PoolWireRecord `json:"launch,omitempty"`
 	InstanceID           string          `json:"instanceId,omitempty"`
 	BornAt               time.Time       `json:"bornAt,omitzero"`
@@ -133,12 +142,30 @@ func (w PoolWireRecord) validate(updated time.Time) error {
 	if !validFoundationDigest(w.RequestSHA256) || len(w.RetryToken) > 64 ||
 		strings.ContainsAny(w.RetryToken+w.IfMatch+w.OpcRequestID, "\r\n") || len(w.IfMatch) > 512 || len(w.OpcRequestID) > 512 ||
 		w.FirstAttemptAt.IsZero() || w.LastAttemptAt.Before(w.FirstAttemptAt) || w.LastAttemptAt.After(updated) || w.Attempts == 0 ||
+		w.PendingAttemptID != "" && !entityid.Valid(w.PendingAttemptID) ||
 		!w.AcceptedAt.IsZero() && (w.AcceptedAt.Before(w.FirstAttemptAt) || w.AcceptedAt.After(updated)) ||
 		w.WorkRequestID != "" && !capacityOCID(w.WorkRequestID, "workrequest") ||
 		!w.WorkCompletedAt.IsZero() && (w.AcceptedAt.IsZero() || w.WorkRequestID == "" || w.WorkCompletedAt.Before(w.AcceptedAt) || w.WorkCompletedAt.After(updated)) {
 		return errors.New("protected pool request has invalid original identity, attempt or provider outcome")
 	}
 	return nil
+}
+
+// ProtectedCapacityStore accepts only the store built by actual signed SDK
+// discovery, in the original home region. Regional caches cannot implement it.
+func (r FoundationResolver) ProtectedCapacityStore(factory *ociclient.Factory) (*ObjectFoundationStore, error) {
+	reader, signed := r.Footprint.(*SignedFootprint)
+	store, protected := r.Store.(*ObjectFoundationStore)
+	if factory == nil || !signed || !protected || reader == nil || store == nil || reader.factory != factory ||
+		factory.Region() != reader.home.OCIRegion || reader.local.Cell != "GRU" ||
+		store.namespace != reader.storage.Namespace || store.bucket != reader.storage.HeadBucket {
+		return nil, errors.New("capacity mutations require the original signed home SDK store")
+	}
+	actual, sdk := store.client.(*objectstorage.ObjectStorageClient)
+	if !sdk || actual == nil || actual != reader.client {
+		return nil, errors.New("capacity home store requires the actual privileged ObjectStorage SDK")
+	}
+	return store, nil
 }
 
 func (r FoundationRecord) validateCapacity() error {
@@ -206,6 +233,10 @@ func (r FoundationRecord) validateCapacity() error {
 			child.AvailabilityDomain == "" || len(child.AvailabilityDomain) > 128 || !capacityOCID(child.SubnetID, "subnet") {
 			return errors.New("pool child differs from its original protected reservation, configuration or placement")
 		}
+		if len(child.PublicCAPEM) == 0 || len(child.PublicCAPEM) > 32<<10 || len(child.AvailabilityDomains) == 0 || len(child.AvailabilityDomains) > 3 ||
+			!slices.Contains(child.AvailabilityDomains, child.AvailabilityDomain) || child.Node == "" || len(child.Node) > 128 || len(child.Descriptor) == 0 || len(child.Descriptor) > 4096 {
+			return errors.New("pool child lacks original public source, placement or boot identity")
+		}
 		if err := child.validate(host, r.UpdatedAt); err != nil {
 			return err
 		}
@@ -233,14 +264,8 @@ func (r FoundationRecord) validateCapacity() error {
 }
 
 func (c PoolChildRecord) validate(host capacityledger.Host, updated time.Time) error {
-	rank := map[PoolChildStage]int{
-		PoolChildReserved: 0, PoolChildLaunchPrepared: 1, PoolChildLaunchUnknown: 1, PoolChildBorn: 2,
-		PoolChildAttachPrepared: 3, PoolChildAttachUnknown: 3, PoolChildAttached: 4, PoolChildReady: 5,
-		PoolChildDraining: 6, PoolChildDetachPrepared: 7, PoolChildDetachUnknown: 7,
-		PoolChildDetaching: 7, PoolChildDetached: 8, PoolChildTerminating: 9, PoolChildRetired: 10,
-	}
-	step, validStage := rank[c.Stage]
-	if !validStage || step < 2 && (c.InstanceID != "" || !c.BornAt.IsZero() || c.BootVolumeID != "" || c.BootAttachmentID != "") ||
+	step := poolChildRank(c.Stage)
+	if step < 0 || step < 2 && (c.InstanceID != "" || !c.BornAt.IsZero() || c.BootVolumeID != "" || c.BootAttachmentID != "") ||
 		step < 3 && c.Attach != nil || step < 5 && !c.ReadyAt.IsZero() ||
 		step < 6 && (c.RemovalOperationID != "" || c.DrainAuthoritySHA256 != "") || step < 7 && c.Detach != nil ||
 		step < 8 && !c.DetachedAt.IsZero() || step < 9 && (c.Terminate != nil || c.DeleteBoot != nil || !c.InstanceRetiredAt.IsZero() || !c.BootRetiredAt.IsZero()) {
@@ -329,6 +354,35 @@ func (c PoolChildRecord) validate(host capacityledger.Host, updated time.Time) e
 	return nil
 }
 
+func poolChildRank(stage PoolChildStage) int {
+	switch stage {
+	case PoolChildReserved:
+		return 0
+	case PoolChildLaunchPrepared, PoolChildLaunchUnknown:
+		return 1
+	case PoolChildBorn:
+		return 2
+	case PoolChildAttachPrepared, PoolChildAttachUnknown:
+		return 3
+	case PoolChildAttached:
+		return 4
+	case PoolChildReady:
+		return 5
+	case PoolChildDraining:
+		return 6
+	case PoolChildDetachPrepared, PoolChildDetachUnknown, PoolChildDetaching:
+		return 7
+	case PoolChildDetached:
+		return 8
+	case PoolChildTerminating:
+		return 9
+	case PoolChildRetired:
+		return 10
+	default:
+		return -1
+	}
+}
+
 func capacityOCID(id, kind string) bool {
 	return strings.HasPrefix(id, "ocid1."+kind+".") && len(id) <= 512 && !strings.ContainsAny(id, "\r\n\t ")
 }
@@ -345,6 +399,7 @@ func (r *FoundationRecord) cloneCapacity() {
 	}
 	r.PoolChildren = maps.Clone(r.PoolChildren)
 	for id, child := range r.PoolChildren {
+		child.PublicCAPEM, child.AvailabilityDomains = bytes.Clone(child.PublicCAPEM), slices.Clone(child.AvailabilityDomains)
 		child.Launch, child.Attach, child.Detach = clonePoolWire(child.Launch), clonePoolWire(child.Attach), clonePoolWire(child.Detach)
 		child.Terminate, child.DeleteBoot = clonePoolWire(child.Terminate), clonePoolWire(child.DeleteBoot)
 		r.PoolChildren[id] = child
