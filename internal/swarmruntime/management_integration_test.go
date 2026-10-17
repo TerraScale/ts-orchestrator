@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/gogo/protobuf/proto"
@@ -150,6 +151,11 @@ func TestManagementIntegration(t *testing.T) {
 	if _, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: unsafe}); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("stateful workload accepted: %v", err)
 	}
+	unsafe = request.Spec.Copy()
+	unsafe.GetReplicated().Replicas = autoscale.MaxReplicas + 1
+	if _, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: unsafe}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("service creation exceeded replica limit: %v", err)
+	}
 	created, err := client.CreateService(ctx, request)
 	if err != nil {
 		t.Fatal(err)
@@ -158,11 +164,19 @@ func TestManagementIntegration(t *testing.T) {
 	if err != nil || actual.Service.Spec.Annotations.Name != "management-proof" {
 		t.Fatalf("upstream persisted service: %v %v", actual, err)
 	}
+	unsafe = actual.Service.Spec.Copy()
+	unsafe.GetReplicated().Replicas = autoscale.MaxReplicas + 1
+	if _, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: actual.Service.ID, ServiceVersion: &actual.Service.Meta.Version, Spec: unsafe}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("service update exceeded replica limit: %v", err)
+	}
 	changed := actual.Service.Spec.Copy()
 	changed.Task.ForceUpdate++
 	changedService, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: actual.Service.ID, ServiceVersion: &actual.Service.Meta.Version, Spec: changed})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: actual.Service.ID, ServiceVersion: &actual.Service.Meta.Version, Spec: &actual.Service.Spec}); err == nil {
+		t.Fatal("management accepted stale service CAS")
 	}
 	rolledBack, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: actual.Service.ID, ServiceVersion: &changedService.Service.Meta.Version, Spec: &changedService.Service.Spec, Rollback: api.UpdateServiceRequest_PREVIOUS})
 	if err != nil {
@@ -181,6 +195,9 @@ func TestManagementIntegration(t *testing.T) {
 	unscoped, err := upstream.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: actual.Service.ID, ServiceVersion: &rolledBack.Service.Meta.Version, Spec: unsafe})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, err := client.RemoveService(ctx, &api.RemoveServiceRequest{ServiceID: actual.Service.ID}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("removal accepted unscoped placement: %v", err)
 	}
 	restored, err := upstream.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: actual.Service.ID, ServiceVersion: &unscoped.Service.Meta.Version, Spec: request.Spec})
 	if err != nil {
@@ -219,6 +236,57 @@ func TestManagementIntegration(t *testing.T) {
 	if _, err := client.CreateConfig(ctx, &api.CreateConfigRequest{Spec: &api.ConfigSpec{Annotations: api.Annotations{Name: "other-secret"}, Data: []byte("must not store")}}); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("arbitrary config accepted: %v", err)
 	}
+	for _, architecture := range []string{"arm64", "amd64"} {
+		workerFloor := config.Config.Spec.Copy()
+		workerFloor.Annotations.Labels[LabelRole] = "function-worker"
+		workerFloor.Annotations.Labels[labelReleaseArchitecture] = architecture
+		digest := sha256.Sum256([]byte("test/sa-saopaulo-1/function-worker/" + architecture))
+		workerFloor.Annotations.Name = fmt.Sprintf("ts-release-%x", digest[:16])
+		created, err := client.CreateConfig(ctx, &api.CreateConfigRequest{Spec: workerFloor})
+		if err != nil {
+			t.Fatalf("architecture-partitioned worker floor denied: %v", err)
+		}
+		listed, err := client.ListConfigs(ctx, &api.ListConfigsRequest{Filters: &api.ListConfigsRequest_Filters{Names: []string{workerFloor.Annotations.Name}}})
+		if err != nil || len(listed.Configs) != 1 || listed.Configs[0].ID != created.Config.ID {
+			t.Fatalf("architecture-partitioned worker floor unavailable: %v", err)
+		}
+		workerFloor.Annotations.Labels[labelReleaseSequence] = "4"
+		advanced, err := client.UpdateConfig(ctx, &api.UpdateConfigRequest{ConfigID: created.Config.ID, ConfigVersion: &created.Config.Meta.Version, Spec: workerFloor})
+		if err != nil {
+			t.Fatalf("architecture-partitioned worker floor advance denied: %v", err)
+		}
+		workerFloor.Annotations.Labels[labelReleaseArchitecture] = "unsupported"
+		if _, err := client.UpdateConfig(ctx, &api.UpdateConfigRequest{ConfigID: created.Config.ID, ConfigVersion: &advanced.Config.Meta.Version, Spec: workerFloor}); status.Code(err) != codes.PermissionDenied {
+			t.Fatalf("unsupported worker floor architecture accepted: %v", err)
+		}
+	}
+	family := config.Config.Spec.Copy()
+	family.Annotations.Labels[LabelRole] = "function-worker"
+	family.Annotations.Labels["terrascale.release-migration"] = strings.Repeat("a", 64)
+	familyIdentity := sha256.Sum256([]byte(strings.Repeat("a", 64) + "/function-worker/test/3"))
+	family.Annotations.Name = fmt.Sprintf("ts-worker-family-%x", familyIdentity[:16])
+	createdFamily, err := client.CreateConfig(ctx, &api.CreateConfigRequest{Spec: family})
+	if err != nil {
+		t.Fatalf("scoped immutable worker family denied: %v", err)
+	}
+	if _, err := client.GetConfig(ctx, &api.GetConfigRequest{ConfigID: createdFamily.Config.ID}); err != nil {
+		t.Fatalf("scoped worker family unavailable: %v", err)
+	}
+	if _, err := client.UpdateConfig(ctx, &api.UpdateConfigRequest{ConfigID: createdFamily.Config.ID, ConfigVersion: &createdFamily.Config.Meta.Version, Spec: family}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("immutable worker family update accepted: %v", err)
+	}
+	for _, wrong := range []struct{ key, value string }{
+		{LabelRegion, "eu-frankfurt-1"},
+		{LabelRole, "api"},
+		{labelReleaseSequence, "4"},
+		{"terrascale.release-migration", strings.Repeat("A", 64)},
+	} {
+		invalid := family.Copy()
+		invalid.Annotations.Labels[wrong.key] = wrong.value
+		if _, err := client.CreateConfig(ctx, &api.CreateConfigRequest{Spec: invalid}); status.Code(err) != codes.PermissionDenied {
+			t.Fatalf("worker family identity mutation accepted %s: %v", wrong.key, err)
+		}
+	}
 	publicClusters, err := client.ListClusters(ctx, &api.ListClustersRequest{})
 	if err != nil || len(publicClusters.Clusters) != 1 {
 		t.Fatalf("public cluster CA unavailable: %v", err)
@@ -242,6 +310,42 @@ func TestManagementIntegration(t *testing.T) {
 	}
 	if _, err := client.ListSecrets(ctx, &api.ListSecretsRequest{}); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("secret access accepted: %v", err)
+	}
+	for _, changedScope := range []struct{ key, value string }{
+		{LabelRegion, "eu-frankfurt-1"},
+		{LabelEnvironment, "production"},
+		{LabelRole, "terrabase"},
+	} {
+		outside := request.Spec.Copy()
+		outside.Annotations.Name = "removal-" + changedScope.value
+		outside.Annotations.Labels[changedScope.key] = changedScope.value
+		retained, err := upstream.CreateService(ctx, &api.CreateServiceRequest{Spec: outside})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := client.RemoveService(ctx, &api.RemoveServiceRequest{ServiceID: retained.Service.ID}); status.Code(err) != codes.PermissionDenied {
+			t.Fatalf("removal outside admitted scope %s=%s: %v", changedScope.key, changedScope.value, err)
+		}
+		if _, err := upstream.GetService(ctx, &api.GetServiceRequest{ServiceID: retained.Service.ID}); err != nil {
+			t.Fatalf("denied removal changed upstream service: %v", err)
+		}
+		if _, err := upstream.RemoveService(ctx, &api.RemoveServiceRequest{ServiceID: retained.Service.ID}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	revoked.Store(true)
+	if _, err := client.RemoveService(ctx, &api.RemoveServiceRequest{ServiceID: actual.Service.ID}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("revoked authority removed admitted service: %v", err)
+	}
+	if _, err := upstream.GetService(ctx, &api.GetServiceRequest{ServiceID: actual.Service.ID}); err != nil {
+		t.Fatalf("revoked removal changed upstream service: %v", err)
+	}
+	revoked.Store(false)
+	if _, err := client.RemoveService(ctx, &api.RemoveServiceRequest{ServiceID: actual.Service.ID}); err != nil {
+		t.Fatalf("admitted service removal denied: %v", err)
+	}
+	if _, err := upstream.GetService(ctx, &api.GetServiceRequest{ServiceID: actual.Service.ID}); status.Code(err) != codes.NotFound {
+		t.Fatalf("admitted removal did not delete upstream service: %v", err)
 	}
 	if _, _, bad, err := dialManagementAt(ctx, path, uint32(os.Getuid()), "another-instance"); status.Code(err) != codes.PermissionDenied {
 		if bad != nil {
