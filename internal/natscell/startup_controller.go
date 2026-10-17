@@ -41,12 +41,12 @@ func (r *Runtime) captureStartupController(cfg Config) error {
 	if err != nil || raw != connection.JWT {
 		return errors.New("root controller credential differs from its authenticated original JWT")
 	}
-	pair, err := nkeys.ParseDecoratedUserNKey(material)
+	pair, err := nkeys.ParseDecoratedNKey(material)
 	if err != nil {
 		return err
 	}
 	public, err := pair.PublicKey()
-	if err != nil || public != claim.Subject {
+	if err != nil || !nkeys.IsValidPublicUserKey(public) || public != claim.Subject {
 		pair.Wipe()
 		return errors.New("root controller key differs from its authenticated original subject")
 	}
