@@ -933,8 +933,13 @@ func validateManagedReportForDesired(report Report, desired Desired) error {
 		!observation.StorageRecovered || !observation.ListenerReady {
 		return errors.New("managed report lacks exact mounted process identity")
 	}
+	if observation.Container != nil && (!observation.Container.valid() ||
+		observation.Container.HostPID != observation.ProcessPID || observation.Container.KernelStart != observation.ProcessStart ||
+		observation.Container.Cgroup != observation.ProcessCgroup || observation.Container.MountID != observation.MountID) {
+		return errors.New("managed container report differs from its kernel identity")
+	}
 	if proof := observation.ServingProof; proof != nil {
-		if proof.SchemaVersion != 1 || proof.Process.PID != observation.ProcessPID ||
+		if proof.SchemaVersion != 1 || proof.Process.PID != managedReportMemberPID(observation) ||
 			proof.Process.StartNonce != observation.ProcessBootID ||
 			proof.Scope != (memberstatus.Scope{
 				ClusterID: launch.Member.Scope.ClusterID, TenantID: launch.Member.Scope.TenantID,

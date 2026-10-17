@@ -196,9 +196,10 @@ type Report struct {
 	Managed     *ManagedRuntimeReport `json:"managed,omitempty"`
 }
 
-// ManagedRuntimeReport binds a native process and mounted volume to its
+// ManagedRuntimeReport binds a process and mounted volume to its
 // TerraBase serving proof when the process currently offers one.
 type ManagedRuntimeReport struct {
+	Container                  *ManagedContainerRuntime   `json:"container,omitempty"`
 	ClientCredentialGeneration uint64                     `json:"client_credential_generation,omitzero"`
 	Member                     ManagedMemberBinding       `json:"member"`
 	Authority                  MemberAuthority            `json:"authority"`

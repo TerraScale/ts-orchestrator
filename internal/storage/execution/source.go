@@ -57,6 +57,7 @@ type sourceEntry struct {
 	pins         *RuntimePins
 	observed     RuntimeObservation
 	publication  *publication
+	backupCancel context.CancelFunc
 	revoked      bool
 }
 
@@ -334,6 +335,9 @@ func (s *Source) RecordRuntime(ctx context.Context, task *api.Task, caller Runti
 	}
 	entry.observed = actual
 	s.mu.Unlock()
+	if actual.State == containerd.Running {
+		return s.startBackup(task, entry)
+	}
 	return nil
 }
 
