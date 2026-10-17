@@ -347,7 +347,7 @@ func serverReady(ctx context.Context, embedded *server.Server) bool {
 // Start starts the embedded server when requested and establishes an authenticated
 // client connection. Multi-node callers must call WaitForCluster before mutations.
 func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
-	return start(ctx, cfg, false)
+	return start(ctx, cfg, false, nil)
 }
 
 // StartIdentityRekey joins only the existing regional quorum. The caller must
@@ -357,10 +357,10 @@ func StartIdentityRekey(ctx context.Context, cfg Config) (*Runtime, error) {
 	if cfg.Embedded == nil {
 		return nil, errors.New("identity rekey requires an installed production broker")
 	}
-	return start(ctx, cfg, true)
+	return start(ctx, cfg, true, nil)
 }
 
-func start(ctx context.Context, cfg Config, identityRekey bool) (_ *Runtime, err error) {
+func start(ctx context.Context, cfg Config, identityRekey bool, initial net.Conn) (_ *Runtime, err error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
@@ -398,7 +398,7 @@ func start(ctx context.Context, cfg Config, identityRekey bool) (_ *Runtime, err
 			return nil, fmt.Errorf("load regional cell account: %w", err)
 		}
 	}
-	options, err := clientOptions(cfg)
+	options, err := clientOptionsWithInitial(cfg, initial)
 	if err != nil {
 		return nil, err
 	}
@@ -778,6 +778,10 @@ func serverOptionsForStart(cfg Config, identityRekey bool) (*server.Options, err
 }
 
 func clientOptions(cfg Config) ([]nats.Option, error) {
+	return clientOptionsWithInitial(cfg, nil)
+}
+
+func clientOptionsWithInitial(cfg Config, initial net.Conn) ([]nats.Option, error) {
 	connectTimeout := 12 * time.Second
 	if cfg.ClientRole == "host" {
 		connectTimeout = 3 * time.Second
@@ -854,7 +858,7 @@ func clientOptions(cfg Config) ([]nats.Option, error) {
 		if err != nil {
 			return nil, err
 		}
-		dialer := &tlsFirstDialer{config: tlsConfig, timeout: connectTimeout}
+		dialer := &tlsFirstDialer{config: tlsConfig, timeout: connectTimeout, initial: initial}
 		if materials != nil {
 			dialer.reload = materials.tlsConfig
 		}
@@ -864,6 +868,9 @@ func clientOptions(cfg Config) ([]nats.Option, error) {
 				return nil, err
 			}
 			dialer.forward = destinations
+			options = append(options, nats.IgnoreDiscoveredServers())
+		}
+		if initial != nil {
 			options = append(options, nats.IgnoreDiscoveredServers())
 		}
 		options = append(options, nats.SetCustomDialer(dialer))
