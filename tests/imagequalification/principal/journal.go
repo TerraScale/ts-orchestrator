@@ -38,6 +38,8 @@ type journal struct {
 	PreparationSHA256 string                `json:"preparation_sha256"`
 	PreparationWire   jsontext.Value        `json:"preparation_wire"`
 	Operations        map[string]*operation `json:"operations"`
+	ReaderProof       []byte                `json:"reader_proof,omitempty"`
+	ReaderVerifiedAt  time.Time             `json:"reader_verified_at,omitzero"`
 	Cleaning          bool                  `json:"cleaning"`
 	Cleaned           bool                  `json:"cleaned"`
 }
@@ -202,7 +204,7 @@ func (s *store) load(v VerifiedPreparation, required bool) (*journal, error) {
 }
 
 func knownOperation(name string) bool {
-	return name == "user" || name == "group" || name == "policy" || name == "key" || name == "membership"
+	return name == "user" || name == "group" || name == "policy" || name == "key" || name == "membership" || name == "reader-group" || name == "reader-policy"
 }
 
 func (s *store) intent(v VerifiedPreparation, j *journal, name string, request any, now time.Time) (*operation, error) {

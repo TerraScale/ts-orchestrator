@@ -43,6 +43,8 @@ func PrepareFromPrincipal(preparationWire, delegationWire []byte, roots trust.Ke
 		return empty, nil, errors.New("actual prepared policy differs from the exact approved operations")
 	}
 	a := Approval{Purpose: p.Purpose, Schema: ApprovalSchema, RunID: p.RunID, Candidate: p.Candidate, IAMRegion: p.IAMRegion, OCIRegion: p.OCIRegion, Tenancy: p.Tenancy, Principal: r.Principal, Compartment: p.Compartment, Subnet: p.Subnet, Namespace: p.Namespace, Bucket: p.Bucket, Group: r.Group, PolicyID: r.PolicyID, ProductionDynamicGroups: slices.Clone(p.ProductionDynamicGroups), ProfileIdentity: p.ProfileIdentity, ClientSHA256: p.ClientSHA256, KernelRelease: p.KernelRelease, PolicyStatements: slices.Clone(r.PolicyStatements), RunnerCIDR: p.RunnerCIDR, PeerCIDR: p.PeerCIDR, VCNCIDR: p.VCNCIDR, WorkloadImage: p.WorkloadImage, WorkloadArchiveSHA256: p.WorkloadArchiveSHA256, ImageBytes: p.ImageBytes, MaxSpendMicros: p.MaxSpendMicros, CleanupUntil: p.CleanupUntil, BinarySHA256: p.BinarySHA256, KernelSHA256: p.KernelSHA256, ContainerdSHA256: p.ContainerdSHA256, RuncSHA256: p.RuncSHA256, RunnerSHA256: p.RunnerSHA256}
+	a.ArtifactDisposition, a.ReaderIAMAuthority = p.ArtifactDisposition, p.ReaderIAMAuthority
+	a.ImageRetainUntil, a.ImageTransferUntil = p.ImageRetainUntil, p.ImageTransferUntil
 	for _, host := range p.Hosts {
 		a.Hosts = append(a.Hosts, HostSpec(host))
 	}

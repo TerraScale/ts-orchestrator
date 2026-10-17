@@ -157,6 +157,12 @@ func (p Preparation) validate(e trust.Envelope, now time.Time) error {
 	if err := qualification.ValidatePurpose(c, p.Purpose); err != nil {
 		return err
 	}
+	if err := qualification.ValidateDisposition(p.Purpose, p.ArtifactDisposition, p.ReaderIAMAuthority, p.ImageRetainUntil, p.ImageTransferUntil, p.CleanupUntil); err != nil {
+		return err
+	}
+	if p.Purpose == qualification.RootCredentialBoundaryPurpose && (!p.ImageTransferUntil.After(e.IssuedAt) || p.ImageRetainUntil.After(p.ExpiresAt) || p.ImageRetainUntil.After(e.IssuedAt.Add(time.Hour))) {
+		return errors.New("image retention and transfer exceed original one-hour purpose authority")
+	}
 	if p.Schema != PreparationSchema || !runPattern.MatchString(p.RunID) || !release.ValidSourceRevision(c.SourceRevision) ||
 		!release.ValidEnvironment(c.Environment) ||
 		(c.Architecture != "arm64" && c.Architecture != "amd64") || catalog.OCIRegion(c.Cell) != p.OCIRegion || !catalog.IsOCIRegion(p.IAMRegion) {

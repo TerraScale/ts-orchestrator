@@ -30,7 +30,13 @@ type Scope struct {
 	ExistingHosts                                              map[string]string
 	PolicyStatements                                           []string
 	ProductionDynamicGroups                                    []ProductionDynamicGroup
+	ReaderIAM                                                  *ReaderIAM
 	ExpiresAt, CleanupUntil                                    time.Time
+}
+
+type ReaderIAM struct {
+	DynamicGroupID, PolicyID, Rule string
+	ExpiresAt                      time.Time
 }
 
 type ProductionDynamicGroup = qualification.ProductionDynamicGroup
@@ -94,6 +100,12 @@ func (s Scope) validate(now time.Time) error {
 		profiles[profile.ID] = true
 		names[strings.ToLower(profile.Name)] = true
 	}
+	if r := s.ReaderIAM; r != nil {
+		ids := slices.Collect(maps.Keys(s.ExistingHosts))
+		if !qualification.ValidReaderIAMIDs(r.DynamicGroupID, r.PolicyID) || r.Rule != qualification.ReaderMatchingRule(ids) || r.Rule == "" || r.ExpiresAt.IsZero() || r.ExpiresAt.After(s.ExpiresAt) || profiles[r.DynamicGroupID] {
+			return errors.New("reader IAM differs from exact four disposable instance IDs or finite interval")
+		}
+	}
 	return nil
 }
 
@@ -133,6 +145,10 @@ func clone(s Scope) Scope {
 	s.HostNames = slices.Clone(s.HostNames)
 	s.ExistingHosts = maps.Clone(s.ExistingHosts)
 	s.ProductionDynamicGroups = slices.Clone(s.ProductionDynamicGroups)
+	if s.ReaderIAM != nil {
+		r := *s.ReaderIAM
+		s.ReaderIAM = &r
+	}
 	return s
 }
 

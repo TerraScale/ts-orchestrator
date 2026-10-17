@@ -15,7 +15,7 @@ import (
 
 // readerProofs refines only this private confined lifecycle's actual SDK results.
 // It cannot adopt caller-built host registration or supply production identity.
-func (c *cloud) readerProofs(ctx context.Context, j journal, confined confinement.Verified, signer ed25519.PrivateKey) (map[string][]byte, error) {
+func (c *cloud) readerProofs(ctx context.Context, j journal, confined confinement.Verified, signer ed25519.PrivateKey, iam hostadmission.ReaderIAM) (map[string][]byte, error) {
 	p := c.prepared
 	if err := c.check(ctx, false); err != nil {
 		return nil, err
@@ -50,6 +50,9 @@ func (c *cloud) readerProofs(ctx context.Context, j journal, confined confinemen
 	if p.expires.Before(expires) {
 		expires = p.expires
 	}
+	if p.approval.ImageRetainUntil.Before(expires) {
+		expires = p.approval.ImageRetainUntil
+	}
 	now := c.now().UTC()
 	if !now.Before(expires) {
 		return nil, errors.New("finite original startup reader interval expired")
@@ -57,7 +60,7 @@ func (c *cloud) readerProofs(ctx context.Context, j journal, confined confinemen
 	result := make(map[string][]byte, len(hosts))
 	for _, host := range hosts {
 		binding := hostadmission.Binding{Schema: hostadmission.BindingSchema, Purpose: p.approval.Purpose, RunID: p.approval.RunID,
-			PreparationSHA256: hashBytes(p.principalWire), ApprovalSHA256: p.approvalSHA256, HostName: host.Name, Hosts: hosts}
+			PreparationSHA256: hashBytes(p.principalWire), ApprovalSHA256: p.approvalSHA256, HostName: host.Name, Hosts: hosts, ReaderIAM: iam}
 		payload, err := json.Marshal(binding, json.Deterministic(true))
 		if err != nil {
 			return nil, err

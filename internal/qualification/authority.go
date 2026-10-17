@@ -46,6 +46,10 @@ type ContainerArtifactApproval struct {
 // It does not establish effective IAM confinement or production qualification.
 type Approval struct {
 	Purpose                 string                        `json:"purpose,omitempty"`
+	ArtifactDisposition     string                        `json:"artifact_disposition,omitempty"`
+	ImageRetainUntil        time.Time                     `json:"image_retain_until,omitzero"`
+	ImageTransferUntil      time.Time                     `json:"image_transfer_until,omitzero"`
+	ReaderIAMAuthority      string                        `json:"reader_iam_authority,omitempty"`
 	Schema                  string                        `json:"schema"`
 	RunID                   string                        `json:"run_id"`
 	Candidate               release.ProductionExpectation `json:"candidate"`
@@ -86,6 +90,10 @@ type Approval struct {
 // ExpiresAt independently ends creation, so cleanup never renews create authority.
 type Preparation struct {
 	Purpose                 string                        `json:"purpose,omitempty"`
+	ArtifactDisposition     string                        `json:"artifact_disposition,omitempty"`
+	ImageRetainUntil        time.Time                     `json:"image_retain_until,omitzero"`
+	ImageTransferUntil      time.Time                     `json:"image_transfer_until,omitzero"`
+	ReaderIAMAuthority      string                        `json:"reader_iam_authority,omitempty"`
 	Schema                  string                        `json:"schema"`
 	RunID                   string                        `json:"run_id"`
 	Candidate               release.ProductionExpectation `json:"candidate"`

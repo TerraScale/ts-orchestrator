@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json/v2"
 	"errors"
 	"net/netip"
 	"regexp"
@@ -56,7 +57,48 @@ type Binding struct {
 	ApprovalSHA256    string      `json:"approval_sha256"`
 	HostName          string      `json:"host_name"`
 	Hosts             []BoundHost `json:"hosts"`
+	ReaderIAM         ReaderIAM   `json:"reader_iam,omitzero"`
 }
+
+type ReaderIAM struct {
+	DynamicGroupID string `json:"dynamic_group_id"`
+	PolicyID       string `json:"policy_id"`
+	PolicySHA256   string `json:"policy_sha256"`
+	PlanSHA256     string `json:"plan_sha256"`
+}
+
+// ReaderPlan verifies original signed attenuation but grants no on-host access.
+// Only the issuer producer can turn its exact four IDs into finite read IAM.
+type ReaderPlan struct{ value verified }
+
+func VerifyReaderPlan(wire []byte, roots trust.Keyring, now time.Time) (ReaderPlan, error) {
+	v, err := verifyPlan(wire, roots, now, false)
+	return ReaderPlan{value: v}, err
+}
+
+// VerifyReaderBinding checks the final signed IAM refinement without admitting
+// a process. Actual on-host SDK/IMDS and installed-byte checks remain mandatory.
+func VerifyReaderBinding(wire []byte, roots trust.Keyring, now time.Time) (ReaderPlan, error) {
+	v, err := verifyPlan(wire, roots, now, true)
+	return ReaderPlan{value: v}, err
+}
+
+func (p ReaderPlan) SHA256() string {
+	if p.value.host.InstanceID == "" {
+		return ""
+	}
+	b := p.value.binding
+	b.HostName, b.ReaderIAM = "", ReaderIAM{}
+	wire, err := json.Marshal(b, json.Deterministic(true))
+	if err != nil {
+		return ""
+	}
+	return fingerprint(wire)
+}
+func (p ReaderPlan) PreparationSHA256() string { return p.value.binding.PreparationSHA256 }
+func (p ReaderPlan) Hosts() []BoundHost        { return slices.Clone(p.value.binding.Hosts) }
+func (p ReaderPlan) ExpiresAt() time.Time      { return p.value.deadline }
+func (p ReaderPlan) IAM() ReaderIAM            { return p.value.binding.ReaderIAM }
 
 type verified struct {
 	proof    Proof
@@ -101,6 +143,10 @@ func verifyEnvelope(wire, delegation []byte, roots trust.Keyring, scope trust.Sc
 }
 
 func verifyProof(wire []byte, roots trust.Keyring, now time.Time) (verified, error) {
+	return verifyPlan(wire, roots, now, true)
+}
+
+func verifyPlan(wire []byte, roots trust.Keyring, now time.Time, requireIAM bool) (verified, error) {
 	var v verified
 	if protocol.DecodeStrict(wire, &v.proof, MaxProofBytes) != nil || v.proof.Schema != ProofSchema {
 		return v, ErrAdmission
@@ -110,6 +156,9 @@ func verifyProof(wire []byte, roots trust.Keyring, now time.Time) (verified, err
 		return v, ErrAdmission
 	}
 	a := v.approval
+	if qualification.ValidateDisposition(a.Purpose, a.ArtifactDisposition, a.ReaderIAMAuthority, a.ImageRetainUntil, a.ImageTransferUntil, a.CleanupUntil) != nil {
+		return v, ErrAdmission
+	}
 	if !runIDPattern.MatchString(a.RunID) || a.Purpose != qualification.RootCredentialBoundaryPurpose ||
 		a.Candidate.Role != release.FoundationWriterRole || qualification.ValidatePurpose(a.Candidate, a.Purpose) != nil ||
 		!release.ValidRegion(a.Candidate.Cell) || !release.ValidEnvironment(a.Candidate.Environment) ||
@@ -122,6 +171,9 @@ func verifyProof(wire []byte, roots trust.Keyring, now time.Time) (verified, err
 	if err != nil {
 		return v, err
 	}
+	if !a.ImageTransferUntil.After(ae.IssuedAt) || a.ImageRetainUntil.After(minTime(ae.ExpiresAt, ae.IssuedAt.Add(maxAdmission))) {
+		return v, ErrAdmission
+	}
 	ps := scope
 	ps.Role = "disposable-principal"
 	pe, err := verifyEnvelope(v.proof.Preparation, v.proof.Delegation, roots, ps, now)
@@ -130,6 +182,7 @@ func verifyProof(wire []byte, roots trust.Keyring, now time.Time) (verified, err
 	}
 	var p qualification.Preparation
 	if protocol.DecodeStrict(pe.Payload, &p, trust.MaxPayloadBytes) != nil || p.Schema != "terrascale.test.image-qualification.principal.v1" ||
+		p.ArtifactDisposition != a.ArtifactDisposition || p.ReaderIAMAuthority != a.ReaderIAMAuthority || !p.ImageRetainUntil.Equal(a.ImageRetainUntil) || !p.ImageTransferUntil.Equal(a.ImageTransferUntil) || !p.ImageTransferUntil.After(pe.IssuedAt) || p.ImageRetainUntil.After(minTime(p.ExpiresAt, pe.IssuedAt.Add(maxAdmission))) ||
 		p.Purpose != a.Purpose || p.Candidate != a.Candidate || p.RunID != a.RunID || pe.KeyID != ae.KeyID ||
 		p.Tenancy != a.Tenancy || p.Compartment != a.Compartment || p.Subnet != a.Subnet || p.Namespace != a.Namespace || p.Bucket != a.Bucket ||
 		p.OCIRegion != a.OCIRegion || p.IAMRegion != a.IAMRegion || p.PeerCIDR != a.PeerCIDR || p.RunnerCIDR != a.RunnerCIDR || p.VCNCIDR != a.VCNCIDR ||
@@ -186,7 +239,7 @@ func verifyProof(wire []byte, roots trust.Keyring, now time.Time) (verified, err
 		return v, ErrAdmission
 	}
 	v.issuedAt = maxTime(pe.IssuedAt, ae.IssuedAt, be.IssuedAt)
-	v.deadline = minTime(p.ExpiresAt, ae.ExpiresAt, be.ExpiresAt)
+	v.deadline = minTime(p.ExpiresAt, ae.ExpiresAt, be.ExpiresAt, a.ImageRetainUntil)
 	if len(v.proof.Delegation) > 0 {
 		de, err := trust.DecodeEnvelope(v.proof.Delegation)
 		if err != nil {
@@ -199,6 +252,14 @@ func verifyProof(wire []byte, roots trust.Keyring, now time.Time) (verified, err
 		return v, ErrAdmission
 	}
 	v.digest = fingerprint(wire)
+	if requireIAM {
+		iam := b.ReaderIAM
+		statements := qualification.ReaderStatements(iam.DynamicGroupID, a.Compartment, v.deadline)
+		encoded, err := json.Marshal(statements, json.Deterministic(true))
+		if err != nil || !qualification.ValidReaderIAMIDs(iam.DynamicGroupID, iam.PolicyID) || iam.PlanSHA256 != (ReaderPlan{value: v}).SHA256() || iam.PolicySHA256 != fingerprint(encoded) {
+			return v, ErrAdmission
+		}
+	}
 	return v, nil
 }
 

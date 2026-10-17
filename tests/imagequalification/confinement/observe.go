@@ -20,6 +20,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/qualification"
 )
 
 // Verified cannot be constructed from a signed assertion or resource tags.
@@ -244,11 +245,24 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 	}
 	dynamicNames := map[string]string{}
 	dynamicIDs := map[string]bool{}
-	if len(dynamic) != len(s.ProductionDynamicGroups) {
+	expectedDynamic := len(s.ProductionDynamicGroups)
+	if s.ReaderIAM != nil {
+		expectedDynamic++
+	}
+	if len(dynamic) != expectedDynamic {
 		return fail(errors.New("dynamic-group inventory differs from independently approved production profiles"))
 	}
 	for _, current := range dynamic {
 		id := text(current.Id)
+		if r := s.ReaderIAM; r != nil && id == r.DynamicGroupID {
+			name := "ts-qualification-" + s.RunID + "-group-readers"
+			if dynamicIDs[id] || text(current.Name) != name || text(current.CompartmentId) != s.Tenancy || current.LifecycleState != identity.DynamicGroupLifecycleStateActive || text(current.MatchingRule) != r.Rule {
+				return fail(errors.New("reader dynamic group exceeds exact approved disposable instances"))
+			}
+			dynamicIDs[id], dynamicNames[strings.ToLower(name)] = true, id
+			f.DynamicGroups = append(f.DynamicGroups, identity.DynamicGroup{Id: current.Id, Name: current.Name, CompartmentId: current.CompartmentId, MatchingRule: current.MatchingRule, LifecycleState: current.LifecycleState})
+			continue
+		}
 		index := slices.IndexFunc(s.ProductionDynamicGroups, func(profile ProductionDynamicGroup) bool { return profile.ID == id })
 		if index < 0 {
 			return fail(errors.New("unknown production dynamic group"))
@@ -290,7 +304,7 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 		return fail(errors.New("approved disposable compartment is not active in complete tenancy inventory"))
 	}
 	slices.Sort(f.Compartments)
-	approved := false
+	approved, readerApproved := false, s.ReaderIAM == nil
 	for _, compartment := range f.Compartments {
 		policies, err := pages(func(page *string) ([]identity.Policy, *string, error) {
 			r, e := iam.ListPolicies(ociclient.RequestContext(ctx), identity.ListPoliciesRequest{CompartmentId: new(compartment), Page: page})
@@ -304,6 +318,13 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 				return fail(errors.New("unknown policy identity or lifecycle"))
 			}
 			f.Policies = append(f.Policies, policyFact{text(policy.Id), compartment, slices.Clone(policy.Statements)})
+			if r := s.ReaderIAM; r != nil && text(policy.Id) == r.PolicyID {
+				if readerApproved || compartment != s.Tenancy || !slices.Equal(policy.Statements, qualification.ReaderStatements(r.DynamicGroupID, s.Compartment, r.ExpiresAt)) {
+					return fail(errors.New("reader policy exceeds finite read-only original scope"))
+				}
+				readerApproved = true
+				continue
+			}
 			if text(policy.Id) == s.PolicyID {
 				if approved || compartment != s.Tenancy || !slices.Equal(policy.Statements, s.PolicyStatements) {
 					return fail(errors.New("observed approved policy statements differ"))
@@ -312,13 +333,17 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 				continue
 			}
 			for _, statement := range policy.Statements {
-				if !unrelatedSubject(statement, s.Group, groupNames, groupIDs, dynamicNames, dynamicIDs) {
+				readerGroup := ""
+				if s.ReaderIAM != nil {
+					readerGroup = s.ReaderIAM.DynamicGroupID
+				}
+				if !unrelatedSubject(statement, s.Group, readerGroup, groupNames, groupIDs, dynamicNames, dynamicIDs) {
 					return fail(errors.New("unknown or additional potentially applicable IAM policy"))
 				}
 			}
 		}
 	}
-	if !approved {
+	if !approved || !readerApproved {
 		return fail(errors.New("approved confinement policy absent"))
 	}
 	slices.SortFunc(f.Policies, func(a, b policyFact) int { return strings.Compare(a.ID, b.ID) })
@@ -345,7 +370,7 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 var simpleSubject = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]*$`)
 var policySubject = regexp.MustCompile(`^Allow (group|dynamic-group) (id ocid1\.(group|dynamicgroup)\.[a-zA-Z0-9.]+|[a-zA-Z][a-zA-Z0-9_-]*) to [^\r\n]+$`)
 
-func unrelatedSubject(statement, candidateGroup string, groupNames map[string]string, groupIDs map[string]bool, dynamicNames map[string]string, dynamicIDs map[string]bool) bool {
+func unrelatedSubject(statement, candidateGroup, readerGroup string, groupNames map[string]string, groupIDs map[string]bool, dynamicNames map[string]string, dynamicIDs map[string]bool) bool {
 	// The service already validated the rest of this one policy statement.
 	// Domains, quotes, compound subjects, newlines and unknown forms fail.
 	match := policySubject.FindStringSubmatch(statement)
@@ -360,7 +385,7 @@ func unrelatedSubject(statement, candidateGroup string, groupNames map[string]st
 	if !explicit {
 		id = names[strings.ToLower(match[2])]
 	}
-	return ids[id] && (match[1] != "group" || id != candidateGroup)
+	return ids[id] && (match[1] != "group" || id != candidateGroup) && (match[1] != "dynamic-group" || id != readerGroup)
 }
 
 func text(value *string) string {

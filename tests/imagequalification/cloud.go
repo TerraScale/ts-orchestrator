@@ -40,23 +40,27 @@ type cloud struct {
 }
 
 type journal struct {
-	RunID              string               `json:"run_id"`
-	ApprovalSHA256     string               `json:"approval_sha256"`
-	Object             string               `json:"object"`
-	ImageID            string               `json:"image_id"`
-	CapabilityID       string               `json:"capability_id"`
-	CapabilityVersion  string               `json:"capability_version"`
-	CapabilityDeleted  bool                 `json:"capability_deleted"`
-	Hosts              map[string]string    `json:"hosts"`
-	Terminated         map[string]bool      `json:"terminated"`
-	ImageDeleted       bool                 `json:"image_deleted"`
-	ObjectDeleted      bool                 `json:"object_deleted"`
-	ConsoleHistories   map[string]string    `json:"console_histories"`
-	ConsoleDeleted     map[string]bool      `json:"console_deleted"`
-	HostKeys           map[string]string    `json:"host_keys"`
-	HostConsoleHistory map[string]string    `json:"host_console_history"`
-	ConsoleDigests     map[string]string    `json:"console_digests"`
-	Intents            map[string]time.Time `json:"intents"`
+	RunID               string               `json:"run_id"`
+	ApprovalSHA256      string               `json:"approval_sha256"`
+	Object              string               `json:"object"`
+	ImageID             string               `json:"image_id"`
+	CapabilityID        string               `json:"capability_id"`
+	CapabilityVersion   string               `json:"capability_version"`
+	CapabilityDeleted   bool                 `json:"capability_deleted"`
+	Hosts               map[string]string    `json:"hosts"`
+	Terminated          map[string]bool      `json:"terminated"`
+	ImageDeleted        bool                 `json:"image_deleted"`
+	ObjectDeleted       bool                 `json:"object_deleted"`
+	ConsoleHistories    map[string]string    `json:"console_histories"`
+	ConsoleDeleted      map[string]bool      `json:"console_deleted"`
+	HostKeys            map[string]string    `json:"host_keys"`
+	HostConsoleHistory  map[string]string    `json:"host_console_history"`
+	ConsoleDigests      map[string]string    `json:"console_digests"`
+	Intents             map[string]time.Time `json:"intents"`
+	RetainedReaderProof []byte               `json:"retained_reader_proof,omitempty"`
+	RetainedAt          time.Time            `json:"retained_at,omitzero"`
+	RootGateSHA256      string               `json:"root_gate_sha256,omitempty"`
+	RetentionEndedAt    time.Time            `json:"retention_ended_at,omitzero"`
 }
 
 func newCloud(prepared Prepared, factory *ociclient.Factory, endpoint string) (*cloud, error) {
@@ -497,10 +501,16 @@ func (c *cloud) cleanup(ctx context.Context, path string) error {
 	if unresolved {
 		return errors.New("unresolved create intent: known hosts terminated; retain journal, image and object until authenticated resource recovery")
 	}
-	if err := c.cleanupCapability(ctx, path, &j); err != nil {
+	retain, err := c.retainImage(j)
+	if err != nil {
 		return err
 	}
-	if j.ImageID != "" && !j.ImageDeleted {
+	if !retain {
+		if err := c.cleanupCapability(ctx, path, &j); err != nil {
+			return err
+		}
+	}
+	if !retain && j.ImageID != "" && !j.ImageDeleted {
 		_, err := c.image(ctx, j.ImageID)
 		if err != nil && !isNotFound(err) {
 			return err

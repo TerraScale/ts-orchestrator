@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/netip"
 	"os"
 	"regexp"
@@ -24,6 +25,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/qualification"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/confinement"
 	qualificationhost "github.com/TerraScale/ts-orchestrator/tests/imagequalification/host"
 )
 
@@ -57,6 +59,8 @@ type Prepared struct {
 	approvalSHA256 string
 	approvalWire   []byte
 	principalWire  []byte
+	readerIAM      *confinement.ReaderIAM
+	roots          trust.Keyring
 	delegationWire []byte
 	diskPath       string
 }
@@ -113,6 +117,9 @@ func Prepare(approvalWire, delegationWire []byte, roots trust.Keyring, expected 
 	if approval.CleanupUntil.Before(envelope.ExpiresAt) || approval.CleanupUntil.After(envelope.ExpiresAt.Add(24*time.Hour)) {
 		return result, errors.New("cleanup authority must end within 24 hours after run expiry")
 	}
+	if approval.Purpose == qualification.RootCredentialBoundaryPurpose && (!approval.ImageTransferUntil.After(envelope.IssuedAt) || approval.ImageRetainUntil.After(envelope.ExpiresAt) || approval.ImageRetainUntil.After(envelope.IssuedAt.Add(time.Hour))) {
+		return result, errors.New("image retention exceeds original finite host purpose authority")
+	}
 	qualificationWire, err := os.ReadFile(qualificationPath)
 	if err != nil {
 		return result, err
@@ -133,6 +140,10 @@ func Prepare(approvalWire, delegationWire []byte, roots trust.Keyring, expected 
 		return result, err
 	}
 	result = Prepared{approval: approval, issuedAt: envelope.IssuedAt, expires: envelope.ExpiresAt, approvalSHA256: hashBytes(approvalWire), approvalWire: bytes.Clone(approvalWire), delegationWire: bytes.Clone(delegationWire), diskPath: diskPath}
+	result.roots = maps.Clone(roots)
+	for id, key := range result.roots {
+		result.roots[id] = slices.Clone(key)
+	}
 	if len(delegationWire) > 0 {
 		delegation, _ := trust.DecodeEnvelope(delegationWire)
 		if delegation.IssuedAt.After(result.issuedAt) {
@@ -148,6 +159,9 @@ func Prepare(approvalWire, delegationWire []byte, roots trust.Keyring, expected 
 func (a Approval) validate() error {
 	c := a.Candidate
 	if err := qualification.ValidatePurpose(c, a.Purpose); err != nil {
+		return err
+	}
+	if err := qualification.ValidateDisposition(a.Purpose, a.ArtifactDisposition, a.ReaderIAMAuthority, a.ImageRetainUntil, a.ImageTransferUntil, a.CleanupUntil); err != nil {
 		return err
 	}
 	if a.Schema != ApprovalSchema || !runPattern.MatchString(a.RunID) || !release.ValidSourceRevision(c.SourceRevision) ||

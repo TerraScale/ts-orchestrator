@@ -18,6 +18,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/identity"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/qualification/hostadmission"
 	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/confinement"
 )
 
@@ -122,9 +123,15 @@ func (p *Producer) attempt(ctx context.Context, v VerifiedPreparation, workdir s
 		if isCreate {
 			token := request.Header.Get("opc-retry-token")
 			var intent *operation
-			for _, op := range j.Operations {
+			for name, op := range j.Operations {
 				if op.RetryToken == token {
 					intent = op
+					if name == "reader-group" || name == "reader-policy" {
+						plan, err := hostadmission.VerifyReaderPlan(j.ReaderProof, v.roots, p.now())
+						if err != nil || plan.PreparationSHA256() != v.digest {
+							return errors.New("reader IAM dispatch exceeds original signed exact-host plan")
+						}
+					}
 					break
 				}
 			}
@@ -390,7 +397,7 @@ func validID(name, id string) bool {
 	if name == "key" {
 		return validFingerprint(id)
 	}
-	kind := map[string]string{"user": "user", "group": "group", "policy": "policy", "membership": "groupmembership"}[name]
+	kind := map[string]string{"user": "user", "group": "group", "policy": "policy", "membership": "groupmembership", "reader-group": "dynamicgroup", "reader-policy": "policy"}[name]
 	return kind != "" && identifier.MatchString(id) && strings.HasPrefix(id, "ocid1."+kind+".")
 }
 
@@ -435,6 +442,28 @@ func (a *attempt) observe(ctx context.Context, name string) (bool, string, error
 	var err error
 	var active bool
 	switch name {
+	case "reader-group":
+		var r identity.GetDynamicGroupResponse
+		r, err = a.client.GetDynamicGroup(ociclient.RequestContext(ctx), identity.GetDynamicGroupRequest{DynamicGroupId: new(id)})
+		etag = value(r.Etag)
+		if err == nil {
+			rule, ruleErr := a.readerRule()
+			if ruleErr != nil || value(r.Id) != id || value(r.CompartmentId) != p.Tenancy || value(r.Name) != p.GroupName+"-readers" || value(r.Description) != a.description() || value(r.MatchingRule) != rule {
+				return true, "", errors.New("reader dynamic group differs from exact signed host IDs")
+			}
+			active = r.LifecycleState == identity.DynamicGroupLifecycleStateActive
+		}
+	case "reader-policy":
+		var r identity.GetPolicyResponse
+		r, err = a.client.GetPolicy(ociclient.RequestContext(ctx), identity.GetPolicyRequest{PolicyId: new(id)})
+		etag = value(r.Etag)
+		if err == nil {
+			statements, scopeErr := a.readerStatements()
+			if scopeErr != nil || value(r.Id) != id || value(r.CompartmentId) != p.Tenancy || value(r.Name) != p.PolicyName+"-readers" || value(r.Description) != a.description() || !slices.Equal(r.Statements, statements) {
+				return true, "", errors.New("reader policy differs from exact finite read-only whitelist")
+			}
+			active = r.LifecycleState == identity.PolicyLifecycleStateActive
+		}
 	case "user":
 		var r identity.GetUserResponse
 		r, err = a.client.GetUser(ociclient.RequestContext(ctx), identity.GetUserRequest{UserId: new(id)})
@@ -533,12 +562,15 @@ func (p *Producer) Cleanup(ctx context.Context, v VerifiedPreparation, workdir s
 		if err := a.prepare(ctx, true); err != nil {
 			unresolved = fmt.Errorf("pending principal recovery: %w", err)
 		}
+		if err := a.prepareReaders(ctx, true); err != nil {
+			unresolved = errors.Join(unresolved, fmt.Errorf("pending reader IAM recovery: %w", err))
+		}
 		a.journal.Cleaning = true
 		if err := a.store.save(a.journal); err != nil {
 			return a.result(), err
 		}
 	}
-	for _, name := range []string{"policy", "key", "membership", "user", "group"} {
+	for _, name := range []string{"reader-policy", "reader-group", "policy", "key", "membership", "user", "group"} {
 		op := a.journal.Operations[name]
 		if op == nil || op.Deleted {
 			continue
@@ -619,8 +651,10 @@ func (a *attempt) revoke(ctx context.Context, name string, op *operation) error 
 		}
 		requestID := op.DeleteRequestID
 		switch name {
-		case "policy":
+		case "policy", "reader-policy":
 			_, err = a.client.DeletePolicy(ociclient.RequestContext(ctx), identity.DeletePolicyRequest{PolicyId: new(op.ID), IfMatch: nonempty(etag), OpcRequestId: new(requestID)})
+		case "reader-group":
+			_, err = a.client.DeleteDynamicGroup(ociclient.RequestContext(ctx), identity.DeleteDynamicGroupRequest{DynamicGroupId: new(op.ID), IfMatch: nonempty(etag), OpcRequestId: new(requestID)})
 		case "key":
 			_, err = a.client.DeleteApiKey(ociclient.RequestContext(ctx), identity.DeleteApiKeyRequest{UserId: new(a.id("user")), Fingerprint: new(op.ID), OpcRequestId: new(requestID)})
 		case "membership":

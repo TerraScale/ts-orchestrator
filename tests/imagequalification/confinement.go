@@ -44,6 +44,10 @@ func (p Prepared) confinementScope(j journal) confinement.Scope {
 			s.ExistingHosts[id] = c.name(host.Name)
 		}
 	}
+	if p.readerIAM != nil {
+		r := *p.readerIAM
+		s.ReaderIAM = &r
+	}
 	return s
 }
 

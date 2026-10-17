@@ -29,7 +29,7 @@ func ListenQualification(ctx context.Context, service *QualificationService, aut
 }
 
 func (service *QualificationService) validRequest(request wireRequest) bool {
-	return request.Operation.ReadOnly() && validReadRequest(request)
+	return (request.Operation == OperationObserveLocalInstance || request.Operation == OperationObserveImage) && validReadRequest(request)
 }
 
 func (service *QualificationService) dispatch(ctx context.Context, call Call, request wireRequest) (any, error) {
