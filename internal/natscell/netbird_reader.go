@@ -29,8 +29,9 @@ func NetBirdReaderPublishes(cell string) jwt.StringList {
 	return grants
 }
 
-// ValidateNetBirdReaderCredentialBytes checks the closed TCP-only reader role.
-// The signed source separately pins its issuer, generation and original expiry.
+// ValidateNetBirdReaderCredentialBytes checks the closed TLS-bridge reader role.
+// The outer mutually authenticated TLS-first TCP bridge uses an in-process
+// inner NATS connection. The signed source pins its issuer and original expiry.
 func ValidateNetBirdReaderCredentialBytes(data []byte, cell string) error {
 	if !cellName.MatchString(cell) {
 		return errors.New("NetBird reader cell is invalid")
@@ -53,7 +54,7 @@ func ValidateNetBirdReaderCredentialBytes(data []byte, cell string) error {
 		!nkeys.IsValidPublicAccountKey(claim.Issuer) || claim.Issuer == claim.IssuerAccount ||
 		claim.Name != "netbird-manager-read" || claim.Expires <= claim.IssuedAt || claim.NotBefore != 0 ||
 		claim.BearerToken || claim.ProxyRequired || len(claim.Src) != 0 || len(claim.Tags) != 0 ||
-		!slices.Equal(claim.AllowedConnectionTypes, jwt.StringList{jwt.ConnectionTypeStandard}) ||
+		!slices.Equal(claim.AllowedConnectionTypes, jwt.StringList{jwt.ConnectionTypeInProcess}) ||
 		!slices.Equal(claim.Pub.Allow, NetBirdReaderPublishes(cell)) ||
 		!slices.Equal(claim.Sub.Allow, jwt.StringList{protocol.InboxGrant(cell, public)}) ||
 		len(claim.Pub.Deny) != 0 || len(claim.Sub.Deny) != 0 || claim.Resp != nil {
