@@ -1216,7 +1216,7 @@ func validateMutationKey(kind HostMutationKind, subjectKey string) error {
 		want = 2
 	case MutationTerminalIntent:
 		want = 2
-	case MutationEnrollmentEffect, MutationRuntimeEffect:
+	case MutationEnrollmentEffect, MutationRuntimeEffect, MutationGenericExecution:
 		want = 3
 	case MutationManagedUpdate:
 		want = 4
@@ -1263,6 +1263,9 @@ func mutationSubject(scope string, kind HostMutationKind, subjectKey string) str
 	}
 	if kind == MutationEnrollmentEffect {
 		return fmt.Sprintf("%s.%s.placement.enrollment.%s", controlSubjectRoot, scope, subjectKey)
+	}
+	if kind == MutationGenericExecution {
+		return fmt.Sprintf("%s.%s.placement.generic-execution.%s", controlSubjectRoot, scope, subjectKey)
 	}
 	if kind == MutationRuntimeEffect {
 		return fmt.Sprintf("%s.%s.placement.runtime.%s", controlSubjectRoot, scope, subjectKey)

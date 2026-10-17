@@ -309,6 +309,7 @@ type ControllerConfig struct {
 	ManagedCredentialFloor      func(context.Context, Registration) (uint64, error)
 	ManagedVolumeInspector      ManagedVolumeInspector
 	RuntimeEffects              RuntimeEffectHandler
+	GenericExecutions           GenericExecutionHandler
 	ContainerMaterialProvider   ContainerMaterialProvider
 	RegistryAdmissionProvider   RegistryAdmissionProvider
 	// TaskLoadRoles returns roles assigned to this exact current registration

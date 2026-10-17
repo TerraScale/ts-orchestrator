@@ -296,6 +296,9 @@ func (c *controller) Start(ctx context.Context) (operationErr error) {
 	}
 	t, err := ctr.Task(ctx, nil)
 	if errdefs.IsNotFound(err) {
+		if err := c.acquireGenericExecution(ctx); err != nil {
+			return err
+		}
 		loggerArgument, loggerErr := c.runtimeLoggerArgument(ctx)
 		if loggerErr != nil {
 			return loggerErr
@@ -322,6 +325,9 @@ func (c *controller) Start(ctx context.Context) (operationErr error) {
 	case containerd.Running:
 		return exec.ErrTaskStarted
 	case containerd.Created:
+		if err := c.retainGenericProcess(ctx, t); err != nil {
+			return err
+		}
 		if c.diskAccounted() {
 			witness, err := readDiskWitness(c.executor.logRoot, c.id)
 			if err != nil {
@@ -337,6 +343,9 @@ func (c *controller) Start(ctx context.Context) (operationErr error) {
 		}
 		if !c.credentialExpiresAt.IsZero() && !c.credentialExpiresAt.After(time.Now()) {
 			return ErrContainerMaterialPending
+		}
+		if err := c.guardGenericStart(); err != nil {
+			return err
 		}
 		if err := t.Start(ctx); err != nil {
 			return err
