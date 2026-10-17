@@ -58,7 +58,7 @@ func TestManagementObservationIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	observer := ManagementObservationClient{conn}
+	observer := ManagementObservationClient{conn: conn}
 	wrong, err := observer.Observe(metadata.AppendToOutgoingContext(ctx, managementBinding, "wrong-accepted-identity"), nil)
 	if err == nil {
 		_, err = wrong.Recv()
@@ -212,7 +212,7 @@ func TestManagementObservationIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer restartedConn.Close()
-	restarted := ManagementObservationClient{restartedConn}
+	restarted := ManagementObservationClient{conn: restartedConn}
 	stale, err := restarted.Observe(ctx, &through)
 	if err != nil {
 		t.Fatal(err)
