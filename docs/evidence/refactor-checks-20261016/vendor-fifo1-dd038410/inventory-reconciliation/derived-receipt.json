@@ -1,0 +1,61 @@
+{
+  "union_commit": "dd03841025c65c0a6c3350b3e8ad7c4d27eea77d",
+  "tree": "bac4b5eae4c69633777f8f89291cc032ea69b68c",
+  "manifest_sha256": "5eb590536c7455b40e78c68eed885efbea05f1e146557b0814c00f5fd94379a7",
+  "log": "/tmp/ts-vendor-union-dd038410-remote-race.jsonl",
+  "log_sha256": "295eca93014023673e023b057fd7f661d1ba4f351e1fa58669cd57ee3b632df9",
+  "exit_code": 0,
+  "package_seconds": 0.177,
+  "selector": "^TestAccountRemoteTrackingLatencyRaceOverTCP$",
+  "exact_argv": [
+    "timeout",
+    "180s",
+    "flock",
+    "-n",
+    "/tmp/ts-orch-refactor-short-check-a.lock",
+    "env",
+    "-u",
+    "GOROOT",
+    "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin:/usr/bin:/bin",
+    "GOMAXPROCS=2",
+    "GOFLAGS=-p=2",
+    "nice",
+    "-n",
+    "19",
+    "go",
+    "test",
+    "-p=1",
+    "-parallel=1",
+    "-mod=readonly",
+    "-tags=skip_store_tests,skip_js_tests,skip_mqtt_tests,skip_msgtrace_tests,skip_no_race_tests",
+    "./server",
+    "-run",
+    "^TestAccountRemoteTrackingLatencyRaceOverTCP$",
+    "-count=1",
+    "-timeout=120s",
+    "-json"
+  ],
+  "cwd": "/tmp/ts-vendor-union-qa-dd038410/third_party/nats-server",
+  "broker_receipt": "/tmp/ts-vendor-union-dd038410-remote-race-receipt.json",
+  "broker_receipt_sha256": "9264d981af8be56888669c12af2ba0345e47f347565163f3ca947161baf4655d",
+  "dispatch_commands": "/tmp/ts-nats-vendor-migration-20261016/accounts-plan/first-fifo-remote-dd038410/dispatch/dispatch.json",
+  "dispatch_commands_sha256": "687d54a391b29bb1d8f69f705ec9d7d9d6a57b6b38220312e1e8e5b14e2779d0",
+  "tests": [
+    {
+      "test": "TestAccountRemoteTrackingLatencyRaceOverTCP",
+      "action": "pass",
+      "elapsed": 0.16,
+      "source_file": "third_party/nats-server/server/accounts_test.go",
+      "source_file_sha256": "d58bc910a2de322f1ae37647b941c77f6f2b4ea4038f2f86c14569d723d8f067",
+      "leaves": []
+    }
+  ],
+  "skip_count": 0,
+  "lease": {
+    "id": "A20969",
+    "state": "RELEASED",
+    "owner": "/root/qa_integrator/storage_compare",
+    "postcheck": "Before/after bindings equal; all55 frozen hashes independently rechecked; exact clean dd038410."
+  },
+  "qualification": "Only FIFO position1 standard TCP root PASS. Original TestAccountSendTrackingLatencyRcRace performs1000 private reads and1000 rc writes in two goroutines and requires -race; exact interleaving/race/equivalence/removal/central closure remain open."
+}

@@ -1,0 +1,217 @@
+{
+  "state": "INDEPENDENT_INVENTORY_RECONCILIATION; immutable broker/summary paths unchanged",
+  "union_commit": "dd03841025c65c0a6c3350b3e8ad7c4d27eea77d",
+  "tree": "bac4b5eae4c69633777f8f89291cc032ea69b68c",
+  "broker_receipt": "/tmp/ts-vendor-union-dd038410-authorization-matrix-positive-receipt.json",
+  "broker_receipt_sha256": "4f557277e4f247def18978c8bd4c941d767e0edb8502c875259220d6c7ebd723",
+  "canonical_summary": "/tmp/ts-nats-vendor-migration-20261016/qualifications/union-dd038410-authorization-matrix-positive.json",
+  "canonical_summary_sha256": "07819426fbaf7abb970f07049edd09dc91a29ebf704c6d53a3b32a9c622ead72",
+  "log": "/tmp/ts-vendor-union-dd038410-authorization-matrix-positive.jsonl",
+  "log_sha256": "6a2303a7877f0a7d19aff19f27949b5e18fb314efbfefbc0aa065b9dd0919f31",
+  "selector": "^TestAccountImportAuthorizationMatrixOverTCP$/^(5|8|9|10|13|17|18|19|20|21|22|23|24|25|26|27|32|33|38|39|40|41)$",
+  "exact_argv": [
+    "timeout",
+    "180s",
+    "flock",
+    "-n",
+    "/tmp/ts-orch-refactor-short-check-a.lock",
+    "env",
+    "-u",
+    "GOROOT",
+    "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin:/usr/bin:/bin",
+    "GOMAXPROCS=2",
+    "GOFLAGS=-p=2",
+    "nice",
+    "-n",
+    "19",
+    "go",
+    "test",
+    "-p=1",
+    "-parallel=1",
+    "-mod=readonly",
+    "-tags=skip_store_tests,skip_js_tests,skip_mqtt_tests,skip_msgtrace_tests,skip_no_race_tests",
+    "./server",
+    "-run",
+    "^TestAccountImportAuthorizationMatrixOverTCP$/^(5|8|9|10|13|17|18|19|20|21|22|23|24|25|26|27|32|33|38|39|40|41)$",
+    "-count=1",
+    "-timeout=120s",
+    "-json"
+  ],
+  "cwd": "/tmp/ts-vendor-union-qa-dd038410/third_party/nats-server",
+  "lease": "A93670 RELEASED",
+  "exit_code": 0,
+  "package_seconds": 0.134,
+  "parent_container": {
+    "Time": "2026-10-16T20:59:12.542736075-03:00",
+    "Action": "pass",
+    "Package": "github.com/nats-io/nats-server/v2/server",
+    "Test": "TestAccountImportAuthorizationMatrixOverTCP",
+    "Elapsed": 0.12
+  },
+  "selected_leaves": [
+    {
+      "Time": "2026-10-16T20:59:12.43225995-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountImportAuthorizationMatrixOverTCP/5",
+      "Elapsed": 0.01
+    },
+    {
+      "Time": "2026-10-16T20:59:12.437471551-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountImportAuthorizationMatrixOverTCP/8",
+      "Elapsed": 0
+    },
+    {
+      "Time": "2026-10-16T20:59:12.443472823-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountImportAuthorizationMatrixOverTCP/9",
+      "Elapsed": 0.01
+    },
+    {
+      "Time": "2026-10-16T20:59:12.447989898-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountImportAuthorizationMatrixOverTCP/10",
+      "Elapsed": 0
+    },
+    {
+      "Time": "2026-10-16T20:59:12.453390888-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountImportAuthorizationMatrixOverTCP/13",
+      "Elapsed": 0
+    },
+    {
+      "Time": "2026-10-16T20:59:12.462220364-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountImportAuthorizationMatrixOverTCP/17",
+      "Elapsed": 0.01
+    },
+    {
+      "Time": "2026-10-16T20:59:12.46626801-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountImportAuthorizationMatrixOverTCP/18",
+      "Elapsed": 0
+    },
+    {
+      "Time": "2026-10-16T20:59:12.47173377-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountImportAuthorizationMatrixOverTCP/19",
+      "Elapsed": 0.01
+    },
+    {
+      "Time": "2026-10-16T20:59:12.475590919-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountImportAuthorizationMatrixOverTCP/20",
+      "Elapsed": 0
+    },
+    {
+      "Time": "2026-10-16T20:59:12.47962686-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountImportAuthorizationMatrixOverTCP/21",
+      "Elapsed": 0
+    },
+    {
+      "Time": "2026-10-16T20:59:12.483369416-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountImportAuthorizationMatrixOverTCP/22",
+      "Elapsed": 0
+    },
+    {
+      "Time": "2026-10-16T20:59:12.487479748-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountImportAuthorizationMatrixOverTCP/23",
+      "Elapsed": 0
+    },
+    {
+      "Time": "2026-10-16T20:59:12.491912865-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountImportAuthorizationMatrixOverTCP/24",
+      "Elapsed": 0
+    },
+    {
+      "Time": "2026-10-16T20:59:12.498839094-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountImportAuthorizationMatrixOverTCP/25",
+      "Elapsed": 0.01
+    },
+    {
+      "Time": "2026-10-16T20:59:12.503512974-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountImportAuthorizationMatrixOverTCP/26",
+      "Elapsed": 0
+    },
+    {
+      "Time": "2026-10-16T20:59:12.508791958-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountImportAuthorizationMatrixOverTCP/27",
+      "Elapsed": 0
+    },
+    {
+      "Time": "2026-10-16T20:59:12.518163467-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountImportAuthorizationMatrixOverTCP/32",
+      "Elapsed": 0.01
+    },
+    {
+      "Time": "2026-10-16T20:59:12.523833715-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountImportAuthorizationMatrixOverTCP/33",
+      "Elapsed": 0.01
+    },
+    {
+      "Time": "2026-10-16T20:59:12.52912749-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountImportAuthorizationMatrixOverTCP/38",
+      "Elapsed": 0
+    },
+    {
+      "Time": "2026-10-16T20:59:12.533501166-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountImportAuthorizationMatrixOverTCP/39",
+      "Elapsed": 0
+    },
+    {
+      "Time": "2026-10-16T20:59:12.538240521-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountImportAuthorizationMatrixOverTCP/40",
+      "Elapsed": 0
+    },
+    {
+      "Time": "2026-10-16T20:59:12.541713601-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountImportAuthorizationMatrixOverTCP/41",
+      "Elapsed": 0
+    }
+  ],
+  "selected_case_count": 22,
+  "selected_stream_case_count": 20,
+  "selected_service_case_count": 2,
+  "skip_count": 0,
+  "unexpected_count": 0,
+  "excluded_startup_only_case_count": 27,
+  "full_source_case_count": 49,
+  "full_root_qualified": false,
+  "postcheck": "All91frozenfiles independently exact; before/after bindings equal; clean exactdd HEAD/tree.",
+  "qualification": "22positive TCP leaves PASS only; root container event is not an extra case/fullroot proof.25negative+2invalid-export startup-only leaves excluded/zeroTCPcredit. All47original private authorization rows and2exact invalid-export guards retained. Whole-config rejection/privatebool/errors/wildcard-shape/race/equivalence/removal/centralclosure remain open."
+}

@@ -1,0 +1,13 @@
+{
+  "source": "dd03841025c65c0a6c3350b3e8ad7c4d27eea77d",
+  "tree": "bac4b5eae4c69633777f8f89291cc032ea69b68c",
+  "FIFO_position": 6,
+  "result": "FAILsvc.0!=svc.1",
+  "archive_sha256": "dc7f23c59b5f20a9584f902575933f1c1564adb013f061d10ecde1e8a9eec5ab",
+  "manifest_sha256": "eb3e3590bdea5326995eb6f9312d55db3886d8944a309e1184b3f5cd56f836c6",
+  "archive_members_verified": 26,
+  "raw_sha256": "ece25ff44047bcfa37b4c7f4e7d9826608f889ffa2268908fa4523c62e4bf3f1",
+  "verification": "QA independently checked complete archive membership/every member byte against original packet, SHA256SUMS, manifest and raw gzip roundtrip",
+  "bindings": "155 frozen source/helper/plan/cache hashes exact before/after; no skips/extras",
+  "boundary": "Original private contracts/race/equivalence/removal/central closure remain open; no repeat or automatic next FIFO"
+}

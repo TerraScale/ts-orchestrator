@@ -1,0 +1,71 @@
+{
+  "state": "FIFO1_2_3_4_SCOPED_PASS_RECONCILED; FIFO5 separately granted to storage_compare; no inventory runtime",
+  "originals": 1449,
+  "unit": 1215,
+  "mixed": 234,
+  "approved_removals": 13,
+  "retained": 1436,
+  "central_closures": 0,
+  "accounts": "23/27 full groups scoped standard PASS plus22/49 matrix positive subset PASS;3 full roots not yet reconciled, FIFO5 separately granted",
+  "client": "13/19 full groups PASS;5 roots not yet reconciled; safe TCP qualifier leaf separate/constructor zeroTCPcredit",
+  "remaining": {
+    "batches": 7,
+    "roots": 8,
+    "cases": 81,
+    "positions": [
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11
+    ],
+    "position5": "separately granted to storage_compare; no outcome reconciled here",
+    "positions6_11": "source-only/ungranted"
+  },
+  "status_counts": {
+    "replacement_passed_contract_gap": 216,
+    "claimed": 701,
+    "candidate_partial_passed_subset": 30,
+    "pending": 252,
+    "standard_pass_race_pending": 5,
+    "candidate_partial": 44,
+    "replacement_standard_passed_review_pending": 109,
+    "removed_qualified_integration_pending": 13,
+    "candidate": 71,
+    "candidate_failed": 6,
+    "replacement_passed": 2
+  },
+  "master_files": [
+    {
+      "path": "/tmp/ts-nats-vendor-migration-20261016/cases.tsv",
+      "sha256": "d3f73740f9a68b2db3a5e1fb2fbaf428bb37a7f079a61514cb4442b53be8846e"
+    },
+    {
+      "path": "/tmp/ts-nats-vendor-migration-20261016/progress.json",
+      "sha256": "93e40e33d1362b8e5af5806ce8f396dc62680bfdfd7d569497f9882caf50249a"
+    },
+    {
+      "path": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-selection-disposition.json",
+      "sha256": "d514c2fc00f36002f8fff91aa336d24cc9a7d1996d40bb976349dae344a22ad2"
+    }
+  ],
+  "inventory_receipt": {
+    "path": "/tmp/ts-nats-vendor-migration-20261016/qualifications/union-dd038410-fifo04-inventory-05aaea82-receipt.json",
+    "sha256": "b13d57fbc07a303718cd16001e61de18f10e1023161de39a9f376eaf88226c47"
+  },
+  "reconciliation": {
+    "path": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo04-inventory-05aaea82/reconciliation.json",
+    "sha256": "416a4d22b7d769e8fd07b626585e7ef44cacf95f0d81e757d978632a14bb36a3"
+  },
+  "prior_checkpoint": {
+    "path": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo123-inventory-checkpoint.json",
+    "sha256": "dc4c775f12b0a497cbc9a9873f148e4e5ef13bdde618fbf6880b7b87b1562faa"
+  },
+  "immutable_evidence_preserved_count": 139,
+  "immutable_evidence_hash_errors": [],
+  "all155_frozen_bindings_rehashed_exact": true,
+  "runtime": "No runner/Go edit/source/Git/cloud action/new agents",
+  "limits": "One standard runtime pass adds no private-interleaving/race/equivalence/removal/central closure/full-suite/live/production claim."
+}

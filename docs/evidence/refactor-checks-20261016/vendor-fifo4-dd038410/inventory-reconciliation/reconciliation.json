@@ -1,0 +1,299 @@
+{
+  "state": "FIFO1_2_3_4_SCOPED_PASS_RECONCILED; FIFO5 separately granted to storage_compare; no inventory runtime",
+  "canonical_FIFO": {
+    "path": "/tmp/ts-nats-vendor-migration-20261016/union-67ec90a3-bounded-fifo.json",
+    "sha256": "e14ef3f443d979b618e02dce0a45e2c61099da6ee692553dd9238e26a95c5009"
+  },
+  "qualified_positions": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "position3_scope": "22positiveTCPleaves only; full49root UNQUALIFIED;27startup-only zeroTCPcredit",
+  "inventory_receipt": {
+    "path": "/tmp/ts-nats-vendor-migration-20261016/qualifications/union-dd038410-fifo04-inventory-05aaea82-receipt.json",
+    "sha256": "b13d57fbc07a303718cd16001e61de18f10e1023161de39a9f376eaf88226c47"
+  },
+  "changed_original_rows": [
+    {
+      "declaration": "TestAccountDefaultPermsRaceDuringAuth",
+      "before": {
+        "path": "third_party/nats-server/server/accounts_test.go",
+        "declaration": "TestAccountDefaultPermsRaceDuringAuth",
+        "source_classification": "unit",
+        "status": "candidate_partial",
+        "owner": "vendor_review_5",
+        "worktree": "/tmp/ts-vendor-migrate-accounts",
+        "replacement": "TestAccountDefaultPermissionsAdmissionRaceOverTCP",
+        "source_commit": "b1226ad79fa873bef9beff8a172867ff24b453f0",
+        "qualification": "Source candidate only; runtime/equivalence/removal/central integration pending. Gap: Do not allow claims mutation races in test fixture. Build immutable signed tokens before concurrent work; check effective permissions through actual traffic, not auth success only.",
+        "final_commit": "",
+        "disposition_evidence": "/tmp/ts-nats-vendor-migration-20261016/accounts-plan/contracts.tsv"
+      },
+      "after": {
+        "path": "third_party/nats-server/server/accounts_test.go",
+        "declaration": "TestAccountDefaultPermsRaceDuringAuth",
+        "source_classification": "unit",
+        "status": "standard_pass_race_pending",
+        "owner": "vendor_review_5",
+        "worktree": "/tmp/ts-vendor-migrate-accounts",
+        "replacement": "TestAccountDefaultPermissionsAdmissionRaceOverTCP",
+        "source_commit": "b1226ad79fa873bef9beff8a172867ff24b453f0",
+        "qualification": "/tmp/ts-nats-vendor-migration-20261016/qualifications/union-dd038410-fifo04-inventory-05aaea82-receipt.json; dd038410 FIFO4 standard-runtime root PASS2.36s/package2.374s only. Original1000 buildInternalNkeyUser reads/1000 defaultPerms replacements exact concurrent interleaving, race-detector qualification, private equivalence, original removal and central closure remain OPEN. Immutable pre-signed token fixture/public permissions overlap does not prove original interleavings.",
+        "final_commit": "",
+        "disposition_evidence": "/tmp/ts-nats-vendor-migration-20261016/qualifications/union-dd038410-fifo04-inventory-05aaea82-receipt.json"
+      }
+    }
+  ],
+  "remaining_batches": [
+    {
+      "position": 5,
+      "slice": "accounts",
+      "selector": "^TestAccountJetStreamRemovalLifecycleOverTCP$",
+      "root_count": 1,
+      "case_count": 50,
+      "source_plan": "/tmp/ts-nats-vendor-migration-20261016/accounts-plan/remaining10-fifo-67ec/batch-06-jetstream-removal.json",
+      "source_plan_sha256": "e4bf91122f620e6a42f981936cd9f8922ca6e87db82b94834eaf0c74629d49f2",
+      "status": "SEPARATELY_GRANTED_TO_STORAGE_COMPARE; no FIFO5 outcome reconciled here",
+      "resources": {
+        "serial_server_launches": 1,
+        "connection_attempts": 151,
+        "successful_connections": 101,
+        "peak_live_clients": 2,
+        "peak_listeners": 2,
+        "application_publications": 50,
+        "expected_payload_deliveries": 0,
+        "explicit_SYS_request_calls": 101
+      },
+      "provisional_envelope": {
+        "concurrent_requests": 1,
+        "cpu": 1,
+        "gomaxprocs": 2,
+        "memory": "512MiB",
+        "socket_fd_reserve": 32,
+        "temporary_disk_reserve_MiB": 8,
+        "ordinary_reserve_seconds": 60,
+        "hard_package_timeout_seconds": 180,
+        "count": 1,
+        "race": false,
+        "measurements": "None; source-derived provisional sizing, compilation separate"
+      }
+    },
+    {
+      "position": 6,
+      "slice": "accounts",
+      "selector": "^TestAccountServiceRemovalConcurrentRefreshOverTCP$",
+      "root_count": 1,
+      "case_count": 1,
+      "source_plan": "/tmp/ts-nats-vendor-migration-20261016/accounts-plan/remaining10-fifo-67ec/batch-07-service-removal-refresh.json",
+      "source_plan_sha256": "9e9d2d5bd7119510715ad6bf0cefe14d7ddb23fbcde153fccbca8901d9214919",
+      "status": "SOURCE_ONLY_UNGRANTED; broker dispatch exclusively",
+      "resources": {
+        "serial_server_launches": 1,
+        "connection_attempts": 6,
+        "successful_connections": 5,
+        "peak_live_clients": 4,
+        "peak_listeners": 2,
+        "application_publications": 19,
+        "expected_payload_deliveries": 19,
+        "explicit_SYS_request_calls": 2102
+      },
+      "provisional_envelope": {
+        "concurrent_requests": 1,
+        "cpu": 1,
+        "gomaxprocs": 2,
+        "memory": "512MiB",
+        "socket_fd_reserve": 32,
+        "temporary_disk_reserve_MiB": 8,
+        "ordinary_reserve_seconds": 60,
+        "hard_package_timeout_seconds": 180,
+        "count": 1,
+        "race": false,
+        "measurements": "None; source-derived provisional sizing, compilation separate"
+      }
+    },
+    {
+      "position": 7,
+      "slice": "accounts",
+      "selector": "^TestAccountServiceImportConcurrencyOverTCP$",
+      "root_count": 1,
+      "case_count": 1,
+      "source_plan": "/tmp/ts-nats-vendor-migration-20261016/accounts-plan/remaining10-fifo-67ec/batch-08-service-import-concurrency.json",
+      "source_plan_sha256": "c3058aa4872bba4241e8c0e41a8fb4e686692d999336b98e70788c5ebc868cdc",
+      "status": "SOURCE_ONLY_UNGRANTED; broker dispatch exclusively",
+      "resources": {
+        "serial_server_launches": 1,
+        "connection_attempts": 103,
+        "successful_connections": 103,
+        "peak_live_clients": 100,
+        "peak_listeners": 2,
+        "application_publications": 202,
+        "expected_payload_deliveries": 201,
+        "explicit_SYS_request_calls": 101
+      },
+      "provisional_envelope": {
+        "concurrent_requests": 1,
+        "cpu": 1,
+        "gomaxprocs": 2,
+        "memory": "512MiB",
+        "socket_fd_reserve": 256,
+        "temporary_disk_reserve_MiB": 8,
+        "ordinary_reserve_seconds": 45,
+        "hard_package_timeout_seconds": 180,
+        "count": 1,
+        "race": false,
+        "measurements": "None; source-derived provisional sizing, compilation separate"
+      }
+    },
+    {
+      "position": 8,
+      "slice": "client",
+      "selector": "^TestClientTCP(TLSNoticeAndAcceptance|TLSHandshakeTimeout)Ingress$",
+      "root_count": 2,
+      "case_count": 8,
+      "source_plan": "/tmp/ts-nats-vendor-migration-20261016/client-plan/remaining10-fifo-67ec/03-tls-notices-timeouts.json",
+      "source_plan_sha256": "53dac1aa1e1dbe1f6814c3b227b637680647d7258c17e71d500c7dee65c841de",
+      "status": "SOURCE_ONLY_UNGRANTED; broker dispatch exclusively",
+      "resources": {
+        "server_starts": 8,
+        "tcp_dial_attempts": 16,
+        "total_listener_creations": 26,
+        "explicit_wire_ping_pong_pairs": 3,
+        "raw_publish_attempts": 0,
+        "provided_raw_body_bytes": 0,
+        "provided_raw_header_bytes": 0,
+        "expected_raw_MSG_HMSG_deliveries": 0,
+        "delivered_raw_body_bytes": 0,
+        "delivered_raw_header_bytes": 0
+      },
+      "provisional_envelope": {
+        "simultaneous_servers": 1,
+        "listener_sockets": 4,
+        "test_side_handles": 2,
+        "conservative_tcp_endpoint_budget": 8
+      }
+    },
+    {
+      "position": 9,
+      "slice": "client",
+      "selector": "^TestClientTCPTLSFirstAliasesIngress$",
+      "root_count": 1,
+      "case_count": 9,
+      "source_plan": "/tmp/ts-nats-vendor-migration-20261016/client-plan/remaining10-fifo-67ec/04-tls-aliases.json",
+      "source_plan_sha256": "5a2abf3b0bf15911698bcee430a771ce51ecfc0e14c074107c32d81e9bf3f79a",
+      "status": "SOURCE_ONLY_UNGRANTED; broker dispatch exclusively",
+      "resources": {
+        "server_starts": 9,
+        "tcp_dial_attempts": 15,
+        "total_listener_creations": 9,
+        "explicit_wire_ping_pong_pairs": 0,
+        "raw_publish_attempts": 0,
+        "provided_raw_body_bytes": 0,
+        "provided_raw_header_bytes": 0,
+        "expected_raw_MSG_HMSG_deliveries": 0,
+        "delivered_raw_body_bytes": 0,
+        "delivered_raw_header_bytes": 0
+      },
+      "provisional_envelope": {
+        "simultaneous_servers": 1,
+        "listener_sockets": 1,
+        "test_side_handles": 1,
+        "conservative_tcp_endpoint_budget": 4
+      }
+    },
+    {
+      "position": 10,
+      "slice": "client",
+      "selector": "^TestClientTCPSignedLimitsIngress$",
+      "root_count": 1,
+      "case_count": 11,
+      "source_plan": "/tmp/ts-nats-vendor-migration-20261016/client-plan/remaining10-fifo-67ec/05-signed-limits.json",
+      "source_plan_sha256": "06792dfa36ebe75bd6ff7bb44095057ec633d7cc98535678a33d198c0defdfed",
+      "status": "SOURCE_ONLY_UNGRANTED; broker dispatch exclusively",
+      "resources": {
+        "server_starts": 11,
+        "tcp_dial_attempts": 11,
+        "total_listener_creations": 33,
+        "explicit_wire_ping_pong_pairs": 46,
+        "raw_publish_attempts": 21,
+        "provided_raw_body_bytes": 34,
+        "provided_raw_header_bytes": 0,
+        "expected_raw_MSG_HMSG_deliveries": 14,
+        "delivered_raw_body_bytes": 26,
+        "delivered_raw_header_bytes": 0
+      },
+      "provisional_envelope": {
+        "simultaneous_servers": 1,
+        "listener_sockets": 3,
+        "test_side_handles": 1,
+        "conservative_tcp_endpoint_budget": 5
+      }
+    },
+    {
+      "position": 11,
+      "slice": "client",
+      "selector": "^TestClientTCPStoredHeaderTransformIngress$",
+      "root_count": 1,
+      "case_count": 1,
+      "source_plan": "/tmp/ts-nats-vendor-migration-20261016/client-plan/remaining10-fifo-67ec/06-stored-header.json",
+      "source_plan_sha256": "e923a890dce180659c11a6b63e17a8ff456a5c213b7cf36086674608abb125e3",
+      "status": "SOURCE_ONLY_UNGRANTED; broker dispatch exclusively",
+      "resources": {
+        "server_starts": 1,
+        "tcp_dial_attempts": 3,
+        "total_listener_creations": 1,
+        "explicit_wire_ping_pong_pairs": 4,
+        "raw_publish_attempts": 1,
+        "provided_raw_body_bytes": 26,
+        "provided_raw_header_bytes": 302,
+        "expected_raw_MSG_HMSG_deliveries": 1,
+        "delivered_raw_body_bytes": 26,
+        "delivered_raw_header_bytes": 302
+      },
+      "provisional_envelope": {
+        "simultaneous_servers": 1,
+        "listener_sockets": 1,
+        "test_side_handles": 3,
+        "conservative_tcp_endpoint_budget": 7
+      }
+    }
+  ],
+  "remaining_roots": 8,
+  "remaining_cases": 81,
+  "accounts_unreconciled_full_roots": 3,
+  "accounts_unreconciled_cases": 52,
+  "client_unreconciled_roots": 5,
+  "client_unreconciled_cases": 29,
+  "private_race_equivalence": "OPEN",
+  "central_closures": 0,
+  "inventory_snapshots_directory": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo04-inventory-05aaea82",
+  "master_files_before": [
+    {
+      "path": "/tmp/ts-nats-vendor-migration-20261016/cases.tsv",
+      "sha256": "61fe337ae63338e2ed88aa49489b9f5a9b9c3f683f2fa21810eb6c04a31c248d"
+    },
+    {
+      "path": "/tmp/ts-nats-vendor-migration-20261016/progress.json",
+      "sha256": "8d150ee3e3b4afebd0b7d986b82dcde792520decdf4db8c1709465494a465b3f"
+    },
+    {
+      "path": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-selection-disposition.json",
+      "sha256": "1df97605af5c353c466358ed213687822738335c2e0e8b1949266bdcd95b101d"
+    }
+  ],
+  "master_files_after": [
+    {
+      "path": "/tmp/ts-nats-vendor-migration-20261016/cases.tsv",
+      "sha256": "d3f73740f9a68b2db3a5e1fb2fbaf428bb37a7f079a61514cb4442b53be8846e"
+    },
+    {
+      "path": "/tmp/ts-nats-vendor-migration-20261016/progress.json",
+      "sha256": "93e40e33d1362b8e5af5806ce8f396dc62680bfdfd7d569497f9882caf50249a"
+    },
+    {
+      "path": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-selection-disposition.json",
+      "sha256": "d514c2fc00f36002f8fff91aa336d24cc9a7d1996d40bb976349dae344a22ad2"
+    }
+  ]
+}

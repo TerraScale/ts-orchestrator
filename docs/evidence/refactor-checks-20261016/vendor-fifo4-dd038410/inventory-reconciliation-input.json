@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "purpose": "Distinct proposed inventory reconciliation input only; canonical/broker evidence must never be overwritten",
+  "FIFO_position": 4,
+  "revision": "dd03841025c65c0a6c3350b3e8ad7c4d27eea77d",
+  "tree": "bac4b5eae4c69633777f8f89291cc032ea69b68c",
+  "session": 17084,
+  "scope": [
+    "TestAccountDefaultPermissionsAdmissionRaceOverTCP"
+  ],
+  "result": "PASS_STANDARD_RUNTIME_ONLY",
+  "individual_outcome_member": "individual-outcome.json",
+  "broker_receipt": {
+    "path": "/tmp/ts-vendor-union-dd038410-fifo04-default-permissions-admission-receipt.json",
+    "sha256": "d1776fbdfbc61aa2cbd5b2e89d1186e4b9be7e0a8d5c119a3719a0dcef0a71b5"
+  },
+  "canonical_summary": {
+    "path": "/tmp/ts-nats-vendor-migration-20261016/qualifications/union-dd038410-fifo04-default-permissions-admission.json",
+    "sha256": "306506f10e873f2135a03b7dd5e2c7368752d0ef8ad3ca20557e76ce71656b3a"
+  },
+  "raw_log": {
+    "path": "/tmp/ts-vendor-union-dd038410-fifo04-default-permissions-admission.jsonl",
+    "sha256": "65c02de5924ecc3b1a98607f27da31b5ac046237f259f081597500534f808337"
+  },
+  "dispatch": {
+    "path": "/tmp/ts-nats-vendor-migration-20261016/remaining-fifo-source-dd038410/dispatch/position-04/dispatch.json",
+    "sha256": "a30d4fba2000708847069770da0a02e7bc87c2ce269bcbb9c034a4065881fd3d"
+  },
+  "test_seconds": 2.36,
+  "package_seconds": 2.374,
+  "case_count": 1,
+  "skip_count": 0,
+  "remaining_source_only": {
+    "FIFO_positions": [
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11
+    ],
+    "batches": 7,
+    "roots": 8,
+    "cases": 81
+  },
+  "disposition": "STOPPED_AFTER_FIFO4; both lanes free; no further runtime grant",
+  "private_gaps_member": "private-gaps.json",
+  "closure": false,
+  "instructions": "Create a uniquely named reconciliation artifact; preserve every historical pass/failure and every original/private gap. Do not edit qualifications or broker receipts."
+}

@@ -1,0 +1,70 @@
+{
+  "state": "FIFO1_2_3_SCOPED_PASS_RECONCILED; remaining4_11SOURCE_ONLY_UNGRANTED",
+  "originals": 1449,
+  "unit": 1215,
+  "mixed": 234,
+  "approved_removals": 13,
+  "retained": 1436,
+  "central_closures": 0,
+  "accounts": "22/27fullgroupsPASS plus22/49matrixpositive subsetPASS;4never-runroots",
+  "client": "13/19fullgroupsPASS;5never-runroots;safeTCPqualifierleafseparate/constructorzeroTCPcredit",
+  "remaining": {
+    "batches": 8,
+    "roots": 9,
+    "cases": 82,
+    "next_position": 4
+  },
+  "snapshot_checks": {
+    "union-67ec90a3-manifest.json": "9b636279f8f93010e340abb50f449deae92cc0bc454091bd6b97cf81969e8cc8",
+    "union-dd038410-manifest.json": "5eb590536c7455b40e78c68eed885efbea05f1e146557b0814c00f5fd94379a7",
+    "union-67ec90a3-bounded-fifo.json": "e14ef3f443d979b618e02dce0a45e2c61099da6ee692553dd9238e26a95c5009",
+    "qualifications/union-dd038410-remote-race.json": "7ad381e9a2d71f04ed260e95c85912eee43f386f669864c9ac18d63139d05d09",
+    "qualifications/union-dd038410-authorization-matrix-positive.json": "07819426fbaf7abb970f07049edd09dc91a29ebf704c6d53a3b32a9c622ead72"
+  },
+  "status_counts": {
+    "replacement_passed_contract_gap": 216,
+    "claimed": 701,
+    "candidate_partial_passed_subset": 30,
+    "pending": 252,
+    "candidate_partial": 45,
+    "replacement_standard_passed_review_pending": 109,
+    "standard_pass_race_pending": 4,
+    "removed_qualified_integration_pending": 13,
+    "candidate": 71,
+    "candidate_failed": 6,
+    "replacement_passed": 2
+  },
+  "master_files": [
+    {
+      "path": "/tmp/ts-nats-vendor-migration-20261016/cases.tsv",
+      "sha256": "61fe337ae63338e2ed88aa49489b9f5a9b9c3f683f2fa21810eb6c04a31c248d"
+    },
+    {
+      "path": "/tmp/ts-nats-vendor-migration-20261016/progress.json",
+      "sha256": "8d150ee3e3b4afebd0b7d986b82dcde792520decdf4db8c1709465494a465b3f"
+    },
+    {
+      "path": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-selection-disposition.json",
+      "sha256": "1df97605af5c353c466358ed213687822738335c2e0e8b1949266bdcd95b101d"
+    }
+  ],
+  "inventory_reconciliations": [
+    {
+      "path": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo1-reconciliation.json",
+      "sha256": "68b826d12804a5578454602d7c6726564df4df223c24212523db12abf474cc40"
+    },
+    {
+      "path": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo2-inventory-reconciliation.json",
+      "sha256": "61cfc37e80610b311a38b7075235664eb3d1e1b7dd554d85bc3ac0792e93ee36"
+    },
+    {
+      "path": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo3-inventory-reconciliation.json",
+      "sha256": "19e391c7e8861937dbda584010b7c875b0f4955e1daa1e9abcc2bcc02aaafa7b"
+    }
+  ],
+  "source_audit": "/tmp/ts-nats-vendor-migration-20261016/remaining-fifo-source-dd038410/source-helper-tag-audit-after-fifo3.json",
+  "source_audit_sha256": "983153e41a95087a573670d525537e5191b6e3cf5d065087635f973bbd5d595c",
+  "source_artifact_manifest": "/tmp/ts-nats-vendor-migration-20261016/remaining-fifo-source-dd038410/artifact-manifest-after-fifo3.json",
+  "source_artifact_manifest_sha256": "169997401cfa25c573d0775a6fb4001831300c744d08e766333dcc8c6a2078e2",
+  "limits": "No inventoryrunner/sourceedit/retry/push/originalremoval/closure. Private/race/equivalence gaps remainopen. Source envelopes unmeasured; parent grants individually/storage_compare dispatches."
+}

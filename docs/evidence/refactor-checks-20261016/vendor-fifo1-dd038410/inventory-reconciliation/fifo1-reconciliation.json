@@ -1,0 +1,326 @@
+{
+  "state": "FIFO1_TERMINAL_STANDARD_PASS; remaining positions retain original order/ungranted",
+  "canonical_FIFO": "/tmp/ts-nats-vendor-migration-20261016/union-67ec90a3-bounded-fifo.json",
+  "canonical_FIFO_sha256": "e14ef3f443d979b618e02dce0a45e2c61099da6ee692553dd9238e26a95c5009",
+  "qualified_position": 1,
+  "receipt": "/tmp/ts-nats-vendor-migration-20261016/qualifications/union-dd038410-remote-race.json",
+  "receipt_sha256": "7ad381e9a2d71f04ed260e95c85912eee43f386f669864c9ac18d63139d05d09",
+  "remaining_roots": 12,
+  "remaining_cases": 106,
+  "remaining_batches": [
+    {
+      "position": 2,
+      "slice": "accounts",
+      "selector": "^TestAccount(ConfiguredImportsExportsOverTCP|StaleActivationExpiryOverTCP)$",
+      "root_count": 2,
+      "case_count": 2,
+      "source_plan": "/tmp/ts-nats-vendor-migration-20261016/accounts-plan/remaining10-fifo-67ec/batch-03-authorization-small.json",
+      "source_plan_sha256": "faf3051a00c1ccd41b03860a39d7c4a4498e059efa9d87426590e32a8bb530fc",
+      "status": "SOURCE_ONLY_UNGRANTED; broker dispatch exclusively",
+      "resources": {
+        "serial_server_launches": 2,
+        "connection_attempts": 8,
+        "successful_connections": 8,
+        "peak_live_clients": 4,
+        "peak_listeners": 2,
+        "application_publications": 17,
+        "expected_payload_deliveries": 20,
+        "explicit_SYS_request_calls": 1
+      },
+      "provisional_envelope": {
+        "concurrent_requests": 1,
+        "cpu": 1,
+        "gomaxprocs": 2,
+        "memory": "512MiB",
+        "socket_fd_reserve": 24,
+        "temporary_disk_reserve_MiB": 8,
+        "ordinary_reserve_seconds": 20,
+        "hard_package_timeout_seconds": 90,
+        "count": 1,
+        "race": false,
+        "measurements": "None; source-derived provisional sizing, compilation separate"
+      }
+    },
+    {
+      "position": 3,
+      "slice": "accounts",
+      "selector": "^TestAccountImportAuthorizationMatrixOverTCP$/^(5|8|9|10|13|17|18|19|20|21|22|23|24|25|26|27|32|33|38|39|40|41)$",
+      "root_count": 1,
+      "case_count": 22,
+      "source_plan": "/tmp/ts-nats-vendor-migration-20261016/accounts-plan/remaining10-fifo-67ec/batch-04-authorization-matrix.json",
+      "source_plan_sha256": "6a4724cce3798a195f01aef10403e6981cbeb9ca92d91b5c69d72d05114367f6",
+      "status": "SOURCE_ONLY_UNGRANTED; broker dispatch exclusively",
+      "resources": {
+        "serial_server_launches": 22,
+        "connection_attempts": 44,
+        "successful_connections": 44,
+        "peak_live_clients": 2,
+        "peak_listeners": 2,
+        "application_publications": 24,
+        "expected_payload_deliveries": 24,
+        "explicit_SYS_request_calls": 0
+      },
+      "provisional_envelope": {
+        "concurrent_requests": 1,
+        "cpu": 1,
+        "gomaxprocs": 2,
+        "memory": "512MiB",
+        "socket_fd_reserve": 24,
+        "temporary_disk_reserve_MiB": 1,
+        "ordinary_reserve_seconds": 20,
+        "hard_package_timeout_seconds": 90,
+        "count": 1,
+        "race": false,
+        "measurements": "None; source-derived provisional sizing, compilation separate"
+      }
+    },
+    {
+      "position": 4,
+      "slice": "accounts",
+      "selector": "^TestAccountDefaultPermissionsAdmissionRaceOverTCP$",
+      "root_count": 1,
+      "case_count": 1,
+      "source_plan": "/tmp/ts-nats-vendor-migration-20261016/accounts-plan/remaining10-fifo-67ec/batch-05-permissions-admission-race.json",
+      "source_plan_sha256": "6a3513d9ac1845c6d3677bc53af114696a115bf15db00161e57d5ec7aaf90a7c",
+      "status": "SOURCE_ONLY_UNGRANTED; broker dispatch exclusively",
+      "resources": {
+        "serial_server_launches": 1,
+        "connection_attempts": 1003,
+        "successful_connections": 1003,
+        "peak_live_clients": 3,
+        "peak_listeners": 2,
+        "application_publications": 1006,
+        "expected_payload_deliveries": 1004,
+        "explicit_SYS_request_calls": 1000
+      },
+      "provisional_envelope": {
+        "concurrent_requests": 1,
+        "cpu": 1,
+        "gomaxprocs": 2,
+        "memory": "512MiB",
+        "socket_fd_reserve": 32,
+        "temporary_disk_reserve_MiB": 8,
+        "ordinary_reserve_seconds": 60,
+        "hard_package_timeout_seconds": 180,
+        "count": 1,
+        "race": false,
+        "measurements": "None; source-derived provisional sizing, compilation separate"
+      }
+    },
+    {
+      "position": 5,
+      "slice": "accounts",
+      "selector": "^TestAccountJetStreamRemovalLifecycleOverTCP$",
+      "root_count": 1,
+      "case_count": 50,
+      "source_plan": "/tmp/ts-nats-vendor-migration-20261016/accounts-plan/remaining10-fifo-67ec/batch-06-jetstream-removal.json",
+      "source_plan_sha256": "e4bf91122f620e6a42f981936cd9f8922ca6e87db82b94834eaf0c74629d49f2",
+      "status": "SOURCE_ONLY_UNGRANTED; broker dispatch exclusively",
+      "resources": {
+        "serial_server_launches": 1,
+        "connection_attempts": 151,
+        "successful_connections": 101,
+        "peak_live_clients": 2,
+        "peak_listeners": 2,
+        "application_publications": 50,
+        "expected_payload_deliveries": 0,
+        "explicit_SYS_request_calls": 101
+      },
+      "provisional_envelope": {
+        "concurrent_requests": 1,
+        "cpu": 1,
+        "gomaxprocs": 2,
+        "memory": "512MiB",
+        "socket_fd_reserve": 32,
+        "temporary_disk_reserve_MiB": 8,
+        "ordinary_reserve_seconds": 60,
+        "hard_package_timeout_seconds": 180,
+        "count": 1,
+        "race": false,
+        "measurements": "None; source-derived provisional sizing, compilation separate"
+      }
+    },
+    {
+      "position": 6,
+      "slice": "accounts",
+      "selector": "^TestAccountServiceRemovalConcurrentRefreshOverTCP$",
+      "root_count": 1,
+      "case_count": 1,
+      "source_plan": "/tmp/ts-nats-vendor-migration-20261016/accounts-plan/remaining10-fifo-67ec/batch-07-service-removal-refresh.json",
+      "source_plan_sha256": "9e9d2d5bd7119510715ad6bf0cefe14d7ddb23fbcde153fccbca8901d9214919",
+      "status": "SOURCE_ONLY_UNGRANTED; broker dispatch exclusively",
+      "resources": {
+        "serial_server_launches": 1,
+        "connection_attempts": 6,
+        "successful_connections": 5,
+        "peak_live_clients": 4,
+        "peak_listeners": 2,
+        "application_publications": 19,
+        "expected_payload_deliveries": 19,
+        "explicit_SYS_request_calls": 2102
+      },
+      "provisional_envelope": {
+        "concurrent_requests": 1,
+        "cpu": 1,
+        "gomaxprocs": 2,
+        "memory": "512MiB",
+        "socket_fd_reserve": 32,
+        "temporary_disk_reserve_MiB": 8,
+        "ordinary_reserve_seconds": 60,
+        "hard_package_timeout_seconds": 180,
+        "count": 1,
+        "race": false,
+        "measurements": "None; source-derived provisional sizing, compilation separate"
+      }
+    },
+    {
+      "position": 7,
+      "slice": "accounts",
+      "selector": "^TestAccountServiceImportConcurrencyOverTCP$",
+      "root_count": 1,
+      "case_count": 1,
+      "source_plan": "/tmp/ts-nats-vendor-migration-20261016/accounts-plan/remaining10-fifo-67ec/batch-08-service-import-concurrency.json",
+      "source_plan_sha256": "c3058aa4872bba4241e8c0e41a8fb4e686692d999336b98e70788c5ebc868cdc",
+      "status": "SOURCE_ONLY_UNGRANTED; broker dispatch exclusively",
+      "resources": {
+        "serial_server_launches": 1,
+        "connection_attempts": 103,
+        "successful_connections": 103,
+        "peak_live_clients": 100,
+        "peak_listeners": 2,
+        "application_publications": 202,
+        "expected_payload_deliveries": 201,
+        "explicit_SYS_request_calls": 101
+      },
+      "provisional_envelope": {
+        "concurrent_requests": 1,
+        "cpu": 1,
+        "gomaxprocs": 2,
+        "memory": "512MiB",
+        "socket_fd_reserve": 256,
+        "temporary_disk_reserve_MiB": 8,
+        "ordinary_reserve_seconds": 45,
+        "hard_package_timeout_seconds": 180,
+        "count": 1,
+        "race": false,
+        "measurements": "None; source-derived provisional sizing, compilation separate"
+      }
+    },
+    {
+      "position": 8,
+      "slice": "client",
+      "selector": "^TestClientTCP(TLSNoticeAndAcceptance|TLSHandshakeTimeout)Ingress$",
+      "root_count": 2,
+      "case_count": 8,
+      "source_plan": "/tmp/ts-nats-vendor-migration-20261016/client-plan/remaining10-fifo-67ec/03-tls-notices-timeouts.json",
+      "source_plan_sha256": "53dac1aa1e1dbe1f6814c3b227b637680647d7258c17e71d500c7dee65c841de",
+      "status": "SOURCE_ONLY_UNGRANTED; broker dispatch exclusively",
+      "resources": {
+        "server_starts": 8,
+        "tcp_dial_attempts": 16,
+        "total_listener_creations": 26,
+        "explicit_wire_ping_pong_pairs": 3,
+        "raw_publish_attempts": 0,
+        "provided_raw_body_bytes": 0,
+        "provided_raw_header_bytes": 0,
+        "expected_raw_MSG_HMSG_deliveries": 0,
+        "delivered_raw_body_bytes": 0,
+        "delivered_raw_header_bytes": 0
+      },
+      "provisional_envelope": {
+        "simultaneous_servers": 1,
+        "listener_sockets": 4,
+        "test_side_handles": 2,
+        "conservative_tcp_endpoint_budget": 8
+      }
+    },
+    {
+      "position": 9,
+      "slice": "client",
+      "selector": "^TestClientTCPTLSFirstAliasesIngress$",
+      "root_count": 1,
+      "case_count": 9,
+      "source_plan": "/tmp/ts-nats-vendor-migration-20261016/client-plan/remaining10-fifo-67ec/04-tls-aliases.json",
+      "source_plan_sha256": "5a2abf3b0bf15911698bcee430a771ce51ecfc0e14c074107c32d81e9bf3f79a",
+      "status": "SOURCE_ONLY_UNGRANTED; broker dispatch exclusively",
+      "resources": {
+        "server_starts": 9,
+        "tcp_dial_attempts": 15,
+        "total_listener_creations": 9,
+        "explicit_wire_ping_pong_pairs": 0,
+        "raw_publish_attempts": 0,
+        "provided_raw_body_bytes": 0,
+        "provided_raw_header_bytes": 0,
+        "expected_raw_MSG_HMSG_deliveries": 0,
+        "delivered_raw_body_bytes": 0,
+        "delivered_raw_header_bytes": 0
+      },
+      "provisional_envelope": {
+        "simultaneous_servers": 1,
+        "listener_sockets": 1,
+        "test_side_handles": 1,
+        "conservative_tcp_endpoint_budget": 4
+      }
+    },
+    {
+      "position": 10,
+      "slice": "client",
+      "selector": "^TestClientTCPSignedLimitsIngress$",
+      "root_count": 1,
+      "case_count": 11,
+      "source_plan": "/tmp/ts-nats-vendor-migration-20261016/client-plan/remaining10-fifo-67ec/05-signed-limits.json",
+      "source_plan_sha256": "06792dfa36ebe75bd6ff7bb44095057ec633d7cc98535678a33d198c0defdfed",
+      "status": "SOURCE_ONLY_UNGRANTED; broker dispatch exclusively",
+      "resources": {
+        "server_starts": 11,
+        "tcp_dial_attempts": 11,
+        "total_listener_creations": 33,
+        "explicit_wire_ping_pong_pairs": 46,
+        "raw_publish_attempts": 21,
+        "provided_raw_body_bytes": 34,
+        "provided_raw_header_bytes": 0,
+        "expected_raw_MSG_HMSG_deliveries": 14,
+        "delivered_raw_body_bytes": 26,
+        "delivered_raw_header_bytes": 0
+      },
+      "provisional_envelope": {
+        "simultaneous_servers": 1,
+        "listener_sockets": 3,
+        "test_side_handles": 1,
+        "conservative_tcp_endpoint_budget": 5
+      }
+    },
+    {
+      "position": 11,
+      "slice": "client",
+      "selector": "^TestClientTCPStoredHeaderTransformIngress$",
+      "root_count": 1,
+      "case_count": 1,
+      "source_plan": "/tmp/ts-nats-vendor-migration-20261016/client-plan/remaining10-fifo-67ec/06-stored-header.json",
+      "source_plan_sha256": "e923a890dce180659c11a6b63e17a8ff456a5c213b7cf36086674608abb125e3",
+      "status": "SOURCE_ONLY_UNGRANTED; broker dispatch exclusively",
+      "resources": {
+        "server_starts": 1,
+        "tcp_dial_attempts": 3,
+        "total_listener_creations": 1,
+        "explicit_wire_ping_pong_pairs": 4,
+        "raw_publish_attempts": 1,
+        "provided_raw_body_bytes": 26,
+        "provided_raw_header_bytes": 302,
+        "expected_raw_MSG_HMSG_deliveries": 1,
+        "delivered_raw_body_bytes": 26,
+        "delivered_raw_header_bytes": 302
+      },
+      "provisional_envelope": {
+        "simultaneous_servers": 1,
+        "listener_sockets": 1,
+        "test_side_handles": 3,
+        "conservative_tcp_endpoint_budget": 7
+      }
+    }
+  ],
+  "original_private_race_equivalence_gaps": "OPEN",
+  "central_closures": 0,
+  "inventory_derived_receipt": "/tmp/ts-nats-vendor-migration-20261016/qualifications/union-dd038410-remote-race-inventory-reconciliation.json",
+  "inventory_derived_receipt_sha256": "9229c88b87fc688b95207821009a5e8109a2a55c0c9c8bb82af8b51182f78fda"
+}

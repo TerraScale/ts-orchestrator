@@ -1,0 +1,70 @@
+{
+  "state": "INDEPENDENT_INVENTORY_RECONCILIATION; broker canonical receipts unchanged",
+  "union_commit": "dd03841025c65c0a6c3350b3e8ad7c4d27eea77d",
+  "tree": "bac4b5eae4c69633777f8f89291cc032ea69b68c",
+  "manifest_sha256": "5eb590536c7455b40e78c68eed885efbea05f1e146557b0814c00f5fd94379a7",
+  "broker_receipt": "/tmp/ts-vendor-union-dd038410-authorization-small-receipt.json",
+  "broker_receipt_sha256": "73642325a2816c54bd5f1d258b79e75ff24f323d14f84a4566781d25145b6211",
+  "raw_log": "/tmp/ts-vendor-union-dd038410-authorization-small.jsonl",
+  "raw_log_sha256": "4cccadb47775fd10037494017a9fd38fd86b2b20c7679ab82c477797b2f03516",
+  "dispatch": "/tmp/ts-nats-vendor-migration-20261016/accounts-plan/second-fifo-authorization-dd038410/dispatch/dispatch.json",
+  "dispatch_sha256": "bca5a75f763e098a8ffba9d1fac8af7318e5def08c83ffaa05530d8a3ab8132f",
+  "selector": "^TestAccount(ConfiguredImportsExportsOverTCP|StaleActivationExpiryOverTCP)$",
+  "exact_argv": [
+    "timeout",
+    "180s",
+    "flock",
+    "-n",
+    "/tmp/ts-orch-refactor-short-check-a.lock",
+    "env",
+    "-u",
+    "GOROOT",
+    "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin:/usr/bin:/bin",
+    "GOMAXPROCS=2",
+    "GOFLAGS=-p=2",
+    "nice",
+    "-n",
+    "19",
+    "go",
+    "test",
+    "-p=1",
+    "-parallel=1",
+    "-mod=readonly",
+    "-tags=skip_store_tests,skip_js_tests,skip_mqtt_tests,skip_msgtrace_tests,skip_no_race_tests",
+    "./server",
+    "-run",
+    "^TestAccount(ConfiguredImportsExportsOverTCP|StaleActivationExpiryOverTCP)$",
+    "-count=1",
+    "-timeout=120s",
+    "-json"
+  ],
+  "cwd": "/tmp/ts-vendor-union-qa-dd038410/third_party/nats-server",
+  "lease": "A92312 RELEASED",
+  "exit_code": 0,
+  "package_seconds": 3.247,
+  "tests": [
+    {
+      "Time": "2026-10-16T20:55:27.104039529-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountStaleActivationExpiryOverTCP",
+      "Elapsed": 3.21
+    },
+    {
+      "Time": "2026-10-16T20:55:27.125404808-03:00",
+      "Action": "pass",
+      "Package": "github.com/nats-io/nats-server/v2/server",
+      "Test": "TestAccountConfiguredImportsExportsOverTCP",
+      "Elapsed": 0.02
+    }
+  ],
+  "root_count": 2,
+  "root_only_cases": 2,
+  "skip_count": 0,
+  "postcheck": "All94frozenfiles independently hashed exact; before/after bindings equal; clean exactdd HEAD/tree.",
+  "open_gaps": {
+    "TestAccountConfiguredImportsExportsOverTCP": "Literal original users/private Options.Nkeys/Users/account-key fields; nats.add allow_trace; actual nats.photo chunk completion; finite Pending0 cross-socket absence/interleaving.",
+    "TestAccountStaleActivationExpiryOverTCP": "Original direct no-match callback guard, exact scheduling/completion and private interleavings; descriptor-loop missing-entry limitation; finite local marker fence."
+  },
+  "qualification": "Scoped standard TCP PASS only; all originals retained, private/race/equivalence/removal/central closure open."
+}

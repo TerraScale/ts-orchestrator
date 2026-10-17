@@ -1,0 +1,9 @@
+{
+  "incident": "Inventory reconciliation used write_text on receipt path without checking existence; that was unsafe. Pre-write existence cannot be established retrospectively. Published exact packet copy preserves original7ad bytes.",
+  "canonical_receipt": "/tmp/ts-nats-vendor-migration-20261016/qualifications/union-dd038410-remote-race.json",
+  "canonical_sha256": "7ad381e9a2d71f04ed260e95c85912eee43f386f669864c9ac18d63139d05d09",
+  "canonical_source": "/tmp/ts-vendor-scoped-evidence-dd038410-remote-race/union-dd038410-remote-race.json",
+  "inventory_derived_receipt": "/tmp/ts-nats-vendor-migration-20261016/qualifications/union-dd038410-remote-race-inventory-reconciliation.json",
+  "inventory_derived_sha256": "9229c88b87fc688b95207821009a5e8109a2a55c0c9c8bb82af8b51182f78fda",
+  "repair": "Moved inventory-derived9229 bytes to unique path, exclusively recreated original basename from exact published7ad packet; both versions preserved. No frozen FIFO/broker/packet changes. Future receipt writes use exclusive creation."
+}

@@ -116,6 +116,45 @@ open.
 [Remote latency evidence](../vendor-fifo1-dd038410/README.md) retains FIFO
 position 1 on exact separate vendor `dd038410`: one never-run TCP/cluster-route
 root passed in 0.177s package time, with no skips. All 55 frozen bindings
-matched before and after. Ten serial batches, twelve never-run roots and 106
-TCP-eligible cases remain. The original private interleaving and race-detector
+matched before and after. At that result, ten serial batches, twelve never-run
+roots and 106 TCP-eligible cases remained. The original private interleaving and race-detector
 contract remain unqualified; no source removal or central closure is implied.
+
+
+## Signed SDK/socket observer scenario
+
+[Observer evidence](../observer-sdk-socket-ba75b29a/README.md) retains exact
+`ba75b29a`: the root and all ten subcases passed without skips (package 7.699s).
+The original three-slot packet checks remain, with one positive create-key
+observation and nine independent rejection cases. All 59 service responses
+crossed localhost HTTP and passed exact byte/hash and request-sequence checks.
+The original default compile failure, one-line stale fixture correction and
+corrected compile PASS are retained. Go's standard pinned-PATH prefix caused
+a wrapper metadata flag; its unchanged original receipt and separate QA
+adjudication are both included. No passing case was repeated. This uses the
+existing fixture observer constructor; normal construction, DNS/TLS, live OCI,
+full admission, native execution and F3 remain unqualified. Original isolated
+cases remain as of this exact source, pending separate retirement review.
+
+## Later vendor FIFO outcomes
+
+These apply only to separate vendor source `dd038410`; no vendor source was
+imported into the application feature. Each packet retains exact commands,
+individual outcomes, source bindings, raw logs and historical evidence.
+
+| FIFO | Retained outcome | Scope |
+| --- | --- | --- |
+| [2](../vendor-fifo2-dd038410/README.md) | PASS, 2 roots / 3.247s | Configured imports and activation expiry |
+| [3](../vendor-fifo3-dd038410/README.md) | PASS, 22 selected TCP leaves / 0.134s | Parent separate; full 49-leaf root unqualified; 27 startup rows receive zero TCP credit |
+| [4](../vendor-fifo4-dd038410/README.md) | PASS, 1 root / 2.374s | Standard permission admission; original private interleaving/race unqualified |
+| [5](../vendor-fifo5-dd038410/README.md) | PASS, 50 leaves plus parent / 0.549s | Original private locked-reader stress/race unqualified |
+| [6](../vendor-fifo6-dd038410/README.md) | FAIL, 1 root / 2.597s | Received `svc.0`, expected `svc.1`; no retry |
+
+The queue stopped before FIFO7. Five never-run batches (six roots / 30 cases)
+remain, alongside the retained FIFO6 failure and all private/equivalence gaps.
+[Separate FIFO1 reconciliation](../vendor-fifo1-dd038410/inventory-reconciliation/README.md)
+preserves original/derived receipt provenance without overwriting the original
+runtime summary. [FIFO4 inventory reconciliation](../vendor-fifo4-dd038410/inventory-reconciliation/README.md)
+is historical as of that position; later outcomes do not rewrite its checkpoint.
+All original-removal, race, global migration and central-closure claims remain
+open. Main remains `72e90371`.

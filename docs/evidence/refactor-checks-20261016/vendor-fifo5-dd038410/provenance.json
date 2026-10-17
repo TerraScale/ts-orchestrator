@@ -1,0 +1,13 @@
+{
+  "source": "dd03841025c65c0a6c3350b3e8ad7c4d27eea77d",
+  "tree": "bac4b5eae4c69633777f8f89291cc032ea69b68c",
+  "FIFO_position": 5,
+  "result": "PASS50leaves+parent",
+  "archive_sha256": "1c81914c481878962dc1e93dc92f6415fb86ab93aa7425a755d978ece7a096d4",
+  "manifest_sha256": "9ebbb0fc9859bdb7956a61ccf63814bb893706b6e60acbabd21d576601709301",
+  "archive_members_verified": 76,
+  "raw_sha256": "fc57a4c49c8ecfffec45fa36f0a4cc5d88b08ef6fe91831d01e9ce8b1858f6fc",
+  "verification": "QA independently checked complete archive membership/every member byte against original packet, SHA256SUMS, manifest and raw gzip roundtrip",
+  "bindings": "155 frozen source/helper/plan/cache hashes exact before/after; no skips/extras",
+  "boundary": "Original private contracts/race/equivalence/removal/central closure remain open; no repeat or automatic next FIFO"
+}

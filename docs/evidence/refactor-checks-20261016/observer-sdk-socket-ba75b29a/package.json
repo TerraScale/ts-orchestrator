@@ -1,0 +1,652 @@
+{
+  "qualified_commit": "ba75b29add6bbeea4d36d5e326cce84b7f6190b7",
+  "qualified_tree": "150a1394a3e405c0b2fe5299015b83cf002d7c7a",
+  "archive_path": "/tmp/ts-f2-observer-ba75b29a-evidence-20261017T001511Z-50491866/packet.tar.gz",
+  "archive_sha256": "99b79c4f24e4b40b84bc8e63284c21a74b5a38aae5ee49d8336a3592df98c4b5",
+  "archive_bytes": 126848,
+  "uncompressed_tar_sha256": "215b1c60df18c81e2fdfd5ea58a6a1972baeeacf091dd48e7dcfd777fcd11fb8",
+  "uncompressed_tar_bytes": 624640,
+  "archive_member_count": 69,
+  "archive_members": [
+    {
+      "name": "packet/MEMBERS.json",
+      "sha256": "0ec42be4d9e3cecc1e1e9fc426abb82f3c54b9c1dd8c6cc17145cb38bb321fb1",
+      "bytes": 18687,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/README.md",
+      "sha256": "4eb1f9b3548817fd805b1bf700968a6d507f6a6c9044f7589ea3ec3b606760d4",
+      "bytes": 3231,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/SHA256SUMS",
+      "sha256": "e22f3a8c85fe3d01d7b61fc8f24cdc0eb070ed9a0673861b276da869f913fcf4",
+      "bytes": 7697,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/compile/ba75b29a-pass/SHA256SUMS",
+      "sha256": "00537f03f7484cb023d9b4aaafc900f34a3214e09be92e9785ccf1f93a22e952",
+      "bytes": 414,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/compile/ba75b29a-pass/compile.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/compile/ba75b29a-pass/post-binding.json",
+      "sha256": "0a742fa8743a67b3ee3ef4c08fab3c47603046d6c9d3bcfb95c75fc66f202058",
+      "bytes": 807,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/compile/ba75b29a-pass/pre-binding.json",
+      "sha256": "4912c28a3458d6dfe96fa4ff9a5eabeb4c1899a8595743add5362fcd2a613de3",
+      "bytes": 3546,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/compile/ba75b29a-pass/receipt.json",
+      "sha256": "7c87a57d5ccc6dd478631b0e4556d640257d3e81ade146af1761c8b535fa97bd",
+      "bytes": 4830,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/compile/c466da0d-failure/SHA256SUMS",
+      "sha256": "acbe96a6cce6e395927fda9beac51fe840619092f787b5f9f0db1a48a35f38a6",
+      "bytes": 324,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/compile/c466da0d-failure/compile.log",
+      "sha256": "1cb4b0650072ac431a51721f55f9368de7c4941d925fc63c47a25f70cffa249a",
+      "bytes": 306,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/compile/c466da0d-failure/post-binding.json",
+      "sha256": "093e9ffeb79b6e6e8e9c2e01468ab0e8a462c5927057297b51c3f048d1d68b1f",
+      "bytes": 672,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/compile/c466da0d-failure/pre-binding.json",
+      "sha256": "16cae0588817f84fc297156ebaa08b730e0eaa97dd810559268ffe8fc59093e0",
+      "bytes": 3033,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/compile/c466da0d-failure/receipt.json",
+      "sha256": "961f923a7b4b846ce20a5559798daafe1ab286620efc7e74affd4f6fa4e205c8",
+      "bytes": 4469,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/derived/original-three-slot-proof.json",
+      "sha256": "f627e799bc704e38648302d7dd0a8a7d44837451b3fc23b0a7ceada3823184f1",
+      "bytes": 16701,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/derived/path-semantics-proof.json",
+      "sha256": "95cc2fa9375bfdac6483c171899521e4b3a1ab13da3fe4b33706e12337e206fe",
+      "bytes": 1786,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/derived/per-case-proofs.json",
+      "sha256": "b58a064ca3bcb3bf6a69ae5395abe2196a96bca6a31302beb82a5a7def3cbd86",
+      "bytes": 44880,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/derived/raw-gzip-roundtrip.json",
+      "sha256": "1d1b5cb47df2ff5c33cd9ad49193d52e3b160c019e1359fdbb4321fb3118aa8b",
+      "bytes": 484,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/derived/runtime.jsonl.gz",
+      "sha256": "11d834e4a3b69593e0556b7d5bd425020d7c5bc66cb20b5f029132edd9b618d1",
+      "bytes": 4841,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/omitted-binary.json",
+      "sha256": "7b2f347960d8559d29d952b6bf49532102226ee61202a771b15138271b7334b9",
+      "bytes": 618,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/provenance/initial-contract-REVIEW.md",
+      "sha256": "0363f0b24434e28368b8594f6771c6f7bbf5ffca921e4ada32441339e897b029",
+      "bytes": 17673,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/provenance/reviewed-PLAN.md",
+      "sha256": "6d6a62f45d11ace3bb5ae495456cf3065131ccd7ec42c0d617ea8c7803a07041",
+      "bytes": 17370,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/qa/ts-f2-ba75b29a-qa-source-review-20261017.json",
+      "sha256": "8b27cb3acb5902096f1167db36e2bc255d58f08252b1ad1c4fc4f76020c7a01a",
+      "bytes": 961,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/qa/ts-f2-ba75b29a-tagged-runtime-qa-adjudication-20261017.json",
+      "sha256": "f9ae352c3b16edb9f374b3f61a97e7aa1c9191bc10d4005a6e938db255b1daa9",
+      "bytes": 2938,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/qa/ts-f2-c466da0d-qa-source-review-20261017.json",
+      "sha256": "f52ee01dcc70c7b91df2f05e208bb987e805fed072ccdaae80d32db5e2a5cc97",
+      "bytes": 1089,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/runtime/ba75b29a-tagged-original/SHA256SUMS",
+      "sha256": "e0173cf46b2dc3523960b5f74f8127f029daec64b36f84f04822dc7033057735",
+      "bytes": 587,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/runtime/ba75b29a-tagged-original/case-results.json",
+      "sha256": "3de7c418682e681aef4d86ec326c8ca42e3a9c5eeb3194ad57a0e6e90d19b85f",
+      "bytes": 7440,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/runtime/ba75b29a-tagged-original/post-binding.json",
+      "sha256": "ffd9586a044be434d4ea3a1e7a4e46f9cdb152b0c004c06825d5056292d45d0f",
+      "bytes": 913,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/runtime/ba75b29a-tagged-original/pre-binding.json",
+      "sha256": "206f8f3cbfde4112e409eba83df7d9c4b93372b29fa64dc29ff7f7a56089edd9",
+      "bytes": 5601,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/runtime/ba75b29a-tagged-original/process-lineage.json",
+      "sha256": "ca2831e76943b374c9d024f2b2bf824fd0ceff78957ebd961d04f81524b5d0d5",
+      "bytes": 7224,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/runtime/ba75b29a-tagged-original/receipt.json",
+      "sha256": "bc18ac9b0567626af1b70d9e31d0e96dfd09b66493920dd5e8c3d2bbb2043c42",
+      "bytes": 3559,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/runtime/ba75b29a-tagged-original/request-body-audit.json",
+      "sha256": "0bd34333b1053f22fe626d62245850d6cc50b730aeaaf32f18e21d6fdb8490f6",
+      "bytes": 43517,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/runtime/ba75b29a-tagged-original/runtime.jsonl",
+      "sha256": "5685b0bc88535f7c705209c26580c8915db213479e5b90dd629f95db2ffd02d5",
+      "bytes": 53754,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source/commit-chain.txt",
+      "sha256": "d7607ed0f4c8637ada69f0738276b81ecb2d45a6c5348f8a838d515a6e69e4f1",
+      "bytes": 539,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source/commit.txt",
+      "sha256": "5938b298b8e850e957c8453c0eff3fbc2f869e5e2db138080c4f264efe12a52a",
+      "bytes": 282,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source/internal/app/config.go",
+      "sha256": "2767fd5a2cd48f1a7269cc2177e361a559a3862838f3ec8c1fc3fab469314e8a",
+      "bytes": 9805,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source/internal/bootstrapstart/founder_replacement_test.go",
+      "sha256": "538b1b52ef3fb93363db13da3563d90922e51a59d86fedad6855179222296571",
+      "bytes": 8390,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source/internal/bootstrapstart/oci_observer.go",
+      "sha256": "895a4e197c8c6b0a0ccea6a75945669992f46aa326f132b418300278591b5065",
+      "bytes": 8227,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source/internal/bootstrapstart/oci_observer_fixture.go",
+      "sha256": "83938094a5531d46cee916512f2032d7739e7dfc386c1d19baabf54f3a415112",
+      "bytes": 829,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source/internal/bootstrapstart/oci_observer_test.go",
+      "sha256": "56d90709cfbce57a594e8fdbae2b4dfb9e2cf895975efa848b0f86c2117f67e1",
+      "bytes": 6532,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source/internal/natscell/runtime.go",
+      "sha256": "44804d1b0692d1b47fb37f4a9e1d99bfe7235d3fb317fc7c81c9090d80dc57cf",
+      "bytes": 35509,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source/internal/protocol/json.go",
+      "sha256": "5a0439798f0961019fe651bd7b6db2a8ef4934a1b7a891b1aa56917e413c104e",
+      "bytes": 2204,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source/source-binding.json",
+      "sha256": "d436dbbe45a607ef154eaeafded9320838d9a898b05ebe130212cfef44137cbf",
+      "bytes": 2082,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source/tests/firecracker/production/fixturegen/complete_packet_integration_test.go",
+      "sha256": "c53f8b6a0ce644202f53ce82debc5f452c7ba26140d27c0592e68711b7ce9e3e",
+      "bytes": 5840,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source/tests/firecracker/production/fixturegen/compute_inventory.go",
+      "sha256": "642c6094a7c83b3990bef6bf9c887ce00f02888d54cafe92d1eb7615a5166b23",
+      "bytes": 7340,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source/tests/firecracker/production/fixturegen/compute_inventory_observer_default_test.go",
+      "sha256": "0961d6b33eb2f5b1752927727f56457fe6431c4caa6aae58b8ca15b460f0d76e",
+      "bytes": 494,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source/tests/firecracker/production/fixturegen/compute_inventory_observer_fixture_test.go",
+      "sha256": "c873e4ca52f9a0685cba9722b5fb3ad6162a940995ff3bf93998579b20e524b6",
+      "bytes": 7981,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source/tests/firecracker/production/fixturegen/compute_inventory_sdk_test.go",
+      "sha256": "c89e2fc8ceead52653d840eb753ae5ec0ce7f3d2ba099163df7937e7a63a7b0c",
+      "bytes": 9110,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source/tests/firecracker/production/fixturegen/production_guest.go",
+      "sha256": "aadbc0151e6d4317af0c169174fc5b14191631ddfb342f1b8ba1a6b5d4633c81",
+      "bytes": 8670,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source/tests/firecracker/production/fixturegen/production_guest_test.go",
+      "sha256": "86e207d3ca1a17ca04d5efc0ad19599ae4d2fc2a8f210cbfd3f6663ade1ce8e8",
+      "bytes": 7672,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source-handoff/ba75b29a-correction/HANDOFF.md",
+      "sha256": "3be8289c9e7502cfd70f391f89ec85417a2bcbf884494308fb75445141fbfc1a",
+      "bytes": 2761,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source-handoff/ba75b29a-correction/SHA256SUMS",
+      "sha256": "a56205ac7f749a03d6165f7195ea20cb9ad3d8e07c49fdeb9ffc5692d187dd80",
+      "bytes": 500,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source-handoff/ba75b29a-correction/candidate.json",
+      "sha256": "fe012014e1d9de8267949c3bd2874ec7a89810f0a1feefe875be5836157b7ce4",
+      "bytes": 2753,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source-handoff/ba75b29a-correction/correction.patch",
+      "sha256": "a23d0fa53b10054084f944aabf55e479e8978c540b2a16d2bc48c43467d1e0e4",
+      "bytes": 942,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source-handoff/ba75b29a-correction/cumulative.patch",
+      "sha256": "6a6a4c7b4cae664afe0f7110a0689d79c3a60dc7f23aea47677c1498d0527f50",
+      "bytes": 14689,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source-handoff/ba75b29a-correction/preservation-proof.json",
+      "sha256": "e50029082f656299d7f2658af66e842f5765a71abee4448518e7e93a4573258c",
+      "bytes": 2825,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source-handoff/ba75b29a-correction/production_guest.go",
+      "sha256": "aadbc0151e6d4317af0c169174fc5b14191631ddfb342f1b8ba1a6b5d4633c81",
+      "bytes": 8670,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source-handoff/c466da0d/HANDOFF.md",
+      "sha256": "0488cd29d6f379f17049747e8f8c6cbe41f4d3f9aa22383c915cc9d725735075",
+      "bytes": 7468,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source-handoff/c466da0d/SHA256SUMS",
+      "sha256": "5d089528a9bae0e18633ca448a8945c7b31b1f7b786af3cfc61d1fc438c56cd1",
+      "bytes": 782,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source-handoff/c466da0d/candidate.json",
+      "sha256": "ccb166203f7009a1e56e3fa2e8f767606672d33da7296e98b3feb48172565076",
+      "bytes": 3179,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source-handoff/c466da0d/change.patch",
+      "sha256": "4ac46d81dbf1510db70b5e78eeed1b8da65407fcdba389bd299c253810f42261",
+      "bytes": 13747,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source-handoff/c466da0d/preservation-proof.json",
+      "sha256": "61dd7ee2070928e2e06c6dbf038ec775142a9125db0d3c2c9f6017c797356ad0",
+      "bytes": 2044,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source-handoff/c466da0d/source/tests/firecracker/production/fixturegen/compute_inventory_observer_default_test.go",
+      "sha256": "0961d6b33eb2f5b1752927727f56457fe6431c4caa6aae58b8ca15b460f0d76e",
+      "bytes": 494,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source-handoff/c466da0d/source/tests/firecracker/production/fixturegen/compute_inventory_observer_fixture_test.go",
+      "sha256": "c873e4ca52f9a0685cba9722b5fb3ad6162a940995ff3bf93998579b20e524b6",
+      "bytes": 7981,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/source-handoff/c466da0d/source/tests/firecracker/production/fixturegen/compute_inventory_sdk_test.go",
+      "sha256": "c89e2fc8ceead52653d840eb753ae5ec0ce7f3d2ba099163df7937e7a63a7b0c",
+      "bytes": 9110,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/toolchain/snippets/env.go.txt",
+      "sha256": "a56f12325659b5d020e8ecdcd9dd36fa40285a67b2c25522fdd9c7d73281a26e",
+      "bytes": 465,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/toolchain/snippets/nested-jwtsetup-source.txt",
+      "sha256": "0414b418e23ceae46167b35ed51bb9145e37fa1f16b1d39e806e238c7a8d470e",
+      "bytes": 315,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/toolchain/snippets/test.go.txt",
+      "sha256": "7c0193506e834e35f7ae99300e3d37120e531a7f2081285c1e43de5ff909fba9",
+      "bytes": 259,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/toolchain/src/cmd/go/internal/base/env.go",
+      "sha256": "3b417dbc15296097d68068c7b697297dbe825bdd4dc0fa423a45a44d946d54c4",
+      "bytes": 1292,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "packet/toolchain/src/cmd/go/internal/test/test.go",
+      "sha256": "ce0bfdd1686ff4d58fd013848066a27b509d76ada665712fbb2746d101537172",
+      "bytes": 81728,
+      "mode": 420,
+      "mtime": 0,
+      "uid": 0,
+      "gid": 0
+    }
+  ],
+  "deterministic_tar_rebuilt_byte_equal": true,
+  "archive_gzip_decompress_matches_exact_tar": true,
+  "archive_members_match_packet_byte_for_byte": true,
+  "raw_runtime_jsonl_sha256": "5685b0bc88535f7c705209c26580c8915db213479e5b90dd629f95db2ffd02d5",
+  "raw_runtime_gzip_sha256": "11d834e4a3b69593e0556b7d5bd425020d7c5bc66cb20b5f029132edd9b618d1",
+  "raw_gzip_roundtrip_byte_equal": true,
+  "packet_sha256sums_sha256": "e22f3a8c85fe3d01d7b61fc8f24cdc0eb070ed9a0673861b276da869f913fcf4",
+  "packet_members_json_sha256": "0ec42be4d9e3cecc1e1e9fc426abb82f3c54b9c1dd8c6cc17145cb38bb321fb1",
+  "qa_adjudication_sha256": "f9ae352c3b16edb9f374b3f61a97e7aa1c9191bc10d4005a6e938db255b1daa9",
+  "binary_omitted": [
+    {
+      "original_path": "/tmp/ts-qa-observer-default-compile-ba75b29a-20261017T000830Z-40420d04/fixturegen-default.test",
+      "reason": "unexecuted 73MB default compile binary intentionally omitted",
+      "bytes": 73335471,
+      "sha256": "225a5556aaf49ff8bf029f59b9d88f8b970616f537dac3f50765d53ddce8f22d"
+    }
+  ],
+  "source_still_clean": true,
+  "source_edit_runner_integration_push": false
+}

@@ -1,0 +1,17 @@
+{
+  "source": "dd03841025c65c0a6c3350b3e8ad7c4d27eea77d",
+  "tree": "bac4b5eae4c69633777f8f89291cc032ea69b68c",
+  "packet": "/tmp/ts-vendor-scoped-evidence-dd038410-authorization-small",
+  "archive_sha256": "58f7603384e80eef0d2fe460c63367c83f4fba85c95acfe65372e6e4737a995c",
+  "FIFO_position": 2,
+  "session": 92312,
+  "outcomes": {
+    "ConfiguredImportsExports": "PASS0.02s",
+    "StaleActivationExpiry": "PASS3.21s"
+  },
+  "package_seconds": 3.247,
+  "skips": 0,
+  "source_bindings": "94 identical before/after",
+  "remaining_at_result": "9 serial batches /10 never-run roots /104 TCP-eligible cases",
+  "boundary": "Scoped standard tests; originals/private gaps/race/equivalence/removal/central closure remain open."
+}

@@ -1,0 +1,44 @@
+{
+  "created_at": "2026-10-17T00:12:24.242660+00:00",
+  "qualified_source": "ba75b29add6bbeea4d36d5e326cce84b7f6190b7",
+  "tree": "150a1394a3e405c0b2fe5299015b83cf002d7c7a",
+  "session": 88074,
+  "result": "PASS bounded tagged signed-SDK socket scenario",
+  "package_seconds": 7.699,
+  "wall_seconds": 62.02941582398489,
+  "root_plus_subcases": 11,
+  "positive_subcases": 1,
+  "negative_subcases": 9,
+  "skips": 0,
+  "extras": 0,
+  "service_byte_hash_responses": 59,
+  "source_unchanged": true,
+  "original_receipt_sha256": "bc18ac9b0567626af1b70d9e31d0e96dfd09b66493920dd5e8c3d2bbb2043c42",
+  "original_wrapper_qualified": false,
+  "original_wrapper_issue": [
+    "nested child inherited environment mismatch"
+  ],
+  "QA_disposition": "Wrapper PATH equality was stricter than grant and Go behavior. Exact pinned Go prepends its own bin for test execution; observed nested PATH is precisely pinned_bin + colon + authorized parent PATH. Exact nested executable/argv/cwd/lineage/nice19/GOMAXPROCS2/GOFLAGS-p2/unsetGOROOT all verified; no alternate executable or authority was admitted. Treat original metadata mismatch as resolved by separate QA review; retain original receipt unchanged. No rerun.",
+  "toolchain_source_bindings": {
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/src/cmd/go/internal/test/test.go": "ce0bfdd1686ff4d58fd013848066a27b509d76ada665712fbb2746d101537172",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/src/cmd/go/internal/base/env.go": "3b417dbc15296097d68068c7b697297dbe825bdd4dc0fa423a45a44d946d54c4"
+  },
+  "runtime_evidence_directory": "/tmp/ts-qa-observer-tagged-runtime-ba75b29a-20261017T001016Z-b086adee",
+  "per_case_service_counts": {
+    "TestCompletedPacketEmitsSignedThreeSlotCaptureAndVerifiedFloors": 24,
+    "TestCompletedPacketEmitsSignedThreeSlotCaptureAndVerifiedFloors/exact_primary_and_observational_create_key": 4,
+    "TestCompletedPacketEmitsSignedThreeSlotCaptureAndVerifiedFloors/wrong_VNIC_compartment": 4,
+    "TestCompletedPacketEmitsSignedThreeSlotCaptureAndVerifiedFloors/wrong_subnet_compartment": 4,
+    "TestCompletedPacketEmitsSignedThreeSlotCaptureAndVerifiedFloors/wrong_subnet_identity": 4,
+    "TestCompletedPacketEmitsSignedThreeSlotCaptureAndVerifiedFloors/wrong_VCN_region": 4,
+    "TestCompletedPacketEmitsSignedThreeSlotCaptureAndVerifiedFloors/missing_VCN": 4,
+    "TestCompletedPacketEmitsSignedThreeSlotCaptureAndVerifiedFloors/subnet_unavailable": 4,
+    "TestCompletedPacketEmitsSignedThreeSlotCaptureAndVerifiedFloors/foreign_attachment": 2,
+    "TestCompletedPacketEmitsSignedThreeSlotCaptureAndVerifiedFloors/missing_primary": 4,
+    "TestCompletedPacketEmitsSignedThreeSlotCaptureAndVerifiedFloors/candidate_mismatch": 1
+  },
+  "limits": [
+    "Existing fixture constructor only; no normal constructor/DNS/TLS/live OCI/full Gate/native qualification",
+    "Original isolated declarations retained; NSG/F3/global migration remain open"
+  ]
+}
