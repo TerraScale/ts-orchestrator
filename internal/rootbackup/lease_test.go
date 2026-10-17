@@ -7,11 +7,13 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/natstest"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
 func TestBackupLeaseRejectsWeakerControlDurability(t *testing.T) {
-	runtime, err := natscell.Start(t.Context(), natscell.Config{Cell: "gru", Instance: "backup-lease", Replicas: 1, Lab: true,
+	auth := natstest.NATS(t, "gru")
+	runtime, err := auth.Start(t, t.Context(), natscell.Config{Cell: "gru", Instance: "backup-lease", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "nats")}})
 	if err != nil {
 		t.Fatal(err)
