@@ -258,7 +258,8 @@ func (store MaterialStore) installMaterial(dir int, name string, content []byte,
 // materialOwner is fixed by the broker capability, never selected by a caller.
 // SYSTEM claim updates and membership mutations must remain unavailable to the service.
 func materialOwner(name string, uid, gid uint32) (uint32, uint32) {
-	if name == "system.creds" || name == "membership.creds" {
+	switch name {
+	case "system.creds", "membership.creds", "controller-account-signer.seed", "controller-tls-issuer-key.pem":
 		return 0, 0
 	}
 	return uid, gid

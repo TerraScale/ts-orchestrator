@@ -24,7 +24,7 @@ func TestPrivilegedBrokerMaterialKeepsRootCustodyAcrossWriters(t *testing.T) {
 			defer unix.Close(fd)
 			store := MaterialStore{serviceUID: 65534, serviceGID: 65534}
 			content := []byte("exact secret bytes")
-			for _, name := range []string{"system.creds", "membership.creds", "controller-a.creds"} {
+			for _, name := range []string{"system.creds", "membership.creds", "controller-account-signer.seed", "controller-tls-issuer-key.pem", "controller-a.creds"} {
 				switch writer {
 				case "install":
 					err = store.installMaterial(fd, name, content, digest(content), 128)

@@ -86,7 +86,7 @@ func TestServiceUIDCanReadRootInstalledMaterial(t *testing.T) {
 			t.Fatalf("unprivileged material read = %q, %v", content, err)
 		}
 		clear(content)
-		for _, name := range []string{"system.creds", "membership.creds"} {
+		for _, name := range []string{"system.creds", "membership.creds", "controller-account-signer.seed", "controller-tls-issuer-key.pem"} {
 			if _, err := os.ReadFile(filepath.Join(path, name)); !errors.Is(err, os.ErrPermission) {
 				t.Fatalf("ordinary service read %s = %v, want permission denied", name, err)
 			}
@@ -145,7 +145,7 @@ func TestServiceUIDCanReadRootInstalledMaterial(t *testing.T) {
 		unix.Close(fd)
 		t.Fatal(err)
 	}
-	for _, name := range []string{"system.creds", "membership.creds"} {
+	for _, name := range []string{"system.creds", "membership.creds", "controller-account-signer.seed", "controller-tls-issuer-key.pem"} {
 		if err := store.installMaterial(fd, name, content, want, 128); err != nil {
 			unix.Close(fd)
 			t.Fatal(err)
