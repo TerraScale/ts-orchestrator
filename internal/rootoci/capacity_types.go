@@ -39,6 +39,9 @@ type PoolRetirementSelector struct {
 type PoolRetirementPreparation struct {
 	Retirement PoolRetirementExpectation `json:"retirement"`
 	Node       string                    `json:"node"`
+	// Current cleanup selectors never replace the immutable purchase pins above.
+	CurrentGrantSHA256 string `json:"current_grant_sha256"`
+	CurrentGeneration  uint64 `json:"current_generation"`
 }
 
 type PoolRetirementExpectation struct {
