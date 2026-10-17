@@ -408,6 +408,15 @@ func (c *FoundationController) reconcile(ctx context.Context, epoch uint64, foot
 			providerErr = errors.New("foundation returned no resource identities")
 		} else {
 			for key, raw := range boundIDs {
+				if key == "instances" || key == "boot_volumes" || key == "data_volumes" {
+					expected, valid := ids[key].(map[string]any)
+					observed, ok := raw.(map[string]any)
+					if !valid || !ok || !maps.Equal(expected, observed) {
+						providerErr = errors.New("foundation changed signed host resource bindings")
+						break
+					}
+					continue
+				}
 				if raw == nil {
 					continue
 				}
