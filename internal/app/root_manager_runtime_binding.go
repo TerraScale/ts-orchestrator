@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
+	"reflect"
 	"strings"
 	"time"
 
@@ -33,6 +34,15 @@ func (authority *rootOCIAuthority) publishManagerRuntimeBinding(ctx context.Cont
 		source.session == nil || source.session.Err() != nil || ctx == nil || ctx.Err() != nil {
 		return rootoci.ErrUnauthorized
 	}
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return rootoci.ErrUnauthorized
+	}
+	for _, expiry := range []time.Time{identity.ExpiresAt(), current.ExpiresAt(), sources.deadline} {
+		deadline = earlier(deadline, expiry)
+	}
+	ctx, cancelOriginal := context.WithDeadline(ctx, deadline)
+	defer cancelOriginal()
 	control, err := source.node.ReadOnlyControlClient(ctx)
 	if err != nil {
 		return err
@@ -50,13 +60,7 @@ func (authority *rootOCIAuthority) publishManagerRuntimeBinding(ctx context.Cont
 	if err != nil {
 		return err
 	}
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		return rootoci.ErrUnauthorized
-	}
-	for _, expiry := range []time.Time{identity.ExpiresAt(), current.ExpiresAt(), sources.deadline, certificate.NotAfter} {
-		deadline = earlier(deadline, expiry)
-	}
+	deadline = earlier(deadline, certificate.NotAfter)
 	ctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 	cluster, err := control.ClusterIdentity(ctx)
@@ -101,7 +105,7 @@ func (authority *rootOCIAuthority) publishManagerRuntimeBinding(ctx context.Cont
 			return err
 		}
 		fresh, err := source.reader.ReadRuntimeAuthority(effect, authority.accepted, time.Now().UTC())
-		if err != nil || fresh.Identity() != current.Identity() || fresh.Anchor().Digest() != payload.AnchorSHA256 || fresh.ManagerSourceSHA256() != payload.SourceSHA256 {
+		if err != nil || fresh.Identity() != current.Identity() || fresh.Anchor().Digest() != payload.AnchorSHA256 || fresh.ManagerSourceSHA256() != payload.SourceSHA256 || fresh.ExpiresAt().Before(deadline) {
 			return rootoci.ErrUnauthorized
 		}
 		if err := binding.VerifyRegistration(effect, registration); err != nil {
@@ -111,7 +115,7 @@ func (authority *rootOCIAuthority) publishManagerRuntimeBinding(ctx context.Cont
 			return err
 		}
 		freshIdentity, err := source.agent.RuntimeWorkerIdentity(binding.Identity().InstanceID, source.nodeID)
-		if err != nil || freshIdentity.Identity() != worker || freshIdentity.SessionEpoch() != identity.SessionEpoch() {
+		if err != nil || freshIdentity.Identity() != worker || freshIdentity.SessionEpoch() != identity.SessionEpoch() || freshIdentity.ExpiresAt().Before(deadline) {
 			return rootoci.ErrUnauthorized
 		}
 		native, err := control.GetNode(effect, &api.GetNodeRequest{NodeID: source.nodeID})
@@ -165,6 +169,21 @@ func (authority *rootOCIAuthority) publishManagerRuntimeBinding(ctx context.Cont
 	if err := source.agent.SetManagerRuntimeBinding(ctx, signed); err != nil {
 		return err
 	}
+	published, err := sources.hosts.ReadManagerRuntimeSession(ctx, worker.HostNode)
+	if err != nil {
+		return err
+	}
+	actual, found := published.SignedBinding()
+	if !found || !reflect.DeepEqual(actual, signed) || !reflect.DeepEqual(published.Registration(), registration) ||
+		published.SessionID() != worker.HostSessionID || published.SessionEpoch() != identity.SessionEpoch() ||
+		published.RegistrationRevision() != payload.RegistrationRevision || published.SourceRevision() <= payload.SourceRevision ||
+		published.ExpiresAt().Before(deadline) {
+		return rootoci.ErrUnauthorized
+	}
+	snapshot = published
+	if err := guard(ctx); err != nil {
+		return err
+	}
 	process.managerBinding = &rootManagerRuntimeBinding{signed: signed, session: source.session}
-	return guard(ctx)
+	return nil
 }
