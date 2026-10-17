@@ -43,8 +43,10 @@ func (Service) DeliverControllerGeneration(ctx context.Context, call rootoci.Cal
 	if call.Deadline().IsZero() || !time.Now().Before(call.Deadline()) {
 		return fail()
 	}
-	ctx, cancel := context.WithDeadline(ctx, minDeadline(call.Deadline(), time.Now().Add(30*time.Second)))
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	ctx, leaseCancel := context.WithDeadline(ctx, call.Deadline())
+	defer leaseCancel()
 	request.Chain = bytes.Clone(request.Chain)
 	for _, name := range ociclient.SecretUnsafeEnv {
 		if _, set := os.LookupEnv(name); set {
@@ -178,13 +180,6 @@ func (Service) DeliverControllerGeneration(ctx context.Context, call rootoci.Cal
 	}
 	slices.SortFunc(receipt.Files, func(a, b rootoci.SecretFileReceipt) int { return strings.Compare(a.Name, b.Name) })
 	return receipt, nil
-}
-
-func minDeadline(first, second time.Time) time.Time {
-	if first.Before(second) {
-		return first
-	}
-	return second
 }
 
 // This sits after SDK signing, limiter waits and retry interception.
