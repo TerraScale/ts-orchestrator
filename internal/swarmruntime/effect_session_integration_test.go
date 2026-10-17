@@ -287,8 +287,6 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 	if _, _, err := effectHostExchange(ctx, connection, fresh, freshKey, controllerPublic, currentSession, session.Epoch, "runtime-effect", renew); err == nil {
 		t.Fatal("refreshed registration renewed original old-key execution")
 	}
-	<-callers
-	<-callerDeadlines
 
 	if closing.Phase != authority.RuntimeEffectClosing || closing.Epoch != effect.Epoch || closing.LeaderEpoch != current.Current().Epoch || closing.StopChallenge == "" || held.release == nil {
 		t.Fatal("close after leader change released authority or lost original grant")
