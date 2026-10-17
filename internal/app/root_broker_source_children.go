@@ -26,6 +26,7 @@ type rootBrokerSourceChildren struct {
 	mu       sync.Mutex
 	children map[int]*rootBrokerSourceChild
 	ctx      context.Context
+	rootCtx  context.Context
 	cancel   context.CancelFunc
 	stopRoot func() bool
 	deadline time.Time
@@ -71,7 +72,7 @@ func newRootBrokerSourceChildren(broker *rootBrokerRuntime) (*rootBrokerSourceCh
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(broker.ctx)
-	registry := &rootBrokerSourceChildren{children: make(map[int]*rootBrokerSourceChild), ctx: ctx, cancel: cancel,
+	registry := &rootBrokerSourceChildren{children: make(map[int]*rootBrokerSourceChild), ctx: ctx, rootCtx: broker.authority.ctx, cancel: cancel,
 		deadline: deadline, parent: parent, uid: broker.authority.uid, gid: broker.authority.gid, proxy: proxy,
 		accepted: bytes.Clone(broker.authority.encoded), slot: broker.authority.accepted.Slot,
 		instance: broker.authority.accepted.InstanceOCID, imds: bootstrapstart.NewIMDSClient()}
@@ -164,7 +165,7 @@ func rootBrokerSourceQuery(command string, wire []byte) (*swarmruntime.WorkerReg
 }
 
 func (registry *rootBrokerSourceChildren) guardRoot() error {
-	if registry == nil || registry.ctx == nil || registry.ctx.Err() != nil || !time.Now().Before(registry.deadline) ||
+	if registry == nil || registry.ctx == nil || registry.ctx.Err() != nil || registry.rootCtx == nil || registry.rootCtx.Err() != nil || !time.Now().Before(registry.deadline) ||
 		registry.parent == nil || registry.parent.Peer().PID != os.Getpid() || registry.parent.Peer().UID != 0 ||
 		registry.parent.Peer().GID != 0 || registry.parent.Verify() != nil {
 		return rootoci.ErrUnauthorized
@@ -174,7 +175,7 @@ func (registry *rootBrokerSourceChildren) guardRoot() error {
 		return rootoci.ErrUnauthorized
 	}
 	encoded, err := bootstrapstart.EncodeAcceptedIdentity(current)
-	if err != nil || !bytes.Equal(encoded, registry.accepted) || registry.ctx.Err() != nil || !time.Now().Before(registry.deadline) {
+	if err != nil || !bytes.Equal(encoded, registry.accepted) || registry.ctx.Err() != nil || registry.rootCtx.Err() != nil || !time.Now().Before(registry.deadline) {
 		return rootoci.ErrUnauthorized
 	}
 	return nil
