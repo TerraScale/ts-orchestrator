@@ -76,8 +76,7 @@ const (
 	nodeOpSubmitKind = "node.submit"
 	nodeOpStatusKind = "node.status"
 
-	nodeOpPoll    = 5 * time.Second
-	nodeOpTimeout = 30 * time.Minute
+	nodeOpPoll = 5 * time.Second
 )
 
 func nodeOpKey(node string) string { return "nodeop." + node }
@@ -109,17 +108,21 @@ type nodeOp struct {
 	// keeps its ID across the rename.
 	From     string `json:"from,omitempty"`
 	Instance string `json:"instance,omitempty"`
+	// The immutable journal entry retains the original signed authority.
+	RequestSHA256   string `json:"request_sha256,omitempty"`
+	RequestRevision uint64 `json:"request_revision,omitzero"`
 }
 
 func (op nodeOp) active() bool { return op.State == nodeOpQueued || op.State == nodeOpRunning }
 
 // nodeOpRequest is the operator's request.
 type nodeOpRequest struct {
-	Node     string  `json:"node,omitempty"`
-	To       string  `json:"to,omitempty"`
-	Op       string  `json:"op,omitempty"`
-	OCPUs    float32 `json:"ocpus,omitzero"`
-	MemoryGB float32 `json:"memory_gb,omitzero"`
+	Node              string    `json:"node,omitempty"`
+	To                string    `json:"to,omitempty"`
+	Op                string    `json:"op,omitempty"`
+	OCPUs             float32   `json:"ocpus,omitzero"`
+	MemoryGB          float32   `json:"memory_gb,omitzero"`
+	ExecutionDeadline time.Time `json:"execution_deadline,omitzero"`
 }
 
 // nodeFenceStatus is one node's fence: who holds it out and its backends.
@@ -171,6 +174,8 @@ type nodeDesired interface {
 // nodeOps runs node operations on the authority leader.
 type nodeOps struct {
 	fence *releaseFence
+	cfg   Config
+	js    jetstream.JetStream
 	// compute opens the instance client on first use.
 	compute func(context.Context) (nodeCompute, error)
 	// cluster returns nil once node's controller, if it runs one, is back
@@ -198,9 +203,9 @@ type nodeOps struct {
 }
 
 func newNodeOps(fence *releaseFence, compute func(context.Context) (nodeCompute, error),
-	cluster func(context.Context, string) error,
+	cluster func(context.Context, string) error, cfg Config, js jetstream.JetStream,
 ) *nodeOps {
-	return &nodeOps{fence: fence, compute: compute, cluster: cluster, wake: make(chan struct{}, 1), now: time.Now}
+	return &nodeOps{fence: fence, cfg: cfg, js: js, compute: compute, cluster: cluster, wake: make(chan struct{}, 1), now: time.Now}
 }
 
 // findNode is the one instance named node.
@@ -253,6 +258,9 @@ func (o *nodeOps) serve(ctx context.Context, wire []byte, cell string, policy si
 	if envelope.Kind == nodeOpStatusKind {
 		return o.status(ctx)
 	}
+	if envelope.Kind != nodeOpSubmitKind || envelope.Generation != 1 {
+		return nodeOpReply{}, errors.New("node mutation requires its exact submit kind and generation")
+	}
 	if grant, _ := policy.grant(trusted.Actor); !grant.CanRegisterHosts {
 		return nodeOpReply{}, fmt.Errorf("trusted signer %s may not change nodes (can_register_hosts)", trusted.Actor)
 	}
@@ -260,7 +268,13 @@ func (o *nodeOps) serve(ctx context.Context, wire []byte, cell string, policy si
 	if err := protocol.DecodeStrict(envelope.Payload, &request, maxRegistrationBytes); err != nil {
 		return nodeOpReply{}, err
 	}
-	op, err := o.submit(ctx, envelope.Epoch, trusted.Actor, envelope.OperationID, request)
+	reference, err := o.retainRequest(ctx, wire, envelope)
+	if err != nil {
+		return nodeOpReply{}, err
+	}
+	ctx, cancel := context.WithDeadline(ctx, envelope.ExpiresAt)
+	defer cancel()
+	op, err := o.submit(ctx, envelope.Epoch, trusted.Actor, envelope.OperationID, request, reference)
 	if err != nil {
 		return nodeOpReply{}, err
 	}
@@ -270,9 +284,9 @@ func (o *nodeOps) serve(ctx context.Context, wire []byte, cell string, policy si
 // submit validates request and queues it. It refuses an operation that
 // would break a set's quorum guard now, rather than queue it behind a
 // failure nobody is fixing; one that waits for another operation queues.
-func (o *nodeOps) submit(ctx context.Context, epoch uint64, actor, id string, request nodeOpRequest) (nodeOp, error) {
-	if !entityid.Valid(id) {
-		return nodeOp{}, errors.New("node operation ID must be a canonical ULID")
+func (o *nodeOps) submit(ctx context.Context, epoch uint64, actor, id string, request nodeOpRequest, original nodeOperationRequestReference) (nodeOp, error) {
+	if !entityid.Valid(id) || !nodeOperationDigestValid(original.SHA256) || original.Revision == 0 {
+		return nodeOp{}, errors.New("node operation needs its original signed request and canonical ULID")
 	}
 	from := ""
 	switch request.Op {
@@ -328,6 +342,15 @@ func (o *nodeOps) submit(ctx context.Context, epoch uint64, actor, id string, re
 	if err != nil {
 		return nodeOp{}, err
 	}
+	if found && current.ID == id {
+		if current.RequestSHA256 != original.SHA256 || current.RequestRevision != original.Revision || current.Op != request.Op || current.From != from || current.OCPUs != request.OCPUs || current.MemoryGB != request.MemoryGB || current.Actor != actor {
+			return nodeOp{}, errors.New("node operation retry differs from its original request")
+		}
+		if _, err := o.originalRequest(ctx, current); err != nil {
+			return nodeOp{}, err
+		}
+		return current, nil
+	}
 	if found && current.active() {
 		return nodeOp{}, fmt.Errorf("node %s already has a %s operation %s (%s)", request.Node, current.Op, current.ID, current.State)
 	}
@@ -372,7 +395,8 @@ func (o *nodeOps) submit(ctx context.Context, epoch uint64, actor, id string, re
 	}
 	now := o.now().UTC()
 	op := nodeOp{ID: id, Node: request.Node, Op: request.Op, OCPUs: request.OCPUs, MemoryGB: request.MemoryGB,
-		From: from, Actor: actor, State: nodeOpQueued, RequestedAt: now, UpdatedAt: now}
+		From: from, Actor: actor, State: nodeOpQueued, RequestedAt: now, UpdatedAt: now,
+		RequestSHA256: original.SHA256, RequestRevision: original.Revision}
 	if err := o.save(ctx, epoch, op); err != nil {
 		return nodeOp{}, err
 	}
@@ -447,6 +471,9 @@ func (o *nodeOps) status(ctx context.Context) (nodeOpReply, error) {
 		return reply, err
 	}
 	for _, key := range keys {
+		if strings.HasPrefix(key, nodeOperationRequestKey("")) {
+			continue
+		}
 		op, found, err := o.load(ctx, strings.TrimPrefix(key, nodeOpKey("")))
 		if err != nil {
 			return reply, err
@@ -484,7 +511,7 @@ func (o *nodeOps) load(ctx context.Context, node string) (nodeOp, bool, error) {
 	if err := json.Unmarshal(entry.Value(), &op); err != nil {
 		return nodeOp{}, false, fmt.Errorf("decode the operation of %s: %w", node, err)
 	}
-	if !entityid.Valid(op.ID) || op.Node != node {
+	if !entityid.Valid(op.ID) || op.Node != node || !nodeOperationDigestValid(op.RequestSHA256) || op.RequestRevision == 0 {
 		return nodeOp{}, false, errors.New("stored node operation identity is invalid")
 	}
 	return op, true, nil
@@ -499,7 +526,33 @@ func (o *nodeOps) save(ctx context.Context, epoch uint64, op nodeOp) error {
 	if err := o.fence.fencer.Guard(ctx, epoch); err != nil {
 		return err
 	}
-	_, err = o.fence.kv.Put(ctx, nodeOpKey(op.Node), wire)
+	if _, err := o.originalRequest(ctx, op); err != nil {
+		return err
+	}
+	entry, err := o.fence.kv.Get(ctx, nodeOpKey(op.Node))
+	if errors.Is(err, jetstream.ErrKeyNotFound) {
+		_, err = o.fence.kv.Create(ctx, nodeOpKey(op.Node), wire)
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	var current nodeOp
+	if err := json.Unmarshal(entry.Value(), &current, json.RejectUnknownMembers(true)); err != nil {
+		return err
+	}
+	if current.ID == op.ID {
+		if current.RequestSHA256 != op.RequestSHA256 || current.RequestRevision != op.RequestRevision || !current.RequestedAt.Equal(op.RequestedAt) ||
+			!current.ActedAt.IsZero() && !current.ActedAt.Equal(op.ActedAt) || current.Backup != "" && current.Backup != op.Backup || current.Instance != "" && current.Instance != op.Instance || current.Session != "" && current.Session != op.Session {
+			return errors.New("node operation original request, first attempt or accepted receipts cannot change")
+		}
+	} else if current.active() {
+		return errors.New("another active node operation owns this node")
+	}
+	if err := o.fence.fencer.Guard(ctx, epoch); err != nil {
+		return err
+	}
+	_, err = o.fence.kv.Update(ctx, nodeOpKey(op.Node), wire, entry.Revision())
 	return err
 }
 
@@ -533,8 +586,16 @@ func (o *nodeOps) pass(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		runCtx, cancel := context.WithTimeout(ctx, nodeOpTimeout)
-		err = o.execute(runCtx, epoch, &op)
+		original, err := o.originalRequest(ctx, op)
+		if err != nil {
+			return err
+		}
+		runCtx, cancel := context.WithDeadline(ctx, original.ExpiresAt)
+		if original.Epoch != epoch || !time.Now().Before(original.ExpiresAt) {
+			err = errors.New("original node operation authority expired or changed epoch")
+		} else {
+			err = o.execute(runCtx, epoch, &op)
+		}
 		cancel()
 		if errors.Is(err, authority.ErrFenced) || errors.Is(err, authority.ErrNotLeader) || ctx.Err() != nil {
 			// The next leader resumes it.
@@ -576,6 +637,7 @@ func (o *nodeOps) next(ctx context.Context) (nodeOp, bool, error) {
 // starts, and the instance change is recorded only after OCI accepted it,
 // so a resumed operation may repeat a reboot but never skips one.
 func (o *nodeOps) execute(ctx context.Context, epoch uint64, op *nodeOp) error {
+	ctx = withNodeMaintenanceRequest(ctx, *op)
 	step := func(name string) error {
 		op.State, op.Step = nodeOpRunning, name
 		return o.save(ctx, epoch, *op)
