@@ -19,6 +19,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 const foundationLease = 45 * time.Second
@@ -92,6 +93,7 @@ type Foundations interface {
 // attempt. The snapshot IDs are authenticated journal values, never discovery.
 type FoundationProgress struct {
 	homeStorageDomain   bootstrap.StorageDomain
+	underlayGenesis     trust.Keyring
 	OperationID         string
 	BeforeWrite         func(context.Context, bool) (context.Context, func(), error)
 	Checkpoint          func(context.Context, string, string) error
@@ -405,6 +407,9 @@ func (c *FoundationController) reconcile(ctx context.Context, epoch uint64, foot
 		AuxiliaryIDs: maps.Clone(current.AuxiliaryIDs), CheckpointAuxiliary: attempt.checkpointAuxiliary, PrepareCreate: attempt.prepareCreate, NetBirdUnderlay: current.NetBirdUnderlay}
 	if reader, ok := c.Footprint.(*SignedFootprint); ok && cell == "GRU" {
 		progress.homeStorageDomain = reader.storage
+		if authority, ok := c.Authority.(*HomeIAMAuthority); ok {
+			progress.underlayGenesis = authority.currentGenesis
+		}
 	}
 	if intent.NetBirdManager != nil {
 		reader, ok := c.Footprint.(*SignedFootprint)

@@ -35,6 +35,7 @@ type Dependency func(name string, args []any, kwargs Object) (any, error)
 type Engine struct {
 	// HomeStorageDomain comes from the verified root-pinned GRU footprint.
 	HomeStorageDomain bootstrap.StorageDomain
+	NetBirdUnderlay   bootstrap.VerifiedNetBirdUnderlayObservation
 	Context           context.Context
 	PlanPath          string
 	Clock             func() time.Time

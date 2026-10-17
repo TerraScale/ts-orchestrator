@@ -133,6 +133,22 @@ func compareSecurity(actual, expected any, label, direction string) {
 		fail("live " + label + " rules differ from the exact plan")
 	}
 }
+
+func subtractOriginalUnderlayRule(actual []any, expected Object, normalize func(Object) Object) []any {
+	remaining := make([]any, 0, len(actual))
+	count := 0
+	for _, row := range actual {
+		if eq(normalize(obj(row)), expected) {
+			count++
+			continue
+		}
+		remaining = append(remaining, row)
+	}
+	if count != 1 {
+		fail("live original NetBird underlay requires exactly one independently observed peer rule")
+	}
+	return remaining
+}
 func (e *Engine) liveCompartments(plan, ids Object) {
 	for _, role := range []string{"control", "network", "workload"} {
 		id := ids[role+"_compartment"]
@@ -177,7 +193,21 @@ func (e *Engine) liveNetwork(plan, ids Object) {
 	if security["compartment-id"] != ids["network_compartment"] || security["vcn-id"] != ids["vcn"] {
 		fail("live security list is attached to an unexpected compartment or VCN")
 	}
-	compareSecurity(security["ingress-security-rules"], expected["security_list_ingress_rules"], "subnet security-list ingress", "INGRESS")
+	ingress := rows(security["ingress-security-rules"])
+	var originalRoute Object
+	if e.NetBirdUnderlay.IsVerified() {
+		route, rule, err := e.NetBirdUnderlay.WriterRules(e.Context, str(plan["tenancy_id"]), str(plan["cell"]), str(ids["vcn"]), str(ids["subnet"]), str(ids["route_table"]), str(ids["security_list"]), str(ids["network_security_group"]))
+		if err != nil {
+			fail(err.Error())
+		}
+		if !truth(expected["route_rules"]) {
+			fail("original NetBird underlay requires the complete writer baseline route comparison")
+		}
+		originalRoute = Object{"destination": *route.Destination, "destination_type": string(route.DestinationType), "network_entity_id": *route.NetworkEntityId}
+		originalIngress := tcpRule(*rule.TcpOptions.DestinationPortRange.Min, Object{"direction": "INGRESS", "source": *rule.Source, "source_type": string(rule.SourceType)})
+		ingress = subtractOriginalUnderlayRule(ingress, originalIngress, func(row Object) Object { return normalizedSecurity(row, "INGRESS") })
+	}
+	compareSecurity(ingress, expected["security_list_ingress_rules"], "subnet security-list ingress", "INGRESS")
 	compareSecurity(security["egress-security-rules"], expected["security_list_egress_rules"], "subnet security-list egress", "EGRESS")
 	if truth(expected["route_rules"]) {
 		m := requireLiveID(e.oci(region, "network", "route-table", "get", "--rt-id", str(ids["route_table"])), ids["route_table"], "route table")
@@ -188,6 +218,9 @@ func (e *Engine) liveNetwork(plan, ids Object) {
 		for _, v := range rows(m["route-rules"]) {
 			r := obj(v)
 			actual = append(actual, Object{"destination": r["destination"], "destination_type": r["destination-type"], "network_entity_id": r["network-entity-id"]})
+		}
+		if originalRoute != nil {
+			actual = subtractOriginalUnderlayRule(actual, originalRoute, func(row Object) Object { return row })
 		}
 		targets := map[string]string{"{service_gateway_id}": "service_gateway", "{local_peering_gateway_id}": "local_peering_gateway"}
 		for _, v := range arr(expected["route_rules"]) {

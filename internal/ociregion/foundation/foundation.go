@@ -48,6 +48,8 @@ type Object = map[string]any
 type Foundation struct {
 	// HomeStorageDomain is the independently verified root-pinned GRU storage.
 	HomeStorageDomain bootstrap.StorageDomain
+	// NetBirdUnderlay is sealed observation of the completed original native route.
+	NetBirdUnderlay bootstrap.VerifiedNetBirdUnderlayObservation
 	// Region serves the plan's OCI region and Home the tenancy's home
 	// region, the only one that accepts IAM writes.
 	Region, Home command.Client
@@ -72,7 +74,7 @@ type Foundation struct {
 	resourceKeys  map[string]string
 	tenancy       string
 	region        string
-	inspect       func(context.Context, Object, bootstrap.StorageDomain) error
+	inspect       func(context.Context, Object, bootstrap.StorageDomain, bootstrap.VerifiedNetBirdUnderlayObservation) error
 	// Check runs inspect-foundation's live checks on the bound plan.
 	Check        func(plan Object) error
 	Pause        func(context.Context, time.Duration) error
@@ -100,8 +102,8 @@ func New(ctx context.Context, factory *ociclient.Factory, tenancy string) (*Foun
 	if err != nil {
 		return nil, err
 	}
-	inspect := func(ctx context.Context, plan Object, homeStorage bootstrap.StorageDomain) error {
-		engine := &ociregion.Engine{Context: ctx, HomeStorageDomain: homeStorage, Dependency: func(name string, args []any, kwargs Object) (any, error) {
+	inspect := func(ctx context.Context, plan Object, homeStorage bootstrap.StorageDomain, underlay bootstrap.VerifiedNetBirdUnderlayObservation) error {
+		engine := &ociregion.Engine{Context: ctx, HomeStorageDomain: homeStorage, NetBirdUnderlay: underlay, Dependency: func(name string, args []any, kwargs Object) (any, error) {
 			if name != "oci" {
 				return nil, fmt.Errorf("foundation inspection dependency %s is unsupported", name)
 			}
@@ -130,7 +132,9 @@ func New(ctx context.Context, factory *ociclient.Factory, tenancy string) (*Foun
 		return engine.CheckFoundation(plan)
 	}
 	return &Foundation{Region: publicapi.NewClientWithFactory(factory), Home: publicapi.NewClientWithFactory(home), Out: io.Discard,
-		Check: func(plan Object) error { return inspect(ctx, plan, bootstrap.StorageDomain{}) }, inspect: inspect, tenancy: tenancy, region: factory.Region()}, nil
+		Check: func(plan Object) error {
+			return inspect(ctx, plan, bootstrap.StorageDomain{}, bootstrap.VerifiedNetBirdUnderlayObservation{})
+		}, inspect: inspect, tenancy: tenancy, region: factory.Region()}, nil
 }
 
 // Run is `ts-orch oci-region foundation`.
@@ -219,7 +223,9 @@ func (f *Foundation) Reconcile(ctx context.Context, plan Object) (Object, error)
 	}
 	ctx = ociclient.WithAuthority(ociresource.WithOperation(ctx, f.OperationID), f.Guard)
 	if working.inspect != nil {
-		working.Check = func(plan Object) error { return working.inspect(ctx, plan, working.HomeStorageDomain) }
+		working.Check = func(plan Object) error {
+			return working.inspect(ctx, plan, working.HomeStorageDomain, working.NetBirdUnderlay)
+		}
 	}
 	ids, err := working.bind(ctx, bound)
 	if err != nil {
