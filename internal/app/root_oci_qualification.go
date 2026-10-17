@@ -13,20 +13,25 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"slices"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/nativerootoci"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/qualification/hostadmission"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
+	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
 const rootOCIQualificationProofLimit = 256 << 10
 
 type rootOCIQualificationChild struct {
 	ImageID string `json:"image_id"`
+	Region  string `json:"region"`
 }
 
 // RunRootOCIQualification consumes only the separately signed nonproduction
@@ -34,6 +39,11 @@ type rootOCIQualificationChild struct {
 func RunRootOCIQualification(ctx context.Context, args []string, input io.Reader, output io.Writer) error {
 	if os.Geteuid() != 0 || len(args) != 0 {
 		return errors.New("root-oci-qualification requires root and accepts no arguments")
+	}
+	for _, name := range ociclient.SecretUnsafeEnv {
+		if _, exists := os.LookupEnv(name); exists {
+			return errors.New("root OCI qualification requires fixed private SDK credential paths")
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
@@ -134,13 +144,21 @@ func RunRootOCIQualification(ctx context.Context, args []string, input io.Reader
 	if err != nil || !bytes.Equal(localWire, result.Readers.LocalInstance.Response) {
 		return errors.New("qualification child local observation differs from the root observation")
 	}
-	probeWire, err := runRootOCIQualificationChild(ctx, "root-oci-qualification-probe", uid, gid,
-		rootOCIQualificationChild{}, nil)
+	metadataBefore, err := rootOCIQualificationMetadataAvailable(ctx)
 	if err != nil {
 		return err
 	}
+	probeWire, err := runRootOCIQualificationChild(ctx, "root-oci-qualification-probe", uid, gid,
+		rootOCIQualificationChild{Region: catalog.OCIRegion(admission.Candidate().Cell)}, nil)
+	if err != nil {
+		return err
+	}
+	metadataAfter, err := rootOCIQualificationMetadataAvailable(ctx)
+	if err != nil || !slices.Equal(metadataBefore, metadataAfter) {
+		return errors.New("root metadata credential controls changed during ordinary UID qualification")
+	}
 	var probes RootOCIQualificationDenials
-	if json.Unmarshal(probeWire, &probes, json.RejectUnknownMembers(true)) != nil || !probes.SameUIDProcessDenied || !probes.IMDSDenied ||
+	if json.Unmarshal(probeWire, &probes, json.RejectUnknownMembers(true)) != nil || !probes.SameUIDProcessDenied || !probes.IMDSDenied || !probes.PrincipalSigningDenied ||
 		!result.Negative.ProtectedWriteDenied || !result.Negative.RawSignDenied {
 		return errors.New("ordinary root OCI qualification probes did not refuse access")
 	}
@@ -150,6 +168,7 @@ func RunRootOCIQualification(ctx context.Context, args []string, input io.Reader
 	proofDigest := sha256.Sum256(wire)
 	result.SourceSHA256, result.Socket = hex.EncodeToString(proofDigest[:]), rootoci.SocketPath
 	result.Negative.SameUIDProcessDenied, result.Negative.IMDSDenied = probes.SameUIDProcessDenied, probes.IMDSDenied
+	result.Negative.PrincipalSigningDenied = probes.PrincipalSigningDenied
 	if err := admission.Guard(ctx); err != nil || parent.Verify() != nil {
 		return errors.New("root qualification authority changed before publication")
 	}
@@ -290,7 +309,8 @@ func RunRootOCIQualificationReader(ctx context.Context, command string, args []s
 	case "root-oci-qualification-probe":
 		_, err := client.Inventory(ctx)
 		denials := RootOCIQualificationDenials{SameUIDProcessDenied: errors.Is(err, rootoci.ErrUnauthorized), IMDSDenied: rootOCIQualificationIMDSRefused(ctx)}
-		if !denials.SameUIDProcessDenied || !denials.IMDSDenied {
+		denials.PrincipalSigningDenied = rootOCIQualificationPrincipalRefused(ctx, request.Region)
+		if !denials.SameUIDProcessDenied || !denials.IMDSDenied || !denials.PrincipalSigningDenied {
 			return errors.New("unregistered ordinary process retained root or IMDS access")
 		}
 		result = denials
@@ -337,11 +357,41 @@ func rootOCIQualificationSigningRefused(ctx context.Context) bool {
 }
 
 func rootOCIQualificationIMDSRefused(ctx context.Context) bool {
+	for _, path := range rootOCIQualificationMetadataPaths {
+		status, _, err := rootOCIQualificationMetadata(ctx, path)
+		if ctx.Err() != nil || (status != 0 || err == nil) && status != http.StatusForbidden && status != http.StatusUnauthorized &&
+			status != http.StatusNotFound && status != http.StatusGone {
+			return false
+		}
+	}
+	return ctx.Err() == nil
+}
+
+var rootOCIQualificationMetadataPaths = []string{
+	"/opc/v2/identity/cert.pem", "/opc/v2/identity/key.pem", "/opc/v2/identity/intermediate.pem",
+	"/opc/v1/identity/cert.pem", "/opc/v1/identity/key.pem", "/opc/v1/identity/intermediate.pem",
+}
+
+func rootOCIQualificationMetadataAvailable(ctx context.Context) ([]int, error) {
+	statuses := make([]int, len(rootOCIQualificationMetadataPaths))
+	for index, path := range rootOCIQualificationMetadataPaths {
+		status, count, err := rootOCIQualificationMetadata(ctx, path)
+		if err != nil || ctx.Err() != nil || status == http.StatusOK && count == 0 ||
+			index < 3 && status != http.StatusOK || index >= 3 && status != http.StatusOK &&
+			status != http.StatusForbidden && status != http.StatusUnauthorized && status != http.StatusNotFound && status != http.StatusGone {
+			return nil, errors.New("root metadata credential endpoint is unavailable for ordinary UID controls")
+		}
+		statuses[index] = status
+	}
+	return statuses, nil
+}
+
+func rootOCIQualificationMetadata(ctx context.Context, path string) (int, int64, error) {
 	probe, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	request, err := http.NewRequestWithContext(probe, http.MethodGet, "http://169.254.169.254/opc/v2/identity/cert.pem", nil)
+	request, err := http.NewRequestWithContext(probe, http.MethodGet, "http://169.254.169.254"+path, nil)
 	if err != nil {
-		return false
+		return 0, 0, err
 	}
 	request.Header.Set("Authorization", "Bearer Oracle")
 	transport := &http.Transport{Proxy: nil}
@@ -349,8 +399,51 @@ func rootOCIQualificationIMDSRefused(ctx context.Context) bool {
 	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	response, err := client.Do(request)
 	if err != nil {
-		return ctx.Err() == nil
+		return 0, 0, err
 	}
 	defer response.Body.Close()
-	return response.StatusCode == http.StatusForbidden || response.StatusCode == http.StatusUnauthorized
+	count, err := io.Copy(io.Discard, io.LimitReader(response.Body, (64<<10)+1))
+	if count > 64<<10 {
+		return response.StatusCode, count, errors.New("metadata credential response exceeded qualification limit")
+	}
+	return response.StatusCode, count, err
+}
+
+func rootOCIQualificationPrincipalRefused(ctx context.Context, region string) bool {
+	if !catalog.IsOCIRegion(region) || ctx.Err() != nil {
+		return false
+	}
+	for _, name := range ociclient.SecretUnsafeEnv {
+		if _, exists := os.LookupEnv(name); exists {
+			return false
+		}
+	}
+	transport := &http.Transport{Proxy: nil}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, Timeout: 3 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	provider, err := ociclient.InstancePrincipalProvider(common.Region(region), func(common.HTTPRequestDispatcher) (common.HTTPRequestDispatcher, error) {
+		return rootOCIQualificationDispatcher{ctx: ctx, client: client}, nil
+	})
+	if err != nil {
+		return ctx.Err() == nil
+	}
+	key, keyErr := provider.PrivateRSAKey()
+	token, tokenErr := provider.KeyID()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://identity."+region+".oci.oraclecloud.com/20160918/regions", nil)
+	if err != nil {
+		return false
+	}
+	signErr := common.DefaultRequestSigner(provider).Sign(request)
+	request.Header.Del("Authorization")
+	return key == nil && keyErr != nil && token == "" && tokenErr != nil && signErr != nil && ctx.Err() == nil
+}
+
+type rootOCIQualificationDispatcher struct {
+	ctx    context.Context
+	client *http.Client
+}
+
+func (dispatcher rootOCIQualificationDispatcher) Do(request *http.Request) (*http.Response, error) {
+	return dispatcher.client.Do(request.Clone(dispatcher.ctx))
 }

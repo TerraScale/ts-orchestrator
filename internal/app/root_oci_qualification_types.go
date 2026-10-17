@@ -32,8 +32,9 @@ type RootOCIQualificationReaders struct {
 }
 
 type RootOCIQualificationDenials struct {
-	SameUIDProcessDenied bool `json:"same_uid_process_denied"`
-	ProtectedWriteDenied bool `json:"protected_write_denied"`
-	RawSignDenied        bool `json:"raw_sign_denied"`
-	IMDSDenied           bool `json:"imds_denied"`
+	SameUIDProcessDenied   bool `json:"same_uid_process_denied"`
+	ProtectedWriteDenied   bool `json:"protected_write_denied"`
+	RawSignDenied          bool `json:"raw_sign_denied"`
+	PrincipalSigningDenied bool `json:"principal_signing_denied"`
+	IMDSDenied             bool `json:"imds_denied"`
 }
