@@ -22,6 +22,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
+	"github.com/TerraScale/ts-orchestrator/internal/rootsecret"
 )
 
 var ErrPending = errors.New("protected capacity operation is pending")
@@ -35,6 +36,7 @@ type attempt struct {
 	factory     *ociclient.Factory
 	home        *globalcontrol.Reader
 	leader      *authority.Reader
+	credentials *rootsecret.ControllerReader
 	original    authority.Snapshot
 	deadline    time.Time
 	receipt     budget.Reservation
@@ -57,13 +59,16 @@ func (a *attempt) guard(ctx context.Context) error {
 		return rootoci.ErrUnauthorized
 	}
 	if a.observation != nil {
-		if a.home != nil || a.leader != nil || a.leaseID != "" {
+		if a.home != nil || a.leader != nil || a.credentials != nil || a.leaseID != "" {
 			return rootoci.ErrUnauthorized
 		}
 		return ctx.Err()
 	}
-	if a.home == nil || a.leader == nil {
+	if a.home == nil || a.leader == nil || a.credentials == nil {
 		return rootoci.ErrUnauthorized
+	}
+	if err := a.credentials.Guard(ctx); err != nil {
+		return err
 	}
 	current, err := a.leader.CurrentLease(ctx)
 	if err != nil {

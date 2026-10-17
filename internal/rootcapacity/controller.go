@@ -54,17 +54,18 @@ func (c *Controller) open(ctx context.Context, call rootoci.Call, cell, operatio
 	}
 	ctx, cancel := context.WithDeadline(ctx, call.Deadline())
 	ctx = ociclient.WithRequestGuard(ctx, call.Guard)
-	conn, err := rootsecret.ConnectControllerReader(ctx)
+	credentials, err := rootsecret.OpenControllerReader(ctx)
 	if err != nil {
 		cancel()
 		return nil, nil, err
 	}
-	close := func() { conn.Close(); cancel() }
+	close := func() { credentials.Conn().Close(); cancel() }
+	ctx = credentials.Context()
 	fail := func(err error) (*attempt, func(), error) { close(); return nil, nil, err }
-	if err := call.Guard(ctx); err != nil {
+	if err := errors.Join(call.Guard(ctx), credentials.Guard(ctx)); err != nil {
 		return fail(err)
 	}
-	js, err := jetstream.New(conn)
+	js, err := jetstream.New(credentials.Conn())
 	if err != nil {
 		return fail(err)
 	}
@@ -80,8 +81,15 @@ func (c *Controller) open(ctx context.Context, call rootoci.Call, cell, operatio
 	if err != nil || expected.Epoch != 0 && lease.Epoch != expected.Epoch {
 		return fail(errors.Join(err, authority.ErrFenced))
 	}
-	a := &attempt{call: call, resolver: c.resolver, store: c.store, home: home, leader: leader,
-		original: lease, deadline: call.Deadline(), operation: operation}
+	deadline, bounded := credentials.Context().Deadline()
+	if !bounded {
+		return fail(rootoci.ErrUnauthorized)
+	}
+	if lease.ExpiresAt.Before(deadline) {
+		deadline = lease.ExpiresAt
+	}
+	a := &attempt{call: call, resolver: c.resolver, store: c.store, home: home, leader: leader, credentials: credentials,
+		original: lease, deadline: deadline, operation: operation}
 	if err := a.guard(ctx); err != nil {
 		return fail(err)
 	}
