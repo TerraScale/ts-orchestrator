@@ -23,6 +23,7 @@ type RuntimeGenesisInfo struct {
 // VerifiedRuntimeGenesis exists only on the actual first empty-state founder
 // process. Root must independently bind it to its preexisting protected permit.
 type VerifiedRuntimeGenesis struct {
+	ctx     context.Context
 	node    *Node
 	manager *manager.Manager
 	info    RuntimeGenesisInfo
@@ -34,22 +35,30 @@ func (proof VerifiedRuntimeGenesis) ExpiresAt() time.Time     { return proof.exp
 
 func (n *Node) RuntimeGenesis(ctx context.Context) (VerifiedRuntimeGenesis, error) {
 	expires := time.Now().UTC().Add(30 * time.Second)
-	ctx, cancel := context.WithDeadline(ctx, expires)
+	if deadline, ok := ctx.Deadline(); ok && deadline.Before(expires) {
+		expires = deadline
+	}
+	operation, cancel := context.WithDeadline(ctx, expires)
 	defer cancel()
-	info, source, err := n.observeRuntimeGenesis(ctx)
+	info, source, err := n.observeRuntimeGenesis(operation)
 	if err != nil {
 		return VerifiedRuntimeGenesis{}, err
 	}
-	return VerifiedRuntimeGenesis{node: n, manager: source, info: info, expires: expires}, nil
+	return VerifiedRuntimeGenesis{ctx: ctx, node: n, manager: source, info: info, expires: expires}, nil
 }
 
 // Revalidate retains the original process, manager, leader epoch and deadline.
 func (proof VerifiedRuntimeGenesis) Revalidate(ctx context.Context) error {
-	if proof.node == nil || proof.manager == nil || !time.Now().Before(proof.expires) {
+	if proof.ctx == nil || proof.node == nil || proof.manager == nil || !time.Now().Before(proof.expires) {
 		return errors.New("original runtime genesis proof is absent or expired")
+	}
+	if err := proof.ctx.Err(); err != nil {
+		return err
 	}
 	ctx, cancel := context.WithDeadline(ctx, proof.expires)
 	defer cancel()
+	stop := context.AfterFunc(proof.ctx, cancel)
+	defer stop()
 	current, source, err := proof.node.observeRuntimeGenesis(ctx)
 	if err != nil {
 		return err
@@ -59,7 +68,7 @@ func (proof VerifiedRuntimeGenesis) Revalidate(ctx context.Context) error {
 	if source != proof.manager || current != original {
 		return errors.New("runtime genesis source or leadership changed")
 	}
-	return nil
+	return proof.ctx.Err()
 }
 
 func (n *Node) observeRuntimeGenesis(ctx context.Context) (RuntimeGenesisInfo, *manager.Manager, error) {
