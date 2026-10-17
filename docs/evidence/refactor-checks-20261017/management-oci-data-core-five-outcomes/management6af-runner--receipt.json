@@ -1,0 +1,261 @@
+{
+  "actual_name_counts": {
+    "TestLocalManagementObservationIntegration": 1,
+    "TestManagementIntegration": 1,
+    "TestManagementIntegration//terrascale.swarmruntime.WorkerManagement/Admit": 1,
+    "TestManagementIntegration//terrascale.swarmruntime.WorkerManagement/Prepare": 1,
+    "TestManagementIntegration/wrong_UID": 1,
+    "TestManagementIntegration/wrong_service": 1,
+    "TestManagementObservationBlockedSend": 1,
+    "TestManagementObservationBlockedSend/authority_revoked": 1,
+    "TestManagementObservationBlockedSend/caller_canceled": 1,
+    "TestManagementObservationBlockedSend/overflow": 1,
+    "TestManagementObservationGRPCBlockedSend": 1,
+    "TestManagementObservationIntegration": 1,
+    "TestManagementObservationSlowConsumer": 1,
+    "TestManagementObservationStoreBoundaries": 1,
+    "TestManagementPeerPIDAdmission": 1,
+    "TestManagementPeerPIDAdmission/admitted_kernel_peer": 1,
+    "TestManagementPeerPIDAdmission/invalid_kernel_pid": 1,
+    "TestManagementPeerPIDAdmission/missing_peer": 1,
+    "TestManagementPeerPIDAdmission/unadmitted_kernel_peer": 1,
+    "TestManagementStatefulEffectBracket": 1,
+    "TestManagementStatefulEffectBracket/canceled_context": 1,
+    "TestManagementStatefulEffectBracket/ignored_duplicate": 1,
+    "TestManagementStatefulEffectBracket/ignored_effect_error": 1,
+    "TestManagementStatefulEffectBracket/missing_effect": 1,
+    "TestManagementStatefulEffectBracket/nil_context": 1,
+    "TestManagementStatefulEffectBracket/one_synchronous_effect": 1,
+    "TestManagementStatefulEffectBracket/post_effect_veto": 1
+  },
+  "exit_code": 0,
+  "expected_package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+  "expected_tests": [
+    "TestManagementIntegration",
+    "TestManagementObservationIntegration",
+    "TestManagementObservationStoreBoundaries",
+    "TestManagementObservationSlowConsumer",
+    "TestManagementObservationBlockedSend",
+    "TestManagementObservationGRPCBlockedSend",
+    "TestManagementStatefulEffectBracket",
+    "TestManagementPeerPIDAdmission",
+    "TestManagementIntegration//terrascale.swarmruntime.WorkerManagement/Prepare",
+    "TestManagementIntegration//terrascale.swarmruntime.WorkerManagement/Admit",
+    "TestManagementIntegration/wrong_UID",
+    "TestManagementIntegration/wrong_service",
+    "TestManagementStatefulEffectBracket/one_synchronous_effect",
+    "TestManagementStatefulEffectBracket/missing_effect",
+    "TestManagementStatefulEffectBracket/ignored_duplicate",
+    "TestManagementStatefulEffectBracket/nil_context",
+    "TestManagementStatefulEffectBracket/canceled_context",
+    "TestManagementStatefulEffectBracket/ignored_effect_error",
+    "TestManagementStatefulEffectBracket/post_effect_veto",
+    "TestManagementPeerPIDAdmission/missing_peer",
+    "TestManagementPeerPIDAdmission/unadmitted_kernel_peer",
+    "TestManagementPeerPIDAdmission/invalid_kernel_pid",
+    "TestManagementPeerPIDAdmission/admitted_kernel_peer",
+    "TestManagementObservationBlockedSend/overflow",
+    "TestManagementObservationBlockedSend/caller_canceled",
+    "TestManagementObservationBlockedSend/authority_revoked",
+    "TestLocalManagementObservationIntegration"
+  ],
+  "malformed_json_lines": [],
+  "max_child_rss_kib": 986012,
+  "package_outcomes": [
+    {
+      "Action": "pass",
+      "Elapsed": 2.341,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Time": "2026-10-17T01:53:15.879326654-03:00"
+    }
+  ],
+  "scope": "one exact selected root attempt; no live OCI/native/containerd/fullAPP qualification",
+  "source_post": {
+    "head": "6afae08d92ce88134a371e4e8f5b6d2dbb2bb530",
+    "request_sha256": "f7adb8843a0d8c9e5eb89263fff0eac4a22798e371ea7309cfb66b275df998cc",
+    "status": "",
+    "tool_pins_sha256": "df053f503abcb269c3a81f79d47edb0dcc092c8ec6d7425b7be9885ab0764c90",
+    "tracked_count": 4210,
+    "tracked_manifest_sha256": "c26185d85b359acdaad884d2045634a60e837e586a3189444ade30bcec9cc89b",
+    "tree": "a6d64617ded49c92f85b178ca30bc863f66a0b3b",
+    "wrapper_sha256": "92de49ac95b0c22e748299eea3055d51f699011f1bcb101ca6b12f3bd8489c8c"
+  },
+  "source_pre": {
+    "head": "6afae08d92ce88134a371e4e8f5b6d2dbb2bb530",
+    "request_sha256": "f7adb8843a0d8c9e5eb89263fff0eac4a22798e371ea7309cfb66b275df998cc",
+    "status": "",
+    "tool_pins_sha256": "df053f503abcb269c3a81f79d47edb0dcc092c8ec6d7425b7be9885ab0764c90",
+    "tracked_count": 4210,
+    "tracked_manifest_sha256": "c26185d85b359acdaad884d2045634a60e837e586a3189444ade30bcec9cc89b",
+    "tree": "a6d64617ded49c92f85b178ca30bc863f66a0b3b",
+    "wrapper_sha256": "92de49ac95b0c22e748299eea3055d51f699011f1bcb101ca6b12f3bd8489c8c"
+  },
+  "state": "PASS",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_sha256": "9830776d1a1818a3e3c5053cc040ef41db910d30c322a434ceaee47914182181",
+  "test_outcomes": [
+    {
+      "Action": "pass",
+      "Elapsed": 0,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementIntegration//terrascale.swarmruntime.WorkerManagement/Prepare"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementIntegration//terrascale.swarmruntime.WorkerManagement/Admit"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementIntegration/wrong_UID"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementIntegration/wrong_service"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0.74,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementIntegration"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0.67,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementObservationIntegration"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0.56,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestLocalManagementObservationIntegration"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementObservationBlockedSend/overflow"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementObservationBlockedSend/caller_canceled"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0.25,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementObservationBlockedSend/authority_revoked"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0.25,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementObservationBlockedSend"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0.05,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementObservationGRPCBlockedSend"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementObservationStoreBoundaries"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementObservationSlowConsumer"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementStatefulEffectBracket/one_synchronous_effect"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementStatefulEffectBracket/missing_effect"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementStatefulEffectBracket/ignored_duplicate"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementStatefulEffectBracket/nil_context"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementStatefulEffectBracket/canceled_context"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementStatefulEffectBracket/ignored_effect_error"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementStatefulEffectBracket/post_effect_veto"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementStatefulEffectBracket"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementPeerPIDAdmission/missing_peer"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementPeerPIDAdmission/unadmitted_kernel_peer"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementPeerPIDAdmission/invalid_kernel_pid"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementPeerPIDAdmission/admitted_kernel_peer"
+    },
+    {
+      "Action": "pass",
+      "Elapsed": 0,
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/swarmruntime",
+      "Test": "TestManagementPeerPIDAdmission"
+    }
+  ],
+  "wall_seconds": 128.14103155204793
+}

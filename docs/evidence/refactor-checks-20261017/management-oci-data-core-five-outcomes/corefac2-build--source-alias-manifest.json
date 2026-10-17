@@ -1,0 +1,201 @@
+{
+  "worktree": "/tmp/ts-core-connected-history-afad",
+  "branch": "test/core-connected-history-afad",
+  "head": "fac2a2715dad336cf67fc935d9f6af94c6bac1c2",
+  "tree": "9373511168ee3b5dea80fe61b7cc68a8986550f5",
+  "base": "afad42a30b651cd7210a094942eaf0f4c5696f1f",
+  "clean": true,
+  "pushed": true,
+  "imports": [
+    {
+      "original": "6aab710808fddcc45fb15e770369449dfd2d6861",
+      "local_alias": "9f764c4f0bb4aac1e8c60e880a9c3efbc571a43f"
+    },
+    {
+      "original": "4e431e7f3e4cfa0ebecc5d2ec33c55a35376082f",
+      "local_alias": "8da6be810f79c698497573a43aa58575d214d229"
+    },
+    {
+      "original": "c9bf454176f82de87b200d3880c0ff8cc905fb45",
+      "local_alias": "5b9c6f0413d1096b0635d37989de3926c9481b28"
+    },
+    {
+      "original": "b0877f4361ec735be7f60404d4a390ac2f16ecbb",
+      "local_alias": "d07f0cfd0fb1b1cf9612772a0d58537b7adfd967"
+    },
+    {
+      "original": "c2275dbe9fc8d7ccda0effd1a837b810370f594f",
+      "local_alias": "52ddd7424373f11a5ac4f0e7a4bc9d6b361ed068"
+    },
+    {
+      "original": "f5d05129738d295c553a8f273f45f8d6cd8c606e",
+      "local_alias": "bed2d39583f2d68a1df265e19e7838034313fc9d"
+    },
+    {
+      "original": "17975f3707ee864b20cf5080e2bef1ce705905c2",
+      "local_alias": "173789ba68464672f26590cdae1aba13952f93a5"
+    },
+    {
+      "original": "1faec374294543095a1b78f8aed782c76c544cd2",
+      "local_alias": "d57450f2c4c4ffe79bef73815d6fcf5ee8373457"
+    },
+    {
+      "original": "f4e719a21508b450c61dcf8910be985d675515cd",
+      "local_alias": "f61869eeafada0c653b5cc69d6b6da9fcac27811"
+    },
+    {
+      "original": "2d15811884db8036d4c2348cbf1adaa6af1422f3",
+      "local_alias": "8c6327e1a60c8b8b35c4cafa5b13344f7b8f47ac"
+    },
+    {
+      "original": "de2826684eec8bb372b4b14d7038def9fbac80fd",
+      "local_alias": "99b88b9eb616e1bd739d71c8b8f355ef2fd475dc"
+    },
+    {
+      "original": "b3e301b82ead0868e8c259af501d75500b1b9da7",
+      "local_alias": "75ee11ca006cc596c10c3fbe50ca7f0ca04d4db6"
+    },
+    {
+      "original": "c1a8236ac7803d66f0e96764250a055cf6351133",
+      "local_alias": "51c81d80e946f2b6f9c223ff2364d5c8ece3b41e"
+    },
+    {
+      "original": "0df3ba4ffa54e6632a8fa5e1b89d19e23c3a097e",
+      "local_alias": "f0213d9fe23b023ab2d88b29dce14c2d6c1b483e"
+    },
+    {
+      "original": "157a6e45dccbcdade025a46da5e229f69db0b2c1",
+      "local_alias": "6e2e7edc601de2a174ae92962c1c34ae89df6466"
+    },
+    {
+      "original": "49ba9e1900b8d84f62cedf337c58799b57348efb",
+      "local_alias": "68d81110d706a600caf8e893762af97c11bfe48c"
+    },
+    {
+      "original": "970b8d739e0dd99c82f2a850dac930706dbf0918",
+      "local_alias": "d45c94fa7a6d6d33791ce7023fac7b8f337977da",
+      "ownership": "upstream owner"
+    },
+    {
+      "original": "fe01f3192df027ffd16d6bb331f4ac414008960b",
+      "local_alias": "5674cc44f29d39acdea5608ebd424c08746e0c83",
+      "ownership": "upstream owner"
+    },
+    {
+      "original": "9f614ce3ebc5d68e0a4d151b0571cb23d968e473",
+      "local_alias": "d47f26831bb7e8da3d512e74260fefc3a54246ca",
+      "ownership": "upstream owner"
+    },
+    {
+      "original": "d0b972460a0d6413aaa948a967a2c2406b407a4b",
+      "local_alias": "6048aed68b72a871389a640472cfd532e04c375d",
+      "ownership": "upstream owner"
+    },
+    {
+      "original": "5266ef95588f057a7903d9e5dab46be8f81303cd",
+      "local_alias": "257cda42b1d7707d0f908d5902b9a2bcb245111f",
+      "ownership": "upstream owner"
+    },
+    {
+      "original": "fb7eb58f96645bdcebbbe92018627dc5ef854186",
+      "local_alias": "f30f5a86ecc478d3b0d24a2607c7a717fe35f405",
+      "ownership": "upstream owner"
+    },
+    {
+      "original": "10653eefca06c861cff9a01a6651333ad6e9413c",
+      "local_alias": "10653eefca06c861cff9a01a6651333ad6e9413c",
+      "ownership": "CORE fixture"
+    },
+    {
+      "original": "b678ef7e4a7260b8206f634cdb74df6043a92443",
+      "local_alias": "b678ef7e4a7260b8206f634cdb74df6043a92443",
+      "ownership": "CORE fixture"
+    },
+    {
+      "original": "56da10121a09f06a70ca8ae9b039d31c2131cff3",
+      "local_alias": "18158bc772dad13ef2bf8cb35d4efae516f82460",
+      "ownership": "upstream owner"
+    },
+    {
+      "original": "31107349818838f5b7b6814638b48c583f973c1d",
+      "local_alias": "bc351d8bbf7fd99828ce5db597ab298299499f4b",
+      "ownership": "upstream owner"
+    },
+    {
+      "original": "984217a064a5510bae980bb1c8290651dd372e8a",
+      "local_alias": "f75305cb8cd966c2a68aa0ccf6e7a106c669551f",
+      "ownership": "upstream owner"
+    },
+    {
+      "original": "60f5d78f78d668ffb28e903b31630981f3c7e6f4",
+      "local_alias": "40559ddbb2ed0fb46cb58af3d3f5c955f3b5c7e8",
+      "ownership": "upstream owner"
+    },
+    {
+      "original": "4b68996039c19740c3bde64f239350e564350124",
+      "local_alias": "a1a405108644cbe48a41012647146ab0bbbdb701",
+      "ownership": "upstream owner"
+    },
+    {
+      "original": "51636cc8e7e7c6a0456424304fb0b13eed4901af",
+      "local_alias": "6479567f72734dcdcb71ceb0ba97a79117c7daf2",
+      "ownership": "upstream owner"
+    },
+    {
+      "original": "4370260eed909ed8bf355b353f62d666f0d20e47",
+      "local_alias": "0c4ca9f83a10af12325f91865ebfa7c8adc0a2b7",
+      "ownership": "upstream owner"
+    },
+    {
+      "original": "e7cac96dec4d1e451acd81787fa06fe336ebd3b8",
+      "local_alias": "66742200076468f5fb6e49ab8d6f3b3d363cd33c",
+      "ownership": "upstream owner"
+    },
+    {
+      "original": "298709316ee4ad8598c491f0e968d6367e237987",
+      "local_alias": "2ea03944dfae7e2bee52e92d045dd9899b3f5403",
+      "ownership": "upstream owner"
+    },
+    {
+      "original": "c509ecdbcdc19d43b9465a7a067a31f9c1140fb9",
+      "local_alias": "e6154e328c22ba09213b0b24a198dadcff5d18ec",
+      "ownership": "upstream owner"
+    },
+    {
+      "original": "f1b338e031f3b8754b26d2d41178a5e2cbb18f6e",
+      "local_alias": "afdb25315a3f1b26277d9dd18d71471467a0fe6c",
+      "ownership": "upstream owner"
+    },
+    {
+      "original": "bc2aa50121d5867757c34767ad9c521028d70f1f",
+      "local_alias": "3413bc7d16a8b14e3cc806bf4a474f9b06b380fc",
+      "ownership": "upstream owner"
+    },
+    {
+      "original": "8ecd3c971f97eba334ff86a644738692b55d99a0",
+      "local_alias": "fac2a2715dad336cf67fc935d9f6af94c6bac1c2",
+      "ownership": "upstream owner"
+    }
+  ],
+  "checks": "Whitespace only. No Go compile/test/lint/benchmark or daemon ran.",
+  "fixture_ownership": "internal/app/generic_runtime_integration_test.go; OWN leaves10653eefc+b678ef7e4.",
+  "pending": [
+    "Exact-source one-root QA packet independent review and separate execution grant.",
+    "Production root-chain record writer and genuine enrolled recipient/root composition remain independent unqualified prerequisites."
+  ],
+  "proof_limits": [
+    "Local authority/recipient simulation: actual SDK, signed profile/release, Agent/broker, manager/applied history, verified journal, bearer capacity HTTP, two fresh history restorations.",
+    "Does not qualify native execution, production enrolled OCI recipient/root composition, or authenticated Unix management transport.",
+    "Functions/worker DRAIN stays unknown when original opaque finite membership unavailable; no credential widening."
+  ],
+  "source_reviews": [
+    "SERVICESfb7+516 finite original proof contexts SEC ACK.",
+    "MANAGEMENT5266 legitimate scoped local observer SEC ACK; its9-root runtime successor6af is separate/unrun.",
+    "OBS connected fixture10653+b678 reviewed; no concrete remaining consumer issue.",
+    "OBS437+APPe7 actual managed-owned role union SEC ACK; native-only missing-node preserved.",
+    "NODE298709316 actual sticky terminal lifecycle pins SEC ACK; temporary/context retries and nonterminal shutdown reservations retained. Source regressions unrun.",
+    "APP60f\u2192e7\u2192c509\u2192f1b combined SEC source ACK: leader-verified current root head after final allocation read; original atomic keys/head/proof lifetimes retained. Conditional coherent integration and QA.",
+    "APPbc2aa5012 SEC source ACK: new awaited currentMaterialTask leader root read is capped by original min release/controller/enrollment lifetime.",
+    "WASM8ecd3c971 SEC exact source ACK: actual same-options runtime JS threaded to5 sources; authoritative root guard after final awaited allocation/registry/recipient/outer material calls, original finite bounds and final epoch/time/context checks preserved."
+  ]
+}

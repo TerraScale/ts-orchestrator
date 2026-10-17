@@ -1,0 +1,94 @@
+{
+  "approved_base_manifest_sha256": "3d56c0fd11addeb613a1bf287441d4203d2496fb9d3ac053d133123b1d3e97dd",
+  "base": "f01b41a84424d7827efc3d5871f99be1d1c53434",
+  "changed_paths_sha256": {
+    "internal/app/data_source_renewal_integration_test.go": "dc0f02e265be172da61cf18dce065c99272c6dbb43ee7b18531f57454b82a598",
+    "internal/host/container_backup.go": "bd542279fc39643102aeaffdd5c2318ec1cd12733d523386126750f97d0ca527",
+    "internal/host/managed_backup_complete_sizes_test.go": "42eb4ba608ae8b171c8f81260b8dfc4960c7fbdc7721f1b274635bce532be555",
+    "internal/host/managed_backup_operation.go": "cf39a21b077376c7dd2b9049ac07d4cb2775a75aacb479b0f3f75636ea5e9655",
+    "internal/host/managed_backup_operation_test.go": "248d22cdf0c31c3ca844a05c7dbbb12587233b863ff652eac0942ad29d549be6",
+    "internal/host/managed_runtime.go": "10c1c858754f99adc065cab59e717f348e4f7c4ae53e1944172699bd857baa5b",
+    "internal/host/types.go": "d30985f8140fd883c5e477816c4cf3d82b834b2b401d1477d1ddada9791813d3",
+    "internal/storage/execution/backup.go": "97ef69a085fa5e570cc09731291b1e7f81c5460b3fef2bc01f1439e1115a6d9f",
+    "internal/storage/execution/backup_integration_test.go": "c4c3742da1770df1a201fe420eafe628a44f94df76552e1e7dc0cf472c325cda",
+    "internal/storage/execution/member_peer_integration_test.go": "5b5584f07c302d923aa32fd986bb1b56de7296e30dcf12d2a663442d46fc2549",
+    "internal/storage/execution/publication.go": "2bb1dccd3bd07b66dcc42550d2674bc758b34eaa33fce7fcb81feb57d26d6635",
+    "internal/storage/execution/source.go": "e74d5313ded9d1df138c3769ab0b323d901278d44af149da4079062323634e12"
+  },
+  "commits": [
+    {
+      "donor": "961193e27fe3540a74b8d95c2b27e9f67a3e885a",
+      "exact_patch_match": true,
+      "files": [
+        "A\tinternal/host/container_backup.go",
+        "M\tinternal/host/managed_backup_operation.go",
+        "M\tinternal/host/managed_backup_operation_test.go",
+        "M\tinternal/host/managed_runtime.go",
+        "M\tinternal/host/types.go",
+        "A\tinternal/storage/execution/backup.go",
+        "A\tinternal/storage/execution/backup_integration_test.go",
+        "M\tinternal/storage/execution/member_peer_integration_test.go",
+        "M\tinternal/storage/execution/publication.go",
+        "M\tinternal/storage/execution/source.go"
+      ],
+      "local": "865a969b02769f97a353159eedcfb96cd8bbb2f0",
+      "parent": "f01b41a84424d7827efc3d5871f99be1d1c53434",
+      "patch_id": "941a2ae77458d56692130c297bf582109c02c8f0",
+      "tree": "1ca26a1156c31aba8a5807d11477164d23eec4c3"
+    },
+    {
+      "donor": "111d3a2b303535f02799db2e8935625eb1b373e0",
+      "exact_patch_match": true,
+      "files": [
+        "M\tinternal/host/managed_backup_complete_sizes_test.go"
+      ],
+      "local": "9276b3aee2dabfb74e4d86eadafda02e765e08c8",
+      "parent": "865a969b02769f97a353159eedcfb96cd8bbb2f0",
+      "patch_id": "6b9bfa5a227f3d1a37c1c35d823c0622b99caa28",
+      "tree": "d7817e9b9dac59247a85f888fff58d79923c166a"
+    },
+    {
+      "donor": "cea0b45e43834cde5f4ba67ff1dcd8776b5d0cbf",
+      "exact_patch_match": true,
+      "files": [
+        "M\tinternal/storage/execution/source.go"
+      ],
+      "local": "587d8417d9b59462ab93a0597bb63c730cfd4702",
+      "parent": "9276b3aee2dabfb74e4d86eadafda02e765e08c8",
+      "patch_id": "7b52838b4825c4d6c91c91f2084f69175b0e1b39",
+      "tree": "0759fd3e6cc8cd03041e95df492c7dbcf647aa9c"
+    },
+    {
+      "donor": "518841aab9140815dc5d6504771e11d947277528",
+      "exact_patch_match": true,
+      "files": [
+        "A\tinternal/app/data_source_renewal_integration_test.go"
+      ],
+      "local": "6978e79b706ffdff2cb52a4ac4c8e3be56d727cf",
+      "parent": "587d8417d9b59462ab93a0597bb63c730cfd4702",
+      "patch_id": "1b59b3ceb3d12420e75b21ed5ce398e153884a1e",
+      "tree": "f74fa0cbca7a506a61d885da65b40b0d5dc84d3e"
+    }
+  ],
+  "fullsource_manifest_sha256": "8334fdfe61850d3f582bc2d7c7adf39dc8621cb68fb4f43cd395898f8854b648",
+  "head": "6978e79b706ffdff2cb52a4ac4c8e3be56d727cf",
+  "limits": "No broad production cascade; no manual cherry-pick conflict resolutions; original b731/518 packets unexecuted. Actual compilation and runtime remain unverified.",
+  "preserved_candidates": [
+    "f01b41a84424d7827efc3d5871f99be1d1c53434",
+    "b7313935ffcd8b0414af3db2acd72cb5abae7509",
+    "518841aab9140815dc5d6504771e11d947277528"
+  ],
+  "source_ack": {
+    "delivered_by": "/root/data",
+    "instruction": "APP EXPLICIT SOURCE-ONLY APPROVAL: on NEW isolated f01 qualification branch compose ONLY exact original DATA production961193e27\u2192111d3a2b3\u2192cea0b45e4 BEFORE cumulative518841aab test file (recompose/rebase isolated candidate). Preserve originalf01/b731/518 candidates. These supply connected Source/Agent/business behavior; no test workaround or broad ancestry/cascade.",
+    "kind": "APP_EXPLICIT_SOURCE_ONLY_COMPOSITION_APPROVAL",
+    "limits": "Source composition ownership approval only, not SEC qualification, compilation, runtime, native harness, live OCI or root authority."
+  },
+  "source_blockers_resolved": [
+    "ManagedRuntimeReport.Container and actual ManagedContainerRuntime transport added by exact donor",
+    "Actual Agent/Source held backup reconciliation and cancellation-before-withdrawal hooks added by exact donor",
+    "Source Volume.DatabaseID checks signed placement business database identity with canonical member scope distinct"
+  ],
+  "state": "EXACT_AUTHORIZED_SOURCE_COMPOSITION_UNCOMPILED",
+  "tree": "f74fa0cbca7a506a61d885da65b40b0d5dc84d3e"
+}

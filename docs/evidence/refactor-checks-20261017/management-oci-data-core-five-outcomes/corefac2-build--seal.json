@@ -1,0 +1,17 @@
+{
+  "state": "SOURCE_ONLY_UNEXECUTED_NO_GRANT",
+  "worktree": "/tmp/ts-core-connected-history-afad",
+  "commit": "fac2a2715dad336cf67fc935d9f6af94c6bac1c2",
+  "tree": "9373511168ee3b5dea80fe61b7cc68a8986550f5",
+  "pins": {
+    "request.json": "a39797b8df15aa5863e7b6af93e91fc6a3003f7cbf1d134270bcd051b8192f3f",
+    "run.py": "c8904764e690f9ca8668e7b39ea320be586e23df2da39333f4ae7388e98f24a4",
+    "fullsource-manifest.json": "e8d5e2c4833304bf5212661b423ad748f52af9eb8034202ccbc5de49e8dd9570",
+    "static-review.json": "3906f71ee3e1eb921bb7b8072114bc11ac0b7d30f89984ada8024496968c7dda",
+    "static-import-closure.json": "1026ec256e6ce5a08c7a7a0813a41a183866318ea8af7aa5fbea5bc6d04d615c",
+    "source-alias-manifest.json": "0051f7f66fa9a0e9437f47647f6358d01139acdf246c1c606e47501977dd6c11",
+    "assertion-map.json": "2f20f3cdba5da10df2915adacccc7787bc308f3da7b256f3081855f187cf849b",
+    "native-launch.json": "01c4092b4f7956fe3bbf6fdc729cb71ca9f90017250993cc65cedf55ccb26fe1"
+  },
+  "no_execution": "No Go, runner, lease or test execution by this builder; Python syntax compile only."
+}

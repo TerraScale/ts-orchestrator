@@ -1,0 +1,22 @@
+{
+  "state": "SOURCE_AND_COMPILE_RESULT_ONLY_RUNTIME_UNGRANTED",
+  "preserved_readiness": {
+    "sha256": "4682fe5c0e12638a7f0e9b127a8d7e616bfbcfc0182ac87824c85cb1463ff59a",
+    "earlier_status_fields": "Pinned source-only readiness intentionally retains pre-ACK/precompile wording; this supplement supersedes only that status."
+  },
+  "source_ack": {
+    "path": "/tmp/ts-oci-foundation-5e678c47a-security-source-ack.json",
+    "sha256": "7aaa91f57da53b5dda4e4358a25f67559fdeb555a6e3ebec793d621a2a0dc232"
+  },
+  "compile_receipt": {
+    "path": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/receipt.json",
+    "sha256": "e893bc0f13b774c7ff1a5ddd421817ed483194aee684b9169e21b311661b30cc"
+  },
+  "compile_result": {
+    "state": "COMPILE_PASS_PENDING_INDEPENDENT_TERMINAL_ACCEPTANCE",
+    "final_compile_seal": "/tmp/ts-oci-region-compile-5e678c47a-capacity-sealed/final-compile-seal.json",
+    "final_compile_seal_sha256": "13a85309005fe1ecc1ec73f0f6001ff8b9947e5615d65aa50dc46f1f099ee15f",
+    "runtime_credit": false
+  },
+  "scope": "Same bounded72-directory593-file closure and existing selected parent/leaf; no new source effects. No runner/binary execution, binary copy/chmod, lock opening, listener, or cloud/host actions during packet preparation. Source-only0a union remains separate and unqualified."
+}

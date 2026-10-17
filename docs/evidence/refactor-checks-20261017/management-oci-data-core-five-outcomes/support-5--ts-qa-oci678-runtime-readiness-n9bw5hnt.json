@@ -1,0 +1,178 @@
+{
+  "kind": "independent-oci678-provision-runtime-readiness",
+  "created_utc": "2026-10-17T04:53:07.562813+00:00",
+  "verdict": "READY_FOR_PARENT_RUNTIME_SCHEDULING_EXACT_120_180_PACKET_ONLY_NO_GRANT",
+  "packet": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed",
+  "pins": {
+    "request.json": "f6fd62b3895542abbca9af8d0fac51753f7d27013e16302e7824ed4180ec6fe9",
+    "run.py": "b1c1e4168be2ab7764b6f568edcb1d689146b99dece3a494071d7e478349103b",
+    "final-seal.json": "680b592f2e49e514890bc8c9b379955799472a6716702facb0fd188e9ba8c8da",
+    "runtime-readiness.json": "01e911da54db64107aa22474415f3eba09e8dc02867a822bbe1e8c0864f53787",
+    "fullsource-manifest.json": "770e10c3b7ce41420b34911721d91931bc9e35849c3cceb3bcaf831e2d78d234"
+  },
+  "packet_unused": true,
+  "source": {
+    "path": "/tmp/ts-oci-foundation-policy-wire",
+    "head": "67854df1257d31aa9b76dfd754d8075fdf33fd9d",
+    "tree": "0c9b86cd7076dffeed4543914e5021dc89635b1f",
+    "clean": true,
+    "all3838tracked_hashes_match": true,
+    "all593audit_hashes_match": true,
+    "audit_local_directories": 72,
+    "audit_manifest_and_standalone_bytes_match": true,
+    "all_tool_hashes_match": true
+  },
+  "compile_prerequisite": {
+    "receipt": {
+      "path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/receipt.json",
+      "sha256": "f5f4265722b235bcb1ddab7163b926aef94d62a522009ac98dd9e8dcd3276f75"
+    },
+    "accepted_binary": {
+      "path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/binaries/region.test",
+      "sha256": "7edec5c46e0ef66465940af8e61c488a6e594fc5783ac8e9c879f25a3b21dbb1",
+      "bytes": 62901500,
+      "magic_hex": "7f454c46",
+      "mode": "0o600",
+      "never_executed": true
+    },
+    "independent_acceptance_report": "/tmp/ts-qa-oci678-truecompile-terminal-acceptance-b4lxjiu8.json",
+    "independent_acceptance_sha256": "33c11074cab88a8572c5f71d7207bb2636ce7eb5ef9cd1e5bbbb1b5d227317f2",
+    "status": "Exact region-only678 truecompile independently accepted; original ELF0600 and unexecuted. This prerequisite is not runtime permission."
+  },
+  "security_prerequisite": {
+    "path": "/tmp/ts-oci-foundation-67854df12-security-source-ack.json",
+    "sha256": "a07d88b5deefdcb61135334e9d94e824ba7fb2a4355212c3cde20b7a6e8e6e07",
+    "reviewer": "/root/security",
+    "exact_head_tree_match": true,
+    "scope": "Independent SEC_SOURCE_ACK_ONLY; no runtime/live/native/composition credit."
+  },
+  "selected_scope": {
+    "parent": "TestFoundationRecordsPersistAndFenceConcurrentWriters",
+    "leaf": "Ephemeral test root/leaf Ed25519 and RSA2048 raw OCI signing provider with synthetic tenancy/user.12finite signed worker profiles before strict signing. Invalid authority before HTTP; then real ProvisionFoundationBundle through local simulator, simulated accepted launch response loss, exact original ID/token restart, accepted policy response loss/readback, all three writer checkpoints and NetBird manager, publication-last, completed restart creates none. No worker image/provenance invented.",
+    "full_parent_read": "Current foundation_integration_test.go helper42-124 and parent126-222 reread including entire continuation. Prior full selected leaf/helpers, provisioning/SDK/init path review reused only for unchanged bytes; all64\u2192443\u2192678 production/fixture changes inspected and frozen by full manifest.",
+    "parent_continuation": "Always runs after t.Run, including failure case. Starts separate plaintext loopback httptest server with ephemeral raw RSA provider and client.Host fixed local URL. Tests durable object/CAS/restart, stale ETag/duplicate founder, original launch digest preservation, original ID/policy reservation and widened durable policy rejection. No parallel/deeper selected tests."
+  },
+  "effects": {
+    "network": "Leaf transport Proxy rejects noninitial/nonHTTPS/userinfo/opaque/CONNECT, returns no proxy; plaintext DialContext always fails. DialTLSContext accepts TCP variants and dials literal verified listener loopback address only. OCI SDK lazily clones current http.DefaultTransport; test OCI_GOSDK_USING_EXPECT_HEADER=false prevents SDK replacement of rejecting Proxy/DialContext; TLS config replacement leaves custom TLS dialer. Pricing client uses current default transport, refuses redirects. Parent runs after restore and pins ObjectStorage host to local listener; server emits no redirects. No leaf DNS/nonloopback/cloud endpoint required.",
+    "new_helper": "foundationWriterPolicyBody constructs actual SDK HTTPRequest in memory, reads131073-byte maximum and rejects over131072, closes body and canonicalizes returned JSON. No provider/signing/client/transport/network or extra disk/process/init effect. Shared reservation/expected-vsactual durable-body/raw simulator checks remain exact; explicit original empty launch arrays/tag maps preserve body roundtrip. No old malformed-history migration/adoption.",
+    "local": "Two successive ephemeral loopback HTTP(S) listeners, max one at a time; three testing temp roots. Leaf XDG override confines production antirollback floor0700dir/0600files/flock/fsync/rename to temp root; SDK RSA keys in memory. Simulator SHA-named objects and parent journal files0600. Normal testing cleanup restores env/default transport, closes listeners/idle connections and removes temp roots; controller/home-IAM renewal goroutines stop.",
+    "prohibited_or_absent": "No real credentials, live OCI/IAM/IMDS or paid resources, host service or auth relaxation, NATS server, native/root helper/cgroups, containerd, actual VM boot, SSH/shell or daemon fixture. Signed native/root qualification transcripts remain simulated data, not live/root proof.",
+    "init": {
+      "selected_package": "No TestMain or init declarations found in internal/region .go files.",
+      "local_declarations": [
+        {
+          "path": "internal/host/native_exec.go",
+          "line": 38,
+          "declaration": "func init() {"
+        },
+        {
+          "path": "internal/host/runtime_probe.go",
+          "line": 32,
+          "declaration": "func init() {"
+        },
+        {
+          "path": "internal/authority/runtime.go",
+          "line": 36,
+          "declaration": "func init() {"
+        },
+        {
+          "path": "internal/ociregion/publicapi/sdk_peer.go",
+          "line": 15,
+          "declaration": "func init() {"
+        },
+        {
+          "path": "internal/ociregion/sdkcli/inventory.go",
+          "line": 15,
+          "declaration": "func init() {"
+        }
+      ],
+      "local_effects": [
+        "internal/host/native_exec.go:38 dispatches only when exactly one special workload-helper argv is supplied; normal test arguments do not dispatch it.",
+        "internal/host/runtime_probe.go:32 dispatches only sole special native-probe argv; normal test arguments do not dispatch it.",
+        "internal/authority/runtime.go:36 starts one diagnostics goroutine on a bounded queue.",
+        "internal/ociregion/publicapi/sdk_peer.go:15 and internal/ociregion/sdkcli/inventory.go:15 only register SDK handler tables."
+      ],
+      "known_third_party": [
+        "NATS server Linux pse init reads own /proc/<pid>/stat and syscall.Sysinfo then schedules a one-second time.AfterFunc sampler; buildinfo/cipher and NATS encoder init register memory state, ATS init creates a channel. None starts a NATS server.",
+        "VictoriaMetrics metrics init registers a default in-memory metric set.",
+        "OCI common init initializes logger and reads OCI_GO_SDK_DEBUG; normal unset means no debug logger output.",
+        "Wazero Linux platform init reads /sys/kernel/mm/hugepages. Perfmap init writes /tmp/perf-<pid>.map only with compile tag perfmap; default !perfmap constant disables it."
+      ],
+      "known_limits": "Source-only regular-expression import traversal, not Go list or compiler resolution. Includes internal/region production+test imports, then local production files; ignores imported package tests and does not resolve all GOOS/GOARCH/custom build tags, cgo, generated testmain or complete transitive third-party/standard-library initialization. The 72-directory local set is a conservative source-derived known closure, not proof of the exact linked graph. Inspected relevant direct third-party/module init sources; no claim of exhaustive external closure. Embedded deployment files directly under deploy/oci-region are hashed; other embedded assets are not exhaustively inventoried."
+    },
+    "external_source_hashes": {
+      "/home/mariogk/go/pkg/mod/github.com/oracle/oci-go-sdk/v65@v65.126.0/common/client.go": "45d01d03e11a40a6d1c2dd743fd6717551340be19cba5d0ee33b96dea219855e",
+      "/home/mariogk/go/pkg/mod/github.com/oracle/oci-go-sdk/v65@v65.126.0/common/transport_template_provider.go": "c4a0082c8804b8a8f19a897d744069d854e9b82503fa1117a19dde9f78448702",
+      "/home/mariogk/go/pkg/mod/github.com/oracle/oci-go-sdk/v65@v65.126.0/common/oci_http_transport_wrapper.go": "e7e85bcff00e33736b57c5ab4f53318c0ebfeabaa599cc1d2a04eb93420ce3fc",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/src/testing/testing.go": "8d2437cfdcfb82fd8807e5063783de1d50f70e589e80cad10e17d8ef23f724d9"
+    }
+  },
+  "runtime_request": {
+    "argv": [
+      "/run/current-system/sw/bin/nice",
+      "-n",
+      "19",
+      "/run/current-system/sw/bin/timeout",
+      "--signal=TERM",
+      "--kill-after=5s",
+      "180s",
+      "/run/current-system/sw/bin/env",
+      "-i",
+      "HOME=/home/mariogk",
+      "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "LANG=C.UTF-8",
+      "GOMAXPROCS=2",
+      "GOFLAGS=-p=2",
+      "GOTOOLCHAIN=local",
+      "/tmp/ts-oci-provision-runtime-67854df12-120-sealed/runtime-region.test",
+      "-test.v=true",
+      "-test.run=^TestFoundationRecordsPersistAndFenceConcurrentWriters$/^provision_originals$",
+      "-test.count=1",
+      "-test.parallel=1",
+      "-test.timeout=120s"
+    ],
+    "environment": {
+      "HOME": "/home/mariogk",
+      "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "LANG": "C.UTF-8",
+      "GOMAXPROCS": "2",
+      "GOFLAGS": "-p=2",
+      "GOTOOLCHAIN": "local"
+    },
+    "direct_binary": true,
+    "no_Go_compile_test2json": true,
+    "test_seconds": 120,
+    "outer_seconds": 180,
+    "TERM_KILL_grace_seconds": 5,
+    "nice": 19,
+    "GOMAXPROCS": 2,
+    "parallel": 1,
+    "count": 1,
+    "ordinary_EUID_required": true,
+    "unenforced_estimates": {
+      "RAM_bytes": 1073741824,
+      "scratch_bytes": 134217728,
+      "tasks": 128
+    },
+    "no_exception": "No timeout extension/retry inferred. RAM/scratch/tasks are estimates, not hard limits or observed successor peaks."
+  },
+  "runner_review": "Byte-identical reviewed b1c1e416 runtime wrapper: seal/source/tools/ELF/receipt preflight, nonroot check, exclusive logs/markers, CAPACITY nonblocking flock. Only after explicit parent grant and held lock copies exact original bytes to private0500 runtime copy; one launch; restores copy0600 normal/exception; checks unchanged post snapshot and hash. Original compile ELF stays0600/unexecuted. Regex sets/counts do not comprehensively enforce raw ordering/arbitrary labels, requiring independent terminal checks.",
+  "terminal_requirements": [
+    "Actual native launch and every poll arguments/results retained; exact terminal receipt/exit0 and final seal verified independently, source/request/tools/prepost/current clean unchanged, one private copy execution and no original execution, restored runtimecopy0600/exact hash, PID/lock cleanup.",
+    "Complete raw stdout/stderr inspected independently. Exactly RUN parent then RUN leaf, exactly PASS parent then indented PASS leaf, then standalone final PASS. Parent terminal before buffered child is valid Go1.27 direct-text output. Same-identity NAME association lines may occur; reject FAIL/SKIP/panic/timeout, duplicate/extra test identities/events or hidden failure evidence.",
+    "Successful terminal may credit only this exact678/ELF local SDK simulator plus full parent scenario. No live/native/equivalence/financial-history completeness/retirement/canonical adoption/nine-package union/global completion credit."
+  ],
+  "scheduling": {
+    "daemon_fixture_required": false,
+    "existing_management_fixture": "Parent reports management6af owns sole actual daemon fixture. These two successive httptest listeners require no extra daemon-fixture slot or management-fixture change.",
+    "CAPACITY": "/tmp/ts-orch-refactor-capacity-check.lock",
+    "status": "Parent alone owns queue/fresh resource checks/runtime grant. No lock opened or probed during this readiness review. Availability or compile acceptance never authorizes launch."
+  },
+  "preservation": {
+    "64_runtime_NOT_QUALIFIED_retained": true,
+    "64_failure_receipt_sha256": "977c216b59eb4eb06e0baf5ed8ee5373ed3353dddb75bb665b5200c60c085dff",
+    "443_compile_packet_UNUSED_byte_exact": true
+  },
+  "limits": "Source-derived72-directory/593-file regex inventory is not exact compiler closure; full transitive external/std init/tags/cgo/embedded assets not exhaustively certified. Some audit line references/execution-status wording describe inventory creation before accepted compile; current exact pins and explicit compile acceptance above govern state. No successor runtime evidence yet.",
+  "reviewer_actions": "Static current parent/helper/SDK/stdlib source reads, previous exact-delta review, Git/source/tool/artifact hashes/metadata; exclusive new /tmp report only. No Go/binary/runner execution, native polling, lock attempt/acquisition, copy/chmod/source/packet edits, grant, cloud/native/daemon action, retries or agents."
+}

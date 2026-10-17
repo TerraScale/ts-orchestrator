@@ -1,0 +1,8 @@
+=== RUN   TestFoundationRecordsPersistAndFenceConcurrentWriters
+=== RUN   TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals
+    foundation_provision_integration_test.go:194: expected accepted launch response loss: provision signed GRU foundation: foundation returned invalid resource identity
+=== NAME  TestFoundationRecordsPersistAndFenceConcurrentWriters
+    foundation_integration_test.go:179: original pending launch lost: original home writer checkpoint is invalid
+--- FAIL: TestFoundationRecordsPersistAndFenceConcurrentWriters (10.33s)
+    --- FAIL: TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals (9.63s)
+FAIL

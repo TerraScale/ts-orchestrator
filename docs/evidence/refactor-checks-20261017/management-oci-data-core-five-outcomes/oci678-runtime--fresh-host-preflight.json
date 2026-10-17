@@ -1,0 +1,11 @@
+{
+  "euid": 1000,
+  "mem_available_kib": 26858048,
+  "load": [
+    1.53466796875,
+    1.68896484375,
+    1.79296875
+  ],
+  "bounded_compiler_processes": [],
+  "compiler_count": 0
+}

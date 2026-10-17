@@ -1,0 +1,88 @@
+{
+  "kind": "independent-provision64-runtime-failure-terminal-review",
+  "created_utc": "2026-10-17T04:42:17.948280+00:00",
+  "verdict": "NOT_QUALIFIED_NO_RETRY",
+  "packet": "/tmp/ts-oci-provision-runtime-64a55-120-sealed",
+  "pins": {
+    "receipt.json": "977c216b59eb4eb06e0baf5ed8ee5373ed3353dddb75bb665b5200c60c085dff",
+    "final-runtime-seal.json": "c40122f255bb3415a2268345121b092068b5ee79949faceda3031cefd8c50062",
+    "terminal-index.json": "365687d69c90e404744920164b49e97c49ba575c59af7bf2cc5906512050f62f",
+    "native-poll-1.json": "254458128f509c60c0d3ba2faac95d310e428b0da8eef3cff5902a3ec5224a16",
+    "request.json": "d374ed2464d16dc22183bf191ffb7bcf59b21c88459dca9054f3102be895c124",
+    "final-seal.json": "d60e0fc3c1ffdfe97f30b17593d0b69eee6c853b1145ca6efa4474286385dc36"
+  },
+  "all_sealed_artifact_hashes_sizes_modes_match": true,
+  "native_terminal": {
+    "native_session_id": 40740,
+    "pid": 672723,
+    "launch_sha256": "c3030d3222b123208ecfc2f2f94fa1db04f7935b082c2092d46ba3da3a0461fd",
+    "poll_sha256": "254458128f509c60c0d3ba2faac95d310e428b0da8eef3cff5902a3ec5224a16",
+    "native_exit_code": 1,
+    "native_terminal_receipt_exact_equality": true,
+    "wall_seconds": 2.1094072809792124,
+    "max_child_rss_kib": 98508,
+    "runtime_copy_executions": 1,
+    "original_compile_binary_executions": 0,
+    "retries": 0
+  },
+  "raw_output": {
+    "stdout_sha256": "73cc5d51e8f726dc5f209d4912c99fc8e7317e2d4ccd057c024cc9e68bee0fb1",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_empty": true,
+    "complete_stdout": "=== RUN   TestFoundationRecordsPersistAndFenceConcurrentWriters\n=== RUN   TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals\n    foundation_provision_integration_test.go:114: signed worker policy omits an approved role or architecture\n=== NAME  TestFoundationRecordsPersistAndFenceConcurrentWriters\n    foundation_integration_test.go:179: original pending launch lost: original home writer checkpoint is invalid\n--- FAIL: TestFoundationRecordsPersistAndFenceConcurrentWriters (0.69s)\n    --- FAIL: TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals (0.03s)\nFAIL\n",
+    "exact_line_count": 8,
+    "RUN_order": [
+      "TestFoundationRecordsPersistAndFenceConcurrentWriters",
+      "TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals"
+    ],
+    "FAIL_order": [
+      "TestFoundationRecordsPersistAndFenceConcurrentWriters",
+      "TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals"
+    ],
+    "extra_identities_or_events": false,
+    "PASS_count": 0,
+    "SKIP_count": 0,
+    "standalone_final": "FAIL",
+    "interpretation": "Go direct -test.v=true child failure output is buffered as a terminal block under parent; parent FAIL before indented leaf FAIL is expected. Full exact eight-line sequence independently validated; wrapper set/count results agree."
+  },
+  "failures": [
+    {
+      "identity": "TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals",
+      "location": "internal/region/foundation_provision_integration_test.go:114",
+      "message": "signed worker policy omits an approved role or architecture",
+      "reached_scope": "SignFoundationDiscovery returned error during fixture authority setup. Leaf stops before httptest TLS server creation and before its first ProvisionFoundationBundle call. No genuine provisioning/recovery/IAM launch scenario PASS or execution credit."
+    },
+    {
+      "identity": "TestFoundationRecordsPersistAndFenceConcurrentWriters",
+      "location": "internal/region/foundation_integration_test.go:179",
+      "message": "original pending launch lost: original home writer checkpoint is invalid",
+      "reached_scope": "Parent continued after failed subtest, using local signed SDK/disk CAS fixture. It stops at pending writer reload validation; later original ID/policy checkpoint and corrupt-policy checks did not finish."
+    }
+  ],
+  "integrity": {
+    "source_head": "64a55bb2fc0034279732cfb8a99c06b75cf90d6a",
+    "source_tree": "430c89f4408d37377f6492f7d827c58f2578cb89",
+    "source_clean_now": true,
+    "receipt_pre_equals_post": true,
+    "all_3838_tracked_source_hashes_match": true,
+    "all_593_audit_source_hashes_match": true,
+    "all_tool_hashes_match": true,
+    "request_wrapper_manifest_pins_match": true,
+    "original_and_runtime_ELF_sha256": "446596085ee51b95485a2076d3575dfa9141ceac09c0b561373e55016167333a",
+    "original_and_runtime_ELF_bytes": 62893977,
+    "original_and_runtime_ELF_modes": "0o600",
+    "compile_receipt_sha256": "043269cf1b72a1ae86ddc97b965d0a24898f5aeffa58efd931662a42483ba4ef",
+    "old_180_210_packet_unused_and_byte_exact": true
+  },
+  "cleanup": {
+    "pid_absent_independently_observed": true,
+    "CAPACITY_lock_no_matching_entry_in_proc_locks": true,
+    "lock_probe_method": "Read stat and /proc/locks by device+inode; no lock acquired or attempted. Terminal-index separately records lock observed free.",
+    "runtime_copy_restored_0600": true,
+    "original_ELF_0600": true,
+    "limits": "No exhaustive temp-file/socket/descendant scan or historical original-binary execution proof. Normal binary exit and test cleanup are consistent with source; only recorded/current cleanup checks receive credit."
+  },
+  "scope": "Authenticated failure evidence only for the exact frozen binary/source and local scenario attempt. Runtime failed well within120s test/180s outer, so no timeout exception is relevant. No live OCI/cloud/IAM, paid provisioning, service/auth relaxation, native/root host, financial-history completeness, equivalence, retirement, canonical adoption or global completion credit.",
+  "required_disposition": "Keep packet immutable and terminal NOT_QUALIFIED. No retry, timeout extension, implicit rebuild or grant. Separate minimal fixture/source diagnosis may prepare a new exact snapshot for review; production validation contracts must stay intact.",
+  "reviewer_actions": "Read packet/native receipts/raw logs/source metadata; independently hash artifacts/source/tools/binaries; inspect PID absence and /proc/locks; exclusive new /tmp report write only. No runner/test/Go/cloud execution, lock acquisition, chmod/copy, source/packet edits, agents or retry."
+}

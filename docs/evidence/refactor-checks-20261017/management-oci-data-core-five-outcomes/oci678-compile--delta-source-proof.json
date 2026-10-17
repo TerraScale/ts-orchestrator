@@ -1,0 +1,91 @@
+{
+  "state": "SOURCE_ONLY_DELTA_NOT_COMPILED_OR_RUN",
+  "base": "64a55bb2fc0034279732cfb8a99c06b75cf90d6a",
+  "head": "67854df1257d31aa9b76dfd754d8075fdf33fd9d",
+  "tree": "0c9b86cd7076dffeed4543914e5021dc89635b1f",
+  "files": [
+    {
+      "path": "internal/region/foundation_integration_test.go",
+      "before_sha256": "f2d19b8f38c6cd13b30a1f5447f726b508b73b4f34922e7fe2f78f1e5bb5edc2",
+      "after_sha256": "a595377425e4ec6b80f220312886903ac1138b7e79ca22c8b2f5e8b5ce405412"
+    },
+    {
+      "path": "internal/region/foundation_provision_integration_test.go",
+      "before_sha256": "7976524e9684163483fadda4633c9e5d4eea4dbe1fd0b792ca3b9a8fc9d7a9da",
+      "after_sha256": "e819c3a9b6c2cc4585ca8602fb1a81d1821941e8a488cb1d3e192282a97c1568"
+    },
+    {
+      "path": "internal/region/foundation_writer.go",
+      "before_sha256": "950e59368463709c6038b49a26f9d743b8d28bc35b9b46011afa7617628b208f",
+      "after_sha256": "fa5c315481c5f6abb50b0f2a79f67d59aaf72746e583e03d29cb061e1a9eb7fc"
+    }
+  ],
+  "production_effect": "Original writer SDK body explicitly includes two empty lists. Original writer IAM body includes two empty tag maps and hashes/compares exact SDK HTTPRequest body, excluding nil versionDate that SDK omits. Strict launch/body/retry/rules/provenance checks preserved; old mismatching reservations are not rewritten/adopted.",
+  "fixture_effect": "Existing parent SDK disk/CAS scenario adds RequestDigest equality; existing provision leaf supplies12 signed worker policy entries before strict signer. No new listener/filesystem/process effects or isolated test functions.",
+  "assertion_counts": {
+    "internal/region/foundation_integration_test.go": {
+      "before": {
+        "Fatal": 58,
+        "Fatalf": 13,
+        "Error": 3,
+        "Errorf": 0,
+        "Run": 3,
+        "Skip": 0,
+        "Skipf": 0
+      },
+      "after": {
+        "Fatal": 58,
+        "Fatalf": 13,
+        "Error": 3,
+        "Errorf": 0,
+        "Run": 3,
+        "Skip": 0,
+        "Skipf": 0
+      }
+    },
+    "internal/region/foundation_provision_integration_test.go": {
+      "before": {
+        "Fatal": 27,
+        "Fatalf": 9,
+        "Error": 0,
+        "Errorf": 0,
+        "Run": 0,
+        "Skip": 0,
+        "Skipf": 0
+      },
+      "after": {
+        "Fatal": 29,
+        "Fatalf": 9,
+        "Error": 0,
+        "Errorf": 0,
+        "Run": 0,
+        "Skip": 0,
+        "Skipf": 0
+      }
+    }
+  },
+  "sdk_evidence": [
+    {
+      "path": "/home/mariogk/go/pkg/mod/github.com/oracle/oci-go-sdk/v65@v65.126.0/core/launch_instance_details.go",
+      "sha256": "4b3b50577659ab89fa577130222082a17126ca38534d5f652a00ad93610c99a9"
+    },
+    {
+      "path": "/home/mariogk/go/pkg/mod/github.com/oracle/oci-go-sdk/v65@v65.126.0/identity/create_policy_details.go",
+      "sha256": "b682892a3cee151b03839483479ee69b5e6095458f7ed0cc4d5dcfbcc5ee5990"
+    },
+    {
+      "path": "/home/mariogk/go/pkg/mod/github.com/oracle/oci-go-sdk/v65@v65.126.0/identity/create_policy_request_response.go",
+      "sha256": "acc14407b3b94ca83075bc63e0ea8e6da8e24187f482b7eccbaa17fe5f04e307"
+    },
+    {
+      "path": "/home/mariogk/go/pkg/mod/github.com/oracle/oci-go-sdk/v65@v65.126.0/common/http.go",
+      "sha256": "b565a6ae7fe190121f98b1a921f7b0e56395e218dd3d12e3a0886e11dda4232e"
+    }
+  ],
+  "limits": "Empty-array roundtrip source-derived; requires fresh compile and runtime QA. No result from failed64 qualifies this successor.",
+  "prior_443_compile_packet": "Hash-verified byte-exact UNUSED; no preflight, receipt, ELF or execution.",
+  "source_review": {
+    "bc7d353a4+443936221": "SEC source ACK; no execution credit",
+    "67854df12": "SEC exact delta review pending"
+  }
+}

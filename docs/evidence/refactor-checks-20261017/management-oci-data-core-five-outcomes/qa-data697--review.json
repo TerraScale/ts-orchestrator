@@ -1,0 +1,316 @@
+{
+  "cleanup": {
+    "binary": {
+      "exists": false,
+      "never_executed_by_runner": true,
+      "path": "/tmp/ts-source-renewal-697-compile-x96611io/qa-output/app.test"
+    },
+    "binary_execution_count": 0,
+    "current_short_b_identity": "00:2a:55360442",
+    "current_short_b_lock_lines": [],
+    "exact_output_names": [
+      "SHA256SUMS",
+      "compile.stderr",
+      "compile.stdout",
+      "final-seal.json",
+      "preflight.json",
+      "receipt.json",
+      "started.json"
+    ],
+    "group_processes_remaining_now": [],
+    "lock_note": "Read-only inspection only. Later ShortB use by Attempt458 is independent and does not invalidate the sealed release observation.",
+    "named_pid_absence_now": {
+      "712277": true,
+      "712345": true
+    },
+    "no_output_elf": true,
+    "private_output_mode": "0700",
+    "sealed_short_b_release_observation": {
+      "device_major": 0,
+      "device_minor": 42,
+      "inode": 55360442,
+      "path": "/tmp/ts-orch-refactor-short-check-b.lock",
+      "proc_locks_matches": [],
+      "proof_method": "read-only /proc/locks; no reacquisition"
+    },
+    "zero_execution_evidence_scope": "Runner source/readiness, native transcript, receipt and absent output; not an absolute OS execution audit."
+  },
+  "controls": {
+    "GOROOT_present": false,
+    "argv": [
+      "/run/current-system/sw/bin/nice",
+      "-n",
+      "19",
+      "/run/current-system/sw/bin/timeout",
+      "--signal=TERM",
+      "--kill-after=5s",
+      "180s",
+      "/run/current-system/sw/bin/env",
+      "-i",
+      "HOME=/home/mariogk",
+      "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "GOMAXPROCS=2",
+      "GOFLAGS=-p=2",
+      "GOTOOLCHAIN=local",
+      "LANG=C.UTF-8",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "test",
+      "-c",
+      "-mod=readonly",
+      "-p=1",
+      "-o",
+      "/tmp/ts-source-renewal-697-compile-x96611io/qa-output/app.test",
+      "./internal/app"
+    ],
+    "compile_only": true,
+    "effective_child_environment": {
+      "GOFLAGS": "-p=2",
+      "GOMAXPROCS": "2",
+      "GOTOOLCHAIN": "local",
+      "HOME": "/home/mariogk",
+      "LANG": "C.UTF-8",
+      "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin"
+    },
+    "memory_disk_caps_enforced": false,
+    "no_retry_authorized": true,
+    "one_attempt_consumed": true
+  },
+  "created_epoch": 1792213348.6270795,
+  "credit": {
+    "cloud": false,
+    "compile_pass": false,
+    "feature_completion": false,
+    "global_completion": false,
+    "native_harness": false,
+    "retirement": false,
+    "runtime": false,
+    "vet_pass": false
+  },
+  "findings": [
+    {
+      "classification": "missing_production_definitions",
+      "message": "Untagged internal/region/provision.go calls PublishFoundationBundle and ValidatePreparedFoundation, with no definitions in internal/region. Preserve as production compile failure; do not alter tags or guards to hide it.",
+      "severity": "compile_blocker",
+      "source_hits": [
+        {
+          "line": 69,
+          "path": "internal/region/provision.go",
+          "text": "return PublishFoundationBundle(guarded, authority.factory, genesis, bundle)"
+        },
+        {
+          "line": 89,
+          "path": "internal/region/provision.go",
+          "text": "return ValidatePreparedFoundation(grant)"
+        }
+      ]
+    }
+  ],
+  "immutability": {
+    "clean_git_head_tree_parent_verified": true,
+    "external_stdlib_files_verified": 12146,
+    "source_pre_equals_post_equals_current": true,
+    "tools_sha_and_resolved_paths_verified": 18,
+    "tracked_files_verified": 3920
+  },
+  "ledger": {
+    "modified_by_review": false,
+    "observed_sha256": "e4bbdef006c3aed531dae371d10887de2724c220b803d45658b0cff8abccbf60",
+    "path": "/tmp/ts-qa-refactor-completion-open-20261016.json"
+  },
+  "native_transcript": {
+    "calls": [
+      {
+        "arguments": {
+          "cmd": "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15 -I -B /tmp/ts-source-renewal-697-compile-x96611io/run.py",
+          "max_output_tokens": 2000,
+          "yield_time_ms": 1000
+        },
+        "result": {
+          "chunk_id": "b003b6",
+          "original_token_count": 0,
+          "output": "",
+          "session_id": 67126,
+          "wall_time_seconds": 1.002068253
+        },
+        "tool": "exec_command"
+      },
+      {
+        "arguments": {
+          "chars": "",
+          "max_output_tokens": 2000,
+          "session_id": 67126,
+          "yield_time_ms": 1000
+        },
+        "result": {
+          "chunk_id": "af52d5",
+          "original_token_count": 29,
+          "output": "{\"state\": \"STARTED_COMPILE_ONLY\", \"pid\": 712345, \"output\": \"/tmp/ts-source-renewal-697-compile-x96611io/qa-output\"}\n",
+          "session_id": 67126,
+          "wall_time_seconds": 5.001585277
+        },
+        "tool": "write_stdin"
+      },
+      {
+        "arguments": {
+          "chars": "",
+          "max_output_tokens": 3000,
+          "session_id": 67126,
+          "yield_time_ms": 1000
+        },
+        "result": {
+          "chunk_id": "0810a5",
+          "original_token_count": 0,
+          "output": "",
+          "session_id": 67126,
+          "wall_time_seconds": 5.001064659
+        },
+        "tool": "write_stdin"
+      },
+      {
+        "arguments": {
+          "chars": "",
+          "max_output_tokens": 3000,
+          "session_id": 67126,
+          "yield_time_ms": 1000
+        },
+        "result": {
+          "chunk_id": "10b5b6",
+          "original_token_count": 0,
+          "output": "",
+          "session_id": 67126,
+          "wall_time_seconds": 5.001672783
+        },
+        "tool": "write_stdin"
+      },
+      {
+        "arguments": {
+          "chars": "",
+          "max_output_tokens": 3000,
+          "session_id": 67126,
+          "yield_time_ms": 20000
+        },
+        "result": {
+          "chunk_id": "e2f659",
+          "original_token_count": 0,
+          "output": "",
+          "session_id": 67126,
+          "wall_time_seconds": 20.001778217
+        },
+        "tool": "write_stdin"
+      },
+      {
+        "arguments": {
+          "chars": "",
+          "max_output_tokens": 3000,
+          "session_id": 67126,
+          "yield_time_ms": 20000
+        },
+        "result": {
+          "chunk_id": "7e01a2",
+          "original_token_count": 0,
+          "output": "",
+          "session_id": 67126,
+          "wall_time_seconds": 20.000513906
+        },
+        "tool": "write_stdin"
+      },
+      {
+        "arguments": {
+          "chars": "",
+          "max_output_tokens": 3000,
+          "session_id": 67126,
+          "yield_time_ms": 20000
+        },
+        "result": {
+          "chunk_id": "5928c2",
+          "exit_code": 1,
+          "original_token_count": 40,
+          "output": "{\"state\": \"NOT_QUALIFIED\", \"exit_code\": 1, \"wall_seconds\": 88.56106113799615, \"receipt\": \"/tmp/ts-source-renewal-697-compile-x96611io/qa-output/receipt.json\"}\n",
+          "wall_time_seconds": 1.209529471
+        },
+        "tool": "write_stdin"
+      }
+    ],
+    "one_launch_six_polls": true,
+    "path": "/tmp/ts-data697-native-execution-transcript.json",
+    "session": 67126,
+    "sha256": "9fbc83ffe773bb7e117b8a522b2ccc688413dcb2634b3794157569fd4d325c37",
+    "terminal_summary_binds_receipt_fields": true,
+    "terminal_summary_is_full_receipt": false
+  },
+  "packet": {
+    "path": "/tmp/ts-source-renewal-697-compile-x96611io",
+    "pins": {
+      "SEAL.json": "affb66536fae262076a14b8c98a1366ca8acf88610ea0b43c17f9b61a93dde24",
+      "qa-output/final-seal.json": "7cfea5694ce5a6fbc34f4187ab5979a3a2b753f33b8c432d27b380a9f1b53e66",
+      "request.json": "ef4446637d248f10560ae4698cf243e529fc8eff6eaba5138ef3276f434ac4fb",
+      "run.py": "054ed12355b094a4a1f837644012270d0bc2b8b23b767047d3f5dc61c54cf7a2"
+    },
+    "request_pins_verified": 7,
+    "root_assets_mode": "0444",
+    "root_sums_entries_verified": 9,
+    "sealed_assets_verified": 10
+  },
+  "readiness": {
+    "meaning": "Source-only readiness was not a compile guarantee.",
+    "path": "/tmp/ts-qa-source-renewal-697-compile-readiness-nx05morw/review.json",
+    "sha256": "35cd932debbe6addd53f8dd4ed2b6707e2c6a0e8d027e054f8edc3585c4111dd"
+  },
+  "review_actions": "Read-only source/Git/hash/metadata/proc inspection plus creation of this exclusive report; no Go, runner/binary execution, native-session polling, source edits, lock acquisition, retries or grants.",
+  "scope": "Independent terminal evidence review only; one exclusive temporary report. No ledger/count update.",
+  "source": {
+    "approved_base": "f01b41a84424d7827efc3d5871f99be1d1c53434",
+    "clean": true,
+    "head": "6978e79b706ffdff2cb52a4ac4c8e3be56d727cf",
+    "parent": "587d8417d9b59462ab93a0597bb63c730cfd4702",
+    "path": "/tmp/ts-data-source-renewal-composed",
+    "tree": "f74fa0cbca7a506a61d885da65b40b0d5dc84d3e"
+  },
+  "state": "ACCEPTED_EXACT_COMPILE_FAILURE_NOT_QUALIFIED_NO_RETRY",
+  "terminal": {
+    "compiler_exit": 1,
+    "default_vet_requested": true,
+    "final_seal_sha256": "7cfea5694ce5a6fbc34f4187ab5979a3a2b753f33b8c432d27b380a9f1b53e66",
+    "max_child_rss_kib": 1014720,
+    "native_terminal_exit": 1,
+    "output_sums_entries_verified": 5,
+    "raw_output_files": {
+      "SHA256SUMS": {
+        "bytes": 401,
+        "mode": "0o600",
+        "sha256": "a36800547ad182398fd486821ed0cad99f03624e15c13f14def9d253d87dde19"
+      },
+      "compile.stderr": {
+        "bytes": 199,
+        "mode": "0o600",
+        "sha256": "d5da23c13f9348437f51101d62aa6c767bd8dd2883d009bfba11d05cc1a48ec4"
+      },
+      "compile.stdout": {
+        "bytes": 0,
+        "mode": "0o600",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "preflight.json": {
+        "bytes": 2817021,
+        "mode": "0o600",
+        "sha256": "af0adf1b3d2c386e5346c34bd46206e0b2443096143f7d7d44d9fd1154bcaaef"
+      },
+      "receipt.json": {
+        "bytes": 5632570,
+        "mode": "0o600",
+        "sha256": "7d2e95b75d51d0299bd81df0d79b88d0bdd036736f61c5d217e5b4346b548084"
+      },
+      "started.json": {
+        "bytes": 890,
+        "mode": "0o600",
+        "sha256": "b92f50763b3485229aa80b95c4c93fa717ba020d70bb7f391f1f4202c2a75d74"
+      }
+    },
+    "receipt_sha256": "7d2e95b75d51d0299bd81df0d79b88d0bdd036736f61c5d217e5b4346b548084",
+    "stderr": "# github.com/TerraScale/ts-orchestrator/internal/region\ninternal/region/provision.go:69:9: undefined: PublishFoundationBundle\ninternal/region/provision.go:89:9: undefined: ValidatePreparedFoundation\n",
+    "stderr_bytes": 199,
+    "stdout_bytes": 0,
+    "vet_pass_claimed": false,
+    "wall_seconds": 88.56106113799615
+  }
+}

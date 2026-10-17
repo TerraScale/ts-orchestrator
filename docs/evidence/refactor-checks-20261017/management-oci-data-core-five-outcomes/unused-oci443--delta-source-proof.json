@@ -1,0 +1,62 @@
+{
+  "state": "SOURCE_ONLY_DELTA_NOT_COMPILED_OR_RUN",
+  "base": "64a55bb2fc0034279732cfb8a99c06b75cf90d6a",
+  "head": "443936221015e7cc6007f57ba268ea46803ec779",
+  "tree": "0470fdf6fbf2b5d616c0c836d47670ce88fe7097",
+  "files": [
+    {
+      "path": "internal/region/foundation_integration_test.go",
+      "before_sha256": "f2d19b8f38c6cd13b30a1f5447f726b508b73b4f34922e7fe2f78f1e5bb5edc2",
+      "after_sha256": "aec1363c41fcc568a3d23e4c02e63d6d1d59562069f4742836168ee5e2632acc"
+    },
+    {
+      "path": "internal/region/foundation_provision_integration_test.go",
+      "before_sha256": "7976524e9684163483fadda4633c9e5d4eea4dbe1fd0b792ca3b9a8fc9d7a9da",
+      "after_sha256": "4cfaa41b9684972c2d96b94f397b7e5750d40d6af4a3f1876dd6566c49802c17"
+    },
+    {
+      "path": "internal/region/foundation_writer.go",
+      "before_sha256": "950e59368463709c6038b49a26f9d743b8d28bc35b9b46011afa7617628b208f",
+      "after_sha256": "53e89b9b5ffb5d27514dd1f41bdb4266acb1605aeff955e8e2bf72afe47af1c1"
+    }
+  ],
+  "production_effect": "Original writer SDK body explicitly includes two empty optional arrays; durable SDK decode preserves same arrays. Exact SDK HTTP digest/retry token/validator remain unchanged. No old-record repair/adoption.",
+  "fixture_effect": "Existing parent SDK disk/CAS scenario adds RequestDigest equality; existing provision leaf supplies12 signed worker policy entries before strict signer. No new listener/filesystem/process effects or isolated test functions.",
+  "assertion_counts": {
+    "internal/region/foundation_integration_test.go": {
+      "before": {
+        "Error": 3,
+        "Fatal": 58,
+        "Fatalf": 13,
+        "Run": 3
+      },
+      "after": {
+        "Error": 3,
+        "Fatal": 58,
+        "Fatalf": 13,
+        "Run": 3
+      }
+    },
+    "internal/region/foundation_provision_integration_test.go": {
+      "before": {
+        "Fatal": 27,
+        "Fatalf": 9
+      },
+      "after": {
+        "Fatal": 29,
+        "Fatalf": 9
+      }
+    }
+  },
+  "sdk_evidence": [
+    {
+      "path": "/home/mariogk/go/pkg/mod/github.com/oracle/oci-go-sdk/v65@v65.126.0/core/launch_instance_details.go",
+      "sha256": "4b3b50577659ab89fa577130222082a17126ca38534d5f652a00ad93610c99a9"
+    },
+    {
+      "path": "/home/mariogk/go/pkg/mod/github.com/oracle/oci-go-sdk/v65@v65.126.0/common/http.go",
+      "sha256": "b565a6ae7fe190121f98b1a921f7b0e56395e218dd3d12e3a0886e11dda4232e"
+    }
+  ],
+  "limits": "Empty-array roundtrip source-derived; requires fresh compile and runtime QA. No result from failed64 qualifies this successor."
+}

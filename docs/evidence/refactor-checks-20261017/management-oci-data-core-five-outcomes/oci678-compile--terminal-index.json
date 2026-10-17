@@ -1,0 +1,27 @@
+{
+  "state": "ONE_ATTEMPT_REGION_COMPILE_PASS_NO_EXECUTION",
+  "native_session_id": 20194,
+  "child_pid": 692753,
+  "native_launch": "native-launch.json",
+  "native_polls": [
+    "native-poll-1.json",
+    "native-poll-2.json",
+    "native-poll-3.json",
+    "native-poll-4.json"
+  ],
+  "encoding": "Every native tool arguments object and actual result object immediately serialized as {arguments,result}; no reconstruction.",
+  "terminal_matches_receipt": true,
+  "source_pre_equals_post": true,
+  "child_absent": true,
+  "capacity_lock_observed_free": true,
+  "receipt_sha256": "f5f4265722b235bcb1ddab7163b926aef94d62a522009ac98dd9e8dcd3276f75",
+  "binary": {
+    "path": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed/binaries/region.test",
+    "sha256": "7edec5c46e0ef66465940af8e61c488a6e594fc5783ac8e9c879f25a3b21dbb1",
+    "bytes": 62901500,
+    "magic_hex": "7f454c46",
+    "mode": "0o600",
+    "never_executed": true
+  },
+  "scope": "region-only truecompile/defaultvet/fixturetest; zero test/init/runtime execution; earlier failed64 runtime remains NOT_QUALIFIED."
+}

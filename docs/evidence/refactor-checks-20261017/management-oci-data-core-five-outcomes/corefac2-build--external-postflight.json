@@ -1,0 +1,10 @@
+{
+  "time_utc_epoch": 1792213530.3375444,
+  "native_launch_sha256": "01c4092b4f7956fe3bbf6fdc729cb71ca9f90017250993cc65cedf55ccb26fe1",
+  "seal_sha256": "f8a3ee0fe80d2b74e2163a47dca588f023b0c01919cf2ea5a1c31096e040cf01",
+  "request_sha256": "a39797b8df15aa5863e7b6af93e91fc6a3003f7cbf1d134270bcd051b8192f3f",
+  "runner_sha256": "c8904764e690f9ca8668e7b39ea320be586e23df2da39333f4ae7388e98f24a4",
+  "qa_grant_sha256": "d71f81c6185cb92a8d517d35139fd0f5d2a1c12043dd76bbc409583a29e97454",
+  "readiness_sha256": "a6eb12bfd379754f30cd612f045036e3566ab37748fce7b0dd36444a589328f0",
+  "external_pins_unchanged": true
+}

@@ -1,0 +1,22 @@
+{
+  "epoch": 1792213447.1192741,
+  "euid": 1000,
+  "memory_kib": {
+    "MemTotal": 32826812,
+    "MemAvailable": 26734712
+  },
+  "load": [
+    1.6708984375,
+    1.3818359375,
+    1.50390625
+  ],
+  "active_go_flows": [
+    {
+      "pid": 718927,
+      "subcommand": [
+        "test",
+        "-json"
+      ]
+    }
+  ]
+}
