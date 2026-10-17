@@ -69,7 +69,8 @@ func (a *rootStatefulAuthorizer) WithStatefulService(ctx context.Context, spec *
 		}
 		current, err := a.authority.authorizeRuntime(ctx, witness.Peer())
 		if err != nil || current.Context != original.Context || current.Binding != original.Binding || current.RuntimeID != original.RuntimeID ||
-			current.Deadline.Before(original.Deadline) || witness.Verify() != nil {
+			current.Deadline.Before(original.Deadline) || witness.Verify() != nil || ctx.Err() != nil ||
+			original.Context.Err() != nil || !time.Now().Before(original.Deadline) {
 			return rootoci.ErrUnauthorized
 		}
 		return nil
@@ -149,6 +150,9 @@ func (a *rootStatefulAuthorizer) WithStatefulService(ctx context.Context, spec *
 	if err := guard(ctx, intent.AuthorityEpoch); err != nil {
 		return err
 	}
+	ctx, stopLease := context.WithDeadline(ctx, lease.Deadline())
+	defer stopLease()
+	ctx = ociclient.WithRequestGuard(ctx, func(ctx context.Context) error { return guard(ctx, intent.AuthorityEpoch) })
 	location, err := instancePrincipalChannel(a.factory.Region(), identity.Cell).get(ctx)
 	if err != nil {
 		return err
