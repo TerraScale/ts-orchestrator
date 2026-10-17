@@ -40,27 +40,43 @@ func (v VerifiedNetBirdJournalUnderlay) WriterPrivateIP() string {
 func (v VerifiedNetBirdJournalUnderlay) ExpiresAt() time.Time { return v.expires }
 
 func (v VerifiedNetBirdJournalUnderlay) Revalidate(ctx context.Context) error {
+	_, err := v.CurrentDeadline(ctx)
+	return err
+}
+
+func (v VerifiedNetBirdJournalUnderlay) CurrentDeadline(ctx context.Context) (time.Time, error) {
 	if !v.IsVerified() || ctx == nil || v.original.Err() != nil || !time.Now().Before(v.expires) {
-		return errors.New("NetBird private underlay proof is absent, canceled or expired")
+		return time.Time{}, errors.New("NetBird private underlay proof is absent, canceled or expired")
 	}
 	ctx, cancel := context.WithDeadline(ctx, v.expires)
 	stop := context.AfterFunc(v.original, cancel)
 	defer func() { stop(); cancel() }()
-	current, _, err := verifyNetBirdUnderlaySnapshot(ctx, v.original, v.factory, v.resolver, v.purpose)
+	current, deadline, err := verifyNetBirdUnderlaySnapshot(ctx, v.original, v.factory, v.resolver, v.purpose)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	if !netBirdUnderlayEqual(current, v.journal) {
-		return errors.New("NetBird private underlay original native route or cap changed")
+		return time.Time{}, errors.New("NetBird private underlay original native route or cap changed")
 	}
-	return ctx.Err()
+	if v.expires.Before(deadline) {
+		deadline = v.expires
+	}
+	if err := ctx.Err(); err != nil {
+		return time.Time{}, err
+	}
+	return deadline, ociclient.LimitAdmission(ctx, deadline)
 }
 
 func (v VerifiedNetBirdJournalUnderlay) BootstrapPurpose(ctx context.Context) (bootstrap.VerifiedNetBirdJournalPurpose, error) {
-	if err := v.Revalidate(ctx); err != nil {
+	deadline, err := v.CurrentDeadline(ctx)
+	if err != nil {
 		return bootstrap.VerifiedNetBirdJournalPurpose{}, err
 	}
-	return v.purpose.BootstrapPurpose(ctx)
+	lower, err := v.purpose.BootstrapPurpose(ctx)
+	if err != nil {
+		return bootstrap.VerifiedNetBirdJournalPurpose{}, err
+	}
+	return lower.Limit(ctx, deadline)
 }
 
 // VerifyNetBirdJournalUnderlayForOperation separates the initial read deadline
