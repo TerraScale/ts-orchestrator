@@ -113,7 +113,7 @@ func (service *Service) validRequest(request wireRequest) bool {
 	case OperationAuthorizeNetBirdIntent:
 		var input NetBirdIntentRequest
 		return decodePayload(request.Payload, &input) == nil && validSelector(input.Cell) && validSelector(input.OperationID) &&
-			validSelector(input.RuntimeID) && validSelector(input.OwnerID) && input.IntentRevision > 0 && input.Epoch > 0 &&
+			validSelector(input.RuntimeID) && validSelector(input.OwnerID) && input.Epoch > 0 &&
 			input.LeaseRevision > 0 && !input.ExpiresAt.IsZero() && time.Now().Before(input.ExpiresAt)
 	case OperationReconcileContainerStatus:
 		var input ContainerStatusRequest

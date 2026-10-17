@@ -1222,7 +1222,7 @@ func validateMutationKey(kind HostMutationKind, subjectKey string) error {
 		want = 4
 	case MutationBackupOperation:
 		want = 2
-	case MutationNetBirdState:
+	case MutationNetBirdState, MutationNetBirdIntent:
 		want = 1
 	case MutationFunctionIntent:
 		want = 2
@@ -1248,6 +1248,9 @@ func mutationSubject(scope string, kind HostMutationKind, subjectKey string) str
 	}
 	if kind == MutationNetBirdState {
 		return fmt.Sprintf("%s.%s.netbird.%s", controlSubjectRoot, scope, subjectKey)
+	}
+	if kind == MutationNetBirdIntent {
+		return fmt.Sprintf("%s.%s.netbird.intent.%s", controlSubjectRoot, scope, subjectKey)
 	}
 	if kind == MutationPlacementIntent {
 		return fmt.Sprintf("%s.%s.placement.intent.%s", controlSubjectRoot, scope, subjectKey)
