@@ -50,6 +50,11 @@ type installedControllerHostFixture struct {
 func newInstalledControllerHostFixture(t *testing.T, ctx context.Context) *installedControllerHostFixture {
 	t.Helper()
 	installed := newInstalledControllerFixture(t)
+	private, public, err := brokerTicketKeys(installed.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { clear(private) })
 	process := newInstalledManagerProcess(t, ctx, installed)
 	sdk := bootstrapstart.NewControllerSDKAcquisitionFixture(t, ctx, installed.Bootstrap)
 	if err := sdk.InstallChildSource(); err != nil {
@@ -73,11 +78,6 @@ func newInstalledControllerHostFixture(t *testing.T, ctx context.Context) *insta
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = control.Close() })
-	private, public, err := brokerTicketKeys(installed.Config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { clear(private) })
 	clock := &testBrokerClock{}
 	clock.healthy.Store(true)
 	gateCtx, stopGates := context.WithCancel(ctx)
