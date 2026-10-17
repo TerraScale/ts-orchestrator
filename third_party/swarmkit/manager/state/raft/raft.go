@@ -623,7 +623,7 @@ func (n *Node) Run(ctx context.Context) error {
 			// saveToStorage.
 			if !raft.IsEmptySnap(rd.Snapshot) {
 				// Load the snapshot data into the store
-				if err := n.restoreFromSnapshot(ctx, rd.Snapshot.Data); err != nil {
+				if err := n.restoreFromSnapshotAt(ctx, rd.Snapshot.Data, rd.Snapshot.Metadata.Index); err != nil {
 					log.G(ctx).WithError(err).Error("failed to restore cluster from snapshot")
 				}
 				n.appliedIndex = rd.Snapshot.Metadata.Index
@@ -747,7 +747,11 @@ func (n *Node) Run(ctx context.Context) error {
 }
 
 func (n *Node) restoreFromSnapshot(ctx context.Context, data []byte) error {
-	snapCluster, err := n.clusterSnapshot(data)
+	return n.restoreFromSnapshotAt(ctx, data, 0)
+}
+
+func (n *Node) restoreFromSnapshotAt(ctx context.Context, data []byte, index uint64) error {
+	snapCluster, err := n.clusterSnapshotAt(data, index)
 	if err != nil {
 		return err
 	}
@@ -1590,10 +1594,19 @@ func (n *Node) registerNode(node *api.RaftMember) error {
 // ProposeValue calls Propose on the underlying raft library(etcd/raft) and waits
 // on the commit log action before returning a result
 func (n *Node) ProposeValue(ctx context.Context, storeAction []api.StoreAction, cb func()) error {
+	return n.proposeValueAt(ctx, storeAction, cb, nil)
+}
+
+// ProposeValueAt supplies the exact committed entry index to the store commit.
+func (n *Node) ProposeValueAt(ctx context.Context, storeAction []api.StoreAction, cb func(api.Version)) error {
+	return n.proposeValueAt(ctx, storeAction, nil, func(index uint64) { cb(api.Version{Index: index}) })
+}
+
+func (n *Node) proposeValueAt(ctx context.Context, storeAction []api.StoreAction, cb func(), commitAt func(uint64)) error {
 	defer metrics.StartTimer(proposeLatencyTimer)()
 	ctx, cancel := n.WithContext(ctx)
 	defer cancel()
-	_, err := n.processInternalRaftRequest(ctx, &api.InternalRaftRequest{Action: storeAction}, cb)
+	_, err := n.processInternalRaftRequestAt(ctx, &api.InternalRaftRequest{Action: storeAction}, cb, commitAt)
 
 	return err
 }
@@ -1615,6 +1628,15 @@ func (n *Node) GetVersion() *api.Version {
 // including "to". If these changes are not available because the log
 // has been compacted, an error will be returned.
 func (n *Node) ChangesBetween(from, to api.Version) ([]state.Change, error) {
+	return n.changesBetween(from, to, math.MaxUint64)
+}
+
+// ObservationChangesBetween bounds replay memory and rejects partial history.
+func (n *Node) ObservationChangesBetween(from, to api.Version) ([]state.Change, error) {
+	return n.changesBetween(from, to, 16<<20)
+}
+
+func (n *Node) changesBetween(from, to api.Version, maxBytes uint64) ([]state.Change, error) {
 	n.stopMu.RLock()
 	defer n.stopMu.RUnlock()
 
@@ -1633,9 +1655,12 @@ func (n *Node) ChangesBetween(from, to api.Version) ([]state.Change, error) {
 		return nil, errors.New("last version is out of bounds")
 	}
 
-	pbs, err := n.raftStore.Entries(from.Index+1, to.Index+1, math.MaxUint64)
+	pbs, err := n.raftStore.Entries(from.Index+1, to.Index+1, maxBytes)
 	if err != nil {
 		return nil, err
+	}
+	if from.Index < to.Index && (len(pbs) == 0 || pbs[len(pbs)-1].Index != to.Index) {
+		return nil, errors.New("requested observation history exceeds replay limit")
 	}
 
 	var changes []state.Change
@@ -1783,6 +1808,10 @@ func (n *Node) saveToStorage(
 // 2. There is an error, or
 // 3. Until the raft node finalizes all the proposals on node shutdown.
 func (n *Node) processInternalRaftRequest(ctx context.Context, r *api.InternalRaftRequest, cb func()) (proto.Message, error) {
+	return n.processInternalRaftRequestAt(ctx, r, cb, nil)
+}
+
+func (n *Node) processInternalRaftRequestAt(ctx context.Context, r *api.InternalRaftRequest, cb func(), commitAt func(uint64)) (proto.Message, error) {
 	n.stopMu.RLock()
 	if !n.IsMember() {
 		n.stopMu.RUnlock()
@@ -1798,7 +1827,7 @@ func (n *Node) processInternalRaftRequest(ctx context.Context, r *api.InternalRa
 	// to avoid a deadlock on shutdown.
 	waitCtx, cancel := context.WithCancel(ctx)
 
-	ch := n.wait.register(r.ID, cb, cancel)
+	ch := n.wait.registerAt(r.ID, cb, commitAt, cancel)
 
 	// Do this check after calling register to avoid a race.
 	if atomic.LoadUint32(&n.signalledLeadership) != 1 {
@@ -1911,7 +1940,7 @@ func (n *Node) processEntry(ctx context.Context, entry raftpb.Entry) error {
 		return err
 	}
 
-	if !n.wait.trigger(r.ID, r) {
+	if !n.wait.triggerAt(r.ID, r, entry.Index) {
 		// There was no wait on this ID, meaning we don't have a
 		// transaction in progress that would be committed to the
 		// memory store by the "trigger" call. This could mean that:
@@ -1929,7 +1958,7 @@ func (n *Node) processEntry(ctx context.Context, entry raftpb.Entry) error {
 		// TODO(anshul) This call is likely redundant, remove after consideration.
 		n.wait.cancelAll()
 
-		err := n.memoryStore.ApplyStoreActions(r.Action)
+		err := n.memoryStore.ApplyStoreActionsAt(r.Action, api.Version{Index: entry.Index})
 		if err != nil {
 			log.G(ctx).WithError(err).Error("failed to apply actions from raft")
 		}

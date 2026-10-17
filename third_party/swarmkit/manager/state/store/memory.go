@@ -155,6 +155,8 @@ type MemoryStore struct {
 	queue *watch.Queue
 
 	proposer state.Proposer
+	// appliedVersion belongs to the committed memDB state, under updateLock.
+	appliedVersion *api.Version
 }
 
 // NewMemoryStore returns an in-memory store. The argument is an optional
@@ -278,6 +280,15 @@ func (s *MemoryStore) changelistBetweenVersions(from, to api.Version) ([]api.Eve
 
 // ApplyStoreActions updates a store based on StoreAction messages.
 func (s *MemoryStore) ApplyStoreActions(actions []api.StoreAction) error {
+	return s.applyStoreActionsAt(actions, nil)
+}
+
+// ApplyStoreActionsAt records the exact applied Raft entry with its state.
+func (s *MemoryStore) ApplyStoreActionsAt(actions []api.StoreAction, version api.Version) error {
+	return s.applyStoreActionsAt(actions, &version)
+}
+
+func (s *MemoryStore) applyStoreActionsAt(actions []api.StoreAction, version *api.Version) error {
 	s.updateLock.Lock()
 	memDBTx := s.memDB.Txn(true)
 
@@ -296,12 +307,13 @@ func (s *MemoryStore) ApplyStoreActions(actions []api.StoreAction) error {
 	}
 
 	memDBTx.Commit()
+	s.appliedVersion = version.Copy()
 
 	for _, c := range tx.changelist {
 		s.queue.Publish(c)
 	}
 	if len(tx.changelist) != 0 {
-		s.queue.Publish(state.EventCommit{})
+		s.queue.Publish(state.EventCommit{Version: s.appliedVersion.Copy()})
 	}
 	s.updateLock.Unlock()
 	return nil
@@ -319,6 +331,10 @@ func applyStoreAction(tx Tx, sa api.StoreAction) error {
 }
 
 func (s *MemoryStore) update(proposer state.Proposer, cb func(Tx) error) error {
+	return s.updateAt(proposer, nil, cb)
+}
+
+func (s *MemoryStore) updateAt(proposer state.Proposer, appliedVersion *api.Version, cb func(Tx) error) error {
 	defer metrics.StartTimer(updateLatencyTimer)()
 	s.updateLock.Lock()
 	memDBTx := s.memDB.Txn(true)
@@ -340,16 +356,20 @@ func (s *MemoryStore) update(proposer state.Proposer, cb func(Tx) error) error {
 	if err == nil {
 		if proposer == nil {
 			memDBTx.Commit()
+			if len(tx.changelist) != 0 || appliedVersion != nil {
+				s.appliedVersion = appliedVersion.Copy()
+			}
 		} else {
 			var sa []api.StoreAction
 			sa, err = tx.changelistStoreActions()
 
 			if err == nil {
 				if len(sa) != 0 {
-					err = proposer.ProposeValue(context.Background(), sa, func() {
+					err = proposeAt(proposer, sa, func(version *api.Version) {
 						select {
 						case <-commitGuard:
 							memDBTx.Commit()
+							s.appliedVersion = version.Copy()
 						default:
 							// Already Abort()ed.
 						}
@@ -366,11 +386,7 @@ func (s *MemoryStore) update(proposer state.Proposer, cb func(Tx) error) error {
 			s.queue.Publish(c)
 		}
 		if len(tx.changelist) != 0 {
-			if proposer != nil {
-				curVersion = proposer.GetVersion()
-			}
-
-			s.queue.Publish(state.EventCommit{Version: curVersion})
+			s.queue.Publish(state.EventCommit{Version: s.appliedVersion.Copy()})
 		}
 	} else {
 		// The ProposeValue callback could still have executed, or be
@@ -472,10 +488,11 @@ func (batch *Batch) commit() error {
 
 		if batch.err == nil {
 			if len(sa) != 0 {
-				batch.err = batch.store.proposer.ProposeValue(context.Background(), sa, func() {
+				batch.err = proposeAt(batch.store.proposer, sa, func(version *api.Version) {
 					select {
 					case <-guard:
 						batch.tx.memDBTx.Commit()
+						batch.store.appliedVersion = version.Copy()
 					default:
 						// Already Abort()ed.
 					}
@@ -486,6 +503,9 @@ func (batch *Batch) commit() error {
 		}
 	} else {
 		batch.tx.memDBTx.Commit()
+		if len(batch.tx.changelist) != 0 {
+			batch.store.appliedVersion = nil
+		}
 	}
 
 	if batch.err != nil {
@@ -505,7 +525,7 @@ func (batch *Batch) commit() error {
 		batch.store.queue.Publish(c)
 	}
 	if len(batch.tx.changelist) != 0 {
-		batch.store.queue.Publish(state.EventCommit{})
+		batch.store.queue.Publish(state.EventCommit{Version: batch.store.appliedVersion.Copy()})
 	}
 
 	return nil
@@ -868,7 +888,16 @@ func (s *MemoryStore) Save(tx ReadTx) (*api.StoreSnapshot, error) {
 // Restore sets the contents of the store to the serialized data in the
 // argument.
 func (s *MemoryStore) Restore(snapshot *api.StoreSnapshot) error {
-	return s.updateLocal(func(tx Tx) error {
+	return s.restoreAt(snapshot, nil)
+}
+
+// RestoreAt binds a restored snapshot to its actual Raft snapshot index.
+func (s *MemoryStore) RestoreAt(snapshot *api.StoreSnapshot, version api.Version) error {
+	return s.restoreAt(snapshot, &version)
+}
+
+func (s *MemoryStore) restoreAt(snapshot *api.StoreSnapshot, version *api.Version) error {
+	return s.updateAt(nil, version, func(tx Tx) error {
 		for _, os := range objectStorers {
 			if err := os.Restore(tx, snapshot); err != nil {
 				return err

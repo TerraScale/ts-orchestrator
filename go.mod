@@ -2,6 +2,9 @@ module github.com/TerraScale/ts-orchestrator
 
 go 1.27.0
 
+// The read-only applied snapshot/watch contract is maintained with upstream provenance.
+replace github.com/moby/swarmkit/v2 => ./third_party/swarmkit
+
 require (
 	github.com/VictoriaMetrics/metrics v1.44.1
 	github.com/a-h/templ v0.3.1020

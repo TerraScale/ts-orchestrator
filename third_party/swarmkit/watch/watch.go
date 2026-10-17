@@ -97,8 +97,18 @@ func (q *Queue) WatchContext(ctx context.Context) (eventq chan events.Event) {
 // function. The returned cancel function will stop the flow of events and
 // close the channel.
 func (q *Queue) CallbackWatch(matcher events.Matcher) (eventq chan events.Event, cancel func()) {
+	return q.callbackWatch(matcher, q.limit, q.closeOutChan)
+}
+
+// CallbackWatchBounded closes the subscription on overflow instead of dropping
+// observation events or allowing an unbounded slow-consumer queue.
+func (q *Queue) CallbackWatchBounded(matcher events.Matcher) (eventq chan events.Event, cancel func()) {
+	return q.callbackWatch(matcher, 1024, true)
+}
+
+func (q *Queue) callbackWatch(matcher events.Matcher, limit uint64, closeOutChan bool) (eventq chan events.Event, cancel func()) {
 	chanSink, ch := q.sinkGen.NewChannelSink()
-	lq := queue.NewLimitQueue(chanSink, q.limit)
+	lq := queue.NewLimitQueue(chanSink, limit)
 	sink := events.Sink(lq)
 
 	if matcher != nil {
@@ -130,34 +140,33 @@ func (q *Queue) CallbackWatch(matcher events.Matcher) (eventq chan events.Event,
 
 	// If the output channel shouldn't be closed and the queue is limitless,
 	// there's no need for an additional goroutine.
-	if !q.closeOutChan && q.limit == 0 {
+	if !closeOutChan && limit == 0 {
 		return ch.C, externalCancelFunc
 	}
 
 	outChan := make(chan events.Event)
 	go func() {
+		defer externalCancelFunc()
+		if closeOutChan {
+			defer close(outChan)
+		}
 		for {
 			select {
 			case <-ch.Done():
-				// Close the output channel if the ChannelSink is Done for any
-				// reason. This can happen if the cancelFunc is called
-				// externally or if it has been closed by a wrapper sink, such
-				// as the TimeoutSink.
-				if q.closeOutChan {
-					close(outChan)
-				}
-				externalCancelFunc()
 				return
 			case <-lq.Full():
-				// Close the output channel and tear down the Queue if the
-				// LimitQueue becomes full.
-				if q.closeOutChan {
-					close(outChan)
-				}
-				externalCancelFunc()
 				return
-			case event := <-ch.C:
-				outChan <- event
+			case event, ok := <-ch.C:
+				if !ok {
+					return
+				}
+				select {
+				case outChan <- event:
+				case <-ch.Done():
+					return
+				case <-lq.Full():
+					return
+				}
 			}
 		}
 	}()
