@@ -23,7 +23,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
-const observeHelp = `Usage: ts-orch observe <metrics|history|snapshot|cluster|events|decisions|insights|summary|logs|regions|region|nodes|node|services|service|functions|function|volumes|volume> [flags]
+const observeHelp = `Usage: ts-orch observe <metrics|history|snapshot|cluster|events|decisions|insights|summary|logs|regions|region|nodes|node|services|service|functions|function|volumes|volume|foundation|credentials|backups|netbird> [flags]
 
 Read the same authenticated APIs as the dashboard. JSON output has version 1.
   --region REGION        Select an admitted region; authenticated discovery supplies endpoints
@@ -33,6 +33,8 @@ Read the same authenticated APIs as the dashboard. JSON output has version 1.
   --tenant ID            Tenant selector for one admitted function
   --function ID          Function selector; requires --tenant
   --volume ID            Managed volume selector
+  --database ID          Canonical database ID; required for credentials and backups
+  --partition ID         Canonical partition ID; required for credentials and backups
   --format table|json    Readable output or versioned JSON
   --search TEXT          Filter the metric catalog by name, description or source
   --metric NAME          History metric; --range 1h or --start/--end RFC3339
@@ -54,6 +56,8 @@ Missing authority remains pending. No token is accepted as a command argument.
 Requests have a fixed 15-second deadline and 8 MiB limit.
 Partial or truncated results are printed and return an error.
 Logs contain aggregated classes; the API does not report source coverage or operation correlation.
+Foundation is durable provisioning progress. Operations report current committed state;
+recorded_at is log commit time, not a stage transition. No operation history is implied.
 `
 
 func runObserve(ctx context.Context, args []string, out io.Writer) error {
@@ -62,7 +66,7 @@ func runObserve(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	view := args[0]
-	if !slices.Contains([]string{"metrics", "history", "snapshot", "cluster", "events", "decisions", "insights", "summary", "logs", "regions", "region", "nodes", "node", "services", "service", "functions", "function", "volumes", "volume"}, view) {
+	if !slices.Contains([]string{"metrics", "history", "snapshot", "cluster", "events", "decisions", "insights", "summary", "logs", "regions", "region", "nodes", "node", "services", "service", "functions", "function", "volumes", "volume", "foundation", "credentials", "backups", "netbird"}, view) {
 		return fmt.Errorf("unknown observe view %q; use ts-orch observe --help", view)
 	}
 	flags := flag.NewFlagSet("observe "+view, flag.ContinueOnError)
@@ -73,6 +77,8 @@ func runObserve(ctx context.Context, args []string, out io.Writer) error {
 	tenant := flags.String("tenant", "", "function tenant selector")
 	function := flags.String("function", "", "function selector")
 	volume := flags.String("volume", "", "volume selector")
+	database := flags.String("database", "", "database selector")
+	partition := flags.String("partition", "", "partition selector")
 	region := flags.String("region", "", "region selector")
 	format := flags.String("format", "table", "table or json")
 	origin := flags.String("url", "", "diagnostic endpoint")
@@ -125,6 +131,10 @@ func runObserve(ctx context.Context, args []string, out io.Writer) error {
 			}
 		case "volume":
 			if view != "volume" {
+				wrongFlag = f.Name
+			}
+		case "database", "partition":
+			if view != "credentials" && view != "backups" {
 				wrongFlag = f.Name
 			}
 		case "tenant", "function":
@@ -195,6 +205,12 @@ func runObserve(ctx context.Context, args []string, out io.Writer) error {
 	case "decisions", "summary", "logs":
 		var err error
 		query, err = feature.query(view, *limit, *service)
+		if err != nil {
+			return err
+		}
+	case "credentials", "backups", "netbird":
+		var err error
+		path, err = observeOperationPath(view, *database, *partition)
 		if err != nil {
 			return err
 		}
@@ -387,7 +403,7 @@ func observeFetch(ctx context.Context, client *http.Client, base, path string, q
 	if len(data) == 0 || strings.TrimSpace(string(data)) == "null" {
 		return nil, fmt.Errorf("%s: API returned empty observation", base)
 	}
-	if response.StatusCode != http.StatusOK && !observeResourceError(path, response.StatusCode, data) {
+	if response.StatusCode != http.StatusOK && !observeResourceError(path, response.StatusCode, data) && !observeOperationError(path, response.StatusCode, data) {
 		return nil, fmt.Errorf("%s: API returned HTTP %d", base, response.StatusCode)
 	}
 	return data, nil
@@ -398,6 +414,12 @@ func writeObserve(out io.Writer, view, format, source, search string, data []byt
 	partial := false
 	table := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	switch view {
+	case "foundation", "credentials", "backups", "netbird":
+		var err error
+		value, partial, err = writeObserveOperation(table, view, format, data)
+		if err != nil {
+			return false, err
+		}
 	case "decisions", "insights", "summary", "logs":
 		var err error
 		value, partial, err = writeObserveFeature(table, view, format, data)

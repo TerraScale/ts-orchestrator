@@ -17,7 +17,7 @@ import (
 )
 
 func isObserveResource(view string) bool {
-	return slices.Contains([]string{"regions", "region", "nodes", "node", "services", "service", "functions", "function", "volumes", "volume"}, view)
+	return slices.Contains([]string{"regions", "region", "nodes", "node", "services", "service", "functions", "function", "volumes", "volume", "foundation"}, view)
 }
 
 func observeResourcePath(view, cell, node, service, volume, tenant, function string) (string, error) {
@@ -43,6 +43,8 @@ func observeResourcePath(view, cell, node, service, volume, tenant, function str
 	}
 	path := "/v1/regions/" + cell
 	switch view {
+	case "foundation":
+		path += "/foundation"
 	case "functions":
 		path += "/functions"
 	case "function":
