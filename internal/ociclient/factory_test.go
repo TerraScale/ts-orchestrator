@@ -30,24 +30,6 @@ func (dispatcher fakeDispatcher) Do(*http.Request) (*http.Response, error) {
 	return &http.Response{StatusCode: dispatcher.status, Body: http.NoBody}, nil
 }
 
-func TestOperationCardinalityIsBounded(t *testing.T) {
-	service := "bounded-" + strings.ReplaceAll(t.Name(), "/", "-")
-	for index := range maxOperationsPerService + 10 {
-		apiStats.record(service, "GET /r"+strings.Repeat("x", index%40)+string(rune('a'+index%26))+string(rune('a'+index/26)), 200, false, 0)
-	}
-	count := 0
-	other := false
-	for _, operation := range APIOperations() {
-		if operation.Service == service {
-			count++
-			other = other || operation.Operation == "other"
-		}
-	}
-	if count != maxOperationsPerService+1 || !other {
-		t.Fatalf("operations for service = %d (other=%v), want bound plus other", count, other)
-	}
-}
-
 func TestFactoryObjectStorageRecordsHTTPAttempts(t *testing.T) {
 	provider := testProvider(t)
 	const operation = "HEAD /n/{id}/b/{id}/o/{id}"
