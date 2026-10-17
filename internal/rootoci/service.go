@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/rootvolumeclient"
 )
 
@@ -15,15 +16,16 @@ const OperationAuthorizeNetBirdIntent Operation = "authorize_netbird_intent"
 
 // Backends are all required; every domain remains always on.
 type Backends struct {
-	Readers     Reader
-	Foundations Foundation
-	Credentials Credentials
-	Capacity    Pool
-	NetBird     NetBird
-	Releases    Releases
-	Volumes     VolumeReader
-	Workloads   WorkloadCredentials
-	Backups     VolumeBackups
+	Readers           Reader
+	Foundations       Foundation
+	Credentials       Credentials
+	Capacity          Pool
+	NetBird           NetBird
+	Releases          Releases
+	Volumes           VolumeReader
+	Workloads         WorkloadCredentials
+	Backups           VolumeBackups
+	ContainerMaterial ContainerMaterial
 }
 
 type Service struct{ backends Backends }
@@ -39,7 +41,7 @@ func NewService(backends Backends) (*Service, error) {
 }
 
 func validBackends(backends Backends) bool {
-	for _, backend := range []any{backends.Readers, backends.Foundations, backends.Credentials, backends.Capacity, backends.NetBird, backends.Releases, backends.Volumes, backends.Workloads, backends.Backups} {
+	for _, backend := range []any{backends.Readers, backends.Foundations, backends.Credentials, backends.Capacity, backends.NetBird, backends.Releases, backends.Volumes, backends.Workloads, backends.Backups, backends.ContainerMaterial} {
 		if !validDependency(backend) {
 			return false
 		}
@@ -134,6 +136,13 @@ func (service *Service) validRequest(request wireRequest) bool {
 	case OperationObserveContainerGeneration:
 		var input ObserveContainerGenerationRequest
 		return decodePayload(request.Payload, &input) == nil && validSelector(input.TaskID) && len(input.TaskID) <= 25
+	case OperationContainerEvidence:
+		var input ContainerEvidenceRequest
+		return decodePayload(request.Payload, &input) == nil && entityid.Valid(input.OperationID) && validDigest(input.ExpectedFingerprint) &&
+			validDigest(input.EvidenceSHA256) && input.Offset >= 0 && input.Offset < release.MaxProductionEvidenceBytes
+	case OperationContainerAllocation:
+		var input ContainerAllocationRequest
+		return decodePayload(request.Payload, &input) == nil && entityid.Valid(input.OperationID) && validDigest(input.ExpectedFingerprint)
 	default:
 		return false
 	}
@@ -238,6 +247,33 @@ func (service *Service) dispatch(ctx context.Context, call Call, request wireReq
 			return nil, err
 		}
 		return service.backends.Workloads.ObserveContainerGeneration(ctx, call, input)
+	case OperationContainerEvidence:
+		var input ContainerEvidenceRequest
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		chunk, err := service.backends.ContainerMaterial.ContainerEvidence(ctx, call, input)
+		if err != nil {
+			return nil, err
+		}
+		if len(chunk.Data) > ContainerEvidenceChunkBytes || chunk.TotalBytes <= 0 || chunk.TotalBytes > release.MaxProductionEvidenceBytes ||
+			chunk.Offset != input.Offset || chunk.Offset > chunk.TotalBytes || int64(len(chunk.Data)) > chunk.TotalBytes-chunk.Offset {
+			return nil, ErrUnavailable
+		}
+		return chunk, nil
+	case OperationContainerAllocation:
+		var input ContainerAllocationRequest
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		observation, err := service.backends.ContainerMaterial.ContainerAllocation(ctx, call, input)
+		if err != nil {
+			return nil, err
+		}
+		if len(observation.Data) == 0 || len(observation.Data) > release.MaxWorkerFamilyEvidenceBytes {
+			return nil, ErrUnavailable
+		}
+		return observation, nil
 	default:
 		return nil, ErrInvalid
 	}
