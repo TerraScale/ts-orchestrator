@@ -131,7 +131,7 @@ func TestHostAndRoleIssuersReadCurrentNativeAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	issuer, err := loadHostIssuer(ctx, cfg, root)
+	issuer, err := loadHostIssuer(ctx, cfg, fixtureBrokerNative{root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestHostAndRoleIssuersReadCurrentNativeAccount(t *testing.T) {
 	if issuer.CellAccount != auth.cellID {
 		t.Fatal("host issuer lost the native regional account")
 	}
-	if _, err := loadHostIssuer(ctx, cfg, transport); err == nil {
+	if _, err := loadHostIssuer(ctx, cfg, fixtureBrokerNative{transport}); err == nil {
 		t.Fatal("a transport-only runtime provided host issuer account state")
 	}
 	user, err := nkeys.CreateUser()
@@ -160,7 +160,7 @@ func TestHostAndRoleIssuersReadCurrentNativeAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 	csr := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER}))
-	issue := roleIdentityIssuer(issuer, transport, root, 1)
+	issue := roleIdentityIssuer(issuer, transport, fixtureBrokerNative{root}, 1)
 	raw, chain, err := issue(ctx, "terrabase", "gru-1-db-1", userPublic, csr)
 	if err != nil {
 		t.Fatal(err)
@@ -172,12 +172,12 @@ func TestHostAndRoleIssuersReadCurrentNativeAccount(t *testing.T) {
 	if _, err := transport.JetStream().KeyValue(ctx, "terrabase_backup_leases"); err != nil {
 		t.Fatal("role bucket was not created through the ordinary transport", err)
 	}
-	if _, _, err := roleIdentityIssuer(issuer, transport, transport, 1)(ctx, "terrabase", "gru-1-db-1", userPublic, csr); err == nil {
+	if _, _, err := roleIdentityIssuer(issuer, transport, fixtureBrokerNative{transport}, 1)(ctx, "terrabase", "gru-1-db-1", userPublic, csr); err == nil {
 		t.Fatal("a transport-only runtime provided role issuer account state")
 	}
 	canceled, stop := context.WithCancel(ctx)
 	stop()
-	if _, err := loadHostIssuer(canceled, cfg, root); !errors.Is(err, context.Canceled) {
+	if _, err := loadHostIssuer(canceled, cfg, fixtureBrokerNative{root}); !errors.Is(err, context.Canceled) {
 		t.Fatal("host issuer ignored cancellation", err)
 	}
 	if _, _, err := issue(canceled, "terrabase", "gru-1-db-1", userPublic, csr); !errors.Is(err, context.Canceled) {
@@ -199,7 +199,7 @@ func TestHostAndRoleIssuersReadCurrentNativeAccount(t *testing.T) {
 	if err := root.ApplyCellClaim(ctx, 2, revoked); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadHostIssuer(ctx, cfg, root); err == nil {
+	if _, err := loadHostIssuer(ctx, cfg, fixtureBrokerNative{root}); err == nil {
 		t.Fatal("host issuer reused a revoked native host signer")
 	}
 	if raw, chain, err := issue(ctx, "terrabase", "gru-1-db-1", userPublic, csr); err == nil || raw != "" || chain != nil {

@@ -195,3 +195,19 @@ func TestFreshInterregionCredentialPathsUseManifestRoleReferences(t *testing.T) 
 		t.Fatalf("foreign interregion role: %v", err)
 	}
 }
+
+func TestCredentialCheckerRejectsPrivilegedRoleAliases(t *testing.T) {
+	for _, role := range []string{"system", "membership"} {
+		t.Run(role, func(t *testing.T) {
+			check, expected := credentialPathFixture(t)
+			if role == "system" {
+				check.Config.Embedded.SystemCredentialsFile = check.Config.CredentialsFile
+			} else {
+				check.Config.Embedded.MembershipCredentialsFile = check.Config.CredentialsFile
+			}
+			if err := check.verifyInitialPaths(ManifestPins(expected), peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
+				t.Fatalf("privileged %s alias = %v, want refusal", role, err)
+			}
+		})
+	}
+}

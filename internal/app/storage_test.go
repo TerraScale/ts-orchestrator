@@ -90,7 +90,7 @@ func TestControllerCollectsStorageWithoutSettings(t *testing.T) {
 	if _, err := startControllerStorageCapacity(ctx, cfg, runtime, nil, func() bool { return true }); err == nil {
 		t.Fatal("transport-only broker substituted for the native storage reader")
 	}
-	stop, err := startControllerStorageCapacity(ctx, cfg, runtime, runtime, func() bool { return true })
+	stop, err := startControllerStorageCapacity(ctx, cfg, runtime, fixtureBrokerNative{runtime}, func() bool { return true })
 	if err != nil {
 		t.Fatal(err)
 	}

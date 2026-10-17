@@ -342,3 +342,26 @@ func testPreflightTLSWithUsages(t *testing.T, root string, usages ...x509.ExtKey
 		KeyFile:  write("peer-key.pem", pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})),
 	}
 }
+
+func TestControllerPreflightDoesNotReadPrivilegedBrokerUsers(t *testing.T) {
+	cfg, _, _, _ := productionPreflightFixture(t)
+	for _, name := range []string{"system", "membership"} {
+		t.Run(name, func(t *testing.T) {
+			candidate := cfg
+			embedded := *cfg.Embedded
+			candidate.Embedded = &embedded
+			absent := filepath.Join(t.TempDir(), name+".creds")
+			if name == "system" {
+				embedded.SystemCredentialsFile = absent
+			} else {
+				embedded.MembershipCredentialsFile = absent
+			}
+			if err := ValidateProductionControllerCredentials(candidate); err != nil {
+				t.Fatalf("controller touched privileged %s credentials: %v", name, err)
+			}
+			if err := ValidateProductionBrokerCredentials(candidate); err == nil {
+				t.Fatalf("broker accepted missing %s credentials", name)
+			}
+		})
+	}
+}

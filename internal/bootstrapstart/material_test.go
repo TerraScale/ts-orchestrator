@@ -86,6 +86,22 @@ func TestServiceUIDCanReadRootInstalledMaterial(t *testing.T) {
 			t.Fatalf("unprivileged material read = %q, %v", content, err)
 		}
 		clear(content)
+		for _, name := range []string{"system.creds", "membership.creds"} {
+			if _, err := os.ReadFile(filepath.Join(path, name)); !errors.Is(err, os.ErrPermission) {
+				t.Fatalf("ordinary service read %s = %v, want permission denied", name, err)
+			}
+			// The directory belongs to the service, so an attacker can replace
+			// a name; the root-owner check must reject even identical bytes.
+			if err := os.Remove(filepath.Join(path, name)); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(path, name), []byte("root installed fixture"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := readMaterial(fd, name, uint32(os.Getuid()), uint32(os.Getgid()), want, 128); !errors.Is(err, ErrMaterial) {
+				t.Fatalf("service-owned replacement %s = %v, want refusal", name, err)
+			}
+		}
 		return
 	}
 	if os.Geteuid() != 0 {
@@ -128,6 +144,12 @@ func TestServiceUIDCanReadRootInstalledMaterial(t *testing.T) {
 	if err := store.installMaterial(fd, "controller.jwt", content, want, 128); err != nil {
 		unix.Close(fd)
 		t.Fatal(err)
+	}
+	for _, name := range []string{"system.creds", "membership.creds"} {
+		if err := store.installMaterial(fd, name, content, want, 128); err != nil {
+			unix.Close(fd)
+			t.Fatal(err)
+		}
 	}
 	unix.Close(fd)
 	self, err := os.Executable()

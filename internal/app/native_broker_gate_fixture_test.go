@@ -325,7 +325,7 @@ func (g *nativeBrokerGateFixture) fenceClaim(ctx context.Context, request fenceR
 }
 
 func (g *nativeBrokerGateFixture) issuerView() *brokerGate {
-	return &brokerGate{runtime: g.runtime, native: g.runtime, store: g.store, control: g.control,
+	return &brokerGate{runtime: g.runtime, native: fixtureBrokerNative{g.runtime}, store: g.store, control: g.control,
 		issuer: g.issuer, public: g.public, clock: g.clock, cell: g.cell, broker: g.broker,
 		account: g.account, deploymentID: g.deploymentID, brokers: g.brokers}
 }
@@ -334,7 +334,7 @@ func installNativeBrokerControllerFixture(t *testing.T) {
 	t.Helper()
 	previousNative, previousGate := controllerBrokerNativeProduction, controllerBrokerGateProduction
 	controllerBrokerNativeProduction = func(_ context.Context, _ Config, runtime *natscell.Runtime) (controllerBrokerNative, error) {
-		return runtime, nil
+		return fixtureBrokerNative{runtime}, nil
 	}
 	controllerBrokerGateProduction = func(ctx context.Context, cfg Config, runtime *natscell.Runtime, _ controllerBrokerNative, control *authority.Runtime, deploymentID, candidateID string, private ed25519.PrivateKey, public ed25519.PublicKey, clock brokerauth.ClockProbe) (*brokerGate, error) {
 		gate, err := startNativeBrokerGateFixture(ctx, cfg, runtime, control, deploymentID, candidateID, private, public, clock)
@@ -346,4 +346,11 @@ func installNativeBrokerControllerFixture(t *testing.T) {
 	t.Cleanup(func() {
 		controllerBrokerNativeProduction, controllerBrokerGateProduction = previousNative, previousGate
 	})
+}
+
+// fixtureBrokerNative keeps expiry fakes confined to the test binary.
+type fixtureBrokerNative struct{ *natscell.Runtime }
+
+func (fixtureBrokerNative) CredentialExpiries(ctx context.Context) ([]observability.CredentialView, error) {
+	return []observability.CredentialView{}, ctx.Err()
 }

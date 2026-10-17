@@ -259,9 +259,10 @@ func (pins MaterialPins) verifyIssuedFiles(files map[string][]byte, now time.Tim
 	return nil
 }
 
-// readUnpinned reads a service-owned credential file whose digest is not
+// readUnpinned reads a role-owned credential file whose digest is not
 // pinned, with readMaterial's ownership, mode, link and size checks.
 func readUnpinned(dir int, name string, uid, gid uint32, maximum int64) ([]byte, error) {
+	uid, gid = materialOwner(name, uid, gid)
 	if !markerNameRE.MatchString(name) || maximum <= 0 {
 		return nil, ErrMaterial
 	}

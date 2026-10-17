@@ -32,7 +32,8 @@ const generationChainTemporary = ".material-generations.writing"
 // last. A crash before the chain is staged leaves the installed set as it
 // was; after, FinishMaterialAdoption completes the install. The running
 // processes see each renamed file as soon as it is in place. Root runs it
-// (selfupdate prepare): everything it writes belongs to the service user.
+// (selfupdate prepare): privileged broker users stay root-owned; other files
+// belong to the service user.
 func (store MaterialStore) AdoptGeneration(target GenerationTarget, roots trust.Keyring, chainWire []byte, files map[string][]byte, config []byte, now time.Time) error {
 	return store.adoptGeneration(target, roots, chainWire, files, config, now, nil)
 }
@@ -334,7 +335,8 @@ func (store MaterialStore) replaceStaged(staging int, name string, wire []byte) 
 	if err := unix.Renameat(staging, verifiedMaterialTemporary, staging, name); err != nil {
 		return err
 	}
-	if err := unix.Fchown(fd, int(store.serviceUID), int(store.serviceGID)); err != nil {
+	uid, gid := materialOwner(name, store.serviceUID, store.serviceGID)
+	if err := unix.Fchown(fd, int(uid), int(gid)); err != nil {
 		return err
 	}
 	return unix.Fsync(staging)
@@ -382,7 +384,8 @@ func (store MaterialStore) writeStaged(staging int, name string, content []byte)
 		return err
 	}
 	file := os.NewFile(uintptr(fd), name)
-	if err := unix.Fchown(fd, int(store.serviceUID), int(store.serviceGID)); err != nil {
+	uid, gid := materialOwner(name, store.serviceUID, store.serviceGID)
+	if err := unix.Fchown(fd, int(uid), int(gid)); err != nil {
 		_ = file.Close()
 		return err
 	}

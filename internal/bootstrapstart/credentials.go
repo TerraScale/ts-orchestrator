@@ -23,8 +23,8 @@ const credentialChildTimeout = 15 * time.Second
 var ErrLiveCredentials = errors.New("live controller credentials are invalid")
 
 // LiveCredentials checks the accepted material inventory at the fixed service
-// directory. The root first-install process validates through the same binary
-// under the dedicated service UID; restarts validate in the service process.
+// directory. Root verifies every signed pin and privileged broker credential;
+// the same binary under the dedicated service UID checks only controller material.
 type LiveCredentials struct {
 	Config                 natscell.Config
 	ServiceUID             uint32
@@ -82,7 +82,7 @@ func (check LiveCredentials) VerifyInitialLiveCredentials(ctx context.Context, e
 }
 
 func (check LiveCredentials) verifyLiveCredentials(ctx context.Context, expected MaterialPins, slot, seedSlot string, references []bootstrap.SecretReference) error {
-	if check.ServiceUID == 0 || check.ServiceGID == 0 || check.Config.Embedded == nil ||
+	if os.Geteuid() != 0 || check.ServiceUID == 0 || check.ServiceGID == 0 || check.Config.Embedded == nil ||
 		check.ValidateControllerKeys == nil ||
 		len(expected.Digests) == 0 {
 		return ErrLiveCredentials
@@ -93,14 +93,8 @@ func (check LiveCredentials) verifyLiveCredentials(ctx context.Context, expected
 	if err := check.verifyInventory(expected); err != nil {
 		return err
 	}
-	if os.Geteuid() == int(check.ServiceUID) && os.Getegid() == int(check.ServiceGID) {
-		if err := natscell.ValidateProductionCredentials(check.Config); err != nil {
-			return err
-		}
-		return check.ValidateControllerKeys()
-	}
-	if os.Geteuid() != 0 {
-		return fmt.Errorf("%w: credential verifier is neither root nor the service account", ErrLiveCredentials)
+	if err := natscell.ValidateProductionBrokerCredentials(check.Config); err != nil {
+		return fmt.Errorf("%w: root broker credential preflight: %v", ErrLiveCredentials, err)
 	}
 	wire, err := protocol.EncodeJSON(CredentialChildRequest{
 		Config: check.Config, UID: check.ServiceUID, GID: check.ServiceGID,
@@ -126,6 +120,10 @@ func (check LiveCredentials) verifyPaths(expected MaterialPins, slot, seedSlot s
 		return ErrLiveCredentials
 	}
 	e := check.Config.Embedded
+	if e.SystemCredentialsFile != filepath.Join(check.directory, "system.creds") ||
+		e.MembershipCredentialsFile != "" && e.MembershipCredentialsFile != filepath.Join(check.directory, "membership.creds") {
+		return fmt.Errorf("%w: privileged broker credentials differ from fixed roles", ErrLiveCredentials)
+	}
 	paths := []string{
 		check.Config.CredentialsFile,
 		check.Config.TLS.CAFile, check.Config.TLS.CertFile, check.Config.TLS.KeyFile,
@@ -300,7 +298,7 @@ func RunCredentialValidationChild(input io.Reader, validateControllerKeys func(C
 	if err != nil || len(groups) != 0 {
 		return ErrLiveCredentials
 	}
-	if err := natscell.ValidateProductionCredentials(request.Config); err != nil {
+	if err := natscell.ValidateProductionControllerCredentials(request.Config); err != nil {
 		return err
 	}
 	return validateControllerKeys(request)

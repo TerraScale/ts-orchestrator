@@ -10,65 +10,66 @@ import (
 	"github.com/nats-io/jwt/v2"
 )
 
-// ValidateProductionCredentials checks the configured production broker
-// credentials without opening a listener, connecting to NATS, or changing
-// local state. It must run as the account that will start the broker: the
-// private-file readers enforce ownership by the current process user.
+// ValidateProductionCredentials checks all broker and controller credentials.
+// Each private file must belong to the current process; production bootstrap
+// validates the root broker and ordinary controller portions separately.
 func ValidateProductionCredentials(cfg Config) error {
-	if cfg.Embedded == nil || cfg.ClientRole != "" && cfg.ClientRole != "controller" {
-		return errors.New("controller credential preflight requires a production embedded broker")
+	if err := ValidateProductionBrokerCredentials(cfg); err != nil {
+		return err
 	}
-	if err := cfg.validate(); err != nil {
+	return ValidateProductionControllerCredentials(cfg)
+}
+
+// ValidateProductionBrokerCredentials checks the privileged SYSTEM and optional
+// membership credentials as their owner. In production this caller is root;
+// the controller preflight must never read either private credential.
+func ValidateProductionBrokerCredentials(cfg Config) error {
+	systemID, cellID, err := productionCredentialAccounts(cfg)
+	if err != nil {
 		return err
 	}
 	e := cfg.Embedded
-	operator, systemRaw, cellRaw, _, cellID, err := loadOperatorAccounts(e)
-	if err != nil {
-		return err
-	}
-	system, err := jwt.DecodeAccountClaims(systemRaw)
-	if err != nil {
-		return fmt.Errorf("decode system account JWT: %w", err)
-	}
-	cell, err := jwt.DecodeAccountClaims(cellRaw)
-	if err != nil {
-		return fmt.Errorf("decode cell account JWT: %w", err)
-	}
-	for label, claim := range map[string]jwt.Claims{"operator": operator, "system": system, "cell": cell} {
-		result := jwt.CreateValidationResults()
-		claim.Validate(result)
-		if result.IsBlocking(true) {
-			return fmt.Errorf("%s JWT is not currently valid", label)
-		}
-	}
-	if err := validateSystemCredentials(e.SystemCredentialsFile, cfg.Cell, cellID, system.Subject); err != nil {
+	if err := validateSystemCredentials(e.SystemCredentialsFile, cfg.Cell, cellID, systemID); err != nil {
 		return err
 	}
 	systemUser, _, err := credentialUser(e.SystemCredentialsFile)
 	if err != nil {
 		return fmt.Errorf("system account credentials: %w", err)
 	}
+	result := jwt.CreateValidationResults()
+	systemUser.Validate(result)
+	if result.IsBlocking(true) {
+		return errors.New("system user JWT is not currently valid")
+	}
+	if e.MembershipCredentialsFile != "" {
+		if err := ValidateMembershipCredentials(e.MembershipCredentialsFile, cfg.Cell, systemID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ValidateProductionControllerCredentials retains the production configuration,
+// account, controller JWT, TLS and route checks without opening SYSTEM or
+// membership credentials. It runs under the actual controller service UID.
+func ValidateProductionControllerCredentials(cfg Config) error {
+	_, cellID, err := productionCredentialAccounts(cfg)
+	if err != nil {
+		return err
+	}
 	controller, _, err := credentialUser(cfg.CredentialsFile)
 	if err != nil || credentialAccount(controller) != cellID {
 		return errors.New("controller credentials do not belong to the regional cell account")
 	}
-	for label, claim := range map[string]*jwt.UserClaims{"system": systemUser, "controller": controller} {
-		result := jwt.CreateValidationResults()
-		claim.Validate(result)
-		if result.IsBlocking(true) {
-			return fmt.Errorf("%s user JWT is not currently valid", label)
-		}
+	result := jwt.CreateValidationResults()
+	controller.Validate(result)
+	if result.IsBlocking(true) {
+		return errors.New("controller user JWT is not currently valid")
 	}
 	if err := ValidateBrokerControllerCredentials(cfg.CredentialsFile, cfg.Cell, cfg.Instance); err != nil {
 		return err
 	}
-	// The optional membership user is checked at admission, not first at
-	// shutdown when it is needed for the metadata step-down.
-	if e.MembershipCredentialsFile != "" {
-		if err := ValidateMembershipCredentials(e.MembershipCredentialsFile, cfg.Cell, system.Subject); err != nil {
-			return err
-		}
-	}
+	e := cfg.Embedded
 	for label, files := range map[string]TLSFiles{"client": cfg.TLS, "listener": e.TLS, "route": e.RouteTLS} {
 		if err := validateCurrentTLSFiles(files, label); err != nil {
 			return fmt.Errorf("%s TLS material: %w", label, err)
@@ -85,6 +86,35 @@ func ValidateProductionCredentials(cfg Config) error {
 		}
 	}
 	return nil
+}
+
+func productionCredentialAccounts(cfg Config) (systemID, cellID string, err error) {
+	if cfg.Embedded == nil || cfg.ClientRole != "" && cfg.ClientRole != "controller" {
+		return "", "", errors.New("controller credential preflight requires a production embedded broker")
+	}
+	if err := cfg.validate(); err != nil {
+		return "", "", err
+	}
+	operator, systemRaw, cellRaw, systemID, cellID, err := loadOperatorAccounts(cfg.Embedded)
+	if err != nil {
+		return "", "", err
+	}
+	system, err := jwt.DecodeAccountClaims(systemRaw)
+	if err != nil {
+		return "", "", fmt.Errorf("decode system account JWT: %w", err)
+	}
+	cell, err := jwt.DecodeAccountClaims(cellRaw)
+	if err != nil {
+		return "", "", fmt.Errorf("decode cell account JWT: %w", err)
+	}
+	for label, claim := range map[string]jwt.Claims{"operator": operator, "system": system, "cell": cell} {
+		result := jwt.CreateValidationResults()
+		claim.Validate(result)
+		if result.IsBlocking(true) {
+			return "", "", fmt.Errorf("%s JWT is not currently valid", label)
+		}
+	}
+	return systemID, cellID, nil
 }
 
 func validateCurrentTLSFiles(files TLSFiles, role string) error {

@@ -39,7 +39,8 @@ type SecretMaterializer interface {
 }
 
 // MaterialStore transfers Vault-verified material from a root-only staging
-// directory into one fixed service-owned credential directory. The configured
+// directory into one fixed credential directory. Privileged broker users remain
+// root-owned; other files belong to the service. The configured
 // service UID/GID must be resolved from the dedicated system user by the caller.
 // No file is made group- or world-readable.
 type MaterialStore struct {
@@ -204,6 +205,7 @@ func sameMaterials(left, right map[string]string) bool {
 }
 
 func (store MaterialStore) installMaterial(dir int, name string, content []byte, want string, maximum int64) error {
+	uid, gid := materialOwner(name, store.serviceUID, store.serviceGID)
 	if existing, err := readMaterial(dir, name, store.serviceUID, store.serviceGID, want, maximum); err == nil {
 		clear(existing)
 		return nil
@@ -225,7 +227,7 @@ func (store MaterialStore) installMaterial(dir int, name string, content []byte,
 		_ = file.Close()
 		return err
 	}
-	if err := unix.Fchown(fd, int(store.serviceUID), int(store.serviceGID)); err != nil {
+	if err := unix.Fchown(fd, int(uid), int(gid)); err != nil {
 		_ = file.Close()
 		return err
 	}
@@ -253,7 +255,17 @@ func (store MaterialStore) installMaterial(dir int, name string, content []byte,
 	return err
 }
 
+// materialOwner is fixed by the broker capability, never selected by a caller.
+// SYSTEM claim updates and membership mutations must remain unavailable to the service.
+func materialOwner(name string, uid, gid uint32) (uint32, uint32) {
+	if name == "system.creds" || name == "membership.creds" {
+		return 0, 0
+	}
+	return uid, gid
+}
+
 func readMaterial(dir int, name string, uid, gid uint32, want string, maximum int64) ([]byte, error) {
+	uid, gid = materialOwner(name, uid, gid)
 	if !markerNameRE.MatchString(name) || !markerDigestRE.MatchString(want) || maximum <= 0 || maximum > bootstrap.MaxSecretBytes {
 		return nil, ErrMaterial
 	}

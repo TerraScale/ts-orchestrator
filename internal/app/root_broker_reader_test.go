@@ -20,6 +20,7 @@ func TestRootBrokerReaderAcceptsOnlyExpectedResponse(t *testing.T) {
 		{rootBrokerMetrics, `{"metrics":{}}`},
 		{rootBrokerStore, `{"store":0}`},
 		{rootBrokerStreams, `{"streams":[]}`},
+		{rootBrokerCredentials, `{"credentials":[]}`},
 		{rootBrokerAccount, `{"account":{"Account":"public-account","JWT":"public-jwt","Operator":{}}}`},
 	} {
 		t.Run(string(test.operation), func(t *testing.T) {
@@ -54,7 +55,7 @@ func TestRootBrokerReaderRejectsMalformedUnion(t *testing.T) {
 			}
 		})
 	}
-	for _, operation := range []rootBrokerOperation{rootBrokerCluster, rootBrokerMeta, rootBrokerMetrics, rootBrokerStreams, rootBrokerAccount} {
+	for _, operation := range []rootBrokerOperation{rootBrokerCluster, rootBrokerMeta, rootBrokerMetrics, rootBrokerStreams, rootBrokerAccount, rootBrokerCredentials} {
 		t.Run(string(operation)+" null", func(t *testing.T) {
 			wire := `{"` + string(operation) + `":null}`
 			if _, err := decodeRootBrokerResponse([]byte(wire), operation); err == nil {
@@ -67,9 +68,11 @@ func TestRootBrokerReaderRejectsMalformedUnion(t *testing.T) {
 		`{"account":{"Account":"public","private_key":"secret"}}`,
 		`{"account":{"Operator":{"private_key":"secret"}}}`,
 		`{"streams":[{"Name":"stream","selector":"other-account"}]}`,
+		`{"credentials":[{"name":"system","private_key":"secret"}]}`,
+		`{"credentials":[{"name":"system","path":"/root/system.creds"}]}`,
 	} {
 		t.Run(wire, func(t *testing.T) {
-			for _, operation := range []rootBrokerOperation{rootBrokerCluster, rootBrokerAccount, rootBrokerStreams} {
+			for _, operation := range []rootBrokerOperation{rootBrokerCluster, rootBrokerAccount, rootBrokerStreams, rootBrokerCredentials} {
 				if _, err := decodeRootBrokerResponse([]byte(wire), operation); err == nil {
 					t.Fatalf("accepted unknown nested field for %s", operation)
 				}
@@ -77,7 +80,7 @@ func TestRootBrokerReaderRejectsMalformedUnion(t *testing.T) {
 		})
 	}
 	if _, err := decodeRootBrokerResponse([]byte(`{"anything":{}}`), rootBrokerOperation("anything")); err == nil {
-		t.Fatal("accepted an operation outside the six fixed observations")
+		t.Fatal("accepted an operation outside the seven fixed observations")
 	}
 }
 

@@ -92,6 +92,14 @@ func (reader *rootBrokerReader) ReadControllerAccount(ctx context.Context) (nats
 	return *response.Account, nil
 }
 
+func (reader *rootBrokerReader) CredentialExpiries(ctx context.Context) ([]observability.CredentialView, error) {
+	response, err := reader.invoke(ctx, rootBrokerCredentials, 5*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	return *response.Credentials, nil
+}
+
 func (reader *rootBrokerReader) transportReady() bool {
 	return reader != nil && reader.ctx != nil && reader.ctx.Err() == nil && reader.transport != nil &&
 		reader.conn != nil && reader.transport.Conn() == reader.conn && reader.transport.Ready()
@@ -305,6 +313,8 @@ func decodeRootBrokerResponse(wire []byte, operation rootBrokerOperation) (rootB
 		valid = response.Streams != nil
 	case rootBrokerAccount:
 		valid = response.Account != nil
+	case rootBrokerCredentials:
+		valid = response.Credentials != nil
 	}
 	if !valid {
 		return rootBrokerResponse{}, rootoci.ErrUnavailable

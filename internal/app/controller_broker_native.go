@@ -15,6 +15,7 @@ type controllerBrokerNative interface {
 	LocalStoreUsedBytes(context.Context) (uint64, error)
 	StreamHealth(context.Context) ([]natscell.StreamState, error)
 	ReadControllerAccount(context.Context) (natscell.ControllerAccountView, error)
+	CredentialExpiries(context.Context) ([]observability.CredentialView, error)
 	WaitForCluster(context.Context, int) error
 	FullClusterReady(int) bool
 	Ready() bool
@@ -25,12 +26,13 @@ var controllerBrokerNativeProduction = openControllerBrokerNative
 type rootBrokerOperation string
 
 const (
-	rootBrokerCluster rootBrokerOperation = "cluster"
-	rootBrokerMeta    rootBrokerOperation = "meta"
-	rootBrokerMetrics rootBrokerOperation = "metrics"
-	rootBrokerStore   rootBrokerOperation = "store"
-	rootBrokerStreams rootBrokerOperation = "streams"
-	rootBrokerAccount rootBrokerOperation = "account"
+	rootBrokerCluster     rootBrokerOperation = "cluster"
+	rootBrokerMeta        rootBrokerOperation = "meta"
+	rootBrokerMetrics     rootBrokerOperation = "metrics"
+	rootBrokerStore       rootBrokerOperation = "store"
+	rootBrokerStreams     rootBrokerOperation = "streams"
+	rootBrokerAccount     rootBrokerOperation = "account"
+	rootBrokerCredentials rootBrokerOperation = "credentials"
 )
 
 type rootBrokerRequest struct {
@@ -44,11 +46,12 @@ type rootBrokerClusterView struct {
 }
 
 type rootBrokerResponse struct {
-	Cluster *rootBrokerClusterView          `json:"cluster,omitzero"`
-	Meta    *natscell.MetaView              `json:"meta,omitzero"`
-	Metrics *observability.NATSView         `json:"metrics,omitzero"`
-	Store   *uint64                         `json:"store,omitzero"`
-	Streams *[]natscell.StreamState         `json:"streams,omitzero"`
-	Account *natscell.ControllerAccountView `json:"account,omitzero"`
-	Error   string                          `json:"error,omitempty"`
+	Cluster     *rootBrokerClusterView          `json:"cluster,omitzero"`
+	Meta        *natscell.MetaView              `json:"meta,omitzero"`
+	Metrics     *observability.NATSView         `json:"metrics,omitzero"`
+	Store       *uint64                         `json:"store,omitzero"`
+	Streams     *[]natscell.StreamState         `json:"streams,omitzero"`
+	Account     *natscell.ControllerAccountView `json:"account,omitzero"`
+	Credentials *[]observability.CredentialView `json:"credentials,omitzero"`
+	Error       string                          `json:"error,omitempty"`
 }

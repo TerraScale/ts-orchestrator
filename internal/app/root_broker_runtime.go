@@ -269,6 +269,20 @@ func (broker *rootBrokerRuntime) observe(ctx context.Context, operation rootBrok
 			return response, err
 		}
 		response.Account = &view
+	case rootBrokerCredentials:
+		inputs, err := bootstrapstart.LoadTrustInputs(broker.authority.accepted)
+		if err != nil {
+			return response, err
+		}
+		material, err := bootstrapstart.NewMaterialStore(nil, broker.authority.uid, broker.authority.gid)
+		if err != nil {
+			return response, err
+		}
+		view, err := material.BrokerCredentialExpiries(ctx, broker.authority.accepted, inputs.Roots.Historical)
+		if err != nil {
+			return response, err
+		}
+		response.Credentials = &view
 	default:
 		return response, rootoci.ErrInvalid
 	}

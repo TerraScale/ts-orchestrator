@@ -296,6 +296,9 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 		var last string
 		config.Credentials = func() ([]observability.CredentialView, error) {
 			credentials, err := maintenance.Scan(files)
+			privileged, rootErr := observed.native.CredentialExpiries(ctx)
+			credentials = append(credentials, privileged...)
+			err = errors.Join(err, rootErr)
 			// The snapshot carries only an error class; log which file
 			// failed, once per change. Roles and paths are not secret.
 			text := ""
