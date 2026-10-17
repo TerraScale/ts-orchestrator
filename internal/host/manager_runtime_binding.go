@@ -40,6 +40,7 @@ type ManagerRuntimeBinding struct {
 	HostPublicKey          string    `json:"host_public_key"`
 	NATSUserPublicKey      string    `json:"nats_user_public_key"`
 	RuntimeCandidateID     string    `json:"runtime_candidate_id"`
+	BinarySHA256           string    `json:"binary_sha256"`
 	AcceptanceSHA256       string    `json:"acceptance_sha256"`
 	AnchorSHA256           string    `json:"anchor_sha256"`
 	SourceSHA256           string    `json:"source_sha256"`
@@ -70,7 +71,7 @@ func (binding ManagerRuntimeBinding) Validate() error {
 		!binding.ExpiresAt.After(binding.IssuedAt) || binding.ExpiresAt.Sub(binding.IssuedAt) > sessionTTL {
 		return errors.New("manager runtime binding has incomplete finite scope")
 	}
-	for _, digest := range []string{binding.AcceptanceSHA256, binding.AnchorSHA256, binding.SourceSHA256, binding.ClusterCASHA256, binding.CertificateSHA256} {
+	for _, digest := range []string{binding.BinarySHA256, binding.AcceptanceSHA256, binding.AnchorSHA256, binding.SourceSHA256, binding.ClusterCASHA256, binding.CertificateSHA256} {
 		if validateDigest(digest) != nil {
 			return errors.New("manager runtime binding has invalid source pins")
 		}
