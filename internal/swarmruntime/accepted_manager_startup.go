@@ -38,7 +38,7 @@ func pauseManagerBeforeAgent(ctx context.Context, node *swarmnode.Node) error {
 		if err != nil {
 			return fmt.Errorf("observe manager before agent registration: %w", err)
 		}
-		if current.Node == nil || current.Node.Role != api.NodeRoleManager {
+		if current.Node == nil || current.Node.Certificate.CN != node.NodeID() || current.Node.Certificate.Role != api.NodeRoleManager {
 			return errors.New("manager startup barrier requires its persisted manager identity")
 		}
 		spec := current.Node.Spec.Copy()
