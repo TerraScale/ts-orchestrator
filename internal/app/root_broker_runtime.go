@@ -123,8 +123,6 @@ func (broker *rootBrokerRuntime) serveStartup(parent context.Context, conn *net.
 	ctx, stop := context.WithDeadline(parent, startup.deadline)
 	stopProcess := context.AfterFunc(startup.ctx, stop)
 	defer func() { stopProcess(); stop() }()
-	stopSocket := context.AfterFunc(ctx, func() { _ = conn.Close() })
-	defer stopSocket()
 	if err := broker.authority.verifyBrokerStartup(ctx, startup); err != nil {
 		return
 	}
