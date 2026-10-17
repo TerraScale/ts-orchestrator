@@ -577,14 +577,14 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 					}
 					return controller.material(ctx, registration, binding)
 				},
-				ContainerMaterialProvider: func(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding) (host.ContainerMaterialFiles, error) {
+				ContainerMaterialProvider: func(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding, evidence host.ContainerMaterialEvidence) (host.ContainerMaterialFiles, error) {
 					functionCalls.RLock()
 					defer functionCalls.RUnlock()
 					controller := automaticContainers.Load()
 					if controller == nil {
 						return host.ContainerMaterialFiles{}, errors.New("automatic container authority is unavailable")
 					}
-					return controller.material(ctx, registration, binding)
+					return controller.material(ctx, registration, binding, evidence)
 				},
 				RegistryAdmissionProvider: func(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding) (host.RegistryAdmissionDocument, error) {
 					functionCalls.RLock()

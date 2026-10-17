@@ -18,6 +18,17 @@ type ContainerMaterialEvidence struct {
 	Request protocol.Envelope `json:"request"`
 }
 
+// Deadline only shortens an operation cap; it grants no request authority.
+func (e ContainerMaterialEvidence) Deadline() time.Time {
+	deadline := containerMaterialDeadline(e.Request.IssuedAt.Add(requestTTL), e.Request.ExpiresAt)
+	var req request
+	var query containerMaterialQuery
+	if protocol.DecodeStrict(e.Request.Payload, &req, 64<<10) == nil && decodeStrict(req.Payload, &query) == nil && !query.InventoryExpiresAt.IsZero() {
+		deadline = containerMaterialDeadline(deadline, query.InventoryExpiresAt)
+	}
+	return deadline
+}
+
 // ContainerMaterialSession pins root's original admission, including its deadline.
 type ContainerMaterialSession struct {
 	reader       *Reader
@@ -63,7 +74,7 @@ func (r *Reader) AdmitContainerMaterialSession(ctx context.Context, evidence Con
 	region, known := catalog.CellForOCIRegion(query.Binding.Region)
 	if validateContainerMaterialBinding(query.Binding) != nil || !known || region.Name() != r.controller.cell ||
 		query.Offset < 0 || query.Offset >= maxContainerMaterialBytes || query.Length < 1 || query.Length > materialChunkBytes ||
-		len(query.EphemeralPublicKey) != 32 {
+		len(query.EphemeralPublicKey) != 32 || !validContainerInventoryQuery(query) {
 		return nil, errors.New("container material request differs from the host protocol bounds")
 	}
 	registration, current, err := r.currentContainerMaterialSession(ctx, req)
@@ -77,7 +88,7 @@ func (r *Reader) AdmitContainerMaterialSession(ctx context.Context, evidence Con
 	if err != nil {
 		return nil, err
 	}
-	deadline := containerMaterialDeadline(current.ExpiresAt, containerMaterialDeadline(req.IssuedAt.Add(requestTTL), envelope.ExpiresAt))
+	deadline := containerMaterialDeadline(current.ExpiresAt, evidence.Deadline())
 	if callerDeadline, ok := ctx.Deadline(); ok {
 		deadline = containerMaterialDeadline(deadline, callerDeadline)
 	}

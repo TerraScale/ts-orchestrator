@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"maps"
@@ -22,15 +21,16 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
-	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
 type containerMaterialConfig struct {
+	Root             *rootoci.Client
 	Factory          *ociclient.Factory
 	Hosts            seatrollout.Hosts
 	Authority        authority.Fencer
@@ -225,7 +225,7 @@ func (controller *containerMaterialController) taskLoadRoles(ctx context.Context
 }
 
 func startContainerMaterial(ctx context.Context, config containerMaterialConfig) (*containerMaterialController, func(), error) {
-	if config.Factory == nil || config.Hosts == nil || config.Authority == nil || config.Client == nil || config.Specs == nil || config.Specs.kv == nil || config.Specs.roots == nil || config.Delivery == nil || config.Evidence == nil ||
+	if config.Root == nil || config.Factory == nil || config.Hosts == nil || config.Authority == nil || config.Client == nil || config.Specs == nil || config.Specs.kv == nil || config.Specs.roots == nil || config.Delivery == nil || config.Evidence == nil ||
 		config.Founders == nil || config.Accepted.Validate() != nil || config.JS == nil || config.Mutations == nil || config.Registrations == nil || len(config.ResponsePublic) != ed25519.PublicKeySize {
 		return nil, nil, errors.New("container material requires current authority, signed profiles, delivery and manager")
 	}
@@ -405,14 +405,19 @@ func (controller *containerMaterialController) currentMaterialTask(ctx context.C
 	return ctx.Err()
 }
 
-func (controller *containerMaterialController) material(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding) (result host.ContainerMaterialFiles, resultErr error) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+func (controller *containerMaterialController) material(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding, evidence host.ContainerMaterialEvidence) (result host.ContainerMaterialFiles, resultErr error) {
+	ctx, cancel := context.WithDeadline(ctx, evidence.Deadline())
 	defer cancel()
-	recipient, err := controller.recipient(ctx, registration, binding)
+	receipt, err := controller.config.Root.MaterializeContainer(ctx, rootoci.MaterializeContainerRequest{Evidence: evidence})
 	if err != nil {
 		return result, err
 	}
-	result = host.ContainerMaterialFiles{Files: map[string][]byte{}, FileEnvironment: map[string]string{}, User: recipient.Expected.Container.User, ExpiresAt: recipient.Verified.ExpiresAt()}
+	if receipt.Task.Binding != binding || binding.HostID != registration.ID || !time.Now().Before(receipt.Task.ExpiresAt) {
+		return result, containermaterial.ErrPending
+	}
+	ctx, stop := context.WithDeadline(ctx, receipt.Task.ExpiresAt)
+	defer stop()
+	result = host.ContainerMaterialFiles{Files: map[string][]byte{}, FileEnvironment: map[string]string{}, User: receipt.Task.User, ExpiresAt: receipt.Task.ExpiresAt}
 	defer func() {
 		if resultErr != nil {
 			for _, value := range result.Files {
@@ -421,25 +426,11 @@ func (controller *containerMaterialController) material(ctx context.Context, reg
 			result = host.ContainerMaterialFiles{}
 		}
 	}()
-	if recipient.proof.NoSecrets() {
-		return result, nil
-	}
-	for key := range recipient.Profile.Secrets {
-		if !vaultsecret.FileKey(key) || len(key) > 128 || key != strings.ToUpper(key) || key[0] < 'A' || key[0] > 'Z' {
-			return result, fmt.Errorf("%w: service requires supported signed _FILE secret keys", containermaterial.ErrPending)
-		}
-	}
-	values, err := vaultsecret.ReadCurrentRefs(ctx, recipient.Profile.Secrets)
-	if err != nil {
-		return result, fmt.Errorf("%w: OCI Vault secret observation unavailable", containermaterial.ErrPending)
-	}
-	snapshot := containerSnapshot(recipient, values)
-	if err := syncContainerSnapshot(ctx, controller.config.Client, controller.config.Authority, recipient.Service, snapshot); err != nil {
-		return result, err
-	}
-	for key, value := range values {
+	versions := make(map[string]rootoci.ContainerSecretMetadata, len(receipt.Values))
+	for key, value := range receipt.Values {
+		versions[key] = rootoci.ContainerSecretMetadata{ID: value.ID, Version: value.Version, ExpiresAt: value.ExpiresAt}
 		name := strings.ToLower(key)
-		result.Files[name] = []byte(value.Value())
+		result.Files[name] = []byte(value.Value)
 		result.FileEnvironment[key] = name
 		if !value.ExpiresAt.IsZero() && (result.CredentialExpiresAt.IsZero() || value.ExpiresAt.Before(result.CredentialExpiresAt)) {
 			result.CredentialExpiresAt = value.ExpiresAt
@@ -448,28 +439,62 @@ func (controller *containerMaterialController) material(ctx context.Context, reg
 	if !result.CredentialExpiresAt.IsZero() && result.CredentialExpiresAt.Before(result.ExpiresAt) {
 		result.ExpiresAt = result.CredentialExpiresAt
 	}
-	confirmed, err := controller.recipient(ctx, registration, binding)
-	if err != nil || confirmed.SpecRevision != recipient.SpecRevision {
+	ctx, materialCancel := context.WithDeadline(ctx, result.ExpiresAt)
+	defer materialCancel()
+	if len(versions) > 0 {
+		if err := controller.syncMaterialSnapshot(ctx, receipt.Task, versions); err != nil {
+			return result, err
+		}
+	}
+	confirmed, err := controller.config.Root.ObserveContainerGeneration(ctx, rootoci.ObserveContainerGenerationRequest{TaskID: binding.TaskID})
+	if err != nil || confirmed.Task.Binding != binding || confirmed.Task.User != receipt.Task.User || !time.Now().Before(confirmed.Task.ExpiresAt) {
 		return result, containermaterial.ErrPending
 	}
-	if err := checkContainerSnapshot(ctx, controller.config.Client, snapshot); err != nil {
-		return result, err
+	before, beforeErr := encodeContainerSnapshot(containerSnapshot(receipt.Task, versions))
+	after, afterErr := encodeContainerSnapshot(containerSnapshot(confirmed.Task, confirmed.Values))
+	if beforeErr != nil || afterErr != nil || !bytes.Equal(before, after) {
+		return result, containermaterial.ErrPending
 	}
-	if err := controller.currentMaterialTask(ctx, confirmed, registration, binding); err != nil {
-		return result, err
+	if len(versions) > 0 {
+		if err := checkContainerSnapshot(ctx, controller.config.Client, containerSnapshot(receipt.Task, versions)); err != nil {
+			return result, err
+		}
 	}
-	if !time.Now().Before(result.ExpiresAt) {
+	if ctx.Err() != nil || !time.Now().Before(result.ExpiresAt) {
 		return result, containermaterial.ErrPending
 	}
 	return result, nil
 }
 
-func containerSnapshot(recipient containerMaterialRecipient, values map[string]vaultsecret.Current) containerSecretSnapshot {
+func containerSnapshot(task rootoci.ContainerTaskMaterial, values map[string]rootoci.ContainerSecretMetadata) containerSecretSnapshot {
 	versions := make(map[string]containerSecretVersion, len(values))
 	for key, value := range values {
 		versions[key] = containerSecretVersion{ID: value.ID, Version: value.Version, ExpiresAt: value.ExpiresAt}
 	}
-	return containerSecretSnapshot{OperationID: recipient.Intent.OperationID, ServiceID: recipient.Service.ID, ConfigDigest: recipient.Intent.ConfigDigest, Generation: recipient.Service.Spec.Task.ForceUpdate, Versions: versions}
+	return containerSecretSnapshot{OperationID: task.OperationID, ServiceID: task.Binding.ServiceID, ConfigDigest: task.ConfigDigest, Generation: task.Generation, Versions: versions}
+}
+
+func (controller *containerMaterialController) syncMaterialSnapshot(ctx context.Context, material rootoci.ContainerTaskMaterial, values map[string]rootoci.ContainerSecretMetadata) error {
+	if !time.Now().Before(material.ExpiresAt) {
+		return containermaterial.ErrPending
+	}
+	ctx, cancel := context.WithDeadline(ctx, material.ExpiresAt)
+	defer cancel()
+	task, err := controller.config.Client.GetTask(ctx, &api.GetTaskRequest{TaskID: material.Binding.TaskID})
+	if err != nil || task == nil || task.Task == nil {
+		return containermaterial.ErrPending
+	}
+	fingerprint, err := swarmruntime.ContainerTaskFingerprint(task.Task)
+	if err != nil || fingerprint != material.Binding.Fingerprint || task.Task.ServiceID != material.Binding.ServiceID || task.Task.NodeID != material.Binding.NodeID ||
+		task.Task.Spec.ForceUpdate != material.Generation || task.Task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID] != material.OperationID {
+		return containermaterial.ErrPending
+	}
+	service, err := controller.config.Client.GetService(ctx, &api.GetServiceRequest{ServiceID: material.Binding.ServiceID})
+	if err != nil || service == nil || service.Service == nil || !proto.Equal(&service.Service.Spec.Task, &task.Task.Spec) ||
+		!proto.Equal(&service.Service.Spec.Annotations, &task.Task.ServiceAnnotations) {
+		return containermaterial.ErrPending
+	}
+	return syncContainerSnapshot(ctx, controller.config.Client, controller.config.Authority, service.Service, containerSnapshot(material, values))
 }
 
 func (controller *containerMaterialController) run(ctx context.Context) error {
@@ -490,10 +515,6 @@ func (controller *containerMaterialController) run(ctx context.Context) error {
 }
 
 func (controller *containerMaterialController) renew(ctx context.Context) error {
-	hosts, err := controller.config.Hosts.ListHosts(ctx)
-	if err != nil {
-		return err
-	}
 	tasks, err := controller.config.Client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{DesiredStates: []api.TaskState{api.TaskStateRunning}}})
 	if err != nil {
 		return err
@@ -504,70 +525,20 @@ func (controller *containerMaterialController) renew(ctx context.Context) error 
 		if task == nil || seen[task.ServiceID] || task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID] == "" {
 			continue
 		}
-		intent, err := controller.config.Delivery.ContainerIntent(ctx, task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID])
+		receipt, err := controller.config.Root.ObserveContainerGeneration(ctx, rootoci.ObserveContainerGenerationRequest{TaskID: task.ID})
 		if err != nil {
 			failures = append(failures, err)
 			continue
 		}
-		entry, err := controller.config.Specs.kv.Get(ctx, cellSpecKey)
-		if err != nil {
-			failures = append(failures, err)
-			continue
-		}
-		proof, err := containermaterial.VerifyProfile(entry.Value(), controller.config.Specs.roots.current(), controller.config.Specs.identity, intent)
-		if err != nil {
-			failures = append(failures, err)
-			continue
-		}
-		if proof.NoSecrets() {
-			continue
-		}
-		node, err := controller.config.Client.GetNode(ctx, &api.GetNodeRequest{NodeID: task.NodeID})
-		if err != nil {
-			failures = append(failures, err)
-			continue
-		}
-		if node == nil || node.Node == nil {
-			continue
-		}
-		fingerprint, err := swarmruntime.ContainerTaskFingerprint(task)
-		if err != nil {
-			failures = append(failures, err)
-			continue
-		}
-		binding := host.ContainerMaterialBinding{TaskID: task.ID, ServiceID: task.ServiceID, NodeID: task.NodeID, InstanceID: node.Node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID], Region: node.Node.Spec.Annotations.Labels[swarmruntime.LabelRegion], HostID: node.Node.Spec.Annotations.Name, Fingerprint: fingerprint}
-		var registration *host.Registration
-		for _, status := range hosts {
-			if status.Retired {
-				continue
-			}
-			if node.Node.Role == api.NodeRoleManager {
-				grant, _, ok := controller.config.Specs.hostGrant(status.Registration.Node)
-				if !ok || grant.Controller == "" || grant.Controller != node.Node.Spec.Annotations.Name || grant.PrivateIP != node.Node.Status.Addr || status.Registration.ManagedOCI != nil {
-					continue
-				}
-			} else if status.Registration.ManagedOCI == nil || status.Registration.ID != binding.HostID || status.Registration.ManagedOCI.InstanceID != binding.InstanceID {
-				continue
-			}
-			if registration != nil {
-				registration = nil
-				break
-			}
-			current := status.Registration
-			registration = &current
-		}
-		if registration == nil {
+		if receipt.Task.Binding.TaskID != task.ID || receipt.Task.Binding.ServiceID != task.ServiceID || !time.Now().Before(receipt.Task.ExpiresAt) {
 			failures = append(failures, containermaterial.ErrPending)
 			continue
 		}
-		binding.HostID = registration.ID
-		files, err := controller.material(ctx, *registration, binding)
-		for _, value := range files.Files {
-			clear(value)
-		}
-		if err != nil {
-			failures = append(failures, err)
-			continue
+		if len(receipt.Values) > 0 {
+			if err := controller.syncMaterialSnapshot(ctx, receipt.Task, receipt.Values); err != nil {
+				failures = append(failures, err)
+				continue
+			}
 		}
 		seen[task.ServiceID] = true
 	}

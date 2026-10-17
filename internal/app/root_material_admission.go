@@ -39,7 +39,7 @@ func newRootMaterialAdmission(source *managedRuntimeHost, factory *ociclient.Fac
 
 func (producer *rootMaterialAdmission) container(ctx context.Context, call rootoci.Call, evidence host.ContainerMaterialEvidence) (containermaterial.Admission, error) {
 	// Unverified envelope dates can only shorten the outer operation cap.
-	deadline := earlier(call.Deadline(), earlier(evidence.Request.IssuedAt.Add(10*time.Second), evidence.Request.ExpiresAt))
+	deadline := earlier(call.Deadline(), evidence.Deadline())
 	if ctx == nil || !time.Now().Before(deadline) {
 		return containermaterial.Admission{}, containermaterial.ErrPending
 	}
@@ -232,6 +232,7 @@ func (producer *rootMaterialAdmission) readers(ctx context.Context, call rootoci
 		return fail(err)
 	}
 	closeOnFailure = false
+	context.AfterFunc(ctx, conn.Close)
 	return controller, sources, nil
 }
 
