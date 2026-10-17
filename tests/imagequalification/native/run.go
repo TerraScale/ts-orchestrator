@@ -51,22 +51,13 @@ func Run(ctx context.Context, req Request) (Report, error) {
 }
 
 func validate(req Request) error {
-	if err := validateRunID(req.RunID); err != nil {
+	if err := validateHostRequest(req); err != nil {
 		return err
 	}
 	if req.Delivery == nil {
 		return errors.New("native qualification requires the authenticated controller delivery driver")
 	}
-	if len(req.Hosts) != 4 {
-		return errors.New("native qualification requires three managers and one separate agent on four distinct Compute hosts")
-	}
 	c := req.Candidate
-	if !release.ValidSourceRevision(c.SourceRevision) || !shaPattern.MatchString(c.ArtifactSHA256) || !shaPattern.MatchString(c.QualificationSHA256) || !release.ValidRegion(c.Cell) || !release.ValidEnvironment(c.Environment) || c.Runtime != release.ProductionRuntime || c.Role == "" {
-		return errors.New("native candidate identity is incomplete")
-	}
-	if c.Architecture != "arm64" && c.Architecture != "amd64" {
-		return errors.New("native candidate architecture unsupported")
-	}
 	if err := ValidateProfileIdentity(c, req.ProfileIdentity); err != nil {
 		return err
 	}
@@ -80,14 +71,32 @@ func validate(req Request) error {
 			return errors.New("native signed material fixtures must match the approved ordered scenarios and digests")
 		}
 	}
-	if !strings.HasPrefix(req.ImageOCID, "ocid1.image.") || req.SSHUser != "root" || !shaPattern.MatchString(req.WorkerSHA256) {
-		return errors.New("native image, root SSH user and worker digest required")
-	}
 	if !shaPattern.MatchString(req.WorkloadArchiveSHA256) {
 		return errors.New("workload archive digest required")
 	}
 	if !strings.Contains(req.WorkloadImage, "@sha256:") || !shaPattern.MatchString(strings.SplitN(req.WorkloadImage, "@sha256:", 2)[1]) {
 		return errors.New("workload must pin an architecture-specific image digest")
+	}
+
+	return nil
+}
+
+func validateHostRequest(req Request) error {
+	if err := validateRunID(req.RunID); err != nil {
+		return err
+	}
+	if len(req.Hosts) != 4 {
+		return errors.New("native qualification requires three managers and one separate agent on four distinct Compute hosts")
+	}
+	c := req.Candidate
+	if !release.ValidSourceRevision(c.SourceRevision) || !shaPattern.MatchString(c.ArtifactSHA256) || !shaPattern.MatchString(c.QualificationSHA256) || !release.ValidRegion(c.Cell) || !release.ValidEnvironment(c.Environment) || c.Runtime != release.ProductionRuntime || c.Role == "" {
+		return errors.New("native candidate identity is incomplete")
+	}
+	if c.Architecture != "arm64" && c.Architecture != "amd64" {
+		return errors.New("native candidate architecture unsupported")
+	}
+	if !strings.HasPrefix(req.ImageOCID, "ocid1.image.") || req.SSHUser != "root" || !shaPattern.MatchString(req.WorkerSHA256) {
+		return errors.New("native image, root SSH user and worker digest required")
 	}
 	ids, addresses := map[string]bool{}, map[string]bool{}
 	for _, h := range req.Hosts {

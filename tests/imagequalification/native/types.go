@@ -44,23 +44,25 @@ func ValidateProfileIdentity(candidate release.ProductionExpectation, identity c
 }
 
 type Request struct {
-	Delivery              Delivery
-	MaterialFixtures      []MaterialFixture
-	TrustedRoots          trust.Keyring
-	ProfileIdentity       cellspec.Identity
-	RunID                 string
-	Candidate             release.ProductionExpectation
-	ImageOCID             string
-	Hosts                 []Host
-	SSHUser               string
-	PrivateKeyPath        string // Ephemeral local key, owner-only permissions; never retained.
-	WorkerPath            string // Same-architecture test-only native-worker executable.
-	WorkerSHA256          string
-	WorkloadArchivePath   string // Local archive identity; delivery uses the authenticated artifact producer.
-	WorkloadArchiveSHA256 string
-	WorkloadImage         string // Architecture-specific immutable child manifest, providing /bin/sh and nc.
-	ContainerdPath        string
-	RuncPath              string
+	RootCredentialProofs          map[string][]byte
+	RootCredentialNamespaceSHA256 string
+	Delivery                      Delivery
+	MaterialFixtures              []MaterialFixture
+	TrustedRoots                  trust.Keyring
+	ProfileIdentity               cellspec.Identity
+	RunID                         string
+	Candidate                     release.ProductionExpectation
+	ImageOCID                     string
+	Hosts                         []Host
+	SSHUser                       string
+	PrivateKeyPath                string // Ephemeral local key, owner-only permissions; never retained.
+	WorkerPath                    string // Same-architecture test-only native-worker executable.
+	WorkerSHA256                  string
+	WorkloadArchivePath           string // Local archive identity; delivery uses the authenticated artifact producer.
+	WorkloadArchiveSHA256         string
+	WorkloadImage                 string // Architecture-specific immutable child manifest, providing /bin/sh and nc.
+	ContainerdPath                string
+	RuncPath                      string
 }
 
 // Delivery uses the parent's authenticated controller client; SSH never supplies authority.
@@ -69,17 +71,18 @@ type Delivery interface {
 }
 
 type command struct {
-	Expected       []swarmruntime.ServiceIntent `json:"expected,omitempty"`
-	Operation      string                       `json:"operation"`
-	SourceRevision string                       `json:"source_revision,omitempty"`
-	RunID          string                       `json:"run_id,omitempty"`
-	Host           Host                         `json:"host,omitzero"`
-	ServiceID      string                       `json:"service_id,omitempty"`
-	Mode           string                       `json:"mode,omitempty"`
-	Peers          []string                     `json:"peers,omitempty"`
-	Addresses      map[string]string            `json:"addresses,omitempty"`
-	ContainerdPath string                       `json:"containerd_path,omitempty"`
-	RuncPath       string                       `json:"runc_path,omitempty"`
+	RootCredentialProof []byte                       `json:"root_credential_proof,omitempty"`
+	Expected            []swarmruntime.ServiceIntent `json:"expected,omitempty"`
+	Operation           string                       `json:"operation"`
+	SourceRevision      string                       `json:"source_revision,omitempty"`
+	RunID               string                       `json:"run_id,omitempty"`
+	Host                Host                         `json:"host,omitzero"`
+	ServiceID           string                       `json:"service_id,omitempty"`
+	Mode                string                       `json:"mode,omitempty"`
+	Peers               []string                     `json:"peers,omitempty"`
+	Addresses           map[string]string            `json:"addresses,omitempty"`
+	ContainerdPath      string                       `json:"containerd_path,omitempty"`
+	RuncPath            string                       `json:"runc_path,omitempty"`
 }
 
 type taskState struct {
@@ -91,20 +94,21 @@ type taskState struct {
 }
 
 type response struct {
-	Role                 string      `json:"role,omitempty"`
-	WorkerSHA256         string      `json:"worker_sha256,omitempty"`
-	WorkerSourceRevision string      `json:"worker_source_revision,omitempty"`
-	Error                string      `json:"error,omitempty"`
-	Identity             Identity    `json:"identity,omitzero"`
-	NodeID               string      `json:"node_id,omitempty"`
-	Leader               string      `json:"leader,omitempty"`
-	Managers             int         `json:"managers,omitzero"`
-	OperationID          string      `json:"operation_id,omitempty"`
-	ServiceID            string      `json:"service_id,omitempty"`
-	Tasks                []taskState `json:"tasks,omitempty"`
-	Running              uint64      `json:"running,omitzero"`
-	Ready                uint64      `json:"ready,omitzero"`
-	UpdateState          string      `json:"update_state,omitempty"`
+	RootCredentialBoundary *release.RootCredentialBoundaryHost `json:"root_credential_boundary,omitempty"`
+	Role                   string                              `json:"role,omitempty"`
+	WorkerSHA256           string                              `json:"worker_sha256,omitempty"`
+	WorkerSourceRevision   string                              `json:"worker_source_revision,omitempty"`
+	Error                  string                              `json:"error,omitempty"`
+	Identity               Identity                            `json:"identity,omitzero"`
+	NodeID                 string                              `json:"node_id,omitempty"`
+	Leader                 string                              `json:"leader,omitempty"`
+	Managers               int                                 `json:"managers,omitzero"`
+	OperationID            string                              `json:"operation_id,omitempty"`
+	ServiceID              string                              `json:"service_id,omitempty"`
+	Tasks                  []taskState                         `json:"tasks,omitempty"`
+	Running                uint64                              `json:"running,omitzero"`
+	Ready                  uint64                              `json:"ready,omitzero"`
+	UpdateState            string                              `json:"update_state,omitempty"`
 }
 
 type peer interface {
