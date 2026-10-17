@@ -104,6 +104,8 @@ func TestFoundationWriterImageRejectsOtherAuthority(t *testing.T) {
 		{"wrong disk", func(f *writerImageFixture) { f.qualification.Candidate.ArtifactSHA256 = strings.Repeat("d", 64) }},
 		{"wrong source", func(f *writerImageFixture) { f.qualification.Candidate.SourceRevision = strings.Repeat("d", 40) }},
 		{"wrong CI", func(f *writerImageFixture) { f.qualification.Candidate.QualificationSHA256 = strings.Repeat("d", 64) }},
+		{"missing final OCI identity", func(f *writerImageFixture) { f.qualification.Candidate.ImageOCID = "" }},
+		{"different final OCI identity", func(f *writerImageFixture) { f.qualification.Candidate.ImageOCID += "other" }},
 		{"wrong architecture", func(f *writerImageFixture) { f.qualification.Candidate.Architecture = "arm64" }},
 		{"wrong region", func(f *writerImageFixture) { f.qualification.Candidate.Cell = "SFO" }},
 		{"wrong environment", func(f *writerImageFixture) { f.qualification.Candidate.Environment = "canary" }},
@@ -129,6 +131,11 @@ func TestFoundationWriterImageRejectsOtherAuthority(t *testing.T) {
 		{"IPC absent is not refusal", func(f *writerImageFixture) { f.boundary.Hosts[0].UnauthorizedIPC = "absent" }},
 		{"different installed source", func(f *writerImageFixture) { f.boundary.Hosts[0].SourceRevision = strings.Repeat("d", 40) }},
 		{"different tested image", func(f *writerImageFixture) { f.boundary.Hosts[0].ImageOCID += "other" }},
+		{"same disk reimported under another OCI identity", func(f *writerImageFixture) {
+			for index := range f.boundary.Hosts {
+				f.boundary.Hosts[index].ImageOCID += "other"
+			}
+		}},
 		{"different boundary candidate", func(f *writerImageFixture) { f.boundary.Candidate.ArtifactSHA256 = strings.Repeat("d", 64) }},
 		{"missing namespace observation", func(f *writerImageFixture) { f.boundary.Hosts[0].NamespaceSHA256 = "" }},
 		{"changed transcript", func(f *writerImageFixture) { f.boundary.Hosts[0].Transcript = []byte("changed transcript") }},
@@ -210,7 +217,7 @@ func newWriterImageFixture(t *testing.T, architecture string) writerImageFixture
 		BaseImageOCID: "ocid1.image.oc1.sa-saopaulo-1.BASE", BaseImageRegion: "GRU", BaseImageSHA256: digest,
 		KernelRelease: "6.1.0-test", KernelSHA256: digest, ImageFormat: "qcow2", ImageBytes: 1024, ImageSHA256: digest,
 		OCIImageOCID: "ocid1.image.oc1.sa-saopaulo-1.FINAL", OCIRegion: "GRU"}
-	candidate := release.ProductionExpectation{SourceRevision: f.receipt.SourceRevision, ArtifactSHA256: digest, QualificationSHA256: digest,
+	candidate := release.ProductionExpectation{ImageOCID: f.receipt.OCIImageOCID, SourceRevision: f.receipt.SourceRevision, ArtifactSHA256: digest, QualificationSHA256: digest,
 		Cell: "GRU", Environment: "production", Runtime: release.ProductionRuntime, Architecture: architecture, Role: release.FoundationWriterRole}
 	f.qualification = release.ProductionQualification{Schema: release.FoundationWriterQualificationSchema, Candidate: candidate}
 	for _, gate := range []string{"runtime-ha", "workload-safety", release.RootCredentialBoundaryGate} {
@@ -224,7 +231,7 @@ func newWriterImageFixture(t *testing.T, architecture string) writerImageFixture
 	for index, role := range []string{"manager", "manager", "manager", "container"} {
 		transcript := []byte(fmt.Sprintf("test-only native boundary transcript %d", index))
 		f.boundary.Hosts = append(f.boundary.Hosts, release.RootCredentialBoundaryHost{Role: role,
-			InstanceID: fmt.Sprintf("ocid1.instance.oc1.sa-saopaulo-1.HOST%d", index), ImageOCID: "ocid1.image.oc1.sa-saopaulo-1.TESTED",
+			InstanceID: fmt.Sprintf("ocid1.instance.oc1.sa-saopaulo-1.HOST%d", index), ImageOCID: candidate.ImageOCID,
 			SourceRevision: candidate.SourceRevision, NamespaceSHA256: digest, RootUID: 0, OrdinaryUID: 1001,
 			RootOCIRead: "authenticated", OrdinaryUIDIMDS: "refused", OrdinaryUIDSigning: "refused", UnauthorizedIPC: "refused",
 			TranscriptSHA256: writerDigest(transcript), Transcript: transcript})
