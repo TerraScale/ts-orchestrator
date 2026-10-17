@@ -6,6 +6,7 @@ import (
 	"maps"
 	"math"
 	"slices"
+	"strings"
 
 	"github.com/TerraScale/ts-orchestrator/internal/hostload"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
@@ -62,7 +63,10 @@ func (e *Executor) ReadTaskLoad(ctx context.Context) ([]hostload.RoleUsage, erro
 	for _, role := range slices.Sorted(maps.Keys(roles)) {
 		usage := hostload.RoleUsage{Role: role, CPUCores: new(0.0), MemoryBytes: new(uint64(0)),
 			CPULimit: new(0.0), MemoryLimit: new(uint64(0)), LimitsRead: true}
+		slices.SortFunc(roles[role], func(a, b *controller) int { return strings.Compare(a.task.ID, b.task.ID) })
 		for _, task := range roles[role] {
+			usage.Tasks = append(usage.Tasks, hostload.TaskPin{TaskID: task.task.ID, ServiceID: task.task.ServiceID,
+				NodeID: nodeID, Fingerprint: task.fingerprint})
 			part, found := measured[task.id]
 			pid, err := task.loadPID(ctx)
 			e.mu.Lock()
