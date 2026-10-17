@@ -50,11 +50,17 @@ func TestControllerActivationRequiresCompleteSignedTopology(t *testing.T) {
 	if _, err := proof.ReadSlotRecipient(t.Context(), "controller-a", f.states["controller-c"].Result.InstanceOCID); err == nil {
 		t.Fatal("foreign instance accepted for a signed slot")
 	}
+	if _, err := proof.ReadManagerRetirement(t.Context(), "controller-a", f.states["controller-a"].Result.InstanceOCID); err == nil {
+		t.Fatal("current running controller accepted as a terminated predecessor")
+	}
 	proof.validUntil = time.Now().Add(-time.Second)
 	if _, err := proof.VerifyActivationTopology(t.Context()); err == nil {
 		t.Fatal("expired original recipient renewed topology authority")
 	}
 	if _, err := proof.ReadSlotRecipient(t.Context(), "controller-a", f.states["controller-a"].Result.InstanceOCID); err == nil {
 		t.Fatal("expired original recipient renewed sibling authority")
+	}
+	if _, err := proof.ReadManagerRetirement(t.Context(), "controller-a", f.states["controller-a"].Result.InstanceOCID); err == nil {
+		t.Fatal("expired original recipient renewed retirement authority")
 	}
 }
