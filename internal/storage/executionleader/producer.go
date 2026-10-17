@@ -43,6 +43,7 @@ type Producer struct {
 	releases            *delivery.Service
 	volumes             *oci.VolumeMountObserver
 	roots               trust.Keyring
+	historicalRoots     trust.Keyring
 	evidence            EvidenceReader
 	allocations         AllocationResolver
 	retainedEvidence    EvidenceReader
@@ -50,15 +51,19 @@ type Producer struct {
 	cell, environment   string
 }
 
-func NewProducer(control api.ControlClient, fence *authority.Runtime, members placement.Store, releases *delivery.Service, volumes *oci.VolumeMountObserver, roots trust.Keyring, evidence EvidenceReader, cell, environment string, allocations AllocationResolver, retainedEvidence EvidenceReader, retainedAllocations AllocationResolver) (*Producer, error) {
-	if retainedEvidence == nil || retainedAllocations == nil || allocations == nil || control == nil || fence == nil || members == nil || releases == nil || volumes == nil || len(roots) == 0 || evidence == nil || !release.ValidRegion(strings.ToUpper(cell)) || cell != strings.ToLower(cell) || environment == "" {
+func NewProducer(control api.ControlClient, fence *authority.Runtime, members placement.Store, releases *delivery.Service, volumes *oci.VolumeMountObserver, roots trust.Keyring, evidence EvidenceReader, cell, environment string, allocations AllocationResolver, retainedEvidence EvidenceReader, retainedAllocations AllocationResolver, historicalRoots trust.Keyring) (*Producer, error) {
+	if len(historicalRoots) == 0 || retainedEvidence == nil || retainedAllocations == nil || allocations == nil || control == nil || fence == nil || members == nil || releases == nil || volumes == nil || len(roots) == 0 || evidence == nil || !release.ValidRegion(strings.ToUpper(cell)) || cell != strings.ToLower(cell) || environment == "" {
 		return nil, execution.ErrUnsafe
 	}
 	keys := make(trust.Keyring, len(roots))
 	for id, key := range roots {
 		keys[id] = slices.Clone(key)
 	}
-	return &Producer{control: control, authority: fence, members: members, releases: releases, volumes: volumes, roots: keys, evidence: evidence, allocations: allocations, retainedEvidence: retainedEvidence, retainedAllocations: retainedAllocations, cell: cell, environment: environment}, nil
+	historical := make(trust.Keyring, len(historicalRoots))
+	for id, key := range historicalRoots {
+		historical[id] = slices.Clone(key)
+	}
+	return &Producer{historicalRoots: historical, control: control, authority: fence, members: members, releases: releases, volumes: volumes, roots: keys, evidence: evidence, allocations: allocations, retainedEvidence: retainedEvidence, retainedAllocations: retainedAllocations, cell: cell, environment: environment}, nil
 }
 
 func (p *Producer) open(operationID string) func(context.Context, string) (io.ReadCloser, error) {
@@ -329,7 +334,7 @@ func (p *Producer) previousWriter(ctx context.Context, scope authority.WorkloadS
 	_, expected.SourceArtifactSHA256, _ = strings.Cut(claim.Image, "@sha256:")
 	expected.SourceTreeSHA256 = claim.SourceTreeSHA256
 	previousTarget := release.ContainerTarget{Cell: strings.ToUpper(p.cell), Environment: p.environment, Role: "terrabase", Architecture: claim.Architecture}
-	previousAllocations, err := p.retainedAllocations(ctx, material.OperationID, material.Container, p.roots, previousTarget)
+	previousAllocations, err := p.retainedAllocations(ctx, material.OperationID, material.Container, p.historicalRoots, previousTarget)
 	if err != nil {
 		return release.ContainerBundle{}, expected, err
 	}
@@ -337,7 +342,7 @@ func (p *Producer) previousWriter(ctx context.Context, scope authority.WorkloadS
 	openRetained := func(ctx context.Context, digest string) (io.ReadCloser, error) {
 		return p.retainedEvidence(ctx, material.OperationID, digest)
 	}
-	retained, err := execution.VerifyRetainedProvenance(ctx, material.Container, p.roots, previousTarget, expected, openRetained, previousAllocations)
+	retained, err := execution.VerifyRetainedProvenance(ctx, material.Container, p.historicalRoots, previousTarget, expected, openRetained, previousAllocations)
 	return material.Container, retained, err
 }
 

@@ -27,6 +27,7 @@ type statefulRuntimeConfig struct {
 	Delivery            *delivery.Service
 	Volumes             *oci.VolumeMountObserver
 	Roots               trust.Keyring
+	HistoricalRoots     trust.Keyring
 	Evidence            executionleader.EvidenceReader
 	Allocations         executionleader.AllocationResolver
 	RetainedEvidence    executionleader.EvidenceReader
@@ -46,7 +47,7 @@ func newStatefulRuntime(config statefulRuntimeConfig) (*statefulRuntime, error) 
 		return nil, errors.New("stateful runtime requires the current admitted manager session")
 	}
 	producer, err := executionleader.NewProducer(config.Client, config.Authority, config.Members, config.Delivery,
-		config.Volumes, config.Roots, config.Evidence, config.Cell, config.Environment, config.Allocations, config.RetainedEvidence, config.RetainedAllocations)
+		config.Volumes, config.Roots, config.Evidence, config.Cell, config.Environment, config.Allocations, config.RetainedEvidence, config.RetainedAllocations, config.HistoricalRoots)
 	if err != nil {
 		return nil, err
 	}

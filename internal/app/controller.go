@@ -873,7 +873,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	statefulMaterial := statefulReleaseReader{client: statefulClient, deliveries: service}
 	stateful, err := newStatefulRuntime(statefulRuntimeConfig{
 		Client: functionClient, Authority: control, Members: statefulMembers, Delivery: service,
-		Volumes: statefulVolumes, Roots: services.roots.current(), Evidence: statefulMaterial.evidence, Allocations: statefulMaterial.allocations,
+		Volumes: statefulVolumes, Roots: services.roots.current(), HistoricalRoots: services.roots.historical(), Evidence: statefulMaterial.evidence, Allocations: statefulMaterial.allocations,
 		RetainedEvidence: statefulMaterial.retainedEvidence, RetainedAllocations: statefulMaterial.retainedAllocations,
 		SessionGuard: func(ctx context.Context) error { return containers.managerSession(ctx, managerID) },
 		Cell:         cfg.NATS.Cell, Environment: services.identity.Environment,
