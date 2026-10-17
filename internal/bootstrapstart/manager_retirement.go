@@ -9,6 +9,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
@@ -105,10 +106,12 @@ func (p *ManagerRetirement) OperationContext(caller context.Context) (context.Co
 // Verify repeats actual root/selection/ledger/provider reads and rejects any
 // changed source pin. It cannot renew an expired or canceled original call.
 func (p *ManagerRetirement) Verify(ctx context.Context) error {
-	if !p.Valid(time.Now()) {
-		return ErrAdmission
+	bounded, cancel, err := p.OperationContext(ctx)
+	if err != nil {
+		return err
 	}
-	current, until, err := p.current(ctx)
+	defer cancel()
+	current, until, err := p.current(bounded)
 	if err != nil {
 		return err
 	}
@@ -130,6 +133,9 @@ func (p *ManagerRetirement) current(ctx context.Context) (managerRetirementCaptu
 	defer cancel()
 	stop := context.AfterFunc(p.original, cancel)
 	defer stop()
+	if err := ociclient.CheckRequestGuard(ctx); err != nil {
+		return fail(err)
+	}
 	inputs, err := p.sources.trust.loadTrustInputs(p.issuer)
 	if err != nil {
 		return fail(err)
@@ -309,6 +315,9 @@ func (p *ManagerRetirement) current(ctx context.Context) (managerRetirementCaptu
 	}
 	if !time.Now().Before(until) || p.original.Err() != nil {
 		return fail(bootstrap.ErrManagedPeerObservationStale)
+	}
+	if err := ociclient.CheckRequestGuard(ctx); err != nil {
+		return fail(err)
 	}
 	return managerRetirementCapture{Cell: authority.identity.Cell, Region: authority.identity.OCIRegion, Environment: authority.identity.Environment,
 		PriorInstanceID: retired.Evidence.PriorInstanceOCID, RetirementSHA256: retired.RetirementSHA256, PreviousAttempt: retired.Evidence.PreviousAttempt,
