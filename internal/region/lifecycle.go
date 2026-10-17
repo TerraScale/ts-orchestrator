@@ -47,11 +47,12 @@ type ApprovedFootprint struct {
 }
 
 type FoundationIntent struct {
-	Generation        uint64                   `json:"generation"`
-	Plan              map[string]any           `json:"plan"`
-	BootstrapMaterial *BootstrapMaterialIntent `json:"bootstrapMaterial,omitempty"`
-	ReadAccess        *ReadAccessIntent        `json:"readAccess,omitempty"`
-	NetBirdManager    *NetBirdManagerIntent    `json:"netbirdManager,omitempty"`
+	NetBirdBrokerPolicyWriter *NetBirdBrokerPolicyWriterIntent `json:"netbirdBrokerPolicyWriter,omitempty"`
+	Generation                uint64                           `json:"generation"`
+	Plan                      map[string]any                   `json:"plan"`
+	BootstrapMaterial         *BootstrapMaterialIntent         `json:"bootstrapMaterial,omitempty"`
+	ReadAccess                *ReadAccessIntent                `json:"readAccess,omitempty"`
+	NetBirdManager            *NetBirdManagerIntent            `json:"netbirdManager,omitempty"`
 }
 
 // FoundationIntentDigest binds every signed authority field to its generation.
@@ -122,40 +123,42 @@ type FoundationResourceProvenance struct {
 // FoundationRecord is bootstrap inventory, never serving or membership truth.
 // ResourceIDs contain verified OCIDs, never credential payloads.
 type FoundationRecord struct {
-	FoundationWriter    *FoundationWriterRecord                 `json:"foundationWriter,omitempty"`
-	GrantSHA256         string                                  `json:"grantSha256,omitempty"`
-	ResourceProvenance  map[string]FoundationResourceProvenance `json:"resourceProvenance,omitempty"`
-	SchemaVersion       int                                     `json:"schemaVersion"`
-	Cell                string                                  `json:"cell"`
-	OCIRegion           string                                  `json:"ociRegion"`
-	TenancyID           string                                  `json:"tenancyId"`
-	ParentCompartmentID string                                  `json:"parentCompartmentId"`
-	SharedCompartmentID string                                  `json:"sharedCompartmentId"`
-	Generation          uint64                                  `json:"generation"`
-	IntentDigest        string                                  `json:"intentDigest"`
-	OperationID         string                                  `json:"operationId"`
-	Epoch               uint64                                  `json:"epoch"`
-	LeaseID             string                                  `json:"leaseId,omitempty"`
-	ExpiresAt           time.Time                               `json:"expiresAt,omitzero"`
-	Stage               string                                  `json:"stage"`
-	BlockedReason       string                                  `json:"blockedReason,omitempty"`
-	StartedAt           time.Time                               `json:"startedAt"`
-	UpdatedAt           time.Time                               `json:"updatedAt"`
-	CompletedAt         time.Time                               `json:"completedAt,omitzero"`
-	ResourceIDs         map[string]string                       `json:"resourceIds"`
-	AuxiliaryIDs        map[string]string                       `json:"auxiliaryIds,omitempty"`
-	PendingCreates      map[string]PendingFoundationCreate      `json:"pendingCreates,omitempty"`
-	SourcePolicyIDs     map[string]SourcePolicyRecord           `json:"sourcePolicyIds,omitempty"`
-	NetBirdManager      *NetBirdManagerLaunch                   `json:"netbirdManager,omitempty"`
-	WorkerPolicyIDs     map[string]WorkerPolicyRecord           `json:"workerPolicyIds,omitempty"`
-	OCIRIssuances       map[string]OCIRIssuanceEntry            `json:"ocirIssuances,omitempty"`
-	OCIResources        *ociresource.ProtectedJournal           `json:"ociResources,omitempty"`
-	CapacityLedger      *capacityledger.Ledger                  `json:"capacityLedger,omitempty"`
-	CapacityCreates     map[string]PoolCreateRecord             `json:"capacityCreates,omitempty"`
-	CapacityPools       map[string]PoolResourceRecord           `json:"capacityPools,omitempty"`
-	PoolChildren        map[string]PoolChildRecord              `json:"poolChildren,omitempty"`
-	PoolDrains          map[string]drainwire.PoolReceipt        `json:"poolDrains,omitempty"`
-	PoolQuarantines     map[string]PoolQuarantineRecord         `json:"poolQuarantines,omitempty"`
+	RuntimeLineage        *RuntimeLineageRecord                   `json:"runtimeLineage,omitempty"`
+	NetBirdBrokerPolicies map[string]NetBirdBrokerPolicyRecord    `json:"netbirdBrokerPolicies,omitempty"`
+	FoundationWriter      *FoundationWriterRecord                 `json:"foundationWriter,omitempty"`
+	GrantSHA256           string                                  `json:"grantSha256,omitempty"`
+	ResourceProvenance    map[string]FoundationResourceProvenance `json:"resourceProvenance,omitempty"`
+	SchemaVersion         int                                     `json:"schemaVersion"`
+	Cell                  string                                  `json:"cell"`
+	OCIRegion             string                                  `json:"ociRegion"`
+	TenancyID             string                                  `json:"tenancyId"`
+	ParentCompartmentID   string                                  `json:"parentCompartmentId"`
+	SharedCompartmentID   string                                  `json:"sharedCompartmentId"`
+	Generation            uint64                                  `json:"generation"`
+	IntentDigest          string                                  `json:"intentDigest"`
+	OperationID           string                                  `json:"operationId"`
+	Epoch                 uint64                                  `json:"epoch"`
+	LeaseID               string                                  `json:"leaseId,omitempty"`
+	ExpiresAt             time.Time                               `json:"expiresAt,omitzero"`
+	Stage                 string                                  `json:"stage"`
+	BlockedReason         string                                  `json:"blockedReason,omitempty"`
+	StartedAt             time.Time                               `json:"startedAt"`
+	UpdatedAt             time.Time                               `json:"updatedAt"`
+	CompletedAt           time.Time                               `json:"completedAt,omitzero"`
+	ResourceIDs           map[string]string                       `json:"resourceIds"`
+	AuxiliaryIDs          map[string]string                       `json:"auxiliaryIds,omitempty"`
+	PendingCreates        map[string]PendingFoundationCreate      `json:"pendingCreates,omitempty"`
+	SourcePolicyIDs       map[string]SourcePolicyRecord           `json:"sourcePolicyIds,omitempty"`
+	NetBirdManager        *NetBirdManagerLaunch                   `json:"netbirdManager,omitempty"`
+	WorkerPolicyIDs       map[string]WorkerPolicyRecord           `json:"workerPolicyIds,omitempty"`
+	OCIRIssuances         map[string]OCIRIssuanceEntry            `json:"ocirIssuances,omitempty"`
+	OCIResources          *ociresource.ProtectedJournal           `json:"ociResources,omitempty"`
+	CapacityLedger        *capacityledger.Ledger                  `json:"capacityLedger,omitempty"`
+	CapacityCreates       map[string]PoolCreateRecord             `json:"capacityCreates,omitempty"`
+	CapacityPools         map[string]PoolResourceRecord           `json:"capacityPools,omitempty"`
+	PoolChildren          map[string]PoolChildRecord              `json:"poolChildren,omitempty"`
+	PoolDrains            map[string]drainwire.PoolReceipt        `json:"poolDrains,omitempty"`
+	PoolQuarantines       map[string]PoolQuarantineRecord         `json:"poolQuarantines,omitempty"`
 }
 
 // FoundationStore uses conditional writes in an already-authorized durable home
@@ -263,6 +266,11 @@ func validateFootprint(f ApprovedFootprint) error {
 		}
 		if _, ok := p["resource_ids"].(map[string]any); !ok {
 			return errors.New("regional plan lacks resource identities")
+		}
+		if intent.NetBirdBrokerPolicyWriter != nil {
+			if err := intent.NetBirdBrokerPolicyWriter.validate(cell); err != nil {
+				return err
+			}
 		}
 		seen[cell] = true
 	}
@@ -640,6 +648,7 @@ func (a *foundationAttempt) finish(ctx context.Context, providerErr error) (Foun
 	result.SourcePolicyIDs = cloneSourcePolicies(result.SourcePolicyIDs)
 	result.WorkerPolicyIDs = maps.Clone(result.WorkerPolicyIDs)
 	result.ResourceProvenance = maps.Clone(result.ResourceProvenance)
+	result.NetBirdBrokerPolicies = maps.Clone(result.NetBirdBrokerPolicies)
 	result.cloneCapacity()
 	result.clonePoolDrains()
 	return result, errors.Join(providerErr, err)

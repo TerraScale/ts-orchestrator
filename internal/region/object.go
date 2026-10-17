@@ -109,6 +109,12 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 		if err := previous.retainOCIRAuthority(record); err != nil {
 			return "", err
 		}
+		if err := previous.retainNetBirdBrokerPolicies(record); err != nil {
+			return "", err
+		}
+		if err := retainRuntimeLineage(previous.RuntimeLineage, record.RuntimeLineage); err != nil {
+			return "", err
+		}
 	}
 	wire, err := json.Marshal(record, json.Deterministic(true))
 	if err != nil {
@@ -145,6 +151,9 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 }
 
 func (r FoundationRecord) validate() error {
+	if err := r.validateRuntimeLineage(); err != nil {
+		return err
+	}
 	if err := r.validateOCIRIssuances(); err != nil {
 		return err
 	}
@@ -186,7 +195,15 @@ func (r FoundationRecord) validate() error {
 			return errors.New("foundation record has invalid resource identity")
 		}
 	}
-	// Retained worker grants are finite; wire size remains independently bounded.
+	// Retained IAM grants are finite; wire size remains independently bounded.
+	if len(r.NetBirdBrokerPolicies) > 3 {
+		return errors.New("NetBird broker IAM history exceeds its fixed bound")
+	}
+	for key, policy := range r.NetBirdBrokerPolicies {
+		if err := policy.validate(key, r.Cell); err != nil {
+			return err
+		}
+	}
 	if len(r.WorkerPolicyIDs) > 256 {
 		return errors.New("worker IAM journal exceeds its fixed bound")
 	}
