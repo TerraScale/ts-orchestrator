@@ -27,7 +27,7 @@ func TestContainerdHostPortReservationRecovery(t *testing.T) {
 	}
 	first := &api.Task{
 		ID: fmt.Sprintf("portfirst%d", time.Now().UnixNano()), ServiceID: "portintegration",
-		Spec:     api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 250_000_000, MemoryBytes: 64 << 20}}},
+		Spec:     api.TaskSpec{Runtime: runtime, Resources: containerTestResources(250_000_000, 64<<20)},
 		Endpoint: &api.Endpoint{Spec: &api.EndpointSpec{Ports: []*api.PortConfig{{Protocol: api.ProtocolTCP, PublishMode: api.PublishModeHost, PublishedPort: 35001, TargetPort: 35001}}}},
 	}
 	c, err := integrationContainerController(e, first)

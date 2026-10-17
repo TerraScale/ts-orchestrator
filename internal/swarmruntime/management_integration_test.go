@@ -138,7 +138,7 @@ func TestManagementIntegration(t *testing.T) {
 	}
 	request := &api.CreateServiceRequest{Spec: &api.ServiceSpec{
 		Annotations: api.Annotations{Name: "management-proof", Labels: labels},
-		Task:        api.TaskSpec{Runtime: runtimeSpec, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 100_000_000, MemoryBytes: 32 << 20}}, Placement: &api.Placement{Constraints: []string{"node.labels." + LabelRegion + "==sa-saopaulo-1", "node.labels." + LabelExecutionScope + "==platform"}, Platforms: []*api.Platform{{OS: "linux", Architecture: runtime.GOARCH}}}},
+		Task:        api.TaskSpec{Runtime: runtimeSpec, Resources: containerTestResources(100_000_000, 32<<20), Placement: &api.Placement{Constraints: []string{"node.labels." + LabelRegion + "==sa-saopaulo-1", "node.labels." + LabelExecutionScope + "==platform"}, Platforms: []*api.Platform{{OS: "linux", Architecture: runtime.GOARCH}}}},
 		Mode:        &api.ServiceSpec_Replicated{Replicated: &api.ReplicatedService{Replicas: 0}},
 	}}
 	unsafe := request.Spec.Copy()
