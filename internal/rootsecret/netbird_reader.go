@@ -234,12 +234,21 @@ type NetBirdReader struct {
 	mu       sync.Mutex
 	signer   nkeys.KeyPair
 	material NetBirdBrokerMaterial
+	source   NetBirdBrokerSource
 	endpoint NetBirdBrokerEndpoint
 	guard    func(context.Context) error
 }
 
 func (*NetBirdReader) String() string     { return "NetBird reader [redacted]" }
 func (r *NetBirdReader) GoString() string { return r.String() }
+
+// Source is the same independently authenticated regional source retained at open.
+func (r *NetBirdReader) Source() NetBirdBrokerSource {
+	if r == nil {
+		return NetBirdBrokerSource{}
+	}
+	return r.source
+}
 
 func (r *NetBirdReader) Conn() *nats.Conn {
 	if r == nil {
@@ -370,7 +379,7 @@ func OpenNetBirdReader(ctx context.Context, local region.VerifiedNetBirdManager,
 		deadline = original.ExpiresAt
 	}
 	readerCtx, cancel := context.WithDeadline(ctx, deadline)
-	r := &NetBirdReader{ctx: readerCtx, cancel: cancel, material: material}
+	r := &NetBirdReader{ctx: readerCtx, cancel: cancel, material: material, source: source}
 	fail := func() (*NetBirdReader, error) {
 		cancel()
 		if r.conn != nil {
