@@ -201,7 +201,7 @@ func (a *authenticatedNATS) config(t *testing.T, cfg natscell.Config) natscell.C
 		if embedded.Host == "" {
 			embedded.Host = "127.0.0.1"
 		}
-		if embedded.Port == 0 {
+		if embedded.Port <= 0 {
 			embedded.Port = reserveControllerPort(t)
 		}
 	}

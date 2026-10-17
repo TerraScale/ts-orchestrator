@@ -38,7 +38,7 @@ func TestCommittedRequestsNormalizeEachHostsActualTasks(t *testing.T) {
 		}
 	}
 	load.Reset()
-	for sample := range 3 {
+	for range 3 {
 		now = now.Add(DefaultMinInterval)
 		if err := load.RecordRequests(origin, report, nil); err != nil {
 			t.Fatal(err)
