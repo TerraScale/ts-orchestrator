@@ -1,0 +1,286 @@
+package rootrelease
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
+	"github.com/TerraScale/ts-orchestrator/internal/containermaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/delivery"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
+)
+
+var _ rootoci.ContainerMaterial = (*Backend)(nil)
+
+type materialScope struct {
+	intent   delivery.Intent
+	retained release.HistoricalContainer
+	roots    trust.Keyring
+	proof    release.ProductionQualification
+	expires  time.Time
+	guard    func(context.Context) error
+}
+
+func (b *Backend) material(ctx context.Context, call rootoci.Call, operation rootoci.Operation, operationID, fingerprint string) (materialScope, error) {
+	if b == nil || b.factory == nil || os.Geteuid() != 0 || !entityid.Valid(operationID) || !validDigest(fingerprint) || call.Operation() != operation {
+		return materialScope{}, rootoci.ErrInvalid
+	}
+	if err := call.Guard(ctx); err != nil {
+		return materialScope{}, err
+	}
+	b.mu.RLock()
+	s := b.sources
+	b.mu.RUnlock()
+	if s == nil {
+		return materialScope{}, ErrPending
+	}
+	source, err := s.Authority.ReadRuntimeAuthority(ctx, s.Accepted, time.Now().UTC())
+	if err != nil {
+		return materialScope{}, err
+	}
+	identity := source.Identity()
+	if identity.OCIRegion != b.factory.Region() || call.Expected().Cell != "" && !strings.EqualFold(call.Expected().Cell, identity.Cell) {
+		return materialScope{}, rootoci.ErrUnauthorized
+	}
+	rootEntry, err := s.Roots.Get(ctx, "chain")
+	if err != nil {
+		return materialScope{}, err
+	}
+	roots, err := currentRoots(s.Accepted, rootEntry.Value())
+	if err != nil {
+		return materialScope{}, err
+	}
+	intent, err := s.Intents.ContainerIntent(ctx, operationID)
+	if err != nil {
+		return materialScope{}, err
+	}
+	if intent.Container == nil || intent.Cell != strings.ToLower(identity.Cell) || intent.Environment != identity.Environment {
+		return materialScope{}, rootoci.ErrUnauthorized
+	}
+	specEntry, err := s.Specs.Get(ctx, "current")
+	if err != nil {
+		return materialScope{}, err
+	}
+	if _, err := containermaterial.VerifyProfile(specEntry.Value(), roots.Current, cellspec.Identity{DeploymentID: identity.DeploymentID, Cell: strings.ToLower(identity.Cell), Environment: identity.Environment}, intent); err != nil {
+		return materialScope{}, err
+	}
+	envelope, err := trust.DecodeEnvelope(intent.Container.Claim)
+	if err != nil {
+		return materialScope{}, err
+	}
+	// Scope selectors come from an authenticated retained intent, then the signed
+	// claim is checked again against the root process's actual regional identity.
+	var claim release.ContainerClaim
+	if err := protocol.DecodeStrict(envelope.Payload, &claim, trust.MaxPayloadBytes); err != nil {
+		return materialScope{}, err
+	}
+	target := release.ContainerTarget{Cell: identity.Cell, Environment: identity.Environment, Role: intent.Role, Architecture: claim.Architecture}
+	retained, err := release.VerifyContainerHistorical(*intent.Container, roots.Current, target)
+	if err != nil {
+		return materialScope{}, err
+	}
+	if retained.Fingerprint() != fingerprint {
+		return materialScope{}, rootoci.ErrUnauthorized
+	}
+	now := time.Now().UTC()
+	expires, ok := ctx.Deadline()
+	if !ok {
+		return materialScope{}, rootoci.ErrUnauthorized
+	}
+	expires = earlier(expires, source.ExpiresAt(), envelope.ExpiresAt)
+	qualification, err := trust.DecodeEnvelope(claim.Production.Qualification)
+	if err != nil {
+		return materialScope{}, err
+	}
+	expires = earlier(expires, qualification.ExpiresAt)
+	for _, wire := range [][]byte{intent.Container.Delegation, claim.Production.Delegation} {
+		if len(wire) == 0 {
+			continue
+		}
+		delegation, err := trust.DecodeEnvelope(wire)
+		if err != nil {
+			return materialScope{}, err
+		}
+		expires = earlier(expires, delegation.ExpiresAt)
+	}
+	// An envelope's expiry is exclusive; the original finite read cannot renew it.
+	expires = expires.Add(-time.Nanosecond)
+	if !now.Before(expires) {
+		return materialScope{}, trust.ErrExpired
+	}
+	verifyClaim := func(at time.Time) error {
+		if len(intent.Container.Delegation) == 0 {
+			_, err := trust.VerifyCurrent(envelope, release.ContainerScope(target), roots.Current, at, trust.Policy{MaxLifetime: release.MaxUpdateReceiptLifetime})
+			return err
+		}
+		delegation, err := trust.DecodeEnvelope(intent.Container.Delegation)
+		if err != nil {
+			return err
+		}
+		grant, err := trust.VerifyDelegationCurrent(delegation, roots.Current, at, trust.Policy{MaxLifetime: release.MaxUpdateReceiptLifetime})
+		if err != nil {
+			return err
+		}
+		_, err = trust.VerifyDelegatedCurrent(envelope, release.ContainerScope(target), grant, at, trust.Policy{MaxLifetime: release.MaxUpdateReceiptLifetime})
+		return err
+	}
+	if err := verifyClaim(now); err != nil {
+		return materialScope{}, err
+	}
+	if err := verifyClaim(expires); err != nil {
+		return materialScope{}, err
+	}
+	_, imageDigest, _ := strings.Cut(claim.Image, "@sha256:")
+	candidate := release.ProductionExpectation{SourceRevision: claim.SourceRevision, ArtifactSHA256: imageDigest, QualificationSHA256: claim.QualificationSHA256, Cell: target.Cell, Environment: target.Environment, Runtime: release.ProductionRuntime, Architecture: target.Architecture, Role: target.Role}
+	proof, err := release.VerifyProductionCurrent(claim.Production.Qualification, claim.Production.Delegation, roots.Current, candidate, now)
+	if err != nil {
+		return materialScope{}, err
+	}
+	if _, err := release.VerifyProductionCurrent(claim.Production.Qualification, claim.Production.Delegation, roots.Current, candidate, expires); err != nil {
+		return materialScope{}, err
+	}
+	pinned, err := intent.Fingerprint()
+	if err != nil {
+		return materialScope{}, err
+	}
+	guard := func(ctx context.Context) error {
+		if err := call.Guard(ctx); err != nil {
+			return err
+		}
+		if !time.Now().Before(expires) {
+			return trust.ErrExpired
+		}
+		current, err := s.Authority.ReadRuntimeAuthority(ctx, s.Accepted, time.Now().UTC())
+		if err != nil || current.Identity() != identity || !time.Now().Before(current.ExpiresAt()) {
+			return errors.Join(ErrPending, err)
+		}
+		rootNow, err := s.Roots.Get(ctx, "chain")
+		if err != nil || rootNow.Revision() != rootEntry.Revision() || !bytes.Equal(rootNow.Value(), rootEntry.Value()) {
+			return errors.Join(ErrPending, err)
+		}
+		specNow, err := s.Specs.Get(ctx, "current")
+		if err != nil || specNow.Revision() != specEntry.Revision() || !bytes.Equal(specNow.Value(), specEntry.Value()) {
+			return errors.Join(ErrPending, err)
+		}
+		currentIntent, err := s.Intents.ContainerIntent(ctx, operationID)
+		if err != nil {
+			return err
+		}
+		actual, err := currentIntent.Fingerprint()
+		if err != nil || actual != pinned {
+			return errors.Join(ErrPending, err)
+		}
+		if !time.Now().Before(expires) {
+			return trust.ErrExpired
+		}
+		return call.Guard(ctx)
+	}
+	return materialScope{intent: intent, retained: retained, roots: roots.Current, proof: proof, expires: expires, guard: guard}, guard(ctx)
+}
+
+func (b *Backend) ContainerEvidence(ctx context.Context, call rootoci.Call, request rootoci.ContainerEvidenceRequest) (rootoci.ContainerEvidenceChunk, error) {
+	var result rootoci.ContainerEvidenceChunk
+	if !validDigest(request.EvidenceSHA256) || request.Offset < 0 || request.Offset >= release.MaxProductionEvidenceBytes {
+		return result, rootoci.ErrInvalid
+	}
+	ctx, cancel, err := materialContext(ctx, call)
+	if err != nil {
+		return result, err
+	}
+	defer cancel()
+	scope, err := b.material(ctx, call, rootoci.OperationContainerEvidence, request.OperationID, request.ExpectedFingerprint)
+	if err != nil {
+		return result, err
+	}
+	ctx, expire := context.WithDeadline(ctx, scope.expires)
+	defer expire()
+	var evidence *release.ProductionGateEvidence
+	for _, entry := range scope.proof.Evidence {
+		if entry.SHA256 == request.EvidenceSHA256 {
+			if evidence != nil && evidence.Bytes != entry.Bytes {
+				return result, rootoci.ErrInvalid
+			}
+			evidence = new(entry)
+		}
+	}
+	if evidence == nil || request.Offset >= evidence.Bytes {
+		return result, rootoci.ErrInvalid
+	}
+	count := min(int64(rootoci.ContainerEvidenceChunkBytes), evidence.Bytes-request.Offset)
+	location, err := b.location(ctx, scope.intent.Cell)
+	if err != nil {
+		return result, err
+	}
+	name := releasechannel.ContainerEvidenceObject(scope.intent.Role, evidence.SHA256)
+	// Only one allowlisted signed evidence object and a bounded signed-size range
+	// can reach OCI; the consumer still verifies the assembled evidence digest.
+	response, err := ociclient.ReadObject(ctx, location.Client, objectstorage.GetObjectRequest{NamespaceName: new(location.Namespace), BucketName: new(location.Bucket), ObjectName: new(name), Range: new(fmt.Sprintf("bytes=%d-%d", request.Offset, request.Offset+count-1))})
+	if err != nil {
+		return result, err
+	}
+	if response.Content == nil {
+		return result, ErrPending
+	}
+	wire, readErr := io.ReadAll(io.LimitReader(response.Content, count+1))
+	closeErr := response.Content.Close()
+	if err := errors.Join(readErr, closeErr); err != nil {
+		return result, err
+	}
+	if int64(len(wire)) != count {
+		return result, errors.New("container evidence range differs from signed size")
+	}
+	if err := scope.guard(ctx); err != nil {
+		return result, err
+	}
+	return rootoci.ContainerEvidenceChunk{OperationID: request.OperationID, Fingerprint: scope.retained.Fingerprint(), EvidenceSHA256: evidence.SHA256, Offset: request.Offset, TotalBytes: evidence.Bytes, Data: wire, ExpiresAt: scope.expires}, nil
+}
+
+func (b *Backend) ContainerAllocation(ctx context.Context, call rootoci.Call, request rootoci.ContainerAllocationRequest) (rootoci.ContainerAllocationObservation, error) {
+	var result rootoci.ContainerAllocationObservation
+	ctx, cancel, err := materialContext(ctx, call)
+	if err != nil {
+		return result, err
+	}
+	defer cancel()
+	scope, err := b.material(ctx, call, rootoci.OperationContainerAllocation, request.OperationID, request.ExpectedFingerprint)
+	if err != nil {
+		return result, err
+	}
+	ctx, expire := context.WithDeadline(ctx, scope.expires)
+	defer expire()
+	claim := scope.retained.Claim()
+	location, err := b.allocations(ctx, *scope.intent.Container, scope.roots, release.ContainerTarget{Cell: claim.Cell, Environment: claim.Environment, Role: claim.Role, Architecture: claim.Architecture})
+	if err != nil {
+		return result, err
+	}
+	wire, err := release.ReadContainerAllocation(ctx, location, scope.roots, scope.retained)
+	if err != nil {
+		return result, err
+	}
+	if err := scope.guard(ctx); err != nil {
+		return result, err
+	}
+	return rootoci.ContainerAllocationObservation{OperationID: request.OperationID, Fingerprint: scope.retained.Fingerprint(), Namespace: location.Namespace, Bucket: location.Bucket, ObjectName: release.SequenceReservationObject(claim.Role, claim.Environment, claim.SequenceMigrationSHA256, claim.ReleaseSequence), Data: wire, ExpiresAt: scope.expires}, nil
+}
+
+func materialContext(ctx context.Context, call rootoci.Call) (context.Context, context.CancelFunc, error) {
+	if call.Deadline().IsZero() {
+		return nil, func() {}, rootoci.ErrUnauthorized
+	}
+	ctx, cancel := context.WithDeadline(ctx, earlier(call.Deadline(), time.Now().Add(30*time.Second)))
+	return ociclient.WithRequestGuard(ctx, call.Guard), cancel, nil
+}
