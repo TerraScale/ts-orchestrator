@@ -599,8 +599,8 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	ready(0)
-	floors, err := client.ListConfigs(ctx, &api.ListConfigsRequest{})
-	if err != nil || len(floors.Configs) == 0 {
+	durableFloors, err := client.ListConfigs(ctx, &api.ListConfigsRequest{})
+	if err != nil || len(durableFloors.Configs) == 0 {
 		t.Fatal("actual election lost durable release ordering", err)
 	}
 	adopt(4, nil)
