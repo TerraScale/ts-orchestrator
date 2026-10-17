@@ -20,6 +20,8 @@ import (
 // GenericDrainStore is implemented by the protected regional ROOT capture store.
 // StoreStop must independently authenticate the exact protected capture and key.
 type GenericDrainStore interface {
+	// Any pending, stopped or consumed protected capture fences its exact instance.
+	GuardStart(context.Context, drainwire.ExecutionHold) error
 	ReadChallenges(context.Context, []drainwire.SignedHold) ([]drainwire.DrainStopChallenge, error)
 	StoreStop(context.Context, drainwire.SignedStop) error
 }
@@ -54,11 +56,18 @@ func (s *GenericExecutionSessions) ListHolds(ctx context.Context, instanceID str
 
 func (s *GenericExecutionSessions) HandleGenericExecution(ctx context.Context, caller host.GenericExecutionCaller, q host.GenericExecutionQuery) (host.GenericExecutionReply, error) {
 	var empty host.GenericExecutionReply
+	observed := s.authority.Current()
+	identity := caller.Session()
+	if observed.ExpiresAt.Before(identity.ExpiresAt) {
+		identity.ExpiresAt = observed.ExpiresAt
+	}
+	// Waits and same-epoch renewals cannot extend this request's source lease.
+	ctx, cancel := context.WithDeadline(ctx, identity.ExpiresAt)
+	defer cancel()
 	if err := caller.Guard(ctx); err != nil {
 		return empty, err
 	}
-	identity := caller.Session()
-	epoch := s.authority.Current().Epoch
+	epoch := observed.Epoch
 	if err := s.authority.Guard(ctx, epoch); err != nil {
 		return empty, err
 	}
@@ -92,6 +101,9 @@ func (s *GenericExecutionSessions) HandleGenericExecution(ctx context.Context, c
 				if err := s.verifyCurrent(ctx, caller, q.Task, hash); err != nil {
 					return empty, err
 				}
+				if err := s.drains.GuardStart(ctx, h); err != nil {
+					return empty, err
+				}
 				return host.GenericExecutionReply{Hold: &signed}, nil
 			}
 			// A task ID cannot execute twice under another local or host session.
@@ -99,12 +111,12 @@ func (s *GenericExecutionSessions) HandleGenericExecution(ctx context.Context, c
 				return empty, errors.New("generic task already has another original execution hold")
 			}
 		}
-		if deadline := s.authority.Current().ExpiresAt; deadline.Before(identity.ExpiresAt) {
-			identity.ExpiresAt = deadline
-		}
 		h := drainwire.ExecutionHold{HostSession: identity, OriginalEpoch: epoch, NodeID: q.Task.NodeID, TaskID: q.Task.ID, ServiceID: q.Task.ServiceID,
 			TaskSHA256: hash, ExecutionSHA256: fingerprint, ExecutionSessionID: q.ExecutionSessionID, IssuedAt: time.Now().UTC()}
 		if err := s.verifyCurrent(ctx, caller, q.Task, hash); err != nil {
+			return empty, err
+		}
+		if err := s.drains.GuardStart(ctx, h); err != nil {
 			return empty, err
 		}
 		wire, err := drainwire.HoldSigningBytes(h)
@@ -122,7 +134,10 @@ func (s *GenericExecutionSessions) HandleGenericExecution(ctx context.Context, c
 		}
 		signed := drainwire.SignedHold{Hold: h, CertificateChain: chain, Signature: signature}
 		if err := s.authority.BeginGenericExecution(ctx, epoch, signed, func(check context.Context) error {
-			return s.verifyCurrent(check, caller, q.Task, hash)
+			if err := s.verifyCurrent(check, caller, q.Task, hash); err != nil {
+				return err
+			}
+			return s.drains.GuardStart(check, h)
 		}); err != nil {
 			return empty, err
 		}

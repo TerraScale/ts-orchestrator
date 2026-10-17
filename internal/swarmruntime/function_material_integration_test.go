@@ -97,7 +97,8 @@ while :; do sleep 1; done
 		if err := executor.BindFunctionMaterial(admission, provider); err != nil {
 			t.Fatal(err)
 		}
-		if err := executor.Configure(ctx, &api.Node{ID: task.NodeID}); err != nil {
+		// Material-only fixtures exercise standalone ownhost, outside pool retirement.
+		if err := executor.Configure(ctx, &api.Node{ID: task.NodeID, Role: api.NodeRoleManager}); err != nil {
 			t.Fatal(err)
 		}
 	}

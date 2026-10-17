@@ -121,7 +121,8 @@ while :; do sleep 1; done
 		if err := executor.BindContainerMaterial(admitted, provider); err != nil {
 			t.Fatal(err)
 		}
-		if err := executor.Configure(ctx, &api.Node{ID: task.NodeID}); err != nil {
+		// Material-only fixtures exercise standalone ownhost, outside pool retirement.
+		if err := executor.Configure(ctx, &api.Node{ID: task.NodeID, Role: api.NodeRoleManager}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -378,7 +379,8 @@ func integrationExpiringAgent(socket, state, taskPath, deadline string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	if err := e.Configure(ctx, &api.Node{ID: task.NodeID}); err != nil {
+	// Credential expiry is exercised on standalone ownhost, outside pool retirement.
+	if err := e.Configure(ctx, &api.Node{ID: task.NodeID, Role: api.NodeRoleManager}); err != nil {
 		return err
 	}
 	c, err := e.Controller(task)
