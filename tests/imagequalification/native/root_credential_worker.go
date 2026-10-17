@@ -12,6 +12,7 @@ import (
 	"strconv"
 
 	"github.com/TerraScale/ts-orchestrator/internal/app"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 )
 
@@ -41,7 +42,7 @@ func (w *worker) rootCredentialBoundary(ctx context.Context, proof []byte) (resp
 		return response{}, errors.New("installed ordinary controller account missing")
 	}
 	uid, err := strconv.ParseUint(account.Uid, 10, 32)
-	if err != nil || uid == 0 || uid == 2000 {
+	if err != nil || uid == 0 || uid == 65532 {
 		return response{}, errors.New("installed ordinary controller UID invalid")
 	}
 	process := exec.CommandContext(ctx, candidateBinary, "root-oci-qualification")
@@ -59,6 +60,9 @@ func (w *worker) rootCredentialBoundary(ctx context.Context, proof []byte) (resp
 	if err := json.Unmarshal(output.Bytes(), &result, json.RejectUnknownMembers(true)); err != nil {
 		return response{}, errors.New("installed candidate returned invalid root credential result")
 	}
+	if result.SourceSHA256 != digest(proof) {
+		return response{}, errors.New("installed root credential result differs from exact signed proof")
+	}
 	if err := verifyRootCredentialResult(result, w, uint32(uid)); err != nil {
 		return response{}, err
 	}
@@ -68,13 +72,21 @@ func (w *worker) rootCredentialBoundary(ctx context.Context, proof []byte) (resp
 }
 
 func verifyRootCredentialResult(result app.RootOCIQualificationResult, w *worker, ordinaryUID uint32) error {
-	if ordinaryUID == 0 || ordinaryUID == 2000 || result.SchemaVersion != 1 || result.InstanceID != w.identity.InstanceID || result.ImageID != w.identity.ImageOCID || result.BinarySHA256 != w.binaryHash || !shaPattern.MatchString(result.NamespaceSHA256) || !shaPattern.MatchString(result.SourceSHA256) || result.RootUID != 0 || result.PeerUID != ordinaryUID || result.Socket != rootCredentialSocket {
+	if ordinaryUID == 0 || ordinaryUID == 65532 || result.SchemaVersion != 1 || result.InstanceID != w.identity.InstanceID || result.ImageID != w.identity.ImageOCID || result.BinarySHA256 != w.binaryHash || !shaPattern.MatchString(result.NamespaceSHA256) || !shaPattern.MatchString(result.SourceSHA256) || result.RootUID != 0 || result.PeerUID != ordinaryUID || result.Socket != rootCredentialSocket {
 		return errors.New("installed root credential result identity or supervised peer mismatch")
 	}
 	for _, reader := range []app.RootOCIQualificationObservation{result.Readers.Inventory, result.Readers.LocalInstance, result.Readers.Fleet, result.Readers.Costs, result.Readers.Image, result.Readers.ReleaseChannel} {
 		if !shaPattern.MatchString(reader.SHA256) || reader.Bytes <= 0 || reader.Bytes > 8<<20 {
 			return errors.New("installed root credential result omitted an actual authenticated reader response")
 		}
+	}
+	local := result.Readers.LocalInstance
+	if len(local.Response) == 0 || int64(len(local.Response)) != local.Bytes || digest(local.Response) != local.SHA256 {
+		return errors.New("installed root credential local response is missing or changed")
+	}
+	var instance bootstrapstart.InstanceObservation
+	if json.Unmarshal(local.Response, &instance, json.RejectUnknownMembers(true)) != nil || instance.InstanceOCID != w.identity.InstanceID || instance.ImageOCID != w.identity.ImageOCID {
+		return errors.New("installed root credential retained local instance differs")
 	}
 	negative := result.Negative
 	if !negative.SameUIDProcessDenied || !negative.ProtectedWriteDenied || !negative.RawSignDenied || !negative.IMDSDenied {

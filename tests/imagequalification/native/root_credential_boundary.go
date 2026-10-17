@@ -24,7 +24,7 @@ func validateRootCredentialRequest(req Request) error {
 	if err := validateHostRequest(req); err != nil {
 		return err
 	}
-	if req.Candidate.Role != release.FoundationWriterRole || !shaPattern.MatchString(req.RootCredentialNamespaceSHA256) {
+	if req.Candidate.Role != release.FoundationWriterRole || req.Candidate.ImageOCID != req.ImageOCID || !shaPattern.MatchString(req.RootCredentialNamespaceSHA256) {
 		return errors.New("root credential qualification requires the approved foundation-writer purpose and namespace")
 	}
 	if len(req.RootCredentialProofs) != len(req.Hosts) {

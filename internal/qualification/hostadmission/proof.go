@@ -170,7 +170,7 @@ func verifyProof(wire []byte, roots trust.Keyring, now time.Time) (verified, err
 			role = "worker"
 		}
 		if err != nil || !peers.Contains(ip) || h.Name != spec.Name || spec.Role != role || names[h.Name] || h.Name == "" || ids[h.InstanceID] || ips[h.PrivateIP] ||
-			!release.ValidOCIImageIDForRegion(h.ImageID, a.Candidate.Cell) || image != "" && h.ImageID != image || !validInstanceID(h.InstanceID) ||
+			!release.ValidOCIImageIDForRegion(h.ImageID, a.Candidate.Cell) || a.Candidate.ImageOCID != "" && h.ImageID != a.Candidate.ImageOCID || image != "" && h.ImageID != image || !validInstanceID(h.InstanceID) ||
 			spec.Shape == "" || spec.AvailabilityDomain == "" || spec.FaultDomain == "" || spec.OCPUs <= 0 || spec.MemoryGB <= 0 || spec.BootGB < 50 {
 			return v, ErrAdmission
 		}

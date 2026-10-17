@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"encoding/json/v2"
 	"github.com/TerraScale/ts-orchestrator/internal/app"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 )
 
@@ -54,6 +56,11 @@ func TestRootCredentialResultRequiresSixReadersAndLiveRefusals(t *testing.T) {
 	w := &worker{binaryHash: hash, identity: Identity{InstanceID: "instance", ImageOCID: "image"}}
 	observation := app.RootOCIQualificationObservation{SHA256: hash, Bytes: 2}
 	valid := app.RootOCIQualificationResult{SchemaVersion: 1, InstanceID: "instance", ImageID: "image", BinarySHA256: hash, NamespaceSHA256: hash, SourceSHA256: hash, PeerUID: 999, Socket: rootCredentialSocket, Readers: app.RootOCIQualificationReaders{Inventory: observation, LocalInstance: observation, Fleet: observation, Costs: observation, Image: observation, ReleaseChannel: observation}, Negative: app.RootOCIQualificationDenials{SameUIDProcessDenied: true, ProtectedWriteDenied: true, RawSignDenied: true, IMDSDenied: true}}
+	localWire, err := json.Marshal(bootstrapstart.InstanceObservation{InstanceOCID: "instance", ImageOCID: "image"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	valid.Readers.LocalInstance = app.RootOCIQualificationObservation{SHA256: digest(localWire), Bytes: int64(len(localWire)), Response: localWire}
 	if err := verifyRootCredentialResult(valid, w, 999); err != nil {
 		t.Fatal(err)
 	}
@@ -61,6 +68,8 @@ func TestRootCredentialResultRequiresSixReadersAndLiveRefusals(t *testing.T) {
 		name   string
 		change func(*app.RootOCIQualificationResult)
 	}{
+		{"retained-local-response", func(r *app.RootOCIQualificationResult) { r.Readers.LocalInstance.Response = []byte("{}") }},
+		{"workload-uid", func(r *app.RootOCIQualificationResult) { r.PeerUID = 65532 }},
 		{"inventory", func(r *app.RootOCIQualificationResult) { r.Readers.Inventory.Bytes = 0 }},
 		{"local-instance", func(r *app.RootOCIQualificationResult) { r.Readers.LocalInstance.SHA256 = "" }},
 		{"fleet", func(r *app.RootOCIQualificationResult) { r.Readers.Fleet.Bytes = 0 }},
