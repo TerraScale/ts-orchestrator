@@ -310,15 +310,81 @@ func TestInstancePrincipalProtocolRejectsMismatchedMetadataKey(t *testing.T) {
 	}
 }
 
+func TestInstancePrincipalProtocol401RetryWaitContext(t *testing.T) {
+	for _, kind := range []string{"detached", "direct"} {
+		t.Run(kind, func(t *testing.T) {
+			fixture := newPrincipalProtocol(t)
+			factory, err := InstancePrincipalContext(t.Context(), "sa-saopaulo-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			client, err := factory.SecretsContext(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			client.HTTPClient = readDispatcher{next: fixture}
+			fixture.setMode("service:unauthorized")
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			requestContext := RequestContext(ctx)
+			if kind == "direct" {
+				client.Interceptor = nil
+				requestContext = ctx
+			}
+			done := make(chan error, 1)
+			go func() {
+				if kind == "direct" {
+					request, err := http.NewRequestWithContext(ctx, http.MethodGet, client.Host+"/20190301/secretbundles/ocid1.vaultsecret.oc1.sa-saopaulo-1.protocol", nil)
+					if err != nil {
+						done <- err
+						return
+					}
+					response, err := client.BaseClient.Call(ctx, request)
+					common.CloseBodyIfValid(response)
+					done <- err
+					return
+				}
+				_, err := client.GetSecretBundle(requestContext, secrets.GetSecretBundleRequest{SecretId: new("ocid1.vaultsecret.oc1.sa-saopaulo-1.protocol")})
+				done <- err
+			}()
+			// EOF is observed by the actual SDK response reader, before its 401 retry wait.
+			fixture.wait("service-401-body")
+			canceled := time.Now()
+			cancel()
+			if err := principalJoined(t, done); !errors.Is(err, context.Canceled) {
+				t.Fatalf("401 wait lost context identity: %v", err)
+			}
+			if elapsed := time.Since(canceled); elapsed >= 750*time.Millisecond {
+				t.Fatalf("401 cancellation waited through SDK sleep: %s", elapsed)
+			}
+			fixture.waitIdle(t)
+			fixture.mu.Lock()
+			calls := fixture.calls["service"]
+			fixture.mu.Unlock()
+			if calls != 1 {
+				t.Fatalf("canceled 401 wrapper replayed service request: %d", calls)
+			}
+		})
+	}
+}
+
 func TestInstancePrincipalProtocolOriginalDeadline(t *testing.T) {
 	for _, mode := range []string{"metadata:headers", "federation:headers"} {
 		t.Run(mode, func(t *testing.T) {
 			fixture := newPrincipalProtocol(t)
 			fixture.setMode(mode)
 			original := time.Now().Add(2 * time.Second)
-			parent, cancelParent := context.WithDeadline(t.Context(), original.Add(time.Minute))
+			parentDeadline := original.Add(time.Minute)
+			if mode == "metadata:headers" {
+				parentDeadline = original
+			}
+			parent, cancelParent := context.WithDeadline(t.Context(), parentDeadline)
 			defer cancelParent()
-			ctx, cancel := context.WithDeadline(RequestContext(parent), original)
+			ctx := RequestContext(parent)
+			cancel := func() {}
+			if mode == "federation:headers" {
+				ctx, cancel = context.WithDeadline(ctx, original)
+			}
 			defer cancel()
 			factory, err := InstancePrincipalContext(ctx, "sa-saopaulo-1")
 			if err == nil {
@@ -327,8 +393,10 @@ func TestInstancePrincipalProtocolOriginalDeadline(t *testing.T) {
 			if !errors.Is(err, context.DeadlineExceeded) {
 				t.Fatalf("original cap lost: %v", err)
 			}
-			if deadline, ok := ctx.Deadline(); !ok || deadline != original {
-				t.Fatal("constructor reset the original read budget")
+			if mode == "federation:headers" {
+				if deadline, ok := ctx.Deadline(); !ok || deadline != original {
+					t.Fatal("constructor reset the shorter outer read budget")
+				}
 			}
 			fixture.waitIdle(t)
 		})
@@ -575,7 +643,25 @@ func (f *principalProtocol) Do(request *http.Request) (*http.Response, error) {
 	if target == f.metadata.URL {
 		return f.metadata.Client().Do(clone)
 	}
-	return f.federation.Client().Do(clone)
+	response, err := f.federation.Client().Do(clone)
+	if err == nil && response.StatusCode == http.StatusUnauthorized && request.URL.Host == "secrets.vaults.sa-saopaulo-1.oci.oraclecloud.com" {
+		response.Body = &principalProtocolEOFBody{ReadCloser: response.Body, observed: func() { f.hits <- "service-401-body" }}
+	}
+	return response, err
+}
+
+type principalProtocolEOFBody struct {
+	io.ReadCloser
+	once     sync.Once
+	observed func()
+}
+
+func (body *principalProtocolEOFBody) Read(buffer []byte) (int, error) {
+	count, err := body.ReadCloser.Read(buffer)
+	if err == io.EOF {
+		body.once.Do(body.observed)
+	}
+	return count, err
 }
 
 func (f *principalProtocol) serveTLS(w http.ResponseWriter, r *http.Request) {
@@ -705,6 +791,14 @@ func (f *principalProtocol) serveTLS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	f.mu.Lock()
+	unauthorized := f.mode == "service:unauthorized"
+	f.mu.Unlock()
+	if unauthorized {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"code":"NotAuthenticated","message":"protocol retry boundary"}`)
+		return
+	}
 	_, _ = io.WriteString(w, `{"secretId":"ocid1.vaultsecret.oc1.sa-saopaulo-1.protocol","versionNumber":1,"secretBundleContent":{"contentType":"BASE64","content":"cHJvdG9jb2w="}}`)
 }
 

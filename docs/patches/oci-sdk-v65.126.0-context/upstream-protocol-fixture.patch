@@ -2,24 +2,11 @@ diff --git a/common/auth/certificate_retriever_test.go b/common/auth/certificate
 index e867f73ee490afe4ff4d5dcf5e3f9e7a3306cb9e..c1a4d220cbd5d2fd0c3ad61ced91afe32423f9ad 100644
 --- a/common/auth/certificate_retriever_test.go
 +++ b/common/auth/certificate_retriever_test.go
-@@ -6,11 +6,13 @@
- package auth
- 
- import (
+@@ -8,0 +9 @@ import (
 +	"context"
- 	"crypto/rand"
- 	"crypto/rsa"
- 	"crypto/x509"
- 	"crypto/x509/pkix"
- 	"encoding/pem"
+@@ -13,0 +15 @@ import (
 +	"errors"
- 	"fmt"
- 	"math/big"
- 	"net/http"
-@@ -279,3 +281,61 @@ func TestBadStaticCertificateRetriever(t *testing.T) {
- 	k := retriever.PrivateKey()
- 	assert.Nil(t, k)
- }
+@@ -281,0 +284,58 @@ func TestBadStaticCertificateRetriever(t *testing.T) {
 +
 +// The first refresh owns the real metadata body read; a second refresh must not
 +// remain stuck on its serialization lock after the second caller is canceled.

@@ -28,13 +28,20 @@ func credentialContext(ctx context.Context) (context.Context, func(), error) {
 	if original := originalReadContext(ctx); original != nil && original.Done() != nil && original.Done() != ctx.Done() && ctx.Value(credentialScopeKey{}) != original.Done() {
 		// Preserve values and any shorter outer deadline while restoring original cancellation.
 		joined, cancel := context.WithCancel(ctx)
-		stop := context.AfterFunc(original, cancel)
 		var cancelDeadline context.CancelFunc = func() {}
-		if deadline, ok := original.Deadline(); ok {
+		deadline, hasDeadline := original.Deadline()
+		if hasDeadline {
 			joined, cancelDeadline = context.WithDeadline(joined, deadline)
 		}
+		propagateCancellation := func() {
+			// Let the child deadline report DeadlineExceeded rather than racing it with Canceled.
+			if !hasDeadline || original.Err() != context.DeadlineExceeded {
+				cancel()
+			}
+		}
+		stop := context.AfterFunc(original, propagateCancellation)
 		if original.Err() != nil {
-			cancel()
+			propagateCancellation()
 		}
 		ctx = context.WithValue(joined, credentialScopeKey{}, original.Done())
 		release = func() { stop(); cancelDeadline(); cancel() }
