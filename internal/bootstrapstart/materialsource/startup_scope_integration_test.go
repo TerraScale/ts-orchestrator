@@ -355,6 +355,33 @@ func TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS(t *testing.T) {
 				if err := regionalMaterial.Revalidate(t.Context()); err != nil {
 					t.Fatal(err)
 				}
+				originalContext, cancelOriginal := context.WithCancel(t.Context())
+				defer cancelOriginal()
+				operation, cancelOperation := context.WithTimeout(originalContext, 30*time.Second)
+				defer cancelOperation()
+				boundedMaterial, err := resolver.BootstrapMaterialForOperation(operation, originalContext, "SFO")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !boundedMaterial.ExpiresAt().Equal(leaseDeadline) {
+					t.Fatal("regional material replaced its original signed lease with the read budget")
+				}
+				boundedStartup, err := bootstrap.VerifyBoundRegionalStartupTemplateForOperation(operation, originalContext, factory, wire, roots, anchor, oci.RegionSFO, now)
+				if err != nil {
+					t.Fatal(err)
+				}
+				cancelOperation()
+				assertStartup(boundedStartup, "SFO")
+				if err := boundedMaterial.Revalidate(t.Context()); err != nil {
+					t.Fatalf("completed read canceled original regional material: %v", err)
+				}
+				cancelOriginal()
+				if err := boundedStartup.VerifyCurrentContext(t.Context(), now); err == nil {
+					t.Fatal("regional startup ignored original caller cancellation")
+				}
+				if err := boundedMaterial.Revalidate(t.Context()); err == nil {
+					t.Fatal("regional material ignored original caller cancellation")
+				}
 			}
 			switched, err := home.ForCell(t.Context(), oci.RegionSFO, now)
 			if err != nil {

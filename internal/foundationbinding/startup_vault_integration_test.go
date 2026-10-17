@@ -26,6 +26,38 @@ func pinnedStartupScenario(t *testing.T) *bindingScenario {
 	return s
 }
 
+func TestStartupVaultOperationBudgetRetainsOriginalLifetime(t *testing.T) {
+	s := pinnedStartupScenario(t)
+	originalDeadline := time.Now().Add(time.Minute)
+	original, cancelOriginal := context.WithDeadline(t.Context(), originalDeadline)
+	defer cancelOriginal()
+	operation, cancelOperation := context.WithTimeout(original, 30*time.Second)
+	defer cancelOperation()
+	verified, err := VerifyStartupVaultForOperation(operation, original, s.factory, s.authority, s.wire, originalDeadline.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verified.ExpiresAt().Equal(originalDeadline) {
+		t.Fatal("operation read budget replaced the retained original deadline")
+	}
+	cancelOperation()
+	if err := verified.Revalidate(t.Context()); err != nil {
+		t.Fatalf("completed read canceled the retained authority: %v", err)
+	}
+	cancelOriginal()
+	before := s.reads["/20180608/keys/"+verified.KMSKeyOCID()]
+	if err := verified.Revalidate(t.Context()); err == nil || s.reads["/20180608/keys/"+verified.KMSKeyOCID()] != before {
+		t.Fatal("original cancellation permitted another SDK observation")
+	}
+	s = pinnedStartupScenario(t)
+	original, cancelOriginalRead := context.WithCancel(t.Context())
+	defer cancelOriginalRead()
+	s.resourceRead = func(string) { cancelOriginalRead() }
+	if _, err := VerifyStartupVaultForOperation(t.Context(), original, s.factory, s.authority, s.wire, originalDeadline); err == nil {
+		t.Fatal("original cancellation during SDK read sealed startup authority")
+	}
+}
+
 func TestStartupVaultObservesExactPinsWithoutCreatingLogicalBirth(t *testing.T) {
 	s := pinnedStartupScenario(t)
 	deadline := time.Now().Add(30 * time.Second)

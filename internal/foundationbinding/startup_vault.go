@@ -22,6 +22,7 @@ import (
 // Exact pins never become logical bindings or receive creation provenance.
 type VerifiedStartupVault struct {
 	factory                 *ociclient.Factory
+	original                context.Context
 	authority               Authority
 	wire                    []byte
 	expires                 time.Time
@@ -38,10 +39,10 @@ func (v VerifiedStartupVault) ExpiresAt() time.Time    { return v.expires }
 
 // Revalidate preserves the original operation, fencing epoch, lease and deadline.
 func (v VerifiedStartupVault) Revalidate(ctx context.Context) error {
-	if v.factory == nil || !time.Now().Before(v.expires) {
+	if v.factory == nil || v.original == nil || v.original.Err() != nil || !time.Now().Before(v.expires) {
 		return errors.New("startup vault observation expired or unverified")
 	}
-	current, err := VerifyStartupVault(ctx, v.factory, v.authority, v.wire, v.expires)
+	current, err := VerifyStartupVaultForOperation(ctx, v.original, v.factory, v.authority, v.wire, v.expires)
 	if err != nil {
 		return err
 	}
@@ -56,7 +57,16 @@ func (v VerifiedStartupVault) Revalidate(ctx context.Context) error {
 // operation before fresh OCI reads. deadline is the original bootstrap anchor cap.
 // Target roles in Authority.Keys also require genuine birth when exactly pinned.
 func VerifyStartupVault(ctx context.Context, factory *ociclient.Factory, authority Authority, grantWire []byte, deadline time.Time) (VerifiedStartupVault, error) {
-	if callerDeadline, ok := ctx.Deadline(); ok && callerDeadline.Before(deadline) {
+	return VerifyStartupVaultForOperation(ctx, ctx, factory, authority, grantWire, deadline)
+}
+
+// VerifyStartupVaultForOperation bounds SDK waits independently of the original
+// caller lifetime retained by the verified observation.
+func VerifyStartupVaultForOperation(ctx, original context.Context, factory *ociclient.Factory, authority Authority, grantWire []byte, deadline time.Time) (VerifiedStartupVault, error) {
+	if ctx == nil || original == nil || ctx.Err() != nil || original.Err() != nil {
+		return VerifiedStartupVault{}, errors.New("startup vault requires live operation and original contexts")
+	}
+	if callerDeadline, ok := original.Deadline(); ok && callerDeadline.Before(deadline) {
 		deadline = callerDeadline
 	}
 	if deadline.IsZero() || !time.Now().Before(deadline) {
@@ -64,6 +74,8 @@ func VerifyStartupVault(ctx context.Context, factory *ociclient.Factory, authori
 	}
 	ctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
+	stopOriginal := context.AfterFunc(original, cancel)
+	defer stopOriginal()
 	if factory == nil || !catalog.IsCell(authority.Cell) || !canonicalDigest(authority.GrantSHA256) || authority.Generation == 0 ||
 		!entityid.Valid(authority.InstallationID) || !resourceID(authority.TenancyID, "tenancy", "") ||
 		authority.Namespace == "" || authority.Bucket == "" || authority.Prefix == "" || strings.ContainsAny(authority.Prefix, "\\\r\n\x00") || strings.ContainsAny(authority.Namespace+authority.Bucket, "/\\\r\n\x00") ||
@@ -211,6 +223,9 @@ func VerifyStartupVault(ctx context.Context, factory *ociclient.Factory, authori
 	if err := observedCtx.Err(); err != nil {
 		return VerifiedStartupVault{}, err
 	}
+	if err := original.Err(); err != nil {
+		return VerifiedStartupVault{}, err
+	}
 	if !time.Now().Before(expires) {
 		return VerifiedStartupVault{}, errors.New("startup vault observation exceeded authority deadline")
 	}
@@ -219,7 +234,7 @@ func VerifyStartupVault(ctx context.Context, factory *ociclient.Factory, authori
 	for key, public := range authority.Roots {
 		authority.Roots[key] = ed25519.PublicKey(bytes.Clone(public))
 	}
-	return VerifiedStartupVault{factory: factory, authority: authority, wire: bytes.Clone(grantWire), expires: expires,
+	return VerifiedStartupVault{factory: factory, original: original, authority: authority, wire: bytes.Clone(grantWire), expires: expires,
 		operationID: current.OperationID, epoch: current.Epoch, leaseID: current.LeaseID, leaseExpiresAt: current.ExpiresAt,
 		compartment: current.ResourceIDs["control_compartment"], vault: current.ResourceIDs["vault"], key: current.ResourceIDs["key"]}, nil
 }
