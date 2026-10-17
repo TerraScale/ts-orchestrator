@@ -77,6 +77,9 @@ func (c *controller) Prepare(ctx context.Context) error {
 	}
 	c.executor.mu.Lock()
 	defer c.executor.mu.Unlock()
+	if c.stateful == nil {
+		c.executor.trackLoadTask(c)
+	}
 	ports, unlock, err := c.reservePorts(ctx)
 	if err != nil {
 		return err
@@ -479,7 +482,14 @@ func (c *controller) Remove(ctx context.Context) error {
 	return errors.Join(os.RemoveAll(filepath.Join(c.executor.logRoot, c.id)), os.RemoveAll(c.functionMaterialPath()), os.RemoveAll(c.containerMaterialPath()))
 }
 
-func (c *controller) Close() error { return nil }
+func (c *controller) Close() error {
+	c.executor.mu.Lock()
+	defer c.executor.mu.Unlock()
+	if c.executor.loadTasks[c.task.ID] == c {
+		delete(c.executor.loadTasks, c.task.ID)
+	}
+	return nil
+}
 
 func (c *controller) ContainerStatus(ctx context.Context) (*api.ContainerStatus, error) {
 	t, err := c.runtimeTask(ctx)
