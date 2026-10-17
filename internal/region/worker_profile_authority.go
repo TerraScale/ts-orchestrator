@@ -152,6 +152,7 @@ func ValidateWorkerProfile(grant FoundationGrant, p WorkerProfile) error {
 		p.OCPUs != 2 || p.MemoryGB != 12 || p.BootGB != 50 || len(p.AvailabilityDomains) == 0 ||
 		len(p.AvailabilityDomains) > 4 || p.Bootstrap.Derivation != WorkerBootstrapDerivationV1 ||
 		p.PoolMembership.Purpose != PoolMembershipQuarantineV1 || p.PoolMembership.Provenance != PoolMembershipProvenanceV1 ||
+		p.CapacityJournal.Purpose != CapacityJournalPurposeV1 || p.CapacityJournal.Principal != CapacityJournalPrincipalV1 || p.CapacityJournal.Delta != CapacityJournalDeltaV1 ||
 		p.Bootstrap.RecipientPermission != "SECRET_BUNDLE_READ" || len(p.ImageReceipt) > 1<<20 || len(p.ImageDelegation) > 1<<20 || p.Runtime != release.ProductionRuntime ||
 		(len(p.ImageReceipt) == 0) != (len(p.ImageDelegation) == 0) || p.RuntimeSHA256 != "" && !workerDigest(p.RuntimeSHA256) {
 		return errors.New("invalid fixed production worker profile")
