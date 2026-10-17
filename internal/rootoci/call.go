@@ -2,6 +2,9 @@ package rootoci
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"reflect"
@@ -44,9 +47,10 @@ type Expectations struct {
 }
 
 type Lease struct {
-	Context  context.Context
-	Deadline time.Time
-	Binding  string
+	Context   context.Context
+	Deadline  time.Time
+	Binding   string
+	RuntimeID string
 }
 
 // Authorize independently checks the exact process, accepted source and role,
@@ -60,14 +64,15 @@ type Call struct {
 }
 
 type callState struct {
-	ctx       context.Context
-	expected  Expectations
-	operation Operation
-	witness   *ProcessWitness
-	authorize Authorize
-	lease     Lease
-	root      bool
-	deadline  time.Time
+	ctx            context.Context
+	expected       Expectations
+	operation      Operation
+	witness        *ProcessWitness
+	authorize      Authorize
+	lease          Lease
+	root           bool
+	deadline       time.Time
+	sessionBinding string
 }
 
 func (call Call) Expected() Expectations {
@@ -92,6 +97,22 @@ func (call Call) Deadline() time.Time {
 	return call.state.deadline
 }
 
+// SessionBindingSHA256 identifies the retained original process and session.
+func (call Call) SessionBindingSHA256() string {
+	if call.state == nil {
+		return ""
+	}
+	return call.state.sessionBinding
+}
+
+// RuntimeID is the candidate identity privately bound by the root supervisor.
+func (call Call) RuntimeID() string {
+	if call.state == nil {
+		return ""
+	}
+	return call.state.lease.RuntimeID
+}
+
 // Guard must run immediately before each provider read, write or installation.
 // It never adopts a successor session, even when that session authorizes the peer.
 func (call Call) Guard(ctx context.Context) error {
@@ -110,9 +131,10 @@ func (call Call) Guard(ctx context.Context) error {
 		return ErrUnauthorized
 	}
 	current, err := state.authorize(ctx, state.witness.Peer(), state.operation)
-	if err != nil || !validLease(current) || current.Binding != state.lease.Binding ||
-		!sameContext(current.Context, state.lease.Context) || current.Deadline.Before(state.lease.Deadline) ||
-		state.witness.Verify() != nil || ctx.Err() != nil || state.ctx.Err() != nil {
+	if err != nil || !validLease(current) || current.Binding != state.lease.Binding || current.RuntimeID != state.lease.RuntimeID ||
+		!sameContext(current.Context, state.lease.Context) || !current.Deadline.Equal(state.lease.Deadline) ||
+		state.witness.Verify() != nil || ctx.Err() != nil || state.ctx.Err() != nil ||
+		!time.Now().Before(state.deadline) {
 		return ErrUnauthorized
 	}
 	return nil
@@ -134,13 +156,22 @@ func RootCall(ctx context.Context) (Call, error) {
 	if ctx == nil {
 		return Call{}, ErrUnauthorized
 	}
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		deadline = time.Now().Add(30 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
+	if parent, ok := ctx.Deadline(); ok && parent.Before(deadline) {
+		deadline = parent
 	}
-	call := Call{state: &callState{ctx: ctx, root: true, deadline: deadline}}
+	var nonce [32]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return Call{}, ErrUnauthorized
+	}
+	call := Call{state: &callState{ctx: ctx, root: true, deadline: deadline, sessionBinding: hex.EncodeToString(nonce[:])}}
 	if err := call.Guard(ctx); err != nil {
 		return Call{}, err
 	}
 	return call, nil
+}
+
+func sessionBinding(witness *ProcessWitness, lease Lease) string {
+	digest := sha256.Sum256([]byte(witness.Binding() + "\x00" + lease.Binding + "\x00" + lease.RuntimeID + "\x00" + lease.Deadline.UTC().Format(time.RFC3339Nano)))
+	return hex.EncodeToString(digest[:])
 }
