@@ -57,18 +57,9 @@ func foundationContext(ctx context.Context) context.Context {
 }
 
 func foundationComponents() ([]foundationComponent, error) {
-	var server, dashboard, ingress string
-	switch runtime.GOARCH {
-	case "arm64":
-		server = "4ef9ce41c29a62b864805c948a1bcb173d4b909d72a581853ffb29743ac6f9ee"
-		dashboard = "44a250c04d91b46aa666de4b2b25602f0580b64dee0682fedfb9d012cb020ff7"
-		ingress = "8dbca3525dd8dce671e495665a0eb297a83ec87ee30f373947d0ea93115949db"
-	case "amd64":
-		server = "8eb63a41f572bd11a160c8444d9dbd7178dd1de71965f848cf788991a58a6c16"
-		dashboard = "86f5fbb16c5bae1918dc2f09da6182144c30e45ecf75d7902038743094e7bdcd"
-		ingress = "d8c17a862962def15cde69863a3a463f25a2664942eafd7bdbf050e9c3116b83"
-	default:
-		return nil, errors.New("NetBird foundation requires qualified arm64 or amd64 upstream components")
+	images, err := PinnedComponentImages(runtime.GOARCH)
+	if err != nil {
+		return nil, err
 	}
 	config, err := os.ReadFile(ConfigPath)
 	if err != nil {
@@ -94,9 +85,9 @@ func foundationComponents() ([]foundationComponent, error) {
 		return spec.Mount{Source: source, Destination: target, Type: "bind", Options: options}
 	}
 	return []foundationComponent{
-		{ID: "netbird-server", Image: "docker.io/netbirdio/netbird-server@sha256:" + server, Args: []string{"/go/bin/netbird-server", "--config", "/etc/netbird/config.yaml"}, Mounts: []spec.Mount{bind(DataDirectory+"/data", "/var/lib/netbird", false), bind(filepath.Dir(ConfigPath), "/etc/netbird", true)}, Memory: 512 << 20, Configuration: hex.EncodeToString(sum[:])},
-		{ID: "netbird-dashboard", Image: "docker.io/netbirdio/dashboard@sha256:" + dashboard, Env: env, Args: []string{"/bin/bash", "-ec", `sed -i 's/listen 80 default_server;/listen 127.0.0.1:18080 default_server;/; /listen \[::\]:80 default_server;/d' /etc/nginx/http.d/default.conf; exec /usr/local/init_react_envs.sh /usr/sbin/nginx`}, Memory: 192 << 20},
-		{ID: "netbird-ingress", Image: "docker.io/library/caddy@sha256:" + ingress, Mounts: []spec.Mount{bind(stackDirectory+"/Caddyfile.netbird", "/etc/caddy/Caddyfile", true), bind(DataDirectory+"/data/foundation-tls", "/data", false)}, Memory: 192 << 20},
+		{ID: "netbird-server", Image: images[0], Args: []string{"/go/bin/netbird-server", "--config", "/etc/netbird/config.yaml"}, Mounts: []spec.Mount{bind(DataDirectory+"/data", "/var/lib/netbird", false), bind(filepath.Dir(ConfigPath), "/etc/netbird", true)}, Memory: 512 << 20, Configuration: hex.EncodeToString(sum[:])},
+		{ID: "netbird-dashboard", Image: images[1], Env: env, Args: []string{"/bin/bash", "-ec", `sed -i 's/listen 80 default_server;/listen 127.0.0.1:18080 default_server;/; /listen \[::\]:80 default_server;/d' /etc/nginx/http.d/default.conf; exec /usr/local/init_react_envs.sh /usr/sbin/nginx`}, Memory: 192 << 20},
+		{ID: "netbird-ingress", Image: images[2], Mounts: []spec.Mount{bind(stackDirectory+"/Caddyfile.netbird", "/etc/caddy/Caddyfile", true), bind(DataDirectory+"/data/foundation-tls", "/data", false)}, Memory: 192 << 20},
 	}, nil
 }
 

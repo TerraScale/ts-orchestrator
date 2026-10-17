@@ -5,5 +5,5 @@ import "embed"
 
 // Files contains only NetBird-owned host assets.
 //
-//go:embed systemd/netbird-backup.service systemd/netbird-backup.timer Caddyfile.netbird dashboard.environment templates/config.yaml.tmpl
+//go:embed systemd/netbird-foundation.service systemd/netbird-backup.service systemd/netbird-backup.timer Caddyfile.netbird dashboard.environment templates/config.yaml.tmpl
 var Files embed.FS

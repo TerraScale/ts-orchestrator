@@ -60,7 +60,7 @@ func (s Supervisor) Install(ctx context.Context) error {
 			return errors.New("NetBird foundation directory creation failed")
 		}
 	}
-	for _, name := range []string{"systemd/netbird-backup.service", "systemd/netbird-backup.timer", "Caddyfile.netbird", "dashboard.environment", "templates/config.yaml.tmpl"} {
+	for _, name := range []string{"systemd/netbird-backup.service", "systemd/netbird-backup.timer", "Caddyfile.netbird", "dashboard.environment", "templates/config.yaml.tmpl", "systemd/netbird-foundation.service"} {
 		wire, err := fs.ReadFile(managerbundle.Files, name)
 		if err != nil {
 			return errors.New("NetBird embedded deployment asset missing")
@@ -75,9 +75,6 @@ func (s Supervisor) Install(ctx context.Context) error {
 		if err := os.WriteFile(target, wire, 0644); err != nil {
 			return errors.New("NetBird asset installation failed")
 		}
-	}
-	if err := os.WriteFile("/etc/systemd/system/netbird-foundation.service", []byte(foundationUnit), 0644); err != nil {
-		return errors.New("NetBird foundation unit installation failed")
 	}
 	if err := systemctl(ctx, "daemon-reload"); err != nil {
 		return err
@@ -379,20 +376,3 @@ func (s Supervisor) wait(ctx context.Context, authenticated bool) error {
 		}
 	}
 }
-
-const foundationUnit = `[Unit]
-Description=TerraScale NetBird foundation lifecycle
-After=network-online.target containerd.service
-Wants=network-online.target
-Requires=containerd.service
-[Service]
-ExecStart=/usr/local/bin/ts-orch netbird foundation serve
-Restart=always
-RestartSec=30
-RuntimeDirectory=terrascale-netbird
-RuntimeDirectoryMode=0700
-RuntimeDirectoryPreserve=yes
-LimitCORE=0
-[Install]
-WantedBy=multi-user.target
-`
