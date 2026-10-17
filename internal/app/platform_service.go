@@ -14,6 +14,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/moby/swarmkit/v2/api/genericresource"
 )
 
 // The caller verifies current release authority before applying this exact
@@ -46,7 +47,7 @@ func platformServiceIntent(intent delivery.Intent, profile WorkloadProfile, ociR
 	for _, key := range slices.Sorted(maps.Keys(profile.Env)) {
 		environment = append(environment, key+"="+profile.Env[key])
 	}
-	limits := &api.Resources{NanoCPUs: int64(profile.Resources.CPU) * 1_000_000_000, MemoryBytes: profile.Resources.MemoryBytes}
+	limits := &api.Resources{NanoCPUs: int64(profile.Resources.CPU) * 1_000_000_000, MemoryBytes: profile.Resources.MemoryBytes, Generic: []*api.GenericResource{genericresource.NewDiscrete(swarmruntime.DiskResource, profile.Resources.DiskBytes)}}
 	service := swarmruntime.ServiceIntent{
 		ID: entityid.Derive("platform-service", intent.Role, intent.Environment, ociRegion), OperationID: intent.OperationID,
 		Role: intent.Role, Region: ociRegion, Environment: intent.Environment, Architecture: architecture,

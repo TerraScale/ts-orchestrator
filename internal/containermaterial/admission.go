@@ -26,6 +26,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/moby/swarmkit/v2/api/genericresource"
 	"github.com/moby/swarmkit/v2/ca"
 )
 
@@ -326,7 +327,7 @@ func ServiceIntent(proof Profile, architecture string) (swarmruntime.ServiceInte
 	for _, key := range slices.Sorted(maps.Keys(profile.Env)) {
 		environment = append(environment, key+"="+profile.Env[key])
 	}
-	limits := &api.Resources{NanoCPUs: int64(profile.Resources.CPU) * 1_000_000_000, MemoryBytes: profile.Resources.MemoryBytes}
+	limits := &api.Resources{NanoCPUs: int64(profile.Resources.CPU) * 1_000_000_000, MemoryBytes: profile.Resources.MemoryBytes, Generic: []*api.GenericResource{genericresource.NewDiscrete(swarmruntime.DiskResource, profile.Resources.DiskBytes)}}
 	expected := swarmruntime.ServiceIntent{ID: entityid.Derive("platform-service", intent.Role, intent.Environment, region.OCIRegion), OperationID: intent.OperationID, Generation: intent.Generation,
 		Role: intent.Role, Region: region.OCIRegion, Environment: intent.Environment, Architecture: architecture, Replicas: uint64(intent.DesiredReplicas),
 		Container: &api.ContainerSpec{Image: claim.Image, User: "65532:65532", Args: slices.Clone(profile.Args), Env: environment},
