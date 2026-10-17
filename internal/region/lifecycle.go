@@ -117,6 +117,7 @@ type FoundationResourceProvenance struct {
 // FoundationRecord is bootstrap inventory, never serving or membership truth.
 // ResourceIDs contain verified OCIDs, never credential payloads.
 type FoundationRecord struct {
+	FoundationWriter    *FoundationWriterRecord                 `json:"foundationWriter,omitempty"`
 	GrantSHA256         string                                  `json:"grantSha256,omitempty"`
 	ResourceProvenance  map[string]FoundationResourceProvenance `json:"resourceProvenance,omitempty"`
 	SchemaVersion       int                                     `json:"schemaVersion"`
