@@ -127,6 +127,7 @@ type PoolInstance struct {
 	Capacity                                                    Capacity
 	PoolID, ConfigurationID                                     string
 	Birth                                                       *rootoci.PoolChildView
+	Cleanup                                                     *rootoci.PoolRetirementPreparation // original selectors, never worker admission
 }
 
 // PoolState is what the pool holds now. Instances exclude terminated ones.
@@ -137,6 +138,7 @@ type PoolState struct {
 	Instances                               []PoolInstance   // sorted by Name then ID
 	ProvisioningFunctions                   []CapacityDemand // actual owned pool size not yet represented by instance IDs
 	Pending                                 string           // observations remain available while mutations are held
+	AdmissionPending                        string           // known originals may retire, but cannot serve or grow
 }
 
 var ErrCapacityPending = errors.New("node capacity admission is pending")

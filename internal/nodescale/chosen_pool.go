@@ -15,6 +15,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/naming"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 )
 
@@ -56,7 +57,17 @@ func (pool *ChosenPool) Observe(ctx context.Context) (PoolState, error) {
 		proof, err := pool.root.VerifyPoolChild(ctx, rootoci.PoolChildObservation{Cell: strings.ToUpper(pool.observed.cell), InstanceID: instance.ID, PoolID: instance.PoolID})
 		if err != nil {
 			instance.Name = ""
-			state.Pending = fmt.Sprintf("%s has no current authenticated original pool birth: %v", instance.ID, err)
+			reason := fmt.Sprintf("%s has no current authenticated original pool birth: %v", instance.ID, err)
+			prepared, cleanupErr := pool.root.PreparePoolRetirement(ctx, rootoci.PoolRetirementSelector{Cell: strings.ToUpper(pool.observed.cell), InstanceID: instance.ID})
+			if cleanupErr != nil {
+				state.Pending = fmt.Sprintf("%s; original cleanup selectors unavailable: %v", reason, cleanupErr)
+				continue
+			}
+			if prepared.Retirement.Child.PoolID != instance.PoolID {
+				return PoolState{}, errors.New("root cleanup child differs from observed pool membership")
+			}
+			state.AdmissionPending = reason
+			instance.Name, instance.Cleanup = prepared.Node, new(prepared)
 			continue
 		}
 		view := proof.View()
@@ -138,14 +149,24 @@ func (pool *ChosenPool) PrepareRetirement(ctx context.Context, instanceID, remov
 	return originalPoolRetirement(prepared, instanceID, removalOperationID)
 }
 
-func (pool *ChosenPool) drainRetirement(ctx context.Context, record Record, original rootoci.PoolRetirementExpectation) error {
-	selected, err := pool.selectors(ctx, record)
+func (pool *ChosenPool) drainRetirement(ctx context.Context, original rootoci.PoolRetirementExpectation) error {
+	prepared, err := pool.root.PreparePoolRetirement(ctx, rootoci.PoolRetirementSelector{Cell: original.Child.Cell, InstanceID: original.InstanceID})
 	if err != nil {
 		return err
 	}
+	expected := original
+	expected.RemovalOperationID, expected.DrainSHA256 = "", ""
+	want, err := protocol.EncodeJSON(expected)
+	if err != nil {
+		return err
+	}
+	got, err := protocol.EncodeJSON(prepared.Retirement)
+	if err != nil || !bytes.Equal(want, got) {
+		return errors.Join(ErrRecordChanged, err)
+	}
 	child := drainwire.PoolChild{Cell: original.Child.Cell, BirthOperationID: original.Child.OperationID, RemovalOperationID: original.RemovalOperationID,
 		InstanceID: original.InstanceID, PoolID: original.Child.PoolID, ConfigurationID: original.Child.ConfigurationID, RecipeSHA256: original.Child.RecipeSHA256,
-		GrantSHA256: selected.GrantSHA256, Generation: selected.Generation}
+		GrantSHA256: prepared.CurrentGrantSHA256, Generation: prepared.CurrentGeneration}
 	capture, err := pool.root.BeginPoolDrain(ctx, child)
 	if err != nil {
 		return errors.Join(ErrCapacityPending, err)
@@ -199,7 +220,7 @@ func (pool *ChosenPool) Remove(ctx context.Context, instanceID string) error {
 	original := *record.Retirement
 	// A failed replay can mean HOME already retired this child. Always ask
 	// HOME to reconcile the saved request against its own protected evidence.
-	drainErr := pool.drainRetirement(ctx, record, original)
+	drainErr := pool.drainRetirement(ctx, original)
 	view, err := pool.root.RetirePoolChild(ctx, original)
 	if err != nil {
 		return errors.Join(ErrCapacityPending, drainErr, err)
@@ -235,7 +256,7 @@ func (pool *ChosenPool) Recover(ctx context.Context) error {
 		return err
 	}
 	for _, instance := range state.Instances {
-		if instance.Birth != nil {
+		if instance.Birth != nil || instance.Cleanup != nil {
 			continue
 		}
 		selected, err := pool.selectors(ctx, record)

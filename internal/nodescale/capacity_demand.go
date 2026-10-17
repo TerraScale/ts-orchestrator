@@ -48,7 +48,7 @@ func (s *Scaler) functionDemand(ctx context.Context, t *tick) (*CapacityDemand, 
 	}
 	byInstance := nodesByInstance(t.hosts)
 	for _, instance := range t.pool.Instances {
-		if instance.Capacity.Role != RoleWasm || absent(instance.State) {
+		if instance.Birth == nil || instance.Capacity.Role != RoleWasm || absent(instance.State) {
 			continue
 		}
 		architecture := instance.Capacity.Architecture

@@ -374,7 +374,7 @@ func (s *Scaler) grow(ctx context.Context, t *tick) error {
 		t.record.Action.Step = stepEnroll
 		return nil
 	}
-	if t.pool.Pending != "" {
+	if t.pool.Pending != "" || t.pool.AdmissionPending != "" {
 		return nil
 	}
 	allowance, fresh := s.Allowance(t.now)
@@ -458,7 +458,13 @@ func (s *Scaler) enroll(ctx context.Context, t *tick) error {
 		return nil
 	}
 	for _, in := range t.pool.Instances {
-		if absent(in.State) || in.Birth == nil || in.Birth.OperationID != action.ID || t.obs.live[in.Name] {
+		birthOperation := ""
+		if in.Birth != nil {
+			birthOperation = in.Birth.OperationID
+		} else if in.Cleanup != nil {
+			birthOperation = in.Cleanup.Retirement.Child.OperationID
+		}
+		if absent(in.State) || birthOperation != action.ID || t.obs.live[in.Name] {
 			continue
 		}
 		if err := s.expiredSafe(ctx, t, in); err != nil {
@@ -641,11 +647,20 @@ func (s *Scaler) decide(ctx context.Context, t *tick, state State) (Decision, er
 		s.holdOnce(t, decision)
 		return decision, nil
 	}
-	demand, err := s.functionDemand(ctx, t)
-	if err != nil {
-		decision.Action, decision.Reason = Hold, "current function capacity demand is unavailable"
-		s.holdOnce(t, decision)
-		return decision, nil
+	var demand *CapacityDemand
+	var err error
+	if t.pool.AdmissionPending != "" {
+		decision = Decision{Action: Hold, Nodes: state.Nodes, Want: state.Nodes, Reason: t.pool.AdmissionPending}
+		if !state.Busy && state.Nodes > MinNodes {
+			decision.Action, decision.Want = Down, state.Nodes-1
+		}
+	} else {
+		demand, err = s.functionDemand(ctx, t)
+		if err != nil {
+			decision.Action, decision.Reason = Hold, "current function capacity demand is unavailable"
+			s.holdOnce(t, decision)
+			return decision, nil
+		}
 	}
 	if demand != nil && !state.Busy {
 		decision = Decision{Action: Hold, Nodes: state.Nodes, Want: state.Nodes + 1, Reason: "verified function workers await an isolated host slot"}
@@ -737,14 +752,22 @@ func (s *Scaler) pickDrain(ctx context.Context, t *tick) (PoolInstance, bool, er
 	}
 	workers := nodesByInstance(nodes.Nodes)
 	cpu := map[string]float64{}
-	for _, load := range t.loads {
+	loads := t.loads
+	if t.pool.AdmissionPending != "" {
+		loads = s.Loads()
+	}
+	for _, load := range loads {
 		cpu[load.Node] = load.CPU
 	}
 	var candidates []PoolInstance
 	for _, in := range t.pool.Instances {
 		node := workers[in.ID]
-		if _, loaded := cpu[in.Name]; loaded && t.obs.counted[in.Name] && s.named(in.Name) &&
-			s.admitted(node, api.NodeRoleWorker) && node.Spec.Availability == api.NodeAvailabilityActive && !protected[node.ID] {
+		known := t.obs.counted[in.Name]
+		if t.pool.AdmissionPending != "" {
+			known = in.Cleanup != nil && in.Cleanup.Node == in.Name && in.Cleanup.Retirement.InstanceID == in.ID
+		}
+		if _, loaded := cpu[in.Name]; loaded && known && s.named(in.Name) &&
+			s.admitted(node, api.NodeRoleWorker) && node.Spec.Annotations.Name == in.Name && node.Spec.Availability == api.NodeAvailabilityActive && !protected[node.ID] {
 			candidates = append(candidates, in)
 		}
 	}
