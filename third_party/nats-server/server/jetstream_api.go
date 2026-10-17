@@ -1534,6 +1534,9 @@ func (s *Server) jsStreamCreateRequest(sub *subscription, c *client, _ *Account,
 		s.Warnf(badAPIRequestT, msg)
 		return
 	}
+	if s.denyTerraScaleControlLogAPI(ci, acc, streamNameFromSubject(subject), subject, reply, msg) {
+		return
+	}
 
 	var resp = JSApiStreamCreateResponse{ApiResponse: ApiResponse{Type: JSApiStreamCreateResponseType}}
 
@@ -1650,6 +1653,9 @@ func (s *Server) jsStreamUpdateRequest(sub *subscription, c *client, _ *Account,
 	ci, acc, hdr, msg, err := s.getRequestInfo(c, rmsg)
 	if err != nil {
 		s.Warnf(badAPIRequestT, msg)
+		return
+	}
+	if s.denyTerraScaleControlLogAPI(ci, acc, streamNameFromSubject(subject), subject, reply, msg) {
 		return
 	}
 
@@ -2252,6 +2258,9 @@ func (s *Server) jsStreamLeaderStepDownRequest(sub *subscription, c *client, _ *
 		s.Warnf(badAPIRequestT, msg)
 		return
 	}
+	if s.denyTerraScaleControlLogAPI(ci, acc, tokenAt(subject, 6), subject, reply, msg) {
+		return
+	}
 
 	// Have extra token for this one.
 	name := tokenAt(subject, 6)
@@ -2495,6 +2504,9 @@ func (s *Server) jsStreamCancelMoveRequest(_ *subscription, c *client, _ *Accoun
 		s.Warnf(badAPIRequestT, msg)
 		return
 	}
+	if s.denyTerraScaleControlLogAPI(ci, acc, tokenAt(subject, 5), subject, reply, msg) {
+		return
+	}
 
 	name := tokenAt(subject, 5)
 
@@ -2602,6 +2614,9 @@ func (s *Server) jsStreamRemapPeerRequest(_ *subscription, c *client, _ *Account
 	ci, acc, hdr, msg, err := s.getRequestInfo(c, rmsg)
 	if err != nil {
 		s.Warnf(badAPIRequestT, msg)
+		return
+	}
+	if s.denyTerraScaleControlLogAPI(ci, acc, tokenAt(subject, 6), subject, reply, msg) {
 		return
 	}
 
@@ -3214,6 +3229,9 @@ func (s *Server) jsLeaderServerStreamMoveRequest(sub *subscription, c *client, _
 		s.sendAPIErrResponse(ci, acc, subject, reply, string(msg), s.jsonResponse(&resp))
 		return
 	}
+	if s.denyTerraScaleControlLogAPI(ci, acc, streamName, subject, reply, msg) {
+		return
+	}
 
 	js.mu.Lock()
 	defer js.mu.Unlock()
@@ -3369,6 +3387,9 @@ func (s *Server) jsLeaderServerStreamCancelMoveRequest(sub *subscription, c *cli
 		s.sendAPIErrResponse(ci, acc, subject, reply, string(msg), s.jsonResponse(&resp))
 		return
 	}
+	if s.denyTerraScaleControlLogAPI(ci, acc, streamName, subject, reply, msg) {
+		return
+	}
 
 	js.mu.Lock()
 	defer js.mu.Unlock()
@@ -3416,6 +3437,11 @@ func (s *Server) jsLeaderAccountPurgeRequest(sub *subscription, c *client, _ *Ac
 	if strings.ContainsAny(accName, `\/`) {
 		resp.Error = NewJSStreamGeneralError(errors.New("account name can not contain path separators"))
 		s.sendAPIErrResponse(ci, acc, subject, reply, string(msg), s.jsonResponse(&resp))
+		return
+	}
+
+	if s.terraScaleControlLogAccount(accName) {
+		s.denyTerraScaleControlLogAPI(ci, acc, terraScaleControlLog, subject, reply, msg)
 		return
 	}
 
@@ -3472,6 +3498,11 @@ func (s *Server) jsLeaderAccountPurgeRequest(sub *subscription, c *client, _ *Ac
 	}
 
 	js.mu.Lock()
+	if js.streamAssignmentOrInflight(accName, terraScaleControlLog) != nil {
+		js.mu.Unlock()
+		s.denyTerraScaleControlLogAPI(ci, acc, terraScaleControlLog, subject, reply, msg)
+		return
+	}
 	ns, nc := 0, 0
 	for osa := range js.streamAssignmentsOrInflightSeq(accName) {
 		for oca := range js.consumerAssignmentsOrInflightSeq(accName, osa.Config.Name) {
@@ -3695,6 +3726,9 @@ func (s *Server) jsStreamDeleteRequest(sub *subscription, c *client, _ *Account,
 		s.Warnf(badAPIRequestT, msg)
 		return
 	}
+	if s.denyTerraScaleControlLogAPI(ci, acc, streamNameFromSubject(subject), subject, reply, msg) {
+		return
+	}
 
 	var resp = JSApiStreamDeleteResponse{ApiResponse: ApiResponse{Type: JSApiStreamDeleteResponseType}}
 
@@ -3767,6 +3801,9 @@ func (s *Server) jsMsgDeleteRequest(sub *subscription, c *client, _ *Account, su
 	ci, acc, hdr, msg, err := s.getRequestInfo(c, rmsg)
 	if err != nil {
 		s.Warnf(badAPIRequestT, msg)
+		return
+	}
+	if s.denyTerraScaleControlLogAPI(ci, acc, tokenAt(subject, 6), subject, reply, msg) {
 		return
 	}
 
@@ -4197,6 +4234,9 @@ func (s *Server) jsStreamPurgeRequest(sub *subscription, c *client, _ *Account, 
 		s.Warnf(badAPIRequestT, msg)
 		return
 	}
+	if s.denyTerraScaleControlLogAPI(ci, acc, streamNameFromSubject(subject), subject, reply, msg) {
+		return
+	}
 
 	stream := streamNameFromSubject(subject)
 
@@ -4348,6 +4388,9 @@ func (s *Server) jsStreamRestoreRequest(sub *subscription, c *client, _ *Account
 	ci, acc, hdr, msg, err := s.getRequestInfo(c, rmsg)
 	if err != nil {
 		s.Warnf(badAPIRequestT, msg)
+		return
+	}
+	if s.denyTerraScaleControlLogAPI(ci, acc, streamNameFromSubject(subject), subject, reply, msg) {
 		return
 	}
 

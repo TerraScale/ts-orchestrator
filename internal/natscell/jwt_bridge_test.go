@@ -529,10 +529,18 @@ func testProtectedControlLogACL(t *testing.T, ctx context.Context, runtime *Runt
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream, err := rootJS.CreateStream(ctx, jetstream.StreamConfig{Name: "TS_CONTROL_LOG",
-		Subjects: []string{protocol.ControlStreamSubject()}, Storage: jetstream.FileStorage, Replicas: 1,
-		Retention: jetstream.LimitsPolicy, MaxConsumers: -1, MaxMsgs: -1, MaxBytes: -1, MaxMsgsPerSubject: -1,
-		DenyDelete: true, DenyPurge: true, Metadata: map[string]string{"terrascale-contract": "authority-log-v1"}})
+	// This genuine root owns a fresh test store; production birth custody is separate.
+	refused := errors.New("original root source was lost")
+	if err := runtime.EnsureControlLog(ctx, func(context.Context) error { return refused }); !errors.Is(err, refused) {
+		t.Fatalf("native root initialization ignored its source guard: %v", err)
+	}
+	if _, err := rootJS.Stream(ctx, "TS_CONTROL_LOG"); !errors.Is(err, jetstream.ErrStreamNotFound) {
+		t.Fatalf("refused root initialization created a stream: %v", err)
+	}
+	if err := runtime.EnsureControlLog(ctx, func(effect context.Context) error { return effect.Err() }); err != nil {
+		t.Fatal(err)
+	}
+	stream, err := rootJS.Stream(ctx, "TS_CONTROL_LOG")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -548,9 +556,46 @@ func testProtectedControlLogACL(t *testing.T, ctx context.Context, runtime *Runt
 		t.Fatal(err)
 	}
 	defer ordinary.Close()
+	if err := ordinary.EnsureControlLog(ctx, func(effect context.Context) error { return effect.Err() }); err == nil {
+		t.Fatal("ordinary external runtime initialized the protected log")
+	}
+	if err := runtime.EnsureControlLog(ctx, func(effect context.Context) error { return effect.Err() }); err != nil {
+		t.Fatalf("native root could not observe its exact existing stream: %v", err)
+	}
 	subject := protocol.Control("gru", "acl", "retained")
 	if ack, err := ordinary.JetStream().Publish(ctx, subject, []byte("original")); err != nil || ack.Sequence != 1 {
 		t.Fatalf("ordinary control-log append: %+v %v", ack, err)
+	}
+	fixedConfig, err := json.Marshal(before.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, request := range []struct {
+		subject string
+		body    []byte
+	}{
+		{"$JS.API.STREAM.CREATE.TS_CONTROL_LOG", fixedConfig},
+		{"$JS.API.STREAM.UPDATE.TS_CONTROL_LOG", fixedConfig},
+		{"$JS.API.STREAM.DELETE.TS_CONTROL_LOG", nil},
+		{"$JS.API.STREAM.MSG.DELETE.TS_CONTROL_LOG", []byte(`{"seq":1}`)},
+		{"$JS.API.STREAM.PURGE.TS_CONTROL_LOG", nil},
+		{"$JS.API.STREAM.RESTORE.TS_CONTROL_LOG", []byte(`{"config":{"name":"TS_CONTROL_LOG"}}`)},
+		{"$JS.API.STREAM.LEADER.STEPDOWN.TS_CONTROL_LOG", nil},
+		{"$JS.API.STREAM.CANCEL_MOVE.TS_CONTROL_LOG", nil},
+		{"$JS.API.STREAM.PEER.REMOVE.TS_CONTROL_LOG", []byte(`{"peer":"broker-a"}`)},
+		{"$JS.API.STREAM.PEER.EVACUATE.TS_CONTROL_LOG", []byte(`{"peer":"broker-a"}`)},
+	} {
+		response, err := rootClient.RequestWithContext(ctx, request.subject, request.body)
+		if err != nil {
+			t.Fatalf("protected native API refusal %q: %v", request.subject, err)
+		}
+		var result struct {
+			Error          *jetstream.APIError `json:"error"`
+			DeliverSubject string              `json:"deliver_subject"`
+		}
+		if err := json.Unmarshal(response.Data, &result); err != nil || result.Error == nil || result.Error.Code != 403 || result.DeliverSubject != "" {
+			t.Fatalf("protected native API %q did not refuse before effects/restore continuation: %s %v", request.subject, response.Data, err)
+		}
 	}
 	secured, reader, nonce := testBridgeProtocolConnection(t, ctx, cfg.TLS, runtime.ClientAddress().String())
 	defer secured.Close()
