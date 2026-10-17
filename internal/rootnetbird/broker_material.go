@@ -16,6 +16,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/rootsecret"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
+	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
 	"golang.org/x/sys/unix"
@@ -149,7 +150,15 @@ func (b *Backend) ReconcileManagerReader(ctx context.Context, sourceGuard func(c
 			return "", rootoci.ErrUnauthorized
 		}
 		defer clear(credentials)
-		cert, key, err := issuer.IssueNetBirdReadTLS(recipient.PrivateIP(), deadline)
+		raw, err := jwt.ParseDecoratedJWT(credentials)
+		if err != nil {
+			return "", rootoci.ErrUnauthorized
+		}
+		claim, err := jwt.DecodeUserClaims(raw)
+		if err != nil {
+			return "", rootoci.ErrUnauthorized
+		}
+		cert, key, err := issuer.IssueNetBirdReadTLS(recipient.PrivateIP(), time.Unix(claim.Expires, 0))
 		if err != nil {
 			return "", rootoci.ErrUnauthorized
 		}
