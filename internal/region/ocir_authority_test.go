@@ -1,7 +1,9 @@
 package region
 
 import (
+	"context"
 	"encoding/json/v2"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -167,5 +169,40 @@ func TestOCIRAuthorityReadbackRejectsChangedPolicyVersionAndScope(t *testing.T) 
 	policy.Statements, policy.VersionDate = details.Statements, new(common.SDKDate)
 	if matchesOCIRAuthorityPolicy(details, policy) {
 		t.Fatal("changed remote policy version accepted")
+	}
+}
+
+func TestOCIRAuthorityCompletedRecoveryOutlivesOriginalDispatchOnly(t *testing.T) {
+	record := ocirAuthorityFixture(t)
+	reservation := record.FoundationWriter.OCIRAuthority
+	now := time.Now().UTC()
+	reservation.DispatchExpiresAt = now.Add(-5 * time.Second)
+	for index := range reservation.Policies {
+		policy := &reservation.Policies[index]
+		policy.PolicyID, policy.VerifiedAt = "ocid1.policy.oc1..created", now.Add(-18*time.Second)
+		policy.Dispatches = []OCIRAuthorityDispatch{{OCIRIssuerDispatch: OCIRIssuerDispatch{StartedAt: now.Add(-20 * time.Second), FinishedAt: now.Add(-19 * time.Second), Sent: true, Status: 201}, ObservedID: policy.PolicyID}}
+	}
+	if err := reservation.validate(*record.FoundationWriter); err != nil {
+		t.Fatal(err)
+	}
+	complete, cancelComplete := context.WithDeadline(t.Context(), reservation.recoveryDeadline())
+	defer cancelComplete()
+	if err := complete.Err(); err != nil {
+		t.Fatalf("completed read-only recovery rejected after dispatch expiry: %v", err)
+	}
+	deadline, _ := complete.Deadline()
+	if !deadline.Equal(reservation.AuthorityExpiresAt) {
+		t.Fatal("completed recovery did not retain original signed capability expiry")
+	}
+	// A successful POST without its protected positive checkpoint remains
+	// incomplete and cannot buy a fresh dispatch or completion lifetime.
+	reservation.Policies[0].PolicyID, reservation.Policies[0].VerifiedAt = "", time.Time{}
+	if err := reservation.validate(*record.FoundationWriter); err != nil {
+		t.Fatal(err)
+	}
+	incomplete, cancelIncomplete := context.WithDeadline(t.Context(), reservation.recoveryDeadline())
+	defer cancelIncomplete()
+	if !errors.Is(incomplete.Err(), context.DeadlineExceeded) {
+		t.Fatal("incomplete recovery extended expired original dispatch lifetime")
 	}
 }

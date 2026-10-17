@@ -60,6 +60,13 @@ func (reservation OCIRAuthorityRecord) installed() bool {
 	return true
 }
 
+func (reservation OCIRAuthorityRecord) recoveryDeadline() time.Time {
+	if !reservation.installed() && reservation.DispatchExpiresAt.Before(reservation.AuthorityExpiresAt) {
+		return reservation.DispatchExpiresAt
+	}
+	return reservation.AuthorityExpiresAt
+}
+
 // installOCIRAuthority is reachable only from authenticated OPERATOR provisioning.
 // Existing POLICY_CREATE privilege is unchanged; this source boundary does not
 // establish native IAM prevention of runtime self-grants.
@@ -99,11 +106,7 @@ func installOCIRAuthority(ctx context.Context, authority *HomeIAMAuthority, reso
 		return ErrFoundationFenced
 	}
 	if saved := writer.OCIRAuthority; saved != nil {
-		deadline := saved.AuthorityExpiresAt
-		if !saved.installed() && saved.DispatchExpiresAt.Before(deadline) {
-			deadline = saved.DispatchExpiresAt
-		}
-		bounded, cancelRetained := context.WithDeadline(ctx, deadline)
+		bounded, cancelRetained := context.WithDeadline(ctx, saved.recoveryDeadline())
 		defer cancelRetained()
 		ctx = bounded
 	}
@@ -146,10 +149,7 @@ func installOCIRAuthority(ctx context.Context, authority *HomeIAMAuthority, reso
 	if err := pending.validate(*writer); err != nil {
 		return err
 	}
-	cap := pending.AuthorityExpiresAt
-	if !pending.installed() {
-		cap = pending.DispatchExpiresAt
-	}
+	cap := pending.recoveryDeadline()
 	ctx, cancelAttempt := context.WithDeadline(ctx, cap)
 	defer cancelAttempt()
 	guard := func(ctx context.Context) error {

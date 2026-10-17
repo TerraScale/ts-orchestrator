@@ -13,6 +13,7 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -325,7 +326,7 @@ func foundationProvisionSDKScenario(t *testing.T) {
 			t.Fatalf("%s restart rewrote original policy timestamp or OCIR reservation", cell)
 		}
 	}
-	_, resolver, err := newOperatorHomeIAMAuthority(t.Context(), factoryFor(), roots, bundle)
+	operatorAuthority, resolver, err := newOperatorHomeIAMAuthority(t.Context(), factoryFor(), roots, bundle)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,6 +340,21 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	bad.FoundationWriter = &writer
 	if _, err := resolver.Store.CompareAndSwap(t.Context(), bad, etag); err == nil {
 		t.Fatal("whole protected SDK store allowed OCIR sibling removal")
+	}
+	receipt, err := foundationWriterReceipt(t.Context(), resolver, *saved.FoundationWriter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operatorAuthority.operator.deadline = time.Now().Add(-time.Second)
+	beforeProvider, beforeRequests := provider.reads.Load(), cloud.requests
+	if err := installFoundationWriter(t.Context(), operatorAuthority, resolver, bundle, "GRU", receipt); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expired operator reached original writer installation: %v", err)
+	}
+	if err := installOCIRAuthority(t.Context(), operatorAuthority, resolver, bundle, "GRU", receipt); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expired operator reached OCIR authority installation: %v", err)
+	}
+	if provider.reads.Load() != beforeProvider || cloud.requests != beforeRequests {
+		t.Fatal("expired operator entered provider, IAM lease, material, image or journal reads")
 	}
 }
 

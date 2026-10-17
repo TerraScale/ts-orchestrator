@@ -15,40 +15,48 @@ import (
 // guard retain the original accepted runtime sources through the last effect.
 // Workers only consume existing Vault bindings and cannot call this lifecycle.
 func (b *Backend) ReconcileOCIR(ctx context.Context, sourceGuard func(context.Context) error) error {
-	if b == nil || b.factory == nil || b.home == nil || os.Geteuid() != 0 || sourceGuard == nil {
+	if ctx == nil || b == nil || b.factory == nil || b.home == nil || os.Geteuid() != 0 || sourceGuard == nil {
 		return ErrScope
 	}
 	deadline, ok := ctx.Deadline()
 	if !ok || !time.Now().Before(deadline) {
 		return ErrScope
 	}
-	live := func(ctx context.Context) error {
+	live := func(ctx context.Context) (time.Time, error) {
 		if ctx.Err() != nil || !time.Now().Before(deadline) {
-			return errors.Join(ErrScope, ctx.Err())
+			return time.Time{}, errors.Join(ErrScope, ctx.Err())
 		}
 		if err := sourceGuard(ctx); err != nil {
-			return err
+			return time.Time{}, err
 		}
 		if err := b.home.Guard(ctx, 0); err != nil {
-			return err
+			return time.Time{}, err
 		}
-		if err := b.home.VerifyFoundationWriter(ctx); err != nil {
-			return err
+		until, err := b.home.FoundationWriterDeadline(ctx)
+		if err != nil {
+			return time.Time{}, err
 		}
+		ctx, cancel := context.WithDeadline(ctx, until)
+		defer cancel()
 		if ctx.Err() != nil || !time.Now().Before(deadline) {
-			return errors.Join(ErrScope, ctx.Err())
+			return time.Time{}, errors.Join(ErrScope, ctx.Err())
 		}
 		if err := sourceGuard(ctx); err != nil {
-			return err
+			return time.Time{}, err
 		}
 		if ctx.Err() != nil || !time.Now().Before(deadline) {
-			return errors.Join(ErrScope, ctx.Err())
+			return time.Time{}, errors.Join(ErrScope, ctx.Err())
 		}
-		return nil
+		until, _ = ctx.Deadline()
+		return until, nil
 	}
-	if err := live(ctx); err != nil {
+	until, err := live(ctx)
+	if err != nil {
 		return err
 	}
+	ctx, cancelWriter := context.WithDeadline(ctx, until)
+	defer cancelWriter()
+	deadline, _ = ctx.Deadline()
 	ctx = ociclient.WithRequestGuard(ctx, sourceGuard)
 	resolver, err := region.DiscoverCurrentFoundation(ctx, b.factory)
 	if err != nil {
@@ -70,9 +78,12 @@ func (b *Backend) ReconcileOCIR(ctx context.Context, sourceGuard func(context.Co
 			return err
 		}
 		guard := func(ctx context.Context) error {
-			if err := live(ctx); err != nil {
+			until, err := live(ctx)
+			if err != nil {
 				return err
 			}
+			ctx, cancelWriter := context.WithDeadline(ctx, until)
+			defer cancelWriter()
 			if !time.Now().Before(expires) {
 				return ErrScope
 			}
@@ -83,9 +94,12 @@ func (b *Backend) ReconcileOCIR(ctx context.Context, sourceGuard func(context.Co
 			if err := current.GuardOCIRIssuer(ctx, scope); err != nil {
 				return err
 			}
-			if err := b.home.VerifyOCIRAuthority(ctx, scope); err != nil {
+			until, err = b.home.OCIRAuthorityDeadline(ctx, scope)
+			if err != nil {
 				return err
 			}
+			ctx, cancelAuthority := context.WithDeadline(ctx, until)
+			defer cancelAuthority()
 			actual, _, err := current.Store.Load(ctx, b.cell)
 			if err != nil {
 				return err
@@ -96,7 +110,8 @@ func (b *Backend) ReconcileOCIR(ctx context.Context, sourceGuard func(context.Co
 			if !time.Now().Before(expires) {
 				return ErrScope
 			}
-			return live(ctx)
+			_, err = live(ctx)
+			return err
 		}
 		journal := &ocirJournal{store: resolver.Store, cell: b.cell, original: record, scope: scope, deadline: expires, guard: guard}
 		principal, err := b.home.InstancePrincipal(attempt)
@@ -133,7 +148,8 @@ func (b *Backend) ReconcileOCIR(ctx context.Context, sourceGuard func(context.Co
 			return err
 		}
 	}
-	return live(ctx)
+	_, err = live(ctx)
+	return err
 }
 
 func minTime(a, b time.Time) time.Time {

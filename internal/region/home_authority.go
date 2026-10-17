@@ -175,6 +175,9 @@ func (authority *HomeIAMAuthority) scopeDeadline(ctx context.Context) (time.Time
 			return time.Time{}, err
 		}
 		deadline, _ := ctx.Deadline()
+		if err := ociclient.LimitAdmission(ctx, deadline); err != nil {
+			return time.Time{}, err
+		}
 		return deadline, nil
 	}
 	var expires time.Time
