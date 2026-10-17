@@ -65,21 +65,23 @@ func TestOwnRegistrationBindsActualSignedSessionAndKeys(t *testing.T) {
 	if err := agent.VerifyOwnRegistration(registration, wrong); err == nil {
 		t.Fatal("actual session accepted an unpinned controller signer")
 	}
-	originalEpoch := identity.SessionEpoch()
-	registration.Generation++
-	if _, err := controller.Register(t.Context(), registration); err != nil {
+	originalEpoch, originalDeadline := identity.SessionEpoch(), identity.ExpiresAt()
+	agent.sessionRenewMu.Lock()
+	agent.sessionRequestMu.RLock()
+	err = agent.renewSessionLocked(t.Context(), t.Context())
+	agent.sessionRequestMu.RUnlock()
+	agent.sessionRenewMu.Unlock()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := agent.acquire(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	successor, _, exists, err := controller.sessionSnapshot(t.Context(), sessionKey("gru", "node-a"))
-	if err != nil || !exists || successor.Epoch <= originalEpoch {
-		t.Fatal("new registration did not acquire an actual successor session epoch", err)
+	renewed, _, exists, err := controller.sessionSnapshot(t.Context(), sessionKey("gru", "node-a"))
+	if err != nil || !exists || renewed.Epoch != originalEpoch || !renewed.ExpiresAt.After(current.ExpiresAt) {
+		t.Fatal("signed renewal changed the committed epoch or failed to advance its expiry", err)
 	}
 	fresh, err := agent.RuntimeWorkerIdentity("accepted-instance", "accepted-node")
-	if err != nil || identity.SessionEpoch() != originalEpoch || fresh.SessionEpoch() != successor.Epoch ||
-		fresh.Identity().HostSessionID != successor.SessionID || fresh.Identity().RegistrationGeneration != registration.Generation {
-		t.Fatal("runtime identity changed its retained epoch or lost the accepted successor", err)
+	if err != nil || identity.SessionEpoch() != originalEpoch || !identity.ExpiresAt().Equal(originalDeadline) ||
+		fresh.SessionEpoch() != renewed.Epoch || fresh.Identity().HostSessionID != renewed.SessionID ||
+		fresh.Identity().RegistrationGeneration != registration.Generation || !fresh.ExpiresAt().After(originalDeadline) {
+		t.Fatal("runtime identity changed its retained snapshot or lost the accepted renewal", err)
 	}
 }
