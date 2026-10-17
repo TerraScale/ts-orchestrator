@@ -86,6 +86,18 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 	if err := record.validate(); err != nil {
 		return "", err
 	}
+	if etag != "" {
+		previous, observedETag, err := s.Load(ociclient.CheckpointContext(ctx), record.Cell)
+		if err != nil {
+			return "", err
+		}
+		if observedETag != etag {
+			return "", ErrFoundationConflict
+		}
+		if err := record.retainCapacity(previous); err != nil {
+			return "", err
+		}
+	}
 	wire, err := json.Marshal(record, json.Deterministic(true))
 	if err != nil {
 		return "", err
