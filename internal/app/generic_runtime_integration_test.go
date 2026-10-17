@@ -276,7 +276,7 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	writer := new(genericRuntimeLegacyWriter)
 	var firstApplyError sync.Once
 	deliveries, err = delivery.Open(ctx, delivery.Config{Conn: broker.Conn(), JS: broker.JetStream(), Cell: identity.Cell, Replicas: 1,
-		Signer: codec, Verifier: codec, Fencer: fencer, Writer: writer,
+		Signer: codec, Verifier: codec, Fencer: fencer, Writer: writer, CaptureContainerProfile: history.CaptureContainerProfile,
 		Authorize: func(_ context.Context, actor string, proposed delivery.Intent) error {
 			if actor != "release" || proposed.Role != policy.Role || proposed.Environment != identity.Environment {
 				return delivery.ErrUnauthorized
@@ -292,6 +292,7 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	history.deliveries = deliveries
 	signals := autoscale.NewWindowStore(0, 0)
 	controller, err = newGenericRuntime(genericRuntimeConfig{Client: client, ManagerID: manager.ID(), Authority: fencer, Specs: specs,
 		Delivery: deliveries, Factory: signer.factory, Evidence: func(ctx context.Context, _ string, digest string) (io.ReadCloser, error) {

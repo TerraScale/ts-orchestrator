@@ -120,40 +120,12 @@ func encodeNativeHistory(state nativeReleaseHistory, maxPayload int64) ([]byte, 
 	}
 	records := map[string][]byte{}
 	for _, b := range nativeBindings(&state) {
-		stored := nativeStoredProfile{Schema: 1, Profile: b.Profile}
-		for _, field := range []struct {
-			data []byte
-			refs *[]string
-			max  int
-		}{
-			{b.Provenance.Spec, &stored.Provenance.Spec, cellspec.MaxSignedBytes},
-			{b.Provenance.Manifest, &stored.Provenance.Manifest, bootstrapstart.MaxControllerManifestMetadataBytes},
-			{b.Provenance.Config, &stored.Provenance.Config, bootstrap.MaxControllerConfigBytes},
-			{b.Provenance.MaterialChain, &stored.Provenance.MaterialChain, bootstrap.MaxMaterialGenerations * (bootstrap.MaxMaterialGenerationBytes + 16<<10)},
-			{b.Provenance.Identity, &stored.Provenance.Identity, bootstrapstart.MaxAcceptedIdentityBytes},
-		} {
-			if len(field.data) > field.max {
-				return nil, nil, fmt.Errorf("%w: native provenance exceeds its signed input bound", delivery.ErrInvalid)
-			}
-			for offset := 0; offset < len(field.data); offset += nativeBlobBytes {
-				chunk := field.data[offset:min(offset+nativeBlobBytes, len(field.data))]
-				if !nativeValueFits(chunk, maxPayload) {
-					return nil, nil, fmt.Errorf("%w: native provenance chunk exceeds broker payload bound", delivery.ErrInvalid)
-				}
-				key := "blob." + controllerSHA256(chunk)
-				records[key] = chunk
-				*field.refs = append(*field.refs, key)
-			}
-		}
-		wire, err := json.Marshal(stored, json.Deterministic(true))
+		reference, stored, err := encodeNativeProfile(b.Profile, b.Provenance, maxPayload)
 		if err != nil {
 			return nil, nil, err
 		}
-		if !nativeValueFits(wire, maxPayload) {
-			return nil, nil, fmt.Errorf("%w: native profile record exceeds broker payload bound", delivery.ErrInvalid)
-		}
-		b.ProfileRecord = "profile." + controllerSHA256(wire)
-		records[b.ProfileRecord] = wire
+		b.ProfileRecord = reference
+		maps.Copy(records, stored)
 	}
 	wire, err := json.Marshal(state, json.Deterministic(true))
 	if err != nil {
@@ -163,6 +135,45 @@ func encodeNativeHistory(state nativeReleaseHistory, maxPayload int64) ([]byte, 
 		return nil, nil, fmt.Errorf("%w: native history index exceeds broker payload bound", delivery.ErrInvalid)
 	}
 	return wire, records, nil
+}
+
+func encodeNativeProfile(profile WorkloadProfile, provenance nativeProfileProvenance, maxPayload int64) (string, map[string][]byte, error) {
+	records := map[string][]byte{}
+	stored := nativeStoredProfile{Schema: 1, Profile: profile}
+	for _, field := range []struct {
+		data []byte
+		refs *[]string
+		max  int
+	}{
+		{provenance.Spec, &stored.Provenance.Spec, cellspec.MaxSignedBytes},
+		{provenance.Manifest, &stored.Provenance.Manifest, bootstrapstart.MaxControllerManifestMetadataBytes},
+		{provenance.Config, &stored.Provenance.Config, bootstrap.MaxControllerConfigBytes},
+		{provenance.MaterialChain, &stored.Provenance.MaterialChain, bootstrap.MaxMaterialGenerations * (bootstrap.MaxMaterialGenerationBytes + 16<<10)},
+		{provenance.Identity, &stored.Provenance.Identity, bootstrapstart.MaxAcceptedIdentityBytes},
+	} {
+		if len(field.data) > field.max {
+			return "", nil, fmt.Errorf("%w: native provenance exceeds its signed input bound", delivery.ErrInvalid)
+		}
+		for offset := 0; offset < len(field.data); offset += nativeBlobBytes {
+			chunk := field.data[offset:min(offset+nativeBlobBytes, len(field.data))]
+			if !nativeValueFits(chunk, maxPayload) {
+				return "", nil, fmt.Errorf("%w: native provenance chunk exceeds broker payload bound", delivery.ErrInvalid)
+			}
+			key := "blob." + controllerSHA256(chunk)
+			records[key] = chunk
+			*field.refs = append(*field.refs, key)
+		}
+	}
+	wire, err := json.Marshal(stored, json.Deterministic(true))
+	if err != nil {
+		return "", nil, err
+	}
+	if !nativeValueFits(wire, maxPayload) {
+		return "", nil, fmt.Errorf("%w: native profile record exceeds broker payload bound", delivery.ErrInvalid)
+	}
+	reference := "profile." + controllerSHA256(wire)
+	records[reference] = wire
+	return reference, records, nil
 }
 
 // Only authoritative reads retry through a short leader election; no effect
@@ -213,47 +224,57 @@ func (h *nativeHistory) immutable(ctx context.Context, key string) ([]byte, erro
 }
 
 func (h *nativeHistory) hydrate(ctx context.Context, b *nativeReleaseBinding) error {
-	wire, err := h.immutable(ctx, b.ProfileRecord)
+	profile, provenance, err := h.readProfile(ctx, b.ProfileRecord)
 	if err != nil {
 		return err
 	}
+	b.Profile, b.Provenance = profile, provenance
+	return nil
+}
+
+func (h *nativeHistory) readProfile(ctx context.Context, reference string) (WorkloadProfile, nativeProfileProvenance, error) {
+	wire, err := h.immutable(ctx, reference)
+	if err != nil {
+		return WorkloadProfile{}, nativeProfileProvenance{}, err
+	}
 	var stored nativeStoredProfile
 	if err := json.Unmarshal(wire, &stored, json.RejectUnknownMembers(true)); err != nil {
-		return err
+		return WorkloadProfile{}, nativeProfileProvenance{}, err
 	}
 	if stored.Schema != 1 {
-		return errors.New("invalid native profile schema")
+		return WorkloadProfile{}, nativeProfileProvenance{}, errors.New("invalid native profile schema")
 	}
-	b.Profile = stored.Profile
+	profile := stored.Profile
+	var provenance nativeProfileProvenance
 	for _, field := range []struct {
 		refs []string
 		data *[]byte
 		max  int
 	}{
-		{stored.Provenance.Spec, &b.Provenance.Spec, cellspec.MaxSignedBytes},
-		{stored.Provenance.Manifest, &b.Provenance.Manifest, bootstrapstart.MaxControllerManifestMetadataBytes},
-		{stored.Provenance.Config, &b.Provenance.Config, bootstrap.MaxControllerConfigBytes},
-		{stored.Provenance.MaterialChain, &b.Provenance.MaterialChain, bootstrap.MaxMaterialGenerations * (bootstrap.MaxMaterialGenerationBytes + 16<<10)},
-		{stored.Provenance.Identity, &b.Provenance.Identity, bootstrapstart.MaxAcceptedIdentityBytes},
+		{stored.Provenance.Spec, &provenance.Spec, cellspec.MaxSignedBytes},
+		{stored.Provenance.Manifest, &provenance.Manifest, bootstrapstart.MaxControllerManifestMetadataBytes},
+		{stored.Provenance.Config, &provenance.Config, bootstrap.MaxControllerConfigBytes},
+		{stored.Provenance.MaterialChain, &provenance.MaterialChain, bootstrap.MaxMaterialGenerations * (bootstrap.MaxMaterialGenerationBytes + 16<<10)},
+		{stored.Provenance.Identity, &provenance.Identity, bootstrapstart.MaxAcceptedIdentityBytes},
 	} {
 		if len(field.refs) > (field.max+nativeBlobBytes-1)/nativeBlobBytes {
-			return errors.New("native provenance has too many chunks")
+			return WorkloadProfile{}, nativeProfileProvenance{}, errors.New("native provenance has too many chunks")
 		}
 		for i, key := range field.refs {
 			if !strings.HasPrefix(key, "blob.") {
-				return errors.New("invalid native provenance chunk reference")
+				return WorkloadProfile{}, nativeProfileProvenance{}, errors.New("invalid native provenance chunk reference")
 			}
 			chunk, err := h.immutable(ctx, key)
 			if err != nil {
-				return err
+				return WorkloadProfile{}, nativeProfileProvenance{}, err
 			}
 			if len(chunk) == 0 || len(chunk) > nativeBlobBytes || i < len(field.refs)-1 && len(chunk) != nativeBlobBytes || len(*field.data)+len(chunk) > field.max {
-				return errors.New("invalid native provenance chunk size")
+				return WorkloadProfile{}, nativeProfileProvenance{}, errors.New("invalid native provenance chunk size")
 			}
 			*field.data = append(*field.data, chunk...)
 		}
 	}
-	return nil
+	return profile, provenance, nil
 }
 
 type nativeHistory struct {
@@ -380,6 +401,21 @@ func (h *nativeHistory) save(ctx context.Context, epoch uint64, role string, sta
 			return err
 		}
 	}
+	if err := h.writeProfileRecords(ctx, epoch, records); err != nil {
+		return err
+	}
+	if err := h.fencer.Guard(ctx, epoch); err != nil {
+		return err
+	}
+	if revision == 0 {
+		_, err = h.kv.Create(ctx, role, wire)
+	} else {
+		_, err = h.kv.Update(ctx, role, wire, revision)
+	}
+	return err
+}
+
+func (h *nativeHistory) writeProfileRecords(ctx context.Context, epoch uint64, records map[string][]byte) error {
 	for key, value := range records {
 		if err := h.fencer.Guard(ctx, epoch); err != nil {
 			return err
@@ -397,15 +433,7 @@ func (h *nativeHistory) save(ctx context.Context, epoch uint64, role string, sta
 			return err
 		}
 	}
-	if err := h.fencer.Guard(ctx, epoch); err != nil {
-		return err
-	}
-	if revision == 0 {
-		_, err = h.kv.Create(ctx, role, wire)
-	} else {
-		_, err = h.kv.Update(ctx, role, wire, revision)
-	}
-	return err
+	return nil
 }
 
 func (h *nativeHistory) currentProvenance(ctx context.Context, role string, profile WorkloadProfile) (nativeProfileProvenance, error) {

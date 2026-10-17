@@ -316,6 +316,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return fmt.Errorf("start broker admission gate: %w", err)
 	}
+	var containerProfiles atomic.Pointer[nativeHistory]
 	var genericServices atomic.Pointer[genericRuntime]
 	var statefulServices statefulRuntimeSlot
 	planner := &regionalDeliveryPlanner{profiles: services.profiles, address: services.nodeAddress, migrated: func(role string) bool { return role != terrabase.Role }}
@@ -327,6 +328,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 				Verifier:              policy.codec, ArtifactVerifier: policy.codec,
 				Authorize: policy.authorizeIntent, AuthorizeArtifact: policy.authorizeArtifact,
 				Fencer: control, Planner: planner, Writer: planner,
+				CaptureContainerProfile: func(ctx context.Context, intent delivery.Intent) (string, error) {
+					archive := containerProfiles.Load()
+					if archive == nil {
+						return "", delivery.ErrPending
+					}
+					return archive.CaptureContainerProfile(ctx, intent)
+				},
 				ContainerApply: func(ctx context.Context, intent delivery.Intent) error {
 					if intent.Role == terrabase.Role {
 						return statefulServices.apply(ctx, intent)
@@ -357,6 +365,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	nativeReleases := &nativeHistory{kv: nativeKV, js: runtime.JetStream(), services: services,
 		deliveries: service, fencer: control, cfg: cfg}
 	planner.nativeHistory, services.nativeHistory = nativeReleases, nativeReleases
+	containerProfiles.Store(nativeReleases)
 	stopKVSnapshots, kvSnapshots, err := startKVSnapshots(ctx, cfg, runtime.JetStream(), control)
 	if err != nil {
 		return err
