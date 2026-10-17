@@ -210,6 +210,112 @@ func TestFoundationRecordsPersistAndFenceConcurrentWriters(t *testing.T) {
 			}
 		}
 	}
+	// This public-history fixture checks persistence, not operator admission.
+	current, currentETag, err = restarted.Load(t.Context(), "GRU")
+	if err != nil {
+		t.Fatal(err)
+	}
+	current.FoundationWriter.Policy.PolicyID = "ocid1.policy.oc1..original"
+	current.FoundationWriter.Policy.VerifiedAt = now.Add(2 * time.Second)
+	currentETag, err = restarted.CompareAndSwap(t.Context(), current, currentETag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capability := NetBirdBrokerPolicyWriterIntent{Purpose: netBirdWriterPurpose, OriginalWriterGrantSHA256: writer.GrantSHA256,
+		OriginalWriterOperationID: writer.OperationID, OriginalWriterRequestSHA256: writer.RequestDigest, OriginalWriterInstanceID: original,
+		PolicyCompartmentID: "ocid1.compartment.oc1..owncontrol"}
+	issuer := BrokerPolicyAuthorityRecord{Intent: capability, AuthorizationSHA256: strings.Repeat("f", 64), OperationID: current.OperationID,
+		Epoch: current.Epoch, IntentDigest: current.IntentDigest, Request: netBirdWriterPolicy(capability), FirstAttemptAt: now.Add(3 * time.Second), ExpiresAt: now.Add(time.Hour)}
+	issuerWire, err := foundationWriterPolicyBody(issuer.Request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issuer.RequestDigest = digestSource(issuerWire)
+	issuer.RetryToken = digestSource([]byte(issuer.OperationID + "\x00" + issuer.AuthorizationSHA256 + "\x00" + issuer.RequestDigest))
+	current.FoundationWriter.BrokerPolicyAuthority = &issuer
+	currentETag, err = restarted.CompareAndSwap(t.Context(), current, currentETag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, currentETag, err = restarted.Load(t.Context(), "GRU")
+	if err != nil || current.FoundationWriter.BrokerPolicyAuthority == nil || current.FoundationWriter.BrokerPolicyAuthority.RetryToken != issuer.RetryToken || current.FoundationWriter.Policy.PolicyID != "ocid1.policy.oc1..original" {
+		t.Fatalf("separate writer authority or original policy lost: %v", err)
+	}
+	clone := func() FoundationRecord {
+		t.Helper()
+		wire, err := json.Marshal(current, json.Deterministic(true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var candidate FoundationRecord
+		if err := json.Unmarshal(wire, &candidate); err != nil {
+			t.Fatal(err)
+		}
+		return candidate
+	}
+	for _, test := range []struct {
+		name   string
+		change func(*FoundationRecord)
+	}{
+		{"omit-writer", func(r *FoundationRecord) { r.FoundationWriter = nil }},
+		{"omit-authority", func(r *FoundationRecord) { r.FoundationWriter.BrokerPolicyAuthority = nil }},
+		{"renew-deadline", func(r *FoundationRecord) {
+			r.FoundationWriter.BrokerPolicyAuthority.ExpiresAt = issuer.ExpiresAt.Add(time.Minute)
+		}},
+		{"replace-token", func(r *FoundationRecord) {
+			r.FoundationWriter.BrokerPolicyAuthority.RetryToken = strings.Repeat("a", 64)
+		}},
+		{"replace-original-policy", func(r *FoundationRecord) { r.FoundationWriter.Policy.PolicyID = "ocid1.policy.oc1..replacement" }},
+		{"change-original-receipt", func(r *FoundationRecord) { r.FoundationWriter.Policy.VerifiedAt = now.Add(4 * time.Second) }},
+		{"skip-dispatch", func(r *FoundationRecord) {
+			p := r.FoundationWriter.BrokerPolicyAuthority
+			p.Dispatches, p.LastDispatchedAt, p.PolicyID = 1, p.FirstAttemptAt, "ocid1.policy.oc1..unobserved"
+		}},
+		{"widen-authority", func(r *FoundationRecord) {
+			p := r.FoundationWriter.BrokerPolicyAuthority
+			p.Request.Statements = []string{"Allow any-user to manage policies in tenancy"}
+			wire, err := foundationWriterPolicyBody(p.Request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p.RequestDigest = digestSource(wire)
+			p.RetryToken = digestSource([]byte(p.OperationID + "\x00" + p.AuthorizationSHA256 + "\x00" + p.RequestDigest))
+		}},
+	} {
+		t.Run("writer_authority_"+test.name, func(t *testing.T) {
+			candidate := clone()
+			test.change(&candidate)
+			if _, err := restarted.CompareAndSwap(t.Context(), candidate, currentETag); err == nil {
+				t.Fatal("whole-record CAS rewrote the original writer authority")
+			}
+		})
+	}
+	current.FoundationWriter.BrokerPolicyAuthority.Dispatches = 1
+	current.FoundationWriter.BrokerPolicyAuthority.LastDispatchedAt = issuer.FirstAttemptAt
+	current.FoundationWriter.BrokerPolicyAuthority.Uncertain = true
+	currentETag, err = restarted.CompareAndSwap(t.Context(), current, currentETag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, currentETag, err = restarted.Load(t.Context(), "GRU")
+	if err != nil || !current.FoundationWriter.BrokerPolicyAuthority.Uncertain {
+		t.Fatalf("original uncertain writer dispatch lost: %v", err)
+	}
+	current.FoundationWriter.BrokerPolicyAuthority.PolicyID = "ocid1.policy.oc1..brokerissuer"
+	current.FoundationWriter.BrokerPolicyAuthority.Uncertain = false
+	currentETag, err = restarted.CompareAndSwap(t.Context(), current, currentETag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, currentETag, err = restarted.Load(t.Context(), "GRU")
+	if err != nil || current.FoundationWriter.BrokerPolicyAuthority.PolicyID != "ocid1.policy.oc1..brokerissuer" {
+		t.Fatalf("positive separate writer policy lost: %v", err)
+	}
+	candidate := clone()
+	candidate.FoundationWriter.BrokerPolicyAuthority.PolicyID = "ocid1.policy.oc1..replacement"
+	if _, err := restarted.CompareAndSwap(t.Context(), candidate, currentETag); err == nil {
+		t.Fatal("whole-record CAS replaced the completed writer authority")
+	}
 	current.FoundationWriter.Policy.Request.Statements = append(current.FoundationWriter.Policy.Request.Statements, "Allow any-user to manage objects in tenancy")
 	corrupt, err := json.Marshal(current, json.Deterministic(true))
 	if err != nil {

@@ -144,6 +144,11 @@ func (authority *HomeIAMAuthority) EnsureNetBirdBrokerReader(ctx context.Context
 				latest.ResourceIDs["control_compartment"] != original.ResourceIDs["control_compartment"] || latest.ResourceIDs["vault"] != original.ResourceIDs["vault"] || latest.ResourceIDs["key"] != original.ResourceIDs["key"] {
 				return ErrFoundationFenced
 			}
+			if latest.ResourceIDs["control_compartment"] != authority.bucketCompartment {
+				if err := authority.verifyNetBirdBrokerPolicyWriter(ctx); err != nil {
+					return err
+				}
+			}
 			if secretID != "" {
 				target, err := latest.VaultTarget()
 				if err != nil {
@@ -201,7 +206,9 @@ func (authority *HomeIAMAuthority) EnsureNetBirdBrokerReader(ctx context.Context
 		return errors.New("NetBird broker regional Vault differs from the signed source")
 	}
 	if target.CompartmentID != authority.bucketCompartment {
-		return errors.New("NetBird broker policy container is outside the original writer policy authority")
+		if err := authority.verifyNetBirdBrokerPolicyWriter(ctx); err != nil {
+			return err
+		}
 	}
 	name := strings.ToLower(entry.Cell) + "-1-netbird-broker"
 	secret, err := netBirdBrokerSecret(ctx, authority.factory, target, name)
@@ -416,6 +423,9 @@ func netBirdBrokerSecret(ctx context.Context, factory *ociclient.Factory, target
 // Every whole-record writer retains original broker IAM history. A sibling
 // update cannot turn an unknown or completed effect into a fresh reservation.
 func (record FoundationRecord) retainNetBirdBrokerPolicies(next FoundationRecord) error {
+	if err := record.retainNetBirdWriterAuthority(next); err != nil {
+		return err
+	}
 	denied := errors.New("NetBird broker original IAM request, deadline or outcome cannot be removed or rewritten")
 	for key, original := range record.NetBirdBrokerPolicies {
 		current, ok := next.NetBirdBrokerPolicies[key]
