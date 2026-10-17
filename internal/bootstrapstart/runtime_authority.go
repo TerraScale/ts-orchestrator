@@ -2,6 +2,8 @@ package bootstrapstart
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"time"
 
@@ -41,6 +43,16 @@ func (a RuntimeAuthority) ExpiresAt() time.Time                      { return a.
 func (a RuntimeAuthority) ControllerFailureDomain(slot string) (bootstrap.ControllerFailureDomain, bool) {
 	domain, ok := a.failureDomains[slot]
 	return domain, ok && a.anchor.IsVerified() && time.Now().Before(a.expires)
+}
+
+// ManagerSourceSHA256 identifies only the verified anchor and plan; current
+// root/spec/channel adoption must be checked separately by their existing readers.
+func (a RuntimeAuthority) ManagerSourceSHA256() string {
+	if !a.anchor.IsVerified() || a.anchor.Digest() == "" || a.planDigest == "" || a.expires.IsZero() {
+		return ""
+	}
+	digest := sha256.Sum256([]byte("terrascale.manager-runtime-source.v1\x00" + a.anchor.Digest() + "\x00" + a.planDigest))
+	return hex.EncodeToString(digest[:])
 }
 
 // ReadRuntimeAuthority consumes the installation already checked by Gate and
