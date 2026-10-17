@@ -81,6 +81,12 @@ func (producer *rootMaterialAdmission) container(ctx context.Context, call rooto
 }
 
 func (producer *rootMaterialAdmission) generation(ctx context.Context, call rootoci.Call, taskID string) (containermaterial.GenerationAdmission, error) {
+	if ctx == nil || !time.Now().Before(call.Deadline()) {
+		return containermaterial.GenerationAdmission{}, rootoci.ErrUnauthorized
+	}
+	original := ctx
+	ctx, stop := context.WithDeadline(ctx, call.Deadline())
+	context.AfterFunc(original, stop)
 	ctx = ociclient.WithRequestGuard(ctx, call.Guard)
 	controller, sources, err := producer.readers(ctx, call)
 	if err != nil {
