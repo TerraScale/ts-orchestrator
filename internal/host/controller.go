@@ -46,6 +46,7 @@ type Controller struct {
 	credentialFloor        func(context.Context, Registration) (uint64, error)
 	volumeInspector        ManagedVolumeInspector
 	runtimeEffects         RuntimeEffectHandler
+	genericExecutions      GenericExecutionHandler
 	containerMaterial      ContainerMaterialProvider
 	registryAdmission      RegistryAdmissionProvider
 	terraBaseCA            *terrabase.CA
@@ -142,7 +143,7 @@ func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, erro
 	return &Controller{cell: cfg.Cell, conn: cfg.Conn, state: state, controlLog: controlLog, mutations: cfg.HostMutations,
 		managedVerifier: cfg.ManagedRegistrationVerifier, managedDesiredVerifier: cfg.ManagedDesiredVerifier,
 		managedEffectGate: managedEffectGate, materialProvider: cfg.ManagedMaterialProvider,
-		credentialFloor: cfg.ManagedCredentialFloor, volumeInspector: cfg.ManagedVolumeInspector, runtimeEffects: cfg.RuntimeEffects,
+		credentialFloor: cfg.ManagedCredentialFloor, volumeInspector: cfg.ManagedVolumeInspector, runtimeEffects: cfg.RuntimeEffects, genericExecutions: cfg.GenericExecutions,
 		containerMaterial: cfg.ContainerMaterialProvider, registryAdmission: cfg.RegistryAdmissionProvider,
 		functionMaterial: cfg.FunctionMaterialProvider,
 		terraBaseCA:      cfg.TerraBaseCA, roleIdentity: cfg.RoleIdentity, nodeAddress: cfg.NodeAddress, restartGate: cfg.RestartGate, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}),
@@ -1159,14 +1160,14 @@ func (c *Controller) handleAuthorized(ctx context.Context, req request) (payload
 		return nil, err
 	}
 	requireActive := req.Operation == "material" || req.Operation == "container-material" || req.Operation == "registry-admission" || req.Operation == "function-material"
-	if req.Operation == "runtime-effect" {
+	if req.Operation == "runtime-effect" || req.Operation == "generic-execution" {
 		var operation struct {
 			Action string `json:"action"`
 		}
 		if err := json.Unmarshal(req.Payload, &operation); err != nil {
 			return nil, err
 		}
-		requireActive = operation.Action != "close"
+		requireActive = operation.Action != "close" && operation.Action != "poll" && operation.Action != "stop"
 	}
 	defer func() {
 		if resultErr != nil {
@@ -1210,6 +1211,8 @@ func (c *Controller) handleAuthorized(ctx context.Context, req request) (payload
 		return c.serveFunctionMaterial(ctx, req, r, s)
 	case "volume-init":
 		return c.serveVolumeInit(ctx, req, r, s)
+	case "generic-execution":
+		return c.serveGenericExecution(ctx, req, r, s)
 	case "runtime-effect":
 		return c.serveRuntimeEffect(ctx, req, r, s)
 	case "container-material":

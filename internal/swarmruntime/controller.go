@@ -269,6 +269,9 @@ func (c *controller) Start(ctx context.Context) error {
 	}
 	t, err := ctr.Task(ctx, nil)
 	if errdefs.IsNotFound(err) {
+		if err := c.acquireGenericExecution(ctx); err != nil {
+			return err
+		}
 		loggerArgument, loggerErr := c.runtimeLoggerArgument(ctx)
 		if loggerErr != nil {
 			return loggerErr
@@ -295,11 +298,17 @@ func (c *controller) Start(ctx context.Context) error {
 	case containerd.Running:
 		return exec.ErrTaskStarted
 	case containerd.Created:
+		if err := c.retainGenericProcess(ctx, t); err != nil {
+			return err
+		}
 		if err := c.waitRuntimeCredentialGuard(ctx, ctr, t.Pid()); err != nil {
 			return err
 		}
 		if !c.credentialExpiresAt.IsZero() && !c.credentialExpiresAt.After(time.Now()) {
 			return ErrContainerMaterialPending
+		}
+		if err := c.guardGenericStart(); err != nil {
+			return err
 		}
 		if err := t.Start(ctx); err != nil {
 			return err

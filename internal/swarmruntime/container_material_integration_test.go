@@ -44,7 +44,8 @@ func integrationContainerController(e *Executor, task *api.Task) (swarmexec.Cont
 	if task.NodeID == "" {
 		task.NodeID = "integrationnode"
 	}
-	if err := e.Configure(context.Background(), &api.Node{ID: task.NodeID}); err != nil {
+	// Standalone runtime fixtures model manager ownhost tasks, not pool workers.
+	if err := e.Configure(context.Background(), &api.Node{ID: task.NodeID, Role: api.NodeRoleManager}); err != nil {
 		return nil, err
 	}
 	return e.Controller(task)

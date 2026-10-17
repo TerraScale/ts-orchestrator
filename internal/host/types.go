@@ -302,6 +302,7 @@ type ControllerConfig struct {
 	ManagedCredentialFloor      func(context.Context, Registration) (uint64, error)
 	ManagedVolumeInspector      ManagedVolumeInspector
 	RuntimeEffects              RuntimeEffectHandler
+	GenericExecutions           GenericExecutionHandler
 	ContainerMaterialProvider   ContainerMaterialProvider
 	RegistryAdmissionProvider   RegistryAdmissionProvider
 	ControlLog                  jetstream.Stream

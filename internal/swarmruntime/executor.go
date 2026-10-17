@@ -41,6 +41,7 @@ type Executor struct {
 	node              *api.Node
 	registry          RegistryResolver
 	stateful          *execution.Source
+	genericExecution  *genericExecutionWorker
 }
 
 var _ exec.Executor = (*Executor)(nil)
