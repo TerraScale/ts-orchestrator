@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
-	"github.com/TerraScale/ts-orchestrator/internal/natscell/natstest"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/bucket"
@@ -29,11 +28,10 @@ import (
 )
 
 func TestRootResourceSnapshotRefusesMissingDeletedAndPurgedAuthority(t *testing.T) {
-	runtime, err := natstest.NATS(t, "lab", "root-resource-source").Start(t, t.Context(), natscell.Config{Cell: "lab", Instance: "root-resource-source", Replicas: 1, Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "jetstream")}})
+	runtime, err := newAuthenticatedNATS(t, "lab", "root-resource-source").start(t, t.Context(), natscell.Config{Cell: "lab", Instance: "root-resource-source", Replicas: 1, Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "jetstream")}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = runtime.Close() })
 	js := runtime.JetStream()
 	if _, err := rootResourceKV(t.Context(), js, cellSpecBucket, cellSpecKey); err == nil {
 		t.Fatal("missing source stream treated as signed baseline")
