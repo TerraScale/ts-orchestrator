@@ -13,7 +13,12 @@
 
 package server
 
-import "testing"
+import (
+	"errors"
+	"fmt"
+	"slices"
+	"testing"
+)
 
 func TestAccountServiceImportSubscriptionLifecycle(t *testing.T) {
 	setup := func(t *testing.T) (*Account, *Account) {
@@ -119,5 +124,70 @@ func TestAccountServiceImportSubscriptionLifecycle(t *testing.T) {
 		a.removeServiceImportWithSubscription(dest.Name, "svc", old)
 		assertRetired(t, old)
 		assertCurrent(t, a, replacement.serviceSub)
+	})
+
+	t.Run("failed sublist insertion releases its reservation", func(t *testing.T) {
+		a, dest := setup(t)
+		// Exercise processSubEx's real Insert error after it has reserved a SID.
+		si, err := a.addServiceImport(dest, "svc..invalid", "svc", nil)
+		require_True(t, errors.Is(err, ErrMalformedSubject))
+		require_Equal(t, si, (*serviceImport)(nil))
+		a.mu.RLock()
+		imports, pending, c := len(a.imports.services["svc..invalid"]), len(a.serviceSubs), a.ic
+		a.mu.RUnlock()
+		require_Equal(t, imports, 0)
+		require_Equal(t, pending, 0)
+		c.mu.Lock()
+		registered := len(c.subs)
+		c.mu.Unlock()
+		require_Equal(t, registered, 0)
+		require_Equal(t, a.sl.Count(), uint32(0))
+	})
+
+	t.Run("connected leaf interest balances across retirement", func(t *testing.T) {
+		hub := runAccountProtocolServer(t, `
+			accounts {
+				importer { users: [{user: i, password: p}] }
+				exporter { exports: [{service: svc}] }
+			}
+			leafnodes { listen: 127.0.0.1:-1 }
+		`)
+		hub.mu.RLock()
+		address := hub.leafNodeListener.Addr().String()
+		hub.mu.RUnlock()
+		spoke := runAccountProtocolServer(t, fmt.Sprintf(`
+			leafnodes { remotes: [{url: "nats://i:p@%s"}] }
+		`, address))
+		checkLeafNodeConnected(t, hub)
+		checkLeafNodeConnected(t, spoke)
+		a, err := hub.LookupAccount("importer")
+		require_NoError(t, err)
+		dest, err := hub.LookupAccount("exporter")
+		require_NoError(t, err)
+		t.Cleanup(a.removeAllServiceImportSubs)
+		a.lmu.RLock()
+		leafClients := slices.Clone(a.lleafs)
+		a.lmu.RUnlock()
+		require_Equal(t, len(leafClients), 1)
+		interest := func() int32 {
+			leafClients[0].mu.RLock()
+			defer leafClients[0].mu.RUnlock()
+			return leafClients[0].leaf.smap["svc"]
+		}
+
+		si, err := a.addServiceImport(dest, "svc", "svc", nil)
+		require_NoError(t, err)
+		old := si.serviceSub
+		require_Equal(t, interest(), int32(1))
+		a.removeAllServiceImportSubs()
+		require_Equal(t, interest(), int32(0))
+		require_NoError(t, old.subscribe(a))
+		require_Equal(t, interest(), int32(0))
+		require_NoError(t, a.addServiceImportSub(si))
+		require_Equal(t, interest(), int32(1))
+		a.removeServiceImportSub(old)
+		require_Equal(t, interest(), int32(1))
+		a.removeServiceImport(dest.Name, "svc")
+		require_Equal(t, interest(), int32(0))
 	})
 }

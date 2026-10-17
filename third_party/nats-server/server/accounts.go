@@ -1954,6 +1954,9 @@ func (a *Account) removeServiceImportWithSubscription(dstAccName, subject string
 		a.mu.Unlock()
 		return
 	}
+	if expected != nil {
+		dstAccName = expected.si.acc.Name
+	}
 	var si *serviceImport
 	if len(sis) == 1 {
 		si = sis[0]
@@ -2282,7 +2285,7 @@ func (a *Account) addServiceImportSub(si *serviceImport) error {
 		return err
 	}
 	if err := sub.subscribe(a); err != nil {
-		a.removeServiceImportWithSubscription(si.acc.Name, si.from, sub)
+		a.removeServiceImportWithSubscription(_EMPTY_, si.from, sub)
 		return err
 	}
 	return nil
