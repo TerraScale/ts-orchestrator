@@ -11,7 +11,11 @@ import (
 
 // ControllerConfigDerivationV1 identifies the house renderer authorized by the
 // signed footprint. It is fixed in code, never a runtime configuration switch.
-const ControllerConfigDerivationV1 = "terrascale.bootstrap.controller.v1"
+const (
+	ControllerConfigDerivationV1 = "terrascale.bootstrap.controller.v1"
+	// ControllerConfigDerivationV2 requires a fresh root-approved switch-free recipe.
+	ControllerConfigDerivationV2 = "terrascale.bootstrap.controller.v2"
+)
 
 // StartupTemplate is the public startup recipe carried by the same signed
 // foundation grant that authorizes regional material generation. Dynamic Vault
@@ -60,7 +64,7 @@ func (template StartupTemplate) validateFoundation(cell string) error {
 		!isOCID(template.ImageOCID, "image") || template.ImageArchitecture != "linux-amd64" && template.ImageArchitecture != "linux-arm64" ||
 		len(template.ReleaseImageReceiptWire) == 0 || len(template.ReleaseImageReceiptWire) > MaxManifestBytes ||
 		len(template.ReleaseDelegationWire) == 0 || len(template.ReleaseDelegationWire) > MaxManifestBytes ||
-		template.ControllerConfigDerivation != ControllerConfigDerivationV1 {
+		template.ControllerConfigDerivation != ControllerConfigDerivationV1 && template.ControllerConfigDerivation != ControllerConfigDerivationV2 {
 		return ErrManifestInvalid
 	}
 	if len(template.ControllerFiles) != len(ControllerConfigFileNames) || template.ManagedMaterial != nil && template.ManagedMaterial.validateFoundation(cell) != nil {
