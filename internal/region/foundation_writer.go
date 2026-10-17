@@ -56,6 +56,7 @@ type FoundationWriterRecord struct {
 	InstanceID          string                     `json:"instanceId,omitempty"`
 	Policy              *FoundationWriterPolicy    `json:"policy,omitempty"`
 	CapacityJournal     *CapacityJournalPolicy     `json:"capacityJournal,omitempty"`
+	OCIRAuthority       *OCIRAuthorityRecord       `json:"ocirAuthority,omitempty"`
 }
 
 type FoundationWriterPolicy struct {
@@ -481,8 +482,11 @@ func installFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, r
 	if err := pending.validate(); err != nil {
 		return err
 	}
-	if policy.PolicyID != "" && found != policy.PolicyID {
-		return errors.New("home writer policy original identity changed")
+	if policy.PolicyID != "" {
+		if found != policy.PolicyID {
+			return errors.New("home writer policy original identity changed")
+		}
+		return actor.verifyPolicy(ctx, SourcePolicyRecord{Request: policy.Request, PolicyID: policy.PolicyID})
 	}
 	if found == "" {
 		if !time.Now().Before(policy.FirstAttemptAt.Add(bootstrapRetryLifetime)) {
@@ -521,8 +525,9 @@ func installFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, r
 		return ErrFoundationFenced
 	}
 	policy.PolicyID, policy.VerifiedAt = found, time.Now().UTC()
-	pending.Policy = &policy
-	record.FoundationWriter = &pending
+	writer := *record.FoundationWriter
+	writer.Policy = &policy
+	record.FoundationWriter = &writer
 	record.UpdatedAt = time.Now().UTC()
 	if err := guard(ctx); err != nil {
 		return err
@@ -601,6 +606,11 @@ func (record FoundationWriterRecord) validate() error {
 	entry, ok := catalog.Lookup(record.Cell)
 	if err != nil || !ok || !slices.Contains([]string{"GRU", "SFO", "FRA"}, record.Cell) || !entityid.Valid(record.InstallationID) || record.SlotID != BootstrapSlotID(record.InstallationID, record.Cell, "controller", record.Slot) || record.OperationID != BootstrapOperationID(record.InstallationID, record.SlotID) || record.InstanceID != "" && !strings.HasPrefix(record.InstanceID, "ocid1.instance.oc1."+entry.OCIRegion+".") || record.Generation == 0 || !sourceDigest(record.GrantSHA256) || !sourceDigest(record.ProfileSHA256) || !sourceDigest(record.RecipeSHA256) || !sourceDigest(record.ScopeSHA256) || !sourceDigest(record.PhysicalScopeSHA256) || record.BindingSHA256 != "" && !sourceDigest(record.BindingSHA256) || record.RequestDigest != digest || record.RetryToken != BootstrapRetryToken(record.OperationID, digest) || record.FirstAttemptAt.IsZero() || !bootstrapSlotName.MatchString(record.Slot) || !foundationWriterKeyPattern.MatchString(record.KMSKeyID) || !sourceStoragePattern.MatchString(record.Namespace) || !sourceStoragePattern.MatchString(record.Bucket) || !sourceCompartmentPattern.MatchString(record.BucketCompartment) || record.InstanceID != "" && !sourceInstancePattern.MatchString(record.InstanceID) || record.Request.CompartmentId == nil || !sourceCompartmentPattern.MatchString(*record.Request.CompartmentId) || !maps.Equal(record.Request.Metadata, foundationWriterMetadata(record.Slot)) || len(record.Request.ExtendedMetadata) != 0 {
 		return errors.New("home writer original launch reservation is invalid")
+	}
+	if record.OCIRAuthority != nil {
+		if err := record.OCIRAuthority.validate(record); err != nil {
+			return err
+		}
 	}
 	if record.Policy == nil {
 		if record.CapacityJournal != nil {

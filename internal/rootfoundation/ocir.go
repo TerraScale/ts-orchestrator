@@ -83,6 +83,9 @@ func (b *Backend) ReconcileOCIR(ctx context.Context, sourceGuard func(context.Co
 			if err := current.GuardOCIRIssuer(ctx, scope); err != nil {
 				return err
 			}
+			if err := b.home.VerifyOCIRAuthority(ctx, scope); err != nil {
+				return err
+			}
 			actual, _, err := current.Store.Load(ctx, b.cell)
 			if err != nil {
 				return err

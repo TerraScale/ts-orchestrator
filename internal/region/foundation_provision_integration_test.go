@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -67,7 +68,7 @@ func foundationProvisionSDKScenario(t *testing.T) {
 		HomeStorageDomain: bootstrap.StorageDomain{Namespace: "ns", HeadBucket: foundationDiscoveryBucket, LedgerBucket: "gru-1-ledger", HeadKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head", LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledger", Prefix: "bootstrap"},
 		SourceVaultTarget: bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..control", VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.home", KMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head"}, TrustedSigners: signers, GRUController: host, SFOController: host, FRAController: host, NetBirdManager: host}
 	approval.ReleaseAuthorities = provisionReleaseAuthorities(t, root, leafPublic, approval.HomeStorageDomain, now)
-	cloud := &provisionCloud{test: t, directory: t.TempDir(), rows: map[string]map[string]any{}, collections: map[string]string{}, tokens: map[string]string{}, rules: map[string][]any{}, retention: map[string][]any{}, launches: map[string]string{}, lostLaunch: true, lostPolicy: true}
+	cloud := &provisionCloud{test: t, directory: t.TempDir(), rows: map[string]map[string]any{}, collections: map[string]string{}, tokens: map[string]string{}, rules: map[string][]any{}, retention: map[string][]any{}, launches: map[string]string{}, lostLaunch: true, lostPolicy: true, lostOCIRPolicy: true, lostOCIRCommit: true}
 	images := map[string]releasechannel.CurrentImage{}
 	for _, role := range []string{"GRU", "SFO", "FRA", "netbird-manager"} {
 		cell := role
@@ -213,8 +214,30 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	if cloud.hasAnchor() {
 		t.Fatal("public anchor preceded exact policy readback")
 	}
+	installDeadline := time.Now().Add(5 * time.Minute)
+	install, cancelInstall := context.WithDeadline(t.Context(), installDeadline)
+	installErr := ProvisionFoundationBundle(install, factoryFor(), roots, bundle)
+	cancelInstall()
+	if installErr == nil || cloud.lostOCIRPolicy || cloud.hasAnchor() {
+		t.Fatalf("expected accepted original OCIR policy response loss: %v", installErr)
+	}
+	uncertain := cloud.journal("GRU").FoundationWriter.OCIRAuthority
+	if uncertain == nil || len(uncertain.Policies[0].Dispatches) != 1 || uncertain.Policies[0].Dispatches[0].Status != 503 || uncertain.Policies[0].PolicyID != "" || !uncertain.DispatchExpiresAt.Equal(installDeadline.UTC()) || !uncertain.DispatchExpiresAt.Before(uncertain.AuthorityExpiresAt) {
+		t.Fatal("unknown OCIR create did not retain original body/token/history and separate session/signed expiry")
+	}
+	if err := ProvisionFoundationBundle(t.Context(), factoryFor(), roots, bundle); err == nil || cloud.lostOCIRCommit || cloud.hasAnchor() {
+		t.Fatalf("expected lost committed OCIR positive CAS response: %v", err)
+	}
+	committed := cloud.journal("GRU").FoundationWriter.OCIRAuthority
+	if committed == nil || committed.Policies[0].PolicyID == "" {
+		t.Fatal("lost positive CAS response did not retain genuine original policy ID")
+	}
 	if err := ProvisionFoundationBundle(t.Context(), factoryFor(), roots, bundle); err != nil {
 		t.Fatalf("restart full provisioning: %v", err)
+	}
+	resumed := cloud.journal("GRU").FoundationWriter.OCIRAuthority
+	if !sameOCIRAuthorityOrigin(*uncertain, *resumed) || resumed.Policies[0].RetryToken != uncertain.Policies[0].RetryToken || resumed.Policies[0].RequestDigest != uncertain.Policies[0].RequestDigest || len(resumed.Policies[0].Dispatches) != 2 || resumed.Policies[0].Dispatches[0] != uncertain.Policies[0].Dispatches[0] || resumed.Policies[0].PolicyID == "" {
+		t.Fatal("OCIR recovery refreshed original authority or lost uncertain dispatch")
 	}
 	for _, cell := range []string{"GRU", "SFO", "FRA"} {
 		saved := cloud.journal(cell)
@@ -236,6 +259,15 @@ func foundationProvisionSDKScenario(t *testing.T) {
 		_, id := cloud.original(cell)
 		if saved.FoundationWriter.InstanceID != id {
 			t.Fatalf("%s adopted another instance", cell)
+		}
+		installed := saved.FoundationWriter.OCIRAuthority
+		if installed == nil || installed.validate(*saved.FoundationWriter) != nil || len(installed.Policies) == 0 {
+			t.Fatalf("%s lacks original finite OCIR authority", cell)
+		}
+		for _, policy := range installed.Policies {
+			if policy.PolicyID == "" || policy.VerifiedAt.IsZero() || len(policy.Dispatches) == 0 || policy.Dispatches[len(policy.Dispatches)-1].ObservedID != policy.PolicyID {
+				t.Fatalf("%s lacks original OCIR policy dispatch/readback", cell)
+			}
 		}
 	}
 	if !cloud.hasAnchor() || len(cloud.launches) != 4 {
@@ -277,11 +309,36 @@ func foundationProvisionSDKScenario(t *testing.T) {
 		t.Fatalf("full worker binding promoted preexisting GRU pins: %v", err)
 	}
 	posts, creates := cloud.launchPosts, cloud.creates
+	originalWriters := map[string]*FoundationWriterRecord{}
+	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+		originalWriters[cell] = cloud.journal(cell).FoundationWriter
+	}
 	if err := ProvisionFoundationBundle(t.Context(), factoryFor(), roots, bundle); err != nil {
 		t.Fatalf("idempotent operator restart: %v", err)
 	}
 	if cloud.launchPosts != posts || cloud.creates != creates {
 		t.Fatalf("completed restart mutated resources: launchposts %d->%d creates %d->%d", posts, cloud.launchPosts, creates, cloud.creates)
+	}
+	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+		current := cloud.journal(cell).FoundationWriter
+		if !sameFoundationWriterOriginal(originalWriters[cell], current) || !reflect.DeepEqual(originalWriters[cell].OCIRAuthority, current.OCIRAuthority) {
+			t.Fatalf("%s restart rewrote original policy timestamp or OCIR reservation", cell)
+		}
+	}
+	_, resolver, err := newOperatorHomeIAMAuthority(t.Context(), factoryFor(), roots, bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, etag, err := resolver.Store.Load(t.Context(), "GRU")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := saved
+	writer := *saved.FoundationWriter
+	writer.OCIRAuthority = nil
+	bad.FoundationWriter = &writer
+	if _, err := resolver.Store.CompareAndSwap(t.Context(), bad, etag); err == nil {
+		t.Fatal("whole protected SDK store allowed OCIR sibling removal")
 	}
 }
 
@@ -311,6 +368,8 @@ type provisionCloud struct {
 	retention                      map[string][]any
 	launches                       map[string]string
 	lostLaunch, lostPolicy         bool
+	lostOCIRPolicy                 bool
+	lostOCIRCommit                 bool
 	requests, creates, launchPosts int
 }
 
@@ -490,7 +549,7 @@ func (c *provisionCloud) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		c.launchPosts++
 		c.checkLaunchReservation(r, body, token)
 	}
-	if kind == "policy" && strings.HasPrefix(fmt.Sprint(body["name"]), "ts-foundation-writer-") {
+	if kind == "policy" && (strings.HasPrefix(fmt.Sprint(body["name"]), "ts-foundation-writer-") || strings.HasPrefix(fmt.Sprint(body["name"]), "ts-ocir-writer-")) {
 		c.checkPolicyReservation(body, token)
 	}
 	if id := c.tokens[token]; token != "" && id != "" {
@@ -547,6 +606,12 @@ func (c *provisionCloud) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		c.lostPolicy = false
 		w.WriteHeader(503)
 		io.WriteString(w, `{"code":"InternalError","message":"accepted original policy response lost"}`)
+		return
+	}
+	if kind == "policy" && c.lostOCIRPolicy && strings.HasPrefix(fmt.Sprint(body["name"]), "ts-ocir-writer-") {
+		c.lostOCIRPolicy = false
+		w.WriteHeader(503)
+		io.WriteString(w, `{"code":"InternalError","message":"accepted original OCIR policy response lost"}`)
 		return
 	}
 	json.MarshalWrite(w, body)
@@ -783,9 +848,30 @@ func (c *provisionCloud) serveStorage(w http.ResponseWriter, r *http.Request) {
 					w.WriteHeader(400)
 					return
 				}
+				if saved.OCIRAuthority == nil {
+					c.test.Errorf("anchor published before %s OCIR authority", cell)
+					w.WriteHeader(400)
+					return
+				}
+				for _, policy := range saved.OCIRAuthority.Policies {
+					if policy.PolicyID == "" || policy.VerifiedAt.IsZero() {
+						c.test.Errorf("anchor published before %s OCIR policy readback", cell)
+						w.WriteHeader(400)
+						return
+					}
+				}
 			}
 		}
 		c.writeObject(bucket+"/"+object, wire)
+		if c.lostOCIRCommit && strings.HasPrefix(object, foundationObjectPrefix) {
+			var record FoundationRecord
+			if json.Unmarshal(wire, &record) == nil && record.FoundationWriter != nil && record.FoundationWriter.OCIRAuthority != nil && record.FoundationWriter.OCIRAuthority.Policies[0].PolicyID != "" {
+				c.lostOCIRCommit = false
+				w.WriteHeader(503)
+				io.WriteString(w, `{"code":"InternalError","message":"original OCIR positive checkpoint committed; response lost"}`)
+				return
+			}
+		}
 		w.Header().Set("etag", digestSource(wire))
 		return
 	}
@@ -914,6 +1000,19 @@ func (c *provisionCloud) checkPolicyReservation(body map[string]any, token strin
 	}
 	for _, cell := range []string{"GRU", "SFO", "FRA"} {
 		pending := c.journal(cell).FoundationWriter
+		if pending != nil && pending.OCIRAuthority != nil {
+			for _, policy := range pending.OCIRAuthority.Policies {
+				if policy.Request.Name == nil || *policy.Request.Name != body["name"] {
+					continue
+				}
+				actual, err := json.Marshal(body, json.Deterministic(true))
+				expected, expectedErr := foundationWriterPolicyBody(policy.Request)
+				if err != nil || expectedErr != nil || pending.OCIRAuthority.validate(*pending) != nil || token != policy.RetryToken || !bytes.Equal(actual, expected) || len(policy.Dispatches) == 0 || !policy.Dispatches[len(policy.Dispatches)-1].FinishedAt.IsZero() {
+					c.test.Error("OCIR policy lacks exact pending original dispatch reservation")
+				}
+				return
+			}
+		}
 		if pending == nil || pending.Policy == nil || pending.Policy.Request.Name == nil || *pending.Policy.Request.Name != body["name"] {
 			continue
 		}

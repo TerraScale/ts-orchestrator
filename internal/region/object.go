@@ -106,6 +106,9 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 		if err := record.retainCapacityJournal(previous); err != nil {
 			return "", err
 		}
+		if err := previous.retainOCIRAuthority(record); err != nil {
+			return "", err
+		}
 	}
 	wire, err := json.Marshal(record, json.Deterministic(true))
 	if err != nil {

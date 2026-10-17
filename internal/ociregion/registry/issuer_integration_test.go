@@ -43,6 +43,8 @@ type issuerProtocol struct {
 	lostToken, lostVault            bool
 	blockToken                      chan struct{}
 	repository                      string
+	repositoryBody                  map[string]any
+	repositoryReads                 int
 	t                               *testing.T
 }
 
@@ -77,11 +79,23 @@ func (s *issuerProtocol) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.HasSuffix(path, "/container/repositories") {
-		write(map[string]any{"items": []any{map[string]any{"id": s.repository, "displayName": "terrascale/terrabase", "compartmentId": "ocid1.compartment.oc1..control", "isPublic": false, "isImmutable": true, "lifecycleState": "AVAILABLE"}}, "remainingItemsCount": 0})
+		if r.Method != http.MethodPost || s.repositoryBody != nil || r.Header.Get("opc-retry-token") == "" {
+			s.t.Error("repository discovery or unreserved replacement create")
+			fail(400)
+			return
+		}
+		s.repositoryBody = read()
+		s.repositoryBody["id"] = s.repository
+		s.repositoryBody["createdBy"] = "ocid1.user.oc1..original"
+		s.repositoryBody["namespace"] = "ns"
+		s.repositoryBody["lifecycleState"] = "AVAILABLE"
+		write(s.repositoryBody)
 		return
 	}
 	if strings.Contains(path, "/container/repositories/") {
-		write(map[string]any{"id": s.repository, "displayName": "terrascale/terrabase", "compartmentId": "ocid1.compartment.oc1..control", "isPublic": false, "isImmutable": true, "lifecycleState": "AVAILABLE"})
+		s.repositoryReads++
+		s.repositoryBody["id"] = s.repository
+		write(s.repositoryBody)
 		return
 	}
 	if strings.Contains(path, "/authTokens") {
@@ -348,7 +362,25 @@ func setupIssuer(t *testing.T) (*Issuer, *issuerProtocol, *atomic.Bool) {
 		ociclient.PinHost(client, endpoint)
 		client.Configuration.RetryPolicy = new(common.NoRetryPolicy())
 	}
-	i := &Issuer{identity: iam, vault: vault, secrets: secrets, artifacts: artifacts, journal: issuerKVJournal{controller.journal}, scope: proof, guard: controller.guard, homeWrite: func(ctx context.Context) (context.Context, func(), error) { return ctx, func() {}, nil }, host: proof.Intent().RegistryHost}
+	// Consume the genuine controller's original SDK create result. The issuer
+	// fixture cannot discover or fabricate a missing repository receipt.
+	controller.client = artifacts
+	create, cancel := context.WithTimeout(t.Context(), time.Minute)
+	receipt, err := controller.Ensure(create, Repository{CompartmentID: proof.Intent().RepositoryCompartmentID, Name: proof.Intent().RepositoryName, Namespace: proof.Intent().RegistryNamespace, PrincipalID: "ocid1.user.oc1..original", Owner: proof.InstallationID()})
+	cancel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal := issuerKVJournal{controller.journal.(kvJournal).bucket}
+	key, err := proof.JournalKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := region.OCIRIssuanceState{ScopeHash: strings.TrimPrefix(key, "ocir-issuer."), Generation: proof.Generation(), GrantDigest: proof.GrantDigest(), OperationID: uuid.New().String(), RepositoryID: text(receipt.Id), Stage: "identity"}
+	if _, err := journal.CompareAndSwap(t.Context(), key, state, 0); err != nil {
+		t.Fatal(err)
+	}
+	i := &Issuer{identity: iam, vault: vault, secrets: secrets, artifacts: artifacts, journal: journal, scope: proof, guard: controller.guard, homeWrite: func(ctx context.Context) (context.Context, func(), error) { return ctx, func() {}, nil }, host: proof.Intent().RegistryHost}
 	return i, remote, fenced
 }
 
@@ -398,6 +430,26 @@ func TestIssuerSignedScopeIAMVaultAndRotationHTTP(t *testing.T) {
 	defer remote.mu.Unlock()
 	if remote.created != 2 || remote.revoked != 1 || remote.version != 2 || len(remote.tokens) != 1 || !strings.Contains(remote.secret, "private-issued-token-2") {
 		t.Fatal("rotation did not publish new Vault version before retiring old token")
+	}
+}
+
+func TestIssuerMissingOriginalRepositoryReceiptRejectsBeforeLookup(t *testing.T) {
+	i, remote, _ := setupIssuer(t)
+	a, err := i.begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote.mu.Lock()
+	reads := remote.repositoryReads
+	remote.mu.Unlock()
+	a.state.RepositoryID = ""
+	if err := a.repository(t.Context()); err == nil {
+		t.Fatal("missing original create receipt accepted")
+	}
+	remote.mu.Lock()
+	defer remote.mu.Unlock()
+	if remote.repositoryReads != reads || remote.user != nil || remote.created != 0 {
+		t.Fatal("missing receipt caused discovery or credential effects")
 	}
 }
 

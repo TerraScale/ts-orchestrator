@@ -62,6 +62,9 @@ func ProvisionFoundationBundle(ctx context.Context, factory *ociclient.Factory, 
 		if err := installFoundationWriter(ctx, authority, resolver, bundle, cell, original); err != nil {
 			return fmt.Errorf("install original %s writer policy: %w", cell, err)
 		}
+		if err := installOCIRAuthority(ctx, authority, resolver, bundle, cell, original); err != nil {
+			return fmt.Errorf("install original %s OCIR authority: %w", cell, err)
+		}
 	}
 	guarded, release, err := authority.HomeWrite(ctx, 0)
 	if err != nil {

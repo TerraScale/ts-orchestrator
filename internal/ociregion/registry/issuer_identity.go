@@ -14,36 +14,18 @@ import (
 
 func (a *issuerAttempt) repository(ctx context.Context) error {
 	intent := a.issuer.scope.Intent()
-	request := artifacts.ListContainerRepositoriesRequest{CompartmentId: new(intent.RepositoryCompartmentID), DisplayName: new(intent.RepositoryName)}
-	found := ""
-	for range 32 {
-		response, err := a.issuer.artifacts.ListContainerRepositories(ociclient.RequestContext(ctx), request)
-		if err != nil {
-			return ErrIssuer
-		}
-		for _, repo := range response.Items {
-			if text(repo.DisplayName) != intent.RepositoryName || text(repo.CompartmentId) != intent.RepositoryCompartmentID || !strings.HasPrefix(text(repo.Id), "ocid1.containerrepo.") ||
-				repo.IsPublic == nil || *repo.IsPublic ||
-				repo.LifecycleState != artifacts.ContainerRepositoryLifecycleStateAvailable || found != "" {
-				return ErrIssuer
-			}
-			found = text(repo.Id)
-		}
-		if response.OpcNextPage == nil {
-			if found == "" || a.state.RepositoryID != "" && a.state.RepositoryID != found {
-				return ErrIssuer
-			}
-			observed, err := a.issuer.artifacts.GetContainerRepository(ociclient.RequestContext(ctx), artifacts.GetContainerRepositoryRequest{RepositoryId: new(found)})
-			if err != nil || text(observed.Id) != found || text(observed.CompartmentId) != intent.RepositoryCompartmentID || text(observed.DisplayName) != intent.RepositoryName ||
-				observed.IsPublic == nil || *observed.IsPublic || observed.IsImmutable == nil || !*observed.IsImmutable || observed.LifecycleState != artifacts.ContainerRepositoryLifecycleStateAvailable {
-				return ErrIssuer
-			}
-			a.state.RepositoryID = found
-			return a.save(ctx, true)
-		}
-		request.Page = response.OpcNextPage
+	// Only the protected original create receipt supplies this positive ID.
+	// Name discovery cannot establish ownership or replace a missing receipt.
+	id := a.state.RepositoryID
+	if !strings.HasPrefix(id, "ocid1.containerrepo.") {
+		return ErrIssuer
 	}
-	return ErrIssuer
+	observed, err := a.issuer.artifacts.GetContainerRepository(ociclient.RequestContext(ctx), artifacts.GetContainerRepositoryRequest{RepositoryId: new(id)})
+	if err != nil || text(observed.Id) != id || text(observed.CompartmentId) != intent.RepositoryCompartmentID || text(observed.DisplayName) != intent.RepositoryName || text(observed.Namespace) != intent.RegistryNamespace ||
+		observed.IsPublic == nil || *observed.IsPublic || observed.IsImmutable == nil || !*observed.IsImmutable || observed.LifecycleState != artifacts.ContainerRepositoryLifecycleStateAvailable {
+		return ErrIssuer
+	}
+	return a.check(ctx)
 }
 
 func (a *issuerAttempt) retry(step string) string {
