@@ -204,6 +204,14 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	if firstToken == "" || firstID == "" {
 		t.Fatal("missing accepted original GRU launch")
 	}
+	if observed, err := bootstrap.VerifyNetBirdUnderlayObservation(t.Context(), factoryFor(), roots, approval.HomeStorageDomain); err == nil || observed.IsVerified() {
+		t.Fatal("lost original launch response acquired a completed native underlay observation")
+	}
+	canceledObservation, cancelObservation := context.WithCancel(t.Context())
+	cancelObservation()
+	if observed, err := bootstrap.VerifyNetBirdUnderlayObservation(canceledObservation, factoryFor(), roots, approval.HomeStorageDomain); err == nil || observed.IsVerified() {
+		t.Fatal("canceled caller acquired an original native underlay observation")
+	}
 	origin := bootstrap.NetBirdJournalOriginReference{Namespace: approval.HomeStorageDomain.Namespace,
 		GrantObject: strings.TrimSuffix(approval.HomeStorageDomain.Prefix, "/") + "/" + foundationGrantObject,
 		GrantSHA256: digestSource(bundle.GrantWire), RootChainSHA256: digestSource(bundle.RootChainWire)}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
 )
@@ -38,6 +39,13 @@ func (s SDKFoundations) ReconcileFoundation(ctx context.Context, plan map[string
 		return nil, err
 	}
 	provider.HomeStorageDomain = progress.homeStorageDomain
+	if progress.NetBirdUnderlay != nil {
+		observation, err := bootstrap.VerifyNetBirdUnderlayObservation(ctx, s.Factory, progress.underlayGenesis, progress.homeStorageDomain)
+		if err != nil {
+			return nil, err
+		}
+		provider.NetBirdUnderlay = observation
+	}
 	provider.OperationID, provider.BeforeWrite, provider.Checkpoint = progress.OperationID, progress.BeforeWrite, progress.Checkpoint
 	provider.AuxiliaryIDs, provider.CheckpointAuxiliary, provider.PrepareCreate = progress.AuxiliaryIDs, progress.CheckpointAuxiliary, progress.PrepareCreate
 	provider.Guard = func(ctx context.Context) error {
