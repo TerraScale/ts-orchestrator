@@ -8,18 +8,15 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/manager"
 	"github.com/moby/swarmkit/v2/manager/state/store"
 )
 
-func (binding *ControllerHostBinding) AcceptedIdentity() bootstrapstart.AcceptedIdentity {
-	return binding.accepted.Clone()
-}
-
-// ControllerActivationControl retains the original local manager and Raft
+// controllerActivationControl retains the original local manager and Raft
 // epoch. It is available only to its privileged local owner, never a socket.
-type ControllerActivationControl struct {
+type controllerActivationControl struct {
 	node        *Node
 	original    context.Context
 	binding     *ControllerHostBinding
@@ -30,7 +27,7 @@ type ControllerActivationControl struct {
 	tasks       []*api.Task
 }
 
-func (n *Node) ControllerActivationControl(ctx context.Context, binding *ControllerHostBinding) (*ControllerActivationControl, error) {
+func (n *Node) readControllerActivationControl(ctx context.Context, binding *ControllerHostBinding) (*controllerActivationControl, error) {
 	if n == nil || binding == nil || ctx == nil || ctx.Err() != nil {
 		return nil, errors.New("controller activation requires the original local manager binding")
 	}
@@ -42,7 +39,7 @@ func (n *Node) ControllerActivationControl(ctx context.Context, binding *Control
 	if err != nil {
 		return nil, err
 	}
-	control := &ControllerActivationControl{node: n, original: ctx, binding: binding, manager: n.upstream.Manager(), reader: reader}
+	control := &controllerActivationControl{node: n, original: ctx, binding: binding, manager: n.upstream.Manager(), reader: reader}
 	control.observation, err = control.manager.Observe(nil, func(tx store.ReadTx) error {
 		var err error
 		control.nodes, err = store.FindNodes(tx, store.All)
@@ -56,13 +53,13 @@ func (n *Node) ControllerActivationControl(ctx context.Context, binding *Control
 		return nil, err
 	}
 	control.observation.Cancel()
-	if err := control.Guard(ctx); err != nil {
+	if err := control.guard(ctx); err != nil {
 		return nil, err
 	}
 	return control, nil
 }
 
-func (control *ControllerActivationControl) Guard(ctx context.Context) error {
+func (control *controllerActivationControl) guard(ctx context.Context) error {
 	if control == nil || control.original == nil || control.node == nil || ctx == nil || ctx.Err() != nil || control.original.Err() != nil ||
 		control.node.upstream == nil || control.node.upstream.Manager() != control.manager {
 		return errors.New("controller activation local manager changed")
@@ -77,7 +74,7 @@ func (control *ControllerActivationControl) Guard(ctx context.Context) error {
 	return err
 }
 
-func (control *ControllerActivationControl) Nodes() []*api.Node {
+func (control *controllerActivationControl) nodesSnapshot() []*api.Node {
 	result := make([]*api.Node, len(control.nodes))
 	for index, node := range control.nodes {
 		result[index] = node.Copy()
@@ -85,7 +82,7 @@ func (control *ControllerActivationControl) Nodes() []*api.Node {
 	return result
 }
 
-func (control *ControllerActivationControl) Tasks() []*api.Task {
+func (control *controllerActivationControl) tasksSnapshot() []*api.Task {
 	result := make([]*api.Task, len(control.tasks))
 	for index, task := range control.tasks {
 		result[index] = task.Copy()
@@ -93,14 +90,14 @@ func (control *ControllerActivationControl) Tasks() []*api.Task {
 	return result
 }
 
-func (control *ControllerActivationControl) ClusterIdentity(ctx context.Context) (*manager.ClusterIdentity, error) {
+func (control *controllerActivationControl) clusterIdentity(ctx context.Context) (*manager.ClusterIdentity, error) {
 	return control.reader.ClusterIdentity(ctx)
 }
 
-// Update retains native validation and CAS. The additional projections can
+// update retains native validation and CAS. The additional projections can
 // only restrict the transaction; they cannot confer activation authority.
-func (control *ControllerActivationControl) Update(ctx context.Context, expected *api.Node, spec *api.NodeSpec, nodes []*api.Node, tasks []*api.Task, taskOwners []string, retirements []*bootstrapstart.ManagerRetirement) (*api.Node, error) {
-	if err := control.Guard(ctx); err != nil {
+func (control *controllerActivationControl) update(ctx context.Context, expected *api.Node, spec *api.NodeSpec, nodes []*api.Node, tasks []*api.Task, taskOwners []string, retirements []*bootstrapstart.ManagerRetirement) (*api.Node, error) {
+	if err := control.guard(ctx); err != nil {
 		return nil, err
 	}
 	guard := func(tx store.ReadTx) error {
@@ -184,10 +181,13 @@ func (control *ControllerActivationControl) Update(ctx context.Context, expected
 		}
 		return nil
 	}
+	if err := ociclient.CheckRequestGuard(ctx); err != nil {
+		return nil, err
+	}
 	response, err := control.manager.UpdateNodeAtObservation(ctx, control.observation, expected,
 		&api.UpdateNodeRequest{NodeID: expected.ID, NodeVersion: &expected.Meta.Version, Spec: spec}, guard)
 	if err != nil {
 		return nil, err
 	}
-	return response.Node, control.Guard(ctx)
+	return response.Node, control.guard(ctx)
 }
