@@ -12,11 +12,11 @@ import (
 
 const RootOperationJournalRecordLimit = 256 << 10
 
-const rootOperationJournalPurpose = "original-own-cell-root-operation-first-acceptance-v1"
+const rootOperationJournalPurpose = "own-cell-root-node-first-acceptance-v1"
 const rootOperationJournalPrefix = "orchestrator/root-operations/v1/"
 
-// RootOperationJournalPurpose is unsigned preparation data until included in
-// the root-signed foundation grant. It grants no provider-effect phase writes.
+// RootOperationJournalPurpose prepares NODE first-acceptance intent only.
+// Actual signed identity, physical protection and writer proofs remain required.
 type RootOperationJournalPurpose struct {
 	Purpose          string                  `json:"purpose"`
 	InstallationID   string                  `json:"installationId"`
@@ -30,7 +30,8 @@ type RootOperationJournalPurpose struct {
 	Storage          bootstrap.StorageDomain `json:"storage"`
 	BucketRole       string                  `json:"bucketRole"`
 	Access           string                  `json:"access"`
-	Authority        string                  `json:"authority"`
+	OperationKind    string                  `json:"operationKind"`
+	Identity         string                  `json:"identity"`
 	WriterSlotID     string                  `json:"writerSlotId"`
 	WriterOperation  string                  `json:"writerOperation"`
 	WriterProfile    string                  `json:"writerProfile"`
@@ -42,7 +43,7 @@ type RootOperationJournalPurpose struct {
 
 func preparedRootOperationJournals(grant FoundationGrant, expires time.Time) ([]RootOperationJournalPurpose, error) {
 	fail := func() ([]RootOperationJournalPurpose, error) {
-		return nil, errors.New("root operation purpose requires the exact original three signed controller allocations")
+		return nil, errors.New("root node purpose requires the exact original three signed controller allocations")
 	}
 	if !entityid.Valid(grant.InstallationID) || grant.Generation == 0 || grant.InfrastructureSpend == nil ||
 		grant.InfrastructureSpend.Bootstrap == nil || len(grant.Regions) != 3 || expires.IsZero() {
@@ -117,7 +118,8 @@ func preparedRootOperationJournals(grant FoundationGrant, expires time.Time) ([]
 			DeploymentID: source.DeploymentID, ClusterID: source.ClusterID, Environment: source.Environment,
 			SourcePlanSHA256: material.PlanSHA256, Storage: source.StorageDomain, BucketRole: "immutable-ledger",
 			Access: "conditional-create-exact-read-no-overwrite-delete-list-or-phase-v1", WriterSlotID: slotID,
-			Authority:       "original-writer-birth-grant-only-no-renewal-v1",
+			OperationKind:   "node.submit",
+			Identity:        "ulid-milliseconds-equal-signed-issued-at-v1",
 			WriterOperation: BootstrapOperationID(grant.InstallationID, slotID), WriterProfile: profileDigest, WriterRecipe: recipeDigest,
 			ObjectPrefix: rootOperationJournalPrefix + grant.InstallationID + "/" + cell + "/", RecordLimit: RootOperationJournalRecordLimit, ExpiresAt: deadline})
 	}

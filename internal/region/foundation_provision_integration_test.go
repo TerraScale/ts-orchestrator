@@ -115,12 +115,12 @@ func foundationProvisionSDKScenario(t *testing.T) {
 		if purpose.Storage != approval.HomeStorageDomain || purpose.RecordLimit != RootOperationJournalRecordLimit ||
 			purpose.ObjectPrefix != rootOperationJournalPrefix+prepared.Grant.InstallationID+"/"+purpose.Cell+"/" ||
 			purpose.BucketRole != "immutable-ledger" || purpose.Access != "conditional-create-exact-read-no-overwrite-delete-list-or-phase-v1" ||
-			purpose.Authority != "original-writer-birth-grant-only-no-renewal-v1" {
+			purpose.OperationKind != "node.submit" || purpose.Identity != "ulid-milliseconds-equal-signed-issued-at-v1" {
 			t.Fatal("prepared root operation purpose widened its fixed storage or immutable access")
 		}
 	}
 	t.Run("root_operation_purpose_is_explicit_and_exact", func(t *testing.T) {
-		for _, field := range []string{"storage", "writer", "prefix", "limit", "phase", "renewal", "duplicate"} {
+		for _, field := range []string{"storage", "writer", "prefix", "limit", "phase", "kind", "identity", "duplicate"} {
 			t.Run(field, func(t *testing.T) {
 				changed := prepared.Grant
 				changed.RootOperationJournals = slices.Clone(prepared.Grant.RootOperationJournals)
@@ -136,8 +136,10 @@ func foundationProvisionSDKScenario(t *testing.T) {
 					purpose.RecordLimit++
 				case "phase":
 					purpose.Access = "overwrite-phase"
-				case "renewal":
-					purpose.Authority = "renew-under-new-grant"
+				case "kind":
+					purpose.OperationKind = "placement.intent"
+				case "identity":
+					purpose.Identity = "caller-selected-ulid"
 				case "duplicate":
 					changed.RootOperationJournals[1] = *purpose
 				}
