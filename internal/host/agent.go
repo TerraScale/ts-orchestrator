@@ -45,6 +45,7 @@ type Agent struct {
 	sessionRenewMu   sync.Mutex
 	session          session
 	sessionSafeUntil time.Time
+	managerRenewal   *managerRuntimeRenewalEvent
 	processID        string
 	pending          map[string]pendingCycle
 	terraBase        map[string]terraBaseMember
@@ -533,6 +534,10 @@ func (a *Agent) wallTime() time.Time {
 }
 
 func (a *Agent) acceptSession(s session) error {
+	return a.acceptSessionRenewal(s, nil)
+}
+
+func (a *Agent) acceptSessionRenewal(s session, renewal *managerRuntimeRenewalEvent) error {
 	if err := a.checkClock(); err != nil {
 		return err
 	}
@@ -547,6 +552,10 @@ func (a *Agent) acceptSession(s session) error {
 	a.mu.Lock()
 	a.session = s
 	a.sessionSafeUntil = deadline
+	if renewal != nil {
+		renewal.deadline = deadline
+	}
+	a.managerRenewal = renewal
 	a.mu.Unlock()
 	return nil
 }
@@ -569,6 +578,7 @@ func (a *Agent) maintainSession(ctx context.Context, cancel context.CancelFunc, 
 }
 
 func (a *Agent) maintainSessionLease(ctx context.Context, fail func(error)) {
+	work := ctx
 	watchCtx, stopWatch := context.WithCancel(ctx)
 	watchDone := make(chan struct{})
 	go func() {
@@ -615,17 +625,22 @@ func (a *Agent) maintainSessionLease(ctx context.Context, fail func(error)) {
 			return
 		}
 		a.sessionRenewMu.Lock()
+		current, deadline, err = a.executionLease()
+		if err != nil {
+			a.sessionRenewMu.Unlock()
+			fail(err)
+			return
+		}
 		var next session
+		var signed protocol.Envelope
 		renewCtx, renewCancel := context.WithDeadline(ctx, deadline)
-		_, err = a.sendToLeader(renewCtx, "session", struct {
-			Kind string `json:"kind"`
-		}{"renew"}, &next, nil, nil)
+		req, err := a.sendToLeader(renewCtx, "session", sessionOperation{Kind: "renew", ManagerRuntimeBinding: current.ManagerRuntimeBinding}, &next, &signed, nil)
 		renewCancel()
 		if err == nil {
 			if next.SessionID != current.SessionID || next.Epoch != current.Epoch || !next.ExpiresAt.After(current.ExpiresAt) {
 				err = errors.New("renewed session binding mismatch")
 			} else if _, _, err = a.executionLease(); err == nil {
-				if err = a.acceptSession(next); err == nil {
+				if err = a.acceptSessionRenewal(next, newManagerRuntimeRenewalEvent(work, current, next, req.Envelope, signed)); err == nil {
 					a.logSessionAccepted("renew", next)
 				}
 			}

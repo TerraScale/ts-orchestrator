@@ -856,7 +856,7 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 	var payload any
 	switch req.Operation {
 	case "session":
-		payload, err = c.handleSession(ctx, req)
+		payload, result.SessionRevision, err = c.handleSessionCommitted(ctx, req)
 	case "desired", "artifact", "cycle", "report", "material", "function-material", "drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format", "runtime-effect", "container-material", "registry-admission",
 		"role-identity", "rollout", "rollout-binary", "netbird", "netbird-binary":
 		payload, err = c.handleAuthorized(ctx, req)
@@ -925,7 +925,12 @@ func (c *Controller) NodeKey(ctx context.Context, node string) (string, error) {
 	return r.NATSUserPublicKey, nil
 }
 
-func (c *Controller) handleSession(ctx context.Context, req request) (payload any, resultErr error) {
+func (c *Controller) handleSession(ctx context.Context, req request) (any, error) {
+	payload, _, err := c.handleSessionCommitted(ctx, req)
+	return payload, err
+}
+
+func (c *Controller) handleSessionCommitted(ctx context.Context, req request) (payload any, committed uint64, resultErr error) {
 	stage := "decode"
 	defer func() {
 		if resultErr != nil {
@@ -934,46 +939,46 @@ func (c *Controller) handleSession(ctx context.Context, req request) (payload an
 	}()
 	var operation sessionOperation
 	if err := decodeStrict(req.Payload, &operation); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	stateKey := sessionKey(c.cell, req.Node)
 	for attempt := range 8 {
 		stage = "registration"
 		r, registrationRevision, registered, err := c.readRegistration(ctx, req.Node)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		if !registered {
-			return nil, errors.New("host is not registered")
+			return nil, 0, errors.New("host is not registered")
 		}
 		key, err := decodePublicKey(r.PublicKey)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		stage = "verify"
 		if err := verifyRequest(req, key, c.cell, time.Now().UTC()); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		if err := c.verifyCredentialProtocol(ctx, req, r); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		now := time.Now().UTC()
 		stage = "session_read"
 		old, revision, exists, err := c.sessionSnapshot(ctx, stateKey)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		if exists && exactSessionReplay(old, r, req, operation.Kind, now) {
 			stage = "session_write"
-			if _, err := c.cas(ctx, stateKey, old, revision); err == nil {
-				return old, nil
+			if written, err := c.cas(ctx, stateKey, old, revision); err == nil {
+				return old, written, nil
 			} else if casConflict(err) {
 				if err := waitSessionConflict(ctx, attempt); err != nil {
-					return nil, err
+					return nil, 0, err
 				}
 				continue
 			} else {
-				return nil, err
+				return nil, 0, err
 			}
 		}
 		var next session
@@ -981,90 +986,90 @@ func (c *Controller) handleSession(ctx context.Context, req request) (payload an
 		switch operation.Kind {
 		case "acquire":
 			if req.Epoch != 0 {
-				return nil, errors.New("acquire requires epoch zero")
+				return nil, 0, errors.New("acquire requires epoch zero")
 			}
 			if exists && sessionHeld(old, r, now) {
-				return nil, errSessionOwned
+				return nil, 0, errSessionOwned
 			}
 			next = session{RegistrationGeneration: r.Generation, SessionID: req.SessionID, Epoch: 1, ExpiresAt: req.IssuedAt.Add(sessionTTL), LastNonce: req.Nonce, LastIssuedAt: req.IssuedAt}
 			if exists {
 				if old.Epoch == ^uint64(0) {
-					return nil, errors.New("session epoch exhausted")
+					return nil, 0, errors.New("session epoch exhausted")
 				}
 				next.Epoch = old.Epoch + 1
 			}
 		case "renew":
 			if !exists || !renewableSession(old, r, req, now) {
-				return nil, errors.New("session is no longer renewable")
+				return nil, 0, errors.New("session is no longer renewable")
 			}
 			next = old
 			next.ExpiresAt = req.IssuedAt.Add(sessionTTL)
 			next.LastNonce = req.Nonce
 			next.LastIssuedAt = req.IssuedAt
 		default:
-			return nil, errors.New("unknown session operation")
+			return nil, 0, errors.New("unknown session operation")
 		}
 		next.LastPayloadSHA256 = sessionPayloadSHA256(req)
 		if err := applyManagerRuntimeCarrier(&next, old, r, req, operation, revision, registrationRevision, now); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		stage = "session_write"
 		written, err := c.cas(ctx, stateKey, next, revision)
 		if err == nil && written > 0 {
-			return next, nil
+			return next, written, nil
 		}
 		if !casConflict(err) {
-			return nil, err
+			return nil, 0, err
 		}
 		if err := waitSessionConflict(ctx, attempt); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	}
 	stage = "registration"
 	r, err := c.registration(ctx, req.Node)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	key, err := decodePublicKey(r.PublicKey)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	stage = "verify"
 	if err := verifyRequest(req, key, c.cell, time.Now().UTC()); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	stage = "session_read"
 	old, revision, exists, err := c.sessionSnapshot(ctx, stateKey)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	now := time.Now().UTC()
 	if exists && exactSessionReplay(old, r, req, operation.Kind, now) {
 		stage = "session_write"
-		if _, err := c.cas(ctx, stateKey, old, revision); err == nil {
-			return old, nil
+		if written, err := c.cas(ctx, stateKey, old, revision); err == nil {
+			return old, written, nil
 		} else if !casConflict(err) {
-			return nil, err
+			return nil, 0, err
 		}
-		return nil, errSessionContention
+		return nil, 0, errSessionContention
 	}
 	stage = "session_validate"
 	switch operation.Kind {
 	case "acquire":
 		if req.Epoch != 0 {
-			return nil, errors.New("acquire requires epoch zero")
+			return nil, 0, errors.New("acquire requires epoch zero")
 		}
 		if exists && sessionHeld(old, r, now) {
-			return nil, errSessionOwned
+			return nil, 0, errSessionOwned
 		}
 	case "renew":
 		if !exists || !renewableSession(old, r, req, now) {
-			return nil, errors.New("session is no longer renewable")
+			return nil, 0, errors.New("session is no longer renewable")
 		}
 	default:
-		return nil, errors.New("unknown session operation")
+		return nil, 0, errors.New("unknown session operation")
 	}
-	return nil, errSessionContention
+	return nil, 0, errSessionContention
 }
 
 func (c *Controller) logSessionFailure(stage string, err error) {

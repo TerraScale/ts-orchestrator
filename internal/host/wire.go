@@ -89,14 +89,15 @@ type request struct {
 }
 
 type response struct {
-	Nonce     string          `json:"nonce"`
-	Node      string          `json:"node"`
-	SessionID string          `json:"session_id"`
-	Epoch     uint64          `json:"epoch"`
-	Operation string          `json:"operation"`
-	Error     string          `json:"error,omitempty"`
-	Retryable bool            `json:"retryable,omitzero"`
-	Payload   json.RawMessage `json:"payload,omitempty"`
+	SessionRevision uint64          `json:"session_revision,omitzero"`
+	Nonce           string          `json:"nonce"`
+	Node            string          `json:"node"`
+	SessionID       string          `json:"session_id"`
+	Epoch           uint64          `json:"epoch"`
+	Operation       string          `json:"operation"`
+	Error           string          `json:"error,omitempty"`
+	Retryable       bool            `json:"retryable,omitzero"`
+	Payload         json.RawMessage `json:"payload,omitempty"`
 }
 
 type sessionOperation struct {
