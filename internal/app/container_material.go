@@ -425,6 +425,23 @@ func (controller *containerMaterialController) recipient(ctx context.Context, re
 
 func (controller *containerMaterialController) currentMaterialTask(ctx context.Context, selected containerMaterialRecipient, registration host.Registration, binding host.ContainerMaterialBinding) error {
 	config := controller.config
+	deadline := selected.Verified.ExpiresAt()
+	if selected.controllerProof != nil {
+		if selected.controllerProof.Deadline().Before(deadline) {
+			deadline = selected.controllerProof.Deadline()
+		}
+		if selected.enrollmentExpiresAt.Before(deadline) {
+			deadline = selected.enrollmentExpiresAt
+		}
+	}
+	ctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if now := time.Now().UTC(); !selected.Verified.Valid(now) || selected.controllerProof != nil && (!selected.controllerProof.Valid(now) || !now.Before(selected.enrollmentExpiresAt)) {
+		return containermaterial.ErrPending
+	}
 	if selected.controllerProof != nil {
 		binding.HostID = selected.controllerProof.ControllerSlot()
 	}
