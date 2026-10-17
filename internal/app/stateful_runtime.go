@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync/atomic"
+	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/containermaterial"
@@ -97,4 +98,59 @@ func (slot *statefulRuntimeSlot) HandleRuntimeEffect(ctx context.Context, caller
 		return executionwire.WorkerGrantPayload{}, err
 	}
 	return payload, nil
+}
+
+func (slot *statefulRuntimeSlot) CheckTaskReadiness(ctx context.Context, task *api.Task, hosts *host.Controller) error {
+	_, err := slot.CaptureTaskReadiness(ctx, task, hosts)
+	return err
+}
+
+type statefulTaskReadiness struct {
+	slot    *statefulRuntimeSlot
+	runtime *statefulRuntime
+	witness *swarmruntime.TaskReadinessWitness
+}
+
+func (w *statefulTaskReadiness) Deadline() time.Time {
+	if w == nil {
+		return time.Time{}
+	}
+	return w.witness.Deadline()
+}
+
+func (w *statefulTaskReadiness) Recheck(ctx context.Context) error {
+	if w == nil || w.slot == nil || w.runtime == nil || w.slot.Load() != w.runtime {
+		return execution.ErrUnsafe
+	}
+	if err := w.runtime.guard(ctx); err != nil {
+		return err
+	}
+	if err := w.witness.Recheck(ctx); err != nil {
+		return err
+	}
+	if w.slot.Load() != w.runtime {
+		return execution.ErrUnsafe
+	}
+	return w.runtime.guard(ctx)
+}
+
+func (slot *statefulRuntimeSlot) CaptureTaskReadiness(ctx context.Context, task *api.Task, hosts *host.Controller) (*statefulTaskReadiness, error) {
+	runtime := slot.Load()
+	if runtime == nil {
+		return nil, containermaterial.ErrPending
+	}
+	if err := runtime.guard(ctx); err != nil {
+		return nil, err
+	}
+	witness, err := runtime.effects.CaptureTaskReadiness(ctx, task, hosts)
+	if err != nil {
+		return nil, err
+	}
+	if slot.Load() != runtime {
+		return nil, execution.ErrUnsafe
+	}
+	if err := runtime.guard(ctx); err != nil {
+		return nil, err
+	}
+	return &statefulTaskReadiness{slot: slot, runtime: runtime, witness: witness}, nil
 }

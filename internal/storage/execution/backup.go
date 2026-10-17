@@ -48,6 +48,7 @@ func (s *Source) startBackup(task *api.Task, entry *sourceEntry) error {
 	entry.backupCancel = cancel
 	s.mu.Unlock()
 	task = task.Copy()
+	go s.runReadiness(ctx, agent, task, entry)
 	go func() {
 		defer cancel()
 		for {
