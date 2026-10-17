@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -25,8 +26,11 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/hostvolume"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/tests/firecracker/production"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/content"
@@ -276,9 +280,13 @@ func (fixture *renewalCloud) putJSON(t *testing.T, hostname, path string, value 
 	if err != nil {
 		t.Fatal(err)
 	}
+	fixture.putBytes(hostname, path, wire)
+}
+
+func (fixture *renewalCloud) putBytes(hostname, path string, wire []byte) {
 	fixture.mu.Lock()
 	defer fixture.mu.Unlock()
-	fixture.routes[hostname+path] = renewalCloudRoute{body: wire, etag: fmt.Sprintf(`"%x"`, sha256.Sum256(wire))}
+	fixture.routes[hostname+path] = renewalCloudRoute{body: bytes.Clone(wire), etag: fmt.Sprintf(`"%x"`, sha256.Sum256(wire))}
 }
 
 func (fixture *renewalCloud) allowCAS(hostname, path string) {
@@ -773,4 +781,194 @@ func renewalMemberMain() error {
 		return nil
 	}
 	return err
+}
+
+type renewalSignedRelease struct {
+	bundle       release.ContainerBundle
+	roots        trust.Keyring
+	root, signer ed25519.PrivateKey
+	allocations  release.SequenceLocation
+	evidence     releasechannel.Location
+}
+
+// This signs only fixture evidence for the local test workload. It exercises
+// production verifiers without qualifying a TerraBase release.
+func renewalQualifyImage(t *testing.T, cloud *renewalCloud, storage objectstorage.ObjectStorageClient,
+	image containerd.Image, objects map[string][]byte, data execution.RetainedData, native []byte,
+) renewalSignedRelease {
+	t.Helper()
+	rootPublic, root, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualifierPublic, qualifier, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signerPublic, signer, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootID, err := trust.KeyID(rootPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualifierID, err := trust.KeyID(qualifierPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signerID, err := trust.KeyID(signerPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots := trust.Keyring{rootID: rootPublic, qualifierID: qualifierPublic}
+	now := time.Now().UTC().Truncate(time.Second)
+	target := release.ContainerTarget{Cell: "GRU", Environment: "production", Role: "terrabase", Architecture: runtime.GOARCH}
+	evidence := releasechannel.Location{Client: storage, Namespace: "fixture", Bucket: "gru-1-head"}
+	allocations := release.SequenceLocation{Client: storage, Namespace: evidence.Namespace, Bucket: evidence.Bucket}
+	objectPath := func(name string) string { return "/n/fixture/b/gru-1-head/o/" + name }
+	put := func(wire []byte) string {
+		sha := fmt.Sprintf("%x", sha256.Sum256(wire))
+		cloud.putBytes(renewalFixtureStorage, objectPath(releasechannel.ContainerEvidenceObject("terrabase", sha)), wire)
+		return sha
+	}
+	for expected, wire := range objects {
+		if put(wire) != expected {
+			t.Fatal("local OCI image evidence digest changed")
+		}
+	}
+	if put(native) != data.SourceArtifactSHA256 {
+		t.Fatal("native retained artifact differs from placement")
+	}
+	cpu, err := execution.HostCPUProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sign := func(value any, scope trust.Scope, key ed25519.PrivateKey) []byte {
+		t.Helper()
+		payload, err := trust.EncodePayload(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		envelope, err := trust.Sign(payload, scope, now, now.Add(time.Hour), key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wire, err := trust.EncodeEnvelope(envelope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return wire
+	}
+	migration := release.SequenceMigration{Schema: release.SequenceMigrationSchema, Namespace: evidence.Namespace,
+		Bucket: evidence.Bucket, Region: target.Cell, SignerKeyID: signerID,
+		SignerPublicKey: base64.RawURLEncoding.EncodeToString(signerPublic), Role: target.Role,
+		Environment: target.Environment, SequenceFloor: 100}
+	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+		migration.Regions = append(migration.Regions, release.SequenceFloor{Cell: cell, RunNumber: 100,
+			EvidenceSHA256: strings.Repeat("1", 64)})
+	}
+	migrationEnvelope, err := release.SignSequenceMigration(migration, now, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrationWire, err := trust.EncodeEnvelope(migrationEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrationSHA, err := trust.Fingerprint(migrationEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cloud.allowCAS(renewalFixtureStorage, objectPath(release.SequenceObject(target.Role, target.Environment)))
+	cloud.allowCAS(renewalFixtureStorage, objectPath(release.SequenceReservationObject(target.Role, target.Environment, migrationSHA, 101)))
+	if err := allocations.ImportMigration(t.Context(), migrationEnvelope, roots, target.Role, target.Environment, now); err != nil {
+		t.Fatal(err)
+	}
+	delegation, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion,
+		SubjectKeyID: signerID, SubjectPublicKey: base64.RawURLEncoding.EncodeToString(signerPublic),
+		Capabilities: []trust.Capability{{Domain: release.ContainerClaimDomain,
+			DeploymentID: release.ContainerScope(target).DeploymentID, Cell: target.Cell, Environment: target.Environment,
+			Role: target.Role, Slots: []string{"linux-" + runtime.GOARCH}, Actions: []string{"sign"}}}}, now, now.Add(time.Hour), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delegationWire, err := trust.EncodeEnvelope(delegation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestDescriptor := image.Target()
+	manifestWire := objects[manifestDescriptor.Digest.Encoded()]
+	var manifest ocispec.Manifest
+	if err := json.Unmarshal(manifestWire, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	configWire := objects[manifest.Config.Digest.Encoded()]
+	child := manifestDescriptor
+	child.Platform = &ocispec.Platform{OS: "linux", Architecture: runtime.GOARCH}
+	index := ocispec.Index{MediaType: ocispec.MediaTypeImageIndex, Manifests: []ocispec.Descriptor{child}}
+	index.SchemaVersion = 2
+	indexWire, err := json.Marshal(index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexSHA := put(indexWire)
+	proof := execution.StatefulQualification{Schema: execution.StatefulQualificationSchema,
+		CandidateSourceTreeSHA256: strings.Repeat("b", 64), Data: data, ResultData: data,
+		SourceCPU: cpu, TargetCPU: cpu, DiskFormatSHA256: data.DiskFormatSHA256,
+		SourceArtifact: &release.ProductionGateEvidence{Gate: "native-source-artifact", SHA256: data.SourceArtifactSHA256,
+			Bytes: int64(len(native)), CompletedAt: now},
+		ImageManifest: release.ProductionGateEvidence{Gate: "image-manifest", SHA256: manifestDescriptor.Digest.Encoded(),
+			Bytes: int64(len(manifestWire)), CompletedAt: now},
+		ImageConfig: release.ProductionGateEvidence{Gate: "image-config", SHA256: manifest.Config.Digest.Encoded(),
+			Bytes: int64(len(configWire)), CompletedAt: now}}
+	proof.ResultData.SourceArtifactSHA256 = manifestDescriptor.Digest.Encoded()
+	proof.ResultData.SourceTreeSHA256 = proof.CandidateSourceTreeSHA256
+	proof.ResultData.SourceArchitecture = runtime.GOARCH
+	for _, gate := range []string{"retained-restart", "restore", "replication-catchup", "durable-drain", "sigterm", "cpu-format-transition"} {
+		wire := []byte("test workload fixture " + gate)
+		proof.Scenarios = append(proof.Scenarios, release.ProductionGateEvidence{Gate: gate, SHA256: put(wire),
+			Bytes: int64(len(wire)), CompletedAt: now})
+	}
+	proofWire, err := trust.EncodePayload(proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := release.ContainerClaim{Schema: release.ContainerClaimSchema, Image: image.Name(),
+		SourceRepository: "https://github.com/TerraScale/terrascale", SourceRevision: strings.Repeat("a", 40),
+		SourceTreeSHA256: proof.CandidateSourceTreeSHA256, Cell: target.Cell, Environment: target.Environment,
+		Role: target.Role, Architecture: target.Architecture, ReleaseSequence: 101,
+		SequenceMigrationSHA256: migrationSHA, QualificationSHA256: indexSHA}
+	expected := release.ProductionExpectation{SourceRevision: claim.SourceRevision,
+		ArtifactSHA256: manifestDescriptor.Digest.Encoded(), QualificationSHA256: indexSHA, Cell: target.Cell,
+		Environment: target.Environment, Role: target.Role, Architecture: target.Architecture, Runtime: release.ProductionRuntime}
+	ha := []byte("test workload runtime fixture")
+	qualification := release.ProductionQualification{Schema: release.ProductionQualificationSchema, Candidate: expected,
+		Evidence: []release.ProductionGateEvidence{{Gate: "runtime-ha", SHA256: put(ha), Bytes: int64(len(ha)), CompletedAt: now},
+			{Gate: "workload-safety", SHA256: put(proofWire), Bytes: int64(len(proofWire)), CompletedAt: now}}}
+	claim.Production.Qualification = sign(qualification, release.ProductionQualificationScope(expected), qualifier)
+	family, err := claim.WorkerFamilyDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sequence, sequenceWire, err := allocations.AllocateWithEvidence(t.Context(), release.SequenceIdentity{
+		Role: target.Role, Environment: target.Environment, SourceRevision: claim.SourceRevision, ManifestSHA256: family}, roots, signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sequence != 101 {
+		t.Fatalf("fixture allocated sequence %d, want 101", sequence)
+	}
+	bundle := release.ContainerBundle{Index: indexWire, Sequence: sequenceWire,
+		Claim: sign(claim, release.ContainerScope(target), signer), Migration: migrationWire, Delegation: delegationWire}
+	open := func(ctx context.Context, sha string) (io.ReadCloser, error) {
+		return releasechannel.ReadContainerEvidence(ctx, evidence, "terrabase", sha)
+	}
+	verified, err := execution.VerifyStatefulCurrent(t.Context(), bundle, roots, target, data, cpu, now,
+		now.Add(time.Minute), open, allocations)
+	if err != nil || verified.Data() != data || verified.CPU() != cpu {
+		t.Fatalf("signed local image qualification: %v", err)
+	}
+	return renewalSignedRelease{bundle: bundle, roots: roots, root: root, signer: signer,
+		allocations: allocations, evidence: evidence}
 }
