@@ -1,0 +1,36 @@
+{
+  "state": "COMPILE_PASS",
+  "exit_code": 0,
+  "wall_seconds": 6.198541367019061,
+  "max_child_rss_kib": 514832,
+  "source_pre": {
+    "head": "9bd689bd59297b6b7760cc8f5f45079ceae78f8a",
+    "tree": "63f675cb28ec5b16687945b76ab78ea708bcada3",
+    "status": "",
+    "source_sha256": "c826a35b376ef70c27f1a0da6c76e5fd355749ea732181ba1893ac37b2d400fc",
+    "replacement_sha256": "1e1d203df1cd634667b6e9bc471aad568ea27349dc773d6d3b35b4bd5ddd5275",
+    "go_sha256": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+    "request_sha256": "a6de5057dc7aec9a1bf999e032c53e91d6eab3c6da54e15a19914ac9283edcbc"
+  },
+  "source_post": {
+    "head": "9bd689bd59297b6b7760cc8f5f45079ceae78f8a",
+    "tree": "63f675cb28ec5b16687945b76ab78ea708bcada3",
+    "status": "",
+    "source_sha256": "c826a35b376ef70c27f1a0da6c76e5fd355749ea732181ba1893ac37b2d400fc",
+    "replacement_sha256": "1e1d203df1cd634667b6e9bc471aad568ea27349dc773d6d3b35b4bd5ddd5275",
+    "go_sha256": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+    "request_sha256": "a6de5057dc7aec9a1bf999e032c53e91d6eab3c6da54e15a19914ac9283edcbc"
+  },
+  "binary": {
+    "path": "/tmp/ts-netbird-api-retirement-9bd689bd-6d9jtowd/manager.test",
+    "sha256": "b1381f3ce0eb7c5ff787252442438beae13e2fee10749b2916f9b9fb16d31c8f",
+    "bytes": 30660181,
+    "magic_hex": "7f454c46",
+    "mode": "0o600",
+    "never_executed": true
+  },
+  "binary_execution_count": 0,
+  "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "scope": "one true go test -c compile/link only; binary never executed; no runtime rerun or canonical adoption claim"
+}

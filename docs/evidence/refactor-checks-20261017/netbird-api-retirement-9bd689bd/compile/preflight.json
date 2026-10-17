@@ -1,0 +1,49 @@
+{
+  "source": {
+    "head": "9bd689bd59297b6b7760cc8f5f45079ceae78f8a",
+    "tree": "63f675cb28ec5b16687945b76ab78ea708bcada3",
+    "status": "",
+    "source_sha256": "c826a35b376ef70c27f1a0da6c76e5fd355749ea732181ba1893ac37b2d400fc",
+    "replacement_sha256": "1e1d203df1cd634667b6e9bc471aad568ea27349dc773d6d3b35b4bd5ddd5275",
+    "go_sha256": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+    "request_sha256": "a6de5057dc7aec9a1bf999e032c53e91d6eab3c6da54e15a19914ac9283edcbc"
+  },
+  "argv": [
+    "/run/current-system/sw/bin/nice",
+    "-n",
+    "19",
+    "/run/current-system/sw/bin/timeout",
+    "--signal=TERM",
+    "--kill-after=5s",
+    "180s",
+    "/run/current-system/sw/bin/env",
+    "-i",
+    "HOME=/home/mariogk",
+    "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "GOMAXPROCS=2",
+    "GOFLAGS=-p=2",
+    "GOTOOLCHAIN=local",
+    "LANG=C.UTF-8",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+    "test",
+    "-c",
+    "-mod=readonly",
+    "-vet=off",
+    "-p=1",
+    "-o",
+    "/tmp/ts-netbird-api-retirement-9bd689bd-6d9jtowd/manager.test",
+    "./internal/netbird/manager"
+  ],
+  "cwd": "/tmp/ts-netbird-api-boundary-dd22-20261017",
+  "environment": {
+    "HOME": "/home/mariogk",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "GOMAXPROCS": "2",
+    "GOFLAGS": "-p=2",
+    "GOTOOLCHAIN": "local",
+    "LANG": "C.UTF-8"
+  },
+  "GOROOT_present": false,
+  "compile_only": true,
+  "binary_execution_count": 0
+}

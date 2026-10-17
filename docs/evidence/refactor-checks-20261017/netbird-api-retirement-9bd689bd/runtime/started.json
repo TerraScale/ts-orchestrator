@@ -1,0 +1,33 @@
+{
+  "pid": 396124,
+  "epoch": 1792207635.1644943,
+  "argv": [
+    "/run/current-system/sw/bin/nice",
+    "-n",
+    "19",
+    "/run/current-system/sw/bin/timeout",
+    "--signal=TERM",
+    "--kill-after=5s",
+    "180s",
+    "/run/current-system/sw/bin/env",
+    "-i",
+    "HOME=/home/mariogk",
+    "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "GOMAXPROCS=2",
+    "GOFLAGS=-p=2",
+    "GOTOOLCHAIN=local",
+    "LANG=C.UTF-8",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+    "test",
+    "-json",
+    "-mod=readonly",
+    "-vet=off",
+    "-p=1",
+    "./internal/netbird/manager",
+    "-run",
+    "^TestManagementInventoryRejectsRedirectsAndSecretErrorBodies$",
+    "-count=1",
+    "-parallel=1",
+    "-timeout=30s"
+  ]
+}

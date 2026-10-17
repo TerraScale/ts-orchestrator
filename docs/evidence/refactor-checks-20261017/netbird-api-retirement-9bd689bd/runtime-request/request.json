@@ -1,0 +1,93 @@
+{
+  "state": "SOURCE_ONLY_NOT_COMPILED_OR_RUN_NO_LEASE",
+  "worktree": "/tmp/ts-netbird-api-boundary-dd22-20261017",
+  "base": "dd22a8d05276cf24d050384145b1c4e546a01ef0",
+  "commit": "44fccacf6535529ccd5f9e56c0a6fab652c6b48c",
+  "tree": "5e002ff76dffe5faaf80302bbdad1ee0dfbfda0c",
+  "owned_changed_paths": [
+    "internal/netbird/manager/api_integration_test.go"
+  ],
+  "retained_original_file_sha256": "7070f1d309bc59a82ad6d15207c6abb36c21bf2cd7b9b5a90bdafda965b08eb8",
+  "source_file_sha256": "1e1d203df1cd634667b6e9bc471aad568ea27349dc773d6d3b35b4bd5ddd5275",
+  "go_binary_sha256": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+  "original": "TestAPIRefusesRedirectsAndHidesBodies",
+  "original_frozen_declaration_sha256": "f7fc9d0a68f0299df78d4c97f407cd4b64d1737c9958195e9cd5f73669ba7a4e",
+  "replacement": "TestManagementInventoryRejectsRedirectsAndSecretErrorBodies",
+  "expected_pass_tests": [
+    "TestManagementInventoryRejectsRedirectsAndSecretErrorBodies",
+    "TestManagementInventoryRejectsRedirectsAndSecretErrorBodies/redirect",
+    "TestManagementInventoryRejectsRedirectsAndSecretErrorBodies/error-body",
+    "TestManagementInventoryRejectsRedirectsAndSecretErrorBodies/rejected-origins",
+    "TestManagementInventoryRejectsRedirectsAndSecretErrorBodies/accepted-origins"
+  ],
+  "invariants": {
+    "redirect": "NewAPI\u2192ReadInventory\u2192actual authenticated GET /api/groups\u2192302 StatusError; preserve HTTP\u2192HTTPS redirect scheme; origin count1, destination count0; no certificate overrides",
+    "error-body": "actual authenticated GET /api/groups\u2192500 StatusError; secret and exact PAT body markers absent; count1",
+    "rejected-origins": [
+      "http://netbird.terrascale.tech",
+      "ftp://127.0.0.1",
+      "https://x/api",
+      "https://u:p@x",
+      "https://x?q"
+    ],
+    "accepted-origins": [
+      "http://127.0.0.1:8080",
+      "http://[::1]:1",
+      "https://netbird.terrascale.tech"
+    ]
+  },
+  "request": {
+    "argv": [
+      "/run/current-system/sw/bin/nice",
+      "-n",
+      "19",
+      "/run/current-system/sw/bin/timeout",
+      "--signal=TERM",
+      "--kill-after=5s",
+      "180s",
+      "/run/current-system/sw/bin/env",
+      "-i",
+      "HOME=/home/mariogk",
+      "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "GOMAXPROCS=2",
+      "GOFLAGS=-p=2",
+      "GOTOOLCHAIN=local",
+      "LANG=C.UTF-8",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "test",
+      "-json",
+      "-mod=readonly",
+      "-vet=off",
+      "-p=1",
+      "./internal/netbird/manager",
+      "-run",
+      "^TestManagementInventoryRejectsRedirectsAndSecretErrorBodies$",
+      "-count=1",
+      "-parallel=1",
+      "-timeout=30s"
+    ],
+    "cwd": "/tmp/ts-netbird-api-boundary-dd22-20261017",
+    "lease_required": true,
+    "shared_lock": "/tmp/ts-orch-refactor-gate-check.lock",
+    "lock_mode": "nonblocking-exclusive",
+    "attempts": 1,
+    "parallelism": "GOMAXPROCS2;GOFLAGS-p2;package-p1;testparallel1;serial leaves",
+    "compile_resources": "unmeasured; request \u2264180s wall, approximately \u22642GiB RSS and \u22641GiB compiler scratch/cache growth; QA may tighten before grant",
+    "runtime_resources": "estimated under5seconds;\u2264256MiB RSS;no test-owned filesystem artifacts;peak2loopbacklisteners(oneHTTPSdestinationnevercontacted) and1clientconnection;3listeners total across serial leaves;2requests total;0destinationrequests;0subprocesses/brokers/cloud/Podman",
+    "timeouts": "test30s;request2s;rootcontext10s;outerTERM180s/KILL5s",
+    "environment": "env-i exactly6keys;GOROOTabsent;no inheritedOCI/NetBird/cloudcredentials;CGO default from toolchain",
+    "qualification": "new root+4leaves must PASS with no skips; no old test execution/removal/race/global credit"
+  },
+  "limits": [
+    "Public HTTP client contract only; no real NetBird manager behavior/TLS/IPv6 connectivity claimed.",
+    "Accepted origins are constructor-only validation, preserving original assertions.",
+    "Keep canceled POST transport-error original and all unrelated tests unchanged.",
+    "No original retirement until QA accepts equivalence and runtime evidence."
+  ],
+  "predecessor_packet": {
+    "path": "/tmp/ts-netbird-api-boundary-2d7fac27-source-2j4g8s_7",
+    "request_sha256": "c6effec11f6208cf672ff46c5cc07b1038906dac11117879cd14c3ed5808d27b",
+    "disposition": "unused QA lease released; zero Go execution/outcome; one-line HTTP\u2192HTTPS destination correction"
+  },
+  "static_initializer_check": "No TestMain or init functions in manager production/test package. Podman subprocess calls exist only inside unselected test functions. First-party import-closure static audit recorded separately before launch; no Go discovery permitted."
+}

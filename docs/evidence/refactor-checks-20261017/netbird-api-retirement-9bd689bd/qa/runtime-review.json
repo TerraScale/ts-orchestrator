@@ -1,0 +1,52 @@
+{
+  "state": "ACCEPTED_SCOPED_RUNTIME_EQUIVALENCE_RETIREMENT_SOURCE_AUTHORIZED",
+  "source": {
+    "head": "44fccacf6535529ccd5f9e56c0a6fab652c6b48c",
+    "tree": "5e002ff76dffe5faaf80302bbdad1ee0dfbfda0c",
+    "status": "",
+    "source_sha256": "1e1d203df1cd634667b6e9bc471aad568ea27349dc773d6d3b35b4bd5ddd5275",
+    "original_sha256": "7070f1d309bc59a82ad6d15207c6abb36c21bf2cd7b9b5a90bdafda965b08eb8",
+    "go_sha256": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+    "request_sha256": "40655dbc31cea9a9d90ee11117042194de0b5371ba31d5614121227c766beb28"
+  },
+  "receipt": "/tmp/ts-netbird-api-boundary-44fccacf-runner-obo18ul7/receipt.json",
+  "receipt_sha256": "3be878a0141d76d5fc288c7e829ba2f50c511ab3e50a1ffcefde3a939d4d7b60",
+  "request": "/tmp/ts-netbird-api-boundary-44fccacf-source-c5y_75hp/request.json",
+  "request_sha256": "40655dbc31cea9a9d90ee11117042194de0b5371ba31d5614121227c766beb28",
+  "runner_sha256": "a2b358a86964ca6be0422dd3390e2a885efcb9bbbae24cbd4a6848fc3a8cefce",
+  "tests": [
+    "TestManagementInventoryRejectsRedirectsAndSecretErrorBodies",
+    "TestManagementInventoryRejectsRedirectsAndSecretErrorBodies/accepted-origins",
+    "TestManagementInventoryRejectsRedirectsAndSecretErrorBodies/error-body",
+    "TestManagementInventoryRejectsRedirectsAndSecretErrorBodies/redirect",
+    "TestManagementInventoryRejectsRedirectsAndSecretErrorBodies/rejected-origins"
+  ],
+  "named_passes": 5,
+  "skips": 0,
+  "extra_tests": 0,
+  "verified_checksum_members": [
+    "preflight.json",
+    "receipt.json",
+    "run.py",
+    "started.json",
+    "stderr.log",
+    "stdout.jsonl",
+    "tool-launch.json",
+    "tool-poll-1.json",
+    "tool-poll-2.json",
+    "tool-poll-3.json"
+  ],
+  "raw_stdout_sha256": "435fa2c2d08e81da4bcff7782422abf0bbd4b00e75d24bd2e65d834f208d02e0",
+  "raw_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "tool_session": 1053,
+  "tool_terminal_chunk": "9331f2",
+  "tool_terminal_exit": 0,
+  "wall_seconds": 42.30154653103091,
+  "gate": "independently acquired nonblocking after terminal and released",
+  "mapping": "Original TestAPIRefusesRedirectsAndHidesBodies to new public NewAPI/ReadInventory root and 4leaves; same5 rejected+3 accepted origins, HTTP-to-HTTPS refused redirect, response-body redaction; original source intact",
+  "next": "Isolated exact mapped original declaration removal only; preserve canceled POST and unrelated bytes; compile-only successor requires separate lease; no repeated runtime",
+  "limits": [
+    "Local HTTP client boundary only",
+    "No production NetBird manager/real TLS/IPv6 connectivity/global inventory closure"
+  ]
+}
