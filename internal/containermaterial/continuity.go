@@ -23,12 +23,32 @@ func VerifyRuntimePolicy(original, current Profile) error {
 	return nil
 }
 
+// VerifyHistoricalContinuity compares signed renewal policy without granting
+// current release, actor, lease or task admission.
+func VerifyHistoricalContinuity(original Profile, historical release.HistoricalContainer, candidate Profile, renewed release.HistoricalContainer) error {
+	return verifyContinuity(original, historical, candidate, renewed)
+}
+
 // VerifyContinuity compares an archived original release with independently
 // current authority. It grants no actor, lease or task admission.
 func VerifyContinuity(original Profile, historical release.HistoricalContainer, current Profile, verified release.VerifiedContainer, now time.Time) error {
+	if !verified.Valid(now) {
+		return ErrPending
+	}
+	return verifyContinuity(original, historical, current, verified)
+}
+
+type continuityRelease interface {
+	Claim() release.ContainerClaim
+	Fingerprint() string
+	BundleSHA256() string
+	ReleaseIdentity() string
+}
+
+func verifyContinuity(original Profile, historical release.HistoricalContainer, current Profile, verified continuityRelease) error {
 	if VerifyRuntimePolicy(original, current) != nil || original.continuation != nil || current.continuation != nil ||
 		original.runtimeOperationID != original.intent.OperationID || current.runtimeOperationID != current.intent.OperationID ||
-		!verified.Valid(now) || historical.ReleaseIdentity() == "" || historical.ReleaseIdentity() != verified.ReleaseIdentity() {
+		historical.ReleaseIdentity() == "" || historical.ReleaseIdentity() != verified.ReleaseIdentity() {
 		return ErrPending
 	}
 	for _, pair := range []struct {
