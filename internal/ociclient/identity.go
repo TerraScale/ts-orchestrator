@@ -57,3 +57,20 @@ func WithAdmission(ctx context.Context, acquire func(context.Context) (func(), e
 func WithWireAttempt(ctx context.Context, begin func(*http.Request) (func(*http.Response, error, bool) error, error)) context.Context {
 	return context.WithValue(ctx, wireAttemptKey{}, begin)
 }
+
+// CheckpointContext keeps the original root guard, cancellation and deadline,
+// while a protected journal write runs outside the provider mutation's hooks.
+func CheckpointContext(ctx context.Context) context.Context {
+	return checkpointContext{Context: ctx}
+}
+
+type checkpointContext struct{ context.Context }
+
+func (ctx checkpointContext) Value(key any) any {
+	switch key.(type) {
+	case authorityKey, admissionKey, wireAttemptKey, admissionDeadlineKey:
+		return nil
+	default:
+		return ctx.Context.Value(key)
+	}
+}
