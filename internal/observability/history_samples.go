@@ -355,12 +355,15 @@ func (sampler *SnapshotSampler) Samples(cluster ClusterSnapshot) []Sample {
 		partitions := 0
 		stages := maps.Clone(placement.StageCounts)
 		desired, serving := 0, 0
+		readinessObserved := true
 		for index, database := range placement.Databases {
 			if index < maxSampledPartitions {
 				gauge(HistPartitionDesired, float64(database.DesiredSeats),
 					"database", database.DatabaseID, "partition", database.PartitionID)
-				gauge(HistPartitionServing, float64(database.Serving),
-					"database", database.DatabaseID, "partition", database.PartitionID)
+				if database.Readiness == "observed" {
+					gauge(HistPartitionServing, float64(database.Serving),
+						"database", database.DatabaseID, "partition", database.PartitionID)
+				}
 			}
 			if database.Terminal {
 				for stage, count := range database.Stages {
@@ -372,6 +375,7 @@ func (sampler *SnapshotSampler) Samples(cluster ClusterSnapshot) []Sample {
 			}
 			partitions++
 			desired += database.DesiredSeats
+			readinessObserved = readinessObserved && database.Readiness == "observed"
 			serving += database.Serving
 			if rollout := database.Rollout; rollout != nil {
 				gauge(HistRolloutProgress, rollout.Progress(), "operation", rollout.OperationID)
@@ -379,7 +383,9 @@ func (sampler *SnapshotSampler) Samples(cluster ClusterSnapshot) []Sample {
 		}
 		gauge(HistDatabases, float64(partitions))
 		gauge(HistSeatsDesired, float64(desired))
-		gauge(HistSeatsServing, float64(serving))
+		if readinessObserved {
+			gauge(HistSeatsServing, float64(serving))
+		}
 		for stage, count := range stages {
 			gauge(HistStageMembers, float64(count), "stage", stage)
 			if len(sampler.stages) < maxSampledStages {

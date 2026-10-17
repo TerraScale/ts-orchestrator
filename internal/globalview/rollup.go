@@ -146,9 +146,10 @@ type Node struct {
 
 // Service is one role placed on a node and its reported state.
 type Service struct {
-	Role   string `json:"role"`
-	State  string `json:"state,omitempty"`
-	Digest string `json:"digest,omitempty"`
+	Role        string `json:"role"`
+	State       string `json:"state,omitempty"`
+	StateReason string `json:"state_reason,omitempty"`
+	Digest      string `json:"digest,omitempty"`
 }
 
 // Filesystem is one distinct filesystem of a node; Role names the roles

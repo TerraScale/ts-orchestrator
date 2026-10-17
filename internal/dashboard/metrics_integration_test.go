@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"bufio"
+	"context"
 	"encoding/json/v2"
 	"fmt"
 	"html"
@@ -56,9 +57,11 @@ func TestMetricDashboardRegistryHistoryHTTP(t *testing.T) {
 	dashboard.Mount(listener)
 	server := httptest.NewServer(listener)
 	t.Cleanup(server.Close)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	t.Cleanup(cancel)
 	request := func(path string, authenticated bool) *http.Response {
 		t.Helper()
-		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+path, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+path, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -134,7 +137,6 @@ func TestMetricDashboardRegistryHistoryHTTP(t *testing.T) {
 		t.Fatal("series truncation is not visible")
 	}
 	// Live rendering follows the same registry rather than a second UI sampler.
-	queue.Set(9)
 	stream := request("/metric-catalog/stream?metric=obs_dashboard_queue&range=15m", true)
 	defer stream.Body.Close()
 	if stream.StatusCode != http.StatusOK || !strings.Contains(stream.Header.Get("Content-Type"), "text/event-stream") {
@@ -142,15 +144,20 @@ func TestMetricDashboardRegistryHistoryHTTP(t *testing.T) {
 	}
 	scanner := bufio.NewScanner(stream.Body)
 	scanner.Buffer(make([]byte, 4096), 2<<20)
-	found := false
-	for scanner.Scan() {
-		if regexp.MustCompile(`>\s*9\s*<`).MatchString(scanner.Text()) {
-			found = true
+	reader := &sseReader{t: t, scanner: scanner}
+	sample := regexp.MustCompile(`<th[^>]*>\s*obs_dashboard_queue\s*</th>\s*<td[^>]*>\s*([0-9]+)\s*</td>`)
+	event, data := reader.next()
+	initial := sample.FindStringSubmatch(data)
+	if event != "datastar-patch-elements" || len(initial) != 2 || initial[1] != "0" {
+		t.Fatalf("initial Datastar registry sample: event=%s sample=%q", event, initial)
+	}
+	queue.Set(9)
+	for {
+		event, data = reader.next()
+		updated := sample.FindStringSubmatch(data)
+		if event == "datastar-patch-elements" && len(updated) == 2 && updated[1] == "9" {
 			break
 		}
-	}
-	if !found {
-		t.Fatalf("Datastar stream did not reflect updated registry gauge: %v", scanner.Err())
 	}
 }
 

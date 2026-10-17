@@ -185,6 +185,48 @@ func TestTerraBaseDeployDrivesManagedPlacementToDesiredState(t *testing.T) {
 	}) {
 		t.Fatalf("status does not explain the serving hold: %+v", report.Holds)
 	}
+	// A durable serving stage remains visible without becoming current readiness.
+	members, err := cell.store.ListMembers(ctx, intent.DatabaseID, intent.PartitionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, member := range members {
+		member.State.Stage = placement.StageServing
+		if _, err := cell.store.CompareAndSwap(ctx, member.Revision, member.State); err != nil {
+			t.Fatal(err)
+		}
+	}
+	report = deployTestStatus(t, ctx, cell, state)
+	if report.Serving || report.Readiness != "unknown" || report.ReadinessReason != "current native root task and member readiness source is unavailable" {
+		t.Fatalf("durable serving stages asserted current serving: %+v", report)
+	}
+	for _, member := range report.Members {
+		if member.Stage != string(placement.StageServing) || member.Host == nil || !member.Host.SessionCurrent ||
+			member.Host.ServingProof || member.Host.ListenerReady || member.Host.ProcessPID != 0 || member.Host.ReportState != "" {
+			t.Fatalf("signed status confused durable state with current runtime proof: %+v", member)
+		}
+		if sample := soakSample(member, time.Now()); !sample.Gap {
+			t.Fatalf("unavailable current root readiness was not a soak gap: %+v", sample)
+		}
+	}
+	snapshot, err := placement.Summarize(ctx, cell.store)
+	if err != nil || len(snapshot.Databases) != 1 || snapshot.StageCounts["serving"] != 2 ||
+		snapshot.Databases[0].Serving != 0 || snapshot.Databases[0].Readiness != "unknown" || snapshot.Databases[0].ReadinessReason == "" {
+		t.Fatalf("actual durable placement snapshot asserted current serving: %+v %v", snapshot, err)
+	}
+
+	// Even a current physical session cannot turn an obsolete host report into readiness.
+	legacy := statuses[0]
+	legacy.Reports = []host.Report{{State: "running", Digest: intent.RuntimeManifests[0].ArtifactDigest,
+		Managed: &host.ManagedRuntimeReport{ProcessPID: 77, ListenerReady: true, StorageRecovered: true}}}
+	observed := memberHostStatus(legacy, time.Now())
+	if !observed.SessionCurrent || observed.ProcessPID != 0 || observed.ListenerReady || observed.StorageRecovered || observed.ReportState != "" {
+		t.Fatalf("legacy host report became runtime authority: %+v", observed)
+	}
+	legacy.Retired = true
+	if memberHostStatus(legacy, time.Now()).SessionCurrent {
+		t.Fatal("retired physical session was shown as current")
+	}
 }
 
 // The live R5 image reports neither consistent volume naming nor PV

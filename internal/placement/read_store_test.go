@@ -2,7 +2,6 @@ package placement
 
 import (
 	"context"
-	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -12,8 +11,7 @@ import (
 )
 
 func TestPlacementListingOpensExistingStateWithoutWrites(t *testing.T) {
-	runtime, err := natscell.Start(t.Context(), natscell.Config{Cell: "gru", Instance: "listing-reader", Replicas: 1, Lab: true,
-		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "nats")}})
+	runtime, err := natscell.Start(t.Context(), placementTestBrokerConfig(t, "listing-reader"))
 	if err != nil {
 		t.Fatal(err)
 	}

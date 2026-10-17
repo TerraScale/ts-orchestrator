@@ -88,7 +88,7 @@ templ regionCard(current view, summary regionview.Summary) {
 			<dt>Versions</dt>
 			<dd title={ versionsText(summary) }>{ versionsText(summary) }</dd>
 			<dt>TerraBase</dt>
-			<dd>{ itoa(summary.TerraBase.Databases) } databases · { itoa(summary.TerraBase.ServingSeats) }/{ itoa(summary.TerraBase.DesiredSeats) } seats serving</dd>
+			<dd>{ itoa(summary.TerraBase.Databases) } databases · { "unknown: live native task readiness unavailable" }/{ itoa(summary.TerraBase.DesiredSeats) } seats serving</dd>
 			<dt>Rollouts</dt>
 			<dd>
 				if len(summary.Rollouts) == 0 {
