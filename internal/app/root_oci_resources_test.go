@@ -42,8 +42,8 @@ func TestRootResourceSnapshotRefusesMissingDeletedAndPurgedAuthority(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if entry, err := rootResourceKV(t.Context(), js, cellSpecBucket, cellSpecKey); err != nil || entry != nil {
-		t.Fatalf("fresh genesis = %+v %v", entry, err)
+	if _, err := rootResourceKV(t.Context(), js, cellSpecBucket, cellSpecKey); err == nil {
+		t.Fatal("empty stream treated as signed mutation authority")
 	}
 	revision, err := kv.Put(t.Context(), cellSpecKey, []byte(`{"signed":"exact-wire"}`))
 	if err != nil {
@@ -68,6 +68,16 @@ func TestRootResourceSnapshotRefusesMissingDeletedAndPurgedAuthority(t *testing.
 	}
 	if _, err := rootResourceKV(t.Context(), js, cellSpecBucket, cellSpecKey); err == nil {
 		t.Fatal("purged signed history treated as fresh genesis")
+	}
+	if err := js.DeleteKeyValue(t.Context(), cellSpecBucket); err != nil {
+		t.Fatal(err)
+	}
+	kv, err = js.CreateKeyValue(t.Context(), jetstream.KeyValueConfig{Bucket: cellSpecBucket, History: 4, Storage: jetstream.FileStorage, MaxValueSize: 65536})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rootResourceKV(t.Context(), js, cellSpecBucket, cellSpecKey); err == nil {
+		t.Fatal("deleted and recreated stream treated as fresh genesis")
 	}
 
 	// The original source deadline survives subsequent broker reads and caps.
