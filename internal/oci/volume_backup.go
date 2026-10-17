@@ -42,23 +42,6 @@ type VolumeBackupProvider interface {
 	DeleteVolumeBackup(ctx context.Context, backupID, etag string) error
 }
 
-// NewInstancePrincipalVolumeBackupProvider builds the region-pinned SDK
-// backup seam with instance-principal authentication.
-func NewInstancePrincipalVolumeBackupProvider(config RegionConfig, intent RegionIntent, journal *KVJournal) (VolumeBackupProvider, error) {
-	if err := config.Validate(intent); err != nil {
-		return nil, err
-	}
-	if journal == nil {
-		return nil, errors.New("volume backups require the durable OCI journal")
-	}
-	provider, err := newSDKProvider(config, nil)
-	if err != nil {
-		return nil, err
-	}
-	provider.terminations = journal
-	return provider, nil
-}
-
 // NewRootVolumeBackupProvider uses the root's principal and existing journal.
 // The guard also fences the non-HTTP termination checkpoint after observation.
 func NewRootVolumeBackupProvider(config RegionConfig, intent RegionIntent, factory *ociclient.Factory, journal JournalReader, guard func(context.Context) error) (VolumeBackupProvider, error) {
