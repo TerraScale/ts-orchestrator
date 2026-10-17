@@ -34,6 +34,8 @@ type rootBoundRuntimeSources struct {
 	deadline            time.Time
 }
 
+var errRootRuntimeSourceBinding = errors.New("original root runtime source binding failed")
+
 func bindRootRuntimeSources(ctx context.Context, cfg Config, factory *ociclient.Factory, ownhost *managedRuntimeHost,
 	reader *rootociread.Backend, containers *rootrelease.Backend, channels *rootReleaseChannels,
 ) (_ *rootBoundRuntimeSources, resultErr error) {
@@ -108,16 +110,16 @@ func bindRootRuntimeSources(ctx context.Context, cfg Config, factory *ociclient.
 	bindings := rootrelease.Sources{JS: sources.js, Fleet: fleet, Node: node, Intents: sources.intents,
 		Specs: sources.specs.kv, Roots: rootKV, Leases: sources.mutations, Hosts: sources.hosts, Authority: authority, Accepted: accepted}
 	if err := reader.BindFleet(journal, images); err != nil {
-		return nil, err
+		return nil, errors.Join(errRootRuntimeSourceBinding, err)
 	}
 	if err := containers.Bind(bindings); err != nil {
-		return nil, err
+		return nil, errors.Join(errRootRuntimeSourceBinding, err)
 	}
 	if err := channels.Bind(ctx, sources.conn, bindings); err != nil {
-		return nil, err
+		return nil, errors.Join(errRootRuntimeSourceBinding, err)
 	}
 	if err := bound.guard(ctx); err != nil {
-		return nil, err
+		return nil, errors.Join(errRootRuntimeSourceBinding, err)
 	}
 	return bound, nil
 }

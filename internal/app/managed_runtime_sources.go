@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -24,6 +25,9 @@ func runManagedRuntimeRootSources(ctx context.Context, cfg Config, factory *ocic
 			return sources.wait(attempt)
 		}
 		cancel()
+		if errors.Is(err, errRootRuntimeSourceBinding) {
+			return err
+		}
 		if ctx.Err() != nil {
 			break
 		}
