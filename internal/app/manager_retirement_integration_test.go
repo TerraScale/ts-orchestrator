@@ -30,8 +30,8 @@ import (
 )
 
 // This crosses signed ledger/SDK/Vault and three actual managers. It exercises
-// local-leader mutation and postcommit guard loss, not delayed Raft commitment,
-// authenticated leaseholder forwarding or production executable provenance.
+// private local-leader mutation and postcommit guard loss, not public admission,
+// delayed Raft commitment, leaseholder forwarding or executable provenance.
 func TestControllerManagerRetirementNativeRecovery(t *testing.T) {
 	if os.Getenv("TS_MANAGER_RETIREMENT_NAMESPACE") != "1" {
 		runManagerRetirementNamespace(t)
@@ -201,16 +201,19 @@ func TestControllerManagerRetirementNativeRecovery(t *testing.T) {
 		return proof
 	}
 	proof := readProof(ctx)
-	if _, err := seed.RetireControllerManager(ctx, proof, seed.ID(), originalVersion, 7); err == nil {
+	if _, err := seed.RetireControllerManager(ctx, proof, oldID, originalVersion, 7); !errors.Is(err, swarmruntime.ErrControllerActivationPending) {
+		t.Fatalf("public local-leader retirement bypassed its missing installed source: %v", err)
+	}
+	if _, err := seed.RetireControllerManagerNativeFixture(ctx, proof, seed.ID(), originalVersion, 7); err == nil {
 		t.Fatal("retirement for exact old instance accepted current survivor NodeID")
 	}
-	if _, err := seed.RetireControllerManager(ctx, proof, oldID, originalVersion+1, 7); err == nil {
+	if _, err := seed.RetireControllerManagerNativeFixture(ctx, proof, oldID, originalVersion+1, 7); err == nil {
 		t.Fatal("retirement accepted a different original NodeVersion")
 	}
 	original, revoke := context.WithCancel(ctx)
 	expired := readProof(original)
 	revoke()
-	if _, err := seed.RetireControllerManager(context.Background(), expired, oldID, originalVersion, 7); err == nil {
+	if _, err := seed.RetireControllerManagerNativeFixture(context.Background(), expired, oldID, originalVersion, 7); err == nil {
 		t.Fatal("Background renewed canceled original retirement authority")
 	}
 	// Guard loss is triggered by reading the real committed immutable pin. This
@@ -229,7 +232,7 @@ func TestControllerManagerRetirementNativeRecovery(t *testing.T) {
 		return nil
 	})
 	proof = readProof(session)
-	if _, err := seed.RetireControllerManager(session, proof, oldID, originalVersion, 7); !errors.Is(err, manager.ErrMutationAmbiguous) {
+	if _, err := seed.RetireControllerManagerNativeFixture(session, proof, oldID, originalVersion, 7); !errors.Is(err, manager.ErrMutationAmbiguous) {
 		t.Fatalf("committed demotion lost original session without ambiguous outcome: %v", err)
 	}
 	pinned, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: oldID})
@@ -247,7 +250,7 @@ func TestControllerManagerRetirementNativeRecovery(t *testing.T) {
 		t.Fatal("native asynchronous demotion replaced its original pin", err)
 	}
 	proof = readProof(ctx)
-	result, err := seed.RetireControllerManager(ctx, proof, oldID, originalVersion, 8)
+	result, err := seed.RetireControllerManagerNativeFixture(ctx, proof, oldID, originalVersion, 8)
 	if err != nil || result == nil || result.Stage != "demoted" {
 		t.Fatalf("fresh authority failed to observe exact pinned demotion: %+v %v", result, err)
 	}
@@ -271,10 +274,10 @@ func TestControllerManagerRetirementNativeRecovery(t *testing.T) {
 			current.Node.ManagerStatus.Reachability == api.RaftMemberStatus_REACHABLE
 	})
 	proof = readProof(ctx)
-	if _, err := seed.RetireControllerManager(ctx, proof, successor.ID(), originalVersion, 9); err == nil {
+	if _, err := seed.RetireControllerManagerNativeFixture(ctx, proof, successor.ID(), originalVersion, 9); err == nil {
 		t.Fatal("old retirement selected the active successor sharing its slot")
 	}
-	if result, err := seed.RetireControllerManager(ctx, proof, oldID, originalVersion, 9); err == nil && result.Stage == "removed" {
+	if result, err := seed.RetireControllerManagerNativeFixture(ctx, proof, oldID, originalVersion, 9); err == nil && result.Stage == "removed" {
 		t.Fatal("new signed successor authority renewed the old removal action")
 	}
 	currentSuccessor, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: successor.ID()})
@@ -320,7 +323,7 @@ func TestControllerManagerRetirementNativeRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result, err := seed.RetireControllerManager(ctx, proof, next.ID, nextVersion, 10); err != nil || result.Stage != "demoted" {
+	if result, err := seed.RetireControllerManagerNativeFixture(ctx, proof, next.ID, nextVersion, 10); err != nil || result.Stage != "demoted" {
 		t.Fatal("original call could not admit its first demotion", err)
 	}
 	firstCall, stopFirstCall := context.WithDeadline(ctx, proof.ExpiresAt())
@@ -329,7 +332,7 @@ func TestControllerManagerRetirementNativeRecovery(t *testing.T) {
 		current, err := client.GetNode(firstCall, &api.GetNodeRequest{NodeID: next.ID})
 		return err == nil && current.Node.Role == api.NodeRoleWorker && current.Node.ManagerStatus == nil
 	})
-	if result, err := seed.RetireControllerManager(firstCall, proof, next.ID, nextVersion, 10); err != nil || result.Stage != "removed" {
+	if result, err := seed.RetireControllerManagerNativeFixture(firstCall, proof, next.ID, nextVersion, 10); err != nil || result.Stage != "removed" {
 		t.Fatal("same original proof could not reserve and remove within its first deadline", err)
 	}
 	if _, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: next.ID}); status.Code(err) != codes.NotFound {

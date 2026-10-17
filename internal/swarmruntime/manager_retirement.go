@@ -83,11 +83,92 @@ func (n *Node) removeControllerRetirementAtConstraints(ctx context.Context, proo
 	return &api.RemoveNodeResponse{}, nil
 }
 
-// RetireControllerManager uses only root-retired/current-terminated evidence
-// and the actual applied node. It never looks up a replacement by slot name and
-// never forces removal. An ambiguous result must retain this exact operation.
+// RetireControllerManager submits once through the authenticated native path.
+// Every manager independently reconstructs its installed signed authority.
 func (n *Node) RetireControllerManager(ctx context.Context, proof *bootstrapstart.ManagerRetirement, expectedNodeID string, expectedVersion, epoch uint64) (*ManagerRetirementResult, error) {
-	return n.retireControllerManager(ctx, proof, expectedNodeID, expectedVersion, epoch, nil)
+	if n == nil || n.controllerSources.Load() == nil {
+		return nil, ErrControllerActivationPending
+	}
+	if ctx == nil || proof == nil || expectedNodeID == "" || expectedNodeID == n.ID() || expectedVersion == 0 || epoch == 0 {
+		return nil, errors.New("manager retirement requires exact admitted old node and original version")
+	}
+	ctx, cancelProof, err := proof.OperationContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cancelProof()
+	if err := proof.Verify(ctx); err != nil {
+		return nil, err
+	}
+	source := n.controllerSources.Load()
+	ctx, cancelSource, err := source.operationContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cancelSource()
+	admitted, target, err := source.read(ctx, n.ID(), expectedNodeID, false)
+	if err != nil {
+		return nil, err
+	}
+	defer admitted.release()
+	if admitted.origin.LeaseEpoch() != epoch || !managerRetirementNode(target, proof.Slot(), proof.PriorInstanceID(), proof.OCIRegion()) {
+		return nil, errors.New("retirement target or original lease differs from signed source")
+	}
+	retained := target.Spec.Annotations.Labels[managerRetirementLabel]
+	if retained == "" {
+		if target.Meta.Version.Index != expectedVersion {
+			return nil, errors.New("unstarted retirement requires the original NodeVersion")
+		}
+	} else {
+		var pin managerRetirementPin
+		if protocol.DecodeStrict([]byte(retained), &pin, 8<<10) != nil || pin.OriginalVersion != expectedVersion || pin.RetirementSHA256 != proof.RetirementSHA256() {
+			return nil, errors.New("retained retirement differs from its original operation")
+		}
+	}
+	constraints, err := admitted.constraints(manager.ControllerNodeRetire, target)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithDeadline(ctx, admitted.deadline)
+	stop := context.AfterFunc(admitted.original, cancel)
+	defer cancel()
+	defer stop()
+	ctx = admitted.requestContext(ctx)
+	ctx, err = manager.WithControllerNodeConstraints(ctx, constraints)
+	if err != nil {
+		return nil, err
+	}
+	client, err := n.ControlClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	spec := target.Spec.Copy()
+	if retained == "" {
+		spec.DesiredRole = api.NodeRoleWorker
+		spec.Availability = api.NodeAvailabilityPause
+	}
+	if err := proof.Verify(ctx); err != nil {
+		return nil, err
+	}
+	if err := ociclient.CheckRequestGuard(ctx); err != nil {
+		return nil, err
+	}
+	response, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: target.ID, NodeVersion: target.Meta.Version.Copy(), Spec: spec})
+	if err != nil {
+		return nil, errors.Join(manager.ErrMutationAmbiguous, err)
+	}
+	if response == nil || response.Node == nil {
+		return nil, manager.ErrMutationAmbiguous
+	}
+	if err := proof.Verify(ctx); err != nil {
+		return nil, errors.Join(manager.ErrMutationAmbiguous, err)
+	}
+	if err := ociclient.CheckRequestGuard(ctx); err != nil {
+		return nil, errors.Join(manager.ErrMutationAmbiguous, err)
+	}
+	// The leader seals its own original demotion observation. A reconstructed
+	// request can only observe it; current cleanup authority has no producer.
+	return &ManagerRetirementResult{Stage: "demoted", DemotionVersion: response.Node.Meta.Version.Index, node: response.Node.Copy()}, nil
 }
 
 func (n *Node) retireControllerManager(ctx context.Context, proof *bootstrapstart.ManagerRetirement, expectedNodeID string, expectedVersion, epoch uint64, transported *controllerRetirementRequest) (*ManagerRetirementResult, error) {
@@ -245,6 +326,9 @@ func (n *Node) retireControllerManager(ctx context.Context, proof *bootstrapstar
 	if err := proof.Verify(ctx); err != nil {
 		return nil, err
 	}
+	if target.Spec.Annotations.Labels[managerRemovalLabel] != "" {
+		return nil, fmt.Errorf("%w: exact native removal was already reserved; observe its outcome without resubmission", manager.ErrMutationAmbiguous)
+	}
 	if transported != nil && transported.update != nil && retained != "" {
 		if !proto.Equal(transported.update.Spec, &target.Spec) {
 			return nil, errors.New("transported retirement retry differs from retained native demotion")
@@ -280,9 +364,6 @@ func (n *Node) retireControllerManager(ctx context.Context, proof *bootstrapstar
 			return nil, fmt.Errorf("%w: %w", manager.ErrMutationAmbiguous, err)
 		}
 		return &ManagerRetirementResult{Stage: "demoted", DemotionVersion: response.Node.Meta.Version.Index, node: response.Node.Copy()}, nil
-	}
-	if target.Spec.Annotations.Labels[managerRemovalLabel] != "" {
-		return nil, fmt.Errorf("%w: exact native removal was already reserved; observe its outcome without resubmission", manager.ErrMutationAmbiguous)
 	}
 	// A refreshed source may observe this demotion, but cannot turn an old
 	// operation into fresh removal authority after its original call ended.
