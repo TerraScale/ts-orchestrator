@@ -3,48 +3,52 @@ package native
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json/v2"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
-	"github.com/gogo/protobuf/types"
+	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/api"
-	ocidigest "github.com/opencontainers/go-digest"
-	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 const runtimeSocket = "/run/containerd/containerd.sock"
-const managerPort = "4242"
+const managerPort = "2377"
+const runtimeUnit = "terrascale-orchestrator-managed-runtime.service"
+const candidateBinary = "/usr/local/bin/terrascale-orchestrator"
 
-// Serve is the test-only remote process protocol. The standalone executable must
-// also dispatch CORE's runtime logger callback before calling Serve.
+// Serve observes the installed candidate and injects faults on approved disposable hosts.
 func Serve(ctx context.Context, input io.Reader, output io.Writer) error {
 	lifetime, cancel := context.WithTimeout(ctx, 16*time.Minute)
 	defer cancel()
-	w := &worker{ctx: lifetime}
+	w := &worker{}
 	defer w.cleanup()
 	scanner := bufio.NewScanner(input)
 	scanner.Buffer(make([]byte, 4096), maxFrame)
-
 	for scanner.Scan() {
 		var c command
-		var result response
 		if err := json.Unmarshal(scanner.Bytes(), &c, json.RejectUnknownMembers(true)); err != nil {
 			return err
 		}
-		operation, cancel := context.WithTimeout(ctx, 45*time.Second)
+		operation, cancel := context.WithTimeout(lifetime, 45*time.Second)
 		result, err := w.execute(operation, c)
 		cancel()
 		if err != nil {
@@ -61,15 +65,10 @@ func Serve(ctx context.Context, input io.Reader, output io.Writer) error {
 }
 
 type worker struct {
-	ctx       context.Context
-	root      string
-	cfg       swarmruntime.NodeConfig
-	executor  *swarmruntime.Executor
-	node      *swarmruntime.Node
-	nodeID    string
-	runtime   *containerd.Client
-	partition []string
-	services  map[string]bool
+	root, nodeID, role, binaryHash string
+	runtime                        *containerd.Client
+	partition                      []string
+	stopped                        bool
 }
 
 func (w *worker) execute(ctx context.Context, c command) (response, error) {
@@ -87,16 +86,6 @@ func (w *worker) execute(ctx context.Context, c command) (response, error) {
 		if err != nil || strings.TrimSpace(string(marker)) != c.RunID {
 			return response{}, errors.New("disposable launch marker absent or wrong run")
 		}
-		for _, unit := range []string{"terrascale-orchestrator-host.service", "terrascale-orchestrator-controller.service", "netbird.service"} {
-			err := exec.CommandContext(ctx, "/usr/bin/systemctl", "is-active", "--quiet", unit).Run()
-			if err == nil {
-				return response{}, errors.New("production service active: " + unit)
-			}
-			exit, ok := err.(*exec.ExitError)
-			if !ok || (exit.ExitCode() != 3 && exit.ExitCode() != 4) {
-				return response{}, errors.New("production service status unavailable: " + unit)
-			}
-		}
 		workerHash, source, err := workerIdentity()
 		if err != nil {
 			return response{}, err
@@ -108,105 +97,92 @@ func (w *worker) execute(ctx context.Context, c command) (response, error) {
 		if err != nil {
 			return response{}, err
 		}
-		if identity.InstanceID != c.Host.OCID || identity.ImageOCID != c.Host.ExpectedIdentity.ImageOCID || identity != c.Host.ExpectedIdentity {
+		if identity != c.Host.ExpectedIdentity || identity.InstanceID != c.Host.OCID {
 			return response{}, errors.New("native host identity mismatch")
 		}
-		root := "/run/ts-native-" + c.RunID + "/state"
-		if err := os.Mkdir(root, 0700); err != nil {
+		if c.Mode != "manager" && c.Mode != "container" {
+			return response{}, errors.New("invalid installed runtime role")
+		}
+		root := "/var/lib/terrascale-orchestrator-host/swarm"
+		if c.Mode == "container" {
+			root += "-worker"
+		}
+		cert, err := os.ReadFile(filepath.Join(root, "node/certificates/swarm-node.crt"))
+		if err != nil {
 			return response{}, err
 		}
-		w.root = root
-		w.cfg = swarmruntime.NodeConfig{StateDir: filepath.Join(root, "node"), ListenAddress: "0.0.0.0:" + managerPort, AdvertiseAddress: c.Host.Address + ":" + managerPort, Admission: swarmruntime.Admission{Region: c.Region, HostID: "native-" + c.RunID + "-" + strings.ReplaceAll(c.Host.Address, ".", "-"), InstanceID: c.Host.OCID, Role: c.Mode}}
-		w.executor, err = swarmruntime.NewExecutor(runtimeSocket, root)
+		block, _ := pem.Decode(cert)
+		if block == nil {
+			return response{}, errors.New("installed runtime certificate missing")
+		}
+		leaf, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
+			return response{}, err
+		}
+		expectedRole := "swarm-manager"
+		if c.Mode == "container" {
+			expectedRole = "swarm-worker"
+		}
+		if leaf.Subject.CommonName == "" || len(leaf.Subject.OrganizationalUnit) != 1 || leaf.Subject.OrganizationalUnit[0] != expectedRole {
+			return response{}, errors.New("installed runtime certificate role mismatch")
+		}
+		w.root, w.nodeID, w.role, w.binaryHash = root, leaf.Subject.CommonName, c.Mode, identity.BinarySHA256
+		if err := w.installedProcess(ctx); err != nil {
+			w.root = ""
 			return response{}, err
 		}
 		w.runtime, err = containerd.New(runtimeSocket, containerd.WithDefaultNamespace("terrascale"))
 		if err != nil {
 			return response{}, err
 		}
-		w.services = map[string]bool{}
-		return response{Role: w.cfg.Admission.Role, Identity: identity, WorkerSHA256: workerHash, WorkerSourceRevision: source}, nil
+		return response{Role: c.Mode, NodeID: w.nodeID, Identity: identity, WorkerSHA256: workerHash, WorkerSourceRevision: source}, nil
 	}
 	if w.root == "" {
 		return response{}, errors.New("identity must be verified before runtime operations")
 	}
 	switch c.Operation {
-	case "import":
-		archivePath := filepath.Join(filepath.Dir(w.root), "workload.oci")
-		hash, err := fileDigest(archivePath)
-		if err != nil {
-			return response{}, err
-		}
-		if hash != c.ArchiveSHA256 {
-			return response{}, errors.New("remote workload archive digest mismatch")
-		}
-		archive, err := os.Open(archivePath)
-		if err != nil {
-			return response{}, err
-		}
-		defer archive.Close()
-		runtimeCtx := namespaces.WithNamespace(ctx, "terrascale")
-		imported, err := w.runtime.Import(runtimeCtx, archive, containerd.WithImageRefTranslator(func(string) string { return "" }), containerd.WithDigestRef(func(d ocidigest.Digest) string {
-			if strings.HasSuffix(c.Image, "@"+d.String()) {
-				return c.Image
-			}
-			return ""
-		}))
-		if err != nil {
-			return response{}, err
-		}
-		var found bool
-		for _, image := range imported {
-			if image.Name != c.Image {
-				continue
-			}
-			if image.Target.MediaType != imagespec.MediaTypeImageManifest && image.Target.MediaType != "application/vnd.docker.distribution.manifest.v2+json" {
-				return response{}, errors.New("workload requires native child manifest")
-			}
-			found = true
-		}
-		if !found {
-			return response{}, errors.New("archive omitted pinned workload child manifest")
-		}
-		image, err := w.runtime.GetImage(runtimeCtx, c.Image)
-		if err != nil {
-			return response{}, err
-		}
-		configuration, err := image.Spec(runtimeCtx)
-		if err != nil {
-			return response{}, err
-		}
-		if configuration.OS != "linux" || configuration.Architecture != runtime.GOARCH {
-			return response{}, errors.New("archive architecture mismatch")
-		}
-		return response{}, image.Unpack(runtimeCtx, "native")
-	case "start":
-		if w.node != nil {
-			return response{}, errors.New("node already started")
-		}
-		if w.cfg.Admission.FounderID == "" {
-			w.cfg.Admission.FounderID = c.Founder
-			if c.Founder == "" {
-				w.cfg.Admission.FounderID = w.cfg.Admission.HostID
-			}
-			w.cfg.Admission.ManagerAddress, w.cfg.Admission.JoinToken = c.JoinAddress, c.Token
-		}
-		// Node lifetime is the protocol process, not one command deadline.
-		n, err := swarmruntime.StartNode(w.ctx, w.cfg, w.executor)
-		if err != nil {
-			return response{}, err
-		}
-		w.node = n
-		w.nodeID = n.ID()
-		return response{NodeID: n.ID()}, nil
 	case "stop":
-		if w.node == nil {
-			return response{}, errors.New("node already stopped")
+		if w.stopped {
+			return response{}, errors.New("runtime already stopped")
 		}
-		err := w.node.Stop(ctx)
-		w.node = nil
-		return response{}, err
+		if out, err := exec.CommandContext(ctx, "/usr/bin/systemctl", "stop", runtimeUnit).CombinedOutput(); err != nil {
+			return response{}, fmt.Errorf("stop installed runtime: %w: %s", err, out)
+		}
+		w.stopped = true
+		return response{}, nil
+	case "restore":
+		if !w.stopped {
+			return response{}, nil
+		}
+		fallthrough
+	case "start":
+		if !w.stopped {
+			return response{}, errors.New("runtime was not stopped by this worker")
+		}
+		args := []string{"start", runtimeUnit}
+		if w.role == "manager" {
+			args = append(args, "terrascale-orchestrator-controller.service")
+		}
+		if out, err := exec.CommandContext(ctx, "/usr/bin/systemctl", args...).CombinedOutput(); err != nil {
+			return response{}, fmt.Errorf("restart installed runtime: %w: %s", err, out)
+		}
+		w.stopped = false
+		if err := w.installedProcess(ctx); err != nil {
+			return response{}, err
+		}
+		cert, err := os.ReadFile(filepath.Join(w.root, "node/certificates/swarm-node.crt"))
+		if err != nil {
+			return response{}, err
+		}
+		block, _ := pem.Decode(cert)
+		if block == nil {
+			return response{}, errors.New("runtime certificate disappeared")
+		}
+		leaf, err := x509.ParseCertificate(block.Bytes)
+		if err != nil || leaf.Subject.CommonName != w.nodeID {
+			return response{}, errors.New("runtime restart replaced certificate identity")
+		}
+		return response{NodeID: w.nodeID}, nil
 	case "partition":
 		if len(w.partition) != 0 {
 			return response{}, errors.New("partition already applied")
@@ -228,37 +204,41 @@ func (w *worker) execute(ctx context.Context, c command) (response, error) {
 		return response{}, w.heal(ctx)
 	case "inventory":
 		return w.inventory(ctx, c.ServiceID)
-	}
-	if w.node == nil {
-		return response{}, errors.New("manager is stopped")
-	}
-	client, err := w.node.ControlClient(ctx)
-	if err != nil {
-		return response{}, err
-	}
-	switch c.Operation {
-	case "join-material":
-		clusters, err := client.ListClusters(ctx, &api.ListClustersRequest{})
+	case "http-probe":
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:8080/readyz", nil)
 		if err != nil {
 			return response{}, err
 		}
-		if len(clusters.Clusters) != 1 {
-			return response{}, errors.New("expected one regional cluster")
+		client := &http.Client{Transport: &http.Transport{Proxy: nil, DisableKeepAlives: true}, Timeout: time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		defer client.CloseIdleConnections()
+		result, err := client.Do(request)
+		if err != nil {
+			return response{}, err
 		}
-		return response{Token: clusters.Clusters[0].RootCA.JoinTokens.Manager, WorkerToken: clusters.Clusters[0].RootCA.JoinTokens.Worker}, nil
-	case "admit":
-		admission := w.cfg.Admission
-		admission.HostID = "native-" + c.RunID + "-" + strings.ReplaceAll(c.Host.Address, ".", "-")
-		admission.InstanceID = c.Host.OCID
-		admission.Role = c.Mode
-		_, err := swarmruntime.AdmitNode(ctx, client, c.NodeID, admission)
+		defer result.Body.Close()
+		if result.StatusCode != http.StatusOK {
+			return response{}, fmt.Errorf("application readiness HTTP %d", result.StatusCode)
+		}
+		return response{}, nil
+	}
+	if c.Operation != "cluster" && c.Operation != "observe" {
+		return response{}, errors.New("unknown native observation or fault operation")
+	}
+	if w.role != "manager" || w.stopped {
+		return response{}, errors.New("installed manager unavailable")
+	}
+	client, closer, err := w.control(ctx)
+	if err != nil {
 		return response{}, err
+	}
+	defer closer.Close()
+	switch c.Operation {
 	case "cluster":
 		nodes, err := client.ListNodes(ctx, &api.ListNodesRequest{})
-		result := response{}
 		if err != nil {
-			return result, err
+			return response{}, err
 		}
+		result := response{}
 		for _, n := range nodes.Nodes {
 			if n.ManagerStatus != nil && n.ManagerStatus.Reachability == api.RaftMemberStatus_REACHABLE {
 				result.Managers++
@@ -268,31 +248,39 @@ func (w *worker) execute(ctx context.Context, c command) (response, error) {
 			}
 		}
 		return result, nil
-	case "pause", "activate":
-		found, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: c.NodeID})
-		if err != nil {
-			return response{}, err
-		}
-		spec := found.Node.Spec.Copy()
-		spec.Availability = api.NodeAvailabilityPause
-		if c.Operation == "activate" {
-			spec.Availability = api.NodeAvailabilityActive
-		}
-		_, err = client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: c.NodeID, NodeVersion: &found.Node.Meta.Version, Spec: spec})
-		return response{}, err
-	case "create":
-		spec, err := infrastructureService(c)
-		if err != nil {
-			return response{}, err
-		}
-		created, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: spec})
-		if err != nil {
-			return response{}, err
-		}
-		w.services[created.Service.ID] = true
-		return response{ServiceID: created.Service.ID}, nil
 	case "observe":
-		view, err := swarmruntime.ObserveService(ctx, client, c.ServiceID, func(ctx context.Context, task *api.Task) error {
+		// The signed stable intent ID is a label; the upstream service ID is assigned by SwarmKit.
+		listed, err := client.ListServices(ctx, &api.ListServicesRequest{})
+		if err != nil {
+			return response{}, err
+		}
+		var service *api.Service
+		for _, s := range listed.Services {
+			if s.Spec.Annotations.Labels[swarmruntime.LabelIntentID] == c.ServiceID {
+				if service != nil {
+					return response{}, errors.New("duplicate stable service identity")
+				}
+				service = s
+			}
+		}
+		if service == nil {
+			return response{}, errors.New("signed service has not been delivered")
+		}
+		var expected *swarmruntime.ServiceIntent
+		for i := range c.Expected {
+			candidate := &c.Expected[i]
+			if candidate.ID == c.ServiceID && candidate.OperationID == service.Spec.Annotations.Labels[swarmruntime.LabelOperationID] {
+				expected = candidate
+				break
+			}
+		}
+		if expected == nil {
+			return response{}, errors.New("observed service has no approved signed phase")
+		}
+		if err := verifyObservedService(service, *expected); err != nil {
+			return response{}, err
+		}
+		view, err := swarmruntime.ObserveService(ctx, client, service.ID, func(ctx context.Context, task *api.Task) error {
 			ip, err := netip.ParseAddr(c.Addresses[task.NodeID])
 			if err != nil {
 				return err
@@ -302,59 +290,82 @@ func (w *worker) execute(ctx context.Context, c command) (response, error) {
 		if err != nil {
 			return response{}, err
 		}
-		result := response{Running: view.RunningReplicas, Ready: view.ReadyReplicas, UpdateState: view.UpdateState}
+		result := response{ServiceID: service.ID, OperationID: service.Spec.Annotations.Labels[swarmruntime.LabelOperationID], Running: view.RunningReplicas, Ready: view.ReadyReplicas, UpdateState: view.UpdateState}
 		for _, t := range view.Tasks {
 			if t.State == "RUNNING" && t.Ready {
 				result.Tasks = append(result.Tasks, taskState{ID: t.TaskID, NodeID: t.NodeID})
 			}
 		}
 		return result, nil
-	case "break-update":
-		service, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: c.ServiceID})
-		if err != nil {
-			return response{}, err
-		}
-		spec := service.Service.Spec.Copy()
-		encoded, err := swarmruntime.ContainerRuntime(&api.ContainerSpec{Image: c.Image, User: "65532:65532", Command: []string{"/bin/sh", "-c", "exit 17"}})
-		if err != nil {
-			return response{}, err
-		}
-		spec.Task.Runtime = encoded
-		_, err = client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: c.ServiceID, ServiceVersion: &service.Service.Meta.Version, Spec: spec})
-		return response{}, err
-	case "remove":
-		_, err := client.RemoveService(ctx, &api.RemoveServiceRequest{ServiceID: c.ServiceID})
-		delete(w.services, c.ServiceID)
-		return response{}, err
 	default:
-		return response{}, errors.New("unknown native operation")
+		return response{}, errors.New("unknown native observation or fault operation")
 	}
 }
 
-func infrastructureService(c command) (*api.ServiceSpec, error) {
-	if c.Port < 1024 || c.Port > 65535 {
-		return nil, errors.New("invalid infrastructure test port")
-	}
-	status, body := "200 OK", "ready"
-	if c.Mode == "unready" {
-		status, body = "503 Service Unavailable", "unready"
-	}
-	script := fmt.Sprintf("exec nc -lk -p %d -e /bin/sh -c \"printf 'HTTP/1.1 %s\\r\\nContent-Length: %d\\r\\nConnection: close\\r\\n\\r\\n%s'\"", c.Port, status, len(body), body)
-	encoded, err := swarmruntime.ContainerRuntime(&api.ContainerSpec{Image: c.Image, User: "65532:65532", Command: []string{"/bin/sh", "-c", script}})
+func verifyObservedService(service *api.Service, expected swarmruntime.ServiceIntent) error {
+	actual, err := swarmruntime.DecodeContainer(&api.Task{ID: "observation", ServiceID: service.ID, Spec: service.Spec.Task})
 	if err != nil {
-		return nil, err
+		return err
 	}
-	// Infrastructure fixture intentionally exercises upstream task/runtime mapping;
-	// it never substitutes for signed first-party production release admission.
-	resources := &api.Resources{NanoCPUs: 250_000_000, MemoryBytes: 64 << 20}
-	return &api.ServiceSpec{
-		Annotations: api.Annotations{Name: "native-" + c.RunID + "-" + c.Mode, Labels: map[string]string{swarmruntime.LabelRegion: c.Region}},
-		Task:        api.TaskSpec{Runtime: encoded, Resources: &api.ResourceRequirements{Limits: resources, Reservations: resources.Copy()}, Placement: &api.Placement{Constraints: []string{"node.labels." + swarmruntime.LabelRegion + "==" + c.Region, "node.labels." + swarmruntime.LabelExecutionScope + "==platform"}}, Restart: &api.RestartPolicy{Condition: api.RestartOnAny, Delay: types.DurationProto(time.Second)}},
-		Mode:        &api.ServiceSpec_Replicated{Replicated: &api.ReplicatedService{Replicas: 1}},
-		Endpoint:    &api.EndpointSpec{Mode: api.ResolutionModeDNSRoundRobin, Ports: []*api.PortConfig{{Name: "ready", Protocol: api.ProtocolTCP, PublishMode: api.PublishModeHost, TargetPort: c.Port, PublishedPort: c.Port}}},
-		Update:      &api.UpdateConfig{Parallelism: 1, FailureAction: api.UpdateConfig_ROLLBACK, Monitor: types.DurationProto(5 * time.Second), Order: api.UpdateConfig_STOP_FIRST},
-		Rollback:    &api.UpdateConfig{Parallelism: 1, FailureAction: api.UpdateConfig_PAUSE, Monitor: types.DurationProto(5 * time.Second), Order: api.UpdateConfig_STOP_FIRST},
-	}, nil
+	if !proto.Equal(actual, expected.Container) || !proto.Equal(service.Spec.Task.Resources, expected.Resources) || service.Spec.GetReplicated() == nil || service.Spec.GetReplicated().Replicas != expected.Replicas || service.Spec.Endpoint == nil || len(service.Spec.Endpoint.Ports) != len(expected.Ports) {
+		return errors.New("observed service differs from signed args, resources or endpoint")
+	}
+	for i, port := range expected.Ports {
+		if !proto.Equal(service.Spec.Endpoint.Ports[i], port) {
+			return errors.New("observed service endpoint differs from signed profile")
+		}
+	}
+	return nil
+}
+
+func (w *worker) installedProcess(ctx context.Context) error {
+	out, err := exec.CommandContext(ctx, "/usr/bin/systemctl", "show", runtimeUnit, "--property=MainPID", "--value").Output()
+	if err != nil {
+		return err
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil || pid < 1 {
+		return errors.New("installed managed runtime is not running")
+	}
+	hash, err := fileDigest(fmt.Sprintf("/proc/%d/exe", pid))
+	if err != nil || hash != w.binaryHash {
+		return errors.New("running managed runtime binary differs from approved image")
+	}
+	command, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil || string(command) != candidateBinary+"\x00managed-runtime-start\x00" {
+		return errors.New("installed runtime does not execute the candidate managed-runtime-start")
+	}
+	return nil
+}
+
+func (w *worker) control(ctx context.Context) (api.ControlClient, io.Closer, error) {
+	root, err := os.ReadFile(filepath.Join(w.root, "node/certificates/swarm-root-ca.crt"))
+	if err != nil {
+		return nil, nil, err
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(root) {
+		return nil, nil, errors.New("installed runtime CA missing")
+	}
+	config := &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true, VerifyConnection: func(state tls.ConnectionState) error {
+		if len(state.PeerCertificates) == 0 || state.PeerCertificates[0].Subject.CommonName != w.nodeID {
+			return errors.New("control socket certificate identity mismatch")
+		}
+		intermediates := x509.NewCertPool()
+		for _, cert := range state.PeerCertificates[1:] {
+			intermediates.AddCert(cert)
+		}
+		_, err := state.PeerCertificates[0].Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates})
+		return err
+	}}
+	socket := filepath.Join(w.root, "node/control.sock")
+	connection, err := grpc.NewClient("passthrough:///"+socket, grpc.WithTransportCredentials(credentials.NewTLS(config)), grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
+	}))
+	if err != nil {
+		return nil, nil, err
+	}
+	return api.NewControlClient(connection), connection, nil
 }
 
 func (w *worker) inventory(ctx context.Context, service string) (response, error) {
@@ -441,19 +452,11 @@ func (w *worker) heal(ctx context.Context) error {
 }
 
 func (w *worker) cleanup() {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
 	_ = w.heal(ctx)
-	if w.node != nil {
-		if client, err := w.node.ControlClient(ctx); err == nil {
-			for id := range w.services {
-				_, _ = client.RemoveService(ctx, &api.RemoveServiceRequest{ServiceID: id})
-			}
-		}
-		_ = w.node.Stop(ctx)
-	}
-	if w.executor != nil {
-		_ = w.executor.Close()
+	if w.stopped {
+		_, _ = w.execute(ctx, command{Operation: "start"})
 	}
 	if w.runtime != nil {
 		_ = w.runtime.Close()

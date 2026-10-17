@@ -7,13 +7,18 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/containermaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/delivery"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/gogo/protobuf/proto"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -48,6 +53,9 @@ func Run(ctx context.Context, req Request) (Report, error) {
 func validate(req Request) error {
 	if err := validateRunID(req.RunID); err != nil {
 		return err
+	}
+	if req.Delivery == nil {
+		return errors.New("native qualification requires the authenticated controller delivery driver")
 	}
 	if len(req.Hosts) != 4 {
 		return errors.New("native qualification requires three managers and one separate agent on four distinct Compute hosts")
@@ -110,9 +118,6 @@ type recorder struct {
 }
 
 func (r *recorder) event(host string, c command, result response, err error) {
-	c.Token = ""
-	result.WorkerToken = ""
-	result.Token = ""
 	event := struct {
 		At      time.Time `json:"at"`
 		Host    string    `json:"host"`
@@ -159,57 +164,30 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 		rec.event(sessions[index].host.OCID, c, result, err)
 		return result, err
 	}
-	// Cleanup is mandatory even on partial scenario failures. Disposable-host
-	// destruction remains the parent's independently authorized cleanup operation.
-	var serviceIDs []string
+	// Only undo injected faults. The parent destroys its guarded OCI resources.
 	defer func() {
-		cleanupStarted := time.Now().UTC()
-		cleanup, stop := context.WithTimeout(context.Background(), 40*time.Second)
+		started := time.Now().UTC()
+		cleanup, stop := context.WithTimeout(context.Background(), 45*time.Second)
 		defer stop()
-		var cleanupErrors []error
+		var errs []error
 		for i := range sessions {
 			if sessions[i].peer != nil {
 				_, err := call(cleanup, i, command{Operation: "heal"})
-				cleanupErrors = append(cleanupErrors, err)
-			}
-		}
-		for _, id := range serviceIDs {
-			removed := false
-			for i := range sessions {
-				if sessions[i].peer != nil {
-					if _, err := call(cleanup, i, command{Operation: "remove", ServiceID: id}); err == nil {
-						removed = true
-						break
-					}
-				}
-			}
-			if !removed {
-				cleanupErrors = append(cleanupErrors, errors.New("service cleanup failed: "+id))
-				continue
-			}
-			for i := range sessions {
-				if sessions[i].peer != nil {
-					err := wait(cleanup, func() (bool, error) {
-						state, err := call(cleanup, i, command{Operation: "inventory", ServiceID: id})
-						return err == nil && len(state.Tasks) == 0, err
-					})
-					cleanupErrors = append(cleanupErrors, err)
-				}
-			}
-		}
-		for i := range sessions {
-			if sessions[i].peer != nil {
+				errs = append(errs, err)
+				// A process restart is cleanup only if this run stopped that process.
+				_, err = call(cleanup, i, command{Operation: "restore"})
+				errs = append(errs, err)
 				_ = sessions[i].peer.close()
 			}
 		}
-		resultErr = errors.Join(resultErr, errors.Join(cleanupErrors...))
-		// The caller receives cleanup evidence as a separate scenario only on success.
-		if resultErr == nil {
-			report.Scenarios = append(report.Scenarios, rec.scenario("cleanup", "runtime-ha", cleanupStarted, req.Hosts))
-			report.CompletedAt = time.Now().UTC()
+		resultErr = errors.Join(resultErr, errors.Join(errs...))
+		name, gate := "cleanup", "runtime-ha"
+		if resultErr != nil {
+			name, gate = "failed-run-cleanup", ""
 		} else {
-			report.Scenarios = append(report.Scenarios, rec.scenario("failed-run-cleanup", "", cleanupStarted, req.Hosts))
+			report.CompletedAt = time.Now().UTC()
 		}
+		report.Scenarios = append(report.Scenarios, rec.scenario(name, gate, started, req.Hosts))
 	}()
 	start := time.Now().UTC()
 	for i, h := range req.Hosts {
@@ -222,48 +200,20 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 			return report, err
 		}
 		sessions[i] = session{host: h, peer: p}
-		observed, err := call(ctx, i, command{Operation: "identity", Mode: role, SourceRevision: req.Candidate.SourceRevision, RunID: req.RunID, Host: h, Region: catalog.OCIRegion(req.Candidate.Cell), ContainerdPath: req.ContainerdPath, RuncPath: req.RuncPath})
+		observed, err := call(ctx, i, command{Operation: "identity", Mode: role, SourceRevision: req.Candidate.SourceRevision, RunID: req.RunID, Host: h, ContainerdPath: req.ContainerdPath, RuncPath: req.RuncPath})
 		if err != nil {
-			return report, err
-		}
-		if _, err := call(ctx, i, command{Operation: "import", Image: req.WorkloadImage, ArchiveSHA256: req.WorkloadArchiveSHA256}); err != nil {
 			return report, err
 		}
 		if observed.Role != role || observed.Identity != h.ExpectedIdentity || observed.WorkerSHA256 != req.WorkerSHA256 || observed.WorkerSourceRevision != req.Candidate.SourceRevision {
 			return report, errors.New("observed native identity mismatch")
 		}
+		sessions[i].node = observed.NodeID
+		if observed.NodeID == "" {
+			return report, errors.New("installed runtime omitted certificate identity")
+		}
 		report.Hosts = append(report.Hosts, HostReport{Role: observed.Role, OCID: h.OCID, Address: h.Address, Observed: observed.Identity, WorkerSHA256: observed.WorkerSHA256, WorkerSourceRevision: observed.WorkerSourceRevision})
 	}
-	first, err := call(ctx, 0, command{Operation: "start"})
-	if err != nil {
-		return report, err
-	}
-	sessions[0].node = first.NodeID
-	material, err := call(ctx, 0, command{Operation: "join-material"})
-	if err != nil {
-		return report, err
-	}
-	founder := "native-" + req.RunID + "-" + strings.ReplaceAll(req.Hosts[0].Address, ".", "-")
 	for i := range sessions {
-		role := "manager"
-		token := material.Token
-		if i == 3 {
-			role = "container"
-			token = material.WorkerToken
-		}
-		if i != 0 {
-			joined, err := call(ctx, i, command{Operation: "start", Founder: founder, JoinAddress: req.Hosts[0].Address + ":" + managerPort, Token: token})
-			if err != nil {
-				return report, err
-			}
-			sessions[i].node = joined.NodeID
-		}
-		if sessions[i].node == "" {
-			return report, errors.New("native manager omitted certificate identity")
-		}
-		if _, err := call(ctx, 0, command{Operation: "admit", Mode: role, RunID: req.RunID, Host: req.Hosts[i], NodeID: sessions[i].node}); err != nil {
-			return report, err
-		}
 		report.Hosts[i].NodeID = sessions[i].node
 	}
 	var leader string
@@ -283,37 +233,68 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 		}
 		return -1
 	}
-	leaderIndex := indexOf(leader)
-	if leaderIndex < 0 {
-		return report, errors.New("leader absent from native inventory")
-	}
-	for i := range 3 {
-		if _, err := call(ctx, 0, command{Operation: "pause", NodeID: sessions[i].node}); err != nil {
-			return report, err
-		}
-	}
 	addresses := map[string]string{}
 	for _, s := range sessions {
 		addresses[s.node] = s.host.Address
 	}
-	create := func(index int, mode string, port uint32) (string, error) {
-		r, err := call(ctx, index, command{Operation: "create", RunID: req.RunID, Region: catalog.OCIRegion(req.Candidate.Cell), Image: req.WorkloadImage, Mode: mode, Port: port})
-		if err == nil {
-			serviceIDs = append(serviceIDs, r.ServiceID)
+	fixtures := map[string]MaterialFixture{}
+	expected := map[string]swarmruntime.ServiceIntent{}
+	for _, fixture := range req.MaterialFixtures {
+		intent, err := fixtureIntent(req, fixture)
+		if err != nil {
+			return report, err
 		}
-		return r.ServiceID, err
+		fixtures[fixture.Scenario], expected[fixture.Scenario] = fixture, intent
 	}
-	service, err := create(0, "ready", 18080)
-	if err != nil {
+	for _, phase := range []string{"after-loss", "after-partition"} {
+		ready, next := expected["ready"], expected[phase]
+		if !proto.Equal(ready.Container, next.Container) || !proto.Equal(ready.Resources, next.Resources) || len(ready.Ports) != len(next.Ports) {
+			return report, errors.New("majority-write signed updates must preserve the serving task specification")
+		}
+		for i := range ready.Ports {
+			if !proto.Equal(ready.Ports[i], next.Ports[i]) {
+				return report, errors.New("majority-write signed updates must preserve the serving endpoint")
+			}
+		}
+	}
+	stableID := expected["ready"].ID
+	for _, intent := range expected {
+		if intent.ID != stableID {
+			return report, errors.New("qualification phases must retain the same signed stable service identity")
+		}
+	}
+	var expectedPhases []swarmruntime.ServiceIntent
+	for _, name := range RequiredMaterialScenarios() {
+		expectedPhases = append(expectedPhases, expected[name])
+	}
+	observe := func(index int) (response, error) {
+		return call(ctx, index, command{Operation: "observe", ServiceID: stableID, Addresses: addresses, Expected: expectedPhases})
+	}
+	apply := func(index int, phase string) error {
+		started := time.Now().UTC()
+		err := req.Delivery.Apply(ctx, fixtures[phase])
+		rec.event("controller", command{Operation: "signed-delivery:" + phase}, response{OperationID: expected[phase].OperationID}, err)
+		if err != nil {
+			return err
+		}
+		err = wait(ctx, func() (bool, error) {
+			r, err := observe(index)
+			return r.OperationID == expected[phase].OperationID, err
+		})
+		if err != nil {
+			return fmt.Errorf("signed delivery %s after %s: %w", phase, time.Since(started), err)
+		}
+		return nil
+	}
+	if err := apply(0, "ready"); err != nil {
 		return report, err
 	}
-	observe := func(index int, id string) (response, error) {
-		return call(ctx, index, command{Operation: "observe", ServiceID: id, Addresses: addresses})
-	}
+	var service string
 	var baseline taskState
 	if err := wait(ctx, func() (bool, error) {
-		r, err := observe(0, service)
+		r, err := observe(0)
 		if r.Ready == 1 && len(r.Tasks) == 1 {
+			service = r.ServiceID
 			baseline = r.Tasks[0]
 		}
 		return r.Ready == 1 && len(r.Tasks) == 1, err
@@ -321,7 +302,7 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 		return report, err
 	}
 	servingIndex := indexOf(baseline.NodeID)
-	if servingIndex < 0 || servingIndex == leaderIndex {
+	if servingIndex < 0 {
 		return report, errors.New("serving task did not use surviving native host")
 	}
 	inventory := func() (taskState, error) {
@@ -368,33 +349,33 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 		report.Scenarios = append(report.Scenarios, rec.scenario(name, "runtime-ha", start, req.Hosts))
 		return nil
 	}
+	leaderIndex := indexOf(leader)
+	if leaderIndex < 0 {
+		return report, errors.New("leader absent from installed manager inventory")
+	}
+	lossIndex := leaderIndex
+	if lossIndex == servingIndex {
+		lossIndex = (lossIndex + 1) % 3
+	}
 	survivor := 0
-	for survivor == leaderIndex {
+	for survivor == lossIndex {
 		survivor++
 	}
 	if err := disruptive("manager-loss", func() error {
-		if _, err := call(ctx, leaderIndex, command{Operation: "stop"}); err != nil {
+		if _, err := call(ctx, lossIndex, command{Operation: "stop"}); err != nil {
 			return err
 		}
 		if err := wait(ctx, func() (bool, error) {
 			r, err := call(ctx, survivor, command{Operation: "cluster"})
-			return r.Leader != "" && r.Leader != leader, err
+			return r.Leader != "" && r.Managers == 2, err
 		}); err != nil {
 			return err
 		}
-		// A real service create/remove confirms writes, beyond a stale leader read.
-		id, err := create(survivor, "after-loss", 18082)
-		if err != nil {
-			return err
-		}
-		if err := wait(ctx, func() (bool, error) { r, err := observe(survivor, id); return r.Ready == 1, err }); err != nil {
-			return err
-		}
-		return nil
+		return apply(survivor, "after-loss")
 	}); err != nil {
 		return report, err
 	}
-	if _, err := call(ctx, leaderIndex, command{Operation: "start"}); err != nil {
+	if _, err := call(ctx, lossIndex, command{Operation: "start"}); err != nil {
 		return report, err
 	}
 	if err := wait(ctx, func() (bool, error) {
@@ -405,15 +386,15 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 		return report, err
 	}
 	partitioned := indexOf(leader)
+	if partitioned == servingIndex {
+		partitioned = (partitioned + 1) % 3
+	}
 	if partitioned < 0 {
 		return report, errors.New("partition leader absent from native host inventory")
 	}
 	survivor = 0
 	for survivor == partitioned {
 		survivor++
-	}
-	if _, err := call(ctx, survivor, command{Operation: "pause", NodeID: leader}); err != nil {
-		return report, err
 	}
 	var peers []string
 	for i, h := range req.Hosts {
@@ -427,15 +408,11 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 		}
 		if err := wait(ctx, func() (bool, error) {
 			r, err := call(ctx, survivor, command{Operation: "cluster"})
-			return r.Leader != "" && r.Leader != leader, err
+			return r.Leader != "" && r.Managers == 2, err
 		}); err != nil {
 			return err
 		}
-		id, err := create(survivor, "after-partition", 18083)
-		if err != nil {
-			return err
-		}
-		if err := wait(ctx, func() (bool, error) { r, err := observe(survivor, id); return r.Ready == 1, err }); err != nil {
+		if err := apply(survivor, "after-partition"); err != nil {
 			return err
 		}
 		if _, err := call(ctx, partitioned, command{Operation: "heal"}); err != nil {
@@ -463,7 +440,7 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 			return errors.New("agent restart replaced certificate identity")
 		}
 		return wait(ctx, func() (bool, error) {
-			r, err := observe(survivor, service)
+			r, err := observe(survivor)
 			return r.Ready == 1 && len(r.Tasks) == 1 && r.Tasks[0].ID == baseline.ID, err
 		})
 	}); err != nil {
@@ -477,20 +454,13 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 	for control == servingIndex {
 		control++
 	}
-	for i := range sessions {
-		if i != servingIndex {
-			if _, err := call(ctx, control, command{Operation: "activate", NodeID: sessions[i].node}); err != nil {
-				return report, err
-			}
-		}
-	}
 	oldTask, oldNode := baseline.ID, sessions[servingIndex].node
 	if _, err := call(ctx, servingIndex, command{Operation: "stop"}); err != nil {
 		return report, err
 	}
 	var replacement taskState
 	if err := wait(ctx, func() (bool, error) {
-		r, err := observe(control, service)
+		r, err := observe(control)
 		if err != nil {
 			return false, err
 		}
@@ -553,26 +523,65 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 	}
 	report.Scenarios = append(report.Scenarios, rec.scenario("container-isolation", "workload-safety", start, req.Hosts))
 	start = time.Now().UTC()
-	unready, err := create(survivor, "unready", 18081)
-	if err != nil {
-		return report, err
-	}
-	if err := wait(ctx, func() (bool, error) { r, err := observe(survivor, unready); return r.Running == 1 && r.Ready == 0, err }); err != nil {
-		return report, err
-	}
-	report.Scenarios = append(report.Scenarios, rec.scenario("readiness-rejection", "workload-safety", start, req.Hosts))
-	start = time.Now().UTC()
-	if _, err := call(ctx, survivor, command{Operation: "break-update", ServiceID: service, Image: req.WorkloadImage}); err != nil {
+	if err := apply(control, "failed-update"); err != nil {
 		return report, err
 	}
 	if err := wait(ctx, func() (bool, error) {
-		r, err := observe(survivor, service)
+		r, err := observe(control)
 		return r.UpdateState == "ROLLBACK_COMPLETED" && r.Ready == 1, err
 	}); err != nil {
 		return report, err
 	}
 	report.Scenarios = append(report.Scenarios, rec.scenario("rollback", "workload-safety", start, req.Hosts))
+	start = time.Now().UTC()
+	if err := apply(control, "unready"); err != nil {
+		return report, err
+	}
+	if err := wait(ctx, func() (bool, error) { r, err := observe(control); return r.Running == 1 && r.Ready == 0, err }); err != nil {
+		return report, err
+	}
+	report.Scenarios = append(report.Scenarios, rec.scenario("readiness-rejection", "workload-safety", start, req.Hosts))
+
 	return report, nil
+}
+
+// fixtureIntent checks the approved bytes and root profile. The controller driver
+// verifies the signed delivery envelope through the production codec and policy.
+func fixtureIntent(req Request, fixture MaterialFixture) (swarmruntime.ServiceIntent, error) {
+	profile, err := os.ReadFile(fixture.SignedProfilePath)
+	if err != nil {
+		return swarmruntime.ServiceIntent{}, err
+	}
+	wire, err := os.ReadFile(fixture.ContainerIntentPath)
+	if err != nil {
+		return swarmruntime.ServiceIntent{}, err
+	}
+	if len(profile) > maxFrame || len(wire) > maxFrame || digest(profile) != fixture.SignedProfileSHA256 || digest(wire) != fixture.ContainerIntentSHA256 {
+		return swarmruntime.ServiceIntent{}, errors.New("approved signed fixture bytes changed")
+	}
+	var envelope protocol.Envelope
+	if err := json.Unmarshal(wire, &envelope, json.RejectUnknownMembers(true)); err != nil {
+		return swarmruntime.ServiceIntent{}, err
+	}
+	intent, err := delivery.DecodeIntent(envelope.Payload)
+	if err != nil {
+		return swarmruntime.ServiceIntent{}, err
+	}
+	proof, err := containermaterial.VerifyProfile(profile, req.TrustedRoots, req.ProfileIdentity, intent)
+	if err != nil {
+		return swarmruntime.ServiceIntent{}, err
+	}
+	if !proof.NoSecrets() {
+		return swarmruntime.ServiceIntent{}, errors.New("native qualification requires signed no-secret authority")
+	}
+	expected, err := containermaterial.ServiceIntent(proof, req.Candidate.Architecture)
+	if err != nil {
+		return swarmruntime.ServiceIntent{}, err
+	}
+	if expected.Container.Image != req.WorkloadImage || expected.Role != "ts-auth" || expected.Replicas != 1 {
+		return swarmruntime.ServiceIntent{}, errors.New("native signed fixture must name the pinned ts-auth readiness workload")
+	}
+	return expected, nil
 }
 
 func wait(ctx context.Context, condition func() (bool, error)) error {
