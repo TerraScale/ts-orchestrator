@@ -17,7 +17,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/nats-io/nats.go"
@@ -207,8 +206,7 @@ func runRuntimeControllerHostAdmissionSource(ctx context.Context, args []string,
 	if err != nil {
 		return err
 	}
-	cfg.NATS.Embedded, cfg.NATS.ClientRole = nil, "controller"
-	runtime, err := natscell.Start(ctx, cfg.NATS)
+	runtime, err := openRootBrokerSourceClient(ctx, cfg, runtimeControllerHostSourceCommand, wire)
 	if err != nil {
 		return err
 	}
