@@ -153,6 +153,16 @@ func (verified VerifiedStartupTemplate) VerifyCurrent(now time.Time) error {
 	return verified.VerifyCurrentContext(context.Background(), now)
 }
 
+func (verified VerifiedStartupTemplate) currentLifetimeError() error {
+	if !verified.IsVerified() || !time.Now().Before(verified.expiresAt) {
+		return ErrManifestInvalid
+	}
+	if bindings := verified.bindings; bindings != nil && (bindings.original == nil || bindings.original.Err() != nil) {
+		return ErrManifestInvalid
+	}
+	return nil
+}
+
 func (verified VerifiedStartupTemplate) currentReadContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithDeadline(ctx, verified.expiresAt)
 	if verified.bindings == nil {
@@ -201,8 +211,10 @@ func (verified VerifiedStartupTemplate) VerifyCurrentContext(ctx context.Context
 	if err != nil {
 		return err
 	}
-	if verified.bindings != nil && !time.Now().Before(verified.expiresAt) {
-		return ErrManifestInvalid
+	if verified.bindings != nil {
+		if err := verified.currentLifetimeError(); err != nil {
+			return err
+		}
 	}
 	return ctx.Err()
 }
@@ -395,11 +407,14 @@ func verifyStartupTemplateForIdentityBindings(wire []byte, roots trust.Keyring, 
 		for keyID, key := range roots {
 			clonedRoots[keyID] = bytes.Clone(key)
 		}
-		if bindings != nil && !time.Now().Before(expires) {
-			return VerifiedStartupTemplate{}, ErrManifestInvalid
+		verified := VerifiedStartupTemplate{template: template, anchor: anchor, identity: cloneBootstrapAnchor(identity), roots: clonedRoots, grantWire: bytes.Clone(wire), grantDigest: digestBytes(wire), templateDigest: digestBytes(templateWire),
+			planDigest: material.PlanSHA256, installationID: material.InstallationID, generation: grant.Generation, issuedAt: envelope.IssuedAt, expiresAt: expires, authorityExpiresAt: authorityExpires, image: image, vault: vault, escrow: escrow, slotIPs: slotIPs, bindings: bindings}
+		if bindings != nil {
+			if err := verified.currentLifetimeError(); err != nil {
+				return VerifiedStartupTemplate{}, err
+			}
 		}
-		return VerifiedStartupTemplate{template: template, anchor: anchor, identity: cloneBootstrapAnchor(identity), roots: clonedRoots, grantWire: bytes.Clone(wire), grantDigest: digestBytes(wire), templateDigest: digestBytes(templateWire),
-			planDigest: material.PlanSHA256, installationID: material.InstallationID, generation: grant.Generation, issuedAt: envelope.IssuedAt, expiresAt: expires, authorityExpiresAt: authorityExpires, image: image, vault: vault, escrow: escrow, slotIPs: slotIPs, bindings: bindings}, nil
+		return verified, nil
 	}
 	return VerifiedStartupTemplate{}, ErrManifestInvalid
 }
