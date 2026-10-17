@@ -298,8 +298,7 @@ func (c *FoundationController) reconcile(ctx context.Context, epoch uint64, foot
 			ParentCompartmentID: footprint.ParentCompartmentID, SharedCompartmentID: footprint.SharedCompartmentID,
 			Generation: intent.Generation, IntentDigest: digest, GrantSHA256: footprint.GrantSHA256, OperationID: entityid.Derive("regional-foundation", footprint.TenancyID, cell, fmt.Sprint(intent.Generation)),
 			StartedAt: now, ResourceIDs: map[string]string{}}
-		current.RuntimeLineage = &RuntimeLineageRecord{Version: 1, FoundationOperationID: current.OperationID,
-			Generation: current.Generation, GrantSHA256: current.GrantSHA256, IntentSHA256: current.IntentDigest, PreparedAt: now}
+		// Absence cannot distinguish an original foundation from erased history.
 		if cell == "GRU" {
 			current.AuxiliaryIDs = maps.Clone(c.initialGRUAuxiliary)
 		}
