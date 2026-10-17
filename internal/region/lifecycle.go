@@ -120,6 +120,7 @@ type FoundationResourceProvenance struct {
 // FoundationRecord is bootstrap inventory, never serving or membership truth.
 // ResourceIDs contain verified OCIDs, never credential payloads.
 type FoundationRecord struct {
+	RuntimeLineage      *RuntimeLineageRecord                   `json:"runtimeLineage,omitempty"`
 	FoundationWriter    *FoundationWriterRecord                 `json:"foundationWriter,omitempty"`
 	GrantSHA256         string                                  `json:"grantSha256,omitempty"`
 	ResourceProvenance  map[string]FoundationResourceProvenance `json:"resourceProvenance,omitempty"`
@@ -297,6 +298,8 @@ func (c *FoundationController) reconcile(ctx context.Context, epoch uint64, foot
 			ParentCompartmentID: footprint.ParentCompartmentID, SharedCompartmentID: footprint.SharedCompartmentID,
 			Generation: intent.Generation, IntentDigest: digest, GrantSHA256: footprint.GrantSHA256, OperationID: entityid.Derive("regional-foundation", footprint.TenancyID, cell, fmt.Sprint(intent.Generation)),
 			StartedAt: now, ResourceIDs: map[string]string{}}
+		current.RuntimeLineage = &RuntimeLineageRecord{Version: 1, FoundationOperationID: current.OperationID,
+			Generation: current.Generation, GrantSHA256: current.GrantSHA256, IntentSHA256: current.IntentDigest, PreparedAt: now}
 		if cell == "GRU" {
 			current.AuxiliaryIDs = maps.Clone(c.initialGRUAuxiliary)
 		}
