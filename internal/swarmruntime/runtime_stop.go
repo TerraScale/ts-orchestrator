@@ -44,6 +44,7 @@ func (n *Node) SignRuntimeStop(ctx context.Context, observed execution.ObservedR
 	if err != nil {
 		return executionwire.SignedRuntimeStop{}, err
 	}
+	defer key.Close()
 	certificate, err := x509.ParseCertificate(chain[0])
 	if err != nil || len(certificate.Subject.OrganizationalUnit) != 1 || certificate.Subject.OrganizationalUnit[0] != "swarm-worker" {
 		return executionwire.SignedRuntimeStop{}, errors.New("runtime stop requires actual upstream worker certificate")

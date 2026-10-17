@@ -45,7 +45,11 @@ func (e *Executor) InitializeStateful(ctx context.Context, agent *host.Agent, in
 	if err != nil || entityid.Derive("host", identity.Identity().Cell, identity.Identity().HostNode) != admitted.HostID || identity.Identity().Cell != enrolled.Worker.Cell {
 		return errors.Join(execution.ErrUnsafe, err)
 	}
-	if _, _, err := node.nodeSigningKey(); err != nil {
+	key, _, err := node.nodeSigningKey()
+	if err != nil {
+		return err
+	}
+	if err := key.Close(); err != nil {
 		return err
 	}
 	for {
