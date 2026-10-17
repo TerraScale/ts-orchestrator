@@ -1,0 +1,22 @@
+{
+  "source": "567b18c88d10016ff1b6d70fa9798e1e64d910bb",
+  "source_tree": "8248c88fd2b64c069544809f907dfceff8efb826",
+  "adopted_source_commit": "b37d70d4554dc8eb2d12cc8f5f15437f06a77299",
+  "state": "EXACT_SOURCE_ADOPTED_WITH_SCOPED_LOCAL_CHECKS",
+  "methods": 5,
+  "source_counted_git_scenarios": 16,
+  "python_native_exit": 0,
+  "python_seconds": 5.114,
+  "shellcheck_native_exit": 0,
+  "diffcheck_exit": 0,
+  "source_and_tools_pre_equals_post": true,
+  "outer_shell_python_exit": 1,
+  "outer_shell_cause": "After successful Python and posthash, /etc/bash_logout:4 reads unset __ETC_BASHLOGOUT_SOURCED under set-u",
+  "retry_count": 0,
+  "ci_change": "One invocation of the exact tested unittest discovery arguments, with CI python3 and normal CI priority",
+  "limits": [
+    "No actual Go or GitHub API in fixture: stubs plus real disposable Git repositories",
+    "No remote CI workflow/build/deployment executed",
+    "Native broker result availability is documented by the independent review; markers and raw subprocess logs are separate evidence"
+  ]
+}
