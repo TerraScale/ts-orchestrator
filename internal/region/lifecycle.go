@@ -45,11 +45,12 @@ type ApprovedFootprint struct {
 }
 
 type FoundationIntent struct {
-	Generation        uint64                   `json:"generation"`
-	Plan              map[string]any           `json:"plan"`
-	BootstrapMaterial *BootstrapMaterialIntent `json:"bootstrapMaterial,omitempty"`
-	ReadAccess        *ReadAccessIntent        `json:"readAccess,omitempty"`
-	NetBirdManager    *NetBirdManagerIntent    `json:"netbirdManager,omitempty"`
+	ControlLineagePurpose string                   `json:"controlLineagePurpose"`
+	Generation            uint64                   `json:"generation"`
+	Plan                  map[string]any           `json:"plan"`
+	BootstrapMaterial     *BootstrapMaterialIntent `json:"bootstrapMaterial,omitempty"`
+	ReadAccess            *ReadAccessIntent        `json:"readAccess,omitempty"`
+	NetBirdManager        *NetBirdManagerIntent    `json:"netbirdManager,omitempty"`
 }
 
 // FoundationIntentDigest binds every signed authority field to its generation.
