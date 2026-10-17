@@ -187,6 +187,7 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 	var mu sync.Mutex
 	mode := ""
 	removeJournalOnIAM := ""
+	var cancelOnManifest context.CancelFunc
 	now := f.now.Add(2 * time.Second)
 	reads, writes := 0, 0
 	c := &cloud{prepared: prepared, now: func() time.Time { mu.Lock(); defer mu.Unlock(); return now }}
@@ -301,6 +302,14 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 				body = []byte("changed root gate")
 			}
 			modified := f.now
+			if mode == "cancel-during-observation" {
+				modified = f.now.Add(15 * time.Minute)
+				if strings.Contains(name, "/manifests/") && cancelOnManifest != nil {
+					now = f.now.Add(18 * time.Minute)
+					cancelOnManifest()
+					cancelOnManifest = nil
+				}
+			}
 			if mode == "late-publication" {
 				modified = a.ImageTransferUntil
 			}
@@ -612,6 +621,37 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 				}
 			})
 		}
+		t.Run("cancellation-during-publication-observation", func(t *testing.T) {
+			if err := checkpoint(path, saved); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			mu.Lock()
+			now = f.now.Add(10 * time.Minute)
+			mode, cancelOnManifest = "cancel-during-observation", cancel
+			mu.Unlock()
+			copyCloud := *c
+			copyCloud.prepared.approval.CleanupUntil = time.Now().UTC().Add(100 * time.Millisecond)
+			if err := copyCloud.superviseRetainedImage(ctx, path, observer); !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("canceled ambiguous publication relinquished cleanup: %v", err)
+			}
+			canceled, err := c.loadExisting(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if canceled.ImageManifestSHA256 != "" || !canceled.RetentionEndedAt.Equal(f.now.Add(10*time.Minute)) {
+				t.Fatal("cancellation did not use the conservative original observation start")
+			}
+			mu.Lock()
+			afterWrites := writes
+			mode, cancelOnManifest = "", nil
+			now = f.now.Add(90 * time.Minute)
+			mu.Unlock()
+			if afterWrites != publicationWrites {
+				t.Fatal("canceled ownership observer dispatched a write")
+			}
+		})
 	})
 	mu.Lock()
 	mode = ""
