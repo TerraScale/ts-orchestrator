@@ -86,11 +86,11 @@ func (service *Service) validRequest(request wireRequest) bool {
 	case OperationRetirePoolChild:
 		var input PoolRetirementExpectation
 		return decodePayload(request.Payload, &input) == nil && validPoolChild(input.Child) &&
-			validSelector(input.InstanceID) && validSelector(input.RemovalOperationID) && validDigest(input.DrainSHA256)
+			validSelector(input.InstanceID) && validSelector(input.RemovalOperationID) && optionalDigest(input.DrainSHA256)
 	case OperationQuarantinePoolChild:
 		var input PoolQuarantineExpectation
 		return decodePayload(request.Payload, &input) == nil && validSelector(input.Cell) && validSelector(input.PoolID) &&
-			validSelector(input.InstanceID) && validSelector(input.OperationID) && validDigest(input.PurposeSHA256) &&
+			validSelector(input.InstanceID) && validSelector(input.OperationID) && optionalDigest(input.PurposeSHA256) &&
 			validDigest(input.GrantSHA256) && input.Generation > 0 && input.Epoch > 0
 	case OperationObservePoolChild:
 		var input PoolChildObservation
