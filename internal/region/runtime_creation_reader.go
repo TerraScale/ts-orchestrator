@@ -57,9 +57,6 @@ func ReadRuntimeCreationSource(ctx context.Context, factory *ociclient.Factory, 
 		return VerifiedRuntimeCreationSource{}, err
 	}
 	proof.origin, proof.creation, proof.genesis = origin, creation, genesis
-	if creation.ExpiresAt.Before(proof.expires) {
-		proof.expires = creation.ExpiresAt
-	}
 	if sourceExpiry.Before(proof.expires) {
 		proof.expires = sourceExpiry
 	}
@@ -142,7 +139,7 @@ func (proof VerifiedRuntimeCreationSource) read(ctx context.Context) (RuntimeLin
 		return fail(err)
 	}
 	identity := proof.identity
-	if !time.Now().Before(creation.ExpiresAt) || creation.DeploymentID != identity.DeploymentID || creation.SignedClusterID != identity.ClusterID || creation.Environment != identity.Environment ||
+	if creation.DeploymentID != identity.DeploymentID || creation.SignedClusterID != identity.ClusterID || creation.Environment != identity.Environment ||
 		creation.HostID != identity.Slot || identity.Slot != identity.SeedSlot || creation.InstanceID != identity.InstanceID || creation.AcceptanceSHA256 != acceptance || creation.AnchorSHA256 != authority.Anchor().Digest() {
 		return fail(errors.New("protected runtime genesis differs from original current source"))
 	}
