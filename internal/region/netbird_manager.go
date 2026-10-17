@@ -329,8 +329,7 @@ func admitNetBirdManager(ctx context.Context, resolver FoundationResolver, reade
 			if err != nil {
 				return [sha256.Size]byte{}, err
 			}
-			originalLaunch := *record.NetBirdManager
-			originalLaunch.StoreState = ""
+			originalLaunch := record.NetBirdManager.original()
 			wire, err := json.Marshal(map[string]any{
 				"grant": intent.grantDigest, "installation": intent.installationID, "generation": intent.generation,
 				"profile": intent.profileDigest, "recipe": intent.recipeDigest, "image": intent.intent.ImageOCID,

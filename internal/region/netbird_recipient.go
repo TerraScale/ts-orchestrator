@@ -49,7 +49,7 @@ type netBirdRecipientObservation struct {
 	foundationOperation, foundationIntent                   string
 	foundationEpoch, generation                             uint64
 	bindingDigest, scopeDigest, physicalScopeDigest         string
-	launch                                                  NetBirdManagerLaunch
+	launch                                                  netBirdManagerOrigin
 	target                                                  vaultsecret.Target
 	expires                                                 time.Time
 }
@@ -245,9 +245,7 @@ func netBirdRecipientCheckpoint(intent verifiedNetBirdIntent, record FoundationR
 	if allocation.ExpiresAt().Before(expires) {
 		expires = allocation.ExpiresAt()
 	}
-	checkpoint := *launch
-	// Store initialization advances without changing its singleton identity.
-	checkpoint.StoreState = ""
+	checkpoint := launch.original()
 	return netBirdRecipientObservation{installationID: intent.installationID, grantDigest: intent.grantDigest,
 		privateIP: intent.intent.Profile.PrivateIP, storeGeneration: entityid.Derive("netbird-foundation-store", intent.installationID) + ":1",
 		foundationOperation: record.OperationID, foundationIntent: record.IntentDigest, foundationEpoch: record.Epoch, generation: intent.generation,
