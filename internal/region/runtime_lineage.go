@@ -35,6 +35,7 @@ type RuntimeCreation struct {
 	AcceptanceSHA256 string               `json:"acceptanceSha256"`
 	AnchorSHA256     string               `json:"anchorSha256"`
 	StartedAt        time.Time            `json:"startedAt"`
+	ExpiresAt        time.Time            `json:"expiresAt"`
 	Genesis          *RuntimeSwarmGenesis `json:"genesis,omitempty"`
 }
 
@@ -72,7 +73,8 @@ func (r FoundationRecord) validateRuntimeLineage() error {
 		!release.ValidEnvironment(creation.Environment) || !slices.Contains([]string{"controller-a", "controller-b", "controller-c"}, creation.HostID) ||
 		len(creation.InstanceID) > 512 || !strings.HasPrefix(creation.InstanceID, "ocid1.instance.") ||
 		!validFoundationDigest(creation.AcceptanceSHA256) || !validFoundationDigest(creation.AnchorSHA256) ||
-		creation.StartedAt.Before(lineage.PreparedAt) || creation.StartedAt.After(r.UpdatedAt) {
+		creation.StartedAt.Before(lineage.PreparedAt) || creation.StartedAt.After(r.UpdatedAt) ||
+		!creation.ExpiresAt.After(creation.StartedAt) || creation.ExpiresAt.After(creation.StartedAt.Add(30*time.Second)) {
 		return errors.New("runtime creation reservation has invalid original authority")
 	}
 	if genesis := creation.Genesis; genesis != nil {
