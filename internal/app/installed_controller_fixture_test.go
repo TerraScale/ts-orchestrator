@@ -266,8 +266,8 @@ func newInstalledControllerFixture(t *testing.T) *installedControllerFixture {
 	}
 	enrollment, err := json.Marshal(hostenroll.PublicBundle{SchemaVersion: 1, Cell: "gru", Region: "GRU", Environment: "production",
 		ControllerEndpoints: []string{"10.44.0.11:8443", "10.44.0.12:8443", "10.44.0.10:8443"},
-		NATSURLs: []string{"tls://10.44.0.11:4222", "tls://10.44.0.12:4222", "tls://10.44.0.10:4222"},
-		CAPEM: string(readSource("ca.pem")), ControllerResponsePublicKey: record.Public.ControllerResponsePublicKey,
+		NATSURLs:            []string{"tls://10.44.0.11:4222", "tls://10.44.0.12:4222", "tls://10.44.0.10:4222"},
+		CAPEM:               string(readSource("ca.pem")), ControllerResponsePublicKey: record.Public.ControllerResponsePublicKey,
 		CellAccountNKey: record.Public.CellAccountNKey, InstallRoot: hostenroll.ImageInstallRoot,
 		StateRoot: hostenroll.ImageStateRoot, ManagedRuntimeRoot: hostenroll.ImageManagedRuntimeRoot,
 		WorkloadUID: hostenroll.ImageWorkloadUID, WorkloadGID: hostenroll.ImageWorkloadGID})
@@ -331,10 +331,10 @@ func installedControllerTemplates(t *testing.T, record bootstrapmaterial.Record,
 	regionConfig := oci.RegionConfig{Region: oci.RegionGRU, Generation: intent.Generation,
 		Endpoint: "https://iaas.sa-saopaulo-1.oraclecloud.com", CompartmentID: "ocid1.compartment.oc1..compartment",
 		ImageCompartmentID: "ocid1.compartment.oc1..images", AvailabilityDomain: "SA-SAOPAULO-1-AD-1",
-		FaultDomains: []string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2", "FAULT-DOMAIN-3"},
-		SubnetID: "ocid1.subnet.oc1.sa-saopaulo-1.controller-c",
+		FaultDomains:            []string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2", "FAULT-DOMAIN-3"},
+		SubnetID:                "ocid1.subnet.oc1.sa-saopaulo-1.controller-c",
 		NetworkSecurityGroupIDs: []string{"ocid1.networksecuritygroup.oc1.sa-saopaulo-1.controller-c"},
-		ImageID: bootstrapstart.ControllerManagerStartupImage, Shape: "VM.Standard.E5.Flex", Owner: "controller",
+		ImageID:                 bootstrapstart.ControllerManagerStartupImage, Shape: "VM.Standard.E5.Flex", Owner: "controller",
 		BootVolumeGB: 50, BootVolumeVPUsPerGB: 10, DataVolumeVPUsPerGB: 10, MaxDataVolumeGB: 50}
 	settings := managedPlacementSettings{Environment: "production", MemberRole: "terrabase",
 		Resources: placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}}
