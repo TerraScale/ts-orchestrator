@@ -28,6 +28,9 @@ func TestLocalManagementObservationIntegration(t *testing.T) {
 	if _, err := node.LocalManagementObservation(ctx, "test"); err == nil {
 		t.Fatal("manager without accepted region identity acquired observation")
 	}
+	if _, err := node.ReadOnlyControlClient(ctx); err == nil {
+		t.Fatal("manager without accepted region identity acquired readonly control")
+	}
 	if _, err := AdmitNode(ctx, client, node.ID(), cfg.Admission); err != nil {
 		t.Fatal(err)
 	}
@@ -35,6 +38,10 @@ func TestLocalManagementObservationIntegration(t *testing.T) {
 		t.Fatal("empty environment acquired local observation")
 	}
 	observer, err := node.LocalManagementObservation(ctx, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalReader, err := node.ReadOnlyControlClient(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,8 +149,18 @@ func TestLocalManagementObservationIntegration(t *testing.T) {
 	if _, err := node.LocalManagementObservation(ctx, "test"); err == nil {
 		t.Fatal("new observer adopted identity different from original Node admission")
 	}
+	if _, err := originalReader.GetNode(ctx, &api.GetNodeRequest{NodeID: node.ID()}); err == nil {
+		t.Fatal("readonly source continued through admitted manager identity drift")
+	}
+	if _, err := node.ReadOnlyControlClient(ctx); err == nil {
+		t.Fatal("new readonly source adopted changed manager identity")
+	}
 	if _, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: node.ID(), NodeVersion: &updated.Node.Meta.Version, Spec: original}); err != nil {
 		t.Fatal(err)
+	}
+	reader := testLocalControlSocketIndependence(t, ctx, node, client)
+	if _, err := node.LocalManagementObservation(ctx, "test"); err != nil {
+		t.Fatalf("new local observer depended on closed socket: %v", err)
 	}
 	stalled, err := observer.Observe(ctx, nil)
 	if err != nil {
@@ -158,6 +175,12 @@ func TestLocalManagementObservationIntegration(t *testing.T) {
 	}
 	if _, err := stalled.Recv(); err == nil {
 		t.Fatal("stopped local source delivered buffered observation as valid")
+	}
+	if _, err := reader.GetNode(ctx, &api.GetNodeRequest{NodeID: node.ID()}); err == nil {
+		t.Fatal("readonly source survived original manager lifetime")
+	}
+	if _, err := reader.ClusterIdentity(ctx); err == nil {
+		t.Fatal("readonly cluster identity survived original manager lifetime")
 	}
 	if _, err := observer.Observe(ctx, nil); err == nil {
 		t.Fatal("local observer survived original manager lifetime")
