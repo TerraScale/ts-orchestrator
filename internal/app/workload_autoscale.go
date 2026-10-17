@@ -5,10 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
-	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostload"
@@ -17,26 +15,14 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/workload"
 )
 
-// AutoscaleConfig enables continuous reconciliation of generic services. It
-// is part of the signed controller config and is off unless Enabled is set:
-// without it every role keeps the fixed, one-shot delivery placement.
+// AutoscaleConfig carries the signed desired service policies.
 type AutoscaleConfig struct {
-	Enabled         bool                   `json:"enabled"`
-	IntervalSeconds int                    `json:"interval_seconds,omitzero"`
-	Services        []workload.ServiceSpec `json:"services,omitempty"`
-	// HostTelemetry feeds accepted host load reports to the autoscaler as its
-	// signal source. It is a trust decision: an authenticated host's
-	// self-reported load can then move a service within its signed replica
-	// bounds. Off by default; scaling policies are refused without it.
-	HostTelemetry bool `json:"host_telemetry,omitzero"`
+	Services []workload.ServiceSpec `json:"services,omitempty"`
 }
 
 func validateAutoscaleConfig(config *AutoscaleConfig, profiles map[string]WorkloadProfile) error {
 	if config == nil {
 		return nil
-	}
-	if config.IntervalSeconds < 0 || config.IntervalSeconds > 3600 {
-		return errors.New("autoscale interval_seconds must be within 0..3600")
 	}
 	if err := workload.ValidateSpecs(config.Services); err != nil {
 		return fmt.Errorf("autoscale services: %w", err)
@@ -47,12 +33,6 @@ func validateAutoscaleConfig(config *AutoscaleConfig, profiles map[string]Worklo
 			// by placement); refuse signed config that would silently do
 			// nothing.
 			return fmt.Errorf("autoscale service %q: stateful services are not reconciled yet", spec.Role)
-		}
-		if spec.Scaling != nil && !config.HostTelemetry {
-			// Host telemetry is the only signal source. Without it a
-			// scaling policy would only ever hold with no-signal-data;
-			// bounds and self-healing work without one.
-			return fmt.Errorf("autoscale service %q: signal-driven scaling needs host_telemetry; set replicas bounds only", spec.Role)
 		}
 		if spec.Scaling != nil {
 			for _, signal := range spec.Scaling.Signals {
@@ -86,27 +66,16 @@ func validateAutoscaleConfig(config *AutoscaleConfig, profiles map[string]Worklo
 	return nil
 }
 
-// startWorkloadAutoscale builds the reconciler, which owns the cell spec's
-// reconciled roles. Host telemetry is collected independently; using it to
-// scale remains opt-in. All act only on the regional authority leader.
+// startWorkloadAutoscale retains the native transition observer until manager replacement is qualified.
 func startWorkloadAutoscale(cell string, config *AutoscaleConfig, profiles map[string]WorkloadProfile,
 	specs []workload.ServiceSpec, hosts *host.Controller,
 	fencer authority.Fencer,
 	nativeReleases *nativeHistory,
 ) (*workload.Reconciler, *hostTelemetry, error) {
-	var settings AutoscaleConfig
-	if config != nil && config.Enabled {
-		settings = *config
-	}
-	interval := time.Duration(settings.IntervalSeconds) * time.Second
 	resources := profileResources(profiles)
-	var signals autoscale.Source
 	requests := loadRequests(resources)
 	load := &hostTelemetry{fencer: fencer, requests: requests,
 		load: hostload.NewAggregator(hostload.AggregatorConfig{Requests: requests})}
-	if settings.HostTelemetry {
-		signals = load.load
-	}
 	var releaseResources func(context.Context, []host.Desired, map[string]placement.Resources) (map[string]placement.Resources, error)
 	var writer workload.DesiredWriter = hosts
 	if nativeReleases != nil {
@@ -120,7 +89,7 @@ func startWorkloadAutoscale(cell string, config *AutoscaleConfig, profiles map[s
 		writer = nativeReleases
 	}
 	reconciler, err := workload.New(workload.Config{Cell: cell, Specs: specs, Profiles: resources, ReleaseResources: releaseResources,
-		Hosts: hosts, Writer: writer, Fencer: fencer, Signals: signals, Interval: interval,
+		Hosts: hosts, Writer: writer, Fencer: fencer, Signals: load.load,
 		Logf: log.Printf})
 	if err != nil {
 		return nil, nil, fmt.Errorf("start workload reconciler: %w", err)
@@ -141,6 +110,9 @@ func loadRequests(resources map[string]placement.Resources) map[string]hostload.
 // release-scoped generation and keep their current scale; every other role
 // keeps the intent's own generation and replica count.
 func (p *regionalDeliveryPlanner) PlanShaped(ctx context.Context, intent delivery.Intent) (delivery.PlanShape, []host.Desired, error) {
+	if p.migrated != nil && p.migrated(intent.Role) {
+		return delivery.PlanShape{}, nil, errors.New("stateless native release planning is retired; signed container intent required")
+	}
 	shape := delivery.PlanShape{Generation: intent.Generation, Replicas: intent.DesiredReplicas}
 	spec, owned := p.workloads.Owns(intent.Role)
 	if !owned || spec.Environment != intent.Environment {

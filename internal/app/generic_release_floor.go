@@ -1,0 +1,48 @@
+package app
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"strings"
+
+	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
+)
+
+// Retained native records and their original signed claims remain unchanged.
+func (history *nativeHistory) retainedContainerFloor(ctx context.Context, role, environment string) (release.SequenceFloor, error) {
+	if history == nil || history.deliveries == nil {
+		return release.SequenceFloor{}, errors.New("retained native release evidence unavailable")
+	}
+	state, _, err := history.load(ctx, role)
+	if err != nil {
+		return release.SequenceFloor{}, err
+	}
+	var floor release.SequenceFloor
+	for _, binding := range nativeBindings(&state) {
+		if binding.Intent.Environment != environment {
+			return release.SequenceFloor{}, errors.New("retained native release names another environment")
+		}
+		if err := history.verifyProfile(role, binding.Profile, binding.Provenance); err != nil {
+			return release.SequenceFloor{}, err
+		}
+		wire, err := history.deliveries.RetainedArtifactClaim(ctx, binding.Artifact.Digest, role, environment)
+		if err != nil {
+			return release.SequenceFloor{}, err
+		}
+		issued, err := releasechannel.ClaimIssuedAt(wire)
+		if err != nil {
+			return release.SequenceFloor{}, err
+		}
+		if issued.After(floor.IssuedAt) {
+			digest := sha256.Sum256(wire)
+			floor = release.SequenceFloor{Cell: strings.ToUpper(history.services.cell), IssuedAt: issued, EvidenceSHA256: hex.EncodeToString(digest[:])}
+		}
+	}
+	if floor.IssuedAt.IsZero() {
+		return release.SequenceFloor{}, errors.New("no retained authenticated native release floor; explicit root-authorized baseline required")
+	}
+	return floor, nil
+}

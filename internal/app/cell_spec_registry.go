@@ -45,6 +45,7 @@ const (
 // it uses it.
 type specRegistry struct {
 	nativeHistory *nativeHistory
+	removalReady  func(context.Context, string) error
 	cell          string
 	identity      cellspec.Identity
 	// roots is the cell's accepted root chain.
@@ -57,9 +58,8 @@ type specRegistry struct {
 	fixed    map[string]WorkloadProfile
 	// signers are the signed config's trusted signers, sorted by actor; a
 	// spec's signers section replaces them.
-	signers       []TrustedSignerConfig
-	hostTelemetry bool
-	kv            jetstream.KeyValue
+	signers []TrustedSignerConfig
+	kv      jetstream.KeyValue
 	// changed receives every newly adopted spec's profiles and reconciled
 	// specs, under the registry lock so updates arrive in order.
 	changed func(map[string]WorkloadProfile, []workload.ServiceSpec)
@@ -135,9 +135,6 @@ func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 		r.reserved = append(r.reserved, memberRole)
 	}
 	autoscaleConfig := cfg.Controller.Autoscale
-	if autoscaleConfig != nil {
-		r.hostTelemetry = autoscaleConfig.HostTelemetry
-	}
 	if err := r.loadTrust(cfg); err != nil {
 		return nil, err
 	}
@@ -152,7 +149,7 @@ func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 		service := cellspec.Service{Role: role, Profile: profile}
 		// Generation 0 reconciles exactly what the signed config already
 		// reconciled.
-		if autoscaleConfig != nil && autoscaleConfig.Enabled {
+		if autoscaleConfig != nil {
 			for _, spec := range autoscaleConfig.Services {
 				if spec.Role == role {
 					service.Spec = &spec
@@ -449,7 +446,7 @@ func (r *specRegistry) validate(spec cellspec.Spec) error {
 		return fmt.Errorf("artifact_store max_bytes %d exceeds this controller's %d: its embedded NATS store_max_bytes less %d bytes for control state",
 			store.MaxBytes, max(limit, 0), headroom)
 	}
-	return validateAutoscaleConfig(&AutoscaleConfig{HostTelemetry: r.hostTelemetry, Services: specs}, profiles)
+	return validateAutoscaleConfig(&AutoscaleConfig{Services: specs}, profiles)
 }
 
 // validateHostGrants admits a grant only for roles the cell delivers and
@@ -799,6 +796,11 @@ func (r *specRegistry) apply(ctx context.Context, wire []byte, keyID string, epo
 		_, kept := spec.Find(service.Role)
 		if _, signed := r.fixed[service.Role]; kept || signed {
 			continue
+		}
+		if r.removalReady != nil {
+			if err := r.removalReady(ctx, service.Role); err != nil {
+				return specReply{}, err
+			}
 		}
 		desired, err := hosts.ListDesired(ctx, service.Role)
 		if err != nil {
