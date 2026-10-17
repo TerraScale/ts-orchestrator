@@ -75,6 +75,25 @@ func VerifyRuntimeIAM(ctx context.Context, reader *CurrentFounderAuthorityReader
 func (proof VerifiedRuntimeIAM) IsVerified() bool {
 	return proof.original != nil && proof.reader != nil && proof.factory != nil && proof.observer != nil && proof.anchor != "" && !proof.expires.IsZero()
 }
+
+// CheckOriginal checks retained lifetimes only; it performs no current reads.
+func (proof VerifiedRuntimeIAM) CheckOriginal() error {
+	if !proof.IsVerified() {
+		return ErrSourceFounder
+	}
+	if err := proof.original.Err(); err != nil {
+		return err
+	}
+	now := time.Now()
+	if !now.Before(proof.expires) {
+		return ErrSourceFounder
+	}
+	if deadline, ok := proof.original.Deadline(); ok && !now.Before(deadline) {
+		return ErrSourceFounder
+	}
+	return nil
+}
+
 func (proof VerifiedRuntimeIAM) InstanceID() string                         { return proof.accepted.InstanceOCID }
 func (proof VerifiedRuntimeIAM) FoundationScope() bootstrap.FoundationScope { return proof.scope }
 func (proof VerifiedRuntimeIAM) ExpiresAt() time.Time                       { return proof.expires }
