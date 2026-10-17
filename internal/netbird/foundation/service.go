@@ -23,6 +23,9 @@ const (
 	localOrigin    = "http://127.0.0.1:18081"
 )
 
+// ErrAdmissionExpired requires a new process and fresh original admission.
+var ErrAdmissionExpired = errors.New("NetBird original admission ended")
+
 // Supervisor owns upstream foundation processes independently of SwarmKit and the overlay.
 type Supervisor struct {
 	Vault            BootstrapVault
@@ -102,6 +105,9 @@ func (s Supervisor) Run(ctx context.Context) error {
 			return ctx.Err()
 		case <-account.C:
 			if err := s.maintain(ctx); err != nil {
+				if errors.Is(err, ErrAdmissionExpired) {
+					return err
+				}
 				log.Printf("NetBird account reconciliation deferred: %v", err)
 			}
 		case <-renew.C:
