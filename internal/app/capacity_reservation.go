@@ -101,32 +101,47 @@ func (r *capacityReservations) serve(ctx context.Context) {
 		}
 	}()
 	for {
-		wanted := map[string]bool{}
+		type route struct{ source, action string }
+		wanted := map[string]route{}
+		add := func(source, action string) {
+			if subject := protocol.CapacityReservationSubject(source, action); subject != "" {
+				wanted[subject] = route{source: source, action: action}
+			}
+		}
 		if r.spending != nil {
 			proof, err := r.spending.InfrastructureSpend(ctx)
 			if err == nil && proof.ValidAt(time.Now()) {
 				for _, source := range proof.Footprint().Regions {
 					for _, action := range []string{"reserve", "revalidate", "observe"} {
-						subject := protocol.CapacityReservationSubject(source.Cell, action)
-						if subject == "" {
-							continue
-						}
-						wanted[subject] = true
-						if subscriptions[subject] != nil {
-							continue
-						}
-						subscription, err := r.conn.Subscribe(subject, func(message *nats.Msg) {
-							r.answer(ctx, source.Cell, action, message)
-						})
-						if err == nil {
-							subscriptions[subject] = subscription
-						}
+						add(source.Cell, action)
 					}
 				}
 			}
 		}
+		// Known cleanup has its own signed worker purpose. Missing purchase or
+		// current-image readiness must not remove its authenticated home route.
+		if scopes, ok := r.spending.(interface {
+			CapacityPoolCells(context.Context) ([]string, error)
+		}); ok {
+			if cells, err := scopes.CapacityPoolCells(ctx); err == nil {
+				for _, cell := range cells {
+					add(cell, "observe")
+				}
+			}
+		}
+		for subject, target := range wanted {
+			if subscriptions[subject] != nil {
+				continue
+			}
+			subscription, err := r.conn.Subscribe(subject, func(message *nats.Msg) {
+				r.answer(ctx, target.source, target.action, message)
+			})
+			if err == nil {
+				subscriptions[subject] = subscription
+			}
+		}
 		for subject, subscription := range subscriptions {
-			if !wanted[subject] {
+			if _, keep := wanted[subject]; !keep {
 				_ = subscription.Unsubscribe()
 				delete(subscriptions, subject)
 			}
@@ -160,6 +175,9 @@ func (r *capacityReservations) answer(ctx context.Context, source, action string
 		if action != "observe" {
 			return
 		}
+		var stopLeader context.CancelFunc
+		ctx, stopLeader = context.WithDeadline(ctx, leading.ExpiresAt)
+		defer stopLeader()
 		response.Pool, err = r.applyPool(ctx, source, *request.Pool, leading.Epoch)
 	} else {
 		var receipt budget.Reservation
@@ -182,12 +200,16 @@ func (r *capacityReservations) answer(ctx context.Context, source, action string
 		return
 	}
 	now := time.Now().UTC()
+	expires := now.Add(30 * time.Second)
+	if deadline, ok := ctx.Deadline(); ok && deadline.Before(expires) {
+		expires = deadline
+	}
 	envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: source, Kind: "capacity." + action + ".response",
-		Actor: "capacity-home", OperationID: request.Nonce, Epoch: leading.Epoch}, now, now.Add(30*time.Second), r.responseKey)
+		Actor: "capacity-home", OperationID: request.Nonce, Epoch: leading.Epoch}, now, expires, r.responseKey)
 	if err != nil {
 		return
 	}
-	if wire, err := protocol.EncodeJSON(envelope); err == nil {
+	if wire, err := protocol.EncodeJSON(envelope); err == nil && r.global.authority.Guard(ctx, leading.Epoch) == nil {
 		_ = message.Respond(wire)
 	}
 }
