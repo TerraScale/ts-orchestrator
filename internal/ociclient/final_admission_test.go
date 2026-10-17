@@ -67,4 +67,63 @@ func TestFinalSourceGuardCannotExtendEarlierSDKAdmissionDeadline(t *testing.T) {
 	if err := put(ctx); err == nil || calls.Load() != 1 || denied.Load() != 1 {
 		t.Fatalf("expired original SDK cap dispatched calls=%d denied=%d err=%v", calls.Load(), denied.Load(), err)
 	}
+	for _, requestCanceled := range []bool{true, false} {
+		name := "independent-original-canceled"
+		if requestCanceled {
+			name = "request-original-canceled"
+		}
+		t.Run(name, func(t *testing.T) {
+			operation, cancelOperation := context.WithTimeout(t.Context(), time.Minute)
+			defer cancelOperation()
+			original, cancelOriginal := context.WithCancel(t.Context())
+			defer cancelOriginal()
+			entered, resume := make(chan struct{}), make(chan struct{})
+			operationDone := operation.Done()
+			go func() {
+				select {
+				case <-entered:
+					if requestCanceled {
+						cancelOperation()
+					} else {
+						cancelOriginal()
+					}
+					close(resume)
+				case <-operationDone:
+				}
+			}()
+			var previousChecks, localChecks, unsent atomic.Int64
+			operation = WithRequestGuard(operation, func(ctx context.Context) error {
+				previousChecks.Add(1)
+				close(entered)
+				select {
+				case <-resume:
+					return nil
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			})
+			operation = WithRequestGuard(operation, func(ctx context.Context) error {
+				localChecks.Add(1)
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				return original.Err()
+			})
+			operation = WithWireAttempt(operation, func(*http.Request) (func(*http.Response, error, bool) error, error) {
+				return func(_ *http.Response, _ error, sent bool) error {
+					if !sent {
+						unsent.Add(1)
+					}
+					return nil
+				}, nil
+			})
+			wantLocal := int64(1)
+			if requestCanceled {
+				wantLocal = 0
+			}
+			if err := put(operation); err == nil || calls.Load() != 1 || unsent.Load() != 1 || previousChecks.Load() != 1 || localChecks.Load() != wantLocal {
+				t.Fatalf("canceled original SDK request dispatched calls=%d unsent=%d previous=%d local=%d err=%v", calls.Load(), unsent.Load(), previousChecks.Load(), localChecks.Load(), err)
+			}
+		})
+	}
 }
