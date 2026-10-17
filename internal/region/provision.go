@@ -63,6 +63,13 @@ func ProvisionFoundationBundle(ctx context.Context, factory *ociclient.Factory, 
 			return fmt.Errorf("install original %s writer policy: %w", cell, err)
 		}
 	}
+	purpose, err := resolver.NetBirdJournalPurposeForOperation(ctx, ctx)
+	if err != nil {
+		return fmt.Errorf("verify signed NetBird journal purpose: %w", err)
+	}
+	if err := authority.ReconcileNetBirdJournalUnderlay(ctx, resolver, purpose); err != nil {
+		return fmt.Errorf("reconcile signed NetBird private journal underlay: %w", err)
+	}
 	guarded, release, err := authority.HomeWrite(ctx, 0)
 	if err != nil {
 		return err

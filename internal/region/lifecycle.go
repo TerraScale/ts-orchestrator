@@ -98,6 +98,7 @@ type FoundationProgress struct {
 	CheckpointAuxiliary func(context.Context, string, string) error
 	PrepareCreate       func(context.Context, foundation.CreateIdentity, bool) error
 	NetBirdManager      *NetBirdManagerLaunch
+	NetBirdUnderlay     *NetBirdUnderlayRecord
 	ManagerAuthority    func(context.Context) (verifiedNetBirdIntent, error)
 	ManagerAllocation   func(context.Context, string) (VerifiedBootstrapAllocation, error)
 	CheckpointManager   func(context.Context, NetBirdManagerLaunch) error
@@ -122,6 +123,7 @@ type FoundationResourceProvenance struct {
 // FoundationRecord is bootstrap inventory, never serving or membership truth.
 // ResourceIDs contain verified OCIDs, never credential payloads.
 type FoundationRecord struct {
+	NetBirdUnderlay       *NetBirdUnderlayRecord                  `json:"netbirdUnderlay,omitempty"`
 	RuntimeLineage        *RuntimeLineageRecord                   `json:"runtimeLineage,omitempty"`
 	FoundationWriter      *FoundationWriterRecord                 `json:"foundationWriter,omitempty"`
 	GrantSHA256           string                                  `json:"grantSha256,omitempty"`
@@ -393,7 +395,7 @@ func (c *FoundationController) reconcile(ctx context.Context, epoch uint64, foot
 		}
 	}()
 	progress := FoundationProgress{OperationID: current.OperationID, BeforeWrite: attempt.beforeWrite, Checkpoint: attempt.checkpoint,
-		AuxiliaryIDs: maps.Clone(current.AuxiliaryIDs), CheckpointAuxiliary: attempt.checkpointAuxiliary, PrepareCreate: attempt.prepareCreate}
+		AuxiliaryIDs: maps.Clone(current.AuxiliaryIDs), CheckpointAuxiliary: attempt.checkpointAuxiliary, PrepareCreate: attempt.prepareCreate, NetBirdUnderlay: current.NetBirdUnderlay}
 	if reader, ok := c.Footprint.(*SignedFootprint); ok && cell == "GRU" {
 		progress.homeStorageDomain = reader.storage
 	}
