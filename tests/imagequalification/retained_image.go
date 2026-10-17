@@ -119,12 +119,12 @@ func (c *cloud) superviseRetainedImage(ctx context.Context, path string, observe
 		}
 		if retained && !resourcesCleaned {
 			resourceErr := c.cleanup(cleanup, path)
-			_, cancellationErr := checkpointCancellation()
-			if err := errors.Join(resourceErr, cancellationErr); err != nil {
-				return err
-			}
 			j, err = c.loadExisting(path)
 			if err != nil {
+				return errors.Join(resourceErr, err)
+			}
+			_, cancellationErr := checkpointCancellation()
+			if err := errors.Join(resourceErr, cancellationErr); err != nil {
 				return err
 			}
 			resourcesCleaned = true
