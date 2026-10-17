@@ -568,10 +568,14 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 					defer functionCalls.RUnlock()
 					controller := automaticContainers.Load()
 					functions := automaticFunctions.Load()
-					if controller == nil || functions == nil {
+					generic := genericServices.Load()
+					if controller == nil || functions == nil || generic == nil {
 						return nil, containermaterial.ErrPending
 					}
-					roles, err := controller.taskLoadRoles(ctx, registration)
+					owns := func(role string) bool {
+						return role == swarmruntime.FunctionWorkerRole || generic.owns(role)
+					}
+					roles, err := controller.taskLoadRoles(ctx, registration, owns)
 					if err != nil {
 						return nil, err
 					}
