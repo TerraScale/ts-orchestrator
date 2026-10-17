@@ -139,6 +139,7 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cloud.bundle = bundle.clone()
 	cloud.seedPrerequisites(approval)
 	server := httptest.NewTLSServer(http.HandlerFunc(cloud.serveHTTP))
 	defer server.Close()
@@ -840,6 +841,18 @@ func (c *provisionCloud) checkLaunchReservation(r *http.Request, body map[string
 			c.test.Error("manager effect lacks exact durable reservation")
 		}
 		return
+	}
+	for _, expected := range []struct {
+		name string
+		wire []byte
+	}{
+		{foundationRootChainObject, c.bundle.RootChainWire},
+		{"bootstrap/" + foundationGrantObject, c.bundle.GrantWire},
+	} {
+		wire, err := os.ReadFile(c.objectPath("gru-1-head/" + expected.name))
+		if err != nil || !bytes.Equal(wire, expected.wire) {
+			c.test.Errorf("original launch lacks exact protected prerequisite %s: %v", expected.name, err)
+		}
 	}
 	for _, cell := range []string{"GRU", "SFO", "FRA"} {
 		if c.journal(cell).Stage != "reconciled" {
