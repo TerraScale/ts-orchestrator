@@ -2609,7 +2609,7 @@
       },
       {
         "path": "manager/node_observation.go",
-        "sha256": "83a9470fc4b160abe89ee9e06ac3da0497c568fa4e72beed23f7bf7c4f03918d"
+        "sha256": "0e06300f018965ed10a098c56c999c2d3b152a084e91441e27aaf50f446412dc"
       },
       {
         "path": "manager/state/raft/raft.go",

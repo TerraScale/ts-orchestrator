@@ -79,3 +79,23 @@ func (m *Manager) nodeMutationResult(ctx context.Context, original *Observation,
 	}
 	return errors.Join(result, guardErr)
 }
+
+// RaftMembersAtObservation returns cloned current voter identities and native
+// reachability without opening a store view; it is safe inside a ReadTx guard.
+func (m *Manager) RaftMembersAtObservation(original *Observation) ([]*api.RaftMember, error) {
+	if err := m.ValidateObservation(original); err != nil {
+		return nil, err
+	}
+	members := m.raftNode.GetMemberlist()
+	result := make([]*api.RaftMember, 0, len(members))
+	for _, member := range members {
+		if member == nil {
+			return nil, errors.New("current Raft member unavailable")
+		}
+		result = append(result, member.Copy())
+	}
+	if err := m.ValidateObservation(original); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
