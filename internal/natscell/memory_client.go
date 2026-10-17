@@ -23,7 +23,13 @@ func ConnectMemory(ctx context.Context, cell, endpoint string, credentials []byt
 // ConnectMemoryLease also returns the original authenticated connection lifetime.
 // Its deadline includes the verified certificate chain and JWT expiry.
 func ConnectMemoryLease(ctx context.Context, cell, endpoint string, credentials []byte, config *tls.Config) (*nats.Conn, context.Context, error) {
-	if ctx == nil || ctx.Err() != nil || !cellName.MatchString(cell) || endpoint == "" || len(credentials) == 0 || len(credentials) > 64<<10 ||
+	return ConnectMemoryLeaseForOperation(ctx, ctx, cell, endpoint, credentials, config)
+}
+
+// ConnectMemoryLeaseForOperation bounds acquisition without shortening the
+// original authenticated lifetime retained through ctx after acquisition.
+func ConnectMemoryLeaseForOperation(ctx, operationCtx context.Context, cell, endpoint string, credentials []byte, config *tls.Config) (*nats.Conn, context.Context, error) {
+	if ctx == nil || operationCtx == nil || ctx.Err() != nil || operationCtx.Err() != nil || !cellName.MatchString(cell) || endpoint == "" || len(credentials) == 0 || len(credentials) > 64<<10 ||
 		config == nil || config.InsecureSkipVerify || config.RootCAs == nil || len(config.Certificates) != 1 || len(config.Certificates[0].Certificate) == 0 {
 		return nil, nil, errors.New("in-memory NATS credentials are unavailable")
 	}
@@ -61,6 +67,17 @@ func ConnectMemoryLease(ctx context.Context, cell, endpoint string, credentials 
 		deadline = time.Unix(claim.Expires, 0)
 	}
 	ctx, cancel := context.WithDeadline(ctx, deadline)
+	operationDone := make(chan struct{})
+	stopOperation := context.AfterFunc(operationCtx, func() {
+		cancel()
+		close(operationDone)
+	})
+	detachOperation := sync.OnceFunc(func() {
+		if !stopOperation() {
+			<-operationDone
+		}
+	})
+	defer detachOperation()
 	pair, err := nkeys.ParseDecoratedUserNKey(credentials)
 	if err != nil {
 		cancel()
@@ -89,9 +106,12 @@ func ConnectMemoryLease(ctx context.Context, cell, endpoint string, credentials 
 	if original, ok := ctx.Deadline(); ok {
 		timeout = min(timeout, time.Until(original))
 	}
+	if until, ok := operationCtx.Deadline(); ok {
+		timeout = min(timeout, time.Until(until))
+	}
 	conn, err := nats.Connect(bridgeClientURLs(endpoint), nats.Name("terrascale-"+cell+"-root-reader"),
 		nats.Timeout(timeout), nats.ErrorHandler(ErrorHandler), nats.CustomInboxPrefix(inboxPrefix(cell, public)),
-		nats.SetCustomDialer(&tlsFirstDialer{config: config.Clone(), timeout: timeout}),
+		nats.SetCustomDialer(&tlsFirstDialer{ctx: ctx, config: config.Clone(), timeout: timeout}),
 		nats.UserJWT(func() (string, error) {
 			if err := valid(); err != nil {
 				return "", err
@@ -109,8 +129,9 @@ func ConnectMemoryLease(ctx context.Context, cell, endpoint string, credentials 
 		cleanup()
 		return nil, nil, err
 	}
+	detachOperation()
 	stop := context.AfterFunc(ctx, conn.Close)
-	if conn.IsClosed() || valid() != nil {
+	if conn.IsClosed() || valid() != nil || operationCtx.Err() != nil {
 		stop()
 		conn.Close()
 		cleanup()
