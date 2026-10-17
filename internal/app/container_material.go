@@ -32,6 +32,7 @@ import (
 
 type containerMaterialConfig struct {
 	Root             *rootoci.Client
+	releaseDeadline  time.Time
 	Factory          *ociclient.Factory
 	Hosts            seatrollout.Hosts
 	Authority        authority.Fencer
