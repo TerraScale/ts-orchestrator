@@ -131,7 +131,7 @@ func (s *Source) admit(ctx context.Context, task *api.Task) (*sourceEntry, error
 		material.PlacementSHA256 != registration.ManagedPlacement.IntentPayloadDigest || material.RosterSHA256 != registration.ManagedPlacement.CanonicalRosterDigest ||
 		material.MemberRevision == 0 || !digestValid(material.MemberSHA256) || material.HostAttempt != launch.Member.HostAttempt ||
 		material.Scope != memberstatus.Scope(launch.Member.Scope) || material.MemberAuthority != memberstatus.Authority(launch.Authority) ||
-		material.Volume.DatabaseID != material.Scope.DatabaseID || material.Volume.PartitionID != registration.ManagedPlacement.PartitionID ||
+		material.Volume.DatabaseID != registration.ManagedPlacement.DatabaseID || material.Volume.PartitionID != registration.ManagedPlacement.PartitionID ||
 		material.Volume.InstanceID != identity.InstanceID || material.Volume.HostCreateKey != launch.OCI.CreateKey ||
 		material.Volume.VolumeID != launch.VolumeID || material.Volume.AttachmentID != launch.AttachmentID || material.Volume.AttachmentETag != launch.AttachmentETag ||
 		material.Volume.Device != launch.Runtime.DevicePath || material.Volume.FileSystemUUID != launch.Runtime.FileSystemUUID || material.Volume.FileSystemType != launch.Runtime.FileSystemType ||
