@@ -131,9 +131,10 @@ func (r fenceRecord) holders() []string {
 // makes is guarded by the authority epoch it started under, so a deposed
 // leader stops.
 type releaseFence struct {
-	kv     jetstream.KeyValue
-	hosts  seatrollout.Hosts
-	fencer authority.Fencer
+	manager *managerWorkloadView
+	kv      jetstream.KeyValue
+	hosts   seatrollout.Hosts
+	fencer  authority.Fencer
 	// spec returns the cell spec's release fence, nil without one, and the
 	// private address of each granted node.
 	spec func() (*cellspec.ReleaseFence, map[string]string)

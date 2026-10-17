@@ -448,7 +448,7 @@ func (n *netbirdRollout) healthyMesh(ctx context.Context, node string, status ne
 	if err != nil || !slices.Contains(answers, address) {
 		return errors.New("NetBird DNS answer does not contain the peer's mesh IP")
 	}
-	if reason, err := nodeRolesServing(ctx, n.fence.hosts, node, since); err != nil || reason != "" {
+	if reason, err := n.fence.nodeRolesServing(ctx, node, since); err != nil || reason != "" {
 		return fmt.Errorf("node roles are not ready: %s%v", reason, errSuffix(err))
 	}
 	_, addresses := n.addresses()
@@ -686,7 +686,7 @@ func (n *netbirdRollout) returnNode(ctx context.Context, epoch uint64, node stri
 	}
 	// A first-install rollback restores absence, but workloads must still
 	// report ready over OCI before their backends return to rotation.
-	if reason, err := nodeRolesServing(ctx, n.fence.hosts, node, time.Time{}); err != nil || reason != "" {
+	if reason, err := n.fence.nodeRolesServing(ctx, node, time.Time{}); err != nil || reason != "" {
 		return fmt.Errorf("node roles are not ready: %s%v", reason, errSuffix(err))
 	}
 	statuses, err := n.fence.hosts.ListHosts(ctx)

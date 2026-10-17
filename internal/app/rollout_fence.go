@@ -196,7 +196,7 @@ func (r *rolloutFence) returnNodes(ctx context.Context, store *rollout.Store, pr
 		if !ready {
 			continue
 		}
-		if reason, err := nodeRolesServing(ctx, r.fence.hosts, node, since); err != nil || reason != "" {
+		if reason, err := r.fence.nodeRolesServing(ctx, node, since); err != nil || reason != "" {
 			if err != nil {
 				return err
 			}
