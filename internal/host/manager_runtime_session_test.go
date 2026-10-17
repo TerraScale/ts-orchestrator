@@ -194,3 +194,31 @@ func TestManagerCarrierAcquireCannotInheritOldEnvelope(t *testing.T) {
 		t.Fatal("new session inherited old signed manager")
 	}
 }
+
+func TestManagerRuntimeSessionRejectsShortenedCurrentExpiry(t *testing.T) {
+	c, _, _, _, _ := testController(t)
+	key := registerTestHost(t, c)
+	acquire := signedHostRequest(t, key, "session", entityid.New(), 0, sessionOperation{Kind: "acquire"})
+	if _, err := c.handleSession(t.Context(), acquire); err != nil {
+		t.Fatal(err)
+	}
+	reader := &Reader{controller: c}
+	held, err := reader.ReadManagerRuntimeSession(t.Context(), "node-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, revision, _, err := c.sessionSnapshot(t.Context(), sessionKey("gru", "node-a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	current.ExpiresAt = time.Now().Add(10 * time.Second)
+	if _, err := c.cas(t.Context(), sessionKey("gru", "node-a"), current, revision); err != nil {
+		t.Fatal(err)
+	}
+	if held.Revalidate(context.Background()) == nil {
+		t.Fatal("held observation outlived shortened current session")
+	}
+	if _, err := reader.ReadManagerRuntimeSession(t.Context(), "node-a"); err != nil {
+		t.Fatal("shorter current source cannot be freshly observed:", err)
+	}
+}
