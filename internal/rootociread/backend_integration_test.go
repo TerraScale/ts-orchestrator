@@ -1,6 +1,7 @@
 package rootociread
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/ed25519"
@@ -13,11 +14,13 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -102,13 +105,15 @@ type readScenario struct {
 	requests     int
 	channelReads int
 	afterChannel func()
+	responses    map[string][]byte
+	afterRead    func(*http.Request)
 }
 
 func newReadScenario(t *testing.T) *readScenario {
 	t.Helper()
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	seed := sha256.Sum256([]byte("rootociread integration genesis; never production"))
-	f := &readScenario{test: t, root: ed25519.NewKeyFromSeed(seed[:]), objects: map[string][]byte{}}
+	f := &readScenario{test: t, root: ed25519.NewKeyFromSeed(seed[:]), objects: map[string][]byte{}, responses: map[string][]byte{}}
 	genesis, err := trust.DiscoveryGenesis()
 	if err != nil {
 		t.Fatal(err)
@@ -149,6 +154,22 @@ func newReadScenario(t *testing.T) *readScenario {
 		if err := verifyReadSignature(r, &key.PublicKey); err != nil {
 			t.Error(err)
 			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		f.mu.Lock()
+		response, found := f.responses[r.Method+" "+r.Host+r.URL.Path]
+		afterRead := f.afterRead
+		if found {
+			f.requests++
+		}
+		f.mu.Unlock()
+		if found {
+			if afterRead != nil {
+				afterRead(r)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("ETag", "financial-observation")
+			w.Write(response)
 			return
 		}
 		if r.Method != http.MethodGet || r.Host != "objectstorage."+readScenarioRegion+".oraclecloud.com" {
@@ -196,6 +217,7 @@ func newReadScenario(t *testing.T) *readScenario {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
+		w.Header().Set("ETag", "protected-observation")
 		w.Write(wire)
 	}))
 	t.Cleanup(server.Close)
@@ -266,7 +288,12 @@ type confinedReadTransport struct {
 }
 
 func (transport confinedReadTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	if request.URL.Scheme != "https" || request.URL.Host != "objectstorage."+readScenarioRegion+".oraclecloud.com" {
+	if request.URL.Scheme != "https" || !slices.Contains([]string{
+		"objectstorage." + readScenarioRegion + ".oraclecloud.com",
+		"identity." + readScenarioRegion + ".oci.oraclecloud.com",
+		"iaas." + readScenarioRegion + ".oraclecloud.com",
+		"query." + readScenarioRegion + ".oci.oraclecloud.com",
+	}, request.URL.Host) {
 		return nil, errors.New("test transport rejected noncanonical OCI destination")
 	}
 	request = request.Clone(request.Context())
@@ -288,7 +315,11 @@ func verifyReadSignature(request *http.Request, public *rsa.PublicKey) error {
 		}
 		fields[key] = strings.Trim(value, `"`)
 	}
-	if fields["algorithm"] != "rsa-sha256" || fields["headers"] != "date (request-target) host" {
+	headers := "date (request-target) host"
+	if request.Method == http.MethodPost {
+		headers += " content-length content-type x-content-sha256"
+	}
+	if fields["algorithm"] != "rsa-sha256" || fields["headers"] != headers {
 		return fmt.Errorf("unexpected SDK signature algorithm or headers: %q %q", fields["algorithm"], fields["headers"])
 	}
 	signature, err := base64.StdEncoding.DecodeString(fields["signature"])
@@ -296,6 +327,18 @@ func verifyReadSignature(request *http.Request, public *rsa.PublicKey) error {
 		return err
 	}
 	signed := "date: " + request.Header.Get("Date") + "\n(request-target): " + strings.ToLower(request.Method) + " " + request.URL.RequestURI() + "\nhost: " + request.Host
+	if request.Method == http.MethodPost {
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			return err
+		}
+		request.Body = io.NopCloser(bytes.NewReader(body))
+		digest := sha256.Sum256(body)
+		if request.Header.Get("X-Content-Sha256") != base64.StdEncoding.EncodeToString(digest[:]) || request.ContentLength != int64(len(body)) {
+			return errors.New("SDK body differs from its signed digest or length")
+		}
+		signed += fmt.Sprintf("\ncontent-length: %d\ncontent-type: %s\nx-content-sha256: %s", request.ContentLength, request.Header.Get("Content-Type"), request.Header.Get("X-Content-Sha256"))
+	}
 	digest := sha256.Sum256([]byte(signed))
 	return rsa.VerifyPKCS1v15(public, crypto.SHA256, digest[:], signature)
 }

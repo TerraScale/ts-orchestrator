@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
@@ -23,6 +24,9 @@ import (
 )
 
 var ErrPending = errors.New("root OCI observation dependency is pending")
+
+// Bound the aggregate response to the retained size of one protected ledger.
+const inventoryCommitmentLimit = 1024
 
 type Backend struct {
 	factory *ociclient.Factory
@@ -55,6 +59,7 @@ func (b *Backend) BindFleet(journal oci.JournalReader, images oci.ImageQualifica
 type scope struct {
 	cell, grant string
 	footprint   *region.SignedFootprint
+	resolver    region.FoundationResolver
 }
 
 func (b *Backend) current(ctx context.Context, call rootoci.Call) (scope, error) {
@@ -92,7 +97,7 @@ func (b *Backend) current(ctx context.Context, call rootoci.Call) (scope, error)
 	if expected := call.Expected().GrantSHA256; expected != "" && expected != grant {
 		return scope{}, errors.New("root OCI read grant expectation is stale")
 	}
-	return scope{cell: entry.Cell, grant: grant, footprint: footprint}, nil
+	return scope{cell: entry.Cell, grant: grant, footprint: footprint, resolver: resolver}, nil
 }
 
 func (b *Backend) begin(ctx context.Context, call rootoci.Call, operation rootoci.Operation) (context.Context, context.CancelFunc, scope, error) {
@@ -126,7 +131,7 @@ func (b *Backend) Inventory(ctx context.Context, call rootoci.Call) (rootoci.Inv
 	if err != nil {
 		return rootoci.InventoryObservation{}, err
 	}
-	proof, err := scope.footprint.InfrastructureSpend(ctx)
+	proof, err := scope.resolver.InfrastructureSpend(ctx)
 	if err != nil {
 		return rootoci.InventoryObservation{}, err
 	}
@@ -141,12 +146,37 @@ func (b *Backend) Inventory(ctx context.Context, call rootoci.Call) (rootoci.Inv
 	if err != nil {
 		return rootoci.InventoryObservation{}, err
 	}
+	var histories []foundationbinding.VerifiedCapacityLedger
+	hosts := 0
+	for _, target := range proof.Footprint().Regions {
+		bindings, err := scope.resolver.ResourceBindings(ctx, target.Cell)
+		if err != nil {
+			continue
+		}
+		history, err := bindings.CapacityLedger(ctx)
+		if err != nil {
+			continue
+		}
+		if history.GrantSHA256() != scope.grant {
+			return rootoci.InventoryObservation{}, errors.New("root OCI financial history scope changed")
+		}
+		hosts += len(history.Ledger().Hosts)
+		if hosts > inventoryCommitmentLimit {
+			return rootoci.InventoryObservation{}, errors.New("root OCI financial inventory exceeds its retained response bound")
+		}
+		histories = append(histories, history)
+	}
+	known, err := reader.ReadKnownLiabilities(ctx, proof.Footprint(), histories...)
+	if err != nil {
+		return rootoci.InventoryObservation{}, err
+	}
 	if err := b.finish(ctx, call, scope); err != nil {
 		return rootoci.InventoryObservation{}, err
 	}
 	return rootoci.InventoryObservation{ScopeSHA256: observed.ScopeSHA256, Currency: observed.Currency,
 		ObservedAt: observed.ObservedAt, ExpiresAt: observed.ExpiresAt, MonthlyCents: observed.MonthlyCents,
-		Resources: observed.Resources, CoveredCompartments: observed.CoveredCompartments, Pending: observed.Pending}, nil
+		Resources: observed.Resources, CoveredCompartments: observed.CoveredCompartments, Pending: observed.Pending,
+		KnownLiabilities: known}, nil
 }
 
 func (b *Backend) ObserveLocalInstance(ctx context.Context, call rootoci.Call) (bootstrapstart.InstanceObservation, error) {

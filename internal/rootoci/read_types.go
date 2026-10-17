@@ -30,6 +30,8 @@ type InventoryObservation struct {
 	Resources             []capacityinventory.Resource
 	CoveredCompartments   []string
 	Pending               []string
+	// KnownLiabilities overlaps the live inventory; its subtotal is not additive.
+	KnownLiabilities capacityinventory.KnownLiabilities
 }
 
 type ImageRequest struct {
