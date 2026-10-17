@@ -346,7 +346,7 @@ func (s *managementServer) ListNodes(ctx context.Context, req *api.ListNodesRequ
 	return s.client.ListNodes(ctx, req)
 }
 func (s *managementServer) UpdateNode(ctx context.Context, req *api.UpdateNodeRequest) (*api.UpdateNodeResponse, error) {
-	if req.Spec == nil {
+	if req.Spec == nil || req.Spec.Availability != api.NodeAvailabilityPause {
 		return nil, denied()
 	}
 	current, err := s.client.GetNode(ctx, &api.GetNodeRequest{NodeID: req.NodeID})
@@ -401,6 +401,12 @@ func (s *managementServer) managedService(spec *api.ServiceSpec) bool {
 	if spec.Annotations.Labels[LabelRole] == "function-worker" {
 		constraints[1] = "node.labels." + LabelExecutionScope + "==tenant"
 		constraints = append(constraints, "node.labels."+LabelHostRole+"==wasm")
+	}
+	if spec.Annotations.Labels[LabelRole] == "ts-auth" {
+		constraints = append(constraints, "node.role==manager")
+		if placement.MaxReplicas != 1 {
+			return false
+		}
 	}
 	if !slices.Equal(placement.Constraints, constraints) {
 		return false
