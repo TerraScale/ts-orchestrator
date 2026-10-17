@@ -54,6 +54,22 @@ type rootOCIAuthority struct {
 	parent   *rootoci.ProcessWitness
 	child    *rootOCIProcess
 	main     *rootOCIProcess
+	sources  *rootBoundRuntimeSources
+}
+
+func (authority *rootOCIAuthority) bindSources(sources *rootBoundRuntimeSources) error {
+	authority.mu.Lock()
+	defer authority.mu.Unlock()
+	if authority.sources != nil || sources == nil || sources.rootControllerSources == nil || authority.ctx.Err() != nil {
+		return rootoci.ErrUnauthorized
+	}
+	ctx, cancel := context.WithTimeout(authority.ctx, 30*time.Second)
+	defer cancel()
+	if err := sources.guard(ctx); err != nil {
+		return err
+	}
+	authority.sources = sources
+	return nil
 }
 
 func newRootOCIAuthority(ctx context.Context, accepted bootstrapstart.AcceptedIdentity, ownhost *managedRuntimeHost,
@@ -202,7 +218,11 @@ func (authority *rootOCIAuthority) authorizeProcess(request context.Context, pee
 		return rootoci.Lease{Context: process.ctx, Deadline: earlier(process.startupEnd, confirmed.ExpiresAt()),
 			Binding: process.witness.Binding() + ":startup:" + confirmed.Anchor().Digest()}, nil
 	}
-	if process == authority.child || source.agent == nil || source.session == nil || source.session.Err() != nil {
+	if process == authority.child || source.agent == nil || source.session == nil || source.session.Err() != nil || authority.sources == nil {
+		return rootoci.Lease{}, rootoci.ErrUnauthorized
+	}
+	if err := authority.sources.guard(ctx); err != nil {
+		authority.cancel()
 		return rootoci.Lease{}, rootoci.ErrUnauthorized
 	}
 	stopSession := context.AfterFunc(source.session, cancel)
@@ -222,11 +242,12 @@ func (authority *rootOCIAuthority) authorizeProcess(request context.Context, pee
 		}
 		lease, cancelLease := context.WithCancel(process.ctx)
 		stop := context.AfterFunc(source.session, cancelLease)
+		stopSources := context.AfterFunc(authority.sources.lease, cancelLease)
 		process.session, process.lease = source.session, lease
-		process.stopLease = func() { stop(); cancelLease() }
+		process.stopLease = func() { stop(); stopSources(); cancelLease() }
 	}
 	worker := identity.Identity()
-	return rootoci.Lease{Context: process.lease, Deadline: earlier(identity.ExpiresAt(), currentAuthority.ExpiresAt()),
+	return rootoci.Lease{Context: process.lease, Deadline: earlier(earlier(identity.ExpiresAt(), currentAuthority.ExpiresAt()), authority.sources.deadline),
 		RuntimeID: entityid.Derive("controller-runtime", process.witness.Binding()),
 		Binding: fmt.Sprintf("%s:runtime:%s:%d:%s", process.witness.Binding(), worker.HostSessionID,
 			worker.RegistrationGeneration, currentAuthority.Anchor().Digest())}, nil
