@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/containermaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
@@ -20,7 +21,11 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 )
 
-func (b *Backend) ready(ctx context.Context, s *Sources, client api.ControlClient, service *api.Service, expected swarmruntime.ServiceIntent, verified release.VerifiedContainer, roots trust.Keyring, profile containermaterial.Profile, signedSpec []byte) (time.Time, error) {
+func (b *Backend) ready(ctx context.Context, s *Sources, client api.ControlClient, service *api.Service, expected swarmruntime.ServiceIntent, verified release.VerifiedContainer, roots trust.Keyring, profile containermaterial.Profile, signedSpec []byte, sessions map[string]*host.ContainerGenerationSession, controllers map[string]*bootstrapstart.ControllerHostRecipient) (time.Time, error) {
+	spec, err := cellspec.VerifyHistorical(signedSpec, roots, profile.Identity())
+	if err != nil || !spec.RootSigned {
+		return time.Time{}, errors.Join(ErrPending, err)
+	}
 	hosts, err := s.Hosts.ListHosts(ctx)
 	if err != nil {
 		return time.Time{}, err
@@ -59,8 +64,23 @@ func (b *Backend) ready(ctx context.Context, s *Sources, client api.ControlClien
 			node := response.Node
 			labels := node.Spec.Annotations.Labels
 			var status *host.HostStatus
+
+			hostNode := ""
+			if node.Role == api.NodeRoleManager {
+				for _, grant := range spec.HostGrants {
+					if grant.Controller == node.Spec.Annotations.Name && grant.Environment == expected.Environment && slices.Contains(grant.Roles, expected.Role) {
+						if hostNode != "" {
+							return reject(nil)
+						}
+						hostNode = grant.Node
+					}
+				}
+				if hostNode == "" {
+					return reject(nil)
+				}
+			}
 			for i := range hosts {
-				if hosts[i].Registration.ID == node.Spec.Annotations.Name {
+				if node.Role == api.NodeRoleManager && hosts[i].Registration.Node == hostNode || node.Role == api.NodeRoleWorker && hosts[i].Registration.ID == node.Spec.Annotations.Name {
 					if status != nil {
 						return reject(nil)
 					}
@@ -71,6 +91,28 @@ func (b *Backend) ready(ctx context.Context, s *Sources, client api.ControlClien
 				return reject(nil)
 			}
 			registration := status.Registration
+
+			session := sessions[registration.Node]
+			if session == nil {
+				session, err = s.Hosts.AdmitContainerGenerationSession(ctx, registration.Node)
+				if err != nil {
+					return reject(err)
+				}
+				sessions[registration.Node] = session
+			}
+			if err := session.Guard(ctx); err != nil {
+				return reject(err)
+			}
+			originalRegistration, err := session.Registration()
+			if err != nil {
+				return reject(err)
+			}
+			before, beforeErr := protocol.EncodeJSON(originalRegistration)
+			after, afterErr := protocol.EncodeJSON(registration)
+			if beforeErr != nil || afterErr != nil || !bytes.Equal(before, after) {
+				return reject(nil)
+			}
+			until = earlier(until, session.Deadline())
 			if registration.Cell != strings.ToLower(verified.Claim().Cell) || registration.Environment != expected.Environment {
 				return reject(nil)
 			}
@@ -86,10 +128,19 @@ func (b *Backend) ready(ctx context.Context, s *Sources, client api.ControlClien
 			binding := host.ContainerMaterialBinding{TaskID: task.ID, ServiceID: task.ServiceID, NodeID: task.NodeID, InstanceID: labels[swarmruntime.LabelInstanceID], Region: expected.Region, HostID: registration.ID, Fingerprint: fingerprint}
 			var controller *bootstrapstart.ControllerHostRecipient
 			if node.Role == api.NodeRoleManager {
-				controller, err = bootstrapstart.ReadControllerHostRecipient(ctx, s.Authority, s.Accepted, signedSpec, registration.Node, binding.InstanceID, address.String())
-				if err != nil {
-					return reject(err)
+				controller = controllers[registration.Node]
+				if controller == nil {
+					controller, err = bootstrapstart.ReadControllerHostRecipient(ctx, s.Authority, s.Accepted, signedSpec, registration.Node, binding.InstanceID, address.String())
+					if err != nil {
+						return reject(err)
+					}
+					controllers[registration.Node] = controller
 				}
+				if controller.InstanceID() != binding.InstanceID || controller.PrivateIP() != address.String() || controller.ControllerSlot() != node.Spec.Annotations.Name || !controller.Valid(time.Now()) {
+					return reject(nil)
+				}
+				binding.HostID = controller.ControllerSlot()
+				until = earlier(until, controller.Deadline())
 			} else {
 				if registration.ManagedOCI == nil || registration.ManagedOCI.InstanceID != binding.InstanceID {
 					return reject(nil)
@@ -149,8 +200,12 @@ func (b *Backend) ready(ctx context.Context, s *Sources, client api.ControlClien
 			until = earlier(until, status.SessionExpiresAt)
 			current = true
 		}
+
 		if !current {
 			return time.Time{}, ErrPending
+		}
+		if err := sessions[item.registration.Node].Guard(ctx); err != nil {
+			return time.Time{}, err
 		}
 		if err := containermaterial.VerifyCurrentMaterialTask(ctx, client, item.task, expected, verified, roots, profile, item.registration, item.binding, item.controller); err != nil {
 			return time.Time{}, err
