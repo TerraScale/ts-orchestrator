@@ -1,0 +1,122 @@
+diff --git a/internal/region/discovery.go b/internal/region/discovery.go
+index 54f3208761d0cfb12976185d2d7a71a94bbf20ed..23045674f0f242361d2d3851bd8c604d737639ad 100644
+--- a/internal/region/discovery.go
++++ b/internal/region/discovery.go
+@@ -222,18 +222,25 @@ func publishFoundationDiscoveryChain(ctx context.Context, client foundationDisco
+ 		name string
+ 		wire []byte
+ 	}{{foundationRootChainObject, chainWire}, {grantName, grantWire}, {foundationDiscoveryObject, anchorWire}} {
+-		policy := common.NoRetryPolicy()
+-		request := objectstorage.PutObjectRequest{NamespaceName: new(namespace), BucketName: new(foundationDiscoveryBucket), ObjectName: new(object.name), IfNoneMatch: new("*"), ContentType: new("application/json"), ContentLength: new(int64(len(object.wire))), PutObjectBody: io.NopCloser(bytes.NewReader(object.wire)), RequestMetadata: common.RequestMetadata{RetryPolicy: &policy}}
+-		writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+-		_, writeErr := client.PutObject(ociclient.RequestContext(writeCtx), request)
+-		cancel()
+-		if writeErr == nil {
+-			continue
+-		}
+-		observed, readErr := readDiscoveryObject(ctx, client, namespace, object.name, foundationRecordLimit)
+-		if readErr != nil || !bytes.Equal(observed, object.wire) {
+-			return fmt.Errorf("initial foundation publication did not establish the exact immutable object: %w", writeErr)
++		if err := publishFoundationObject(ctx, client, namespace, object.name, object.wire); err != nil {
++			return err
+ 		}
+ 	}
+ 	return nil
+ }
++
++func publishFoundationObject(ctx context.Context, client FoundationObjects, namespace, name string, wire []byte) error {
++	policy := common.NoRetryPolicy()
++	request := objectstorage.PutObjectRequest{NamespaceName: new(namespace), BucketName: new(foundationDiscoveryBucket), ObjectName: new(name), IfNoneMatch: new("*"), ContentType: new("application/json"), ContentLength: new(int64(len(wire))), PutObjectBody: io.NopCloser(bytes.NewReader(wire)), RequestMetadata: common.RequestMetadata{RetryPolicy: &policy}}
++	writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
++	_, writeErr := client.PutObject(ociclient.RequestContext(writeCtx), request)
++	cancel()
++	if writeErr == nil {
++		return nil
++	}
++	observed, readErr := readDiscoveryObject(ctx, client, namespace, name, foundationRecordLimit)
++	if readErr != nil || !bytes.Equal(observed, wire) {
++		return fmt.Errorf("initial foundation publication did not establish the exact immutable object: %w", writeErr)
++	}
++	return nil
++}
+diff --git a/internal/region/foundation_operator.go b/internal/region/foundation_operator.go
+index faaafd59bd86aea6d87643d0ade18a0873646385..0b4c4b64a47a171b9c371991ee4c89cbd85a6e01 100644
+--- a/internal/region/foundation_operator.go
++++ b/internal/region/foundation_operator.go
+@@ -30,6 +30,29 @@ type foundationOperator struct {
+ 	buckets  map[string]string
+ }
+ 
++func (authority *HomeIAMAuthority) publishFoundationPrerequisites(ctx context.Context) error {
++	if authority == nil || authority.operator == nil {
++		return errors.New("foundation prerequisites require the verified initial operator")
++	}
++	ctx, release, err := authority.HomeWrite(ctx, 0)
++	if err != nil {
++		return err
++	}
++	defer release()
++	for _, object := range []struct {
++		name string
++		wire []byte
++	}{
++		{foundationRootChainObject, authority.operator.bundle.RootChainWire},
++		{strings.TrimSuffix(authority.domain.Prefix, "/") + "/" + foundationGrantObject, authority.operator.bundle.GrantWire},
++	} {
++		if err := publishFoundationObject(ctx, authority.objects, authority.domain.Namespace, object.name, object.wire); err != nil {
++			return err
++		}
++	}
++	return authority.Guard(ctx, 0)
++}
++
+ func (operator *foundationOperator) guard(ctx context.Context) error {
+ 	if operator == nil || ctx == nil || operator.factory == nil || operator.objects == nil {
+ 		return errors.New("initial foundation operator is unavailable")
+diff --git a/internal/region/foundation_provision_integration_test.go b/internal/region/foundation_provision_integration_test.go
+index fe388ad955dac85e0f4adc001f448e841541ecc2..43b6b88fee25de562ee0e1d5c0d5fedff2449cea 100644
+--- a/internal/region/foundation_provision_integration_test.go
++++ b/internal/region/foundation_provision_integration_test.go
+@@ -139,6 +139,7 @@ func foundationProvisionSDKScenario(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
++	cloud.bundle = bundle.clone()
+ 	cloud.seedPrerequisites(approval)
+ 	server := httptest.NewTLSServer(http.HandlerFunc(cloud.serveHTTP))
+ 	defer server.Close()
+@@ -841,6 +842,18 @@ func (c *provisionCloud) checkLaunchReservation(r *http.Request, body map[string
+ 		}
+ 		return
+ 	}
++	for _, expected := range []struct {
++		name string
++		wire []byte
++	}{
++		{foundationRootChainObject, c.bundle.RootChainWire},
++		{"bootstrap/" + foundationGrantObject, c.bundle.GrantWire},
++	} {
++		wire, err := os.ReadFile(c.objectPath("gru-1-head/" + expected.name))
++		if err != nil || !bytes.Equal(wire, expected.wire) {
++			c.test.Errorf("original launch lacks exact protected prerequisite %s: %v", expected.name, err)
++		}
++	}
+ 	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+ 		if c.journal(cell).Stage != "reconciled" {
+ 			c.test.Errorf("original launch preceded %s foundation reconciliation", cell)
+diff --git a/internal/region/provision.go b/internal/region/provision.go
+index 1cd190f2ab9ec57c4cb9151929b3f644ec937b89..091388d51c80373b9eaabae37ab076eb7024de95 100644
+--- a/internal/region/provision.go
++++ b/internal/region/provision.go
+@@ -49,6 +49,11 @@ func ProvisionFoundationBundle(ctx context.Context, factory *ociclient.Factory,
+ 			return fmt.Errorf("provision signed %s foundation: %w", cell, err)
+ 		}
+ 	}
++	// Original allocation verifies the protected current grant before launch;
++	// the discovery anchor remains unpublished until every writer is ready.
++	if err := authority.publishFoundationPrerequisites(ctx); err != nil {
++		return fmt.Errorf("publish signed foundation prerequisites: %w", err)
++	}
+ 	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+ 		original, err := launchFoundationWriter(ctx, authority, resolver, bundle, cell)
+ 		if err != nil {

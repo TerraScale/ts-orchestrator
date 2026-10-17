@@ -1,0 +1,71 @@
+{
+  "source": {
+    "head": "d1ec8b56aba84d7c7637504350d218660729b9af",
+    "tree": "8219946143b919a349b56686008251662ac05df9",
+    "status": "",
+    "manifest_sha256": "d7a5c79e84989b41a12df1255a8787fe38118652877f817d8bc4141e8e674b4d",
+    "request_sha256": "823dad060e5e90657b740293f265eb4546b1a929b2e88b8d2b97b47e45300566",
+    "wrapper_sha256": "b1c1e4168be2ab7764b6f568edcb1d689146b99dece3a494071d7e478349103b",
+    "binary_sha256": "a98469a36e4c8ebe027d1bb297f98ed69a831142e31649ed98cdc2cb75268a22",
+    "compile_receipt_sha256": "71f16d706b426849c6a1edf8d8e72064a4b33786f7dc41204b8f1091b99c9fb1",
+    "tools": {
+      "go": {
+        "path": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+        "sha256": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624"
+      },
+      "python": {
+        "path": "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+        "sha256": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f"
+      },
+      "git": {
+        "path": "/run/current-system/sw/bin/git",
+        "sha256": "f97ba8863b93a05b4193c5c436d95c62bb3879c96024753d764cf74d1594e027"
+      },
+      "nice": {
+        "path": "/run/current-system/sw/bin/nice",
+        "sha256": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+      },
+      "timeout": {
+        "path": "/run/current-system/sw/bin/timeout",
+        "sha256": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+      },
+      "env": {
+        "path": "/run/current-system/sw/bin/env",
+        "sha256": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+      }
+    }
+  },
+  "argv": [
+    "/run/current-system/sw/bin/nice",
+    "-n",
+    "19",
+    "/run/current-system/sw/bin/timeout",
+    "--signal=TERM",
+    "--kill-after=5s",
+    "180s",
+    "/run/current-system/sw/bin/env",
+    "-i",
+    "HOME=/home/mariogk",
+    "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "LANG=C.UTF-8",
+    "GOMAXPROCS=2",
+    "GOFLAGS=-p=2",
+    "GOTOOLCHAIN=local",
+    "/tmp/ts-oci-provision-runtime-d1ec8b56a-120-sealed/runtime-region.test",
+    "-test.v=true",
+    "-test.run=^TestFoundationRecordsPersistAndFenceConcurrentWriters$/^provision_originals$",
+    "-test.count=1",
+    "-test.parallel=1",
+    "-test.timeout=120s"
+  ],
+  "environment": {
+    "HOME": "/home/mariogk",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "LANG": "C.UTF-8",
+    "GOMAXPROCS": "2",
+    "GOFLAGS": "-p=2",
+    "GOTOOLCHAIN": "local"
+  },
+  "runtime_scope": "Local genuine ProvisionFoundationBundle SDK simulator plus full existing parent disk-CAS/restart/drift scenario; real production entrypoint with test-signed authority and local simulated provider responses. No live OCI/IAM/IMDS/host changes/native image/complete financial-history or actual ordinary-root service proof.",
+  "original_binary_execution_count": 0
+}

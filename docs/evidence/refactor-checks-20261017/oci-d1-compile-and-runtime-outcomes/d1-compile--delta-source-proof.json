@@ -1,0 +1,77 @@
+{
+  "state": "SOURCE_ONLY_NOT_COMPILED_OR_RUN",
+  "base": "5e678c47a1767b52218abf7c08f18741db465d85",
+  "head": "d1ec8b56aba84d7c7637504350d218660729b9af",
+  "tree": "8219946143b919a349b56686008251662ac05df9",
+  "files": [
+    {
+      "path": "internal/region/discovery.go",
+      "before_sha256": "90945f7320a7c6f3e8642b77e53f50409693dd6b023d9f24df54e46d35e85575",
+      "after_sha256": "f011acb1a12ef971daa6e6f89ff4acce55201d5989bc2aa90c64646c044b70cc"
+    },
+    {
+      "path": "internal/region/foundation_operator.go",
+      "before_sha256": "b5467e8168aef7bd0d905990b38e28d7a04e31e895c7e1cbbd33a2c44d9987fc",
+      "after_sha256": "8e4bb7865d5ec70b2795434b4771ca067a5f1f50ce23511857ccad5145eb951d"
+    },
+    {
+      "path": "internal/region/foundation_provision_integration_test.go",
+      "before_sha256": "aaa2083eeb8f61893276bc7b7f6b2f62565bacdb9e993719e64a811cececdd32",
+      "after_sha256": "c92c3dd69bf37108120d85be14857b51e68d735fd1d3701337fa414f38c569c1"
+    },
+    {
+      "path": "internal/region/provision.go",
+      "before_sha256": "fc5da518ac7eef1bc7be8cad65afaee5fcd6ea941a74725b9e08210d465c65e1",
+      "after_sha256": "ce8dffcc87df29649720ae9984763bcd2f56e54e23937f984d20a5fde2e4ee12"
+    }
+  ],
+  "assertion_counts": {
+    "internal/region/foundation_integration_test.go": {
+      "before": {
+        "Fatal": 58,
+        "Fatalf": 13,
+        "Error": 3,
+        "Errorf": 0,
+        "Run": 3,
+        "Skip": 0,
+        "Skipf": 0
+      },
+      "after": {
+        "Fatal": 58,
+        "Fatalf": 13,
+        "Error": 3,
+        "Errorf": 0,
+        "Run": 3,
+        "Skip": 0,
+        "Skipf": 0
+      },
+      "receiver_pattern": "t or c.test",
+      "all_original_assertion_lines_retained_in_order": true
+    },
+    "internal/region/foundation_provision_integration_test.go": {
+      "before": {
+        "Fatal": 30,
+        "Fatalf": 10,
+        "Error": 17,
+        "Errorf": 5,
+        "Run": 0,
+        "Skip": 0,
+        "Skipf": 0
+      },
+      "after": {
+        "Fatal": 30,
+        "Fatalf": 10,
+        "Error": 17,
+        "Errorf": 6,
+        "Run": 0,
+        "Skip": 0,
+        "Skipf": 0
+      },
+      "receiver_pattern": "t or c.test",
+      "all_original_assertion_lines_retained_in_order": true
+    }
+  },
+  "production_effect": "After all three existing regional reconciliations and before original writers, verified operator establishes exactly the retained canonical root-chain then grant under the existing HomeWrite guarded lease. Final complete PublishFoundationBundle remains after every original writer/policy and publishes discovery anchor last. Existing NoRetry/IfNoneMatch*/10swrite/bounded exact uncertain-response recovery extracted without behavior change. Current-grant/root-lineage/lease/principal/deadline checks unchanged; no publication knob, bypass or adoption.",
+  "fixture_effect": "Existing genuine provisioning fixture retains expected signed bundle only to assert exact accepted protected root-chain/grant before every original controller launch; no manual seeding, new test functions, listeners, processes, temp roots or weakened assertions.",
+  "limits": "Source review only. Predecessor5e compiled but exact runtime FAILED; no successor compilation/runtime credit. SEC exact source review pending."
+}

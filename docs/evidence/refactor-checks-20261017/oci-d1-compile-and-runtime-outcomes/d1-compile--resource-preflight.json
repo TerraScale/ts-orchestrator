@@ -1,0 +1,15 @@
+{
+  "epoch": 1792214428.7388594,
+  "euid": 1000,
+  "memory_kib": {
+    "MemTotal": 32826812,
+    "MemAvailable": 26942676
+  },
+  "load": [
+    1.6708984375,
+    0.6923828125,
+    0.8974609375
+  ],
+  "compiler_processes": [],
+  "exact_compile_grant_sha256": "db8721f0655d1fb1e61791e27da9efc52aed1310efa8cfff262860bed080240a"
+}

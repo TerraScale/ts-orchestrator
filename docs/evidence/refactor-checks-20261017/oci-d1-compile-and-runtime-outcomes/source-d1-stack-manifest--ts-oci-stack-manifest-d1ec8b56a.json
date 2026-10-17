@@ -1,0 +1,470 @@
+{
+  "worktree": "/tmp/ts-oci-foundation-prerequisite-phase",
+  "base": "96960f1566591b9e522ab85f7bd2c96cb63f8105",
+  "head": "d1ec8b56aba84d7c7637504350d218660729b9af",
+  "tree": "8219946143b919a349b56686008251662ac05df9",
+  "status": "",
+  "canonicalAliasOrdered": [
+    {
+      "canonical": "2149de8b8cc02fbcfb740b42a4fb1fd8174d3d28",
+      "local": "554debda13ed4fb0b6b744c07e42715edad8a23c"
+    },
+    {
+      "canonical": "48d8009049970a0ab5e6ffb8cbc04b846fd5c8f1",
+      "local": "a6713ed0aeb2eda5c94f475ae189fed0c3eef578"
+    },
+    {
+      "canonical": "2b09e00d4c1099d675f7521e4b488af3af1a0766",
+      "local": "bbf370da906c57bc291fb73773fd5b3a7b4ddcda"
+    },
+    {
+      "canonical": "8f0e00cc99e7815f79afb44bee4739549d89372e",
+      "local": "f7d4fc9e5314c51e3cc90ecfff890f67c41eaab8"
+    },
+    {
+      "canonical": "df93e1a9f151fb75c408daec773d0390ef9cdd9c",
+      "local": "0c99a113bf171277bbef89cb21e186b83c3625f0"
+    },
+    {
+      "canonical": "80d8ac4a0d1dc8d6b9c9a63e7c1212fb5d67a4bb",
+      "local": "df9e27d72bd33319892146caab0230c38537ab8e"
+    },
+    {
+      "canonical": "e46f9299c7e2ac0d5fafc85fba9c2a29027f78a7",
+      "local": "e46f9299c7e2ac0d5fafc85fba9c2a29027f78a7"
+    },
+    {
+      "canonical": "9eb190a64eb6ad0d4e00ca313d9b062bf480321a",
+      "local": "bf5fcfa6913be1d3ba35a87504d66fe8cd04f508"
+    },
+    {
+      "canonical": "752cd785fec7aa8dcd660dc194b46b4975b177d1",
+      "local": "b8130c154bff4a25c0af4301c6b73d52129033f1"
+    },
+    {
+      "canonical": "8bc540080948971b676306c1e8b5e24751c557f8",
+      "local": "efece4ecb8a3035de97ad3e40865b92c0f712b8c"
+    },
+    {
+      "canonical": "f6bdd2679f31c4fbdc687617ac127e83d018aefc",
+      "local": "99a099c67248fa6f1ce2bad4ec7b37e51a7dbf8e"
+    },
+    {
+      "canonical": "b0d7920207748045cbdd0f4f1494b18523d842af",
+      "local": "873a1ba072efcde208bde7b406612f6228ec6190"
+    },
+    {
+      "canonical": "619b799e072c28d8e18d65582f23d1e3f210b9be",
+      "local": "45e045b20ee4da7c1ecdf2244b8bf380dac5c92c"
+    },
+    {
+      "canonical": "355c32726685de9e425d06f5720d5aa4496bdc2f",
+      "local": "0bf533873fb700c5caa9e41da626b26eab4196a3"
+    },
+    {
+      "canonical": "b42f7839fa5de8496c9a355a00f175e61a9c0ef9",
+      "local": "3330190ae0cc822b4124b50f62548bdc71fd409d"
+    },
+    {
+      "canonical": "731d09c3948aeeb5516f74481faef09264cfa06e",
+      "local": "f79d9df1368f2c7bb9f8c19cff8173c29d942e68"
+    },
+    {
+      "canonical": "753bb0645f637ecf63dcff496e8fb7e2cf131ac5",
+      "local": "820bc604732efd03c1d91924742ff51e36116aa4"
+    },
+    {
+      "canonical": "30f8fa85c56d672c8693139b452dfbffffa05e78",
+      "local": "784ce383173b7dd895e910bf3eef6b3524bde66d"
+    },
+    {
+      "canonical": "cca6b62e4910b7508e956b78843b1317d020b562",
+      "local": "e763e1394f9ddcbf72917e6f9e55deba4aa49e79"
+    },
+    {
+      "canonical": "48dec75c18a9bb126028bce5cc49fbc04a77d4fd",
+      "local": "52a8fa0ce6f1bfd5b92a7ae6c2d3183344d4dce7"
+    },
+    {
+      "canonical": "ba35465753e36b5f23a3eaac9e7cd3ef82e48510",
+      "local": "b4134efccb9935ea5c6dfbe09bd1f1e1644af496"
+    },
+    {
+      "canonical": "817c2b16ccdf883741d679c57902058f4975f303",
+      "local": "bc014bc796daeef56420627a82f126f237bba909"
+    },
+    {
+      "canonical": "2e68c7bbc88474030298b88146475ae2e0209600",
+      "local": "3a3bf09ccd50c0795c0361b17e6f6622c3920e87"
+    },
+    {
+      "canonical": "73ebbb7f08107aa3d5bae5414e3e0bb805b2e8c2",
+      "local": "0335163417c491a335883470b0184c96d3c9d90e"
+    },
+    {
+      "canonical": "8e03ae873002d8a3274a9db0b4b59610ba3cad97",
+      "local": "b2051ee8946a4a0cd78d537b169aafe2f357e3cb"
+    },
+    {
+      "canonical": "6d28711be3534d7abfa4df56c3f3a2d4385d3912",
+      "local": "6f30b443d7ddfdb194d48b4f4f48c6f0216b05d9"
+    },
+    {
+      "canonical": "6cfe31ac60dcfac9d2afcbdb3aa712adfe526e4c",
+      "local": "d62ecbb8bca2a72334bfe831022ee608718c6c34"
+    },
+    {
+      "canonical": "39bb96b0d0ca6519e7bef6443e6ca8eba7d1b555",
+      "local": "d55de9ab91986c2d6afdb55449dd5d8e06958584"
+    },
+    {
+      "canonical": "18cb4a618caab5e48e0a5e3c0fe9a6ef291d8ea9",
+      "local": "24a8f7bc1f0f6a4f0e18c5490b2243d0640cbb9d"
+    },
+    {
+      "canonical": "77fb022721309e3a9c948c623d3f7a3adfea4ca1",
+      "local": "16b7accf4565391a41d41708cd649d3aeac0a689"
+    },
+    {
+      "canonical": "f59a5b126886874fdf342c94e9764123b8d00698",
+      "local": "dcaa02b1266c5b4ff76a54ce91e2cf1ffff0b572"
+    },
+    {
+      "canonical": "33d3bccd707e2e8807e5fa2ca4a3f928e62651d1",
+      "local": "882596e62e6169f8802fc59e6748b1ece4619ebe"
+    },
+    {
+      "canonical": "d0bd60163aa1cff13cb2a5eebcc462999b7eff3e",
+      "local": "c835b0aa738af6625f802d548cbd26f1c2212014"
+    },
+    {
+      "canonical": "b27cca5575883ad796e5ad53d69ab4b03f1941bd",
+      "local": "8cc26fd3aed905a919103e9e930c78e6dc1fcd50"
+    },
+    {
+      "canonical": "3df4c9b728adc23be5d83411b5c8fd1a34dfbc5c",
+      "local": "6e0128562ee6f6acf5ec91555af8e654839ae8e7"
+    },
+    {
+      "canonical": "7266566403c7f9429be288d5ca2a1187b4b4aac0",
+      "local": "08e77b389c254c453c50d91c448c29ddff57a3c4"
+    },
+    {
+      "canonical": "0c47bb3e061633a90a1ac70b5ea36330a74ffc35",
+      "local": "0c47bb3e061633a90a1ac70b5ea36330a74ffc35"
+    },
+    {
+      "canonical": "c27d36c8ab5dc1aac8de6980808d801cacd38566",
+      "local": "c27d36c8ab5dc1aac8de6980808d801cacd38566"
+    },
+    {
+      "canonical": "eba05ab085375e26c135f38cf3261e5a979d2b99",
+      "local": "4c3f5cdd4e7f12d82bb3a989b8bc89e34d42182c"
+    },
+    {
+      "canonical": "f9de8c715c86a18e560281fb1e4fcb020a5419aa",
+      "local": "50e170ee8af1a9f74be211f93e71b38c83184acc"
+    },
+    {
+      "canonical": "50b1c910a0eb3f3df4a672f78975b0a217bac4f2",
+      "local": "f3685fa5b97504234e801d2f4ea819bbcfaf265d"
+    },
+    {
+      "canonical": "e06dccb3bb074546221b6f3205b5ee737618d971",
+      "local": "06cd95de32b9ea7f879da4ca7ed3524ad65058de"
+    },
+    {
+      "canonical": "1a03fc64cc62eeaf58e130419db7d1322697dc05",
+      "local": "010a87fa99022c916b907491bd6bea5a27e9c396"
+    },
+    {
+      "canonical": "0d75d435ee8a42ed34b3a5d72069b50deb61cdcc",
+      "local": "f5680ab0c8298da437eb5aeffbf83a8e2f0b42d0"
+    },
+    {
+      "canonical": "d81c78921e02c0d6406de11ec6fc5dd87a744051",
+      "local": "e446f2174655ce5587c699b497e35fd1ad2f5671"
+    },
+    {
+      "canonical": "53992dd883f87fb0fc8c4635d9395262fd7d1c47",
+      "local": "f9eade8e07241294908a9e03e411b913b3b5785c"
+    },
+    {
+      "canonical": "b54f7fa322b56045de5c67a6aa48b3a116e025aa",
+      "local": "d7e918a7d5aaf8ebda16a9da4cb549596790be22"
+    },
+    {
+      "canonical": "42b36e51fb05ecdd42327941f16a053a569098d0",
+      "local": "280705730f5e51cf4ea85730ada8d64cd813748c"
+    },
+    {
+      "canonical": "e9fc44993c2d2bd5fb19058242b5bff5e3ba86c7",
+      "local": "479dac7b217d46c100d538892937d78b6ac057ee"
+    },
+    {
+      "canonical": "348f3a4f6fffe6d2bc91203bab23da48b4821153",
+      "local": "c4141ee6f705f65fde2549670ab3eddaa9263be0"
+    },
+    {
+      "canonical": "912f4c2d4a8bb2b0dd8d9743471a9fcdd1df29b6",
+      "local": "5f6eff5f0603c41f8fe81159c7f4230554a669d9"
+    },
+    {
+      "canonical": "230e63f9cdc1bb2a56c40f2d84b5f8945c00e31b",
+      "local": "3382c69f9e22c537a39aa71cbd8f8c4cca5f44a2"
+    },
+    {
+      "canonical": "11a5a90ad0113821e1c40156675e6884f585d0c5",
+      "local": "eae87950742b4cd5244aea6c5c299c68deec300d"
+    },
+    {
+      "canonical": "3971658d53d00f7fc59b2446560f676c905c0894",
+      "local": "72214179b01ed855877fac3b291314dfbbb804fe"
+    },
+    {
+      "canonical": "de32e0273951c29482c597d40972295345e5e578",
+      "local": "9ead2ad4b6a77e79fbcbbbfb993746f9636569ae"
+    },
+    {
+      "canonical": "e92dcaa76205945ea541f471e97b9366a2512d2b",
+      "local": "bca22f4ac84c9e5f68af2c2d6a3663216aef044d"
+    },
+    {
+      "canonical": "138b10525d567e84a0944ea2b92d33b491ad63cf",
+      "local": "4c5b6add5fa8f8940f1378f0578da0968d793879"
+    },
+    {
+      "canonical": "8a686694050e3858f2a3cea9be5c6825c135393c",
+      "local": "1d3478783639b3a322c9c73fb12322fb0d86901a"
+    },
+    {
+      "canonical": "15fdaba90873a353c807f102496f12ec78e2d4ac",
+      "local": "338571b0370cdc40d678b4764cc2b8f7ed592222"
+    },
+    {
+      "canonical": "1e2cfa31061fdc6406774563aeba418786a48840",
+      "local": "daa20208211019bda97edc3f5ee4cbf872d1f495"
+    },
+    {
+      "canonical": "55a64f57126fd7f4dc8f8336cf147c6af635157b",
+      "local": "0188476b87fcd08b652d97882021fa8041639edf"
+    },
+    {
+      "canonical": "8f3e9ec45991b63e713c807cf0e0d0764dc915a3",
+      "local": "cef8ab32118bffd3e956e16ca57fea6e98e47d40"
+    },
+    {
+      "canonical": "78e86dd4332cf79ba8eb3dd7bccfd8e62f5c4f44",
+      "local": "78e86dd4332cf79ba8eb3dd7bccfd8e62f5c4f44"
+    },
+    {
+      "canonical": "8135d5f41bc7d4471497247bc9aff938f33dfd7a",
+      "local": "8135d5f41bc7d4471497247bc9aff938f33dfd7a"
+    },
+    {
+      "canonical": "6c957669928c3e528520e5fe74218b8cf9bb85b9",
+      "local": "620dab4633c50988c800b68ec5d4b7dd1dcbb881"
+    },
+    {
+      "canonical": "64a55bb2fc0034279732cfb8a99c06b75cf90d6a",
+      "local": "64a55bb2fc0034279732cfb8a99c06b75cf90d6a"
+    },
+    {
+      "canonical": "bc7d353a4cb7dcb63081ebc0bf26b74331bf624a",
+      "local": "bc7d353a4cb7dcb63081ebc0bf26b74331bf624a"
+    },
+    {
+      "canonical": "443936221015e7cc6007f57ba268ea46803ec779",
+      "local": "443936221015e7cc6007f57ba268ea46803ec779"
+    },
+    {
+      "canonical": "67854df1257d31aa9b76dfd754d8075fdf33fd9d",
+      "local": "67854df1257d31aa9b76dfd754d8075fdf33fd9d"
+    },
+    {
+      "canonical": "7dc7b5a15eb72f7c4ffc0c063f76ea2c2ecb318b",
+      "local": "7dc7b5a15eb72f7c4ffc0c063f76ea2c2ecb318b"
+    },
+    {
+      "canonical": "5e678c47a1767b52218abf7c08f18741db465d85",
+      "local": "5e678c47a1767b52218abf7c08f18741db465d85"
+    },
+    {
+      "canonical": "d1ec8b56aba84d7c7637504350d218660729b9af",
+      "local": "d1ec8b56aba84d7c7637504350d218660729b9af"
+    }
+  ],
+  "aliasOnlyNotes": {
+    "b9792e704": "same read_types patch as canonical9eb190a64; not duplicated",
+    "81f29db35": "same secret_types patch as canonicalf6bdd2679; not duplicated",
+    "a7670e095": "same foundation_types patch as canonical8bc540080; not duplicated",
+    "bb72f28db-reader-half": "same canonical signed cell fix represented by 78e86dd43; full SDK retained source belongs runtime tree"
+  },
+  "files": [
+    "deploy/oci-region/plan.json",
+    "deploy/oci-region/sfo-1-plan.json",
+    "internal/bootstrap/cli/commands.go",
+    "internal/bootstrap/cli/foundation.go",
+    "internal/bootstrap/cli/foundation_integration_test.go",
+    "internal/bootstrap/cli/foundation_preparation_integration_test.go",
+    "internal/bootstrap/cli/identity_rekey_test.go",
+    "internal/bootstrap/cli/run.go",
+    "internal/bootstrapmaterial/interregion_test.go",
+    "internal/bootstrapmaterial/link.go",
+    "internal/bootstrapmaterial/observability_link_test.go",
+    "internal/bootstrapmaterial/publication_guard.go",
+    "internal/bootstrapmaterial/publication_guard_fixture.go",
+    "internal/bootstrapmaterial/publication_guard_integration_test.go",
+    "internal/bootstrapmaterial/vault.go",
+    "internal/bootstrapstart/materialsource/founder.go",
+    "internal/bootstrapstart/materialsource/home_link.go",
+    "internal/bootstrapstart/materialsource/source.go",
+    "internal/bootstrapstart/oci_observer.go",
+    "internal/bootstrapstart/root_oci_scope.go",
+    "internal/foundationbinding/verify.go",
+    "internal/foundationbinding/verify_integration_test.go",
+    "internal/generationinstall/generationinstall.go",
+    "internal/nativerootoci/ipc.go",
+    "internal/oci/fleet_observer.go",
+    "internal/oci/sdk.go",
+    "internal/oci/sdk_observation.go",
+    "internal/oci/volume_attachments.go",
+    "internal/oci/volume_observer.go",
+    "internal/ociclient/factory.go",
+    "internal/ociclient/identity.go",
+    "internal/ociclient/retry.go",
+    "internal/ocicost/usage.go",
+    "internal/ociregion/capacityinventory/accounting.go",
+    "internal/ociregion/capacityinventory/collect.go",
+    "internal/ociregion/capacityinventory/direct.go",
+    "internal/ociregion/engine.go",
+    "internal/ociregion/foundation.go",
+    "internal/ociregion/foundation/foundation.go",
+    "internal/ociregion/foundation_storage.go",
+    "internal/region/cli.go",
+    "internal/region/discovery.go",
+    "internal/region/foundation_integration_test.go",
+    "internal/region/foundation_operator.go",
+    "internal/region/foundation_provision_integration_test.go",
+    "internal/region/foundation_writer.go",
+    "internal/region/grant_preparation.go",
+    "internal/region/home_authority.go",
+    "internal/region/lifecycle.go",
+    "internal/region/netbird_network_integration_test.go",
+    "internal/region/object.go",
+    "internal/region/provision.go",
+    "internal/region/read_scope.go",
+    "internal/region/region_test.go",
+    "internal/region/sdk.go",
+    "internal/region/source_founder.go",
+    "internal/release/cli/production.go",
+    "internal/release/foundation_writer_image.go",
+    "internal/release/host_image.go",
+    "internal/release/netbird_image.go",
+    "internal/release/production.go",
+    "internal/release/production_evidence.go",
+    "internal/release/root_credential_boundary.go",
+    "internal/releasechannel/foundation_writer_image_integration_test.go",
+    "internal/releasechannel/image_current.go",
+    "internal/rootfoundation/backend.go",
+    "internal/rootfoundation/foundation.go",
+    "internal/rootfoundation/source.go",
+    "internal/rootoci/call.go",
+    "internal/rootoci/capacity_client.go",
+    "internal/rootoci/capacity_types.go",
+    "internal/rootoci/client.go",
+    "internal/rootoci/foundation_types.go",
+    "internal/rootoci/ipc_integration_test.go",
+    "internal/rootoci/netbird_types.go",
+    "internal/rootoci/observers.go",
+    "internal/rootoci/process_linux.go",
+    "internal/rootoci/protocol.go",
+    "internal/rootoci/qualification.go",
+    "internal/rootoci/read_types.go",
+    "internal/rootoci/release_client.go",
+    "internal/rootoci/release_types.go",
+    "internal/rootoci/secret_types.go",
+    "internal/rootoci/server_linux.go",
+    "internal/rootoci/service.go",
+    "internal/rootoci/volume_client.go",
+    "internal/rootoci/volume_types.go",
+    "internal/rootociread/backend.go",
+    "internal/rootociread/backend_integration_test.go",
+    "internal/rootociread/image.go",
+    "internal/rootociread/testdata/README.md",
+    "internal/rootociread/testdata/genesis.pem",
+    "internal/rootociread/volume.go",
+    "internal/rootociwire/wire_linux.go",
+    "internal/rootsecret/controller.go",
+    "internal/rootsecret/credential_integration_test.go",
+    "internal/rootsecret/spool_linux.go",
+    "internal/rootvolumeclient/client.go",
+    "internal/rootvolumeclient/types.go",
+    "scripts/oci-preview/plan.json"
+  ],
+  "checks": [
+    "gofmt source",
+    "git diff --check"
+  ],
+  "notRun": [
+    "successor build",
+    "successor test",
+    "lint",
+    "native image scenario",
+    "live cloud"
+  ],
+  "pending": [
+    "all compilation/runtime qualification pending QA lease",
+    "actual APP backend composition and all ordinary caller migration before IMDS denial",
+    "native exact-image credential-boundary evidence",
+    "historical/non-node financial scope OPEN",
+    "protected amendment and legacy prune history OPEN"
+  ],
+  "qualificationHistory": [
+    {
+      "head": "78e86dd43",
+      "state": "NOT_QUALIFIED",
+      "scope": "compile-only",
+      "receipt": "/tmp/ts-oci-compile-78e86dd43-capacity-sealed/receipt.json",
+      "receiptSHA256": "8548d2d1d7adca48f423511ab454a909d23d8c4d80d55e5273711a27addabc76",
+      "fixes": [
+        "8135d5f41 externalizes observer scenario via test-only fixture export seam, assertions retained",
+        "6c9576699 declares host LiveS3 policy statement locally"
+      ]
+    },
+    {
+      "head": "620dab463",
+      "state": "NOT_QUALIFIED",
+      "scope": "compile-only",
+      "receipt": "/tmp/ts-oci-compile-620dab463-capacity-sealed/receipt.json",
+      "receiptSHA256": "8f09db45d0ba3d8a0aeb96411c2f568da9f52f144f40b60e6453c1d6b96b7ced",
+      "fixes": [
+        "64a55bb2f removes sole unused io import from region networking fixture"
+      ],
+      "partialOutputs": "seven individually recorded ELF test binaries; rootfoundation production no test files; no binary execution"
+    },
+    {
+      "source": "64a55bb2fc0034279732cfb8a99c06b75cf90d6a",
+      "state": "NOT_QUALIFIED",
+      "receipt": "/tmp/ts-oci-provision-runtime-64a55-120-sealed/receipt.json",
+      "sha256": "977c216b59eb4eb06e0baf5ed8ee5373ed3353dddb75bb665b5200c60c085dff",
+      "scope": "One failed local provisioning+parent runtime attempt; no successor credit"
+    },
+    {
+      "source": "67854df1257d31aa9b76dfd754d8075fdf33fd9d",
+      "state": "NOT_QUALIFIED",
+      "receipt": "/tmp/ts-oci-provision-runtime-67854df12-120-sealed/receipt.json",
+      "sha256": "b7d61f518ae1da058c61ca5cae9e7c92ae210b90c79cef58a750359ff5d85412",
+      "scope": "Exact678 compile PASS but provision+parent runtime FAIL. No successor credit."
+    },
+    {
+      "source": "5e678c47a1767b52218abf7c08f18741db465d85",
+      "state": "NOT_QUALIFIED",
+      "receipt": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed/receipt.json",
+      "sha256": "282f2aa1aa706e1d5707d0c2d97bd3c4045c7b79e12eadb6414d0089a10c0c03",
+      "independent_failure_acceptance": "/tmp/ts-qa-oci5e-runtime-terminal-failure-z8dsewxr.json",
+      "acceptance_sha256": "64989f989c7cc196c8ca1786a1f6d41c5c91011f9046d8d184d52d03c7f57819",
+      "scope": "Exact5e region compile accepted but both parent/leaf runtime failed before original launch; no successor credit."
+    }
+  ]
+}
