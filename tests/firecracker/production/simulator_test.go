@@ -2,6 +2,7 @@ package production
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -257,6 +258,58 @@ func TestSimulatorAcceptsSDKSignatureAcrossNetHTTPServer(t *testing.T) {
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("network federation status = %d", response.StatusCode)
 	}
+	wire, err := io.ReadAll(io.LimitReader(response.Body, maxRequest+1))
+	var token struct {
+		Token string `json:"token"`
+	}
+	if err != nil || len(wire) > maxRequest || json.Unmarshal(wire, &token, json.RejectUnknownMembers(true)) != nil {
+		t.Fatal("network federation did not return a bounded token envelope")
+	}
+	assertSimulatorIAMToken(t, simulator, "ST$"+token.Token, &sessionKey.PublicKey)
+}
+
+func assertSimulatorIAMToken(t *testing.T, simulator *Simulator, keyID string, public *rsa.PublicKey) {
+	t.Helper()
+	token, ok := strings.CutPrefix(keyID, "ST$")
+	parts := strings.Split(token, ".")
+	if !ok || len(keyID) > maxRequest || len(parts) != 3 {
+		t.Fatal("instance-principal key ID is not a bounded ST$ token")
+	}
+	header, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil || string(header) != `{"alg":"RS256","typ":"JWT"}` {
+		t.Fatal("federation token does not name the simulator RSA signer")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatal("federation token payload is not base64url")
+	}
+	var claims struct {
+		Expires  int64  `json:"exp"`
+		Subject  string `json:"sub"`
+		Instance string `json:"opc-instance"`
+		Type     string `json:"ptype"`
+		Tenancy  string `json:"tenant"`
+		ID       string `json:"jti"`
+	}
+	if json.Unmarshal(payload, &claims, json.RejectUnknownMembers(true)) != nil ||
+		claims.Subject != testInstance || claims.Instance != testInstance || claims.Type != "instance" || claims.Tenancy != testTenancy ||
+		claims.Expires != simulator.now().Add(tokenLifetime).Unix() || claims.Expires <= time.Now().Add(5*time.Minute).Unix() {
+		t.Fatal("federation token claims differ from the authenticated fixture instance and tenancy")
+	}
+	if nonce, err := base64.RawURLEncoding.DecodeString(claims.ID); err != nil || len(nonce) != 16 {
+		t.Fatal("federation token does not retain its random session ID")
+	}
+	signature, err := base64.RawURLEncoding.DecodeString(parts[2])
+	digest := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
+	if err != nil || rsa.VerifyPKCS1v15(&simulator.tokenKey.PublicKey, crypto.SHA256, digest[:], signature) != nil {
+		t.Fatal("federation token is not signed by this simulator")
+	}
+	simulator.mu.Lock()
+	issued, exists := simulator.sessions[token]
+	simulator.mu.Unlock()
+	if !exists || issued.expires.Unix() != claims.Expires || !issued.public.Equal(public) {
+		t.Fatal("federation token is not bound to its authenticated session key and expiry")
+	}
 }
 
 func TestSimulatorBindsDistinctFederationSessionsAndSignedQuery(t *testing.T) {
@@ -419,9 +472,22 @@ func TestSimulatorAcceptsRealInstancePrincipalSDKRequests(t *testing.T) {
 	if err != nil {
 		t.Fatalf("real SDK provider IMDS sequence: %v", err)
 	}
-	if _, err := provider.KeyID(); err != nil {
+	keyID, err := provider.KeyID()
+	if err != nil {
 		t.Fatalf("real SDK federation: %v; routes=%#v", err, simulator.Requests())
 	}
+	kind, _ := provider.AuthType()
+	if kind.AuthType != common.InstancePrincipal {
+		t.Fatal("real SDK provider is not an instance principal")
+	}
+	if tenancy, err := provider.TenancyOCID(); err != nil || tenancy != testTenancy {
+		t.Fatalf("real SDK authenticated tenancy differs from the fixture: %v", err)
+	}
+	private, err := provider.PrivateRSAKey()
+	if err != nil {
+		t.Fatalf("real SDK session key: %v", err)
+	}
+	assertSimulatorIAMToken(t, simulator, keyID, &private.PublicKey)
 	compute, err := core.NewComputeClientWithConfigurationProvider(provider)
 	if err != nil {
 		t.Fatal(err)
