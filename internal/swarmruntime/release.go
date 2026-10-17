@@ -17,19 +17,22 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/api"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 const labelReleaseBaseline = "terrascale.release-baseline"
 const labelReleaseArchitecture = "terrascale.release-architecture"
+const labelReleaseMigration = "terrascale.release-migration"
 
 // ApplySignedService admits a release and waits for actual application readiness.
 // The probe must resolve each task through independently admitted node inventory.
-func ApplySignedService(ctx context.Context, client api.ControlClient, intent ServiceIntent, bundle release.ContainerBundle, roots trust.Keyring, retained release.SequenceFloor, evidence func(context.Context, string) (io.ReadCloser, error), probe func(context.Context, *api.Task) error, allocations release.SequenceLocation) (*api.Service, error) {
-	if probe == nil {
-		return nil, errors.New("signed service rollout requires an application readiness probe")
+func ApplySignedService(ctx context.Context, client api.ControlClient, intent ServiceIntent, bundle release.ContainerBundle, roots trust.Keyring, retained release.SequenceFloor, evidence func(context.Context, string) (io.ReadCloser, error), probe func(context.Context, *api.Task) error, allocations release.SequenceLocation, guard func(context.Context) error) (*api.Service, error) {
+	if probe == nil || guard == nil || intent.Generation == 0 {
+		return nil, errors.New("signed service rollout requires application readiness, current authority and delivery generation")
 	}
+	client = guardedServiceClient{ControlClient: client, guard: guard}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	requested, err := applySignedService(ctx, client, intent, bundle, roots, retained, evidence, allocations)
@@ -141,6 +144,12 @@ func applySignedService(ctx context.Context, client api.ControlClient, intent Se
 	intent.releaseSequence = claim.ReleaseSequence
 	intent.releaseFingerprint = verified.ReleaseIdentity()
 	spec, _ := intent.serviceSpec()
+	if intent.Generation != 0 {
+		intent.intentFingerprint, err = serviceIntentFingerprint(spec)
+		if err != nil {
+			return nil, err
+		}
+	}
 	services, err := client.ListServices(operation, &api.ListServicesRequest{Filters: &api.ListServicesRequest_Filters{Names: []string{spec.Annotations.Name}}})
 	if err != nil {
 		return nil, err
@@ -167,6 +176,12 @@ func applySignedService(ctx context.Context, client api.ControlClient, intent Se
 		if current.Config.Spec.Annotations.Labels[labelReleaseSequence] != strconv.FormatUint(claim.ReleaseSequence, 10) || current.Config.Spec.Annotations.Labels[labelReleaseFingerprint] != verified.ReleaseIdentity() {
 			return errors.New("a newer signed release superseded this operation")
 		}
+		if err := checkIntentGeneration(current.Config.Spec.Annotations.Labels, intent); err != nil {
+			return err
+		}
+		if current.Config.Spec.Annotations.Labels[LabelIntentGeneration] != strconv.FormatUint(intent.Generation, 10) && intent.Generation != 0 {
+			return errors.New("a newer intent superseded this operation")
+		}
 		if !verified.Valid(time.Now().UTC()) {
 			return errors.New("signed container authorization expired before service mutation")
 		}
@@ -178,7 +193,7 @@ func applySignedService(ctx context.Context, client api.ControlClient, intent Se
 		if err != nil {
 			return nil, errors.New("invalid durable release baseline")
 		}
-		if current.UpdateStatus != nil && (current.UpdateStatus.State == api.UpdateStatus_ROLLBACK_COMPLETED || current.UpdateStatus.State == api.UpdateStatus_ROLLBACK_STARTED || current.UpdateStatus.State == api.UpdateStatus_ROLLBACK_PAUSED) && current.Meta.Version.Index > storedBaseline && (current.Spec.Annotations.Labels[labelReleaseSequence] != strconv.FormatUint(claim.ReleaseSequence, 10) || current.Spec.Annotations.Labels[labelReleaseFingerprint] != verified.ReleaseIdentity()) {
+		if current.UpdateStatus != nil && (current.UpdateStatus.State == api.UpdateStatus_ROLLBACK_COMPLETED || current.UpdateStatus.State == api.UpdateStatus_ROLLBACK_STARTED || current.UpdateStatus.State == api.UpdateStatus_ROLLBACK_PAUSED) && current.Meta.Version.Index > storedBaseline && (current.Spec.Annotations.Labels[labelReleaseSequence] != strconv.FormatUint(claim.ReleaseSequence, 10) || current.Spec.Annotations.Labels[labelReleaseFingerprint] != verified.ReleaseIdentity() || intent.Generation != 0 && (current.Spec.Annotations.Labels[LabelIntentGeneration] != strconv.FormatUint(intent.Generation, 10) || current.Spec.Annotations.Labels[labelIntentFingerprint] != intent.intentFingerprint)) {
 			return nil, errors.New("signed release already rolled back; a newer signed release is required")
 		}
 	}
@@ -194,7 +209,7 @@ func reserveReleaseFloor(ctx context.Context, client api.ControlClient, intent S
 		return nil, err
 	}
 	if verified.Claim().Role == "function-worker" {
-		if err := reserveWorkerFamily(ctx, client, verified, roots); err != nil {
+		if err := reserveWorkerFamily(ctx, client, intent, verified, roots); err != nil {
 			return nil, err
 		}
 	}
@@ -227,6 +242,10 @@ func reserveReleaseFloor(ctx context.Context, client api.ControlClient, intent S
 			return nil, err
 		}
 		labels := map[string]string{LabelIntentID: intent.ID, LabelRole: intent.Role, LabelRegion: intent.Region, LabelEnvironment: intent.Environment, labelReleaseSequence: strconv.FormatUint(claim.ReleaseSequence, 10), labelReleaseFingerprint: verified.ReleaseIdentity(), labelReleaseBaseline: strconv.FormatUint(baseline, 10), "terrascale.legacy-run": strconv.FormatInt(retained.RunNumber, 10), "terrascale.legacy-issued": retained.IssuedAt.UTC().Format(time.RFC3339Nano), "terrascale.legacy-evidence": retained.EvidenceSHA256}
+		if intent.Generation != 0 {
+			labels[LabelIntentGeneration] = strconv.FormatUint(intent.Generation, 10)
+			labels[labelIntentFingerprint] = intent.intentFingerprint
+		}
 		if claim.Role == "function-worker" {
 			labels[labelReleaseArchitecture] = claim.Architecture
 		}
@@ -244,6 +263,9 @@ func reserveReleaseFloor(ctx context.Context, client api.ControlClient, intent S
 	}
 	current := listed.Configs[0]
 	labels := current.Spec.Annotations.Labels
+	if err := checkIntentGeneration(labels, intent); err != nil {
+		return nil, err
+	}
 	if claim.Role == "function-worker" && labels[labelReleaseArchitecture] != claim.Architecture {
 		return nil, errors.New("worker release floor architecture mismatch")
 	}
@@ -272,13 +294,17 @@ func reserveReleaseFloor(ctx context.Context, client api.ControlClient, intent S
 	if claim.ReleaseSequence < floor || claim.ReleaseSequence == floor && labels[labelReleaseFingerprint] != verified.ReleaseIdentity() {
 		return nil, errors.New("stale or equivocating signed release")
 	}
-	if claim.ReleaseSequence == floor {
+	if claim.ReleaseSequence == floor && (intent.Generation == 0 || labels[LabelIntentGeneration] == strconv.FormatUint(intent.Generation, 10)) {
 		return current, nil
 	}
 	spec := current.Spec.Copy()
 	spec.Annotations.Labels[labelReleaseSequence] = strconv.FormatUint(claim.ReleaseSequence, 10)
 	spec.Annotations.Labels[labelReleaseFingerprint] = verified.ReleaseIdentity()
 	spec.Annotations.Labels[labelReleaseBaseline] = strconv.FormatUint(baseline, 10)
+	if intent.Generation != 0 {
+		spec.Annotations.Labels[LabelIntentGeneration] = strconv.FormatUint(intent.Generation, 10)
+		spec.Annotations.Labels[labelIntentFingerprint] = intent.intentFingerprint
+	}
 	if !verified.Valid(time.Now().UTC()) {
 		return nil, errors.New("signed container authorization expired before floor reservation")
 	}
@@ -291,7 +317,7 @@ func reserveReleaseFloor(ctx context.Context, client api.ControlClient, intent S
 
 // Each generation retains its authenticated allocation independently of variant
 // high-water marks, so advancing one architecture cannot revoke its sibling.
-func reserveWorkerFamily(ctx context.Context, client api.ControlClient, verified release.VerifiedContainer, roots trust.Keyring) error {
+func reserveWorkerFamily(ctx context.Context, client api.ControlClient, intent ServiceIntent, verified release.VerifiedContainer, roots trust.Keyring) error {
 	wire, err := verified.WorkerFamilyEvidence()
 	if err != nil {
 		return err
@@ -316,7 +342,7 @@ func reserveWorkerFamily(ctx context.Context, client api.ControlClient, verified
 		if !verified.Valid(time.Now().UTC()) {
 			return errors.New("worker authorization expired before family reservation")
 		}
-		_, err = client.CreateConfig(ctx, &api.CreateConfigRequest{Spec: &api.ConfigSpec{Annotations: api.Annotations{Name: name}, Data: wire}})
+		_, err = client.CreateConfig(ctx, &api.CreateConfigRequest{Spec: &api.ConfigSpec{Annotations: api.Annotations{Name: name, Labels: map[string]string{LabelIntentID: intent.ID, LabelRole: claim.Role, LabelRegion: intent.Region, LabelEnvironment: claim.Environment, labelReleaseSequence: strconv.FormatUint(claim.ReleaseSequence, 10), labelReleaseMigration: claim.SequenceMigrationSHA256}}, Data: wire}})
 		if status.Code(err) != codes.AlreadyExists {
 			return err
 		}
@@ -337,4 +363,38 @@ func releaseFloorName(intent ServiceIntent, verified release.VerifiedContainer) 
 	}
 	identity := sha256.Sum256([]byte(scope))
 	return fmt.Sprintf("ts-release-%x", identity[:16]), nil
+}
+
+// Every signed mutation rechecks the current APP authority after its evidence reads.
+type guardedServiceClient struct {
+	api.ControlClient
+	guard func(context.Context) error
+}
+
+func (c guardedServiceClient) CreateConfig(ctx context.Context, request *api.CreateConfigRequest, options ...grpc.CallOption) (*api.CreateConfigResponse, error) {
+	if err := c.guard(ctx); err != nil {
+		return nil, err
+	}
+	return c.ControlClient.CreateConfig(ctx, request, options...)
+}
+
+func (c guardedServiceClient) UpdateConfig(ctx context.Context, request *api.UpdateConfigRequest, options ...grpc.CallOption) (*api.UpdateConfigResponse, error) {
+	if err := c.guard(ctx); err != nil {
+		return nil, err
+	}
+	return c.ControlClient.UpdateConfig(ctx, request, options...)
+}
+
+func (c guardedServiceClient) CreateService(ctx context.Context, request *api.CreateServiceRequest, options ...grpc.CallOption) (*api.CreateServiceResponse, error) {
+	if err := c.guard(ctx); err != nil {
+		return nil, err
+	}
+	return c.ControlClient.CreateService(ctx, request, options...)
+}
+
+func (c guardedServiceClient) UpdateService(ctx context.Context, request *api.UpdateServiceRequest, options ...grpc.CallOption) (*api.UpdateServiceResponse, error) {
+	if err := c.guard(ctx); err != nil {
+		return nil, err
+	}
+	return c.ControlClient.UpdateService(ctx, request, options...)
 }
