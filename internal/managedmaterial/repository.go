@@ -117,6 +117,7 @@ func (stored storedBundle) provisioningInput() ([]byte, error) {
 		stored.ObjectName, stored.Generation,
 		stored.SpecSHA256, stored.Spec, stored.Bundle}
 	wire, err := protocol.EncodeJSON(unsigned)
+	defer clear(wire)
 	if err != nil {
 		return nil, err
 	}
@@ -132,6 +133,7 @@ func (stored storedBundle) verifyProvisioning(controllerKey ed25519.PublicKey) b
 		return false
 	}
 	input, err := stored.provisioningInput()
+	defer clear(input)
 	return err == nil && ed25519.Verify(controllerKey, input, signature)
 }
 

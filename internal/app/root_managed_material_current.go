@@ -145,7 +145,7 @@ func (service *rootWorkloadCredentials) ManagedMaterialCurrent(ctx context.Conte
 		return fail()
 	}
 	currentReceipt, err := config.Mutations.ReadMaterialReceipt(ctx, request.DatabaseID, request.PartitionID)
-	if err != nil || !reflect.DeepEqual(originalReceipt, currentReceipt) || call.Guard(ctx) != nil ||
+	if err != nil || !reflect.DeepEqual(originalReceipt, currentReceipt) || guard(ctx) != nil || call.Guard(ctx) != nil ||
 		config.credentialSource.Guard(ctx) != nil || lease.Guard(ctx) != nil || ctx.Err() != nil || original.Err() != nil ||
 		credentialContext.Err() != nil || !time.Now().Before(deadline) {
 		return fail()
