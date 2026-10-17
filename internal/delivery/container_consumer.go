@@ -110,9 +110,10 @@ func (s *Service) ContainerIntent(ctx context.Context, operationID string) (Inte
 	return op.Intent.Clone(), nil
 }
 
-// RetainedContainerIntent reads protected historical provenance without current
-// actor admission. Consumers must verify the signed bundle and actual prior
-// writer independently; this read grants no current execution authority.
+// RetainedContainerIntent reads public provenance from an exact protected record.
+// It does not prove original actor admission, execution, or existence before root
+// retirement. Consumers must verify the signed bundle and actual prior writer
+// independently; this read grants no current execution authority.
 func (s *Service) RetainedContainerIntent(ctx context.Context, operationID string) (Intent, error) {
 	op, err := s.containerIntentRecord(ctx, operationID)
 	if err != nil {
