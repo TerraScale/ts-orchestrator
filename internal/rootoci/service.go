@@ -73,6 +73,9 @@ func (service *Service) validRequest(request wireRequest) bool {
 		return false
 	}
 	switch request.Operation {
+	case OperationReconcileOrchestratorMaintenance:
+		var input OrchestratorMaintenanceRequest
+		return decodePayload(request.Payload, &input) == nil && validSelector(input.Unit)
 	case OperationReconcileNodeOperation:
 		var input NodeOperationRequest
 		return decodePayload(request.Payload, &input) == nil && entityid.Valid(input.OperationID)
@@ -218,6 +221,19 @@ func (service *Service) dispatch(ctx context.Context, call Call, request wireReq
 		return dispatchRead(ctx, service.backends.Readers, call, request)
 	}
 	switch request.Operation {
+	case OperationReconcileOrchestratorMaintenance:
+		var input OrchestratorMaintenanceRequest
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		receipt, err := service.backends.NodeOperations.ReconcileOrchestratorMaintenance(ctx, call, input)
+		if err != nil {
+			return nil, err
+		}
+		if !validOrchestratorMaintenanceReceipt(receipt, input, time.Now()) || !validResponseExpiry(receipt.ExpiresAt, call) {
+			return nil, ErrOutcomeUnknown
+		}
+		return receipt, nil
 	case OperationReconcileNodeOperation:
 		var input NodeOperationRequest
 		if err := decodePayload(request.Payload, &input); err != nil {
