@@ -94,6 +94,9 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 		if observedETag != etag {
 			return "", ErrFoundationConflict
 		}
+		if err := record.retainFoundationWriterQuote(previous); err != nil {
+			return "", err
+		}
 		if err := previous.retainOCIRIssuances(record); err != nil {
 			return "", err
 		}
@@ -201,7 +204,7 @@ func (r FoundationRecord) validate() error {
 		}
 	}
 	if r.FoundationWriter != nil {
-		if r.FoundationWriter.Cell != r.Cell || r.FoundationWriter.Generation > r.Generation || r.FoundationWriter.validate() != nil {
+		if r.FoundationWriter.Cell != r.Cell || r.FoundationWriter.Generation > r.Generation || r.FoundationWriter.validate() != nil || r.FoundationWriter.OriginalQuote != nil && r.FoundationWriter.OriginalQuote.IssuedAt.After(r.UpdatedAt) {
 			return errors.New("original home writer checkpoint is invalid")
 		}
 	}

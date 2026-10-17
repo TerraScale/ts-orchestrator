@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/capacityledger"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/capacityinventory"
@@ -33,6 +34,7 @@ type OriginalFoundationWriter struct {
 // FoundationWriterRecord permanently reserves the initial home controller.
 // Grant renewal cannot transfer this launch or its exact protected objects.
 type FoundationWriterRecord struct {
+	OriginalQuote       *capacityledger.Quote      `json:"originalQuote,omitempty"`
 	Cell                string                     `json:"cell"`
 	Slot                string                     `json:"slot"`
 	InstallationID      string                     `json:"installationId"`
@@ -190,6 +192,16 @@ func launchFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, re
 	if err != nil {
 		return OriginalFoundationWriter{}, err
 	}
+	if record.FoundationWriter == nil {
+		pending.OriginalQuote = new(quote.Original())
+	} else if pending.OriginalQuote != nil {
+		current := quote.Original()
+		// Fresh authority may refresh observation times, never original tariffs.
+		current.IssuedAt, current.ExpiresAt = pending.OriginalQuote.IssuedAt, pending.OriginalQuote.ExpiresAt
+		if current.SHA256() != pending.OriginalQuote.SHA256() {
+			return OriginalFoundationWriter{}, errors.New("home writer retry changed its original quoted financial terms")
+		}
+	}
 	request := BootstrapLaunchRequest{SlotID: slotID, OperationID: pending.OperationID, Cell: cell, CompartmentID: slot.CompartmentID, ProfileSHA256: profileDigest, RecipeSHA256: recipeDigest, Shape: slot.Shape, OCPUs: slot.OCPUs, MemoryGB: slot.MemoryGB, BootGB: slot.BootGB, RequestSHA256: digest, RetryToken: pending.RetryToken, StartedAt: pending.FirstAttemptAt}
 	guard := func(ctx context.Context) error {
 		err := authority.Guard(ctx, 0)
@@ -203,7 +215,7 @@ func launchFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, re
 		if err != nil {
 			return err
 		}
-		if saved.FoundationWriter == nil || saved.FoundationWriter.RequestDigest != digest || saved.FoundationWriter.RetryToken != pending.RetryToken || saved.FoundationWriter.InstanceID != "" {
+		if saved.FoundationWriter == nil || saved.FoundationWriter.RequestDigest != digest || saved.FoundationWriter.RetryToken != pending.RetryToken || saved.FoundationWriter.InstanceID != "" || !sameCapacityValue(saved.FoundationWriter.OriginalQuote, pending.OriginalQuote) {
 			return ErrFoundationFenced
 		}
 		if err := allocation.Revalidate(ctx); err != nil {
@@ -280,7 +292,7 @@ func launchFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, re
 	if err != nil {
 		return OriginalFoundationWriter{}, err
 	}
-	if record.FoundationWriter == nil || record.FoundationWriter.RequestDigest != pending.RequestDigest || record.FoundationWriter.InstanceID != "" && record.FoundationWriter.InstanceID != *response.Id {
+	if record.FoundationWriter == nil || record.FoundationWriter.RequestDigest != pending.RequestDigest || record.FoundationWriter.InstanceID != "" && record.FoundationWriter.InstanceID != *response.Id || !sameCapacityValue(record.FoundationWriter.OriginalQuote, pending.OriginalQuote) {
 		return OriginalFoundationWriter{}, ErrFoundationFenced
 	}
 	if err := authority.Guard(ctx, 0); err != nil {
@@ -314,7 +326,7 @@ func foundationWriterReceipt(ctx context.Context, resolver FoundationResolver, e
 		return OriginalFoundationWriter{}, err
 	}
 	saved := record.FoundationWriter
-	if saved == nil || saved.validate() != nil || saved.InstanceID == "" || saved.InstanceID != expected.InstanceID || saved.RequestDigest != expected.RequestDigest || saved.GrantSHA256 != expected.GrantSHA256 {
+	if saved == nil || saved.validate() != nil || saved.InstanceID == "" || saved.InstanceID != expected.InstanceID || saved.RequestDigest != expected.RequestDigest || saved.GrantSHA256 != expected.GrantSHA256 || !sameCapacityValue(saved.OriginalQuote, expected.OriginalQuote) {
 		return OriginalFoundationWriter{}, ErrFoundationFenced
 	}
 	return OriginalFoundationWriter{instance: saved.InstanceID, grant: saved.GrantSHA256, request: saved.RequestDigest, cell: saved.Cell}, nil
@@ -602,6 +614,15 @@ func (record FoundationWriterRecord) validate() error {
 	if err != nil || !ok || !slices.Contains([]string{"GRU", "SFO", "FRA"}, record.Cell) || !entityid.Valid(record.InstallationID) || record.SlotID != BootstrapSlotID(record.InstallationID, record.Cell, "controller", record.Slot) || record.OperationID != BootstrapOperationID(record.InstallationID, record.SlotID) || record.InstanceID != "" && !strings.HasPrefix(record.InstanceID, "ocid1.instance.oc1."+entry.OCIRegion+".") || record.Generation == 0 || !sourceDigest(record.GrantSHA256) || !sourceDigest(record.ProfileSHA256) || !sourceDigest(record.RecipeSHA256) || !sourceDigest(record.ScopeSHA256) || !sourceDigest(record.PhysicalScopeSHA256) || record.BindingSHA256 != "" && !sourceDigest(record.BindingSHA256) || record.RequestDigest != digest || record.RetryToken != BootstrapRetryToken(record.OperationID, digest) || record.FirstAttemptAt.IsZero() || !bootstrapSlotName.MatchString(record.Slot) || !foundationWriterKeyPattern.MatchString(record.KMSKeyID) || !sourceStoragePattern.MatchString(record.Namespace) || !sourceStoragePattern.MatchString(record.Bucket) || !sourceCompartmentPattern.MatchString(record.BucketCompartment) || record.InstanceID != "" && !sourceInstancePattern.MatchString(record.InstanceID) || record.Request.CompartmentId == nil || !sourceCompartmentPattern.MatchString(*record.Request.CompartmentId) || !maps.Equal(record.Request.Metadata, foundationWriterMetadata(record.Slot)) || len(record.Request.ExtendedMetadata) != 0 {
 		return errors.New("home writer original launch reservation is invalid")
 	}
+	if q := record.OriginalQuote; q != nil {
+		source, ok := record.Request.SourceDetails.(core.InstanceSourceViaImageDetails)
+		shape := record.Request.ShapeConfig
+		if q.Validate() != nil || q.ScopeSHA256 != record.PhysicalScopeSHA256 || q.Cell != record.Cell || q.CompartmentID != *record.Request.CompartmentId || record.Request.Shape == nil || q.Shape != *record.Request.Shape ||
+			shape == nil || shape.Ocpus == nil || shape.MemoryInGBs == nil || q.OCPUs != float64(*shape.Ocpus) || q.MemoryGB != float64(*shape.MemoryInGBs) ||
+			!ok || source.BootVolumeSizeInGBs == nil || q.BootGB != float64(*source.BootVolumeSizeInGBs) || source.BootVolumeVpusPerGB == nil || *source.BootVolumeVpusPerGB != 10 || q.IssuedAt.Before(record.FirstAttemptAt) {
+			return errors.New("home writer original quote differs from its exact launch scope, geometry or first attempt")
+		}
+	}
 	if record.Policy == nil {
 		if record.CapacityJournal != nil {
 			return errors.New("capacity journal lacks the original foundation writer policy")
@@ -622,6 +643,33 @@ func (record FoundationWriterRecord) validate() error {
 		return errors.New("home writer IAM reservation differs from its canonical original policy")
 	}
 	return record.validateCapacityJournal()
+}
+
+func (next FoundationRecord) retainFoundationWriterQuote(previous FoundationRecord) error {
+	if previous.FoundationWriter == nil {
+		return nil
+	}
+	if next.FoundationWriter == nil {
+		return errors.New("home writer original reservation cannot be removed")
+	}
+	old := *previous.FoundationWriter
+	if old.OriginalQuote == nil {
+		if next.FoundationWriter.OriginalQuote != nil {
+			return errors.New("historical home writer cannot acquire a reconstructed original quote")
+		}
+		return nil
+	}
+	current := *next.FoundationWriter
+	if !retainedString(old.InstanceID, current.InstanceID) {
+		return errors.New("quoted home writer cannot replace its original instance")
+	}
+	current.InstanceID = old.InstanceID
+	current.Policy, old.Policy = nil, nil
+	current.CapacityJournal, old.CapacityJournal = nil, nil
+	if !sameCapacityValue(old, current) {
+		return errors.New("home writer cannot replace its original quote or launch identity")
+	}
+	return nil
 }
 
 func foundationWriterMetadata(slot string) map[string]string {

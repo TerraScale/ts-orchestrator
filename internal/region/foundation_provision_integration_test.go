@@ -67,7 +67,7 @@ func foundationProvisionSDKScenario(t *testing.T) {
 		HomeStorageDomain: bootstrap.StorageDomain{Namespace: "ns", HeadBucket: foundationDiscoveryBucket, LedgerBucket: "gru-1-ledger", HeadKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head", LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledger", Prefix: "bootstrap"},
 		SourceVaultTarget: bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..control", VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.home", KMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head"}, TrustedSigners: signers, GRUController: host, SFOController: host, FRAController: host, NetBirdManager: host}
 	approval.ReleaseAuthorities = provisionReleaseAuthorities(t, root, leafPublic, approval.HomeStorageDomain, now)
-	cloud := &provisionCloud{test: t, directory: t.TempDir(), rows: map[string]map[string]any{}, collections: map[string]string{}, tokens: map[string]string{}, rules: map[string][]any{}, retention: map[string][]any{}, launches: map[string]string{}, lostLaunch: true, lostPolicy: true}
+	cloud := &provisionCloud{test: t, directory: t.TempDir(), rows: map[string]map[string]any{}, collections: map[string]string{}, tokens: map[string]string{}, rules: map[string][]any{}, retention: map[string][]any{}, launches: map[string]string{}, tariff: 0.0001, lostLaunch: true, lostPolicy: true}
 	images := map[string]releasechannel.CurrentImage{}
 	for _, role := range []string{"GRU", "SFO", "FRA", "netbird-manager"} {
 		cell := role
@@ -202,6 +202,54 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	if firstToken == "" || firstID == "" {
 		t.Fatal("missing accepted original GRU launch")
 	}
+	first := cloud.journal("GRU").FoundationWriter
+	if first == nil || first.OriginalQuote == nil || first.OriginalQuote.Validate() != nil {
+		t.Fatal("original SDK launch preceded its durable authentic tariff quote")
+	}
+	firstQuote := first.OriginalQuote.Clone()
+	objects, err := factoryFor().ObjectStorage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewObjectFoundationStore(&objects, "ns", "gru-1-head")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for fault, mutate := range map[string]func(*FoundationRecord){
+		"remove writer": func(r *FoundationRecord) { r.FoundationWriter = nil },
+		"remove quote":  func(r *FoundationRecord) { r.FoundationWriter.OriginalQuote = nil },
+		"replace quote identity": func(r *FoundationRecord) {
+			r.FoundationWriter.OriginalQuote.IssuedAt = r.FoundationWriter.OriginalQuote.IssuedAt.Add(time.Nanosecond)
+		},
+		"reorder original tariffs":   func(r *FoundationRecord) { slices.Reverse(r.FoundationWriter.OriginalQuote.Prices) },
+		"transplant launch identity": func(r *FoundationRecord) { r.FoundationWriter.GrantSHA256 = strings.Repeat("f", 64) },
+	} {
+		current, etag, err := store.Load(t.Context(), "GRU")
+		if err != nil {
+			t.Fatal(err)
+		}
+		mutate(&current)
+		if _, err := store.CompareAndSwap(t.Context(), current, etag); err == nil {
+			t.Fatalf("original quote custody accepted %s", fault)
+		}
+		reopened, actual, err := store.Load(t.Context(), "GRU")
+		if err != nil || actual != etag || !sameCapacityValue(reopened.FoundationWriter.OriginalQuote, &firstQuote) {
+			t.Fatalf("refused %s changed protected quote: %v", fault, err)
+		}
+	}
+	cloud.mu.Lock()
+	cloud.tariff = 0.0002
+	beforeRetry := cloud.launchPosts
+	cloud.mu.Unlock()
+	if err := ProvisionFoundationBundle(t.Context(), factoryFor(), roots, bundle); err == nil || !strings.Contains(err.Error(), "original quoted financial terms") {
+		t.Fatalf("changed current tariff did not refuse original launch replay: %v", err)
+	}
+	if cloud.launchPosts != beforeRetry || !sameCapacityValue(cloud.journal("GRU").FoundationWriter.OriginalQuote, &firstQuote) {
+		t.Fatal("changed-tariff replay dispatched or replaced original financial evidence")
+	}
+	cloud.mu.Lock()
+	cloud.tariff = 0.0001
+	cloud.mu.Unlock()
 	// New operator/factory resumes that exact token and checkpoints the same ID;
 	// the first exact writer policy then loses its create response.
 	if err := ProvisionFoundationBundle(t.Context(), factoryFor(), roots, bundle); err == nil || cloud.lostPolicy {
@@ -209,6 +257,9 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	}
 	if token, id := cloud.original("GRU"); token != firstToken || id != firstID {
 		t.Fatal("lost response purchased a second original")
+	}
+	if !sameCapacityValue(cloud.journal("GRU").FoundationWriter.OriginalQuote, &firstQuote) {
+		t.Fatal("fresh equal-price recovery replaced original quote identity or validity")
 	}
 	if cloud.hasAnchor() {
 		t.Fatal("public anchor preceded exact policy readback")
@@ -237,6 +288,9 @@ func foundationProvisionSDKScenario(t *testing.T) {
 		if saved.FoundationWriter.InstanceID != id {
 			t.Fatalf("%s adopted another instance", cell)
 		}
+		if saved.FoundationWriter.OriginalQuote == nil || saved.FoundationWriter.OriginalQuote.Validate() != nil {
+			t.Fatalf("%s lost original payable tariff evidence after reopen", cell)
+		}
 	}
 	if !cloud.hasAnchor() || len(cloud.launches) != 4 {
 		t.Fatalf("complete footprint anchor=%v unique hosts=%d", cloud.hasAnchor(), len(cloud.launches))
@@ -264,7 +318,7 @@ func foundationProvisionSDKScenario(t *testing.T) {
 			t.Fatalf("%s startup extended original scope", cell)
 		}
 	}
-	objects, err := factoryFor().ObjectStorage()
+	objects, err = factoryFor().ObjectStorage()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,6 +336,33 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	}
 	if cloud.launchPosts != posts || cloud.creates != creates {
 		t.Fatalf("completed restart mutated resources: launchposts %d->%d creates %d->%d", posts, cloud.launchPosts, creates, cloud.creates)
+	}
+	// Historical records have no original quote to recover from today's prices.
+	legacy := cloud.journal("GRU")
+	legacy.FoundationWriter.OriginalQuote = nil
+	legacyWire, err := json.Marshal(legacy, json.Deterministic(true))
+	if err != nil || bytes.Contains(legacyWire, []byte(`"originalQuote"`)) {
+		t.Fatalf("absent historical quote changed legacy wire schema: %v", err)
+	}
+	cloud.writeObject("gru-1-head/"+foundationObjectPrefix+"GRU.json", legacyWire)
+	legacy, legacyETag, err := store.Load(t.Context(), "GRU")
+	if err != nil {
+		t.Fatal(err)
+	}
+	removed := legacy
+	removed.FoundationWriter = nil
+	if _, err := store.CompareAndSwap(t.Context(), removed, legacyETag); err == nil {
+		t.Fatal("historical writer could be erased before reconstructing quote evidence")
+	}
+	legacy.FoundationWriter.OriginalQuote = new(firstQuote.Clone())
+	if _, err := store.CompareAndSwap(t.Context(), legacy, legacyETag); err == nil {
+		t.Fatal("historical writer acquired reconstructed original tariff evidence")
+	}
+	if err := ProvisionFoundationBundle(t.Context(), factoryFor(), roots, bundle); err != nil {
+		t.Fatalf("legacy completed writer could not reopen: %v", err)
+	}
+	if cloud.journal("GRU").FoundationWriter.OriginalQuote != nil || cloud.launchPosts != posts || cloud.creates != creates {
+		t.Fatal("legacy reopen invented original evidence or purchased another resource")
 	}
 }
 
@@ -310,6 +391,7 @@ type provisionCloud struct {
 	rules                          map[string][]any
 	retention                      map[string][]any
 	launches                       map[string]string
+	tariff                         float64
 	lostLaunch, lostPolicy         bool
 	requests, creates, launchPosts int
 }
@@ -382,7 +464,7 @@ func (c *provisionCloud) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		if metric == "" {
 			c.test.Errorf("unexpected price SKU %s", r.URL.RawQuery)
 		}
-		fmt.Fprintf(w, `{"lastUpdated":%q,"items":[{"partNumber":%q,"metricName":%q,"currencyCodeLocalizations":[{"currencyCode":"USD","prices":[{"model":"PAY_AS_YOU_GO","value":0.0001}]}]}]}`, time.Now().UTC().Format(time.RFC3339), r.URL.Query().Get("partNumber"), metric)
+		fmt.Fprintf(w, `{"lastUpdated":%q,"items":[{"partNumber":%q,"metricName":%q,"currencyCodeLocalizations":[{"currencyCode":"USD","prices":[{"model":"PAY_AS_YOU_GO","value":%g}]}]}]}`, time.Now().UTC().Format(time.RFC3339), r.URL.Query().Get("partNumber"), metric, c.tariff)
 		return
 	}
 	if !strings.HasPrefix(r.Header.Get("Authorization"), "Signature ") {
@@ -905,6 +987,9 @@ func (c *provisionCloud) checkLaunchReservation(r *http.Request, body map[string
 	pending := saved.FoundationWriter
 	if pending == nil || pending.Cell != entry.Cell || token == "" || pending.RetryToken != token || pending.RequestDigest != digestSource(wire) || pending.InstanceID != "" {
 		c.test.Error("original launch lacks exact pending durable reservation")
+	}
+	if pending == nil || pending.OriginalQuote == nil || pending.validate() != nil {
+		c.test.Error("original launch lacks its exact durable original tariff quote")
 	}
 }
 
