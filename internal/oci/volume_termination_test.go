@@ -4,11 +4,9 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -84,9 +82,8 @@ func TestVolumeTerminationProofRequiresSuccessfulWrite(t *testing.T) {
 func TestVolumeTerminationProofSurvivesBrokerRestart(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
-	cfg := natscell.Config{Cell: "lab", Instance: "volume-termination", Replicas: 1, Lab: true,
-		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "jetstream")}}
-	runtime, err := natscell.Start(ctx, cfg)
+	cfg := authenticatedJournalConfig(t, "volume-termination")
+	runtime, err := startAuthenticatedJournal(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +101,7 @@ func TestVolumeTerminationProofSurvivesBrokerRestart(t *testing.T) {
 	if err := runtime.Close(); err != nil {
 		t.Fatal(err)
 	}
-	runtime, err = natscell.Start(ctx, cfg)
+	runtime, err = startAuthenticatedJournal(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

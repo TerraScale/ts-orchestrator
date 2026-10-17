@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -19,16 +18,14 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/core"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 )
 
 func TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission(t *testing.T) {
 	const configurationID = "ocid1.instanceconfiguration.oc1..original"
 	const poolID = "ocid1.instancepool.oc1..original"
-	config := natscell.Config{Cell: "lab", Instance: "pool-receipts", Replicas: 1, Lab: true,
-		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "jetstream")}}
-	runtime, err := natscell.Start(t.Context(), config)
+	config := authenticatedJournalConfig(t, "pool-receipts")
+	runtime, err := startAuthenticatedJournal(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +166,7 @@ func TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmis
 	if err := runtime.Close(); err != nil {
 		t.Fatal(err)
 	}
-	runtime, err = natscell.Start(t.Context(), config)
+	runtime, err = startAuthenticatedJournal(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
 	}

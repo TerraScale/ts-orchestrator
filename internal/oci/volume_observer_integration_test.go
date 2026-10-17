@@ -11,7 +11,6 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -21,7 +20,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 )
 
@@ -33,8 +31,7 @@ func TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects(t *te
 		NetworkSecurityGroupIDs: []string{"ocid1.networksecuritygroup.oc1.sa-saopaulo-1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		ImageID:                 "ocid1.image.oc1.sa-saopaulo-1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", BootVolumeGB: 50, BootVolumeVPUsPerGB: 10, DataVolumeVPUsPerGB: 10, MaxDataVolumeGB: 32768,
 		Shape: "VM.Standard.E5.Flex", Owner: "orchestrator"}
-	runtime, err := natscell.Start(t.Context(), natscell.Config{Cell: "lab", Instance: "volume-observer", Replicas: 1, Lab: true,
-		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "jetstream")}})
+	runtime, err := startAuthenticatedJournal(t.Context(), authenticatedJournalConfig(t, "volume-observer"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,19 +1,16 @@
 package oci
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 )
 
 func TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity(t *testing.T) {
-	config := natscell.Config{Cell: "lab", Instance: "capacity-request", Replicas: 1, Lab: true,
-		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "jetstream")}}
-	runtime, err := natscell.Start(t.Context(), config)
+	config := authenticatedJournalConfig(t, "capacity-request")
+	runtime, err := startAuthenticatedJournal(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +33,7 @@ func TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity(t *testing.T)
 	if err := runtime.Close(); err != nil {
 		t.Fatal(err)
 	}
-	runtime, err = natscell.Start(t.Context(), config)
+	runtime, err = startAuthenticatedJournal(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
 	}
