@@ -427,6 +427,10 @@ type CloudAttachment struct {
 	ID                             string
 	VolumeID                       string
 	InstanceID                     string
+	CompartmentID                  string
+	AvailabilityDomain             string
+	AttachmentType                 string
+	TimeCreated                    time.Time
 	LifecycleState                 string
 	ETag                           string
 	Device                         string

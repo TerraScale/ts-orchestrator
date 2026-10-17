@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
@@ -617,10 +618,27 @@ func cloudInstance(instance core.Instance, etag string) CloudInstance {
 }
 
 func cloudAttachment(attachment core.VolumeAttachment, etag string) CloudAttachment {
+	var kind string
+	switch attachment.(type) {
+	case core.ParavirtualizedVolumeAttachment, *core.ParavirtualizedVolumeAttachment:
+		kind = "paravirtualized"
+	case core.IScsiVolumeAttachment, *core.IScsiVolumeAttachment:
+		kind = "iscsi"
+	case core.EmulatedVolumeAttachment, *core.EmulatedVolumeAttachment:
+		kind = "emulated"
+	}
+	var created time.Time
+	if value := attachment.GetTimeCreated(); value != nil {
+		created = value.Time.UTC()
+	}
 	return CloudAttachment{
 		ID:                             stringValue(attachment.GetId()),
 		VolumeID:                       stringValue(attachment.GetVolumeId()),
 		InstanceID:                     stringValue(attachment.GetInstanceId()),
+		CompartmentID:                  stringValue(attachment.GetCompartmentId()),
+		AvailabilityDomain:             stringValue(attachment.GetAvailabilityDomain()),
+		AttachmentType:                 kind,
+		TimeCreated:                    created,
 		LifecycleState:                 string(attachment.GetLifecycleState()),
 		ETag:                           etag,
 		Device:                         stringValue(attachment.GetDevice()),
