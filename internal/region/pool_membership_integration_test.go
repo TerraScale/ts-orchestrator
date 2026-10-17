@@ -110,6 +110,9 @@ func TestPoolMembershipUsesSignedPermissionAndOriginalProtectedBirth(t *testing.
 		t.Fatal(err)
 	}
 	resolver := FoundationResolver{Footprint: reader, Store: store}
+	t.Run("known-child lifecycle is independent of current image", func(t *testing.T) {
+		testKnownPoolLifecycle(t, resolver, record, poolID, configurationID, publish, now)
+	})
 	ctx, cancel := context.WithDeadline(t.Context(), now.Add(time.Minute))
 	defer cancel()
 	proof, err := resolver.PoolMembership(ctx, "GRU", poolID, configurationID)
