@@ -12,6 +12,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/nats-io/nkeys"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
@@ -32,6 +33,7 @@ type VerifiedStartupLink struct {
 	template VerifiedStartupTemplate
 	client   ObjectStorageClient
 	evidence RegionalLinkEvidence
+	expires  time.Time
 }
 
 func (link VerifiedStartupLink) IsVerified() bool {
@@ -40,6 +42,7 @@ func (link VerifiedStartupLink) IsVerified() bool {
 func (link VerifiedStartupLink) MaterialRecord() []byte {
 	return bytes.Clone(link.evidence.MaterialRecord)
 }
+func (link VerifiedStartupLink) ExpiresAt() time.Time { return link.expires }
 func (link VerifiedStartupLink) References() []SecretReference {
 	return slices.Clone(link.evidence.References)
 }
@@ -52,9 +55,11 @@ func (link VerifiedStartupLink) Evidence() RegionalLinkEvidence {
 	return e
 }
 func (link VerifiedStartupLink) VerifyCurrent(ctx context.Context, now time.Time) error {
-	if !link.IsVerified() {
+	if ctx == nil || !link.IsVerified() || !time.Now().Before(link.expires) {
 		return ErrManifestInvalid
 	}
+	ctx, cancel := context.WithDeadline(ctx, link.expires)
+	defer cancel()
 	_, err := VerifyStartupLink(ctx, link.template, link.client, link.evidence, now)
 	return err
 }
@@ -76,8 +81,16 @@ func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, cl
 	if json.Unmarshal(evidence.MaterialRecord, &candidate) != nil || candidate.ExpiresAt.IsZero() {
 		return deny()
 	}
+	deliveryExpires := template.ExpiresAt()
+	if len(evidence.Delivery) != 0 {
+		envelope, err := trust.DecodeEnvelope(evidence.Delivery)
+		if err != nil {
+			return deny()
+		}
+		deliveryExpires = minTimeLink(deliveryExpires, envelope.ExpiresAt)
+	}
 	// Unverified input can only shorten the read budget; provenance still follows.
-	ctx, cancelTemplate := context.WithDeadline(ctx, minTimeLink(template.ExpiresAt(), candidate.ExpiresAt))
+	ctx, cancelTemplate := context.WithDeadline(ctx, minTimeLink(deliveryExpires, candidate.ExpiresAt))
 	defer cancelTemplate()
 	if template.VerifyCurrentContext(ctx, now) != nil {
 		return deny()
@@ -268,7 +281,11 @@ func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, cl
 	if count != len(evidence.References) || count != len(journal.Entries) {
 		return deny()
 	}
-	verified := VerifiedStartupLink{template: template, client: client, evidence: evidence}
+	expires := minTimeLink(deliveryExpires, minTimeLink(record.ExpiresAt, minTimeLink(regional.ExpiresAt(), minTimeLink(homeTemplate.ExpiresAt(), home.ExpiresAt()))))
+	if ctx.Err() != nil || !time.Now().Before(expires) {
+		return deny()
+	}
+	verified := VerifiedStartupLink{template: template, client: client, evidence: evidence, expires: expires}
 	verified.evidence = verified.Evidence()
 	return verified, nil
 }

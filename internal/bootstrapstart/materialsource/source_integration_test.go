@@ -370,6 +370,27 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil || !verifiedLink.IsVerified() || verifiedLink.VerifyCurrent(t.Context()) != nil {
 		t.Fatalf("Link sealed projection: %v", err)
 	}
+	homeTemplate, err := bootstrap.VerifyStartupTemplate(projection.Grant().FoundationGrantWire(), roots, anchor, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	homePublic, err := bootstrap.LoadRegionalSource(t.Context(), homeTemplate, &objects, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	homeLinkProof, err := recoveredLink.StartupLink(t.Context(), homeTemplate, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	linkDeadline := linkRecord.ExpiresAt
+	for _, deadline := range []time.Time{homeTemplate.ExpiresAt(), homePublic.ExpiresAt()} {
+		if deadline.Before(linkDeadline) {
+			linkDeadline = deadline
+		}
+	}
+	if !homeLinkProof.ExpiresAt().Equal(linkDeadline) {
+		t.Fatal("public Link proof did not retain its original shortest lifetime")
+	}
 	if _, err := ResolveLinkSource(t.Context(), replacement, replacement, new(LinkSource), &objects, &management, &bundles, filepath.Join(t.TempDir(), "invalid-link"), now); err == nil {
 		t.Fatal("empty home Link proof admitted")
 	}
