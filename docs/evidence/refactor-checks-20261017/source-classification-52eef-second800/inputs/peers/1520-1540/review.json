@@ -1,0 +1,183 @@
+{
+  "schema": "independent-source-classification-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_700_720",
+  "author": "/root/classification_100_dispatch/batch_720_740",
+  "decision": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-1520-1540-final-5tdz9t7s/classification.json",
+    "sha256": "7270d812940d1154bb1c78092b54d93156ee7b18e209f198b429b14e243cfc2c",
+    "checksum_path": "/tmp/ts-source-classification-1520-1540-final-5tdz9t7s/SHA256SUMS",
+    "checksum_sha256": "a9873338198790e4c4d8eb0c417b13eeada09a8d2f2af73d9ad6f478be7272f0"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[1520:1540]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_700_720"
+  },
+  "input_pins": {
+    "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+    "/tmp/ts-root800-second-source-dispatch-r9_48ha9/PEER-PROTOCOL.md": "3b57c68ac033025066daec252bf89cd01b0c767e0048fb57c67eb5143e2fb00b",
+    "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513",
+    "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70"
+  },
+  "root_ids": [
+    "internal/host/managed_runtime_test.go::TestManagedRuntimePinsRequireExactPreprovisionedIdentity",
+    "internal/host/managed_runtime_test.go::TestMountedRootCannotBeReplacedByTenant",
+    "internal/host/managed_runtime_test.go::TestOpenDeviceWitnessSurvivesPathReplacementUntilClosed",
+    "internal/host/managed_runtime_test.go::TestOracleOCIAliasTargetAllowsOnlyOneRelativeDeviceHop",
+    "internal/host/managed_volume_claim_test.go::TestManagedAcceptedAuthorityRecordPreflight",
+    "internal/host/managed_volume_claim_test.go::TestManagedPreformatRejectsExistingShardAndUnclaimedData",
+    "internal/host/managed_volume_claim_test.go::TestManagedVolumeClaimBindsStableMemberNotHostAttempt",
+    "internal/host/managed_volume_claim_test.go::TestManagedVolumeClaimCrashCutsHoldPartialShard",
+    "internal/host/managed_volume_init_test.go::TestManagedVolumeInitDecisionNeverFormatsUnknownOrAdoptedData",
+    "internal/host/managed_volume_init_test.go::TestManagedVolumeInitEffectsFormatOnceAndAdoptWithoutFormatting",
+    "internal/host/managed_volume_init_test.go::TestManagedVolumeInitFailuresNeverReachMountOrClaimReadiness",
+    "internal/host/managed_volume_init_test.go::TestManagedVolumeInitFormatsPinnedXFSAndRejectsUnsupportedPins",
+    "internal/host/managed_volume_init_test.go::TestManagedVolumeInitPermitRequiresCurrentSignedState",
+    "internal/host/member_status_test.go::TestDecodeMemberStatusOptionalLoadBlock",
+    "internal/host/member_status_test.go::TestDecodeMemberStatusServingRequiresLiveReadiness",
+    "internal/host/member_status_test.go::TestDecodeMemberStatusStrictServingContract",
+    "internal/host/member_status_test.go::TestMemberPeerCredentialsUseUnixKernelIdentity",
+    "internal/host/member_status_test.go::TestMemberSocketRequiresPrivateOwnership",
+    "internal/host/member_status_test.go::TestMemberStatusRejectsUnboundRunner",
+    "internal/host/member_status_test.go::TestMemberStatusRequiresCanonicalULID"
+  ],
+  "counts": {
+    "integration": 4,
+    "unit": 13,
+    "mixed": 3,
+    "unresolved": 0
+  },
+  "root_categories": [
+    {
+      "root_id": "internal/host/managed_runtime_test.go::TestManagedRuntimePinsRequireExactPreprovisionedIdentity",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/host/managed_runtime_test.go::TestMountedRootCannotBeReplacedByTenant",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/host/managed_runtime_test.go::TestOpenDeviceWitnessSurvivesPathReplacementUntilClosed",
+      "category": "mixed"
+    },
+    {
+      "root_id": "internal/host/managed_runtime_test.go::TestOracleOCIAliasTargetAllowsOnlyOneRelativeDeviceHop",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/host/managed_volume_claim_test.go::TestManagedAcceptedAuthorityRecordPreflight",
+      "category": "mixed"
+    },
+    {
+      "root_id": "internal/host/managed_volume_claim_test.go::TestManagedPreformatRejectsExistingShardAndUnclaimedData",
+      "category": "integration"
+    },
+    {
+      "root_id": "internal/host/managed_volume_claim_test.go::TestManagedVolumeClaimBindsStableMemberNotHostAttempt",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/host/managed_volume_claim_test.go::TestManagedVolumeClaimCrashCutsHoldPartialShard",
+      "category": "integration"
+    },
+    {
+      "root_id": "internal/host/managed_volume_init_test.go::TestManagedVolumeInitDecisionNeverFormatsUnknownOrAdoptedData",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/host/managed_volume_init_test.go::TestManagedVolumeInitEffectsFormatOnceAndAdoptWithoutFormatting",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/host/managed_volume_init_test.go::TestManagedVolumeInitFailuresNeverReachMountOrClaimReadiness",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/host/managed_volume_init_test.go::TestManagedVolumeInitFormatsPinnedXFSAndRejectsUnsupportedPins",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/host/managed_volume_init_test.go::TestManagedVolumeInitPermitRequiresCurrentSignedState",
+      "category": "mixed"
+    },
+    {
+      "root_id": "internal/host/member_status_test.go::TestDecodeMemberStatusOptionalLoadBlock",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/host/member_status_test.go::TestDecodeMemberStatusServingRequiresLiveReadiness",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/host/member_status_test.go::TestDecodeMemberStatusStrictServingContract",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/host/member_status_test.go::TestMemberPeerCredentialsUseUnixKernelIdentity",
+      "category": "integration"
+    },
+    {
+      "root_id": "internal/host/member_status_test.go::TestMemberSocketRequiresPrivateOwnership",
+      "category": "integration"
+    },
+    {
+      "root_id": "internal/host/member_status_test.go::TestMemberStatusRejectsUnboundRunner",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/host/member_status_test.go::TestMemberStatusRequiresCanonicalULID",
+      "category": "unit"
+    }
+  ],
+  "checks_performed": {
+    "independently_read_full_roots": 20,
+    "independently_read_connected_actual_paths": true,
+    "literal_allocation_and_survival_mappings_verified": 20,
+    "raw_baseline_current_declaration_bounds_text_sha256_verified": 40,
+    "source_file_blob_mode_sha256_bytes_verified": 26,
+    "exact_full_assertion_spans_verified": 20,
+    "exact_connected_source_spans_verified": 45,
+    "canonical_body_drift": false,
+    "category_partition_verified": true,
+    "input_pins_verified": true,
+    "packet_and_checksum_hashes_verified": true,
+    "immutable_packet_modes_verified": "files0444_dir0555",
+    "prior_packet_bytes_preserved_and_successor_diff_verified": true
+  },
+  "resolved_findings": [
+    {
+      "root_id": "internal/host/managed_volume_init_test.go::TestManagedVolumeInitPermitRequiresCurrentSignedState",
+      "finding": "Original permit evidence omitted the actual managed verified mutation method.",
+      "resolution": "Final packet pins managed_backup_operation_test.go30:56 and ApplyDesired499:508, distinguishing verified managed commit publication from inherited registration commit."
+    },
+    {
+      "root_id": "internal/host/managed_volume_init_test.go::TestManagedVolumeInitPermitRequiresCurrentSignedState",
+      "finding": "Session evidence needed the actual stream-leader GetLastMsg reader and request verification guard.",
+      "resolution": "Final packet includes session926:1015, authorize1106:1161, readLeaderState231:269 and verifyRequest176:184; exact spans independently read and verified."
+    }
+  ],
+  "remaining_findings": [],
+  "boundary_qualification": [
+    "Integration roots assert genuine production filesystem or kernel Unix credential/socket observations. Incidental temporary directory setup does not qualify local encoding roots.",
+    "Mixed roots contain independent local-only assertions alongside actual Fstat/openat/readback or NATS/JetStream/Unix socket assertions.",
+    "Permit fixture uses upstream loopback TCP NATS and file-backed JetStream. Registration/desired map reads, OCI inspector, desired/registration verifier and effect gate remain fixtures; no real OCI or authority-ledger admission credited.",
+    "Regular files and temporary directories do not establish block device, mount, mkfs, crash or live TerraBase qualification. Source review identified no blocked assertions in these twenty roots."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "source_only": true,
+  "ledger_promotion_authorized": false,
+  "count_promotion_authorized": false,
+  "deletion_authorized": false,
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "skipped_checks": [
+    "No Go, tests, builds, project helper, scanner, parser, runtime, process probe, cloud, signing, crypto or TerraBase execution. Only ordinary pinned source/Git reading and metadata hash/serialization performed."
+  ],
+  "risk": "Source classifications are candidates only; runtime behavior and all original safety obligations remain unqualified and retained."
+}

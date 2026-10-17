@@ -1,0 +1,229 @@
+{
+  "schema": "root800-second-independent-source-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_960_980",
+  "author": "/root/classification_100_dispatch/batch_980_1000",
+  "batch_range": [
+    1780,
+    1800
+  ],
+  "status": "ACCEPTED_SOURCE_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-own-1780-1800-corrected-4awno_hw/classification.json",
+    "sha256": "d52b0528a68fa470fb4fe8c2ec9ecb540f6953e30676a2c1121f29f04b1962fe",
+    "checksum_path": "/tmp/ts-source-own-1780-1800-corrected-4awno_hw/SHA256SUMS",
+    "checksum_sha256": "720a984ba90ae104af9c9da95daae045adc8c05fd3fb2465f5b0057b7ce5720b"
+  },
+  "superseded_packet": {
+    "path": "/tmp/ts-source-own-1780-1800-nbag5yag/classification.json",
+    "sha256": "fa53b47949b5f6e81ee1ff09b90f74beb636313e44022d2e6aeba9b95299f1e8",
+    "preserved": true
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": [
+      1780,
+      1800
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_960_980"
+  },
+  "root_ids": [
+    "internal/liveverify/verify_test.go::TestRunPreservesCancellationWithoutRequests",
+    "internal/liveverify/verify_test.go::TestRunPreservesOutputErrors",
+    "internal/liveverify/verify_test.go::TestRunRedactsSecretsAndDoesNotPrintBodies",
+    "internal/liveverify/verify_test.go::TestRunRejectsInvalidOriginsBeforeAnyRequests",
+    "internal/liveverify/verify_test.go::TestRunRequiresOptInBeforeRequests",
+    "internal/logs/parser_test.go::TestClassifyEveryFormat",
+    "internal/logs/parser_test.go::TestClassifyRedactsCredentialsFromMessageAndExample",
+    "internal/logs/parser_test.go::TestClassifyRejectsEmptyMessages",
+    "internal/logs/parser_test.go::TestClassifyTruncatesTheExampleAtAUTF8Boundary",
+    "internal/logs/parser_test.go::TestJournalFieldsAndInvalidLinesThroughHTTP",
+    "internal/logs/parser_test.go::TestParseCompletesRepeatedDotnetPairs",
+    "internal/logs/parser_test.go::TestParseEmitsAHeaderWithoutItsMessageAlone",
+    "internal/logs/parser_test.go::TestParseKeepsALineThatFollowsADanglingHeader",
+    "internal/logs/parser_test.go::TestParseKeepsDotnetContinuationsOutOfOtherProcessesRecords",
+    "internal/logs/parser_test.go::TestParsePairsDotnetRecordsAcrossInterleavedProcesses",
+    "internal/logs/parser_test.go::TestParseSwallowsExceptionTextAfterADotnetMessage",
+    "internal/logs/parser_test.go::TestPermissionViolationsOfOneCauseShareAClass",
+    "internal/logs/serve_test.go::TestHandlerValidatesQueryParameters",
+    "internal/logs/serve_test.go::TestServeAnswersQueryAndRejectsInvalidRequests",
+    "internal/logs/stream_test.go::TestFollowCountsOnlyVerifiedWindows"
+  ],
+  "counts": {
+    "integration": 4,
+    "unit": 4,
+    "mixed": 12,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 full assigned roots and their actual production/fixture assertion-to-target paths.",
+    "Verified exact literal allocation order/range and every original/current survival TSV mapping; retained baseline and canonical raw declaration text, bounds and SHA256 for20 roots, excluding following LF.",
+    "Verified22 canonical/baseline file pins against pinned Git blobs, modes, SHA256 and byte lengths; verified20 exact assertion spans and25 connected callee spans.",
+    "Verified packet/checksum hashes and all checksum entries; files0444/directory0555 for original and accepted corrected packets.",
+    "Reviewed actual startNATS upstream server\u2192loopback TCP client\u2192FileStorage JetStream, publish/GetMsg/ordered consumer/follower/View\u2192HTTP and NATS query/reply paths. Literal registration verifier remains synthetic.",
+    "Reviewed liveverify pre-request cancellation/origin/opt-in guards and in-memory failingWriter as unit; HTTP secret-bearing response-to-output redaction as integration.",
+    "Independently identified12 parser roots mixed due journalRecords local DecodeJournal rejection/field/time assertions before actual pipeline; verified correction preserves all source/span/pin bytes and genuine boundary assertions."
+  ],
+  "per_root_review": [
+    {
+      "root_id": "internal/liveverify/verify_test.go::TestRunPreservesCancellationWithoutRequests",
+      "accepted_category": "unit",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/liveverify/verify_test.go::TestRunPreservesOutputErrors",
+      "accepted_category": "unit",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/liveverify/verify_test.go::TestRunRedactsSecretsAndDoesNotPrintBodies",
+      "accepted_category": "integration",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/liveverify/verify_test.go::TestRunRejectsInvalidOriginsBeforeAnyRequests",
+      "accepted_category": "unit",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/liveverify/verify_test.go::TestRunRequiresOptInBeforeRequests",
+      "accepted_category": "unit",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/logs/parser_test.go::TestClassifyEveryFormat",
+      "accepted_category": "mixed",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/logs/parser_test.go::TestClassifyRedactsCredentialsFromMessageAndExample",
+      "accepted_category": "mixed",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/logs/parser_test.go::TestClassifyRejectsEmptyMessages",
+      "accepted_category": "mixed",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/logs/parser_test.go::TestClassifyTruncatesTheExampleAtAUTF8Boundary",
+      "accepted_category": "mixed",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/logs/parser_test.go::TestJournalFieldsAndInvalidLinesThroughHTTP",
+      "accepted_category": "mixed",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/logs/parser_test.go::TestParseCompletesRepeatedDotnetPairs",
+      "accepted_category": "mixed",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/logs/parser_test.go::TestParseEmitsAHeaderWithoutItsMessageAlone",
+      "accepted_category": "mixed",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/logs/parser_test.go::TestParseKeepsALineThatFollowsADanglingHeader",
+      "accepted_category": "mixed",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/logs/parser_test.go::TestParseKeepsDotnetContinuationsOutOfOtherProcessesRecords",
+      "accepted_category": "mixed",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/logs/parser_test.go::TestParsePairsDotnetRecordsAcrossInterleavedProcesses",
+      "accepted_category": "mixed",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/logs/parser_test.go::TestParseSwallowsExceptionTextAfterADotnetMessage",
+      "accepted_category": "mixed",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/logs/parser_test.go::TestPermissionViolationsOfOneCauseShareAClass",
+      "accepted_category": "mixed",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/logs/serve_test.go::TestHandlerValidatesQueryParameters",
+      "accepted_category": "integration",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/logs/serve_test.go::TestServeAnswersQueryAndRejectsInvalidRequests",
+      "accepted_category": "integration",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "unresolved_assertions": []
+    },
+    {
+      "root_id": "internal/logs/stream_test.go::TestFollowCountsOnlyVerifiedWindows",
+      "accepted_category": "integration",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "unresolved_assertions": []
+    }
+  ],
+  "resolved_findings": [
+    {
+      "roots": [
+        "internal/logs/parser_test.go::TestClassifyEveryFormat",
+        "internal/logs/parser_test.go::TestClassifyRedactsCredentialsFromMessageAndExample",
+        "internal/logs/parser_test.go::TestClassifyRejectsEmptyMessages",
+        "internal/logs/parser_test.go::TestClassifyTruncatesTheExampleAtAUTF8Boundary",
+        "internal/logs/parser_test.go::TestJournalFieldsAndInvalidLinesThroughHTTP",
+        "internal/logs/parser_test.go::TestParseCompletesRepeatedDotnetPairs",
+        "internal/logs/parser_test.go::TestParseEmitsAHeaderWithoutItsMessageAlone",
+        "internal/logs/parser_test.go::TestParseKeepsALineThatFollowsADanglingHeader",
+        "internal/logs/parser_test.go::TestParseKeepsDotnetContinuationsOutOfOtherProcessesRecords",
+        "internal/logs/parser_test.go::TestParsePairsDotnetRecordsAcrossInterleavedProcesses",
+        "internal/logs/parser_test.go::TestParseSwallowsExceptionTextAfterADotnetMessage",
+        "internal/logs/parser_test.go::TestPermissionViolationsOfOneCauseShareAClass"
+      ],
+      "source": "internal/logs/pipeline_integration_test.go:179-211",
+      "finding": "Invalid JSON/type lines are rejected and timestamp/fields compared by local DecodeJournal assertions before parser/counter/JetStream/HTTP. File setup around these independent predicates is incidental.",
+      "resolution": "Fresh corrected packet classifies all12 parser roots mixed and explicitly retains both local-only and genuine boundary blocks."
+    }
+  ],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Source classification only; no tests, Go builds, helper/scanner/framework execution, runtime observations or race detector receipts.",
+    "Controlled HTTP/NATS servers and stub admission do not establish production, cluster, live OCI/Vault, real journalctl/service process, durability or auth deployment qualification.",
+    "All original safety/assertion obligations retained. No repository/source/ledger/count/runtime/deletion/retirement/promotion/global-completion credit."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  }
+}

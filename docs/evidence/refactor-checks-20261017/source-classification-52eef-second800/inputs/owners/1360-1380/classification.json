@@ -1,0 +1,1450 @@
+{
+  "schema": "source-only-classification-explicit-spans-v1",
+  "owner": "/root/classification_100_dispatch/batch_200_220",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[1360:1380]"
+  },
+  "input_pins": {
+    "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+    "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513",
+    "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70",
+    "/tmp/ts-root800-second-source-dispatch-r9_48ha9/PEER-PROTOCOL.md": "3b57c68ac033025066daec252bf89cd01b0c767e0048fb57c67eb5143e2fb00b"
+  },
+  "method": "All20 entire roots and actual connected paths manually read. Metadata packaging uses explicit reviewed line bounds; no source parser/scanner. Empty pinned baseline/current Git diff inspected for all three test files; separate file pins and raw declaration hashes establish unchanged bodies.",
+  "classification_definitions": {
+    "integration": "Real project service/API/protocol/store or production filesystem effect/readback materially supports assertion.",
+    "unit": "Local predicates/in-memory state/synthetic dependencies; incidental fixture I/O does not promote.",
+    "mixed": "Independent local-only blocks alongside real boundary assertions.",
+    "unresolved": "Missing source or mapping prevents reliable category."
+  },
+  "counts": {
+    "integration": 0,
+    "unit": 20,
+    "mixed": 0,
+    "unresolved": 0
+  },
+  "root_ids": [
+    "internal/disasterrecovery/key_test.go::TestKMSEndpointsBindRegionAndSupportBothOCIDomains",
+    "internal/disasterrecovery/key_test.go::TestReplicaVaultMustOwnTheEnabledBucketKey",
+    "internal/disasterrecovery/objects_test.go::TestBackfillDrainsSubmittedCopiesAfterASiblingFails",
+    "internal/disasterrecovery/objects_test.go::TestBackfillFailsClosedWhenSourceMovesOrCopyNeverCompletes",
+    "internal/disasterrecovery/objects_test.go::TestBackfillHashesMultipartAndMissingChecksums",
+    "internal/disasterrecovery/objects_test.go::TestBackfillRechecksTheMirrorBeforeSuccess",
+    "internal/disasterrecovery/objects_test.go::TestBackfillSkipsIdenticalMirrorCopiesAndCopiesConcurrently",
+    "internal/disasterrecovery/objects_test.go::TestConfigRejectsCrossedRegionsAndSharedCompartments",
+    "internal/disasterrecovery/objects_test.go::TestConfigValidatesReviewedResourceNamesAndIDs",
+    "internal/disasterrecovery/objects_test.go::TestCopyActivatesMirrorBeforeBackfillAndVerifiesAllPages",
+    "internal/disasterrecovery/objects_test.go::TestCopyCannotAdoptLostOrUnknownCreateResponsesOnResume",
+    "internal/disasterrecovery/objects_test.go::TestCopyDoesNotRecreateMissingPinnedResources",
+    "internal/disasterrecovery/objects_test.go::TestCopyPlansWithoutWrites",
+    "internal/disasterrecovery/objects_test.go::TestCopyRechecksDestinationIDsAcrossProvisioningSteps",
+    "internal/disasterrecovery/objects_test.go::TestCopyRechecksPinnedPolicyBeforeBackfill",
+    "internal/disasterrecovery/objects_test.go::TestCopyRechecksSeedIDDuringInventoryAndBetweenCopies",
+    "internal/disasterrecovery/objects_test.go::TestCopyRefusesConflictingResourcesBeforeMutation",
+    "internal/disasterrecovery/objects_test.go::TestCopyRefusesUnpinnedAndReplacedResources",
+    "internal/disasterrecovery/objects_test.go::TestCopyReportsSuccessfulCreateIDsAfterLaterFailure",
+    "internal/disasterrecovery/vault_test.go::TestVaultReplicaCancelledPoll"
+  ],
+  "roots": [
+    {
+      "root_id": "internal/disasterrecovery/key_test.go::TestKMSEndpointsBindRegionAndSupportBothOCIDomains",
+      "path": "internal/disasterrecovery/key_test.go",
+      "original_name": "TestKMSEndpointsBindRegionAndSupportBothOCIDomains",
+      "current_name": "TestKMSEndpointsBindRegionAndSupportBothOCIDomains",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "historical_survival_state": "retained_body_exact",
+      "historical_survival_current_declaration_sha256": "ba2daae6cd445c544987b94eb87a3a66ca92641346038912e18dae72922d3feb",
+      "original_declaration_sha256": "ba2daae6cd445c544987b94eb87a3a66ca92641346038912e18dae72922d3feb",
+      "current_declaration_sha256": "ba2daae6cd445c544987b94eb87a3a66ca92641346038912e18dae72922d3feb",
+      "canonical_body_drift_from_survival": false,
+      "baseline_source": {
+        "path": "internal/disasterrecovery/key_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "4f487e1457a78ab5392d1dde879002c7bd4266dc",
+        "line": 10,
+        "end_line": 28
+      },
+      "current_source": {
+        "path": "internal/disasterrecovery/key_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4f487e1457a78ab5392d1dde879002c7bd4266dc",
+        "line": 10,
+        "end_line": 28
+      },
+      "declaration_hash_rule": "Raw func through column-zero close excluding following LF; manually inspected explicit bounds.",
+      "original_declaration_text": "func TestKMSEndpointsBindRegionAndSupportBothOCIDomains(t *testing.T) {\n\tfor _, operation := range []string{\"management\", \"crypto\"} {\n\t\tfor _, domain := range []string{\"oraclecloud.com\", \"oci.oraclecloud.com\"} {\n\t\t\tendpoint := \"https://vault-\" + operation + \".kms.us-sanjose-1.\" + domain\n\t\t\tif got, err := kmsEndpoint(&endpoint, \"us-sanjose-1\", operation); err != nil || got != endpoint {\n\t\t\t\tt.Fatalf(\"valid OCI endpoint: %q, %v\", got, err)\n\t\t\t}\n\t\t\tfor _, invalid := range []string{\n\t\t\t\tstrings.Replace(endpoint, \"us-sanjose-1\", \"sa-saopaulo-1\", 1), endpoint + \".example.com\",\n\t\t\t\tstrings.Replace(endpoint, \"https://\", \"https://user@\", 1), endpoint + \":443\", endpoint + \"/path\",\n\t\t\t\tendpoint + \"?token=hidden\", endpoint + \"#fragment\", strings.Replace(endpoint, \"https://\", \"http://\", 1),\n\t\t\t} {\n\t\t\t\tif _, err := kmsEndpoint(&invalid, \"us-sanjose-1\", operation); err == nil {\n\t\t\t\t\tt.Fatalf(\"unsafe endpoint accepted: %q\", invalid)\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}",
+      "current_declaration_text": "func TestKMSEndpointsBindRegionAndSupportBothOCIDomains(t *testing.T) {\n\tfor _, operation := range []string{\"management\", \"crypto\"} {\n\t\tfor _, domain := range []string{\"oraclecloud.com\", \"oci.oraclecloud.com\"} {\n\t\t\tendpoint := \"https://vault-\" + operation + \".kms.us-sanjose-1.\" + domain\n\t\t\tif got, err := kmsEndpoint(&endpoint, \"us-sanjose-1\", operation); err != nil || got != endpoint {\n\t\t\t\tt.Fatalf(\"valid OCI endpoint: %q, %v\", got, err)\n\t\t\t}\n\t\t\tfor _, invalid := range []string{\n\t\t\t\tstrings.Replace(endpoint, \"us-sanjose-1\", \"sa-saopaulo-1\", 1), endpoint + \".example.com\",\n\t\t\t\tstrings.Replace(endpoint, \"https://\", \"https://user@\", 1), endpoint + \":443\", endpoint + \"/path\",\n\t\t\t\tendpoint + \"?token=hidden\", endpoint + \"#fragment\", strings.Replace(endpoint, \"https://\", \"http://\", 1),\n\t\t\t} {\n\t\t\t\tif _, err := kmsEndpoint(&invalid, \"us-sanjose-1\", operation); err == nil {\n\t\t\t\t\tt.Fatalf(\"unsafe endpoint accepted: %q\", invalid)\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}",
+      "category": "unit",
+      "reason": "URL parsing and endpoint suffix/region/security predicates over constructed strings; no signer or OCI request is called.",
+      "assertion_evidence": [
+        {
+          "path": "internal/disasterrecovery/key_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "4f487e1457a78ab5392d1dde879002c7bd4266dc",
+          "line": 14,
+          "end_line": 16,
+          "text": "\t\t\tif got, err := kmsEndpoint(&endpoint, \"us-sanjose-1\", operation); err != nil || got != endpoint {\n\t\t\t\tt.Fatalf(\"valid OCI endpoint: %q, %v\", got, err)\n\t\t\t}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/key_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "4f487e1457a78ab5392d1dde879002c7bd4266dc",
+          "line": 22,
+          "end_line": 24,
+          "text": "\t\t\t\tif _, err := kmsEndpoint(&invalid, \"us-sanjose-1\", operation); err == nil {\n\t\t\t\t\tt.Fatalf(\"unsafe endpoint accepted: %q\", invalid)\n\t\t\t\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "key-predicates"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "assertion_credit_limits": []
+    },
+    {
+      "root_id": "internal/disasterrecovery/key_test.go::TestReplicaVaultMustOwnTheEnabledBucketKey",
+      "path": "internal/disasterrecovery/key_test.go",
+      "original_name": "TestReplicaVaultMustOwnTheEnabledBucketKey",
+      "current_name": "TestReplicaVaultMustOwnTheEnabledBucketKey",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "historical_survival_state": "retained_body_exact",
+      "historical_survival_current_declaration_sha256": "5774f86ffbbaf8e365c8d964e5c8bd296e9358b2c9686e246dc825850059effd",
+      "original_declaration_sha256": "5774f86ffbbaf8e365c8d964e5c8bd296e9358b2c9686e246dc825850059effd",
+      "current_declaration_sha256": "5774f86ffbbaf8e365c8d964e5c8bd296e9358b2c9686e246dc825850059effd",
+      "canonical_body_drift_from_survival": false,
+      "baseline_source": {
+        "path": "internal/disasterrecovery/key_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "4f487e1457a78ab5392d1dde879002c7bd4266dc",
+        "line": 30,
+        "end_line": 48
+      },
+      "current_source": {
+        "path": "internal/disasterrecovery/key_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4f487e1457a78ab5392d1dde879002c7bd4266dc",
+        "line": 30,
+        "end_line": 48
+      },
+      "declaration_hash_rule": "Raw func through column-zero close excluding following LF; manually inspected explicit bounds.",
+      "original_declaration_text": "func TestReplicaVaultMustOwnTheEnabledBucketKey(t *testing.T) {\n\tconfig := Region{VaultID: \"vault\", KeyID: \"key\", CompartmentID: \"control\"}\n\tkey := keymanagement.Key{Id: &config.KeyID, VaultId: &config.VaultID, CompartmentId: &config.CompartmentID, LifecycleState: keymanagement.KeyLifecycleStateEnabled}\n\tif err := validateVaultKey(key, config); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfor _, mutate := range []func(*keymanagement.Key){\n\t\tfunc(k *keymanagement.Key) { k.VaultId = new(\"unrelated\") },\n\t\tfunc(k *keymanagement.Key) { k.CompartmentId = new(\"unrelated\") },\n\t\tfunc(k *keymanagement.Key) { k.Id = new(\"unrelated\") },\n\t\tfunc(k *keymanagement.Key) { k.LifecycleState = keymanagement.KeyLifecycleStateDisabled },\n\t} {\n\t\tk := key\n\t\tmutate(&k)\n\t\tif err := validateVaultKey(k, config); err == nil {\n\t\t\tt.Fatalf(\"wrong Vault/key accepted: %+v\", k)\n\t\t}\n\t}\n}",
+      "current_declaration_text": "func TestReplicaVaultMustOwnTheEnabledBucketKey(t *testing.T) {\n\tconfig := Region{VaultID: \"vault\", KeyID: \"key\", CompartmentID: \"control\"}\n\tkey := keymanagement.Key{Id: &config.KeyID, VaultId: &config.VaultID, CompartmentId: &config.CompartmentID, LifecycleState: keymanagement.KeyLifecycleStateEnabled}\n\tif err := validateVaultKey(key, config); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfor _, mutate := range []func(*keymanagement.Key){\n\t\tfunc(k *keymanagement.Key) { k.VaultId = new(\"unrelated\") },\n\t\tfunc(k *keymanagement.Key) { k.CompartmentId = new(\"unrelated\") },\n\t\tfunc(k *keymanagement.Key) { k.Id = new(\"unrelated\") },\n\t\tfunc(k *keymanagement.Key) { k.LifecycleState = keymanagement.KeyLifecycleStateDisabled },\n\t} {\n\t\tk := key\n\t\tmutate(&k)\n\t\tif err := validateVaultKey(k, config); err == nil {\n\t\t\tt.Fatalf(\"wrong Vault/key accepted: %+v\", k)\n\t\t}\n\t}\n}",
+      "category": "unit",
+      "reason": "Constructed SDK Key structs pass directly to the local identity/lifecycle predicate; requireVaultKey and its SDK calls are not reached.",
+      "assertion_evidence": [
+        {
+          "path": "internal/disasterrecovery/key_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "4f487e1457a78ab5392d1dde879002c7bd4266dc",
+          "line": 33,
+          "end_line": 35,
+          "text": "\tif err := validateVaultKey(key, config); err != nil {\n\t\tt.Fatal(err)\n\t}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/key_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "4f487e1457a78ab5392d1dde879002c7bd4266dc",
+          "line": 44,
+          "end_line": 46,
+          "text": "\t\tif err := validateVaultKey(k, config); err == nil {\n\t\t\tt.Fatalf(\"wrong Vault/key accepted: %+v\", k)\n\t\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "key-predicates"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "assertion_credit_limits": []
+    },
+    {
+      "root_id": "internal/disasterrecovery/objects_test.go::TestBackfillDrainsSubmittedCopiesAfterASiblingFails",
+      "path": "internal/disasterrecovery/objects_test.go",
+      "original_name": "TestBackfillDrainsSubmittedCopiesAfterASiblingFails",
+      "current_name": "TestBackfillDrainsSubmittedCopiesAfterASiblingFails",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "historical_survival_state": "retained_body_exact",
+      "historical_survival_current_declaration_sha256": "e0cd02d6fe85879c4bd40e7df86e3b71993c7195b63bf3bd54d605bb61f2d8bc",
+      "original_declaration_sha256": "e0cd02d6fe85879c4bd40e7df86e3b71993c7195b63bf3bd54d605bb61f2d8bc",
+      "current_declaration_sha256": "e0cd02d6fe85879c4bd40e7df86e3b71993c7195b63bf3bd54d605bb61f2d8bc",
+      "canonical_body_drift_from_survival": false,
+      "baseline_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 254,
+        "end_line": 285
+      },
+      "current_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 254,
+        "end_line": 285
+      },
+      "declaration_hash_rule": "Raw func through column-zero close excluding following LF; manually inspected explicit bounds.",
+      "original_declaration_text": "func TestBackfillDrainsSubmittedCopiesAfterASiblingFails(t *testing.T) {\n\tc, s, _ := objectFixture()\n\tc.apply = true\n\tc.workers = 2\n\ts.pages = [][]objectstorage.ObjectSummary{{{Name: new(\"v1/a\"), Size: new(int64(8)), Md5: new(\"checksum\"), Etag: new(\"a\")},\n\t\t{Name: new(\"v1/b\"), Size: new(int64(8)), Md5: new(\"checksum\"), Etag: new(\"b\")}}}\n\ts.copyErrs = map[string]error{\"v1/a\": newServiceFailure(http.StatusPreconditionFailed, \"PreconditionFailed\", \"moved\", \"request\")}\n\t// v1/a fails only after v1/b's server-side copy is running.\n\tsubmitted := make(chan struct{})\n\ts.beforeCopy = func(r objectstorage.CopyObjectRequest) {\n\t\tif *r.SourceObjectName == \"v1/a\" {\n\t\t\t<-submitted\n\t\t}\n\t}\n\ts.afterCopy = func() { close(submitted) }\n\ts.status = objectstorage.WorkRequestStatusInProgress\n\tc.Pause = func(ctx context.Context, _ time.Duration) error {\n\t\tselect {\n\t\tcase <-ctx.Done():\n\t\t\treturn ctx.Err()\n\t\tcase <-time.After(200 * time.Millisecond):\n\t\t}\n\t\ts.mu.Lock()\n\t\ts.status = objectstorage.WorkRequestStatusCompleted\n\t\ts.mu.Unlock()\n\t\treturn nil\n\t}\n\tr, err := c.copy(t.Context(), \"backup\")\n\tif err == nil || r.Seeded != 1 {\n\t\tt.Fatalf(\"submitted copy abandoned after a sibling failed: %+v, %v\", r, err)\n\t}\n}",
+      "current_declaration_text": "func TestBackfillDrainsSubmittedCopiesAfterASiblingFails(t *testing.T) {\n\tc, s, _ := objectFixture()\n\tc.apply = true\n\tc.workers = 2\n\ts.pages = [][]objectstorage.ObjectSummary{{{Name: new(\"v1/a\"), Size: new(int64(8)), Md5: new(\"checksum\"), Etag: new(\"a\")},\n\t\t{Name: new(\"v1/b\"), Size: new(int64(8)), Md5: new(\"checksum\"), Etag: new(\"b\")}}}\n\ts.copyErrs = map[string]error{\"v1/a\": newServiceFailure(http.StatusPreconditionFailed, \"PreconditionFailed\", \"moved\", \"request\")}\n\t// v1/a fails only after v1/b's server-side copy is running.\n\tsubmitted := make(chan struct{})\n\ts.beforeCopy = func(r objectstorage.CopyObjectRequest) {\n\t\tif *r.SourceObjectName == \"v1/a\" {\n\t\t\t<-submitted\n\t\t}\n\t}\n\ts.afterCopy = func() { close(submitted) }\n\ts.status = objectstorage.WorkRequestStatusInProgress\n\tc.Pause = func(ctx context.Context, _ time.Duration) error {\n\t\tselect {\n\t\tcase <-ctx.Done():\n\t\t\treturn ctx.Err()\n\t\tcase <-time.After(200 * time.Millisecond):\n\t\t}\n\t\ts.mu.Lock()\n\t\ts.status = objectstorage.WorkRequestStatusCompleted\n\t\ts.mu.Unlock()\n\t\treturn nil\n\t}\n\tr, err := c.copy(t.Context(), \"backup\")\n\tif err == nil || r.Seeded != 1 {\n\t\tt.Fatalf(\"submitted copy abandoned after a sibling failed: %+v, %v\", r, err)\n\t}\n}",
+      "category": "unit",
+      "reason": "Local channels, timer, errgroup and fake CopyObject/work statuses exercise drain accounting; no server-side copy occurs.",
+      "assertion_evidence": [
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 281,
+          "end_line": 284,
+          "text": "\tr, err := c.copy(t.Context(), \"backup\")\n\tif err == nil || r.Seeded != 1 {\n\t\tt.Fatalf(\"submitted copy abandoned after a sibling failed: %+v, %v\", r, err)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "objects-fake-copy"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "assertion_credit_limits": []
+    },
+    {
+      "root_id": "internal/disasterrecovery/objects_test.go::TestBackfillFailsClosedWhenSourceMovesOrCopyNeverCompletes",
+      "path": "internal/disasterrecovery/objects_test.go",
+      "original_name": "TestBackfillFailsClosedWhenSourceMovesOrCopyNeverCompletes",
+      "current_name": "TestBackfillFailsClosedWhenSourceMovesOrCopyNeverCompletes",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "historical_survival_state": "retained_body_exact",
+      "historical_survival_current_declaration_sha256": "289e7092de108e257d0c4c5db38cecc045475e682c920b6aedceb591d5ac4b93",
+      "original_declaration_sha256": "289e7092de108e257d0c4c5db38cecc045475e682c920b6aedceb591d5ac4b93",
+      "current_declaration_sha256": "289e7092de108e257d0c4c5db38cecc045475e682c920b6aedceb591d5ac4b93",
+      "canonical_body_drift_from_survival": false,
+      "baseline_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 334,
+        "end_line": 356
+      },
+      "current_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 334,
+        "end_line": 356
+      },
+      "declaration_hash_rule": "Raw func through column-zero close excluding following LF; manually inspected explicit bounds.",
+      "original_declaration_text": "func TestBackfillFailsClosedWhenSourceMovesOrCopyNeverCompletes(t *testing.T) {\n\tfor _, reason := range []string{\"source moves\", \"cancel\", \"unknown state\", \"no size\"} {\n\t\tt.Run(reason, func(t *testing.T) {\n\t\t\tc, s, _ := objectFixture()\n\t\t\tc.apply = true\n\t\t\ts.pages = [][]objectstorage.ObjectSummary{{{Name: new(\"v1/snapshot\"), Size: new(int64(8)), Md5: new(\"checksum\"), Etag: new(\"source\")}}}\n\t\t\tswitch reason {\n\t\t\tcase \"source moves\":\n\t\t\t\ts.copyErr = newServiceFailure(http.StatusPreconditionFailed, \"PreconditionFailed\", \"moved\", \"request\")\n\t\t\tcase \"cancel\":\n\t\t\t\ts.status = objectstorage.WorkRequestStatusInProgress\n\t\t\t\tc.Pause = func(context.Context, time.Duration) error { return context.Canceled }\n\t\t\tcase \"unknown state\":\n\t\t\t\ts.status = \"UNRECOGNIZED\"\n\t\t\tcase \"no size\":\n\t\t\t\ts.pages[0][0].Size = nil\n\t\t\t}\n\t\t\tif _, err := c.copy(t.Context(), \"backup\"); err == nil {\n\t\t\t\tt.Fatal(\"incomplete backfill accepted\")\n\t\t\t}\n\t\t})\n\t}\n}",
+      "current_declaration_text": "func TestBackfillFailsClosedWhenSourceMovesOrCopyNeverCompletes(t *testing.T) {\n\tfor _, reason := range []string{\"source moves\", \"cancel\", \"unknown state\", \"no size\"} {\n\t\tt.Run(reason, func(t *testing.T) {\n\t\t\tc, s, _ := objectFixture()\n\t\t\tc.apply = true\n\t\t\ts.pages = [][]objectstorage.ObjectSummary{{{Name: new(\"v1/snapshot\"), Size: new(int64(8)), Md5: new(\"checksum\"), Etag: new(\"source\")}}}\n\t\t\tswitch reason {\n\t\t\tcase \"source moves\":\n\t\t\t\ts.copyErr = newServiceFailure(http.StatusPreconditionFailed, \"PreconditionFailed\", \"moved\", \"request\")\n\t\t\tcase \"cancel\":\n\t\t\t\ts.status = objectstorage.WorkRequestStatusInProgress\n\t\t\t\tc.Pause = func(context.Context, time.Duration) error { return context.Canceled }\n\t\t\tcase \"unknown state\":\n\t\t\t\ts.status = \"UNRECOGNIZED\"\n\t\t\tcase \"no size\":\n\t\t\t\ts.pages[0][0].Size = nil\n\t\t\t}\n\t\t\tif _, err := c.copy(t.Context(), \"backup\"); err == nil {\n\t\t\t\tt.Fatal(\"incomplete backfill accepted\")\n\t\t\t}\n\t\t})\n\t}\n}",
+      "category": "unit",
+      "reason": "Table-injected fake precondition errors, fake work statuses, injected cancellation and missing metadata exercise local fail-closed branches.",
+      "assertion_evidence": [
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 351,
+          "end_line": 353,
+          "text": "\t\t\tif _, err := c.copy(t.Context(), \"backup\"); err == nil {\n\t\t\t\tt.Fatal(\"incomplete backfill accepted\")\n\t\t\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "objects-fake-copy"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "assertion_credit_limits": []
+    },
+    {
+      "root_id": "internal/disasterrecovery/objects_test.go::TestBackfillHashesMultipartAndMissingChecksums",
+      "path": "internal/disasterrecovery/objects_test.go",
+      "original_name": "TestBackfillHashesMultipartAndMissingChecksums",
+      "current_name": "TestBackfillHashesMultipartAndMissingChecksums",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "historical_survival_state": "retained_body_exact",
+      "historical_survival_current_declaration_sha256": "f615654d875a123675561a498fd63e3223cb31180591e7e84959ef092ceaf925",
+      "original_declaration_sha256": "f615654d875a123675561a498fd63e3223cb31180591e7e84959ef092ceaf925",
+      "current_declaration_sha256": "f615654d875a123675561a498fd63e3223cb31180591e7e84959ef092ceaf925",
+      "canonical_body_drift_from_survival": false,
+      "baseline_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 358,
+        "end_line": 368
+      },
+      "current_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 358,
+        "end_line": 368
+      },
+      "declaration_hash_rule": "Raw func through column-zero close excluding following LF; manually inspected explicit bounds.",
+      "original_declaration_text": "func TestBackfillHashesMultipartAndMissingChecksums(t *testing.T) {\n\tfor _, checksum := range []*string{nil, new(\"multipart-2\")} {\n\t\tc, s, _ := objectFixture()\n\t\tc.apply = true\n\t\ts.pages = [][]objectstorage.ObjectSummary{{{Name: new(\"v1/large-snapshot\"), Size: new(int64(8)), Md5: checksum, Etag: new(\"source\")}}}\n\t\tr, err := c.copy(t.Context(), \"backup\")\n\t\tif err != nil || r.Seeded != 1 {\n\t\t\tt.Fatalf(\"multipart/missing checksum: %+v,%v\", r, err)\n\t\t}\n\t}\n}",
+      "current_declaration_text": "func TestBackfillHashesMultipartAndMissingChecksums(t *testing.T) {\n\tfor _, checksum := range []*string{nil, new(\"multipart-2\")} {\n\t\tc, s, _ := objectFixture()\n\t\tc.apply = true\n\t\ts.pages = [][]objectstorage.ObjectSummary{{{Name: new(\"v1/large-snapshot\"), Size: new(int64(8)), Md5: checksum, Etag: new(\"source\")}}}\n\t\tr, err := c.copy(t.Context(), \"backup\")\n\t\tif err != nil || r.Seeded != 1 {\n\t\t\tt.Fatalf(\"multipart/missing checksum: %+v,%v\", r, err)\n\t\t}\n\t}\n}",
+      "category": "unit",
+      "reason": "Production hashing consumes fake GetObject string readers on both sides; the success/count assertion uses in-memory synthetic object contents.",
+      "assertion_evidence": [
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 363,
+          "end_line": 366,
+          "text": "\t\tr, err := c.copy(t.Context(), \"backup\")\n\t\tif err != nil || r.Seeded != 1 {\n\t\t\tt.Fatalf(\"multipart/missing checksum: %+v,%v\", r, err)\n\t\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "objects-fake-copy"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "assertion_credit_limits": []
+    },
+    {
+      "root_id": "internal/disasterrecovery/objects_test.go::TestBackfillRechecksTheMirrorBeforeSuccess",
+      "path": "internal/disasterrecovery/objects_test.go",
+      "original_name": "TestBackfillRechecksTheMirrorBeforeSuccess",
+      "current_name": "TestBackfillRechecksTheMirrorBeforeSuccess",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "historical_survival_state": "retained_body_exact",
+      "historical_survival_current_declaration_sha256": "7708db198896a87b8906a8fada7bb0e730b134d4acecfc1e1a5390b28a005512",
+      "original_declaration_sha256": "7708db198896a87b8906a8fada7bb0e730b134d4acecfc1e1a5390b28a005512",
+      "current_declaration_sha256": "7708db198896a87b8906a8fada7bb0e730b134d4acecfc1e1a5390b28a005512",
+      "canonical_body_drift_from_survival": false,
+      "baseline_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 287,
+        "end_line": 300
+      },
+      "current_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 287,
+        "end_line": 300
+      },
+      "declaration_hash_rule": "Raw func through column-zero close excluding following LF; manually inspected explicit bounds.",
+      "original_declaration_text": "func TestBackfillRechecksTheMirrorBeforeSuccess(t *testing.T) {\n\tc, s, d := objectFixture()\n\tc.apply = true\n\ts.pages = [][]objectstorage.ObjectSummary{{{Name: new(\"v1/db/wal/0\"), Size: new(int64(8)), Md5: new(\"checksum\"), Etag: new(\"source\")}}}\n\td.mirror = map[string]objectstorage.HeadObjectResponse{\"v1/db/wal/0\": {ContentLength: new(int64(8)), ContentMd5: new(\"checksum\"), ETag: new(\"mirror\")}}\n\ts.afterList = func() {\n\t\tmirror := d.buckets[\"sfo-1-dr-gru-1-backup\"]\n\t\tmirror.Id = new(\"ocid1.bucket.oc1.us-sanjose-1.replacement\")\n\t\td.buckets[*mirror.Name] = mirror\n\t}\n\tif r, err := c.copy(t.Context(), \"backup\"); err == nil || r.Mirrored != 1 || len(s.copies) != 0 {\n\t\tt.Fatalf(\"replaced mirror accepted: %+v, %v\", r, err)\n\t}\n}",
+      "current_declaration_text": "func TestBackfillRechecksTheMirrorBeforeSuccess(t *testing.T) {\n\tc, s, d := objectFixture()\n\tc.apply = true\n\ts.pages = [][]objectstorage.ObjectSummary{{{Name: new(\"v1/db/wal/0\"), Size: new(int64(8)), Md5: new(\"checksum\"), Etag: new(\"source\")}}}\n\td.mirror = map[string]objectstorage.HeadObjectResponse{\"v1/db/wal/0\": {ContentLength: new(int64(8)), ContentMd5: new(\"checksum\"), ETag: new(\"mirror\")}}\n\ts.afterList = func() {\n\t\tmirror := d.buckets[\"sfo-1-dr-gru-1-backup\"]\n\t\tmirror.Id = new(\"ocid1.bucket.oc1.us-sanjose-1.replacement\")\n\t\td.buckets[*mirror.Name] = mirror\n\t}\n\tif r, err := c.copy(t.Context(), \"backup\"); err == nil || r.Mirrored != 1 || len(s.copies) != 0 {\n\t\tt.Fatalf(\"replaced mirror accepted: %+v, %v\", r, err)\n\t}\n}",
+      "category": "unit",
+      "reason": "An afterList callback replaces a fake mirror bucket ID; local post-copy revalidation returns error with mirrored count and zero fake copy requests.",
+      "assertion_evidence": [
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 297,
+          "end_line": 299,
+          "text": "\tif r, err := c.copy(t.Context(), \"backup\"); err == nil || r.Mirrored != 1 || len(s.copies) != 0 {\n\t\tt.Fatalf(\"replaced mirror accepted: %+v, %v\", r, err)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "objects-fake-copy"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "assertion_credit_limits": []
+    },
+    {
+      "root_id": "internal/disasterrecovery/objects_test.go::TestBackfillSkipsIdenticalMirrorCopiesAndCopiesConcurrently",
+      "path": "internal/disasterrecovery/objects_test.go",
+      "original_name": "TestBackfillSkipsIdenticalMirrorCopiesAndCopiesConcurrently",
+      "current_name": "TestBackfillSkipsIdenticalMirrorCopiesAndCopiesConcurrently",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "historical_survival_state": "retained_body_exact",
+      "historical_survival_current_declaration_sha256": "c0a2f2408d23394362316a9507cfa5f9476799cc1d05b7f9119ecd0b9a427d73",
+      "original_declaration_sha256": "c0a2f2408d23394362316a9507cfa5f9476799cc1d05b7f9119ecd0b9a427d73",
+      "current_declaration_sha256": "c0a2f2408d23394362316a9507cfa5f9476799cc1d05b7f9119ecd0b9a427d73",
+      "canonical_body_drift_from_survival": false,
+      "baseline_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 221,
+        "end_line": 252
+      },
+      "current_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 221,
+        "end_line": 252
+      },
+      "declaration_hash_rule": "Raw func through column-zero close excluding following LF; manually inspected explicit bounds.",
+      "original_declaration_text": "func TestBackfillSkipsIdenticalMirrorCopiesAndCopiesConcurrently(t *testing.T) {\n\tc, s, d := objectFixture()\n\tc.apply = true\n\tc.workers = 4\n\td.mirror = map[string]objectstorage.HeadObjectResponse{}\n\tvar pages [][]objectstorage.ObjectSummary\n\tfor page := range 2 {\n\t\tvar objects []objectstorage.ObjectSummary\n\t\tfor i := range 5 {\n\t\t\tname := fmt.Sprintf(\"v1/db/wal/%d-%d\", page, i)\n\t\t\tobjects = append(objects, objectstorage.ObjectSummary{Name: new(name), Size: new(int64(8)), Md5: new(\"checksum\"), Etag: new(name)})\n\t\t\tmd5 := \"checksum\"\n\t\t\tif i == 4 {\n\t\t\t\tmd5 = \"older version\"\n\t\t\t}\n\t\t\tif i >= 2 {\n\t\t\t\td.mirror[name] = objectstorage.HeadObjectResponse{ContentLength: new(int64(8)), ContentMd5: new(md5), ETag: new(\"mirror\")}\n\t\t\t}\n\t\t}\n\t\tpages = append(pages, objects)\n\t}\n\ts.pages = pages\n\tr, err := c.copy(t.Context(), \"backup\")\n\tif err != nil || r.Seeded != 6 || r.Mirrored != 4 || len(s.copies) != 6 {\n\t\tt.Fatalf(\"copy = %+v, %v, copies=%d\", r, err, len(s.copies))\n\t}\n\tfor _, copy := range s.copies {\n\t\tif name := *copy.SourceObjectName; strings.HasSuffix(name, \"-2\") || strings.HasSuffix(name, \"-3\") {\n\t\t\tt.Fatalf(\"identical mirror object %s was seeded again\", name)\n\t\t}\n\t}\n}",
+      "current_declaration_text": "func TestBackfillSkipsIdenticalMirrorCopiesAndCopiesConcurrently(t *testing.T) {\n\tc, s, d := objectFixture()\n\tc.apply = true\n\tc.workers = 4\n\td.mirror = map[string]objectstorage.HeadObjectResponse{}\n\tvar pages [][]objectstorage.ObjectSummary\n\tfor page := range 2 {\n\t\tvar objects []objectstorage.ObjectSummary\n\t\tfor i := range 5 {\n\t\t\tname := fmt.Sprintf(\"v1/db/wal/%d-%d\", page, i)\n\t\t\tobjects = append(objects, objectstorage.ObjectSummary{Name: new(name), Size: new(int64(8)), Md5: new(\"checksum\"), Etag: new(name)})\n\t\t\tmd5 := \"checksum\"\n\t\t\tif i == 4 {\n\t\t\t\tmd5 = \"older version\"\n\t\t\t}\n\t\t\tif i >= 2 {\n\t\t\t\td.mirror[name] = objectstorage.HeadObjectResponse{ContentLength: new(int64(8)), ContentMd5: new(md5), ETag: new(\"mirror\")}\n\t\t\t}\n\t\t}\n\t\tpages = append(pages, objects)\n\t}\n\ts.pages = pages\n\tr, err := c.copy(t.Context(), \"backup\")\n\tif err != nil || r.Seeded != 6 || r.Mirrored != 4 || len(s.copies) != 6 {\n\t\tt.Fatalf(\"copy = %+v, %v, copies=%d\", r, err, len(s.copies))\n\t}\n\tfor _, copy := range s.copies {\n\t\tif name := *copy.SourceObjectName; strings.HasSuffix(name, \"-2\") || strings.HasSuffix(name, \"-3\") {\n\t\t\tt.Fatalf(\"identical mirror object %s was seeded again\", name)\n\t\t}\n\t}\n}",
+      "category": "unit",
+      "reason": "In-memory fake inventory and mirror checksum maps drive skip/copy counts and copied-name assertions; workers are configured but overlap is not asserted.",
+      "assertion_evidence": [
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 243,
+          "end_line": 251,
+          "text": "\tr, err := c.copy(t.Context(), \"backup\")\n\tif err != nil || r.Seeded != 6 || r.Mirrored != 4 || len(s.copies) != 6 {\n\t\tt.Fatalf(\"copy = %+v, %v, copies=%d\", r, err, len(s.copies))\n\t}\n\tfor _, copy := range s.copies {\n\t\tif name := *copy.SourceObjectName; strings.HasSuffix(name, \"-2\") || strings.HasSuffix(name, \"-3\") {\n\t\t\tt.Fatalf(\"identical mirror object %s was seeded again\", name)\n\t\t}\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "objects-fake-copy"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "assertion_credit_limits": [
+        "No concurrency overlap, worker maximum or speed assertion; name alone does not qualify concurrency."
+      ]
+    },
+    {
+      "root_id": "internal/disasterrecovery/objects_test.go::TestConfigRejectsCrossedRegionsAndSharedCompartments",
+      "path": "internal/disasterrecovery/objects_test.go",
+      "original_name": "TestConfigRejectsCrossedRegionsAndSharedCompartments",
+      "current_name": "TestConfigRejectsCrossedRegionsAndSharedCompartments",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "historical_survival_state": "retained_body_exact",
+      "historical_survival_current_declaration_sha256": "3048c327421cdb48d74a6fae6623f39b4cc922d28127ba743c09b445a98f7422",
+      "original_declaration_sha256": "3048c327421cdb48d74a6fae6623f39b4cc922d28127ba743c09b445a98f7422",
+      "current_declaration_sha256": "3048c327421cdb48d74a6fae6623f39b4cc922d28127ba743c09b445a98f7422",
+      "canonical_body_drift_from_survival": false,
+      "baseline_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 614,
+        "end_line": 629
+      },
+      "current_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 614,
+        "end_line": 629
+      },
+      "declaration_hash_rule": "Raw func through column-zero close excluding following LF; manually inspected explicit bounds.",
+      "original_declaration_text": "func TestConfigRejectsCrossedRegionsAndSharedCompartments(t *testing.T) {\n\tvalid := configFixture()\n\tif err := valid.Validate(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfor _, mutate := range []func(*Config){func(c *Config) { c.SFO.KeyID = c.GRU.KeyID }, func(c *Config) { c.SFO.CompartmentID = c.GRU.CompartmentID }, func(c *Config) { c.Version = 2 }} {\n\t\tc := valid\n\t\tmutate(&c)\n\t\tif err := c.Validate(); err == nil {\n\t\t\tt.Fatalf(\"invalid config accepted: %+v\", c)\n\t\t}\n\t}\n\tif !ociError(newServiceFailure(404, \"ObjectNotFound\", \"missing\", \"r\"), 404, \"ObjectNotFound\") || ociError(errors.New(\"404\"), 404, \"ObjectNotFound\") {\n\t\tt.Fatal(\"missing object classification\")\n\t}\n}",
+      "current_declaration_text": "func TestConfigRejectsCrossedRegionsAndSharedCompartments(t *testing.T) {\n\tvalid := configFixture()\n\tif err := valid.Validate(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfor _, mutate := range []func(*Config){func(c *Config) { c.SFO.KeyID = c.GRU.KeyID }, func(c *Config) { c.SFO.CompartmentID = c.GRU.CompartmentID }, func(c *Config) { c.Version = 2 }} {\n\t\tc := valid\n\t\tmutate(&c)\n\t\tif err := c.Validate(); err == nil {\n\t\t\tt.Fatalf(\"invalid config accepted: %+v\", c)\n\t\t}\n\t}\n\tif !ociError(newServiceFailure(404, \"ObjectNotFound\", \"missing\", \"r\"), 404, \"ObjectNotFound\") || ociError(errors.New(\"404\"), 404, \"ObjectNotFound\") {\n\t\tt.Fatal(\"missing object classification\")\n\t}\n}",
+      "category": "unit",
+      "reason": "Config structs and synthetic service errors exercise local validation/type classification; Version1 fixture matches the production Version1 requirement.",
+      "assertion_evidence": [
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 616,
+          "end_line": 628,
+          "text": "\tif err := valid.Validate(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfor _, mutate := range []func(*Config){func(c *Config) { c.SFO.KeyID = c.GRU.KeyID }, func(c *Config) { c.SFO.CompartmentID = c.GRU.CompartmentID }, func(c *Config) { c.Version = 2 }} {\n\t\tc := valid\n\t\tmutate(&c)\n\t\tif err := c.Validate(); err == nil {\n\t\t\tt.Fatalf(\"invalid config accepted: %+v\", c)\n\t\t}\n\t}\n\tif !ociError(newServiceFailure(404, \"ObjectNotFound\", \"missing\", \"r\"), 404, \"ObjectNotFound\") || ociError(errors.New(\"404\"), 404, \"ObjectNotFound\") {\n\t\tt.Fatal(\"missing object classification\")\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "config-predicates"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "assertion_credit_limits": []
+    },
+    {
+      "root_id": "internal/disasterrecovery/objects_test.go::TestConfigValidatesReviewedResourceNamesAndIDs",
+      "path": "internal/disasterrecovery/objects_test.go",
+      "original_name": "TestConfigValidatesReviewedResourceNamesAndIDs",
+      "current_name": "TestConfigValidatesReviewedResourceNamesAndIDs",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "historical_survival_state": "retained_body_exact",
+      "historical_survival_current_declaration_sha256": "79d930208fe55b05a8f100ce8342400ab44626197209d9323294df54a2ef9d87",
+      "original_declaration_sha256": "79d930208fe55b05a8f100ce8342400ab44626197209d9323294df54a2ef9d87",
+      "current_declaration_sha256": "79d930208fe55b05a8f100ce8342400ab44626197209d9323294df54a2ef9d87",
+      "canonical_body_drift_from_survival": false,
+      "baseline_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 636,
+        "end_line": 671
+      },
+      "current_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 636,
+        "end_line": 671
+      },
+      "declaration_hash_rule": "Raw func through column-zero close excluding following LF; manually inspected explicit bounds.",
+      "original_declaration_text": "func TestConfigValidatesReviewedResourceNamesAndIDs(t *testing.T) {\n\tvalid := func() Config {\n\t\tc := configFixture()\n\t\tc.GRU.BucketIDs = map[string]string{\"gru-1-dr-sfo-1-backup\": \"ocid1.bucket.oc1.sa-saopaulo-1.mirror\", \"gru-1-dr-sfo-1-backup-seed\": \"ocid1.bucket.oc1.sa-saopaulo-1.seed\"}\n\t\tc.SFO.BucketIDs = map[string]string{\"sfo-1-dr-gru-1-head\": \"ocid1.bucket.oc1.us-sanjose-1.mirror\", \"sfo-1-dr-gru-1-head-seed\": \"ocid1.bucket.oc1.us-sanjose-1.seed\"}\n\t\tc.GRU.PolicyIDs = map[string]string{\"TS-641-gru-1-backup\": \"0J6HB7G4HM28T14D0J6HB7H6NW\"}\n\t\tc.SFO.PolicyIDs = map[string]string{\"TS-641-sfo-1-head\": \"47CN1J24HM28T14D0J6HB7H6NW\"}\n\t\treturn c\n\t}\n\tif err := valid().Validate(); err != nil {\n\t\tt.Fatalf(\"reviewed regional OCIDs and opaque policy UUIDs rejected: %v\", err)\n\t}\n\tfor name, mutate := range map[string]func(*Config){\n\t\t\"serving bucket\":           func(c *Config) { c.GRU.BucketIDs[\"gru-1-backup\"] = \"ocid1.bucket.oc1.sa-saopaulo-1.other\" },\n\t\t\"crossed destination name\": func(c *Config) { c.GRU.BucketIDs[\"sfo-1-dr-gru-1-backup\"] = \"ocid1.bucket.oc1.sa-saopaulo-1.other\" },\n\t\t\"wrong bucket region\":      func(c *Config) { c.GRU.BucketIDs[\"gru-1-dr-sfo-1-backup\"] = \"ocid1.bucket.oc1.us-sanjose-1.other\" },\n\t\t\"wrong bucket type\":        func(c *Config) { c.GRU.BucketIDs[\"gru-1-dr-sfo-1-backup\"] = c.GRU.KeyID },\n\t\t\"empty bucket ID\":          func(c *Config) { c.GRU.BucketIDs[\"gru-1-dr-sfo-1-backup\"] = \"\" },\n\t\t\"duplicate bucket ID\": func(c *Config) {\n\t\t\tc.GRU.BucketIDs[\"gru-1-dr-sfo-1-backup-seed\"] = c.GRU.BucketIDs[\"gru-1-dr-sfo-1-backup\"]\n\t\t},\n\t\t\"unexpected policy name\": func(c *Config) { c.GRU.PolicyIDs[\"0000000000V4MRM46HP1SNGDYW\"] = \"policy-2\" },\n\t\t\"crossed policy name\":    func(c *Config) { c.GRU.PolicyIDs[\"TS-641-sfo-1-head\"] = \"policy-2\" },\n\t\t\"empty policy ID\":        func(c *Config) { c.GRU.PolicyIDs[\"TS-641-gru-1-backup\"] = \"\" },\n\t\t\"malformed policy ID\":    func(c *Config) { c.GRU.PolicyIDs[\"TS-641-gru-1-backup\"] = \"policy\\nreplacement\" },\n\t\t\"duplicate policy ID\":    func(c *Config) { c.GRU.PolicyIDs[\"TS-641-gru-1-head\"] = c.GRU.PolicyIDs[\"TS-641-gru-1-backup\"] },\n\t} {\n\t\tt.Run(name, func(t *testing.T) {\n\t\t\tc := valid()\n\t\t\tmutate(&c)\n\t\t\tif err := c.Validate(); err == nil {\n\t\t\t\tt.Fatal(\"unexpected resource name or ID accepted\")\n\t\t\t}\n\t\t})\n\t}\n}",
+      "current_declaration_text": "func TestConfigValidatesReviewedResourceNamesAndIDs(t *testing.T) {\n\tvalid := func() Config {\n\t\tc := configFixture()\n\t\tc.GRU.BucketIDs = map[string]string{\"gru-1-dr-sfo-1-backup\": \"ocid1.bucket.oc1.sa-saopaulo-1.mirror\", \"gru-1-dr-sfo-1-backup-seed\": \"ocid1.bucket.oc1.sa-saopaulo-1.seed\"}\n\t\tc.SFO.BucketIDs = map[string]string{\"sfo-1-dr-gru-1-head\": \"ocid1.bucket.oc1.us-sanjose-1.mirror\", \"sfo-1-dr-gru-1-head-seed\": \"ocid1.bucket.oc1.us-sanjose-1.seed\"}\n\t\tc.GRU.PolicyIDs = map[string]string{\"TS-641-gru-1-backup\": \"0J6HB7G4HM28T14D0J6HB7H6NW\"}\n\t\tc.SFO.PolicyIDs = map[string]string{\"TS-641-sfo-1-head\": \"47CN1J24HM28T14D0J6HB7H6NW\"}\n\t\treturn c\n\t}\n\tif err := valid().Validate(); err != nil {\n\t\tt.Fatalf(\"reviewed regional OCIDs and opaque policy UUIDs rejected: %v\", err)\n\t}\n\tfor name, mutate := range map[string]func(*Config){\n\t\t\"serving bucket\":           func(c *Config) { c.GRU.BucketIDs[\"gru-1-backup\"] = \"ocid1.bucket.oc1.sa-saopaulo-1.other\" },\n\t\t\"crossed destination name\": func(c *Config) { c.GRU.BucketIDs[\"sfo-1-dr-gru-1-backup\"] = \"ocid1.bucket.oc1.sa-saopaulo-1.other\" },\n\t\t\"wrong bucket region\":      func(c *Config) { c.GRU.BucketIDs[\"gru-1-dr-sfo-1-backup\"] = \"ocid1.bucket.oc1.us-sanjose-1.other\" },\n\t\t\"wrong bucket type\":        func(c *Config) { c.GRU.BucketIDs[\"gru-1-dr-sfo-1-backup\"] = c.GRU.KeyID },\n\t\t\"empty bucket ID\":          func(c *Config) { c.GRU.BucketIDs[\"gru-1-dr-sfo-1-backup\"] = \"\" },\n\t\t\"duplicate bucket ID\": func(c *Config) {\n\t\t\tc.GRU.BucketIDs[\"gru-1-dr-sfo-1-backup-seed\"] = c.GRU.BucketIDs[\"gru-1-dr-sfo-1-backup\"]\n\t\t},\n\t\t\"unexpected policy name\": func(c *Config) { c.GRU.PolicyIDs[\"0000000000V4MRM46HP1SNGDYW\"] = \"policy-2\" },\n\t\t\"crossed policy name\":    func(c *Config) { c.GRU.PolicyIDs[\"TS-641-sfo-1-head\"] = \"policy-2\" },\n\t\t\"empty policy ID\":        func(c *Config) { c.GRU.PolicyIDs[\"TS-641-gru-1-backup\"] = \"\" },\n\t\t\"malformed policy ID\":    func(c *Config) { c.GRU.PolicyIDs[\"TS-641-gru-1-backup\"] = \"policy\\nreplacement\" },\n\t\t\"duplicate policy ID\":    func(c *Config) { c.GRU.PolicyIDs[\"TS-641-gru-1-head\"] = c.GRU.PolicyIDs[\"TS-641-gru-1-backup\"] },\n\t} {\n\t\tt.Run(name, func(t *testing.T) {\n\t\t\tc := valid()\n\t\t\tmutate(&c)\n\t\t\tif err := c.Validate(); err == nil {\n\t\t\t\tt.Fatal(\"unexpected resource name or ID accepted\")\n\t\t\t}\n\t\t})\n\t}\n}",
+      "category": "unit",
+      "reason": "Positive and negative Config map/OCID/name tables exercise only local regex, duplicate-ID, regional and naming predicates.",
+      "assertion_evidence": [
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 645,
+          "end_line": 647,
+          "text": "\tif err := valid().Validate(); err != nil {\n\t\tt.Fatalf(\"reviewed regional OCIDs and opaque policy UUIDs rejected: %v\", err)\n\t}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 663,
+          "end_line": 669,
+          "text": "\t\tt.Run(name, func(t *testing.T) {\n\t\t\tc := valid()\n\t\t\tmutate(&c)\n\t\t\tif err := c.Validate(); err == nil {\n\t\t\t\tt.Fatal(\"unexpected resource name or ID accepted\")\n\t\t\t}\n\t\t})\n"
+        }
+      ],
+      "connected_evidence": [
+        "config-predicates"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "assertion_credit_limits": []
+    },
+    {
+      "root_id": "internal/disasterrecovery/objects_test.go::TestCopyActivatesMirrorBeforeBackfillAndVerifiesAllPages",
+      "path": "internal/disasterrecovery/objects_test.go",
+      "original_name": "TestCopyActivatesMirrorBeforeBackfillAndVerifiesAllPages",
+      "current_name": "TestCopyActivatesMirrorBeforeBackfillAndVerifiesAllPages",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "historical_survival_state": "retained_body_exact",
+      "historical_survival_current_declaration_sha256": "41c3db70efdf1e9d98beae531a284096ddd85fdd947a63d6d6963ed429d2f764",
+      "original_declaration_sha256": "41c3db70efdf1e9d98beae531a284096ddd85fdd947a63d6d6963ed429d2f764",
+      "current_declaration_sha256": "41c3db70efdf1e9d98beae531a284096ddd85fdd947a63d6d6963ed429d2f764",
+      "canonical_body_drift_from_survival": false,
+      "baseline_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 190,
+        "end_line": 219
+      },
+      "current_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 190,
+        "end_line": 219
+      },
+      "declaration_hash_rule": "Raw func through column-zero close excluding following LF; manually inspected explicit bounds.",
+      "original_declaration_text": "func TestCopyActivatesMirrorBeforeBackfillAndVerifiesAllPages(t *testing.T) {\n\tc, s, d := objectFixture()\n\tc.apply = true\n\ts.pages = [][]objectstorage.ObjectSummary{{{Name: new(\"v1/keys/project/key\"), Size: new(int64(8)), Md5: new(\"checksum\"), Etag: new(\"source-key\")}},\n\t\t{{Name: new(\"v1/db/snapshot\"), Size: new(int64(8)), Md5: new(\"checksum\"), Etag: new(\"source-snapshot\")}}}\n\tr, err := c.copy(t.Context(), \"backup\")\n\tif err != nil || r.Seeded != 2 || r.PolicyID != \"policy-1\" || len(s.copies) != 2 || d.creates != 2 || s.list != 2 {\n\t\tt.Fatalf(\"copy = %+v, %v, requests=%+v\", r, err, s.copies)\n\t}\n\tif !same(d.buckets[r.MirrorBucket].Id, r.MirrorBucketID) || !same(d.buckets[r.SeedBucket].Id, r.SeedBucketID) {\n\t\tt.Fatalf(\"created bucket IDs missing from report: %+v\", r)\n\t}\n\tif !same(d.buckets[r.MirrorBucket].KmsKeyId, \"sfo-key\") || !same(d.buckets[r.SeedBucket].KmsKeyId, \"sfo-key\") {\n\t\tt.Fatal(\"destination buckets must pin the target region's encryption key\")\n\t}\n\tfor _, copy := range s.copies {\n\t\tif *copy.BucketName != \"gru-1-backup\" || *copy.DestinationBucket != r.SeedBucket || copy.SourceObjectIfMatchETag == nil ||\n\t\t\t!same(copy.DestinationObjectIfNoneMatchETag, \"*\") || copy.OpcSseKmsKeyId != nil ||\n\t\t\t*copy.SourceObjectName != *copy.DestinationObjectName {\n\t\t\tt.Fatalf(\"copy is not pinned to source version and regional seed: %+v\", copy)\n\t\t}\n\t}\n\t// The operator reviews the report IDs and pins them before resuming.\n\tpinCopyReport(c, r)\n\ts.list = 0\n\t_, err = c.copy(t.Context(), \"backup\")\n\tif err != nil || s.creates != 1 || d.creates != 2 || len(s.copies) != 2 {\n\t\tt.Fatalf(\"resume: %v, %+v\", err, s.copies)\n\t}\n}",
+      "current_declaration_text": "func TestCopyActivatesMirrorBeforeBackfillAndVerifiesAllPages(t *testing.T) {\n\tc, s, d := objectFixture()\n\tc.apply = true\n\ts.pages = [][]objectstorage.ObjectSummary{{{Name: new(\"v1/keys/project/key\"), Size: new(int64(8)), Md5: new(\"checksum\"), Etag: new(\"source-key\")}},\n\t\t{{Name: new(\"v1/db/snapshot\"), Size: new(int64(8)), Md5: new(\"checksum\"), Etag: new(\"source-snapshot\")}}}\n\tr, err := c.copy(t.Context(), \"backup\")\n\tif err != nil || r.Seeded != 2 || r.PolicyID != \"policy-1\" || len(s.copies) != 2 || d.creates != 2 || s.list != 2 {\n\t\tt.Fatalf(\"copy = %+v, %v, requests=%+v\", r, err, s.copies)\n\t}\n\tif !same(d.buckets[r.MirrorBucket].Id, r.MirrorBucketID) || !same(d.buckets[r.SeedBucket].Id, r.SeedBucketID) {\n\t\tt.Fatalf(\"created bucket IDs missing from report: %+v\", r)\n\t}\n\tif !same(d.buckets[r.MirrorBucket].KmsKeyId, \"sfo-key\") || !same(d.buckets[r.SeedBucket].KmsKeyId, \"sfo-key\") {\n\t\tt.Fatal(\"destination buckets must pin the target region's encryption key\")\n\t}\n\tfor _, copy := range s.copies {\n\t\tif *copy.BucketName != \"gru-1-backup\" || *copy.DestinationBucket != r.SeedBucket || copy.SourceObjectIfMatchETag == nil ||\n\t\t\t!same(copy.DestinationObjectIfNoneMatchETag, \"*\") || copy.OpcSseKmsKeyId != nil ||\n\t\t\t*copy.SourceObjectName != *copy.DestinationObjectName {\n\t\t\tt.Fatalf(\"copy is not pinned to source version and regional seed: %+v\", copy)\n\t\t}\n\t}\n\t// The operator reviews the report IDs and pins them before resuming.\n\tpinCopyReport(c, r)\n\ts.list = 0\n\t_, err = c.copy(t.Context(), \"backup\")\n\tif err != nil || s.creates != 1 || d.creates != 2 || len(s.copies) != 2 {\n\t\tt.Fatalf(\"resume: %v, %+v\", err, s.copies)\n\t}\n}",
+      "category": "unit",
+      "reason": "Fake bucket/policy creation, inventory pagination, copy request records and readback maps support all provisioning/resume assertions; no real OCI boundary.",
+      "assertion_evidence": [
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 195,
+          "end_line": 211,
+          "text": "\tr, err := c.copy(t.Context(), \"backup\")\n\tif err != nil || r.Seeded != 2 || r.PolicyID != \"policy-1\" || len(s.copies) != 2 || d.creates != 2 || s.list != 2 {\n\t\tt.Fatalf(\"copy = %+v, %v, requests=%+v\", r, err, s.copies)\n\t}\n\tif !same(d.buckets[r.MirrorBucket].Id, r.MirrorBucketID) || !same(d.buckets[r.SeedBucket].Id, r.SeedBucketID) {\n\t\tt.Fatalf(\"created bucket IDs missing from report: %+v\", r)\n\t}\n\tif !same(d.buckets[r.MirrorBucket].KmsKeyId, \"sfo-key\") || !same(d.buckets[r.SeedBucket].KmsKeyId, \"sfo-key\") {\n\t\tt.Fatal(\"destination buckets must pin the target region's encryption key\")\n\t}\n\tfor _, copy := range s.copies {\n\t\tif *copy.BucketName != \"gru-1-backup\" || *copy.DestinationBucket != r.SeedBucket || copy.SourceObjectIfMatchETag == nil ||\n\t\t\t!same(copy.DestinationObjectIfNoneMatchETag, \"*\") || copy.OpcSseKmsKeyId != nil ||\n\t\t\t*copy.SourceObjectName != *copy.DestinationObjectName {\n\t\t\tt.Fatalf(\"copy is not pinned to source version and regional seed: %+v\", copy)\n\t\t}\n\t}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 215,
+          "end_line": 218,
+          "text": "\t_, err = c.copy(t.Context(), \"backup\")\n\tif err != nil || s.creates != 1 || d.creates != 2 || len(s.copies) != 2 {\n\t\tt.Fatalf(\"resume: %v, %+v\", err, s.copies)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "objects-fake-copy"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "assertion_credit_limits": []
+    },
+    {
+      "root_id": "internal/disasterrecovery/objects_test.go::TestCopyCannotAdoptLostOrUnknownCreateResponsesOnResume",
+      "path": "internal/disasterrecovery/objects_test.go",
+      "original_name": "TestCopyCannotAdoptLostOrUnknownCreateResponsesOnResume",
+      "current_name": "TestCopyCannotAdoptLostOrUnknownCreateResponsesOnResume",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "historical_survival_state": "retained_body_exact",
+      "historical_survival_current_declaration_sha256": "a504a0e5fa71392600fc38146a56e48263384104fbc2e3a856b06b75a8b90cc5",
+      "original_declaration_sha256": "a504a0e5fa71392600fc38146a56e48263384104fbc2e3a856b06b75a8b90cc5",
+      "current_declaration_sha256": "a504a0e5fa71392600fc38146a56e48263384104fbc2e3a856b06b75a8b90cc5",
+      "canonical_body_drift_from_survival": false,
+      "baseline_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 524,
+        "end_line": 556
+      },
+      "current_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 524,
+        "end_line": 556
+      },
+      "declaration_hash_rule": "Raw func through column-zero close excluding following LF; manually inspected explicit bounds.",
+      "original_declaration_text": "func TestCopyCannotAdoptLostOrUnknownCreateResponsesOnResume(t *testing.T) {\n\tfor _, policy := range []bool{false, true} {\n\t\tfor _, lost := range []bool{false, true} {\n\t\t\tt.Run(fmt.Sprintf(\"policy=%t/lost=%t\", policy, lost), func(t *testing.T) {\n\t\t\t\tc, s, d := objectFixture()\n\t\t\t\tc.apply = true\n\t\t\t\tf := d\n\t\t\t\tif policy {\n\t\t\t\t\tf = s\n\t\t\t\t}\n\t\t\t\tif lost {\n\t\t\t\t\tf.createErr = errors.New(\"create accepted but response lost\")\n\t\t\t\t} else {\n\t\t\t\t\tf.omitCreateID = true\n\t\t\t\t}\n\t\t\t\tr, err := c.copy(t.Context(), \"backup\")\n\t\t\t\tif err == nil || s.list != 0 || (policy && r.PolicyID != \"\") || (!policy && r.MirrorBucketID != \"\") {\n\t\t\t\t\tt.Fatalf(\"unknown create admitted: %+v, %v\", r, err)\n\t\t\t\t}\n\t\t\t\tif policy {\n\t\t\t\t\t// Only successful bucket responses can be reviewed and pinned.\n\t\t\t\t\tc.targetConfig.BucketIDs = map[string]string{r.MirrorBucket: r.MirrorBucketID, r.SeedBucket: r.SeedBucketID}\n\t\t\t\t}\n\t\t\t\tf.createErr, f.omitCreateID = nil, false\n\t\t\t\tbefore := s.creates + d.creates\n\t\t\t\tresumed := *c\n\t\t\t\tif _, err := resumed.copy(t.Context(), \"backup\"); err == nil || s.creates+d.creates != before || s.list != 0 {\n\t\t\t\t\tt.Fatalf(\"lost create adopted on resume: %v, writes=%d\", err, s.creates+d.creates-before)\n\t\t\t\t}\n\t\t\t})\n\t\t}\n\t}\n}",
+      "current_declaration_text": "func TestCopyCannotAdoptLostOrUnknownCreateResponsesOnResume(t *testing.T) {\n\tfor _, policy := range []bool{false, true} {\n\t\tfor _, lost := range []bool{false, true} {\n\t\t\tt.Run(fmt.Sprintf(\"policy=%t/lost=%t\", policy, lost), func(t *testing.T) {\n\t\t\t\tc, s, d := objectFixture()\n\t\t\t\tc.apply = true\n\t\t\t\tf := d\n\t\t\t\tif policy {\n\t\t\t\t\tf = s\n\t\t\t\t}\n\t\t\t\tif lost {\n\t\t\t\t\tf.createErr = errors.New(\"create accepted but response lost\")\n\t\t\t\t} else {\n\t\t\t\t\tf.omitCreateID = true\n\t\t\t\t}\n\t\t\t\tr, err := c.copy(t.Context(), \"backup\")\n\t\t\t\tif err == nil || s.list != 0 || (policy && r.PolicyID != \"\") || (!policy && r.MirrorBucketID != \"\") {\n\t\t\t\t\tt.Fatalf(\"unknown create admitted: %+v, %v\", r, err)\n\t\t\t\t}\n\t\t\t\tif policy {\n\t\t\t\t\t// Only successful bucket responses can be reviewed and pinned.\n\t\t\t\t\tc.targetConfig.BucketIDs = map[string]string{r.MirrorBucket: r.MirrorBucketID, r.SeedBucket: r.SeedBucketID}\n\t\t\t\t}\n\t\t\t\tf.createErr, f.omitCreateID = nil, false\n\t\t\t\tbefore := s.creates + d.creates\n\t\t\t\tresumed := *c\n\t\t\t\tif _, err := resumed.copy(t.Context(), \"backup\"); err == nil || s.creates+d.creates != before || s.list != 0 {\n\t\t\t\t\tt.Fatalf(\"lost create adopted on resume: %v, writes=%d\", err, s.creates+d.creates-before)\n\t\t\t\t}\n\t\t\t})\n\t\t}\n\t}\n}",
+      "category": "unit",
+      "reason": "Fake create acceptance with lost response/omitted ID is followed by local resume on the same fake state; assertions check rejected adoption and unchanged request counts.",
+      "assertion_evidence": [
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 539,
+          "end_line": 542,
+          "text": "\t\t\t\tr, err := c.copy(t.Context(), \"backup\")\n\t\t\t\tif err == nil || s.list != 0 || (policy && r.PolicyID != \"\") || (!policy && r.MirrorBucketID != \"\") {\n\t\t\t\t\tt.Fatalf(\"unknown create admitted: %+v, %v\", r, err)\n\t\t\t\t}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 548,
+          "end_line": 552,
+          "text": "\t\t\t\tbefore := s.creates + d.creates\n\t\t\t\tresumed := *c\n\t\t\t\tif _, err := resumed.copy(t.Context(), \"backup\"); err == nil || s.creates+d.creates != before || s.list != 0 {\n\t\t\t\t\tt.Fatalf(\"lost create adopted on resume: %v, writes=%d\", err, s.creates+d.creates-before)\n\t\t\t\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "objects-fake-copy"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "assertion_credit_limits": []
+    },
+    {
+      "root_id": "internal/disasterrecovery/objects_test.go::TestCopyDoesNotRecreateMissingPinnedResources",
+      "path": "internal/disasterrecovery/objects_test.go",
+      "original_name": "TestCopyDoesNotRecreateMissingPinnedResources",
+      "current_name": "TestCopyDoesNotRecreateMissingPinnedResources",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "historical_survival_state": "retained_body_exact",
+      "historical_survival_current_declaration_sha256": "7b3469233d0d197d8de0bf0c2b9914b470991c1e4b1d2fbbf4cf4fe857e972f5",
+      "original_declaration_sha256": "7b3469233d0d197d8de0bf0c2b9914b470991c1e4b1d2fbbf4cf4fe857e972f5",
+      "current_declaration_sha256": "7b3469233d0d197d8de0bf0c2b9914b470991c1e4b1d2fbbf4cf4fe857e972f5",
+      "canonical_body_drift_from_survival": false,
+      "baseline_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 418,
+        "end_line": 442
+      },
+      "current_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 418,
+        "end_line": 442
+      },
+      "declaration_hash_rule": "Raw func through column-zero close excluding following LF; manually inspected explicit bounds.",
+      "original_declaration_text": "func TestCopyDoesNotRecreateMissingPinnedResources(t *testing.T) {\n\tfor _, resource := range []string{\"mirror\", \"seed\", \"policy\"} {\n\t\tt.Run(resource, func(t *testing.T) {\n\t\t\tc, s, d := objectFixture()\n\t\t\tc.apply = true\n\t\t\tr, err := c.copy(t.Context(), \"backup\")\n\t\t\tif err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tpinCopyReport(c, r)\n\t\t\tswitch resource {\n\t\t\tcase \"mirror\":\n\t\t\t\tdelete(d.buckets, r.MirrorBucket)\n\t\t\tcase \"seed\":\n\t\t\t\tdelete(d.buckets, r.SeedBucket)\n\t\t\tcase \"policy\":\n\t\t\t\ts.policy = nil\n\t\t\t}\n\t\t\ts.creates, d.creates = 0, 0\n\t\t\tif _, err := c.copy(t.Context(), \"backup\"); err == nil || s.creates+d.creates != 0 {\n\t\t\t\tt.Fatalf(\"missing pinned resource recreated: %v, writes=%d\", err, s.creates+d.creates)\n\t\t\t}\n\t\t})\n\t}\n}",
+      "current_declaration_text": "func TestCopyDoesNotRecreateMissingPinnedResources(t *testing.T) {\n\tfor _, resource := range []string{\"mirror\", \"seed\", \"policy\"} {\n\t\tt.Run(resource, func(t *testing.T) {\n\t\t\tc, s, d := objectFixture()\n\t\t\tc.apply = true\n\t\t\tr, err := c.copy(t.Context(), \"backup\")\n\t\t\tif err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tpinCopyReport(c, r)\n\t\t\tswitch resource {\n\t\t\tcase \"mirror\":\n\t\t\t\tdelete(d.buckets, r.MirrorBucket)\n\t\t\tcase \"seed\":\n\t\t\t\tdelete(d.buckets, r.SeedBucket)\n\t\t\tcase \"policy\":\n\t\t\t\ts.policy = nil\n\t\t\t}\n\t\t\ts.creates, d.creates = 0, 0\n\t\t\tif _, err := c.copy(t.Context(), \"backup\"); err == nil || s.creates+d.creates != 0 {\n\t\t\t\tt.Fatalf(\"missing pinned resource recreated: %v, writes=%d\", err, s.creates+d.creates)\n\t\t\t}\n\t\t})\n\t}\n}",
+      "category": "unit",
+      "reason": "Map deletion of pinned fake mirror, seed or policy supports local admission error and zero-create counter checks.",
+      "assertion_evidence": [
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 423,
+          "end_line": 426,
+          "text": "\t\t\tr, err := c.copy(t.Context(), \"backup\")\n\t\t\tif err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 437,
+          "end_line": 439,
+          "text": "\t\t\tif _, err := c.copy(t.Context(), \"backup\"); err == nil || s.creates+d.creates != 0 {\n\t\t\t\tt.Fatalf(\"missing pinned resource recreated: %v, writes=%d\", err, s.creates+d.creates)\n\t\t\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "objects-fake-copy"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "assertion_credit_limits": []
+    },
+    {
+      "root_id": "internal/disasterrecovery/objects_test.go::TestCopyPlansWithoutWrites",
+      "path": "internal/disasterrecovery/objects_test.go",
+      "original_name": "TestCopyPlansWithoutWrites",
+      "current_name": "TestCopyPlansWithoutWrites",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "historical_survival_state": "retained_body_exact",
+      "historical_survival_current_declaration_sha256": "7b160cf4401cc603d07b3a937daa54d263de196ec89a9a146ff02cb15bec27ec",
+      "original_declaration_sha256": "7b160cf4401cc603d07b3a937daa54d263de196ec89a9a146ff02cb15bec27ec",
+      "current_declaration_sha256": "7b160cf4401cc603d07b3a937daa54d263de196ec89a9a146ff02cb15bec27ec",
+      "canonical_body_drift_from_survival": false,
+      "baseline_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 182,
+        "end_line": 188
+      },
+      "current_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 182,
+        "end_line": 188
+      },
+      "declaration_hash_rule": "Raw func through column-zero close excluding following LF; manually inspected explicit bounds.",
+      "original_declaration_text": "func TestCopyPlansWithoutWrites(t *testing.T) {\n\tc, s, d := objectFixture()\n\tr, err := c.copy(t.Context(), \"backup\")\n\tif err != nil || !r.Planned || r.MirrorBucket == r.SourceBucket || r.SeedBucket == r.MirrorBucket || s.creates+d.creates != 0 || s.list != 0 {\n\t\tt.Fatalf(\"plan = %+v, %v, writes=%d\", r, err, s.creates+d.creates)\n\t}\n}",
+      "current_declaration_text": "func TestCopyPlansWithoutWrites(t *testing.T) {\n\tc, s, d := objectFixture()\n\tr, err := c.copy(t.Context(), \"backup\")\n\tif err != nil || !r.Planned || r.MirrorBucket == r.SourceBucket || r.SeedBucket == r.MirrorBucket || s.creates+d.creates != 0 || s.list != 0 {\n\t\tt.Fatalf(\"plan = %+v, %v, writes=%d\", r, err, s.creates+d.creates)\n\t}\n}",
+      "category": "unit",
+      "reason": "Plan-only copier uses fake bucket/policy reads and counter assertions; no production service or filesystem boundary.",
+      "assertion_evidence": [
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 184,
+          "end_line": 187,
+          "text": "\tr, err := c.copy(t.Context(), \"backup\")\n\tif err != nil || !r.Planned || r.MirrorBucket == r.SourceBucket || r.SeedBucket == r.MirrorBucket || s.creates+d.creates != 0 || s.list != 0 {\n\t\tt.Fatalf(\"plan = %+v, %v, writes=%d\", r, err, s.creates+d.creates)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "objects-fake-copy"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "assertion_credit_limits": []
+    },
+    {
+      "root_id": "internal/disasterrecovery/objects_test.go::TestCopyRechecksDestinationIDsAcrossProvisioningSteps",
+      "path": "internal/disasterrecovery/objects_test.go",
+      "original_name": "TestCopyRechecksDestinationIDsAcrossProvisioningSteps",
+      "current_name": "TestCopyRechecksDestinationIDsAcrossProvisioningSteps",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "historical_survival_state": "retained_body_exact",
+      "historical_survival_current_declaration_sha256": "7aff70106805507a952da603c33f50ed50013a61358410552050413c65971d02",
+      "original_declaration_sha256": "7aff70106805507a952da603c33f50ed50013a61358410552050413c65971d02",
+      "current_declaration_sha256": "7aff70106805507a952da603c33f50ed50013a61358410552050413c65971d02",
+      "canonical_body_drift_from_survival": false,
+      "baseline_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 463,
+        "end_line": 492
+      },
+      "current_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 463,
+        "end_line": 492
+      },
+      "declaration_hash_rule": "Raw func through column-zero close excluding following LF; manually inspected explicit bounds.",
+      "original_declaration_text": "func TestCopyRechecksDestinationIDsAcrossProvisioningSteps(t *testing.T) {\n\tfor _, resource := range []string{\"mirror\", \"0000000000SF1REEJJX6TC691V\"} {\n\t\tt.Run(resource, func(t *testing.T) {\n\t\t\tc, s, d := objectFixture()\n\t\t\tc.apply = true\n\t\t\ts.pages = [][]objectstorage.ObjectSummary{{{Name: new(\"v1/snapshot\"), Size: new(int64(8)), Md5: new(\"checksum\"), Etag: new(\"source\")}}}\n\t\t\treplace := func(name string) {\n\t\t\t\tbucket := d.buckets[name]\n\t\t\t\tbucket.Id = new(\"ocid1.bucket.oc1.us-sanjose-1.replacement\")\n\t\t\t\td.buckets[name] = bucket\n\t\t\t}\n\t\t\tif resource == \"mirror\" {\n\t\t\t\td.afterCreate = func() {\n\t\t\t\t\tif d.creates == 2 {\n\t\t\t\t\t\treplace(\"sfo-1-dr-gru-1-backup\")\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t} else {\n\t\t\t\ts.afterCreate = func() { replace(\"sfo-1-dr-gru-1-backup-seed\") }\n\t\t\t}\n\t\t\tr, err := c.copy(t.Context(), \"backup\")\n\t\t\tif err == nil || len(s.copies) != 0 || s.list != 0 {\n\t\t\t\tt.Fatalf(\"replacement received copies: report=%+v err=%v copies=%d inventories=%d\", r, err, len(s.copies), s.list)\n\t\t\t}\n\t\t\tif resource == \"mirror\" && s.creates != 0 {\n\t\t\t\tt.Fatal(\"replacement mirror received a replication policy\")\n\t\t\t}\n\t\t})\n\t}\n}",
+      "current_declaration_text": "func TestCopyRechecksDestinationIDsAcrossProvisioningSteps(t *testing.T) {\n\tfor _, resource := range []string{\"mirror\", \"0000000000SF1REEJJX6TC691V\"} {\n\t\tt.Run(resource, func(t *testing.T) {\n\t\t\tc, s, d := objectFixture()\n\t\t\tc.apply = true\n\t\t\ts.pages = [][]objectstorage.ObjectSummary{{{Name: new(\"v1/snapshot\"), Size: new(int64(8)), Md5: new(\"checksum\"), Etag: new(\"source\")}}}\n\t\t\treplace := func(name string) {\n\t\t\t\tbucket := d.buckets[name]\n\t\t\t\tbucket.Id = new(\"ocid1.bucket.oc1.us-sanjose-1.replacement\")\n\t\t\t\td.buckets[name] = bucket\n\t\t\t}\n\t\t\tif resource == \"mirror\" {\n\t\t\t\td.afterCreate = func() {\n\t\t\t\t\tif d.creates == 2 {\n\t\t\t\t\t\treplace(\"sfo-1-dr-gru-1-backup\")\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t} else {\n\t\t\t\ts.afterCreate = func() { replace(\"sfo-1-dr-gru-1-backup-seed\") }\n\t\t\t}\n\t\t\tr, err := c.copy(t.Context(), \"backup\")\n\t\t\tif err == nil || len(s.copies) != 0 || s.list != 0 {\n\t\t\t\tt.Fatalf(\"replacement received copies: report=%+v err=%v copies=%d inventories=%d\", r, err, len(s.copies), s.list)\n\t\t\t}\n\t\t\tif resource == \"mirror\" && s.creates != 0 {\n\t\t\t\tt.Fatal(\"replacement mirror received a replication policy\")\n\t\t\t}\n\t\t})\n\t}\n}",
+      "category": "unit",
+      "reason": "Fake afterCreate callbacks replace mirror or seed IDs at provisioning boundaries; assertions check local rejection before inventory/copies/policy creation.",
+      "assertion_evidence": [
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 483,
+          "end_line": 489,
+          "text": "\t\t\tr, err := c.copy(t.Context(), \"backup\")\n\t\t\tif err == nil || len(s.copies) != 0 || s.list != 0 {\n\t\t\t\tt.Fatalf(\"replacement received copies: report=%+v err=%v copies=%d inventories=%d\", r, err, len(s.copies), s.list)\n\t\t\t}\n\t\t\tif resource == \"mirror\" && s.creates != 0 {\n\t\t\t\tt.Fatal(\"replacement mirror received a replication policy\")\n\t\t\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "objects-fake-copy"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "assertion_credit_limits": []
+    },
+    {
+      "root_id": "internal/disasterrecovery/objects_test.go::TestCopyRechecksPinnedPolicyBeforeBackfill",
+      "path": "internal/disasterrecovery/objects_test.go",
+      "original_name": "TestCopyRechecksPinnedPolicyBeforeBackfill",
+      "current_name": "TestCopyRechecksPinnedPolicyBeforeBackfill",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "historical_survival_state": "retained_body_exact",
+      "historical_survival_current_declaration_sha256": "64c1494fb9c3d1e9b2c1b0bb6ae15b88b3f74a2e1ba68b8f3420ed3dfcc09a9c",
+      "original_declaration_sha256": "64c1494fb9c3d1e9b2c1b0bb6ae15b88b3f74a2e1ba68b8f3420ed3dfcc09a9c",
+      "current_declaration_sha256": "64c1494fb9c3d1e9b2c1b0bb6ae15b88b3f74a2e1ba68b8f3420ed3dfcc09a9c",
+      "canonical_body_drift_from_survival": false,
+      "baseline_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 444,
+        "end_line": 461
+      },
+      "current_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 444,
+        "end_line": 461
+      },
+      "declaration_hash_rule": "Raw func through column-zero close excluding following LF; manually inspected explicit bounds.",
+      "original_declaration_text": "func TestCopyRechecksPinnedPolicyBeforeBackfill(t *testing.T) {\n\tc, s, d := objectFixture()\n\tc.apply = true\n\tr, err := c.copy(t.Context(), \"backup\")\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tpinCopyReport(c, r)\n\t// An unpinned, absent seed may be created, but that cannot admit a\n\t// same-name policy replacement appearing after the initial inspection.\n\tdelete(d.buckets, r.SeedBucket)\n\tdelete(c.targetConfig.BucketIDs, r.SeedBucket)\n\td.afterCreate = func() { s.policy.Id = new(\"same-name-replacement\") }\n\ts.list = 0\n\tif _, err := c.copy(t.Context(), \"backup\"); err == nil || s.list != 0 {\n\t\tt.Fatalf(\"policy replacement admitted before backfill: %v, inventories=%d\", err, s.list)\n\t}\n}",
+      "current_declaration_text": "func TestCopyRechecksPinnedPolicyBeforeBackfill(t *testing.T) {\n\tc, s, d := objectFixture()\n\tc.apply = true\n\tr, err := c.copy(t.Context(), \"backup\")\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tpinCopyReport(c, r)\n\t// An unpinned, absent seed may be created, but that cannot admit a\n\t// same-name policy replacement appearing after the initial inspection.\n\tdelete(d.buckets, r.SeedBucket)\n\tdelete(c.targetConfig.BucketIDs, r.SeedBucket)\n\td.afterCreate = func() { s.policy.Id = new(\"same-name-replacement\") }\n\ts.list = 0\n\tif _, err := c.copy(t.Context(), \"backup\"); err == nil || s.list != 0 {\n\t\tt.Fatalf(\"policy replacement admitted before backfill: %v, inventories=%d\", err, s.list)\n\t}\n}",
+      "category": "unit",
+      "reason": "Fake seed creation callback replaces the in-memory pinned policy; assertion requires local refusal before fake inventory.",
+      "assertion_evidence": [
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 447,
+          "end_line": 450,
+          "text": "\tr, err := c.copy(t.Context(), \"backup\")\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 458,
+          "end_line": 460,
+          "text": "\tif _, err := c.copy(t.Context(), \"backup\"); err == nil || s.list != 0 {\n\t\tt.Fatalf(\"policy replacement admitted before backfill: %v, inventories=%d\", err, s.list)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "objects-fake-copy"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "assertion_credit_limits": []
+    },
+    {
+      "root_id": "internal/disasterrecovery/objects_test.go::TestCopyRechecksSeedIDDuringInventoryAndBetweenCopies",
+      "path": "internal/disasterrecovery/objects_test.go",
+      "original_name": "TestCopyRechecksSeedIDDuringInventoryAndBetweenCopies",
+      "current_name": "TestCopyRechecksSeedIDDuringInventoryAndBetweenCopies",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "historical_survival_state": "retained_body_exact",
+      "historical_survival_current_declaration_sha256": "7c87c96a1532e996027ff6afa41f3bc3bdb633e06715219968a9a3275454127f",
+      "original_declaration_sha256": "7c87c96a1532e996027ff6afa41f3bc3bdb633e06715219968a9a3275454127f",
+      "current_declaration_sha256": "7c87c96a1532e996027ff6afa41f3bc3bdb633e06715219968a9a3275454127f",
+      "canonical_body_drift_from_survival": false,
+      "baseline_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 494,
+        "end_line": 522
+      },
+      "current_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 494,
+        "end_line": 522
+      },
+      "declaration_hash_rule": "Raw func through column-zero close excluding following LF; manually inspected explicit bounds.",
+      "original_declaration_text": "func TestCopyRechecksSeedIDDuringInventoryAndBetweenCopies(t *testing.T) {\n\tfor _, boundary := range []string{\"inventory\", \"between copies\", \"completion\"} {\n\t\tt.Run(boundary, func(t *testing.T) {\n\t\t\tc, s, d := objectFixture()\n\t\t\tc.apply = true\n\t\t\tobjects := []objectstorage.ObjectSummary{{Name: new(\"v1/first\"), Size: new(int64(8)), Md5: new(\"checksum\"), Etag: new(\"first\")}}\n\t\t\tif boundary != \"completion\" {\n\t\t\t\tobjects = append(objects, objectstorage.ObjectSummary{Name: new(\"v1/second\"), Size: new(int64(8)), Md5: new(\"checksum\"), Etag: new(\"second\")})\n\t\t\t}\n\t\t\ts.pages = [][]objectstorage.ObjectSummary{objects}\n\t\t\treplace := func() {\n\t\t\t\tbucket := d.buckets[\"sfo-1-dr-gru-1-backup-seed\"]\n\t\t\t\tbucket.Id = new(\"ocid1.bucket.oc1.us-sanjose-1.replacement\")\n\t\t\t\td.buckets[*bucket.Name] = bucket\n\t\t\t}\n\t\t\twantCopies := 1\n\t\t\tif boundary == \"inventory\" {\n\t\t\t\ts.afterList = replace\n\t\t\t\twantCopies = 0\n\t\t\t} else {\n\t\t\t\ts.afterCopy = replace\n\t\t\t}\n\t\t\tr, err := c.copy(t.Context(), \"backup\")\n\t\t\tif err == nil || len(s.copies) != wantCopies || r.Seeded != wantCopies {\n\t\t\t\tt.Fatalf(\"replacement admitted at %s: report=%+v err=%v copies=%d\", boundary, r, err, len(s.copies))\n\t\t\t}\n\t\t})\n\t}\n}",
+      "current_declaration_text": "func TestCopyRechecksSeedIDDuringInventoryAndBetweenCopies(t *testing.T) {\n\tfor _, boundary := range []string{\"inventory\", \"between copies\", \"completion\"} {\n\t\tt.Run(boundary, func(t *testing.T) {\n\t\t\tc, s, d := objectFixture()\n\t\t\tc.apply = true\n\t\t\tobjects := []objectstorage.ObjectSummary{{Name: new(\"v1/first\"), Size: new(int64(8)), Md5: new(\"checksum\"), Etag: new(\"first\")}}\n\t\t\tif boundary != \"completion\" {\n\t\t\t\tobjects = append(objects, objectstorage.ObjectSummary{Name: new(\"v1/second\"), Size: new(int64(8)), Md5: new(\"checksum\"), Etag: new(\"second\")})\n\t\t\t}\n\t\t\ts.pages = [][]objectstorage.ObjectSummary{objects}\n\t\t\treplace := func() {\n\t\t\t\tbucket := d.buckets[\"sfo-1-dr-gru-1-backup-seed\"]\n\t\t\t\tbucket.Id = new(\"ocid1.bucket.oc1.us-sanjose-1.replacement\")\n\t\t\t\td.buckets[*bucket.Name] = bucket\n\t\t\t}\n\t\t\twantCopies := 1\n\t\t\tif boundary == \"inventory\" {\n\t\t\t\ts.afterList = replace\n\t\t\t\twantCopies = 0\n\t\t\t} else {\n\t\t\t\ts.afterCopy = replace\n\t\t\t}\n\t\t\tr, err := c.copy(t.Context(), \"backup\")\n\t\t\tif err == nil || len(s.copies) != wantCopies || r.Seeded != wantCopies {\n\t\t\t\tt.Fatalf(\"replacement admitted at %s: report=%+v err=%v copies=%d\", boundary, r, err, len(s.copies))\n\t\t\t}\n\t\t})\n\t}\n}",
+      "category": "unit",
+      "reason": "Fake inventory/afterCopy callbacks replace seed identity; workers1 fixture orders requests and assertions check local counts at each boundary.",
+      "assertion_evidence": [
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 516,
+          "end_line": 519,
+          "text": "\t\t\tr, err := c.copy(t.Context(), \"backup\")\n\t\t\tif err == nil || len(s.copies) != wantCopies || r.Seeded != wantCopies {\n\t\t\t\tt.Fatalf(\"replacement admitted at %s: report=%+v err=%v copies=%d\", boundary, r, err, len(s.copies))\n\t\t\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "objects-fake-copy"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "assertion_credit_limits": []
+    },
+    {
+      "root_id": "internal/disasterrecovery/objects_test.go::TestCopyRefusesConflictingResourcesBeforeMutation",
+      "path": "internal/disasterrecovery/objects_test.go",
+      "original_name": "TestCopyRefusesConflictingResourcesBeforeMutation",
+      "current_name": "TestCopyRefusesConflictingResourcesBeforeMutation",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "historical_survival_state": "retained_body_exact",
+      "historical_survival_current_declaration_sha256": "b6cf9d29427df91efdc95ac85636328c5dce2be0981f366b43f61003b4229547",
+      "original_declaration_sha256": "b6cf9d29427df91efdc95ac85636328c5dce2be0981f366b43f61003b4229547",
+      "current_declaration_sha256": "b6cf9d29427df91efdc95ac85636328c5dce2be0981f366b43f61003b4229547",
+      "canonical_body_drift_from_survival": false,
+      "baseline_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 302,
+        "end_line": 332
+      },
+      "current_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 302,
+        "end_line": 332
+      },
+      "declaration_hash_rule": "Raw func through column-zero close excluding following LF; manually inspected explicit bounds.",
+      "original_declaration_text": "func TestCopyRefusesConflictingResourcesBeforeMutation(t *testing.T) {\n\tfor _, reason := range []string{\"source compartment\", \"source key\", \"existing policy\", \"destination ownership\", \"retention\"} {\n\t\tt.Run(reason, func(t *testing.T) {\n\t\t\tc, s, d := objectFixture()\n\t\t\tc.apply = true\n\t\t\tb := s.buckets[\"gru-1-backup\"]\n\t\t\tswitch reason {\n\t\t\tcase \"source compartment\":\n\t\t\t\tb.CompartmentId = new(\"unrelated\")\n\t\t\tcase \"source key\":\n\t\t\t\tb.KmsKeyId = new(\"unrelated\")\n\t\t\tcase \"existing policy\":\n\t\t\t\ts.policy = &objectstorage.ReplicationPolicySummary{Id: new(\"0000000000V4MRM46HP1SNGDYW\"), Name: new(\"0000000000V4MRM46HP1SNGDYW\")}\n\t\t\tcase \"destination ownership\":\n\t\t\t\td.buckets[\"sfo-1-dr-gru-1-backup\"] = objectstorage.Bucket{Name: new(\"sfo-1-dr-gru-1-backup\")}\n\t\t\tcase \"retention\":\n\t\t\t\tid, err := c.bucket(t.Context(), \"sfo-1-dr-gru-1-backup\", \"\", false, true)\n\t\t\t\tif err != nil {\n\t\t\t\t\tt.Fatal(err)\n\t\t\t\t}\n\t\t\t\tc.targetConfig.BucketIDs = map[string]string{\"sfo-1-dr-gru-1-backup\": id}\n\t\t\t\td.creates = 0\n\t\t\t\td.retention = true\n\t\t\t}\n\t\t\ts.buckets[\"gru-1-backup\"] = b\n\t\t\tif _, err := c.copy(t.Context(), \"backup\"); err == nil || s.creates+d.creates != 0 {\n\t\t\t\tt.Fatalf(\"unsafe admission: %v, writes=%d\", err, s.creates+d.creates)\n\t\t\t}\n\t\t})\n\t}\n}",
+      "current_declaration_text": "func TestCopyRefusesConflictingResourcesBeforeMutation(t *testing.T) {\n\tfor _, reason := range []string{\"source compartment\", \"source key\", \"existing policy\", \"destination ownership\", \"retention\"} {\n\t\tt.Run(reason, func(t *testing.T) {\n\t\t\tc, s, d := objectFixture()\n\t\t\tc.apply = true\n\t\t\tb := s.buckets[\"gru-1-backup\"]\n\t\t\tswitch reason {\n\t\t\tcase \"source compartment\":\n\t\t\t\tb.CompartmentId = new(\"unrelated\")\n\t\t\tcase \"source key\":\n\t\t\t\tb.KmsKeyId = new(\"unrelated\")\n\t\t\tcase \"existing policy\":\n\t\t\t\ts.policy = &objectstorage.ReplicationPolicySummary{Id: new(\"0000000000V4MRM46HP1SNGDYW\"), Name: new(\"0000000000V4MRM46HP1SNGDYW\")}\n\t\t\tcase \"destination ownership\":\n\t\t\t\td.buckets[\"sfo-1-dr-gru-1-backup\"] = objectstorage.Bucket{Name: new(\"sfo-1-dr-gru-1-backup\")}\n\t\t\tcase \"retention\":\n\t\t\t\tid, err := c.bucket(t.Context(), \"sfo-1-dr-gru-1-backup\", \"\", false, true)\n\t\t\t\tif err != nil {\n\t\t\t\t\tt.Fatal(err)\n\t\t\t\t}\n\t\t\t\tc.targetConfig.BucketIDs = map[string]string{\"sfo-1-dr-gru-1-backup\": id}\n\t\t\t\td.creates = 0\n\t\t\t\td.retention = true\n\t\t\t}\n\t\t\ts.buckets[\"gru-1-backup\"] = b\n\t\t\tif _, err := c.copy(t.Context(), \"backup\"); err == nil || s.creates+d.creates != 0 {\n\t\t\t\tt.Fatalf(\"unsafe admission: %v, writes=%d\", err, s.creates+d.creates)\n\t\t\t}\n\t\t})\n\t}\n}",
+      "category": "unit",
+      "reason": "Constructed source/policy/destination fields and fake retention rules cause local admission refusal before fake create counters change.",
+      "assertion_evidence": [
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 318,
+          "end_line": 321,
+          "text": "\t\t\t\tid, err := c.bucket(t.Context(), \"sfo-1-dr-gru-1-backup\", \"\", false, true)\n\t\t\t\tif err != nil {\n\t\t\t\t\tt.Fatal(err)\n\t\t\t\t}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 327,
+          "end_line": 329,
+          "text": "\t\t\tif _, err := c.copy(t.Context(), \"backup\"); err == nil || s.creates+d.creates != 0 {\n\t\t\t\tt.Fatalf(\"unsafe admission: %v, writes=%d\", err, s.creates+d.creates)\n\t\t\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "objects-fake-copy"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "assertion_credit_limits": []
+    },
+    {
+      "root_id": "internal/disasterrecovery/objects_test.go::TestCopyRefusesUnpinnedAndReplacedResources",
+      "path": "internal/disasterrecovery/objects_test.go",
+      "original_name": "TestCopyRefusesUnpinnedAndReplacedResources",
+      "current_name": "TestCopyRefusesUnpinnedAndReplacedResources",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "historical_survival_state": "retained_body_exact",
+      "historical_survival_current_declaration_sha256": "d0519400d2ffe6326bfe6ad0c7485adc3522436a1551e555b750a388faa68029",
+      "original_declaration_sha256": "d0519400d2ffe6326bfe6ad0c7485adc3522436a1551e555b750a388faa68029",
+      "current_declaration_sha256": "d0519400d2ffe6326bfe6ad0c7485adc3522436a1551e555b750a388faa68029",
+      "canonical_body_drift_from_survival": false,
+      "baseline_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 375,
+        "end_line": 416
+      },
+      "current_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 375,
+        "end_line": 416
+      },
+      "declaration_hash_rule": "Raw func through column-zero close excluding following LF; manually inspected explicit bounds.",
+      "original_declaration_text": "func TestCopyRefusesUnpinnedAndReplacedResources(t *testing.T) {\n\tfor _, resource := range []string{\"mirror\", \"seed\", \"policy\"} {\n\t\tfor _, unpinned := range []bool{true, false} {\n\t\t\tfor _, apply := range []bool{false, true} {\n\t\t\t\tt.Run(fmt.Sprintf(\"%s/unpinned=%t/apply=%t\", resource, unpinned, apply), func(t *testing.T) {\n\t\t\t\t\tc, s, d := objectFixture()\n\t\t\t\t\tc.apply = true\n\t\t\t\t\tr, err := c.copy(t.Context(), \"backup\")\n\t\t\t\t\tif err != nil {\n\t\t\t\t\t\tt.Fatal(err)\n\t\t\t\t\t}\n\t\t\t\t\tpinCopyReport(c, r)\n\t\t\t\t\tif resource == \"policy\" {\n\t\t\t\t\t\tif unpinned {\n\t\t\t\t\t\t\tc.sourceConfig.PolicyIDs = nil\n\t\t\t\t\t\t} else {\n\t\t\t\t\t\t\ts.policy.Id = new(\"same-name-replacement\")\n\t\t\t\t\t\t}\n\t\t\t\t\t} else {\n\t\t\t\t\t\tname := r.MirrorBucket\n\t\t\t\t\t\tif resource == \"0000000000SF1REEJJX6TC691V\" {\n\t\t\t\t\t\t\tname = r.SeedBucket\n\t\t\t\t\t\t}\n\t\t\t\t\t\tif unpinned {\n\t\t\t\t\t\t\tdelete(c.targetConfig.BucketIDs, name)\n\t\t\t\t\t\t} else {\n\t\t\t\t\t\t\tb := d.buckets[name]\n\t\t\t\t\t\t\t// Keep identical names, settings and TS-641 tags.\n\t\t\t\t\t\t\tb.Id = new(\"ocid1.bucket.oc1.us-sanjose-1.replacement\")\n\t\t\t\t\t\t\td.buckets[name] = b\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t\tc.apply = apply\n\t\t\t\t\ts.creates, d.creates, s.list = 0, 0, 0\n\t\t\t\t\tif _, err := c.copy(t.Context(), \"backup\"); err == nil || s.creates+d.creates != 0 || s.list != 0 {\n\t\t\t\t\t\tt.Fatalf(\"unowned resource admitted: %v, writes=%d, inventories=%d\", err, s.creates+d.creates, s.list)\n\t\t\t\t\t}\n\t\t\t\t})\n\t\t\t}\n\t\t}\n\t}\n}",
+      "current_declaration_text": "func TestCopyRefusesUnpinnedAndReplacedResources(t *testing.T) {\n\tfor _, resource := range []string{\"mirror\", \"seed\", \"policy\"} {\n\t\tfor _, unpinned := range []bool{true, false} {\n\t\t\tfor _, apply := range []bool{false, true} {\n\t\t\t\tt.Run(fmt.Sprintf(\"%s/unpinned=%t/apply=%t\", resource, unpinned, apply), func(t *testing.T) {\n\t\t\t\t\tc, s, d := objectFixture()\n\t\t\t\t\tc.apply = true\n\t\t\t\t\tr, err := c.copy(t.Context(), \"backup\")\n\t\t\t\t\tif err != nil {\n\t\t\t\t\t\tt.Fatal(err)\n\t\t\t\t\t}\n\t\t\t\t\tpinCopyReport(c, r)\n\t\t\t\t\tif resource == \"policy\" {\n\t\t\t\t\t\tif unpinned {\n\t\t\t\t\t\t\tc.sourceConfig.PolicyIDs = nil\n\t\t\t\t\t\t} else {\n\t\t\t\t\t\t\ts.policy.Id = new(\"same-name-replacement\")\n\t\t\t\t\t\t}\n\t\t\t\t\t} else {\n\t\t\t\t\t\tname := r.MirrorBucket\n\t\t\t\t\t\tif resource == \"0000000000SF1REEJJX6TC691V\" {\n\t\t\t\t\t\t\tname = r.SeedBucket\n\t\t\t\t\t\t}\n\t\t\t\t\t\tif unpinned {\n\t\t\t\t\t\t\tdelete(c.targetConfig.BucketIDs, name)\n\t\t\t\t\t\t} else {\n\t\t\t\t\t\t\tb := d.buckets[name]\n\t\t\t\t\t\t\t// Keep identical names, settings and TS-641 tags.\n\t\t\t\t\t\t\tb.Id = new(\"ocid1.bucket.oc1.us-sanjose-1.replacement\")\n\t\t\t\t\t\t\td.buckets[name] = b\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t\tc.apply = apply\n\t\t\t\t\ts.creates, d.creates, s.list = 0, 0, 0\n\t\t\t\t\tif _, err := c.copy(t.Context(), \"backup\"); err == nil || s.creates+d.creates != 0 || s.list != 0 {\n\t\t\t\t\t\tt.Fatalf(\"unowned resource admitted: %v, writes=%d, inventories=%d\", err, s.creates+d.creates, s.list)\n\t\t\t\t\t}\n\t\t\t\t})\n\t\t\t}\n\t\t}\n\t}\n}",
+      "category": "unit",
+      "reason": "Fake pin removal/replacement tables exercise local identity admission; seed-labelled rows actually mutate mirror due to a mismatched branch string, so intended seed coverage is unresolved/uncredited.",
+      "assertion_evidence": [
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 382,
+          "end_line": 385,
+          "text": "\t\t\t\t\tr, err := c.copy(t.Context(), \"backup\")\n\t\t\t\t\tif err != nil {\n\t\t\t\t\t\tt.Fatal(err)\n\t\t\t\t\t}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 409,
+          "end_line": 411,
+          "text": "\t\t\t\t\tif _, err := c.copy(t.Context(), \"backup\"); err == nil || s.creates+d.creates != 0 || s.list != 0 {\n\t\t\t\t\t\tt.Fatalf(\"unowned resource admitted: %v, writes=%d, inventories=%d\", err, s.creates+d.creates, s.list)\n\t\t\t\t\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "objects-fake-copy"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "assertion_credit_limits": [
+        "Intended seed unpinned/replacement rows unresolved and uncredited: loop uses seed, branch tests opaque string; actual mirror/policy assertions retain unit category."
+      ]
+    },
+    {
+      "root_id": "internal/disasterrecovery/objects_test.go::TestCopyReportsSuccessfulCreateIDsAfterLaterFailure",
+      "path": "internal/disasterrecovery/objects_test.go",
+      "original_name": "TestCopyReportsSuccessfulCreateIDsAfterLaterFailure",
+      "current_name": "TestCopyReportsSuccessfulCreateIDsAfterLaterFailure",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "historical_survival_state": "retained_body_exact",
+      "historical_survival_current_declaration_sha256": "7a0bf7a1775d1e5ded2b177cd3584c290f93813ae5c4464a02b7ccc0ec1dbf22",
+      "original_declaration_sha256": "7a0bf7a1775d1e5ded2b177cd3584c290f93813ae5c4464a02b7ccc0ec1dbf22",
+      "current_declaration_sha256": "7a0bf7a1775d1e5ded2b177cd3584c290f93813ae5c4464a02b7ccc0ec1dbf22",
+      "canonical_body_drift_from_survival": false,
+      "baseline_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 558,
+        "end_line": 612
+      },
+      "current_source": {
+        "path": "internal/disasterrecovery/objects_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+        "line": 558,
+        "end_line": 612
+      },
+      "declaration_hash_rule": "Raw func through column-zero close excluding following LF; manually inspected explicit bounds.",
+      "original_declaration_text": "func TestCopyReportsSuccessfulCreateIDsAfterLaterFailure(t *testing.T) {\n\tfor _, failure := range []string{\"mirror readback\", \"mirror replacement\", \"seed response lost\", \"policy replacement\", \"policy not visible\", \"backfill\"} {\n\t\tt.Run(failure, func(t *testing.T) {\n\t\t\tc, s, d := objectFixture()\n\t\t\tc.apply = true\n\t\t\tswitch failure {\n\t\t\tcase \"mirror readback\":\n\t\t\t\td.afterCreate = func() { d.retention = true }\n\t\t\tcase \"mirror replacement\":\n\t\t\t\td.afterCreate = func() {\n\t\t\t\t\tb := d.buckets[\"sfo-1-dr-gru-1-backup\"]\n\t\t\t\t\tb.Id = new(\"ocid1.bucket.oc1.us-sanjose-1.replacement\")\n\t\t\t\t\td.buckets[*b.Name] = b\n\t\t\t\t}\n\t\t\tcase \"seed response lost\":\n\t\t\t\td.afterCreate = func() {\n\t\t\t\t\tif d.creates == 2 {\n\t\t\t\t\t\td.createErr = errors.New(\"seed created but response lost\")\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\tcase \"policy replacement\":\n\t\t\t\ts.afterCreate = func() { s.policy.Id = new(\"same-name-replacement\") }\n\t\t\tcase \"policy not visible\":\n\t\t\t\ts.afterCreate = func() { s.policy = nil }\n\t\t\tcase \"backfill\":\n\t\t\t\ts.pages = [][]objectstorage.ObjectSummary{{{Name: new(\"snapshot\"), Size: new(int64(8)), Md5: new(\"checksum\"), Etag: new(\"source\")}}}\n\t\t\t\ts.copyErr = errors.New(\"copy failed\")\n\t\t\t}\n\t\t\tr, err := c.copy(t.Context(), \"backup\")\n\t\t\tif err == nil {\n\t\t\t\tt.Fatal(\"failure accepted\")\n\t\t\t}\n\t\t\twant := map[string]string{\"mirror_bucket_id\": \"ocid1.bucket.oc1.us-sanjose-1.bucket1\"}\n\t\t\tif strings.HasPrefix(failure, \"policy\") || failure == \"backfill\" {\n\t\t\t\twant[\"seed_bucket_id\"] = \"ocid1.bucket.oc1.us-sanjose-1.bucket2\"\n\t\t\t\twant[\"policy_id\"] = \"policy-1\"\n\t\t\t} else if r.SeedBucketID != \"\" || r.PolicyID != \"\" {\n\t\t\t\tt.Fatalf(\"untrusted IDs reported: %+v\", r)\n\t\t\t}\n\t\t\tdata, err := json.Marshal(r)\n\t\t\tif err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tvar report map[string]any\n\t\t\tif err := json.Unmarshal(data, &report); err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tfor field, id := range want {\n\t\t\t\tif report[field] != id {\n\t\t\t\t\tt.Fatalf(\"report lost successful %s after %s: %s\", field, failure, data)\n\t\t\t\t}\n\t\t\t}\n\t\t})\n\t}\n}",
+      "current_declaration_text": "func TestCopyReportsSuccessfulCreateIDsAfterLaterFailure(t *testing.T) {\n\tfor _, failure := range []string{\"mirror readback\", \"mirror replacement\", \"seed response lost\", \"policy replacement\", \"policy not visible\", \"backfill\"} {\n\t\tt.Run(failure, func(t *testing.T) {\n\t\t\tc, s, d := objectFixture()\n\t\t\tc.apply = true\n\t\t\tswitch failure {\n\t\t\tcase \"mirror readback\":\n\t\t\t\td.afterCreate = func() { d.retention = true }\n\t\t\tcase \"mirror replacement\":\n\t\t\t\td.afterCreate = func() {\n\t\t\t\t\tb := d.buckets[\"sfo-1-dr-gru-1-backup\"]\n\t\t\t\t\tb.Id = new(\"ocid1.bucket.oc1.us-sanjose-1.replacement\")\n\t\t\t\t\td.buckets[*b.Name] = b\n\t\t\t\t}\n\t\t\tcase \"seed response lost\":\n\t\t\t\td.afterCreate = func() {\n\t\t\t\t\tif d.creates == 2 {\n\t\t\t\t\t\td.createErr = errors.New(\"seed created but response lost\")\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\tcase \"policy replacement\":\n\t\t\t\ts.afterCreate = func() { s.policy.Id = new(\"same-name-replacement\") }\n\t\t\tcase \"policy not visible\":\n\t\t\t\ts.afterCreate = func() { s.policy = nil }\n\t\t\tcase \"backfill\":\n\t\t\t\ts.pages = [][]objectstorage.ObjectSummary{{{Name: new(\"snapshot\"), Size: new(int64(8)), Md5: new(\"checksum\"), Etag: new(\"source\")}}}\n\t\t\t\ts.copyErr = errors.New(\"copy failed\")\n\t\t\t}\n\t\t\tr, err := c.copy(t.Context(), \"backup\")\n\t\t\tif err == nil {\n\t\t\t\tt.Fatal(\"failure accepted\")\n\t\t\t}\n\t\t\twant := map[string]string{\"mirror_bucket_id\": \"ocid1.bucket.oc1.us-sanjose-1.bucket1\"}\n\t\t\tif strings.HasPrefix(failure, \"policy\") || failure == \"backfill\" {\n\t\t\t\twant[\"seed_bucket_id\"] = \"ocid1.bucket.oc1.us-sanjose-1.bucket2\"\n\t\t\t\twant[\"policy_id\"] = \"policy-1\"\n\t\t\t} else if r.SeedBucketID != \"\" || r.PolicyID != \"\" {\n\t\t\t\tt.Fatalf(\"untrusted IDs reported: %+v\", r)\n\t\t\t}\n\t\t\tdata, err := json.Marshal(r)\n\t\t\tif err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tvar report map[string]any\n\t\t\tif err := json.Unmarshal(data, &report); err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tfor field, id := range want {\n\t\t\t\tif report[field] != id {\n\t\t\t\t\tt.Fatalf(\"report lost successful %s after %s: %s\", field, failure, data)\n\t\t\t\t}\n\t\t\t}\n\t\t})\n\t}\n}",
+      "category": "unit",
+      "reason": "Injected fake provisioning/backfill failures leave successful response IDs in CopyReport; JSON marshal/unmarshal checks map fields locally.",
+      "assertion_evidence": [
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 586,
+          "end_line": 609,
+          "text": "\t\t\tr, err := c.copy(t.Context(), \"backup\")\n\t\t\tif err == nil {\n\t\t\t\tt.Fatal(\"failure accepted\")\n\t\t\t}\n\t\t\twant := map[string]string{\"mirror_bucket_id\": \"ocid1.bucket.oc1.us-sanjose-1.bucket1\"}\n\t\t\tif strings.HasPrefix(failure, \"policy\") || failure == \"backfill\" {\n\t\t\t\twant[\"seed_bucket_id\"] = \"ocid1.bucket.oc1.us-sanjose-1.bucket2\"\n\t\t\t\twant[\"policy_id\"] = \"policy-1\"\n\t\t\t} else if r.SeedBucketID != \"\" || r.PolicyID != \"\" {\n\t\t\t\tt.Fatalf(\"untrusted IDs reported: %+v\", r)\n\t\t\t}\n\t\t\tdata, err := json.Marshal(r)\n\t\t\tif err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tvar report map[string]any\n\t\t\tif err := json.Unmarshal(data, &report); err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tfor field, id := range want {\n\t\t\t\tif report[field] != id {\n\t\t\t\t\tt.Fatalf(\"report lost successful %s after %s: %s\", field, failure, data)\n\t\t\t\t}\n\t\t\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "objects-fake-copy"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "assertion_credit_limits": []
+    },
+    {
+      "root_id": "internal/disasterrecovery/vault_test.go::TestVaultReplicaCancelledPoll",
+      "path": "internal/disasterrecovery/vault_test.go",
+      "original_name": "TestVaultReplicaCancelledPoll",
+      "current_name": "TestVaultReplicaCancelledPoll",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "historical_survival_state": "retained_body_exact",
+      "historical_survival_current_declaration_sha256": "1d0225cad5c81a71f3e7936aeecd9a12b8cdc92a4e187387b109340d8ba4bb8f",
+      "original_declaration_sha256": "1d0225cad5c81a71f3e7936aeecd9a12b8cdc92a4e187387b109340d8ba4bb8f",
+      "current_declaration_sha256": "1d0225cad5c81a71f3e7936aeecd9a12b8cdc92a4e187387b109340d8ba4bb8f",
+      "canonical_body_drift_from_survival": false,
+      "baseline_source": {
+        "path": "internal/disasterrecovery/vault_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "53fa098516a2af2bb931161b2f4eb8230b950a0d",
+        "line": 236,
+        "end_line": 260
+      },
+      "current_source": {
+        "path": "internal/disasterrecovery/vault_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "53fa098516a2af2bb931161b2f4eb8230b950a0d",
+        "line": 236,
+        "end_line": 260
+      },
+      "declaration_hash_rule": "Raw func through column-zero close excluding following LF; manually inspected explicit bounds.",
+      "original_declaration_text": "func TestVaultReplicaCancelledPoll(t *testing.T) {\n\tfor _, name := range []string{\"waiting\", \"during ready read\"} {\n\t\tt.Run(name, func(t *testing.T) {\n\t\t\tsynctest.Test(t, func(t *testing.T) {\n\t\t\t\tctx, cancel := context.WithCancel(t.Context())\n\t\t\t\tdefer cancel()\n\t\t\t\tfake := newFakeVaultReplicaClient(t)\n\t\t\t\tif name == \"during ready read\" {\n\t\t\t\t\tfake.pages = []keymanagement.ListVaultReplicasResponse{{}, {Items: []keymanagement.VaultReplicaSummary{vaultTestReplica(keymanagement.VaultReplicaSummaryStatusCreated)}}}\n\t\t\t\t\tfake.onList = func(context.Context) {\n\t\t\t\t\t\tif fake.lists == 2 {\n\t\t\t\t\t\t\tcancel()\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t} else {\n\t\t\t\t\tgo func() { time.Sleep(time.Second); cancel() }()\n\t\t\t\t}\n\t\t\t\treport, err := ensureVaultReplica(ctx, fake, vaultTestID, vaultTestSource, vaultTestTarget, true)\n\t\t\t\tif !errors.Is(err, context.Canceled) || report.Status != \"CREATING\" || len(fake.creates) != 1 {\n\t\t\t\t\tt.Fatalf(\"cancelled poll = %+v, %v; writes = %d\", report, err, len(fake.creates))\n\t\t\t\t}\n\t\t\t})\n\t\t})\n\t}\n}",
+      "current_declaration_text": "func TestVaultReplicaCancelledPoll(t *testing.T) {\n\tfor _, name := range []string{\"waiting\", \"during ready read\"} {\n\t\tt.Run(name, func(t *testing.T) {\n\t\t\tsynctest.Test(t, func(t *testing.T) {\n\t\t\t\tctx, cancel := context.WithCancel(t.Context())\n\t\t\t\tdefer cancel()\n\t\t\t\tfake := newFakeVaultReplicaClient(t)\n\t\t\t\tif name == \"during ready read\" {\n\t\t\t\t\tfake.pages = []keymanagement.ListVaultReplicasResponse{{}, {Items: []keymanagement.VaultReplicaSummary{vaultTestReplica(keymanagement.VaultReplicaSummaryStatusCreated)}}}\n\t\t\t\t\tfake.onList = func(context.Context) {\n\t\t\t\t\t\tif fake.lists == 2 {\n\t\t\t\t\t\t\tcancel()\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t} else {\n\t\t\t\t\tgo func() { time.Sleep(time.Second); cancel() }()\n\t\t\t\t}\n\t\t\t\treport, err := ensureVaultReplica(ctx, fake, vaultTestID, vaultTestSource, vaultTestTarget, true)\n\t\t\t\tif !errors.Is(err, context.Canceled) || report.Status != \"CREATING\" || len(fake.creates) != 1 {\n\t\t\t\t\tt.Fatalf(\"cancelled poll = %+v, %v; writes = %d\", report, err, len(fake.creates))\n\t\t\t\t}\n\t\t\t})\n\t\t})\n\t}\n}",
+      "category": "unit",
+      "reason": "Local context cancellation and testing/synctest time operate against fake Vault Get/List/Create records; assertions require context.Canceled, CREATING and one recorded create.",
+      "assertion_evidence": [
+        {
+          "path": "internal/disasterrecovery/vault_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "53fa098516a2af2bb931161b2f4eb8230b950a0d",
+          "line": 253,
+          "end_line": 256,
+          "text": "\t\t\t\treport, err := ensureVaultReplica(ctx, fake, vaultTestID, vaultTestSource, vaultTestTarget, true)\n\t\t\t\tif !errors.Is(err, context.Canceled) || report.Status != \"CREATING\" || len(fake.creates) != 1 {\n\t\t\t\t\tt.Fatalf(\"cancelled poll = %+v, %v; writes = %d\", report, err, len(fake.creates))\n\t\t\t\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "vault-fake-cancellation"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "assertion_credit_limits": []
+    }
+  ],
+  "connected_source_evidence": {
+    "key-predicates": {
+      "call_path": "Root -> kmsEndpoint / validateVaultKey -> same; no requireVaultKey SDK path.",
+      "boundary": "local strings and synthetic SDK structs",
+      "spans": [
+        {
+          "path": "internal/disasterrecovery/key.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "5599662d9ebc5703723b42718279804497646e02",
+          "line": 47,
+          "end_line": 66,
+          "text": "func kmsEndpoint(endpoint *string, region, operation string) (string, error) {\n\tif endpoint != nil {\n\t\tu, err := url.Parse(*endpoint)\n\t\tsuffix := \"-\" + operation + \".kms.\" + region\n\t\tif err == nil && u.Scheme == \"https\" && u.Host == u.Hostname() && u.User == nil && u.Path == \"\" &&\n\t\t\tu.RawQuery == \"\" && !u.ForceQuery && u.Fragment == \"\" &&\n\t\t\t(strings.HasSuffix(u.Hostname(), suffix+\".oraclecloud.com\") || strings.HasSuffix(u.Hostname(), suffix+\".oci.oraclecloud.com\")) {\n\t\t\treturn *endpoint, nil\n\t\t}\n\t}\n\treturn \"\", fmt.Errorf(\"Vault has no valid %s endpoint in region %s\", operation, region)\n}\n\nfunc validateVaultKey(key keymanagement.Key, config Region) error {\n\tif !same(key.Id, config.KeyID) || !same(key.VaultId, config.VaultID) || !same(key.CompartmentId, config.CompartmentID) ||\n\t\tkey.LifecycleState != keymanagement.KeyLifecycleStateEnabled {\n\t\treturn errors.New(\"recovery encryption key is not enabled in the configured Vault and compartment\")\n\t}\n\treturn nil\n}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/objects.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "35c6926d46f4ce619da9a773ae1133235b4bdaa3",
+          "line": 484,
+          "end_line": 484,
+          "text": "func same(value *string, want string) bool { return value != nil && *value == want }\n"
+        }
+      ]
+    },
+    "objects-fake-copy": {
+      "call_path": "objectFixture assigns fakeObjects to copier source and target; copy -> policy/bucket/replicating -> seed -> seedObject -> metadata/matches/digest/waitCopy; every client method reached is overridden by fakeObjects. newCopier and real client factory are not called.",
+      "boundary": "mutex-protected in-memory maps/counters, callback hooks, strings.Reader payload, synthetic serviceError; local goroutines and timers only.",
+      "spans": [
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 18,
+          "end_line": 180,
+          "text": "type fakeObjects struct {\n\tobjectClient\n\tbuckets      map[string]objectstorage.Bucket\n\tpolicy       *objectstorage.ReplicationPolicySummary\n\tpages        [][]objectstorage.ObjectSummary\n\theads        map[string]objectstorage.HeadObjectResponse\n\tmirror       map[string]objectstorage.HeadObjectResponse\n\tmu           *sync.Mutex // Shared by both regions; backfill workers call them concurrently.\n\tcopies       []objectstorage.CopyObjectRequest\n\tcreates      int\n\tlist         int\n\tretention    bool\n\tcopyErr      error\n\tcopyErrs     map[string]error // By source object name.\n\tbeforeCopy   func(objectstorage.CopyObjectRequest)\n\tstatus       objectstorage.WorkRequestStatusEnum\n\tremote       *fakeObjects\n\tcreateErr    error\n\tomitCreateID bool\n\tafterCreate  func()\n\tafterList    func()\n\tafterCopy    func()\n}\n\nfunc (f *fakeObjects) GetBucket(_ context.Context, r objectstorage.GetBucketRequest) (objectstorage.GetBucketResponse, error) {\n\tf.mu.Lock()\n\tdefer f.mu.Unlock()\n\tif b, ok := f.buckets[*r.BucketName]; ok {\n\t\treturn objectstorage.GetBucketResponse{Bucket: b}, nil\n\t}\n\treturn objectstorage.GetBucketResponse{}, newServiceFailure(http.StatusNotFound, \"BucketNotFound\", \"missing\", \"request\")\n}\nfunc (f *fakeObjects) CreateBucket(_ context.Context, r objectstorage.CreateBucketRequest) (objectstorage.CreateBucketResponse, error) {\n\tf.creates++\n\tb := objectstorage.Bucket{Id: new(fmt.Sprintf(\"ocid1.bucket.oc1.us-sanjose-1.bucket%d\", f.creates)), Name: r.Name, Namespace: r.NamespaceName, CompartmentId: r.CompartmentId, KmsKeyId: r.KmsKeyId,\n\t\tPublicAccessType: objectstorage.BucketPublicAccessTypeEnum(r.PublicAccessType), StorageTier: objectstorage.BucketStorageTierEnum(r.StorageTier),\n\t\tVersioning: objectstorage.BucketVersioningEnum(r.Versioning), IsReadOnly: new(false), ReplicationEnabled: new(false), FreeformTags: r.FreeformTags}\n\tf.buckets[*r.Name] = b\n\tif f.afterCreate != nil {\n\t\tf.afterCreate()\n\t}\n\tif f.createErr != nil {\n\t\treturn objectstorage.CreateBucketResponse{}, f.createErr\n\t}\n\tif f.omitCreateID {\n\t\tb.Id = nil\n\t}\n\treturn objectstorage.CreateBucketResponse{Bucket: b}, nil\n}\nfunc (f *fakeObjects) ListRetentionRules(context.Context, objectstorage.ListRetentionRulesRequest) (objectstorage.ListRetentionRulesResponse, error) {\n\tr := objectstorage.ListRetentionRulesResponse{}\n\tif f.retention {\n\t\tr.Items = []objectstorage.RetentionRuleSummary{{}}\n\t}\n\treturn r, nil\n}\nfunc (f *fakeObjects) ListReplicationPolicies(context.Context, objectstorage.ListReplicationPoliciesRequest) (objectstorage.ListReplicationPoliciesResponse, error) {\n\tr := objectstorage.ListReplicationPoliciesResponse{}\n\tif f.policy != nil {\n\t\tr.Items = []objectstorage.ReplicationPolicySummary{*f.policy}\n\t}\n\treturn r, nil\n}\nfunc (f *fakeObjects) CreateReplicationPolicy(_ context.Context, r objectstorage.CreateReplicationPolicyRequest) (objectstorage.CreateReplicationPolicyResponse, error) {\n\tf.creates++\n\tf.policy = &objectstorage.ReplicationPolicySummary{Id: new(\"policy-1\"), Name: r.Name, DestinationBucketName: r.DestinationBucketName,\n\t\tDestinationRegionName: r.DestinationRegionName, Status: objectstorage.ReplicationPolicySummaryStatusActive}\n\tif f.remote != nil {\n\t\tb := f.remote.buckets[*r.DestinationBucketName]\n\t\tb.IsReadOnly = new(true)\n\t\tf.remote.buckets[*r.DestinationBucketName] = b\n\t}\n\tresponse := objectstorage.CreateReplicationPolicyResponse{ReplicationPolicy: objectstorage.ReplicationPolicy{\n\t\tId: f.policy.Id, Name: f.policy.Name, DestinationRegionName: f.policy.DestinationRegionName,\n\t\tDestinationBucketName: f.policy.DestinationBucketName, Status: objectstorage.ReplicationPolicyStatusEnum(f.policy.Status)}}\n\tif f.afterCreate != nil {\n\t\tf.afterCreate()\n\t}\n\tif f.createErr != nil {\n\t\treturn objectstorage.CreateReplicationPolicyResponse{}, f.createErr\n\t}\n\tif f.omitCreateID {\n\t\tresponse.Id = nil\n\t}\n\treturn response, nil\n}\nfunc (f *fakeObjects) ListObjects(_ context.Context, r objectstorage.ListObjectsRequest) (objectstorage.ListObjectsResponse, error) {\n\tf.mu.Lock()\n\tdefer f.mu.Unlock()\n\ti := f.list\n\tf.list++\n\tif f.afterList != nil {\n\t\tf.afterList()\n\t}\n\tresponse := objectstorage.ListObjectsResponse{}\n\tif i < len(f.pages) {\n\t\tresponse.Objects = f.pages[i]\n\t}\n\tif i+1 < len(f.pages) {\n\t\tresponse.NextStartWith = new(\"next\")\n\t}\n\treturn response, nil\n}\nfunc (f *fakeObjects) GetObject(_ context.Context, r objectstorage.GetObjectRequest) (objectstorage.GetObjectResponse, error) {\n\tf.mu.Lock()\n\tdefer f.mu.Unlock()\n\tif *r.BucketName == \"gru-1-backup\" {\n\t\tfor _, page := range f.pages {\n\t\t\tfor _, object := range page {\n\t\t\t\tif *object.Name == *r.ObjectName {\n\t\t\t\t\treturn objectstorage.GetObjectResponse{ContentLength: object.Size, ContentMd5: object.Md5, ETag: object.Etag, Content: io.NopCloser(strings.NewReader(\"contents\"))}, nil\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\theads := f.heads\n\tif *r.BucketName == \"sfo-1-dr-gru-1-backup\" {\n\t\theads = f.mirror\n\t}\n\tif h, ok := heads[*r.ObjectName]; ok {\n\t\treturn objectstorage.GetObjectResponse{ContentLength: h.ContentLength, ContentMd5: h.ContentMd5, ETag: h.ETag,\n\t\t\tContent: io.NopCloser(strings.NewReader(\"contents\"))}, nil\n\t}\n\treturn objectstorage.GetObjectResponse{}, newServiceFailure(http.StatusNotFound, \"ObjectNotFound\", \"missing\", \"request\")\n}\nfunc (f *fakeObjects) CopyObject(_ context.Context, r objectstorage.CopyObjectRequest) (objectstorage.CopyObjectResponse, error) {\n\tif f.beforeCopy != nil {\n\t\tf.beforeCopy(r)\n\t}\n\tf.mu.Lock()\n\tdefer f.mu.Unlock()\n\tf.copies = append(f.copies, r)\n\tif f.copyErr != nil {\n\t\treturn objectstorage.CopyObjectResponse{}, f.copyErr\n\t}\n\tif err := f.copyErrs[*r.SourceObjectName]; err != nil {\n\t\treturn objectstorage.CopyObjectResponse{}, err\n\t}\n\tf.heads[*r.SourceObjectName] = objectstorage.HeadObjectResponse{ContentLength: new(int64(8)), ContentMd5: new(\"checksum\"), ETag: new(\"copy-etag\")}\n\tif f.afterCopy != nil {\n\t\tf.afterCopy()\n\t}\n\treturn objectstorage.CopyObjectResponse{OpcWorkRequestId: new(\"copy-1\")}, nil\n}\nfunc (f *fakeObjects) GetWorkRequest(context.Context, objectstorage.GetWorkRequestRequest) (objectstorage.GetWorkRequestResponse, error) {\n\tf.mu.Lock()\n\tdefer f.mu.Unlock()\n\treturn objectstorage.GetWorkRequestResponse{WorkRequest: objectstorage.WorkRequest{Status: f.status}}, nil\n}\n\nfunc objectFixture() (*copier, *fakeObjects, *fakeObjects) {\n\tmu := &sync.Mutex{}\n\ts := &fakeObjects{buckets: map[string]objectstorage.Bucket{}, heads: map[string]objectstorage.HeadObjectResponse{}, status: objectstorage.WorkRequestStatusCompleted, mu: mu}\n\tt := &fakeObjects{buckets: map[string]objectstorage.Bucket{}, heads: s.heads, mu: mu}\n\ts.remote = t\n\tc := &copier{source: s, target: t, namespace: \"namespace\", sourceRegion: \"sa-saopaulo-1\", targetRegion: \"us-sanjose-1\",\n\t\tsourceCell: \"gru\", targetCell: \"sfo\", sourceConfig: Region{CompartmentID: \"gru-control\", KeyID: \"gru-key\"},\n\t\ttargetConfig: Region{CompartmentID: \"sfo-control\", KeyID: \"sfo-key\"}, Pause: func(context.Context, time.Duration) error { return nil }}\n\ts.buckets[\"gru-1-backup\"] = objectstorage.Bucket{Name: new(\"gru-1-backup\"), Namespace: &c.namespace, CompartmentId: &c.sourceConfig.CompartmentID,\n\t\tKmsKeyId: &c.sourceConfig.KeyID, PublicAccessType: objectstorage.BucketPublicAccessTypeNopublicaccess,\n\t\tStorageTier: objectstorage.BucketStorageTierStandard, IsReadOnly: new(false)}\n\treturn c, s, t\n}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 370,
+          "end_line": 373,
+          "text": "func pinCopyReport(c *copier, r CopyReport) {\n\tc.targetConfig.BucketIDs = map[string]string{r.MirrorBucket: r.MirrorBucketID, r.SeedBucket: r.SeedBucketID}\n\tc.sourceConfig.PolicyIDs = map[string]string{\"TS-641-\" + r.SourceBucket: r.PolicyID}\n}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 673,
+          "end_line": 685,
+          "text": "type fakeServiceFailure struct {\n\tstatus int\n\tcode   string\n}\n\nfunc (e fakeServiceFailure) Error() string           { return e.code }\nfunc (e fakeServiceFailure) GetHTTPStatusCode() int  { return e.status }\nfunc (e fakeServiceFailure) GetCode() string         { return e.code }\nfunc (e fakeServiceFailure) GetMessage() string      { return e.code }\nfunc (e fakeServiceFailure) GetOpcRequestID() string { return \"request\" }\nfunc newServiceFailure(status int, code, message, request string) error {\n\treturn fakeServiceFailure{status, code}\n}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/objects.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "35c6926d46f4ce619da9a773ae1133235b4bdaa3",
+          "line": 22,
+          "end_line": 32,
+          "text": "type objectClient interface {\n\tGetBucket(context.Context, objectstorage.GetBucketRequest) (objectstorage.GetBucketResponse, error)\n\tCreateBucket(context.Context, objectstorage.CreateBucketRequest) (objectstorage.CreateBucketResponse, error)\n\tListRetentionRules(context.Context, objectstorage.ListRetentionRulesRequest) (objectstorage.ListRetentionRulesResponse, error)\n\tListReplicationPolicies(context.Context, objectstorage.ListReplicationPoliciesRequest) (objectstorage.ListReplicationPoliciesResponse, error)\n\tCreateReplicationPolicy(context.Context, objectstorage.CreateReplicationPolicyRequest) (objectstorage.CreateReplicationPolicyResponse, error)\n\tListObjects(context.Context, objectstorage.ListObjectsRequest) (objectstorage.ListObjectsResponse, error)\n\tGetObject(context.Context, objectstorage.GetObjectRequest) (objectstorage.GetObjectResponse, error)\n\tCopyObject(context.Context, objectstorage.CopyObjectRequest) (objectstorage.CopyObjectResponse, error)\n\tGetWorkRequest(context.Context, objectstorage.GetWorkRequestRequest) (objectstorage.GetWorkRequestResponse, error)\n}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/objects.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "35c6926d46f4ce619da9a773ae1133235b4bdaa3",
+          "line": 85,
+          "end_line": 179,
+          "text": "func (c *copier) copy(ctx context.Context, role string) (CopyReport, error) {\n\tr := CopyReport{SourceRegion: c.sourceRegion, TargetRegion: c.targetRegion,\n\t\tSourceBucket: c.sourceCell + \"-1-\" + role,\n\t\tMirrorBucket: c.targetCell + \"-1-dr-\" + c.sourceCell + \"-1-\" + role,\n\t\tSeedBucket:   c.targetCell + \"-1-dr-\" + c.sourceCell + \"-1-\" + role + \"-seed\", Planned: !c.apply}\n\tr.MirrorBucketID = c.targetConfig.BucketIDs[r.MirrorBucket]\n\tr.SeedBucketID = c.targetConfig.BucketIDs[r.SeedBucket]\n\tr.PolicyID = c.sourceConfig.PolicyIDs[\"TS-641-\"+r.SourceBucket]\n\tsource, err := c.source.GetBucket(ctx, objectstorage.GetBucketRequest{NamespaceName: &c.namespace, BucketName: &r.SourceBucket})\n\tif err != nil {\n\t\treturn r, fmt.Errorf(\"inspect source %s: %w\", r.SourceBucket, err)\n\t}\n\tif !same(source.Name, r.SourceBucket) || !same(source.Namespace, c.namespace) ||\n\t\t!same(source.CompartmentId, c.sourceConfig.CompartmentID) || !same(source.KmsKeyId, c.sourceConfig.KeyID) ||\n\t\tsource.PublicAccessType != objectstorage.BucketPublicAccessTypeNopublicaccess ||\n\t\tsource.IsReadOnly == nil || *source.IsReadOnly || source.StorageTier != objectstorage.BucketStorageTierStandard {\n\t\treturn r, fmt.Errorf(\"source %s differs from the pinned private regional bucket\", r.SourceBucket)\n\t}\n\t// Inspect every destination and existing policy before creating anything.\n\tpolicy, err := c.policy(ctx, r)\n\tif err != nil {\n\t\treturn r, err\n\t}\n\tdestinations := []struct {\n\t\tname string\n\t\tid   *string\n\t\tseed bool\n\t}{{r.MirrorBucket, &r.MirrorBucketID, false}, {r.SeedBucket, &r.SeedBucketID, true}}\n\tfor _, destination := range destinations {\n\t\tif _, err := c.bucket(ctx, destination.name, *destination.id, destination.seed, false); err != nil {\n\t\t\treturn r, err\n\t\t}\n\t}\n\tif !c.apply {\n\t\tif policy != nil {\n\t\t\tr.PolicyID = *policy.Id\n\t\t\tif policy.TimeLastSync != nil {\n\t\t\t\tr.LastSync = &policy.TimeLastSync.Time\n\t\t\t}\n\t\t\tif policy.Status != objectstorage.ReplicationPolicySummaryStatusActive {\n\t\t\t\treturn r, fmt.Errorf(\"replication %s is %s; check Object Storage service grants\", r.PolicyID, policy.Status)\n\t\t\t}\n\t\t}\n\t\treturn r, nil\n\t}\n\tfor _, destination := range destinations {\n\t\t*destination.id, err = c.bucket(ctx, destination.name, *destination.id, destination.seed, true)\n\t\tif err != nil {\n\t\t\treturn r, err\n\t\t}\n\t}\n\tif policy == nil {\n\t\t// Provisioning the seed can take long enough for the mirror name to\n\t\t// be replaced. Revalidate its recorded identity before making it\n\t\t// read-only through a name-addressed replication policy.\n\t\tif _, err := c.bucket(ctx, r.MirrorBucket, r.MirrorBucketID, false, false); err != nil {\n\t\t\treturn r, err\n\t\t}\n\t\tcreated, err := c.source.CreateReplicationPolicy(ctx, objectstorage.CreateReplicationPolicyRequest{\n\t\t\tNamespaceName: &c.namespace, BucketName: &r.SourceBucket,\n\t\t\tCreateReplicationPolicyDetails: objectstorage.CreateReplicationPolicyDetails{Name: new(\"TS-641-\" + r.SourceBucket),\n\t\t\t\tDestinationRegionName: &c.targetRegion, DestinationBucketName: &r.MirrorBucket}})\n\t\tif err != nil {\n\t\t\treturn r, fmt.Errorf(\"create replication for %s returned no trusted ID; inspect manually before pinning in config: %w\", r.SourceBucket, err)\n\t\t}\n\t\tif created.Id != nil {\n\t\t\tr.PolicyID = *created.Id\n\t\t}\n\t\tif !policyIDPattern.MatchString(r.PolicyID) {\n\t\t\treturn r, errors.New(\"create replication returned no valid policy ID; inspect manually before pinning in config\")\n\t\t}\n\t}\n\tif err := c.replicating(ctx, &r); err != nil {\n\t\treturn r, err\n\t}\n\t// Policy creation is another asynchronous boundary. A same-name seed\n\t// replacement must not receive writes belonging to the recorded OCID.\n\tif _, err := c.bucket(ctx, r.SeedBucket, r.SeedBucketID, true, false); err != nil {\n\t\treturn r, err\n\t}\n\t// The policy is active before listing. Objects added during this pass go\n\t// to the mirror, closing the race between inventory and policy creation.\n\t// ponytail: seed versions are retained without GC until a qualified cold\n\t// restore defines the baseline/window; add a scoped lifecycle then.\n\tr.Seeded, r.Mirrored, err = c.seed(ctx, r)\n\tif err == nil {\n\t\t_, err = c.bucket(ctx, r.SeedBucket, r.SeedBucketID, true, false)\n\t}\n\t// Skipped objects count only while the policy still feeds the same\n\t// read-only mirror; a removed policy makes the mirror writable again.\n\tif err == nil {\n\t\terr = c.replicating(ctx, &r)\n\t}\n\treturn r, err\n}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/objects.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "35c6926d46f4ce619da9a773ae1133235b4bdaa3",
+          "line": 182,
+          "end_line": 281,
+          "text": "func (c *copier) replicating(ctx context.Context, r *CopyReport) error {\n\tpolicy, err := c.policy(ctx, *r)\n\tif err != nil {\n\t\treturn err\n\t}\n\tr.PolicyID = *policy.Id\n\tif policy.TimeLastSync != nil {\n\t\tr.LastSync = &policy.TimeLastSync.Time\n\t}\n\tif policy.Status != objectstorage.ReplicationPolicySummaryStatusActive {\n\t\treturn fmt.Errorf(\"replication %s is %s; check Object Storage service grants\", r.PolicyID, policy.Status)\n\t}\n\tmirror, err := c.target.GetBucket(ctx, objectstorage.GetBucketRequest{NamespaceName: &c.namespace, BucketName: &r.MirrorBucket})\n\tif err != nil || !same(mirror.Id, r.MirrorBucketID) || mirror.IsReadOnly == nil || !*mirror.IsReadOnly {\n\t\treturn fmt.Errorf(\"replication destination %s changed identity or is not read-only yet; review and pin report IDs before rerunning: %v\", r.MirrorBucket, err)\n\t}\n\treturn nil\n}\n\nfunc (c *copier) policy(ctx context.Context, r CopyReport) (*objectstorage.ReplicationPolicySummary, error) {\n\tresponse, err := c.source.ListReplicationPolicies(ctx, objectstorage.ListReplicationPoliciesRequest{\n\t\tNamespaceName: &c.namespace, BucketName: &r.SourceBucket})\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tif response.OpcNextPage != nil && *response.OpcNextPage != \"\" || len(response.Items) > 1 {\n\t\treturn nil, errors.New(\"unexpected multiple replication policies\")\n\t}\n\tif len(response.Items) == 0 {\n\t\tif r.PolicyID != \"\" {\n\t\t\treturn nil, fmt.Errorf(\"pinned replication policy %s is missing; inspect manually\", r.PolicyID)\n\t\t}\n\t\treturn nil, nil\n\t}\n\tp := response.Items[0]\n\tif r.PolicyID == \"\" || !same(p.Id, r.PolicyID) || !same(p.Name, \"TS-641-\"+r.SourceBucket) ||\n\t\t!same(p.DestinationRegionName, c.targetRegion) || !same(p.DestinationBucketName, r.MirrorBucket) {\n\t\treturn nil, fmt.Errorf(\"%s has an unowned or different replication policy; inspect manually and pin its reviewed ID in config\", r.SourceBucket)\n\t}\n\treturn &p, nil\n}\n\nfunc (c *copier) bucket(ctx context.Context, name, id string, seed, create bool) (string, error) {\n\tr, err := c.target.GetBucket(ctx, objectstorage.GetBucketRequest{NamespaceName: &c.namespace, BucketName: &name})\n\tif err != nil {\n\t\t// OCI's ambiguous 404 is never authority to create or adopt a bucket.\n\t\tif !ociError(err, http.StatusNotFound, \"BucketNotFound\") {\n\t\t\treturn id, fmt.Errorf(\"inspect %s: %w\", name, err)\n\t\t}\n\t\tif id != \"\" {\n\t\t\treturn id, fmt.Errorf(\"pinned bucket %s (%s) is missing; inspect manually\", name, id)\n\t\t}\n\t\tif !create {\n\t\t\treturn \"\", nil\n\t\t}\n\t\tversioning := objectstorage.CreateBucketDetailsVersioningDisabled\n\t\tif seed {\n\t\t\tversioning = objectstorage.CreateBucketDetailsVersioningEnabled\n\t\t}\n\t\tcreated, err := c.target.CreateBucket(ctx, objectstorage.CreateBucketRequest{NamespaceName: &c.namespace,\n\t\t\tCreateBucketDetails: objectstorage.CreateBucketDetails{Name: &name, CompartmentId: &c.targetConfig.CompartmentID,\n\t\t\t\tKmsKeyId: &c.targetConfig.KeyID, PublicAccessType: objectstorage.CreateBucketDetailsPublicAccessTypeNopublicaccess,\n\t\t\t\tStorageTier: objectstorage.CreateBucketDetailsStorageTierStandard, Versioning: versioning,\n\t\t\t\tFreeformTags: map[string]string{\"terrascale-ticket\": \"TS-641\", \"terrascale-dr-source\": c.sourceCell + \"-1\"}}})\n\t\tif err != nil {\n\t\t\treturn \"\", fmt.Errorf(\"create %s returned no trusted ID; inspect manually before pinning in config: %w\", name, err)\n\t\t}\n\t\tif created.Id != nil {\n\t\t\tid = *created.Id\n\t\t}\n\t\tif !validOCID(id, \"bucket\", c.targetRegion) {\n\t\t\treturn id, fmt.Errorf(\"create %s returned no valid regional bucket OCID; inspect manually before pinning in config\", name)\n\t\t}\n\t\treturn c.bucket(ctx, name, id, seed, false)\n\t}\n\tif id == \"\" || !same(r.Id, id) {\n\t\treturn id, fmt.Errorf(\"destination %s is unowned or differs from its pinned bucket OCID; inspect manually and pin its reviewed ID in config\", name)\n\t}\n\tversioning := objectstorage.BucketVersioningDisabled\n\tif seed {\n\t\tversioning = objectstorage.BucketVersioningEnabled\n\t}\n\tif !same(r.Name, name) || !same(r.Namespace, c.namespace) || !same(r.CompartmentId, c.targetConfig.CompartmentID) ||\n\t\t!same(r.KmsKeyId, c.targetConfig.KeyID) || r.PublicAccessType != objectstorage.BucketPublicAccessTypeNopublicaccess ||\n\t\tr.StorageTier != objectstorage.BucketStorageTierStandard || r.Versioning != versioning ||\n\t\tr.FreeformTags[\"terrascale-ticket\"] != \"TS-641\" || r.FreeformTags[\"terrascale-dr-source\"] != c.sourceCell+\"-1\" ||\n\t\tr.IsReadOnly == nil || seed && *r.IsReadOnly || r.ReplicationEnabled == nil || *r.ReplicationEnabled {\n\t\treturn id, fmt.Errorf(\"destination %s has conflicting ownership, encryption or replication settings\", name)\n\t}\n\tif !seed {\n\t\trules, err := c.target.ListRetentionRules(ctx, objectstorage.ListRetentionRulesRequest{NamespaceName: &c.namespace, BucketName: &name})\n\t\tif err != nil {\n\t\t\treturn id, err\n\t\t}\n\t\tif len(rules.Items) != 0 || rules.OpcNextPage != nil && *rules.OpcNextPage != \"\" {\n\t\t\treturn id, fmt.Errorf(\"replication destination %s cannot have retention rules\", name)\n\t\t}\n\t}\n\treturn id, nil\n}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/objects.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "35c6926d46f4ce619da9a773ae1133235b4bdaa3",
+          "line": 286,
+          "end_line": 325,
+          "text": "func (c *copier) seed(ctx context.Context, r CopyReport) (int, int, error) {\n\trequest := objectstorage.ListObjectsRequest{NamespaceName: &c.namespace, BucketName: &r.SourceBucket,\n\t\tFields: new(\"name,size,md5,etag\"), Limit: new(1000)}\n\tvar copied, mirrored atomic.Int64\n\tcounts := func() (int, int) { return int(copied.Load()), int(mirrored.Load()) }\n\tfor {\n\t\tresponse, err := c.source.ListObjects(ctx, request)\n\t\tif err != nil {\n\t\t\ts, m := counts()\n\t\t\treturn s, m, err\n\t\t}\n\t\tgroup, groupCtx := errgroup.WithContext(ctx)\n\t\tgroup.SetLimit(max(c.workers, 1))\n\t\tfor _, object := range response.Objects {\n\t\t\tgroup.Go(func() error {\n\t\t\t\tseededOne, mirroredOne, err := c.seedObject(groupCtx, ctx, r, object)\n\t\t\t\tif seededOne {\n\t\t\t\t\tcopied.Add(1)\n\t\t\t\t}\n\t\t\t\tif mirroredOne {\n\t\t\t\t\tmirrored.Add(1)\n\t\t\t\t}\n\t\t\t\treturn err\n\t\t\t})\n\t\t}\n\t\terr = group.Wait()\n\t\ts, m := counts()\n\t\tif err != nil {\n\t\t\treturn s, m, err\n\t\t}\n\t\tnext := response.NextStartWith\n\t\tif next == nil || *next == \"\" {\n\t\t\treturn s, m, nil\n\t\t}\n\t\tif request.Start != nil && *next <= *request.Start {\n\t\t\treturn s, m, errors.New(\"backfill inventory pagination did not advance\")\n\t\t}\n\t\trequest.Start = next\n\t}\n}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/objects.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "35c6926d46f4ce619da9a773ae1133235b4bdaa3",
+          "line": 332,
+          "end_line": 445,
+          "text": "func (c *copier) seedObject(ctx, drain context.Context, r CopyReport, object objectstorage.ObjectSummary) (copied, mirrored bool, err error) {\n\tif object.Name == nil || *object.Name == \"\" || object.Etag == nil || *object.Etag == \"\" || object.Size == nil || *object.Size < 0 {\n\t\treturn false, false, errors.New(\"backfill inventory lacks object size or ETag\")\n\t}\n\t// Replication already holds this version, so the seed covers only what\n\t// the mirror lacks. Source deletes replicate to the mirror: the source\n\t// bucket's retention rule, not the seed, protects these objects.\n\thead, err := c.metadata(ctx, r.MirrorBucket, *object.Name)\n\tif err == nil {\n\t\tmatched, err := c.matches(ctx, r, r.MirrorBucket, object, head)\n\t\tif err != nil || matched {\n\t\t\treturn false, matched, err\n\t\t}\n\t} else if !ociError(err, http.StatusNotFound, \"ObjectNotFound\") {\n\t\treturn false, false, err\n\t}\n\thead, err = c.metadata(ctx, r.SeedBucket, *object.Name)\n\tif err == nil {\n\t\tmatched, err := c.matches(ctx, r, r.SeedBucket, object, head)\n\t\tif err != nil || matched {\n\t\t\treturn false, false, err\n\t\t}\n\t}\n\tif err != nil && !ociError(err, http.StatusNotFound, \"ObjectNotFound\") {\n\t\treturn false, false, err\n\t}\n\tdetails := objectstorage.CopyObjectDetails{SourceObjectName: object.Name, SourceObjectIfMatchETag: object.Etag,\n\t\tDestinationRegion: &c.targetRegion, DestinationNamespace: &c.namespace, DestinationBucket: &r.SeedBucket, DestinationObjectName: object.Name}\n\tif err != nil {\n\t\tdetails.DestinationObjectIfNoneMatchETag = new(\"*\")\n\t} else {\n\t\tif head.ETag == nil || *head.ETag == \"\" {\n\t\t\treturn false, false, errors.New(\"backfill destination lacks ETag\")\n\t\t}\n\t\tdetails.DestinationObjectIfMatchETag = head.ETag\n\t}\n\t// Each asynchronous copy addresses a bucket name, so admission\n\t// must still bind that name to the recorded seed identity.\n\tif _, err := c.bucket(ctx, r.SeedBucket, r.SeedBucketID, true, false); err != nil {\n\t\treturn false, false, err\n\t}\n\t// Inherit the admitted destination bucket's key. An explicit\n\t// cross-region KMS header is resolved by the source endpoint and\n\t// fails with KmsHostNotFound for the destination region's key.\n\tif err := ctx.Err(); err != nil {\n\t\treturn false, false, err\n\t}\n\tstarted, err := c.source.CopyObject(drain, objectstorage.CopyObjectRequest{NamespaceName: &c.namespace, BucketName: &r.SourceBucket,\n\t\tCopyObjectDetails: details})\n\tif err != nil {\n\t\treturn false, false, fmt.Errorf(\"backfill %s: %w\", *object.Name, err)\n\t}\n\tif started.OpcWorkRequestId == nil || *started.OpcWorkRequestId == \"\" {\n\t\treturn false, false, errors.New(\"copy returned no work request ID\")\n\t}\n\tif err := c.waitCopy(drain, *started.OpcWorkRequestId); err != nil {\n\t\treturn false, false, err\n\t}\n\thead, err = c.metadata(drain, r.SeedBucket, *object.Name)\n\tif err != nil {\n\t\treturn false, false, fmt.Errorf(\"backfill %s failed checksum/size readback: %w\", *object.Name, err)\n\t}\n\tmatched, err := c.matches(drain, r, r.SeedBucket, object, head)\n\tif err != nil {\n\t\treturn false, false, err\n\t}\n\tif !matched {\n\t\treturn false, false, fmt.Errorf(\"backfill %s failed checksum/size readback\", *object.Name)\n\t}\n\treturn true, false, nil\n}\n\nfunc (c *copier) matches(ctx context.Context, r CopyReport, bucket string, object objectstorage.ObjectSummary, head objectstorage.GetObjectResponse) (bool, error) {\n\tif head.ContentLength == nil || *head.ContentLength != *object.Size {\n\t\treturn false, nil\n\t}\n\t// Multipart MD5s describe part boundaries, which a server-side copy may\n\t// change. Compare actual bytes when ordinary object MD5s are unavailable.\n\tif object.Md5 != nil && *object.Md5 != \"\" && !strings.Contains(*object.Md5, \"-\") &&\n\t\thead.ContentMd5 != nil && *head.ContentMd5 != \"\" && !strings.Contains(*head.ContentMd5, \"-\") {\n\t\treturn *object.Md5 == *head.ContentMd5, nil\n\t}\n\tif head.ETag == nil || *head.ETag == \"\" {\n\t\treturn false, errors.New(\"backfill destination lacks ETag\")\n\t}\n\tsource, err := c.digest(ctx, c.source, r.SourceBucket, *object.Name, *object.Etag, *object.Size)\n\tif err != nil {\n\t\treturn false, err\n\t}\n\ttarget, err := c.digest(ctx, c.target, bucket, *object.Name, *head.ETag, *object.Size)\n\treturn source == target, err\n}\n\nfunc (c *copier) digest(ctx context.Context, client objectClient, bucket, name, etag string, size int64) ([32]byte, error) {\n\tresponse, err := client.GetObject(ctx, objectstorage.GetObjectRequest{NamespaceName: &c.namespace, BucketName: &bucket, ObjectName: &name, IfMatch: &etag})\n\tif err != nil {\n\t\treturn [32]byte{}, err\n\t}\n\tif response.Content == nil {\n\t\treturn [32]byte{}, errors.New(\"checksum read returned no body\")\n\t}\n\tif response.ContentLength == nil || *response.ContentLength != size || !same(response.ETag, etag) {\n\t\treturn [32]byte{}, errors.Join(errors.New(\"checksum read changed size or ETag\"), response.Content.Close())\n\t}\n\thash := sha256.New()\n\tread, err := io.Copy(hash, io.LimitReader(response.Content, size))\n\tvar extra [1]byte\n\tn, extraErr := response.Content.Read(extra[:])\n\terr = errors.Join(err, response.Content.Close())\n\tif err != nil || read != size || n != 0 || !errors.Is(extraErr, io.EOF) {\n\t\treturn [32]byte{}, fmt.Errorf(\"checksum read is incomplete: %w\", errors.Join(err, extraErr, io.ErrUnexpectedEOF))\n\t}\n\treturn [32]byte(hash.Sum(nil)), nil\n}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/objects.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "35c6926d46f4ce619da9a773ae1133235b4bdaa3",
+          "line": 450,
+          "end_line": 488,
+          "text": "func (c *copier) metadata(ctx context.Context, bucket, name string) (objectstorage.GetObjectResponse, error) {\n\tresponse, err := c.target.GetObject(ctx, objectstorage.GetObjectRequest{NamespaceName: &c.namespace, BucketName: &bucket, ObjectName: &name})\n\tif err != nil {\n\t\treturn response, err\n\t}\n\tif response.Content == nil {\n\t\treturn response, errors.New(\"backfill metadata read returned no body\")\n\t}\n\treturn response, response.Content.Close()\n}\n\nfunc (c *copier) waitCopy(ctx context.Context, id string) error {\n\tctx, cancel := context.WithTimeout(ctx, 5*time.Minute)\n\tdefer cancel()\n\tfor {\n\t\tr, err := c.source.GetWorkRequest(ctx, objectstorage.GetWorkRequestRequest{WorkRequestId: &id})\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tswitch r.Status {\n\t\tcase objectstorage.WorkRequestStatusCompleted:\n\t\t\treturn nil\n\t\tcase objectstorage.WorkRequestStatusFailed, objectstorage.WorkRequestStatusCanceled:\n\t\t\treturn fmt.Errorf(\"Object Storage copy %s ended in %s\", id, r.Status)\n\t\tcase objectstorage.WorkRequestStatusAccepted, objectstorage.WorkRequestStatusInProgress, objectstorage.WorkRequestStatusCanceling:\n\t\tdefault:\n\t\t\treturn fmt.Errorf(\"Object Storage copy %s has unknown status %s\", id, r.Status)\n\t\t}\n\t\tif err := c.Pause(ctx, 2*time.Second); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n}\n\nfunc same(value *string, want string) bool { return value != nil && *value == want }\nfunc ociError(err error, status int, code string) bool {\n\tservice, ok := errors.AsType[serviceError](err)\n\treturn ok && service.GetHTTPStatusCode() == status && service.GetCode() == code\n}\n"
+        }
+      ]
+    },
+    "config-predicates": {
+      "call_path": "configFixture -> Config.Validate -> validOCID/catalog.OCIRegion/Lookup; synthetic error -> ociError -> fakeServiceFailure methods.",
+      "boundary": "local struct/map/regex/string/error checks",
+      "spans": [
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 631,
+          "end_line": 634,
+          "text": "func configFixture() Config {\n\treturn Config{Version: 1, Namespace: \"namespace\", GRU: Region{CompartmentID: \"ocid1.compartment.oc1..gru\", VaultID: \"ocid1.vault.oc1.sa-saopaulo-1.gru\", KeyID: \"ocid1.key.oc1.sa-saopaulo-1.gru\"},\n\t\tSFO: Region{CompartmentID: \"ocid1.compartment.oc1..sfo\", VaultID: \"ocid1.vault.oc1.us-sanjose-1.sfo\", KeyID: \"ocid1.key.oc1.us-sanjose-1.sfo\"}}\n}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/objects_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+          "line": 673,
+          "end_line": 685,
+          "text": "type fakeServiceFailure struct {\n\tstatus int\n\tcode   string\n}\n\nfunc (e fakeServiceFailure) Error() string           { return e.code }\nfunc (e fakeServiceFailure) GetHTTPStatusCode() int  { return e.status }\nfunc (e fakeServiceFailure) GetCode() string         { return e.code }\nfunc (e fakeServiceFailure) GetMessage() string      { return e.code }\nfunc (e fakeServiceFailure) GetOpcRequestID() string { return \"request\" }\nfunc newServiceFailure(status int, code, message, request string) error {\n\treturn fakeServiceFailure{status, code}\n}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/config.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "fe05369f18f2d3fbd0230cc4ca5d196802b28523",
+          "line": 17,
+          "end_line": 86,
+          "text": "type Config struct {\n\tVersion   int    `json:\"version\"`\n\tNamespace string `json:\"namespace\"`\n\tGRU       Region `json:\"gru\"`\n\tSFO       Region `json:\"sfo\"`\n}\n\ntype Region struct {\n\tCompartmentID string            `json:\"compartment_id\"`\n\tVaultID       string            `json:\"vault_id\"`\n\tKeyID         string            `json:\"key_id\"`\n\tBucketIDs     map[string]string `json:\"bucket_ids,omitempty\"` // Reviewed destination bucket name -> OCID.\n\tPolicyIDs     map[string]string `json:\"policy_ids,omitempty\"` // Reviewed source policy name -> opaque ID.\n}\n\nvar namespacePattern = regexp.MustCompile(`^[a-z0-9]{1,64}$`)\nvar ocidPattern = regexp.MustCompile(`^ocid1\\.[a-z]+\\.oc1\\.[a-z0-9-]*\\.[a-z0-9]+(?:\\.[a-z0-9]+)*$`)\nvar policyIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)\n\nfunc (config Config) Validate() error {\n\tif config.Version != 1 || !namespacePattern.MatchString(config.Namespace) {\n\t\treturn errors.New(\"disaster recovery config requires version 1 and an Object Storage namespace\")\n\t}\n\tseenIDs := make(map[string]string)\n\tfor cell, region := range map[string]Region{catalog.GRU: config.GRU, catalog.SFO: config.SFO} {\n\t\tif !validOCID(region.CompartmentID, \"compartment\", \"\") ||\n\t\t\t!validOCID(region.VaultID, \"vault\", catalog.OCIRegion(cell)) ||\n\t\t\t!validOCID(region.KeyID, \"key\", catalog.OCIRegion(cell)) {\n\t\t\treturn fmt.Errorf(\"%s requires a control compartment and its regional Vault and key OCIDs\", cell)\n\t\t}\n\t\tother := \"sfo\"\n\t\tif cell == catalog.SFO {\n\t\t\tother = \"gru\"\n\t\t}\n\t\tprefix := strings.ToLower(cell) + \"-1-dr-\" + other + \"-1-\"\n\t\tfor name, id := range region.BucketIDs {\n\t\t\tif (name != prefix+\"backup\" && name != prefix+\"backup-seed\" && name != prefix+\"head\" && name != prefix+\"head-seed\") ||\n\t\t\t\t!validOCID(id, \"bucket\", catalog.OCIRegion(cell)) {\n\t\t\t\treturn fmt.Errorf(\"%s has an unexpected destination bucket name or OCID: %s\", cell, name)\n\t\t\t}\n\t\t\tif previous, ok := seenIDs[id]; ok {\n\t\t\t\treturn fmt.Errorf(\"bucket %s shares its OCID with %s\", name, previous)\n\t\t\t}\n\t\t\tseenIDs[id] = name\n\t\t}\n\t\tprefix = \"TS-641-\" + strings.ToLower(cell) + \"-1-\"\n\t\tfor name, id := range region.PolicyIDs {\n\t\t\t// The SDK treats replication policy IDs as opaque strings, not OCIDs.\n\t\t\tif (name != prefix+\"backup\" && name != prefix+\"head\") || !policyIDPattern.MatchString(id) {\n\t\t\t\treturn fmt.Errorf(\"%s has an unexpected replication policy name or ID: %s\", cell, name)\n\t\t\t}\n\t\t\tif previous, ok := seenIDs[id]; ok {\n\t\t\t\treturn fmt.Errorf(\"policy %s shares its ID with %s\", name, previous)\n\t\t\t}\n\t\t\tseenIDs[id] = name\n\t\t}\n\t}\n\tif config.GRU.CompartmentID == config.SFO.CompartmentID {\n\t\treturn errors.New(\"GRU and SFO control compartments must differ\")\n\t}\n\treturn nil\n}\n\nfunc validOCID(id, kind, region string) bool {\n\tif !ocidPattern.MatchString(id) {\n\t\treturn false\n\t}\n\tparts := strings.Split(id, \".\")\n\treturn parts[1] == kind && parts[3] == region\n}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/objects.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "35c6926d46f4ce619da9a773ae1133235b4bdaa3",
+          "line": 484,
+          "end_line": 488,
+          "text": "func same(value *string, want string) bool { return value != nil && *value == want }\nfunc ociError(err error, status int, code string) bool {\n\tservice, ok := errors.AsType[serviceError](err)\n\treturn ok && service.GetHTTPStatusCode() == status && service.GetCode() == code\n}\n"
+        },
+        {
+          "path": "internal/ociregion/catalog/catalog.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "094f141afb633efa0d345466c5c80b2154d97e69",
+          "line": 33,
+          "end_line": 45,
+          "text": "const (\n\tGRU = \"GRU\"\n\tSFO = \"SFO\"\n\tFRA = \"FRA\"\n\t// Bootstrap is the only cell that may found a deployment until a\n\t// separately reviewed migration exists.\n\tBootstrap = GRU\n)\n\n// entries is ordered: placement assigns permanent members in this order.\nvar entries = [...]Entry{\n\t{Cell: GRU, OCIRegion: \"sa-saopaulo-1\", OCIRegionKey: \"GRU\", City: \"S\u00e3o Paulo\", Country: \"BR\", Latitude: -23.43, Longitude: -46.47},\n\t{Cell: SFO, OCIRegion: \"us-sanjose-1\", OCIRegionKey: \"SJC\", City: \"San Jose\", Country: \"US\", Latitude: 37.34, Longitude: -121.89},\n"
+        },
+        {
+          "path": "internal/ociregion/catalog/catalog.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "094f141afb633efa0d345466c5c80b2154d97e69",
+          "line": 121,
+          "end_line": 128,
+          "text": "func Lookup(cell string) (Entry, bool) {\n\tfor _, entry := range entries {\n\t\tif entry.Cell == cell {\n\t\t\treturn entry, true\n\t\t}\n\t}\n\treturn Entry{}, false\n}\n"
+        },
+        {
+          "path": "internal/ociregion/catalog/catalog.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "094f141afb633efa0d345466c5c80b2154d97e69",
+          "line": 138,
+          "end_line": 141,
+          "text": "func OCIRegion(cell string) string {\n\tentry, _ := Lookup(cell)\n\treturn entry.OCIRegion\n}\n"
+        }
+      ]
+    },
+    "vault-fake-cancellation": {
+      "call_path": "newFakeVaultReplicaClient -> ensureVaultReplica -> validateVaultReplicaTarget/Source -> fake GetVault/ListVaultReplicas/CreateVaultReplica; readVaultReplica checks ctx after list; poll timer returns cancellation. Root calls unexported injected-client path, not EnsureVaultReplica SDK constructor.",
+      "boundary": "fake SDK structs/counters, local env guard, contexts/timers under synctest; no network. RetryToken construction is incidental local request metadata, not a real KMS effect.",
+      "spans": [
+        {
+          "path": "internal/disasterrecovery/vault_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "53fa098516a2af2bb931161b2f4eb8230b950a0d",
+          "line": 16,
+          "end_line": 83,
+          "text": "const (\n\tvaultTestSource = \"sa-saopaulo-1\"\n\tvaultTestTarget = \"us-sanjose-1\"\n\tvaultTestID     = \"ocid1.vault.oc1.sa-saopaulo-1.testvault.aaaaaa\"\n\tvaultTestCrypto = \"https://replica-crypto.kms.us-sanjose-1.oraclecloud.com\"\n)\n\ntype fakeVaultReplicaClient struct {\n\tt               *testing.T\n\tvault           keymanagement.Vault\n\tpages           []keymanagement.ListVaultReplicasResponse\n\tgetErr, listErr error\n\tcreateErr       error\n\tgets, lists     int\n\tcreates         []keymanagement.CreateVaultReplicaRequest\n\tonGet           func(int)\n\tonList          func(context.Context)\n}\n\nfunc newFakeVaultReplicaClient(t *testing.T) *fakeVaultReplicaClient {\n\treturn &fakeVaultReplicaClient{t: t, vault: keymanagement.Vault{\n\t\tId: common.String(vaultTestID), LifecycleState: keymanagement.VaultLifecycleStateActive,\n\t\tVaultType: keymanagement.VaultVaultTypeDefault, IsVaultReplicable: common.Bool(true), IsPrimary: common.Bool(true),\n\t}}\n}\n\nfunc (f *fakeVaultReplicaClient) GetVault(ctx context.Context, request keymanagement.GetVaultRequest) (keymanagement.GetVaultResponse, error) {\n\tf.t.Helper()\n\tif request.VaultId == nil || *request.VaultId != vaultTestID {\n\t\tf.t.Fatalf(\"GetVault addressed a different source: %v\", request.VaultId)\n\t}\n\tif _, ok := ctx.Deadline(); !ok {\n\t\tf.t.Fatal(\"GetVault received an unbounded context\")\n\t}\n\tf.gets++\n\tif f.onGet != nil {\n\t\tf.onGet(f.gets)\n\t}\n\treturn keymanagement.GetVaultResponse{Vault: f.vault, Etag: common.String(\"source-etag\")}, f.getErr\n}\n\nfunc (f *fakeVaultReplicaClient) ListVaultReplicas(ctx context.Context, request keymanagement.ListVaultReplicasRequest) (keymanagement.ListVaultReplicasResponse, error) {\n\tf.t.Helper()\n\tif request.VaultId == nil || *request.VaultId != vaultTestID {\n\t\tf.t.Fatalf(\"ListVaultReplicas addressed a different source: %v\", request.VaultId)\n\t}\n\tf.lists++\n\tif f.onList != nil {\n\t\tf.onList(ctx)\n\t}\n\tif f.listErr != nil || len(f.pages) == 0 {\n\t\treturn keymanagement.ListVaultReplicasResponse{}, f.listErr\n\t}\n\tresponse := f.pages[0]\n\tif len(f.pages) > 1 {\n\t\tf.pages = f.pages[1:]\n\t}\n\treturn response, nil\n}\n\nfunc (f *fakeVaultReplicaClient) CreateVaultReplica(ctx context.Context, request keymanagement.CreateVaultReplicaRequest) (keymanagement.CreateVaultReplicaResponse, error) {\n\tf.creates = append(f.creates, request)\n\treturn keymanagement.CreateVaultReplicaResponse{}, f.createErr\n}\n\nfunc vaultTestReplica(status keymanagement.VaultReplicaSummaryStatusEnum) keymanagement.VaultReplicaSummary {\n\treturn keymanagement.VaultReplicaSummary{Region: common.String(vaultTestTarget), Status: status, CryptoEndpoint: common.String(vaultTestCrypto)}\n}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/vault.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "527fe90ec678961fca262c8c163ca40db61e0154",
+          "line": 16,
+          "end_line": 33,
+          "text": "const vaultReplicaTimeout = 10 * time.Minute\n\nvar vaultReplicaOCID = regexp.MustCompile(`^ocid1\\.vault\\.oc1\\.([a-z0-9-]+)\\.[a-z0-9]+(?:\\.[a-z0-9]+)*$`)\n\n// VaultReplicaReport contains public metadata only. VaultID identifies the\n// source: OCI's replica summary exposes no separate replica vault OCID.\ntype VaultReplicaReport struct {\n\tVaultID        string `json:\"vaultId\"`\n\tTargetRegion   string `json:\"targetRegion\"`\n\tStatus         string `json:\"status\"` // MISSING, CREATING, or CREATED.\n\tCryptoEndpoint string `json:\"cryptoEndpoint,omitempty\"`\n}\n\ntype vaultReplicaClient interface {\n\tGetVault(context.Context, keymanagement.GetVaultRequest) (keymanagement.GetVaultResponse, error)\n\tListVaultReplicas(context.Context, keymanagement.ListVaultReplicasRequest) (keymanagement.ListVaultReplicasResponse, error)\n\tCreateVaultReplica(context.Context, keymanagement.CreateVaultReplicaRequest) (keymanagement.CreateVaultReplicaResponse, error)\n}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/vault.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "527fe90ec678961fca262c8c163ca40db61e0154",
+          "line": 54,
+          "end_line": 75,
+          "text": "func validateVaultReplicaTarget(ctx context.Context, vaultID, sourceRegion, targetRegion string) error {\n\tif ctx == nil {\n\t\treturn errors.New(\"vault replication requires a context\")\n\t}\n\tif err := ctx.Err(); err != nil {\n\t\treturn err\n\t}\n\tif !(sourceRegion == \"sa-saopaulo-1\" && targetRegion == \"us-sanjose-1\" ||\n\t\tsourceRegion == \"us-sanjose-1\" && targetRegion == \"sa-saopaulo-1\") {\n\t\treturn errors.New(\"vault replication supports only sa-saopaulo-1 <-> us-sanjose-1\")\n\t}\n\tmatch := vaultReplicaOCID.FindStringSubmatch(vaultID)\n\tif len(match) != 2 || match[1] != sourceRegion {\n\t\treturn errors.New(\"source vault OCID must match the OCI factory region\")\n\t}\n\tfor _, name := range ociclient.SecretUnsafeEnv {\n\t\tif _, set := os.LookupEnv(name); set {\n\t\t\treturn fmt.Errorf(\"vault replication refuses to run while %s is set\", name)\n\t\t}\n\t}\n\treturn nil\n}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/vault.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "527fe90ec678961fca262c8c163ca40db61e0154",
+          "line": 77,
+          "end_line": 236,
+          "text": "func ensureVaultReplica(ctx context.Context, client vaultReplicaClient, vaultID, sourceRegion, targetRegion string, apply bool) (VaultReplicaReport, error) {\n\treport := VaultReplicaReport{VaultID: vaultID, TargetRegion: targetRegion, Status: \"MISSING\"}\n\tif err := validateVaultReplicaTarget(ctx, vaultID, sourceRegion, targetRegion); err != nil {\n\t\treturn report, err\n\t}\n\tif client == nil {\n\t\treturn report, errors.New(\"vault replication requires a KMS Vault client\")\n\t}\n\tctx, cancel := context.WithTimeout(ctx, vaultReplicaTimeout)\n\tdefer cancel()\n\tsource, err := client.GetVault(ctx, keymanagement.GetVaultRequest{VaultId: common.String(vaultID)})\n\tif err != nil {\n\t\treturn report, fmt.Errorf(\"read source vault: %w\", err)\n\t}\n\treplicationID, err := validateVaultReplicaSource(source.Vault, vaultID)\n\tif err != nil {\n\t\treturn report, err\n\t}\n\treplica, err := readVaultReplica(ctx, client, vaultID, targetRegion)\n\tif err != nil {\n\t\treturn report, err\n\t}\n\tif replica != nil {\n\t\tswitch replica.Status {\n\t\tcase keymanagement.VaultReplicaSummaryStatusCreated:\n\t\tcase keymanagement.VaultReplicaSummaryStatusCreating, \"\":\n\t\t\t// An interrupted run can leave the replica mid-creation.\n\t\t\treport.Status = \"CREATING\"\n\t\t\treturn report, fmt.Errorf(\"existing vault replica is still being created (%q); re-run once it reaches CREATED\", replica.Status)\n\t\tdefault:\n\t\t\treturn report, fmt.Errorf(\"existing vault replica is %q; expected CREATED\", replica.Status)\n\t\t}\n\t\treport.CryptoEndpoint, err = vaultReplicaEndpoint(replica.CryptoEndpoint, targetRegion)\n\t\tif err == nil {\n\t\t\treport.Status = \"CREATED\"\n\t\t}\n\t\treturn report, err\n\t}\n\tif replicationID != \"\" {\n\t\treturn report, errors.New(\"source vault has a replication ID but no listed replica\")\n\t}\n\tif !apply {\n\t\treturn report, nil\n\t}\n\tif err := ctx.Err(); err != nil {\n\t\treturn report, err\n\t}\n\treport.Status = \"CREATING\"\n\t_, err = client.CreateVaultReplica(ctx, keymanagement.CreateVaultReplicaRequest{\n\t\tVaultId: common.String(vaultID), IfMatch: source.Etag,\n\t\tCreateVaultReplicaDetails: keymanagement.CreateVaultReplicaDetails{ReplicaRegion: common.String(targetRegion)},\n\t\tOpcRetryToken:             common.String(common.RetryToken()),\n\t})\n\tif err != nil {\n\t\treturn report, fmt.Errorf(\"create vault replica (inspect before retrying): %w\", err)\n\t}\n\tfor {\n\t\tif err := ctx.Err(); err != nil {\n\t\t\treturn report, fmt.Errorf(\"wait for vault replica: %w\", err)\n\t\t}\n\t\tsource, err := client.GetVault(ctx, keymanagement.GetVaultRequest{VaultId: common.String(vaultID)})\n\t\tif err != nil {\n\t\t\treturn report, fmt.Errorf(\"read source vault after replica creation: %w\", err)\n\t\t}\n\t\tcurrentID, err := validateVaultReplicaSource(source.Vault, vaultID)\n\t\tif err != nil {\n\t\t\treturn report, err\n\t\t}\n\t\tif replicationID != \"\" && currentID != replicationID {\n\t\t\treturn report, errors.New(\"source vault replication ID changed while polling\")\n\t\t}\n\t\treplicationID = currentID\n\t\treplica, err := readVaultReplica(ctx, client, vaultID, targetRegion)\n\t\tif err != nil {\n\t\t\treturn report, err\n\t\t}\n\t\tif replica != nil {\n\t\t\tswitch replica.Status {\n\t\t\tcase keymanagement.VaultReplicaSummaryStatusCreated:\n\t\t\t\treport.CryptoEndpoint, err = vaultReplicaEndpoint(replica.CryptoEndpoint, targetRegion)\n\t\t\t\tif err == nil {\n\t\t\t\t\treport.Status = \"CREATED\"\n\t\t\t\t}\n\t\t\t\treturn report, err\n\t\t\t// OCI first lists a new replica with no status (seen 2026-10-08).\n\t\t\tcase keymanagement.VaultReplicaSummaryStatusCreating, \"\":\n\t\t\tdefault:\n\t\t\t\treturn report, fmt.Errorf(\"vault replica entered unexpected state %q\", replica.Status)\n\t\t\t}\n\t\t}\n\t\ttimer := time.NewTimer(2 * time.Second)\n\t\tselect {\n\t\tcase <-ctx.Done():\n\t\t\ttimer.Stop()\n\t\t\treturn report, fmt.Errorf(\"wait for vault replica: %w\", ctx.Err())\n\t\tcase <-timer.C:\n\t\t}\n\t}\n}\n\nfunc validateVaultReplicaSource(vault keymanagement.Vault, vaultID string) (string, error) {\n\tif vault.Id == nil || *vault.Id != vaultID {\n\t\treturn \"\", errors.New(\"OCI returned a different source vault ID\")\n\t}\n\tif vault.LifecycleState != keymanagement.VaultLifecycleStateActive {\n\t\treturn \"\", fmt.Errorf(\"source vault is %q; expected ACTIVE\", vault.LifecycleState)\n\t}\n\tif vault.IsVaultReplicable == nil || !*vault.IsVaultReplicable {\n\t\treturn \"\", errors.New(\"source vault is not replicable; existing keys cannot be moved to a replacement vault\")\n\t}\n\tif vault.IsPrimary != nil && !*vault.IsPrimary {\n\t\treturn \"\", errors.New(\"source vault is itself a replica\")\n\t}\n\tif vault.ReplicaDetails != nil {\n\t\tif vault.ReplicaDetails.ReplicationId == nil || *vault.ReplicaDetails.ReplicationId == \"\" {\n\t\t\treturn \"\", errors.New(\"source vault has inconsistent replication details\")\n\t\t}\n\t\treturn *vault.ReplicaDetails.ReplicationId, nil\n\t}\n\treturn \"\", nil\n}\n\nfunc readVaultReplica(ctx context.Context, client vaultReplicaClient, vaultID, targetRegion string) (*keymanagement.VaultReplicaSummary, error) {\n\tvar replica *keymanagement.VaultReplicaSummary\n\tvar page *string\n\tpages := map[string]bool{}\n\tfor {\n\t\tif err := ctx.Err(); err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\tresponse, err := client.ListVaultReplicas(ctx, keymanagement.ListVaultReplicasRequest{VaultId: common.String(vaultID), Page: page})\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"list vault replicas: %w\", err)\n\t\t}\n\t\tif err := ctx.Err(); err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\tfor _, item := range response.Items {\n\t\t\tif item.Region == nil || *item.Region != targetRegion {\n\t\t\t\treturn nil, errors.New(\"existing vault replica region differs from the requested target\")\n\t\t\t}\n\t\t\tif replica != nil {\n\t\t\t\treturn nil, errors.New(\"OCI returned multiple vault replicas; operator inspection required\")\n\t\t\t}\n\t\t\treplica = &item\n\t\t}\n\t\tpage = response.OpcNextPage\n\t\tif page == nil || *page == \"\" {\n\t\t\treturn replica, nil\n\t\t}\n\t\tif pages[*page] {\n\t\t\treturn nil, errors.New(\"OCI repeated a vault replica pagination token\")\n\t\t}\n\t\tpages[*page] = true\n\t}\n}\n\nfunc vaultReplicaEndpoint(endpoint *string, region string) (string, error) {\n\treturn kmsEndpoint(endpoint, region, \"crypto\")\n}\n"
+        },
+        {
+          "path": "internal/disasterrecovery/key.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "5599662d9ebc5703723b42718279804497646e02",
+          "line": 47,
+          "end_line": 58,
+          "text": "func kmsEndpoint(endpoint *string, region, operation string) (string, error) {\n\tif endpoint != nil {\n\t\tu, err := url.Parse(*endpoint)\n\t\tsuffix := \"-\" + operation + \".kms.\" + region\n\t\tif err == nil && u.Scheme == \"https\" && u.Host == u.Hostname() && u.User == nil && u.Path == \"\" &&\n\t\t\tu.RawQuery == \"\" && !u.ForceQuery && u.Fragment == \"\" &&\n\t\t\t(strings.HasSuffix(u.Hostname(), suffix+\".oraclecloud.com\") || strings.HasSuffix(u.Hostname(), suffix+\".oci.oraclecloud.com\")) {\n\t\t\treturn *endpoint, nil\n\t\t}\n\t}\n\treturn \"\", fmt.Errorf(\"Vault has no valid %s endpoint in region %s\", operation, region)\n}\n"
+        },
+        {
+          "path": "internal/ociclient/factory.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "e8e99e02456a27a832cf3038587bcc65745a1958",
+          "line": 39,
+          "end_line": 43,
+          "text": "// SecretUnsafeEnv are the OCI SDK variables that print request and response\n// bodies or redirect endpoints and TLS trust. Callers that move secrets\n// through the SDK refuse to run while any is set.\nvar SecretUnsafeEnv = []string{\"OCI_GO_SDK_DEBUG\", \"OCI_METADATA_BASE_URL\", \"OCI_SDK_AUTH_CLIENT_REGION_URL\",\n\t\"OCI_DEFAULT_CERTS_PATH\", \"OCI_DEFAULT_CLIENT_CERTS_PATH\", \"OCI_DEFAULT_CLIENT_CERTS_PRIVATE_KEY_PATH\"}\n"
+        }
+      ]
+    }
+  },
+  "source_pins": {
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/disasterrecovery/key_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/disasterrecovery/key_test.go",
+      "mode": "100644",
+      "git_blob": "4f487e1457a78ab5392d1dde879002c7bd4266dc",
+      "sha256": "6612d100faf78f25408805735fd7063cfe71d93ba91076f863b37d44883bf9bd",
+      "bytes": 1916
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/disasterrecovery/key_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/disasterrecovery/key_test.go",
+      "mode": "100644",
+      "git_blob": "4f487e1457a78ab5392d1dde879002c7bd4266dc",
+      "sha256": "6612d100faf78f25408805735fd7063cfe71d93ba91076f863b37d44883bf9bd",
+      "bytes": 1916
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/disasterrecovery/objects_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/disasterrecovery/objects_test.go",
+      "mode": "100644",
+      "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+      "sha256": "3628a8c10c987bcf1b1e5fa638931958022694ae4295ef25fefecde46df74af3",
+      "bytes": 27526
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/disasterrecovery/objects_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/disasterrecovery/objects_test.go",
+      "mode": "100644",
+      "git_blob": "c4a703aae1db74f2628fa443dd839393e18e237c",
+      "sha256": "3628a8c10c987bcf1b1e5fa638931958022694ae4295ef25fefecde46df74af3",
+      "bytes": 27526
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/disasterrecovery/vault_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/disasterrecovery/vault_test.go",
+      "mode": "100644",
+      "git_blob": "53fa098516a2af2bb931161b2f4eb8230b950a0d",
+      "sha256": "55de7ac9bffff7dac0d874f6337e541954f08fdb2a713e06c93e02e28611d341",
+      "bytes": 15578
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/disasterrecovery/vault_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/disasterrecovery/vault_test.go",
+      "mode": "100644",
+      "git_blob": "53fa098516a2af2bb931161b2f4eb8230b950a0d",
+      "sha256": "55de7ac9bffff7dac0d874f6337e541954f08fdb2a713e06c93e02e28611d341",
+      "bytes": 15578
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/disasterrecovery/key.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/disasterrecovery/key.go",
+      "mode": "100644",
+      "git_blob": "5599662d9ebc5703723b42718279804497646e02",
+      "sha256": "24f28713c5a9a6eef8fab5c194a48a4c51d53e66527c57b29505e959c43f2759",
+      "bytes": 2618
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/disasterrecovery/objects.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/disasterrecovery/objects.go",
+      "mode": "100644",
+      "git_blob": "35c6926d46f4ce619da9a773ae1133235b4bdaa3",
+      "sha256": "543462734c41812e289b036efbd893a1453cbcece0e222f58a802a4e4b5b3354",
+      "bytes": 21841
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/disasterrecovery/config.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/disasterrecovery/config.go",
+      "mode": "100644",
+      "git_blob": "fe05369f18f2d3fbd0230cc4ca5d196802b28523",
+      "sha256": "39d512d9f3ebdb6fbe52322c531eb4baf09875ff69a9acf479d831cb2d70f996",
+      "bytes": 3356
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/catalog/catalog.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociregion/catalog/catalog.go",
+      "mode": "100644",
+      "git_blob": "094f141afb633efa0d345466c5c80b2154d97e69",
+      "sha256": "1cb9481c9291c863bea33c273443a1dc061bdcd4afada2b626843449ff54cf6e",
+      "bytes": 9451
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/disasterrecovery/vault.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/disasterrecovery/vault.go",
+      "mode": "100644",
+      "git_blob": "527fe90ec678961fca262c8c163ca40db61e0154",
+      "sha256": "806510df2fe86d0578d01218576008d3fbfd52036b9b27d1fe9dc33fbcbdfe22",
+      "bytes": 8954
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociclient/factory.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/ociclient/factory.go",
+      "mode": "100644",
+      "git_blob": "e8e99e02456a27a832cf3038587bcc65745a1958",
+      "sha256": "7949bd617658a10ec293cf0fab2a1eedd2dad1b1d74f746bb382ac2f5986f209",
+      "bytes": 24633
+    }
+  },
+  "external_dependency_pins": {},
+  "qualification_limits": [
+    "Every root runtime UNKNOWN: no receipts reviewed or execution.",
+    "No real OCI client, cloud, object store, filesystem or protocol boundary materially supports these assertions.",
+    "Seed-row branch mismatch leaves intended seed coverage unresolved/uncredited; actual mirror/policy checks remain unit.",
+    "Worker4 setting does not itself prove concurrent overlap; missing/multipart checksums hash synthetic equal contents.",
+    "No ledger/count/completion promotion, deletion, retirement or production qualification."
+  ],
+  "findings": [
+    {
+      "root_id": "internal/disasterrecovery/objects_test.go::TestCopyRefusesUnpinnedAndReplacedResources",
+      "type": "unresolved_intended_assertion",
+      "detail": "objects_test.go:376 iterates mirror/seed/policy, but395 compares resource to 0000000000SF1REEJJX6TC691V. Seed-labelled cases recheck mirror; intended seed identity assertions unresolved/uncredited."
+    },
+    {
+      "root_id": "internal/disasterrecovery/objects_test.go::TestBackfillSkipsIdenticalMirrorCopiesAndCopiesConcurrently",
+      "type": "qualification_limit",
+      "detail": "Asserts counts and skipped names; no overlap/max-concurrency assertion."
+    }
+  ],
+  "accounting_effect": "None: all literal obligations retained; no ledger, retirement or runtime promotion.",
+  "packet_revision": 1
+}

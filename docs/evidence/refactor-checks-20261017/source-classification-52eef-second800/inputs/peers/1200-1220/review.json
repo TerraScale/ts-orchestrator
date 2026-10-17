@@ -1,0 +1,182 @@
+{
+  "schema": "source-classification-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_80_100",
+  "owner": "/root/classification_100_dispatch/peer_00_20",
+  "decision": "accepted_source_only_with_explicit_uncredited_assertion",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-1200-1220-v2-5irrloxy/classification.json",
+    "sha256": "e6465a100bd1a7adf89733e02689aa5a579f7513aea9b2254c49ff25fd71dbad",
+    "checksum_path": "/tmp/ts-source-classification-1200-1220-v2-5irrloxy/SHA256SUMS",
+    "checksum_sha256": "873261b467392c73b948f8870b0af57c40e9ce058a4c6d05515a9ea06c4a14e0"
+  },
+  "prior_packet": {
+    "path": "/tmp/ts-source-classification-1200-1220-4ho17v0b/classification.json",
+    "sha256": "cf42d925440bed0f3e354f6f7aeaac4a803760b9ec4163b12da4a9a1b1ab977c",
+    "preserved": true
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[1200:1220)",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_80_100"
+  },
+  "input_pins": {
+    "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513",
+    "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+    "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70",
+    "/tmp/ts-root800-second-source-dispatch-r9_48ha9/PEER-PROTOCOL.md": "3b57c68ac033025066daec252bf89cd01b0c767e0048fb57c67eb5143e2fb00b"
+  },
+  "root_ids": [
+    "internal/dashboard/dashboard_test.go::TestStreamsAreCapped",
+    "internal/dashboard/dashboard_test.go::TestToastLinksTheRegionScopedInsight",
+    "internal/dashboard/detail_test.go::TestDeepRegionLinksAreKept",
+    "internal/dashboard/detail_test.go::TestDetailPageStreamsCarryContentAndChrome",
+    "internal/dashboard/detail_test.go::TestDetailPagesListOnlyTheirEntitysDecisions",
+    "internal/dashboard/detail_test.go::TestDetailPagesRenderTheirEntity",
+    "internal/dashboard/detail_test.go::TestDetailPagesRenderWithoutProviders",
+    "internal/dashboard/detail_test.go::TestDetailPathsAreValidated",
+    "internal/dashboard/detail_test.go::TestHostDetailChartsDiscloseReplayCapacity",
+    "internal/dashboard/detail_test.go::TestHostDetailChartsScopeNodeAndRange",
+    "internal/dashboard/detail_test.go::TestHostDetailChartsWaitForRegionalReplay",
+    "internal/dashboard/detail_test.go::TestListPagesLinkToDetailPages",
+    "internal/dashboard/detail_test.go::TestOCIPageCountsTheFleetByLifecycleState",
+    "internal/dashboard/detail_test.go::TestPartitionHoldHistoryIsScopedToThePartition",
+    "internal/dashboard/devfake/clock_test.go::TestFixtureClockReachesDashboardResourcesAndReadiness",
+    "internal/dashboard/devfake/devfake_test.go::TestEveryPageAndStreamRendersTheFakeWorld",
+    "internal/dashboard/devfake/devfake_test.go::TestProductionBinaryDoesNotLinkTheFake",
+    "internal/dashboard/drilldown_test.go::TestDrillIncompleteObservationsKeepAbsenceUnknown",
+    "internal/dashboard/drilldown_test.go::TestDrillNodeVolumeServicePages",
+    "internal/dashboard/drilldown_test.go::TestDrillRegionNodeScaling"
+  ],
+  "counts": {
+    "integration": 6,
+    "unit": 14,
+    "mixed": 0,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all twenty entire roots and actual connected fixtures/router/load/render/history/stream/globalview/process call paths.",
+    "Verified exact literal allocation and original accounting range [1200:1220), unique survival mappings and retained original/current identity.",
+    "Verified forty baseline/current raw declarations using explicit manually reviewed bounds, closing braces, hashes, text and blobs. Escaped textual representation reversibly matches raw bytes; no parser/scanner.",
+    "Verified all thirty-five canonical file blob/mode/SHA256/byte pins against immutable Git objects and canonical worktree bytes; baseline test-file pins verified.",
+    "Verified all twenty full-body assertion spans and sixty connected citations for exact bytes, commit/blob and bounds within EOF.",
+    "Verified both immutable packet checksums/files0444/directory0555. Final packet differs solely in requested findings[0].detail line963-to965 correction; README and all source evidence/categories unchanged.",
+    "Independently confirmed six real HTTP/SSE or subprocess boundary roots and fourteen local direct-recorder/memory roots; no independent unit-only assertion block requires mixed."
+  ],
+  "resolved_findings": [
+    {
+      "root_id": "internal/dashboard/detail_test.go::TestDetailPagesRenderTheirEntity",
+      "finding": "Generated placementServingText call was mislabeled line963 in findings prose.",
+      "resolution": "Fresh immutable packet accurately records canonical detail_templ.go965; actual connected span930:985 already contains the call."
+    }
+  ],
+  "remaining_findings": [
+    {
+      "root_id": "internal/dashboard/detail_test.go::TestDetailPagesRenderTheirEntity",
+      "status": "partial_unresolved_source_conflict",
+      "assertion": "detail_test.go92 expects 2 of 3 desired",
+      "detail": "memberSnapshot dashboard_test.go65–71 sets Serving2/DesiredSeats3 but omits Readiness. placementServingText view.go648–653 returns unknown unless Readiness is observed; generated detail_templ.go965 calls it. This serving-count expectation stays uncredited; independent direct-render cases retain unit category. No runtime pass/fail inferred."
+    }
+  ],
+  "supplementary_manually_reviewed_source": [
+    {
+      "path": "internal/dashboard/detail.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "mode": "100644",
+      "git_blob": "3cb671f1a8c52c1bc401ad3e1055f5387f3b7e0a",
+      "sha256": "ccd9ef9acde59fdc375a26fe43a4592c2daa095c77591291a1ecd4315c26e0e0",
+      "bytes": 19935,
+      "line": 108,
+      "end_line": 128,
+      "text": "func (state uiState) memberLink(member string) string {\n\treturn state.link(detailPath(\"/members/{id}\", map[string]string{\"id\": member}))\n}\n\nfunc (state uiState) partitionLink(database, partition string) string {\n\treturn state.link(detailPath(\"/terrabase/{db}/{partition}\", map[string]string{\"db\": database, \"partition\": partition}))\n}\n\nfunc (state uiState) rolloutLink(id string) string {\n\treturn state.link(detailPath(\"/rollouts/{id}\", map[string]string{\"id\": id}))\n}\n\nfunc (state uiState) volumeLink(id string) string {\n\treturn state.link(detailPath(\"/volumes/{id}\", map[string]string{\"id\": id}))\n}\n\n// hostLink opens a host of a region; the region is in the path, so the\n// selected region is not carried.\nfunc (state uiState) hostLink(region, host string) string {\n\treturn state.link(detailPath(\"/regions/{r}/hosts/{h}\", map[string]string{\"r\": region, \"h\": host}), \"r\", \"\")\n}\n"
+    },
+    {
+      "path": "internal/dashboard/members.templ",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "mode": "100644",
+      "git_blob": "78ca632e994813c3dd36581b448954994674cf2f",
+      "sha256": "3d549b9c99ce8e9820fb4a37b8a2ac363bc986dd4d6e2b47c22f6c145c17b36b",
+      "bytes": 6191,
+      "line": 75,
+      "end_line": 96,
+      "text": "\t\t\t\t\t\t\t\t<th>Up</th>\n\t\t\t\t\t\t\t\t<th>Lease</th>\n\t\t\t\t\t\t\t\t<th>Routes</th>\n\t\t\t\t\t\t\t\t<th>CPUs</th>\n\t\t\t\t\t\t\t\t<th>Load 1/5/15</th>\n\t\t\t\t\t\t\t\t<th>Memory</th>\n\t\t\t\t\t\t\t\t<th>Mem PSI 10s</th>\n\t\t\t\t\t\t\t\t<th>Observed</th>\n\t\t\t\t\t\t\t</tr>\n\t\t\t\t\t\t</thead>\n\t\t\t\t\t\t<tbody>\n\t\t\t\t\t\t\tfor _, member := range members {\n\t\t\t\t\t\t\t\t<tr>\n\t\t\t\t\t\t\t\t\t<td><a href={ safe(current.State.memberLink(member.Member)) }>{ member.Member }</a></td>\n\t\t\t\t\t\t\t\t\t<td>{ member.Role }</td>\n\t\t\t\t\t\t\t\t\t<td class={ okClass(member.Ready) }>{ yesNo(member.Ready) }</td>\n\t\t\t\t\t\t\t\t\t<td>{ short(orDash(member.BuildVersion), 14) }</td>\n\t\t\t\t\t\t\t\t\t<td>{ age(current.Now, member.StartedAt) }</td>\n\t\t\t\t\t\t\t\t\t<td>\n\t\t\t\t\t\t\t\t\t\tif member.Authority == nil {\n\t\t\t\t\t\t\t\t\t\t\t-\n\t\t\t\t\t\t\t\t\t\t} else if member.Authority.Leader {\n"
+    },
+    {
+      "path": "internal/dashboard/rollouts.templ",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "mode": "100644",
+      "git_blob": "f004e859f4dff01459b7c77d9b62dd340e3ec864",
+      "sha256": "83c6e6eaa09c3b2edefadd8359e2fff5263b490a33801798f93c81421c4f218f",
+      "bytes": 5121,
+      "line": 5,
+      "end_line": 108,
+      "text": "\t\t<h1>Deploys and rollouts</h1>\n\t\t@notes(current)\n\t\t<article>\n\t\t\t<div class=\"chart-title\">\n\t\t\t\t<h2>Rollout phases <small>regional · latest 64 release generations plus active</small></h2>\n\t\t\t\t<a href={ safe(current.State.link(\"/releases\")) }>Release timelines →</a>\n\t\t\t</div>\n\t\t\tif current.Journal == nil || current.Journal.Rollouts == nil {\n\t\t\t\t@unavailable(\"Release rollout phases (canary, soak, batches) appear once the rollout slice reports them. Managed TerraBase updates are below.\")\n\t\t\t} else if current.failed(\"rollouts\") {\n\t\t\t\t<p class=\"empty unavailable\">Release rollout phases are unavailable right now: the rollout provider did not answer.</p>\n\t\t\t} else if len(current.Rollouts) == 0 {\n\t\t\t\t<p class=\"empty\">No recorded release rollout in this region’s latest 64 release generations or active slot.</p>\n\t\t\t} else {\n\t\t\t\tfor _, rollout := range current.Rollouts {\n\t\t\t\t\t<div>\n\t\t\t\t\t\t<div class=\"chart-title\">\n\t\t\t\t\t\t\t<h3>\n\t\t\t\t\t\t\t\t<code>{ rollout.Release }</code>\n\t\t\t\t\t\t\t\t<a href={ safe(current.State.rolloutLink(rollout.ID)) }><small class=\"mono\">{ rollout.ID }</small></a>\n\t\t\t\t\t\t\t</h3>\n\t\t\t\t\t\t\t<span>\n\t\t\t\t\t\t\t\t@statusPill(rolloutStatus(rollout, current.Now), rollout.Phase)\n\t\t\t\t\t\t\t\t<small class=\"muted\">\n\t\t\t\t\t\t\t\t\t{ \" phase started \" }\n\t\t\t\t\t\t\t\t\t@ago(rollout.PhaseStarted)\n\t\t\t\t\t\t\t\t\tif !rollout.PhaseDeadline.IsZero() {\n\t\t\t\t\t\t\t\t\t\t{ \" · deadline \" }\n\t\t\t\t\t\t\t\t\t\t@ago(rollout.PhaseDeadline)\n\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t</small>\n\t\t\t\t\t\t\t</span>\n\t\t\t\t\t\t</div>\n\t\t\t\t\t\t<div class=\"phase-row\">\n\t\t\t\t\t\t\tfor _, phase := range rolloutPhases {\n\t\t\t\t\t\t\t\t<span class={ \"phase\", sClass(phaseStatus(rollout, phase, current.Now)) }>{ phase }</span>\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t</div>\n\t\t\t\t\t</div>\n\t\t\t\t}\n\t\t\t}\n\t\t</article>\n\t\t<div class=\"cols-2\">\n\t\t\t<article>\n\t\t\t\t<div class=\"chart-title\">\n\t\t\t\t\t<h2>Release history <small>all regions, 7 days</small></h2>\n\t\t\t\t\t<a href={ safe(current.State.link(\"/decisions\", \"actor\", \"rollout\")) }>Journal →</a>\n\t\t\t\t</div>\n\t\t\t\t@timeline(\"\", current.decisionTimeline(current.decisions(), false))\n\t\t\t\t@decisionList(current, current.decisions(), 6)\n\t\t\t</article>\n\t\t\t<article>\n\t\t\t\t<h2>Known-bad releases</h2>\n\t\t\t\tif bad := current.knownBad(); len(bad) == 0 && current.decisionCoverage() == coverageMissing {\n\t\t\t\t\t@journalMissing(\"Known-bad releases\")\n\t\t\t\t} else if len(bad) == 0 && current.decisionCoverage() != coverageComplete {\n\t\t\t\t\t@historyUnavailable(current, \"Rollback history\")\n\t\t\t\t} else if len(bad) == 0 {\n\t\t\t\t\t<p class=\"empty\">No release was rolled back in the last 7 days.</p>\n\t\t\t\t} else {\n\t\t\t\t\tif current.decisionCoverage() != coverageComplete {\n\t\t\t\t\t\t@historyUnavailable(current, \"Rollback history\")\n\t\t\t\t\t}\n\t\t\t\t\t<ul class=\"mini-list\">\n\t\t\t\t\t\tfor _, release := range bad {\n\t\t\t\t\t\t\t<li>\n\t\t\t\t\t\t\t\t@statusPill(\"serious\", \"rolled back\")\n\t\t\t\t\t\t\t\t<span class=\"grow\" title={ release.Reason }><code>{ release.Name }</code> { short(release.Reason, 120) }</span>\n\t\t\t\t\t\t\t\t<small class=\"muted\">\n\t\t\t\t\t\t\t\t\t@ago(release.Last)\n\t\t\t\t\t\t\t\t</small>\n\t\t\t\t\t\t\t</li>\n\t\t\t\t\t\t}\n\t\t\t\t\t</ul>\n\t\t\t\t}\n\t\t\t</article>\n\t\t</div>\n\t\t<article>\n\t\t\t<h2>Managed runtime updates</h2>\n\t\t\tif current.placement() == nil {\n\t\t\t\t@unavailable(\"No placement view is available, so rollout progress cannot be shown.\")\n\t\t\t} else if rollouts := current.rollouts(); len(rollouts) == 0 {\n\t\t\t\t@unavailable(\"No managed runtime update is in progress.\")\n\t\t\t} else {\n\t\t\t\t<div class=\"table-scroll\">\n\t\t\t\t\t<table class=\"striped\">\n\t\t\t\t\t\t<thead>\n\t\t\t\t\t\t\t<tr><th>Database</th><th>Partition</th><th>Operation</th><th>Artifact</th><th>Progress</th><th>Seats</th><th>Phases</th></tr>\n\t\t\t\t\t\t</thead>\n\t\t\t\t\t\t<tbody>\n\t\t\t\t\t\t\tfor _, database := range rollouts {\n\t\t\t\t\t\t\t\t<tr>\n\t\t\t\t\t\t\t\t\t<td>{ database.DatabaseID }</td>\n\t\t\t\t\t\t\t\t\t<td>{ database.PartitionID }</td>\n\t\t\t\t\t\t\t\t\t<td><a href={ safe(current.State.rolloutLink(database.Rollout.OperationID)) }><code>{ short(database.Rollout.OperationID, 16) }</code></a></td>\n\t\t\t\t\t\t\t\t\t<td><code>{ short(orDash(database.Rollout.ArtifactDigest), 19) }</code></td>\n\t\t\t\t\t\t\t\t\t<td>\n\t\t\t\t\t\t\t\t\t\t@ratioBar(database.Rollout.Progress())\n\t\t\t\t\t\t\t\t\t</td>\n\t\t\t\t\t\t\t\t\t<td>{ itoa(database.Rollout.Completed) } / { itoa(database.Rollout.Seats) }</td>\n\t\t\t\t\t\t\t\t\t<td>{ counts(database.Rollout.Phases) }</td>\n\t\t\t\t\t\t\t\t</tr>\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t</tbody>\n"
+    },
+    {
+      "path": "internal/dashboard/storage.templ",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "mode": "100644",
+      "git_blob": "642e91cbbf5a84fefe0ff32c72814dccc8ce39ec",
+      "sha256": "717c28a5706299681b245c80c933f1cb1ab728b5a74d8f70fd444ef14b4e4eea",
+      "bytes": 5130,
+      "line": 1,
+      "end_line": 47,
+      "text": "package dashboard\n\nimport \"github.com/TerraScale/ts-orchestrator/internal/observability\"\n\ntempl storageBody(current view) {\n\t<div id=\"content\">\n\t\t<h1>Storage</h1>\n\t\t@notes(current)\n\t\t@scopeNote(current)\n\t\t<div class=\"cols-2\">\n\t\t\t<article>\n\t\t\t\t<div class=\"chart-title\">\n\t\t\t\t\t<h2>Retained placement volumes</h2>\n\t\t\t\t\tif len(current.Volumes) > 0 {\n\t\t\t\t\t\t<small class=\"muted\">{ current.volumeCounts() }</small>\n\t\t\t\t\t}\n\t\t\t\t</div>\n\t\t\t\tif current.Journal == nil || current.Journal.Volumes == nil {\n\t\t\t\t\t@unavailable(\"Volume lifecycle state appears once the storage slice reports volumes. Filesystems below come from collected node resources.\")\n\t\t\t\t} else if current.failed(\"volumes\") {\n\t\t\t\t\t@unavailable(\"Volume state could not be read right now, so attachments are unknown.\")\n\t\t\t\t} else if len(current.Volumes) == 0 {\n\t\t\t\t\t<p class=\"empty\">No retained volume is recorded in managed placement.</p>\n\t\t\t\t} else {\n\t\t\t\t\t<div class=\"table-scroll\">\n\t\t\t\t\t\t<table>\n\t\t\t\t\t\t\t<thead><tr><th>Volume</th><th>Host</th><th>State</th><th>Since</th></tr></thead>\n\t\t\t\t\t\t\t<tbody>\n\t\t\t\t\t\t\t\tfor _, volume := range current.Volumes {\n\t\t\t\t\t\t\t\t\t<tr\n\t\t\t\t\t\t\t\t\t\tif current.State.param(\"volume\") == volume.ID {\n\t\t\t\t\t\t\t\t\t\t\tclass=\"drift\"\n\t\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t\t>\n\t\t\t\t\t\t\t\t\t\t<td><a href={ safe(current.State.volumeLink(volume.ID)) }>{ volume.ID }</a></td>\n\t\t\t\t\t\t\t\t\t\t<td>\n\t\t\t\t\t\t\t\t\t\t\tif volume.Host != \"\" {\n\t\t\t\t\t\t\t\t\t\t\t\t<a href={ safe(current.State.hostLink(current.localRegion(), volume.Host)) }>{ volume.Host }</a>\n\t\t\t\t\t\t\t\t\t\t\t} else {\n\t\t\t\t\t\t\t\t\t\t\t\t<span class=\"muted\">unattached</span>\n\t\t\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t\t\t</td>\n\t\t\t\t\t\t\t\t\t\t<td>\n\t\t\t\t\t\t\t\t\t\t\t@statusPill(volumeStatus(volume, current.Now), volume.State)\n\t\t\t\t\t\t\t\t\t\t</td>\n\t\t\t\t\t\t\t\t\t\t<td>\n\t\t\t\t\t\t\t\t\t\t\t@ago(volume.StateSince)\n"
+    },
+    {
+      "path": "internal/dashboard/terrabase.templ",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "mode": "100644",
+      "git_blob": "9b455aa247d0f5701e586331c9add91b4245c801",
+      "sha256": "dd55fbb9739abe1ea1b0729eef1e834211b8c26f9b7feba8c0ee7e97585ce245",
+      "bytes": 6970,
+      "line": 1,
+      "end_line": 100,
+      "text": "package dashboard\n\nimport \"github.com/TerraScale/ts-orchestrator/internal/observability\"\n\ntempl terrabaseBody(current view) {\n\t<div id=\"content\">\n\t\t<h1>TerraBase instances</h1>\n\t\t@notes(current)\n\t\t@scopeNote(current)\n\t\t<article>\n\t\t\t<h2>TerraBase services on host nodes</h2>\n\t\t\t<p class=\"legend-note\">Current native task readiness is unknown until the live root and member source is connected. Durable placement stages are listed separately below.</p>\n\t\t\t{{ services := 0 }}\n\t\t\t<table class=\"striped\">\n\t\t\t\t<thead><tr><th>Host node</th><th>Current task readiness</th><th>Artifact digest</th></tr></thead>\n\t\t\t\t<tbody>\n\t\t\t\t\tfor _, node := range current.resourceNodes() {\n\t\t\t\t\t\tfor _, service := range node.Services {\n\t\t\t\t\t\t\tif service.Role == \"terrabase\" {\n\t\t\t\t\t\t\t\t{{ services++ }}\n\t\t\t\t\t\t\t\t{{ status, state := serviceStatus(service.State) }}\n\t\t\t\t\t\t\t\t<tr>\n\t\t\t\t\t\t\t\t\t<td><a href={ safe(current.State.hostLink(current.localRegion(), node.Name)) }>{ node.Name }</a></td>\n\t\t\t\t\t\t\t\t\t<td>\n\t\t\t\t\t\t\t\t\t\t@statusPill(status, state)\n\t\t\t\t\t\t\t\t\t\t<small class=\"muted\">{ service.StateReason }</small>\n\t\t\t\t\t\t\t\t\t</td>\n\t\t\t\t\t\t\t\t\t<td><code>{ orDash(service.Digest) }</code></td>\n\t\t\t\t\t\t\t\t</tr>\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t</tbody>\n\t\t\t</table>\n\t\t\tif services == 0 {\n\t\t\t\t@unavailable(\"No TerraBase role is present in this region's node topology.\")\n\t\t\t}\n\t\t</article>\n\t\tif placement := current.placement(); placement != nil && len(placement.Databases) > 0 {\n\t\t\t<article>\n\t\t\t\t<div class=\"chart-title\">\n\t\t\t\t\t<h2>Seats by database <small>one square per seat</small></h2>\n\t\t\t\t\t<span class=\"legend\">\n\t\t\t\t\t\tfor _, stage := range stageLegend {\n\t\t\t\t\t\t\t<span><span class={ \"seat\", sClass(stageStatus(stage)) }></span>{ stage }</span>\n\t\t\t\t\t\t}\n\t\t\t\t\t</span>\n\t\t\t\t</div>\n\t\t\t\t<div class=\"cols\">\n\t\t\t\t\tfor _, database := range placement.Databases {\n\t\t\t\t\t\t<div>\n\t\t\t\t\t\t\t<strong><a href={ safe(current.State.partitionLink(database.DatabaseID, database.PartitionID)) }>{ database.DatabaseID }</a></strong>\n\t\t\t\t\t\t\t<small class=\"muted\">{ database.PartitionID } · { placementServingText(database) }/{ itoa(database.DesiredSeats) } serving</small>\n\t\t\t\t\t\t\t<div class=\"seat-grid\">\n\t\t\t\t\t\t\t\tfor _, member := range database.Members {\n\t\t\t\t\t\t\t\t\t<span\n\t\t\t\t\t\t\t\t\t\tclass={ \"seat\", sClass(stageStatus(member.Stage)) }\n\t\t\t\t\t\t\t\t\t\ttitle={ seatTitle(member) }\n\t\t\t\t\t\t\t\t\t\tif current.State.param(\"host\") != \"\" && current.State.param(\"host\") != member.HostNode {\n\t\t\t\t\t\t\t\t\t\t\tdata-dim=\"true\"\n\t\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t\t></span>\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t</div>\n\t\t\t\t\t\t</div>\n\t\t\t\t\t}\n\t\t\t\t</div>\n\t\t\t</article>\n\t\t}\n\t\t<div class=\"cols\">\n\t\t\t<article>\n\t\t\t\t<h2>Seats by stage</h2>\n\t\t\t\t@chart(\"\", current.stageChart())\n\t\t\t</article>\n\t\t\t<article>\n\t\t\t\t<h2>Seats serving vs desired</h2>\n\t\t\t\t@chart(\"\", current.seatsChart())\n\t\t\t</article>\n\t\t</div>\n\t\t{{ forecasts, forecastChart := current.storageForecasts() }}\n\t\t<div class=\"cols-2\">\n\t\t\t<article>\n\t\t\t\t<h2>Controller filesystem growth and time to full <small>linear trend over at least 24h</small></h2>\n\t\t\t\t@chart(\"\", forecastChart)\n\t\t\t</article>\n\t\t\t<article>\n\t\t\t\t<h2>Time to full</h2>\n\t\t\t\tif len(forecasts) == 0 {\n\t\t\t\t\t@unavailable(\"No filesystem history yet.\")\n\t\t\t\t} else {\n\t\t\t\t\t<ul class=\"mini-list\">\n\t\t\t\t\t\tfor _, entry := range forecasts[:min(8, len(forecasts))] {\n\t\t\t\t\t\t\t<li>\n\t\t\t\t\t\t\t\t@statusPill(entry.Status, forecastText(entry))\n\t\t\t\t\t\t\t\t<span class=\"grow\">{ entry.Name }</span>\n\t\t\t\t\t\t\t\t<small class=\"muted\">{ percent(entry.Used) } used</small>\n\t\t\t\t\t\t\t</li>\n\t\t\t\t\t\t}\n\t\t\t\t\t</ul>\n\t\t\t\t}\n"
+    },
+    {
+      "path": "internal/dashboard/oci.templ",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "mode": "100644",
+      "git_blob": "42458ea050c54c037d0ad10a7f752fcf5830046e",
+      "sha256": "ae97d483f7d8f45de8fab6bbaa211f51e3813d28a1f51984bd537d972ea0b37d",
+      "bytes": 9493,
+      "line": 45,
+      "end_line": 90,
+      "text": "\t\t\t</article>\n\t\t</div>\n\t\t<article>\n\t\t\t<h2>Fleet by lifecycle state <small>latest complete sweep</small></h2>\n\t\t\tif fleets := current.fleetViews(); len(fleets) == 0 {\n\t\t\t\t@unavailable(\"No member reported an OCI fleet sweep. Controllers of a cell that manages TerraBase placement report one after their first complete Observe.\")\n\t\t\t} else {\n\t\t\t\tfor _, fleet := range fleets {\n\t\t\t\t\t<div class=\"cols-2\">\n\t\t\t\t\t\t<div>\n\t\t\t\t\t\t\t<h3>\n\t\t\t\t\t\t\t\t{ upper(fleet.Region) }\n\t\t\t\t\t\t\t\t<small class=\"muted\">\n\t\t\t\t\t\t\t\t\t{ \"swept \" }\n\t\t\t\t\t\t\t\t\t@ago(fleet.ObservedAt)\n\t\t\t\t\t\t\t\t</small>\n\t\t\t\t\t\t\t</h3>\n\t\t\t\t\t\t\t<table class=\"striped\">\n\t\t\t\t\t\t\t\t<thead><tr><th>Kind</th><th>By lifecycle state</th></tr></thead>\n\t\t\t\t\t\t\t\t<tbody>\n\t\t\t\t\t\t\t\t\tfor _, kind := range fleetKinds {\n\t\t\t\t\t\t\t\t\t\t<tr>\n\t\t\t\t\t\t\t\t\t\t\t<td>{ kind }</td>\n\t\t\t\t\t\t\t\t\t\t\t<td>\n\t\t\t\t\t\t\t\t\t\t\t\tif counts := fleetCounts(fleet, kind); len(counts) == 0 {\n\t\t\t\t\t\t\t\t\t\t\t\t\t<span class=\"muted\">none</span>\n\t\t\t\t\t\t\t\t\t\t\t\t} else {\n\t\t\t\t\t\t\t\t\t\t\t\t\tfor _, state := range sortedStates(counts) {\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t@statusPill(lifecycleStatus(state), state+\" \"+itoa(counts[state]))\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t{ \" \" }\n\t\t\t\t\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t\t\t\t</td>\n\t\t\t\t\t\t\t\t\t\t</tr>\n\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t</tbody>\n\t\t\t\t\t\t\t</table>\n\t\t\t\t\t\t</div>\n\t\t\t\t\t\t@chart(\"short\", fleetChart(fleet))\n\t\t\t\t\t</div>\n\t\t\t\t}\n\t\t\t\t<p class=\"legend-note\">Instances in the fleet's identity scope, including ones the controller withholds; volumes and attachments of the hosts it verified. Unattached retained volumes are not listed by the sweep.</p>\n\t\t\t}\n\t\t</article>\n\t\t<article>\n\t\t\t<div class=\"chart-title\">\n"
+    },
+    {
+      "path": "internal/dashboard/topology.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "mode": "100644",
+      "git_blob": "ad2132824d2b2898db06559344f65d557c20362a",
+      "sha256": "dda2443557a1b428021d6a15e3939934870acb14343532ff1885dab6e1c0aa3f",
+      "bytes": 24714,
+      "line": 145,
+      "end_line": 188,
+      "text": "func (current view) topologySummaries() []regionview.Summary {\n\tif current.LocalSummary != nil {\n\t\treturn []regionview.Summary{*current.LocalSummary}\n\t}\n\tsummary := regionview.Summary{Region: current.localRegion(), Local: true, Reach: decisionlog.RegionOK,\n\t\tQuorum: regionview.Quorum{Missing: current.missing()}}\n\tfor _, member := range current.members() {\n\t\tsummary.Members = append(summary.Members, regionview.Member{Name: member.Member, Role: member.Role,\n\t\t\tReady: member.Ready, Version: member.BuildVersion, MetaLeader: member.NATS != nil && member.NATS.IsMetaLeader})\n\t}\n\treturn []regionview.Summary{summary}\n}\n\n// topologyNodes is the region's nodes: its granted nodes plus every\n// controller no node names, or, from a summary without nodes (an older\n// region, a cell without host grants), one node per member and seat host.\nfunc topologyNodes(summary regionview.Summary) []regionview.Node {\n\tnodes := slices.Clone(summary.Nodes)\n\tknown := map[string]bool{}\n\tcontrollers := map[string]bool{}\n\tfor _, node := range nodes {\n\t\tknown[node.Name] = true\n\t\tif node.Member != \"\" {\n\t\t\tcontrollers[node.Member] = true\n\t\t}\n\t}\n\tadd := func(name, member string) {\n\t\tif name != \"\" && !known[name] && (member == \"\" || !controllers[member]) {\n\t\t\tknown[name] = true\n\t\t\tif member != \"\" {\n\t\t\t\tcontrollers[member] = true\n\t\t\t}\n\t\t\tnodes = append(nodes, regionview.Node{Name: name, Member: member})\n\t\t}\n\t}\n\tfor _, member := range summary.Members {\n\t\tswitch {\n\t\tcase member.Role != \"host\":\n\t\t\tadd(member.Name, member.Name)\n\t\tcase len(summary.Nodes) == 0:\n\t\t\tadd(member.Name, \"\")\n\t\t}\n\t}\n\tif len(summary.Members) == 0 {\n"
+    }
+  ],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no runtime receipts reviewed.",
+    "All20 original roots/assertions, identity and safety obligations retained; retirement_authorized false.",
+    "No source/repository/ledger mutation, Go/build/test/lint/format/helper/cloud/signing/crypto/TerraBase execution, deletion, runtime qualification, count promotion or completion credit.",
+    "Six integration roots cover local HTTP/SSE or nice/go-list metadata only. No browser/JavaScript, live regions/cloud/NATS/Vault/TerraBase, real replay/OCI collection or actually built binary linkage established.",
+    "Fourteen unit roots use direct ResponseRecorder handlers and synthetic/memory providers; History/globalview objects here are not durable/network services.",
+    "One partial serving-count source conflict stays uncredited inside a unit root; unresolved category0 does not clear the finding.",
+    "Independent peer review and separate accepted ledger action remain required."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "runtime_receipts_reviewed": false,
+  "runtime_execution_performed": false,
+  "repository_or_source_mutated": false,
+  "ledger_mutated": false,
+  "count_promotion_authorized": false,
+  "deletion_authorized": false,
+  "retirement_authorized": false,
+  "safety_obligations_retained": true
+}

@@ -1,0 +1,144 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1060_1080",
+  "author": "/root/classification_100_dispatch/batch_1080_1100",
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-1880-1900-final-hsmr0zmg/classification.json",
+    "sha256": "3a3d98aff2ee71f509696b8e59f361f445b2a259d65ca6ee8b9a0d4205b0c344",
+    "checksum_path": "/tmp/ts-source-classification-1880-1900-final-hsmr0zmg/SHA256SUMS",
+    "checksum_sha256": "87c5b1ba4ef78a97ee593d053bd470fa469b566fd9ed5085a8006709d74a373b"
+  },
+  "reviewer_own_packet_frozen_before_peer_review": {
+    "path": "/tmp/ts-source-1860-1880-z9ro3i5u/classification.json",
+    "sha256": "0b7a4aa9b881dba35032e8e976c3d25443782fdc380b85af99ebe99f122056ea"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c"
+  },
+  "literal_range": [
+    1880,
+    1900
+  ],
+  "root_ids": [
+    "internal/managedmaterial/initial_deployment_test.go::TestInitialDeploymentRendersAdmittedPlacementFromReceipt",
+    "internal/managedmaterial/initial_deployment_test.go::TestRecipientKeyReadersRequireOwnerOnlyPEM",
+    "internal/managedmaterial/native_validation_integration_test.go::TestPrepareInitialUsesAdmittedPackagedNativeValidator",
+    "internal/managedmaterial/native_validation_test.go::TestNativeRequestUsesProducedInitialMaterial",
+    "internal/managedmaterial/prepare_test.go::TestNativeRejectionPrecedesObjectPutAndOrphanReceipt",
+    "internal/managedmaterial/prepare_test.go::TestPrepareInitialRecoversOrphanOnlyThroughNewR3CAS",
+    "internal/managedmaterial/prepare_test.go::TestPrepareInitialRejectsForeignLiveS3RegionBeforeObjectPut",
+    "internal/managedmaterial/prepare_test.go::TestPrepareInitialRequiresR3ReceiptAndReusesCommittedGeneration",
+    "internal/managedmaterial/producer_test.go::TestExportManagedAuthorityPacket",
+    "internal/managedmaterial/producer_test.go::TestExportSQLProcessPacket",
+    "internal/managedmaterial/producer_test.go::TestGenerateInitialBindsAuthorityTLSRegistryAndCustomerCiphertext",
+    "internal/managedmaterial/producer_test.go::TestGenerateInitialBindsSQLBundleAndTableGrants",
+    "internal/managedmaterial/producer_test.go::TestGenerateInitialIssuesECDSAClientHTTPSLeaves",
+    "internal/managedmaterial/producer_test.go::TestGenerateInitialRejectsRecipientAndMemberSubstitution",
+    "internal/managedmaterial/producer_test.go::TestInitialMultiCatalogAuthorityBindsCanonicalCatalogsAndActiveRows",
+    "internal/managedmaterial/producer_test.go::TestInitialSQLSpecRejectsInvalidIdentityNamesGrantsAndPorts",
+    "internal/managedmaterial/producer_test.go::TestNoSQLInitialMaterialPreservesGenerationOneContract",
+    "internal/managedmaterial/producer_test.go::TestSQLSchemaBundleMatchesFrozenRustRowVector",
+    "internal/managedmaterial/provisioning_test.go::TestPreseededSelfConsistentMaterialCannotGainR3Authority",
+    "internal/managedmaterial/provisioning_test.go::TestProvisioningRejectsRegistryEnvelopeSubstitution"
+  ],
+  "counts": {
+    "integration": 2,
+    "unit": 16,
+    "mixed": 0,
+    "unresolved": 2,
+    "total": 20
+  },
+  "checks_performed": [
+    "Independently read all twenty full canonical roots and connected actual fixture/production paths. Shared paths read during own source review retained; new peer paths independently inspected.",
+    "Verified activated cyclic allocation, exact literal20 IDs/order against original accounting other_unadjudicated[1880:1900), exclusions disjointness, exact survival rows and input hashes.",
+    "Recomputed40 baseline/current raw declaration bodies, bounds and hashes from func through column-zero final close excluding following LF. No current/baseline drift or mapping ambiguity.",
+    "Verified35 full source-file commit/path/blob/mode/SHA256/byte pins, every full assertion span and60 connected exact source spans including final corrected closing braces. Assertion/callee span text retains following LF; raw declarations exclude it.",
+    "Verified final packet/checksum hashes, SHA256SUMS entries and immutable files0444/directory0555. Confirmed final correction preserves roots, mappings, source pins, categories, findings and qualification limits.",
+    "Followed real owner-only key readers through syscall.Open/O_NOFOLLOW, Stat and bounded ReadAll; packaged native validation through pinned verifier digest, /proc/self/fd/3 exec.CommandContext and command.Run. Fake objects/receipts/fencer/accepting native validator remain synthetic.",
+    "Reviewed unit crypto/catalog/SQL/cipher/receipt/placement assertions and conditional exporter blocks. Source blockers retained; no runtime, crypto, signing, helper, Go, cloud or process execution."
+  ],
+  "resolved_findings": [
+    {
+      "path": "internal/managedmaterial/producer.go",
+      "previous_bounds": [
+        437,
+        485
+      ],
+      "accepted_bounds": [
+        437,
+        486
+      ],
+      "resolution": "Connected evidence now includes customerEnvelopeAAD closing brace."
+    },
+    {
+      "path": "internal/managedmaterial/receipt.go",
+      "previous_bounds": [
+        46,
+        120
+      ],
+      "accepted_bounds": [
+        46,
+        121
+      ],
+      "resolution": "Connected evidence now includes customerEnvelopeDigest closing brace."
+    }
+  ],
+  "remaining_findings": [
+    {
+      "root_id": "internal/managedmaterial/native_validation_integration_test.go::TestPrepareInitialUsesAdmittedPackagedNativeValidator",
+      "limits": [
+        "Combined receipt assertion at64-75 requires material-g1- plus24 hex characters at69; prepare.go:96 commits entityid.Derive(material-preparation, full specSHA), a26-character ULID per entityid/id.go:49-58. Combined assertion and later log/optional request export79-92 remain unresolved/uncredited. Fixed packaged binary, admission pins, ownership and architecture were not probed."
+      ]
+    },
+    {
+      "root_id": "internal/managedmaterial/producer_test.go::TestExportManagedAuthorityPacket",
+      "limits": [
+        "Requires TB_MANAGED_AUTHORITY_EXPORT_DIR; missing fixture skips/fails per tier.Qualification. Root only exports producer artifacts; independent standalone/parent-consumer accounting rule absent. No TerraBase decoder was executed or independently asserted here."
+      ]
+    },
+    {
+      "root_id": "internal/managedmaterial/producer_test.go::TestExportSQLProcessPacket",
+      "limits": [
+        "At606 SeatIDs append lowercase a/b to a canonical-looking prefix. GenerateInitial at630 calls validateInitialSpec, which rejects !entityid.Valid(member.SeatID) at producer.go:417; entityid.Parse requires exact uppercase canonical ULID. Assertions/actions after630 remain unresolved/uncredited.",
+        "Even after independently resolving invalid SeatIDs, staging directories created613-617 use ...WM3QQGQPMW5X58P9 and ...N9X5GQEQJ9NA9A7V, while memberDirectory647-648 uses ...SNQ2922YA2BV9HY5a/b. No mkdir of those target children precedes os.WriteFile662. Member export, manifest and rename publication remain source-blocked/uncredited.",
+        "Separate SQL process oracle is not invoked/asserted in this root. Conditional exporter accounting stays unresolved per dispatcher-confirmed rule."
+      ]
+    },
+    {
+      "root_id": "internal/managedmaterial/provisioning_test.go::TestPreseededSelfConsistentMaterialCannotGainR3Authority",
+      "limits": [
+        "storedBundle at81-82 omits Namespace/Bucket/KMSKeyID, whereas repository.read374-380 checks those pins before verifyProvisioning. Broad conflict assertions100-109 can pass for missing scope pins; they do not establish wrong-controller-signature rejection. Safety obligation retained."
+      ]
+    }
+  ],
+  "category_assessment": {
+    "integration": 2,
+    "unit": 16,
+    "mixed": 0,
+    "unresolved": 2,
+    "detail": "Owner-only key reads and earlier packaged-native process validation support two integration roots. Local producer/receipt/predicate/crypto/vector paths and injected fake stores support sixteen unit roots. Conditional artifact exporters remain unresolved. Native receipt mismatch and exporter/preseed blockers limit later or specific assertion credit."
+  },
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No build, compile, test, fixture/helper, native executable, process, crypto/signing or cloud action executed.",
+    "Only root1881 materially reads key files; root1882 conditionally reaches digest-pinned native process validation. No live OCI/KMS/Vault/R3/NATS/NetBird/SQL/replication/HTTPS qualification.",
+    "Preparation fixture injects fakeMaterialObjectClient, fakePreparationReceipts, repositoryFencer and accepting/rejecting native validators except explicit packaged-native root. Versions/CAS/durable terms in those assertions remain synthetic.",
+    "Native process fixture availability, exact digest/source/ownership/architecture are unverified external conditions. Obsolete operation-ID check prevents later assertion credit.",
+    "Both conditional artifact-exporters remain unresolved under dispatcher-confirmed helper-accounting rule. SQL exporter lowercase SeatIDs and staging directory mismatch explicitly block later publication assertions.",
+    "All original assertions and trust/secret/ownership/expiry/no-partial-write/fencing/signature obligations retained. No deletion, retirement, ledger/count mutation, qualification or completion promotion. Canonical source only."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "ledger_mutated": false,
+  "repository_mutated": false,
+  "accounting_effect": {
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "count_promotion": false,
+    "global_completion": false
+  }
+}

@@ -1,0 +1,8 @@
+Source-only candidate: other_unadjudicated[1660:1680), 20 literal original roots.
+Counts: 5 integration / 12 unit / 3 mixed / 0 unresolved.
+Pinned canonical commit 52eef25bad09736d8f0806ecaccaef1a7c86b49e; baseline bfca60368f60d2da67f9016d1d489317ae8749c8.
+All declarations and connected evidence are explicit manually reviewed spans.
+Runtime UNKNOWN; no execution, source/ledger changes, retirement, qualification or completion credit.
+Independent peer: /root/classification_100_dispatch/batch_840_860.
+The invalid foreign-operation literal is recorded as a local-only assertion scope limit.
+Correction: exact grant.go39-51 mutation/error classifier source span added; all counts/limits unchanged. Earlier frozen packet preserved.

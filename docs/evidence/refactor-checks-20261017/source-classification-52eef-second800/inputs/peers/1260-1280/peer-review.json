@@ -1,0 +1,326 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/peer_40_60",
+  "author": "/root/classification_100_dispatch/peer_60_80",
+  "disposition": "ACCEPTED_SOURCE_CLASSIFICATION_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-1260-1280-final-yqhs0lld/classification.json",
+    "sha256": "5f2b0f2057ac58dd10e6763f8ad03146d95b4abb3a30296c1d52bfebc0116776",
+    "checksum_path": "/tmp/ts-source-classification-1260-1280-final-yqhs0lld/SHA256SUMS",
+    "checksum_sha256": "d38ae6d46ba00534cc0ae481db0f7244ac401499d30bf692710db2ad3cea6536"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "range": [
+      1260,
+      1280
+    ],
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c"
+  },
+  "root_ids": [
+    "internal/dashboard/nats_rtt_test.go::TestNATSRouteRTTHistoryRequiresCompleteCoverageEvidence",
+    "internal/dashboard/nats_rtt_test.go::TestNATSRouteRTTHistoryValidatesSelectedPeak",
+    "internal/dashboard/nats_rtt_test.go::TestNATSRouteRTTReachesTheRenderedChartWithoutRoundingToZero",
+    "internal/dashboard/nats_rtt_test.go::TestNATSRouteRTTShowsUnknownPartialStaleAndTruncatedEvidence",
+    "internal/dashboard/overview_test.go::TestGlobalMapPlacesKnownRegionsOnly",
+    "internal/dashboard/overview_test.go::TestGlobalMapWorseDirectionWins",
+    "internal/dashboard/overview_test.go::TestOverviewBudgetTwentyRegions",
+    "internal/dashboard/overview_test.go::TestOverviewHTTPPreservesRegionalEvidence",
+    "internal/dashboard/overview_test.go::TestOverviewHTTPShowsDatabaseAndErrorFields",
+    "internal/dashboard/overview_test.go::TestOverviewNeverAsksRegions",
+    "internal/dashboard/overview_test.go::TestRegionPageBudgetTwentyRegions",
+    "internal/dashboard/resources_test.go::TestAllNodesRenderAuthenticatedResourcesWithoutClusterSnapshots",
+    "internal/dashboard/resources_test.go::TestCapacityDisplaysPartialCoverage",
+    "internal/dashboard/resources_test.go::TestHostsAndRolloutsExcludeTerminalPartitions",
+    "internal/dashboard/resources_test.go::TestResourcePagesExposeCollectorErrorsAndUnknownCapacity",
+    "internal/dashboard/resources_test.go::TestStorageUsesPhysicalFilesystemsAndChartJSON",
+    "internal/dashboard/resources_test.go::TestStorageWarnsWhenOneFilesystemFailedCollection",
+    "internal/dashboard/resources_test.go::TestTopologyResourceAlarmControlsNodeStatus",
+    "internal/dashboard/resources_test.go::TestVolumeAttachingWithoutTimestampIsNotOverdue",
+    "internal/dashboard/review_test.go::TestAdmissionAloneIsNotQualified"
+  ],
+  "counts": {
+    "integration": 17,
+    "unit": 3,
+    "mixed": 0,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 full canonical roots from immutable Git blobs and followed actual fixtures, production router/load/body render, HTTP clients, map/resource/history/placement/release paths. Reused already independently read same pinned common dashboard/history paths from own author review.",
+    "Verified20 literal allocation/accounting/survival mappings, unique800 activated IDs and disjointness from prior first1100 exclusions. Verified canonical commit/tree and allocation/survival/accounting SHA pins.",
+    "Recomputed40 baseline/current raw declarations at explicit bounds; checked complete20 assertion interiors,78 connected citations and all45 full source file mode/blob/SHA256/byte pins:138 exact source spans. Verified one declared current body drift at1273, preserving original/current declarations and every original obligation.",
+    "Confirmed17 integration roots materially assert actual HTTP responses. Confirmed3 unit roots1266/1269/1270 use only direct ResponseRecorder/direct load with synthetic memory state. JSON/string extraction and local setup in same received observations create no independent mixed block.",
+    "Verified final exact packet/SHA256SUMS entries and hashes, files0444/directory0555. All category counts, retained safety, runtimeUNKNOWN and no-promotion restrictions consistent."
+  ],
+  "resolved_findings": [
+    {
+      "scope": "root1273 historical inventory drift",
+      "resolution": "Author already explicitly records actual canonical active-placement readiness fields and changed raw hash; original terminal exclusion assertions/baseline text retained. No reviewer correction required."
+    }
+  ],
+  "remaining_findings": [],
+  "independent_per_root_disposition": [
+    {
+      "allocation_index": 1260,
+      "root_id": "internal/dashboard/nats_rtt_test.go::TestNATSRouteRTTHistoryRequiresCompleteCoverageEvidence",
+      "category": "integration",
+      "disposition": "agree",
+      "source_blocker": null
+    },
+    {
+      "allocation_index": 1261,
+      "root_id": "internal/dashboard/nats_rtt_test.go::TestNATSRouteRTTHistoryValidatesSelectedPeak",
+      "category": "integration",
+      "disposition": "agree",
+      "source_blocker": null
+    },
+    {
+      "allocation_index": 1262,
+      "root_id": "internal/dashboard/nats_rtt_test.go::TestNATSRouteRTTReachesTheRenderedChartWithoutRoundingToZero",
+      "category": "integration",
+      "disposition": "agree",
+      "source_blocker": null
+    },
+    {
+      "allocation_index": 1263,
+      "root_id": "internal/dashboard/nats_rtt_test.go::TestNATSRouteRTTShowsUnknownPartialStaleAndTruncatedEvidence",
+      "category": "integration",
+      "disposition": "agree",
+      "source_blocker": null
+    },
+    {
+      "allocation_index": 1264,
+      "root_id": "internal/dashboard/overview_test.go::TestGlobalMapPlacesKnownRegionsOnly",
+      "category": "integration",
+      "disposition": "agree",
+      "source_blocker": null
+    },
+    {
+      "allocation_index": 1265,
+      "root_id": "internal/dashboard/overview_test.go::TestGlobalMapWorseDirectionWins",
+      "category": "integration",
+      "disposition": "agree",
+      "source_blocker": null
+    },
+    {
+      "allocation_index": 1266,
+      "root_id": "internal/dashboard/overview_test.go::TestOverviewBudgetTwentyRegions",
+      "category": "unit",
+      "disposition": "agree",
+      "source_blocker": null
+    },
+    {
+      "allocation_index": 1267,
+      "root_id": "internal/dashboard/overview_test.go::TestOverviewHTTPPreservesRegionalEvidence",
+      "category": "integration",
+      "disposition": "agree",
+      "source_blocker": null
+    },
+    {
+      "allocation_index": 1268,
+      "root_id": "internal/dashboard/overview_test.go::TestOverviewHTTPShowsDatabaseAndErrorFields",
+      "category": "integration",
+      "disposition": "agree",
+      "source_blocker": null
+    },
+    {
+      "allocation_index": 1269,
+      "root_id": "internal/dashboard/overview_test.go::TestOverviewNeverAsksRegions",
+      "category": "unit",
+      "disposition": "agree",
+      "source_blocker": null
+    },
+    {
+      "allocation_index": 1270,
+      "root_id": "internal/dashboard/overview_test.go::TestRegionPageBudgetTwentyRegions",
+      "category": "unit",
+      "disposition": "agree",
+      "source_blocker": null
+    },
+    {
+      "allocation_index": 1271,
+      "root_id": "internal/dashboard/resources_test.go::TestAllNodesRenderAuthenticatedResourcesWithoutClusterSnapshots",
+      "category": "integration",
+      "disposition": "agree",
+      "source_blocker": null
+    },
+    {
+      "allocation_index": 1272,
+      "root_id": "internal/dashboard/resources_test.go::TestCapacityDisplaysPartialCoverage",
+      "category": "integration",
+      "disposition": "agree",
+      "source_blocker": null
+    },
+    {
+      "allocation_index": 1273,
+      "root_id": "internal/dashboard/resources_test.go::TestHostsAndRolloutsExcludeTerminalPartitions",
+      "category": "integration",
+      "disposition": "agree",
+      "source_blocker": null
+    },
+    {
+      "allocation_index": 1274,
+      "root_id": "internal/dashboard/resources_test.go::TestResourcePagesExposeCollectorErrorsAndUnknownCapacity",
+      "category": "integration",
+      "disposition": "agree",
+      "source_blocker": null
+    },
+    {
+      "allocation_index": 1275,
+      "root_id": "internal/dashboard/resources_test.go::TestStorageUsesPhysicalFilesystemsAndChartJSON",
+      "category": "integration",
+      "disposition": "agree",
+      "source_blocker": null
+    },
+    {
+      "allocation_index": 1276,
+      "root_id": "internal/dashboard/resources_test.go::TestStorageWarnsWhenOneFilesystemFailedCollection",
+      "category": "integration",
+      "disposition": "agree",
+      "source_blocker": null
+    },
+    {
+      "allocation_index": 1277,
+      "root_id": "internal/dashboard/resources_test.go::TestTopologyResourceAlarmControlsNodeStatus",
+      "category": "integration",
+      "disposition": "agree",
+      "source_blocker": null
+    },
+    {
+      "allocation_index": 1278,
+      "root_id": "internal/dashboard/resources_test.go::TestVolumeAttachingWithoutTimestampIsNotOverdue",
+      "category": "integration",
+      "disposition": "agree",
+      "source_blocker": null
+    },
+    {
+      "allocation_index": 1279,
+      "root_id": "internal/dashboard/review_test.go::TestAdmissionAloneIsNotQualified",
+      "category": "integration",
+      "disposition": "agree",
+      "source_blocker": null
+    }
+  ],
+  "supplemental_source_pins": {
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/dashboard/ui.go": {
+      "path": "internal/dashboard/ui.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_mode": "100644",
+      "git_blob": "dbfab9de8543d69632b9558c210daae0b8904133",
+      "sha256": "04391934893b26d22a030e5e7ceb9179d0fca5da06e824e9a53954c1c813c0d3",
+      "bytes": 9879
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/dashboard/view.go": {
+      "path": "internal/dashboard/view.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_mode": "100644",
+      "git_blob": "9fe19902da6e987690ca2c133ec99d9b95723c67",
+      "sha256": "5c2930155c7754a6c5a9ff7e63b7e00885dd9721cdd0adc84e9c2773a57751ae",
+      "bytes": 18693
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/catalog/catalog.go": {
+      "path": "internal/ociregion/catalog/catalog.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_mode": "100644",
+      "git_blob": "094f141afb633efa0d345466c5c80b2154d97e69",
+      "sha256": "1cb9481c9291c863bea33c273443a1dc061bdcd4afada2b626843449ff54cf6e",
+      "bytes": 9451
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/dashboard/resources.go": {
+      "path": "internal/dashboard/resources.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_mode": "100644",
+      "git_blob": "4b95bead5d58e161dc22d44e2ee1fa4bd15616f5",
+      "sha256": "3b5acc17c1147545e9b6a736443e8f26230672af22abb807df863c448fe6eddb",
+      "bytes": 5032
+    }
+  },
+  "supplemental_source_evidence": [
+    {
+      "path": "internal/dashboard/ui.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "dbfab9de8543d69632b9558c210daae0b8904133",
+      "line": 111,
+      "end_line": 111,
+      "scope": "ratioStatus delegates ratioClass",
+      "text": "func ratioStatus(value float64) string { return ratioClass(value) }\n",
+      "sha256": "7b6a7181950f43b1961aea8b5795827f9c183fddcfa8720b8c7cd669833e7154"
+    },
+    {
+      "path": "internal/dashboard/ui.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "dbfab9de8543d69632b9558c210daae0b8904133",
+      "line": 305,
+      "end_line": 315,
+      "scope": "regionGeo delegates local catalog.LookupName",
+      "text": "type regionPlace struct {\n\tName     string\n\tLon, Lat float64\n}\n\n// regionGeo places a product region on the world map from the region\n// catalog. A region that is not catalogued is drawn without a position.\nfunc regionGeo(region string) (regionPlace, bool) {\n\tentry, ok := catalog.LookupName(region)\n\treturn regionPlace{Name: entry.City, Lon: entry.Longitude, Lat: entry.Latitude}, ok\n}\n",
+      "sha256": "b137e2caeddc45854b4fff8e0d88de479556d428fbb0a835057bec5b495ded1b"
+    },
+    {
+      "path": "internal/dashboard/view.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "9fe19902da6e987690ca2c133ec99d9b95723c67",
+      "line": 489,
+      "end_line": 499,
+      "scope": "ratioClass .99 alarm becomes bad",
+      "text": "func ratioClass(value float64) string {\n\tswitch {\n\tcase value >= 0.9:\n\t\treturn \"bad\"\n\tcase value >= 0.75:\n\t\treturn \"warn\"\n\tdefault:\n\t\treturn \"ok\"\n\t}\n}\n\n",
+      "sha256": "5302d53ba3f90ed7a2d0e3a65097dc5713e5126ff48c7ae58878b7da6a36c9af"
+    },
+    {
+      "path": "internal/ociregion/catalog/catalog.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "094f141afb633efa0d345466c5c80b2154d97e69",
+      "line": 30,
+      "end_line": 46,
+      "scope": "Entry.Name and GRU/SFO known map catalog entries",
+      "text": "// Name is the lower-case cell token used in NATS subjects and host descriptors.\nfunc (e Entry) Name() string { return strings.ToLower(e.Cell) }\n\nconst (\n\tGRU = \"GRU\"\n\tSFO = \"SFO\"\n\tFRA = \"FRA\"\n\t// Bootstrap is the only cell that may found a deployment until a\n\t// separately reviewed migration exists.\n\tBootstrap = GRU\n)\n\n// entries is ordered: placement assigns permanent members in this order.\nvar entries = [...]Entry{\n\t{Cell: GRU, OCIRegion: \"sa-saopaulo-1\", OCIRegionKey: \"GRU\", City: \"S\u00e3o Paulo\", Country: \"BR\", Latitude: -23.43, Longitude: -46.47},\n\t{Cell: SFO, OCIRegion: \"us-sanjose-1\", OCIRegionKey: \"SJC\", City: \"San Jose\", Country: \"US\", Latitude: 37.34, Longitude: -121.89},\n\t{Cell: FRA, OCIRegion: \"eu-frankfurt-1\", OCIRegionKey: \"FRA\", City: \"Frankfurt\", Country: \"DE\", Latitude: 50.11, Longitude: 8.68},\n",
+      "sha256": "21ba753482668db68609e22bcdd8aa3f451fcb19eb19a7e216f8bb55c1786919"
+    },
+    {
+      "path": "internal/ociregion/catalog/catalog.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "094f141afb633efa0d345466c5c80b2154d97e69",
+      "line": 110,
+      "end_line": 119,
+      "scope": "LookupName exact lower-case local catalog scan",
+      "text": "// LookupName returns the entry whose lower-case token is name.\nfunc LookupName(name string) (Entry, bool) {\n\tfor _, entry := range entries {\n\t\tif entry.Name() == name {\n\t\t\treturn entry, true\n\t\t}\n\t}\n\treturn Entry{}, false\n}\n\n",
+      "sha256": "11b8561c19ca17bbe7d37e07c20334a4f724db65d1b1e5b67e7fae0271c37d38"
+    },
+    {
+      "path": "internal/dashboard/resources.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "4b95bead5d58e161dc22d44e2ee1fa4bd15616f5",
+      "line": 134,
+      "end_line": 154,
+      "scope": "capacityWarning and filesystemAvailable local presentation helpers",
+      "text": "func (current view) capacityWarning(resources *regionview.ResourceView) string {\n\tfor _, reading := range []*regionview.Reading{resources.MemoryBytes, resources.MemoryUsedBytes} {\n\t\tif reading != nil && !reading.Fresh(current.Now) {\n\t\t\treturn \"Capacity includes stale measurements; inspect the filesystem table for freshness.\"\n\t\t}\n\t}\n\tfor _, filesystem := range resources.Filesystems {\n\t\tif filesystem.SizeBytes != nil && !filesystem.SizeBytes.Fresh(current.Now) || filesystem.UsedBytes != nil && !filesystem.UsedBytes.Fresh(current.Now) {\n\t\t\treturn \"Capacity includes stale measurements; inspect the filesystem table for freshness.\"\n\t\t}\n\t}\n\treturn \"\"\n}\n\nfunc (current view) filesystemAvailable(filesystem regionview.Filesystem) string {\n\tif filesystem.SizeBytes == nil || filesystem.UsedBytes == nil || !filesystem.SizeBytes.ObservedAt.Equal(filesystem.UsedBytes.ObservedAt) {\n\t\treturn \"unavailable\"\n\t}\n\treading := regionview.Reading{Value: max(filesystem.SizeBytes.Value-filesystem.UsedBytes.Value, 0), ObservedAt: filesystem.SizeBytes.ObservedAt}\n\treturn current.readingText(&reading, \"bytes\")\n}\n",
+      "sha256": "2ee575f53f5dce4cc577cd329a48a399bf978295d2791534891f0b0826891869"
+    }
+  ],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No source execution, tests/build/Go/project helpers/scanners/format/lint/benchmark/process probes/cloud/privilege/signing/crypto/TerraBase/downloads.",
+    "Dashboard fixturePage uses actual loopback HTTP but standalone Handler bypasses production listener authentication. Resource/history/region/placement/insight/metric inputs are synthetic; no actual authenticated host report, NATS route, OCI provider, admission or CI qualification.",
+    "History Export/Import uses memory gzip buffers only, with no host filesystem, durable KV or process restart. Budget time/size measurements remain unexecuted, with no production capacity claim.",
+    "Source-only acceptance applies solely to exact frozen packet. No ledger/count/completion promotion, source mutation, deletion/retirement or runtime qualification. All original assertions and safety obligations retained."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "source_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "count_promotion": false,
+    "global_completion": false
+  },
+  "supersedes_metadata_only": {
+    "path": "/tmp/ts-second800-peer1260-1280-accepted-00eln5ek/peer-review.json",
+    "sha256": "d82814fbb8cff15c04a29d33194b102c93cfcb4f9039d41344611810d2d9805b",
+    "correction": "supplemental_source_evidence[5].end_line161\u2192154 (actual EOF); quoted bytes/SHA/blob and accepted author packet unchanged."
+  }
+}

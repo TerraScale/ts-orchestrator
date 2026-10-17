@@ -1,0 +1,372 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_740_760",
+  "author": "/root/classification_100_dispatch/batch_760_780",
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-second800-source-1560-1580-jkw8v5vr/classification.json",
+    "sha256": "c4da54d37e2bef66f03d0de3dfae5908d138d69806bc1249e5375141d35e7296",
+    "checksum_path": "/tmp/ts-second800-source-1560-1580-jkw8v5vr/SHA256SUMS",
+    "checksum_sha256": "77d28737cf89b2de5b731759defcd9acff44cb45d20f05bea16c18a6336af045"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": [
+      1560,
+      1580
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_740_760"
+  },
+  "root_ids": [
+    "internal/host/replacement_registration_review_test.go::TestReplacementHostRegistersOverASupersededAttempt",
+    "internal/host/retirement_history_test.go::TestAllocationIntervalsMustOverlapNonRetiredTime",
+    "internal/host/retirement_history_test.go::TestControllerRejectsObsoleteRetirementState",
+    "internal/host/retirement_history_test.go::TestHistoricalRetirementRequiresStateAndIdentity",
+    "internal/host/retirement_history_test.go::TestRetirementAndRenameKeepHistoricalUsageWindows",
+    "internal/host/retirement_history_test.go::TestRetirementCannotBeWrittenByFencedController",
+    "internal/host/retirement_history_test.go::TestRetirementRequiresSuccessfulIdleCheckInSameEpoch",
+    "internal/host/retirement_history_test.go::TestRetirementStorageValidationFailsClosed",
+    "internal/host/role_identity_test.go::TestRoleFilesDeliverSecretsAndNATSIdentity",
+    "internal/host/role_identity_test.go::TestRunningRoleIdentityRenewsWhileReleaseHeld",
+    "internal/host/rollout_test.go::TestReadReleaseRefusesChunksThatDoNotContinueTheRelease",
+    "internal/host/rollout_test.go::TestRolloutOperationsReachTheSinkWithTheHostsRegistration",
+    "internal/host/runner_test.go::TestApplyDoesNotLaunchAfterCancellation",
+    "internal/host/runner_test.go::TestCloseInvalidatesOpenedCgroupFD",
+    "internal/host/runner_test.go::TestCloseKillsCgroupWhileApplyHoldsLock",
+    "internal/host/runner_test.go::TestEnableCgroupMemoryControllerFailsClosed",
+    "internal/host/runner_test.go::TestNativeDrainSendsTermBeforeKill",
+    "internal/host/runner_test.go::TestNativeReplacementStartsAfterCgroupKill",
+    "internal/host/runner_test.go::TestNativeTenantReadsFiniteCgroupAccountingAfterRecovery",
+    "internal/host/runner_test.go::TestNativeTenantWorkloadDiesWithSupervisor"
+  ],
+  "counts": {
+    "integration": 12,
+    "unit": 4,
+    "mixed": 4,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all twenty whole canonical root declarations with git show plus connected actual controller/session/store/history/native/role/rollout paths. No mutable-workspace source used.",
+    "Verified literal accounting slice[1560:1580), all survival original/current names and states, forty baseline/current raw declaration bounds/text/SHA256 excluding following LF.",
+    "Verified twenty-eight canonical/baseline source-file Git blobs, modes, SHA256 and byte counts; twenty full assertion spans and sixty connected callee spans matched pinned Git bytes.",
+    "Verified allocation/survival/accounting/protocol hashes, accepted packet and checksum hashes, immutable files0444/dir0555.",
+    "Independently assessed each asserted target, fake/delegating hooks, pre-I/O guards and stated boundary limits. No unresolved source blocker or correction found."
+  ],
+  "root_reviews": [
+    {
+      "root_id": "internal/host/replacement_registration_review_test.go::TestReplacementHostRegistersOverASupersededAttempt",
+      "category": "integration",
+      "judgment": "Real subject inventory and publish enforce superseded/equal-attempt behavior; placement verifier is nil stub and registration reads are map-backed.",
+      "baseline_bounds": [
+        16,
+        53
+      ],
+      "current_bounds": [
+        16,
+        53
+      ],
+      "original_declaration_sha256": "7db0ff61d34d73617b957775e8d6c78b956c9ce3fe044bb9b1a9a5f841554d23",
+      "current_declaration_sha256": "7db0ff61d34d73617b957775e8d6c78b956c9ce3fe044bb9b1a9a5f841554d23"
+    },
+    {
+      "root_id": "internal/host/retirement_history_test.go::TestAllocationIntervalsMustOverlapNonRetiredTime",
+      "category": "unit",
+      "judgment": "Synthetic retirement entries and local interval arithmetic only.",
+      "baseline_bounds": [
+        216,
+        242
+      ],
+      "current_bounds": [
+        216,
+        242
+      ],
+      "original_declaration_sha256": "16002d317cebc2840763dd7056b96fbad4bd564bf52d2fa233a35bf7f9ffbaab",
+      "current_declaration_sha256": "16002d317cebc2840763dd7056b96fbad4bd564bf52d2fa233a35bf7f9ffbaab"
+    },
+    {
+      "root_id": "internal/host/retirement_history_test.go::TestControllerRejectsObsoleteRetirementState",
+      "category": "integration",
+      "judgment": "Real KV write, NewController listing refusal, unchanged KV revision/value; final fake absence supports same no-migration assertion.",
+      "baseline_bounds": [
+        17,
+        50
+      ],
+      "current_bounds": [
+        17,
+        50
+      ],
+      "original_declaration_sha256": "0d5bbd49a933460c3fc2dcbe7ffd0a642854670d9643b1bf10ebebf0e801153e",
+      "current_declaration_sha256": "0d5bbd49a933460c3fc2dcbe7ffd0a642854670d9643b1bf10ebebf0e801153e"
+    },
+    {
+      "root_id": "internal/host/retirement_history_test.go::TestHistoricalRetirementRequiresStateAndIdentity",
+      "category": "mixed",
+      "judgment": "Real history stream ingestion and separate map-backed retired payload validation.",
+      "baseline_bounds": [
+        141,
+        161
+      ],
+      "current_bounds": [
+        141,
+        161
+      ],
+      "original_declaration_sha256": "d8445581b4eac6c19afaf84a4e3e003bd0860d709b693c185c4c72db9db54969",
+      "current_declaration_sha256": "d8445581b4eac6c19afaf84a4e3e003bd0860d709b693c185c4c72db9db54969"
+    },
+    {
+      "root_id": "internal/host/retirement_history_test.go::TestRetirementAndRenameKeepHistoricalUsageWindows",
+      "category": "integration",
+      "judgment": "Real server timestamps/stream reads and commits support historical intervals, successor cache and retirement gap.",
+      "baseline_bounds": [
+        68,
+        139
+      ],
+      "current_bounds": [
+        68,
+        139
+      ],
+      "original_declaration_sha256": "9db9cb22231708fef60965681cc43a390cf8d2fc30fec5a22d512793dead38e8",
+      "current_declaration_sha256": "9db9cb22231708fef60965681cc43a390cf8d2fc30fec5a22d512793dead38e8"
+    },
+    {
+      "root_id": "internal/host/retirement_history_test.go::TestRetirementCannotBeWrittenByFencedController",
+      "category": "unit",
+      "judgment": "Injected fenced guard returns before inventory/commit; absence check is local map.",
+      "baseline_bounds": [
+        163,
+        175
+      ],
+      "current_bounds": [
+        163,
+        175
+      ],
+      "original_declaration_sha256": "afc305072a76ea3010997db99e0c338f6c79ed25a8f38497b9d077999bc474cb",
+      "current_declaration_sha256": "afc305072a76ea3010997db99e0c338f6c79ed25a8f38497b9d077999bc474cb"
+    },
+    {
+      "root_id": "internal/host/retirement_history_test.go::TestRetirementRequiresSuccessfulIdleCheckInSameEpoch",
+      "category": "mixed",
+      "judgment": "Separate fake Info failure and real delegated Info read followed by epoch change; map absence qualified.",
+      "baseline_bounds": [
+        186,
+        214
+      ],
+      "current_bounds": [
+        186,
+        214
+      ],
+      "original_declaration_sha256": "60c29b6d19c2d3fd0d57866be76763e9d749847a619fddd8d47fa55a5fd22a93",
+      "current_declaration_sha256": "60c29b6d19c2d3fd0d57866be76763e9d749847a619fddd8d47fa55a5fd22a93"
+    },
+    {
+      "root_id": "internal/host/retirement_history_test.go::TestRetirementStorageValidationFailsClosed",
+      "category": "unit",
+      "judgment": "ListKeysFiltered immediately returns injected failure before KV enumeration.",
+      "baseline_bounds": [
+        61,
+        66
+      ],
+      "current_bounds": [
+        61,
+        66
+      ],
+      "original_declaration_sha256": "709464f5a5e720ce789a6d3cf97d71c05099e4e98996b0ec7987a786643290a5",
+      "current_declaration_sha256": "709464f5a5e720ce789a6d3cf97d71c05099e4e98996b0ec7987a786643290a5"
+    },
+    {
+      "root_id": "internal/host/role_identity_test.go::TestRoleFilesDeliverSecretsAndNATSIdentity",
+      "category": "mixed",
+      "judgment": "Real authenticated role identity protocol and atomic secret/identity files plus independent local retry-error cache guard.",
+      "baseline_bounds": [
+        59,
+        151
+      ],
+      "current_bounds": [
+        59,
+        151
+      ],
+      "original_declaration_sha256": "584b2f37e26f5c0973fd6e65304428ac3d9c05c1da537c6cf9b29ecdbefe83d7",
+      "current_declaration_sha256": "584b2f37e26f5c0973fd6e65304428ac3d9c05c1da537c6cf9b29ecdbefe83d7"
+    },
+    {
+      "root_id": "internal/host/role_identity_test.go::TestRunningRoleIdentityRenewsWhileReleaseHeld",
+      "category": "integration",
+      "judgment": "Actual held-renewal NATS exchange and certificate file replacement; fake runner applied counter supports no-restart only.",
+      "baseline_bounds": [
+        156,
+        243
+      ],
+      "current_bounds": [
+        156,
+        243
+      ],
+      "original_declaration_sha256": "e9a6e0f63be212eab1f4b8858a87013a1e23bc5ca87dc0b98f9fda3e7cb23091",
+      "current_declaration_sha256": "e9a6e0f63be212eab1f4b8858a87013a1e23bc5ca87dc0b98f9fda3e7cb23091"
+    },
+    {
+      "root_id": "internal/host/rollout_test.go::TestReadReleaseRefusesChunksThatDoNotContinueTheRelease",
+      "category": "unit",
+      "judgment": "Synthetic chunk closure/bytes.Buffer validate release assembly locally.",
+      "baseline_bounds": [
+        60,
+        85
+      ],
+      "current_bounds": [
+        60,
+        85
+      ],
+      "original_declaration_sha256": "f73477110f30bb7f545f4a75f44a19e224283f01674f3c118d787400f57af09d",
+      "current_declaration_sha256": "f73477110f30bb7f545f4a75f44a19e224283f01674f3c118d787400f57af09d"
+    },
+    {
+      "root_id": "internal/host/rollout_test.go::TestRolloutOperationsReachTheSinkWithTheHostsRegistration",
+      "category": "mixed",
+      "judgment": "Real session read/CAS admission and dispatch plus separate query guard predicates; rollout sink is fake.",
+      "baseline_bounds": [
+        30,
+        57
+      ],
+      "current_bounds": [
+        30,
+        57
+      ],
+      "original_declaration_sha256": "972d199d1f53cc888ca7e0f9e70f9b7e5ae67154e496fa23f5f591aba2dafaea",
+      "current_declaration_sha256": "972d199d1f53cc888ca7e0f9e70f9b7e5ae67154e496fa23f5f591aba2dafaea"
+    },
+    {
+      "root_id": "internal/host/runner_test.go::TestApplyDoesNotLaunchAfterCancellation",
+      "category": "integration",
+      "judgment": "Actual executable/cgroup filesystem path and cancellation after first successful Err check; later ctx check prevents launch and marker/observation confirm no process.",
+      "baseline_bounds": [
+        378,
+        420
+      ],
+      "current_bounds": [
+        378,
+        420
+      ],
+      "original_declaration_sha256": "76340abe23f6384cdf72444e1f1e011b726e899d391bff8b8414d15463e409a5",
+      "current_declaration_sha256": "76340abe23f6384cdf72444e1f1e011b726e899d391bff8b8414d15463e409a5"
+    },
+    {
+      "root_id": "internal/host/runner_test.go::TestCloseInvalidatesOpenedCgroupFD",
+      "category": "integration",
+      "judgment": "Real sealed/removed cgroup with stale directory FD and attempted clone3 child validates OS boundary.",
+      "baseline_bounds": [
+        422,
+        482
+      ],
+      "current_bounds": [
+        422,
+        482
+      ],
+      "original_declaration_sha256": "e61f272aafbb520a24cc6f839ed5170bbf5769ed40a5c5d993646866e5f49c95",
+      "current_declaration_sha256": "e61f272aafbb520a24cc6f839ed5170bbf5769ed40a5c5d993646866e5f49c95"
+    },
+    {
+      "root_id": "internal/host/runner_test.go::TestCloseKillsCgroupWhileApplyHoldsLock",
+      "category": "integration",
+      "judgment": "Production writes/reads regular freeze/kill control files under held mutex; no actual cgroup kill claim.",
+      "baseline_bounds": [
+        302,
+        362
+      ],
+      "current_bounds": [
+        302,
+        362
+      ],
+      "original_declaration_sha256": "4235fe51e5951d5e4b566caf800f1435c5984bac9c07c067b93ceff93bcc61bd",
+      "current_declaration_sha256": "4235fe51e5951d5e4b566caf800f1435c5984bac9c07c067b93ceff93bcc61bd"
+    },
+    {
+      "root_id": "internal/host/runner_test.go::TestEnableCgroupMemoryControllerFailsClosed",
+      "category": "integration",
+      "judgment": "Actual missing-file open and ordinary-file write/readback refusal, no kernel delegation claim.",
+      "baseline_bounds": [
+        288,
+        300
+      ],
+      "current_bounds": [
+        288,
+        300
+      ],
+      "original_declaration_sha256": "1a793a768dae632240d7359b6382eb2a1df96b89d176a3cacded02c02fc537cb",
+      "current_declaration_sha256": "1a793a768dae632240d7359b6382eb2a1df96b89d176a3cacded02c02fc537cb"
+    },
+    {
+      "root_id": "internal/host/runner_test.go::TestNativeDrainSendsTermBeforeKill",
+      "category": "integration",
+      "judgment": "Real tenant scripts/pidfd SIGTERM/drain then cgroup kill and observed markers/timing/non-running state.",
+      "baseline_bounds": [
+        540,
+        595
+      ],
+      "current_bounds": [
+        540,
+        595
+      ],
+      "original_declaration_sha256": "6ecaa5509e615358eb6d1599846f3029cbbbd7105a6b00ff2156867bda5f288b",
+      "current_declaration_sha256": "6ecaa5509e615358eb6d1599846f3029cbbbd7105a6b00ff2156867bda5f288b"
+    },
+    {
+      "root_id": "internal/host/runner_test.go::TestNativeReplacementStartsAfterCgroupKill",
+      "category": "integration",
+      "judgment": "Actual successive scripts/cgroup reset/launch and proc/cgroup plus marker readback; zero memory limit explicitly allowed.",
+      "baseline_bounds": [
+        484,
+        535
+      ],
+      "current_bounds": [
+        484,
+        535
+      ],
+      "original_declaration_sha256": "c54a2175d9e36814e9690c61b2c39d8e766dae6ebe60db4fb40b1f01190bed9c",
+      "current_declaration_sha256": "c54a2175d9e36814e9690c61b2c39d8e766dae6ebe60db4fb40b1f01190bed9c"
+    },
+    {
+      "root_id": "internal/host/runner_test.go::TestNativeTenantReadsFiniteCgroupAccountingAfterRecovery",
+      "category": "integration",
+      "judgment": "Actual recovery repairs directory metadata then dropped-identity script reads finite accounting and denies control/sibling access.",
+      "baseline_bounds": [
+        198,
+        286
+      ],
+      "current_bounds": [
+        198,
+        286
+      ],
+      "original_declaration_sha256": "328f5c408bfb9e1fe62ae06a3bc7d11e91ad8efd2db644b1482995282d3ccf4d",
+      "current_declaration_sha256": "328f5c408bfb9e1fe62ae06a3bc7d11e91ad8efd2db644b1482995282d3ccf4d"
+    },
+    {
+      "root_id": "internal/host/runner_test.go::TestNativeTenantWorkloadDiesWithSupervisor",
+      "category": "integration",
+      "judgment": "Same declaration owns parent and conditional child, real diagnostic PR_GET_PDEATHSIG, parent kill and /proc death polling; not a helper-only root.",
+      "baseline_bounds": [
+        645,
+        771
+      ],
+      "current_bounds": [
+        645,
+        771
+      ],
+      "original_declaration_sha256": "da0b65b47449b51b81fa1037ebae567b4bf9c3aa5b9fc93a9de5fbe0f51ad01e",
+      "current_declaration_sha256": "da0b65b47449b51b81fa1037ebae567b4bf9c3aa5b9fc93a9de5fbe0f51ad01e"
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Source category review only; does not demonstrate test execution, kernel availability, process permissions, cluster durability or cloud behavior.",
+    "Native actual-cgroup tests require stated root/CAP_KILL and delegated cgroup-v2 environment; synthetic file tests establish filesystem effects only.",
+    "Role issuer, runner, placement verifier, mutation-map reads and rollout sink remain qualified fakes.",
+    "No ledger/count/deletion/retirement/completion promotion or authorization; all original obligations retained."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true
+}

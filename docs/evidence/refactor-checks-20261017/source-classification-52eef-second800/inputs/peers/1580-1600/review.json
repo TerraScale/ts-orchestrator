@@ -1,0 +1,444 @@
+{
+  "schema": "independent-source-only-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_760_780",
+  "author": "/root/classification_100_dispatch/batch_780_800",
+  "status": "ACCEPTED_SOURCE_ONLY_WITH_EXPLICIT_UNRESOLVED_HELPER",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-1580-1600-corrected-rg2sq3ce/classification.json",
+    "sha256": "5e208403e2b416dcb424630b929f1738673099fcc735efcced8bcfa2cb2791bf",
+    "checksums_path": "/tmp/ts-source-classification-1580-1600-corrected-rg2sq3ce/SHA256SUMS",
+    "checksums_sha256": "fab92cdfa6054775764ea45be8ab33a6e676b23b8c3c643478eaedf3cf3e9670"
+  },
+  "superseded_packet": {
+    "path": "/tmp/ts-source-classification-1580-1600-0ij3gb8l/classification.json",
+    "sha256": "41ca7d2dc441fbabb1abcfe1d53766e89f0bbd85e54f8ec653a112ed1bbbfa4b",
+    "preserved": true
+  },
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": [
+      1580,
+      1600
+    ],
+    "root_ids": [
+      "internal/host/runner_test.go::TestNativeWorkloadReceivesOnlyExplicitEnvironment",
+      "internal/host/runner_test.go::TestWorkloadCgroupMemoryMaxValidation",
+      "internal/host/runner_test.go::TestWorkloadDiesWithOwnerProcess",
+      "internal/host/runner_test.go::TestWorkloadParentDeathHelper",
+      "internal/host/runner_test.go::TestWorkloadSurvivesCallerThreadExit",
+      "internal/host/runtime_probe_test.go::TestNativeRuntimePrivateModesRequireProtocol",
+      "internal/host/runtime_probe_test.go::TestNativeRuntimeProbeCanceledBeforeTouchingCgroups",
+      "internal/host/runtime_probe_test.go::TestNativeRuntimeProbeExecutesAndReplaces",
+      "internal/host/runtime_probe_test.go::TestNativeRuntimeRejectsRootTenantBeforeTouchingCgroups",
+      "internal/host/runtime_probe_test.go::TestProbeSupervisorWaitDeadlineDoesNotLeaveWaitGoroutine",
+      "internal/host/s3_credentials_test.go::TestManagedBackupDataKeyResolverPinsRawKeyVersion",
+      "internal/host/s3_credentials_test.go::TestManagedS3ResolverPinsVersionAndSanitizesFailure",
+      "internal/host/s3_credentials_test.go::TestOCIS3CredentialResolverRefusesSecretUnsafeEnv",
+      "internal/host/secrets_test.go::TestDesiredSecretRefs",
+      "internal/host/secrets_test.go::TestResolveSecretsAtLaunch",
+      "internal/host/session_held_test.go::TestNextGenerationAcquireWaitsForTheOldSessionUnlessManaged",
+      "internal/host/session_runtime_test.go::TestSessionRuntimeDeliversMaterialAndFencesRevokedHostWithoutNativeRunner",
+      "internal/host/terrabase_fence_test.go::TestTerraBaseDataVolumeLostDuringArtifactUpdate",
+      "internal/host/terrabase_test.go::TestTerraBaseExitReportedOnceBeforeRelaunch",
+      "internal/host/terrabase_test.go::TestTerraBaseMemberRefusesArguments"
+    ]
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "counts": {
+    "integration": 8,
+    "unit": 11,
+    "mixed": 0,
+    "unresolved": 1
+  },
+  "checks_performed": [
+    "Independently read all20 complete current root declarations and the differing baseline session-runtime declaration; read actual connected fixture, production helper, protocol, process, API and store paths using immutable Git source only.",
+    "Verified exact allocated20 literal IDs/order and survival baseline/historical-current mappings. Recomputed40 raw declaration hashes/bounds (func through column-zero brace excluding following LF), all current assertion spans, all61 connected evidence spans and44 baseline/current full-file blob/mode/SHA256/byte pins.",
+    "Verified initial and corrected packet/checksum hashes and SHA256SUMS entries; directories0555 and all packet files0444. Original root bodies, categories and unresolved assertions unchanged in citation-only corrected packet.",
+    "Independently followed native runner Apply/env/clone3/helper/locked-thread/proc paths; private probe actual pipe/Wait4/exit/cgroup behavior; local credential/reference/secret/session predicates; real function session revocation and actual NATS artifact/Unix-socket repair paths.",
+    "Verified actual upstream server.NewServer loopback nats.Connect fixture, authority.Runtime stream binding/ReadHostMutation/commitMutationVerified/VerifyFunctionGrant paths, and artifact.ReadVerified/verifyChunks plus GetInfo hook delegation. Distinguish real session authority from memoryRunner/fake volume and SDK-shaped fake responses.",
+    "No Go/build/test/lint/benchmark/helper execution, process/resource probing, privilege/cloud/signing or cryptographic operation, downloads, children, repository/source/ledger writes, or runtime receipts reviewed. Metadata-only immutable/tmp serialization and hashes performed."
+  ],
+  "per_root_review": [
+    {
+      "root_id": "internal/host/runner_test.go::TestNativeWorkloadReceivesOnlyExplicitEnvironment",
+      "category": "integration",
+      "independent_judgment": "Actual Apply/helper process plus environment-file readback supports integration; delegated cgroup/root prerequisites remain unknown.",
+      "baseline_declaration_sha256": "92c672e81640581bd59b8383160a3cb570eb87c4c51f30970c27a94d1db6dc0a",
+      "current_declaration_sha256": "92c672e81640581bd59b8383160a3cb570eb87c4c51f30970c27a94d1db6dc0a",
+      "baseline_bounds": [
+        597,
+        643
+      ],
+      "current_bounds": [
+        597,
+        643
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/host/runner_test.go::TestWorkloadCgroupMemoryMaxValidation",
+      "category": "unit",
+      "independent_judgment": "Numeric cap/page-alignment table and Apply pre-I/O validation remain unit; zero cap is explicitly allowed.",
+      "baseline_declaration_sha256": "d5c5be83fe05b965d9b777e53a89346bc41c7bb2d99e858243414e3426a8536c",
+      "current_declaration_sha256": "d5c5be83fe05b965d9b777e53a89346bc41c7bb2d99e858243414e3426a8536c",
+      "baseline_bounds": [
+        163,
+        196
+      ],
+      "current_bounds": [
+        163,
+        196
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/host/runner_test.go::TestWorkloadDiesWithOwnerProcess",
+      "category": "integration",
+      "independent_judgment": "Parent starts real helper, reads live PID/start, kills owner and polls proc state; parent owns the process-death assertions.",
+      "baseline_declaration_sha256": "82a9b414940f7c1aeefd0ca8e59aa49879a121ef924b17a080b65fc572ddd592",
+      "current_declaration_sha256": "82a9b414940f7c1aeefd0ca8e59aa49879a121ef924b17a080b65fc572ddd592",
+      "baseline_bounds": [
+        815,
+        867
+      ],
+      "current_bounds": [
+        815,
+        867
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/host/runner_test.go::TestWorkloadParentDeathHelper",
+      "category": "unresolved",
+      "independent_judgment": "Conditional helper returns normally; activated helper launches sleep/reports PID, but standalone assertion attribution awaits QA rule. Keep unresolved.",
+      "baseline_declaration_sha256": "be77e1248c735eaf02f061d1ae522f7a63035c4378feb94b1386a23370a16c86",
+      "current_declaration_sha256": "be77e1248c735eaf02f061d1ae522f7a63035c4378feb94b1386a23370a16c86",
+      "baseline_bounds": [
+        869,
+        884
+      ],
+      "current_bounds": [
+        869,
+        884
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/host/runner_test.go::TestWorkloadSurvivesCallerThreadExit",
+      "category": "integration",
+      "independent_judgment": "Actual sleep survives the locked caller thread exit, then is killed and reaped through production locked-thread helper.",
+      "baseline_declaration_sha256": "f2445de690561909fae507f81dd599f9f417d82ea598c64a455b3221c37badb8",
+      "current_declaration_sha256": "f2445de690561909fae507f81dd599f9f417d82ea598c64a455b3221c37badb8",
+      "baseline_bounds": [
+        773,
+        813
+      ],
+      "current_bounds": [
+        773,
+        813
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/host/runtime_probe_test.go::TestNativeRuntimePrivateModesRequireProtocol",
+      "category": "integration",
+      "independent_judgment": "All three real private-mode reexecs exercise missing-protocol exits111/113, without successful native-runtime qualification.",
+      "baseline_declaration_sha256": "bf3e846eca6d06bc948ed83d3e7b43ce583e5c4d6fb95ebb8789086850ca6782",
+      "current_declaration_sha256": "bf3e846eca6d06bc948ed83d3e7b43ce583e5c4d6fb95ebb8789086850ca6782",
+      "baseline_bounds": [
+        60,
+        74
+      ],
+      "current_bounds": [
+        60,
+        74
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/host/runtime_probe_test.go::TestNativeRuntimeProbeCanceledBeforeTouchingCgroups",
+      "category": "unit",
+      "independent_judgment": "Already canceled context returns before cgroup preparation. Optional root/stat absence checks do not turn pre-I/O predicate into integration.",
+      "baseline_declaration_sha256": "e7a4fd8730eeedbf646fcc238b8948c5b19b9680ba249b62a9e8a4453a09c5ea",
+      "current_declaration_sha256": "e7a4fd8730eeedbf646fcc238b8948c5b19b9680ba249b62a9e8a4453a09c5ea",
+      "baseline_bounds": [
+        43,
+        58
+      ],
+      "current_bounds": [
+        43,
+        58
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/host/runtime_probe_test.go::TestNativeRuntimeProbeExecutesAndReplaces",
+      "category": "integration",
+      "independent_judgment": "Production ProbeNativeRuntime performs two real cgroup/helper probe executions with cleanup and root directory readback; requires delegated native environment.",
+      "baseline_declaration_sha256": "12bf340c58aa120aea4f38305fd777d7a772026379ae225c5f12549fe0795ef5",
+      "current_declaration_sha256": "12bf340c58aa120aea4f38305fd777d7a772026379ae225c5f12549fe0795ef5",
+      "baseline_bounds": [
+        17,
+        41
+      ],
+      "current_bounds": [
+        17,
+        41
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/host/runtime_probe_test.go::TestNativeRuntimeRejectsRootTenantBeforeTouchingCgroups",
+      "category": "unit",
+      "independent_judgment": "Zero tenant identity is rejected before state/cgroup effect; TempDir and absence assertion are incidental guard setup.",
+      "baseline_declaration_sha256": "eece6ccd05f8d40a8e6d97dc0194781d62adaef08d34928f95689c40d8c38c51",
+      "current_declaration_sha256": "eece6ccd05f8d40a8e6d97dc0194781d62adaef08d34928f95689c40d8c38c51",
+      "baseline_bounds": [
+        76,
+        84
+      ],
+      "current_bounds": [
+        76,
+        84
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/host/runtime_probe_test.go::TestProbeSupervisorWaitDeadlineDoesNotLeaveWaitGoroutine",
+      "category": "integration",
+      "independent_judgment": "Actual pipe acknowledgment/live private process and Wait4 deadline/reap are integration. No goroutine count is measured; implementation has no Wait goroutine.",
+      "baseline_declaration_sha256": "875c2f04a9a768ce733adfe1f55c9cd1085389349cf5d1884f78d118f19a8034",
+      "current_declaration_sha256": "875c2f04a9a768ce733adfe1f55c9cd1085389349cf5d1884f78d118f19a8034",
+      "baseline_bounds": [
+        86,
+        124
+      ],
+      "current_bounds": [
+        86,
+        124
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/host/s3_credentials_test.go::TestManagedBackupDataKeyResolverPinsRawKeyVersion",
+      "category": "unit",
+      "independent_judgment": "Backup key resolver terminates in fakeS3BundleClient and local bytes/version/error checks; no real OCI secret read.",
+      "baseline_declaration_sha256": "7d594a326af9b3646e4baf114440235cac9a067e0e9807bd13ec2615ebb28cb8",
+      "current_declaration_sha256": "7d594a326af9b3646e4baf114440235cac9a067e0e9807bd13ec2615ebb28cb8",
+      "baseline_bounds": [
+        71,
+        102
+      ],
+      "current_bounds": [
+        71,
+        102
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/host/s3_credentials_test.go::TestManagedS3ResolverPinsVersionAndSanitizesFailure",
+      "category": "unit",
+      "independent_judgment": "S3 resolver uses the same fake SDK-shaped client with synthetic version/JSON/error responses; no SDK HTTP boundary.",
+      "baseline_declaration_sha256": "a180c7004303cb78a9c1b9abbba82fec6bb781b95f46965b12972f8b01f108af",
+      "current_declaration_sha256": "a180c7004303cb78a9c1b9abbba82fec6bb781b95f46965b12972f8b01f108af",
+      "baseline_bounds": [
+        34,
+        69
+      ],
+      "current_bounds": [
+        34,
+        69
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/host/s3_credentials_test.go::TestOCIS3CredentialResolverRefusesSecretUnsafeEnv",
+      "category": "unit",
+      "independent_judgment": "Unsafe environment constructor rejection precedes principal provider/client creation; unit pre-network guard.",
+      "baseline_declaration_sha256": "52b92dea9a69829e896a5a0fa82f8872e9fe41ae94a0770b97718107094c18f1",
+      "current_declaration_sha256": "52b92dea9a69829e896a5a0fa82f8872e9fe41ae94a0770b97718107094c18f1",
+      "baseline_bounds": [
+        106,
+        111
+      ],
+      "current_bounds": [
+        106,
+        111
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/host/secrets_test.go::TestDesiredSecretRefs",
+      "category": "unit",
+      "independent_judgment": "Desired/reference/reserved-secret key tables are local struct/string validation; no secret delivery boundary.",
+      "baseline_declaration_sha256": "1025198fdf168342bae2f2e289a3b56941f843977b8696c716cd50d0c1b806f1",
+      "current_declaration_sha256": "1025198fdf168342bae2f2e289a3b56941f843977b8696c716cd50d0c1b806f1",
+      "baseline_bounds": [
+        16,
+        68
+      ],
+      "current_bounds": [
+        16,
+        68
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/host/secrets_test.go::TestResolveSecretsAtLaunch",
+      "category": "unit",
+      "independent_judgment": "No-secret/missing/error/extra-key/deadline resolver scenarios use injected functions only; unit.",
+      "baseline_declaration_sha256": "e46f503d9ccdded0700b924cbc47cb7199584585e6c594736b033392cbea9c7f",
+      "current_declaration_sha256": "e46f503d9ccdded0700b924cbc47cb7199584585e6c594736b033392cbea9c7f",
+      "baseline_bounds": [
+        72,
+        105
+      ],
+      "current_bounds": [
+        72,
+        105
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/host/session_held_test.go::TestNextGenerationAcquireWaitsForTheOldSessionUnlessManaged",
+      "category": "unit",
+      "independent_judgment": "sessionHeld consumes synthetic generation/managed/expiry records; no actual session acquisition or wait.",
+      "baseline_declaration_sha256": "d005cf74c162a0c9bccab37ab9c032006e1f857e1fe655126b2dfbcfafa1b85c",
+      "current_declaration_sha256": "d005cf74c162a0c9bccab37ab9c032006e1f857e1fe655126b2dfbcfafa1b85c",
+      "baseline_bounds": [
+        11,
+        33
+      ],
+      "current_bounds": [
+        11,
+        33
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/host/session_runtime_test.go::TestSessionRuntimeDeliversMaterialAndFencesRevokedHostWithoutNativeRunner",
+      "category": "integration",
+      "independent_judgment": "Real upstream TCP NATS/JetStream fixture uses authority.Runtime; exact grant checks and registration-generation commit reach real stream store. RunSession material transfer and later revoked material/runtime-identity refusals share that real revocation event. Canonical added identity assertion is preserved separately from baseline.",
+      "baseline_declaration_sha256": "ec95b2f59a5c09507ee6e68509fbe7f3b59ffe1d8f5265bb120f2e389c8da587",
+      "current_declaration_sha256": "e7cc6114eb4c6d397e20ba619924055db3dac2fef623eedda1af25c34aba5a87",
+      "baseline_bounds": [
+        16,
+        58
+      ],
+      "current_bounds": [
+        16,
+        61
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/host/terrabase_fence_test.go::TestTerraBaseDataVolumeLostDuringArtifactUpdate",
+      "category": "integration",
+      "independent_judgment": "Real NATS desired/artifact transfer and ordinary installed artifact files precede simulated mount loss. Successful repair uses real framed Unix-socket request after mock Stop; failure branch preserves fake running state without repair. No block-device/TerraBase process facts inferred.",
+      "baseline_declaration_sha256": "9ebf422d7060d8080cbd771c930db7fd321d61ea1d5811244d17702311efd568",
+      "current_declaration_sha256": "9ebf422d7060d8080cbd771c930db7fd321d61ea1d5811244d17702311efd568",
+      "baseline_bounds": [
+        39,
+        216
+      ],
+      "current_bounds": [
+        39,
+        216
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/host/terrabase_test.go::TestTerraBaseExitReportedOnceBeforeRelaunch",
+      "category": "unit",
+      "independent_judgment": "Direct terraBaseExited synthetic observation/map state sequence is unit; test name does not imply actual process report/relaunch.",
+      "baseline_declaration_sha256": "5e410ffe7ce35d65fbe1874c03373bc529e1424fc65f552c188ce6fa4af0e7a4",
+      "current_declaration_sha256": "5e410ffe7ce35d65fbe1874c03373bc529e1424fc65f552c188ce6fa4af0e7a4",
+      "baseline_bounds": [
+        252,
+        266
+      ],
+      "current_bounds": [
+        252,
+        266
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/host/terrabase_test.go::TestTerraBaseMemberRefusesArguments",
+      "category": "unit",
+      "independent_judgment": "prepareTerraBase rejects Args immediately before profile/root/files/request effects; unit.",
+      "baseline_declaration_sha256": "79f255502ce9a4c74d45ec75d5f5464cb9c682b38ce1a960ddd48586b0fbd940",
+      "current_declaration_sha256": "79f255502ce9a4c74d45ec75d5f5464cb9c682b38ce1a960ddd48586b0fbd940",
+      "baseline_bounds": [
+        243,
+        250
+      ],
+      "current_bounds": [
+        243,
+        250
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    }
+  ],
+  "resolved_findings": [
+    {
+      "id": "missing-authority-artifact-citations",
+      "status": "RESOLVED_IN_ACCEPTED_HASH",
+      "detail": "Author added actual authority/runtime.go:131\u2013208, authority/log.go:156\u2013335 and338\u2013367, authority/function.go:77\u2013306, artifact/read.go:24\u201344 and105\u2013165, and artifactLookupHook:32\u201335 with exact pins. Independent source trace confirms actual stream/store effects; no category change."
+    }
+  ],
+  "remaining_findings": [
+    {
+      "root_id": "internal/host/runner_test.go::TestWorkloadParentDeathHelper",
+      "status": "UNRESOLVED_CONDITIONAL_HELPER_ACCOUNTING_RULE",
+      "detail": "Standalone conditional helper normally returns; parent TestWorkloadDiesWithOwnerProcess owns live/death assertions. No established QA attribution rule was supplied, so this root retains unresolved category and no independent completion/coverage credit."
+    },
+    {
+      "root_id": "internal/host/session_runtime_test.go::TestSessionRuntimeDeliversMaterialAndFencesRevokedHostWithoutNativeRunner",
+      "status": "DISCLOSED_CANONICAL_BODY_DRIFT",
+      "detail": "Baseline16\u201358 and canonical16\u201361 raw declarations and distinct hashes preserved. Canonical adds RuntimeWorkerIdentity refusal after actual revocation; survival historical current hash is retained without being mistaken for canonical hash."
+    }
+  ],
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE; runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No receipts or executions reviewed.",
+    "Root/cgroup tests carry explicit environment prerequisites/skip branches. Source category asserts no observed pass, capability availability or admission qualification.",
+    "Actual NATS fixtures use upstream server.NewServer plus nats.Connect over loopback TCP, not natscell in-process clients.",
+    "OCI bundle client, secret resolvers, volume/mount confirmation and TerraBase runners are synthetic where identified; no production Vault/cloud/block-device/TerraBase execution.",
+    "Each safety/rejection/ordering/identity/secret isolation/fencing obligation retained. Standalone helper stays unresolved; no later source assertions silently credited through a known blocker.",
+    "No source/repository/ledger mutation, retirement, deletion, accepted-count promotion, runtime qualification or global completion credit."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "accounting_effect": {
+    "source_candidate_peer_acceptance_only": true,
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "accepted_count_delta": 0,
+    "retirement_delta": 0,
+    "deletion_delta": 0,
+    "runtime_qualification_delta": 0,
+    "global_completion": false
+  }
+}

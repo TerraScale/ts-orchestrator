@@ -1,0 +1,77 @@
+{
+  "schema": "independent-source-only-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_680_700",
+  "author": "/root/classification_100_dispatch/batch_700_720",
+  "status": "accepted",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-1500-1520-m9a0uhac/classification.json",
+    "sha256": "b6266ddc635e7bee9df33df5d7d6ae511b63bcef3044b4729903e2432f560339",
+    "checksum_path": "/tmp/ts-source-1500-1520-m9a0uhac/SHA256SUMS",
+    "checksum_sha256": "3b6f2eedf9ced4b01797fb76532269b1be3d2f09d5c8b272f57cb25f6fbf216a"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[1500:1520]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_680_700"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/host/managed_credentials_test.go::TestManagedCredentialFloorRejectsOldHostSessionAndReadOutage",
+    "internal/host/managed_credentials_test.go::TestManagedCredentialOverlayRejectsDowngradeAndSameGenerationReplay",
+    "internal/host/managed_drain_test.go::TestAbsentManagedDrainCommandHasExplicitReply",
+    "internal/host/managed_drain_test.go::TestManagedDrainCommandBindsDesiredAndNativeProcess",
+    "internal/host/managed_drain_test.go::TestManagedDrainCommandPersistsAcrossLeaderEpoch",
+    "internal/host/managed_drain_test.go::TestSignedServingReportHeartbeatKeepsProofSemantics",
+    "internal/host/managed_material_test.go::TestManagedMaterialChunkIsConfidentialAndBoundToHostSession",
+    "internal/host/managed_material_test.go::TestManagedMemberLayoutIsCreatedOnceWithExactOwnership",
+    "internal/host/managed_material_test.go::TestManagedSQLBundleDeliveryIsConditionalAndDigestPinned",
+    "internal/host/managed_member_firecracker_test.go::TestManagedMemberFirecrackerSignedServing",
+    "internal/host/managed_member_firecracker_test.go::TestManagedMemberProcessIdentityRejectsRetainedRoot",
+    "internal/host/managed_native_root_authorize_test.go::TestManagedNativeRootAuthorizesLiveRunnerAndRevokesStaleWitnesses",
+    "internal/host/managed_native_root_test.go::TestNativeRootDesiredRequestFailureRevokesSocket",
+    "internal/host/managed_native_root_test.go::TestNativeRootPinExpiryAndPeerRestrictions",
+    "internal/host/managed_native_root_test.go::TestNativeRootPinExtendsOnlyTheSameValidatedDesired",
+    "internal/host/managed_native_root_test.go::TestNativeRootReplacementClosesOldSocket",
+    "internal/host/managed_runtime_firecracker_test.go::TestManagedRuntimeFirecrackerMountedVolume",
+    "internal/host/managed_runtime_test.go::TestExclusiveMountRequiresVisibleMountAtTargetOnly",
+    "internal/host/managed_runtime_test.go::TestManagedDeviceAncestorsRejectWritableDirectAndAliasParents",
+    "internal/host/managed_runtime_test.go::TestManagedReportRejectsStaleOrRetargetedEvidence"
+  ],
+  "counts": {
+    "integration": 7,
+    "unit": 10,
+    "mixed": 2,
+    "unresolved": 1
+  },
+  "checks_performed": [
+    "Read all twenty full current test roots and all retained assertions; compared both baseline/current raw declarations against canonical Git spans and hashes (40 declarations).",
+    "Confirmed exact literal allocation mapping, original survival identity/hashes, canonical declaration bounds, same-body identities and historical survival mappings.",
+    "Compared all58 connected spans and all assertion texts against canonical Git bytes; verified33 file pins (blob/mode/SHA256/byte length), input hashes, packet checksums and0444/0555 freeze modes.",
+    "Independently traced actual testControllerWithVerifier to direct upstream NATS startup, loopback TCP connection, JetStream session/command/report reads and CAS; fixture registration/desired reads and ownership verifiers remain synthetic.",
+    "Read protected credential overlay installation/readback, directory ownership/symlink checks, actual Unix socket close/inode removal, processRunner /proc/cgroup read paths and local-only guard tables; checked distinct mixed blocks.",
+    "Confirmed root1509 no ManagedMaterialProvider and root1516 omitted live S3 pins against production guards. Additionally read canonical managed_runtime.go512:540 confirming omitted --signed-v2-s3-config expected argument."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "retained_unresolved_obligations": [
+    "internal/host/managed_member_firecracker_test.go::TestManagedMemberFirecrackerSignedServing",
+    "internal/host/managed_runtime_firecracker_test.go::TestManagedRuntimeFirecrackerMountedVolume"
+  ],
+  "qualification_limits": [
+    "Acceptance is for source classification and integrity only. Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No tests, Go, helpers, signing/crypto, server, kernel probe, cloud or workload execution.",
+    "Root1509 integration credit is restricted to earlier actual persistence assertions; downstream serving/evidence/HTTPS/driver assertions remain unresolved and uncredited due missing material provider.",
+    "Root1516 remains unresolved; missing mandatory S3 pins block core mount/device/alias/workload assertions, and expected argument bytes independently omit current signed-S3 prefix.",
+    "Root1511 requires actual cgroup v2 and live process witnesses; root-only filesystem tests and external Firecracker fixture conditions are retained without runtime claims.",
+    "No ledger/source/repository mutation; no global count promotion, retirement/deletion/qualification or completion credit. All original safety obligations retained."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "ledger_mutated": false,
+  "retirement_delta": 0,
+  "qualification_delta": 0,
+  "global_completion": false
+}

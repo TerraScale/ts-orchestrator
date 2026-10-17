@@ -1,0 +1,366 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_260_280",
+  "author": "/root/classification_100_dispatch/batch_280_300",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "owner": "/root/classification_100_dispatch/batch_280_300",
+    "range": [
+      1440,
+      1460
+    ],
+    "root_ids": [
+      "internal/host/controller_test.go::TestListHostsRejectsReportStateChangeDuringRead",
+      "internal/host/controller_test.go::TestListHostsRejectsSessionTakeoverDuringRead",
+      "internal/host/controller_test.go::TestManagedOCIBindingValidation",
+      "internal/host/controller_test.go::TestManagedRegistrationRequiresCurrentVerifierAndRechecksRetries",
+      "internal/host/controller_test.go::TestMissingHostRegistrationGetsNoSignedReply",
+      "internal/host/controller_test.go::TestOnlyTheAuthorityLeaderServesHostRequests",
+      "internal/host/controller_test.go::TestOrderedHostMutationAndSignedNATSReply",
+      "internal/host/controller_test.go::TestRestartGateHoldsTheRunningWorkload",
+      "internal/host/controller_test.go::TestRestartGateNeverHoldsAManagedMember",
+      "internal/host/controller_test.go::TestRestartHoldKeepsTheRunningWorkload",
+      "internal/host/controller_test.go::TestRetireIdleRefusesNewAllocations",
+      "internal/host/controller_test.go::TestRoleMemoryCapReachesTheRunner",
+      "internal/host/controller_test.go::TestSessionLossStopsActiveWorkloadBeforePendingCycleFlush",
+      "internal/host/controller_test.go::TestSessionRetryClassificationAndReserve",
+      "internal/host/controller_test.go::TestSessionRevalidationRejectsTakeoverExpiryAndRotation",
+      "internal/host/controller_test.go::TestSignedJetStreamUnavailableStopsAtExecutionReserve",
+      "internal/host/controller_test.go::TestSignedSessionContentionIsTransientWithoutLeaseChange",
+      "internal/host/controller_test.go::TestSignedTransientSessionBackendRetriesWithinLease",
+      "internal/host/controller_test.go::TestStartupWaitsForOldSessionAndCancellation",
+      "internal/host/controller_test.go::TestTransientRenewalKeepsWorkloadUntilSignedLeaseReserve"
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_260_280",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "fork_turns_for_new": "none",
+    "reused_confirmed_agent": true
+  },
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-1440-1460-exact-0euk6bv3/classification.json",
+    "sha256": "d3d442b825a8a6f4413588e4e1651192dc8042d612f961b720ef982730f8ebf2",
+    "checksums_path": "/tmp/ts-source-classification-1440-1460-exact-0euk6bv3/SHA256SUMS",
+    "checksums_sha256": "2699f1a312d0a9f84a49e74d535185f528735bf8244fdfb526ed396199239953"
+  },
+  "status": "ACCEPTED_SOURCE_ONLY",
+  "root_ids": [
+    "internal/host/controller_test.go::TestListHostsRejectsReportStateChangeDuringRead",
+    "internal/host/controller_test.go::TestListHostsRejectsSessionTakeoverDuringRead",
+    "internal/host/controller_test.go::TestManagedOCIBindingValidation",
+    "internal/host/controller_test.go::TestManagedRegistrationRequiresCurrentVerifierAndRechecksRetries",
+    "internal/host/controller_test.go::TestMissingHostRegistrationGetsNoSignedReply",
+    "internal/host/controller_test.go::TestOnlyTheAuthorityLeaderServesHostRequests",
+    "internal/host/controller_test.go::TestOrderedHostMutationAndSignedNATSReply",
+    "internal/host/controller_test.go::TestRestartGateHoldsTheRunningWorkload",
+    "internal/host/controller_test.go::TestRestartGateNeverHoldsAManagedMember",
+    "internal/host/controller_test.go::TestRestartHoldKeepsTheRunningWorkload",
+    "internal/host/controller_test.go::TestRetireIdleRefusesNewAllocations",
+    "internal/host/controller_test.go::TestRoleMemoryCapReachesTheRunner",
+    "internal/host/controller_test.go::TestSessionLossStopsActiveWorkloadBeforePendingCycleFlush",
+    "internal/host/controller_test.go::TestSessionRetryClassificationAndReserve",
+    "internal/host/controller_test.go::TestSessionRevalidationRejectsTakeoverExpiryAndRotation",
+    "internal/host/controller_test.go::TestSignedJetStreamUnavailableStopsAtExecutionReserve",
+    "internal/host/controller_test.go::TestSignedSessionContentionIsTransientWithoutLeaseChange",
+    "internal/host/controller_test.go::TestSignedTransientSessionBackendRetriesWithinLease",
+    "internal/host/controller_test.go::TestStartupWaitsForOldSessionAndCancellation",
+    "internal/host/controller_test.go::TestTransientRenewalKeepsWorkloadUntilSignedLeaseReserve"
+  ],
+  "counts": {
+    "integration": 14,
+    "unit": 2,
+    "mixed": 4,
+    "unresolved": 0,
+    "total": 20
+  },
+  "checks_performed": [
+    "Independently manually read all20 complete root declarations and actual reached fixture/production boundaries; prior source reads for shared host production functions were retained and peer-specific authority/managed/hold/fault/helper paths read separately.",
+    "Verified literal activated allocation other_unadjudicated[1440:1460), owner, mapped peer and pinned accounting original-root slice; original/current names, kind/state and exact raw survival TSV rows.",
+    "Verified40 complete baseline/current raw declarations, explicit line/column-zero-close bounds, exact text/SHA256, immutable Git blob and historical survival hashes; no canonical body drift in these20.",
+    "Verified all80 assertion/connected spans against immutable canonical Git bytes, exact bounds/text/hash and referenced group existence; source spans use the packet convention excluding final LF.",
+    "Verified all24 source pins including Git blob/mode/SHA256/bytes and working-file equality to pinned Git; verified canonical commit tree and all5 input file hashes.",
+    "Verified classification14 integration/2 unit/4 mixed/0 unresolved, per-root runtimeUNKNOWN, retained safety/no retirement, immutable packet dir0555/files0444 and both packet/checksum exact hashes."
+  ],
+  "roots": [
+    {
+      "allocation_index": 1440,
+      "root_id": "internal/host/controller_test.go::TestListHostsRejectsReportStateChangeDuringRead",
+      "category": "integration",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "ListHosts actual report/session reads plus real changed-report CAS; gated desired map callback only coordinates.",
+      "original_declaration_sha256": "2238ee2eaeeb39fe2053da331cbcfdd6b759932183dad3405c233c700e248deb",
+      "current_declaration_sha256": "2238ee2eaeeb39fe2053da331cbcfdd6b759932183dad3405c233c700e248deb",
+      "source_blockers": []
+    },
+    {
+      "allocation_index": 1441,
+      "root_id": "internal/host/controller_test.go::TestListHostsRejectsSessionTakeoverDuringRead",
+      "category": "integration",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Read hook delegates actual leader read and KV CAS takeover; subsequent snapshot rejects changed session.",
+      "original_declaration_sha256": "e77d4c18a59d910246f25aa8a7b4b6ae80c9fc0ea1caaf9b990d0b8e93281c0d",
+      "current_declaration_sha256": "e77d4c18a59d910246f25aa8a7b4b6ae80c9fc0ea1caaf9b990d0b8e93281c0d",
+      "source_blockers": []
+    },
+    {
+      "allocation_index": 1442,
+      "root_id": "internal/host/controller_test.go::TestManagedOCIBindingValidation",
+      "category": "unit",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Direct registration schema/predicate table; OCI strings and generated keys do not cross provider boundary.",
+      "original_declaration_sha256": "37bb11ca5cc53b1ff53c4306372c8593cbcea40259fb96f93986dadc49673f82",
+      "current_declaration_sha256": "37bb11ca5cc53b1ff53c4306372c8593cbcea40259fb96f93986dadc49673f82",
+      "source_blockers": []
+    },
+    {
+      "allocation_index": 1443,
+      "root_id": "internal/host/controller_test.go::TestManagedRegistrationRequiresCurrentVerifierAndRechecksRetries",
+      "category": "mixed",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Missing pins/verifier local guards; independent successful registration/exclusivity uses real control Stream.Info/publish. Conflict and verifiers injected.",
+      "original_declaration_sha256": "c445b2157bffbd10568a798d8dad9c9f654cfe0437361468250e2e511bf68bc6",
+      "current_declaration_sha256": "c445b2157bffbd10568a798d8dad9c9f654cfe0437361468250e2e511bf68bc6",
+      "source_blockers": []
+    },
+    {
+      "allocation_index": 1444,
+      "root_id": "internal/host/controller_test.go::TestMissingHostRegistrationGetsNoSignedReply",
+      "category": "integration",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Missing registration map entry causes actual signed protocol no-reply timeout after successful real acquisition; no durable deletion.",
+      "original_declaration_sha256": "4f305b2869e47018d1108ef3d4a821cb1f5603b31da6817b446a2567c2548d36",
+      "current_declaration_sha256": "4f305b2869e47018d1108ef3d4a821cb1f5603b31da6817b446a2567c2548d36",
+      "source_blockers": []
+    },
+    {
+      "allocation_index": 1445,
+      "root_id": "internal/host/controller_test.go::TestOnlyTheAuthorityLeaderServesHostRequests",
+      "category": "integration",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Injected leader flag controls actual NATS subscription; ErrNoResponders followed by successful request. No election credit.",
+      "original_declaration_sha256": "0a8684ff3446559afd725d2d9e8e21f6214efff22b84a938d8a093f63dbb0023",
+      "current_declaration_sha256": "0a8684ff3446559afd725d2d9e8e21f6214efff22b84a938d8a093f63dbb0023",
+      "source_blockers": []
+    },
+    {
+      "allocation_index": 1446,
+      "root_id": "internal/host/controller_test.go::TestOrderedHostMutationAndSignedNATSReply",
+      "category": "mixed",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Actual authority lease/control publication/readback and signed RPC; independent downgraded managed registration has residual ManagedPlacement, rejected locally. No managed launch/native/cgroup claim.",
+      "original_declaration_sha256": "40f5fa9bd6769d22cb9cec4f9e9ac96cb67cc6780c4bccd57bf8d81f12a2b9ca",
+      "current_declaration_sha256": "40f5fa9bd6769d22cb9cec4f9e9ac96cb67cc6780c4bccd57bf8d81f12a2b9ca",
+      "source_blockers": []
+    },
+    {
+      "allocation_index": 1447,
+      "root_id": "internal/host/controller_test.go::TestRestartGateHoldsTheRunningWorkload",
+      "category": "integration",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Real desired/cycle/report/artifact boundaries establish held/granted state; gate callback and memoryRunner fake.",
+      "original_declaration_sha256": "850f3e6cc416ed2ec9eeeb5fffe1cc018051da9acc48836064a809228789528d",
+      "current_declaration_sha256": "850f3e6cc416ed2ec9eeeb5fffe1cc018051da9acc48836064a809228789528d",
+      "source_blockers": []
+    },
+    {
+      "allocation_index": 1448,
+      "root_id": "internal/host/controller_test.go::TestRestartGateNeverHoldsAManagedMember",
+      "category": "integration",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Actual signed cycle RPC/CAS plus injected one-shot conflict; ManagedMember presence bypass is fixture binding only.",
+      "original_declaration_sha256": "80ee827b5bbebe4cc3bdde7fee12f61c25fa10ba275c4b7cf0acd2336af580f4",
+      "current_declaration_sha256": "80ee827b5bbebe4cc3bdde7fee12f61c25fa10ba275c4b7cf0acd2336af580f4",
+      "source_blockers": []
+    },
+    {
+      "allocation_index": 1449,
+      "root_id": "internal/host/controller_test.go::TestRestartHoldKeepsTheRunningWorkload",
+      "category": "integration",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Real role hold-file Lstat/create/remove plus signed state/report/artifact path; fake runner observes behavior.",
+      "original_declaration_sha256": "71f4045fe04f848b30bc4f01953d352a805507a54d72123644b23ea956c29bfa",
+      "current_declaration_sha256": "71f4045fe04f848b30bc4f01953d352a805507a54d72123644b23ea956c29bfa",
+      "source_blockers": []
+    },
+    {
+      "allocation_index": 1450,
+      "root_id": "internal/host/controller_test.go::TestRetireIdleRefusesNewAllocations",
+      "category": "integration",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Real log discovery/artifact metadata/publish; successor shares mutation map, so durable restart reconstruction unproven.",
+      "original_declaration_sha256": "0b83c2698b824f8f4d337b237641a9441c9037e94e96e5d5ea44966b58b0deed",
+      "current_declaration_sha256": "0b83c2698b824f8f4d337b237641a9441c9037e94e96e5d5ea44966b58b0deed",
+      "source_blockers": []
+    },
+    {
+      "allocation_index": 1451,
+      "root_id": "internal/host/controller_test.go::TestRoleMemoryCapReachesTheRunner",
+      "category": "mixed",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Independent local unknown-role cap validation with incidental path validation; actual protocol/artifact/cycle assembles cap passed to fake runner. No cgroup enforcement.",
+      "original_declaration_sha256": "b4b6c2c8dbf581d996becd0ecc671f0110d08e5561132fb250d59c91ec386b39",
+      "current_declaration_sha256": "b4b6c2c8dbf581d996becd0ecc671f0110d08e5561132fb250d59c91ec386b39",
+      "source_blockers": []
+    },
+    {
+      "allocation_index": 1452,
+      "root_id": "internal/host/controller_test.go::TestSessionLossStopsActiveWorkloadBeforePendingCycleFlush",
+      "category": "integration",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Real acquisition and subscription removal support reserve-triggered stop-before-flush ordering; delayed runner and stalled GetInfo fake.",
+      "original_declaration_sha256": "a7099c57ae63802a9c44c002b8f90269570b667f62a68fbb18f8d5d71cff7c32",
+      "current_declaration_sha256": "a7099c57ae63802a9c44c002b8f90269570b667f62a68fbb18f8d5d71cff7c32",
+      "source_blockers": []
+    },
+    {
+      "allocation_index": 1453,
+      "root_id": "internal/host/controller_test.go::TestSessionRetryClassificationAndReserve",
+      "category": "unit",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Direct synthetic error classification table and supplied expiry comparisons; no backend outage boundary.",
+      "original_declaration_sha256": "83ba41b3fe6349d36b5b143f7816615bda2472f08a10dd76ed0ddcc88ca02217",
+      "current_declaration_sha256": "83ba41b3fe6349d36b5b143f7816615bda2472f08a10dd76ed0ddcc88ca02217",
+      "source_blockers": []
+    },
+    {
+      "allocation_index": 1454,
+      "root_id": "internal/host/controller_test.go::TestSessionRevalidationRejectsTakeoverExpiryAndRotation",
+      "category": "mixed",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Takeover/expiry actually update session KV; independent rotated-key direct handler rejection is local verifyRequest using fixture registration map.",
+      "original_declaration_sha256": "3a110708f2af970e5c9524fed8f150921867325bc30dfb8dfccbe07575a58f25",
+      "current_declaration_sha256": "3a110708f2af970e5c9524fed8f150921867325bc30dfb8dfccbe07575a58f25",
+      "source_blockers": []
+    },
+    {
+      "allocation_index": 1455,
+      "root_id": "internal/host/controller_test.go::TestSignedJetStreamUnavailableStopsAtExecutionReserve",
+      "category": "integration",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Signed temporary errors traverse real NATS and leader snapshot verifies stored lease unchanged; backend outage injected.",
+      "original_declaration_sha256": "b6f979afa918e047f19e13a2a7d3138ddfcbcb6fb209b11503b85e53aae431b1",
+      "current_declaration_sha256": "b6f979afa918e047f19e13a2a7d3138ddfcbcb6fb209b11503b85e53aae431b1",
+      "source_blockers": []
+    },
+    {
+      "allocation_index": 1456,
+      "root_id": "internal/host/controller_test.go::TestSignedSessionContentionIsTransientWithoutLeaseChange",
+      "category": "integration",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Real signed renew/desired RPC with eight injected conflicts and actual session readback; no concurrent conflicting writer.",
+      "original_declaration_sha256": "6c76ad8632e40c4500798a24417346a95efe74f430f9bf76226ed0f928c17566",
+      "current_declaration_sha256": "6c76ad8632e40c4500798a24417346a95efe74f430f9bf76226ed0f928c17566",
+      "source_blockers": []
+    },
+    {
+      "allocation_index": 1457,
+      "root_id": "internal/host/controller_test.go::TestSignedTransientSessionBackendRetriesWithinLease",
+      "category": "integration",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "testSignedTransientSessionBackend fully read; three injected failures otherwise delegate actual reads; signed acquisition/retry/renew/retired-key denial real.",
+      "original_declaration_sha256": "6f7cd1be3f9ff30e0d6b862d15931c4f21db3ad57b55f97a1add3e61050ca669",
+      "current_declaration_sha256": "6f7cd1be3f9ff30e0d6b862d15931c4f21db3ad57b55f97a1add3e61050ca669",
+      "source_blockers": []
+    },
+    {
+      "allocation_index": 1458,
+      "root_id": "internal/host/controller_test.go::TestStartupWaitsForOldSessionAndCancellation",
+      "category": "integration",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Existing actual KV session and signed NATS ownership responses keep startup pending through cancellation.",
+      "original_declaration_sha256": "6114efae929576f406668c919490badc9bd2931b7cf03a6c1e9e32e1c2dd74b1",
+      "current_declaration_sha256": "6114efae929576f406668c919490badc9bd2931b7cf03a6c1e9e32e1c2dd74b1",
+      "source_blockers": []
+    },
+    {
+      "allocation_index": 1459,
+      "root_id": "internal/host/controller_test.go::TestTransientRenewalKeepsWorkloadUntilSignedLeaseReserve",
+      "category": "integration",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Actual acquisition followed by real subscription shutdown yields protocol failure until execution reserve; accepted lease shortened locally and runner fake.",
+      "original_declaration_sha256": "399fb9db86f29788b8ff5aa6d2e8922fa310c4a4f49b5242953512fdcf940e5f",
+      "current_declaration_sha256": "399fb9db86f29788b8ff5aa6d2e8922fa310c4a4f49b5242953512fdcf940e5f",
+      "source_blockers": []
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "unresolved_blockers": [],
+  "supplemental_reviewed_source_evidence": [
+    {
+      "path": "internal/authority/log.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "39e8073c3302fd73785bec8b3b3e8d0d61024a03",
+      "line": 430,
+      "end_line": 469,
+      "text": "func (r *Runtime) workloadGate(scope WorkloadScope) *sync.RWMutex {\n\tr.terminalMu.Lock()\n\tdefer r.terminalMu.Unlock()\n\tif r.terminalGates == nil {\n\t\tr.terminalGates = make(map[WorkloadScope]*sync.RWMutex)\n\t}\n\tgate := r.terminalGates[scope]\n\tif gate == nil {\n\t\tgate = new(sync.RWMutex)\n\t\tr.terminalGates[scope] = gate\n\t}\n\treturn gate\n}\n\nfunc (r *Runtime) beginWorkloadGate(ctx context.Context, scope WorkloadScope) (func(), error) {\n\tif r == nil || ctx == nil || ctx.Err() != nil {\n\t\treturn nil, ErrFenced\n\t}\n\tif _, err := placementIntentSubjectKey(scope.DatabaseID, scope.PartitionID); err != nil {\n\t\treturn nil, err\n\t}\n\tgate := r.workloadGate(scope)\n\tgate.RLock()\n\tif err := ctx.Err(); err != nil {\n\t\tgate.RUnlock()\n\t\treturn nil, err\n\t}\n\treturn sync.OnceFunc(gate.RUnlock), nil\n}\n\nfunc (r *Runtime) requireNoTerminalIntent(ctx context.Context, databaseID, partitionID string) error {\n\t_, err := r.ReadTerminalIntent(ctx, databaseID, partitionID)\n\tif errors.Is(err, ErrNotFound) {\n\t\treturn nil\n\t}\n\tif err == nil {\n\t\treturn ErrFenced\n\t}\n\treturn err\n}\n",
+      "sha256": "b63d5562b216f7352776c4980f7e0bbf9503c91a78ab6330cc057efac7641257"
+    },
+    {
+      "path": "internal/authority/log.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "39e8073c3302fd73785bec8b3b3e8d0d61024a03",
+      "line": 633,
+      "end_line": 653,
+      "text": "func (r *Runtime) ReadTerminalIntent(ctx context.Context, databaseID, partitionID string) (LogEntry, error) {\n\tsubjectKey, err := placementIntentSubjectKey(databaseID, partitionID)\n\tif err != nil {\n\t\treturn LogEntry{}, err\n\t}\n\tif r == nil {\n\t\treturn LogEntry{}, ErrFenced\n\t}\n\tr.readMu.Lock()\n\tdefer r.readMu.Unlock()\n\tentry, err := readMutation(ctx, r.readStream, r.config.Scope, MutationTerminalIntent, subjectKey)\n\tif err != nil {\n\t\treturn LogEntry{}, err\n\t}\n\tintent, err := decodeTerminalIntent(entry.Payload)\n\tif err != nil || intent.Cell != r.config.Scope || intent.DatabaseID != databaseID ||\n\t\tintent.PartitionID != partitionID || intent.OperationID != entry.OperationID {\n\t\treturn LogEntry{}, errors.New(\"terminal control log identity is invalid\")\n\t}\n\treturn entry, nil\n}\n",
+      "sha256": "137f2a0497d67ac617d5db2f0e63d75d9ba1ed540095712cf4b156fc22c8b439"
+    },
+    {
+      "path": "internal/authority/runtime.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "3ca4fa7b42e322ae9eced36f845c45ad68892296",
+      "line": 296,
+      "end_line": 308,
+      "text": "func (r *Runtime) reconcileWithRetry(ctx context.Context) error {\n\tvar lastErr error\n\tfor range 8 {\n\t\terr := r.reconcile(ctx)\n\t\tif !errors.Is(err, ErrConflict) {\n\t\t\treturn err\n\t\t}\n\t\tlastErr = err\n\t}\n\tif lastErr != nil {\n\t\treturn lastErr\n\t}\n\treturn ErrConflict\n",
+      "sha256": "61c7ab32284357160c3a3b812cb5b2d3872454c6a8e75e851c29f4f311cccff5"
+    },
+    {
+      "path": "internal/authority/runtime.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "3ca4fa7b42e322ae9eced36f845c45ad68892296",
+      "line": 482,
+      "end_line": 487,
+      "text": "func (r *Runtime) checkClock() error {\n\tif r != nil && r.config.ClockCheck != nil {\n\t\treturn r.config.ClockCheck()\n\t}\n\treturn nil\n}\n",
+      "sha256": "31193dffe74c7a3f1c24f3340824f60d814c2664257cf48b4c522f5795ddbce4"
+    }
+  ],
+  "supplemental_source_pins": [
+    {
+      "path": "internal/authority/log.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "39e8073c3302fd73785bec8b3b3e8d0d61024a03",
+      "mode": "100644",
+      "sha256": "500b03c30e554986f79a78891a88fad0c31732b37bf4f397b57a6919d66aed8f",
+      "bytes": 47408
+    },
+    {
+      "path": "internal/authority/runtime.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "3ca4fa7b42e322ae9eced36f845c45ad68892296",
+      "mode": "100644",
+      "sha256": "cecacfadaaedfe54c495c7529209b1e059a894ba98ff1831dcc55f1f1861d48c",
+      "bytes": 28474
+    }
+  ],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No Go/test/build/helper/source parser/scanner, crypto/signing, probes, OCI/Vault/cloud, native process/cgroup/TerraBase or operational workload executed/reviewed as receipts.",
+    "Ordinary fixture starts actual upstream NATS over loopback TCP/FileStorage1. memoryMutations reads a map although commits publish actual JetStream; ordered1446 alone supplies authority.Runtime and actual persisted reads.",
+    "memoryRunner/stop wrappers only record observation/counters/channels; installed shell bytes never run. Leader/error/CAS/gate/stalled-store hooks are injected. No production JWT/TLS, distributed election, real backend outage, durable successor reconstruction or kernel memory-cap enforcement qualified.",
+    "All original security/fencing/lease/runtime/path safety obligations retained. Peer acceptance is source-only and supplies no ledger/count/completion promotion or deletion/retirement authority."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  }
+}

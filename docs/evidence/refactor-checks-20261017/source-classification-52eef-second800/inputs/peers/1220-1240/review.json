@@ -1,0 +1,198 @@
+{
+  "schema": "source-classification-independent-peer-review/v1",
+  "reviewer": "/root/classification_100_dispatch/peer_00_20",
+  "author": "/root/classification_100_dispatch/peer_20_40",
+  "decision": "ACCEPT_SOURCE_CLASSIFICATION_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-root800-second-1220-1240-source-utonis7f/classification.json",
+    "sha256": "92eb3ca897aa5cc020d28fd4e22a11227ce2d406fb5d1f80d64486758ca4c68c",
+    "checksum_path": "/tmp/ts-root800-second-1220-1240-source-utonis7f/SHA256SUMS",
+    "checksum_sha256": "a53e39257d095980726a211dcbcf0918b30981b1104855d1c55a223b4c0fbfc6"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": [
+      1220,
+      1240
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/peer_00_20"
+  },
+  "input_pins": {
+    "survival": {
+      "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+      "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+    },
+    "worker_guide": {
+      "path": "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md",
+      "sha256": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70"
+    },
+    "peer_protocol": {
+      "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/PEER-PROTOCOL.md",
+      "sha256": "3b57c68ac033025066daec252bf89cd01b0c767e0048fb57c67eb5143e2fb00b"
+    }
+  },
+  "literal_root_ids": [
+    "internal/dashboard/drilldown_test.go::TestDrillRegionPage",
+    "internal/dashboard/drilldown_test.go::TestDrillStaleAndNoDataRegions",
+    "internal/dashboard/drilldown_test.go::TestDrillUnknownEntitiesAreNotFound",
+    "internal/dashboard/drilldown_test.go::TestDrilldownNeverAsksRegions",
+    "internal/dashboard/drilldown_test.go::TestUnreadVolumesAreNotShownAsNone",
+    "internal/dashboard/journal_test.go::TestChartTooltipsEscapeProviderText",
+    "internal/dashboard/journal_test.go::TestDecisionCacheBoundsDistinctHTTPQueries",
+    "internal/dashboard/journal_test.go::TestDecisionCacheServesConcurrentHTTPReaders",
+    "internal/dashboard/journal_test.go::TestDecisionChainsAreSharedAndFailuresNamed",
+    "internal/dashboard/journal_test.go::TestDecisionQueriesAreSharedAcrossTicks",
+    "internal/dashboard/journal_test.go::TestEventFilterSearchAndTimeWindow",
+    "internal/dashboard/journal_test.go::TestEveryPageStreamCarriesChrome",
+    "internal/dashboard/journal_test.go::TestFailingDecisionSourceIsNamedNotLeaked",
+    "internal/dashboard/journal_test.go::TestGlobalInsightsAreThisRegion",
+    "internal/dashboard/journal_test.go::TestJournalPagesRenderProviderData",
+    "internal/dashboard/journal_test.go::TestJournalPagesSayWhenProvidersAreMissing",
+    "internal/dashboard/journal_test.go::TestLargeAssetsAreServedCompressed",
+    "internal/dashboard/journal_test.go::TestLongTimeRangesReachChartHistory",
+    "internal/dashboard/journal_test.go::TestPausedPagesDoNotStream",
+    "internal/dashboard/journal_test.go::TestRegionStreamOfAnotherRegionRedirects"
+  ],
+  "counts": {
+    "allocated_originals": 20,
+    "integration": 3,
+    "unit": 16,
+    "mixed": 1,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20whole current root declarations and connected reached fixture/router/render/provider/cache/history/event/HTTP/SSE/asset paths; all20baseline declarations byte-identical to independently read current bodies, verified at explicit bounds.",
+    "Verified literal original_root_ids_by_disposition.other_unadjudicated[1220:1240), all20original/current identities/kinds/inventory states/hashes against pinned survival inventory; no canonical inventory body drift.",
+    "Verified40raw baseline/current declaration texts/bounds/SHA256,33source-file Git mode/blob/SHA256/byte pins including baseline files and embedded asset fixtures, and canonical disk equality.",
+    "Verified20whole assertion and52connected citation exact text/bounds/blob pins including EOF checks; verified exact accepted packet/checksum hashes/members, files0444/directory0555.",
+    "Verified canonical commit/tree and all allocation/protocol/guide/survival/accounting pins, category counts, runtimeUNKNOWN/retirementfalse/safety retained and no accounting-effect promotion.",
+    "Independently confirmed direct get uses ResponseRecorder while newStreamServer/openStream and fixturePage use real loopback HTTP; cold cache unlocks before load, so duplicate loads remain possible."
+  ],
+  "root_reviews": [
+    {
+      "root_id": "internal/dashboard/drilldown_test.go::TestDrillRegionPage",
+      "accepted_category": "unit",
+      "independent_rationale": "Direct ResponseRecorder renders synthetic GRU region rollup; no network request."
+    },
+    {
+      "root_id": "internal/dashboard/drilldown_test.go::TestDrillStaleAndNoDataRegions",
+      "accepted_category": "unit",
+      "independent_rationale": "Direct ResponseRecorder stale/missing badges use supplied memory rollup age."
+    },
+    {
+      "root_id": "internal/dashboard/drilldown_test.go::TestDrillUnknownEntitiesAreNotFound",
+      "accepted_category": "unit",
+      "independent_rationale": "Direct handlers and local path validation render unknown/absent entities; no live regional lookup."
+    },
+    {
+      "root_id": "internal/dashboard/drilldown_test.go::TestDrilldownNeverAsksRegions",
+      "accepted_category": "unit",
+      "independent_rationale": "Direct handlers use needGlobal paths and injected neverLocal callback to prohibit local summary load; no actual regional network boundary."
+    },
+    {
+      "root_id": "internal/dashboard/drilldown_test.go::TestUnreadVolumesAreNotShownAsNone",
+      "accepted_category": "unit",
+      "independent_rationale": "Direct handlers render unavailable-volume state from synthetic flag."
+    },
+    {
+      "root_id": "internal/dashboard/journal_test.go::TestChartTooltipsEscapeProviderText",
+      "accepted_category": "unit",
+      "independent_rationale": "Direct embedded-asset handler and string predicates inspect tooltip text; no browser/JavaScript execution."
+    },
+    {
+      "root_id": "internal/dashboard/journal_test.go::TestDecisionCacheBoundsDistinctHTTPQueries",
+      "accepted_category": "unit",
+      "independent_rationale": "Direct handlers and fake query counter exercise local keyed cache limit/newest entry."
+    },
+    {
+      "root_id": "internal/dashboard/journal_test.go::TestDecisionCacheServesConcurrentHTTPReaders",
+      "accepted_category": "integration",
+      "independent_rationale": "Real16loopback HTTP request/response reads materially support served-content assertions. Final exact-one provider counter is uncredited because cache.get permits duplicate simultaneous cold loads."
+    },
+    {
+      "root_id": "internal/dashboard/journal_test.go::TestDecisionChainsAreSharedAndFailuresNamed",
+      "accepted_category": "unit",
+      "independent_rationale": "Direct handlers call fake decision chain builder and cached memory source; error sanitization and lookup counts are local."
+    },
+    {
+      "root_id": "internal/dashboard/journal_test.go::TestDecisionQueriesAreSharedAcrossTicks",
+      "accepted_category": "unit",
+      "independent_rationale": "Direct repeated handlers inspect fake query count for TTL sharing; no live decision journal."
+    },
+    {
+      "root_id": "internal/dashboard/journal_test.go::TestEventFilterSearchAndTimeWindow",
+      "accepted_category": "unit",
+      "independent_rationale": "Production EventBus here is an in-memory ring, supplied synthetic events and direct handler filtering."
+    },
+    {
+      "root_id": "internal/dashboard/journal_test.go::TestEveryPageStreamCarriesChrome",
+      "accepted_category": "integration",
+      "independent_rationale": "Real loopback HTTP/SSE streams carry actual generated content/chrome bytes across all reached routes. Providers stay synthetic."
+    },
+    {
+      "root_id": "internal/dashboard/journal_test.go::TestFailingDecisionSourceIsNamedNotLeaked",
+      "accepted_category": "unit",
+      "independent_rationale": "Direct handlers translate injected fake decision-source error to fixed note; no NATS connection."
+    },
+    {
+      "root_id": "internal/dashboard/journal_test.go::TestGlobalInsightsAreThisRegion",
+      "accepted_category": "unit",
+      "independent_rationale": "Direct insight rendering from fake local evaluation only."
+    },
+    {
+      "root_id": "internal/dashboard/journal_test.go::TestJournalPagesRenderProviderData",
+      "accepted_category": "unit",
+      "independent_rationale": "Direct page/table/redirect response rendering with memory providers; HTTP names and Location header do not create a network boundary."
+    },
+    {
+      "root_id": "internal/dashboard/journal_test.go::TestJournalPagesSayWhenProvidersAreMissing",
+      "accepted_category": "unit",
+      "independent_rationale": "Direct page handlers exercise missing-provider notes."
+    },
+    {
+      "root_id": "internal/dashboard/journal_test.go::TestLargeAssetsAreServedCompressed",
+      "accepted_category": "unit",
+      "independent_rationale": "Direct recorder asset route plus local gzip decode compares embedded bytes; no network listener."
+    },
+    {
+      "root_id": "internal/dashboard/journal_test.go::TestLongTimeRangesReachChartHistory",
+      "accepted_category": "mixed",
+      "independent_rationale": "Independent initial parseState assertions are unit. fixturePage actually starts HTTP listener/client, and returned chart JSON materially supports history-range integration assertions. History itself is memory-only."
+    },
+    {
+      "root_id": "internal/dashboard/journal_test.go::TestPausedPagesDoNotStream",
+      "accepted_category": "unit",
+      "independent_rationale": "Direct handlers inspect paused/live HTML attributes and URL state; no stream opened."
+    },
+    {
+      "root_id": "internal/dashboard/journal_test.go::TestRegionStreamOfAnotherRegionRedirects",
+      "accepted_category": "integration",
+      "independent_rationale": "Real loopback HTTP/SSE returns remote-region redirect patch; no remote region is contacted."
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [
+    {
+      "root_id": "internal/dashboard/journal_test.go::TestDecisionCacheServesConcurrentHTTPReaders",
+      "status": "unresolved_assertion_only_preserved",
+      "detail": "journal_test.go632\u2013634 requires exactly one provider query after simultaneous cold clients. cache.go29\u201340 reads under mutex but unlocks before load; no in-flight same-key coalescing is promised. Real response/content assertions retain integration classification; the exact-one assertion remains uncredited. No execution failure/pass inferred."
+    }
+  ],
+  "qualification_limits": [
+    "Acceptance is limited to immutable source classification; unresolved-category0 does not clear the explicitly unresolved later assertion.",
+    "No runtime receipts, runtime qualification, live distributed region/NATS/OCI/backend/history collection, browser JavaScript execution, ledger/count promotion, deletion or retirement credit.",
+    "Embedded asset header/gzip/string checks and EventBus/History/globalview objects reached by direct recorder paths remain local; actual HTTP/SSE paths qualify only their reached dashboard effects."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "ledger_modified": false,
+  "counts_promoted": false,
+  "deletion_authorized": false,
+  "source_modified": false,
+  "execution_performed": false
+}

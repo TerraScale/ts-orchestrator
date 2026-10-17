@@ -1,0 +1,718 @@
+{
+  "schema": "ts-source-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1040_1060",
+  "author": "/root/classification_100_dispatch/batch_1060_1080",
+  "decision": "ACCEPTED_SOURCE_ONLY_WITH_UNRESOLVED_ROOTS_AND_RETAINED_BLOCKERS",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-1860-1880-corrected-no59qdvr/classification.json",
+    "sha256": "29e72e65254a7320c5599f754d0428b6f0f038b6366be4f24eb5b3923babce8e",
+    "bytes": 640842,
+    "checksum_path": "/tmp/ts-source-1860-1880-corrected-no59qdvr/SHA256SUMS",
+    "checksum_sha256": "2fc7a4a935aa71aa60530cd184db431ef579fcf02b7cb37eb2ac117929ad1e3d"
+  },
+  "superseded_packet": {
+    "path": "/tmp/ts-source-1860-1880-z9ro3i5u/classification.json",
+    "sha256": "0b7a4aa9b881dba35032e8e976c3d25443782fdc380b85af99ebe99f122056ea",
+    "accepted": false
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": [
+      1860,
+      1880
+    ],
+    "scope": "literal original-root-accounting other_unadjudicated[1860:1880)",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_1040_1060"
+  },
+  "input_pins": {
+    "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json": {
+      "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+      "bytes": 440956
+    },
+    "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json": {
+      "sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513",
+      "bytes": 423442
+    },
+    "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv": {
+      "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+      "bytes": 1640609
+    },
+    "/tmp/ts-root800-second-source-dispatch-r9_48ha9/PEER-PROTOCOL.md": {
+      "sha256": "3b57c68ac033025066daec252bf89cd01b0c767e0048fb57c67eb5143e2fb00b",
+      "bytes": 3237
+    },
+    "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md": {
+      "sha256": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70",
+      "bytes": 3851
+    }
+  },
+  "root_ids": [
+    "internal/maintenance/expiry_test.go::TestScanReadsCertificatesAndNATSJWTs",
+    "internal/maintenance/expiry_test.go::TestScanReportsBadFilesAndKeepsTheRest",
+    "internal/managedmaterial/admission_test.go::TestVerifyIntentAgainstReceiptBindsNativeOCIRoot",
+    "internal/managedmaterial/admission_test.go::TestVerifyIntentAgainstReceiptPinsOwnerOnlyBackupMaterial",
+    "internal/managedmaterial/admission_test.go::TestVerifyIntentAgainstReceiptPinsSQLSchemaBundleToEveryMember",
+    "internal/managedmaterial/admission_test.go::TestVerifyIntentAgainstReceiptRejectsMaterialAndPrivateIPSubstitution",
+    "internal/managedmaterial/backup_complete_process_test.go::TestBackupGoRustCompleteProcessBridge",
+    "internal/managedmaterial/backup_complete_process_test.go::TestBackupGoRustFullProducerProcessBridge",
+    "internal/managedmaterial/backup_operation_process_test.go::TestBackupGoRustProcessBridge",
+    "internal/managedmaterial/backup_operation_test.go::TestBackupCandidateRejectsSignedLowerFrontier",
+    "internal/managedmaterial/backup_operation_test.go::TestBackupCompleteRustGoldenProofsAndCanonicalHead",
+    "internal/managedmaterial/backup_operation_test.go::TestBackupOperationSignerMatchesFrozenRustWire",
+    "internal/managedmaterial/backup_operation_test.go::TestBackupUnknownCommitReleasesOnlyExactR3Readback",
+    "internal/managedmaterial/backup_test.go::TestBackupWireGoldenManifestUsesExactSignedRawPayload",
+    "internal/managedmaterial/backup_test.go::TestNativeInitialInputCarriesExactBackupFilesAndRejectsPartialGroup",
+    "internal/managedmaterial/backup_test.go::TestOptionalBackupProducerSignsIndependentManifestAndRejectsDrift",
+    "internal/managedmaterial/credential_service_test.go::TestCredentialStateValidatesCanonicalSQLTableGrantIDs",
+    "internal/managedmaterial/credential_service_test.go::TestManagedCredentialRotationRevocationAndReplay",
+    "internal/managedmaterial/initial_deployment_test.go::TestInitialCatalogEncodesTerraBaseUTF8Field",
+    "internal/managedmaterial/initial_deployment_test.go::TestInitialDeploymentRejectsUnsafeInputs"
+  ],
+  "counts": {
+    "integration": 2,
+    "unit": 15,
+    "unresolved": 3,
+    "mixed": 0,
+    "total": 20
+  },
+  "roots": [
+    {
+      "root_id": "internal/maintenance/expiry_test.go::TestScanReadsCertificatesAndNATSJWTs",
+      "category": "integration",
+      "review_decision": "AGREED",
+      "baseline_source": {
+        "path": "internal/maintenance/expiry_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "88fb5c978491ab8b8bbfa515ce601c5a49ef0d2f",
+        "line": 95,
+        "end_line": 142
+      },
+      "current_source": {
+        "path": "internal/maintenance/expiry_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "88fb5c978491ab8b8bbfa515ce601c5a49ef0d2f",
+        "line": 95,
+        "end_line": 142
+      },
+      "original_declaration_sha256": "c0b53f0344f999f78e4f0edf107d72febcacd73e9c8de40442b1fda57f953900",
+      "current_declaration_sha256": "c0b53f0344f999f78e4f0edf107d72febcacd73e9c8de40442b1fda57f953900",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/maintenance/expiry_test.go::TestScanReportsBadFilesAndKeepsTheRest",
+      "category": "integration",
+      "review_decision": "AGREED",
+      "baseline_source": {
+        "path": "internal/maintenance/expiry_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "88fb5c978491ab8b8bbfa515ce601c5a49ef0d2f",
+        "line": 147,
+        "end_line": 185
+      },
+      "current_source": {
+        "path": "internal/maintenance/expiry_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "88fb5c978491ab8b8bbfa515ce601c5a49ef0d2f",
+        "line": 147,
+        "end_line": 185
+      },
+      "original_declaration_sha256": "d970295b45dc14a5b33c9be93e07d78fa2d182f2273b28b032cdf06581d851a8",
+      "current_declaration_sha256": "d970295b45dc14a5b33c9be93e07d78fa2d182f2273b28b032cdf06581d851a8",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/managedmaterial/admission_test.go::TestVerifyIntentAgainstReceiptBindsNativeOCIRoot",
+      "category": "unit",
+      "review_decision": "AGREED",
+      "baseline_source": {
+        "path": "internal/managedmaterial/admission_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "485e4a2b272ff9dc09cdbb3c6751255e5576159e",
+        "line": 162,
+        "end_line": 193
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/admission_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "485e4a2b272ff9dc09cdbb3c6751255e5576159e",
+        "line": 162,
+        "end_line": 193
+      },
+      "original_declaration_sha256": "6ef2a30b2a6a6a09a5e6abeaf42f3448195e9119a9c2ef0f6edf99418a95ae3a",
+      "current_declaration_sha256": "6ef2a30b2a6a6a09a5e6abeaf42f3448195e9119a9c2ef0f6edf99418a95ae3a",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/managedmaterial/admission_test.go::TestVerifyIntentAgainstReceiptPinsOwnerOnlyBackupMaterial",
+      "category": "unit",
+      "review_decision": "AGREED",
+      "baseline_source": {
+        "path": "internal/managedmaterial/admission_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "485e4a2b272ff9dc09cdbb3c6751255e5576159e",
+        "line": 131,
+        "end_line": 160
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/admission_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "485e4a2b272ff9dc09cdbb3c6751255e5576159e",
+        "line": 131,
+        "end_line": 160
+      },
+      "original_declaration_sha256": "f25c3c9e1473852f0f62cbb7f0c6ede160dc005081ca07d5bf04705d7f193b14",
+      "current_declaration_sha256": "f25c3c9e1473852f0f62cbb7f0c6ede160dc005081ca07d5bf04705d7f193b14",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/managedmaterial/admission_test.go::TestVerifyIntentAgainstReceiptPinsSQLSchemaBundleToEveryMember",
+      "category": "unit",
+      "review_decision": "AGREED",
+      "baseline_source": {
+        "path": "internal/managedmaterial/admission_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "485e4a2b272ff9dc09cdbb3c6751255e5576159e",
+        "line": 195,
+        "end_line": 221
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/admission_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "485e4a2b272ff9dc09cdbb3c6751255e5576159e",
+        "line": 195,
+        "end_line": 221
+      },
+      "original_declaration_sha256": "0cb88c26ba0ec05d6b0bebc1b6765ff5c84a31c4b16b3c912fa85040fc211acc",
+      "current_declaration_sha256": "0cb88c26ba0ec05d6b0bebc1b6765ff5c84a31c4b16b3c912fa85040fc211acc",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/managedmaterial/admission_test.go::TestVerifyIntentAgainstReceiptRejectsMaterialAndPrivateIPSubstitution",
+      "category": "unit",
+      "review_decision": "AGREED",
+      "baseline_source": {
+        "path": "internal/managedmaterial/admission_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "485e4a2b272ff9dc09cdbb3c6751255e5576159e",
+        "line": 223,
+        "end_line": 258
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/admission_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "485e4a2b272ff9dc09cdbb3c6751255e5576159e",
+        "line": 223,
+        "end_line": 258
+      },
+      "original_declaration_sha256": "5925c1c237864c6f496f965fc2fdf29acdb991dcb9720fa40abf51efb9d4411f",
+      "current_declaration_sha256": "5925c1c237864c6f496f965fc2fdf29acdb991dcb9720fa40abf51efb9d4411f",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/managedmaterial/backup_complete_process_test.go::TestBackupGoRustCompleteProcessBridge",
+      "category": "unresolved",
+      "review_decision": "AGREED",
+      "baseline_source": {
+        "path": "internal/managedmaterial/backup_complete_process_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "fa0fea045db9f0445f64ad4d2add779111f354a8",
+        "line": 38,
+        "end_line": 40
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/backup_complete_process_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "fa0fea045db9f0445f64ad4d2add779111f354a8",
+        "line": 38,
+        "end_line": 40
+      },
+      "original_declaration_sha256": "32fddddc8fccd1494ba3870081d1ccfdbdf7afbc23d4859335a74c8a878fca8e",
+      "current_declaration_sha256": "32fddddc8fccd1494ba3870081d1ccfdbdf7afbc23d4859335a74c8a878fca8e",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/managedmaterial/backup_complete_process_test.go::TestBackupGoRustFullProducerProcessBridge",
+      "category": "unresolved",
+      "review_decision": "AGREED",
+      "baseline_source": {
+        "path": "internal/managedmaterial/backup_complete_process_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "fa0fea045db9f0445f64ad4d2add779111f354a8",
+        "line": 46,
+        "end_line": 49
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/backup_complete_process_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "fa0fea045db9f0445f64ad4d2add779111f354a8",
+        "line": 46,
+        "end_line": 49
+      },
+      "original_declaration_sha256": "a568ecf7895134e13009f032c3b2f6b3c90ccfe97b584fda721de9fc17a30bbb",
+      "current_declaration_sha256": "a568ecf7895134e13009f032c3b2f6b3c90ccfe97b584fda721de9fc17a30bbb",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/managedmaterial/backup_operation_process_test.go::TestBackupGoRustProcessBridge",
+      "category": "unresolved",
+      "review_decision": "AGREED",
+      "baseline_source": {
+        "path": "internal/managedmaterial/backup_operation_process_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "0a71df2d3e9cbd20f79e4f50cd474896f033be2a",
+        "line": 80,
+        "end_line": 251
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/backup_operation_process_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "0a71df2d3e9cbd20f79e4f50cd474896f033be2a",
+        "line": 80,
+        "end_line": 251
+      },
+      "original_declaration_sha256": "a73ba4d320c51ee833a05593116b2a72bcba5de1a25a22529c97548aec346142",
+      "current_declaration_sha256": "a73ba4d320c51ee833a05593116b2a72bcba5de1a25a22529c97548aec346142",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/managedmaterial/backup_operation_test.go::TestBackupCandidateRejectsSignedLowerFrontier",
+      "category": "unit",
+      "review_decision": "AGREED",
+      "baseline_source": {
+        "path": "internal/managedmaterial/backup_operation_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "749dddb65aafeaa2d228638d3970da8d6afcea30",
+        "line": 320,
+        "end_line": 432
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/backup_operation_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "749dddb65aafeaa2d228638d3970da8d6afcea30",
+        "line": 320,
+        "end_line": 432
+      },
+      "original_declaration_sha256": "7b8fac033e9a717ddd0ac02c0037d06a0cb50088c576345e10d77bb7b3e5ee48",
+      "current_declaration_sha256": "7b8fac033e9a717ddd0ac02c0037d06a0cb50088c576345e10d77bb7b3e5ee48",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/managedmaterial/backup_operation_test.go::TestBackupCompleteRustGoldenProofsAndCanonicalHead",
+      "category": "unit",
+      "review_decision": "AGREED",
+      "baseline_source": {
+        "path": "internal/managedmaterial/backup_operation_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "749dddb65aafeaa2d228638d3970da8d6afcea30",
+        "line": 178,
+        "end_line": 318
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/backup_operation_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "749dddb65aafeaa2d228638d3970da8d6afcea30",
+        "line": 178,
+        "end_line": 318
+      },
+      "original_declaration_sha256": "3e0b3e70875d2e66b7f24d452f63b3297758caac5c9e7aab625b50cc66477ed1",
+      "current_declaration_sha256": "3e0b3e70875d2e66b7f24d452f63b3297758caac5c9e7aab625b50cc66477ed1",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/managedmaterial/backup_operation_test.go::TestBackupOperationSignerMatchesFrozenRustWire",
+      "category": "unit",
+      "review_decision": "AGREED",
+      "baseline_source": {
+        "path": "internal/managedmaterial/backup_operation_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "749dddb65aafeaa2d228638d3970da8d6afcea30",
+        "line": 102,
+        "end_line": 176
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/backup_operation_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "749dddb65aafeaa2d228638d3970da8d6afcea30",
+        "line": 102,
+        "end_line": 176
+      },
+      "original_declaration_sha256": "c8bae441528726855edecf7b6b51fd5122925b1ae320c06ef64d58c796833b03",
+      "current_declaration_sha256": "c8bae441528726855edecf7b6b51fd5122925b1ae320c06ef64d58c796833b03",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/managedmaterial/backup_operation_test.go::TestBackupUnknownCommitReleasesOnlyExactR3Readback",
+      "category": "unit",
+      "review_decision": "AGREED",
+      "baseline_source": {
+        "path": "internal/managedmaterial/backup_operation_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "749dddb65aafeaa2d228638d3970da8d6afcea30",
+        "line": 57,
+        "end_line": 100
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/backup_operation_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "749dddb65aafeaa2d228638d3970da8d6afcea30",
+        "line": 57,
+        "end_line": 100
+      },
+      "original_declaration_sha256": "ea388bf4e5c8e0fefa44f8ba01022183fc8bc747dc2cab5728685bb21e0ce266",
+      "current_declaration_sha256": "ea388bf4e5c8e0fefa44f8ba01022183fc8bc747dc2cab5728685bb21e0ce266",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/managedmaterial/backup_test.go::TestBackupWireGoldenManifestUsesExactSignedRawPayload",
+      "category": "unit",
+      "review_decision": "AGREED",
+      "baseline_source": {
+        "path": "internal/managedmaterial/backup_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "d92f9106e41dc3187f852717ccde733feff5e757",
+        "line": 98,
+        "end_line": 157
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/backup_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "d92f9106e41dc3187f852717ccde733feff5e757",
+        "line": 98,
+        "end_line": 157
+      },
+      "original_declaration_sha256": "7f07b85a5053461c0db866847f2c841d587932910d86944e51c7cbeba88eaf95",
+      "current_declaration_sha256": "7f07b85a5053461c0db866847f2c841d587932910d86944e51c7cbeba88eaf95",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/managedmaterial/backup_test.go::TestNativeInitialInputCarriesExactBackupFilesAndRejectsPartialGroup",
+      "category": "unit",
+      "review_decision": "AGREED",
+      "baseline_source": {
+        "path": "internal/managedmaterial/backup_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "d92f9106e41dc3187f852717ccde733feff5e757",
+        "line": 159,
+        "end_line": 203
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/backup_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "d92f9106e41dc3187f852717ccde733feff5e757",
+        "line": 159,
+        "end_line": 203
+      },
+      "original_declaration_sha256": "2bdf5994b6fb75611d5a91a7bb959629c2d2f636809c8f0b2853a1cb02739265",
+      "current_declaration_sha256": "2bdf5994b6fb75611d5a91a7bb959629c2d2f636809c8f0b2853a1cb02739265",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/managedmaterial/backup_test.go::TestOptionalBackupProducerSignsIndependentManifestAndRejectsDrift",
+      "category": "unit",
+      "review_decision": "AGREED",
+      "baseline_source": {
+        "path": "internal/managedmaterial/backup_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "d92f9106e41dc3187f852717ccde733feff5e757",
+        "line": 50,
+        "end_line": 96
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/backup_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "d92f9106e41dc3187f852717ccde733feff5e757",
+        "line": 50,
+        "end_line": 96
+      },
+      "original_declaration_sha256": "209e58a783faf1275bcaab5c293d1bc343d6a6b4d1c276beca185cbe2110d9b7",
+      "current_declaration_sha256": "209e58a783faf1275bcaab5c293d1bc343d6a6b4d1c276beca185cbe2110d9b7",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/managedmaterial/credential_service_test.go::TestCredentialStateValidatesCanonicalSQLTableGrantIDs",
+      "category": "unit",
+      "review_decision": "AGREED",
+      "baseline_source": {
+        "path": "internal/managedmaterial/credential_service_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "38230f844fea741af33a5ba5ab225bea7e284096",
+        "line": 209,
+        "end_line": 246
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/credential_service_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "38230f844fea741af33a5ba5ab225bea7e284096",
+        "line": 209,
+        "end_line": 246
+      },
+      "original_declaration_sha256": "25e8dde6f1dc29bda18b514c2196aa2c331629218a11d440a2b89cbd26b6d499",
+      "current_declaration_sha256": "25e8dde6f1dc29bda18b514c2196aa2c331629218a11d440a2b89cbd26b6d499",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/managedmaterial/credential_service_test.go::TestManagedCredentialRotationRevocationAndReplay",
+      "category": "unit",
+      "review_decision": "AGREED",
+      "baseline_source": {
+        "path": "internal/managedmaterial/credential_service_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "38230f844fea741af33a5ba5ab225bea7e284096",
+        "line": 50,
+        "end_line": 207
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/credential_service_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "38230f844fea741af33a5ba5ab225bea7e284096",
+        "line": 50,
+        "end_line": 207
+      },
+      "original_declaration_sha256": "724c5e200350cbff123cf484d80ab0c21be3541397f4f04f843f8b26a1a27aa1",
+      "current_declaration_sha256": "724c5e200350cbff123cf484d80ab0c21be3541397f4f04f843f8b26a1a27aa1",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/managedmaterial/initial_deployment_test.go::TestInitialCatalogEncodesTerraBaseUTF8Field",
+      "category": "unit",
+      "review_decision": "AGREED",
+      "baseline_source": {
+        "path": "internal/managedmaterial/initial_deployment_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "582d59f09a5bfe90ead90aacf4a76147ca65746e",
+        "line": 224,
+        "end_line": 252
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/initial_deployment_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "582d59f09a5bfe90ead90aacf4a76147ca65746e",
+        "line": 224,
+        "end_line": 252
+      },
+      "original_declaration_sha256": "db0b3c7db74a1dbc3484e1870667ae1036c5e3d9f4c523a3dfcea007aefeb52b",
+      "current_declaration_sha256": "db0b3c7db74a1dbc3484e1870667ae1036c5e3d9f4c523a3dfcea007aefeb52b",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/managedmaterial/initial_deployment_test.go::TestInitialDeploymentRejectsUnsafeInputs",
+      "category": "unit",
+      "review_decision": "AGREED",
+      "baseline_source": {
+        "path": "internal/managedmaterial/initial_deployment_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "582d59f09a5bfe90ead90aacf4a76147ca65746e",
+        "line": 138,
+        "end_line": 161
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/initial_deployment_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "582d59f09a5bfe90ead90aacf4a76147ca65746e",
+        "line": 138,
+        "end_line": 161
+      },
+      "original_declaration_sha256": "3203c34611ffc118a582c0566f0b9655c868e9f1752e54edeff79146f46961b8",
+      "current_declaration_sha256": "3203c34611ffc118a582c0566f0b9655c868e9f1752e54edeff79146f46961b8",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    }
+  ],
+  "checks_performed": [
+    "Independently read all twenty full current roots and their explicitly selected connected actual fixture/helper/production/client/store/process source paths from the pinned Git commit; retained source-only review state across context compaction.",
+    "Verified literal other_unadjudicated[1860:1880) identities against activated allocation, canonical accounting and all twenty survival rows, preserving original mapping and obligations.",
+    "Verified five input file hashes and byte lengths; canonical commit tree; all forty baseline/current declaration raw bytes, complete bounds, texts and SHA256 hashes; body-drift and historical-current-hash fields.",
+    "Verified all forty-nine source-file Git blob/mode/SHA256/byte pins, twenty entire assertion spans and sixty-four exact connected spans against pinned Git objects, including all twelve requested corrections. Three frozen JSON fixtures were compared byte-for-byte as static constants only; no fixture decoding or cryptographic operation was executed.",
+    "Verified corrected packet exact SHA256, SHA256SUMS hash and entries, files0444/directory0555, unchanged twenty identities/categories/declarations/assertions and counts2 integration/15 unit/0 mixed/3 unresolved. Only connected evidence, file pins and correction metadata changed.",
+    "Confirmed real expiry-file readback supports integration; other ordinary managed-material roots use local predicates/bytes/crypto and synthetic stores/receipts/fencers/native validators. Incidental filesystem fixture setup receives no integration credit.",
+    "Confirmed conditional process source uses upstream NATS server, loopback TCP and single-replica FileStorage plus Unix HTTP/process identity checks; no runtime execution or parent qualification receipts reviewed. Conditional-child classification rule retains three unresolved roots."
+  ],
+  "resolved_findings": [
+    {
+      "evidence_key": "prepare",
+      "path": "internal/managedmaterial/prepare.go",
+      "line": 38,
+      "previous_end_line": 211,
+      "accepted_end_line": 212,
+      "status": "RESOLVED_COMPLETE_FINAL_BRACE",
+      "sha256": "41d42fc0aa590b6395b9ad89e6f142473616724343cd7f80e289ccb892162fd1"
+    },
+    {
+      "evidence_key": "backup_operation",
+      "path": "internal/managedmaterial/backup_operation.go",
+      "line": 119,
+      "previous_end_line": 320,
+      "accepted_end_line": 321,
+      "status": "RESOLVED_COMPLETE_FINAL_BRACE",
+      "sha256": "213a0db420d7ceb212720fedd627cfef4cff25e0b30e570c8349a9518d358d1d"
+    },
+    {
+      "evidence_key": "backup_abort_confirm",
+      "path": "internal/managedmaterial/backup_operation.go",
+      "line": 338,
+      "previous_end_line": 406,
+      "accepted_end_line": 407,
+      "status": "RESOLVED_COMPLETE_FINAL_BRACE",
+      "sha256": "43814fa7b99b9291d34da0fb96639320560649d67878436bca3c560e89e5144f"
+    },
+    {
+      "evidence_key": "qualification_gate",
+      "path": "internal/testutil/tier/tier.go",
+      "line": 21,
+      "previous_end_line": 59,
+      "accepted_end_line": 60,
+      "status": "RESOLVED_COMPLETE_FINAL_BRACE",
+      "sha256": "5d447e9ccce53c2dc638b093be69aed0a6a36bff5556b1351c7138170c9e7b07"
+    },
+    {
+      "evidence_key": "authority_stream",
+      "path": "internal/authority/log.go",
+      "line": 47,
+      "previous_end_line": 100,
+      "accepted_end_line": 101,
+      "status": "RESOLVED_COMPLETE_FINAL_BRACE",
+      "sha256": "9343d082bd11ff82170e743b23a4d67fc8c4c5a67727b161381afd0d3ce3394c"
+    },
+    {
+      "evidence_key": "member_client",
+      "path": "internal/memberstatus/client.go",
+      "line": 181,
+      "previous_end_line": 228,
+      "accepted_end_line": 229,
+      "status": "RESOLVED_COMPLETE_FINAL_BRACE",
+      "sha256": "73c147b623c42fc9119857dd7ca7b73f3c4cd05e141e8fddbddbb50739ba0809"
+    },
+    {
+      "evidence_key": "member_backup_prepare",
+      "path": "internal/memberstatus/backup_operation.go",
+      "line": 58,
+      "previous_end_line": 125,
+      "accepted_end_line": 126,
+      "status": "RESOLVED_COMPLETE_FINAL_BRACE",
+      "sha256": "930495d76f7eaca489a03a5b7f5de8918a9f2f20846cee7ba70b8d0807180715"
+    },
+    {
+      "evidence_key": "backup_member_origin",
+      "path": "internal/authority/backup_operation.go",
+      "line": 469,
+      "end_line": 480,
+      "status": "RESOLVED_ACTUAL_CALLEE_ADDED",
+      "sha256": "725ef27e33cb57c1e08878a85a9fef91fa344ea560d2a02e4541c63acff6800c"
+    },
+    {
+      "evidence_key": "managed_member_binding",
+      "path": "internal/host/types.go",
+      "line": 526,
+      "end_line": 534,
+      "status": "RESOLVED_ACTUAL_CALLEE_ADDED",
+      "sha256": "b3c593c042f060f093d625963cdcf8485c45260b8214e45b04661a12048b7514"
+    },
+    {
+      "evidence_key": "backup_complete_binding",
+      "path": "internal/managedmaterial/backup_complete.go",
+      "line": 33,
+      "end_line": 37,
+      "status": "RESOLVED_ACTUAL_CALLEE_ADDED",
+      "sha256": "87328a80b669c4a88e23ae29ccd0366bd15b523801328b2ddd7baa5967107502"
+    },
+    {
+      "evidence_key": "authority_mutation_id",
+      "path": "internal/authority/log.go",
+      "line": 1190,
+      "end_line": 1201,
+      "status": "RESOLVED_ACTUAL_CALLEE_ADDED",
+      "sha256": "f8a67d0260803db9617dce96a95104751d45629c7ddeac829ad65436bfce42fe"
+    },
+    {
+      "evidence_key": "customer_envelope_open",
+      "path": "internal/managedmaterial/customer_open.go",
+      "line": 32,
+      "end_line": 110,
+      "status": "RESOLVED_ACTUAL_CALLEE_ADDED",
+      "sha256": "2a5829f57b7d832f870477d8df1997379f9f7ad7be3053a1d6bf4b718956adbc"
+    }
+  ],
+  "remaining_findings": [
+    {
+      "root_id": "internal/managedmaterial/backup_complete_process_test.go::TestBackupGoRustFullProducerProcessBridge",
+      "status": "OPEN_UNCREDITED_SOURCE_BLOCKER",
+      "description": "backupFullProcessMaterial constructs d10-1/d10-2 SeatIDs at lines 166-172, validateInitialSpec at line185 requires entityid.Valid member SeatID (producer.go:417; entityid/id.go:33-38). Later full producer assertions cannot be credited. Conditional-helper rule already leaves root unresolved.",
+      "evidence": [
+        "full_material",
+        "initial_guard",
+        "entityid"
+      ]
+    },
+    {
+      "root_id": "internal/managedmaterial/backup_complete_process_test.go::TestBackupGoRustFullProducerProcessBridge",
+      "status": "OPEN_UNCREDITED_LATER_SOURCE_BLOCKER",
+      "description": "After the earlier invalid d10-N SeatIDs blocker, the later material-g1- operation ID at backup_full_producer_material_test.go219 is also noncanonical; authority/log.go1190-1201 validateMutation requires entityid.Valid. The later receipt/producer/runtime assertions remain uncredited."
+    }
+  ],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No compiler/tests/Go/helpers/scanner/signing/crypto/cloud/process probes or service execution.",
+    "Expiry integration is real local file-open/read only; no credential deployment, issuer trust, server auth, renewal or rotation execution.",
+    "Admission/producer/credential targets use synthetic ObjectClient, receipts, fencer, native validator and credential store. No OCI, Vault, SQL, TerraBase, NATS or host runtime credit for those unit roots.",
+    "Three Rust-supplied qualification child roots remain unresolved under dispatcher-confirmed rule. The exact actual NATS/Unix/process source paths are recorded, not qualified. No external Rust parent receipts reviewed.",
+    "Conditional process fixture uses upstream NATS server and loopback TCP, FileStorage, replicas=1. No natscell.Start/in-process transport, R3 replication, TLS/auth/failover or production host Agent path credit.",
+    "Full producer continuation is source blocked by invalid d10-N SeatIDs. Its fake object store never proves OCI/KMS. Later material receipt operation ID is noncanonical too. No later material/runtime assertions credited.",
+    "Static frozen Rust fixtures are byte constants only. Local cryptographic compatibility assertions do not validate Rust live behavior or production credential/backup publication safety.",
+    "Every original assertion, security/failure/retry/ordering and byte-preservation obligation remains retained. No retirement/deletion/ledger/count promotion/runtime qualification/global completion."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "deletion_authorized": false,
+    "retirement_authorized": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "count_promotion": false,
+    "global_completion": false,
+    "safety_obligations_retained": true
+  },
+  "skipped_checks": "No Go/build/test/lint/format/benchmark, project helpers, source parser/scanner, runtime/service/Rust/process/resource probes, cloud/download/signing/crypto execution or receipts; no source/repository/ledger mutations."
+}

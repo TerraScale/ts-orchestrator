@@ -1,0 +1,72 @@
+{
+  "schema": "independent-source-only-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_200_220",
+  "author": "/root/classification_100_dispatch/batch_220_240",
+  "status": "ACCEPTED_SOURCE_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-1380-1400-mxc76aqs/classification.json",
+    "sha256": "268fbca5770be0a4b376a22c6a90f572782828f82347ac624bf62e35fdf1df31",
+    "checksum_path": "/tmp/ts-source-classification-1380-1400-mxc76aqs/SHA256SUMS",
+    "checksum_sha256": "cfa9c66892f8bfe54ffef933a77ac81813b2e617a4563ac49aaba6efaf757b9f"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "range": [
+    1380,
+    1400
+  ],
+  "literal_root_ids": [
+    "internal/disasterrecovery/vault_test.go::TestVaultReplicaConflicts",
+    "internal/disasterrecovery/vault_test.go::TestVaultReplicaCreation",
+    "internal/disasterrecovery/vault_test.go::TestVaultReplicaPaginationConflicts",
+    "internal/disasterrecovery/vault_test.go::TestVaultReplicaPlanNoWrite",
+    "internal/disasterrecovery/vault_test.go::TestVaultReplicaPollConflicts",
+    "internal/disasterrecovery/vault_test.go::TestVaultReplicaPollTimeout",
+    "internal/disasterrecovery/vault_test.go::TestVaultReplicaRefusesUnsafeSDKEnvironment",
+    "internal/disasterrecovery/vault_test.go::TestVaultReplicaReuse",
+    "internal/disasterrecovery/vault_test.go::TestVaultReplicaSDKFailuresDoNotRepeatCreation",
+    "internal/disasterrecovery/vault_test.go::TestVaultReplicaSourceGuards",
+    "internal/disasterrecovery/vault_test.go::TestVaultReplicaTargetValidation",
+    "internal/entityid/id_test.go::TestConcurrentGeneration",
+    "internal/entityid/id_test.go::TestContract",
+    "internal/entityid/id_test.go::TestDeriveSeparatesTuplesContainingNUL",
+    "internal/foundationbinding/verify_integration_test.go::TestLogicalBindingsBootstrapPublicationIncludesUnboundTargetRoles",
+    "internal/foundationbinding/verify_integration_test.go::TestLogicalBindingsForCellReauthenticatesOriginalGrant",
+    "internal/foundationbinding/verify_integration_test.go::TestLogicalBindingsNarrowActiveFoundationToCompletedBirths",
+    "internal/foundationbinding/verify_integration_test.go::TestLogicalBindingsReadSignedGrantPersistedBirthAndFreshOCI",
+    "internal/foundationbinding/verify_integration_test.go::TestLogicalBindingsRejectUnownedStaleAndWrongRoleState",
+    "internal/foundationbinding/verify_integration_test.go::TestLogicalBindingsRetainOriginalBirthAndExactDependencies"
+  ],
+  "counts": {
+    "unit": 14,
+    "integration": 3,
+    "mixed": 3,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 full roots and actual local Vault fake/synctest, entityid, foundationbinding Verify/Resolve/ForCell/Revalidate, reference parsing, trust/protocol, OCI factory/cancellation/SDK request and HTTP transport call paths.",
+    "Verified ordered literal allocation and survival mappings, every raw baseline/current declaration text/bound/hash from func through column-zero close excluding following LF,27 source file Git blob/mode/SHA256/byte pins,66 connected spans and20 full-root assertion spans against pinned Git source.",
+    "Inspected baseline/current diff for all three test files: Vault/entity bodies unchanged; one ReadSignedGrant body gains FoundationWriter fixture field; shared fixture transport/callback changes preserved explicitly. All original assertion obligations retained.",
+    "Confirmed I3/U14/M3/R0. Vault roots use injected in-memory SDK-record clients or pre-I/O guards; entity roots use local generator/predicates. Foundation roots use actual SDK HTTP signing and TLS loopback protocol requests when no inherited proxy is selected. Mixed roots separately preserve pre-I/O wire/signer/tenancy guards, malformed references and zero-value guards.",
+    "Verified exact packet/checksum hashes and entries, all input hashes, files0444/directory0555, runtimeUNKNOWN/no-retirement/safety retention fields. No project source/runtime/test/helper/scanner/process/resource/cloud/signing/cryptographic execution, probes, downloads or repository/ledger mutation."
+  ],
+  "resolved_findings": [
+    {
+      "type": "qualification_disclosure",
+      "detail": "Author final packet pins SDK common/http.go:22-29 and discloses OCI_GOSDK_USING_EXPECT_HEADER conditional proxy/DialContext override. The source supports a real integration path but does not prove unconditional network confinement or actual runtime environment."
+    }
+  ],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no receipts reviewed or execution.",
+    "Foundation responses are synthetic JSON served by local TLS handlers; Authorization header prefix is checked, not independently validated RSA request signatures. No live OCI resources, persistence, creation or provider durability established.",
+    "SDK DefaultTransport retains DialTLSContext but normally overwrites Proxy/DialContext from environment unless OCI_GOSDK_USING_EXPECT_HEADER is false. Inherited proxy selection can bypass fixture no-proxy/plaintext guards; runtime environment uninspected. No unconditional containment or runtime success credit.",
+    "Canonical body drift remains explicit; no guessed mapping or uncredited successor. Every original safety obligation retained.",
+    "No ledger/count/completion promotion, deletion, retirement, source adoption, production qualification or runtime authority."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "NONE; exact source candidate review only."
+}

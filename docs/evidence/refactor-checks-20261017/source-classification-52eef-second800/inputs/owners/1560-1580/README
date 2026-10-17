@@ -1,0 +1,4 @@
+SECOND800 source-only candidate: literal other[1560:1580), 20 roots.
+Counts: integration12 / unit4 / mixed4 / unresolved0.
+Canonical 52eef25bad09736d8f0806ecaccaef1a7c86b49e; tree 425f29503c1880f68c0499a8372e08b466f370de.
+Manual explicit-span review only; runtime UNKNOWN. No source edits, execution, retirement, deletion, ledger promotion or global completion. Independent peer acceptance is pending.

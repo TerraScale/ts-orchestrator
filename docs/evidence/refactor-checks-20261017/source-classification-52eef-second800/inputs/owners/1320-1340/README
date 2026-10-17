@@ -1,0 +1,6 @@
+Source-only candidate: literal other_unadjudicated[1320:1340).
+20 roots: integration3, unit17, mixed0, unresolved0.
+Actual dashboard HTTP round trips; local decisionlog recorder/fakes/guards.
+One canonical body drift preserved: TestTopologyWithoutCellWideView.
+Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No repository, ledger, runtime, deletion, retirement or count promotion.
+Independent peer review pending.

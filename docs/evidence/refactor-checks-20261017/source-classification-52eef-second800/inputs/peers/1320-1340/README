@@ -1,0 +1,5 @@
+Independent source-only peer acceptance of exact other_unadjudicated[1320:1340) packet.
+Accepted packet SHA256 c293b6a08163f4c1aef06acc2c1bac83f943b0de86e38b103848e2846da3278a.
+20 roots: integration3, unit17, mixed0, unresolved0. No corrections or remaining blockers.
+Canonical body drift at1322 remains preserved; no retirement or accounting credit.
+Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no source/runtime/ledger execution or mutation.

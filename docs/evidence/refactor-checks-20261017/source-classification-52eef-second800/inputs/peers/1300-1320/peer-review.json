@@ -1,0 +1,296 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/peer_80_100",
+  "author": "/root/classification_100_dispatch/batch_140_160",
+  "decision": "ACCEPT_EXACT_SOURCE_ONLY_PACKET",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-1300-1320-h9eht5sh/classification.json",
+    "sha256": "d59772525b3fc9069893ecb283fa89eeb4983bf78687432a21cd601585e96a60",
+    "checksum_path": "/tmp/ts-source-classification-1300-1320-h9eht5sh/SHA256SUMS",
+    "checksum_sha256": "f379ed0a318627f31ea2e50df3529b4d02ad516031bccba449961aabd7d783e5"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": [
+      1300,
+      1320
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/peer_80_100"
+  },
+  "input_pins": {
+    "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "/tmp/ts-root800-second-source-dispatch-r9_48ha9/PEER-PROTOCOL.md": "3b57c68ac033025066daec252bf89cd01b0c767e0048fb57c67eb5143e2fb00b",
+    "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+    "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70"
+  },
+  "accounting_input": {
+    "path": "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json",
+    "sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513"
+  },
+  "literal_ids": [
+    "internal/dashboard/review_test.go::TestReleaseMatrixShowsRemoteControllers",
+    "internal/dashboard/review_test.go::TestRemoteSelectionLabelsLocalSections",
+    "internal/dashboard/review_test.go::TestRollbackInProgressAndAbortedOutcomes",
+    "internal/dashboard/review_test.go::TestRolloutDiagramReadsStateMachinePhases",
+    "internal/dashboard/review_test.go::TestStorageForecastFitsRawSamples",
+    "internal/dashboard/review_test.go::TestStorageForecastNeedsHistory",
+    "internal/dashboard/review_test.go::TestStoragePageNamesAFailedVolumeRead",
+    "internal/dashboard/review_test.go::TestSwitcherOnlyOffersViewsThePageRenders",
+    "internal/dashboard/review_test.go::TestTargetVersionSkipsRolledBackReleasesAndUsesReleaseAge",
+    "internal/dashboard/review_test.go::TestTargetVersionUsesVersionIdentityAndObservedStarts",
+    "internal/dashboard/rollout_history_test.go::TestRolloutDeadlineFailuresRemainCachedAfterLoad",
+    "internal/dashboard/rollout_history_test.go::TestRolloutDetailDistinguishesMissingProviderRecordAndFailure",
+    "internal/dashboard/rollout_history_test.go::TestRolloutHistoryCachesSeparateListAndExactDetailAndRefreshFailures",
+    "internal/dashboard/storage_snapshots_test.go::TestStorageDoesNotPresentOldSnapshotEvidenceAsCurrent",
+    "internal/dashboard/storage_snapshots_test.go::TestStorageRendersLastCompletedSnapshotCheck",
+    "internal/dashboard/storage_snapshots_test.go::TestStorageShowsSnapshotCoverageAndPreservesFailureEvidence",
+    "internal/dashboard/storage_snapshots_test.go::TestStorageSnapshotStatePreservesExplicitOverdueAndFailure",
+    "internal/dashboard/topology_test.go::TestTopologyDrainedNode",
+    "internal/dashboard/topology_test.go::TestTopologyHealthyCell",
+    "internal/dashboard/topology_test.go::TestTopologyLinksOtherRegions"
+  ],
+  "counts": {
+    "integration": 14,
+    "unit": 6,
+    "mixed": 0,
+    "unresolved": 0
+  },
+  "root_decisions": [
+    {
+      "allocation_index": 1300,
+      "root_id": "internal/dashboard/review_test.go::TestReleaseMatrixShowsRemoteControllers",
+      "category": "integration",
+      "decision": "ACCEPT_SOURCE_CATEGORY",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 1301,
+      "root_id": "internal/dashboard/review_test.go::TestRemoteSelectionLabelsLocalSections",
+      "category": "unit",
+      "decision": "ACCEPT_SOURCE_CATEGORY",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 1302,
+      "root_id": "internal/dashboard/review_test.go::TestRollbackInProgressAndAbortedOutcomes",
+      "category": "integration",
+      "decision": "ACCEPT_SOURCE_CATEGORY",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 1303,
+      "root_id": "internal/dashboard/review_test.go::TestRolloutDiagramReadsStateMachinePhases",
+      "category": "integration",
+      "decision": "ACCEPT_SOURCE_CATEGORY",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 1304,
+      "root_id": "internal/dashboard/review_test.go::TestStorageForecastFitsRawSamples",
+      "category": "integration",
+      "decision": "ACCEPT_SOURCE_CATEGORY",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 1305,
+      "root_id": "internal/dashboard/review_test.go::TestStorageForecastNeedsHistory",
+      "category": "integration",
+      "decision": "ACCEPT_SOURCE_CATEGORY",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 1306,
+      "root_id": "internal/dashboard/review_test.go::TestStoragePageNamesAFailedVolumeRead",
+      "category": "integration",
+      "decision": "ACCEPT_SOURCE_CATEGORY",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 1307,
+      "root_id": "internal/dashboard/review_test.go::TestSwitcherOnlyOffersViewsThePageRenders",
+      "category": "unit",
+      "decision": "ACCEPT_SOURCE_CATEGORY",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 1308,
+      "root_id": "internal/dashboard/review_test.go::TestTargetVersionSkipsRolledBackReleasesAndUsesReleaseAge",
+      "category": "integration",
+      "decision": "ACCEPT_SOURCE_CATEGORY",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 1309,
+      "root_id": "internal/dashboard/review_test.go::TestTargetVersionUsesVersionIdentityAndObservedStarts",
+      "category": "integration",
+      "decision": "ACCEPT_SOURCE_CATEGORY",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 1310,
+      "root_id": "internal/dashboard/rollout_history_test.go::TestRolloutDeadlineFailuresRemainCachedAfterLoad",
+      "category": "unit",
+      "decision": "ACCEPT_SOURCE_CATEGORY",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 1311,
+      "root_id": "internal/dashboard/rollout_history_test.go::TestRolloutDetailDistinguishesMissingProviderRecordAndFailure",
+      "category": "unit",
+      "decision": "ACCEPT_SOURCE_CATEGORY",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 1312,
+      "root_id": "internal/dashboard/rollout_history_test.go::TestRolloutHistoryCachesSeparateListAndExactDetailAndRefreshFailures",
+      "category": "unit",
+      "decision": "ACCEPT_SOURCE_CATEGORY",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 1313,
+      "root_id": "internal/dashboard/storage_snapshots_test.go::TestStorageDoesNotPresentOldSnapshotEvidenceAsCurrent",
+      "category": "integration",
+      "decision": "ACCEPT_SOURCE_CATEGORY",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 1314,
+      "root_id": "internal/dashboard/storage_snapshots_test.go::TestStorageRendersLastCompletedSnapshotCheck",
+      "category": "integration",
+      "decision": "ACCEPT_SOURCE_CATEGORY",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 1315,
+      "root_id": "internal/dashboard/storage_snapshots_test.go::TestStorageShowsSnapshotCoverageAndPreservesFailureEvidence",
+      "category": "unit",
+      "decision": "ACCEPT_SOURCE_CATEGORY",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 1316,
+      "root_id": "internal/dashboard/storage_snapshots_test.go::TestStorageSnapshotStatePreservesExplicitOverdueAndFailure",
+      "category": "integration",
+      "decision": "ACCEPT_SOURCE_CATEGORY",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 1317,
+      "root_id": "internal/dashboard/topology_test.go::TestTopologyDrainedNode",
+      "category": "integration",
+      "decision": "ACCEPT_SOURCE_CATEGORY",
+      "canonical_body_drift_from_survival": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 1318,
+      "root_id": "internal/dashboard/topology_test.go::TestTopologyHealthyCell",
+      "category": "integration",
+      "decision": "ACCEPT_SOURCE_CATEGORY",
+      "canonical_body_drift_from_survival": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    },
+    {
+      "allocation_index": 1319,
+      "root_id": "internal/dashboard/topology_test.go::TestTopologyLinksOtherRegions",
+      "category": "integration",
+      "decision": "ACCEPT_SOURCE_CATEGORY",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true,
+      "retirement_authorized": false
+    }
+  ],
+  "checks_performed": [
+    "Independently read all20 full current roots plus actual connected fixture/service/provider/cache/history/render paths at pinned canonical commit. Baseline full declarations retained and checked; two changed topology roots independently read against baseline. Other18 declarations are byte-identical.",
+    "All20 literal IDs and allocation indices exactly match activated [1300:1320), original accounting other_unadjudicated slice, and survival path/name/hash rows. Author and mapped reviewer match activated allocation.",
+    "Verified canonical commit/tree, all input SHA256 pins, accounting hash, candidate packet hash, complete manifest and checksum-file hash.",
+    "Verified44 source-file commit/path Git blob/mode/SHA256/byte pins,40 complete raw baseline/current declaration bounds/text/hashes,20 full-root assertion span text/hashes/blob pins,80 connected span text/hashes/blob pins. Explicit manually reviewed spans only; no source parser/scanner.",
+    "Confirmed14 roots reach httptest.NewServer plus server.Client().Get and actual response readback. Six roots use local ResponseRecorder/direct ServeHTTP. Helper names did not determine categories.",
+    "Confirmed immutable candidate files0444 and directory0555; reviewed each category, complete assertions, qualification limits and body-drift obligations. No deterministic source-visible assertion blocker found in this allocation."
+  ],
+  "resolved_findings": [
+    {
+      "allocation_index": 1317,
+      "disposition": "EXPLICIT_DRIFT_RETAINED",
+      "detail": "Historical drained-node seat-not-serving label changes to current replication-readiness-unknown label. Original/current declarations remain preserved; no old safety obligation retired."
+    },
+    {
+      "allocation_index": 1318,
+      "disposition": "EXPLICIT_DRIFT_RETAINED",
+      "detail": "Historical healthy replication edge and replicate label change to warning edge and durable-placement/current-readiness-unknown labels. Original/current declarations remain preserved; no real replication qualification or retirement."
+    }
+  ],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Acceptance concerns exact source classification only. No runtime/test execution or runtime execution receipts reviewed; runtime remains UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION.",
+    "HTTP integration qualifies loopback dashboard HTTP rendering only. Standalone Handler omits production authentication. Snapshots, decisions, versions, volumes, rollouts and region observations are synthetic.",
+    "History, global view and caches are memory-only. No real NATS/OCI/Object Storage/KV upload/TerraBase/host/deployment/rollback/drain/remote discovery/replication/browser behavior is qualified.",
+    "All original safety obligations and historical declaration drift remain retained. This receipt grants no source/repository/ledger mutation, count/qualification/completion promotion, deletion or retirement credit."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "source_repository_ledger_mutated": false,
+  "source_runtime_executed": false,
+  "retirement_authorized": false,
+  "accounting_effect": "NONE; no ledger/count/deletion/retirement/runtime/qualification/completion credit."
+}

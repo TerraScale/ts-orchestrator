@@ -1,0 +1,216 @@
+{
+  "schema": "independent-source-only-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_220_240",
+  "author": "/root/classification_100_dispatch/batch_240_260",
+  "decision": "accepted",
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": "other_unadjudicated[1400:1420)"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-1400-1420-corrected-cghfnbj_/classification.json",
+    "sha256": "e3130143acfb0e7586058197e5334f65235babe7241e6c30c5e0604e57e9d255",
+    "checksum_path": "/tmp/ts-source-classification-1400-1420-corrected-cghfnbj_/SHA256SUMS",
+    "checksum_sha256": "babc4d8edfd1446518ab2b0869e8efad26badf72614c26aa4c6271cce437f4ff"
+  },
+  "own_packet_frozen_before_peer_review": {
+    "path": "/tmp/ts-source-classification-1380-1400-mxc76aqs/classification.json",
+    "sha256": "268fbca5770be0a4b376a22c6a90f572782828f82347ac624bf62e35fdf1df31"
+  },
+  "superseded_packet_reviewed_but_not_accepted": {
+    "path": "/tmp/ts-source-classification-1400-1420-q9u6uox1/classification.json",
+    "sha256": "5fe58bb31a24a9dc020267a7e5189fef47b9998a5837bd7d384325a787fdf76f",
+    "preserved_unchanged": true
+  },
+  "root_ids": [
+    "internal/foundationbinding/verify_integration_test.go::TestLogicalBindingsRevalidationRejectsRevokedActiveGrant",
+    "internal/foundationbinding/verify_integration_test.go::TestLogicalBindingsSpendIncludesUnboundCompartmentRoles",
+    "internal/functionmaterial/material_integration_test.go::TestControllerRecoversVaultPublicationBeforeImmutableRecipientGrant",
+    "internal/functionmaterial/retirement_integration_test.go::TestRetirementUsesConditionalOCIRequestsAndRecoversLostReply",
+    "internal/generationinstall/generationinstall_test.go::TestDisarmWithdrawsStaleAuthorizationButRetainsLeaderFence",
+    "internal/generationinstall/generationinstall_test.go::TestEqualInstalledChainStillRequiresRootsAndAcceptance",
+    "internal/generationinstall/generationinstall_test.go::TestLeaderKeepsTheRecordExtensionOnly",
+    "internal/generationinstall/generationinstall_test.go::TestReadinessReportAcceptsGenerationWithoutControllerConfigs",
+    "internal/generationinstall/generationinstall_test.go::TestReadinessReportRejectsStaleDeploymentAcceptanceAndGeneration",
+    "internal/generationinstall/generationinstall_test.go::TestReportInspectsExpiredAndRetiredMaterialWithoutAuthorizingChanges",
+    "internal/generationinstall/generationinstall_test.go::TestShutdownDuringSpoolReplacementPublishesArmedSuccessor",
+    "internal/generationinstall/generationinstall_test.go::TestSpoolCleanupKeepsUnrelatedAndForeignSlotFiles",
+    "internal/generationinstall/generationinstall_test.go::TestStagerStagesOnlyItsSlot",
+    "internal/generationinstall/generationinstall_test.go::TestUnverifiedSpoolRefetchesOrDisarms",
+    "internal/generationinstall/generationinstall_test.go::TestVerifiedArmedStageSurvivesVaultOutageAndShutdown",
+    "internal/githubapi/run_test.go::TestRunDetail",
+    "internal/host/agent_clock_test.go::TestBlockedRenewalClockWatchdogStopsOnce",
+    "internal/host/agent_clock_test.go::TestClockRecheckBlocksNativeApply",
+    "internal/host/agent_clock_test.go::TestHostClockRejectsStartupAndSession",
+    "internal/host/agent_clock_test.go::TestPartitionedHostFencesOnClockLossOrMonotonicExpiry"
+  ],
+  "counts": {
+    "integration": 14,
+    "mixed": 4,
+    "unit": 2,
+    "unresolved": 0
+  },
+  "per_root_decisions": [
+    {
+      "root_id": "internal/foundationbinding/verify_integration_test.go::TestLogicalBindingsRevalidationRejectsRevokedActiveGrant",
+      "category": "integration",
+      "decision": "accepted",
+      "current_declaration_sha256": "387211d5f0ae895b56292ae89d4c2e008f8ba7b371f0093c5272bf68a400bffa"
+    },
+    {
+      "root_id": "internal/foundationbinding/verify_integration_test.go::TestLogicalBindingsSpendIncludesUnboundCompartmentRoles",
+      "category": "integration",
+      "decision": "accepted",
+      "current_declaration_sha256": "7e8286f9e061b5cebc57494e56b3bcb47ddba05155b45fbc61b1b8bd0abbe0b0"
+    },
+    {
+      "root_id": "internal/functionmaterial/material_integration_test.go::TestControllerRecoversVaultPublicationBeforeImmutableRecipientGrant",
+      "category": "mixed",
+      "decision": "accepted",
+      "current_declaration_sha256": "72e17302b19825628840b8a68f89b5a83224748594419e251e615beab3785828"
+    },
+    {
+      "root_id": "internal/functionmaterial/retirement_integration_test.go::TestRetirementUsesConditionalOCIRequestsAndRecoversLostReply",
+      "category": "integration",
+      "decision": "accepted",
+      "current_declaration_sha256": "5a263383ac50b4ad7a1951ee593041898adfac58aa09495293950ef91f8b5e8c"
+    },
+    {
+      "root_id": "internal/generationinstall/generationinstall_test.go::TestDisarmWithdrawsStaleAuthorizationButRetainsLeaderFence",
+      "category": "integration",
+      "decision": "accepted",
+      "current_declaration_sha256": "19a838128c0fb45de694bf87e9e94b30eb12e41aa6056470f308beaef8691597"
+    },
+    {
+      "root_id": "internal/generationinstall/generationinstall_test.go::TestEqualInstalledChainStillRequiresRootsAndAcceptance",
+      "category": "integration",
+      "decision": "accepted",
+      "current_declaration_sha256": "753e9c12f5e42dd465517acb27b6a9767ba988aa7c0555b5f49f04a3a55c49ec"
+    },
+    {
+      "root_id": "internal/generationinstall/generationinstall_test.go::TestLeaderKeepsTheRecordExtensionOnly",
+      "category": "mixed",
+      "decision": "accepted",
+      "current_declaration_sha256": "aaaa48d5c7cbfabf5637a5becaaf022f21c36c528b18ccb36d59ab4d9a01c894"
+    },
+    {
+      "root_id": "internal/generationinstall/generationinstall_test.go::TestReadinessReportAcceptsGenerationWithoutControllerConfigs",
+      "category": "integration",
+      "decision": "accepted",
+      "current_declaration_sha256": "4a86146de1f1d154e936f6f48abc1f7692e5807b9e7e10c21fd69c63a5aed468"
+    },
+    {
+      "root_id": "internal/generationinstall/generationinstall_test.go::TestReadinessReportRejectsStaleDeploymentAcceptanceAndGeneration",
+      "category": "integration",
+      "decision": "accepted",
+      "current_declaration_sha256": "32e375645e1dc2cb9e1681b9cf95e789d56fc7ac26f288727f96fb52d829c7a7"
+    },
+    {
+      "root_id": "internal/generationinstall/generationinstall_test.go::TestReportInspectsExpiredAndRetiredMaterialWithoutAuthorizingChanges",
+      "category": "mixed",
+      "decision": "accepted",
+      "current_declaration_sha256": "d4e86f4266d52200efb94ce94f8ab8ca56b364335052fce80a233a3bd9e96be3"
+    },
+    {
+      "root_id": "internal/generationinstall/generationinstall_test.go::TestShutdownDuringSpoolReplacementPublishesArmedSuccessor",
+      "category": "integration",
+      "decision": "accepted",
+      "current_declaration_sha256": "fa71be5bc81d5ac9da5f8e9b20b6845c0b1afb5ece3724c709bd957b05c86822"
+    },
+    {
+      "root_id": "internal/generationinstall/generationinstall_test.go::TestSpoolCleanupKeepsUnrelatedAndForeignSlotFiles",
+      "category": "integration",
+      "decision": "accepted",
+      "current_declaration_sha256": "8ee267c85612d4b4e18f4d4bb7d2a32aded0259cc6f3a24ee69824a1db1bbfb5"
+    },
+    {
+      "root_id": "internal/generationinstall/generationinstall_test.go::TestStagerStagesOnlyItsSlot",
+      "category": "mixed",
+      "decision": "accepted",
+      "current_declaration_sha256": "6a344e23f0825e0b29584619d50842857fc8d6c7b098737554050096562543fa"
+    },
+    {
+      "root_id": "internal/generationinstall/generationinstall_test.go::TestUnverifiedSpoolRefetchesOrDisarms",
+      "category": "integration",
+      "decision": "accepted",
+      "current_declaration_sha256": "2c47c44c08e52acb9afe0887df998376f6fce2b72f7990367245c6a9f29a2b73"
+    },
+    {
+      "root_id": "internal/generationinstall/generationinstall_test.go::TestVerifiedArmedStageSurvivesVaultOutageAndShutdown",
+      "category": "integration",
+      "decision": "accepted",
+      "current_declaration_sha256": "63c699c34b5ad6de35c54a8dcd379a8033cf4a10b68bd3c75f0c9cf6fbb8f2e9"
+    },
+    {
+      "root_id": "internal/githubapi/run_test.go::TestRunDetail",
+      "category": "integration",
+      "decision": "accepted",
+      "current_declaration_sha256": "30e737336a154b02f8086cc203a708c79e274136a6d87fc8dea671c4f15d188a"
+    },
+    {
+      "root_id": "internal/host/agent_clock_test.go::TestBlockedRenewalClockWatchdogStopsOnce",
+      "category": "integration",
+      "decision": "accepted",
+      "current_declaration_sha256": "13742c8fdc8f5e3ffd6b56ab3579e41aef6f3f00628ad1a95da14054c3281635"
+    },
+    {
+      "root_id": "internal/host/agent_clock_test.go::TestClockRecheckBlocksNativeApply",
+      "category": "integration",
+      "decision": "accepted",
+      "current_declaration_sha256": "af0d371ffb365c2186325a903cb5cb651d91db39ed7eeeaa2d68b9aab6541236"
+    },
+    {
+      "root_id": "internal/host/agent_clock_test.go::TestHostClockRejectsStartupAndSession",
+      "category": "unit",
+      "decision": "accepted",
+      "current_declaration_sha256": "f68e73998ca1a5556ade4b847ce8fd7a259ce0080005289af74a336cbcb3b56c"
+    },
+    {
+      "root_id": "internal/host/agent_clock_test.go::TestPartitionedHostFencesOnClockLossOrMonotonicExpiry",
+      "category": "unit",
+      "decision": "accepted",
+      "current_declaration_sha256": "06bf3ce43ec4b1c6417f00e69f976239ea453d09e52ad834832ac955d484a296"
+    }
+  ],
+  "checks_performed": [
+    "Independently read all twenty complete canonical roots and reached fixture/production paths; followed actual direct upstream server.NewServer and nats.Connect loopback TCP calls rather than inferred fixture boundaries.",
+    "Verified exact literal accounting other_unadjudicated[1400:1420) IDs and original/current mappings against the pinned survival TSV, including original and historical current declaration hashes.",
+    "Verified all forty baseline/current declaration spans through column-zero close excluding following LF: exact raw text, bounds, hashes and file blobs. No declaration drift across these twenty roots.",
+    "Verified all 42 source-file Git commit/blob/mode/SHA256/byte pins; canonical working bytes equal pinned Git bytes; verified all twenty whole-root assertion spans and all 79 connected spans against exact canonical raw source.",
+    "Verified all input hashes, accepted packet SHA256, checksum manifest SHA256 and every manifest entry; verified packet files0444 and directory0555.",
+    "Reviewed independent local-only blocks versus materially supporting service/network/process/store effects, source blockers, qualifications, runtime UNKNOWN and retained obligations."
+  ],
+  "connected_source_assessment": {
+    "foundation": "Real OCI SDK HTTPS path can consume loopback handler grant/record/compartment reads; inherited proxy/environment is unproven and may alter route. Active grant revalidation and spend resolution assert scope derived from those reads. Handler checks Signature prefix only; no independent RSA or live OCI authorization credit.",
+    "function_material": "Actual loopback NATS/JetStream authority, object and broker claim stores plus SDK HTTP synthetic Vault publication/readback and issued-certificate TLS exchange. Independent NewPublicTrust, Files cloning, foreign-recipient pre-I/O guard and expiry accessor blocks make material root mixed. Retirement actual conditional HTTP requests and handler-observed accepted-state recovery qualify integration; HTTP500 models lost reply and task absence is callback-simulated.",
+    "generation": "Actual KV record/status operations and production filesystem spool writes, sync/rename/readback/cleanup materially support assertions. Fake Vault Read does not prove Vault integration. Leader pre-KV guards, stale Publish guard and separate fake reader call-log block account for three mixed roots. No source-visible blocker found in the reached generation verification and material fixtures.",
+    "github": "Actual local shell/cat subprocess and argv file readback support run/jobs response handling. No real gh or GitHub API qualification.",
+    "host": "Startup clock rejection and partition/fake fencing target local predicates with incidental real session setup, therefore unit. Recheck reaches actual broker desired/cycle/artifact and filesystem preparation before final clock guard. Blocked renewal observes a real unanswered NATS request before watchdog cancellation. Runner remains fake; no native workload or operating-system clock qualification."
+  },
+  "additional_connected_paths_independently_read": [
+    "internal/bootstrap/generationtest/material.go",
+    "internal/bootstrap/generation.go",
+    "internal/bootstrapmaterial/function.go",
+    "internal/host/managed_native_root.go"
+  ],
+  "resolved_findings": [
+    {
+      "finding": "Unconditional loopback-only routing claim omitted reached OCI SDK inherited ProxyFromEnvironment and DialContext overwrite.",
+      "resolution": "Fresh accepted packet adds five exact SDK spans and file pins, identifies OCI_GOSDK_USING_EXPECT_HEADER, explicitly leaves environment/proxy/containment unproved, and qualifies Signature-prefix-only fixture validation. Counts unchanged."
+    },
+    {
+      "finding": "readBundle connected citation omitted declaration at line178.",
+      "resolution": "Fresh accepted packet starts readBundle citation at178; exact span verified."
+    }
+  ],
+  "remaining_findings": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "no_promotion": "Source classification and this receipt authorize no ledger/count/completion/deletion/retirement/runtime promotion.",
+  "execution_limits": "No source/repository/ledger mutation, Go/build/test/lint/helper/parser/framework execution, process/resource probes, downloads, locks, privilege/cloud/signing/crypto/TerraBase execution. Only ordinary source/Git/hash inspection and metadata serialization over explicitly reviewed spans."
+}

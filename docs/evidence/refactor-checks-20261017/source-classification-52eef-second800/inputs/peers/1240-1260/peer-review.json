@@ -1,0 +1,115 @@
+{
+  "schema": "independent-source-classification-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/peer_20_40",
+  "author": "/root/classification_100_dispatch/peer_40_60",
+  "status": "ACCEPTED_SOURCE_ONLY_EXACT_FROZEN_PACKET",
+  "accepted_packet": {
+    "path": "/tmp/ts-second800-1240-1260-corrected-e0j0yqkm/classification.json",
+    "sha256": "5032631ad763bae545a6ee89f1409131e1c6efaa9361a0c8cceb09dbbeea4f0c",
+    "checksum_path": "/tmp/ts-second800-1240-1260-corrected-e0j0yqkm/SHA256SUMS",
+    "checksum_sha256": "c71c08f79d8f8fc384e13ddc86f458cb3f039838d2086d9686400fd190d350f3"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": [
+      1240,
+      1260
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/peer_20_40",
+    "accounting_literal_slice_verified": true
+  },
+  "input_pins": {
+    "survival": {
+      "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+      "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+    },
+    "worker_guide": {
+      "path": "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md",
+      "sha256": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70"
+    },
+    "peer_protocol": {
+      "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/PEER-PROTOCOL.md",
+      "sha256": "3b57c68ac033025066daec252bf89cd01b0c767e0048fb57c67eb5143e2fb00b"
+    }
+  },
+  "literal_original_root_ids": [
+    "internal/dashboard/journal_test.go::TestReleaseTimelineAndVersionDrift",
+    "internal/dashboard/journal_test.go::TestStreamRaisesToastsForNewInsights",
+    "internal/dashboard/journal_test.go::TestURLStateIsValidatedAndCarried",
+    "internal/dashboard/link_probe_test.go::TestRegionLinkTableShowsDirectionUnitsAndUnknowns",
+    "internal/dashboard/lists_test.go::TestDrilldownBudgetTwentyRegions",
+    "internal/dashboard/lists_test.go::TestNodesListFilterAndSort",
+    "internal/dashboard/lists_test.go::TestNodesListPagesTwentyRegions",
+    "internal/dashboard/lists_test.go::TestNodesPageSortsResourceColumns",
+    "internal/dashboard/lists_test.go::TestVolumesListFilterAndRoutes",
+    "internal/dashboard/managed_services_integration_test.go::TestDrillManagedServicesHTTP",
+    "internal/dashboard/metrics_integration_test.go::TestMetricDashboardMissingProviderHTTP",
+    "internal/dashboard/metrics_integration_test.go::TestMetricDashboardRegistryHistoryHTTP",
+    "internal/dashboard/metrics_integration_test.go::TestMetricDashboardUsesSourceCadenceHTTP",
+    "internal/dashboard/nats_rtt_test.go::TestNATSRouteRTTEmptyInventoryRequiresCompleteCollection",
+    "internal/dashboard/nats_rtt_test.go::TestNATSRouteRTTHistoryDisclosesOmittedObservations",
+    "internal/dashboard/nats_rtt_test.go::TestNATSRouteRTTHistoryDisclosesUnmeasuredConnections",
+    "internal/dashboard/nats_rtt_test.go::TestNATSRouteRTTHistoryKeepsBoundedExportLossAfterRecovery",
+    "internal/dashboard/nats_rtt_test.go::TestNATSRouteRTTHistoryKeepsCollectionGapsAfterRecovery",
+    "internal/dashboard/nats_rtt_test.go::TestNATSRouteRTTHistoryMatchesRestoredAndFreshCoverage",
+    "internal/dashboard/nats_rtt_test.go::TestNATSRouteRTTHistoryPreservesBucketPeaks"
+  ],
+  "counts": {
+    "allocated_originals": 20,
+    "integration": 14,
+    "unit": 5,
+    "mixed": 1,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all twenty entire current declarations and whole assertions, following actual fixture, production, HTTP client/SSE, history/catalog/export/import and rendering paths.",
+    "Verified exact activated other_unadjudicated[1240:1260) order, literal original/current survival mappings, kind, original hashes and inventory states; retained two current-body drift records.",
+    "Verified all forty explicit baseline/current raw declarations, names, bounds, full declaration text and SHA256 excluding following LF.",
+    "Verified forty-four commit:path files against pinned Git mode/blob, SHA256 and bytes; verified seventy-one exact text/blob spans including twenty whole assertion interiors and fifty-one connected spans.",
+    "Initial immutable packet passed746 metadata checks with zero errors. Final packet differs only in the two accepted reason corrections plus explicit supersession metadata; every source/category/mapping/bounds/hash/pin/span unchanged.",
+    "Verified exact final and prior packet hashes, checksum hash, sha256sum -c, all files0444 and directory0555; prior packet bytes retained."
+  ],
+  "source_judgments": [
+    "fixturePage actually starts httptest.NewServer, performs client.Get and reads HTTP status/body. pageTarget and routeChartPage reach that helper; release target, resource-sort, link-table and RTT chart assertions establish HTTP rendering integration.",
+    "newStreamServer/openStream establish real HTTP SSE. Toast and metric live update assertions inspect received events. Volumes independently asserts local recorder list/filter/detail behavior as well as received SSE content, so mixed is correct.",
+    "get/getGzipped directly invoke handler through ResponseRecorder. URL sanitization, list filters/pagination/budget and managed-service rendering remain unit despite integration filenames or synthetic accepted global rollups.",
+    "Registry metric roots cross actual token-authenticated HTTP/SSE and history API/chart output. Registry values, global summaries, readiness, task observations and NATS route samples remain synthetic or memory-backed.",
+    "RTT Export/Import gzip/JSON and Metrics guard prepare fixtures for actual HTTP chart readback; no durable history store, broker collection, process restart, live NATS or fleet boundary is established. No source-visible later assertion blocker found."
+  ],
+  "resolved_findings": [
+    {
+      "root_id": "internal/dashboard/metrics_integration_test.go::TestMetricDashboardMissingProviderHTTP",
+      "finding": "Reason incorrectly named /metrics; corrected to actual /metric-catalog request."
+    },
+    {
+      "root_id": "internal/dashboard/lists_test.go::TestVolumesListFilterAndRoutes",
+      "finding": "Reason claimed nonexistent unknown-route assertion; corrected to independent list/filter/detail assertions."
+    }
+  ],
+  "remaining_findings": [],
+  "corrections_requested": [
+    "Root1250 reason names actual /metric-catalog request path.",
+    "Root1248 reason removes nonexistent unknown-route assertion; local list/filter/detail plus HTTP SSE split unchanged."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "runtime_receipts_reviewed": false,
+  "execution_performed": false,
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "canonical_ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false,
+    "source_candidate_only": true
+  },
+  "qualification_limits": [
+    "Acceptance covers only exact frozen source categories and evidence; no runtime pass/fail, ledger/count promotion, qualification, deletion, retirement or global completion credit.",
+    "HTTP rendering integration over supplied synthetic/memory sources does not establish production authentication custody, managed-service readiness, NATS collector behavior, distributed quorum, live OCI/TerraBase/Vault or performance qualification.",
+    "No repository/source/ledger mutations, Go/build/test/lint/format/benchmark/helper/framework/scanner execution, resource/process probes, locks/privilege/cloud/signing/crypto/TerraBase execution or downloads."
+  ]
+}

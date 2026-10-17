@@ -1,0 +1,82 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1000_1020",
+  "owner": "/root/classification_100_dispatch/batch_1020_1040",
+  "allocation_range": [
+    1820,
+    1840
+  ],
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-1820-1840-corrected-lqa_v4dp/classification.json",
+    "sha256": "f1003f4c3be422feb17d652156109656db7c5a2ea35c22d87725501ac143465c",
+    "checksums_path": "/tmp/ts-source-1820-1840-corrected-lqa_v4dp/SHA256SUMS",
+    "checksums_sha256": "551e67536c4558df5c1718cea5b208e58cc9f35384eabc4807fc4e7b7912782e"
+  },
+  "root_ids": [
+    "internal/machines/machines_test.go::TestAppValidate",
+    "internal/machines/machines_test.go::TestAppWorkloadSpec",
+    "internal/machines/machines_test.go::TestMachineConfigValidate",
+    "internal/machines/machines_test.go::TestMachineValidate",
+    "internal/machines/machines_test.go::TestNewMachineIDIsValidAndUnique",
+    "internal/machines/machines_test.go::TestStatusValidate",
+    "internal/machines/schedule_test.go::TestPlanDestroysOrphansAndDeletesDestroyedRecords",
+    "internal/machines/schedule_test.go::TestPlanHoldsAppsOfReservedRoles",
+    "internal/machines/schedule_test.go::TestPlanHonoursRolesPoolsPortsAndCapacity",
+    "internal/machines/schedule_test.go::TestPlanKeepsOneMachinePerHostAndReportsWhatDoesNotFit",
+    "internal/machines/schedule_test.go::TestPlanReplacesMachinesOfLostAndDeregisteredHosts",
+    "internal/machines/schedule_test.go::TestPlanScalesInUnplacedAndFailedMachinesFirst",
+    "internal/machines/schedule_test.go::TestPlanSpreadsAcrossDomainsAndPacksWithinThem",
+    "internal/machines/schedule_test.go::TestPlanUpdatesMachinesInPlaceWhereTheyFit",
+    "internal/machines/store_test.go::TestAppListingsIgnoreUnrelatedCorruptRecords",
+    "internal/machines/store_test.go::TestOpenStoreRejectsBadConfiguration",
+    "internal/machines/store_test.go::TestOpenStoreRejectsHistoricalOrIncompleteSnapshot",
+    "internal/machines/store_test.go::TestStoreAppVersionsFollowConfigChanges",
+    "internal/machines/store_test.go::TestStoreFailsWhileTheCellIsUnreachable",
+    "internal/machines/store_test.go::TestStoreFencesAStaleAuthorityEpoch"
+  ],
+  "counts": {
+    "integration": 5,
+    "unit": 15,
+    "mixed": 0,
+    "unresolved": 0,
+    "total": 20
+  },
+  "decision": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+  "checks_performed": [
+    "Independently read all20 full roots plus actual fixture constructors and reached machines/workloadspec validation, scheduler helpers, store read/write/list/index/CAS/fencing and serialization/ID/catalog paths.",
+    "Verified literal exact allocation1820:1840 against dispatcher/accounting and all20 original/current names, raw declarations, baseline/current bounds/SHA256/Git blobs and survival rows. No drift.",
+    "Verified all14 canonical source-file blob/mode/SHA256/byte pins and185 assertion/callee/group spans against Git bytes; checksum entries and file0444/dir0555 modes verified.",
+    "Traced upstream server.NewServer127.0.0.1 random TCP port, temp StoreDir, nats.Connect(ClientURL), OpenStore FileStorage replicas1 and real KV reads/writes/watches/index operations. epochFence atomic fake; no production authority qualification.",
+    "Validation/scheduler/converge targets remain local. All5 store integration roots materially support assertions through actual KV read/write/readback or unavailable-server errors. Immutable/stale cases read persisted state first.",
+    "Fresh corrected packet deep-diff verified: exactly two function labels Update.Strategy -> AppSpec.Strategy plus supersedes_packet provenance added. All source/declaration/category evidence unchanged."
+  ],
+  "resolved_findings": [
+    {
+      "detail": "workloadspec.go273:282 AppSpec.Strategy correctly named in grouped evidence and callee_declarations.",
+      "superseded_packet": "/tmp/ts-source-1820-1840-ovbhfxok/classification.json",
+      "superseded_sha256": "ee8d998d0d9e67ad6792d839db01a08ac06909d97a1d010cb0acb12cfcf64f96"
+    }
+  ],
+  "remaining_findings": [],
+  "retained_qualification_limits": [
+    {
+      "root_id": "internal/machines/store_test.go::TestOpenStoreRejectsBadConfiguration",
+      "detail": "All cases pass js=nil; first guard masks named replica/region/fencer terms. Unit supported; isolated later-term coverage remains unestablished/uncredited."
+    },
+    "Local single-server JetStream, atomic fixture fence and simulated schedules do not qualify production authority/auth/TLS, regions, OCI, R3 quorum, failover or crash/power-loss durability."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "count_promotion_authorized": false,
+    "global_completion": false
+  }
+}

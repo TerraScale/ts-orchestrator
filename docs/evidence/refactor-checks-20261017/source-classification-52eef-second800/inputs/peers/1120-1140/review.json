@@ -1,0 +1,77 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_00_20",
+  "author": "/root/classification_100_dispatch/batch_20_40",
+  "decision": "ACCEPT",
+  "accepted_packet": {
+    "path": "/tmp/ts-second800-other1120-1140-source-zylyghyc/classification.json",
+    "sha256": "347ea16b5114376762f576a63f79e9a21cfea402e0500f04e5ba52f72c4df449",
+    "checksum_path": "/tmp/ts-second800-other1120-1140-source-zylyghyc/SHA256SUMS",
+    "checksum_sha256": "6ba8589e6ad775ec7e1172fd614c34fb2624225acdd902cb7edbce086073cc9b"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": [
+      1120,
+      1140
+    ]
+  },
+  "root_ids": [
+    "internal/cellspec/cellspec_test.go::TestCellSpecRefusesRetiredRolloutPolicy",
+    "internal/cellspec/cellspec_test.go::TestDashboardSection",
+    "internal/cellspec/cellspec_test.go::TestDecodeRejectsNonCanonicalSpec",
+    "internal/cellspec/cellspec_test.go::TestDiff",
+    "internal/cellspec/cellspec_test.go::TestHostGrantControllerNeedsLevelSeventeen",
+    "internal/cellspec/cellspec_test.go::TestHostGrantsValidateDiffAndWiden",
+    "internal/cellspec/cellspec_test.go::TestHostImagesValidateVerifyAndDiff",
+    "internal/cellspec/cellspec_test.go::TestInstallMaterialGrantLevel",
+    "internal/cellspec/cellspec_test.go::TestLaunchImageValidateDiffAndWiden",
+    "internal/cellspec/cellspec_test.go::TestMachinesAPILevelValidateAndDiff",
+    "internal/cellspec/cellspec_test.go::TestNewerBinaryAndUnknownSections",
+    "internal/cellspec/cellspec_test.go::TestOCIDesiredLevelValidateAndWiden",
+    "internal/cellspec/cellspec_test.go::TestProfileSecretsRequireLevelTwo",
+    "internal/cellspec/cellspec_test.go::TestReleaseFenceLevelValidateAndDiff",
+    "internal/cellspec/cellspec_test.go::TestRootSignedSpec",
+    "internal/cellspec/cellspec_test.go::TestSignRejects",
+    "internal/cellspec/cellspec_test.go::TestSignVerifyRoundTripAndExpiry",
+    "internal/cellspec/cellspec_test.go::TestSignersLevelValidateAndWiden",
+    "internal/cellspec/cellspec_test.go::TestVerifyRejects",
+    "internal/cellspec/cellspec_test.go::TestVerifyRejectsNonCanonicalSignedEncoding"
+  ],
+  "counts": {
+    "integration": 0,
+    "unit": 20,
+    "mixed": 0,
+    "unresolved": 0
+  },
+  "checks": {
+    "all20_full_declarations_independently_read": true,
+    "actual_fixture_helpers_and_production_callees_independently_read": true,
+    "all40_raw_declaration_hashes_match_mapping": true,
+    "all16_canonical_source_file_pins_verified": true,
+    "all44_connected_span_text_and_blob_pins_verified": true,
+    "all40_assertion_and_unit_span_quotes_verified": true,
+    "literal_allocation_and_accounting_match": true,
+    "packet_checksums_and_0444_0555_permissions_verified": true,
+    "source_categories_and_limits_reviewed": true
+  },
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "source_assessment": [
+    "All20 observables are local validation, JSON canonicality, signature/expiry, schema-level, authorization-diff or plan predicates.",
+    "Host-image helpers construct test-only runtime-ha/workload-safety descriptors and sign local bytes. Production image verification checks descriptors/signatures; no retained evidence reader, image bytes, OCI resource or live runtime.",
+    "MachinesAPI.Config/Validate checks supplied listener address, TLS path strings, issuer/JWKS URLs and ULIDs without binding, reading certificates or network. Dashboard/Vault refs and bucket desired specs remain local supplied values.",
+    "No source-visible contradiction found in reviewed20 declarations/callees. Diff does not validate changed MachinesAPI clients, so its changed-client vector is a local object comparison, not an attempted API configuration admission."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "qualification_limits": [
+    "Source-only review and metadata hashing/serialization. No Go/build/test/helper/lint/format/benchmark/scanner/parser/process/resource/cloud/signing/crypto/TerraBase execution, downloads or children.",
+    "No repository/source/ledger mutation, runtime pass, qualification, accepted-count, deletion, retirement or completion credit."
+  ]
+}

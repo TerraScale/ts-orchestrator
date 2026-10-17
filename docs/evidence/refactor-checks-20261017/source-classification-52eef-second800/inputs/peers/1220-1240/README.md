@@ -1,0 +1,1 @@
+Independent source-only classification acceptance for exact1220:1240 packet92eb3ca8. Counts3integration/16unit/1mixed/0unresolved categories. Later exact-one concurrent cold-cache provider query assertion remains unresolved/uncredited.20roots,40raw declarations,33file pins and72citations verified. RuntimeUNKNOWN; no source/ledger/count/deletion/retirement credit.

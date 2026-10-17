@@ -1,0 +1,139 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_20_40",
+  "author": "/root/classification_100_dispatch/batch_40_60",
+  "decision": "ACCEPT",
+  "accepted_packet": {
+    "path": "/tmp/ts-second800-1140-1160-source-10ndjjdo/classification.json",
+    "sha256": "54d3eff2813a5d85c730b32856bf3ab8c5c874949a7026bc6a9d2d69fbd3846d",
+    "checksum_path": "/tmp/ts-second800-1140-1160-source-10ndjjdo/SHA256SUMS",
+    "checksum_sha256": "c9808804d40a56072f1951d248a221f11634eb2b73478cce6cfd966a0e2daf6d"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": [
+      1140,
+      1160
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_20_40"
+  },
+  "root_ids": [
+    "internal/cellspec/netbird_test.go::TestNetBirdPinValidationAndAmendment",
+    "internal/ci/sourcedigest/source_digest_test.go::TestSourceDigestReadsTrackedObjectsWithModesAndArbitraryPaths",
+    "internal/ci/sourcedigest/source_digest_test.go::TestSourceDigestReceiptPublicationRefusesOverwrite",
+    "internal/ci/sourcedigest/source_digest_test.go::TestSourceDigestV1FramingAndBytewisePathOrder",
+    "internal/cli/cli_test.go::TestCanceledCommandDoesNotCreateIdentity",
+    "internal/cli/cli_test.go::TestHelpPropagatesOutputFailure",
+    "internal/cli/cli_test.go::TestLocalCommandDispatchWithoutRuntimeConfig",
+    "internal/cli/observe_functions_integration_test.go::TestObserveFunctionWorkerAPIs",
+    "internal/cli/observe_integration_test.go::TestObservePrivateTokenAndTargetValidation",
+    "internal/cli/observe_integration_test.go::TestObserveRealAPIErrorsAndBounds",
+    "internal/cli/observe_integration_test.go::TestObserveRealAuthenticatedViews",
+    "internal/cli/observe_integration_test.go::TestObserveRealClusterMissingMember",
+    "internal/cli/observe_integration_test.go::TestObserveRealHistoryTruncation",
+    "internal/cli/observe_resources_integration_test.go::TestObserveRegionalResourceAPIs",
+    "internal/cli/recover_review_test.go::TestReadRetirementEvidenceRejectsSymlinksAndFIFOs",
+    "internal/cli/recover_review_test.go::TestRecoverQuorumBindsConfigToTheAdmittedController",
+    "internal/cli/recover_review_test.go::TestRecoverQuorumSubcommandHelpAndIrrelevantFlags",
+    "internal/cli/recover_review_test.go::TestRecoveryTargetRequiresFixedListeners",
+    "internal/cli/recover_test.go::TestRecoverQuorumRefoundReFoundsOneSlotAtATime",
+    "internal/cli/recover_test.go::TestRecoverQuorumRefoundRequiresBackupAndConfirmation"
+  ],
+  "counts": {
+    "integration": 5,
+    "unit": 8,
+    "mixed": 7,
+    "unresolved": 0
+  },
+  "checks": {
+    "all20_full_roots_independently_read": true,
+    "reached_fixture_helpers_production_and_actual_boundary_paths_independently_read": true,
+    "all20_literal_allocated_ids_and_unique_mappings_verified": true,
+    "all40_baseline_current_raw_declarations_bounds_text_hashes_and_blobs_verified": true,
+    "all55_canonical_source_file_blob_mode_sha256_bytes_pins_verified": true,
+    "all85_connected_spans_and_20_assertion_spans_and_9_unit_blocks_verified": true,
+    "allocation_inventory_and_accounting_hashes_verified": true,
+    "canonical_source_commit_and_tree_verified": true,
+    "packet_checksums_and_0444_0555_freeze_verified": true,
+    "source_categories_mixed_blocks_and_qualification_limits_reviewed": true
+  },
+  "resolved_findings": [],
+  "remaining_correction_findings": [],
+  "retained_inventory_drift": [
+    {
+      "root_id": "internal/cli/recover_review_test.go::TestRecoveryTargetRequiresFixedListeners",
+      "inventory_current_declaration_sha256": "886293c170ff909393fe4d89b7d72f3f28a7df0eecc41aaf238853aff1fbd3c4",
+      "actual_canonical_declaration_sha256": "f5bdc2380b4dda8daca946e3cc203145e4cf05f3bb604dcb67385ab19b10eff7",
+      "finding": "Same unique path/name and bounds; fixture config version 1 changed to 2. Baseline original retained verbatim; no identity reassignment."
+    }
+  ],
+  "retained_source_blockers": [
+    {
+      "root_ids": [
+        "internal/cli/recover_test.go::TestRecoverQuorumRefoundRequiresBackupAndConfirmation"
+      ],
+      "status": "NAMED_MISSING_BACKUP_REFUSAL_UNRESOLVED_UNCREDITED",
+      "assertion": "internal/cli/recover_test.go:130-132",
+      "source": "internal/cli/recover.go:285-286,304-306",
+      "finding": "The initial missing-backup case has both fixture ports closed. BrokerRunning returns before VerifyBackupFor. Non-nil error establishes refusal of that input, not missing-backup validation; named backup obligation retained. Later actual backup creation/readback supports mixed category."
+    }
+  ],
+  "source_assessment": [
+    "Actual Git child object reads, synced no-replace file publication, authenticated project HTTP through loopback TCP, singleton upstream NATS TCP publication/subscription and timeout, and real filesystem descriptor/copy/pending/status paths materially support the identified boundary assertions. This is source evidence only.",
+    "Independent local-only nonblob Kind, selector/flag, negative history range, and injected incomplete-ledger/help/survivor-slot/runbook blocks support mixed categories. Incidental file setup, Getwd, process startup, config decode, TCP probing or lock acquisition do not promote a separately asserted local predicate.",
+    "The initial absent-backup assertion in TestRecoverQuorumRefoundRequiresBackupAndConfirmation reaches BrokerRunning with closed fixture ports and returns before VerifyBackupFor. Its named missing-backup obligation remains unresolved and uncredited; later real-boundary assertions still establish the mixed source category.",
+    "The actual TestRecoveryTargetRequiresFixedListeners declaration has fixture config version2; the stale inventory current hash is explicitly retained beside actual canonical hash f5bdc2380b4dda8daca946e3cc203145e4cf05f3bb604dcb67385ab19b10eff7. Original identity and baseline are preserved.",
+    "Observe data and health/replacement/identity/ledger are local or injected. No production service, OCI launch, founder replacement, broker quorum, actual catch-up or retirement root-authentication claim is established."
+  ],
+  "additional_source_read_after_packet_spans": [
+    {
+      "path": "internal/netbird/config.go",
+      "spans": [
+        [
+          49,
+          73
+        ],
+        [
+          92,
+          96
+        ],
+        [
+          158,
+          165
+        ]
+      ],
+      "purpose": "confirm Config.Validate and URL/secret/peer normalization are local"
+    },
+    {
+      "path": "internal/observability/collector.go",
+      "spans": [
+        [
+          131,
+          167
+        ]
+      ],
+      "purpose": "finish snapshot and provider guard path"
+    },
+    {
+      "path": "internal/observability/catalog.go",
+      "spans": [
+        [
+          121,
+          249
+        ]
+      ],
+      "purpose": "finish catalog state and truncation rendering path"
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "qualification_limits": [
+    "Source-only independent read and metadata hashing/serialization. No Go/build/test/helper/lint/format/benchmark/scanner/parser/process/resource/cloud/signing/crypto/TerraBase execution, downloads or children.",
+    "No repository/source/ledger mutation, runtime pass, qualification, accepted-count, deletion, retirement or completion credit. All original safety obligations remain retained."
+  ]
+}

@@ -1,0 +1,217 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_140_160",
+  "author": "/root/classification_100_dispatch/batch_160_180",
+  "decision": "ACCEPTED_SOURCE_ONLY",
+  "reviewed_packet": {
+    "path": "/tmp/ts-source-classification-1320-1340-4va_3rzc/classification.json",
+    "sha256": "c293b6a08163f4c1aef06acc2c1bac83f943b0de86e38b103848e2846da3278a",
+    "readme_sha256": "11d1d92e35c54e1bc0354c67a1d335882decf0cf46535483330265a0009efc96",
+    "checksum_path": "/tmp/ts-source-classification-1320-1340-4va_3rzc/SHA256SUMS",
+    "checksum_sha256": "d6edea6016fe58011595181f04ba5d6c6432a67a1b8f1dd4953cd9a6538b2d80"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": [
+      1320,
+      1340
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_140_160"
+  },
+  "input_pins": {
+    "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "/tmp/ts-root800-second-source-dispatch-r9_48ha9/PEER-PROTOCOL.md": "3b57c68ac033025066daec252bf89cd01b0c767e0048fb57c67eb5143e2fb00b",
+    "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+    "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70"
+  },
+  "accounting_input": {
+    "path": "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json",
+    "sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513"
+  },
+  "root_ids": [
+    "internal/dashboard/topology_test.go::TestTopologyNATSLinkDown",
+    "internal/dashboard/topology_test.go::TestTopologyOlderSummary",
+    "internal/dashboard/topology_test.go::TestTopologyWithoutCellWideView",
+    "internal/decisionlog/http_test.go::TestHandler",
+    "internal/decisionlog/http_test.go::TestParseQuery",
+    "internal/decisionlog/journal_test.go::TestDefaultRecorderFallsBackToLog",
+    "internal/decisionlog/journal_test.go::TestJournalChainAcrossArchive",
+    "internal/decisionlog/journal_test.go::TestJournalConcurrentRecordQuerySubscribe",
+    "internal/decisionlog/journal_test.go::TestJournalEvictionMarksPartialWithoutArchive",
+    "internal/decisionlog/journal_test.go::TestJournalIngestDeduplicatesAndNotifies",
+    "internal/decisionlog/journal_test.go::TestJournalQueryArchiveReturnsNewestBeyondScanBound",
+    "internal/decisionlog/journal_test.go::TestJournalQueryReadsArchiveBeyondWindow",
+    "internal/decisionlog/journal_test.go::TestJournalRecordFillsIdentityAndIndexes",
+    "internal/decisionlog/journal_test.go::TestJournalRecordNeverBlocksAndCountsDrops",
+    "internal/decisionlog/journal_test.go::TestJournalRunRetriesThenDrops",
+    "internal/decisionlog/journal_test.go::TestJournalWaitsForLateSink",
+    "internal/decisionlog/journal_test.go::TestNormalizeBoundsRecord",
+    "internal/decisionlog/remote_validation_test.go::TestRemoteQueriesAreValidatedStrictly",
+    "internal/decisionlog/review_test.go::TestArchiveScanSkipsSkewedRecordsInsteadOfStopping",
+    "internal/decisionlog/review_test.go::TestChainDuringReplayIsPartial"
+  ],
+  "counts": {
+    "integration": 3,
+    "unit": 17,
+    "mixed": 0,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all 20 complete canonical roots and connected actual fixture, handler, client, renderer, journal, sink/archive fake and guard paths; classify asserted material boundaries rather than helper names.",
+    "Exact literal allocation order and original identities compared to activated allocation and accounting other_unadjudicated[1320:1340); all 20 historical survival rows match.",
+    "All 40 baseline/current raw declarations verified against explicit inclusive bounds, complete text, SHA256, Git blob and func-to-column-zero-close boundaries excluding following LF; original hashes match survival. Canonical body drift is explicitly retained only at index1322.",
+    "All 27 canonical/baseline source file pins verified against Git for commit/path, blob, mode, SHA256 and byte length.",
+    "All 20 complete-root assertion spans and 38 connected evidence spans verified against exact source text, inclusive bounds, Git blob and SHA256; evidence spans include following LF.",
+    "All connected references, category counts, empty source blockers, runtime/retirement/retained-obligation fields, input hashes, canonical tree, manifest and immutable packet modes verified."
+  ],
+  "verified_totals": {
+    "literal_roots": 20,
+    "historical_survival_rows": 20,
+    "file_pins": 27,
+    "baseline_current_declarations": 40,
+    "assertion_spans": 20,
+    "connected_spans": 38
+  },
+  "root_reviews": [
+    {
+      "allocation_index": 1320,
+      "root_id": "internal/dashboard/topology_test.go::TestTopologyNATSLinkDown",
+      "accepted_category": "integration",
+      "independent_source_basis": "Broken and unaffected route classes plus offline stream labels are asserted on the actual fixturePage HTTP response; all NATS observations are synthetic."
+    },
+    {
+      "allocation_index": 1321,
+      "root_id": "internal/dashboard/topology_test.go::TestTopologyOlderSummary",
+      "accepted_category": "integration",
+      "independent_source_basis": "Fallback node labels and missing-controller output are asserted on the actual HTTP response with a synthetic older summary."
+    },
+    {
+      "allocation_index": 1322,
+      "root_id": "internal/dashboard/topology_test.go::TestTopologyWithoutCellWideView",
+      "accepted_category": "integration",
+      "independent_source_basis": "Current warning node class and missing-host-membership output are asserted on the actual HTTP response; the complete original healthy-node obligation is retained as canonical drift."
+    },
+    {
+      "allocation_index": 1323,
+      "root_id": "internal/decisionlog/http_test.go::TestHandler",
+      "accepted_category": "unit",
+      "independent_source_basis": "Direct Handler.ServeHTTP with ResponseRecorder exercises a local memory journal; no network server, sink or archive is reached."
+    },
+    {
+      "allocation_index": 1324,
+      "root_id": "internal/decisionlog/http_test.go::TestParseQuery",
+      "accepted_category": "unit",
+      "independent_source_basis": "Local ParseQuery normalization checks filters, time bounds and limits."
+    },
+    {
+      "allocation_index": 1325,
+      "root_id": "internal/decisionlog/journal_test.go::TestDefaultRecorderFallsBackToLog",
+      "accepted_category": "unit",
+      "independent_source_basis": "Captured slog bytes.Buffer and local default-recorder pointer exercise fallback logging without an external sink."
+    },
+    {
+      "allocation_index": 1326,
+      "root_id": "internal/decisionlog/journal_test.go::TestJournalChainAcrossArchive",
+      "accepted_category": "unit",
+      "independent_source_basis": "Chain traverses a fakeArchive slice and local journal records; no durable archive is reached."
+    },
+    {
+      "allocation_index": 1327,
+      "root_id": "internal/decisionlog/journal_test.go::TestJournalConcurrentRecordQuerySubscribe",
+      "accepted_category": "unit",
+      "independent_source_basis": "Concurrent record, query and subscribe exercise memory ring/index, atomics, mutexes and channels with fakeSink."
+    },
+    {
+      "allocation_index": 1328,
+      "root_id": "internal/decisionlog/journal_test.go::TestJournalEvictionMarksPartialWithoutArchive",
+      "accepted_category": "unit",
+      "independent_source_basis": "Local ring eviction and completeness flags are checked with no archive."
+    },
+    {
+      "allocation_index": 1329,
+      "root_id": "internal/decisionlog/journal_test.go::TestJournalIngestDeduplicatesAndNotifies",
+      "accepted_category": "unit",
+      "independent_source_basis": "Local Ingest deduplication, memory indexes and subscriber notification/cancel are asserted."
+    },
+    {
+      "allocation_index": 1330,
+      "root_id": "internal/decisionlog/journal_test.go::TestJournalQueryArchiveReturnsNewestBeyondScanBound",
+      "accepted_category": "unit",
+      "independent_source_basis": "Newest archive query beyond the scan bound uses fakeArchive slice data and local scan windows."
+    },
+    {
+      "allocation_index": 1331,
+      "root_id": "internal/decisionlog/journal_test.go::TestJournalQueryReadsArchiveBeyondWindow",
+      "accepted_category": "unit",
+      "independent_source_basis": "Archive reads beyond the memory window use fakeArchive records and local ordering."
+    },
+    {
+      "allocation_index": 1332,
+      "root_id": "internal/decisionlog/journal_test.go::TestJournalRecordFillsIdentityAndIndexes",
+      "accepted_category": "unit",
+      "independent_source_basis": "Record identity/default filling and in-memory indexing are checked with nil sink/archive."
+    },
+    {
+      "allocation_index": 1333,
+      "root_id": "internal/decisionlog/journal_test.go::TestJournalRecordNeverBlocksAndCountsDrops",
+      "accepted_category": "unit",
+      "independent_source_basis": "Nonblocking Record and drop counters use a fakeSink controlled by a local blocking channel."
+    },
+    {
+      "allocation_index": 1334,
+      "root_id": "internal/decisionlog/journal_test.go::TestJournalRunRetriesThenDrops",
+      "accepted_category": "unit",
+      "independent_source_basis": "Run retry/drop behavior uses fakeSink failures and a local stored-record slice."
+    },
+    {
+      "allocation_index": 1335,
+      "root_id": "internal/decisionlog/journal_test.go::TestJournalWaitsForLateSink",
+      "accepted_category": "unit",
+      "independent_source_basis": "Late Attach and Run use fakeSink and local counters/state."
+    },
+    {
+      "allocation_index": 1336,
+      "root_id": "internal/decisionlog/journal_test.go::TestNormalizeBoundsRecord",
+      "accepted_category": "unit",
+      "independent_source_basis": "Normalize checks local JSON, UTF-8, bounds, defaults and generated ID time; incidental entropy does not support an external tested behavior."
+    },
+    {
+      "allocation_index": 1337,
+      "root_id": "internal/decisionlog/remote_validation_test.go::TestRemoteQueriesAreValidatedStrictly",
+      "accepted_category": "unit",
+      "independent_source_basis": "Direct answer rejects malformed remote query inputs before any Source or remote exchange."
+    },
+    {
+      "allocation_index": 1338,
+      "root_id": "internal/decisionlog/review_test.go::TestArchiveScanSkipsSkewedRecordsInsteadOfStopping",
+      "accepted_category": "unit",
+      "independent_source_basis": "Archive scan and coverage behavior use a fakeArchive slice with local skewed timestamps."
+    },
+    {
+      "allocation_index": 1339,
+      "root_id": "internal/decisionlog/review_test.go::TestChainDuringReplayIsPartial",
+      "accepted_category": "unit",
+      "independent_source_basis": "Replay partial-chain status uses direct local replay-state toggles and Chain."
+    }
+  ],
+  "resolved_findings": [
+    "No correction required. TestTopologyWithoutCellWideView baseline169-194 expects s-ok and current183-208 expects s-warn plus missing host membership; entire baseline/current declarations and original obligation are preserved.",
+    "Dashboard HTTP integration is supported by httptest.NewServer(New(options).Handler()) and actual server client GET/read/status checks. Snapshot, summary and NATS inputs remain synthetic.",
+    "Decisionlog journal sink/archive paths resolve to explicit in-memory fakes or nil; direct HTTP recorder and strict remote pre-I/O validation remain unit."
+  ],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Source-only review. No test, build, project helper, scanner/parser/framework, runtime, cloud, signing/crypto, TerraBase, process/resource probe or deployment execution occurred.",
+    "The three dashboard integration roots establish actual local HTTP service response rendering with synthetic topology/NATS providers; they establish no live broker, cloud, real topology, distributed quorum or deployment behavior.",
+    "The seventeen decisionlog roots establish local journal, normalization, fake store/sink, ResponseRecorder or pre-I/O guard behavior; no durable archive or remote NATS exchange is established.",
+    "No runtime receipts reviewed. No ledger/count promotion, repository/source mutation, deletion, retirement, runtime qualification or overall project completion credit. All original assertions and safety obligations remain retained."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "NONE"
+}

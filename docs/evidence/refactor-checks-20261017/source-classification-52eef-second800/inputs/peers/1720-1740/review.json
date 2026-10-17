@@ -1,0 +1,242 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_900_920",
+  "author": "/root/classification_100_dispatch/batch_920_940",
+  "batch": "other[1720:1740)",
+  "status": "ACCEPTED_SOURCE_ONLY_WITH_RETAINED_ASSERTION_LIMIT",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-1720-1740-candidate-7jxzusac/classification.json",
+    "sha256": "a9712e7bad3484d0d3f7e46fffdf5d4d08f80fe1c06e503c1c7917fd18363cc5",
+    "checksum_path": "/tmp/ts-source-1720-1740-candidate-7jxzusac/SHA256SUMS",
+    "checksum_sha256": "5569d3339edba6a2b25f25f55d957fe9eb2481bab2c70b3e800df9700b857f3e"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": [
+      1720,
+      1740
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_900_920"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/image/runtime_integration_test.go::TestManagedRuntimeImageIntegration",
+    "internal/insights/budget_test.go::TestBudgetWarnsFromTheDefaultWarnRatio",
+    "internal/insights/credentials_test.go::TestCellCredentialExpiry",
+    "internal/insights/insights_test.go::TestClockSkewWarnsPagesAndPagesOnLostSync",
+    "internal/insights/insights_test.go::TestDiskRules",
+    "internal/insights/insights_test.go::TestEngineConcurrentUse",
+    "internal/insights/insights_test.go::TestEngineDurationGatedRules",
+    "internal/insights/insights_test.go::TestEngineFallsBackToLocalSnapshot",
+    "internal/insights/insights_test.go::TestEngineLifecycleOpenEscalateResolve",
+    "internal/insights/insights_test.go::TestHandler",
+    "internal/insights/insights_test.go::TestOCIErrorRule",
+    "internal/insights/insights_test.go::TestOptionalProviderRules",
+    "internal/insights/insights_test.go::TestPlacementRules",
+    "internal/insights/insights_test.go::TestRulesStaySilentWithoutProviders",
+    "internal/insights/insights_test.go::TestSummarizerReadsProviders",
+    "internal/insights/insights_test.go::TestSummaryIsDeterministic",
+    "internal/insights/oci_drift_test.go::TestOCIDriftInsightsNeedARepeatedObservation",
+    "internal/insights/oci_drift_test.go::TestOCIDriftStaleObservationsAreUnknown",
+    "internal/insights/region_link_test.go::TestRegionFailureTimersTrackCurrentCause",
+    "internal/insights/region_link_test.go::TestRegionWANFailurePersistsAndRecovers"
+  ],
+  "counts": {
+    "integration": 1,
+    "unit": 19,
+    "mixed": 0,
+    "unresolved": 0
+  },
+  "independent_root_decisions": [
+    {
+      "root_id": "internal/image/runtime_integration_test.go::TestManagedRuntimeImageIntegration",
+      "category": "integration",
+      "decision": "ACCEPT",
+      "reason": "Real HTTP transport, extraction and file install/readback establish integration. Virtual guestfish/ownership and offline systemd process limits are explicit; F1 raw-controller dependency plus subsequent assertion remain uncredited."
+    },
+    {
+      "root_id": "internal/insights/budget_test.go::TestBudgetWarnsFromTheDefaultWarnRatio",
+      "category": "unit",
+      "decision": "ACCEPT",
+      "reason": "Full root and actual reached helpers were independently read; supplied/fake provider data, in-memory engine/history/journal, direct recorder HTTP and local rules do not cross a material real project service/store/process boundary."
+    },
+    {
+      "root_id": "internal/insights/credentials_test.go::TestCellCredentialExpiry",
+      "category": "unit",
+      "decision": "ACCEPT",
+      "reason": "Full root and actual reached helpers were independently read; supplied/fake provider data, in-memory engine/history/journal, direct recorder HTTP and local rules do not cross a material real project service/store/process boundary."
+    },
+    {
+      "root_id": "internal/insights/insights_test.go::TestClockSkewWarnsPagesAndPagesOnLostSync",
+      "category": "unit",
+      "decision": "ACCEPT",
+      "reason": "Full root and actual reached helpers were independently read; supplied/fake provider data, in-memory engine/history/journal, direct recorder HTTP and local rules do not cross a material real project service/store/process boundary."
+    },
+    {
+      "root_id": "internal/insights/insights_test.go::TestDiskRules",
+      "category": "unit",
+      "decision": "ACCEPT",
+      "reason": "Full root and actual reached helpers were independently read; supplied/fake provider data, in-memory engine/history/journal, direct recorder HTTP and local rules do not cross a material real project service/store/process boundary."
+    },
+    {
+      "root_id": "internal/insights/insights_test.go::TestEngineConcurrentUse",
+      "category": "unit",
+      "decision": "ACCEPT",
+      "reason": "Full root and actual reached helpers were independently read; supplied/fake provider data, in-memory engine/history/journal, direct recorder HTTP and local rules do not cross a material real project service/store/process boundary."
+    },
+    {
+      "root_id": "internal/insights/insights_test.go::TestEngineDurationGatedRules",
+      "category": "unit",
+      "decision": "ACCEPT",
+      "reason": "Full root and actual reached helpers were independently read; supplied/fake provider data, in-memory engine/history/journal, direct recorder HTTP and local rules do not cross a material real project service/store/process boundary."
+    },
+    {
+      "root_id": "internal/insights/insights_test.go::TestEngineFallsBackToLocalSnapshot",
+      "category": "unit",
+      "decision": "ACCEPT",
+      "reason": "Full root and actual reached helpers were independently read; supplied/fake provider data, in-memory engine/history/journal, direct recorder HTTP and local rules do not cross a material real project service/store/process boundary."
+    },
+    {
+      "root_id": "internal/insights/insights_test.go::TestEngineLifecycleOpenEscalateResolve",
+      "category": "unit",
+      "decision": "ACCEPT",
+      "reason": "Full root and actual reached helpers were independently read; supplied/fake provider data, in-memory engine/history/journal, direct recorder HTTP and local rules do not cross a material real project service/store/process boundary."
+    },
+    {
+      "root_id": "internal/insights/insights_test.go::TestHandler",
+      "category": "unit",
+      "decision": "ACCEPT",
+      "reason": "Full root and actual reached helpers were independently read; supplied/fake provider data, in-memory engine/history/journal, direct recorder HTTP and local rules do not cross a material real project service/store/process boundary."
+    },
+    {
+      "root_id": "internal/insights/insights_test.go::TestOCIErrorRule",
+      "category": "unit",
+      "decision": "ACCEPT",
+      "reason": "Full root and actual reached helpers were independently read; supplied/fake provider data, in-memory engine/history/journal, direct recorder HTTP and local rules do not cross a material real project service/store/process boundary."
+    },
+    {
+      "root_id": "internal/insights/insights_test.go::TestOptionalProviderRules",
+      "category": "unit",
+      "decision": "ACCEPT",
+      "reason": "Full root and actual reached helpers were independently read; supplied/fake provider data, in-memory engine/history/journal, direct recorder HTTP and local rules do not cross a material real project service/store/process boundary."
+    },
+    {
+      "root_id": "internal/insights/insights_test.go::TestPlacementRules",
+      "category": "unit",
+      "decision": "ACCEPT",
+      "reason": "Full root and actual reached helpers were independently read; supplied/fake provider data, in-memory engine/history/journal, direct recorder HTTP and local rules do not cross a material real project service/store/process boundary."
+    },
+    {
+      "root_id": "internal/insights/insights_test.go::TestRulesStaySilentWithoutProviders",
+      "category": "unit",
+      "decision": "ACCEPT",
+      "reason": "Full root and actual reached helpers were independently read; supplied/fake provider data, in-memory engine/history/journal, direct recorder HTTP and local rules do not cross a material real project service/store/process boundary."
+    },
+    {
+      "root_id": "internal/insights/insights_test.go::TestSummarizerReadsProviders",
+      "category": "unit",
+      "decision": "ACCEPT",
+      "reason": "Full root and actual reached helpers were independently read; supplied/fake provider data, in-memory engine/history/journal, direct recorder HTTP and local rules do not cross a material real project service/store/process boundary."
+    },
+    {
+      "root_id": "internal/insights/insights_test.go::TestSummaryIsDeterministic",
+      "category": "unit",
+      "decision": "ACCEPT",
+      "reason": "Full root and actual reached helpers were independently read; supplied/fake provider data, in-memory engine/history/journal, direct recorder HTTP and local rules do not cross a material real project service/store/process boundary."
+    },
+    {
+      "root_id": "internal/insights/oci_drift_test.go::TestOCIDriftInsightsNeedARepeatedObservation",
+      "category": "unit",
+      "decision": "ACCEPT",
+      "reason": "Full root and actual reached helpers were independently read; supplied/fake provider data, in-memory engine/history/journal, direct recorder HTTP and local rules do not cross a material real project service/store/process boundary."
+    },
+    {
+      "root_id": "internal/insights/oci_drift_test.go::TestOCIDriftStaleObservationsAreUnknown",
+      "category": "unit",
+      "decision": "ACCEPT",
+      "reason": "Full root and actual reached helpers were independently read; supplied/fake provider data, in-memory engine/history/journal, direct recorder HTTP and local rules do not cross a material real project service/store/process boundary."
+    },
+    {
+      "root_id": "internal/insights/region_link_test.go::TestRegionFailureTimersTrackCurrentCause",
+      "category": "unit",
+      "decision": "ACCEPT",
+      "reason": "Full root and actual reached helpers were independently read; supplied/fake provider data, in-memory engine/history/journal, direct recorder HTTP and local rules do not cross a material real project service/store/process boundary."
+    },
+    {
+      "root_id": "internal/insights/region_link_test.go::TestRegionWANFailurePersistsAndRecovers",
+      "category": "unit",
+      "decision": "ACCEPT",
+      "reason": "Full root and actual reached helpers were independently read; supplied/fake provider data, in-memory engine/history/journal, direct recorder HTTP and local rules do not cross a material real project service/store/process boundary."
+    }
+  ],
+  "checks_performed": [
+    "Own1700:1720 packet frozen and handed off before starting this independent1720:1740 review; distinct author/reviewer and cyclic map verified.",
+    "Read all20 entire canonical root declarations and reached fixtures/production paths via pinned git show: real image loopback HTTP/guest adapter/filesystem and offline systemd helpers; insights engine gathering/transitions/rules, memory history/journal, summary and direct recorder HTTP.",
+    "All20 literal root IDs/order and survival identities match activated allocation; all40 baseline/current raw declaration text/bounds/SHA256 match pinned Git, with func through column-zero brace excluding following LF; no canonical body drift.",
+    "All48 canonical/baseline file blob/mode/SHA256/byte pins and101 connected/assertion/finding exact excerpt texts/bounds/hash copies match pinned Git. Packet/SHA256SUMS contents, hashes, file0444/directory0555 verified.",
+    "Category counts exhaust only20 assigned roots:1integration19unit0mixed0unresolved roots. Root1720 has retained unresolved assertion F1 despite integration category supported by earlier material assertions. No runtime result inferred."
+  ],
+  "resolved_review_findings": [
+    {
+      "id": "R1",
+      "status": "WITHDRAWN_NOT_A_SOURCE_FINDING",
+      "detail": "Reviewer questioned displayed newline escaping at runtime_integration_test.go347/374/386. Author challenged it; independent raw-byte recheck confirmed single source5c6e and zero5c5c6e, valid interpreted-Go LF escape. No packet correction warranted; exact original frozen candidate accepted."
+    }
+  ],
+  "remaining_findings": [
+    {
+      "id": "F1",
+      "root_id": "internal/image/runtime_integration_test.go::TestManagedRuntimeImageIntegration",
+      "status": "SOURCE_ASSERTION_CONTRADICTION_UNRESOLVED_UNCREDITED",
+      "detail": "runtimeFixtureSystemd first raw-file edge requires controller.service Requires/After=managed-runtime.service (lines 363-383). Actual copied canonical controller.service contains bootstrap.service but no managed-runtime edge. installLinks copies the same source without rewriting it; managed-runtime RequiredBy creates links but cannot satisfy raw controller.service content inspection. installRuntime 70-containerd dropin has only containerd. Thus this later edge assertion is unsupported; subsequent dropin assertion is not credited past it. Earlier actual HTTP/download/install/readback assertions still establish integration category. No observed runtime failure is claimed.",
+      "evidence": [
+        {
+          "path": "internal/image/runtime_integration_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "dcbc69672b3aa255c27a07bedb2288851c38045f",
+          "line": 321,
+          "end_line": 383,
+          "functions_or_scope": "actual copies, installLinks and contradictory raw-file edge",
+          "text": "\tunitNames := append([]string{\"terrascale-orchestrator-bootstrap.service\", \"terrascale-orchestrator-controller-install.service\", \"terrascale-orchestrator-managed-host-start.service\", \"terrascale-orchestrator-managed-runtime.service\", \"terrascale-orchestrator-controller.service\", \"terrascale-orchestrator-host.service\"}, NetBirdUnits...)\n\tunitNames = append(unitNames, HostUnitFiles...)\n\tfor _, name := range unitNames {\n\t\tif err := g.Upload(filepath.Join(repo, \"deploy/systemd\", name), \"/etc/systemd/system/\"+name, 0644); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\tfor _, name := range SelfUpdateUnitFiles {\n\t\tif err := g.Upload(filepath.Join(repo, \"deploy/systemd/selfupdate\", name), \"/etc/systemd/system/\"+name, 0644); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\tif err := installLinks(g, work, repo, out); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfor _, name := range []string{\"containerd.service\", \"terrascale-orchestrator-managed-host-start.service\", \"terrascale-orchestrator-managed-runtime.service\", \"terrascale-orchestrator-controller.service\"} {\n\t\tstate, err := Execute(t.Context(), \"\", append(os.Environ(), \"SYSTEMD_OFFLINE=1\"), \"systemctl\", \"--root=\"+root, \"is-enabled\", name)\n\t\tif err != nil || state != \"enabled\" {\n\t\t\tt.Fatalf(\"guest %s is not enabled: %s, %v\", name, state, err)\n\t\t}\n\t}\n\tif _, err := os.Lstat(filepath.Join(root, \"etc/systemd/system/multi-user.target.wants/terrascale-orchestrator-host.service\")); !errors.Is(err, os.ErrNotExist) {\n\t\tt.Fatalf(\"image activates a second native host Agent: %v\", err)\n\t}\n\t// Supply distribution targets and inert executable files so systemd verifies the real project dependency graph offline.\n\tfor _, name := range []string{\"basic\", \"sysinit\", \"sockets\", \"shutdown\", \"network\", \"network-online\", \"local-fs\", \"multi-user\"} {\n\t\tif err := os.WriteFile(filepath.Join(root, \"usr/lib/systemd/system\", name+\".target\"), []byte(\"[Unit]\\nDescription=Fixture distribution target\\nDefaultDependencies=no\\n\"), 0644); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\tfor _, executable := range []string{\"usr/local/bin/terrascale-orchestrator\", \"usr/local/bin/netbird\", \"usr/bin/systemctl\", \"bin/sh\"} {\n\t\tp := filepath.Join(root, executable)\n\t\tif err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tif err := os.WriteFile(p, []byte(\"fixture: never execute\"), 0755); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\tif _, err := Execute(t.Context(), \"\", append(os.Environ(), \"SYSTEMD_OFFLINE=1\"), \"systemd-analyze\", \"--root=\"+root, \"--generators=no\", \"--man=no\", \"verify\", \"containerd.service\", \"terrascale-orchestrator-managed-host-start.service\", \"terrascale-orchestrator-managed-runtime.service\", \"terrascale-orchestrator-controller.service\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfor _, edge := range []struct{ unit, dependency string }{\n\t\t{\"terrascale-orchestrator-controller.service\", \"terrascale-orchestrator-managed-runtime.service\"},\n\t\t{\"terrascale-orchestrator-managed-runtime.service\", \"containerd.service\"},\n\t\t{\"terrascale-orchestrator-managed-runtime.service\", \"terrascale-orchestrator-managed-host-start.service\"},\n\t} {\n\t\tdata, err := os.ReadFile(filepath.Join(root, \"etc/systemd/system\", edge.unit))\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tfor _, relationship := range []string{\"Requires\", \"After\"} {\n\t\t\tfound := false\n\t\t\tfor line := range strings.SplitSeq(string(data), \"\\n\") {\n\t\t\t\tif value, ok := strings.CutPrefix(line, relationship+\"=\"); ok && slices.Contains(strings.Fields(value), edge.dependency) {\n\t\t\t\t\tfound = true\n\t\t\t\t}\n\t\t\t}\n\t\t\tif !found {\n\t\t\t\tt.Fatalf(\"%s lacks %s=%s\", edge.unit, relationship, edge.dependency)\n\t\t\t}\n\t\t}\n\t}\n",
+          "span_sha256": "c07f79b81c3d22f12b47e3fa4c3eac843c95b73ea9a675c8a19b8473e8908d76"
+        },
+        {
+          "path": "deploy/systemd/terrascale-orchestrator-controller.service",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "92a728e0b69894861723ed7a334bf84ba3d43409",
+          "line": 1,
+          "end_line": 10,
+          "functions_or_scope": "actual controller dependency directives",
+          "text": "[Unit]\nDescription=TerraScale Orchestrator regional controller\nWants=network-online.target\nAfter=network-online.target\nRequires=terrascale-orchestrator-bootstrap.service\nAfter=terrascale-orchestrator-bootstrap.service\nConditionPathExists=/etc/terrascale-orchestrator/controller.json\n# A controller that keeps failing enters the failed state (start-limit-hit),\n# visible to alerting and a rollout gate, instead of rejoining and leaving\n# the cluster forever.\n",
+          "span_sha256": "aa5e8883998280b1b6e0222a71c7582036a4ad02211d265f0b7e8ceca47828ca"
+        },
+        {
+          "path": "internal/image/runtime.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c187d76a5f95616ed65925d20b4c768d1715b4f1",
+          "line": 153,
+          "end_line": 176,
+          "functions_or_scope": "generated dropins only add containerd",
+          "text": "\t\tsource := filepath.Join(work, notice.Name())\n\t\tif err := os.WriteFile(source, contents, 0644); err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif err := g.Upload(source, AppLib+\"/runtime-notices/\"+notice.Name(), 0644); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n\tfor name, contents := range map[string]string{\n\t\t\"containerd.service\": containerdUnit,\n\t\t\"terrascale-orchestrator-host.service.d/70-containerd.conf\":       \"[Unit]\\nRequires=containerd.service\\nAfter=containerd.service\\n\",\n\t\t\"terrascale-orchestrator-controller.service.d/70-containerd.conf\": \"[Unit]\\nRequires=containerd.service\\nAfter=containerd.service\\n\",\n\t} {\n\t\tsource := filepath.Join(work, filepath.Base(name))\n\t\tif err := os.WriteFile(source, []byte(contents), 0644); err != nil {\n\t\t\treturn err\n\t\t}\n\t\tdestination := \"/etc/systemd/system/\" + name\n\t\tif err := g.Upload(source, destination, 0644); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n\treturn nil\n}\n",
+          "span_sha256": "4263a92fda22715c5b272505da461cdd3a69402bffbb0845e655a7b24ee809d8"
+        }
+      ]
+    }
+  ],
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE; runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No runtime receipts reviewed.",
+    "F1: later image raw-file controller/managed-runtime edge is contradicted by actual unit contents and remains unresolved/uncredited; earlier boundary assertions support category only.",
+    "Image uses synthetic ELF/build metadata and overridden test digests. Real HTTP is loopback; guestfish/UID ownership are simulated with real files. Runtime binaries and project units are never started; offline systemd executables remain environment prerequisites. No actual OCI/NetBird/runtime-host acceptance.",
+    "Insights fake snapshots/provider slices and memory History/Journal/Go channels are local-only. Direct httptest Recorder does not exercise a listener/client boundary.",
+    "No repository/source/ledger/runtime mutation; no count promotion, deletion, retirement, qualification or completion credit."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "NONE_NO_LEDGER_COUNT_DELETION_RETIREMENT_RUNTIME_QUALIFICATION_OR_GLOBAL_COMPLETION_PROMOTION",
+  "source_mutations": false,
+  "execution": "Only ordinary pinned Git/file/hash inspection and metadata packaging; no Go/build/test/lint/helper/process/resource/cloud/signing execution."
+}

@@ -1,0 +1,8 @@
+Source-only candidate for exact other_unadjudicated[1440:1460).
+Owner: /root/classification_100_dispatch/batch_280_300
+Canonical commit 52eef25bad09736d8f0806ecaccaef1a7c86b49e; baseline bfca60368f60d2da67f9016d1d489317ae8749c8.
+Counts: integration14 unit2 mixed4 unresolved0; total20.
+Full20 roots and reached source paths manually read; exact declarations/spans/file/input pins checked via metadata only.
+Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No project code executed.
+Hybrid mutation map and synthetic runner limits retained explicitly.
+No source/repository/ledger/count/qualification/completion/deletion/retirement mutation or promotion. Independent peer required.

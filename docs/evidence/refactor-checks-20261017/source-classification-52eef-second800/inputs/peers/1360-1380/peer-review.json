@@ -1,0 +1,73 @@
+{
+  "schema": "independent-source-only-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_180_200",
+  "author": "/root/classification_100_dispatch/batch_200_220",
+  "status": "ACCEPTED_SOURCE_ONLY_WITH_EXPLICIT_UNCREDITED_ASSERTION",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-1360-1380-jtvd340f/classification.json",
+    "sha256": "d0261dd847a59771816accbf51783c0c8226ea1f9f0391b3b7c1c1ba783c0cd1",
+    "checksum_path": "/tmp/ts-source-classification-1360-1380-jtvd340f/SHA256SUMS",
+    "checksum_sha256": "0124d6c411689dfa61f6fe80afde62127e57c3b53fa926c9f5138edf923b7bc8"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "range": [
+    1360,
+    1380
+  ],
+  "literal_root_ids": [
+    "internal/disasterrecovery/key_test.go::TestKMSEndpointsBindRegionAndSupportBothOCIDomains",
+    "internal/disasterrecovery/key_test.go::TestReplicaVaultMustOwnTheEnabledBucketKey",
+    "internal/disasterrecovery/objects_test.go::TestBackfillDrainsSubmittedCopiesAfterASiblingFails",
+    "internal/disasterrecovery/objects_test.go::TestBackfillFailsClosedWhenSourceMovesOrCopyNeverCompletes",
+    "internal/disasterrecovery/objects_test.go::TestBackfillHashesMultipartAndMissingChecksums",
+    "internal/disasterrecovery/objects_test.go::TestBackfillRechecksTheMirrorBeforeSuccess",
+    "internal/disasterrecovery/objects_test.go::TestBackfillSkipsIdenticalMirrorCopiesAndCopiesConcurrently",
+    "internal/disasterrecovery/objects_test.go::TestConfigRejectsCrossedRegionsAndSharedCompartments",
+    "internal/disasterrecovery/objects_test.go::TestConfigValidatesReviewedResourceNamesAndIDs",
+    "internal/disasterrecovery/objects_test.go::TestCopyActivatesMirrorBeforeBackfillAndVerifiesAllPages",
+    "internal/disasterrecovery/objects_test.go::TestCopyCannotAdoptLostOrUnknownCreateResponsesOnResume",
+    "internal/disasterrecovery/objects_test.go::TestCopyDoesNotRecreateMissingPinnedResources",
+    "internal/disasterrecovery/objects_test.go::TestCopyPlansWithoutWrites",
+    "internal/disasterrecovery/objects_test.go::TestCopyRechecksDestinationIDsAcrossProvisioningSteps",
+    "internal/disasterrecovery/objects_test.go::TestCopyRechecksPinnedPolicyBeforeBackfill",
+    "internal/disasterrecovery/objects_test.go::TestCopyRechecksSeedIDDuringInventoryAndBetweenCopies",
+    "internal/disasterrecovery/objects_test.go::TestCopyRefusesConflictingResourcesBeforeMutation",
+    "internal/disasterrecovery/objects_test.go::TestCopyRefusesUnpinnedAndReplacedResources",
+    "internal/disasterrecovery/objects_test.go::TestCopyReportsSuccessfulCreateIDsAfterLaterFailure",
+    "internal/disasterrecovery/vault_test.go::TestVaultReplicaCancelledPoll"
+  ],
+  "counts": {
+    "integration": 0,
+    "unit": 20,
+    "mixed": 0,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 complete allocated roots and actual reached production/fixture paths: local KMS endpoint/key predicates; complete injected copier object clients, provisioning, identity admission, inventories, digest/readback, work-request drain and pause paths; config/catalog predicates; injected Vault cancellation, pagination, environment and timer paths.",
+    "Verified exact ordered literal IDs against active allocation and survival TSV. Recomputed all20 raw baseline/current declaration bounds, text and SHA256 excluding following LF; all exact retained bodies, no mapping/body drift. Independently inspected empty baseline-to-canonical diff for all three root files.",
+    "Recomputed all12 baseline/canonical file Git mode/blob/SHA256/byte pins and checked canonical worktree byte equality. Verified all24 connected explicit spans and29 assertion spans against immutable Git source.",
+    "Confirmed objectFixture directly injects fakeObjects for every objectClient method reached; newCopier and real OCI factory constructor are not called. GetObject supplies strings.Reader contents; copy/readback/work/policy/bucket state stays in maps/counters. Vault root calls ensureVaultReplica with a fake client and synctest, never SDK factory. URL/key/config checks are local predicates.",
+    "Verified U20/I0/M0/R0 root totals, explicit uncredited seed-row and concurrency limits, runtime UNKNOWN and retained safety/no-retirement fields, exact packet/checksum hashes and entries, files0444 and directory0555. No project/test/helper/scanner/runtime/crypto/cloud execution, source/repo/ledger mutation, probes, count promotion or retirement."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [
+    {
+      "root_id": "internal/disasterrecovery/objects_test.go::TestCopyRefusesUnpinnedAndReplacedResources",
+      "status": "INTENDED_SEED_ASSERTIONS_UNRESOLVED_UNCREDITED",
+      "reason": "Source376 iterates mirror/seed/policy, but395 compares resource with 0000000000SF1REEJJX6TC691V. All seed-labelled unpinned/replacement cases actually mutate MirrorBucket and repeat mirror assertions409-411. Author explicitly preserves intended seed identity obligations unresolved/uncredited; actual mirror/policy predicate assertions support unit category."
+    }
+  ],
+  "qualification_limits": [
+    "All20 roots remain source-only unit classifications. Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no runtime pass/fail receipts reviewed or execution.",
+    "No actual OCI, Vault, Object Storage, filesystem, network or server-side copy boundary materially supports these roots. SDK request/response structs, retry tokens, synthetic errors, hashing string readers, timers and goroutines remain local.",
+    "The workers4 root asserts skip/copy counts and object names, without measuring overlap, maximum concurrency or speed. In other object fixtures workers defaults to0 and production max(workers,1) makes effective concurrency1; this supports ordered identity-replacement assertions only.",
+    "Cancellation root uses fake Vault Get/List/Create responses under synctest, including cancellation in the second list callback; no live KMS poll or creation. Intended seed-labelled coverage remains uncredited despite all root categories being resolved.",
+    "All original and assertion-level safety obligations retained; no ledger/count/completion promotion, deletion, retirement, migration or production qualification authorization."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "NONE; independent source candidate acceptance only, no ledger/count/deletion/retirement/runtime/completion promotion."
+}

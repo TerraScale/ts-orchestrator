@@ -1,0 +1,1171 @@
+{
+  "schema": "independent-source-only-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_780_800",
+  "author": "/root/classification_100_dispatch/batch_800_820",
+  "accepted_packet": "/tmp/ts-source-other1600-1620-final-qlmvapek/classification.json",
+  "accepted_packet_sha256": "7c02cd523872e28915bf27ec118b42025086b1771eefe92773cd07391e624f0f",
+  "accepted_checksum_file": "/tmp/ts-source-other1600-1620-final-qlmvapek/SHA256SUMS",
+  "accepted_checksum_sha256": "9970f84513e697c2f0fe7f66973e26e36ce213beae92b849dfc461698ea68010",
+  "decision": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "allocation_range": [
+    1600,
+    1620
+  ],
+  "allocation_path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+  "allocation_sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/host/terrabase_test.go::TestTerraBaseMemberRestartsBeforeLoadedCertificateExpires",
+    "internal/host/terrabase_test.go::TestTerraBasePeerCertificateFollowsCurrentRegistration",
+    "internal/host/terrabase_test.go::TestTerraBasePeerOfARenamedNodeIsTheMemberAtItsAddress",
+    "internal/host/terrabase_test.go::TestTerraBaseRootMustBeSeparate",
+    "internal/host/terrabase_test.go::TestTerraBaseRootRejectsUnsafeAncestors",
+    "internal/host/terrabase_test.go::TestTerraBaseRunningNeedsTheClientReadyz",
+    "internal/host/terrabase_volume_identity_test.go::TestTerraBaseDataVolumeNameReuseGetsOneFreshFormatGrant",
+    "internal/host/terrabase_volume_recovery_test.go::TestTerraBaseDataVolumeDurableConsumptionSurvivesRestart",
+    "internal/host/terrabase_volume_recovery_test.go::TestTerraBaseDataVolumeGrantFramingRejectsInvalidAttempt",
+    "internal/host/terrabase_volume_recovery_test.go::TestTerraBaseDataVolumeLegacyAndClosedRecordsNeverGrant",
+    "internal/host/terrabase_volume_recovery_test.go::TestTerraBaseDataVolumeLostFormatReplyAndExpiredReplyRecover",
+    "internal/host/terrabase_volume_recovery_test.go::TestTerraBaseDataVolumePendingAttemptPersistsAndFencesRemovedState",
+    "internal/host/terrabase_volume_test.go::TestEnsureOwnedDirWithoutFowner",
+    "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeAdoptedFilesystemIsRecorded",
+    "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeAgentFailsClosed",
+    "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeAsksForGrantOnlyWhenBlank",
+    "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeEffectsFormatOnlyWithAnUnspentGrant",
+    "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeEmptyMountTarget",
+    "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeExchangeFraming",
+    "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeFenceFailsClosed"
+  ],
+  "counts": {
+    "integration": 9,
+    "unit": 4,
+    "mixed": 7,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 whole canonical roots and actual called helper/fixture/production boundary paths; previously read TerraBase roots reused after canonical blob verification.",
+    "Verified exact literal allocation and all survival mappings, complete raw baseline/current declaration bounds/bytes/SHA256 excluding nextLF.",
+    "Verified all20 source-file blob/mode/SHA256/byte pins and20 whole assertion-body spans plus74 connected spans against immutable Git blobs. Assertion/callee slices include selected trailing LF; raw declarations exclude it.",
+    "Confirmed categories against material asserted boundaries, independent unit-only blocks, fake map/scalar/effect seams and source-visible blockers.",
+    "Verified final immutable0444 files/0555 directory, packet hash/checksum file hash and each checksum entry. No execution or source mutation."
+  ],
+  "per_root_review": [
+    {
+      "root_id": "internal/host/terrabase_test.go::TestTerraBaseMemberRestartsBeforeLoadedCertificateExpires",
+      "category": "integration",
+      "baseline_bounds": [
+        44,
+        50
+      ],
+      "current_bounds": [
+        44,
+        50
+      ],
+      "original_declaration_sha256": "953e004c910e1c201c709c3a8e72a3f6ee6effee28a1582108a2224e5e147828",
+      "current_declaration_sha256": "953e004c910e1c201c709c3a8e72a3f6ee6effee28a1582108a2224e5e147828",
+      "mapping": "VERIFIED_LITERAL_RETAINED_BODY_EXACT",
+      "assertions_and_connected_boundary": "FULL_SOURCE_READ_VERIFIED",
+      "review_note": "Renewal helper calls production file preparation and real TLS loopback expiry probe; stub Stop does not establish a process kill."
+    },
+    {
+      "root_id": "internal/host/terrabase_test.go::TestTerraBasePeerCertificateFollowsCurrentRegistration",
+      "category": "unit",
+      "baseline_bounds": [
+        272,
+        361
+      ],
+      "current_bounds": [
+        272,
+        361
+      ],
+      "original_declaration_sha256": "a1358b930434b8b7a15c976b4d7ab08d2e18cb48619c1078ef474e14ee449d48",
+      "current_declaration_sha256": "a1358b930434b8b7a15c976b4d7ab08d2e18cb48619c1078ef474e14ee449d48",
+      "mapping": "VERIFIED_LITERAL_RETAINED_BODY_EXACT",
+      "assertions_and_connected_boundary": "FULL_SOURCE_READ_VERIFIED",
+      "review_note": "Target serveTerraBasePeer reads fake mutation map and signs locally; NATS store setup is incidental to target assertions."
+    },
+    {
+      "root_id": "internal/host/terrabase_test.go::TestTerraBasePeerOfARenamedNodeIsTheMemberAtItsAddress",
+      "category": "mixed",
+      "baseline_bounds": [
+        480,
+        509
+      ],
+      "current_bounds": [
+        480,
+        509
+      ],
+      "original_declaration_sha256": "5194e768b859a2f60b67c7f58a8870891520379d3c4d1064ab7820b3de26471a",
+      "current_declaration_sha256": "5194e768b859a2f60b67c7f58a8870891520379d3c4d1064ab7820b3de26471a",
+      "mapping": "VERIFIED_LITERAL_RETAINED_BODY_EXACT",
+      "assertions_and_connected_boundary": "FULL_SOURCE_READ_VERIFIED",
+      "review_note": "Independent injected-address predicates plus real UDP local-address selection; no packets or remote reachability established."
+    },
+    {
+      "root_id": "internal/host/terrabase_test.go::TestTerraBaseRootMustBeSeparate",
+      "category": "mixed",
+      "baseline_bounds": [
+        158,
+        169
+      ],
+      "current_bounds": [
+        158,
+        169
+      ],
+      "original_declaration_sha256": "75dadfc38a27d763d150f7ef876f816a2e4181963c7378e69bde91643508dc12",
+      "current_declaration_sha256": "75dadfc38a27d763d150f7ef876f816a2e4181963c7378e69bde91643508dc12",
+      "mapping": "VERIFIED_LITERAL_RETAINED_BODY_EXACT",
+      "assertions_and_connected_boundary": "FULL_SOURCE_READ_VERIFIED",
+      "review_note": "Independent overlapping/path-syntax guards plus actual ancestor owner/mode/symlink inspection."
+    },
+    {
+      "root_id": "internal/host/terrabase_test.go::TestTerraBaseRootRejectsUnsafeAncestors",
+      "category": "integration",
+      "baseline_bounds": [
+        174,
+        226
+      ],
+      "current_bounds": [
+        174,
+        226
+      ],
+      "original_declaration_sha256": "fbc0bd567cbab27a1e373789696b194ad9d013ad0a2c24b531eec07866618f0b",
+      "current_declaration_sha256": "fbc0bd567cbab27a1e373789696b194ad9d013ad0a2c24b531eec07866618f0b",
+      "mapping": "VERIFIED_LITERAL_RETAINED_BODY_EXACT",
+      "assertions_and_connected_boundary": "FULL_SOURCE_READ_VERIFIED",
+      "review_note": "Actual symlink/sticky/open ancestor inspection, swap refusal and no-follow directory boundary."
+    },
+    {
+      "root_id": "internal/host/terrabase_test.go::TestTerraBaseRunningNeedsTheClientReadyz",
+      "category": "integration",
+      "baseline_bounds": [
+        367,
+        476
+      ],
+      "current_bounds": [
+        367,
+        476
+      ],
+      "original_declaration_sha256": "5712422df614ac5a2244ce8eee98a1d3317f6f47e7590b225e2d58907f7886bc",
+      "current_declaration_sha256": "5712422df614ac5a2244ce8eee98a1d3317f6f47e7590b225e2d58907f7886bc",
+      "mapping": "VERIFIED_LITERAL_RETAINED_BODY_EXACT",
+      "assertions_and_connected_boundary": "FULL_SOURCE_READ_VERIFIED",
+      "review_note": "Actual admin HTTP and readyz TLS/foreign-CA responses read via production probes."
+    },
+    {
+      "root_id": "internal/host/terrabase_volume_identity_test.go::TestTerraBaseDataVolumeNameReuseGetsOneFreshFormatGrant",
+      "category": "mixed",
+      "baseline_bounds": [
+        12,
+        67
+      ],
+      "current_bounds": [
+        12,
+        67
+      ],
+      "original_declaration_sha256": "0f4bf9e4f9d7788a07a037e4639075405a0990e8582f1022ace5ecab5c08e314",
+      "current_declaration_sha256": "0f4bf9e4f9d7788a07a037e4639075405a0990e8582f1022ace5ecab5c08e314",
+      "mapping": "VERIFIED_LITERAL_RETAINED_BODY_EXACT",
+      "assertions_and_connected_boundary": "FULL_SOURCE_READ_VERIFIED",
+      "review_note": "Actual file-backed KV format grants/redelivery/confirmation plus independent pre-KV identity guard cases."
+    },
+    {
+      "root_id": "internal/host/terrabase_volume_recovery_test.go::TestTerraBaseDataVolumeDurableConsumptionSurvivesRestart",
+      "category": "integration",
+      "baseline_bounds": [
+        235,
+        335
+      ],
+      "current_bounds": [
+        235,
+        335
+      ],
+      "original_declaration_sha256": "e466f704fa16602978ccf52877dfaa4ddc7f20cc319034f196bede602c1f02dd",
+      "current_declaration_sha256": "e466f704fa16602978ccf52877dfaa4ddc7f20cc319034f196bede602c1f02dd",
+      "mapping": "VERIFIED_LITERAL_RETAINED_BODY_EXACT",
+      "assertions_and_connected_boundary": "FULL_SOURCE_READ_VERIFIED",
+      "review_note": "Each scenario couples real KV grants and durable marker write/readback to effect sequence and replay decisions; no independent local-only block."
+    },
+    {
+      "root_id": "internal/host/terrabase_volume_recovery_test.go::TestTerraBaseDataVolumeGrantFramingRejectsInvalidAttempt",
+      "category": "unit",
+      "baseline_bounds": [
+        337,
+        363
+      ],
+      "current_bounds": [
+        337,
+        363
+      ],
+      "original_declaration_sha256": "314eccd951d246233a7edc671f9e9597315328de11d0b4a7de1d605a22e21278",
+      "current_declaration_sha256": "314eccd951d246233a7edc671f9e9597315328de11d0b4a7de1d605a22e21278",
+      "mapping": "VERIFIED_LITERAL_RETAINED_BODY_EXACT",
+      "assertions_and_connected_boundary": "FULL_SOURCE_READ_VERIFIED",
+      "review_note": "Synthetic net.Pipe byte responder and malformed/short token decoding; no real project service or OS socket."
+    },
+    {
+      "root_id": "internal/host/terrabase_volume_recovery_test.go::TestTerraBaseDataVolumeLegacyAndClosedRecordsNeverGrant",
+      "category": "integration",
+      "baseline_bounds": [
+        203,
+        233
+      ],
+      "current_bounds": [
+        203,
+        233
+      ],
+      "original_declaration_sha256": "96a66351b0df94c195974581083b251b0d1e11ab3624373d265cbc4d7c84dd69",
+      "current_declaration_sha256": "96a66351b0df94c195974581083b251b0d1e11ab3624373d265cbc4d7c84dd69",
+      "mapping": "VERIFIED_LITERAL_RETAINED_BODY_EXACT",
+      "assertions_and_connected_boundary": "FULL_SOURCE_READ_VERIFIED",
+      "review_note": "Actual persisted KV closed/legacy records and no-new-record negative readback."
+    },
+    {
+      "root_id": "internal/host/terrabase_volume_recovery_test.go::TestTerraBaseDataVolumeLostFormatReplyAndExpiredReplyRecover",
+      "category": "mixed",
+      "baseline_bounds": [
+        58,
+        139
+      ],
+      "current_bounds": [
+        58,
+        139
+      ],
+      "original_declaration_sha256": "5a5f40cd7e51e2e978a88d924a0b94ad3ee29d1fbd5caf485b549a2be522f890",
+      "current_declaration_sha256": "5a5f40cd7e51e2e978a88d924a0b94ad3ee29d1fbd5caf485b549a2be522f890",
+      "mapping": "VERIFIED_LITERAL_RETAINED_BODY_EXACT",
+      "assertions_and_connected_boundary": "FULL_SOURCE_READ_VERIFIED",
+      "review_note": "Real KV reopening/marker readback plus independent envelope expiry rejection before I/O."
+    },
+    {
+      "root_id": "internal/host/terrabase_volume_recovery_test.go::TestTerraBaseDataVolumePendingAttemptPersistsAndFencesRemovedState",
+      "category": "integration",
+      "baseline_bounds": [
+        141,
+        201
+      ],
+      "current_bounds": [
+        141,
+        201
+      ],
+      "original_declaration_sha256": "a958d7cd87c39999bcc6615bf3acffba28d1ec6df6360792b4aeb0f5c4a48bdd",
+      "current_declaration_sha256": "a958d7cd87c39999bcc6615bf3acffba28d1ec6df6360792b4aeb0f5c4a48bdd",
+      "mapping": "VERIFIED_LITERAL_RETAINED_BODY_EXACT",
+      "assertions_and_connected_boundary": "FULL_SOURCE_READ_VERIFIED",
+      "review_note": "Actual pending-attempt file creation/mode/read/sync/removal/regeneration and malformed-state refusal."
+    },
+    {
+      "root_id": "internal/host/terrabase_volume_test.go::TestEnsureOwnedDirWithoutFowner",
+      "category": "integration",
+      "baseline_bounds": [
+        406,
+        413
+      ],
+      "current_bounds": [
+        406,
+        413
+      ],
+      "original_declaration_sha256": "2be454fc6c33b08448ec9aa285bab30b15dd8bbece216501b16bb1d1d0ede6e3",
+      "current_declaration_sha256": "2be454fc6c33b08448ec9aa285bab30b15dd8bbece216501b16bb1d1d0ede6e3",
+      "mapping": "VERIFIED_LITERAL_RETAINED_BODY_EXACT",
+      "assertions_and_connected_boundary": "FULL_SOURCE_READ_VERIFIED",
+      "review_note": "Actual directory ownership/mode after test-thread capset and production Fchown/Fchmod; root/capability prerequisite only described, never executed."
+    },
+    {
+      "root_id": "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeAdoptedFilesystemIsRecorded",
+      "category": "mixed",
+      "baseline_bounds": [
+        746,
+        778
+      ],
+      "current_bounds": [
+        746,
+        778
+      ],
+      "original_declaration_sha256": "fcae7e3325a9810bc214d5b9fd53d77a1b3f0d70be9b4da6b4aa3306e7253909",
+      "current_declaration_sha256": "fcae7e3325a9810bc214d5b9fd53d77a1b3f0d70be9b4da6b4aa3306e7253909",
+      "mapping": "VERIFIED_LITERAL_RETAINED_BODY_EXACT",
+      "assertions_and_connected_boundary": "FULL_SOURCE_READ_VERIFIED",
+      "review_note": "Real KV adopted UUID record/readback plus independent malformed UUID guard."
+    },
+    {
+      "root_id": "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeAgentFailsClosed",
+      "category": "integration",
+      "baseline_bounds": [
+        296,
+        371
+      ],
+      "current_bounds": [
+        296,
+        371
+      ],
+      "original_declaration_sha256": "20a3ca7ec9098395f9d2e6b60d6a1a9839c60ac768d9c70ba229b8a63967e4cb",
+      "current_declaration_sha256": "20a3ca7ec9098395f9d2e6b60d6a1a9839c60ac768d9c70ba229b8a63967e4cb",
+      "mapping": "VERIFIED_LITERAL_RETAINED_BODY_EXACT",
+      "assertions_and_connected_boundary": "FULL_SOURCE_READ_VERIFIED",
+      "review_note": "Actual block-device-path rejection and Unix-socket failure/framed refusal with no data/key creation readback."
+    },
+    {
+      "root_id": "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeAsksForGrantOnlyWhenBlank",
+      "category": "mixed",
+      "baseline_bounds": [
+        628,
+        681
+      ],
+      "current_bounds": [
+        628,
+        681
+      ],
+      "original_declaration_sha256": "f171a85cdf987b56a8c303aca7389cc1a3b7133b7afb4f3d53c2a791cad7531d",
+      "current_declaration_sha256": "f171a85cdf987b56a8c303aca7389cc1a3b7133b7afb4f3d53c2a791cad7531d",
+      "mapping": "VERIFIED_LITERAL_RETAINED_BODY_EXACT",
+      "assertions_and_connected_boundary": "FULL_SOURCE_READ_VERIFIED",
+      "review_note": "Independent synthetic net.Pipe typed reply plus real Unix-socket grant framing readback."
+    },
+    {
+      "root_id": "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeEffectsFormatOnlyWithAnUnspentGrant",
+      "category": "mixed",
+      "baseline_bounds": [
+        687,
+        740
+      ],
+      "current_bounds": [
+        687,
+        740
+      ],
+      "original_declaration_sha256": "319c800cf7e7bad6d9e03ab2306922adc105a1f159f9f825c4ba78b661065868",
+      "current_declaration_sha256": "319c800cf7e7bad6d9e03ab2306922adc105a1f159f9f825c4ba78b661065868",
+      "mapping": "VERIFIED_LITERAL_RETAINED_BODY_EXACT",
+      "assertions_and_connected_boundary": "FULL_SOURCE_READ_VERIFIED",
+      "review_note": "Independent mocked effect table/no-grant guard plus actual O_EXCL durable marker double-consumption refusal."
+    },
+    {
+      "root_id": "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeEmptyMountTarget",
+      "category": "integration",
+      "baseline_bounds": [
+        168,
+        226
+      ],
+      "current_bounds": [
+        168,
+        226
+      ],
+      "original_declaration_sha256": "21bbb105fe12afa0b9d81b8eb7bc167f8960b75dc85d6262d865d696cc599821",
+      "current_declaration_sha256": "21bbb105fe12afa0b9d81b8eb7bc167f8960b75dc85d6262d865d696cc599821",
+      "mapping": "VERIFIED_LITERAL_RETAINED_BODY_EXACT",
+      "assertions_and_connected_boundary": "FULL_SOURCE_READ_VERIFIED",
+      "review_note": "Actual open/read/chown/chmod/no-follow filesystem mount-target safety with conditional root success."
+    },
+    {
+      "root_id": "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeExchangeFraming",
+      "category": "unit",
+      "baseline_bounds": [
+        251,
+        291
+      ],
+      "current_bounds": [
+        251,
+        291
+      ],
+      "original_declaration_sha256": "200539092c659949b7d8d10e34a60d641004943cc067e118f6341014ecc579d7",
+      "current_declaration_sha256": "200539092c659949b7d8d10e34a60d641004943cc067e118f6341014ecc579d7",
+      "mapping": "VERIFIED_LITERAL_RETAINED_BODY_EXACT",
+      "assertions_and_connected_boundary": "FULL_SOURCE_READ_VERIFIED",
+      "review_note": "Synthetic net.Pipe byte responder for success/refusal/EOF and framing byte equality; unit."
+    },
+    {
+      "root_id": "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeFenceFailsClosed",
+      "category": "unit",
+      "baseline_bounds": [
+        951,
+        977
+      ],
+      "current_bounds": [
+        951,
+        977
+      ],
+      "original_declaration_sha256": "5374ce4ab816c4365b0fdb3704c2553c3638d2444a6e73b3e84fe300ec15c091",
+      "current_declaration_sha256": "5374ce4ab816c4365b0fdb3704c2553c3638d2444a6e73b3e84fe300ec15c091",
+      "mapping": "VERIFIED_LITERAL_RETAINED_BODY_EXACT",
+      "assertions_and_connected_boundary": "FULL_SOURCE_READ_VERIFIED",
+      "review_note": "Injected scalar mount checks and memoryRunner/failingRunner state/errors; no material boundary."
+    }
+  ],
+  "verified_evidence_spans": [
+    {
+      "path": "internal/host/terrabase_test.go",
+      "line": 45,
+      "end_line": 49,
+      "sha256_including_selected_LF": "8fde5313b21e06973c3c4583ccba4b6c87cc6b71baea493eb6f047392204a728",
+      "kind": "assertion"
+    },
+    {
+      "path": "internal/host/terrabase_test.go",
+      "line": 273,
+      "end_line": 360,
+      "sha256_including_selected_LF": "706ec399a5202a29d5d2999940501cdbe791353e612b99ce72c88631d67a0042",
+      "kind": "assertion"
+    },
+    {
+      "path": "internal/host/terrabase_test.go",
+      "line": 481,
+      "end_line": 508,
+      "sha256_including_selected_LF": "31b94211ea12d22dac0484c8513d696346ad950e0934e336948772b1de0406de",
+      "kind": "assertion"
+    },
+    {
+      "path": "internal/host/terrabase_test.go",
+      "line": 159,
+      "end_line": 168,
+      "sha256_including_selected_LF": "98ea37cf75505627ffb9c6e91118c0f2c0023cbf8b8df3f2d6c170ceadf032ce",
+      "kind": "assertion"
+    },
+    {
+      "path": "internal/host/terrabase_test.go",
+      "line": 175,
+      "end_line": 225,
+      "sha256_including_selected_LF": "6be9eed537ce3667007fc140ebf0bae4c5abe6f148aaafccd7969fe97f000cb5",
+      "kind": "assertion"
+    },
+    {
+      "path": "internal/host/terrabase_test.go",
+      "line": 368,
+      "end_line": 475,
+      "sha256_including_selected_LF": "167b83618ea77f81194eacf6e3e0917aebaccf1b5ecb8153bb72f157f81ca587",
+      "kind": "assertion"
+    },
+    {
+      "path": "internal/host/terrabase_volume_identity_test.go",
+      "line": 13,
+      "end_line": 66,
+      "sha256_including_selected_LF": "b9e0992cb97ff786033886d7c835af573c5f264434341ab86f9d826ba6eb8098",
+      "kind": "assertion"
+    },
+    {
+      "path": "internal/host/terrabase_volume_recovery_test.go",
+      "line": 236,
+      "end_line": 334,
+      "sha256_including_selected_LF": "315deb9d6d315f8e5b97cb4894a00d57abf1ee3f5b7695b1b3d44d097ad289ed",
+      "kind": "assertion"
+    },
+    {
+      "path": "internal/host/terrabase_volume_recovery_test.go",
+      "line": 338,
+      "end_line": 362,
+      "sha256_including_selected_LF": "d178681a2acc4dd314461246c135c0eefab6b404a169c59a02cc2554bd31a140",
+      "kind": "assertion"
+    },
+    {
+      "path": "internal/host/terrabase_volume_recovery_test.go",
+      "line": 204,
+      "end_line": 232,
+      "sha256_including_selected_LF": "cfcaa5d2851503c6c97beed94febd0808d7d85179638ea9e1361c63751cdd3b1",
+      "kind": "assertion"
+    },
+    {
+      "path": "internal/host/terrabase_volume_recovery_test.go",
+      "line": 59,
+      "end_line": 138,
+      "sha256_including_selected_LF": "198d978faac37f85408f6b5e2c1eb844600d6b18113cb9cc1cd9f31013ec46d8",
+      "kind": "assertion"
+    },
+    {
+      "path": "internal/host/terrabase_volume_recovery_test.go",
+      "line": 142,
+      "end_line": 200,
+      "sha256_including_selected_LF": "750ce86dea2829879160b7f6601e1b0e4f152c107de38f7275d9f16b7efcc421",
+      "kind": "assertion"
+    },
+    {
+      "path": "internal/host/terrabase_volume_test.go",
+      "line": 407,
+      "end_line": 412,
+      "sha256_including_selected_LF": "76c93629754c67603955995fcad74302a633a0b0121f290ff4108c4182a4b7b3",
+      "kind": "assertion"
+    },
+    {
+      "path": "internal/host/terrabase_volume_test.go",
+      "line": 747,
+      "end_line": 777,
+      "sha256_including_selected_LF": "05e8540badbd217760d1c2419da884a26ae5aeda65891257e09354d7a65e81e3",
+      "kind": "assertion"
+    },
+    {
+      "path": "internal/host/terrabase_volume_test.go",
+      "line": 297,
+      "end_line": 370,
+      "sha256_including_selected_LF": "14c371681355b05ebeeada99a55c050d1760ff62d1c43c6ba8711f571c9b44e5",
+      "kind": "assertion"
+    },
+    {
+      "path": "internal/host/terrabase_volume_test.go",
+      "line": 629,
+      "end_line": 680,
+      "sha256_including_selected_LF": "2241df6a03af82cc0a8fe6404374c3755bb4e5310f29611de249b38afc90594d",
+      "kind": "assertion"
+    },
+    {
+      "path": "internal/host/terrabase_volume_test.go",
+      "line": 688,
+      "end_line": 739,
+      "sha256_including_selected_LF": "9297bfca139d82cb0338b47298a3e384863baecbde1b5942d01c4613df862213",
+      "kind": "assertion"
+    },
+    {
+      "path": "internal/host/terrabase_volume_test.go",
+      "line": 169,
+      "end_line": 225,
+      "sha256_including_selected_LF": "3b0997cd58bc1e0aefba1feac15d648b876df18eb3cd5b38c6f6c60770c6fe4a",
+      "kind": "assertion"
+    },
+    {
+      "path": "internal/host/terrabase_volume_test.go",
+      "line": 252,
+      "end_line": 290,
+      "sha256_including_selected_LF": "d5900cffc0b565f0a7115e95ec8f4b0148908a2b9ca04e0b43d3d7f6acbc4aa6",
+      "kind": "assertion"
+    },
+    {
+      "path": "internal/host/terrabase_volume_test.go",
+      "line": 952,
+      "end_line": 976,
+      "sha256_including_selected_LF": "b131f1c03f772019e1317d9fe638b996cd364a97f97a41e65df8e433183ae384",
+      "kind": "assertion"
+    },
+    {
+      "group": "root_paths",
+      "path": "internal/host/terrabase_test.go",
+      "line": 230,
+      "end_line": 241,
+      "sha256_including_selected_LF": "638d98dc81b7bfd8aa4f6b780209a21a255bcd84351a48041e10aee91852981d",
+      "kind": "connected"
+    },
+    {
+      "group": "root_paths",
+      "path": "internal/host/terrabase.go",
+      "line": 91,
+      "end_line": 93,
+      "sha256_including_selected_LF": "ba1efde320385e207f397974862b92da0d679ed1fc9dd7545c339332ae4073fe",
+      "kind": "connected"
+    },
+    {
+      "group": "root_paths",
+      "path": "internal/host/terrabase.go",
+      "line": 100,
+      "end_line": 145,
+      "sha256_including_selected_LF": "2b44162acd0c0fcbc4c068b6031aff5f7ac4fbe6ac2912eff371ab10ce16d86c",
+      "kind": "connected"
+    },
+    {
+      "group": "root_paths",
+      "path": "internal/host/terrabase.go",
+      "line": 256,
+      "end_line": 342,
+      "sha256_including_selected_LF": "9157d3a2483ea53e8dc27b0e7456f825eadc89a11a2ae7981c0a60d32c9f5a59",
+      "kind": "connected"
+    },
+    {
+      "group": "root_paths",
+      "path": "internal/host/terrabase.go",
+      "line": 408,
+      "end_line": 431,
+      "sha256_including_selected_LF": "c12a2f766075012a0c4a21e2f7ffc465d9452756257d15ffeb0ac737c75a617e",
+      "kind": "connected"
+    },
+    {
+      "group": "root_paths",
+      "path": "internal/host/agent.go",
+      "line": 250,
+      "end_line": 294,
+      "sha256_including_selected_LF": "64c68b8e8b1ac9bb7b55267dac3632d35d519d0174314802b8acf42c649bb280",
+      "kind": "connected"
+    },
+    {
+      "group": "renewal",
+      "path": "internal/host/terrabase_test.go",
+      "line": 35,
+      "end_line": 38,
+      "sha256_including_selected_LF": "4f5e04f532dd3c12fb040095c5242b5e957384a5b570c832c2980362aab26067",
+      "kind": "connected"
+    },
+    {
+      "group": "renewal",
+      "path": "internal/host/terrabase_test.go",
+      "line": 52,
+      "end_line": 156,
+      "sha256_including_selected_LF": "bdbad4d888a49e35b00d38977cb1e687813204e30563c26ae810feffe8aa911e",
+      "kind": "connected"
+    },
+    {
+      "group": "renewal",
+      "path": "internal/host/terrabase.go",
+      "line": 188,
+      "end_line": 222,
+      "sha256_including_selected_LF": "bd43c59f64c3f0f423a5d363cd32af777e99f2eba9f0303a3b51960581790b28",
+      "kind": "connected"
+    },
+    {
+      "group": "renewal",
+      "path": "internal/host/terrabase.go",
+      "line": 226,
+      "end_line": 251,
+      "sha256_including_selected_LF": "db8b57a5a64714ef939a2d7aac8722172a8cefa103ce05160ce4b02dccd1630b",
+      "kind": "connected"
+    },
+    {
+      "group": "renewal",
+      "path": "internal/host/terrabase.go",
+      "line": 381,
+      "end_line": 401,
+      "sha256_including_selected_LF": "259d21ec92345055f3c016316e62c9215989593870474a48a2aec6805b5a28a2",
+      "kind": "connected"
+    },
+    {
+      "group": "renewal",
+      "path": "internal/terrabase/ca.go",
+      "line": 197,
+      "end_line": 209,
+      "sha256_including_selected_LF": "f7de16fb8c414df95f40b932d6a2bf1d878fc4d7ce3de096effc3b6b99b98232",
+      "kind": "connected"
+    },
+    {
+      "group": "renewal",
+      "path": "internal/terrabase/ca.go",
+      "line": 215,
+      "end_line": 226,
+      "sha256_including_selected_LF": "bd5e4dc0ab88bbb7a7bbe3793127dcf83b60b1db80a51f60fd5a847e70abcdc4",
+      "kind": "connected"
+    },
+    {
+      "group": "renewal",
+      "path": "internal/terrabase/contract.go",
+      "line": 239,
+      "end_line": 262,
+      "sha256_including_selected_LF": "8797cbfbc83f166b319e90911112f092a2fe3ae8fae518f1dd5aaa95bdcf3488",
+      "kind": "connected"
+    },
+    {
+      "group": "peer_selection",
+      "path": "internal/host/terrabase.go",
+      "line": 347,
+      "end_line": 357,
+      "sha256_including_selected_LF": "faad1aa92152a4a1eb980a15d86bbfaa4434473619755673dd03022f035ce5e3",
+      "kind": "connected"
+    },
+    {
+      "group": "peer_selection",
+      "path": "internal/host/terrabase.go",
+      "line": 363,
+      "end_line": 374,
+      "sha256_including_selected_LF": "f31482fc4c715b514a009adf9397dc6d79bab18a52f0864c0d87ef782ee3fff5",
+      "kind": "connected"
+    },
+    {
+      "group": "peer_selection",
+      "path": "internal/terrabase/contract.go",
+      "line": 82,
+      "end_line": 115,
+      "sha256_including_selected_LF": "5ddeae55513adbe0f41455bbe57cecd52b5a4a7f0616b7e9fd60d6a6e5715a09",
+      "kind": "connected"
+    },
+    {
+      "group": "peer_selection",
+      "path": "internal/terrabase/contract.go",
+      "line": 146,
+      "end_line": 152,
+      "sha256_including_selected_LF": "1f8d57c8df969e121b5f748a86cf5ec971add1b5215baf45866f6b505e3c1b8b",
+      "kind": "connected"
+    },
+    {
+      "group": "peer_selection",
+      "path": "internal/terrabase/contract.go",
+      "line": 158,
+      "end_line": 167,
+      "sha256_including_selected_LF": "2b66f657fe90bf92011567ead29bdcef37a608f75f2d82f1ef9ce6a77cb08f26",
+      "kind": "connected"
+    },
+    {
+      "group": "peer_certificate",
+      "path": "internal/host/terrabase.go",
+      "line": 50,
+      "end_line": 88,
+      "sha256_including_selected_LF": "cdb0118dd5d1311a053c02960d1b1b66a96327710c5754571f4e03fd1df7b276",
+      "kind": "connected"
+    },
+    {
+      "group": "peer_certificate",
+      "path": "internal/host/mutations.go",
+      "line": 102,
+      "end_line": 128,
+      "sha256_including_selected_LF": "57516e970975894386b0a1424314b055290eb615a1105d931584e1e889f59a95",
+      "kind": "connected"
+    },
+    {
+      "group": "peer_certificate",
+      "path": "internal/host/controller_test.go",
+      "line": 144,
+      "end_line": 156,
+      "sha256_including_selected_LF": "93b9f6fb30a1d44c601b0bfb5f78281452a59fd5fa0c70e2d3ac066e03416c6e",
+      "kind": "connected"
+    },
+    {
+      "group": "peer_certificate",
+      "path": "internal/host/controller_test.go",
+      "line": 164,
+      "end_line": 190,
+      "sha256_including_selected_LF": "ae9859b8fa4314cca1c290852d6205114b5c124f37d916ed97b818f063c1dbeb",
+      "kind": "connected"
+    },
+    {
+      "group": "peer_certificate",
+      "path": "internal/host/controller_test.go",
+      "line": 269,
+      "end_line": 326,
+      "sha256_including_selected_LF": "ed1361dd89cb52c363237c980fee85bb8c29f38d915880fa4f045e0a86c55337",
+      "kind": "connected"
+    },
+    {
+      "group": "peer_certificate",
+      "path": "internal/host/controller.go",
+      "line": 272,
+      "end_line": 351,
+      "sha256_including_selected_LF": "d36733b17c630684f9586102ea5584dfe6aa9155010ad619e980955073d847cd",
+      "kind": "connected"
+    },
+    {
+      "group": "peer_certificate",
+      "path": "internal/host/controller.go",
+      "line": 397,
+      "end_line": 521,
+      "sha256_including_selected_LF": "b5695348e07e8028b29ccdac1634d6a3a1be7f002fca04e4f9d0d4fb295dacfb",
+      "kind": "connected"
+    },
+    {
+      "group": "peer_certificate",
+      "path": "internal/terrabase/ca.go",
+      "line": 72,
+      "end_line": 91,
+      "sha256_including_selected_LF": "c260d02e183153fa8f4ef0fef0b3c04bedf045d8a73ce91ffd1e040184341998",
+      "kind": "connected"
+    },
+    {
+      "group": "peer_certificate",
+      "path": "internal/terrabase/ca.go",
+      "line": 100,
+      "end_line": 124,
+      "sha256_including_selected_LF": "71ec6c3e8c6f83804ae4a0ca84553229c61110e58cdd3d6d622237ef4e8f969b",
+      "kind": "connected"
+    },
+    {
+      "group": "peer_certificate",
+      "path": "internal/terrabase/ca.go",
+      "line": 159,
+      "end_line": 173,
+      "sha256_including_selected_LF": "1b8b95079e746f0efdb67d12d1150863c1d495cfef7d71c3c1e66f085b9b47f8",
+      "kind": "connected"
+    },
+    {
+      "group": "readiness",
+      "path": "internal/host/terrabase.go",
+      "line": 381,
+      "end_line": 401,
+      "sha256_including_selected_LF": "259d21ec92345055f3c016316e62c9215989593870474a48a2aec6805b5a28a2",
+      "kind": "connected"
+    },
+    {
+      "group": "readiness",
+      "path": "internal/terrabase/contract.go",
+      "line": 209,
+      "end_line": 234,
+      "sha256_including_selected_LF": "45b44aaefcdf9358accf33e6810d79ae5fce2971226b68987f8877cf50d91056",
+      "kind": "connected"
+    },
+    {
+      "group": "readiness",
+      "path": "internal/terrabase/contract.go",
+      "line": 239,
+      "end_line": 262,
+      "sha256_including_selected_LF": "8797cbfbc83f166b319e90911112f092a2fe3ae8fae518f1dd5aaa95bdcf3488",
+      "kind": "connected"
+    },
+    {
+      "group": "readiness",
+      "path": "internal/terrabase/ca.go",
+      "line": 215,
+      "end_line": 226,
+      "sha256_including_selected_LF": "bd5e4dc0ab88bbb7a7bbe3793127dcf83b60b1db80a51f60fd5a847e70abcdc4",
+      "kind": "connected"
+    },
+    {
+      "group": "controller_state",
+      "path": "internal/host/controller_test.go",
+      "line": 269,
+      "end_line": 326,
+      "sha256_including_selected_LF": "ed1361dd89cb52c363237c980fee85bb8c29f38d915880fa4f045e0a86c55337",
+      "kind": "connected"
+    },
+    {
+      "group": "controller_state",
+      "path": "internal/host/controller.go",
+      "line": 87,
+      "end_line": 154,
+      "sha256_including_selected_LF": "eed117a9465522430c58a30b3cd4f24a23e22d911a5075ed4258974568946b8e",
+      "kind": "connected"
+    },
+    {
+      "group": "controller_state",
+      "path": "internal/host/controller.go",
+      "line": 174,
+      "end_line": 194,
+      "sha256_including_selected_LF": "1bdc6209eb8ff65db45519478279f6f723dc008e19cc8f8c080e97eca7dbb623",
+      "kind": "connected"
+    },
+    {
+      "group": "controller_state",
+      "path": "internal/host/controller.go",
+      "line": 196,
+      "end_line": 208,
+      "sha256_including_selected_LF": "e09532cf166c731fc256f2f18086b43ae35e16f8876d2d0609e12f1343d47554",
+      "kind": "connected"
+    },
+    {
+      "group": "controller_state",
+      "path": "internal/host/controller.go",
+      "line": 231,
+      "end_line": 269,
+      "sha256_including_selected_LF": "44104416b56c975911db4959cbc7d55dc00ece29de715a968c582805aff3a02e",
+      "kind": "connected"
+    },
+    {
+      "group": "controller_state",
+      "path": "internal/host/terrabase_volume.go",
+      "line": 500,
+      "end_line": 502,
+      "sha256_including_selected_LF": "c07767a6e966bb6190529c29f9f03fc70142177e0ba5e3b781659015cfd2e78b",
+      "kind": "connected"
+    },
+    {
+      "group": "controller_state",
+      "path": "internal/host/terrabase_volume.go",
+      "line": 508,
+      "end_line": 564,
+      "sha256_including_selected_LF": "4f17e0c0d8c8bf126b3660b0a23d5b9041d2be0d576db189e0cefe73abf67391",
+      "kind": "connected"
+    },
+    {
+      "group": "attempt_and_grant",
+      "path": "internal/host/terrabase_volume_recovery_test.go",
+      "line": 26,
+      "end_line": 37,
+      "sha256_including_selected_LF": "5c133410891a30c8e7bd3963d242bdb9a02e038390602cac72d76c01fd648bac",
+      "kind": "connected"
+    },
+    {
+      "group": "attempt_and_grant",
+      "path": "internal/host/terrabase_volume_recovery_test.go",
+      "line": 39,
+      "end_line": 56,
+      "sha256_including_selected_LF": "a61545dc7a4c1b61db166be53538dd0bc402b13c92f4d927d5d750c2d6ee521d",
+      "kind": "connected"
+    },
+    {
+      "group": "attempt_and_grant",
+      "path": "internal/host/terrabase_volume.go",
+      "line": 385,
+      "end_line": 387,
+      "sha256_including_selected_LF": "2cc3791cdd8c0753f70749c55e6746eee6a80a97af33f4e8a24120a6d62595ee",
+      "kind": "connected"
+    },
+    {
+      "group": "attempt_and_grant",
+      "path": "internal/host/terrabase_volume.go",
+      "line": 391,
+      "end_line": 406,
+      "sha256_including_selected_LF": "0f287146d2629691d8f1b9fdf25e7a3a479890b36b9e7106a4785a80b575ed8c",
+      "kind": "connected"
+    },
+    {
+      "group": "attempt_and_grant",
+      "path": "internal/host/terrabase_volume.go",
+      "line": 408,
+      "end_line": 445,
+      "sha256_including_selected_LF": "1438f1038275af7f7e450b4427ab8deb26a89fd7257df69714fe34e2d03018dc",
+      "kind": "connected"
+    },
+    {
+      "group": "attempt_and_grant",
+      "path": "internal/host/terrabase_volume.go",
+      "line": 568,
+      "end_line": 604,
+      "sha256_including_selected_LF": "0767c1ee65299e0fc0f9c62fd70614cc3271e24efe532547c0793db510b2ce15",
+      "kind": "connected"
+    },
+    {
+      "group": "attempt_and_grant",
+      "path": "internal/host/managed_volume_helper.go",
+      "line": 512,
+      "end_line": 534,
+      "sha256_including_selected_LF": "526d92aa10bbbf13283b8a6f0d5573b84f604a48518754760f672f47157e862d",
+      "kind": "connected"
+    },
+    {
+      "group": "attempt_and_grant",
+      "path": "internal/protocol/envelope.go",
+      "line": 134,
+      "end_line": 201,
+      "sha256_including_selected_LF": "26785ccae3c0f151e90abdd2df93b01cb8f310d6c36e3d6026db953b86ec2791",
+      "kind": "connected"
+    },
+    {
+      "group": "effects",
+      "path": "internal/host/terrabase_volume.go",
+      "line": 453,
+      "end_line": 471,
+      "sha256_including_selected_LF": "70177b6188751baf3d589c330581a45f4a92af2ebebbf99d670f98e3d8e04411",
+      "kind": "connected"
+    },
+    {
+      "group": "effects",
+      "path": "internal/host/terrabase_volume.go",
+      "line": 609,
+      "end_line": 619,
+      "sha256_including_selected_LF": "781ee75fb1eefcf8cb2a899d2b51f46737961b6b92be400e10230d224f2d784e",
+      "kind": "connected"
+    },
+    {
+      "group": "effects",
+      "path": "internal/host/managed_volume_helper.go",
+      "line": 80,
+      "end_line": 110,
+      "sha256_including_selected_LF": "18312946345cf58fcd41d52d98d86b6e7d5d4a830b26c06e20bbafcd12cf0ad2",
+      "kind": "connected"
+    },
+    {
+      "group": "effects",
+      "path": "internal/host/managed_volume_helper.go",
+      "line": 112,
+      "end_line": 127,
+      "sha256_including_selected_LF": "f19584dd978d4f8cf85785f65aad157ac8ae0b7fcd4f44a7dc73649215c4ec6d",
+      "kind": "connected"
+    },
+    {
+      "group": "effects",
+      "path": "internal/host/managed_volume_helper.go",
+      "line": 512,
+      "end_line": 534,
+      "sha256_including_selected_LF": "526d92aa10bbbf13283b8a6f0d5573b84f604a48518754760f672f47157e862d",
+      "kind": "connected"
+    },
+    {
+      "group": "framing",
+      "path": "internal/host/managed_volume_init.go",
+      "line": 202,
+      "end_line": 229,
+      "sha256_including_selected_LF": "875bbd4b1058f12c7a4b81e0fd7c0e36bda47b5505d2e112b909142841686f6d",
+      "kind": "connected"
+    },
+    {
+      "group": "framing",
+      "path": "internal/host/terrabase_volume.go",
+      "line": 208,
+      "end_line": 238,
+      "sha256_including_selected_LF": "895d68045ad158c2bd6db6b2f3aa76e343c0fd7464b8e622d4168041ea7ef7f6",
+      "kind": "connected"
+    },
+    {
+      "group": "mount_fail_closed",
+      "path": "internal/host/terrabase_volume.go",
+      "line": 102,
+      "end_line": 125,
+      "sha256_including_selected_LF": "c56dd758c100b064e37f66161190f5102b9fb13d456ccd83886e8ec95c99d70e",
+      "kind": "connected"
+    },
+    {
+      "group": "mount_fail_closed",
+      "path": "internal/host/terrabase_volume.go",
+      "line": 130,
+      "end_line": 142,
+      "sha256_including_selected_LF": "75a71e59bfe6b3a7a52d681b25b1d3887b370633bd34901445c3d452fc9a7abe",
+      "kind": "connected"
+    },
+    {
+      "group": "mount_fail_closed",
+      "path": "internal/host/terrabase_volume.go",
+      "line": 149,
+      "end_line": 168,
+      "sha256_including_selected_LF": "5e9e07fba559f411d60eda7761cc33d1c342c0cbc600794e1b6a1e78f6374caa",
+      "kind": "connected"
+    },
+    {
+      "group": "mount_fail_closed",
+      "path": "internal/host/terrabase_volume.go",
+      "line": 172,
+      "end_line": 206,
+      "sha256_including_selected_LF": "a42a833e7eb5a0e140c42fa6ed75ee94f7a0af011c9190f12997e03987f9f0e2",
+      "kind": "connected"
+    },
+    {
+      "group": "mount_fail_closed",
+      "path": "internal/host/terrabase_volume.go",
+      "line": 242,
+      "end_line": 262,
+      "sha256_including_selected_LF": "34dc766308557e5afd4bafe7a7c506f9e9e4935a9b346940d2809ec4ee70d024",
+      "kind": "connected"
+    },
+    {
+      "group": "mount_fail_closed",
+      "path": "internal/host/managed_runtime.go",
+      "line": 233,
+      "end_line": 290,
+      "sha256_including_selected_LF": "634d64e26b1508e406fb1b739f692b31e592b9f00577cd6951d4652e2d3a6759",
+      "kind": "connected"
+    },
+    {
+      "group": "mount_fail_closed",
+      "path": "internal/host/controller_test.go",
+      "line": 2486,
+      "end_line": 2491,
+      "sha256_including_selected_LF": "c1cf3a23e0e5e0104da964f723beddbbc8612c106f88ad6a7336305b48641ff1",
+      "kind": "connected"
+    },
+    {
+      "group": "owned_dir",
+      "path": "internal/host/terrabase_volume_test.go",
+      "line": 445,
+      "end_line": 458,
+      "sha256_including_selected_LF": "a66334f8425092a6a01c94b5112eb10a096db90414c262da4b8bf088e8a1a648",
+      "kind": "connected"
+    },
+    {
+      "group": "owned_dir",
+      "path": "internal/host/terrabase_volume_test.go",
+      "line": 463,
+      "end_line": 481,
+      "sha256_including_selected_LF": "d0a6e76c66cc38fb0a383bd2f28cb65830bbf7f62a9d7775df7883e7765787ef",
+      "kind": "connected"
+    },
+    {
+      "group": "owned_dir",
+      "path": "internal/host/terrabase_volume_test.go",
+      "line": 483,
+      "end_line": 493,
+      "sha256_including_selected_LF": "de9814f383806b4d59518f3ce8da509aa0a47d1764a6495a462e692609b2d8b0",
+      "kind": "connected"
+    },
+    {
+      "group": "owned_dir",
+      "path": "internal/host/terrabase.go",
+      "line": 408,
+      "end_line": 431,
+      "sha256_including_selected_LF": "c12a2f766075012a0c4a21e2f7ffc465d9452756257d15ffeb0ac737c75a617e",
+      "kind": "connected"
+    },
+    {
+      "group": "empty_mount",
+      "path": "internal/host/terrabase_volume.go",
+      "line": 642,
+      "end_line": 670,
+      "sha256_including_selected_LF": "c936edc301a53dc4ad1773492e2533b42b07adffa3f6028434a5cedae6ab0463",
+      "kind": "connected"
+    },
+    {
+      "group": "empty_mount",
+      "path": "internal/host/terrabase_volume_test.go",
+      "line": 483,
+      "end_line": 493,
+      "sha256_including_selected_LF": "de9814f383806b4d59518f3ce8da509aa0a47d1764a6495a462e692609b2d8b0",
+      "kind": "connected"
+    },
+    {
+      "group": "fake_fence",
+      "path": "internal/host/terrabase_volume_test.go",
+      "line": 803,
+      "end_line": 823,
+      "sha256_including_selected_LF": "b2d283d4d780a044a8f90e020457cbc7f1af18aadc104f1e7e6a6093b82866a2",
+      "kind": "connected"
+    },
+    {
+      "group": "fake_fence",
+      "path": "internal/host/terrabase_volume_test.go",
+      "line": 933,
+      "end_line": 938,
+      "sha256_including_selected_LF": "9e32eead4a39ed0b3e7519696ec1d7290b987d313f857077b27e371384fa2308",
+      "kind": "connected"
+    },
+    {
+      "group": "fake_fence",
+      "path": "internal/host/terrabase_volume_test.go",
+      "line": 940,
+      "end_line": 946,
+      "sha256_including_selected_LF": "ab5be206bbe0937a98f18550266b7477bf659ca787d64496d2789bfd58ded831",
+      "kind": "connected"
+    },
+    {
+      "group": "fake_fence",
+      "path": "internal/host/controller_test.go",
+      "line": 251,
+      "end_line": 261,
+      "sha256_including_selected_LF": "53ed2b4cf8c98e9869bbf19e935a00cff5e94e3b33f9a26cd0a35468328a74db",
+      "kind": "connected"
+    },
+    {
+      "group": "fake_fence",
+      "path": "internal/host/terrabase_volume.go",
+      "line": 130,
+      "end_line": 142,
+      "sha256_including_selected_LF": "75a71e59bfe6b3a7a52d681b25b1d3887b370633bd34901445c3d452fc9a7abe",
+      "kind": "connected"
+    },
+    {
+      "group": "fake_fence",
+      "path": "internal/host/terrabase_volume.go",
+      "line": 149,
+      "end_line": 168,
+      "sha256_including_selected_LF": "5e9e07fba559f411d60eda7761cc33d1c342c0cbc600794e1b6a1e78f6374caa",
+      "kind": "connected"
+    }
+  ],
+  "resolved_findings": [
+    {
+      "root_id": "internal/host/terrabase_volume_recovery_test.go::TestTerraBaseDataVolumeGrantFramingRejectsInvalidAttempt",
+      "change": "integration\u2192unit",
+      "reason": "Synthetic net.Pipe malformed-token responder without actual project service/OS socket; dispatcher confirmed rule."
+    },
+    {
+      "root_id": "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeExchangeFraming",
+      "change": "integration\u2192unit",
+      "reason": "Synthetic net.Pipe success/refusal/EOF framing responder; no material external boundary."
+    },
+    {
+      "root_id": "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeAsksForGrantOnlyWhenBlank",
+      "change": "integration\u2192mixed",
+      "reason": "Independent net.Pipe-only typed-answer block628-647 and actual Unix-socket block648-681."
+    },
+    {
+      "root_id": "internal/host/terrabase_volume_recovery_test.go::TestTerraBaseDataVolumeDurableConsumptionSurvivesRestart",
+      "change": "mixed\u2192integration",
+      "reason": "All effect/replay blocks depend on actual KV grants and actual durable marker write/readback/Lstat; fake disk callbacks remain limits."
+    }
+  ],
+  "superseded_packet_hashes": [
+    "0cb29ba36bc3373dc2b8f10c8b98302ffc2b393424a5357555c1ea1320e16179",
+    "924f9644df4898e7048470d5a2c4530e520d690bc4b493e4d4800be07d50650b"
+  ],
+  "remaining_findings": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "qualification_limits": [
+    "No Go/build/test/lint/format/helper/scanner/parser/resource/privilege/cloud/crypto/TerraBase execution; source and metadata reads only.",
+    "No real OCI volume, mkfs/mount or TerraBase binary, actual process crash/restart, power-loss durability or deployment qualification.",
+    "Loopback/upstream NATS and filesystem boundaries are source-described only. Capability/root requirements and skips do not constitute runtime evidence.",
+    "All safety/identity/rejection/ordering/durability obligations retained; no ledger, accepted-count, retirement, deletion, runtime or global-completion credit."
+  ],
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  }
+}

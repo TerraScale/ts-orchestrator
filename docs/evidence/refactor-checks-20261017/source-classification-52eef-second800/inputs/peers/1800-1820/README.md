@@ -1,0 +1,1 @@
+Independent source-only acceptance of exact corrected144d5dcf packet for1800:1820.20 roots:18 integration,0 unit,2 mixed,0 unresolved. Two helper-local decoder findings resolved. Runtime UNKNOWN; no execution, ledger/count/retirement/qualification credit.

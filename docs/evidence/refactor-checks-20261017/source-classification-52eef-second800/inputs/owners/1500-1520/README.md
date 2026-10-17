@@ -1,0 +1,4 @@
+Source-only candidate other[1500:1520); twenty literal roots. Counts {'integration': 7, 'unit': 10, 'mixed': 2, 'unresolved': 1}.
+All40 raw declarations match survival/baseline/current; no body drift. Two roots retain unresolved assertions:1509 missing material provider blocks serving (earlier persistence only integration);1516 missing mandatory S3 pins blocks mount/alias/workload target and exact expected arguments are stale.
+Real boundaries: loopback upstream NATS/JetStream, durable credential files, managed directory ownership, Unix socket cleanup and live proc/cgroup witness. Crypto/schema/synthetic mountinfo remain unit.
+Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No repository/source/ledger mutation or runtime/count/deletion/retirement/completion credit. Independent review pending.

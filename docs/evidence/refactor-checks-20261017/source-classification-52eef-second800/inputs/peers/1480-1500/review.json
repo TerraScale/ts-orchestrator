@@ -1,0 +1,222 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_660_680",
+  "author": "/root/classification_100_dispatch/batch_680_700",
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-other-1480-1500-5jtoplhe/classification.json",
+    "sha256": "3dc1ceb2302c6cd4e3a916c0abcabf5b877ea488434434ca575a7faca6156491",
+    "checksum_path": "/tmp/ts-source-other-1480-1500-5jtoplhe/SHA256SUMS",
+    "checksum_sha256": "55d721b9ad8dfd482e3287610944bdd6ee3152119d3d3078f587b85f0b49c9d3"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": [
+      1480,
+      1500
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_660_680"
+  },
+  "root_ids": [
+    "internal/host/logs_test.go::TestFollowLogsPublishesEachMinuteOfJournalLines",
+    "internal/host/logs_test.go::TestFollowLogsReturnsAFailedStart",
+    "internal/host/logs_test.go::TestLogRetryDoublesToAMinuteAndStartsOverAfterAHealthyRun",
+    "internal/host/logs_test.go::TestPublishLogsRestartsJournalAfterAFailedStartAndPublishesItsMinutes",
+    "internal/host/logs_test.go::TestReadLogLinesSkipsAnOversizedLineButKeepsTheNext",
+    "internal/host/managed_backup_complete_sizes_test.go::TestBackupCompleteAuthorityRecordFitsOneMiBSizeOnlyBound",
+    "internal/host/managed_backup_complete_sizes_test.go::TestBackupCompleteConservativeMaxSignedHostFramesFit64KiB",
+    "internal/host/managed_backup_complete_sizes_test.go::TestBackupCompleteGoldenReleaseFitsHostRelayAndSerializedRecords",
+    "internal/host/managed_backup_material_test.go::TestManagedBackupLaunchReadsExactSignedMaterialAndKeepsSecretsOutOfArgs",
+    "internal/host/managed_backup_material_test.go::TestManagedBackupOwnerInstallsExactProtectedVaultVersions",
+    "internal/host/managed_backup_operation_test.go::TestBackupHeldRestartDiscoversR3WithoutPriorHostCommand",
+    "internal/host/managed_backup_operation_test.go::TestBackupHostCommandOnlyRelaysExactR3Envelope",
+    "internal/host/managed_backup_operation_test.go::TestBackupRelaySerializedBoundsAtDERAndCompleteCaps",
+    "internal/host/managed_client_material_test.go::TestManagedClientMaterialPinsFilesAndDeterministicPaths",
+    "internal/host/managed_client_material_test.go::TestManagedClientMaterialRequiresPinnedPrivateSQLBundleAndSocket",
+    "internal/host/managed_contract_test.go::TestManagedDesiredMemoryAndIdentityBoundaries",
+    "internal/host/managed_contract_test.go::TestManagedHostMemoryUsesPhysicalAndAncestorCaps",
+    "internal/host/managed_contract_test.go::TestManagedLaunchRejectsReserveDifferentFromBakedImage",
+    "internal/host/managed_contract_test.go::TestManagedReplyBinding",
+    "internal/host/managed_contract_test.go::TestReadRoleMemoryMax"
+  ],
+  "counts": {
+    "unit": 13,
+    "mixed": 6,
+    "integration": 1,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 complete current roots and connected actual fixture/production paths; assessed each asserted target and reached boundary. Injected strings readers, io.Pipe, publishers, clocks, resolvers, R3 readers and memoryRunner remain synthetic.",
+    "Verified exact ordered20 literal accounting and activated allocation IDs [1480,1500), every survival TSV mapping,40 baseline/current full raw declarations with canonical explicit bounds/text/SHA256/bytes, and20 entire-root assertion spans.",
+    "Verified32 canonical Git file pins for commit/path/mode/blob/SHA256/bytes,42 shared explicit source spans for bounds/text/SHA256/bytes, connected reference resolution, category counts, packet/checksum hashes and0444 files/0555 directory.",
+    "Confirmed root1490 current declaration drift relative to baseline and historical survival hash; preserved baseline and actual canonical declaration identities. Confirmed size-helper drift adds session/container fields without changing allocated size-root declarations.",
+    "Confirmed production protected-file loader/install/readback, temp meminfo/cgroup-file reads and NATS/JetStream state/request paths support only the stated source boundaries. Separate direct predicate blocks support mixed classifications. No source-visible blocked assertion identified."
+  ],
+  "root_assessments": [
+    {
+      "index": 1480,
+      "root_id": "internal/host/logs_test.go::TestFollowLogsPublishesEachMinuteOfJournalLines",
+      "category": "unit",
+      "independent_agreement": true,
+      "reason": "Injected journalOf uses strings.NewReader; capturePublish only decodes/appends in memory. Minute sequencing, classes, oversized accounting and silent windows are local assertions; no journal process or NATS publication."
+    },
+    {
+      "index": 1481,
+      "root_id": "internal/host/logs_test.go::TestFollowLogsReturnsAFailedStart",
+      "category": "unit",
+      "independent_agreement": true,
+      "reason": "Injected command immediately returns the synthetic sentinel error; followLogs returns before opening a journal or publishing."
+    },
+    {
+      "index": 1482,
+      "root_id": "internal/host/logs_test.go::TestLogRetryDoublesToAMinuteAndStartsOverAfterAHealthyRun",
+      "category": "unit",
+      "independent_agreement": true,
+      "reason": "Direct logRetry.failed calls with synthetic durations and errors assert local backoff doubling, cap and reset; logging is incidental."
+    },
+    {
+      "index": 1483,
+      "root_id": "internal/host/logs_test.go::TestPublishLogsRestartsJournalAfterAFailedStartAndPublishesItsMinutes",
+      "category": "unit",
+      "independent_agreement": true,
+      "reason": "Injected command/ticks/publisher and atomic clock assert retries, windows and cancellation. blockingJournal uses io.Pipe (Go in-memory reader/writer), not an OS pipe; no journalctl or NATS connection."
+    },
+    {
+      "index": 1484,
+      "root_id": "internal/host/logs_test.go::TestReadLogLinesSkipsAnOversizedLineButKeepsTheNext",
+      "category": "unit",
+      "independent_agreement": true,
+      "reason": "strings.NewReader plus callback records oversized markers and EOF; only local buffering/line splitting."
+    },
+    {
+      "index": 1485,
+      "root_id": "internal/host/managed_backup_complete_sizes_test.go::TestBackupCompleteAuthorityRecordFitsOneMiBSizeOnlyBound",
+      "category": "unit",
+      "independent_agreement": true,
+      "reason": "In-memory BackupOperationRecord marshaling asserts a one-MiB serializer bound. Proof/DER/terminal data are size placeholders, not validated committed R3 proof or store I/O."
+    },
+    {
+      "index": 1486,
+      "root_id": "internal/host/managed_backup_complete_sizes_test.go::TestBackupCompleteConservativeMaxSignedHostFramesFit64KiB",
+      "category": "unit",
+      "independent_agreement": true,
+      "reason": "Local relay matching and signed outer-frame serializers assert size caps. Inner proofs are explicitly signed-envelope-shaped size models; no controller listener, NATS exchange or KV access."
+    },
+    {
+      "index": 1487,
+      "root_id": "internal/host/managed_backup_complete_sizes_test.go::TestBackupCompleteGoldenReleaseFitsHostRelayAndSerializedRecords",
+      "category": "unit",
+      "independent_agreement": true,
+      "reason": "Golden fixture read is incidental input to local relay predicates, serialization sizes and locally signed/verified outer frames; no host protocol exchange or committed store readback."
+    },
+    {
+      "index": 1488,
+      "root_id": "internal/host/managed_backup_material_test.go::TestManagedBackupLaunchReadsExactSignedMaterialAndKeepsSecretsOutOfArgs",
+      "category": "mixed",
+      "independent_agreement": true,
+      "reason": "Production readManagedBackupMaterial reaches protected file Lstat/Open/Fstat/read/digest verification and peer secret-file absence/type/mode guards. Independent allowlist and golden digest assertions are unit-only; target/source/alias comparisons remain local semantic checks after input loading. No S3/Vault traffic."
+    },
+    {
+      "index": 1489,
+      "root_id": "internal/host/managed_backup_material_test.go::TestManagedBackupOwnerInstallsExactProtectedVaultVersions",
+      "category": "mixed",
+      "independent_agreement": true,
+      "reason": "Conditional on root: production prepareManagedBackupFiles installs root-owned protected files with Openat/Fchown/write/sync/Renameat2; readManagedClientFile reads exact bytes and metadata back; retry verifies existing files. Independent synthetic resolver call counts and wrong-key pre-install hash guard are unit evidence. Resolvers are fixtures, not Vault."
+    },
+    {
+      "index": 1490,
+      "root_id": "internal/host/managed_backup_operation_test.go::TestBackupHeldRestartDiscoversR3WithoutPriorHostCommand",
+      "category": "mixed",
+      "independent_agreement": true,
+      "reason": "Real upstream NATS server, loopback TCP client, JetStream KV writes/leader reads and signed Agent request/replies support pending/abort/status/renewal/process-bound command assertions. Independent backupProcessLocallyRecovered table and MatchesContainer replacement guards are local unit blocks. R3 reader/verifiers are synthetic and container kernel identity is manually constructed; no actual restart/container/backup execution."
+    },
+    {
+      "index": 1491,
+      "root_id": "internal/host/managed_backup_operation_test.go::TestBackupHostCommandOnlyRelaysExactR3Envelope",
+      "category": "unit",
+      "independent_agreement": true,
+      "reason": "Direct command.matchesRecord over synthetic records asserts exact envelope, roster/kind/size and abort precedence predicates; no R3 store/host network."
+    },
+    {
+      "index": 1492,
+      "root_id": "internal/host/managed_backup_operation_test.go::TestBackupRelaySerializedBoundsAtDERAndCompleteCaps",
+      "category": "unit",
+      "independent_agreement": true,
+      "reason": "backupRelayEnvelope and JSON marshaling over synthetic Cut DER/Complete payloads assert size limits locally; no KV write, real certificate validation or transport."
+    },
+    {
+      "index": 1493,
+      "root_id": "internal/host/managed_client_material_test.go::TestManagedClientMaterialPinsFilesAndDeterministicPaths",
+      "category": "mixed",
+      "independent_agreement": true,
+      "reason": "Production loader reads pinned protected files, checks actual key mode and rejects an actual FIFO using nonblocking no-follow open. Independent address tables and deterministic path rejection are local semantic assertions; their file setup is incidental. No TLS listener starts."
+    },
+    {
+      "index": 1494,
+      "root_id": "internal/host/managed_client_material_test.go::TestManagedClientMaterialRequiresPinnedPrivateSQLBundleAndSocket",
+      "category": "mixed",
+      "independent_agreement": true,
+      "reason": "Production loader reads the pinned SQL bundle and checks mismatched digest against actual bytes. Independent missing-pin and unsafe/conflicting socket semantic guards are unit blocks. Bundle bytes are synthetic; no SQL server/schema execution."
+    },
+    {
+      "index": 1495,
+      "root_id": "internal/host/managed_contract_test.go::TestManagedDesiredMemoryAndIdentityBoundaries",
+      "category": "unit",
+      "independent_agreement": true,
+      "reason": "Direct validateDesired table and withdrawal checks cover local memory and identity validation, using synthetic registration/desired values. No cgroup or process boundary."
+    },
+    {
+      "index": 1496,
+      "root_id": "internal/host/managed_contract_test.go::TestManagedHostMemoryUsesPhysicalAndAncestorCaps",
+      "category": "mixed",
+      "independent_agreement": true,
+      "reason": "Production validateManagedHostMemoryAt reads actual temp meminfo/membership/controller/memory.max files and traverses ancestors. Separate direct physicalMemoryBytes overflow check is unit-only. Files represent a cgroup hierarchy; no kernel cgroup limits are applied."
+    },
+    {
+      "index": 1497,
+      "root_id": "internal/host/managed_contract_test.go::TestManagedLaunchRejectsReserveDifferentFromBakedImage",
+      "category": "unit",
+      "independent_agreement": true,
+      "reason": "memoryRunner is a map-backed fake; injected memoryCheck proves reserve mismatch rejects before memory inspection, stops fake running role and never applies. No process/cgroup/runtime I/O is reached; native-root cleanup sees an empty map."
+    },
+    {
+      "index": 1498,
+      "root_id": "internal/host/managed_contract_test.go::TestManagedReplyBinding",
+      "category": "unit",
+      "independent_agreement": true,
+      "reason": "Direct validateDesiredReply and sameDesiredReplyBinding calls assert local revisions, registration generation and identity comparisons. No NATS request or controller state is read."
+    },
+    {
+      "index": 1499,
+      "root_id": "internal/host/managed_contract_test.go::TestReadRoleMemoryMax",
+      "category": "integration",
+      "independent_agreement": true,
+      "reason": "Production readCgroupMemoryMax reads actual memory.max file content for each value and returns parsed limit/error. Local filesystem boundary materially supports asserted readback, without actual cgroup enforcement."
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "unresolved_roots": 0,
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE; no source/test/helper/build/runtime/signing/crypto execution; runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION.",
+    "Root1489 protected installation is conditional on Linux/root. Fixture Vault resolvers do not establish live Vault/OCI/S3 delivery. Other protected material tests establish only reached local filesystem checks.",
+    "Root1490 fixture starts upstream NATS server directly and uses loopback TCP plus JetStream; it does not call natscell.Start. Synthetic R3 records/verifiers and constructed process/container identity do not establish durable R3 recovery, real host restart, container execution or kernel identity.",
+    "Size roots assert local serialization and predicates with placeholder proof/DER data; golden fixture reads are incidental. Temp cgroup hierarchy files do not establish kernel cgroup enforcement.",
+    "No repository/source/ledger mutation, deletion/retirement authorization, qualification, global count/completion promotion or runtime credit. All safety obligations retained."
+  ],
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "source_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  }
+}

@@ -1,0 +1,246 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_880_900",
+  "author": "/root/classification_100_dispatch/batch_900_920",
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": [
+      1700,
+      1720
+    ]
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "accepted": true,
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-1700-1720-vyq08j3m/classification.json",
+    "sha256": "90d1204a90dbb4e2fbfe7c7e451518c2775acb791d078d6b2a67abf53b4574df",
+    "checksum_path": "/tmp/ts-source-classification-1700-1720-vyq08j3m/SHA256SUMS",
+    "checksum_sha256": "c579fcb234644b4d61dc4005a4b86e3edf7f6e6f639848602d9eab27a7e73f23"
+  },
+  "own_source_frozen_before_peer": {
+    "path": "/tmp/ts-source-classification-second-1680-1700-1otq9cqs/classification.json",
+    "sha256": "fc607a6850cfc6d889ca0ad0cb45390f3fd7411f953a4b79e204fd545a03bab5"
+  },
+  "root_ids": [
+    "internal/identityrekey/checkpoint_test.go::TestSlotAcceptanceWireVector",
+    "internal/identityrekey/host_state_test.go::TestHostStateHandoffCanonicalRootPins",
+    "internal/identityrekey/host_state_test.go::TestHostStateHandoffHeadsWorkWithHostValidators",
+    "internal/identityrekey/host_state_test.go::TestHostStateHandoffMatchesIdentityResetTransaction",
+    "internal/identityrekey/host_state_test.go::TestHostStateHandoffNoHostsStillRequiresRegionalRetirementCoverage",
+    "internal/identityrekey/host_state_test.go::TestHostStateHandoffOrphanHeadsWorkWithHostValidators",
+    "internal/identityrekey/host_state_test.go::TestHostStateHandoffPinsTombstoneOperation",
+    "internal/identityrekey/host_state_test.go::TestHostStateHandoffRejectsStaleOrUnpinnedAuthority",
+    "internal/identityrekey/host_state_test.go::TestHostStateHandoffRejectsUnsafeFacts",
+    "internal/identityrekey/host_state_test.go::TestHostStateHandoffRequiresRetirementPredecessorOrAbsence",
+    "internal/identityrekey/host_state_test.go::TestHostStateHandoffRetainsHistoricalEnrollmentEvidence",
+    "internal/identityrekey/host_state_test.go::TestHostStateHandoffRetiresOrphanWithoutEnrollmentAuthority",
+    "internal/identityrekey/host_state_test.go::TestHostStateHandoffStaticTerraBaseWithoutBlockVolume",
+    "internal/image/offline_review_test.go::TestImageBuildRejectsUnpinnedNetBirdBeforeGuestEffects",
+    "internal/image/promote_outputs_review_test.go::TestBuildReleaseToolWritesToAnAbsoluteDirectory",
+    "internal/image/promote_outputs_review_test.go::TestFreshOutputMovesAsideOnlyOnResume",
+    "internal/image/promote_outputs_review_test.go::TestWriteCheckpointIsAtomicAndIdempotent",
+    "internal/image/promote_production_integration_test.go::TestPromotionRejectsProductionProofBeforeOCI",
+    "internal/image/promote_resume_test.go::TestReusableImportRequiresTheSameTarget",
+    "internal/image/promote_resume_test.go::TestReuseReleaseToolRequiresRecordedDigestAndCleanSource"
+  ],
+  "counts": {
+    "integration": 3,
+    "unit": 13,
+    "mixed": 3,
+    "unresolved": 1
+  },
+  "checks_performed": [
+    "Independently read all20 full test declarations, the entire shared host-validator helper527-693, all fixture and cited connected source spans; followed actual file/process/store paths and distinguishing local assertions.",
+    "Verified exact allocation/survival mappings and40 baseline/current raw declarations using independently read literal bounds; full assertion/root/helper text matches pinned bytes.",
+    "Verified all28 source pins for Git blob/mode/SHA256/byte count and all45 connected spans for exact text/bounds/blob; checked packet/SHA256SUMS/input hashes and0444/0555 freeze modes.",
+    "Reviewed real upstream server.NewServer+nats.Connect loopback path, FileStorage head readback, idempotent Register/ApplyDesired and GrantStore read/update/cached renewal; no natscell.Start or production authority write claim.",
+    "Reviewed image file rename/checkpoint persistence, injected Exec path capture/tool metadata, and external shell verifier error/order path. Confirmed missing ELF fixture inputs block intended NetBird safety guards."
+  ],
+  "root_decisions": [
+    {
+      "root_id": "internal/identityrekey/checkpoint_test.go::TestSlotAcceptanceWireVector",
+      "category": "unit",
+      "decision": "accepted_source_classification",
+      "independent_basis": "Fixed NKeys/acceptance digest vector operates entirely on local values.",
+      "unresolved_assertions": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/identityrekey/host_state_test.go::TestHostStateHandoffCanonicalRootPins",
+      "category": "unit",
+      "decision": "accepted_source_classification",
+      "independent_basis": "Canonical root pins, values, cloning and zero authority are pure plan derivation/sign/verify; plan is not applied.",
+      "unresolved_assertions": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/identityrekey/host_state_test.go::TestHostStateHandoffHeadsWorkWithHostValidators",
+      "category": "mixed",
+      "decision": "accepted_source_classification",
+      "independent_basis": "Actual upstream loopback TCP server with FileStorage supports head discovery, idempotent host validators and KV renewal CAS; separate grant metadata assertions inspect plan bytes locally.",
+      "unresolved_assertions": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/identityrekey/host_state_test.go::TestHostStateHandoffMatchesIdentityResetTransaction",
+      "category": "unit",
+      "decision": "accepted_source_classification",
+      "independent_basis": "IdentityReset comparison is a local schema/fingerprint/action/predecessor/epoch predicate, no reset commit.",
+      "unresolved_assertions": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/identityrekey/host_state_test.go::TestHostStateHandoffNoHostsStillRequiresRegionalRetirementCoverage",
+      "category": "unit",
+      "decision": "accepted_source_classification",
+      "independent_basis": "Empty-host regional coverage is verified in locally constructed plan/reset data.",
+      "unresolved_assertions": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/identityrekey/host_state_test.go::TestHostStateHandoffOrphanHeadsWorkWithHostValidators",
+      "category": "mixed",
+      "decision": "accepted_source_classification",
+      "independent_basis": "Orphan branch shares genuine loopback head/store paths plus independent local grant metadata checks.",
+      "unresolved_assertions": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/identityrekey/host_state_test.go::TestHostStateHandoffPinsTombstoneOperation",
+      "category": "unit",
+      "decision": "accepted_source_classification",
+      "independent_basis": "DEL/PURGE are literal predecessor metadata, no tombstone effect is performed.",
+      "unresolved_assertions": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/identityrekey/host_state_test.go::TestHostStateHandoffRejectsStaleOrUnpinnedAuthority",
+      "category": "unit",
+      "decision": "accepted_source_classification",
+      "independent_basis": "Observation/signature/expiry/plan mutation rejection is in-memory.",
+      "unresolved_assertions": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/identityrekey/host_state_test.go::TestHostStateHandoffRejectsUnsafeFacts",
+      "category": "unit",
+      "decision": "accepted_source_classification",
+      "independent_basis": "Unsafe host/volume/generation facts are synthetic values; no real device or host observations.",
+      "unresolved_assertions": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/identityrekey/host_state_test.go::TestHostStateHandoffRequiresRetirementPredecessorOrAbsence",
+      "category": "unit",
+      "decision": "accepted_source_classification",
+      "independent_basis": "Required retirement predecessor coverage is a local map/key predicate.",
+      "unresolved_assertions": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/identityrekey/host_state_test.go::TestHostStateHandoffRetainsHistoricalEnrollmentEvidence",
+      "category": "unit",
+      "decision": "accepted_source_classification",
+      "independent_basis": "Historical enrollment age/signature checks and plan grant bytes remain local.",
+      "unresolved_assertions": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/identityrekey/host_state_test.go::TestHostStateHandoffRetiresOrphanWithoutEnrollmentAuthority",
+      "category": "unit",
+      "decision": "accepted_source_classification",
+      "independent_basis": "Orphan fencing/withdrawal/session/grant records are returned data; no host effects are applied.",
+      "unresolved_assertions": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/identityrekey/host_state_test.go::TestHostStateHandoffStaticTerraBaseWithoutBlockVolume",
+      "category": "unit",
+      "decision": "accepted_source_classification",
+      "independent_basis": "Static no-volume plan omission is pure derivation, not formatting or volume integration.",
+      "unresolved_assertions": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/image/offline_review_test.go::TestImageBuildRejectsUnpinnedNetBirdBeforeGuestEffects",
+      "category": "unresolved",
+      "decision": "accepted_source_classification",
+      "independent_basis": "Unresolved retained: OfflineBuild binaryArchitecture on uncreated literal binary precedes NetBird guard; first Fatal also blocks GuestBuild. GuestBuild independently has empty Binary/NativeVerifier before guard.",
+      "unresolved_assertions": [
+        "OfflineBuild expected supplied NetBird SHA-256 rejection lacks valid Binary input: elf.Open(\"binary\") precedes guard.",
+        "Later GuestBuild expected NetBird bytes rejection is not reached after first Fatal and independently passes empty Binary/NativeVerifier, which precede VerifyBinary. No intended guest-effect safety credit."
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/image/promote_outputs_review_test.go::TestBuildReleaseToolWritesToAnAbsoluteDirectory",
+      "category": "unit",
+      "decision": "accepted_source_classification",
+      "independent_basis": "Absolute output assertion checks captured callback argument and returned path; dummy executable stat/hash is incidental, no build/checkout process.",
+      "unresolved_assertions": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/image/promote_outputs_review_test.go::TestFreshOutputMovesAsideOnlyOnResume",
+      "category": "integration",
+      "decision": "accepted_source_classification",
+      "independent_basis": "Production freshOutput Lstat/Rename plus Stat/Glob readback support actual file move/refusal; same-effect log assertion adds no independent local block.",
+      "unresolved_assertions": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/image/promote_outputs_review_test.go::TestWriteCheckpointIsAtomicAndIdempotent",
+      "category": "integration",
+      "decision": "accepted_source_classification",
+      "independent_basis": "Production writeCheckpoint temp write/sync/chmod/rename and file readback support idempotence/content/mode/cleanup. Crash atomicity is untested.",
+      "unresolved_assertions": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/image/promote_production_integration_test.go::TestPromotionRejectsProductionProofBeforeOCI",
+      "category": "integration",
+      "decision": "accepted_source_classification",
+      "independent_basis": "Production Promote crosses actual shell fixture processes and files; exit42/log path/order assertions stop before OCI/resume. Stub verifier does not qualify production proof verification.",
+      "unresolved_assertions": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/image/promote_resume_test.go::TestReusableImportRequiresTheSameTarget",
+      "category": "unit",
+      "decision": "accepted_source_classification",
+      "independent_basis": "reusableImport is a pure map/string target predicate.",
+      "unresolved_assertions": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/image/promote_resume_test.go::TestReuseReleaseToolRequiresRecordedDigestAndCleanSource",
+      "category": "mixed",
+      "decision": "accepted_source_classification",
+      "independent_basis": "Persistent record/tool-byte readback supports reuse/digest mismatch; independently injected dirty-source metadata assertion makes mixed.",
+      "unresolved_assertions": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    }
+  ],
+  "resolved_review_findings": [],
+  "remaining_review_findings": [],
+  "retained_source_findings": [
+    {
+      "root_id": "internal/image/offline_review_test.go::TestImageBuildRejectsUnpinnedNetBirdBeforeGuestEffects",
+      "severity": "source_blocker",
+      "detail": "Source cannot credit intended NetBird guards: OfflineBuild attempts elf.Open(\"binary\") before expected digest mismatch but root creates only NetBird artifact. Later GuestBuild has empty Binary/NativeVerifier and is blocked before VerifyBinary even if reached. Intended assertion category remains unresolved; file setup/hash is incidental."
+    }
+  ],
+  "qualification_limits": [
+    "Acceptance is source-classification only; retained unresolved root and both intended NetBird guards receive no assertion/safety credit.",
+    "Loopback single-replica JetStream and shell program fixtures do not qualify production clustering, leases, reset application, cryptographic image proof, GitHub, OCI, Vault, devices or guest effects.",
+    "No tests, Go, source helpers/scanners/parsers, build/lint, resource probes, signing/crypto/service execution or cloud operations performed; ordinary file/Git/hash and metadata packaging only.",
+    "No source/repository/ledger/runtime/count/deletion/retirement/completion mutation, promotion or credit; all safety obligations retained."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "NONE_SOURCE_ONLY_NO_LEDGER_COUNT_DELETION_RETIREMENT_OR_RUNTIME_QUALIFICATION_PROMOTION"
+}

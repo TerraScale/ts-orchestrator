@@ -1,0 +1,237 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1080_1100",
+  "author": "/root/classification_100_dispatch/batch_00_20",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-1100-1120-bzulclnh/classification.json",
+    "sha256": "7272de77d0ca9898f107a719fb29a1e1183c777b0321b084cdc9b1a53d4a1a91",
+    "checksum_path": "/tmp/ts-source-classification-1100-1120-bzulclnh/SHA256SUMS",
+    "checksum_sha256": "0fd95c1f14b77cb1082a9303ee8c4e5519ccf26c984a22dea4f04ad998929820"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "literal_range": [
+    1100,
+    1120
+  ],
+  "root_ids": [
+    "internal/bootstrapstart/material_restore_test.go::TestRestoreIntactMaterialDoesNotReadVault",
+    "internal/bootstrapstart/material_restore_test.go::TestRestoreKeepsTheNewerInstalledChain",
+    "internal/bootstrapstart/material_restore_test.go::TestRestoredMaterialPassesRestartAdmission",
+    "internal/bootstrapstart/material_restore_test.go::TestRestoredOfflineControllerCredentialsPassRestartAdmission",
+    "internal/bootstrapstart/material_test.go::TestServiceMaterialInstallIsExactNoReplaceAndOwnerOnly",
+    "internal/bootstrapstart/material_test.go::TestServiceMaterialRejectsSymlinkAndUntrustedParent",
+    "internal/bootstrapstart/material_test.go::TestServiceUIDCanReadRootInstalledMaterial",
+    "internal/bootstrapstart/materialsource/source_integration_test.go::TestColdMaterialHTTPConcurrentBootAndHostLossRecovery",
+    "internal/bootstrapstart/runtime_authority_integration_test.go::TestRuntimeAuthorityHTTPIntegration",
+    "internal/bootstrapstart/trust_inputs_test.go::TestTrustInputsDoNotReadRetiredIdentityOrAnchor",
+    "internal/bootstrapstart/trust_inputs_test.go::TestTrustInputsNonemptyChainRequiresAcceptedDeploymentLineage",
+    "internal/bootstrapstart/trust_inputs_test.go::TestTrustInputsRejectIndirectOrWritableAdoptedChain",
+    "internal/bootstrapstart/trust_inputs_test.go::TestTrustInputsRejectUnsafeGenesisFiles",
+    "internal/brokerauth/ticket_test.go::TestDelayedIssuerCannotSignAfterLeaderLoss",
+    "internal/brokerauth/ticket_test.go::TestMeasureHealthyClockRequiresFreshBound",
+    "internal/brokerauth/ticket_test.go::TestTicketBindsDurableClaimBrokerNonceAndMonotonicDeadline",
+    "internal/cellspec/cellspec_test.go::TestArtifactStoreLevelValidateAndDiff",
+    "internal/cellspec/cellspec_test.go::TestAtlasLevelValidateDiffAndWiden",
+    "internal/cellspec/cellspec_test.go::TestAuthorityChanges",
+    "internal/cellspec/cellspec_test.go::TestCandidateReadsUnsignedAndSignedFiles"
+  ],
+  "counts": {
+    "integration": 9,
+    "unit": 8,
+    "mixed": 3,
+    "unresolved": 0
+  },
+  "decision": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+  "checks_performed": [
+    "Independent read of all20 full canonical roots and connected actual production/fixture/client/store paths; source only.",
+    "All20 exact accounting IDs/order and activated owner/peer allocation matched; every survival row matched original/current identity, hashes, kind and state.",
+    "All40 raw baseline/current declarations independently matched literal bounds, start/name, column-zero close, exact text and SHA256; no body drift.",
+    "All44 file pins matched exact Git commit/path/blob/mode/SHA256/bytes; all117 assertion/category/connected spans matched exact canonical text and Git blobs.",
+    "Packet, input and checksum-file hashes verified; packet files0444 and directory0555 independently checked.",
+    "Semantic review retained filesystem-versus-fake-Vault limits, direct conditional parent-owned subprocess boundary, SDK HTTP simulator scope, independent pre-I/O blocks, local-only ticket/cellspec predicates and cold-call blocker."
+  ],
+  "per_root_independent_assessment": [
+    {
+      "root_id": "internal/bootstrapstart/material_restore_test.go::TestRestoreIntactMaterialDoesNotReadVault",
+      "category": "mixed",
+      "assessment": "1100: actual installed readback supports intact inventory; independent missing-map callback error returns before directory open. Mixed."
+    },
+    {
+      "root_id": "internal/bootstrapstart/material_restore_test.go::TestRestoreKeepsTheNewerInstalledChain",
+      "category": "unit",
+      "assessment": "1101: newerChain selects among in-memory chain bytes; fixture disk setup does not support the target assertion. Unit."
+    },
+    {
+      "root_id": "internal/bootstrapstart/material_restore_test.go::TestRestoredMaterialPassesRestartAdmission",
+      "category": "integration",
+      "assessment": "1102: actual adopt/remove/refill and RestartPins/VerifyRestart readback support restored admission; Vault is a byte-map callback. Integration."
+    },
+    {
+      "root_id": "internal/bootstrapstart/material_restore_test.go::TestRestoredOfflineControllerCredentialsPassRestartAdmission",
+      "category": "integration",
+      "assessment": "1103: offline generated credentials installed, removed, restored and read through restart admission; no NATS server or real reboot. Integration."
+    },
+    {
+      "root_id": "internal/bootstrapstart/material_test.go::TestServiceMaterialInstallIsExactNoReplaceAndOwnerOnly",
+      "category": "integration",
+      "assessment": "1104: production install opens actual files and rejects replacement; owner-only mode/readback asserted. Integration."
+    },
+    {
+      "root_id": "internal/bootstrapstart/material_test.go::TestServiceMaterialRejectsSymlinkAndUntrustedParent",
+      "category": "integration",
+      "assessment": "1105: actual symlink and untrusted-parent directory opens rejected by production no-follow/stat checks. Integration."
+    },
+    {
+      "root_id": "internal/bootstrapstart/material_test.go::TestServiceUIDCanReadRootInstalledMaterial",
+      "category": "integration",
+      "assessment": "1106: conditional root-owned material installation and nobody subprocess read are asserted within the same parent root; no standalone-helper accounting. Integration."
+    },
+    {
+      "root_id": "internal/bootstrapstart/materialsource/source_integration_test.go::TestColdMaterialHTTPConcurrentBootAndHostLossRecovery",
+      "category": "integration",
+      "assessment": "1107: only earlier foundation-only grant rejection393-395 crosses SDK loopback HTTP and supports narrow integration; missing SourceFounder argument at396+ leaves all later assertions unresolved/uncredited."
+    },
+    {
+      "root_id": "internal/bootstrapstart/runtime_authority_integration_test.go::TestRuntimeAuthorityHTTPIntegration",
+      "category": "mixed",
+      "assessment": "1108: signed selection SDK HTTP reads and real durable floor support runtime identities; changed-instance block95-100 rejects before I/O. Fixture explicitly normalizes seed-a to controller-c. Mixed."
+    },
+    {
+      "root_id": "internal/bootstrapstart/trust_inputs_test.go::TestTrustInputsDoNotReadRetiredIdentityOrAnchor",
+      "category": "mixed",
+      "assessment": "1109: actual genesis-key reads plus independent invalid accepted-deployment validation before I/O. Mixed."
+    },
+    {
+      "root_id": "internal/bootstrapstart/trust_inputs_test.go::TestTrustInputsNonemptyChainRequiresAcceptedDeploymentLineage",
+      "category": "integration",
+      "assessment": "1110: actual adopted-chain writes/reads support deployment-lineage rejection; Scope cell regexp allows uppercase fixture values, so no uppercase construction blocker. Integration."
+    },
+    {
+      "root_id": "internal/bootstrapstart/trust_inputs_test.go::TestTrustInputsRejectIndirectOrWritableAdoptedChain",
+      "category": "integration",
+      "assessment": "1111: production reads reject symlink/writable adopted-chain files through real open/stat checks. Integration."
+    },
+    {
+      "root_id": "internal/bootstrapstart/trust_inputs_test.go::TestTrustInputsRejectUnsafeGenesisFiles",
+      "category": "integration",
+      "assessment": "1112: production genesis-root reads reject unsafe symlink/mode variants through real filesystem checks. Integration."
+    },
+    {
+      "root_id": "internal/brokerauth/ticket_test.go::TestDelayedIssuerCannotSignAfterLeaderLoss",
+      "category": "unit",
+      "assessment": "1113: paused fake fencer Guard returns ErrFenced before claim store/authority Observe; no durable store or leader-loss boundary. Unit."
+    },
+    {
+      "root_id": "internal/brokerauth/ticket_test.go::TestMeasureHealthyClockRequiresFreshBound",
+      "category": "unit",
+      "assessment": "1114: fixed ClockProbe samples and local health predicates; no kernel/NTP probe. Unit."
+    },
+    {
+      "root_id": "internal/brokerauth/ticket_test.go::TestTicketBindsDurableClaimBrokerNonceAndMonotonicDeadline",
+      "category": "unit",
+      "assessment": "1115: signed byte values checked against constructed claim/snapshot and local deadlines; no durable broker claim store or transport. Unit."
+    },
+    {
+      "root_id": "internal/cellspec/cellspec_test.go::TestArtifactStoreLevelValidateAndDiff",
+      "category": "unit",
+      "assessment": "1116: artifact-store level/validation/diff in local Spec values. Unit."
+    },
+    {
+      "root_id": "internal/cellspec/cellspec_test.go::TestAtlasLevelValidateDiffAndWiden",
+      "category": "unit",
+      "assessment": "1117: Atlas JSON fixture read supplies values; asserted level/validation/widening uses local predicates, no Atlas service. Unit."
+    },
+    {
+      "root_id": "internal/cellspec/cellspec_test.go::TestAuthorityChanges",
+      "category": "unit",
+      "assessment": "1118: AuthorityChanges/Diff compare constructed maps and slices; no service effect. Unit."
+    },
+    {
+      "root_id": "internal/cellspec/cellspec_test.go::TestCandidateReadsUnsignedAndSignedFiles",
+      "category": "unit",
+      "assessment": "1119: unsigned/signed bytes decoded by Candidate; no filesystem/service read by production Candidate. Unit."
+    }
+  ],
+  "independent_connected_evidence": [
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/trust/envelope.go",
+      "function": "scope regexp constants",
+      "line": 53,
+      "end_line": 55,
+      "git_blob": "b525ec7a2bba0fb81c2c4f51f5e503394eb0b5cc",
+      "mode": "100644",
+      "file_sha256": "3c90601156d882bb761fa45b7a72542de6a9b96042272a155a8b6c87f745ac5a",
+      "file_bytes": 21424,
+      "text": "\tcellRE              = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)\n\ttokenRE             = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)\n\tslotRE              = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$`)\n"
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/trust/envelope.go",
+      "function": "Scope.validate",
+      "line": 441,
+      "end_line": 453,
+      "git_blob": "b525ec7a2bba0fb81c2c4f51f5e503394eb0b5cc",
+      "mode": "100644",
+      "file_sha256": "3c90601156d882bb761fa45b7a72542de6a9b96042272a155a8b6c87f745ac5a",
+      "file_bytes": 21424,
+      "text": "func (scope Scope) validate() error {\n\tif !domainRE.MatchString(scope.Domain) {\n\t\treturn fmt.Errorf(\"%w: scope domain\", ErrInvalid)\n\t}\n\tif scope.Domain == DelegationDomain && scope == delegationScope() {\n\t\treturn nil\n\t}\n\tif !entityid.Valid(scope.DeploymentID) || !cellRE.MatchString(scope.Cell) ||\n\t\t!tokenRE.MatchString(scope.Environment) || !tokenRE.MatchString(scope.Role) || !slotRE.MatchString(scope.Slot) {\n\t\treturn fmt.Errorf(\"%w: incomplete or invalid scope\", ErrInvalid)\n\t}\n\treturn nil\n}\n"
+    },
+    {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/bootstrapstart/founder_runtime_test.go",
+      "function": "founderFixtureWithAdmissibleRelease",
+      "line": 244,
+      "end_line": 361,
+      "git_blob": "a85aabe5a1d27e104e0c7d22696ee0e5c926297c",
+      "mode": "100644",
+      "file_sha256": "f30aec06eb81e8e5966ca744073795c5a566d82affa6c330c3e3d31430431e45",
+      "file_bytes": 65854,
+      "text": "func founderFixtureWithAdmissibleRelease(t *testing.T, fixture *founderSignerFixture) {\n\tt.Helper()\n\tanchorEnvelope, err := trust.DecodeEnvelope(fixture.anchorWire)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tvar anchor bootstrap.BootstrapAnchor\n\tif err := protocol.DecodeStrict(anchorEnvelope.Payload, &anchor, bootstrap.MaxBootstrapAnchorBytes); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tanchor.ControllerSlots = []string{\"controller-a\", \"controller-b\", \"controller-c\"}\n\tanchor.LedgerDelegationWire = signTestDelegation(t, fixture.root, fixture.ledgerKey.Public().(ed25519.PublicKey),\n\t\t[]string{\"bootstrap-slot-head\", \"bootstrap-intent\", \"bootstrap-result\", \"bootstrap-candidate\", \"bootstrap-progress\"},\n\t\tanchor.ControllerSlots, fixture.now.Add(-time.Hour), fixture.now.Add(24*time.Hour))\n\tanchorEnvelope, err = bootstrap.SignBootstrapAnchor(anchor, fixture.now.Add(-time.Minute), fixture.now.Add(23*time.Hour), fixture.root)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfixture.anchorWire = envelopeWire(t, anchorEnvelope)\n\tfixture.baked.AnchorWire = bytes.Clone(fixture.anchorWire)\n\tfixture.accepted.Slot, fixture.accepted.SeedSlot = \"controller-c\", \"controller-c\"\n\tfixture.accepted.AnchorSHA256 = digest(fixture.anchorWire)\n\tfixture.plan.SeedSlot, fixture.plan.ControllerSlots = \"controller-c\", anchor.ControllerSlots\n\tfixture.plan.AnchorSHA256, fixture.selection.AnchorSHA256 = digest(fixture.anchorWire), digest(fixture.anchorWire)\n\tfor i := range fixture.selection.Manifests {\n\t\tif fixture.selection.Manifests[i].Slot == \"seed-a\" {\n\t\t\tfixture.selection.Manifests[i].Slot = \"controller-c\"\n\t\t}\n\t}\n\tfor i := range fixture.plan.Peers {\n\t\tfor j := range fixture.plan.Peers[i].RouteEndpoints {\n\t\t\tif fixture.plan.Peers[i].RouteEndpoints[j].Slot == \"seed-a\" {\n\t\t\t\tfixture.plan.Peers[i].RouteEndpoints[j].Slot = \"controller-c\"\n\t\t\t}\n\t\t}\n\t\tslot := fixture.plan.Peers[i].Slot\n\t\tfixture.plan.Peers[i].TLSMaterial = bootstrap.FounderTLSMaterialDigests{\n\t\t\tClientCA: digest([]byte(\"ca.pem\")), ClientCertificate: digest([]byte(slot + \"-tls-cert.pem\")),\n\t\t\tClientPrivateKey: digest([]byte(slot + \"-tls-key.pem\")), RouteCA: digest([]byte(\"ca.pem\")),\n\t\t\tRouteCertificate: digest([]byte(slot + \"-tls-cert.pem\")), RoutePrivateKey: digest([]byte(slot + \"-tls-key.pem\")),\n\t\t}\n\t}\n\n\timageWire, grantWire := founderRuntimeImageWires(t, fixture)\n\tmanifests := make(map[string][]byte, 3)\n\tfor slot, wire := range fixture.manifests {\n\t\tenvelope, err := trust.DecodeEnvelope(wire)\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tvar manifest bootstrap.Manifest\n\t\tif err := protocol.DecodeStrict(envelope.Payload, &manifest, bootstrap.MaxManifestBytes); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tif slot == \"seed-a\" {\n\t\t\tslot = \"controller-c\"\n\t\t}\n\t\tmanifest.Slot, manifest.SeedSlot, manifest.ControllerSlots = slot, \"controller-c\", anchor.ControllerSlots\n\t\tfor i := range manifest.Profiles {\n\t\t\tif manifest.Profiles[i].Slot == \"seed-a\" {\n\t\t\t\tmanifest.Profiles[i].Slot = \"controller-c\"\n\t\t\t}\n\t\t}\n\t\toffline := manifest.Secrets\n\t\tmanifest.Secrets = acceptedReferences(slot)\n\t\tfor _, ref := range offline {\n\t\t\tif ref.Purpose == bootstrap.SecretSeedFounder || ref.Purpose == bootstrap.SecretSeedLedgerSigner {\n\t\t\t\tref.Slot = slot\n\t\t\t\tmanifest.Secrets = append(manifest.Secrets, ref)\n\t\t\t}\n\t\t}\n\t\tmanifest.ReleaseReceiptSHA256 = digestWire(imageWire)\n\t\tmanifest.ReleaseImageReceiptWire = imageWire\n\t\tmanifest.ReleaseDelegationWire = grantWire\n\t\tmanifest.ControllerFiles = nil\n\t\taddTestControllerConfig(&manifest)\n\t\tenvelope, err = bootstrap.SignManifest(manifest, fixture.now.Add(-time.Minute),\n\t\t\tfixture.now.Add(22*time.Hour), fixture.root)\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tmanifests[slot], err = trust.EncodeEnvelope(envelope)\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\tfixture.manifests = manifests\n\tfixture.accepted.ManifestSHA256 = digestWire(fixture.manifests[fixture.accepted.Slot])\n\tfixture.plan.SeedManifestSHA256 = fixture.accepted.ManifestSHA256\n\tfor index := range fixture.plan.Peers {\n\t\tfixture.plan.Peers[index].ManifestSHA256 = digestWire(fixture.manifests[fixture.plan.Peers[index].Slot])\n\t}\n\tpayload, err := trust.EncodePayload(fixture.plan)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tplanEnvelope, err := trust.Sign(payload, trust.Scope{Domain: bootstrap.FounderPlanDomain,\n\t\tDeploymentID: fixture.plan.DeploymentID, Cell: string(fixture.plan.Cell),\n\t\tEnvironment: fixture.plan.Environment, Role: \"controller\", Slot: fixture.plan.SeedSlot},\n\t\tfixture.now.Add(-time.Minute), fixture.now.Add(22*time.Hour), fixture.root)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfixture.planWire, err = trust.EncodeEnvelope(planEnvelope)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfixture.selection.Generation = 2\n\tfixture.selection.PlanSHA256 = digestWire(fixture.planWire)\n\tfor index := range fixture.selection.Manifests {\n\t\tfixture.selection.Manifests[index].SHA256 = digestWire(fixture.manifests[fixture.selection.Manifests[index].Slot])\n\t}\n\tfixture.publish(t, fixture.selection)\n\tfixture.current, err = fixture.reader(t).ReadCurrent(t.Context(), fixture.now)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n}\n"
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [
+    {
+      "kind": "source_call_shape_blocker",
+      "root_id": "internal/bootstrapstart/materialsource/source_integration_test.go::TestColdMaterialHTTPConcurrentBootAndHostLossRecovery",
+      "detail": "Required SourceFounder actor argument missing from calls at396+; later assertions uncredited. No compile or runtime result inferred."
+    }
+  ],
+  "source_blockers": [
+    {
+      "kind": "source_call_shape_blocker",
+      "root_id": "internal/bootstrapstart/materialsource/source_integration_test.go::TestColdMaterialHTTPConcurrentBootAndHostLossRecovery",
+      "detail": "Required SourceFounder actor argument missing from calls at396+; later assertions uncredited. No compile or runtime result inferred."
+    }
+  ],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No compilation, test result or runtime qualification claimed.",
+    "No source/repository/ledger mutation, Go/build/test/formatter/lint/benchmark/helper execution, process/resource probes, cloud, privilege, signing/crypto, TerraBase execution or download occurred. Only canonical file/Git reads and metadata hashing/serialization.",
+    "All20 baseline/current declarations have identical blobs/bodies and all40 raw declaration hashes match historical mapping. Exact literal accounting IDs preserved; no drift.",
+    "Material recovery uses actual local filesystem/admission reads with fake Vault byte maps. Reboot is directory removal/refill, not OS/process restart. Credential admission fixture disables controller-key validation and never starts NATS. Root-to-service test is conditional on root/nobody and was not run.",
+    "HTTP tests target local httptest OCI protocol emulators, not OCI. Nonempty Authorization headers are checked, not real IAM. Runtime authority fixture normalizes seed-a to controller-c before SDK reads; no seed-slot contradiction carried.",
+    "Cold material root1107 has a source-visible8-versus7 argument contradiction from396 onward. All later cold-start/concurrency/Vault/host-loss assertions remain explicitly unresolved/uncredited. Its source category credits only earlier393-395 loopback HTTP foundation-only grant rejection; no compilation/execution claim.",
+    "Ticket roots use fixed samples, in-memory snapshots and fake fencing; no durable claim store, kernel probe, actual leader loss or broker transport. Cellspec fixture file reading is incidental; no Atlas/TerraBase/Vault service execution.",
+    "All trust, signature, negative, no-replacement, ownership, symlink, lineage, fencing, deadline and recovery obligations retained. Independent peer required; no ledger/count/deletion/retirement/qualification/completion promotion."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "ledger_mutated": false,
+    "repository_mutated": false,
+    "deletion_credit": 0,
+    "retirement_credit": 0,
+    "count_promotion": 0,
+    "runtime_qualification_credit": 0,
+    "global_completion": false
+  },
+  "verified_span_counts": {
+    "assertion_evidence": 20,
+    "category_blocks": 7,
+    "connected_source": 90
+  }
+}

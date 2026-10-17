@@ -1,0 +1,4 @@
+Source-only final successor other_unadjudicated[1520:1540).
+4 integration /13 unit /3 mixed /0 unresolved.
+Adds actual NATS leader read and local request guard spans; preserves prior packets.
+Runtime UNKNOWN; no source/ledger/execution/retirement/promotion.

@@ -1,0 +1,111 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/peer_60_80",
+  "author": "/root/classification_100_dispatch/peer_80_100",
+  "allocation_range": [
+    1280,
+    1300
+  ],
+  "disposition": "ACCEPTED_SOURCE_CLASSIFICATION_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-52eef-second1280-1300-rw7htx91/classification.json",
+    "sha256": "80a7b233695043c4864889ebf18d6ef20269c26bb2fd8ee36781f1fca6d6ac99",
+    "sha256sums_path": "/tmp/ts-source-classification-52eef-second1280-1300-rw7htx91/SHA256SUMS",
+    "sha256sums_sha256": "80c7e514dd646461b69905e8d54550e584b83939dfe95e83c8cc4dd6512870ba"
+  },
+  "canonical_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "canonical_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation_manifest": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c"
+  },
+  "accounting_manifest": {
+    "path": "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json",
+    "sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513",
+    "selector": "original_root_ids_by_disposition.other_unadjudicated[1280:1300]"
+  },
+  "survival_manifest": {
+    "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+    "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+  },
+  "root_ids": [
+    "internal/dashboard/review_test.go::TestChainPanelClosesOnItsOwnPage",
+    "internal/dashboard/review_test.go::TestConsumerSeriesKeepTheirStream",
+    "internal/dashboard/review_test.go::TestDashboardScriptGuards",
+    "internal/dashboard/review_test.go::TestDerivedVersionsKeepTheLocalSnapshot",
+    "internal/dashboard/review_test.go::TestDiskCapacityCountsSharedFilesystemsOnce",
+    "internal/dashboard/review_test.go::TestEmptyHistoryIsNotClaimedWhenTheQueryFailedOrIsPartial",
+    "internal/dashboard/review_test.go::TestEmptyTimelinesSayWhy",
+    "internal/dashboard/review_test.go::TestEntityLinksUseTheEntitysRegion",
+    "internal/dashboard/review_test.go::TestFilterOptionsKeepTheActiveValues",
+    "internal/dashboard/review_test.go::TestGzipQualityZeroIsRefused",
+    "internal/dashboard/review_test.go::TestHeatmapColumnsFollowTheSampleResolution",
+    "internal/dashboard/review_test.go::TestHeatmapKeepsTheSampleAtTheRangeEnd",
+    "internal/dashboard/review_test.go::TestInsightIdentityIsRegionScoped",
+    "internal/dashboard/review_test.go::TestInsightsPageEmptyStatesAreHonest",
+    "internal/dashboard/review_test.go::TestOCIRateEvidenceChartsTheSummedPerMinuteRate",
+    "internal/dashboard/review_test.go::TestPartialHistoryIsNotBlamedOnRegions",
+    "internal/dashboard/review_test.go::TestPartialReleaseHistoryIsNotCompleteEverywhere",
+    "internal/dashboard/review_test.go::TestPartitionTileSparklinePlotsPartitionHistory",
+    "internal/dashboard/review_test.go::TestRegionFiltersFollowTheSelectedRegion",
+    "internal/dashboard/review_test.go::TestRegionReadinessListsEveryMember"
+  ],
+  "counts": {
+    "integration": 12,
+    "unit": 8,
+    "mixed": 0,
+    "unresolved": 0
+  },
+  "checks_performed": {
+    "full_roots_independently_read": 20,
+    "baseline_current_full_raw_declarations_verified": 40,
+    "literal_survival_and_allocation_mappings_verified": 20,
+    "source_file_blob_mode_sha256_bytes_pins_verified": 38,
+    "exact_evidence_span_occurrences_verified": 142,
+    "connected_actual_path_citations_independently_read": 80,
+    "complete_assertion_interiors_verified": 20,
+    "canonical_tree_pin_verified": true,
+    "immutable_packet_file_and_directory_modes_verified": true,
+    "packet_and_all_checksum_entries_verified": true,
+    "citation_references_resolve": true,
+    "all_runtime_retirement_and_safety_fields_verified": true
+  },
+  "source_boundary_findings": [
+    "fixturePage starts httptest.NewServer and uses its HTTP client GET; real loopback HTTP materially supports the twelve page/chart integration roots even with synthetic providers.",
+    "get uses httptest request/ResponseRecorder and direct Handler.ServeHTTP; the eight roots with only this path remain unit. Source asset string assertions do not execute a browser.",
+    "Metric history is NewHistory/Append/Range in-memory synthetic state. Entity IDs, query matching/chains, state/filter/link transformations and derived versions use local values; no NATS, OCI, disk collector, production authentication or linked navigation is proven.",
+    "No independent local assertion block establishes a mixed root. Setup and response JSON extraction remain part of the reached assertion path."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [
+    {
+      "allocation_index": 1287,
+      "root_id": "internal/dashboard/review_test.go::TestEntityLinksUseTheEntitysRegion",
+      "status": "UNRESOLVED_UNCREDITED_EXPECTATION",
+      "finding": "Fixture region entity Href /regions/sfo at review_test.go287 is passed by insights_templ.go544 to State.adopt. state.go215\u2013218 preserves the /regions/sfo path; it does not emit the root literal /region?r=sfo at293. This one expectation remains uncredited. Errorf permits the four other independent link checks to continue. The unit category is retained.",
+      "credit": false,
+      "runtime_failure_claimed": false,
+      "evidence_refs": [
+        "accepted packet root1287 baseline/current declarations and complete assertion interior",
+        "accepted packet citations links, insight_chart_link_emit, action_link_emit"
+      ]
+    }
+  ],
+  "corrections_requested": false,
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "qualification_limits": [
+    "Source-only independent classification acceptance, not a runtime pass, coverage claim or qualification receipt.",
+    "No source/repository/ledger edits, Go/build/test/lint/format/benchmark execution, project helpers/scanners/parsers/frameworks, runtime/process/resource probes, privilege/cloud/signing/crypto/TerraBase execution or downloads. Only immutable source/file reads, ordinary text searches/hashes and stdlib metadata checking/packaging of explicit manually reviewed spans.",
+    "No global count/completion promotion, ledger mutation, deletion, retirement or transfer of excluded work."
+  ],
+  "accounting_effect": {
+    "canonical_ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "promotion_authorized": false,
+    "global_completion": false
+  }
+}

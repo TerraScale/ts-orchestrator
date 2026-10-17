@@ -1,0 +1,341 @@
+{
+  "schema": "independent-source-peer-review-minimal-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_940_960",
+  "author": "/root/classification_100_dispatch/batch_960_980",
+  "status": "ACCEPTED_SOURCE_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-1760-1780-5eenow5m/classification.json",
+    "sha256": "668c0fa83eb5ada2a91afa568d2c5c2c1b3fab634ccc7eb7bdcff371e8d0bdfc",
+    "checksum_path": "/tmp/ts-source-1760-1780-5eenow5m/SHA256SUMS",
+    "checksum_sha256": "eca4e4aa5c1652d4f1faa48d8710927cfb4577808bed956af6378837420fe811"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c"
+  },
+  "range": [
+    1760,
+    1780
+  ],
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/kvsnapshot/kvsnapshot_test.go::TestSnapshotUploadsOnlyForwardChanges",
+    "internal/kvsnapshot/machines_test.go::TestMachineAndIndexRestoreTogetherAfterDeleteAndUploadFailure",
+    "internal/kvsnapshot/objects_integration_test.go::TestDiscoverObjectsUsesTheRegionalVersionedKMSBucket",
+    "internal/kvsnapshot/status_test.go::TestSnapshotClassifiesAnHTTPDeadline",
+    "internal/kvsnapshot/status_test.go::TestSnapshotDeadlineDoesNotStarveLaterBuckets",
+    "internal/kvsnapshot/status_test.go::TestSnapshotErrorClassesAreBounded",
+    "internal/kvsnapshot/status_test.go::TestSnapshotStatusConfirmsAnExistingObjectWithoutClaimingAnUpload",
+    "internal/kvsnapshot/status_test.go::TestSnapshotStatusDistinguishesOverdueChecksFromUnchangedUploads",
+    "internal/kvsnapshot/status_test.go::TestSnapshotStatusDoesNotWaitForAnUploadAndIsThreadSafe",
+    "internal/kvsnapshot/status_test.go::TestSnapshotStatusReadsCurrentAuthority",
+    "internal/kvsnapshot/status_test.go::TestSnapshotStatusRequiresEveryBucketToBeKnown",
+    "internal/kvsnapshot/status_test.go::TestSnapshotStatusRetainsEvidenceAndRefreshesUnchangedBuckets",
+    "internal/kvsnapshot/status_test.go::TestUnchangedSnapshotDetectsStorageFailureAndRepairsMissingObject",
+    "internal/liveverify/oidc_test.go::TestOIDCNeverRequestsWritingRoutesOrSendsCredentials",
+    "internal/liveverify/verify_test.go::TestGetCancelsInflightRequest",
+    "internal/liveverify/verify_test.go::TestHealthRejectsInvalidEvidence",
+    "internal/liveverify/verify_test.go::TestOrchestratorFailedHealthCannotBecomeUnknown",
+    "internal/liveverify/verify_test.go::TestOrchestratorRejectsInvalidSnapshot",
+    "internal/liveverify/verify_test.go::TestRunLivenessLeavesMissingEvidenceUnknownAndOnlyReads",
+    "internal/liveverify/verify_test.go::TestRunNeverFollowsRedirects"
+  ],
+  "counts": {
+    "integration": 14,
+    "unit": 0,
+    "mixed": 6,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all 20 full canonical roots including every table/subtest, assertion branch, fake fault and connected actual paths before accepting categories.",
+    "Verified literal allocation/order against activated manifest and original other_unadjudicated[1760:1780), exact survival raw rows, names, states and historical declaration hashes.",
+    "Reconstructed baseline/current raw declarations at the explicit bounds from immutable Git blobs and verified text/hash/func-to-column-zero-brace rule; no canonical body drift.",
+    "Recomputed all 20 full-file Git blob/mode/SHA256/byte pins; verified 76 explicit raw declaration/assertion/connected spans text/hash/bounds. Checked packet/checksum hashes and files0444/dir0555.",
+    "Followed upstream NATS loopback TCP and real JetStream FileStorage operations; concrete SDK-to-httptest HTTP and disk-backed object storage; actual machine record/index restore/list paths; liveverify http.Client.Do request/cancellation/redirect/wire validation paths.",
+    "Confirmed six mixed roots retain independent local clock/leader/unknown-bucket/initial/defensive-copy/fixed-UNKNOWN report assertions; remaining14 roots materially use real boundaries.",
+    "Read supplemental production machine/config/workload validation and catalog lookup to check setup reachability; the fixture region gru and zero workload spec have no source-visible validation contradiction. Protocol JSON caller path also checked.",
+    "No source execution, tests, build, scanners/parsers, runtime probes, cryptographic/cloud calls, repo/ledger/source modifications or children."
+  ],
+  "per_root_review": [
+    {
+      "root_id": "internal/kvsnapshot/kvsnapshot_test.go::TestSnapshotUploadsOnlyForwardChanges",
+      "category": "integration",
+      "status": "ACCEPTED",
+      "source_rationale_verified": "SnapshotOnce reads real JetStream stream/KV state and uses the OCI SDK over loopback HTTP. Written counts, server PUT count, SDK document readback, and newer-lineage refusal establish forward-only object updates. Status assertions report that same boundary outcome.",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/kvsnapshot/machines_test.go::TestMachineAndIndexRestoreTogetherAfterDeleteAndUploadFailure",
+      "category": "integration",
+      "status": "ACCEPTED",
+      "source_rationale_verified": "Production machines store writes a machine and app lookup through real JetStream. Snapshot capture crosses SDK HTTP to disk-backed objects; distinct rebuilt JetStream stores restore and list the retained pair before and after failed/repaired deletion upload. The authority fencer is a stub, so real authority fencing is not qualified.",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/kvsnapshot/objects_integration_test.go::TestDiscoverObjectsUsesTheRegionalVersionedKMSBucket",
+      "category": "integration",
+      "status": "ACCEPTED",
+      "source_rationale_verified": "Every table case obtains namespace/bucket responses through the real OCI SDK HTTP client before evaluating discovery. The valid case snapshots a real JetStream value through the discovered object client and reads it back via Objects.Get. Synthetic server bucket metadata does not prove live OCI versioning or KMS.",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/kvsnapshot/status_test.go::TestSnapshotClassifiesAnHTTPDeadline",
+      "category": "integration",
+      "status": "ACCEPTED",
+      "source_rationale_verified": "The HTTP hook signals that a real SDK request reached the loopback server, waits for its request cancellation, and SnapshotOnce must return an error classified timeout. This is HTTP cancellation/error propagation, not a standalone injected error predicate.",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/kvsnapshot/status_test.go::TestSnapshotDeadlineDoesNotStarveLaterBuckets",
+      "category": "integration",
+      "status": "ACCEPTED",
+      "source_rationale_verified": "Canceled passes demonstrably reach the blocked HTTP GET; rotating passes upload the other real JetStream bucket, read its HTTP document, retain prior success across cancellation and reconfirm without another PUT. The clock controls evidence timestamps but assertions describe the completed/canceled boundary operations.",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/kvsnapshot/status_test.go::TestSnapshotErrorClassesAreBounded",
+      "category": "integration",
+      "status": "ACCEPTED",
+      "source_rationale_verified": "Each bounded class is produced by a real SDK HTTP PUT failure after reading real JetStream state. Failed status and serialized omission of the server error string assert propagation/redaction of that boundary result; no independent synthetic-error classifier call is used.",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/kvsnapshot/status_test.go::TestSnapshotStatusConfirmsAnExistingObjectWithoutClaimingAnUpload",
+      "category": "integration",
+      "status": "ACCEPTED",
+      "source_rationale_verified": "A fresh Snapshotter reads an existing object through SDK HTTP, reports zero newly written buckets and no LastUploadedAt, and preserves the server PUT count of one. Metadata is tied to actual object confirmation.",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/kvsnapshot/status_test.go::TestSnapshotStatusDistinguishesOverdueChecksFromUnchangedUploads",
+      "category": "mixed",
+      "status": "ACCEPTED",
+      "source_rationale_verified": "Independent local clock/deadline and stub-Leader checks at 100:113 assert overdue/follower policy without I/O. Separately, 115:121 reconfirms the unchanged object over real JetStream/SDK HTTP, checks zero writes and one server PUT, and refreshes confirmation while preserving upload time.",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/kvsnapshot/status_test.go::TestSnapshotStatusDoesNotWaitForAnUploadAndIsThreadSafe",
+      "category": "integration",
+      "status": "ACCEPTED",
+      "source_rationale_verified": "The server hook blocks an actual HTTP PUT; concurrent Status reads must return while that request remains in flight, expose the completed first bucket and unknown second bucket, and become current after release. Repeated readers add thread-interleaving coverage but source alone does not establish a race-detector result.",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/kvsnapshot/status_test.go::TestSnapshotStatusReadsCurrentAuthority",
+      "category": "mixed",
+      "status": "ACCEPTED",
+      "source_rationale_verified": "Initial unknown/interval and mutable synthetic Leader checks at 195:197 and 201:204 are local policy. Separately, the completed real JetStream-to-HTTP snapshot at 198:200 supplies the retained successful evidence asserted current at 205:208. It does not exercise real authority leadership transitions.",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/kvsnapshot/status_test.go::TestSnapshotStatusRequiresEveryBucketToBeKnown",
+      "category": "mixed",
+      "status": "ACCEPTED",
+      "source_rationale_verified": "Appending a configured bucket and asking Status at 133:136 is a separate local unknown-bucket aggregation check. The later pass obtains real JetStream absent/empty stream observations and asserts both returned states at 137:142.",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/kvsnapshot/status_test.go::TestSnapshotStatusRetainsEvidenceAndRefreshesUnchangedBuckets",
+      "category": "mixed",
+      "status": "ACCEPTED",
+      "source_rationale_verified": "Initial unknown state at 25:27 and defensive-copy mutation isolation at 72:75 are independent local metadata checks. Other blocks assert actual JetStream capture, SDK HTTP upload/confirmation/failure/recovery, server PUT counts, retained sequence/timestamps and exclusion of returned storage error/value material from status JSON.",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/kvsnapshot/status_test.go::TestUnchangedSnapshotDetectsStorageFailureAndRepairsMissingObject",
+      "category": "integration",
+      "status": "ACCEPTED",
+      "source_rationale_verified": "An unchanged local bucket still performs SDK HTTP GET and surfaces injected 403 while retaining last confirmation. Removing the disk-backed object then requires a new HTTP PUT, counted as the second upload, and a current status.",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/liveverify/oidc_test.go::TestOIDCNeverRequestsWritingRoutesOrSendsCredentials",
+      "category": "mixed",
+      "status": "ACCEPTED",
+      "source_rationale_verified": "Actual discovery/JWKS HTTP requests and trap-server counters materially support safe method/credential/path/redirect and response-validation assertions. The separate JWT acceptance row at 86 is an unconditional local UNKNOWN report policy from oidc.go:44, independent of those network outcomes.",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/liveverify/verify_test.go::TestGetCancelsInflightRequest",
+      "category": "integration",
+      "status": "ACCEPTED",
+      "source_rationale_verified": "The loopback HTTP handler signals receipt and waits on request cancellation. Canceling the caller context must stop verifier.get promptly and return canceled evidence, establishing real HTTP cancellation propagation.",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/liveverify/verify_test.go::TestHealthRejectsInvalidEvidence",
+      "category": "integration",
+      "status": "ACCEPTED",
+      "source_rationale_verified": "Each health document/status/header is served over real HTTP. Production get and health fetch it, enforce the size limit and regional/version/status requirements, and report PASS/FAIL including oversized diagnostics. Assertions also inspect actual request method/path/Authorization.",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/liveverify/verify_test.go::TestOrchestratorFailedHealthCannotBecomeUnknown",
+      "category": "integration",
+      "status": "ACCEPTED",
+      "source_rationale_verified": "Production orchestrator performs actual health/readiness/snapshot HTTP GETs. 503 health/readiness and 401 snapshot must preserve FAIL rather than downgrade it to UNKNOWN.",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/liveverify/verify_test.go::TestOrchestratorRejectsInvalidSnapshot",
+      "category": "integration",
+      "status": "ACCEPTED",
+      "source_rationale_verified": "Each synthetic snapshot is serialized by the loopback HTTP server and fetched through production orchestrator/get before version/cell/role/readiness/build/member/time validation. This is HTTP wire validation of fixture observations, not evidence of a deployed controller.",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/liveverify/verify_test.go::TestRunLivenessLeavesMissingEvidenceUnknownAndOnlyReads",
+      "category": "mixed",
+      "status": "ACCEPTED",
+      "source_rationale_verified": "The HTTP server inspects actual GET paths/method/body/cookies and serves health/OIDC/status data; output PASS rows and exact request counts materialize that protocol behavior. Separately the five fixed UNKNOWN deployment/storage/JWT rows at 138:142 assert local reporting policy and do not establish those external facts.",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/liveverify/verify_test.go::TestRunNeverFollowsRedirects",
+      "category": "integration",
+      "status": "ACCEPTED",
+      "source_rationale_verified": "Run issues real HTTP requests receiving 302 responses; the separate target server must receive zero calls while the report retains HTTP 302. Production client CheckRedirect enforces this observable network behavior.",
+      "remaining_findings": []
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "supplemental_source_pins": {
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/machines/machines.go": {
+      "path": "internal/machines/machines.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "mode": "100644",
+      "git_blob": "d8e638a3f4570aecfc17ef2824f146236bdf7ed9",
+      "sha256": "de009d161292eb22602d3b06fcc0985b79172c0a02e56e10496ce54b8d6a8015",
+      "bytes": 12703
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/workloadspec/workloadspec.go": {
+      "path": "internal/workloadspec/workloadspec.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "mode": "100644",
+      "git_blob": "b9dc399b536d4129c3fe2bec89388f6712a6382e",
+      "sha256": "988cbeca5d0f790e9815ce7f28ac7a704f6abf3004b032e476c0af2056423ba9",
+      "bytes": 11819
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/ociregion/catalog/catalog.go": {
+      "path": "internal/ociregion/catalog/catalog.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "mode": "100644",
+      "git_blob": "094f141afb633efa0d345466c5c80b2154d97e69",
+      "sha256": "1cb9481c9291c863bea33c273443a1dc061bdcd4afada2b626843449ff54cf6e",
+      "bytes": 9451
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/protocol/json.go": {
+      "path": "internal/protocol/json.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "mode": "100644",
+      "git_blob": "1f1cf935e61e24139f03e3fdeeda46f1bbc9c164",
+      "sha256": "5a0439798f0961019fe651bd7b6db2a8ef4934a1b7a891b1aa56917e413c104e",
+      "bytes": 2204
+    }
+  },
+  "supplemental_source_evidence": [
+    {
+      "path": "internal/machines/machines.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 71,
+      "end_line": 124,
+      "git_blob": "d8e638a3f4570aecfc17ef2824f146236bdf7ed9",
+      "sha256": "0f4592ac8fd00229958eeade3de42401d1457bc4b12911bfd94043e88e737ac0",
+      "text": "func (a App) Validate() error {\n\tif !tokenRE.MatchString(a.Name) || !entityid.Valid(a.ID) || a.Version == 0 {\n\t\treturn fmt.Errorf(\"%w: app name, ID or version\", ErrInvalid)\n\t}\n\tswitch {\n\tcase a.Class == ClassPlatform && a.Tenant == \"\":\n\tcase a.Class == ClassTenant && entityid.Valid(a.Tenant):\n\tdefault:\n\t\treturn fmt.Errorf(\"%w: app %s class %q needs a tenant exactly when it is a tenant app\", ErrInvalid, a.Name, a.Class)\n\t}\n\tif len(a.Regions) > maxListed {\n\t\treturn fmt.Errorf(\"%w: app %s has too many regions\", ErrInvalid, a.Name)\n\t}\n\tfor region, count := range a.Regions {\n\t\tif !validRegion(region) || count < 0 || count > MaxMachines {\n\t\t\treturn fmt.Errorf(\"%w: app %s region %q count %d\", ErrInvalid, a.Name, region, count)\n\t\t}\n\t}\n\tif a.NodePool != \"\" && !poolRE.MatchString(a.NodePool) {\n\t\treturn fmt.Errorf(\"%w: app %s node pool\", ErrInvalid, a.Name)\n\t}\n\tif err := a.Config.Validate(); err != nil {\n\t\treturn fmt.Errorf(\"app %s: %w\", a.Name, err)\n\t}\n\tif err := a.AppSpec.Validate(a.Name); err != nil {\n\t\treturn fmt.Errorf(\"%w: app %s: %w\", ErrInvalid, a.Name, err)\n\t}\n\tif a.Stateful != nil {\n\t\tfor region, count := range a.Regions {\n\t\t\tif count != 0 && count-a.Update.Unavailable() < a.Stateful.Quorum {\n\t\t\t\treturn fmt.Errorf(\"%w: app %s region %s: %d machines less %d updating at once are below quorum %d\",\n\t\t\t\t\tErrInvalid, a.Name, region, count, a.Update.Unavailable(), a.Stateful.Quorum)\n\t\t\t}\n\t\t}\n\t}\n\t// The platform app named after its role gets the role's signed profile,\n\t// Vault secrets included. The app is not signed, so every program it\n\t// starts, by command, hook or exec check, must be inside its admitted\n\t// tarball: no host or image program, such as /bin/sh, runs beside those\n\t// secrets.\n\tif a.Class == ClassPlatform && a.Name == a.Config.Role {\n\t\targvs := [][]string{a.Config.Command, a.Config.Lifecycle.PostStart, a.Config.Lifecycle.PreStop}\n\t\tfor _, check := range a.Config.Checks {\n\t\t\targvs = append(argvs, check.Command)\n\t\t}\n\t\tfor _, argv := range argvs {\n\t\t\tif len(argv) != 0 && !a.Config.InArtifact(argv) {\n\t\t\t\treturn fmt.Errorf(\"%w: app %s gets its role's secrets, so it starts only programs inside its tarball, not %q\",\n\t\t\t\t\tErrInvalid, a.Name, argv[0])\n\t\t\t}\n\t\t}\n\t}\n\treturn nil\n}"
+    },
+    {
+      "path": "internal/machines/machines.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 186,
+      "end_line": 241,
+      "git_blob": "d8e638a3f4570aecfc17ef2824f146236bdf7ed9",
+      "sha256": "fa53a967374b7e4a3067f0196e1ce811609a98db50370237d5da569e10ec77f3",
+      "text": "func (c MachineConfig) Validate() error {\n\tif !tokenRE.MatchString(c.Role) || !digestRE.MatchString(c.Digest) {\n\t\treturn fmt.Errorf(\"%w: config role or digest\", ErrInvalid)\n\t}\n\tif c.Resources.CPU <= 0 || c.Resources.MemoryBytes <= 0 || c.Resources.DiskBytes <= 0 {\n\t\treturn fmt.Errorf(\"%w: config resources must be positive\", ErrInvalid)\n\t}\n\tif len(c.Args) > maxListed || len(c.Env) > maxListed {\n\t\treturn fmt.Errorf(\"%w: too many arguments or environment variables\", ErrInvalid)\n\t}\n\tfor _, arg := range c.Args {\n\t\tif len(arg) > maxArgBytes {\n\t\t\treturn fmt.Errorf(\"%w: argument too long\", ErrInvalid)\n\t\t}\n\t}\n\tfor key, value := range c.Env {\n\t\tif !envRE.MatchString(key) || len(value) > maxArgBytes {\n\t\t\treturn fmt.Errorf(\"%w: environment variable %q\", ErrInvalid, key)\n\t\t}\n\t}\n\tif len(c.Services) > maxListed || len(c.Checks) > maxListed {\n\t\treturn fmt.Errorf(\"%w: too many services or checks\", ErrInvalid)\n\t}\n\tvar names []string\n\tvar ports []int\n\tfor _, service := range c.Services {\n\t\tif !tokenRE.MatchString(service.Name) || !validPort(service.Port) ||\n\t\t\tslices.Contains(names, service.Name) || slices.Contains(ports, service.Port) {\n\t\t\treturn fmt.Errorf(\"%w: service %q\", ErrInvalid, service.Name)\n\t\t}\n\t\tnames, ports = append(names, service.Name), append(ports, service.Port)\n\t}\n\tnames = nil\n\tfor _, check := range c.Checks {\n\t\tif err := check.validate(); err != nil || slices.Contains(names, check.Name) {\n\t\t\treturn fmt.Errorf(\"%w: check %q\", ErrInvalid, check.Name)\n\t\t}\n\t\tnames = append(names, check.Name)\n\t}\n\tswitch c.Restart.Policy {\n\tcase \"\", RestartAlways, RestartNo:\n\t\tif c.Restart.MaxRetries != 0 {\n\t\t\treturn fmt.Errorf(\"%w: max retries need the on-failure policy\", ErrInvalid)\n\t\t}\n\tcase RestartOnFailure:\n\t\tif c.Restart.MaxRetries < 1 || c.Restart.MaxRetries > 100 {\n\t\t\treturn fmt.Errorf(\"%w: max retries must be within 1..100\", ErrInvalid)\n\t\t}\n\tdefault:\n\t\treturn fmt.Errorf(\"%w: restart policy %q\", ErrInvalid, c.Restart.Policy)\n\t}\n\tif err := c.MachineSpec.Validate(); err != nil {\n\t\treturn fmt.Errorf(\"%w: %w\", ErrInvalid, err)\n\t}\n\treturn nil\n}"
+    },
+    {
+      "path": "internal/machines/machines.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 318,
+      "end_line": 334,
+      "git_blob": "d8e638a3f4570aecfc17ef2824f146236bdf7ed9",
+      "sha256": "3dc58160a4315ff10757b6d92073d17d74c51ca71332b4954a29b1cf63a628d9",
+      "text": "func (m Machine) Validate() error {\n\tif !entityid.Valid(m.ID) || !tokenRE.MatchString(m.App) || !entityid.Valid(m.AppID) ||\n\t\t!validRegion(m.Region) || m.Version == 0 {\n\t\treturn fmt.Errorf(\"%w: machine identity or version\", ErrInvalid)\n\t}\n\tif m.Host != \"\" && !tokenRE.MatchString(m.Host) || m.FailureDomain != \"\" && (m.Host == \"\" || !tokenRE.MatchString(m.FailureDomain)) {\n\t\treturn fmt.Errorf(\"%w: machine %s host or failure domain\", ErrInvalid, m.ID)\n\t}\n\tswitch m.Desired {\n\tcase DesiredStarted, DesiredStopped, DesiredDestroyed:\n\tdefault:\n\t\treturn fmt.Errorf(\"%w: machine %s desired state %q\", ErrInvalid, m.ID, m.Desired)\n\t}\n\tif err := m.Config.Validate(); err != nil {\n\t\treturn fmt.Errorf(\"machine %s: %w\", m.ID, err)\n\t}\n\treturn nil"
+    },
+    {
+      "path": "internal/machines/machines.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 361,
+      "end_line": 364,
+      "git_blob": "d8e638a3f4570aecfc17ef2824f146236bdf7ed9",
+      "sha256": "cc9481defcc0322b390c78e6314d65fb8e466f4b92b52a3409c4ade011c4ba74",
+      "text": "func validRegion(region string) bool {\n\t_, ok := catalog.LookupName(region)\n\treturn ok\n}"
+    },
+    {
+      "path": "internal/workloadspec/workloadspec.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 125,
+      "end_line": 172,
+      "git_blob": "b9dc399b536d4129c3fe2bec89388f6712a6382e",
+      "sha256": "4689eceefcfe89f5a7cedabc2365a0c44c62cb465e29125ae2ace9e8b4609e70",
+      "text": "func (m MachineSpec) Validate() error {\n\tswitch m.Artifact {\n\tcase \"\", ArtifactBinary:\n\t\tif m.Image != \"\" || len(m.Command) != 0 {\n\t\t\treturn fmt.Errorf(\"%w: a binary takes no image or command\", ErrInvalid)\n\t\t}\n\tcase ArtifactTarball:\n\t\tif m.Image != \"\" || len(m.Command) == 0 || !relativePath(m.Command[0]) {\n\t\t\treturn fmt.Errorf(\"%w: a tarball needs a command whose first entry is a path inside it, and no image\", ErrInvalid)\n\t\t}\n\tcase ArtifactImage:\n\t\tif !validImage(m.Image) {\n\t\t\treturn fmt.Errorf(\"%w: image %q must be a registry's repository without a tag or digest\", ErrInvalid, m.Image)\n\t\t}\n\tdefault:\n\t\treturn fmt.Errorf(\"%w: artifact %q\", ErrInvalid, m.Artifact)\n\t}\n\tfor _, argv := range [][]string{m.Command, m.Lifecycle.PostStart, m.Lifecycle.PreStop} {\n\t\tif len(argv) > maxListed || slices.ContainsFunc(argv, func(arg string) bool {\n\t\t\treturn len(arg) > maxArgBytes || strings.ContainsRune(arg, 0)\n\t\t}) || len(argv) != 0 && !m.entrypoint(argv[0]) {\n\t\t\treturn fmt.Errorf(\"%w: command or hook %q\", ErrInvalid, argv)\n\t\t}\n\t}\n\tif m.Lifecycle.DrainSeconds < 0 || m.Lifecycle.DrainSeconds > maxDrainSeconds {\n\t\treturn fmt.Errorf(\"%w: drain must be within 0..%d seconds\", ErrInvalid, maxDrainSeconds)\n\t}\n\tif len(m.Files) > maxListed {\n\t\treturn fmt.Errorf(\"%w: too many files\", ErrInvalid)\n\t}\n\t// No path may hold another or a system path.\n\tpaths := slices.Clone(systemPaths)\n\tfor _, file := range m.Files {\n\t\tif !placedPath(file.Path) || slices.ContainsFunc(paths, nests(file.Path)) {\n\t\t\treturn fmt.Errorf(\"%w: file path %q\", ErrInvalid, file.Path)\n\t\t}\n\t\tpaths = append(paths, file.Path)\n\t}\n\t// Marshal also refuses text that is not UTF-8.\n\tencoded, err := json.Marshal(m)\n\tif err != nil {\n\t\treturn fmt.Errorf(\"%w: %v\", ErrInvalid, err)\n\t}\n\tif len(encoded) > maxEncodedBytes {\n\t\treturn fmt.Errorf(\"%w: spec exceeds %d bytes\", ErrInvalid, maxEncodedBytes)\n\t}\n\treturn nil\n}"
+    },
+    {
+      "path": "internal/workloadspec/workloadspec.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 285,
+      "end_line": 316,
+      "git_blob": "b9dc399b536d4129c3fe2bec89388f6712a6382e",
+      "sha256": "e23571fe5dcf9a42640421257e0eb8e26ccbce6120b3b5357830dea15ed6c6f5",
+      "text": "func (a AppSpec) Validate(app string) error {\n\tif a.Placement.MaxPerFailureDomain < 0 || a.Placement.MaxPerFailureDomain > maxMachines {\n\t\treturn fmt.Errorf(\"%w: max per failure domain\", ErrInvalid)\n\t}\n\tswitch a.Update.Strategy {\n\tcase \"\", AllAtOnce, Rolling:\n\tdefault:\n\t\treturn fmt.Errorf(\"%w: update strategy %q\", ErrInvalid, a.Update.Strategy)\n\t}\n\tif a.Update.MaxUnavailable < 0 || a.Update.MaxUnavailable > maxMachines ||\n\t\ta.Update.MaxUnavailable != 0 && a.Strategy() != Rolling {\n\t\treturn fmt.Errorf(\"%w: max unavailable needs a rolling update within 0..%d\", ErrInvalid, maxMachines)\n\t}\n\tif a.Stateful != nil {\n\t\tif a.Stateful.Quorum < 0 || a.Stateful.Quorum > maxMachines {\n\t\t\treturn fmt.Errorf(\"%w: quorum must be within 0..%d\", ErrInvalid, maxMachines)\n\t\t}\n\t\t// Updating every member together would drop the quorum.\n\t\tif a.Strategy() != Rolling {\n\t\t\treturn fmt.Errorf(\"%w: a stateful app updates rolling\", ErrInvalid)\n\t\t}\n\t}\n\tif len(a.DependsOn) > maxListed {\n\t\treturn fmt.Errorf(\"%w: too many dependencies\", ErrInvalid)\n\t}\n\tfor index, dependency := range a.DependsOn {\n\t\tif !tokenRE.MatchString(dependency) || dependency == app || slices.Contains(a.DependsOn[:index], dependency) {\n\t\t\treturn fmt.Errorf(\"%w: dependency %q\", ErrInvalid, dependency)\n\t\t}\n\t}\n\treturn nil\n}"
+    },
+    {
+      "path": "internal/ociregion/catalog/catalog.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 30,
+      "end_line": 46,
+      "git_blob": "094f141afb633efa0d345466c5c80b2154d97e69",
+      "sha256": "9837bc13f3c23bbadfc3cf4955ea8d6446896aab94d9732c57d0be436131680a",
+      "text": "// Name is the lower-case cell token used in NATS subjects and host descriptors.\nfunc (e Entry) Name() string { return strings.ToLower(e.Cell) }\n\nconst (\n\tGRU = \"GRU\"\n\tSFO = \"SFO\"\n\tFRA = \"FRA\"\n\t// Bootstrap is the only cell that may found a deployment until a\n\t// separately reviewed migration exists.\n\tBootstrap = GRU\n)\n\n// entries is ordered: placement assigns permanent members in this order.\nvar entries = [...]Entry{\n\t{Cell: GRU, OCIRegion: \"sa-saopaulo-1\", OCIRegionKey: \"GRU\", City: \"São Paulo\", Country: \"BR\", Latitude: -23.43, Longitude: -46.47},\n\t{Cell: SFO, OCIRegion: \"us-sanjose-1\", OCIRegionKey: \"SJC\", City: \"San Jose\", Country: \"US\", Latitude: 37.34, Longitude: -121.89},\n\t{Cell: FRA, OCIRegion: \"eu-frankfurt-1\", OCIRegionKey: \"FRA\", City: \"Frankfurt\", Country: \"DE\", Latitude: 50.11, Longitude: 8.68},"
+    },
+    {
+      "path": "internal/ociregion/catalog/catalog.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 111,
+      "end_line": 118,
+      "git_blob": "094f141afb633efa0d345466c5c80b2154d97e69",
+      "sha256": "a641f2ed8f9ad7d66849ec1fe0549fcc1de9f555af2989c848d4359d87c400df",
+      "text": "func LookupName(name string) (Entry, bool) {\n\tfor _, entry := range entries {\n\t\tif entry.Name() == name {\n\t\t\treturn entry, true\n\t\t}\n\t}\n\treturn Entry{}, false\n}"
+    },
+    {
+      "path": "internal/protocol/json.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "start_line": 21,
+      "end_line": 66,
+      "git_blob": "1f1cf935e61e24139f03e3fdeeda46f1bbc9c164",
+      "sha256": "e8d7b612bc051e8bc76f7f1fb3c5412a57f0d0fe29316d0ee01cb6fc2ecfc43d",
+      "text": "func EncodeJSON(value any) ([]byte, error) {\n\tencoded, err := json.Marshal(value, json.Deterministic(true))\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"encode protocol JSON: %w\", err)\n\t}\n\treturn encoded, nil\n}\n\n// DecodeStrict decodes one bounded JSON value, rejecting duplicate names, invalid\n// UTF-8, and unknown struct members. The Go 1.27 JSON v2 decoder rejects duplicate\n// object names and invalid UTF-8 by default; RejectUnknownMembers closes the\n// remaining permissive struct-decoding path.\nfunc DecodeStrict(data []byte, destination any, maxBytes int) error {\n\treturn decode(data, destination, maxBytes, true)\n}\n\n// DecodeTolerant is DecodeStrict for records a newer binary may have written:\n// it skips members this binary does not know, so binary N-1 reads N's records.\n// Duplicate names, invalid UTF-8 and the size limit still fail. A record's\n// schema version names its breaking changes, and its reader checks it; a new\n// member needs a safe zero value, since an older writer drops it.\nfunc DecodeTolerant(data []byte, destination any, maxBytes int) error {\n\treturn decode(data, destination, maxBytes, false)\n}\n\nfunc decode(data []byte, destination any, maxBytes int, rejectUnknown bool) error {\n\tif maxBytes == 0 {\n\t\tmaxBytes = DefaultMaxJSONBytes\n\t}\n\tif maxBytes < 0 {\n\t\treturn fmt.Errorf(\"%w: negative byte limit\", ErrInvalidJSON)\n\t}\n\tif len(data) > maxBytes {\n\t\treturn ErrJSONTooLarge\n\t}\n\tif !utf8.Valid(data) {\n\t\treturn fmt.Errorf(\"%w: invalid UTF-8\", ErrInvalidJSON)\n\t}\n\tif err := json.Unmarshal(data, destination,\n\t\tjson.RejectUnknownMembers(rejectUnknown),\n\t\tjsontext.AllowDuplicateNames(false),\n\t); err != nil {\n\t\treturn fmt.Errorf(\"decode protocol JSON: %w\", err)\n\t}\n\treturn nil\n}"
+    }
+  ],
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE. Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION.",
+    "startJetStream directly starts upstream NATS on loopback TCP with FileStorage; no natscell in-process client is reached. No real cluster/failover/runtime receipt is inferred.",
+    "Objects uses the real OCI SDK over httptest HTTP; object bodies are disk-backed but metadata, errors, ETags and KMS/versioning responses are fixtures. No live OCI/Vault/KMS/account/instance-principal qualification.",
+    "Snapshot Leader/Now and machineSnapshotFence are synthetic callbacks. Authority, clock, defensive-copy and fixed UNKNOWN reporting blocks retain local-only scope.",
+    "liveverify uses actual loopback HTTP; fixture liveness/discovery does not prove deployment, storage persistence, JWT validation or production safety. No test execution or race result is claimed.",
+    "No source/repository/ledger/runtime/count/deletion/retirement/completion mutation or credit. Independent peer review required."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false,
+    "count_promotion": false
+  }
+}

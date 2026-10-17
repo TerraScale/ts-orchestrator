@@ -1,0 +1,235 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_820_840",
+  "author": "/root/classification_100_dispatch/batch_840_860",
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-1640-1660-corrected-1ryfsws6/classification.json",
+    "sha256": "6045776198a04bf2991d9323839120747a756fd5870a83500077aea6fcea0b9d",
+    "checksum_path": "/tmp/ts-source-1640-1660-corrected-1ryfsws6/SHA256SUMS",
+    "checksum_sha256": "edef8ce7d69673d6db20a7da7ee21dc29225c6161f9025af2795af4573d1d0e3"
+  },
+  "prior_packet_preserved": {
+    "path": "/tmp/ts-source-1640-1660-k_tw449b/classification.json",
+    "sha256": "358bdc9e2f06053c95794871a34286daeb157439f1c67ad5242f61794ebe43b6"
+  },
+  "own_prior_sealed_handoff": {
+    "path": "/tmp/ts-source-1620-1640-2ikkhpeu/classification.json",
+    "sha256": "387aae4290b811d1eb55c509a6689a5fba88ecbb54e682135871ec133b2dcd48"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": [
+      1640,
+      1660
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_820_840"
+  },
+  "literal_range": "other_unadjudicated[1640:1660)",
+  "root_ids": [
+    "internal/host/tsauth_test.go::TestTSAuthRootBelowManagedRuntimeRoot",
+    "internal/host/tsauth_test.go::TestTSAuthRootMustBeSeparate",
+    "internal/host/tsauth_test.go::TestTSAuthRunningOnlyWhenReady",
+    "internal/host/usage_inventory_test.go::TestExpectedUsageKeepsHistoricalAdmissionsAndWithdrawals",
+    "internal/host/usage_inventory_test.go::TestUsageInventoryLockHonorsRequestDeadline",
+    "internal/host/wan_test.go::TestLoadOperationValidatesWANAgainstCurrentSignedNativeRegion",
+    "internal/host/wan_test.go::TestNativeWANCollectionRequiresTheSameRunningProcess",
+    "internal/host/wan_test.go::TestNativeWANLogsChangedOutcomesAndRecovery",
+    "internal/host/wan_test.go::TestNativeWANPublicationRechecksEvidenceAfterObservation",
+    "internal/host/wan_test.go::TestNativeWANRetainsVerifiedObservationDuringRunningReport",
+    "internal/host/wire_test.go::TestForgedHostReplyCannotBecomeDesired",
+    "internal/host/wire_test.go::TestSignedHostRequestRejectsTamperingAndExpiry",
+    "internal/host/wire_test.go::TestStrictHostJSONRejectsDuplicateAndTrailingData",
+    "internal/hostboot/descriptor_test.go::TestDescriptorCanonicalBytesAndDigestAreExact",
+    "internal/hostboot/descriptor_test.go::TestDescriptorDigestChangesWithBoundAttemptAndImage",
+    "internal/hostboot/descriptor_test.go::TestDescriptorRejectsInvalidBindingsAndSecretLikeValues",
+    "internal/hostboot/descriptor_test.go::TestParseRejectsUnknownSecretSmugglingFields",
+    "internal/hostboot/descriptor_test.go::TestParseRequiresBoundedExactCanonicalV1",
+    "internal/hostboot/descriptor_test.go::TestStaticDescriptorNamesOnlyACellDatabaseOrControllerServer",
+    "internal/hostenroll/grant_terminal_test.go::TestGrantMutationOutcomeClassifierLeavesCanceledKVWriteUncertain"
+  ],
+  "counts": {
+    "integration": 3,
+    "unit": 13,
+    "mixed": 4,
+    "unresolved": 0
+  },
+  "independent_verdicts": [
+    {
+      "root_id": "internal/host/tsauth_test.go::TestTSAuthRootBelowManagedRuntimeRoot",
+      "category": "integration",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/host/tsauth_test.go::TestTSAuthRootMustBeSeparate",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/host/tsauth_test.go::TestTSAuthRunningOnlyWhenReady",
+      "category": "integration",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/host/usage_inventory_test.go::TestExpectedUsageKeepsHistoricalAdmissionsAndWithdrawals",
+      "category": "mixed",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/host/usage_inventory_test.go::TestUsageInventoryLockHonorsRequestDeadline",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/host/wan_test.go::TestLoadOperationValidatesWANAgainstCurrentSignedNativeRegion",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/host/wan_test.go::TestNativeWANCollectionRequiresTheSameRunningProcess",
+      "category": "mixed",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/host/wan_test.go::TestNativeWANLogsChangedOutcomesAndRecovery",
+      "category": "mixed",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/host/wan_test.go::TestNativeWANPublicationRechecksEvidenceAfterObservation",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/host/wan_test.go::TestNativeWANRetainsVerifiedObservationDuringRunningReport",
+      "category": "mixed",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/host/wire_test.go::TestForgedHostReplyCannotBecomeDesired",
+      "category": "integration",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/host/wire_test.go::TestSignedHostRequestRejectsTamperingAndExpiry",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/host/wire_test.go::TestStrictHostJSONRejectsDuplicateAndTrailingData",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/hostboot/descriptor_test.go::TestDescriptorCanonicalBytesAndDigestAreExact",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/hostboot/descriptor_test.go::TestDescriptorDigestChangesWithBoundAttemptAndImage",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/hostboot/descriptor_test.go::TestDescriptorRejectsInvalidBindingsAndSecretLikeValues",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/hostboot/descriptor_test.go::TestParseRejectsUnknownSecretSmugglingFields",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/hostboot/descriptor_test.go::TestParseRequiresBoundedExactCanonicalV1",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/hostboot/descriptor_test.go::TestStaticDescriptorNamesOnlyACellDatabaseOrControllerServer",
+      "category": "unit",
+      "agreed": true
+    },
+    {
+      "root_id": "internal/hostenroll/grant_terminal_test.go::TestGrantMutationOutcomeClassifierLeavesCanceledKVWriteUncertain",
+      "category": "unit",
+      "agreed": true
+    }
+  ],
+  "checks_performed": [
+    "Independently read all20 entire current test roots and their actual connected fixture/production paths, including local branches within roots that also cross real boundaries.",
+    "Verified literal activated allocation and accounting slice[1640:1660), twenty survival mappings, baseline/current raw declaration bounds/text/SHA256 and canonical body identity:40 declarations, no mapping/hash drift.",
+    "Verified all37 baseline/current canonical file Git blob/mode/SHA256/bytes and all6 existing nats.go v1.54.0 module-cache file mode/SHA256/bytes; canonical go.mod ties the dependency version. No dependency download or upstream-content authentication.",
+    "Verified86 explicit connected/assertion spans against exact source bytes and line bounds; followed actual HTTP client, loopback upstream NATS/JetStream, fake desired store and pre-send canceled-client routes.",
+    "Verified exact corrected packet and checksum hashes, SHA256SUMS entries and immutable0444 files/0555 directory. Old packet preserved. No target runtime/source/helper execution or repository/ledger mutation."
+  ],
+  "connected_boundary_review": {
+    "auth": "Valid prepareTSAuth reaches actual directory create/open/ownership/mode and ancestor checks; RootMustBeSeparate is local pre-filesystem string validation. RunningOnlyWhenReady reaches real HTTP health/ready status responses. Secrets are maps; no actual Vault or workload binary.",
+    "inventory": "History assertions publish/read actual file-backed control-log messages and exercise window reconstruction. Canceled query and held-gate deadline return in local lockControlLog before stream I/O; the history root is mixed and the lock root unit.",
+    "wan_desired": "readDesired uses memoryMutations.ReadHostMutation map state and SetLoadSink captures a callback. Real session KV authentication and fixture publishing surround the local receiver/freshness/withdrawn target; no target desired-store/sink boundary credit.",
+    "wan_collection": "Loopback HTTP scrapes/status/body failures support collection and recovery assertions. Wrong process, injected runner errors, desired withdrawal and manually seeded freshness/process cache checks remain local independent blocks. No real process observation or lifecycle qualification.",
+    "wan_cache": "Real running-report preparation/TLS-file reads and held healthz/metrics exchanges support cache-retention assertions. Final manually stale ObservedAt check is independent local Fresh guard, corrected to mixed.",
+    "wire": "Forged-reply root exchanges actual NATS bytes through upstream NewServer/nats.Connect over loopback TCP, then strict-envelope rejection. Other wire roots are local signed-JSON/time validation. No natscell.Start, TLS or sealed regional startup qualification.",
+    "descriptor": "All six descriptor roots perform local canonical encoding/parsing/hash/catalog/naming validation. OCI/live metadata authority not reached.",
+    "grant_cancel": "Claim reaches KV.Create, updateRevision and PublishMsg, but requestWithContext returns at ctx.Err before request creation/send. Fallback kv.get likewise reaches GetLastMsg/apiRequest/requestWithContext and returns without send. Real broker setup is incidental to classification of the wrapped cancellation error."
+  },
+  "corrections_requested": [
+    {
+      "root_id": "internal/host/wan_test.go::TestNativeWANRetainsVerifiedObservationDuringRunningReport",
+      "original_category": "integration",
+      "required_category": "mixed",
+      "cause": "wan_test.go279-283 overwrites ObservedAt and asserts addTerraBaseWAN publishes no roles; load.go305 rejects at Fresh before runner/HTTP. Independent local-only block must remain distinct from232-276 real HTTP assertions."
+    }
+  ],
+  "resolved_findings": [
+    {
+      "root_id": "internal/host/wan_test.go::TestNativeWANRetainsVerifiedObservationDuringRunningReport",
+      "resolution": "Corrected packet6045776198a04bf2991d9323839120747a756fd5870a83500077aea6fcea0b9d labels mixed, names local freshness block, retains earlier HTTP credit and adjusts counts3I/13U/4M/0unresolved."
+    }
+  ],
+  "remaining_findings": [
+    {
+      "kind": "boundary_qualification_limit",
+      "roots": [
+        "internal/hostenroll/grant_terminal_test.go::TestGrantMutationOutcomeClassifierLeavesCanceledKVWriteUncertain"
+      ],
+      "detail": "Canceled GrantStore.Claim does not send a KV write or fallback read: NATS client requestWithContext checks ctx.Err before request creation/send. Real broker setup is incidental.",
+      "evidence": "grant_client_cancellation"
+    },
+    {
+      "kind": "boundary_qualification_limit",
+      "roots": [
+        "internal/host/wan_test.go::TestLoadOperationValidatesWANAgainstCurrentSignedNativeRegion"
+      ],
+      "detail": "WAN receiver/freshness/withdrawal target reads desired values from memoryMutations map and writes to a capturing callback; real session CAS/stream setup alone does not qualify the local predicate.",
+      "evidence": "wan_load"
+    }
+  ],
+  "remaining_findings_status": "Boundary and runtime qualification limits retained; no remaining source-category or mapping correction.",
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no test/compiler/runtime receipts reviewed and no target code executed.",
+    "All20 original roots and assertions retained. Baseline/current raw bodies and survival mappings agree on this exact canonical commit; no retirement or migration credit.",
+    "Loopback HTTP responders provide protocol simulation only; no ts-auth or TerraBase workload binary, real OS process observation, live Vault/OCI or multi-host region is qualified.",
+    "controller test fixture directly starts upstream NATS server.NewServer and TCP nats.Connect; it does not use public sealed regional startup/natscell.Start. Single-replica FileStorage does not establish quorum/crash durability.",
+    "memoryMutations.ReadHostMutation returns maps; its commit also writes JetStream. WAN desired-region target uses those fake reads and injected sink, while real session KV reads/CAS are incidental surrounding authentication.",
+    "Cancellation/deadline checks occurring before real request send or stream access receive unit classification even when setup created a real server.",
+    "Existing nats.go v1.54.0 module-cache files are separately byte/mode pinned for pre-send cancellation trace; no module download or upstream content authentication was performed.",
+    "No repository/source/ledger/runtime mutation, count promotion, deletion, retirement, global completion or deployment authorization."
+  ],
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false,
+    "count_promotion": false,
+    "retirement_authorized": false
+  }
+}

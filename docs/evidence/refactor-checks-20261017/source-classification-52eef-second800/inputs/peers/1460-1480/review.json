@@ -1,0 +1,427 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_280_300",
+  "author": "/root/classification_100_dispatch/batch_660_680",
+  "status": "ACCEPTED_SOURCE_ONLY",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": [
+      1460,
+      1480
+    ]
+  },
+  "peer_protocol": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/PEER-PROTOCOL.md",
+    "sha256": "3b57c68ac033025066daec252bf89cd01b0c767e0048fb57c67eb5143e2fb00b"
+  },
+  "accepted_packet": {
+    "path": "/tmp/ts-source-1460-1480-evidence-corrected-gwa8th7w/classification.json",
+    "sha256": "151a6da95968cde76e549b577218b2ebcf9879e6b0e81fd4925709f65eb23821",
+    "checksums_path": "/tmp/ts-source-1460-1480-evidence-corrected-gwa8th7w/SHA256SUMS",
+    "checksums_sha256": "880cd5ec1069c96cc86103b0aefd432c8b7d9ef47961f37d7d02e58cf877973a"
+  },
+  "root_ids": [
+    "internal/host/controller_test.go::TestWithdrawnTargetStopsRunningWorkloadWithOpenCycle",
+    "internal/host/function_material_integration_test.go::TestFunctionMaterialProviderIsRequired",
+    "internal/host/function_material_integration_test.go::TestFunctionMaterialRechecksRegistrationAfterProvider",
+    "internal/host/function_material_integration_test.go::TestFunctionMaterialRejectsCredentialExpiryChangeBetweenChunks",
+    "internal/host/function_material_integration_test.go::TestFunctionMaterialRejectsInventoryChangeBetweenChunks",
+    "internal/host/function_material_integration_test.go::TestFunctionMaterialSignedHostSessionDeliversExactDurableTaskGrant",
+    "internal/host/leader_read_test.go::TestReaderLeaderStateWithDirectGetDenied",
+    "internal/host/load_managed_test.go::TestLoadFilesystemsFitAllManagedRolesWithBoot",
+    "internal/host/load_managed_test.go::TestLoadFilesystemsIncludeDataAndCurrentManagedVolumes",
+    "internal/host/load_managed_test.go::TestLoadOperationValidatesCurrentManagedBinding",
+    "internal/host/load_test.go::TestAgentPublishesLoadWithoutTelemetrySettings",
+    "internal/host/load_test.go::TestLoadBackoffNeverShortensTheInterval",
+    "internal/host/load_test.go::TestLoadOperationFiltersInvalidDesiredAndKeepsOtherUsage",
+    "internal/host/load_test.go::TestLoadOperationFiltersRolesAndUsesRegistrationOrigin",
+    "internal/host/load_test.go::TestLoadOperationIsRefusedUntilASinkIsSet",
+    "internal/host/load_test.go::TestLoadOperationKeepsAllocatedRolesWithUnknownUsage",
+    "internal/host/load_test.go::TestLoadOperationRejectsInvalidAuthorizationBeforeSink",
+    "internal/host/load_test.go::TestLoadOperationRejectsMalformedFilesystemsBeforeSink",
+    "internal/host/load_test.go::TestLoadOutcomeTreatsDiscardedSampleAsRejection",
+    "internal/host/load_test.go::TestTerraBaseLoadExpires"
+  ],
+  "counts": {
+    "integration": 8,
+    "unit": 11,
+    "mixed": 1,
+    "unresolved": 0,
+    "total": 20
+  },
+  "checks_performed": [
+    "Independently manually read all20 full roots and actual fixture/client/controller/authority/store/agent/sampler paths. Prior independently read common source retained; peer-specific source read separately.",
+    "Verified literal other_unadjudicated[1460:1480) IDs/order,activated owner/mapped reviewer,accounting/survival mapping and5 input hashes.",
+    "Verified40 full baseline/current raw declarations: explicit func-through-first-column-zero-close bounds,text,bytes,SHA256 excluding following LF. All20 baseline/current bodies exactly match frozen survival hashes.",
+    "Verified20 full-root assertion spans and43 shared source spans against immutable Git bytes: exact bounds,text,bytes,SHA256 and connected reference existence.",
+    "Verified30 source pins: Git blob/mode/SHA256/bytes,current working equality,canonical commit tree,packet/checksum hashes and dir0555/files0444.",
+    "Agreed I8/U11/M1/unresolved0. Reverified corrected packet changes only five shared excerpts and evidence_revision; roots/assertions/pins/categories unchanged.",
+    "Added8 manually reviewed supplemental source spans across6 pinned files for encryption,durable intent reads,actual authority I/O and telemetry limits."
+  ],
+  "roots": [
+    {
+      "index": 1460,
+      "root_id": "internal/host/controller_test.go::TestWithdrawnTargetStopsRunningWorkloadWithOpenCycle",
+      "category": "integration",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Actual signed NATS acquisition/cycle/report exchanges and final JetStream reads support withdrawal; Stop changes only memory.",
+      "original_declaration_sha256": "59868de9facb4ba94c5a95ddb1b456e973beff6b26a44ea80344456d87ee2756",
+      "current_declaration_sha256": "59868de9facb4ba94c5a95ddb1b456e973beff6b26a44ea80344456d87ee2756",
+      "source_blockers": []
+    },
+    {
+      "index": 1461,
+      "root_id": "internal/host/function_material_integration_test.go::TestFunctionMaterialProviderIsRequired",
+      "category": "integration",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Nil provider produces authenticated denial through real signed NATS; no live vendor material source.",
+      "original_declaration_sha256": "9b62bf52845c1cbbfd83b37ba0ee5ed28fd2ff3177f8472de009803d8f6db058",
+      "current_declaration_sha256": "9b62bf52845c1cbbfd83b37ba0ee5ed28fd2ff3177f8472de009803d8f6db058",
+      "source_blockers": []
+    },
+    {
+      "index": 1462,
+      "root_id": "internal/host/function_material_integration_test.go::TestFunctionMaterialRechecksRegistrationAfterProvider",
+      "category": "integration",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Provider callback advances actual authority-backed registration; signed response rechecks and denies the changed binding.",
+      "original_declaration_sha256": "d9a550aca62e26d9da57e4434422df7f670f2cfb3e2c3f6a5deeb0f766609835",
+      "current_declaration_sha256": "d9a550aca62e26d9da57e4434422df7f670f2cfb3e2c3f6a5deeb0f766609835",
+      "source_blockers": []
+    },
+    {
+      "index": 1463,
+      "root_id": "internal/host/function_material_integration_test.go::TestFunctionMaterialRejectsCredentialExpiryChangeBetweenChunks",
+      "category": "integration",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Changed credential expiry reaches encrypted chunk transport and is rejected against established manifest; synthetic bytes.",
+      "original_declaration_sha256": "5684e1ec8d8b5db15255058e81792b4a53a725826ec1be213d5b41394e699b5e",
+      "current_declaration_sha256": "5684e1ec8d8b5db15255058e81792b4a53a725826ec1be213d5b41394e699b5e",
+      "source_blockers": []
+    },
+    {
+      "index": 1464,
+      "root_id": "internal/host/function_material_integration_test.go::TestFunctionMaterialRejectsInventoryChangeBetweenChunks",
+      "category": "integration",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Changed inventory reaches encrypted chunk transport and causes cross-chunk manifest rejection; no real vendor credentials.",
+      "original_declaration_sha256": "58a0e1c8f275ddc1f6d5776c7f3537ad2357283d279917c89a66a3f24492fa5b",
+      "current_declaration_sha256": "58a0e1c8f275ddc1f6d5776c7f3537ad2357283d279917c89a66a3f24492fa5b",
+      "source_blockers": []
+    },
+    {
+      "index": 1465,
+      "root_id": "internal/host/function_material_integration_test.go::TestFunctionMaterialSignedHostSessionDeliversExactDurableTaskGrant",
+      "category": "integration",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Exact files,expiry,chunk/confidentiality checks traverse signed encrypted NATS and durable function intent/grant reads. Altered queries also use transport; no independent direct predicate block.",
+      "original_declaration_sha256": "84c8b15ba4241a24e55904e5b8cebf6e372997e07b27d9068cb22bc50a095f82",
+      "current_declaration_sha256": "84c8b15ba4241a24e55904e5b8cebf6e372997e07b27d9068cb22bc50a095f82",
+      "source_blockers": []
+    },
+    {
+      "index": 1466,
+      "root_id": "internal/host/leader_read_test.go::TestReaderLeaderStateWithDirectGetDenied",
+      "category": "integration",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Restricted reader performs actual stream-leader GetLastMsg reads of values,revisions,tombstones and missing keys. Direct KV.Get asserts only error,without unique runtime-cause credit.",
+      "original_declaration_sha256": "b3812a56e7ec95372d3a104b07b1a2328ca99ab5f2919233f758ce9ebe5482b2",
+      "current_declaration_sha256": "b3812a56e7ec95372d3a104b07b1a2328ca99ab5f2919233f758ce9ebe5482b2",
+      "source_blockers": []
+    },
+    {
+      "index": 1467,
+      "root_id": "internal/host/load_managed_test.go::TestLoadFilesystemsFitAllManagedRolesWithBoot",
+      "category": "unit",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "loadFilesystems constructs path/role strings from synthetic state; no filesystem read or managed execution.",
+      "original_declaration_sha256": "78864bb2d33d15e8a4af20c2e2166d6fe6d178ea8bebf7132f530f9e2b9277c8",
+      "current_declaration_sha256": "78864bb2d33d15e8a4af20c2e2166d6fe6d178ea8bebf7132f530f9e2b9277c8",
+      "source_blockers": []
+    },
+    {
+      "index": 1468,
+      "root_id": "internal/host/load_managed_test.go::TestLoadFilesystemsIncludeDataAndCurrentManagedVolumes",
+      "category": "unit",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "loadFilesystems reads synthetic data/native-root/channel state; closed roots change local list without filesystem effects.",
+      "original_declaration_sha256": "65641e74051417c29d9a7ac6baac7b1e777a13ec925240e8b0727083f6b31c10",
+      "current_declaration_sha256": "65641e74051417c29d9a7ac6baac7b1e777a13ec925240e8b0727083f6b31c10",
+      "source_blockers": []
+    },
+    {
+      "index": 1469,
+      "root_id": "internal/host/load_managed_test.go::TestLoadOperationValidatesCurrentManagedBinding",
+      "category": "unit",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Direct handler filters map-backed managed desired binding into callback sink. Fixture session I/O and mutation publication do not substantiate target through real store reads.",
+      "original_declaration_sha256": "a80e97e4763ba27659857393bbd12755bb789c53a62be8ab1793b89447d9b472",
+      "current_declaration_sha256": "a80e97e4763ba27659857393bbd12755bb789c53a62be8ab1793b89447d9b472",
+      "source_blockers": []
+    },
+    {
+      "index": 1470,
+      "root_id": "internal/host/load_test.go::TestAgentPublishesLoadWithoutTelemetrySettings",
+      "category": "integration",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Agent.Run starts default OS sampler and signed NATS load publication; controller sink asserts authenticated origin. Exact OS metrics and cgroups unasserted.",
+      "original_declaration_sha256": "4e42e94d8753bf0d684162b10bbfe2a670baef34ccdc066e9768a8bd8dffbffd",
+      "current_declaration_sha256": "4e42e94d8753bf0d684162b10bbfe2a670baef34ccdc066e9768a8bd8dffbffd",
+      "source_blockers": []
+    },
+    {
+      "index": 1471,
+      "root_id": "internal/host/load_test.go::TestLoadBackoffNeverShortensTheInterval",
+      "category": "unit",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Direct nextLoadWait duration table; no timer or request.",
+      "original_declaration_sha256": "d012bffff581c1ba1a453b4ca1da83c8f1ef92811ed4e03de00d734a59225e95",
+      "current_declaration_sha256": "d012bffff581c1ba1a453b4ca1da83c8f1ef92811ed4e03de00d734a59225e95",
+      "source_blockers": []
+    },
+    {
+      "index": 1472,
+      "root_id": "internal/host/load_test.go::TestLoadOperationFiltersInvalidDesiredAndKeepsOtherUsage",
+      "category": "unit",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Direct desired filtering preserves usage through map-backed state and callback sink; session fixture I/O is incidental.",
+      "original_declaration_sha256": "a0427a1287a113ef245be9d0d820a23507feea23100a939e720510758ab049b8",
+      "current_declaration_sha256": "a0427a1287a113ef245be9d0d820a23507feea23100a939e720510758ab049b8",
+      "source_blockers": []
+    },
+    {
+      "index": 1473,
+      "root_id": "internal/host/load_test.go::TestLoadOperationFiltersRolesAndUsesRegistrationOrigin",
+      "category": "unit",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Direct role/origin/withdrawal/schema/throttling handling uses synthetic mutation state and callbacks; no real telemetry readback.",
+      "original_declaration_sha256": "e7dba4522f0538ac0c2352f69bc61b31a7c0ccf4a83975dc388042e372587ea1",
+      "current_declaration_sha256": "e7dba4522f0538ac0c2352f69bc61b31a7c0ccf4a83975dc388042e372587ea1",
+      "source_blockers": []
+    },
+    {
+      "index": 1474,
+      "root_id": "internal/host/load_test.go::TestLoadOperationIsRefusedUntilASinkIsSet",
+      "category": "unit",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Direct nil-sink guard is local callback configuration validation; session fixture incidental.",
+      "original_declaration_sha256": "790267e16fad02ee734fa6253586a5272a2afa126fe2921a313989afd322d022",
+      "current_declaration_sha256": "790267e16fad02ee734fa6253586a5272a2afa126fe2921a313989afd322d022",
+      "source_blockers": []
+    },
+    {
+      "index": 1475,
+      "root_id": "internal/host/load_test.go::TestLoadOperationKeepsAllocatedRolesWithUnknownUsage",
+      "category": "unit",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Direct allocated-role/nil-usage/withdrawal filtering uses synthetic mutation state and callback sink; no real workload/readback.",
+      "original_declaration_sha256": "f5f3196541b37127caa43a69b4fa7a072f59f0cfcbef32e690e1fc0067feddb3",
+      "current_declaration_sha256": "f5f3196541b37127caa43a69b4fa7a072f59f0cfcbef32e690e1fc0067feddb3",
+      "source_blockers": []
+    },
+    {
+      "index": 1476,
+      "root_id": "internal/host/load_test.go::TestLoadOperationRejectsInvalidAuthorizationBeforeSink",
+      "category": "mixed",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Wrong session/epoch and expiry use actual leader reads,expiry also real CAS. Independent bad signature rejects before session read; mixed.",
+      "original_declaration_sha256": "54dc020fd92719757f26f4dcb749c3183bba85f61fa1e808318acea8a56b7c49",
+      "current_declaration_sha256": "54dc020fd92719757f26f4dcb749c3183bba85f61fa1e808318acea8a56b7c49",
+      "source_blockers": []
+    },
+    {
+      "index": 1477,
+      "root_id": "internal/host/load_test.go::TestLoadOperationRejectsMalformedFilesystemsBeforeSink",
+      "category": "unit",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Direct filesystem schema arrays reject before fake sink; no statfs/mount boundary supports validation.",
+      "original_declaration_sha256": "e907617026b71e1be8a42f5a9310d588b68d576f493182f27cda2c8306d57092",
+      "current_declaration_sha256": "e907617026b71e1be8a42f5a9310d588b68d576f493182f27cda2c8306d57092",
+      "source_blockers": []
+    },
+    {
+      "index": 1478,
+      "root_id": "internal/host/load_test.go::TestLoadOutcomeTreatsDiscardedSampleAsRejection",
+      "category": "unit",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Direct outcome/error classification on supplied values only.",
+      "original_declaration_sha256": "97092035b4dd60834f554de2cd6c2ea68737c920cf413fbd784fc3c6cc98adb1",
+      "current_declaration_sha256": "97092035b4dd60834f554de2cd6c2ea68737c920cf413fbd784fc3c6cc98adb1",
+      "source_blockers": []
+    },
+    {
+      "index": 1479,
+      "root_id": "internal/host/load_test.go::TestTerraBaseLoadExpires",
+      "category": "unit",
+      "review_result": "accepted_source_only",
+      "independent_rationale": "Direct Agent timestamp-map expiry/removal; no TerraBase process/API or timer wait.",
+      "original_declaration_sha256": "726e242662f83540dcf6b45220184b8321a2fb96826ccd3612a65ca2bcc60166",
+      "current_declaration_sha256": "726e242662f83540dcf6b45220184b8321a2fb96826ccd3612a65ca2bcc60166",
+      "source_blockers": []
+    }
+  ],
+  "resolved_findings": [
+    {
+      "scope": "shared_source_evidence",
+      "prior_packet_path": "/tmp/ts-source-1460-1480-vizw5nmj/classification.json",
+      "prior_packet_sha256": "688e91b0b026cfc7b2e18301b7257ec66a0ce4f0fe4e115cd0a34fbd4da169b7",
+      "finding": "Five excerpts ended before helper/function close or successful report acknowledgement/start return. Evidence-only correction; no classification disagreement.",
+      "resolution": "Fresh packet extends fixture_reported_host1018–1062,session_acquire926–1061,agent_run298–386,agent_cycle_report1089–1148,authority_start131–208; exact bytes verified."
+    }
+  ],
+  "remaining_findings": [],
+  "supplemental_source_pins": {
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/host/managed_material.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/host/managed_material.go",
+      "mode": "100644",
+      "git_blob": "5ccb5a5521521197ae5dc2e44291085b5d3c7610",
+      "sha256": "c492d0f283d4501d46323c1faabc2ad3c494b35cf527261a6af4bd33c610f89a",
+      "bytes": 15459
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/authority/function.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/authority/function.go",
+      "mode": "100644",
+      "git_blob": "48d8b0f378d5167d48fa4a80e668e508098a725f",
+      "sha256": "8ca55de8330b7d458af5eb20dac175e351693c65c870b5ab3caf60a0e6dfa398",
+      "bytes": 12798
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/authority/log.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/authority/log.go",
+      "mode": "100644",
+      "git_blob": "39e8073c3302fd73785bec8b3b3e8d0d61024a03",
+      "sha256": "500b03c30e554986f79a78891a88fad0c31732b37bf4f397b57a6919d66aed8f",
+      "bytes": 47408
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/authority/runtime.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/authority/runtime.go",
+      "mode": "100644",
+      "git_blob": "3ca4fa7b42e322ae9eced36f845c45ad68892296",
+      "sha256": "cecacfadaaedfe54c495c7529209b1e059a894ba98ff1831dcc55f1f1861d48c",
+      "bytes": 28474
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/hostload/sampler.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/hostload/sampler.go",
+      "mode": "100644",
+      "git_blob": "754e69663d1eb767ee7bafbcd0e2fc650c0a5c02",
+      "sha256": "8e0dd31253efc38eab6009ea6058ed1bda41be89b8ef8a8a9afe36dfc0f40b7f",
+      "bytes": 11077
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/host/load.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/host/load.go",
+      "mode": "100644",
+      "git_blob": "acc9b9595a2a016ab517df3e54390083cbf8c0d6",
+      "sha256": "79ef9ff0a18f87f376d4b56999320818f93e86aca0985fab02cba641ae0c0658",
+      "bytes": 14596
+    }
+  },
+  "supplemental_source_evidence": [
+    {
+      "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/host/managed_material.go",
+      "path": "internal/host/managed_material.go",
+      "start_line": 65,
+      "end_line": 86,
+      "purpose": "AAD and AEAD constructors",
+      "sha256": "6194a7f13d1dd699e2be31d43fe87264d2c6b5cc01a6c345f0d1e1a22d132171",
+      "bytes": 632,
+      "text": "func materialAAD(req request, query any) ([]byte, error) {\n\treturn protocol.EncodeJSON(struct {\n\t\tNode      string `json:\"node\"`\n\t\tSessionID string `json:\"session_id\"`\n\t\tEpoch     uint64 `json:\"epoch\"`\n\t\tNonce     string `json:\"nonce\"`\n\t\tQuery     any    `json:\"query\"`\n\t}{req.Node, req.SessionID, req.Epoch, req.Nonce, query})\n}\n\nfunc materialAEAD(shared, aad []byte) (cipher.AEAD, error) {\n\tkey, err := hkdf.Key(sha256.New, shared, aad, \"TS-MANAGED-HOST-MATERIAL-V1\", 32)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tdefer clear(key)\n\tblock, err := aes.NewCipher(key)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn cipher.NewGCM(block)\n}"
+    },
+    {
+      "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/host/managed_material.go",
+      "path": "internal/host/managed_material.go",
+      "start_line": 190,
+      "end_line": 216,
+      "purpose": "Encrypted chunk reply",
+      "sha256": "cbfd4172177828ef8fd7cd8274b2ed29617bd6e69b043fa97de0360743e034a4",
+      "bytes": 920,
+      "text": "func encryptHostMaterialChunk(aad, peerPublic []byte, file string, offset int, chunk []byte, total int, whole []byte) (materialReply, error) {\n\tpublic, err := ecdh.X25519().NewPublicKey(peerPublic)\n\tif err != nil {\n\t\treturn materialReply{}, err\n\t}\n\tprivate, err := ecdh.X25519().GenerateKey(rand.Reader)\n\tif err != nil {\n\t\treturn materialReply{}, err\n\t}\n\tshared, err := private.ECDH(public)\n\tif err != nil {\n\t\treturn materialReply{}, err\n\t}\n\tdefer clear(shared)\n\taead, err := materialAEAD(shared, aad)\n\tif err != nil {\n\t\treturn materialReply{}, err\n\t}\n\tnonce := make([]byte, aead.NonceSize())\n\tif _, err := rand.Read(nonce); err != nil {\n\t\treturn materialReply{}, err\n\t}\n\tsum := sha256.Sum256(whole)\n\treturn materialReply{File: file, Offset: offset, Total: total,\n\t\tSHA256: hex.EncodeToString(sum[:]), EphemeralPublicKey: private.PublicKey().Bytes(),\n\t\tNonce: nonce, Ciphertext: aead.Seal(nil, nonce, chunk, aad)}, nil\n}"
+    },
+    {
+      "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/authority/function.go",
+      "path": "internal/authority/function.go",
+      "start_line": 122,
+      "end_line": 169,
+      "purpose": "Function intent log read/decode",
+      "sha256": "a36ca9c85608fb71569f9db82de8169b6f91662f14c52f31045cdcfbe8b46749",
+      "bytes": 1747,
+      "text": "\nfunc (r *Runtime) ReadFunctionIntent(ctx context.Context, tenantID, functionID string) (LogEntry, error) {\n\tkey, err := functionIntentKey(tenantID, functionID)\n\tif err != nil {\n\t\treturn LogEntry{}, err\n\t}\n\treturn r.ReadHostMutation(ctx, MutationFunctionIntent, key)\n}\n\nfunc (r *Reader) ReadFunctionIntent(ctx context.Context, tenantID, functionID string) (LogEntry, error) {\n\tkey, err := functionIntentKey(tenantID, functionID)\n\tif err != nil {\n\t\treturn LogEntry{}, err\n\t}\n\treturn r.ReadHostMutation(ctx, MutationFunctionIntent, key)\n}\n\nfunc DecodeFunctionIntent(entry LogEntry) (FunctionIntent, error) {\n\tvar intent FunctionIntent\n\tif err := json.Unmarshal(entry.Payload, &intent, json.RejectUnknownMembers(true)); err != nil {\n\t\treturn intent, err\n\t}\n\tkey, err := functionIntentKey(intent.Claim.TenantID, intent.Claim.FunctionID)\n\tif err != nil || entry.Kind != MutationFunctionIntent || entry.SubjectKey != key || entry.Sequence == 0 {\n\t\treturn FunctionIntent{}, errors.New(\"function intent control-log identity is invalid\")\n\t}\n\tif err := intent.Claim.Validate(); err != nil {\n\t\treturn FunctionIntent{}, err\n\t}\n\tenvelope, err := trust.DecodeEnvelope(intent.Envelope)\n\tif err != nil {\n\t\treturn FunctionIntent{}, err\n\t}\n\tclaim, err := trust.EncodePayload(intent.Claim)\n\tif err != nil {\n\t\treturn FunctionIntent{}, err\n\t}\n\tfingerprint, err := trust.Fingerprint(envelope)\n\tif err != nil || fingerprint != intent.EnvelopeSHA256 || !bytes.Equal(claim, envelope.Payload) ||\n\t\tenvelope.Scope != release.FunctionScope(intent.Claim) {\n\t\treturn FunctionIntent{}, errors.New(\"function intent does not match its signed envelope\")\n\t}\n\tif _, err := trust.DecodeEnvelope(intent.Delegation); err != nil {\n\t\treturn FunctionIntent{}, err\n\t}\n\treturn intent, nil\n}\n"
+    },
+    {
+      "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/authority/log.go",
+      "path": "internal/authority/log.go",
+      "start_line": 47,
+      "end_line": 151,
+      "purpose": "File-backed control stream",
+      "sha256": "4cc6a2a98c571efb9e1bdfdaa5064746839599c9ad6fc9b624b1d0629073f040",
+      "bytes": 4288,
+      "text": "func openControlStream(ctx context.Context, js jetstream.JetStream, replicas int) (jetstream.Stream, error) {\n\tconfig := jetstream.StreamConfig{\n\t\tName:              ControlStreamName,\n\t\tDescription:       \"Fenced regional authority, operation, and host mutation log\",\n\t\tSubjects:          []string{controlStreamSubject},\n\t\tRetention:         jetstream.LimitsPolicy,\n\t\tMaxConsumers:      -1,\n\t\tMaxMsgs:           -1,\n\t\tMaxBytes:          -1,\n\t\tMaxMsgsPerSubject: -1,\n\t\tStorage:           jetstream.FileStorage,\n\t\tReplicas:          replicas,\n\t\tDenyDelete:        true,\n\t\tDenyPurge:         true,\n\t\t// Lease reads must go through the stream leader; direct reads can be stale on followers.\n\t\tAllowDirect: false,\n\t\tMetadata:    map[string]string{\"terrascale-contract\": \"authority-log-v1\"},\n\t}\n\t// JetStream only applies its default API timeout when the caller has no\n\t// deadline. A long startup deadline must not let one lost reply consume the\n\t// entire attempt.\n\tcreateCtx, cancel := context.WithTimeout(ctx, authorityAPITimeout)\n\tstream, err := js.CreateStream(createCtx, config)\n\tcancel()\n\tcreated := err == nil\n\tif err != nil {\n\t\tif !errors.Is(err, jetstream.ErrStreamNameAlreadyInUse) && !errors.Is(err, jetstream.ErrBucketExists) {\n\t\t\treturn nil, fmt.Errorf(\"create authority stream: %w\", err)\n\t\t}\n\t\tlookupCtx, lookupCancel := context.WithTimeout(ctx, authorityAPITimeout)\n\t\tstream, err = js.Stream(lookupCtx, ControlStreamName)\n\t\tlookupCancel()\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"lookup existing authority stream: %w\", err)\n\t\t}\n\t}\n\tvar info *jetstream.StreamInfo\n\tif created {\n\t\tinfo, err = inspectCreatedControlStream(ctx, stream, createdStreamInfoConvergenceWindow)\n\t} else {\n\t\tinfoCtx, infoCancel := context.WithTimeout(ctx, authorityAPITimeout)\n\t\tinfo, err = stream.Info(infoCtx)\n\t\tinfoCancel()\n\t}\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"inspect authority stream: %w\", err)\n\t}\n\tif info == nil {\n\t\treturn nil, errors.New(\"authority stream info is missing\")\n\t}\n\tif err := verifyControlStreamConfig(info.Config, replicas); err != nil {\n\t\treturn nil, err\n\t}\n\treturn stream, nil\n}\n\n// A new R3 stream may be visible to CreateStream before its metadata leader\n// serves Info. Retry only the exact stream-not-found API response at this one\n// post-create boundary, within both the caller deadline and a short local cap.\nfunc inspectCreatedControlStream(ctx context.Context, stream jetstream.Stream,\n\tconvergenceWindow time.Duration,\n) (*jetstream.StreamInfo, error) {\n\twindowCtx, cancel := context.WithTimeout(ctx, convergenceWindow)\n\tdefer cancel()\n\tfor {\n\t\tinfoCtx, infoCancel := context.WithTimeout(windowCtx, authorityAPITimeout)\n\t\tinfo, err := stream.Info(infoCtx)\n\t\tinfoCancel()\n\t\tif err == nil {\n\t\t\treturn info, nil\n\t\t}\n\t\tif ctx.Err() != nil {\n\t\t\treturn nil, ctx.Err()\n\t\t}\n\t\tapiErr, ok := errors.AsType[*jetstream.APIError](err)\n\t\tif !ok || apiErr.Code != 404 || apiErr.ErrorCode != jetstream.JSErrCodeStreamNotFound {\n\t\t\treturn nil, err\n\t\t}\n\t\tselect {\n\t\tcase <-ctx.Done():\n\t\t\treturn nil, ctx.Err()\n\t\tcase <-windowCtx.Done():\n\t\t\treturn nil, err\n\t\tcase <-time.After(createdStreamInfoRetryDelay):\n\t\t}\n\t}\n}\n\nfunc verifyControlStreamConfig(actual jetstream.StreamConfig, replicas int) error {\n\tif (replicas != 1 && replicas != 3 && replicas != 5) || actual.Name != ControlStreamName ||\n\t\tactual.Replicas != replicas || actual.Retention != jetstream.LimitsPolicy ||\n\t\tactual.Storage != jetstream.FileStorage || actual.MaxConsumers != -1 ||\n\t\tactual.MaxMsgs != -1 || actual.MaxBytes != -1 ||\n\t\tactual.MaxMsgsPerSubject != -1 || actual.MaxAge != 0 || actual.Discard != jetstream.DiscardOld ||\n\t\tactual.MaxMsgSize > 0 || actual.DiscardNewPerSubject || actual.AllowRollup ||\n\t\tactual.AllowDirect || actual.MirrorDirect || actual.NoAck || actual.Sealed ||\n\t\t!actual.DenyDelete || !actual.DenyPurge || len(actual.Subjects) != 1 ||\n\t\tactual.Subjects[0] != controlStreamSubject || actual.Mirror != nil || len(actual.Sources) != 0 ||\n\t\tactual.SubjectTransform != nil || actual.RePublish != nil || actual.AllowMsgTTL ||\n\t\tactual.SubjectDeleteMarkerTTL != 0 || actual.AllowMsgSchedules ||\n\t\tactual.Metadata[\"terrascale-contract\"] != \"authority-log-v1\" {\n\t\treturn errors.New(\"existing control log has incompatible consistency, durability, or subject configuration\")\n\t}\n\treturn nil\n}"
+    },
+    {
+      "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/authority/runtime.go",
+      "path": "internal/authority/runtime.go",
+      "start_line": 311,
+      "end_line": 435,
+      "purpose": "Lease acquisition,publish,confirmation",
+      "sha256": "e9cdd3c923af363a538e6cde425c79f9b6fb82a7311691949935a46cdd16e8e8",
+      "bytes": 5749,
+      "text": "func (r *Runtime) reconcile(ctx context.Context) error {\n\tr.mu.Lock()\n\tdefer r.mu.Unlock()\n\n\tinfoCtx, infoCancel := context.WithTimeout(ctx, authorityAPITimeout)\n\tinfo, err := r.stream.Info(infoCtx)\n\tinfoCancel()\n\tif err != nil {\n\t\treturn stageFailure(\"stream_info\", err)\n\t}\n\tif err := verifyControlStreamConfig(info.Config, r.config.Replicas); err != nil {\n\t\treturn stageFailure(\"stream_config\", err)\n\t}\n\tentryCtx, entryCancel := context.WithTimeout(ctx, authorityAPITimeout)\n\tentry, err := r.stream.GetLastMsgForSubject(entryCtx, r.leaseSub)\n\tentryCancel()\n\tif errors.Is(err, jetstream.ErrMsgNotFound) {\n\t\treturn r.acquire(ctx, info.State.LastSeq, 0, 1)\n\t}\n\tif err != nil {\n\t\treturn stageFailure(\"lease_msg_get\", err)\n\t}\n\tif entry.Sequence > info.State.LastSeq {\n\t\treturn stageFailure(\"lease_sequence_check\", ErrConflict)\n\t}\n\tlease, err := decodeLease(entry.Data)\n\tif err != nil || lease.Scope != r.config.Scope || lease.Epoch == 0 {\n\t\tr.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Revision: entry.Sequence, ObservedAt: time.Now(), Reason: \"lease-corrupt\"})\n\t\treturn nil\n\t}\n\tif lease.DeploymentID != r.config.DeploymentID {\n\t\tr.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: lease.DeploymentID,\n\t\t\tCandidateID: lease.CandidateID, OwnerID: lease.OwnerID, Epoch: lease.Epoch,\n\t\t\tRevision: entry.Sequence, ObservedAt: time.Now(), Reason: \"lease-fenced\"})\n\t\treturn nil\n\t}\n\texpiresAt := entry.Time.Add(time.Duration(lease.LeaseDuration))\n\tnow := time.Now()\n\tcurrent := r.Current()\n\tif lease.IdentityResetSHA256 != \"\" {\n\t\tr.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: lease.DeploymentID,\n\t\t\tCandidateID: lease.CandidateID, OwnerID: lease.OwnerID, Epoch: lease.Epoch,\n\t\t\tRevision: entry.Sequence, ObservedAt: now, Reason: \"identity-reset-pending\"})\n\t\treturn nil\n\t}\n\tif !lease.Released && now.Before(expiresAt) {\n\t\tif lease.CandidateID != r.config.CandidateID || lease.OwnerID != r.ownerID {\n\t\t\tr.publishSnapshot(Snapshot{\n\t\t\t\tScope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: lease.CandidateID, OwnerID: lease.OwnerID, Ready: true,\n\t\t\t\tEpoch: lease.Epoch, Revision: entry.Sequence, ExpiresAt: expiresAt,\n\t\t\t\tObservedAt: now, Reason: \"follower\",\n\t\t\t})\n\t\t\treturn nil\n\t\t}\n\t\tif current.Epoch != lease.Epoch || !current.Leader {\n\t\t\treturn r.appendLease(ctx, info.State.LastSeq, entry.Sequence, lease.Epoch, false)\n\t\t}\n\t\treturn r.appendLease(ctx, info.State.LastSeq, entry.Sequence, lease.Epoch, false)\n\t}\n\tif lease.CandidateID == r.config.CandidateID && lease.OwnerID == r.ownerID && current.Leader && current.Epoch == lease.Epoch {\n\t\tr.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Revision: entry.Sequence, ObservedAt: now, Reason: \"lease-expired\"})\n\t}\n\treturn r.acquire(ctx, info.State.LastSeq, entry.Sequence, lease.Epoch+1)\n}\n\nfunc (r *Runtime) acquire(ctx context.Context, lastSequence, leaseSequence, epoch uint64) error {\n\treturn r.appendLease(ctx, lastSequence, leaseSequence, epoch, false)\n}\n\nfunc (r *Runtime) appendLease(ctx context.Context, lastSequence, leaseSequence, epoch uint64, released bool) error {\n\tif epoch == 0 {\n\t\treturn ErrFenced\n\t}\n\tif !released && r.checkClock() != nil {\n\t\treturn ErrClockUnhealthy\n\t}\n\tlease := leaseRecord{\n\t\tVersion: 1, Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, OwnerID: r.ownerID,\n\t\tEpoch: epoch, LeaseDuration: int64(r.config.LeaseDuration), TransitionID: entityid.New(), Released: released,\n\t}\n\tdata, err := jsonMarshal(lease)\n\tif err != nil {\n\t\treturn stageFailure(\"lease_encode\", err)\n\t}\n\tmsg := controlMessage(r.leaseSub, \"lease\", lease.TransitionID, data)\n\tpublishCtx, publishCancel := context.WithTimeout(ctx, authorityAPITimeout)\n\tack, err := r.publisher.PublishMsg(publishCtx, msg,\n\t\tjetstream.WithExpectLastSequence(lastSequence),\n\t\tjetstream.WithExpectLastSequenceForSubject(leaseSequence, r.leaseSub),\n\t)\n\tpublishCancel()\n\tif err != nil {\n\t\tif isSequenceConflict(err) {\n\t\t\treturn stageFailure(\"lease_publish\", ErrConflict)\n\t\t}\n\t\treturn stageFailure(\"lease_publish\", r.resolveLeaseAppend(ctx, lease, err))\n\t}\n\tconfirmCtx, confirmCancel := context.WithTimeout(ctx, authorityAPITimeout)\n\tstored, err := r.stream.GetLastMsgForSubject(confirmCtx, r.leaseSub)\n\tconfirmCancel()\n\tif err != nil {\n\t\treturn stageFailure(\"lease_confirm_get\", r.resolveLeaseAppend(ctx, lease, err))\n\t}\n\tif stored.Sequence != ack.Sequence {\n\t\treturn stageFailure(\"lease_confirm_sequence\", ErrConflict)\n\t}\n\tconfirmed, err := decodeLease(stored.Data)\n\tif err != nil || confirmed.Scope != r.config.Scope || confirmed.DeploymentID != r.config.DeploymentID || confirmed.CandidateID != r.config.CandidateID || confirmed.OwnerID != r.ownerID || confirmed.Epoch != epoch || confirmed.TransitionID != lease.TransitionID || confirmed.Released != released {\n\t\treturn stageFailure(\"lease_confirm_record\", ErrFenced)\n\t}\n\tif released {\n\t\tr.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Epoch: epoch, Revision: ack.Sequence, ObservedAt: time.Now(), Reason: \"released\"})\n\t\treturn nil\n\t}\n\tnow := time.Now()\n\texpiresAt := stored.Time.Add(time.Duration(confirmed.LeaseDuration))\n\tif !now.Before(expiresAt) {\n\t\treturn stageFailure(\"lease_confirm_expiry\", ErrFenced)\n\t}\n\tr.publishSnapshot(Snapshot{\n\t\tScope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Leader: true, Ready: true,\n\t\tEpoch: epoch, Revision: ack.Sequence, ExpiresAt: expiresAt, ObservedAt: now, Reason: \"leader\",\n\t})\n\treturn nil\n}"
+    },
+    {
+      "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/authority/runtime.go",
+      "path": "internal/authority/runtime.go",
+      "start_line": 641,
+      "end_line": 749,
+      "purpose": "Authority guard and close",
+      "sha256": "294b0c772d50d382a7bfc01291e35904c08c99532711539748f2ad5d9329c441",
+      "bytes": 4672,
+      "text": "func (r *Runtime) Guard(ctx context.Context, expectedEpoch uint64) error {\n\tif r == nil {\n\t\treturn ErrNotLeader\n\t}\n\tif guard, ok := ctx.Value(verificationGuardKey{}).(*verificationGuard); ok {\n\t\treturn r.guardVerification(ctx, expectedEpoch, guard)\n\t}\n\tif r.checkClock() != nil {\n\t\treturn ErrClockUnhealthy\n\t}\n\tr.mu.Lock()\n\tcurrent := r.Current()\n\tif !current.CanMutate() || current.Scope != r.config.Scope || current.DeploymentID != r.config.DeploymentID || current.CandidateID != r.config.CandidateID || current.OwnerID != r.ownerID {\n\t\twasLocalLeader := current.Leader && current.CandidateID == r.config.CandidateID && current.OwnerID == r.ownerID\n\t\tr.mu.Unlock()\n\t\tr.logSnapshotTransition()\n\t\tif wasLocalLeader {\n\t\t\tr.recordFailure(stageFailure(\"guard_precondition\", ErrNotLeader))\n\t\t}\n\t\treturn ErrNotLeader\n\t}\n\tif expectedEpoch == 0 || current.Epoch != expectedEpoch {\n\t\tr.mu.Unlock()\n\t\treturn ErrFenced\n\t}\n\tvar lastErr error\n\tfor range 8 {\n\t\terr := r.guardLocked(ctx, expectedEpoch)\n\t\tif !errors.Is(err, ErrConflict) {\n\t\t\tr.mu.Unlock()\n\t\t\tr.logSnapshotTransition()\n\t\t\tif err != nil {\n\t\t\t\tr.recordFailure(err)\n\t\t\t}\n\t\t\treturn err\n\t\t}\n\t\tlastErr = err\n\t}\n\tif lastErr == nil {\n\t\tlastErr = stageFailure(\"guard_retry\", ErrConflict)\n\t}\n\tr.mu.Unlock()\n\tr.logSnapshotTransition()\n\tr.recordFailure(lastErr)\n\treturn lastErr\n}\n\nfunc (r *Runtime) guardLocked(ctx context.Context, expectedEpoch uint64) error {\n\tinfo, err := r.stream.Info(ctx)\n\tif err != nil {\n\t\tr.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Reason: \"control-log-unavailable\"})\n\t\treturn stageFailure(\"guard_stream_info\", err)\n\t}\n\tif err := verifyControlStreamConfig(info.Config, r.config.Replicas); err != nil {\n\t\tr.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Reason: \"control-log-incompatible\"})\n\t\treturn stageFailure(\"guard_stream_config\", err)\n\t}\n\tentry, err := r.stream.GetLastMsgForSubject(ctx, r.leaseSub)\n\tif err != nil {\n\t\tr.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Reason: \"lease-unreadable\"})\n\t\treturn stageFailure(\"guard_lease_msg_get\", err)\n\t}\n\tif entry.Sequence > info.State.LastSeq {\n\t\treturn stageFailure(\"guard_sequence_check\", ErrConflict)\n\t}\n\tlease, err := decodeLease(entry.Data)\n\tif err != nil {\n\t\tr.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Reason: \"lease-corrupt\"})\n\t\treturn stageFailure(\"guard_lease_decode\", ErrLeaseCorrupt)\n\t}\n\tif lease.Scope != r.config.Scope || lease.DeploymentID != r.config.DeploymentID || lease.CandidateID != r.config.CandidateID || lease.OwnerID != r.ownerID || lease.Epoch != expectedEpoch || lease.Released || !time.Now().Before(entry.Time.Add(time.Duration(lease.LeaseDuration))) {\n\t\tr.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: lease.DeploymentID, CandidateID: lease.CandidateID, OwnerID: lease.OwnerID, Epoch: lease.Epoch, Revision: entry.Sequence, ObservedAt: time.Now(), Reason: \"lease-fenced\"})\n\t\treturn stageFailure(\"guard_lease_check\", ErrFenced)\n\t}\n\treturn r.appendLease(ctx, info.State.LastSeq, entry.Sequence, expectedEpoch, false)\n}\n\n// Close stops renewal and, when possible, appends a release barrier. If NATS\n// is unavailable the durable lease simply expires and the next candidate\n// advances the epoch.\nfunc (r *Runtime) Close() error {\n\tif r == nil {\n\t\treturn nil\n\t}\n\tvar closeErr error\n\tr.once.Do(func() {\n\t\tr.cancel()\n\t\t<-r.done\n\t\tcurrent := r.Current()\n\t\tif current.CanMutate() && current.Scope == r.config.Scope && current.DeploymentID == r.config.DeploymentID && current.CandidateID == r.config.CandidateID && current.OwnerID == r.ownerID {\n\t\t\tctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)\n\t\t\tdefer cancel()\n\t\t\tr.mu.Lock()\n\t\t\tdefer r.mu.Unlock()\n\t\t\tinfo, err := r.stream.Info(ctx)\n\t\t\tif err == nil && verifyControlStreamConfig(info.Config, r.config.Replicas) == nil {\n\t\t\t\tentry, getErr := r.stream.GetLastMsgForSubject(ctx, r.leaseSub)\n\t\t\t\tif getErr == nil {\n\t\t\t\t\tlease, decodeErr := decodeLease(entry.Data)\n\t\t\t\t\tif decodeErr == nil && lease.Scope == r.config.Scope && lease.DeploymentID == r.config.DeploymentID && lease.CandidateID == r.config.CandidateID && lease.OwnerID == r.ownerID && lease.Epoch == current.Epoch && !lease.Released {\n\t\t\t\t\t\tcloseErr = r.appendLease(ctx, info.State.LastSeq, entry.Sequence, current.Epoch, true)\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t})\n\tr.logSnapshotTransition()\n\treturn closeErr\n}"
+    },
+    {
+      "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/hostload/sampler.go",
+      "path": "internal/hostload/sampler.go",
+      "start_line": 60,
+      "end_line": 246,
+      "purpose": "Default sampler and empty-cgroup-root guard",
+      "sha256": "5d909e3b8025b3537d1c425701fde9bce31cdfbafd3bac0b43f80919a022465c",
+      "bytes": 6666,
+      "text": "func NewSampler(config SamplerConfig) *Sampler {\n\tif config.CgroupMount == \"\" {\n\t\tconfig.CgroupMount = \"/sys/fs/cgroup\"\n\t}\n\tif config.ReadSystem == nil {\n\t\tconfig.ReadSystem = observability.ReadSystem\n\t}\n\tif config.Now == nil {\n\t\tconfig.Now = time.Now\n\t}\n\treturn &Sampler{config: config, roles: make(map[string]cpuPoint)}\n}\n\n// Sample reads the host once. terrabase carries the latest verified load\n// block per TerraBase role; roles without one report none. Unreadable\n// sources leave their fields nil instead of failing the report.\nfunc (s *Sampler) Sample(terrabase map[string]memberstatus.Load) Report {\n\ts.mu.Lock()\n\tdefer s.mu.Unlock()\n\tnow := s.config.Now()\n\treport := Report{SchemaVersion: SchemaVersion}\n\tmemTotal := uint64(0)\n\tif view, err := s.config.ReadSystem(s.config.Filesystems); err == nil {\n\t\tmemTotal = view.MemTotalBytes\n\t\tif view.CPUCount > 0 && view.CPUCount <= MaxCPUCores {\n\t\t\treport.Host.CPUCores = view.CPUCount\n\t\t}\n\t\tif view.MemTotalBytes <= MaxMemoryBytes {\n\t\t\treport.Host.MemoryBytes = view.MemTotalBytes\n\t\t}\n\t\tbusy := view.CPUSeconds.Busy()\n\t\ttotal := busy + view.CPUSeconds.Idle + view.CPUSeconds.IOWait\n\t\tif s.hostSeen && total > s.host.total && busy >= s.host.usage {\n\t\t\treport.Host.CPU = ratio(busy-s.host.usage, total-s.host.total)\n\t\t}\n\t\ts.host, s.hostSeen = cpuPoint{usage: busy, total: total, at: now}, true\n\t\tif view.MemTotalBytes > 0 && view.MemAvailBytes <= view.MemTotalBytes {\n\t\t\treport.Host.Memory = ratio(float64(view.MemTotalBytes-view.MemAvailBytes), float64(view.MemTotalBytes))\n\t\t}\n\t\tif finiteWithin(view.Load1, MaxLoad1) {\n\t\t\tload := view.Load1\n\t\t\treport.Host.Load1 = &load\n\t\t}\n\t\tif rx, tx := view.NetRxBytes, view.NetTxBytes; rx > 0 && tx > 0 {\n\t\t\t// A counter that went backwards means the interface reset, so\n\t\t\t// that interval has no valid rate.\n\t\t\tif elapsed := now.Sub(s.net.at).Seconds(); s.net.seen && elapsed > 0 && rx >= s.net.rx && tx >= s.net.tx {\n\t\t\t\trxBps := float64(rx-s.net.rx) / elapsed\n\t\t\t\ttxBps := float64(tx-s.net.tx) / elapsed\n\t\t\t\tif finiteWithin(rxBps, MaxNetworkBps) && finiteWithin(txBps, MaxNetworkBps) {\n\t\t\t\t\treport.Host.NetworkRxBps, report.Host.NetworkTxBps = &rxBps, &txBps\n\t\t\t\t}\n\t\t\t}\n\t\t\ts.net = netPoint{rx: rx, tx: tx, at: now, seen: true}\n\t\t}\n\t\tseen := make(map[string]bool)\n\t\tfor _, filesystem := range view.Filesystems {\n\t\t\tif len(report.Host.Filesystems) == MaxFilesystems {\n\t\t\t\treport.Host.FilesystemsIncomplete = true\n\t\t\t\tbreak\n\t\t\t}\n\t\t\tif !validFilesystem(filesystem) || seen[filesystem.Role] {\n\t\t\t\treport.Host.FilesystemsIncomplete = true\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\tseen[filesystem.Role] = true\n\t\t\treport.Host.Filesystems = append(report.Host.Filesystems, filesystem)\n\t\t\tused := ratio(float64(filesystem.SizeBytes-filesystem.AvailBytes), float64(filesystem.SizeBytes))\n\t\t\tif report.Host.Disk == nil || *used > *report.Host.Disk {\n\t\t\t\treport.Host.Disk = used\n\t\t\t}\n\t\t}\n\t} else {\n\t\treport.Host.FilesystemsIncomplete = true\n\t}\n\tpresent := make(map[string]struct{}, len(s.config.Roles))\n\tfor _, role := range s.config.Roles {\n\t\tif len(report.Roles) == MaxRoles {\n\t\t\tbreak\n\t\t}\n\t\tusage, seen := s.sampleCgroup(role, now, memTotal)\n\t\tif seen {\n\t\t\tpresent[role] = struct{}{}\n\t\t}\n\t\tif load, ok := terrabase[role]; ok && load.Validate() == nil {\n\t\t\tusage.TerraBase = &load\n\t\t}\n\t\tif usage.CPUCores != nil || usage.MemoryBytes != nil || usage.TerraBase != nil {\n\t\t\treport.Roles = append(report.Roles, usage)\n\t\t}\n\t}\n\t// A role whose group vanished (stopped workload) restarts its CPU\n\t// baseline when it comes back, so a restart never reads as a burst.\n\ts.forgetCgroups(present)\n\treturn report\n}\n\n// SampleCgroups reads executor-owned child groups without resampling the host.\n// Missing groups remain unknown, and absent groups lose their CPU baseline.\n// Callers must independently bind each group to its current local task.\nfunc (s *Sampler) SampleCgroups(groups []string) []RoleUsage {\n\ts.mu.Lock()\n\tdefer s.mu.Unlock()\n\tnow := s.config.Now()\n\tpresent := make(map[string]struct{}, len(groups))\n\tusages := make([]RoleUsage, 0, len(groups))\n\tfor _, group := range groups {\n\t\tif group == \".\" || group == \"..\" || filepath.Base(group) != group {\n\t\t\tcontinue\n\t\t}\n\t\tusage, seen := s.sampleCgroup(group, now, 0)\n\t\tif seen {\n\t\t\tpresent[group] = struct{}{}\n\t\t}\n\t\tusages = append(usages, usage)\n\t}\n\ts.forgetCgroups(present)\n\treturn usages\n}\n\nfunc (s *Sampler) sampleCgroup(role string, now time.Time, memTotal uint64) (RoleUsage, bool) {\n\tusage := RoleUsage{Role: role}\n\tif s.config.CgroupRoot == \"\" {\n\t\treturn usage, false\n\t}\n\tpresent := false\n\tgroup := filepath.Join(s.config.CgroupRoot, role)\n\tusage.CPULimit, usage.MemoryLimit, usage.LimitsRead = readLimits(group, s.config.CgroupMount)\n\tif usage.MemoryLimit != nil && memTotal > 0 {\n\t\tlimit := min(*usage.MemoryLimit, memTotal)\n\t\tusage.MemoryLimit = &limit\n\t}\n\tif seconds, identity, ok := readGroupCPUSeconds(group); ok {\n\t\tpresent = true\n\t\tprevious, seen := s.roles[role]\n\t\t// A group recreated between samples (a restart or rollout)\n\t\t// has a new identity: its counter restarts the baseline even\n\t\t// when it already exceeds the old group's counter.\n\t\tsameGroup := seen && os.SameFile(previous.group, identity)\n\t\tif elapsed := now.Sub(previous.at).Seconds(); sameGroup && elapsed > 0 && seconds >= previous.usage {\n\t\t\tcores := (seconds - previous.usage) / elapsed\n\t\t\tif finiteWithin(cores, MaxCPUCores) {\n\t\t\t\tusage.CPUCores = &cores\n\t\t\t}\n\t\t}\n\t\ts.roles[role] = cpuPoint{usage: seconds, at: now, group: identity}\n\t}\n\tif memory, ok := readWorkingSet(group); ok && memory <= MaxMemoryBytes && (memTotal == 0 || memory <= memTotal) {\n\t\tusage.MemoryBytes = &memory\n\t}\n\treturn usage, present\n}\n\nfunc (s *Sampler) forgetCgroups(present map[string]struct{}) {\n\tfor role := range s.roles {\n\t\tif _, ok := present[role]; !ok {\n\t\t\tdelete(s.roles, role)\n\t\t}\n\t}\n}\n\n// A nil memory limit with LimitsRead means every ancestor reports \"max\".\nfunc readLimits(group, mount string) (*float64, *uint64, bool) {\n\tcpu, err := os.ReadFile(filepath.Join(group, \"cpu.max\"))\n\tif err != nil {\n\t\treturn nil, nil, false\n\t}\n\tfields := strings.Fields(string(cpu))\n\tif len(fields) != 2 {\n\t\treturn nil, nil, false\n\t}\n\tperiod, err := strconv.ParseFloat(fields[1], 64)\n\tif err != nil || period <= 0 {\n\t\treturn nil, nil, false\n\t}\n\tvar cores *float64\n\tif fields[0] != \"max\" {\n\t\tquota, err := strconv.ParseFloat(fields[0], 64)\n\t\tif err != nil || quota <= 0 || !finiteWithin(quota/period, MaxCPUCores) {\n\t\t\treturn nil, nil, false\n\t\t}\n\t\tvalue := quota / period\n\t\tcores = &value\n\t}\n\tgroup, mount = filepath.Clean(group), filepath.Clean(mount)\n\trelative, err := filepath.Rel(mount, group)\n\tif err != nil || relative == \"..\" || strings.HasPrefix(relative, \"..\"+string(filepath.Separator)) {"
+    },
+    {
+      "source_pin": "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/host/load.go",
+      "path": "internal/host/load.go",
+      "start_line": 301,
+      "end_line": 334,
+      "purpose": "Empty WAN entry return and cgroup interface",
+      "sha256": "80cb166e6b44d5ece9ddba8d29f4dcadf1cd97410c5c762a616a333ff802f207",
+      "bytes": 1037,
+      "text": "func (a *Agent) addTerraBaseWAN(ctx context.Context, report *hostload.Report) {\n\ta.loadMu.Lock()\n\tentry := a.terraBaseWAN\n\ta.loadMu.Unlock()\n\tif entry == nil || a.runner == nil || !entry.wan.Fresh(time.Now()) {\n\t\treturn\n\t}\n\tcurrent, err := a.runner.Observe(ctx, terrabase.Role)\n\tif err != nil || !sameWANProcess(entry.process, current) {\n\t\treturn\n\t}\n\ta.loadMu.Lock()\n\tdefer a.loadMu.Unlock()\n\tif a.terraBaseWAN == nil || !sameWANProcess(entry.process, a.terraBaseWAN.process) || !entry.wan.Fresh(time.Now()) {\n\t\treturn\n\t}\n\tfor i := range report.Roles {\n\t\tif report.Roles[i].Role == terrabase.Role {\n\t\t\treport.Roles[i].WAN = entry.wan\n\t\t\treturn\n\t\t}\n\t}\n\treport.Roles = append(report.Roles, hostload.RoleUsage{Role: terrabase.Role, WAN: entry.wan})\n}\n\n// cgroupRooted is implemented by runners that keep one cgroup v2 group per\n// role under a common parent.\ntype cgroupRooted interface {\n\tCgroupRoot() string\n}\n\n// CgroupRoot is the role cgroup parent once Recover has run.\nfunc (p *processRunner) CgroupRoot() string { return p.cgroups }\n"
+    }
+  ],
+  "qualification_limits": [
+    "Source-only candidate; runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No build/test/helper/runtime/cloud/signing/crypto execution.",
+    "Loopback upstream NATS and one-replica file-backed JetStream establish protocol/store source paths. No production JWT/TLS,R3 quorum,regions,failover or restart durability qualification.",
+    "Function fixture verifies durable intent/grant then returns synthetic bytes; no live OCI/Vault/broker credential source,WASM or function execution.",
+    "memoryMutations commits publish to JetStream but reads return map entries; LoadSink callbacks fake. Session fixture I/O does not promote local filtering/schema targets.",
+    "memoryRunner Stop/Apply changes only memory. Load publication does not assert exact OS metrics; no cgroup root means sampleCgroup returns before file reads. Empty WAN entry returns before observation.",
+    "Reader direct KV.Get error does not establish unique runtime cause. Production Reader.get uses restricted connection and actual stream-leader API."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "accounting_effect": {
+    "retirement_authorized": false,
+    "safety_obligations_retained": true,
+    "global_count_promotion": false,
+    "global_completion_promotion": false,
+    "runtime_qualification": false,
+    "ledger_mutation": false,
+    "repository_mutation": false
+  }
+}

@@ -1,0 +1,92 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1020_1040",
+  "author": "/root/classification_100_dispatch/batch_1040_1060",
+  "allocation_range": [
+    1840,
+    1860
+  ],
+  "status": "accepted",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-second-1840-1860-51h4dvn_/classification.json",
+    "sha256": "e2c1dbb16df95d49e97a112483b57bbaaad56747f20d4008ed5bdfa430945bed",
+    "checksum_path": "/tmp/ts-source-second-1840-1860-51h4dvn_/SHA256SUMS",
+    "checksum_sha256": "2142ee50368003e7c47890d292cfbf025139eaa313a7cd27fac21a4874f26aa4"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "literal_root_ids": [
+    "internal/machines/store_test.go::TestStoreListsMachinesAndStatusesByApp",
+    "internal/machines/store_test.go::TestStoreMachineInvariants",
+    "internal/machines/store_test.go::TestStoreRefusesTamperedRecords",
+    "internal/machines/store_test.go::TestStoreStaleRevisionLosesToNewerWrite",
+    "internal/machines/store_test.go::TestStoreSweepsStatusesWithoutTheirMachine",
+    "internal/machinesapi/link_health_test.go::TestPublicLinkHealthFailsClosedWithoutChangingLiveness",
+    "internal/machinesapi/link_health_test.go::TestPublicLinkHealthPreservesEvidenceAndMissingControllers",
+    "internal/machinesapi/server_test.go::TestAuthorizationFailures",
+    "internal/machinesapi/server_test.go::TestConfigValidate",
+    "internal/machinesapi/server_test.go::TestPublicRoutes",
+    "internal/machinesapi/server_test.go::TestStoreOutageIsUnavailable",
+    "internal/machinesapi/server_test.go::TestTenancy",
+    "internal/machinesapi/token_test.go::TestVerifierAcceptsAccessToken",
+    "internal/machinesapi/token_test.go::TestVerifierDistrustsAnOldKeySet",
+    "internal/machinesapi/token_test.go::TestVerifierFallsBackToTheNextKeySetURL",
+    "internal/machinesapi/token_test.go::TestVerifierFindsANewKeyOnALaterReplica",
+    "internal/machinesapi/token_test.go::TestVerifierKeyRotationAndOutage",
+    "internal/machinesapi/token_test.go::TestVerifierRefusesKeySetRedirects",
+    "internal/machinesapi/token_test.go::TestVerifierRejectsTokens",
+    "internal/machinesapi/token_test.go::TestVerifierRejectsUnusableKeySet"
+  ],
+  "counts": {
+    "mixed": 3,
+    "integration": 13,
+    "unit": 4,
+    "unresolved": 0,
+    "total": 20
+  },
+  "independent_full_root_review": true,
+  "review_after_own_frozen_handoff": {
+    "path": "/tmp/ts-source-1820-1840-ovbhfxok/classification.json",
+    "sha256": "ee8d998d0d9e67ad6792d839db01a08ac06909d97a1d010cb0acb12cfcf64f96"
+  },
+  "checks_performed": [
+    "Independently read all20 full canonical root declarations, store_test/testStore and machine model fixtures, machines production Store and codec/serialization paths, API fixture/recorder calls, production routes/auth/tenancy handlers, LinkHealth projection/Cache.Get, JWKS server/signing fixture and production Verifier/fetchURL, tenant creation/get/decoder paths. No test/project/signing/crypto execution.",
+    "Verified exact allocated literal root order and owner/reviewer mapping against pinned second800 manifest; checked survival input SHA256 and each full survival row.",
+    "Verified all40 baseline/current raw declaration bounds, full text and SHA256 against canonical Git objects and retained mapping using independent explicit manually inspected root spans. No canonical body drift.",
+    "Verified all19 file pins (Git mode/blob/SHA256/bytes), all86 evidence/declaration spans and blob references including end_line within actual file length, complete assertion interiors, packet/checksum contents and frozen0444files/0555directory.",
+    "Independently agreed13integration/4unit/3mixed categories: real loopback upstream single-node TCP NATS/JetStream and HTTP JWKS only when materially reached; recorder dispatch/synthetic LinkHealth sources and incidental store setup are local. Mixed wildcard-list guard, AuthorizationFailures local guards and RejectsTokens prefetch header/structural cases retained."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [
+    {
+      "root_id": "internal/machines/store_test.go::TestStoreStaleRevisionLosesToNewerWrite",
+      "path": "internal/machines/store_test.go",
+      "line": 286,
+      "end_line": 288,
+      "status": "retained_explicit_uncredited_assertion",
+      "detail": "Raw stale Machine CAS is sent to store.apps, not store.machines. Intended current-machine CAS property remains unresolved/uncredited. Earlier actual App/Machine stale revision conflicts and app readback support root integration category. No runtime outcome or upstream error-contract claim."
+    }
+  ],
+  "required_packet_corrections": [],
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE; runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No compile/pass/fail or runtime receipts reviewed.",
+    "testStore and API newFixture directly start upstream NATS server.NewServer and connect nats.Connect(srv.ClientURL()) over loopback TCP with single-replica FileStorage; not natscell.Start/in-process clients. No TLS/JWT cluster authentication, quorum, production network or persistence-across-restart claim.",
+    "API requests use httptest recorder and ServeHTTP directly; no API listener/TLS/Start path. Real service boundary comes from actual KV or Verifier HTTP fetch only when reached by assertions. Link health uses synthetic ClusterSource, not Aggregator or production observations.",
+    "JWKS servers are real loopback HTTP transports with synthetic test signing keys, outages and clock; local cryptography/claims and cache assertions alone do not qualify an external identity provider. No signing/crypto executed during review.",
+    "Epoch fences are synthetic local hooks. Machine-invariant and sweep assertions nevertheless read real KV before their stored-state/epoch checks. Final stale-CAS wrong-bucket assertion retains an explicit uncredited intended property.",
+    "All safety/negative/exact-value/readback obligations retained. No deletion, retirement, ledger/count promotion, runtime qualification, repository mutation or global completion."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "runtime_execution": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "completion_or_count_promotion": false,
+    "global_completion": false
+  }
+}

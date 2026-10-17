@@ -1,0 +1,114 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_800_820",
+  "author": "/root/classification_100_dispatch/batch_820_840",
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-1620-1640-2ikkhpeu/classification.json",
+    "sha256": "387aae4290b811d1eb55c509a6689a5fba88ecbb54e682135871ec133b2dcd48",
+    "checksum_path": "/tmp/ts-source-1620-1640-2ikkhpeu/SHA256SUMS",
+    "checksum_sha256": "531c3bdfdaaa05b368a04c44748bdc096cb65137b327c0cfafc5ee38261b0cd1"
+  },
+  "own_prior_sealed_handoff": {
+    "path": "/tmp/ts-source-other1600-1620-_yk9ljv1/classification.json",
+    "sha256": "0cb29ba36bc3373dc2b8f10c8b98302ffc2b393424a5357555c1ea1320e16179"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "literal_range": "other_unadjudicated[1620:1640)",
+  "root_ids": [
+    "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeFenceStopsBeforeRepair",
+    "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeFilesystemSwapIsRefused",
+    "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeFilesystemUUID",
+    "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeFirstFormatIsFenced",
+    "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeFormatGrantVerification",
+    "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeFstab",
+    "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeLossStopsTheRunningMember",
+    "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeLostDuringMaintenanceStopsTheMember",
+    "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeNeedsTerraBaseRoot",
+    "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeNeverFormatsExistingData",
+    "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeReadsTheSuperblockUUID",
+    "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeRootWithInitializerCapabilities",
+    "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeWriteFstab",
+    "internal/host/trace_test.go::TestHostRequestSendsTheTraceparent",
+    "internal/host/tsauth_test.go::TestTSAuthExitReportedOnceBeforeRelaunch",
+    "internal/host/tsauth_test.go::TestTSAuthPortValidation",
+    "internal/host/tsauth_test.go::TestTSAuthRefusedWithoutRoot",
+    "internal/host/tsauth_test.go::TestTSAuthRefusesBadProfileOrSecrets",
+    "internal/host/tsauth_test.go::TestTSAuthReplicaGetsVaultSecrets",
+    "internal/host/tsauth_test.go::TestTSAuthReplicaRejectsUUIDProject"
+  ],
+  "counts": {
+    "unit": 12,
+    "mixed": 3,
+    "integration": 5,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 whole canonical test roots and connected actual production/fixture paths. Source categories assessed independently from runtime qualification.",
+    "Verified activated literal allocation and20 survival rows, canonical clean HEAD/tree, all five input SHA256/byte pins,26 baseline/current source file Git blob/mode/SHA256/byte pins.",
+    "Verified all40 raw root declarations using explicit baseline/current bounds, exact full text/hash and declaration identity; all bodies match historical mapping.",
+    "Verified128 exact assertion/connected spans against canonical bytes and line bounds/blob. Reviewed separate local-only blocks before agreeing with mixed categories.",
+    "Verified exact packet/checksum hashes, all SHA256SUMS entries and immutable files0444/directory0555. No execution/source mutation occurred."
+  ],
+  "connected_boundary_review": {
+    "synthetic_fencing": "fakeDataVolume replaces mount/UUID/controller boundaries and memoryRunner is map state; unused listener setup establishes no exchange or process boundary. Agree unit for swap/fence.",
+    "format_storage": "testController starts upstream loopback NATS, not natscell.Start; format c.get/cas reaches actual file-backed JetStream KV. Local no-role/managed guards remain independent mixed blocks.",
+    "grant_verification": "Valid/attempt/replacement cases read actual durable state files. Signature/node/operation/expiry/volume/UUID/refused-grant guards can reject before file I/O; mixed.",
+    "actual_loss": "Unmodified verifyTerraBaseDataMount reaches fixed OCI device OS inspection and/or absent test root. This actual observation supports failed report/fence; stopped workload remains map state, no live volume or process loss claim.",
+    "maintenance": "prepareTerraBase owned-directory work and requestTerraBaseDataVolume Unix dial/write/read/context-close form a real boundary. Acceptance changes synthetic mount state; real block device/process still absent.",
+    "capability_fstab": "Root-only locked-thread capability fixture reaches actual directory open/ownership/mode/Syncfs and independent stat readback. writeFstab performs actual temporary-file/sync/rename/readback; invalid rejection tied to unchanged bytes. Root/capability runtime prerequisites remain unknown.",
+    "trace": "exchangeWithEnvelope publishes traceparent through real NATS request to subscriber, then cancellation ends unanswered call. No controller signed response/TLS/natscell startup qualification.",
+    "auth": "prepareTSAuth reaches actual owned directories only for valid supplied secret maps. Separate desired/replica/withdrawn predicates are local; malformed inputs reject before production I/O. No Vault SDK/resolver, launch or readiness in these assigned roots.",
+    "local_transformations": "Volume action/UUID/fstab bytes and bytes.Reader superblock parsing are local; FormatCommand returns strings and never runs mkfs."
+  },
+  "corrections_requested": [],
+  "resolved_findings": [],
+  "remaining_findings": [
+    {
+      "scope": "volume fake seams",
+      "roots": [
+        "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeFenceStopsBeforeRepair",
+        "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeFilesystemSwapIsRefused"
+      ],
+      "finding": "fakeDataVolume replaces all mount/UUID/controller boundaries; memoryRunner stop is a map deletion. An unused listener does not establish integration."
+    },
+    {
+      "scope": "volume actual missing-device path",
+      "roots": [
+        "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeLossStopsTheRunningMember"
+      ],
+      "finding": "Unmodified production OS inspection reaches the fixed /dev/oracleoci data-volume path and/or absent data directory. The fixture does not control/create a mounted device. Its process-stop assertion is simulated; no real mount-loss/process-stop qualification."
+    },
+    {
+      "scope": "root capability requirement",
+      "roots": [
+        "internal/host/terrabase_volume_test.go::TestTerraBaseDataVolumeRootWithInitializerCapabilities"
+      ],
+      "finding": "Root-only fixture skips nonroot execution; exact permitted/effective capabilities and filesystem semantics are external runtime prerequisites and remain UNKNOWN."
+    },
+    {
+      "scope": "ts-auth fixture",
+      "roots": [
+        "internal/host/tsauth_test.go::TestTSAuthReplicaGetsVaultSecrets"
+      ],
+      "finding": "The root name/comment mentions Vault secrets, but a map supplies them directly. Real effect is owned directory creation; no Vault retrieval or replica launch is reached."
+    }
+  ],
+  "remaining_findings_status": "Context/qualification limits retained explicitly; no unresolved root mapping or source-category correction.",
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "qualification_limits": [
+    "Source inspection/hash/metadata packaging only; no Go/tests/helpers/services/crypto fixture/capability/probe/cloud/process execution.",
+    "No successful OCI mount/format, live TerraBase stop, actual crash/power-loss durability, production Vault retrieval, TLS or sealed startup result follows.",
+    "No source/repository/ledger mutation, original-count promotion, deletion/retirement authorization or runtime/qualification/global-completion credit. Safety/negative/retry/identity obligations retained."
+  ],
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false,
+    "retirement_authorized": false
+  }
+}

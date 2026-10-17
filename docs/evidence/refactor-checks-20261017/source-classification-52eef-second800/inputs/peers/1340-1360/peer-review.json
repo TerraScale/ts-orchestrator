@@ -1,0 +1,79 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_160_180",
+  "author": "/root/classification_100_dispatch/batch_180_200",
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-classification-1340-1360-complete-mh6_z9vb/classification.json",
+    "sha256": "f69fc86c48ca9741a532e9cb6a950ed042d824fec4abea2d5cdcb2040f2de713",
+    "checksum_path": "/tmp/ts-classification-1340-1360-complete-mh6_z9vb/SHA256SUMS",
+    "checksum_sha256": "e2c96638d6e68245b1491a77ac313a8dcd7edee0a9d67b023377586ddab897b5"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "range": [
+    1340,
+    1360
+  ],
+  "root_ids": [
+    "internal/decisionlog/review_test.go::TestChainFindsEvictedDeterministicIDInArchive",
+    "internal/decisionlog/review_test.go::TestChainFindsParentsOlderThanADay",
+    "internal/decisionlog/review_test.go::TestChainLookupFailuresAreNotNotFound",
+    "internal/decisionlog/review_test.go::TestFullPageWithUnsearchedHistoryIsTruncated",
+    "internal/decisionlog/review_test.go::TestHistoricalQueryAnchorsArchiveSearchAtUntil",
+    "internal/decisionlog/review_test.go::TestLongChainKeepsItsLatestDecision",
+    "internal/decisionlog/review_test.go::TestOutOfOrderEvictionConsultsArchive",
+    "internal/decisionlog/review_test.go::TestOversizedChainReplyKeepsRootAndRequested",
+    "internal/decisionlog/review_test.go::TestQueriesDuringReplayArePartial",
+    "internal/decisionlog/review_test.go::TestRemoteFiltersAllowNonASCIIText",
+    "internal/decisionlog/review_test.go::TestReplayedRecordRepublishesUntilDurable",
+    "internal/decisionlog/stream_test.go::TestEncodeReplyTrimsToLimit",
+    "internal/decisionlog/stream_test.go::TestFederatedChainMissWithUnlinkedRegionIsUnavailable",
+    "internal/decisionlog/stream_test.go::TestFederatedChainSearchesPastAnUnavailableLocalJournal",
+    "internal/decisionlog/stream_test.go::TestFederationAcrossRegions",
+    "internal/decisionlog/stream_test.go::TestResumedReplayStillEnds",
+    "internal/decisionlog/stream_test.go::TestStreamPublishTailAndScan",
+    "internal/decisionlog/stream_test.go::TestStreamScanStopsAtBound",
+    "internal/decisionlog/trace_test.go::TestQueryTraceReachesTheResponder",
+    "internal/disasterrecovery/cli_test.go::TestReplicateRefusesUnsafeSDKEnvironmentBeforeCloudAccess"
+  ],
+  "counts": {
+    "integration": 4,
+    "unit": 14,
+    "mixed": 2,
+    "unresolved": 0
+  },
+  "checks_performed": {
+    "literal_allocated_ids": 20,
+    "source_file_pins": 24,
+    "raw_baseline_current_declarations": 40,
+    "assertion_spans_exact_text": 20,
+    "connected_callee_spans_exact_text": 43,
+    "methods": [
+      "Independently read all20 full canonical roots with numbered git show source, actual fake sink/archive helpers, Journal selection/retry/replay/chain/BuildChain logic, encoder guards, loopback server/client fixture, stream publish/ordered consume/tail paths, federation/regionlink request and unlinked/no-links guards, responder/trace propagation, CLI config/unsafe-environment guard path.",
+      "Verified exact activated allocation identity/order, immutable packet/checksum SHA256/modes,24 Git blob/mode/SHA256/byte pins,40 raw declaration spans/hashes/full text and literal survival mappings,20 assertion and43connected spans against immutable canonical Git source.",
+      "Rechecked every category and qualification limit: real JetStream publication/tail/archive/dedup/scan and NATS trace requests establish4 integration roots; federation roots have independent local-only blocks and are2 mixed;14roots resolve to fake/local/pre-I/O paths."
+    ]
+  },
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "review_notes": [
+    "TestFederatedChainMissWithUnlinkedRegionIsUnavailable reaches local Journal and Linked map predicate; server setup is incidental. Unit accepted.",
+    "TestFederationAcrossRegions final gru/fra query avoids protocol request via unlinked guard; TestFederatedChainSearchesPastAnUnavailableLocalJournal final no-links Chain is independent local-only. Mixed accepted.",
+    "TestStreamScanStopsAtBound future-range assertion still reads actual stream.Info and LastTime before returning; integration accepted.",
+    "TraceSource is synthetic but asserted trace context crosses actual NATS request/response into production ServeQueries. Scope limited to loopback single broker and protocol trace propagation.",
+    "CLI config file read/setup is incidental to the unsafe environment refusal, which returns before OperatorConfig/OCI access. Unit accepted."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "source_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": false,
+    "deletion_credit": false,
+    "retirement_authorized": false,
+    "completion_promotion": false
+  }
+}

@@ -1,0 +1,5 @@
+Independent source-only peer acceptance for exact other_unadjudicated[1640:1660).
+Accepted corrected packet /tmp/ts-source-1640-1660-corrected-1ryfsws6/classification.json SHA256 6045776198a04bf2991d9323839120747a756fd5870a83500077aea6fcea0b9d.
+Counts3 integration/13 unit/4 mixed/0 unresolved. One independent local freshness-block correction resolved; previous packet preserved.
+All20 roots,40 raw declarations,37 canonical pins,6 existing module-cache pins,86 exact spans and literal mappings verified.
+Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No source/ledger/runtime mutation or count/deletion/retirement/qualification/completion credit.

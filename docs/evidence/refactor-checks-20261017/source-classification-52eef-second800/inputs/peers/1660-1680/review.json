@@ -1,0 +1,114 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_840_860",
+  "author": "/root/classification_100_dispatch/batch_860_880",
+  "decision": "ACCEPT_SOURCE_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-second800-1660-1680-final-jwyj6w4o/classification.json",
+    "sha256": "c98a3d60eaf89d24b2a68accd60b7830906818dd42405e5cdcc92f847f5d748e",
+    "checksum_path": "/tmp/ts-source-classification-second800-1660-1680-final-jwyj6w4o/SHA256SUMS",
+    "checksum_sha256": "9dd5ee071e56e8b834748780666d43a1fd70ce79d4e86b2f5fbe0f76b2050fc4"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[1660:1680]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_840_860"
+  },
+  "source_repository": "/tmp/ts-refactor-main-union-3d9a933e",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/hostenroll/grant_terminal_test.go::TestGrantStoreTerminalFenceBlocksDelayedRenewalWork",
+    "internal/hostenroll/grant_terminal_test.go::TestGrantStoreTerminalFenceCASDisablesExactGrant",
+    "internal/hostenroll/grant_terminal_test.go::TestGrantStoreTerminalFenceCreatesDurableTombstone",
+    "internal/hostenroll/grant_terminal_test.go::TestGrantStoreTerminalFencePreservesFinishWinners",
+    "internal/hostenroll/grant_terminal_test.go::TestGrantStoreTerminalFenceRejectsMismatchedAndCorruptSnapshots",
+    "internal/hostenroll/grant_terminal_test.go::TestGrantStoreTerminalFenceRereadsGrantThatWinsCreateRace",
+    "internal/hostenroll/grant_terminal_test.go::TestResetGrantRenewalRefusesOrdinaryIncompleteAndForgedProvenance",
+    "internal/hostenroll/imds_test.go::TestNewIMDSClientRetainsBoundedTransport",
+    "internal/hostenroll/imds_test.go::TestReadControllerHostMetadataNamesTheControllerSlot",
+    "internal/hostenroll/imds_test.go::TestReadInstanceMetadataRejectsInvalidFixedEndpointResponses",
+    "internal/hostenroll/imds_test.go::TestReadInstanceMetadataUsesOnlyBoundedFixedEndpoints",
+    "internal/hostenroll/imds_test.go::TestReadPoolNodeMetadataWaitsForTheLeaderToName",
+    "internal/hostenroll/issuer_test.go::TestLoadIssuerRefusesTrailingRootData",
+    "internal/hostenroll/issuer_test.go::TestParseTLSIssuerAcrossARolloverBundle",
+    "internal/hostenroll/role_test.go::TestRoleUserReachesOnlyItsBuckets",
+    "internal/hostenroll/wire_test.go::TestParseCSRRejectsCallerChosenIdentityAndNonP256Keys",
+    "internal/hostload/filesystem_test.go::TestReportFilesystemValidation",
+    "internal/hostload/filesystem_test.go::TestSamplerPreservesBoundedFilesystemIdentity",
+    "internal/hostload/hostload_test.go::TestAggregatorConcurrentRecordAndRead",
+    "internal/hostload/hostload_test.go::TestAggregatorDropsSilentContributors"
+  ],
+  "counts": {
+    "integration": 5,
+    "unit": 12,
+    "mixed": 3,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 complete roots and connected actual grant KV/IMDS callback/issuer/role credential/broker/CSR/report/sampler/aggregator/window paths. No category inferred from fixture or test names.",
+    "Verified literal20 IDs/order against activated batch[1660:1680), accounting other_unadjudicated slice, exclusions and mapped cyclic reviewer. All survival TSV original/current names, kinds, states and hashes agree.",
+    "Verified40 exact baseline/current raw declarations through explicit column-zero closing braces excluding following LF; Git source bytes, function names, line bounds, stored declaration text and SHA256 agree.",
+    "Verified28 canonical file pins for commit/blob/mode/SHA256/byte count; current working bytes match Git, HEAD/tree match canonical pins. Seven root test files have identical baseline/current contents.",
+    "Verified44 assertion/connected spans against exact Git blob text and explicit manually reviewed line ranges.",
+    "Verified packet and checksum-file SHA256, SHA256SUMS entries, all0444 file modes and0555 directory; source category counts sum20.",
+    "Exact old/final JSON comparison proves only the added grant.go39-51 helper span plus supersedes metadata changed. Added helper independently read and exact Git text/blob rechecked; all root mappings/categories/declarations/file pins and prior spans remain identical to fully checked prior packet."
+  ],
+  "classification_review": [
+    "Five grant fencing roots materially read/create/update/CAS real single-replica file-backed JetStream KV and assert revision/byte winners. Serialized invocation ordering receives no concurrent-schedule or crash-durability credit.",
+    "Two mixed grant roots combine real KV checks with distinct pre-I/O invalid-operation or forged-provenance guards. The invalid different-terminal-op argument is rejected by entityid.Valid before store access, so valid foreign-operation conflict behavior is not credited.",
+    "Role credentials are issued locally and enforced by a real JWT-account-resolver NATS broker over loopback TCP. Distinct signer/scope/ungranted-role/JWT/certificate local blocks make the root mixed. There is no TLS transport handshake, live TerraBase or physical interregion link.",
+    "All five IMDS roots use fake HTTPDoer responses or inspect client settings; both issuer roots assert local certificate/rootPEM predicates, with seed/key/certificate file inputs incidental. CSR, filesystem value validation, injected-SystemView sampling and in-memory aggregator roots remain unit."
+  ],
+  "resolved_findings": [
+    {
+      "kind": "author_proactive_evidence_completion",
+      "detail": "Final packet adds mutationNotApplied/IsGrantMutationNotApplied source span reached by stale-Finish classifier assertion; helper is local but assertion checks actual KV CAS mismatch, so integration category unchanged."
+    }
+  ],
+  "remaining_findings": [
+    {
+      "kind": "retained_assertion_scope_limit",
+      "root_id": "internal/hostenroll/grant_terminal_test.go::TestGrantStoreTerminalFenceCreatesDurableTombstone",
+      "lines": [
+        139,
+        141
+      ],
+      "detail": "different-terminal-op is invalid ULID and rejected before KV; no valid foreign-operation takeover refusal credit. Mixed category correctly preserves this separate local guard."
+    },
+    {
+      "kind": "retained_qualification_limit",
+      "root_id": "internal/hostenroll/role_test.go::TestRoleUserReachesOnlyItsBuckets",
+      "detail": "Denied-bucket calls share one one-second context and require only nonnil errors; source cannot distinguish permission denial from later timeout there. Explicit asynchronous refused-subject checks retain their own boundary scope."
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. Source categories imply no compile/runtime pass, race-detector result or production qualification.",
+    "Grant fixture directly starts upstream server.NewServer with loopback TCP clients and single-replica temporary file-backed JetStream. It does not call natscell.Start, prove quorum/cluster failover, restart/crash durability, or validate synthetic request signature bytes.",
+    "IMDS tests are fake HTTPDoer response/request contracts. Sampler filesystem test injects SystemView and reaches no statfs, /proc or cgroup reader.",
+    "Trailing-root-data target is local rootPEM validation; seed/key/certificate file reads are incidental setup. Role test has real TCP JWT authorization but no live TerraBase, TLS transport handshake or interregion link.",
+    "Role denied-bucket calls reuse one one-second context and assert only nonnil errors; no specific authorization error is required there. Later refused-subject helper requires asynchronous permission errors; no runtime outcome or timing is inferred.",
+    "Tombstone different-terminal-op is invalid ULID and rejected before I/O; valid foreign-operation takeover is not established by that block. Distinct local Claim provenance guard remains a unit obligation.",
+    "Concurrent aggregator test asserts eventual node count only, ignores per-call errors/values and cannot source-prove race freedom or throughput. Silent contributor test is deterministic in-memory time/value behavior.",
+    "All negative, trust, retry, no-write, byte/revision preservation and local-validation obligations retained. No test deletion/retirement, ledger mutation or completion/count promotion."
+  ],
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false,
+    "classification_count_promotion_authorized": false
+  },
+  "execution_limits": "Read-only source/Git inspection, ordinary hashing and metadata serialization only. No source/repo/ledger/runtime changes, Go/tests/helpers/scanners/probes/locks/cloud/crypto execution/downloads/deletion/retirement.",
+  "supersedes_review": {
+    "path": "/tmp/ts-peer-review-second800-1660-1680-u1oytike/review.json",
+    "sha256": "9987f748060b4cd75f8934c17c1fe2c08374de46101e3d1228dc8609b3fc117d",
+    "reason": "Author supplied fresh exact final packet with added helper citation; prior packet and receipt bytes preserved."
+  }
+}

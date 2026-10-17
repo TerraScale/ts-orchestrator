@@ -1,0 +1,101 @@
+{
+  "schema": "independent-second800-source-aggregate-accounting-review-v2",
+  "reviewer": "/root/fixture_source_review_next",
+  "reviewed_utc": "2026-10-17T19:25:45.311864+00:00",
+  "decision": "SOURCE_ACK_AGGREGATE_ACCOUNTING_ONLY",
+  "manifest": {
+    "path": "/tmp/ts-root800-second-final-qa-corrected-9hw65w68/manifest.json",
+    "sha256": "a71a05858a7c1c58ed5c5213a7e08ae9b7095693dcfb52415340b11947146e56",
+    "checksum_sha256": "19c7a5cf7684512595e6768609f44c47cbf351bd43d4cb078f42725e8069df5b"
+  },
+  "scope": "Aggregate accounting/source binding only, not third semantic reclassification of800roots. No execution, central ledger adoption, count/retirement/qualification/completion promotion.",
+  "prior_full_independent_review": {
+    "receipt": "/tmp/ts-second800-aggregate-review-2aff808b-35oe5sr5.json",
+    "sha256": "c5eccf14b151b71571862d1cb41b2cb2bfce5ec115fd03bf4a93fd924414e979",
+    "original_manifest": {
+      "path": "/tmp/ts-root800-second-final-source-handoff-vegpl6aa/manifest.json",
+      "sha256": "2aff808b9719b72e54c68c141655a192ef5ea878dd0ff0fd2ffc5b8308754b90",
+      "checksum_sha256": "676808a5f06330913aa74cd6327ea378c6584435ca6472b750bcb4078653ffd1"
+    },
+    "reuse_basis": "Full independently checked source/accounting evidence remains byte-identical except the sole corrected peer citation and explicitly checked aggregate provenance delta. Old HOLD and all old artifacts preserved; original exact aggregate remains superseded."
+  },
+  "verified": {
+    "exact_literal_other_range": [
+      1100,
+      1900
+    ],
+    "original_roots": 800,
+    "current_roots": 800,
+    "verbatim_original_records": 800,
+    "original_survival_hash_matches": 800,
+    "current_and_baseline_raw_declaration_hashes_identity_bounds": 1600,
+    "authors": 40,
+    "distinct_cyclic_independent_peers": 40,
+    "exact_final_owner_hash_accepts": 40,
+    "explicit_metadata_inputs": 234,
+    "nested_checksum_entries": 151,
+    "all_checksum_entries_including_aggregate_and_inputs": 393,
+    "explicit_source_span_bounds": 5056,
+    "span_bounds_failures": 0,
+    "explicit_citation_text_matches": 3583,
+    "source_file_hash_checks": 1291,
+    "source_file_size_or_span_bytes_checks": 1403,
+    "source_file_mode_checks": 1406,
+    "other_referenced_absolute_file_hash_checks": 209,
+    "Git_objects_read": 720,
+    "counts": {
+      "integration": 295,
+      "unit": 405,
+      "mixed": 91,
+      "unresolved": 9
+    },
+    "classified": 791,
+    "unresolved": 9,
+    "missing_current_mapping": [],
+    "root_runtime_unknown_safety_retained_retirement_false": 800,
+    "known_adjacent_allocations_intersection": 0,
+    "author_peer_dirs_0555": 80,
+    "aggregate_dir_0555": true,
+    "explicit_inputs_0444": 233,
+    "survival_input_0400": true,
+    "withdrawn1540receipt_excluded": true
+  },
+  "delta_checks": {
+    "aggregate_input_nested_checksums_refreshed": 393,
+    "all40_author_packets_and_hash_bindings_unchanged": true,
+    "other39_peer_receipts_and_hash_bindings_unchanged": true,
+    "all800_original_records_exact_and_unchanged": true,
+    "combined_root_changes": "Only peer_receipt and peer_receipt_sha256 for local indices160:180 (literal1260:1280); all other fields unchanged.",
+    "allocation_source_preservation_bytes_unchanged": true,
+    "manifest_changes": "Aggregate-directory relocation and dependent hashes; batch8 peer path/hash/checksum; explicit old-manifest/HOLD supersession only.",
+    "combined_verification_changes": "Only corrected peer receipt and README path/hash entries.",
+    "input_hash_list_changes": "Only corrected peer receipt/README/SHA256SUMS replacing old corresponding three entries;234 total.",
+    "input_verification_and_readme_unchanged": true,
+    "fresh_corrected_peer_recursive_diff": "Only end_line161to154 and supersedes_metadata_only; quoted text/span hash/blob/owner accept/counts/qualification unchanged.",
+    "source_eof_independently_rechecked_from_git_blob": 154,
+    "metadata_modes_refreshed": "All9 aggregate files0444, aggregate dir0555; all80 owner/peer dirs0555;233 explicit inputs0444 plus survival0400.",
+    "runtime_qualification_and_limits_unchanged": true
+  },
+  "resolved_finding": {
+    "old_peer": "/tmp/ts-second800-peer1260-1280-accepted-00eln5ek/peer-review.json",
+    "old_peer_sha256": "d82814fbb8cff15c04a29d33194b102c93cfcb4f9039d41344611810d2d9805b",
+    "corrected_peer": "/tmp/ts-second800-peer1260-1280-corrected-mzl0ilf6/peer-review.json",
+    "corrected_peer_sha256": "2dcf485a02e2c8286a42c94387529abb20f6f453bbd48413d9f0533d73a97ca4",
+    "corrected_peer_checksum_sha256": "ab7232d326da521a71837c656c68d5c4faa86d03a0b88165c81032cbaba0a3ff",
+    "field": "supplemental_source_evidence[5].end_line",
+    "old_value": 161,
+    "corrected_value": 154,
+    "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+    "source": "internal/dashboard/resources.go",
+    "git_blob": "4b95bead5d58e161dc22d44e2ee1fa4bd15616f5",
+    "span": [
+      134,
+      154
+    ],
+    "span_sha256": "2ee575f53f5dce4cc577cd329a48a399bf978295d2791534891f0b0826891869"
+  },
+  "findings": [],
+  "preservation": "All800raw owner records exact. Nine unresolved roots and every blocked later assertion/safety obligation remain uncredited. No fixture-fix/runtime transfer.",
+  "not_checked": "No compiler/Go/test/runner/helper/probe/lock/socket/key/signing/cloud or actual ledger application. No third independent semantic rereview of800roots.",
+  "authorization": "No compiler/test/runtime/ledger/count/retirement/qualification/completion grant or promotion."
+}

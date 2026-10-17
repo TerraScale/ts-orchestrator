@@ -1,0 +1,219 @@
+{
+  "schema": "source-classification-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_40_60",
+  "author": "/root/classification_100_dispatch/batch_60_80",
+  "range": [
+    1160,
+    1180
+  ],
+  "decision": "ACCEPT_SOURCE_ONLY_WITH_EXPLICIT_LIMITS",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-1160-1180-4gb7_9nt/classification.json",
+    "sha256": "282122731c96272e0f175e3e42de6d3c5baf0169ba21db25012e39e3e93bb71e",
+    "checksum_file": "/tmp/ts-source-classification-1160-1180-4gb7_9nt/SHA256SUMS",
+    "checksum_file_sha256": "e41ada2a50006c5a303becfe071ccc38970795b267c07e5798291b6630e9f6e1"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "literal_root_ids": [
+    "internal/cli/recover_test.go::TestRecoverQuorumRenderRetirement",
+    "internal/commandio/io_test.go::TestCopyCannotSucceedWhenFinalReadCancels",
+    "internal/commandio/io_test.go::TestWriterPreservesFailureAndRejectsShortWrites",
+    "internal/containermaterial/admission_test.go::TestTaskAssignmentRejectsChangesDuringVerification",
+    "internal/containermaterial/admission_test.go::TestTaskNodeRejectsChangesDuringVerification",
+    "internal/containermaterial/admission_test.go::TestTaskRecipientRequiresRoleSpecificAuthority",
+    "internal/controlaccess/access_integration_test.go::TestReadAccessCrossesSignedObjectFoundationAndCurrentVault",
+    "internal/dashboard/accesscheck/check_test.go::TestCurlReturnsBodyAndBoundsResponseSize",
+    "internal/dashboard/accesscheck/check_test.go::TestCurlSendsTokenAndDoesNotFollowRedirectsOrUseProxy",
+    "internal/dashboard/accesscheck/check_test.go::TestFleetCheckRequiresEveryAddressEndpointAndRegionToken",
+    "internal/dashboard/accesscheck/check_test.go::TestRenderedProductionDashboardRequiresCellWideReports",
+    "internal/dashboard/accesscheck/check_test.go::TestRenderedRejectsEmptyAndDuplicateTelemetry",
+    "internal/dashboard/audit_test.go::TestDashboardActiveCountsExcludeTerminalPartitions",
+    "internal/dashboard/audit_test.go::TestDashboardProviderFailuresDoNotClaimEmptyInventories",
+    "internal/dashboard/audit_test.go::TestPartialJetStreamInventoryRemainsVisible",
+    "internal/dashboard/audit_test.go::TestStaticTerraBaseServicesRemainVisibleWithoutManagedPlacement",
+    "internal/dashboard/autoscale_test.go::TestAutoscaledServicesChartReplicasGoalAndSignals",
+    "internal/dashboard/capacity_test.go::TestBudgetFormReadsTheMajorUnit",
+    "internal/dashboard/capacity_test.go::TestCapacityPageExplainsAnEmptyHome",
+    "internal/dashboard/capacity_test.go::TestCapacityPageOutsideTheHomeHidesTheFormAndSuggestion"
+  ],
+  "counts": {
+    "unit": 10,
+    "integration": 10,
+    "mixed": 0,
+    "unresolved": 0,
+    "total": 20
+  },
+  "checks_performed": [
+    "Independently manually read all20 complete canonical roots and connected actual fixture/helper/production paths; distinguished ResponseRecorder from httptest HTTP server/client and actual curl/OS pipe/file boundaries.",
+    "Independently checked exact accounting slice1160:1180, frozen survival mapping,20 baseline/current raw declarations and bounds/hashes/bytes; confirmed three containment declaration drifts are disclosed and baseline originals retained.",
+    "Independently verified53 source-file commit/blob/mode/SHA256/byte pins against Git; canonical current pinned files match worktree; checked66 exact callee spans and30 exact assertion spans.",
+    "Independently verified5 input pins, packet hash, checksum-file hash, all checksum entries,0444 files/0555 packet directory and counts.",
+    "Followed1166 initial resolve through signed ObjectStorage grant/record HTTP to full FoundationIntentDigest comparison; confirmed fixture intent.Plan-only digest blocks success assertion213:216 and later assertions.",
+    "Reviewed1161 pre-canceled read together with actual file-offset observation; reviewed1169 missing peer scenario retaining150 actual HTTP calls and no independent local-only block. No mixed correction required."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [
+    {
+      "root_indices": [
+        1166
+      ],
+      "status": "EXPLICIT_UNRESOLVED_ASSERTIONS_NO_CREDIT",
+      "finding": "Plan-only record digest differs from production full-intent digest. Earlier real ObjectStorage request/header assertions sustain narrower integration; CURRENT Vault/read-access success/selectors/formatting/fault cases/missing-grant/final no-write aggregate remain blocked and uncredited."
+    }
+  ],
+  "qualifications": [
+    "Three containment roots1163:1166 remain local synthetic task/node/role predicates despite canonical body drift; no Swarm manager, runtime or CA-chain authentication qualification.",
+    "Fleet1169 rewrites targets to loopback HTTP and synthesizes remoteIP/DNS/NetBird metadata; no actual fleet/DNS/IPv6 qualification.",
+    "Dashboard HTTP roots1172/1174/1176 use synthetic snapshots/providers/history. Recorder roots1170/1173/1175/1177/1178/1179 remain unit.",
+    "External curl is required by source for1167/1168/1171; availability and runtime behavior not checked."
+  ],
+  "per_root_review": [
+    {
+      "allocation_index": 1160,
+      "root_id": "internal/cli/recover_test.go::TestRecoverQuorumRenderRetirement",
+      "category": "unit",
+      "identity_bounds_hashes_and_evidence_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 1161,
+      "root_id": "internal/commandio/io_test.go::TestCopyCannotSucceedWhenFinalReadCancels",
+      "category": "integration",
+      "identity_bounds_hashes_and_evidence_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 1162,
+      "root_id": "internal/commandio/io_test.go::TestWriterPreservesFailureAndRejectsShortWrites",
+      "category": "integration",
+      "identity_bounds_hashes_and_evidence_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 1163,
+      "root_id": "internal/containermaterial/admission_test.go::TestTaskAssignmentRejectsChangesDuringVerification",
+      "category": "unit",
+      "identity_bounds_hashes_and_evidence_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 1164,
+      "root_id": "internal/containermaterial/admission_test.go::TestTaskNodeRejectsChangesDuringVerification",
+      "category": "unit",
+      "identity_bounds_hashes_and_evidence_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 1165,
+      "root_id": "internal/containermaterial/admission_test.go::TestTaskRecipientRequiresRoleSpecificAuthority",
+      "category": "unit",
+      "identity_bounds_hashes_and_evidence_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 1166,
+      "root_id": "internal/controlaccess/access_integration_test.go::TestReadAccessCrossesSignedObjectFoundationAndCurrentVault",
+      "category": "integration",
+      "identity_bounds_hashes_and_evidence_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 1167,
+      "root_id": "internal/dashboard/accesscheck/check_test.go::TestCurlReturnsBodyAndBoundsResponseSize",
+      "category": "integration",
+      "identity_bounds_hashes_and_evidence_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 1168,
+      "root_id": "internal/dashboard/accesscheck/check_test.go::TestCurlSendsTokenAndDoesNotFollowRedirectsOrUseProxy",
+      "category": "integration",
+      "identity_bounds_hashes_and_evidence_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 1169,
+      "root_id": "internal/dashboard/accesscheck/check_test.go::TestFleetCheckRequiresEveryAddressEndpointAndRegionToken",
+      "category": "integration",
+      "identity_bounds_hashes_and_evidence_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 1170,
+      "root_id": "internal/dashboard/accesscheck/check_test.go::TestRenderedProductionDashboardRequiresCellWideReports",
+      "category": "unit",
+      "identity_bounds_hashes_and_evidence_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 1171,
+      "root_id": "internal/dashboard/accesscheck/check_test.go::TestRenderedRejectsEmptyAndDuplicateTelemetry",
+      "category": "integration",
+      "identity_bounds_hashes_and_evidence_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 1172,
+      "root_id": "internal/dashboard/audit_test.go::TestDashboardActiveCountsExcludeTerminalPartitions",
+      "category": "integration",
+      "identity_bounds_hashes_and_evidence_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 1173,
+      "root_id": "internal/dashboard/audit_test.go::TestDashboardProviderFailuresDoNotClaimEmptyInventories",
+      "category": "unit",
+      "identity_bounds_hashes_and_evidence_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 1174,
+      "root_id": "internal/dashboard/audit_test.go::TestPartialJetStreamInventoryRemainsVisible",
+      "category": "integration",
+      "identity_bounds_hashes_and_evidence_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 1175,
+      "root_id": "internal/dashboard/audit_test.go::TestStaticTerraBaseServicesRemainVisibleWithoutManagedPlacement",
+      "category": "unit",
+      "identity_bounds_hashes_and_evidence_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 1176,
+      "root_id": "internal/dashboard/autoscale_test.go::TestAutoscaledServicesChartReplicasGoalAndSignals",
+      "category": "integration",
+      "identity_bounds_hashes_and_evidence_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 1177,
+      "root_id": "internal/dashboard/capacity_test.go::TestBudgetFormReadsTheMajorUnit",
+      "category": "unit",
+      "identity_bounds_hashes_and_evidence_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 1178,
+      "root_id": "internal/dashboard/capacity_test.go::TestCapacityPageExplainsAnEmptyHome",
+      "category": "unit",
+      "identity_bounds_hashes_and_evidence_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 1179,
+      "root_id": "internal/dashboard/capacity_test.go::TestCapacityPageOutsideTheHomeHidesTheFormAndSuggestion",
+      "category": "unit",
+      "identity_bounds_hashes_and_evidence_checked": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "NONE; no ledger/deletion/retirement/count/runtime-qualification/completion promotion",
+  "execution_limits": "No source/repo/ledger mutation, Go/build/test/lint/format/helper/scanner/parser/framework/runtime/process/resource/cloud/signing/crypto/TerraBase execution or downloads. Only read-only source/Git/file inspection and inline metadata hashing/serialization over explicit reviewed spans."
+}

@@ -1,0 +1,77 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_980_1000",
+  "author": "/root/classification_100_dispatch/batch_1000_1020",
+  "status": "ACCEPTED_SOURCE_ONLY",
+  "allocation_range": [
+    1800,
+    1820
+  ],
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-other-1800-1820-corrected-m2ord7zf/classification.json",
+    "sha256": "144d5dcf8ddf857db16c68c476140dd4a660736c19ad52c840bf3c0713973a63",
+    "checksum_path": "/tmp/ts-source-other-1800-1820-corrected-m2ord7zf/SHA256SUMS",
+    "checksum_sha256": "b375b667fde741aea551f2116bb66b01bd9bc278211c04139be8774676b1154b"
+  },
+  "root_ids": [
+    "internal/logs/view_test.go::TestAddEvictsLeastRecentlySeenClassWhenFull",
+    "internal/logs/view_test.go::TestAddSkipsReplayedWindowsAndCountsGaps",
+    "internal/logs/view_test.go::TestErrorsListsLastHourWarnAndError",
+    "internal/logs/view_test.go::TestSummaryCountsNodesAndLatestExample",
+    "internal/logs/view_test.go::TestSummaryFiltersSortsAndLimits",
+    "internal/logs/view_test.go::TestSummaryWindowsAndRetention",
+    "internal/logs/window_test.go::TestCounterCountsClassesAndKeepsTheFirstExample",
+    "internal/logs/window_test.go::TestFlushKeepsEachWindowUnder64KiB",
+    "internal/logs/window_test.go::TestFlushKeepsTheMostFrequent128ClassesAndCountsTheRest",
+    "internal/logs/window_test.go::TestFlushOrdersTiesBySeverityThenText",
+    "internal/logs/window_test.go::TestFlushStartsTheNextMinuteEmptyAndNumbersWindows",
+    "internal/logs/window_test.go::TestNormalizeKeepsAtMost160BytesAtAUTF8Boundary",
+    "internal/logs/window_test.go::TestNormalizeReplacesVolatileParts",
+    "internal/logs/window_test.go::TestWindowJSONMatchesWindowV1",
+    "internal/logscan/logscan_test.go::TestLevelPatternSelectsWarningsAndErrorsOnly",
+    "internal/logscan/logscan_test.go::TestParseFlyKeepsRecentWarningsAndErrors",
+    "internal/logscan/logscan_test.go::TestParseJournalClassifiesEveryFormat",
+    "internal/logscan/logscan_test.go::TestRunRejectsBadArguments",
+    "internal/logscan/logscan_test.go::TestScanCountsPerServiceAndNodeAndFailsOnAnUnreadableNode",
+    "internal/logscan/logscan_test.go::TestServersAreThePeersNamedLikeCellServers"
+  ],
+  "counts": {
+    "integration": 18,
+    "unit": 0,
+    "mixed": 2,
+    "unresolved": 0,
+    "total": 20
+  },
+  "checks_performed": [
+    "Independently read all20 complete root declarations and actual connected fixture/production paths; no runtime execution.",
+    "Activated allocation exact literal20 IDs/order/owner/peer mapping and pinned allocation/instruction/survival/accounting input hashes verified.",
+    "All20 survival mappings,40 baseline/current raw declaration bounds/text/SHA256 verified against canonical Git; no declaration drift. Raw declarations exclude following LF.",
+    "All24 canonical source file Git blob/mode/SHA256/byte pins verified; root/span references agree.",
+    "All20 assertion evidence spans and37 connected callee spans match exact inclusive canonical line slices including their actual trailing LF; bounds remain within real file.",
+    "Packet/checksum hashes and contained sums verified; source packet files0444/directory0555. Fresh correction preserves original source/declaration/assertion/callee evidence bytes.",
+    "Source categories independently reviewed: view HTTP/JetStream readback; counter stored GetMsg readback; normalization mixed local decoder and real pipeline blocks; logscan real local fixture/self-child process output/exit."
+  ],
+  "resolved_findings": [
+    {
+      "roots": [
+        "internal/logs/window_test.go::TestNormalizeKeepsAtMost160BytesAtAUTF8Boundary",
+        "internal/logs/window_test.go::TestNormalizeReplacesVolatileParts"
+      ],
+      "finding": "journalRecords198:211 independently asserts local DecodeJournal invalid-line rejection and decoded timestamp/fields before the real JetStream/HTTP path. Input-file setup is incidental to that predicate block.",
+      "resolution": "Fresh144d5dcf packet classifies both normalization roots mixed,18 integration/0unit/2mixed/0unresolved; old84750389 packet preserved."
+    }
+  ],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no Go/build/test/helper/production execution performed.",
+    "Upstream embedded NATS uses loopback TCP/FileStorage, not natscell.Start or production registration/auth/clustering. Logscan uses real local synthetic shell/self-child fixtures, not live NetBird/Fly/journal/SSH/cloud.",
+    "No source/repo/ledger changes, deletion/retirement, runtime qualification, count promotion or global completion credit. All original obligations retained."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "NONE"
+}

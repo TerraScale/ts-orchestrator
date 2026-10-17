@@ -1,0 +1,5 @@
+Source-only candidate for literal other[1700:1720), canonical52eef25.
+Counts: {'integration': 3, 'unit': 13, 'mixed': 3, 'unresolved': 1}
+One source blocker: offline NetBird test lacks valid Binary ELF inputs before intended guards.
+Runtime UNKNOWN; every safety obligation retained; no ledger/count/deletion/retirement or qualification promotion.
+Independent peer: /root/classification_100_dispatch/batch_880_900

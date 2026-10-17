@@ -1,0 +1,1961 @@
+{
+  "schema": "root800-independent-source-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_60_80",
+  "author": "/root/classification_100_dispatch/batch_80_100",
+  "decision": "ACCEPT_FROZEN_SOURCE_CLASSIFICATION_ONLY",
+  "reviewed_packet": {
+    "path": "/tmp/ts-source-classification-1180-1200-gujoe5g7/classification.json",
+    "sha256": "79df99703d57e92dce299e8920d855cde8e7b1eb2d9d811bd920f73189c9c9bd",
+    "checksum_manifest_path": "/tmp/ts-source-classification-1180-1200-gujoe5g7/SHA256SUMS",
+    "checksum_manifest_sha256": "364deaaeb5f4a7458edcb9c3c0dfe756ec9e063fc7da59f223b695f7d026786e"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": [
+      1180,
+      1200
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_60_80"
+  },
+  "input_pins": {
+    "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "/tmp/ts-root800-second-source-dispatch-r9_48ha9/PEER-PROTOCOL.md": "3b57c68ac033025066daec252bf89cd01b0c767e0048fb57c67eb5143e2fb00b",
+    "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70",
+    "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513",
+    "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+  },
+  "literal_root_ids": [
+    "internal/dashboard/capacity_test.go::TestCapacityPageShowsBudgetCapacityScalingAndSuggestion",
+    "internal/dashboard/capacity_test.go::TestSetBudgetOutsideTheHomeConflictsAndSilentLeaderIsUnavailable",
+    "internal/dashboard/capacity_test.go::TestSetBudgetRefusesCrossSiteAndBadInput",
+    "internal/dashboard/capacity_test.go::TestSetBudgetWritesThroughTheHomeAndRedirects",
+    "internal/dashboard/cost_test.go::TestCostBodyRendersEveryRegionState",
+    "internal/dashboard/cost_test.go::TestCostBodyStatesTheGlobalBudget",
+    "internal/dashboard/cost_test.go::TestCostPageAggregatesOnlyCompatibleReports",
+    "internal/dashboard/cost_test.go::TestCostPageShowsGlobalBudgetStates",
+    "internal/dashboard/dashboard_test.go::TestAssetsAreContentAddressed",
+    "internal/dashboard/dashboard_test.go::TestContentStreamPatchesOnlyChanges",
+    "internal/dashboard/dashboard_test.go::TestEventFilterFromQuery",
+    "internal/dashboard/dashboard_test.go::TestEventPageMatchesSeverityAndComponent",
+    "internal/dashboard/dashboard_test.go::TestEventsStreamPrependsLiveEvents",
+    "internal/dashboard/dashboard_test.go::TestEventsStreamRecoversDroppedEvents",
+    "internal/dashboard/dashboard_test.go::TestEveryPageRendersProviderData",
+    "internal/dashboard/dashboard_test.go::TestLateAttachedProvidersAndSharedClusterCache",
+    "internal/dashboard/dashboard_test.go::TestLiteralHostGuard",
+    "internal/dashboard/dashboard_test.go::TestLoginPageKeepsRedirectLocal",
+    "internal/dashboard/dashboard_test.go::TestPagesExplainFailingProviders",
+    "internal/dashboard/dashboard_test.go::TestPagesRenderWithoutProviders"
+  ],
+  "counts": {
+    "integration": 7,
+    "unit": 13,
+    "mixed": 0,
+    "unresolved": 0,
+    "total": 20
+  },
+  "verification": {
+    "method": "Independently read all20complete canonical roots and actual connected fixture/production paths after own immutable packet handoff. Metadata-only Git file/explicit-span checks; no parser/scanner/helper/runtime execution.",
+    "literal_allocation_and_frozen_survival_mappings": 20,
+    "baseline_current_raw_declarations": 40,
+    "canonical_file_git_blob_mode_sha256_byte_pins": 29,
+    "exact_assertion_spans": 20,
+    "exact_connected_spans": 70,
+    "span_bounds_include_no_eof_overrun": true,
+    "all_raw_declarations_exclude_trailing_lf": true,
+    "source_pins": [
+      {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "mode": "100644",
+        "sha256": "f50ce9da71bd6643732aa5bbac0531db7d861c13760adf49d77da885da4bbffe",
+        "bytes": 25456
+      },
+      {
+        "path": "internal/dashboard/dashboard.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "58795fa0caccba7fc74f1493814f02685871ff5d",
+        "mode": "100644",
+        "sha256": "c14bccd2fa201f21201a4dcae1ff54e1f1733a001dc44ba0d0e11426c251d8ea",
+        "bytes": 9144
+      },
+      {
+        "path": "internal/dashboard/handlers.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "7e802068dd3cc50d3c9972736371c34d3c2b5af4",
+        "mode": "100644",
+        "sha256": "6771072d6a18f341dd635aa46a3d4adaff061471f5d45c945f94f88abb23b80b",
+        "bytes": 11379
+      },
+      {
+        "path": "internal/dashboard/view.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "9fe19902da6e987690ca2c133ec99d9b95723c67",
+        "mode": "100644",
+        "sha256": "5c2930155c7754a6c5a9ff7e63b7e00885dd9721cdd0adc84e9c2773a57751ae",
+        "bytes": 18693
+      },
+      {
+        "path": "internal/dashboard/journal_load.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b83237bed49281938358b10a9d2965181b19b641",
+        "mode": "100644",
+        "sha256": "86fb5d18ffb564b7aaf671890ec5c4a0c1b1158242e266bbc825a48af7a72719",
+        "bytes": 11692
+      },
+      {
+        "path": "internal/dashboard/metrics.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "9414697311bca3c4516cab9269e35cfd48423808",
+        "mode": "100644",
+        "sha256": "ae2a48e0814f41a36ede3ccff73481fa30ed9a8ca09c3933967ed5da3c088eae",
+        "bytes": 9037
+      },
+      {
+        "path": "internal/dashboard/layout_templ.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "66c420319b2aea8a178764283e413785db357d43",
+        "mode": "100644",
+        "sha256": "9a9a02dd7233d29db34d4b220f42801627194c1aa11e9aa0c53e23c0f734fbec",
+        "bytes": 75678
+      },
+      {
+        "path": "internal/dashboard/capacity_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "f984f95c9729ecf72985ff5bf2f2198016669321",
+        "mode": "100644",
+        "sha256": "2b7fff4e3c7d56e4850499673132bdb0e3a892022fb1465935fecfee97a6c182",
+        "bytes": 10119
+      },
+      {
+        "path": "internal/dashboard/capacity.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "9a7235da84da8045b00799f3da72e02e7e44c215",
+        "mode": "100644",
+        "sha256": "58b91bc77006464139c55d8fcd27fbd3d97bc18aada5519ad4c802daf2776795",
+        "bytes": 7711
+      },
+      {
+        "path": "internal/budget/budget.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "21e55978a2d022b6e4db1ff2ecfe7180fde3a44c",
+        "mode": "100644",
+        "sha256": "82fd1bd5ad45727f4df136873e37406174e3e361c48efc7e33d53f54bb5d3ecf",
+        "bytes": 3829
+      },
+      {
+        "path": "internal/dashboard/capacity.templ",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "0695627ec79c25510184c36a41527e22d593f902",
+        "mode": "100644",
+        "sha256": "5038b1ffac4c9a6fce2dd3cd698403881c2e32b7e6ee4ea9d1a1ffb45bb491c3",
+        "bytes": 5773
+      },
+      {
+        "path": "internal/dashboard/capacity_templ.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b2c6bcb8ae2180517bfca610532ed467fb66d13a",
+        "mode": "100644",
+        "sha256": "055fedaa4db07f2c317564caf318fbffda6bc58c59d2f4f942895b3916fde0ed",
+        "bytes": 34283
+      },
+      {
+        "path": "internal/dashboard/cost_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3130958e64152228ed02dfbc0305e955521e13b1",
+        "mode": "100644",
+        "sha256": "37984270916070758b212685307677492d80e10720ede949d947b825869d4813",
+        "bytes": 6119
+      },
+      {
+        "path": "internal/globalview/view.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "914e9a1715cba7b60ce614b730d6c8d0946e9e31",
+        "mode": "100644",
+        "sha256": "63b66932244527b15e7a5cbc6343a1f710b9b81213d22a9d33d10fa74f8109f1",
+        "bytes": 9926
+      },
+      {
+        "path": "internal/dashboard/cost.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "01df467d4d6b32074961440f4e77ef5acd8b16c8",
+        "mode": "100644",
+        "sha256": "7dc46228862fbcbc8d0253c867f04e7bcbc9ef154332ac006eae82d89fc80f59",
+        "bytes": 8274
+      },
+      {
+        "path": "internal/dashboard/cost.templ",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "857f62227e131136d1d8e7020f397852f1ced174",
+        "mode": "100644",
+        "sha256": "1b9bfe18c7684878b2786cfe1e146401b721b0f9086e3852f3251bb77a2e6934",
+        "bytes": 4996
+      },
+      {
+        "path": "internal/dashboard/cost_templ.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b5f844e5001f23887eacc520d435721b9c041343",
+        "mode": "100644",
+        "sha256": "4018aa3d2ee5f2322e7386e66012605a3f7c38b687a10618d18e6a7df93cd7e9",
+        "bytes": 28895
+      },
+      {
+        "path": "internal/dashboard/assets.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bc9cdbecd6c766f20a925183ae0401193b5476b5",
+        "mode": "100644",
+        "sha256": "f53cfb9676ba00d999f09e69e53f52f26227d9e8fe20785f00846f5786490a12",
+        "bytes": 4348
+      },
+      {
+        "path": "internal/dashboard/assets/dashboard.css",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "edb9e1406381d35594335640486fb60b5c168041",
+        "mode": "100644",
+        "sha256": "14ea289313556067711b54482076a48df50fd6618574d51aeb05c36c52858503",
+        "bytes": 105402
+      },
+      {
+        "path": "internal/dashboard/state.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c3e753bd4fceffd76ccf7717f2d2cbf7ee94e018",
+        "mode": "100644",
+        "sha256": "25050e2fc6213fa2bcedc006ce786ba2d968859b074afaa17d472c9a18f4af4f",
+        "bytes": 9135
+      },
+      {
+        "path": "internal/observability/events.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "225875d5b1711deb127b95255f9cd6eb7f3b97a2",
+        "mode": "100644",
+        "sha256": "e482ed7ff8252ae7212d4a392f5bfc3757a3fc03e3fb328ee7cf035d35fdfe7a",
+        "bytes": 6134
+      },
+      {
+        "path": "internal/dashboard/events_templ.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c2fd976f89d9ea85a0ad74b5b6fcd81cb9018ec9",
+        "mode": "100644",
+        "sha256": "94435bb972d1d959035f01e899ef7a4ad0b86631506693a0993bc489628746c0",
+        "bytes": 20947
+      },
+      {
+        "path": "internal/observability/health.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "df124ccfe02a1401679fb1ecb25201840307ada7",
+        "mode": "100644",
+        "sha256": "90d41423a9568b3e7c2cc1b4532b480783a8b2cd46199caf8363129e939ba2cd",
+        "bytes": 1820
+      },
+      {
+        "path": "internal/observability/collector.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "fb0180451129e31368d5373a09b6a830f3369710",
+        "mode": "100644",
+        "sha256": "7d858dc476fd419b94aab5102f1ea35c0a26dc0a1e1a9c9b41e93815f0fe414c",
+        "bytes": 9978
+      },
+      {
+        "path": "internal/observability/server.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "55e45ce5ba67237efba469d05c573e2003bd93c0",
+        "mode": "100644",
+        "sha256": "b36922aa3ed76972e2f03bc2f23d5c56fa29fa44090525f202519cb842a9b019",
+        "bytes": 13628
+      },
+      {
+        "path": "internal/observability/session.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6f03733b896f0cacc2335fa972bd3581834eacad",
+        "mode": "100644",
+        "sha256": "264fa7585e76ee7cf10f0bc7c6fb45d4c00e518db1bdb583e2f064d1f35b08da",
+        "bytes": 26923
+      },
+      {
+        "path": "internal/dashboard/capacity_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "f984f95c9729ecf72985ff5bf2f2198016669321",
+        "mode": "100644",
+        "sha256": "2b7fff4e3c7d56e4850499673132bdb0e3a892022fb1465935fecfee97a6c182",
+        "bytes": 10119
+      },
+      {
+        "path": "internal/dashboard/cost_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "3130958e64152228ed02dfbc0305e955521e13b1",
+        "mode": "100644",
+        "sha256": "37984270916070758b212685307677492d80e10720ede949d947b825869d4813",
+        "bytes": 6119
+      },
+      {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "mode": "100644",
+        "sha256": "f50ce9da71bd6643732aa5bbac0531db7d861c13760adf49d77da885da4bbffe",
+        "bytes": 25456
+      }
+    ],
+    "connected_span_checks": [
+      {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 30,
+        "end_line": 110,
+        "sha256": "53b103d73f46bca2712ac3660e2a0a24f5b666cac39d32a1e05001a9d53a6ce3",
+        "group": "direct"
+      },
+      {
+        "path": "internal/dashboard/dashboard.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "58795fa0caccba7fc74f1493814f02685871ff5d",
+        "line": 87,
+        "end_line": 228,
+        "sha256": "eb13c26493530a7515b2a0aa4cd6d1116da0c84124a0c796ee1230546382ce06",
+        "group": "direct"
+      },
+      {
+        "path": "internal/dashboard/handlers.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "7e802068dd3cc50d3c9972736371c34d3c2b5af4",
+        "line": 25,
+        "end_line": 71,
+        "sha256": "d0da573377fa0227ab46fb2750125a81c5cbfbba68017bcc126796c725116d08",
+        "group": "direct"
+      },
+      {
+        "path": "internal/dashboard/view.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "9fe19902da6e987690ca2c133ec99d9b95723c67",
+        "line": 68,
+        "end_line": 123,
+        "sha256": "efca09672bec426a8fe1a9bbfbb4719ad2dd59f1e6de1697cfbf3df94ada585c",
+        "group": "direct"
+      },
+      {
+        "path": "internal/dashboard/journal_load.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b83237bed49281938358b10a9d2965181b19b641",
+        "line": 22,
+        "end_line": 128,
+        "sha256": "d0649a367b8d2f61be805ef1e6bc65d7d0e8890d1b81801251d7dc0f2c7dd2e6",
+        "group": "direct"
+      },
+      {
+        "path": "internal/dashboard/metrics.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "9414697311bca3c4516cab9269e35cfd48423808",
+        "line": 34,
+        "end_line": 64,
+        "sha256": "d865e0cca34fc987c55809b924fd6336feb181ef4607eaaf28a47930ac62ca32",
+        "group": "direct"
+      },
+      {
+        "path": "internal/dashboard/layout_templ.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "66c420319b2aea8a178764283e413785db357d43",
+        "line": 407,
+        "end_line": 438,
+        "sha256": "fed1ddad8e56758d95f6f550ec1a9783c7e93dec64f79c7fd7801fcf18f246f7",
+        "group": "direct"
+      },
+      {
+        "path": "internal/dashboard/layout_templ.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "66c420319b2aea8a178764283e413785db357d43",
+        "line": 935,
+        "end_line": 1061,
+        "sha256": "808ab2ebe099d915f097a2b956a4209acd3cf1613bc4ba81ec1c0ec0cff02ea9",
+        "group": "direct"
+      },
+      {
+        "path": "internal/dashboard/capacity_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "f984f95c9729ecf72985ff5bf2f2198016669321",
+        "line": 18,
+        "end_line": 50,
+        "sha256": "609d6f1ada77d3785e0d5226e7df189c3675ecc0c93840d27abb0f1dc7d7a3f7",
+        "group": "budget"
+      },
+      {
+        "path": "internal/dashboard/capacity.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "9a7235da84da8045b00799f3da72e02e7e44c215",
+        "line": 130,
+        "end_line": 228,
+        "sha256": "9f166b46ed47d584d871eea70c2a0a7bce0e1d872278eb9c7d711e556130dd23",
+        "group": "budget"
+      },
+      {
+        "path": "internal/budget/budget.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "21e55978a2d022b6e4db1ff2ecfe7180fde3a44c",
+        "line": 23,
+        "end_line": 61,
+        "sha256": "09ea8821e1faa629fde90c671506e75f9eaa868e16366296518837fd2fc7aff3",
+        "group": "budget"
+      },
+      {
+        "path": "internal/dashboard/capacity_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "f984f95c9729ecf72985ff5bf2f2198016669321",
+        "line": 18,
+        "end_line": 30,
+        "sha256": "bd32f52a7311ad9586c1d5b763de12d795aeed9dbaa65c9eeed690d3941b621e",
+        "group": "capacity"
+      },
+      {
+        "path": "internal/dashboard/capacity.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "9a7235da84da8045b00799f3da72e02e7e44c215",
+        "line": 59,
+        "end_line": 101,
+        "sha256": "d68bd3cb7ec71b87af5f94c571b038173319a3e294c0d8d82a052c46a1806378",
+        "group": "capacity"
+      },
+      {
+        "path": "internal/dashboard/capacity.templ",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "0695627ec79c25510184c36a41527e22d593f902",
+        "line": 7,
+        "end_line": 193,
+        "sha256": "7057a321609125ff027a9e514cb79a0d74d47db2bad748139030fd7a0bc58e28",
+        "group": "capacity"
+      },
+      {
+        "path": "internal/dashboard/capacity_templ.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b2c6bcb8ae2180517bfca610532ed467fb66d13a",
+        "line": 15,
+        "end_line": 109,
+        "sha256": "bb5eb051ee3e0a482ac9ee563a98f7dd101256d334ef4771e8413d593719bf8c",
+        "group": "capacity"
+      },
+      {
+        "path": "internal/dashboard/capacity_templ.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b2c6bcb8ae2180517bfca610532ed467fb66d13a",
+        "line": 719,
+        "end_line": 737,
+        "sha256": "40908a7e17089f1182b02f856649e921c53bddc6d7c01e7e6628d7f34c9910c9",
+        "group": "capacity"
+      },
+      {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 539,
+        "end_line": 623,
+        "sha256": "15deaced8025858a22f73a274b5e2eca373ebbdfae75d173e10bf1d865f5b659",
+        "group": "http_page"
+      },
+      {
+        "path": "internal/dashboard/cost_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3130958e64152228ed02dfbc0305e955521e13b1",
+        "line": 16,
+        "end_line": 31,
+        "sha256": "2d36770b082108857c092ecd319471918e43abbd9bf049a6c36fdb477cb3d558",
+        "group": "http_page"
+      },
+      {
+        "path": "internal/globalview/view.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "914e9a1715cba7b60ce614b730d6c8d0946e9e31",
+        "line": 33,
+        "end_line": 113,
+        "sha256": "c807c8902780968ecd93bbe6aa1c13f7ff22acd71d1caa66ae0d3e9c64e45ad4",
+        "group": "http_page"
+      },
+      {
+        "path": "internal/dashboard/dashboard.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "58795fa0caccba7fc74f1493814f02685871ff5d",
+        "line": 133,
+        "end_line": 228,
+        "sha256": "9a7d538832bddf893ea4da5cc353092aff5663c4e8dffdca75308b52c63d0446",
+        "group": "http_page"
+      },
+      {
+        "path": "internal/dashboard/handlers.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "7e802068dd3cc50d3c9972736371c34d3c2b5af4",
+        "line": 25,
+        "end_line": 71,
+        "sha256": "d0da573377fa0227ab46fb2750125a81c5cbfbba68017bcc126796c725116d08",
+        "group": "http_page"
+      },
+      {
+        "path": "internal/dashboard/journal_load.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b83237bed49281938358b10a9d2965181b19b641",
+        "line": 22,
+        "end_line": 88,
+        "sha256": "852cb45916e2d0e751c894c86cfc99d5b58b45ef7aeacf922369c79c7689918b",
+        "group": "http_page"
+      },
+      {
+        "path": "internal/dashboard/capacity.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "9a7235da84da8045b00799f3da72e02e7e44c215",
+        "line": 59,
+        "end_line": 74,
+        "sha256": "a8166ce8a9ac584c792ca5eb1b310f198b4e7a63a212cf308c47cb3d758c99f8",
+        "group": "http_page"
+      },
+      {
+        "path": "internal/dashboard/view.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "9fe19902da6e987690ca2c133ec99d9b95723c67",
+        "line": 95,
+        "end_line": 123,
+        "sha256": "bc20eba1aa672a0b28049d9a92db4f9bfb9bcc5be9b09a02b390ada9f05b7772",
+        "group": "http_page"
+      },
+      {
+        "path": "internal/dashboard/layout_templ.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "66c420319b2aea8a178764283e413785db357d43",
+        "line": 407,
+        "end_line": 438,
+        "sha256": "fed1ddad8e56758d95f6f550ec1a9783c7e93dec64f79c7fd7801fcf18f246f7",
+        "group": "http_page"
+      },
+      {
+        "path": "internal/dashboard/cost.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "01df467d4d6b32074961440f4e77ef5acd8b16c8",
+        "line": 28,
+        "end_line": 81,
+        "sha256": "290899ffd3c05627c0904c47778c7d82d52aca3dd81f7d11b4621b9c32034da8",
+        "group": "cost"
+      },
+      {
+        "path": "internal/dashboard/cost.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "01df467d4d6b32074961440f4e77ef5acd8b16c8",
+        "line": 110,
+        "end_line": 252,
+        "sha256": "13103e138a569c50418331b5a1342d491cf000e0dfd324b01d291bb103855a5c",
+        "group": "cost"
+      },
+      {
+        "path": "internal/dashboard/cost.templ",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "857f62227e131136d1d8e7020f397852f1ced174",
+        "line": 8,
+        "end_line": 153,
+        "sha256": "6dc0823b079d52092c7ba1fcce2e8994d2009e7785392c138687d0d12eaa7f16",
+        "group": "cost"
+      },
+      {
+        "path": "internal/dashboard/cost_templ.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b5f844e5001f23887eacc520d435721b9c041343",
+        "line": 16,
+        "end_line": 134,
+        "sha256": "a6d0e711f7d28c071d7a5a8f1721d91a60d0b5559db60ea487f3469745b41e1e",
+        "group": "cost"
+      },
+      {
+        "path": "internal/dashboard/cost_templ.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b5f844e5001f23887eacc520d435721b9c041343",
+        "line": 136,
+        "end_line": 214,
+        "sha256": "1b0e95f3b780040620c0d0e495347b4d77866b2f8e21f2a1cd6536d485754e4e",
+        "group": "cost"
+      },
+      {
+        "path": "internal/dashboard/cost_templ.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b5f844e5001f23887eacc520d435721b9c041343",
+        "line": 372,
+        "end_line": 467,
+        "sha256": "399f5b47023fc1853ccaf7890805659901c018d13b50e41235726cbc44ed5b02",
+        "group": "cost"
+      },
+      {
+        "path": "internal/dashboard/assets.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bc9cdbecd6c766f20a925183ae0401193b5476b5",
+        "line": 18,
+        "end_line": 117,
+        "sha256": "52106b7563eae4c8ced3d9028ba0bcd216419129945df93ca5b02ad770a3f65d",
+        "group": "assets"
+      },
+      {
+        "path": "internal/dashboard/layout_templ.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "66c420319b2aea8a178764283e413785db357d43",
+        "line": 19,
+        "end_line": 132,
+        "sha256": "cff1b5204c2fe2fcd5049b3d794c5e13459fe40d5eeb6d6f27f8884c6eb2a755",
+        "group": "assets"
+      },
+      {
+        "path": "internal/dashboard/assets/dashboard.css",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "edb9e1406381d35594335640486fb60b5c168041",
+        "line": 2,
+        "end_line": 3,
+        "sha256": "1490be25a0d50a465f5a7fe4c897ce69c87a1d01226cf063fd7923ebf777a425",
+        "group": "assets"
+      },
+      {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 310,
+        "end_line": 358,
+        "sha256": "5ddb669a10ac2fdc09ba7ec872a28bbe886c60469b92265795a14201b4382b3b",
+        "group": "stream"
+      },
+      {
+        "path": "internal/dashboard/dashboard.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "58795fa0caccba7fc74f1493814f02685871ff5d",
+        "line": 87,
+        "end_line": 110,
+        "sha256": "0ccb8e76f6c0bbb16a583ab3b8b7a5c86345544b39f60bd82d28c147b8611366",
+        "group": "stream"
+      },
+      {
+        "path": "internal/dashboard/dashboard.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "58795fa0caccba7fc74f1493814f02685871ff5d",
+        "line": 133,
+        "end_line": 186,
+        "sha256": "03caff326e3fd34eef38ee5ba32315aabf3b0c8e80b19413923f2e654413a1ab",
+        "group": "stream"
+      },
+      {
+        "path": "internal/dashboard/handlers.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "7e802068dd3cc50d3c9972736371c34d3c2b5af4",
+        "line": 73,
+        "end_line": 118,
+        "sha256": "8f08e06050c39bfb1a62e96eac9b787e3f02255fc20931c7ab23b56da0b3c08d",
+        "group": "stream"
+      },
+      {
+        "path": "internal/dashboard/view.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "9fe19902da6e987690ca2c133ec99d9b95723c67",
+        "line": 68,
+        "end_line": 123,
+        "sha256": "efca09672bec426a8fe1a9bbfbb4719ad2dd59f1e6de1697cfbf3df94ada585c",
+        "group": "stream"
+      },
+      {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 395,
+        "end_line": 410,
+        "sha256": "e6ff7867ef0e21f1570aa8fd84fb2b2a7c6f4696b5f6a40b1c08f789c94095eb",
+        "group": "content"
+      },
+      {
+        "path": "internal/dashboard/dashboard.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "58795fa0caccba7fc74f1493814f02685871ff5d",
+        "line": 193,
+        "end_line": 228,
+        "sha256": "163ec44e9f81a262611d9af5574c5c3951ab4cb19e40f8964a76076ea8728853",
+        "group": "content"
+      },
+      {
+        "path": "internal/dashboard/handlers.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "7e802068dd3cc50d3c9972736371c34d3c2b5af4",
+        "line": 123,
+        "end_line": 170,
+        "sha256": "c8eb17ae4860b266e26fb941f6c0d8168fb83801721804b82dfd550143269bb1",
+        "group": "content"
+      },
+      {
+        "path": "internal/dashboard/layout_templ.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "66c420319b2aea8a178764283e413785db357d43",
+        "line": 481,
+        "end_line": 512,
+        "sha256": "3e3736d48496930ad8f4df01b574666b0ecc84ed222acd23144f46f7889d12d4",
+        "group": "content"
+      },
+      {
+        "path": "internal/dashboard/state.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c3e753bd4fceffd76ccf7717f2d2cbf7ee94e018",
+        "line": 68,
+        "end_line": 90,
+        "sha256": "a0f67820644341872d1fc613e9b2bc91ce8602233363511410c0cb17c980c8f0",
+        "group": "content"
+      },
+      {
+        "path": "internal/dashboard/view.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "9fe19902da6e987690ca2c133ec99d9b95723c67",
+        "line": 281,
+        "end_line": 290,
+        "sha256": "8ab71b042edae8a023ca407abd1db18f7532c8aafac258d2d50fd0aed132b376",
+        "group": "content"
+      },
+      {
+        "path": "internal/observability/events.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "225875d5b1711deb127b95255f9cd6eb7f3b97a2",
+        "line": 48,
+        "end_line": 150,
+        "sha256": "751a5f147812556d08b8c9d7f08e8a0a9e0e97abb7b430147d3325d70f134262",
+        "group": "events"
+      },
+      {
+        "path": "internal/dashboard/view.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "9fe19902da6e987690ca2c133ec99d9b95723c67",
+        "line": 380,
+        "end_line": 453,
+        "sha256": "51eaba79922c8128d78a169bea36b324b0f595987719a4108daf89e7129f3113",
+        "group": "events"
+      },
+      {
+        "path": "internal/dashboard/events_templ.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c2fd976f89d9ea85a0ad74b5b6fcd81cb9018ec9",
+        "line": 298,
+        "end_line": 367,
+        "sha256": "b64a6acf295639546cbeea6c0031eccdfb3bf46c736207729e397f46ed3c0c69",
+        "group": "events"
+      },
+      {
+        "path": "internal/dashboard/events_templ.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c2fd976f89d9ea85a0ad74b5b6fcd81cb9018ec9",
+        "line": 369,
+        "end_line": 491,
+        "sha256": "51dd2a06353907ead289086aa5ad3058caa01edd61803990110ee2aa6864a278",
+        "group": "events"
+      },
+      {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 477,
+        "end_line": 503,
+        "sha256": "d6c18c7cdf6dbe8b6d0f8a4f53295f06acda23b527edeb3e97d68a3043b2c700",
+        "group": "events_stream"
+      },
+      {
+        "path": "internal/observability/events.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "225875d5b1711deb127b95255f9cd6eb7f3b97a2",
+        "line": 48,
+        "end_line": 150,
+        "sha256": "751a5f147812556d08b8c9d7f08e8a0a9e0e97abb7b430147d3325d70f134262",
+        "group": "events_stream"
+      },
+      {
+        "path": "internal/dashboard/view.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "9fe19902da6e987690ca2c133ec99d9b95723c67",
+        "line": 380,
+        "end_line": 453,
+        "sha256": "51eaba79922c8128d78a169bea36b324b0f595987719a4108daf89e7129f3113",
+        "group": "events_stream"
+      },
+      {
+        "path": "internal/dashboard/handlers.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "7e802068dd3cc50d3c9972736371c34d3c2b5af4",
+        "line": 202,
+        "end_line": 221,
+        "sha256": "42fd3ea764c91d5c9debfd764998fa8240ef0ac5300b3d0f736ee40adf691a43",
+        "group": "events_stream"
+      },
+      {
+        "path": "internal/dashboard/handlers.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "7e802068dd3cc50d3c9972736371c34d3c2b5af4",
+        "line": 231,
+        "end_line": 376,
+        "sha256": "63c4aecfc66559fc5ae93191fbbf4d4f248ae6e49c5162480e79145854722d44",
+        "group": "events_stream"
+      },
+      {
+        "path": "internal/dashboard/events_templ.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c2fd976f89d9ea85a0ad74b5b6fcd81cb9018ec9",
+        "line": 298,
+        "end_line": 367,
+        "sha256": "b64a6acf295639546cbeea6c0031eccdfb3bf46c736207729e397f46ed3c0c69",
+        "group": "events_stream"
+      },
+      {
+        "path": "internal/dashboard/events_templ.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c2fd976f89d9ea85a0ad74b5b6fcd81cb9018ec9",
+        "line": 369,
+        "end_line": 491,
+        "sha256": "51dd2a06353907ead289086aa5ad3058caa01edd61803990110ee2aa6864a278",
+        "group": "events_stream"
+      },
+      {
+        "path": "internal/dashboard/layout_templ.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "66c420319b2aea8a178764283e413785db357d43",
+        "line": 481,
+        "end_line": 512,
+        "sha256": "3e3736d48496930ad8f4df01b574666b0ecc84ed222acd23144f46f7889d12d4",
+        "group": "events_stream"
+      },
+      {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 86,
+        "end_line": 95,
+        "sha256": "7d95b0c9b3a22f67c2f0c0707127a47214bb6eb3b1e3e202d67d284036245797",
+        "group": "health"
+      },
+      {
+        "path": "internal/observability/health.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "df124ccfe02a1401679fb1ecb25201840307ada7",
+        "line": 28,
+        "end_line": 60,
+        "sha256": "dbc455a24557655dbcd28b330d5debcdd1264168883506a64fc7d32342b8af76",
+        "group": "health"
+      },
+      {
+        "path": "internal/dashboard/dashboard.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "58795fa0caccba7fc74f1493814f02685871ff5d",
+        "line": 193,
+        "end_line": 228,
+        "sha256": "163ec44e9f81a262611d9af5574c5c3951ab4cb19e40f8964a76076ea8728853",
+        "group": "health"
+      },
+      {
+        "path": "internal/dashboard/layout_templ.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "66c420319b2aea8a178764283e413785db357d43",
+        "line": 935,
+        "end_line": 1061,
+        "sha256": "808ab2ebe099d915f097a2b956a4209acd3cf1613bc4ba81ec1c0ec0cff02ea9",
+        "group": "health"
+      },
+      {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 39,
+        "end_line": 50,
+        "sha256": "4fe9b0737d752a63a5670ddfd30e48be32c80f68926b9cbadebafde780aa941b",
+        "group": "cache"
+      },
+      {
+        "path": "internal/dashboard/dashboard.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "58795fa0caccba7fc74f1493814f02685871ff5d",
+        "line": 119,
+        "end_line": 131,
+        "sha256": "dea427e2d7d6f1f1b45782ef935cf4b2acf4b067f2cdbb22f4c09bfcdc9a87b8",
+        "group": "cache"
+      },
+      {
+        "path": "internal/dashboard/dashboard.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "58795fa0caccba7fc74f1493814f02685871ff5d",
+        "line": 193,
+        "end_line": 228,
+        "sha256": "163ec44e9f81a262611d9af5574c5c3951ab4cb19e40f8964a76076ea8728853",
+        "group": "cache"
+      },
+      {
+        "path": "internal/observability/collector.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "fb0180451129e31368d5373a09b6a830f3369710",
+        "line": 215,
+        "end_line": 271,
+        "sha256": "810a463ce84b332c8998c7706be00060cb2c1d2ee229d8f607c802e8b7904920",
+        "group": "cache"
+      },
+      {
+        "path": "internal/dashboard/dashboard.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "58795fa0caccba7fc74f1493814f02685871ff5d",
+        "line": 172,
+        "end_line": 189,
+        "sha256": "4f800c54528d072a89636ce493be7b395b6c8a715536086909169fcec0c01fa9",
+        "group": "host"
+      },
+      {
+        "path": "internal/observability/server.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "55e45ce5ba67237efba469d05c573e2003bd93c0",
+        "line": 212,
+        "end_line": 223,
+        "sha256": "8166568660bcaa8ee4f346379c51ab7fda1494085d8406c4ea28c92d6a5292c3",
+        "group": "host"
+      },
+      {
+        "path": "internal/dashboard/handlers.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "7e802068dd3cc50d3c9972736371c34d3c2b5af4",
+        "line": 44,
+        "end_line": 47,
+        "sha256": "5b6570d9c56eb9ba7437571df23aff4071dc0276376413cac6c692931608f415",
+        "group": "login"
+      },
+      {
+        "path": "internal/observability/session.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6f03733b896f0cacc2335fa972bd3581834eacad",
+        "line": 784,
+        "end_line": 796,
+        "sha256": "97d3caa7603b27960381a78306974011118f8f36a323f16d344bb5b6cc03728a",
+        "group": "login"
+      },
+      {
+        "path": "internal/dashboard/layout_templ.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "66c420319b2aea8a178764283e413785db357d43",
+        "line": 1662,
+        "end_line": 1730,
+        "sha256": "bc4cde2eefefb5bf787590328fb4aff0b669257f539e3c20255b3a5c06d67da1",
+        "group": "login"
+      }
+    ],
+    "additional_independently_reviewed_source_spans": [
+      {
+        "path": "internal/globalview/view.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "914e9a1715cba7b60ce614b730d6c8d0946e9e31",
+        "line": 238,
+        "end_line": 263,
+        "sha256": "bf06fce2f98921968eb566c490066f326bc346ee1a4be3da34db48776f814695",
+        "text": "func (v *View) listed() []string {\n\tvar others []string\n\tif v.regions != nil {\n\t\tfor _, raw := range v.regions() {\n\t\t\tcell := normalize(raw)\n\t\t\tif cell == \"\" || cell == v.local || slices.Contains(others, cell) {\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\tothers = append(others, cell)\n\t\t}\n\t}\n\tslices.Sort(others)\n\tif v.local == \"\" {\n\t\treturn others\n\t}\n\treturn append([]string{v.local}, others...)\n}\n\n// region reads one listed cell. Callers hold mu.\nfunc (v *View) region(cell string) Region {\n\tr := v.rollups[cell]\n\treturn Region{\n\t\tCell:   cell,\n\t\tRollup: r,\n\t\tStale:  r != nil && v.now().Sub(r.ObservedAt) > StaleAfter,\n\t}\n"
+      },
+      {
+        "path": "internal/globalview/view.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "914e9a1715cba7b60ce614b730d6c8d0946e9e31",
+        "line": 332,
+        "end_line": 352,
+        "sha256": "b1c28e0ee4c05ae4c24eaded4c1dacfd6a67f32a48b44ea3f06d77dfa611ec06",
+        "text": "func validate(r Rollup, now time.Time) error {\n\tif r.Version != Version {\n\t\treturn fmt.Errorf(\"rollup version %d, want %d\", r.Version, Version)\n\t}\n\tif token, err := protocol.RegionToken(r.Cell); err != nil || token != r.Cell {\n\t\treturn fmt.Errorf(\"rollup cell %q is not a region token\", r.Cell)\n\t}\n\tif r.ObservedAt.IsZero() || r.ObservedAt.After(now.Add(time.Minute)) {\n\t\treturn fmt.Errorf(\"rollup observed_at %s is outside the clock window\", r.ObservedAt)\n\t}\n\treturn nil\n}\n\n// normalize returns the region token of cell, or \"\" when cell is not one.\nfunc normalize(cell string) string {\n\ttoken, err := protocol.RegionToken(cell)\n\tif err != nil {\n\t\treturn \"\"\n\t}\n\treturn token\n}\n"
+      }
+    ],
+    "checksum_manifest_and_immutable_modes_verified": true
+  },
+  "per_root_review": [
+    {
+      "allocation_index": 1180,
+      "root_id": "internal/dashboard/capacity_test.go::TestCapacityPageShowsBudgetCapacityScalingAndSuggestion",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: complete synthetic CapacityView is loaded/rendered via get ResponseRecorder. Amounts, home form, signals, in-flight/suggestion strings assert local presentation; no budget/scaling service or transport.",
+      "baseline_source": {
+        "path": "internal/dashboard/capacity_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "f984f95c9729ecf72985ff5bf2f2198016669321",
+        "line": 147,
+        "end_line": 175
+      },
+      "current_source": {
+        "path": "internal/dashboard/capacity_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "f984f95c9729ecf72985ff5bf2f2198016669321",
+        "line": 147,
+        "end_line": 175
+      },
+      "original_declaration_sha256": "58416e721f7ab97f38b4c4b13945405eaf1d93f6e8fdb3699daf409faef06fa5",
+      "current_declaration_sha256": "58416e721f7ab97f38b4c4b13945405eaf1d93f6e8fdb3699daf409faef06fa5",
+      "frozen_survival_record": {
+        "path": "internal/dashboard/capacity_test.go",
+        "original_name": "TestCapacityPageShowsBudgetCapacityScalingAndSuggestion",
+        "kind": "test",
+        "original_declaration_sha256": "58416e721f7ab97f38b4c4b13945405eaf1d93f6e8fdb3699daf409faef06fa5",
+        "current_name": "TestCapacityPageShowsBudgetCapacityScalingAndSuggestion",
+        "current_declaration_sha256": "58416e721f7ab97f38b4c4b13945405eaf1d93f6e8fdb3699daf409faef06fa5",
+        "state": "retained_body_exact"
+      },
+      "assertion_span_checks": [
+        {
+          "path": "internal/dashboard/capacity_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "f984f95c9729ecf72985ff5bf2f2198016669321",
+          "line": 148,
+          "end_line": 174,
+          "sha256": "a426e69ed5e1daf7df17b4f2a8cc1d9aab7973b3b99763794c49f16f0bee569c"
+        }
+      ],
+      "connected_evidence_groups_checked": [
+        "direct",
+        "capacity"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 1181,
+      "root_id": "internal/dashboard/capacity_test.go::TestSetBudgetOutsideTheHomeConflictsAndSilentLeaderIsUnavailable",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: fakeCapacity.setErr values and absent provider drive direct POST status/message mapping; no actual home leader or broker timeout occurs.",
+      "baseline_source": {
+        "path": "internal/dashboard/capacity_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "f984f95c9729ecf72985ff5bf2f2198016669321",
+        "line": 126,
+        "end_line": 145
+      },
+      "current_source": {
+        "path": "internal/dashboard/capacity_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "f984f95c9729ecf72985ff5bf2f2198016669321",
+        "line": 126,
+        "end_line": 145
+      },
+      "original_declaration_sha256": "d49eb20eb57471f54f4c9ee0d2c8701997d146f3e7cb6003e6591eef47d731de",
+      "current_declaration_sha256": "d49eb20eb57471f54f4c9ee0d2c8701997d146f3e7cb6003e6591eef47d731de",
+      "frozen_survival_record": {
+        "path": "internal/dashboard/capacity_test.go",
+        "original_name": "TestSetBudgetOutsideTheHomeConflictsAndSilentLeaderIsUnavailable",
+        "kind": "test",
+        "original_declaration_sha256": "d49eb20eb57471f54f4c9ee0d2c8701997d146f3e7cb6003e6591eef47d731de",
+        "current_name": "TestSetBudgetOutsideTheHomeConflictsAndSilentLeaderIsUnavailable",
+        "current_declaration_sha256": "d49eb20eb57471f54f4c9ee0d2c8701997d146f3e7cb6003e6591eef47d731de",
+        "state": "retained_body_exact"
+      },
+      "assertion_span_checks": [
+        {
+          "path": "internal/dashboard/capacity_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "f984f95c9729ecf72985ff5bf2f2198016669321",
+          "line": 127,
+          "end_line": 144,
+          "sha256": "d90e93fcefbab37ec6f290e684c6621f6b9f554ff2bd27ffa444e083897a23ca"
+        }
+      ],
+      "connected_evidence_groups_checked": [
+        "direct",
+        "budget"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 1182,
+      "root_id": "internal/dashboard/capacity_test.go::TestSetBudgetRefusesCrossSiteAndBadInput",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: Origin/Referer/form table is refused by local guards and validation. Fake setter slice remains empty; no protocol, durable store or cloud boundary.",
+      "baseline_source": {
+        "path": "internal/dashboard/capacity_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "f984f95c9729ecf72985ff5bf2f2198016669321",
+        "line": 76,
+        "end_line": 112
+      },
+      "current_source": {
+        "path": "internal/dashboard/capacity_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "f984f95c9729ecf72985ff5bf2f2198016669321",
+        "line": 76,
+        "end_line": 112
+      },
+      "original_declaration_sha256": "db67d4eb2c31b85b6c0c2336555d60dbbe8c65082c910caac752c2bc3eb07b20",
+      "current_declaration_sha256": "db67d4eb2c31b85b6c0c2336555d60dbbe8c65082c910caac752c2bc3eb07b20",
+      "frozen_survival_record": {
+        "path": "internal/dashboard/capacity_test.go",
+        "original_name": "TestSetBudgetRefusesCrossSiteAndBadInput",
+        "kind": "test",
+        "original_declaration_sha256": "db67d4eb2c31b85b6c0c2336555d60dbbe8c65082c910caac752c2bc3eb07b20",
+        "current_name": "TestSetBudgetRefusesCrossSiteAndBadInput",
+        "current_declaration_sha256": "db67d4eb2c31b85b6c0c2336555d60dbbe8c65082c910caac752c2bc3eb07b20",
+        "state": "retained_body_exact"
+      },
+      "assertion_span_checks": [
+        {
+          "path": "internal/dashboard/capacity_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "f984f95c9729ecf72985ff5bf2f2198016669321",
+          "line": 77,
+          "end_line": 111,
+          "sha256": "7c2921d883b658a4e9a8a2cfad3d8807e785e32c2f5e7fc6886549e5edb795ff"
+        }
+      ],
+      "connected_evidence_groups_checked": [
+        "direct",
+        "budget"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 1183,
+      "root_id": "internal/dashboard/capacity_test.go::TestSetBudgetWritesThroughTheHomeAndRedirects",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: direct recorder invokes fakeCapacity.SetBudget, then inspects local Budget fields/Validate and redirect. Synthetic RemoteAddr/test clock, no global leader or store.",
+      "baseline_source": {
+        "path": "internal/dashboard/capacity_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "f984f95c9729ecf72985ff5bf2f2198016669321",
+        "line": 52,
+        "end_line": 74
+      },
+      "current_source": {
+        "path": "internal/dashboard/capacity_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "f984f95c9729ecf72985ff5bf2f2198016669321",
+        "line": 52,
+        "end_line": 74
+      },
+      "original_declaration_sha256": "c5d38d9c84ab91e0231d01cbed96e97aebcd1aa7c5f0382305c51896cab1f04a",
+      "current_declaration_sha256": "c5d38d9c84ab91e0231d01cbed96e97aebcd1aa7c5f0382305c51896cab1f04a",
+      "frozen_survival_record": {
+        "path": "internal/dashboard/capacity_test.go",
+        "original_name": "TestSetBudgetWritesThroughTheHomeAndRedirects",
+        "kind": "test",
+        "original_declaration_sha256": "c5d38d9c84ab91e0231d01cbed96e97aebcd1aa7c5f0382305c51896cab1f04a",
+        "current_name": "TestSetBudgetWritesThroughTheHomeAndRedirects",
+        "current_declaration_sha256": "c5d38d9c84ab91e0231d01cbed96e97aebcd1aa7c5f0382305c51896cab1f04a",
+        "state": "retained_body_exact"
+      },
+      "assertion_span_checks": [
+        {
+          "path": "internal/dashboard/capacity_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "f984f95c9729ecf72985ff5bf2f2198016669321",
+          "line": 53,
+          "end_line": 73,
+          "sha256": "ce78d11040b61dd8e663878dd31ec737f3d3b531e6563708cd0604002aed223d"
+        }
+      ],
+      "connected_evidence_groups_checked": [
+        "direct",
+        "budget"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 1184,
+      "root_id": "internal/dashboard/cost_test.go::TestCostBodyRendersEveryRegionState",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: production /cost is delivered by fixturePage loopback HTTP server/client. Synthetic local/rollup records support rendered region/method/missing state; no real OCI usage collection.",
+      "baseline_source": {
+        "path": "internal/dashboard/cost_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "3130958e64152228ed02dfbc0305e955521e13b1",
+        "line": 33,
+        "end_line": 61
+      },
+      "current_source": {
+        "path": "internal/dashboard/cost_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3130958e64152228ed02dfbc0305e955521e13b1",
+        "line": 33,
+        "end_line": 61
+      },
+      "original_declaration_sha256": "c128baa663459263b48898b65e282522d7d8c8b6d7da153a165dd988598b786f",
+      "current_declaration_sha256": "c128baa663459263b48898b65e282522d7d8c8b6d7da153a165dd988598b786f",
+      "frozen_survival_record": {
+        "path": "internal/dashboard/cost_test.go",
+        "original_name": "TestCostBodyRendersEveryRegionState",
+        "kind": "test",
+        "original_declaration_sha256": "c128baa663459263b48898b65e282522d7d8c8b6d7da153a165dd988598b786f",
+        "current_name": "TestCostBodyRendersEveryRegionState",
+        "current_declaration_sha256": "c128baa663459263b48898b65e282522d7d8c8b6d7da153a165dd988598b786f",
+        "state": "retained_body_exact"
+      },
+      "assertion_span_checks": [
+        {
+          "path": "internal/dashboard/cost_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "3130958e64152228ed02dfbc0305e955521e13b1",
+          "line": 34,
+          "end_line": 60,
+          "sha256": "f286614c83733bd790e8a97d4e6097ed668618435b43ba553b4385e64668bc0f"
+        }
+      ],
+      "connected_evidence_groups_checked": [
+        "http_page",
+        "cost"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 1185,
+      "root_id": "internal/dashboard/cost_test.go::TestCostBodyStatesTheGlobalBudget",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: unset/capped budget messages are read from actual /cost HTTP response. Injected capacity and memory rollups do not establish global budget persistence.",
+      "baseline_source": {
+        "path": "internal/dashboard/cost_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "3130958e64152228ed02dfbc0305e955521e13b1",
+        "line": 86,
+        "end_line": 110
+      },
+      "current_source": {
+        "path": "internal/dashboard/cost_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3130958e64152228ed02dfbc0305e955521e13b1",
+        "line": 86,
+        "end_line": 110
+      },
+      "original_declaration_sha256": "63eb355308e2b0a3e7f0de2f1aa78d1ecfb108a94ca2e0016df92f834e1ee003",
+      "current_declaration_sha256": "63eb355308e2b0a3e7f0de2f1aa78d1ecfb108a94ca2e0016df92f834e1ee003",
+      "frozen_survival_record": {
+        "path": "internal/dashboard/cost_test.go",
+        "original_name": "TestCostBodyStatesTheGlobalBudget",
+        "kind": "test",
+        "original_declaration_sha256": "63eb355308e2b0a3e7f0de2f1aa78d1ecfb108a94ca2e0016df92f834e1ee003",
+        "current_name": "TestCostBodyStatesTheGlobalBudget",
+        "current_declaration_sha256": "63eb355308e2b0a3e7f0de2f1aa78d1ecfb108a94ca2e0016df92f834e1ee003",
+        "state": "retained_body_exact"
+      },
+      "assertion_span_checks": [
+        {
+          "path": "internal/dashboard/cost_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "3130958e64152228ed02dfbc0305e955521e13b1",
+          "line": 87,
+          "end_line": 109,
+          "sha256": "1a4be8fe636ca74be53a36541358affb196a29648fb1b203adda33e3e7e43740"
+        }
+      ],
+      "connected_evidence_groups_checked": [
+        "http_page",
+        "cost"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 1186,
+      "root_id": "internal/dashboard/cost_test.go::TestCostPageAggregatesOnlyCompatibleReports",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: actual HTTP /cost responses carry compatible-currency totals, service/component/untagged values and mixed-currency exclusion. No cross-region broker or usage API.",
+      "baseline_source": {
+        "path": "internal/dashboard/cost_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "3130958e64152228ed02dfbc0305e955521e13b1",
+        "line": 112,
+        "end_line": 131
+      },
+      "current_source": {
+        "path": "internal/dashboard/cost_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3130958e64152228ed02dfbc0305e955521e13b1",
+        "line": 112,
+        "end_line": 131
+      },
+      "original_declaration_sha256": "637d01cd21319380097bbd7c28c4bfaff6b470d2daa87d815ea057f8d7c6846c",
+      "current_declaration_sha256": "637d01cd21319380097bbd7c28c4bfaff6b470d2daa87d815ea057f8d7c6846c",
+      "frozen_survival_record": {
+        "path": "internal/dashboard/cost_test.go",
+        "original_name": "TestCostPageAggregatesOnlyCompatibleReports",
+        "kind": "test",
+        "original_declaration_sha256": "637d01cd21319380097bbd7c28c4bfaff6b470d2daa87d815ea057f8d7c6846c",
+        "current_name": "TestCostPageAggregatesOnlyCompatibleReports",
+        "current_declaration_sha256": "637d01cd21319380097bbd7c28c4bfaff6b470d2daa87d815ea057f8d7c6846c",
+        "state": "retained_body_exact"
+      },
+      "assertion_span_checks": [
+        {
+          "path": "internal/dashboard/cost_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "3130958e64152228ed02dfbc0305e955521e13b1",
+          "line": 113,
+          "end_line": 130,
+          "sha256": "0c1bf78be6924134d4eb078683206c5d0ba1910f4b861e428b39c66e22732855"
+        }
+      ],
+      "connected_evidence_groups_checked": [
+        "http_page",
+        "cost"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 1187,
+      "root_id": "internal/dashboard/cost_test.go::TestCostPageShowsGlobalBudgetStates",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: actual HTTP response contains unset/ok/over/stale capacity presentation. Test only renders injected documents; no capacity writes or autoscaling.",
+      "baseline_source": {
+        "path": "internal/dashboard/cost_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "3130958e64152228ed02dfbc0305e955521e13b1",
+        "line": 63,
+        "end_line": 84
+      },
+      "current_source": {
+        "path": "internal/dashboard/cost_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3130958e64152228ed02dfbc0305e955521e13b1",
+        "line": 63,
+        "end_line": 84
+      },
+      "original_declaration_sha256": "c731122afe41cbba14760879691707e6fa518673aaec86448364a945ca91f0b5",
+      "current_declaration_sha256": "c731122afe41cbba14760879691707e6fa518673aaec86448364a945ca91f0b5",
+      "frozen_survival_record": {
+        "path": "internal/dashboard/cost_test.go",
+        "original_name": "TestCostPageShowsGlobalBudgetStates",
+        "kind": "test",
+        "original_declaration_sha256": "c731122afe41cbba14760879691707e6fa518673aaec86448364a945ca91f0b5",
+        "current_name": "TestCostPageShowsGlobalBudgetStates",
+        "current_declaration_sha256": "c731122afe41cbba14760879691707e6fa518673aaec86448364a945ca91f0b5",
+        "state": "retained_body_exact"
+      },
+      "assertion_span_checks": [
+        {
+          "path": "internal/dashboard/cost_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "3130958e64152228ed02dfbc0305e955521e13b1",
+          "line": 64,
+          "end_line": 83,
+          "sha256": "83a2b81765405e7d4efb321077f3c89c909b888d02e7107aeac377617da13228"
+        }
+      ],
+      "connected_evidence_groups_checked": [
+        "http_page",
+        "cost"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 1188,
+      "root_id": "internal/dashboard/dashboard_test.go::TestAssetsAreContentAddressed",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: direct recorder exercises local embedded asset lookup/hash URL/header/ETag/304/404 behavior. embed.FS has compiled bytes; no external filesystem or HTTP socket.",
+      "baseline_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 246,
+        "end_line": 287
+      },
+      "current_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 246,
+        "end_line": 287
+      },
+      "original_declaration_sha256": "ee8702e196128c8f3c36563bcdc55bc1acb97d5b6ecb6dbc69aa4bbeed4e7c0d",
+      "current_declaration_sha256": "ee8702e196128c8f3c36563bcdc55bc1acb97d5b6ecb6dbc69aa4bbeed4e7c0d",
+      "frozen_survival_record": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "original_name": "TestAssetsAreContentAddressed",
+        "kind": "test",
+        "original_declaration_sha256": "ee8702e196128c8f3c36563bcdc55bc1acb97d5b6ecb6dbc69aa4bbeed4e7c0d",
+        "current_name": "TestAssetsAreContentAddressed",
+        "current_declaration_sha256": "ee8702e196128c8f3c36563bcdc55bc1acb97d5b6ecb6dbc69aa4bbeed4e7c0d",
+        "state": "retained_body_exact"
+      },
+      "assertion_span_checks": [
+        {
+          "path": "internal/dashboard/dashboard_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+          "line": 247,
+          "end_line": 286,
+          "sha256": "29ecd608233473b916eda7c01210a969910fdb8259c1ef7f6661655afba5415f"
+        }
+      ],
+      "connected_evidence_groups_checked": [
+        "direct",
+        "assets"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 1189,
+      "root_id": "internal/dashboard/dashboard_test.go::TestContentStreamPatchesOnlyChanges",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: live HTTP SSE stream returns initial patches for pages and a changed member patch from mutex fixture. Same-content interval followed by renamed-member assertion constrains next delivered patch; no collector or browser.",
+      "baseline_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 360,
+        "end_line": 393
+      },
+      "current_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 360,
+        "end_line": 393
+      },
+      "original_declaration_sha256": "1c2df7518d63d38f6e86cab9d4baae08b18ce1f78fdffcede9d962250957a514",
+      "current_declaration_sha256": "1c2df7518d63d38f6e86cab9d4baae08b18ce1f78fdffcede9d962250957a514",
+      "frozen_survival_record": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "original_name": "TestContentStreamPatchesOnlyChanges",
+        "kind": "test",
+        "original_declaration_sha256": "1c2df7518d63d38f6e86cab9d4baae08b18ce1f78fdffcede9d962250957a514",
+        "current_name": "TestContentStreamPatchesOnlyChanges",
+        "current_declaration_sha256": "1c2df7518d63d38f6e86cab9d4baae08b18ce1f78fdffcede9d962250957a514",
+        "state": "retained_body_exact"
+      },
+      "assertion_span_checks": [
+        {
+          "path": "internal/dashboard/dashboard_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+          "line": 361,
+          "end_line": 392,
+          "sha256": "641eb224fcfdf983c43322168b354d709fd5390dfd21562f7c08da23f3484c1e"
+        }
+      ],
+      "connected_evidence_groups_checked": [
+        "stream",
+        "content"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 1190,
+      "root_id": "internal/dashboard/dashboard_test.go::TestEventFilterFromQuery",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: in-memory EventBus and direct recorder exercise local event query filters/escaping/stream link strings; no external event producer or live stream.",
+      "baseline_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 211,
+        "end_line": 231
+      },
+      "current_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 211,
+        "end_line": 231
+      },
+      "original_declaration_sha256": "8fc2f13e8783ea494eec0fa93752b99f7d3cd162c26335131a433603d93b34ad",
+      "current_declaration_sha256": "8fc2f13e8783ea494eec0fa93752b99f7d3cd162c26335131a433603d93b34ad",
+      "frozen_survival_record": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "original_name": "TestEventFilterFromQuery",
+        "kind": "test",
+        "original_declaration_sha256": "8fc2f13e8783ea494eec0fa93752b99f7d3cd162c26335131a433603d93b34ad",
+        "current_name": "TestEventFilterFromQuery",
+        "current_declaration_sha256": "8fc2f13e8783ea494eec0fa93752b99f7d3cd162c26335131a433603d93b34ad",
+        "state": "retained_body_exact"
+      },
+      "assertion_span_checks": [
+        {
+          "path": "internal/dashboard/dashboard_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+          "line": 212,
+          "end_line": 230,
+          "sha256": "2622c24a1289612eaaeb1caf307229e654ddb7bbdef35c5c3da112e7541352be"
+        }
+      ],
+      "connected_evidence_groups_checked": [
+        "direct",
+        "events"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 1191,
+      "root_id": "internal/dashboard/dashboard_test.go::TestEventPageMatchesSeverityAndComponent",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: direct event page and synthetic ring entries exercise severity/component predicates, including WARN+2; no live logger transport.",
+      "baseline_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 460,
+        "end_line": 475
+      },
+      "current_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 460,
+        "end_line": 475
+      },
+      "original_declaration_sha256": "15ce696af740ed3e3cae6fe7c3e1bdcc3c9dd114a910a1827165aea17c535741",
+      "current_declaration_sha256": "15ce696af740ed3e3cae6fe7c3e1bdcc3c9dd114a910a1827165aea17c535741",
+      "frozen_survival_record": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "original_name": "TestEventPageMatchesSeverityAndComponent",
+        "kind": "test",
+        "original_declaration_sha256": "15ce696af740ed3e3cae6fe7c3e1bdcc3c9dd114a910a1827165aea17c535741",
+        "current_name": "TestEventPageMatchesSeverityAndComponent",
+        "current_declaration_sha256": "15ce696af740ed3e3cae6fe7c3e1bdcc3c9dd114a910a1827165aea17c535741",
+        "state": "retained_body_exact"
+      },
+      "assertion_span_checks": [
+        {
+          "path": "internal/dashboard/dashboard_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+          "line": 461,
+          "end_line": 474,
+          "sha256": "a3d60d0ac021ad105326169b49eae45dd44d9c375880821e659d07cf77ab8310"
+        }
+      ],
+      "connected_evidence_groups_checked": [
+        "direct",
+        "events"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 1192,
+      "root_id": "internal/dashboard/dashboard_test.go::TestEventsStreamPrependsLiveEvents",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: live HTTP SSE consumes real in-memory EventBus subscriptions and decoded server patches for initial rows/chrome, filtered prepend, placeholder removal and subsequent event. No browser DOM or external log ingestion.",
+      "baseline_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 412,
+        "end_line": 442
+      },
+      "current_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 412,
+        "end_line": 442
+      },
+      "original_declaration_sha256": "70c6217aed4e17a96a94210ff7c6d1cd7477af63a18d72901b855133a6be65f8",
+      "current_declaration_sha256": "70c6217aed4e17a96a94210ff7c6d1cd7477af63a18d72901b855133a6be65f8",
+      "frozen_survival_record": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "original_name": "TestEventsStreamPrependsLiveEvents",
+        "kind": "test",
+        "original_declaration_sha256": "70c6217aed4e17a96a94210ff7c6d1cd7477af63a18d72901b855133a6be65f8",
+        "current_name": "TestEventsStreamPrependsLiveEvents",
+        "current_declaration_sha256": "70c6217aed4e17a96a94210ff7c6d1cd7477af63a18d72901b855133a6be65f8",
+        "state": "retained_body_exact"
+      },
+      "assertion_span_checks": [
+        {
+          "path": "internal/dashboard/dashboard_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+          "line": 413,
+          "end_line": 441,
+          "sha256": "5705deb51093ac1d25b318e24573a49432099a7b96ab1cdc0464d960bc14b012"
+        }
+      ],
+      "connected_evidence_groups_checked": [
+        "stream",
+        "events_stream"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 1193,
+      "root_id": "internal/dashboard/dashboard_test.go::TestEventsStreamRecoversDroppedEvents",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: lossyEvents deliberately withholds notifications; actual HTTP SSE tick reconciliation reads its memory ring and returns added warning. This does not qualify actual EventBus overflow.",
+      "baseline_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 507,
+        "end_line": 521
+      },
+      "current_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 507,
+        "end_line": 521
+      },
+      "original_declaration_sha256": "0ae385908478e2a236ac9eb480b12c3fb76445962dbfe370b9dc1d082ecda21a",
+      "current_declaration_sha256": "0ae385908478e2a236ac9eb480b12c3fb76445962dbfe370b9dc1d082ecda21a",
+      "frozen_survival_record": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "original_name": "TestEventsStreamRecoversDroppedEvents",
+        "kind": "test",
+        "original_declaration_sha256": "0ae385908478e2a236ac9eb480b12c3fb76445962dbfe370b9dc1d082ecda21a",
+        "current_name": "TestEventsStreamRecoversDroppedEvents",
+        "current_declaration_sha256": "0ae385908478e2a236ac9eb480b12c3fb76445962dbfe370b9dc1d082ecda21a",
+        "state": "retained_body_exact"
+      },
+      "assertion_span_checks": [
+        {
+          "path": "internal/dashboard/dashboard_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+          "line": 508,
+          "end_line": 520,
+          "sha256": "ea0129083bbd17e90331b3893c0992305fc7a4347b3aec289d126724602bd909"
+        }
+      ],
+      "connected_evidence_groups_checked": [
+        "stream",
+        "events_stream"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 1194,
+      "root_id": "internal/dashboard/dashboard_test.go::TestEveryPageRendersProviderData",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: direct get recorder renders synthetic snapshots/cluster/events/health across page table and security headers; no collectors, protocol clients or workload.",
+      "baseline_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 113,
+        "end_line": 157
+      },
+      "current_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 113,
+        "end_line": 157
+      },
+      "original_declaration_sha256": "78ef944fd58213ce77de62200f5d22891a4d1bbd54e2ef49346ff9f0f30d3ad1",
+      "current_declaration_sha256": "78ef944fd58213ce77de62200f5d22891a4d1bbd54e2ef49346ff9f0f30d3ad1",
+      "frozen_survival_record": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "original_name": "TestEveryPageRendersProviderData",
+        "kind": "test",
+        "original_declaration_sha256": "78ef944fd58213ce77de62200f5d22891a4d1bbd54e2ef49346ff9f0f30d3ad1",
+        "current_name": "TestEveryPageRendersProviderData",
+        "current_declaration_sha256": "78ef944fd58213ce77de62200f5d22891a4d1bbd54e2ef49346ff9f0f30d3ad1",
+        "state": "retained_body_exact"
+      },
+      "assertion_span_checks": [
+        {
+          "path": "internal/dashboard/dashboard_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+          "line": 114,
+          "end_line": 156,
+          "sha256": "7d8a8c4bb636ba4757a6da30ec25e3f6d0c1fbcb99933e8348100212331e8d51"
+        }
+      ],
+      "connected_evidence_groups_checked": [
+        "direct",
+        "events",
+        "health"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 1195,
+      "root_id": "internal/dashboard/dashboard_test.go::TestLateAttachedProvidersAndSharedClusterCache",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: local atomic provider attachment/cache plus direct HTML output; fake fixedCluster invocation count checks memoization, not scatter-gather or broker access.",
+      "baseline_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 190,
+        "end_line": 209
+      },
+      "current_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 190,
+        "end_line": 209
+      },
+      "original_declaration_sha256": "eda679084f4c66dd8075bcaa9742cab9dfea7c0e244c2de33e8344c5eedccf3f",
+      "current_declaration_sha256": "eda679084f4c66dd8075bcaa9742cab9dfea7c0e244c2de33e8344c5eedccf3f",
+      "frozen_survival_record": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "original_name": "TestLateAttachedProvidersAndSharedClusterCache",
+        "kind": "test",
+        "original_declaration_sha256": "eda679084f4c66dd8075bcaa9742cab9dfea7c0e244c2de33e8344c5eedccf3f",
+        "current_name": "TestLateAttachedProvidersAndSharedClusterCache",
+        "current_declaration_sha256": "eda679084f4c66dd8075bcaa9742cab9dfea7c0e244c2de33e8344c5eedccf3f",
+        "state": "retained_body_exact"
+      },
+      "assertion_span_checks": [
+        {
+          "path": "internal/dashboard/dashboard_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+          "line": 191,
+          "end_line": 208,
+          "sha256": "4c2fbd75b55f9f521fd109b26557d1734323191decf7d206eda0df697d96bc56"
+        }
+      ],
+      "connected_evidence_groups_checked": [
+        "direct",
+        "cache"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 1196,
+      "root_id": "internal/dashboard/dashboard_test.go::TestLiteralHostGuard",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: direct request.Host table feeds literal-host parser and status guard; no real DNS, socket or rebinding traffic.",
+      "baseline_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 289,
+        "end_line": 305
+      },
+      "current_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 289,
+        "end_line": 305
+      },
+      "original_declaration_sha256": "307359d6a68bbee3da9cb8326f8cb10f1795dcd8a921ee82ccb3c9871a9189a2",
+      "current_declaration_sha256": "307359d6a68bbee3da9cb8326f8cb10f1795dcd8a921ee82ccb3c9871a9189a2",
+      "frozen_survival_record": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "original_name": "TestLiteralHostGuard",
+        "kind": "test",
+        "original_declaration_sha256": "307359d6a68bbee3da9cb8326f8cb10f1795dcd8a921ee82ccb3c9871a9189a2",
+        "current_name": "TestLiteralHostGuard",
+        "current_declaration_sha256": "307359d6a68bbee3da9cb8326f8cb10f1795dcd8a921ee82ccb3c9871a9189a2",
+        "state": "retained_body_exact"
+      },
+      "assertion_span_checks": [
+        {
+          "path": "internal/dashboard/dashboard_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+          "line": 290,
+          "end_line": 304,
+          "sha256": "318358766879d18c79a9dc8d5e9fc74da0c33cff132d3e4a047696b3de72151d"
+        }
+      ],
+      "connected_evidence_groups_checked": [
+        "direct",
+        "host"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 1197,
+      "root_id": "internal/dashboard/dashboard_test.go::TestLoginPageKeepsRedirectLocal",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: direct login template uses LocalRedirectPath to display sanitized next and failure text. No credential/session backend or actual browser redirect.",
+      "baseline_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 233,
+        "end_line": 244
+      },
+      "current_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 233,
+        "end_line": 244
+      },
+      "original_declaration_sha256": "2d39726b271996d1402f08c404c749af4ecb7484c4688589f32e920c041daabb",
+      "current_declaration_sha256": "2d39726b271996d1402f08c404c749af4ecb7484c4688589f32e920c041daabb",
+      "frozen_survival_record": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "original_name": "TestLoginPageKeepsRedirectLocal",
+        "kind": "test",
+        "original_declaration_sha256": "2d39726b271996d1402f08c404c749af4ecb7484c4688589f32e920c041daabb",
+        "current_name": "TestLoginPageKeepsRedirectLocal",
+        "current_declaration_sha256": "2d39726b271996d1402f08c404c749af4ecb7484c4688589f32e920c041daabb",
+        "state": "retained_body_exact"
+      },
+      "assertion_span_checks": [
+        {
+          "path": "internal/dashboard/dashboard_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+          "line": 234,
+          "end_line": 243,
+          "sha256": "0f134050c5eefc62425f7598ce236d8c30a5c794b299c6c05d6af69b4e7c0f97"
+        }
+      ],
+      "connected_evidence_groups_checked": [
+        "direct",
+        "login"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 1198,
+      "root_id": "internal/dashboard/dashboard_test.go::TestPagesExplainFailingProviders",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: injected snapshot/cluster errors and health callback render generic notes without raw error leakage via recorder. No real dependency outage.",
+      "baseline_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 173,
+        "end_line": 188
+      },
+      "current_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 173,
+        "end_line": 188
+      },
+      "original_declaration_sha256": "ac94ae08e6e6646e4b0857e3819bd63319cb5f4a863d33d8735e3a75b3b31694",
+      "current_declaration_sha256": "ac94ae08e6e6646e4b0857e3819bd63319cb5f4a863d33d8735e3a75b3b31694",
+      "frozen_survival_record": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "original_name": "TestPagesExplainFailingProviders",
+        "kind": "test",
+        "original_declaration_sha256": "ac94ae08e6e6646e4b0857e3819bd63319cb5f4a863d33d8735e3a75b3b31694",
+        "current_name": "TestPagesExplainFailingProviders",
+        "current_declaration_sha256": "ac94ae08e6e6646e4b0857e3819bd63319cb5f4a863d33d8735e3a75b3b31694",
+        "state": "retained_body_exact"
+      },
+      "assertion_span_checks": [
+        {
+          "path": "internal/dashboard/dashboard_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+          "line": 174,
+          "end_line": 187,
+          "sha256": "d1ba4ab3b3b3065700916fd2a94d9851e2d10b9b8aadcea8215d961cc2fc11b9"
+        }
+      ],
+      "connected_evidence_groups_checked": [
+        "direct",
+        "health"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 1199,
+      "root_id": "internal/dashboard/dashboard_test.go::TestPagesRenderWithoutProviders",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: absent providers and direct recorder exercise each sidebar page fallback. No server/client or store.",
+      "baseline_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 159,
+        "end_line": 171
+      },
+      "current_source": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+        "line": 159,
+        "end_line": 171
+      },
+      "original_declaration_sha256": "4fe28727677192bd0ff1a2345e6a41c4c8f5282274035991bcdc39b2a2d213b3",
+      "current_declaration_sha256": "4fe28727677192bd0ff1a2345e6a41c4c8f5282274035991bcdc39b2a2d213b3",
+      "frozen_survival_record": {
+        "path": "internal/dashboard/dashboard_test.go",
+        "original_name": "TestPagesRenderWithoutProviders",
+        "kind": "test",
+        "original_declaration_sha256": "4fe28727677192bd0ff1a2345e6a41c4c8f5282274035991bcdc39b2a2d213b3",
+        "current_name": "TestPagesRenderWithoutProviders",
+        "current_declaration_sha256": "4fe28727677192bd0ff1a2345e6a41c4c8f5282274035991bcdc39b2a2d213b3",
+        "state": "retained_body_exact"
+      },
+      "assertion_span_checks": [
+        {
+          "path": "internal/dashboard/dashboard_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "b0f64c5856452126bc3729d525004ce3c5571f7e",
+          "line": 160,
+          "end_line": 170,
+          "sha256": "d2ec669f868f1388dd7989b41028f261ca33ab396f34b8c1b9f747dec4401fbd"
+        }
+      ],
+      "connected_evidence_groups_checked": [
+        "direct"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    }
+  ],
+  "correction_requests": [],
+  "resolved_findings": [],
+  "remaining_source_blockers": [],
+  "qualification_limits": [
+    "Actual boundary in four cost roots is loopback HTTP routing/loading/rendering; rollups/capacity/report data are synthetic or memory-only.",
+    "Three stream roots qualify actual HTTP/SSE output from production handlers with synthetic snapshots/EventSource or in-memory EventBus. No browser execution/DOM effect or external log producer.",
+    "LossyEvents deliberately withholds live delivery; no actual EventBus overflow is inferred.",
+    "Thirteen direct recorder/local-fake roots remain unit; embedded asset bytes do not establish external filesystem I/O.",
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no compilation/pass/fail or real cloud/broker/budget/scaling qualification."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "ledger_mutation": false,
+    "canonical_count_promotion": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "deletion_authorized": false,
+    "global_completion": false
+  },
+  "scope": "Exactly other_unadjudicated[1180:1200), independent source-only candidate review. Repository/source/ledger unchanged."
+}

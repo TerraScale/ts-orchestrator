@@ -1,0 +1,320 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_240_260",
+  "author": "/root/classification_100_dispatch/batch_260_280",
+  "status": "accepted",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-1420-1440-shared-sazk0dmo/classification.json",
+    "sha256": "f343c1ed75f89db78a4d101b386152ee3f9033960738733dbd6c11cbaf91916e",
+    "checksum_path": "/tmp/ts-source-classification-1420-1440-shared-sazk0dmo/SHA256SUMS",
+    "checksum_sha256": "3164c0ad81984ae09c6ff2166b881616165f65c01ce604a81ae188be86e073c4"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": [
+      1420,
+      1440
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_240_260"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/host/agent_initialized_review_test.go::TestAgentSignalsInitializedOnlyAfterRecovery",
+    "internal/host/agent_registration_integration_test.go::TestOwnRegistrationBindsActualSignedSessionAndKeys",
+    "internal/host/agent_session_trace_test.go::TestSessionTraceOnlyRecordsVerifiedAcceptedLeases",
+    "internal/host/artifact_cache_test.go::TestArtifactChunksReadBackendWithoutConsumer",
+    "internal/host/artifact_cache_test.go::TestInstalledArtifactPermissionsAndUnsafeEntries",
+    "internal/host/artifact_cache_test.go::TestWorkloadPathBoundariesBeforeNativeProbe",
+    "internal/host/artifact_reference_test.go::TestApplyDesiredPinsItsArtifactAgainstCollection",
+    "internal/host/container_material_test.go::TestContainerMaterialInventoryBoundary",
+    "internal/host/controller_startup_test.go::TestControllerMarksOnlyProvisionedHostStateVisibilityForRetry",
+    "internal/host/controller_test.go::TestAgentConvergesAndWithdrawalInvalidatesReadyReport",
+    "internal/host/controller_test.go::TestAgentResendsRequestsDeniedByAFollowerController",
+    "internal/host/controller_test.go::TestAgentResumesOpenCycleAfterSignedSessionContention",
+    "internal/host/controller_test.go::TestArtifactFetchRejectsWithdrawalAfterInitialRead",
+    "internal/host/controller_test.go::TestConcurrentRenewalAndAuthorizedRPCUseCurrentSession",
+    "internal/host/controller_test.go::TestControlLogReadsAreSafeConcurrently",
+    "internal/host/controller_test.go::TestCordonRetiresAHostThatHoldsAllocations",
+    "internal/host/controller_test.go::TestHostSessionRejectsReplayAndForeignIdentity",
+    "internal/host/controller_test.go::TestListHostsAcceptsNewerSameStateHeartbeat",
+    "internal/host/controller_test.go::TestListHostsAcceptsSameBindingSessionChurn",
+    "internal/host/controller_test.go::TestListHostsKeepsSlowReconcileReportsUntilReportMaxAge"
+  ],
+  "counts": {
+    "unit": 2,
+    "mixed": 4,
+    "integration": 14,
+    "unresolved": 0
+  },
+  "per_root": [
+    {
+      "root_id": "internal/host/agent_initialized_review_test.go::TestAgentSignalsInitializedOnlyAfterRecovery",
+      "category": "unit",
+      "review": "agrees",
+      "original_declaration_sha256": "d5d1fbfda265e74e665f747993197c02ebd3105ec266c0d508ed73006b7e8a7e",
+      "current_declaration_sha256": "d5d1fbfda265e74e665f747993197c02ebd3105ec266c0d508ed73006b7e8a7e",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/host/agent_registration_integration_test.go::TestOwnRegistrationBindsActualSignedSessionAndKeys",
+      "category": "mixed",
+      "review": "agrees",
+      "original_declaration_sha256": "2d2bd3739d9fa7bccb2d9b3c070fb083e86326e952a1c56178a49f5ce208d0e2",
+      "current_declaration_sha256": "e6f893972fa4dfee5f9de95d3c4edcbf16dd04459dc43071c653a6a47ebe68e6",
+      "canonical_body_drift_from_survival": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/host/agent_session_trace_test.go::TestSessionTraceOnlyRecordsVerifiedAcceptedLeases",
+      "category": "integration",
+      "review": "agrees",
+      "original_declaration_sha256": "b3614e5bff6ede2a8a2ef90fcff5b2884a73665f8c8f1e91d40bc3c3be4f30ca",
+      "current_declaration_sha256": "b3614e5bff6ede2a8a2ef90fcff5b2884a73665f8c8f1e91d40bc3c3be4f30ca",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/host/artifact_cache_test.go::TestArtifactChunksReadBackendWithoutConsumer",
+      "category": "integration",
+      "review": "agrees",
+      "original_declaration_sha256": "3ee2a6dcb552fbd3f41c9ce57605d6ace983120ae2fbc3eb51a0a1a3a15fd69a",
+      "current_declaration_sha256": "3ee2a6dcb552fbd3f41c9ce57605d6ace983120ae2fbc3eb51a0a1a3a15fd69a",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/host/artifact_cache_test.go::TestInstalledArtifactPermissionsAndUnsafeEntries",
+      "category": "integration",
+      "review": "agrees",
+      "original_declaration_sha256": "180db1c2d23abcecd95a292a6bb28f9c21b7f8151982e2652297aa7a8a304faa",
+      "current_declaration_sha256": "180db1c2d23abcecd95a292a6bb28f9c21b7f8151982e2652297aa7a8a304faa",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/host/artifact_cache_test.go::TestWorkloadPathBoundariesBeforeNativeProbe",
+      "category": "mixed",
+      "review": "agrees",
+      "original_declaration_sha256": "3963f5a8c0c0c782beb72bc757a5b940fa5c2ef902ab2953e52b164bb379a337",
+      "current_declaration_sha256": "3963f5a8c0c0c782beb72bc757a5b940fa5c2ef902ab2953e52b164bb379a337",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/host/artifact_reference_test.go::TestApplyDesiredPinsItsArtifactAgainstCollection",
+      "category": "integration",
+      "review": "agrees",
+      "original_declaration_sha256": "f939e51857a1ab0b04bb49ecf8df0178370f39513624437ecf782746a865f6f6",
+      "current_declaration_sha256": "f939e51857a1ab0b04bb49ecf8df0178370f39513624437ecf782746a865f6f6",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/host/container_material_test.go::TestContainerMaterialInventoryBoundary",
+      "category": "unit",
+      "review": "agrees",
+      "original_declaration_sha256": "44f636f867b2510c38f5c788d35145bb9908d7516e05b29b9743ba27b5a21519",
+      "current_declaration_sha256": "44f636f867b2510c38f5c788d35145bb9908d7516e05b29b9743ba27b5a21519",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/host/controller_startup_test.go::TestControllerMarksOnlyProvisionedHostStateVisibilityForRetry",
+      "category": "mixed",
+      "review": "agrees",
+      "original_declaration_sha256": "f3691f08d884e1c1c52d5b0fba01176fae90147c941497739c80988135aec569",
+      "current_declaration_sha256": "f3691f08d884e1c1c52d5b0fba01176fae90147c941497739c80988135aec569",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/host/controller_test.go::TestAgentConvergesAndWithdrawalInvalidatesReadyReport",
+      "category": "integration",
+      "review": "agrees",
+      "original_declaration_sha256": "97c06f5351da92b44e54cdcaabebc388f980544e38f1f95922151a6ff458c224",
+      "current_declaration_sha256": "97c06f5351da92b44e54cdcaabebc388f980544e38f1f95922151a6ff458c224",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/host/controller_test.go::TestAgentResendsRequestsDeniedByAFollowerController",
+      "category": "integration",
+      "review": "agrees",
+      "original_declaration_sha256": "58e9c889aa8eb5720804564f720bfa655f06d882f880a347243e06b47d70767f",
+      "current_declaration_sha256": "58e9c889aa8eb5720804564f720bfa655f06d882f880a347243e06b47d70767f",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/host/controller_test.go::TestAgentResumesOpenCycleAfterSignedSessionContention",
+      "category": "integration",
+      "review": "agrees",
+      "original_declaration_sha256": "d1b29bf3a8998c2b7d28837821bacea3d78d13b8817d35846d282b96fd784e85",
+      "current_declaration_sha256": "d1b29bf3a8998c2b7d28837821bacea3d78d13b8817d35846d282b96fd784e85",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/host/controller_test.go::TestArtifactFetchRejectsWithdrawalAfterInitialRead",
+      "category": "integration",
+      "review": "agrees",
+      "original_declaration_sha256": "8dcfc5963f57146e7b393f9713038b05ec3d9dfe62ca31dc17af9702cfe83c80",
+      "current_declaration_sha256": "8dcfc5963f57146e7b393f9713038b05ec3d9dfe62ca31dc17af9702cfe83c80",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/host/controller_test.go::TestConcurrentRenewalAndAuthorizedRPCUseCurrentSession",
+      "category": "integration",
+      "review": "agrees",
+      "original_declaration_sha256": "0f2cc7e8a2b7ce5553271a281bc92676058bef615b5b4916918084697e1fa6bf",
+      "current_declaration_sha256": "0f2cc7e8a2b7ce5553271a281bc92676058bef615b5b4916918084697e1fa6bf",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/host/controller_test.go::TestControlLogReadsAreSafeConcurrently",
+      "category": "integration",
+      "review": "agrees",
+      "original_declaration_sha256": "2eda31dd3248c4d9a1900d2aa565f863e94317f840f1d66535361f492fcdf9c8",
+      "current_declaration_sha256": "2eda31dd3248c4d9a1900d2aa565f863e94317f840f1d66535361f492fcdf9c8",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/host/controller_test.go::TestCordonRetiresAHostThatHoldsAllocations",
+      "category": "integration",
+      "review": "agrees",
+      "original_declaration_sha256": "bf7b33fab343ce3f2d525227335005665dab63f5b403eff5b88dfd5008fac79a",
+      "current_declaration_sha256": "bf7b33fab343ce3f2d525227335005665dab63f5b403eff5b88dfd5008fac79a",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/host/controller_test.go::TestHostSessionRejectsReplayAndForeignIdentity",
+      "category": "mixed",
+      "review": "agrees",
+      "original_declaration_sha256": "40415c3928974fe346c52bf7d21c75524cec0c58085629b26c3d8aa99b7b8f93",
+      "current_declaration_sha256": "40415c3928974fe346c52bf7d21c75524cec0c58085629b26c3d8aa99b7b8f93",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/host/controller_test.go::TestListHostsAcceptsNewerSameStateHeartbeat",
+      "category": "integration",
+      "review": "agrees",
+      "original_declaration_sha256": "5e780eb07967a14388ae802defe914b4a2b43e832b2746d6f036a373a28c0d02",
+      "current_declaration_sha256": "5e780eb07967a14388ae802defe914b4a2b43e832b2746d6f036a373a28c0d02",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/host/controller_test.go::TestListHostsAcceptsSameBindingSessionChurn",
+      "category": "integration",
+      "review": "agrees",
+      "original_declaration_sha256": "1d1637a67862dbe3713919dde471a7b8f243f35c9b8d88b5aae5413c8f3570e2",
+      "current_declaration_sha256": "1d1637a67862dbe3713919dde471a7b8f243f35c9b8d88b5aae5413c8f3570e2",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/host/controller_test.go::TestListHostsKeepsSlowReconcileReportsUntilReportMaxAge",
+      "category": "integration",
+      "review": "agrees",
+      "original_declaration_sha256": "d9668fc9feafefacb4099546bbb0083d156269dfea76970dcfc85dd829b9bd6a",
+      "current_declaration_sha256": "d9668fc9feafefacb4099546bbb0083d156269dfea76970dcfc85dd829b9bd6a",
+      "canonical_body_drift_from_survival": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    }
+  ],
+  "checks_performed": [
+    "Reviewer own1400:1420 packet was frozen and handed off before independent peer work began; own requested correction completed before peer receipt.",
+    "Independently read all20 full canonical roots plus reached fixture/helper/controller/agent/wire/artifact/filesystem/store paths. Read baseline-to-canonical test-file diff and raw baseline/current declaration text; original mapping remains exact.",
+    "Verified20 literal allocation IDs and sequence, survival mappings, original/current raw func-through-column-zero-close bounds/text/hash excluding following LF. Registration root has one explicitly retained canonical body drift; container inventory body only shifts one line.",
+    "Recomputed38 commit:path Git blob/mode/SHA256/byte pins against pinned Git; all current working-file bytes equal canonical blobs. Rechecked allocation and every input metadata hash.",
+    "Verified all92 assertion/connected spans byte-for-byte at recorded canonical bounds, per-span blobs, counts14integration/2unit/4mixed/0unresolved, per-root runtimeUNKNOWN/retirementfalse/retained obligations. Fresh packet hash/checksum hash and files0444/directory0555 match.",
+    "Followed direct server.NewServer+nats.Connect(ClientURL()) loopback TCP fixtures and actual JetStream leader reads/CAS/object metadata/chunk paths, actual subprocess-free artifact filesystem effects, memory mutation read/write asymmetry and memoryRunner limits.",
+    "Source review found categories supported and no unconditional source-visible contradiction blocking later claimed assertions. Runtime results were not inferred from source."
+  ],
+  "resolved_findings": [
+    {
+      "root_id": "internal/host/controller_startup_test.go::TestControllerMarksOnlyProvisionedHostStateVisibilityForRetry",
+      "finding": "Author self-check corrected assertion qualifier in fresh packet:46\u201348 nil-State rows integration;49\u201350 supplied-State row unit;52\u201360 shared callback mixed with case qualifier;62\u201364 actual positive startup.",
+      "resolution": "Independently compared frozen original79aa9b7ee60d23d8f5612141a195b58b9086cdc0394d7ba6206321670fa482de with freshf343c1ed75f89db78a4d101b386152ee3f9033960738733dbd6c11cbaf91916e. Only this assertion_evidence changed; category/reason/pins unchanged."
+    }
+  ],
+  "remaining_findings": [],
+  "retained_source_findings": [
+    {
+      "kind": "canonical_body_drift",
+      "root_id": "internal/host/agent_registration_integration_test.go::TestOwnRegistrationBindsActualSignedSessionAndKeys",
+      "survival_current_declaration_sha256": "2d2bd3739d9fa7bccb2d9b3c070fb083e86326e952a1c56178a49f5ce208d0e2",
+      "actual_canonical_declaration_sha256": "e6f893972fa4dfee5f9de95d3c4edcbf16dd04459dc43071c653a6a47ebe68e6",
+      "detail": "Canonical adds time import, independent pre-acquire RuntimeWorkerIdentity rejection and acquired identity/deadline checks. Baseline declaration9\u201354 and survival original hash retained; canonical declaration10\u201363 classified without guessing a new mapping. Original safety obligation remains."
+    },
+    {
+      "kind": "fixture_boundary_limit",
+      "detail": "memoryMutations.Read returns map data; Commit publishes actual JS messages. memoryRunner.Recover/Apply/Stop/Observe/Close never executes installed script/native workload. Session/controller integration credit is for actual protocol/state and explicit filesystem operations only."
+    },
+    {
+      "kind": "direct_unsigned_withdrawal_limit",
+      "root_id": "internal/host/controller_test.go::TestArtifactFetchRejectsWithdrawalAfterInitialRead",
+      "detail": "serveArtifact called directly with unsigned artifact request; withdrawal changes target after read and causes early target binding rejection before final authorize. No authentication assertion is credited."
+    }
+  ],
+  "qualification_limits": [
+    "No Go/test/build/lint/helper/scanner/parser/project runtime/crypto/signing/cloud/privilege/process/resource probe execution or source/repository/ledger changes. Metadata-only hash/serialization checks used manually reviewed explicit bounds.",
+    "Real NATS/JetStream and filesystem boundaries materially support credited assertions; no native workload is executed by memoryRunner and no distributed runtime/OCI/Vault/container/TerraBase qualification follows. Mutation reads use a fixture map, although acknowledged JetStream publication gates map updates.",
+    "Unsigned direct serveArtifact withdrawal test stops at changed-target guard before authorization; no authentication proof is credited.",
+    "Source acceptance grants no count/ledger promotion, deletion or retirement authority. All original safety obligations remain; registration body drift is explicit and does not replace baseline obligations."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "ledger_changes": false,
+  "count_promotion": false
+}

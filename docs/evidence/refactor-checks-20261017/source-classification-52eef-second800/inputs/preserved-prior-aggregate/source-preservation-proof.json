@@ -1,0 +1,13 @@
+{
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "method": "Metadata-only combination of40manually reviewed owner packets plus40independent exact-hash peer receipts; original records verbatim with owner/source/peer context. Original hashes checked against frozen survival input. Canonical drift, blocked assertions and unresolved roots retained. No source parser/executor or repository changes.",
+  "original_identities_preserved": 800,
+  "original_survival_hash_matches": 800,
+  "canonical_current_hash_records": 800,
+  "missing_current_declaration_mapping": [],
+  "qualification_credit": 0,
+  "retirement_credit": 0,
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+}

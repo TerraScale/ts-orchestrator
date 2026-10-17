@@ -1,0 +1,75 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_860_880",
+  "author": "/root/classification_100_dispatch/batch_880_900",
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[1680:1700]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_860_880"
+  },
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-second-1680-1700-1otq9cqs/classification.json",
+    "sha256": "fc607a6850cfc6d889ca0ad0cb45390f3fd7411f953a4b79e204fd545a03bab5",
+    "checksum_path": "/tmp/ts-source-classification-second-1680-1700-1otq9cqs/SHA256SUMS",
+    "checksum_sha256": "37d50a177b42e74150c1bd6381f00bb18c10d4ea77ee8c7648c7b62c10ccb741"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/hostload/hostload_test.go::TestAggregatorNormalizesByRequestAndThrottles",
+    "internal/hostload/hostload_test.go::TestAggregatorRefusesSparselyCoveredWindows",
+    "internal/hostload/hostload_test.go::TestAggregatorSetRequestsAppliesToLaterReports",
+    "internal/hostload/hostload_test.go::TestAggregatorTerraBaseSignals",
+    "internal/hostload/hostload_test.go::TestAggregatorWarmUpRestartsAfterAGap",
+    "internal/hostload/hostload_test.go::TestAggregatorWeighsNodesEquallyOverTheWholeWindow",
+    "internal/hostload/hostload_test.go::TestReportNetworkAndLoadJSONNames",
+    "internal/hostload/hostload_test.go::TestReportValidateBounds",
+    "internal/hostload/hostload_test.go::TestReportValidateNetworkAndLoad",
+    "internal/hostload/hostload_test.go::TestSamplerDiffsCgroupAndHostCounters",
+    "internal/hostload/hostload_test.go::TestSamplerNetworkRatesAndLoad",
+    "internal/hostload/hostload_test.go::TestSamplerReadsFiniteAndUnlimitedLimits",
+    "internal/hostload/hostload_test.go::TestSamplerResolvesInheritedMemoryLimits",
+    "internal/hostload/wan_test.go::TestReportValidatesSeparateWANObservation",
+    "internal/identityrekey/checkpoint_test.go::TestCheckpointIssueVerify",
+    "internal/identityrekey/checkpoint_test.go::TestCheckpointRejectsInvalidSignedContracts",
+    "internal/identityrekey/checkpoint_test.go::TestCheckpointRejectsWrongAuthorityScopeAndTime",
+    "internal/identityrekey/checkpoint_test.go::TestCheckpointRejectsWrongExpectations",
+    "internal/identityrekey/checkpoint_test.go::TestCheckpointStrictWireAndPayload",
+    "internal/identityrekey/checkpoint_test.go::TestSlotAcceptanceDigestIsAcyclicAndBindsIdentity"
+  ],
+  "counts": {
+    "integration": 2,
+    "unit": 17,
+    "mixed": 1,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all twenty full canonical root declarations plus actual sampler cgroup readers, in-memory aggregator/window/report/WAN paths and checkpoint fixture/sign/verify/rotation/strict-validation paths.",
+    "Verified activated allocation literal IDs/order and survival mapping, original/current names/kinds/state, forty raw baseline/current declaration bounds/text/hashes and no canonical body drift.",
+    "Verified all assertion bodies and connected explicit evidence spans against pinned Git source; all fifteen canonical source file blob/mode/SHA256/byte pins and input pins match.",
+    "Verified author packet and SHA256SUMS hashes, their listed contents and immutable0444 files/0555 directory.",
+    "Independently agree2 integration/17 unit/1 mixed: only direct production cgroup readers over temporary files qualify store/file boundaries; mixed sampler independently asserts fake host metrics and literal TerraBase load. All aggregator/checkpoint/JSON/WAN roots are local.",
+    "Reviewed source-visible ordering and validity constraints; no definite blocked target assertion requiring unresolved annotation found. No runtime tests, source helpers, signing, service or cloud execution."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Acceptance is source-only evidence review, not runtime success or approved ledger promotion.",
+    "Temporary filesystem-backed cgroup reads do not prove kernel resource enforcement, actual /proc/statfs/network counters, live TerraBase/NATS/OCI/Vault or durable installation/recovery.",
+    "Checkpoint crypto/signature/rotation operations exist only as source-local in-memory test calls; no signer was executed during review.",
+    "All safety/negative/validation obligations remain retained. No source/repository/ledger/deletion/retirement/completion or count mutation/promotion."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "qualification_delta": 0,
+    "retirement_delta": 0,
+    "global_completion": false
+  }
+}

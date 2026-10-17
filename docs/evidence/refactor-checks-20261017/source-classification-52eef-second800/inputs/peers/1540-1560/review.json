@@ -1,0 +1,89 @@
+{
+  "schema": "independent-source-only-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_720_740",
+  "author": "/root/classification_100_dispatch/batch_740_760",
+  "accepted": true,
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-1540-1560-corrected-91its3ve/classification.json",
+    "sha256": "6d631205f8d39872ea9c22cf0f15e8649c024642dbd1a0ef77a7aa2fcf64cc8b",
+    "checksum_path": "/tmp/ts-source-classification-1540-1560-corrected-91its3ve/SHA256SUMS",
+    "checksum_sha256": "4c793d16486ff90e134ba5349737541f758eb310ddb9d70010f92879bd69a72d"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+    "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[1540:1560]"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/host/member_status_test.go::TestMemberStatusTransportRejectsOversizedResponseHeaders",
+    "internal/host/native_boundary_test.go::TestNativeDelegatedServiceRootRequiresExactSupervisorSubgroup",
+    "internal/host/native_boundary_test.go::TestNativeOOMPreferenceAppliesOnlyToSupervisor",
+    "internal/host/native_boundary_test.go::TestNativeRoleResourcesHaveNoProtectionAndFiniteCPUCap",
+    "internal/host/native_boundary_test.go::TestNativeSupervisorReservationFollowsAncestorsAndSignedBound",
+    "internal/host/native_boundary_test.go::TestNativeWorkloadCPUQuotaUsesTightestAncestor",
+    "internal/host/native_boundary_test.go::TestPrepareNativeCgroupRootRejectsOccupiedOrUndelegatedParent",
+    "internal/host/native_boundary_test.go::TestValidateTenantCgroupTraversalRejectsPrivateAncestor",
+    "internal/host/native_boundary_test.go::TestValidateTenantCgroupTraversalRejectsStickyWritableAncestor",
+    "internal/host/native_exec_test.go::TestNativeExecRejectsPrematureHelperDeath",
+    "internal/host/native_exec_test.go::TestNativeHelperTenantTarget",
+    "internal/host/native_exec_test.go::TestNativeTargetExtraFileCountBound",
+    "internal/host/native_exec_test.go::TestNativeTargetExtraFileProtocol",
+    "internal/host/native_exec_test.go::TestNativeWorkloadHelperExecWithDeclaredExtraFiles",
+    "internal/host/native_exec_test.go::TestResetNativeWorkloadOOMScore",
+    "internal/host/native_exec_test.go::TestVerifyNativeExecNiceReadsStatFieldNineteen",
+    "internal/host/netbird_cache_test.go::TestArtifactCacheCloseCancelsBothDownloads",
+    "internal/host/netbird_cache_test.go::TestNetBirdAndWorkloadArtifactSpoolsDoNotEvictEachOther",
+    "internal/host/netbird_cache_test.go::TestNetBirdArtifactSpoolRejectsOversizeMetadata",
+    "internal/host/netbird_test.go::TestNetBirdExchangeBindsHostIdentityAndRestrictsArtifacts"
+  ],
+  "counts": {
+    "integration": 13,
+    "unit": 4,
+    "mixed": 2,
+    "unresolved": 1
+  },
+  "checks_performed": [
+    "Independently read all20 full canonical roots and reached fixture/production paths: real Unix HTTP header bound; native string predicates/xattrs/filesystem resource reads/writes/traversal; native spawned/killed and privilege-dropping same-binary helper; real NATS/file artifact spool and session state; fake-only cancellation.",
+    "Verified literal allocation and cyclic peer ownership, all input hashes, exact20 survival mappings/raw rows,40 baseline/current raw declaration bounds/text/SHA256 and Git blobs.",
+    "Verified19 canonical+5 baseline file pins,20 assertion spans and60 callee spans against immutable Git source. New wire.go176:188/entityid32:44 exact spans independently read and checked.",
+    "Verified packet/SHA256SUMS exact hashes, checksums of classification/README.md, files0444 and directory0555.",
+    "Corrected categories I13/U4/M2/unresolved1 agree. Mixed NetBird exchange preserves local malformed-ID guard; mixed spool preserves pin/closed-cache guards. Synthetic regular-file/xattr tests establish no kernel-cgroup credit. Conditional tenant helper remains unresolved.",
+    "Fresh successor first19 roots and all declaration/assertion mappings unchanged; exact fresh hash/checksum and all source pins/callee spans/modes rechecked."
+  ],
+  "resolved_findings": [
+    {
+      "root_id": "internal/host/netbird_test.go::TestNetBirdExchangeBindsHostIdentityAndRestrictsArtifacts",
+      "finding": "Prior packet and prior receipt overlooked malformed wrong-session ULID pre-I/O guard; author corrected integration to mixed and pinned verifyRequest/entityid validation. Reviewer independently verified exact reached source and withdrawn prior receipt.",
+      "resolution": "Corrected source category mixed. Successful current-session exchange still materially reaches NATS session read/CAS; literal wrong-session assertion proves local malformed-ID refusal only, not valid other-session isolation."
+    }
+  ],
+  "remaining_corrections": [],
+  "retained_unresolved_source_findings": [
+    {
+      "root_id": "internal/host/native_exec_test.go::TestNativeHelperTenantTarget",
+      "status": "UNRESOLVED_HELPER_ROOT_POLICY",
+      "finding": "Standalone helper skips without parent-provided environment; parent owns process assertions. Preserve helper obligations; no independent source category promotion absent established QA rule."
+    },
+    {
+      "root_id": "internal/host/netbird_test.go::TestNetBirdExchangeBindsHostIdentityAndRestrictsArtifacts",
+      "status": "ASSERTION_SCOPE_LIMIT",
+      "finding": "Literal wrong-session validates malformed-ID refusal only; it does not reach currentAuthorizedSession or prove valid other-session rejection. Classified mixed with successful real-session exchange."
+    }
+  ],
+  "qualification_limits": [
+    "Conditional TestNativeHelperTenantTarget remains unresolved and uncredited as a standalone root per worker rule. Parent owns actual tenant exec/assertion collection.",
+    "Source-only category acceptance grants no runtime, ledger/count promotion, deletion, completion or retirement credit. Actual regular files/xattrs do not establish kernel cgroup behavior.",
+    "No source/repository/ledger mutation, Go/tests/builds/helpers/probes/locks/cloud/crypto execution, downloads or children. Metadata checking and receipt packaging only."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "supersedes": {
+    "receipt": "/tmp/ts-source-peer-1540-1560-by1520-1540-bq5_71aa/review.json",
+    "sha256": "05e438e97105c812e3395d6008094e6064bc3aaa0141fd08863e232a59d43af9",
+    "reason": "Prior acceptance withdrawn because malformed wrong-session pre-I/O guard was missed; accept only exact corrected6d631205 packet."
+  }
+}

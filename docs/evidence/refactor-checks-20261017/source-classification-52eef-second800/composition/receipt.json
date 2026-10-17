@@ -1,0 +1,138 @@
+{
+  "schema": "second800-full-composition-proposal-v1",
+  "state": "PROPOSED_NOT_APPLIED_PENDING_INDEPENDENT_COMPOSITION_REVIEW",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "created_utc": "2026-10-17T19:38:45.825410+00:00",
+  "counts_before": {
+    "classified": 1484,
+    "integration": 510,
+    "mixed": 267,
+    "originals": 4319,
+    "other_unadjudicated": 2719,
+    "retained": 4300,
+    "retired": 19,
+    "reviewed_unresolved_included": 97,
+    "unadjudicated": 2816,
+    "unit": 707
+  },
+  "delta": {
+    "reviewed": 800,
+    "classified": 791,
+    "integration": 295,
+    "unit": 405,
+    "mixed": 91,
+    "reviewed_unresolved": 9,
+    "retirement": 0,
+    "runtime": 0
+  },
+  "counts_after": {
+    "classified": 2275,
+    "integration": 805,
+    "mixed": 358,
+    "originals": 4319,
+    "other_unadjudicated": 1919,
+    "retained": 4300,
+    "retired": 19,
+    "reviewed_unresolved_included": 106,
+    "unadjudicated": 2025,
+    "unit": 1112
+  },
+  "ledgers": {
+    "completion": {
+      "actual_path": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+      "before_path": "before/completion.json",
+      "before_sha256": "dd7dedceec8c32e962c2097d93a9374b24f6ad28c7b5316d73e239bd5ff6543b",
+      "before_bytes": 1474492,
+      "before_mode": "0o600",
+      "after_path": "proposed-completion.json",
+      "after_sha256": "5e8980943839bc1589cdaec11c5e4214b9ae03fea71d0df00c63b847ff5e6638",
+      "after_bytes": 1494887
+    },
+    "progress": {
+      "actual_path": "/tmp/ts-qa-main-union-progress-20261016.json",
+      "before_path": "before/progress.json",
+      "before_sha256": "afca45a494d08bff12909d44c65bd9d1934e1cdfd64b79e365fd7db39f9b7ce2",
+      "before_bytes": 185749,
+      "before_mode": "0o644",
+      "after_path": "proposed-progress.json",
+      "after_sha256": "a76bfb940bd750c8735595fb3fabe2fa347fa8dc11fc20f1dad1ffb5e067a239",
+      "after_bytes": 190696
+    }
+  },
+  "mirror_paths": {
+    "completion": [
+      [
+        "source_classification_adjudication"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication"
+      ],
+      [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "source_classification_adjudication"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication"
+      ]
+    ],
+    "progress": [
+      [
+        "source_classification_adjudication"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication"
+      ]
+    ]
+  },
+  "all_five_categories": "OPEN",
+  "complete": false,
+  "actual_shared_ledger_mutation": false,
+  "canonical_source_mutation": false,
+  "qualification_transfer": false
+}
