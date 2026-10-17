@@ -22,19 +22,23 @@ import (
 // Providers are bound before node startup and stay closed until its one real
 // ownhost session has independently completed enrollment.
 type managedRuntimeHost struct {
-	mu        sync.RWMutex
-	reader    *bootstrapstart.CurrentFounderAuthorityReader
-	accepted  bootstrapstart.AcceptedIdentity
-	agent     *host.Agent
-	transport hostenroll.WorkerTransport
-	registry  swarmruntime.RegistryResolver
-	nodeID    string
-	session   context.Context
+	mu         sync.RWMutex
+	reader     *bootstrapstart.CurrentFounderAuthorityReader
+	accepted   bootstrapstart.AcceptedIdentity
+	agent      *host.Agent
+	transport  hostenroll.WorkerTransport
+	registry   swarmruntime.RegistryResolver
+	nodeID     string
+	session    context.Context
+	generation uint64
 }
 
 func (source *managedRuntimeHost) bind(ctx context.Context, agent *host.Agent, transport hostenroll.WorkerTransport, registry swarmruntime.RegistryResolver, nodeID string) {
 	source.mu.Lock()
 	defer source.mu.Unlock()
+	if source.session != ctx {
+		source.generation++
+	}
 	source.agent, source.transport, source.registry = agent, transport, registry
 	source.nodeID = nodeID
 	source.session = ctx
