@@ -487,6 +487,41 @@ func TestStagerStagesOnlyItsSlot(t *testing.T) {
 	if status := other.Pass(ctx); status.Error == "" || status.Armed || len(other.spooled(t)) != 0 {
 		t.Fatalf("staged a generation for another manifest: %+v %v", status, other.spooled(t))
 	}
+
+	t.Run("public delivery metadata", func(t *testing.T) {
+		c := newCell(t)
+		leader, ctx := c.leader(), t.Context()
+		chain := c.sign(1, nil, time.Now().Add(-time.Minute))
+		if _, err := leader.Publish(ctx, wire(t, chain)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := leader.SetConfig(ctx, "controller-a", c.config("controller-a")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := leader.Arm(ctx, "controller-a", true); err != nil {
+			t.Fatal(err)
+		}
+		s := c.stager()
+		if status := s.Pass(ctx); status.Error != "" || !status.Armed {
+			t.Fatalf("stage: %+v", status)
+		}
+		allowed := map[string]bool{bootstrapstart.MaterialGenerationsFile: true, bootstrapstart.GenerationArmedFile: true,
+			bootstrapstart.GenerationConfigFile("controller-a"): true, bootstrapstart.GenerationDeliveryFile: true}
+		entries, err := os.ReadDir(s.Spool)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range entries {
+			if !allowed[entry.Name()] {
+				t.Fatalf("ordinary spool exposed %s", entry.Name())
+			}
+		}
+		for _, ref := range s.asked {
+			if _, err := os.Stat(filepath.Join(s.Spool, ref.TargetFile)); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("ordinary spool has raw %s: %v", ref.TargetFile, err)
+			}
+		}
+	})
 }
 
 func TestEqualInstalledChainStillRequiresRootsAndAcceptance(t *testing.T) {
@@ -818,79 +853,44 @@ func TestUnverifiedSpoolRefetchesOrDisarms(t *testing.T) {
 			}
 		})
 	}
-}
 
-func TestOrdinaryGenerationSpoolContainsOnlyPublicDeliveryMetadata(t *testing.T) {
-	c := newCell(t)
-	leader, ctx := c.leader(), t.Context()
-	chain := c.sign(1, nil, time.Now().Add(-time.Minute))
-	if _, err := leader.Publish(ctx, wire(t, chain)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := leader.SetConfig(ctx, "controller-a", c.config("controller-a")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := leader.Arm(ctx, "controller-a", true); err != nil {
-		t.Fatal(err)
-	}
-	s := c.stager()
-	if status := s.Pass(ctx); status.Error != "" || !status.Armed {
-		t.Fatalf("stage: %+v", status)
-	}
-	allowed := map[string]bool{bootstrapstart.MaterialGenerationsFile: true, bootstrapstart.GenerationArmedFile: true,
-		bootstrapstart.GenerationConfigFile("controller-a"): true, bootstrapstart.GenerationDeliveryFile: true}
-	entries, err := os.ReadDir(s.Spool)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range entries {
-		if !allowed[entry.Name()] {
-			t.Fatalf("ordinary spool exposed %s", entry.Name())
-		}
-	}
-	for _, ref := range s.asked {
-		if _, err := os.Stat(filepath.Join(s.Spool, ref.TargetFile)); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("ordinary spool has raw %s: %v", ref.TargetFile, err)
-		}
-	}
-}
-
-func TestRootDeliveryReceiptRequiresExactFilesAndOriginalExpiry(t *testing.T) {
-	for _, fault := range []string{"expired", "missing", "duplicate", "pin", "acceptance"} {
-		t.Run(fault, func(t *testing.T) {
-			c := newCell(t)
-			leader, ctx := c.leader(), t.Context()
-			chain := c.sign(1, nil, time.Now().Add(-time.Minute))
-			if _, err := leader.Publish(ctx, wire(t, chain)); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := leader.SetConfig(ctx, "controller-a", c.config("controller-a")); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := leader.Arm(ctx, "controller-a", true); err != nil {
-				t.Fatal(err)
-			}
-			s := c.stager()
-			deliver := s.Deliver
-			s.Deliver = func(ctx context.Context, chain []byte) (rootoci.SecretDeliveryReceipt, error) {
-				receipt, err := deliver(ctx, chain)
-				switch fault {
-				case "expired":
-					receipt.ExpiresAt = time.Now().Add(-time.Second)
-				case "missing":
-					receipt.Files = receipt.Files[1:]
-				case "duplicate":
-					receipt.Files[0] = receipt.Files[1]
-				case "pin":
-					receipt.Files[0].SHA256 = digest([]byte("changed"))
-				case "acceptance":
-					receipt.AcceptanceSHA256 = digest([]byte("foreign"))
+	t.Run("exact delivery receipt", func(t *testing.T) {
+		for _, fault := range []string{"expired", "missing", "duplicate", "pin", "acceptance"} {
+			t.Run(fault, func(t *testing.T) {
+				c := newCell(t)
+				leader, ctx := c.leader(), t.Context()
+				chain := c.sign(1, nil, time.Now().Add(-time.Minute))
+				if _, err := leader.Publish(ctx, wire(t, chain)); err != nil {
+					t.Fatal(err)
 				}
-				return receipt, err
-			}
-			if status := s.Pass(ctx); status.Error == "" || status.Armed {
-				t.Fatalf("accepted %s receipt: %+v", fault, status)
-			}
-		})
-	}
+				if _, err := leader.SetConfig(ctx, "controller-a", c.config("controller-a")); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := leader.Arm(ctx, "controller-a", true); err != nil {
+					t.Fatal(err)
+				}
+				s := c.stager()
+				deliver := s.Deliver
+				s.Deliver = func(ctx context.Context, chain []byte) (rootoci.SecretDeliveryReceipt, error) {
+					receipt, err := deliver(ctx, chain)
+					switch fault {
+					case "expired":
+						receipt.ExpiresAt = time.Now().Add(-time.Second)
+					case "missing":
+						receipt.Files = receipt.Files[1:]
+					case "duplicate":
+						receipt.Files[0] = receipt.Files[1]
+					case "pin":
+						receipt.Files[0].SHA256 = digest([]byte("changed"))
+					case "acceptance":
+						receipt.AcceptanceSHA256 = digest([]byte("foreign"))
+					}
+					return receipt, err
+				}
+				if status := s.Pass(ctx); status.Error == "" || status.Armed {
+					t.Fatalf("accepted %s receipt: %+v", fault, status)
+				}
+			})
+		}
+	})
 }
