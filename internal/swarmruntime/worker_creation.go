@@ -3,6 +3,7 @@ package swarmruntime
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/moby/swarmkit/v2/api"
@@ -14,6 +15,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
+	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
 // One operation retains the original root session, even across Vault and IAM retries.
@@ -86,6 +88,11 @@ func (operation *workerOperation) revalidate(ctx context.Context) error {
 	if operation == nil || operation.authority == nil {
 		return errors.New("worker admission source unavailable")
 	}
+	ctx, cancel := operation.boundedContext(ctx)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := operation.authority.refresh(ctx); err != nil {
 		return err
 	}
@@ -136,8 +143,30 @@ func (operation *workerOperation) requireBindings(ctx context.Context, descripto
 		view.InstanceID != instanceID {
 		return errors.New("worker differs from its original root pool creation")
 	}
-	// Root creation evidence must also authenticate the registration's managed bindings.
-	return ErrWorkerCreationLineagePending
+	descriptorSHA256, err := descriptor.Digest()
+	if err != nil {
+		return err
+	}
+	expected := rootoci.PoolChildRegistration{Kind: rootoci.PoolChildRegistrationStatic, Environment: "production",
+		Cell: descriptor.Region, Node: descriptor.Node, Role: view.Role, Architecture: view.Architecture, DescriptorSHA256: descriptorSHA256}
+	if view.Registration != expected || registration.Environment != expected.Environment ||
+		registration.Cell != descriptor.Cell || registration.Node != descriptor.Node ||
+		registration.ManagedPlacement != nil || registration.ManagedMember != nil || registration.ManagedOCI != nil ||
+		registration.SystemReserveBytes != 0 || registration.TerraBaseDataVolumeID != "" ||
+		len(registration.Roles) == 0 || slices.Contains(registration.Roles, terrabase.Role) {
+		return errors.New("worker registration differs from its authenticated static pool scope")
+	}
+	role := "container"
+	if slices.Contains(registration.Roles, "function-worker") {
+		if len(registration.Roles) != 1 {
+			return errors.New("WASM worker must be dedicated to tenant execution")
+		}
+		role = "wasm"
+	}
+	if role != expected.Role {
+		return errors.New("worker registration differs from its authenticated pool workload role")
+	}
+	return operation.revalidate(ctx)
 }
 
 func (operation *workerOperation) requireObservation(ctx context.Context, descriptor hostboot.Descriptor, observed bootstrapstart.InstanceObservation, role, architecture string) error {
