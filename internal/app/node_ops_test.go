@@ -44,7 +44,7 @@ func (h *nodeHosts) ListHosts(context.Context) ([]host.HostStatus, error) {
 	defer h.mu.Unlock()
 	var statuses []host.HostStatus
 	for _, node := range []string{"ctl-1", "ctl-2", "ctl-3"} {
-		status := host.HostStatus{Registration: host.Registration{Node: node, Roles: []string{"terrabase", "ts-auth"}}}
+		status := host.HostStatus{Registration: host.Registration{ID: node, Cell: "gru", Node: node, Environment: "production", Roles: []string{"terrabase", "ts-auth"}}, Verified: !h.down[node], SessionExpiresAt: edgeTestSessionExpiry}
 		if !h.down[node] {
 			for _, role := range status.Registration.Roles {
 				state := h.states[node+"/"+role]
@@ -176,6 +176,7 @@ func newNodeOpsTest(t *testing.T) (*nodeOps, *fenceLB, *nodeInstances) {
 	hosts := &nodeHosts{sessions: map[string]string{"ctl-1": "s1", "ctl-2": "s2", "ctl-3": "s3"}, down: map[string]bool{},
 		states: map[string]string{}, withdrawn: map[string]bool{}}
 	fence.hosts = hosts
+	bindEdgeTestManager(fence, hosts)
 	instances := &nodeInstances{hosts: hosts, lb: balancer, t: t, shape: map[string][2]float32{}}
 	ops := newNodeOps(fence, func(context.Context) (nodeCompute, error) { return instances, nil }, nil)
 	ops.poll = time.Millisecond
@@ -448,7 +449,7 @@ func TestRolloutFenceDrainsBeforeTheStepAndReturnsAfter(t *testing.T) {
 	}
 	record.Phase, record.Units["controller-1"] = "", rollout.UnitProgress{State: rollout.UnitSoaking}
 	sources["controller-1"] = rolloutexec.HealthProof{BinarySHA256: "new", StartNonce: "000000000000133bf48ddeb8844f9ef8", ReceivedAt: time.Now()}
-	if reason, err := nodeRolesServing(ctx, ops.fence.hosts, "ctl-1", since.Add(-time.Second)); err != nil || reason != "" {
+	if reason, err := ops.fence.nodeRolesServing(ctx, "ctl-1", since.Add(-time.Second)); err != nil || reason != "" {
 		t.Fatalf("roles: %q %v", reason, err)
 	}
 	api, _ := ops.fence.client(ctx)

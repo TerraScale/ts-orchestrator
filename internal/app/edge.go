@@ -12,7 +12,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
-	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
 )
@@ -23,10 +22,10 @@ import (
 //
 //   - adds a backend for a replica that has none, out of rotation and held
 //     for health, so it joins only once its node serves;
-//   - takes a replica out whose host has reported it starting, stopped or
+//   - takes a replica out whose current manager task is unready or
 //     failed for edgeDownFor, held for health under the quorum guard;
-//   - returns a node held for health once every role on it runs at its
-//     desired generation and the load balancer's health checks pass;
+//   - returns a node held for health once all current manager tasks pass
+//     their application probes and the load balancer's health checks pass;
 //   - undoes hand edits: a backend that serves while its node's record keeps
 //     it out is taken out again, a backend out of rotation that no record
 //     explains is held for health (it returns once its node serves), and a
@@ -100,7 +99,7 @@ func (e *edgeReconciler) pass(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	statuses, err := e.fence.hosts.ListHosts(ctx)
+	statuses, err := e.fence.managerSnapshot(ctx)
 	if err != nil {
 		return err
 	}
@@ -119,15 +118,10 @@ func (e *edgeReconciler) pass(ctx context.Context) error {
 		if set.Role == "" {
 			continue
 		}
-		desired, err := e.fence.hosts.ListDesired(ctx, set.Role)
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
 		members := map[string]bool{}
-		for _, d := range desired {
-			if !d.Withdrawn && addresses[d.Node] != "" {
-				members[d.Node] = true
+		for node, roles := range statuses {
+			if _, assigned := roles[set.Role]; assigned && addresses[node] != "" {
+				members[node] = true
 			}
 		}
 		if len(members) == 0 {
@@ -246,7 +240,7 @@ func (e *edgeReconciler) backend(ctx context.Context, api lb.API, spec cellspec.
 
 // member reconciles one replica's backend.
 func (e *edgeReconciler) member(ctx context.Context, api lb.API, epoch uint64, spec cellspec.ReleaseFence,
-	set cellspec.FencedSet, node string, statuses []host.HostStatus,
+	set cellspec.FencedSet, node string, statuses managerEdgeSnapshot,
 ) error {
 	defer e.fence.lockNode(node)()
 	record, found, err := e.fence.record(ctx, node)
@@ -262,7 +256,7 @@ func (e *edgeReconciler) member(ctx context.Context, api lb.API, epoch uint64, s
 		holders := record.holders()
 		pending := slices.ContainsFunc(record.Backends, func(b fencedBackend) bool { return !b.Offline })
 		if slices.Contains(holders, holdHealth) {
-			if reason, err := nodeRolesServing(ctx, e.fence.hosts, node, time.Time{}); err != nil || reason == "" {
+			if reason, err := e.fence.nodeRolesServing(ctx, node, time.Time{}); err != nil || reason == "" {
 				if err != nil {
 					return err
 				}
@@ -335,24 +329,14 @@ func (e *edgeReconciler) member(ctx context.Context, api lb.API, epoch uint64, s
 	return nil
 }
 
-// notServing reports a role whose host has reported it starting, stopped
-// or failed for downFor. A late or missing report is no evidence: the load
-// balancer's own health check covers it, and a NATS hiccup must not make
-// the set flap.
-func (e *edgeReconciler) notServing(node, role string, statuses []host.HostStatus) bool {
-	var newest host.Report
-	for _, status := range statuses {
-		for _, report := range status.Reports {
-			if report.Node == node && report.Role == role && report.ObservedAt.After(newest.ObservedAt) {
-				newest = report
-			}
-		}
-	}
+// notServing requires a complete current manager observation. Unknown sources
+// abort the pass before any backend changes.
+func (e *edgeReconciler) notServing(node, role string, statuses managerEdgeSnapshot) bool {
+	state, assigned := statuses[node][role]
 	key := node + "/" + role
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if newest.ObservedAt.IsZero() || time.Since(newest.ObservedAt) >= host.ReportMaxAge ||
-		newest.State == "running" || newest.State == "waiting" {
+	if !assigned || state.ready {
 		delete(e.down, key)
 		return false
 	}

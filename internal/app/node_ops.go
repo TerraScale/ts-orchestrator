@@ -1177,37 +1177,5 @@ func (o *nodeOps) notServing(ctx context.Context, op nodeOp) (string, error) {
 			return err.Error(), nil
 		}
 	}
-	return nodeRolesServing(ctx, o.fence.hosts, op.Node, op.ActedAt)
-}
-
-// nodeRolesServing says which role desired on node does not report running
-// at its desired generation after since, or "" when every one does.
-func nodeRolesServing(ctx context.Context, hosts seatrollout.Hosts, node string, since time.Time) (string, error) {
-	statuses, err := hosts.ListHosts(ctx)
-	if err != nil {
-		return "", err
-	}
-	for _, status := range statuses {
-		if status.Registration.Node != node {
-			continue
-		}
-		for _, role := range status.Registration.Roles {
-			desired, err := hosts.ListDesired(ctx, role)
-			if err != nil {
-				return "", err
-			}
-			index := slices.IndexFunc(desired, func(d host.Desired) bool { return d.Node == node && !d.Withdrawn })
-			if index < 0 {
-				continue
-			}
-			if !slices.ContainsFunc(status.Reports, func(report host.Report) bool {
-				return report.Node == node && report.Role == role && report.State == "running" &&
-					report.Generation == desired[index].Generation && report.ObservedAt.After(since) &&
-					time.Since(report.ObservedAt) < host.ReportMaxAge
-			}) {
-				return role + " does not report running at its desired generation", nil
-			}
-		}
-	}
-	return "", nil
+	return o.fence.nodeRolesServing(ctx, op.Node, op.ActedAt)
 }
