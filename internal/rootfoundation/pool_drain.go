@@ -264,7 +264,11 @@ func (b *Backend) StorePoolDrainStop(ctx context.Context, call rootoci.Call, sto
 // Every pending capture and every terminal transfer remains a permanent start
 // fence, including expired captures and successor sessions or signed sources.
 func (b *Backend) GuardPoolExecution(ctx context.Context, call rootoci.Call, hold drainwire.ExecutionHold) error {
-	b.poolMu.Lock()
+	// The caller may hold the authority append mutex that capture's renewal
+	// barrier needs. Refuse busy starts instead of waiting for that capture.
+	if !b.poolMu.TryLock() {
+		return rootoci.ErrPending
+	}
 	defer b.poolMu.Unlock()
 	if hold.Validate() != nil {
 		return ErrScope
