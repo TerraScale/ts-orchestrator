@@ -263,9 +263,24 @@ func (b *Backend) canonical(ctx context.Context, s *Sources, identity bootstraps
 	if err != nil {
 		return rootoci.NetBirdIntent{}, err
 	}
-	spec, err := cellspec.VerifyHistorical(signedSpec.wire, roots.Current, cellspec.Identity{DeploymentID: config.DeploymentID, Environment: config.Environment, Cell: config.Cell})
-	if err != nil || !spec.RootSigned {
+	adoption, err := region.OpenRegionalTrustFloor(ctx, b.factory, installed.Genesis, identity.Cell)
+	if err != nil {
+		return rootoci.NetBirdIntent{}, err
+	}
+	if err := adoption.CheckAdoptedSources(ctx, root.created, root.revision, root.wire, signedSpec.created, signedSpec.revision, signedSpec.wire); err != nil {
+		return rootoci.NetBirdIntent{}, err
+	}
+	protected := adoption.Info()
+	if protected.Cell != identity.Cell || protected.Broker.DeploymentID != config.DeploymentID || protected.Broker.SignedClusterID != config.ClusterID ||
+		protected.Broker.Environment != config.Environment || protected.Floor.RootSequence != roots.Sequence || protected.Floor.RootHead != roots.Head {
 		return rootoci.NetBirdIntent{}, rootoci.ErrUnauthorized
+	}
+	spec, err := cellspec.VerifyHistorical(signedSpec.wire, roots.Historical, cellspec.Identity{DeploymentID: config.DeploymentID, Environment: config.Environment, Cell: config.Cell})
+	if err != nil || !spec.RootSigned || spec.Generation != protected.Floor.SpecGeneration {
+		return rootoci.NetBirdIntent{}, rootoci.ErrUnauthorized
+	}
+	if err := adoption.CheckAdoptedSources(ctx, root.created, root.revision, root.wire, signedSpec.created, signedSpec.revision, signedSpec.wire); err != nil {
+		return rootoci.NetBirdIntent{}, err
 	}
 	hosts := make([]rootoci.NetBirdIntentHost, 0, len(spec.HostGrants))
 	for _, grant := range spec.HostGrants {
