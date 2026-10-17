@@ -44,6 +44,22 @@ var (
 // Origin comes from controller registration state, never from the report.
 type LoadSink func(origin hostload.Origin, report hostload.Report) error
 
+// LoadObservationSink retains the authenticated request context for committing
+// telemetry to the existing fenced host journal.
+type LoadObservationSink func(context.Context, hostload.Origin, hostload.Report) error
+
+type loadObservationCaller struct {
+	controller   *Controller
+	request      request
+	registration Registration
+}
+
+type loadObservationContextKey struct{}
+
+func (c *Controller) SetLoadObservationSink(sink LoadObservationSink) {
+	c.loadObservationSink.Store(&sink)
+}
+
 type loadAck struct {
 	Accepted bool `json:"accepted"`
 }
@@ -59,7 +75,8 @@ func (c *Controller) SetLoadSink(sink LoadSink) {
 
 func (c *Controller) storeLoad(ctx context.Context, req request, r Registration) (any, error) {
 	sink := c.loadSink.Load()
-	if sink == nil {
+	observationSink := c.loadObservationSink.Load()
+	if sink == nil && observationSink == nil {
 		return nil, errLoadDisabled
 	}
 	epoch := c.authorityEpoch()
@@ -122,7 +139,14 @@ func (c *Controller) storeLoad(ctx context.Context, req request, r Registration)
 	if err := c.recheckReplyAuthority(ctx, epoch, req, r, false); err != nil {
 		return nil, err
 	}
-	err := (*sink)(hostload.Origin{Cell: c.cell, Environment: r.Environment, Node: req.Node}, report)
+	origin := hostload.Origin{Cell: c.cell, Environment: r.Environment, Node: req.Node}
+	var err error
+	if observationSink != nil {
+		ctx = context.WithValue(ctx, loadObservationContextKey{}, loadObservationCaller{c, req, r})
+		err = (*observationSink)(ctx, origin, report)
+	} else {
+		err = (*sink)(origin, report)
+	}
 	if errors.Is(err, hostload.ErrTooFrequent) {
 		return loadAck{Accepted: false}, nil
 	}
