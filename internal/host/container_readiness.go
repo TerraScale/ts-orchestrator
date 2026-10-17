@@ -33,6 +33,11 @@ type containerReadinessReply struct {
 	Challenge *ContainerReadinessChallenge `json:"challenge,omitempty"`
 }
 
+func sameContainerReadinessChallenge(a, b ContainerReadinessChallenge) bool {
+	return a.Nonce == b.Nonce && a.TaskID == b.TaskID && a.TaskSHA256 == b.TaskSHA256 &&
+		a.AdmissionSHA256 == b.AdmissionSHA256 && a.EffectID == b.EffectID && a.Deadline.Equal(b.Deadline)
+}
+
 type containerReadinessPending struct {
 	challenge ContainerReadinessChallenge
 	effect    authority.RuntimeEffect
@@ -172,7 +177,7 @@ func (c *Controller) serveContainerReadiness(ctx context.Context, req request, r
 			candidate.challenge.AdmissionSHA256 != query.AdmissionSHA256 || candidate.challenge.EffectID != query.EffectID {
 			continue
 		}
-		if query.Challenge == nil || *query.Challenge == candidate.challenge {
+		if query.Challenge == nil || sameContainerReadinessChallenge(*query.Challenge, candidate.challenge) {
 			pending = candidate
 			break
 		}
@@ -236,7 +241,7 @@ func (a *Agent) ContainerReadinessResult(ctx context.Context, challenge Containe
 		AdmissionSHA256: challenge.AdmissionSHA256, EffectID: challenge.EffectID, Challenge: &challenge, Report: &report}, &accepted); err != nil {
 		return err
 	}
-	if accepted.Challenge == nil || *accepted.Challenge != challenge {
+	if accepted.Challenge == nil || !sameContainerReadinessChallenge(*accepted.Challenge, challenge) {
 		return errors.New("readiness result acknowledgment differs from the challenge")
 	}
 	_, _, err := a.executionLease()
