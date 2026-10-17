@@ -74,6 +74,7 @@ func (r FoundationRecord) retainCapacity(previous FoundationRecord) error {
 			!retainedString(old.InstanceID, next.InstanceID) || !retainedTime(old.BornAt, next.BornAt) ||
 			!retainedString(old.BootVolumeID, next.BootVolumeID) || !retainedString(old.BootAttachmentID, next.BootAttachmentID) ||
 			!retainedTime(old.ReadyAt, next.ReadyAt) || !retainedString(old.RemovalOperationID, next.RemovalOperationID) ||
+			old.DetachTargetFrom != 0 && old.DetachTargetFrom != next.DetachTargetFrom ||
 			!retainedString(old.DrainAuthoritySHA256, next.DrainAuthoritySHA256) || !retainedTime(old.DetachedAt, next.DetachedAt) ||
 			!retainedTime(old.InstanceRetiredAt, next.InstanceRetiredAt) || !retainedTime(old.BootRetiredAt, next.BootRetiredAt) ||
 			!retainPoolWire(old.Launch, next.Launch) || !retainPoolWire(old.Attach, next.Attach) || !retainPoolWire(old.Detach, next.Detach) ||
@@ -83,6 +84,7 @@ func (r FoundationRecord) retainCapacity(previous FoundationRecord) error {
 		next.Stage, next.Launch, next.Attach, next.Detach, next.Terminate, next.DeleteBoot = old.Stage, old.Launch, old.Attach, old.Detach, old.Terminate, old.DeleteBoot
 		next.InstanceID, next.BornAt, next.BootVolumeID, next.BootAttachmentID = old.InstanceID, old.BornAt, old.BootVolumeID, old.BootAttachmentID
 		next.ReadyAt, next.RemovalOperationID, next.DrainAuthoritySHA256, next.DetachedAt = old.ReadyAt, old.RemovalOperationID, old.DrainAuthoritySHA256, old.DetachedAt
+		next.DetachTargetFrom = old.DetachTargetFrom
 		next.InstanceRetiredAt, next.BootRetiredAt = old.InstanceRetiredAt, old.BootRetiredAt
 		if !sameCapacityValue(old, next) {
 			return errors.New("protected pool child changed original recipe, placement or boot identity")

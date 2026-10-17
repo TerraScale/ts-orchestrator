@@ -75,3 +75,28 @@ func TestExactAttachTargetAllowsOnlyOriginalChildReplay(t *testing.T) {
 		t.Fatal("accepted duplicate original child membership")
 	}
 }
+
+func TestExactDetachTargetPreservesOriginalDecrementAcrossUnknownResponse(t *testing.T) {
+	pool := core.InstancePool{Size: new(1), CompartmentId: new("original-compartment"), LifecycleState: core.InstancePoolLifecycleStateRunning}
+	member := core.InstanceSummary{Id: new("original-member"), CompartmentId: pool.CompartmentId}
+	if err := exactDetachTarget(pool, []core.InstanceSummary{member}, "original-member", 1, false); err != nil {
+		t.Fatal(err)
+	}
+	pool.Size = new(0)
+	if err := exactDetachTarget(pool, nil, "original-member", 1, false); err == nil {
+		t.Fatal("inferred a successful original detach from member absence")
+	}
+	if err := exactDetachTarget(pool, nil, "original-member", 1, true); err != nil {
+		t.Fatal("refused exact original retry after unknown decrement", err)
+	}
+	pool.Size = new(1)
+	member.Id = new("replacement-member")
+	if err := exactDetachTarget(pool, []core.InstanceSummary{member}, "original-member", 1, true); err == nil {
+		t.Fatal("allowed a replacement member or target to complete the original decrement")
+	}
+	pool.Size = new(2)
+	member.Id = new("original-member")
+	if err := exactDetachTarget(pool, []core.InstanceSummary{member, member}, "original-member", 2, true); err == nil {
+		t.Fatal("accepted duplicate exact target membership")
+	}
+}

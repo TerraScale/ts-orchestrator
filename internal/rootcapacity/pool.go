@@ -38,6 +38,27 @@ func (a *attempt) reserveOriginal(ctx context.Context) error {
 }
 
 func (a *attempt) ensurePool(ctx context.Context, management core.ComputeManagementClient) (string, string, error) {
+	if child, exists := a.record.PoolChildren[a.receipt.OperationID]; exists {
+		pool, known := a.record.CapacityPools[child.PoolID]
+		config, configured := pool.Configurations[child.ConfigurationID]
+		if !known || !configured || config.RecipeSHA256 != child.RecipeSHA256 || child.RecipeSHA256 != a.recipe.SHA256() {
+			return "", "", errors.New("original child lost its exact pool configuration provenance")
+		}
+		if err := a.claimPool(ctx, child.PoolID); err != nil {
+			return "", "", err
+		}
+		if err := a.verifyConfiguration(ctx, management, child.ConfigurationID, config.ConfigurationSHA256); err != nil {
+			return "", "", err
+		}
+		actual, err := a.originalPool(ctx, management, child.PoolID)
+		if err != nil {
+			return "", "", err
+		}
+		if value(actual.InstanceConfigurationId) != child.ConfigurationID {
+			return "", "", errors.New("unresolved original child cannot move to a successor pool configuration")
+		}
+		return child.PoolID, child.ConfigurationID, nil
+	}
 	name := nodescale.PoolName(a.recipe.Cell, a.recipe.Capacity)
 	poolID := ""
 	for id, pool := range a.record.CapacityPools {

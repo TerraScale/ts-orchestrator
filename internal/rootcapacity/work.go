@@ -27,7 +27,7 @@ func (a *attempt) workCompleted(ctx context.Context, wire *region.PoolWireRecord
 	if err != nil {
 		return false, err
 	}
-	if value(response.Id) != wire.WorkRequestID || value(response.CompartmentId) != a.receipt.CompartmentID ||
+	if value(response.Id) != wire.WorkRequestID || value(response.CompartmentId) != a.record.CapacityPools[resourceID].CompartmentID ||
 		!slices.ContainsFunc(response.Resources, func(resource workrequests.WorkRequestResource) bool { return value(resource.Identifier) == resourceID }) {
 		return false, errors.New("work request readback differs from exact protected action and pool")
 	}

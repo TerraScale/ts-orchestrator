@@ -243,7 +243,7 @@ func (a *attempt) members(ctx context.Context, management core.ComputeManagement
 		if pages >= 128 {
 			return nil, errors.New("pool membership pagination exceeds its finite bound")
 		}
-		response, err := management.ListInstancePoolInstances(a.readContext(ctx), core.ListInstancePoolInstancesRequest{InstancePoolId: new(poolID), CompartmentId: new(a.receipt.CompartmentID), Page: page})
+		response, err := management.ListInstancePoolInstances(a.readContext(ctx), core.ListInstancePoolInstancesRequest{InstancePoolId: new(poolID), CompartmentId: new(a.record.CapacityPools[poolID].CompartmentID), Page: page})
 		if err != nil {
 			return nil, err
 		}
