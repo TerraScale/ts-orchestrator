@@ -22,15 +22,14 @@ func StartControllerClient(ctx context.Context, cfg Config, initial net.Conn) (_
 			_ = initial.Close()
 		}
 	}()
-	if ctx == nil || ctx.Err() != nil || cfg.ClientRole != "controller" || len(cfg.OperatorForward) != 0 {
+	if ctx == nil || ctx.Err() != nil || cfg.ClientRole != "controller" || cfg.Embedded == nil || len(cfg.OperatorForward) != 0 {
 		return nil, errors.New("private broker startup requires the production controller role")
 	}
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
-	if cfg.URL == "" && cfg.Embedded != nil {
-		cfg.URL = "nats://" + net.JoinHostPort(cfg.Embedded.Host, fmt.Sprint(cfg.Embedded.Port))
-	}
+	// The private socket is always this root broker, regardless of URL order.
+	cfg.URL = "nats://" + net.JoinHostPort(cfg.Embedded.Host, fmt.Sprint(cfg.Embedded.Port))
 	cfg.Embedded = nil
 	return start(ctx, cfg, false, initial)
 }
