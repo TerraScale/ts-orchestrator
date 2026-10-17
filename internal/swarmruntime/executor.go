@@ -93,9 +93,14 @@ func (e *Executor) Describe(ctx context.Context) (*api.NodeDescription, error) {
 		return nil, err
 	}
 	resources := &api.Resources{NanoCPUs: max(int64(runtime.NumCPU())*1_000_000_000-250_000_000, 0), MemoryBytes: max(int64(info.Totalram)*int64(info.Unit)-(256<<20), 0)}
+	// Missing storage measurements hold new disk placements without failing
+	// node description or disturbing an already running healthy task.
+	if disk, err := e.diskCapacity(ctx); err == nil && disk > 0 {
+		resources.Generic = append(resources.Generic, genericresource.NewDiscrete(DiskResource, disk))
+	}
 	e.mu.Lock()
 	if e.functionMaterial != nil {
-		resources.Generic = []*api.GenericResource{genericresource.NewDiscrete(FunctionWorkerSlot, 1)}
+		resources.Generic = append(resources.Generic, genericresource.NewDiscrete(FunctionWorkerSlot, 1))
 	}
 	e.mu.Unlock()
 	return &api.NodeDescription{
@@ -177,7 +182,7 @@ func (e *Executor) Close() error { return e.client.Close() }
 // RunRuntimeLogger is the containerd shim callback dispatched by the same binary.
 func RunRuntimeLogger(argument string) {
 	logging.Run(func(ctx context.Context, cfg *logging.Config, ready func() error) error {
-		root, guard, err := parseRuntimeLoggerInvocation(argument)
+		root, guard, disk, err := parseRuntimeLoggerInvocation(argument)
 		if err != nil {
 			return err
 		}
@@ -193,12 +198,18 @@ func RunRuntimeLogger(argument string) {
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			return err
 		}
-		out, err := os.OpenFile(filepath.Join(dir, "stdout"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		if disk != nil {
+			confirmed, err := readDiskWitness(root, cfg.ID)
+			if err != nil || cfg.Namespace != runtimeNamespace || disk.TaskID != cfg.ID || confirmed != *disk {
+				return errors.Join(ErrDiskPending, err)
+			}
+		}
+		out, err := os.OpenFile(filepath.Join(dir, "stdout"), os.O_CREATE|os.O_WRONLY|os.O_APPEND|unix.O_NOFOLLOW, 0600)
 		if err != nil {
 			return err
 		}
 		defer out.Close()
-		stderr, err := os.OpenFile(filepath.Join(dir, "stderr"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		stderr, err := os.OpenFile(filepath.Join(dir, "stderr"), os.O_CREATE|os.O_WRONLY|os.O_APPEND|unix.O_NOFOLLOW, 0600)
 		if err != nil {
 			return err
 		}
@@ -244,6 +255,9 @@ func copyBoundedLog(file *os.File, src io.Reader) error {
 		return err
 	}
 	size := info.Size()
+	if !info.Mode().IsRegular() || size > logSegmentBytes {
+		return ErrDiskPending
+	}
 	buffer := make([]byte, 16<<10)
 	for {
 		n, readErr := src.Read(buffer)

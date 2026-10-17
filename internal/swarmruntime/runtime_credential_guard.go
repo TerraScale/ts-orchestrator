@@ -28,6 +28,7 @@ type runtimeCredentialGuard struct {
 type runtimeLoggerInvocation struct {
 	Root  string                 `json:"root"`
 	Guard runtimeCredentialGuard `json:"guard"`
+	Disk  *runtimeDiskWitness    `json:"disk,omitzero"`
 }
 
 func (c *controller) credentialExpiryLabel() string {
@@ -42,40 +43,61 @@ func (c *controller) runtimeLoggerArgument(ctx context.Context) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	if c.credentialExpiresAt.IsZero() && state == nil {
+	var disk *runtimeDiskWitness
+	if c.diskAccounted() {
+		witness, err := readDiskWitness(c.executor.logRoot, c.id)
+		if err != nil || witness.Fingerprint != c.fingerprint || witness.Image != c.spec.Image {
+			return "", errors.Join(ErrDiskPending, err)
+		}
+		disk = &witness
+	}
+	if c.credentialExpiresAt.IsZero() && state == nil && disk == nil {
 		return c.executor.logRoot, nil
 	}
-	data, err := json.Marshal(runtimeLoggerInvocation{Root: c.executor.logRoot, Guard: runtimeCredentialGuard{Socket: c.executor.socket, TaskID: c.id, Fingerprint: c.fingerprint, CredentialExpiresAt: c.credentialExpiresAt, State: state}})
+	invocation := runtimeLoggerInvocation{Root: c.executor.logRoot, Disk: disk}
+	if !c.credentialExpiresAt.IsZero() || state != nil {
+		invocation.Guard = runtimeCredentialGuard{Socket: c.executor.socket, TaskID: c.id, Fingerprint: c.fingerprint, CredentialExpiresAt: c.credentialExpiresAt, State: state}
+	}
+	data, err := json.Marshal(invocation)
 	return string(data), err
 }
 
-func parseRuntimeLoggerInvocation(argument string) (string, *runtimeCredentialGuard, error) {
+func parseRuntimeLoggerInvocation(argument string) (string, *runtimeCredentialGuard, *runtimeDiskWitness, error) {
 	if filepath.IsAbs(argument) {
-		return argument, nil, nil
+		return argument, nil, nil, nil
 	}
 	var invocation runtimeLoggerInvocation
 	if err := json.Unmarshal([]byte(argument), &invocation, json.RejectUnknownMembers(true)); err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 	guard := invocation.Guard
+	if !filepath.IsAbs(invocation.Root) || invocation.Disk != nil && !invocation.Disk.valid() {
+		return "", nil, nil, ErrDiskPending
+	}
+	if guard == (runtimeCredentialGuard{}) && invocation.Disk != nil {
+		return invocation.Root, nil, invocation.Disk, nil
+	}
 	if !filepath.IsAbs(invocation.Root) || !filepath.IsAbs(guard.Socket) || guard.TaskID == "" || guard.Fingerprint == "" || guard.CredentialExpiresAt.IsZero() && guard.State == nil || !guard.CredentialExpiresAt.IsZero() && !guard.CredentialExpiresAt.After(time.Now()) {
-		return "", nil, errors.New("invalid immutable runtime credential guard")
+		return "", nil, nil, errors.New("invalid immutable runtime credential guard")
+	}
+	if invocation.Disk != nil && (invocation.Disk.TaskID != guard.TaskID || invocation.Disk.Fingerprint != guard.Fingerprint) {
+		return "", nil, nil, ErrDiskPending
 	}
 	if guard.State != nil {
 		if guard.State.TaskSHA256 != guard.Fingerprint {
-			return "", nil, errors.New("stateful guard differs from exact task binding")
+			return "", nil, nil, errors.New("stateful guard differs from exact task binding")
 		}
 		if _, _, err := verifyStatefulRuntimeGuard(*guard.State, guard.State.Revision, guard.State.Deadline); err != nil {
-			return "", nil, err
+			return "", nil, nil, err
 		}
 	}
 	// Fail before logger readiness if this kernel cannot pin the exact process.
 	fd, err := unix.PidfdOpen(unix.Getpid(), 0)
 	if err != nil {
-		return "", nil, fmt.Errorf("pin runtime credential guard: %w", err)
+		return "", nil, nil, fmt.Errorf("pin runtime credential guard: %w", err)
 	}
 	_ = unix.Close(fd)
-	return invocation.Root, &guard, nil
+	return invocation.Root, &guard, invocation.Disk, nil
 }
 
 // The shim owns this logger process, so credential expiry survives agent exit.
