@@ -42,6 +42,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
 	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
@@ -703,6 +704,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if terraBaseCA != nil {
 		nativeMemberCA = terraBaseCA.CertificatePEM()
 	}
+	workloadRoot := rootoci.NewClient(rootoci.Expectations{Cell: cfg.NATS.Cell})
+	defer workloadRoot.Close()
 	nativeReleases.canary = newSmokeGate(nativeMemberCA).check
 	workloadReconciler, hostLoad, err := startWorkloadAutoscale(cfg.NATS.Cell, cfg.Controller.Autoscale,
 		profiles, specs, hostController, control, nativeReleases)
@@ -826,7 +829,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	containerChannel := instancePrincipalChannel(capacityFoundation.factory.Region(), strings.ToUpper(cfg.NATS.Cell))
 	containers, stopContainers, err := startContainerMaterial(runCtx, containerMaterialConfig{
-		Factory: capacityFoundation.factory, Hosts: hostController, Authority: control, Client: functionClient,
+		Root: workloadRoot, Factory: capacityFoundation.factory, Hosts: hostController, Authority: control, Client: functionClient,
 		Specs: services, Delivery: service, Founders: containerFounders, Accepted: acceptedRuntime, WorkerMembership: functionMembership,
 		JS: runtime.JetStream(), Mutations: containerMutations, Registrations: containerRegistrations, ResponsePublic: responseKey.Public().(ed25519.PublicKey),
 		Evidence: func(ctx context.Context, role, digest string) (io.ReadCloser, error) {
