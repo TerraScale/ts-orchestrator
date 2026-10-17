@@ -64,9 +64,14 @@ func (reader statefulReleaseReader) readEvidence(ctx context.Context, operationI
 	var total int64
 	var expires time.Time
 	for {
-		chunk, err := read(ctx, rootoci.ContainerEvidenceRequest{
+		readCtx, finish := ctx, func() {}
+		if !expires.IsZero() {
+			readCtx, finish = context.WithDeadline(ctx, expires)
+		}
+		chunk, err := read(readCtx, rootoci.ContainerEvidenceRequest{
 			OperationID: operationID, ExpectedFingerprint: fingerprint, EvidenceSHA256: digest, Offset: int64(len(data)),
 		})
+		finish()
 		if err != nil {
 			return nil, err
 		}
