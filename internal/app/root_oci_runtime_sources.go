@@ -43,7 +43,7 @@ func bindRootRuntimeSources(ctx context.Context, cfg Config, factory *ociclient.
 		return nil, rootoci.ErrUnauthorized
 	}
 	ownhost.mu.RLock()
-	node, authority, accepted := ownhost.node, ownhost.reader, ownhost.accepted.Clone()
+	node, authority := ownhost.node, ownhost.reader
 	ownhost.mu.RUnlock()
 	if node == nil || authority == nil {
 		return nil, rootoci.ErrUnavailable
@@ -52,11 +52,28 @@ func bindRootRuntimeSources(ctx context.Context, cfg Config, factory *ociclient.
 	if err != nil {
 		return nil, err
 	}
+	return bindOpenedRootRuntimeSources(ctx, cfg, factory, ownhost, reader, containers, channels, sources)
+}
+
+func bindOpenedRootRuntimeSources(ctx context.Context, cfg Config, factory *ociclient.Factory, ownhost *managedRuntimeHost,
+	reader *rootociread.Backend, containers *rootrelease.Backend, channels *rootReleaseChannels, sources *rootControllerSources,
+) (_ *rootBoundRuntimeSources, resultErr error) {
 	defer func() {
-		if resultErr != nil {
+		if resultErr != nil && sources != nil && sources.conn != nil {
 			sources.conn.Close()
 		}
 	}()
+	if os.Geteuid() != 0 || ctx == nil || ctx.Err() != nil || factory == nil || ownhost == nil || reader == nil || containers == nil || channels == nil ||
+		sources == nil || sources.credentials == nil || sources.conn == nil || sources.credentials.Conn() != sources.conn ||
+		sources.credentials.Context() != sources.lease || sources.credentials.Guard(ctx) != nil {
+		return nil, rootoci.ErrUnauthorized
+	}
+	ownhost.mu.RLock()
+	node, authority, accepted := ownhost.node, ownhost.reader, ownhost.accepted.Clone()
+	ownhost.mu.RUnlock()
+	if node == nil || authority == nil {
+		return nil, rootoci.ErrUnavailable
+	}
 	rootKV, err := sources.js.KeyValue(ctx, rootChainBucket)
 	if err != nil {
 		return nil, err

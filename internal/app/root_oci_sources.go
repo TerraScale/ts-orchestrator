@@ -67,16 +67,23 @@ func openRootControllerSources(ctx context.Context, cfg Config) (_ *rootControll
 	if err != nil {
 		return nil, err
 	}
+	return connectRootControllerSources(ctx, cfg, credentials)
+}
+
+func connectRootControllerSources(ctx context.Context, cfg Config, credentials *rootsecret.ControllerReader) (_ *rootControllerSources, resultErr error) {
+	defer func() {
+		if resultErr != nil && credentials != nil && credentials.Conn() != nil {
+			credentials.Conn().Close()
+		}
+	}()
+	if os.Geteuid() != 0 || ctx == nil || ctx.Err() != nil || credentials == nil || credentials.Guard(ctx) != nil {
+		return nil, errors.New("regional source readers require original live root credentials")
+	}
 	conn, lease := credentials.Conn(), credentials.Context()
 	if lease == nil || lease.Done() == nil || lease.Err() != nil {
 		conn.Close()
 		return nil, errors.New("root source credentials have no original live lifetime")
 	}
-	defer func() {
-		if resultErr != nil {
-			conn.Close()
-		}
-	}()
 	js, err := jetstream.New(conn)
 	if err != nil {
 		return nil, err
