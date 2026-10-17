@@ -449,43 +449,12 @@ func (s *Scaler) enroll(ctx context.Context, t *tick) error {
 	return nil
 }
 
-// expiredSafe requires the same DATA proof for launch cleanup, including nodes that joined but never became ready.
+// expiredSafe requires DATA safety before root captures an expired launch.
 func (s *Scaler) expiredSafe(ctx context.Context, t *tick, instance PoolInstance) error {
 	if s.CanRetire == nil {
 		return errors.New("node retirement safety proof is unavailable")
 	}
-	if err := s.CanRetire(ctx, instance.Name, instance.ID); err != nil {
-		return err
-	}
-	nodes, err := s.Control.ListNodes(ctx, &api.ListNodesRequest{})
-	if err != nil {
-		return err
-	}
-	for _, node := range nodes.Nodes {
-		if node.Spec.Annotations.Labels["terrascale.instance-id"] != instance.ID {
-			continue
-		}
-		safe, err := s.retireSafe(ctx, instance.Name, instance.ID)
-		if err != nil {
-			return err
-		}
-		if !safe {
-			return errors.New("the admitted node holds protected tasks or has an unverified identity")
-		}
-		if err := s.setAvailability(ctx, instance.Name, instance.ID, api.NodeAvailabilityDrain, t.epoch); err != nil {
-			return err
-		}
-		probe := *t
-		probe.record.Action = &InFlight{Node: instance.Name, InstanceID: instance.ID}
-		drained, err := s.drained(ctx, &probe)
-		if err != nil {
-			return err
-		}
-		if !drained {
-			return errors.New("the admitted node has not finished draining")
-		}
-	}
-	return nil
+	return s.CanRetire(ctx, instance.Name, instance.ID)
 }
 
 // launched requires the exact root-observed birth; size and creation time confer no lineage.
@@ -507,7 +476,7 @@ func joined(t *tick) []string {
 	return nodes
 }
 
-// cordon asks SwarmKit to drain a verified stateless worker.
+// cordon asks root to retain the actual PAUSE capture before DRAIN.
 func (s *Scaler) cordon(ctx context.Context, t *tick) error {
 	action := t.record.Action
 	if err := s.Leader.Guard(ctx, t.epoch); err != nil {
@@ -522,41 +491,20 @@ func (s *Scaler) cordon(ctx context.Context, t *tick) error {
 		t.pool.Pending = "node retirement safety is unavailable or the node holds protected tasks"
 		return nil
 	}
-	if err := s.setAvailability(ctx, action.Node, action.InstanceID, api.NodeAvailabilityDrain, t.epoch); err != nil {
-		return fmt.Errorf("cordon %s: %w", action.Node, err)
+	retirement, err := s.Pool.PrepareRetirement(ctx, action.InstanceID, action.ID)
+	if err != nil {
+		t.pool.Pending = err.Error()
+		return nil
 	}
-	action.Step = stepDrain
+	t.record.Retirement = new(retirement)
+	action.Step = stepRemove
 	return nil
 }
 
-// drain waits until every task on the node is terminal and no load balancer backend points at it. After
-// DrainTimeout the node is uncordoned and the failure counts as a change, so the cooldown holds.
+// drain resumes older durable actions through the same protected root capture.
+// A pending capture permanently fences this instance, including after timeout.
 func (s *Scaler) drain(ctx context.Context, t *tick) error {
-	action := t.record.Action
-	drained, err := s.drained(ctx, t)
-	if err != nil {
-		return err
-	}
-	if drained {
-		action.Step = stepRemove
-		return nil
-	}
-	if t.now.Sub(action.Started) < DrainTimeout {
-		return nil
-	}
-	if err := s.Leader.Guard(ctx, t.epoch); err != nil {
-		return err
-	}
-	if err := s.setAvailability(ctx, action.Node, action.InstanceID, api.NodeAvailabilityActive, t.epoch); err != nil {
-		return fmt.Errorf("uncordon %s: %w", action.Node, err)
-	}
-	// DownCooldown equals DrainTimeout, so the start stamp has expired by now; the failure restarts it.
-	t.record.LastChange = t.now
-	t.record.Action = nil
-	s.queue(t, decisionlog.Decision{Kind: decisionlog.KindHeld, Subject: s.regionSubject(),
-		Summary: fmt.Sprintf("stop draining %s", action.Node),
-		Reason:  fmt.Sprintf("drain did not finish within %s", DrainTimeout)})
-	return nil
+	return s.cordon(ctx, t)
 }
 
 // drained reports whether every task on the node is terminal and no load balancer backend still points at it.

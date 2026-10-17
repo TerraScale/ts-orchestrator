@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/drainwire"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
@@ -141,9 +143,26 @@ func (pool *ChosenPool) PrepareRetirement(ctx context.Context, instanceID, remov
 		return rootoci.PoolRetirementExpectation{}, err
 	}
 	birth := proof.View()
+	child := drainwire.PoolChild{Cell: birth.Cell, BirthOperationID: birth.OperationID, RemovalOperationID: removalOperationID,
+		InstanceID: instanceID, PoolID: birth.PoolID, ConfigurationID: birth.ConfigurationID, RecipeSHA256: birth.RecipeSHA256,
+		GrantSHA256: selected.GrantSHA256, Generation: selected.Generation}
+	capture, err := pool.root.BeginPoolDrain(ctx, child)
+	if err != nil {
+		return rootoci.PoolRetirementExpectation{}, errors.Join(ErrCapacityPending, err)
+	}
+	if capture.Child != child {
+		return rootoci.PoolRetirementExpectation{}, errors.New("root drain capture differs from the original pool child")
+	}
+	stopped, err := pool.root.RefreshPoolDrain(ctx, child)
+	if err != nil {
+		return rootoci.PoolRetirementExpectation{}, errors.Join(ErrCapacityPending, err)
+	}
+	if stopped.Child != child || stopped.Phase != drainwire.PoolStopped || len(stopped.SHA256) != 64 || !time.Now().Before(stopped.ExpiresAt) {
+		return rootoci.PoolRetirementExpectation{}, fmt.Errorf("%w: original protected pool drain has not stopped", ErrCapacityPending)
+	}
 	return rootoci.PoolRetirementExpectation{Child: rootoci.PoolChildExpectation{Cell: birth.Cell, OperationID: birth.OperationID, ReservationID: birth.ReservationID,
 		RecipeSHA256: birth.RecipeSHA256, PoolID: birth.PoolID, ConfigurationID: birth.ConfigurationID,
-		GrantSHA256: selected.GrantSHA256, Generation: selected.Generation, Epoch: selected.Epoch}, InstanceID: instanceID, RemovalOperationID: removalOperationID}, nil
+		GrantSHA256: selected.GrantSHA256, Generation: selected.Generation, Epoch: selected.Epoch}, InstanceID: instanceID, RemovalOperationID: removalOperationID, DrainSHA256: stopped.SHA256}, nil
 }
 
 func (pool *ChosenPool) Remove(ctx context.Context, instanceID string) error {
