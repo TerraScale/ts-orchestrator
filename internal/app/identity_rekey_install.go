@@ -161,22 +161,18 @@ func InstallIdentityRekey(ctx context.Context, journal bootstrapstart.IdentityRe
 	if err := install.check(ctx, true); err != nil {
 		return err
 	}
-	if err := install.material.VerifyIdentityRekeyMaterialAdoption(install.target, install.verified.InstallationRoots(install.inputs), install.chain, install.verified.InstallationTime(time.Now().Round(0).UTC())); err != nil {
+	if err := install.material.VerifyIdentityRekeyMaterialAdoption(install.verified, install.inputs, time.Now().Round(0).UTC()); err != nil {
 		return err
 	}
-	if err := install.material.FinishIdentityRekeyMaterialAdoption(install.verified, install.inputs,
-		controllerSidecarPath(controllerConfigFilename), install.verified.InstallationTime(time.Now().Round(0).UTC())); err != nil {
+	if err := install.material.FinishIdentityRekeyMaterialAdoption(ctx, install.verified, install.inputs,
+		controllerSidecarPath(controllerConfigFilename), func(ctx context.Context) error { return install.check(ctx, true) }, install.sourceLive, time.Now().Round(0).UTC()); err != nil {
 		return err
 	}
 	if err := install.check(ctx, true); err != nil {
 		return err
 	}
-	if err := install.material.AdoptIdentityRekeyGeneration(install.verified, install.inputs,
-		install.generationFiles, install.files[controllerConfigFilename], install.verified.InstallationTime(time.Now().Round(0).UTC())); err != nil {
-		return err
-	}
-	if err := install.material.InstallIdentityRekeyResponseKey(ctx, install.verified, install.inputs,
-		install.contents[install.accepted.Slot+"-response.key"], func(ctx context.Context) error { return install.check(ctx, true) }, time.Now().Round(0).UTC()); err != nil {
+	if err := install.material.AdoptIdentityRekeyGeneration(ctx, install.verified, install.inputs,
+		install.contents, install.files[controllerConfigFilename], func(ctx context.Context) error { return install.check(ctx, true) }, install.sourceLive, time.Now().Round(0).UTC()); err != nil {
 		return err
 	}
 	for _, name := range bootstrap.ControllerConfigFileNames {
@@ -206,26 +202,26 @@ func InstallIdentityRekey(ctx context.Context, journal bootstrapstart.IdentityRe
 }
 
 type identityRekeyInstall struct {
-	journal         bootstrapstart.IdentityRekeyJournal
-	accepted        bootstrapstart.AcceptedIdentity
-	verified        bootstrapstart.VerifiedIdentityRekey
-	inputs          bootstrapstart.TrustInputs
-	config          Config
-	files           map[string][]byte
-	chain           []byte
-	material        bootstrapstart.MaterialStore
-	target          bootstrapstart.GenerationTarget
-	generationFiles map[string][]byte
-	contents        map[string][]byte
-	imds            bootstrapstart.IMDSClient
-	instances       *bootstrapstart.OCIInstanceObserver
-	serviceUID      uint32
-	serviceGID      uint32
-	pinned          bool
-	observation     natscell.InstallationIdentity
-	clock           func() error
-	js              jetstream.JetStream
-	store           os.FileInfo
+	journal        bootstrapstart.IdentityRekeyJournal
+	accepted       bootstrapstart.AcceptedIdentity
+	verified       bootstrapstart.VerifiedIdentityRekey
+	inputs         bootstrapstart.TrustInputs
+	config         Config
+	files          map[string][]byte
+	chain          []byte
+	material       bootstrapstart.MaterialStore
+	target         bootstrapstart.GenerationTarget
+	materialExpiry time.Time
+	contents       map[string][]byte
+	imds           bootstrapstart.IMDSClient
+	instances      *bootstrapstart.OCIInstanceObserver
+	serviceUID     uint32
+	serviceGID     uint32
+	pinned         bool
+	observation    natscell.InstallationIdentity
+	clock          func() error
+	js             jetstream.JetStream
+	store          os.FileInfo
 }
 
 func prepareIdentityRekey(ctx context.Context, journal bootstrapstart.IdentityRekeyJournal, stagedFiles map[string][]byte,
@@ -330,10 +326,21 @@ func prepareIdentityRekey(ctx context.Context, journal bootstrapstart.IdentityRe
 		if err := install.check(ctx, stopped); err != nil {
 			return nil, err
 		}
-		return vault.ReadGenerationSecret(ctx, reference)
+		content, expires, err := vault.ReadGenerationSecretWithExpiry(ctx, reference)
+		if err != nil {
+			return nil, err
+		}
+		if !expires.IsZero() && (install.materialExpiry.IsZero() || expires.Before(install.materialExpiry)) {
+			install.materialExpiry = expires
+		}
+		if err := install.check(ctx, stopped); err != nil {
+			clear(content)
+			return nil, err
+		}
+		return content, nil
 	}
-	install.contents, err = install.material.ReadIdentityRekeyMaterial(ctx, install.accepted, install.chain,
-		install.verified.InstallationRoots(install.inputs), read, install.verified.InstallationTime(time.Now().Round(0).UTC()))
+	install.contents, err = install.material.ReadIdentityRekeyMaterial(ctx, install.verified,
+		install.inputs, read, install.sourceLive, time.Now().Round(0).UTC())
 	if err != nil {
 		return nil, err
 	}
@@ -357,13 +364,7 @@ func prepareIdentityRekey(ctx context.Context, journal bootstrapstart.IdentityRe
 		install.clearMaterial()
 		return nil, err
 	}
-	install.generationFiles = map[string][]byte{}
-	for _, reference := range newest.Generation().Secrets {
-		if reference.Slot == "" || reference.Slot == install.accepted.Slot {
-			install.generationFiles[reference.TargetFile] = install.contents[reference.TargetFile]
-		}
-	}
-	if err := install.material.VerifyIdentityRekeyMaterialAdoption(install.target, install.verified.InstallationRoots(install.inputs), install.chain, install.verified.InstallationTime(time.Now().Round(0).UTC())); err != nil {
+	if err := install.material.VerifyIdentityRekeyMaterialAdoption(install.verified, install.inputs, time.Now().Round(0).UTC()); err != nil {
 		install.clearMaterial()
 		return nil, err
 	}
@@ -437,6 +438,9 @@ func (install *identityRekeyInstall) check(ctx context.Context, stopped bool) er
 
 func (install *identityRekeyInstall) checkLocal(ctx context.Context, stopped bool) error {
 	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := install.sourceLive(); err != nil {
 		return err
 	}
 	if err := install.clock(); err != nil {
@@ -541,6 +545,9 @@ func (install *identityRekeyInstall) checkLocal(ctx context.Context, stopped boo
 		return err
 	}
 	install.verified, install.inputs, install.observation = verified, inputs, local
+	if err := install.sourceLive(); err != nil {
+		return err
+	}
 	return ctx.Err()
 }
 
@@ -553,7 +560,7 @@ func (install *identityRekeyInstall) write(ctx context.Context, directory, name 
 		return err
 	}
 	defer unix.Close(dir)
-	return replaceIdentityRekeyFile(dir, name, wire, 0, 0)
+	return replaceIdentityRekeyFileCurrent(dir, name, wire, 0, 0, func() error { return install.check(ctx, true) })
 }
 
 func (install *identityRekeyInstall) clearMaterial() {
@@ -598,6 +605,10 @@ func (install *identityRekeyInstall) verifyInstalledMaterial(ctx context.Context
 // replaceIdentityRekeyFile only writes signed public files in already held
 // root directories. Existing identity authority is never parsed.
 func replaceIdentityRekeyFile(dir int, name string, wire []byte, uid, gid uint32) error {
+	return replaceIdentityRekeyFileCurrent(dir, name, wire, uid, gid, nil)
+}
+
+func replaceIdentityRekeyFileCurrent(dir int, name string, wire []byte, uid, gid uint32, beforeEffect func() error) error {
 	if len(wire) == 0 || len(wire) > bootstrap.MaxControllerConfigBytes || filepath.Base(name) != name || name == "." || name == ".." {
 		return errors.New("invalid identity rekey file")
 	}
@@ -631,6 +642,11 @@ func replaceIdentityRekeyFile(dir int, name string, wire []byte, uid, gid uint32
 	}
 	if err := file.Close(); err != nil {
 		return err
+	}
+	if beforeEffect != nil {
+		if err := beforeEffect(); err != nil {
+			return err
+		}
 	}
 	if err := unix.Renameat(dir, temporary, dir, name); err != nil {
 		return err
@@ -1020,6 +1036,13 @@ func verifyIdentityRekeyResponseBundle(journal bootstrapstart.IdentityRekeyJourn
 	bundle, err := hostenroll.ParsePublicBundle(wire)
 	if err != nil || bundle.ControllerResponsePublicKey != journal.HostObservation.ResponseKey {
 		return identityrekey.ErrHostStateHandoff
+	}
+	return nil
+}
+
+func (install *identityRekeyInstall) sourceLive() error {
+	if !install.materialExpiry.IsZero() && !time.Now().Before(install.materialExpiry) {
+		return bootstrapstart.ErrMaterial
 	}
 	return nil
 }

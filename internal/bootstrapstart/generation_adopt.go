@@ -56,7 +56,11 @@ func (store MaterialStore) adoptGenerationWithDelivery(target GenerationTarget, 
 	if err != nil {
 		return err
 	}
-	if err := stagedFilesMatch(chain, target.Slot, files); err != nil {
+	if previous != nil {
+		if err := identityRekeyFilesMatch(*previous, files); err != nil {
+			return err
+		}
+	} else if err := stagedFilesMatch(chain, target.Slot, files); err != nil {
 		return err
 	}
 	checked := maps.Clone(files)
@@ -235,14 +239,23 @@ func (store MaterialStore) finishWithDelivery(dir int, target GenerationTarget, 
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		if err := store.stagedDigestsMatch(staging, generation, target.Slot, names); err != nil {
+		if previous == nil {
+			if err := store.stagedDigestsMatch(staging, generation, target.Slot, names); err != nil {
+				return err
+			}
+		} else if err := store.stagedIdentityRekeyDigestsMatch(staging, previous.materials, names); err != nil {
 			return err
 		}
 		config, _, err := generationConfig(target, generation, configPath)
 		if err != nil {
 			return err
 		}
-		files, err := store.generationFiles(dir, staging, target, generation, config)
+		var files map[string][]byte
+		if previous != nil {
+			files, err = store.identityRekeyFiles(dir, staging, previous.materials, target, config)
+		} else {
+			files, err = store.generationFiles(dir, staging, target, generation, config)
+		}
 		if err != nil {
 			return err
 		}
@@ -254,6 +267,13 @@ func (store MaterialStore) finishWithDelivery(dir int, target GenerationTarget, 
 				return err
 			}
 		}
+		// The sidecar config is verification input, not an installed material file.
+		delete(files, GenerationConfigFile(target.Slot))
+		if previous != nil {
+			if err := identityRekeyFilesMatch(*previous, files); err != nil {
+				return err
+			}
+		}
 		files[MaterialGenerationsFile] = chainWire
 		return store.rollForward(dir, staging, names, files, previous, delivery)
 	}
@@ -262,6 +282,9 @@ func (store MaterialStore) finishWithDelivery(dir int, target GenerationTarget, 
 	cert, key := bootstrap.InterRegionTLSFiles(target.Slot)
 	for _, name := range names {
 		_, known := allowed[name]
+		if previous != nil {
+			_, known = previous.materials[name]
+		}
 		known = known || name == generationChainTemporary
 		known = known || name == "interregion.jwt" || name == "interregion-ca.pem" || name == cert || name == key || name == target.Slot+".creds" ||
 			name == bootstrap.LinkCredentialsFile
@@ -618,4 +641,63 @@ func removeStaging(dir int) error {
 		return fmt.Errorf("remove generation staging: %w", err)
 	}
 	return unix.Fsync(dir)
+}
+
+func identityRekeyFilesMatch(previous identityMaterialPredecessors, files map[string][]byte) error {
+	refs := previous.materials
+	if len(refs) == 0 || len(refs) != len(files) {
+		return ErrMaterial
+	}
+	for name, ref := range refs {
+		wire, exists := files[name]
+		if !exists || len(wire) == 0 || int64(len(wire)) > ref.MaxBytes || digest(wire) != ref.SHA256 {
+			return ErrMaterial
+		}
+	}
+	for name := range refs {
+		if strings.HasSuffix(name, "-response.key") {
+			public, err := responseKeyPublic(files[name])
+			if err != nil || public != previous.responsePublic {
+				return ErrMaterial
+			}
+		}
+	}
+	return nil
+}
+
+func (store MaterialStore) stagedIdentityRekeyDigestsMatch(staging int, refs map[string]bootstrap.SecretReference, names []string) error {
+	for _, name := range names {
+		if name == MaterialGenerationsFile {
+			continue
+		}
+		ref, exists := refs[name]
+		if !exists {
+			return ErrMaterial
+		}
+		wire, err := store.readStaged(staging, name, ref.SHA256, ref.MaxBytes)
+		clear(wire)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (store MaterialStore) identityRekeyFiles(dir, staging int, refs map[string]bootstrap.SecretReference, target GenerationTarget, config []byte) (map[string][]byte, error) {
+	files := map[string][]byte{}
+	for name, ref := range refs {
+		wire, err := store.readStaged(staging, name, ref.SHA256, ref.MaxBytes)
+		if errors.Is(err, os.ErrNotExist) {
+			wire, err = store.readStaged(dir, name, ref.SHA256, ref.MaxBytes)
+		}
+		if err != nil {
+			clearContents(files)
+			return nil, err
+		}
+		files[name] = wire
+	}
+	if config != nil {
+		files[GenerationConfigFile(target.Slot)] = config
+	}
+	return files, nil
 }
