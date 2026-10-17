@@ -51,7 +51,7 @@ func (c *cloud) retainImage(j journal) (bool, error) {
 func (c *cloud) superviseRetainedImage(ctx context.Context, path string, observer *ociclient.Factory) error {
 	cleanup, cancel := context.WithDeadline(context.Background(), c.prepared.approval.CleanupUntil)
 	defer cancel()
-	j, err := c.load(path)
+	j, err := c.loadExisting(path)
 	if err != nil {
 		return err
 	}
@@ -101,7 +101,7 @@ func (c *cloud) superviseRetainedImage(ctx context.Context, path string, observe
 			if err := c.cleanup(cleanup, path); err != nil {
 				return err
 			}
-			j, err = c.load(path)
+			j, err = c.loadExisting(path)
 			if err != nil {
 				return err
 			}

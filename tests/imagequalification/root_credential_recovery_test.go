@@ -124,17 +124,27 @@ func TestCleanupApprovalUsesOriginalExpiredCreateAuthority(t *testing.T) {
 }
 
 func TestOuterRestartReachesCleanupWithoutSigningKeyOrLocalArtifacts(t *testing.T) {
-	f, _, preparation, approval := rootRecoveryFixture(t)
+	f, v, preparation, approval := rootRecoveryFixture(t)
 	directory := t.TempDir()
 	paths := rootCredentialPaths{Approval: filepath.Join(directory, "approval.json"), Journal: filepath.Join(directory, "resources.json"), PrincipalDirectory: filepath.Join(directory, "principal")}
 	if err := os.WriteFile(paths.Approval, approval, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(paths.Journal, []byte("{}"), 0600); err != nil {
+	p, err := cleanupApproval(v, preparation, nil, approval, f.roots, f.now)
+	if err != nil {
 		t.Fatal(err)
 	}
-	_, err := runRootCredentialBoundary(t.Context(), preparation, nil, f.roots, nil, nil, paths)
+	if err := checkpoint(paths.Journal, (&cloud{prepared: p}).initialJournal()); err != nil {
+		t.Fatal(err)
+	}
+	_, err = runRootCredentialBoundary(t.Context(), preparation, nil, f.roots, nil, nil, paths)
 	if err == nil || !strings.Contains(err.Error(), "issuer IAM region differs from signed preparation") {
 		t.Fatalf("restart failed before reaching cleanup issuer verification: %v", err)
+	}
+	if err := os.Remove(paths.Journal); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runRootCredentialBoundary(t.Context(), preparation, nil, f.roots, nil, nil, paths); !os.IsNotExist(err) {
+		t.Fatalf("missing recovery journal became a new run: %v", err)
 	}
 }

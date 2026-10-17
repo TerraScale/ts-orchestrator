@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -14,6 +15,21 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
+
+func TestCleanupAndSupervisorRequireExistingResourceJournal(t *testing.T) {
+	f := fixture(t)
+	c := &cloud{prepared: f.prepared, now: time.Now}
+	path := filepath.Join(t.TempDir(), "missing-resources.json")
+	if _, err := c.load(path); err != nil {
+		t.Fatal("initial creation cannot start its journal", err)
+	}
+	if err := c.cleanup(t.Context(), path); !os.IsNotExist(err) {
+		t.Fatalf("cleanup synthesized missing resources: %v", err)
+	}
+	if err := c.superviseRetainedImage(t.Context(), path, nil); !os.IsNotExist(err) {
+		t.Fatalf("supervisor synthesized missing resources: %v", err)
+	}
+}
 
 func TestSDKRetainedImageCleansHostsThenExpiresExactImage(t *testing.T) {
 	f := fixture(t)

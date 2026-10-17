@@ -153,16 +153,27 @@ func (c *cloud) name(host string) string {
 	return "ts-qualification-" + c.prepared.approval.RunID + "-" + host
 }
 
-func (c *cloud) load(path string) (journal, error) {
+func (c *cloud) initialJournal() journal {
 	a := c.prepared.approval
-	j := journal{RunID: a.RunID, ApprovalSHA256: c.prepared.approvalSHA256,
+	return journal{RunID: a.RunID, ApprovalSHA256: c.prepared.approvalSHA256,
 		Object:             "qualification/" + a.RunID + "/" + a.Candidate.ArtifactSHA256 + ".qcow2",
 		HostConsoleHistory: map[string]string{}, ConsoleHistories: map[string]string{}, ConsoleDeleted: map[string]bool{}, HostKeys: map[string]string{}, ConsoleDigests: map[string]string{},
 		Hosts: map[string]string{}, Terminated: map[string]bool{}, Intents: map[string]time.Time{}}
-	wire, err := os.ReadFile(path)
+}
+
+// Only initial creation may begin without a resources journal.
+func (c *cloud) load(path string) (journal, error) {
+	j, err := c.loadExisting(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return j, nil
+		return c.initialJournal(), nil
 	}
+	return j, err
+}
+
+func (c *cloud) loadExisting(path string) (journal, error) {
+	a := c.prepared.approval
+	j := c.initialJournal()
+	wire, err := os.ReadFile(path)
 	if err != nil {
 		return j, err
 	}
@@ -427,7 +438,7 @@ func isNotFound(err error) bool {
 }
 
 func (c *cloud) cleanup(ctx context.Context, path string) error {
-	j, err := c.load(path)
+	j, err := c.loadExisting(path)
 	if err != nil {
 		return err
 	}

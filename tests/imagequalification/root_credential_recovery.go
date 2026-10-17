@@ -21,7 +21,12 @@ import (
 // local disk archives, create replay or new authority after the original expiry.
 func recoverRootCredentialBoundary(ctx context.Context, v principal.VerifiedPreparation, preparationWire, delegationWire []byte, roots trust.Keyring, issuer *ociclient.Factory, paths rootCredentialPaths) (bool, error) {
 	if _, err := os.Stat(paths.Journal); errors.Is(err, os.ErrNotExist) {
-		return false, nil
+		if _, approvalErr := os.Stat(paths.Approval); errors.Is(approvalErr, os.ErrNotExist) {
+			return false, nil
+		} else if approvalErr != nil {
+			return true, approvalErr
+		}
+		return true, err
 	} else if err != nil {
 		return true, err
 	}
@@ -31,6 +36,9 @@ func recoverRootCredentialBoundary(ctx context.Context, v principal.VerifiedPrep
 	}
 	p, err := cleanupApproval(v, preparationWire, delegationWire, wire, roots, time.Now().UTC())
 	if err != nil {
+		return true, err
+	}
+	if _, err := (&cloud{prepared: p}).loadExisting(paths.Journal); err != nil {
 		return true, err
 	}
 	cleanup, cancel := context.WithDeadline(context.Background(), p.approval.CleanupUntil)
