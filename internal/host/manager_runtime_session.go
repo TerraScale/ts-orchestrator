@@ -31,6 +31,16 @@ func (a *Agent) SetManagerRuntimeBinding(ctx context.Context, signed SignedManag
 	}
 	a.sessionRenewMu.Lock()
 	defer a.sessionRenewMu.Unlock()
+	a.sessionRequestMu.RLock()
+	defer a.sessionRequestMu.RUnlock()
+	return a.setManagerRuntimeBindingLocked(ctx, signed, nil)
+}
+
+// The ordinary setter or typed renewal handoff owns both session locks.
+func (a *Agent) setManagerRuntimeBindingLocked(ctx context.Context, signed SignedManagerRuntimeBinding, seal *managerRuntimeInstallSeal) error {
+	if ctx == nil || ctx.Err() != nil || a.sessionLost.Load() {
+		return errManagerRuntimeSessionUnavailable
+	}
 	s, deadline, err := a.executionLease()
 	if err != nil {
 		return err
@@ -58,7 +68,7 @@ func (a *Agent) SetManagerRuntimeBinding(ctx context.Context, signed SignedManag
 	defer cancel()
 	copy := signed.Clone()
 	var next session
-	if _, err := a.sendToLeader(ctx, "session", sessionOperation{Kind: "renew", ManagerRuntimeBinding: &copy}, &next, nil, nil); err != nil {
+	if _, err := a.sendToLeaderLocked(ctx, "session", sessionOperation{Kind: "renew", ManagerRuntimeBinding: &copy}, &next, nil, nil); err != nil {
 		return err
 	}
 	if next.SessionID != s.SessionID || next.Epoch != s.Epoch || !sameManagerCarrier(next.ManagerRuntimeBinding, &copy) ||
@@ -68,7 +78,7 @@ func (a *Agent) SetManagerRuntimeBinding(ctx context.Context, signed SignedManag
 	if _, _, err := a.executionLease(); err != nil {
 		return err
 	}
-	return a.acceptSession(next)
+	return a.acceptSessionContext(ctx, next, nil, seal)
 }
 
 func applyManagerRuntimeCarrier(next *session, old session, registration Registration, req request, operation sessionOperation, revision, registrationRevision uint64, now time.Time) error {
@@ -105,6 +115,7 @@ func applyManagerRuntimeCarrier(next *session, old session, registration Registr
 type ManagerRuntimeSession struct {
 	reader               *Reader
 	original             context.Context
+	work                 context.Context
 	registration         Registration
 	registrationRevision uint64
 	current              session
@@ -202,20 +213,24 @@ func (r *Reader) managerRuntimeSession(ctx context.Context, node string) (Regist
 }
 
 func (s *ManagerRuntimeSession) Revalidate(ctx context.Context) error {
-	if s == nil || s.reader == nil || s.original == nil || ctx == nil || ctx.Err() != nil || s.original.Err() != nil || !time.Now().Before(s.deadline) {
+	if s == nil || s.reader == nil || s.original == nil || ctx == nil || ctx.Err() != nil || s.original.Err() != nil || s.work != nil && s.work.Err() != nil || !time.Now().Before(s.deadline) {
 		return errors.New("original manager runtime session expired or cancelled")
 	}
 	ctx, cancel := context.WithDeadline(ctx, s.deadline)
 	stop := context.AfterFunc(s.original, cancel)
 	defer cancel()
 	defer stop()
+	if s.work != nil {
+		stopWork := context.AfterFunc(s.work, cancel)
+		defer stopWork()
+	}
 	registration, regRevision, current, revision, err := s.reader.managerRuntimeSession(ctx, s.registration.Node)
 	if err != nil {
 		return err
 	}
 	if regRevision != s.registrationRevision || !sameJSON(registration, s.registration) || revision < s.revision ||
 		current.RegistrationGeneration != s.current.RegistrationGeneration || current.SessionID != s.current.SessionID || current.Epoch != s.current.Epoch ||
-		current.ExpiresAt.Before(s.current.ExpiresAt) || !sameManagerCarrier(current.ManagerRuntimeBinding, s.current.ManagerRuntimeBinding) || !time.Now().Before(s.deadline) || s.original.Err() != nil {
+		current.ExpiresAt.Before(s.current.ExpiresAt) || !sameManagerCarrier(current.ManagerRuntimeBinding, s.current.ManagerRuntimeBinding) || !time.Now().Before(s.deadline) || s.original.Err() != nil || s.work != nil && s.work.Err() != nil {
 		return errors.New("original manager runtime registration or session carrier changed")
 	}
 	return ctx.Err()
