@@ -224,5 +224,7 @@ func (r StartupReader) Candidate() release.ProductionExpectation {
 	if r.state == nil {
 		return release.ProductionExpectation{}
 	}
-	return r.state.verified.approval.Candidate
+	candidate := r.state.verified.approval.Candidate
+	candidate.ImageOCID = r.state.verified.host.ImageID
+	return candidate
 }
