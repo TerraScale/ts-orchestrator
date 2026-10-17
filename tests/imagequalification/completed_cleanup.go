@@ -34,6 +34,14 @@ func verifyCompletedCleanup(ctx context.Context, p Prepared, observer *ociclient
 	if err != nil {
 		return err
 	}
+	if len(j.RetainedReaderProof) != 0 {
+		if _, err := c.retainImage(j); err != nil {
+			return err
+		}
+	}
+	if j.ImageManifestSHA256 != "" && !validHash(j.ImageManifestSHA256) {
+		return errors.New("completed cleanup immutable image reference is invalid")
+	}
 	for operation := range j.Intents {
 		if !j.resolved(operation) {
 			return errors.New("completed cleanup has unresolved original create intent")
