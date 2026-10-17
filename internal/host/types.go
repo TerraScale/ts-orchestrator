@@ -368,13 +368,14 @@ type ManagedRegistrationVerifier interface {
 type ManagedDesiredVerifier func(context.Context, Desired, Registration, Desired, bool) error
 
 type ReaderConfig struct {
-	Cell          string
-	Conn          *nats.Conn
-	JS            jetstream.JetStream
-	State         jetstream.KeyValue
-	StateReplicas int
-	HostMutations authority.HostMutationStore
-	ControlLog    jetstream.Stream
+	Cell                   string
+	Conn                   *nats.Conn
+	JS                     jetstream.JetStream
+	State                  jetstream.KeyValue
+	StateReplicas          int
+	HostMutations          authority.HostMutationStore
+	ControlLog             jetstream.Stream
+	ManagedCredentialFloor func(context.Context, Registration) (uint64, error)
 }
 
 // ArtifactStore is the read-only object-store capability held by controllers.
