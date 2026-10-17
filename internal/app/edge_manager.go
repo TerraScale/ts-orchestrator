@@ -146,7 +146,7 @@ func (source managerEdgeSource) snapshot(ctx context.Context) (managerEdgeSnapsh
 			nodeNames[node.ID] = registration.Node
 			nodeEnvironment[node.ID] = registration.Environment
 			nodeSessionDeadline[node.ID] = status.SessionExpiresAt
-			nodeReady[node.ID] = !status.Retired && status.Verified && time.Now().Before(status.SessionExpiresAt) && node.Status.State == api.NodeStatus_READY && node.Spec.Membership == api.NodeMembershipAccepted && (node.Spec.Availability == api.NodeAvailabilityActive || node.Spec.Availability == api.NodeAvailabilityPause)
+			nodeReady[node.ID] = !status.Retired && status.Verified && time.Now().Before(status.SessionExpiresAt) && node.Status.State == api.NodeStatus_READY && node.Spec.Membership == api.NodeMembershipAccepted && node.Spec.DesiredRole == node.Role && (node.Spec.Availability == api.NodeAvailabilityActive || node.Spec.Availability == api.NodeAvailabilityPause)
 			if nodeReady[node.ID] {
 				recipientCtx, cancel := context.WithDeadline(ctx, status.SessionExpiresAt)
 				recipient, err := source.recipient(recipientCtx, node, registration)
