@@ -92,7 +92,7 @@ func runInstalledControllerNamespace(t *testing.T) bool {
 				continue
 			}
 			// sudo executes before /run is replaced; root helpers need no wrapper.
-			if name != "sudo" && (strings.HasPrefix(path, "/run/") || strings.HasPrefix(path, "/etc/") || strings.HasPrefix(path, "/var/lib/")) {
+			if name != "sudo" && (strings.HasPrefix(path, "/run/") || strings.HasPrefix(path, "/etc/") || strings.HasPrefix(path, "/var/lib/") || strings.HasPrefix(path, "/tmp/")) {
 				continue
 			}
 			return path
@@ -129,9 +129,10 @@ printf 'passwd: files\ngroup: files\n' > /etc/nsswitch.conf
 "$mkdir_command" -m 0755 /var/lib/installed-controller-bin
 "$copy_command" "$executable" /var/lib/installed-controller-bin/app.test
 "$chmod_command" 0755 /var/lib/installed-controller-bin/app.test
+"$mount_command" -t tmpfs -o size=512m,mode=1777 ts-installed-controller-tmp /tmp
 "$ip_command" link set lo up
 "$ip_command" addr add 10.44.0.10/32 dev lo
-TS_INSTALLED_CONTROLLER_PARENT_MOUNT="$parent_mount" GOMAXPROCS=2 exec /var/lib/installed-controller-bin/app.test -test.v -test.run="$test_pattern" -test.timeout=110s
+TS_INSTALLED_CONTROLLER_PARENT_MOUNT="$parent_mount" TMPDIR=/tmp GOMAXPROCS=2 exec /var/lib/installed-controller-bin/app.test -test.v -test.run="$test_pattern" -test.timeout=110s
 `
 	args := []string{unshare, "--mount", "--net", "--fork", "--kill-child=SIGKILL", "--",
 		lookup("sh"), "-c", script, "ts-installed-controller", mount, ip, self, "^" + regexp.QuoteMeta(t.Name()) + "$", parentMount,
@@ -171,6 +172,7 @@ func requireInstalledControllerNamespace(t *testing.T) {
 	}
 	for path, source := range map[string]string{
 		"/etc": "ts-installed-controller-etc", "/var/lib": "ts-installed-controller-state", "/run": "ts-installed-controller-run",
+		"/tmp": "ts-installed-controller-tmp",
 	} {
 		found := false
 		for line := range strings.SplitSeq(string(info), "\n") {
