@@ -312,7 +312,20 @@ func pemCertificate(der []byte) []byte {
 }
 
 func OpenNetBirdReader(ctx context.Context, local region.VerifiedNetBirdManager, cell string) (*NetBirdReader, error) {
-	if os.Geteuid() != 0 || ctx == nil || ctx.Err() != nil || local.Check(ctx) != nil {
+	if os.Geteuid() != 0 || ctx == nil || ctx.Err() != nil {
+		return nil, ErrDelivery
+	}
+	deadline := local.ExpiresAt()
+	originalCtx, cancelOriginal := context.WithDeadline(ctx, deadline)
+	retained := false
+	defer func() {
+		if !retained {
+			cancelOriginal()
+		}
+	}()
+	ctx, cancelOperation := context.WithTimeout(originalCtx, 30*time.Second)
+	defer cancelOperation()
+	if local.Check(ctx) != nil {
 		return nil, ErrDelivery
 	}
 	for _, name := range ociclient.SecretUnsafeEnv {
@@ -324,18 +337,24 @@ func OpenNetBirdReader(ctx context.Context, local region.VerifiedNetBirdManager,
 	if err != nil {
 		return nil, ErrDelivery
 	}
-	source, err := LoadNetBirdBrokerSource(ctx, factory, cell, "")
+	source, err := LoadNetBirdBrokerSourceForOperation(ctx, originalCtx, factory, cell, "")
 	if err != nil {
 		return nil, ErrDelivery
 	}
+	deadline = minDeadline(deadline, source.ExpiresAt())
+	ctx, cancelSource := context.WithDeadline(ctx, deadline)
+	defer cancelSource()
 	regional, err := factory.ForRegion(source.record.Config.Region)
 	if err != nil {
 		return nil, ErrDelivery
 	}
-	recipient, err := region.VerifyNetBirdManagerRecipient(ctx, regional, source.resolver, source.source)
+	recipient, err := region.VerifyNetBirdManagerRecipientForOperation(ctx, originalCtx, regional, source.resolver, source.source)
 	if err != nil {
 		return nil, ErrDelivery
 	}
+	deadline = minDeadline(deadline, recipient.ExpiresAt())
+	ctx, cancelRecipient := context.WithDeadline(ctx, deadline)
+	defer cancelRecipient()
 	instance, err := bootstrapstart.NewIMDSClient().FetchInstanceID(ctx)
 	if err != nil || instance != recipient.InstanceID() || local.StoreGeneration() != recipient.StoreGeneration() || local.VaultTarget() != recipient.VaultTarget() {
 		return nil, ErrDelivery
@@ -345,7 +364,12 @@ func OpenNetBirdReader(ctx context.Context, local region.VerifiedNetBirdManager,
 		return nil, ErrDelivery
 	}
 	boundary := func(check context.Context) error {
-		if check == nil || check.Err() != nil || ctx.Err() != nil || local.Check(check) != nil || source.Guard(check) != nil || recipient.Check(check) != nil {
+		if check == nil {
+			return ErrDelivery
+		}
+		check, stop := netBirdReadContext(check, originalCtx, deadline)
+		defer stop()
+		if check.Err() != nil || originalCtx.Err() != nil || local.Check(check) != nil || source.Guard(check) != nil || recipient.Check(check) != nil {
 			return ErrDelivery
 		}
 		current, err := bootstrapstart.NewIMDSClient().FetchInstanceID(check)
@@ -358,13 +382,24 @@ func OpenNetBirdReader(ctx context.Context, local region.VerifiedNetBirdManager,
 		return nil, ErrDelivery
 	}
 	original, err := vaultsecret.ReadCurrent(ociclient.WithRequestGuard(ctx, boundary), &client, NetBirdBrokerRef(source))
-	if err != nil || boundary(ctx) != nil {
+	if err != nil {
+		return nil, ErrDelivery
+	}
+	if !original.ExpiresAt.IsZero() {
+		deadline = minDeadline(deadline, original.ExpiresAt)
+	}
+	ctx, cancelCurrent := context.WithDeadline(ctx, deadline)
+	defer cancelCurrent()
+	if boundary(ctx) != nil {
 		return nil, ErrDelivery
 	}
 	material, err := DecodeNetBirdBrokerMaterial([]byte(original.Value()))
 	if err != nil {
 		return nil, ErrDelivery
 	}
+	deadline = minDeadline(deadline, material.ExpiresAt)
+	ctx, cancelMaterial := context.WithDeadline(ctx, deadline)
+	defer cancelMaterial()
 	if material.StartupSlot != source.startup.Manifest().Slot {
 		source, err = source.ForStartupSlot(ctx, material.StartupSlot)
 		if err != nil {
@@ -375,17 +410,8 @@ func OpenNetBirdReader(ctx context.Context, local region.VerifiedNetBirdManager,
 	if err != nil {
 		return nil, ErrDelivery
 	}
-	deadline := material.ExpiresAt
-	if local.ExpiresAt().Before(deadline) {
-		deadline = local.ExpiresAt()
-	}
-	if recipient.ExpiresAt().Before(deadline) {
-		deadline = recipient.ExpiresAt()
-	}
-	if !original.ExpiresAt.IsZero() && original.ExpiresAt.Before(deadline) {
-		deadline = original.ExpiresAt
-	}
-	readerCtx, cancel := context.WithDeadline(ctx, deadline)
+	readerCtx, cancelReader := context.WithDeadline(originalCtx, deadline)
+	cancel := func() { cancelReader(); cancelOriginal() }
 	r := &NetBirdReader{ctx: readerCtx, cancel: cancel, material: material, source: source}
 	fail := func() (*NetBirdReader, error) {
 		cancel()
@@ -397,14 +423,21 @@ func OpenNetBirdReader(ctx context.Context, local region.VerifiedNetBirdManager,
 		}
 		return nil, ErrDelivery
 	}
+	secretID, secretVersion, secretExpiry := original.ID, original.Version, original.ExpiresAt
+	contentDigest := netBirdDigest([]byte(original.Value()))
 	r.guard = func(check context.Context) error {
+		if check == nil {
+			return ErrDelivery
+		}
+		check, stopReader := netBirdReadContext(check, readerCtx, deadline)
+		defer stopReader()
 		check, stop := context.WithTimeout(check, 30*time.Second)
 		defer stop()
 		if readerCtx.Err() != nil || boundary(check) != nil {
 			return ErrDelivery
 		}
 		current, err := vaultsecret.ReadCurrent(ociclient.WithRequestGuard(check, boundary), &client, NetBirdBrokerRef(source))
-		if err != nil || current.ID != original.ID || current.Version != original.Version || !current.ExpiresAt.Equal(original.ExpiresAt) || netBirdDigest([]byte(current.Value())) != netBirdDigest([]byte(original.Value())) {
+		if err != nil || current.ID != secretID || current.Version != secretVersion || !current.ExpiresAt.Equal(secretExpiry) || netBirdDigest([]byte(current.Value())) != contentDigest {
 			return ErrDelivery
 		}
 		if _, _, err := CheckNetBirdBrokerMaterial(material, source, recipient, time.Now().UTC()); err != nil {
@@ -415,7 +448,7 @@ func OpenNetBirdReader(ctx context.Context, local region.VerifiedNetBirdManager,
 		}
 		return readerCtx.Err()
 	}
-	if r.guard(readerCtx) != nil {
+	if r.guard(ctx) != nil {
 		return fail()
 	}
 	r.signer, err = nkeys.ParseDecoratedUserNKey(material.Credentials)
@@ -425,12 +458,12 @@ func OpenNetBirdReader(ctx context.Context, local region.VerifiedNetBirdManager,
 	// The first authenticated connection is the sole session; never reconnect.
 	var connectionCtx context.Context
 	for _, endpoint := range material.Endpoints {
-		if r.guard(readerCtx) != nil {
+		if r.guard(ctx) != nil {
 			return fail()
 		}
 		config := tlsConfig.Clone()
 		config.ServerName = endpoint.ServerName
-		r.conn, connectionCtx, err = natscell.ConnectMemorySingleLease(readerCtx, strings.ToLower(cell), endpoint.Address, material.Credentials, config)
+		r.conn, connectionCtx, err = natscell.ConnectMemorySingleLeaseForOperation(ctx, readerCtx, strings.ToLower(cell), endpoint.Address, material.Credentials, config)
 		if errors.Is(err, natscell.ErrMemorySessionLost) {
 			return fail()
 		}
@@ -444,7 +477,7 @@ func OpenNetBirdReader(ctx context.Context, local region.VerifiedNetBirdManager,
 	}
 	r.ctx = connectionCtx
 	context.AfterFunc(connectionCtx, cancel)
-	if r.Guard(readerCtx) != nil {
+	if r.Guard(ctx) != nil {
 		return fail()
 	}
 	context.AfterFunc(readerCtx, func() { r.conn.Close(); r.mu.Lock(); defer r.mu.Unlock(); r.signer.Wipe() })
@@ -462,5 +495,6 @@ func OpenNetBirdReader(ctx context.Context, local region.VerifiedNetBirdManager,
 			}
 		}
 	}()
+	retained = true
 	return r, nil
 }

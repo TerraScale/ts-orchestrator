@@ -57,6 +57,23 @@ type netBirdRecipientObservation struct {
 // VerifyNetBirdManagerRecipient uses the current regional source and fresh
 // HOME SDK observations. It never runs manager-local IMDS or binary admission.
 func VerifyNetBirdManagerRecipient(ctx context.Context, factory *ociclient.Factory, resolver FoundationResolver, source bootstrap.VerifiedRegionalSource) (VerifiedNetBirdManagerRecipient, error) {
+	return VerifyNetBirdManagerRecipientForOperation(ctx, ctx, factory, resolver, source)
+}
+
+// VerifyNetBirdManagerRecipientForOperation bounds initial reads separately from
+// the original lifecycle retained by the resulting proof.
+func VerifyNetBirdManagerRecipientForOperation(ctx, originalCtx context.Context, factory *ociclient.Factory, resolver FoundationResolver, source bootstrap.VerifiedRegionalSource) (VerifiedNetBirdManagerRecipient, error) {
+	if ctx == nil || originalCtx == nil || ctx.Err() != nil || originalCtx.Err() != nil {
+		return VerifiedNetBirdManagerRecipient{}, errors.New("remote NetBird manager requires live operation and original contexts")
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(originalCtx, cancel)
+	defer func() { stop(); cancel() }()
+	if deadline, ok := originalCtx.Deadline(); ok {
+		var cancelDeadline context.CancelFunc
+		ctx, cancelDeadline = context.WithDeadline(ctx, deadline)
+		defer cancelDeadline()
+	}
 	reader, ok := resolver.Footprint.(*SignedFootprint)
 	if !ok || reader == nil || factory == nil || !source.IsVerified() || factory.Region() != source.Manifest().OCIRegion {
 		return VerifiedNetBirdManagerRecipient{}, errors.New("remote NetBird manager recipient requires the actual regional source and OCI provider")
@@ -93,7 +110,7 @@ func VerifyNetBirdManagerRecipient(ctx context.Context, factory *ociclient.Facto
 	if err != nil {
 		return VerifiedNetBirdManagerRecipient{}, err
 	}
-	return retainNetBirdRecipient(ctx, original, current)
+	return retainNetBirdRecipient(originalCtx, original, current)
 }
 
 func retainNetBirdRecipient(originalContext context.Context, original netBirdRecipientObservation, current func(context.Context) (netBirdRecipientObservation, error)) (VerifiedNetBirdManagerRecipient, error) {

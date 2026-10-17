@@ -1,6 +1,8 @@
 package natscell
 
 import (
+	"context"
+	"crypto/tls"
 	"errors"
 	"strings"
 	"testing"
@@ -89,6 +91,47 @@ func TestNetBirdSingleMemoryLeaseUsesActualTLSBridgeAndEndsOnFence(t *testing.T)
 		t.Fatal(err)
 	}
 	defer clear(creds)
+	t.Run("cancel-pending-info", func(t *testing.T) {
+		listener, err := tls.Listen("tcp", "127.0.0.1:0", serverTLS)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { listener.Close() })
+		operation, cancelOperation := context.WithTimeout(t.Context(), 10*time.Second)
+		defer cancelOperation()
+		ready := make(chan error, 1)
+		go func() {
+			conn, err := listener.Accept()
+			if err != nil {
+				ready <- err
+				cancelOperation()
+				return
+			}
+			defer conn.Close()
+			t.Cleanup(func() { conn.Close() })
+			err = conn.(*tls.Conn).HandshakeContext(t.Context())
+			ready <- err
+			cancelOperation()
+			var wire [1]byte
+			conn.Read(wire[:])
+		}()
+		started := time.Now()
+		conn, _, err := ConnectMemorySingleLeaseForOperation(operation, t.Context(), "gru", "tls://"+listener.Addr().String(), creds, clientTLS)
+		if conn != nil {
+			conn.Close()
+		}
+		if err == nil || time.Since(started) >= 3*time.Second {
+			t.Fatal("canceled initial INFO wait retained the connection budget", err)
+		}
+		select {
+		case err := <-ready:
+			if err != nil {
+				t.Fatal("initial TLS handshake failed before cancellation", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("connection did not reach the initial TLS handshake")
+		}
+	})
 	if conn, _, err := ConnectMemorySingleLease(t.Context(), "gru", "tls://first:4222,tls://second:4222", creds, clientTLS); err == nil {
 		conn.Close()
 		t.Fatal("finite reader accepted an internal endpoint fallback list")
@@ -114,7 +157,9 @@ func TestNetBirdSingleMemoryLeaseUsesActualTLSBridgeAndEndsOnFence(t *testing.T)
 		}
 		t.Fatal("signed authentication attempt allowed endpoint fallback", err)
 	}
-	conn, lease, err := ConnectMemorySingleLease(t.Context(), "gru", "tls://"+bridge.Addr().String(), creds, clientTLS)
+	operation, cancelOperation := context.WithCancel(t.Context())
+	conn, lease, err := ConnectMemorySingleLeaseForOperation(operation, t.Context(), "gru", "tls://"+bridge.Addr().String(), creds, clientTLS)
+	cancelOperation()
 	if err != nil {
 		t.Fatal(err)
 	}

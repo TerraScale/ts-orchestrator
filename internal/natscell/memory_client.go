@@ -36,13 +36,19 @@ func ConnectMemoryLease(ctx context.Context, cell, endpoint string, credentials 
 	if err != nil {
 		return nil, nil, err
 	}
-	return connectMemoryLease(ctx, cell, endpoint, credentials, config, claim, public, false)
+	return connectMemoryLease(ctx, ctx, cell, endpoint, credentials, config, claim, public, false)
 }
 
 // ConnectMemorySingleLease opens the fixed dedicated-manager read role. Its
 // first disconnect ends the original session permanently.
 func ConnectMemorySingleLease(ctx context.Context, cell, endpoint string, credentials []byte, config *tls.Config) (*nats.Conn, context.Context, error) {
-	if ctx == nil || ctx.Err() != nil || strings.Contains(endpoint, ",") || len(credentials) == 0 || len(credentials) > 64<<10 {
+	return ConnectMemorySingleLeaseForOperation(ctx, ctx, cell, endpoint, credentials, config)
+}
+
+// ConnectMemorySingleLeaseForOperation bounds the initial connection separately
+// from the original lifecycle retained by the authenticated session.
+func ConnectMemorySingleLeaseForOperation(ctx, originalCtx context.Context, cell, endpoint string, credentials []byte, config *tls.Config) (*nats.Conn, context.Context, error) {
+	if ctx == nil || originalCtx == nil || ctx.Err() != nil || originalCtx.Err() != nil || strings.Contains(endpoint, ",") || len(credentials) == 0 || len(credentials) > 64<<10 {
 		return nil, nil, errors.New("in-memory NATS credentials are unavailable")
 	}
 	if err := ValidateNetBirdReaderCredentialBytes(credentials, cell); err != nil {
@@ -56,7 +62,7 @@ func ConnectMemorySingleLease(ctx context.Context, cell, endpoint string, creden
 	if err != nil {
 		return nil, nil, err
 	}
-	conn, lease, err := connectMemoryLease(ctx, cell, endpoint, credentials, config, claim, claim.Subject, true, nats.NoReconnect(), nats.IgnoreDiscoveredServers())
+	conn, lease, err := connectMemoryLease(originalCtx, ctx, cell, endpoint, credentials, config, claim, claim.Subject, true, nats.NoReconnect(), nats.IgnoreDiscoveredServers())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -83,8 +89,8 @@ func ConnectMemorySingleLease(ctx context.Context, cell, endpoint string, creden
 	return conn, single, nil
 }
 
-func connectMemoryLease(ctx context.Context, cell, endpoint string, credentials []byte, config *tls.Config, claim *jwt.UserClaims, public string, terminalAuth bool, options ...nats.Option) (*nats.Conn, context.Context, error) {
-	if ctx == nil || ctx.Err() != nil || !cellName.MatchString(cell) || endpoint == "" || len(credentials) == 0 || len(credentials) > 64<<10 ||
+func connectMemoryLease(ctx, operationCtx context.Context, cell, endpoint string, credentials []byte, config *tls.Config, claim *jwt.UserClaims, public string, terminalAuth bool, options ...nats.Option) (*nats.Conn, context.Context, error) {
+	if ctx == nil || operationCtx == nil || ctx.Err() != nil || operationCtx.Err() != nil || !cellName.MatchString(cell) || endpoint == "" || len(credentials) == 0 || len(credentials) > 64<<10 ||
 		config == nil || config.InsecureSkipVerify || config.RootCAs == nil || len(config.Certificates) != 1 || len(config.Certificates[0].Certificate) == 0 {
 		return nil, nil, errors.New("in-memory NATS credentials are unavailable")
 	}
@@ -118,6 +124,8 @@ func connectMemoryLease(ctx context.Context, cell, endpoint string, credentials 
 		deadline = time.Unix(claim.Expires, 0)
 	}
 	ctx, cancel := context.WithDeadline(ctx, deadline)
+	stopOperation := context.AfterFunc(operationCtx, cancel)
+	defer stopOperation()
 	pair, err := nkeys.ParseDecoratedUserNKey(credentials)
 	if err != nil {
 		cancel()
@@ -147,9 +155,12 @@ func connectMemoryLease(ctx context.Context, cell, endpoint string, credentials 
 	if original, ok := ctx.Deadline(); ok {
 		timeout = min(timeout, time.Until(original))
 	}
+	if until, ok := operationCtx.Deadline(); ok {
+		timeout = min(timeout, time.Until(until))
+	}
 	options = append(options, nats.Name("terrascale-"+cell+"-root-reader"),
 		nats.Timeout(timeout), nats.ErrorHandler(ErrorHandler), nats.CustomInboxPrefix(inboxPrefix(cell, public)),
-		nats.SetCustomDialer(&tlsFirstDialer{config: config.Clone(), timeout: timeout}),
+		nats.SetCustomDialer(&tlsFirstDialer{config: config.Clone(), timeout: timeout, ctx: ctx}),
 		nats.UserJWT(func() (string, error) {
 			if err := valid(); err != nil {
 				return "", err
@@ -177,7 +188,7 @@ func connectMemoryLease(ctx context.Context, cell, endpoint string, credentials 
 		return nil, nil, err
 	}
 	stop := context.AfterFunc(ctx, conn.Close)
-	if conn.IsClosed() || valid() != nil {
+	if conn.IsClosed() || valid() != nil || operationCtx.Err() != nil {
 		stop()
 		conn.Close()
 		cleanup()

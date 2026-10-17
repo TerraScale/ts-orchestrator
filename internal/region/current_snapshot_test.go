@@ -63,7 +63,9 @@ func TestCurrentFoundationSnapshotSingleDiscoveryAndFixedGuard(t *testing.T) {
 	objects := &snapshotDiscoveryObjects{foundationDiscoveryObjects: f.client}
 	original, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	snapshot, err := discoverCurrentFoundationSnapshot(original, objects, f.grant.TenancyID, f.genesis)
+	operation, cancelOperation := context.WithCancel(original)
+	snapshot, err := discoverCurrentFoundationSnapshotForOperation(operation, original, objects, f.grant.TenancyID, f.genesis)
+	cancelOperation()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,6 +103,23 @@ func TestCurrentFoundationSnapshotSingleDiscoveryAndFixedGuard(t *testing.T) {
 	count := len(objects.objects)
 	if err := snapshot.Guard(context.Background()); !errors.Is(err, context.Canceled) || len(objects.objects) != count {
 		t.Fatalf("fresh caller context revived original cancellation: %v", err)
+	}
+}
+
+func TestCurrentFoundationSnapshotInitialReadsUseOperationDeadline(t *testing.T) {
+	f := newCurrentDiscoveryScenario(t)
+	original, cancelOriginal := context.WithTimeout(t.Context(), time.Minute)
+	defer cancelOriginal()
+	operation, cancelOperation := context.WithTimeout(original, time.Second)
+	defer cancelOperation()
+	deadline, _ := operation.Deadline()
+	blocked := &snapshotBlockedDispatcher{test: t, deadline: deadline}
+	f.client.(*objectstorage.ObjectStorageClient).HTTPClient = blocked
+	if _, err := discoverCurrentFoundationSnapshotForOperation(operation, original, f.client, f.grant.TenancyID, f.genesis); err == nil || !blocked.called {
+		t.Fatal("initial discovery did not reach its bounded signed SDK read")
+	}
+	if original.Err() != nil {
+		t.Fatal("operation expiry canceled the retained lifecycle")
 	}
 }
 

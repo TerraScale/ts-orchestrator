@@ -137,6 +137,8 @@ func resolveCurrentFoundation(ctx context.Context, client foundationDiscoveryObj
 	if err != nil {
 		return FoundationResolver{}, RetainedFoundation{}, err
 	}
+	ctx, cancelAnchor := context.WithDeadline(ctx, anchor.ExpiresAt())
+	defer cancelAnchor()
 	reader, err := newSignedFootprint(client, anchor, verified.Current, tenancy)
 	if err != nil {
 		return FoundationResolver{}, RetainedFoundation{}, err

@@ -33,7 +33,13 @@ type CurrentFoundationSnapshot struct {
 // DiscoverCurrentFoundationSnapshot returns both halves of the same discovery;
 // existing material and resource-binding verification still applies to its resolver.
 func DiscoverCurrentFoundationSnapshot(ctx context.Context, factory *ociclient.Factory) (*CurrentFoundationSnapshot, error) {
-	if ctx == nil || ctx.Err() != nil {
+	return DiscoverCurrentFoundationSnapshotForOperation(ctx, ctx, factory)
+}
+
+// DiscoverCurrentFoundationSnapshotForOperation uses one bounded discovery while
+// retaining the original source lifecycle independently of the read budget.
+func DiscoverCurrentFoundationSnapshotForOperation(ctx, originalCtx context.Context, factory *ociclient.Factory) (*CurrentFoundationSnapshot, error) {
+	if ctx == nil || originalCtx == nil || ctx.Err() != nil || originalCtx.Err() != nil {
 		return nil, errors.New("current foundation requires a live original context")
 	}
 	genesis, err := trust.DiscoveryGenesis()
@@ -44,7 +50,7 @@ func DiscoverCurrentFoundationSnapshot(ctx context.Context, factory *ociclient.F
 	if err != nil {
 		return nil, err
 	}
-	snapshot, err := discoverCurrentFoundationSnapshot(ctx, client, tenancy, genesis)
+	snapshot, err := discoverCurrentFoundationSnapshotForOperation(ctx, originalCtx, client, tenancy, genesis)
 	if err == nil {
 		snapshot.resolver.Footprint.(*SignedFootprint).factory = factory
 	}
@@ -52,8 +58,20 @@ func DiscoverCurrentFoundationSnapshot(ctx context.Context, factory *ociclient.F
 }
 
 func discoverCurrentFoundationSnapshot(ctx context.Context, client foundationDiscoveryObjects, tenancy string, genesis trust.Keyring) (*CurrentFoundationSnapshot, error) {
-	if ctx == nil || ctx.Err() != nil || client == nil {
+	return discoverCurrentFoundationSnapshotForOperation(ctx, ctx, client, tenancy, genesis)
+}
+
+func discoverCurrentFoundationSnapshotForOperation(ctx, originalCtx context.Context, client foundationDiscoveryObjects, tenancy string, genesis trust.Keyring) (*CurrentFoundationSnapshot, error) {
+	if ctx == nil || originalCtx == nil || ctx.Err() != nil || originalCtx.Err() != nil || client == nil {
 		return nil, errors.New("current foundation requires authenticated discovery and a live original context")
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(originalCtx, cancel)
+	defer func() { stop(); cancel() }()
+	if deadline, ok := originalCtx.Deadline(); ok {
+		var cancelDeadline context.CancelFunc
+		ctx, cancelDeadline = context.WithDeadline(ctx, deadline)
+		defer cancelDeadline()
 	}
 	directory, err := os.UserConfigDir()
 	if err != nil {
@@ -84,7 +102,7 @@ func discoverCurrentFoundationSnapshot(ctx context.Context, client foundationDis
 	snapshot := &CurrentFoundationSnapshot{
 		resolver: resolver, documents: documents.clone(), genesis: cloneFoundationRoots(genesis),
 		roots: cloneFoundationRoots(roots.Current), anchor: source.bootstrapAnchor, head: roots.Head,
-		expires: expires, ctx: ctx, floorDirectory: directory,
+		expires: expires, ctx: originalCtx, floorDirectory: directory,
 		floor: foundationFloor{Version: 1, TenancyID: tenancy, InstallationID: source.home.InstallationID,
 			DeploymentID: source.home.DeploymentID, ClusterID: source.home.ClusterID,
 			ChainWire: bytes.Clone(documents.RootChainWire), Generation: source.home.GrantGeneration,
@@ -119,6 +137,9 @@ func (s *CurrentFoundationSnapshot) Guard(ctx context.Context) error {
 		return err
 	}
 	deadline := s.expires
+	if s.anchor.ExpiresAt().Before(deadline) {
+		deadline = s.anchor.ExpiresAt()
+	}
 	if original, ok := s.ctx.Deadline(); ok && original.Before(deadline) {
 		deadline = original
 	}
@@ -188,7 +209,7 @@ func (s *CurrentFoundationSnapshot) checkLifetime(ctx context.Context) error {
 			return context.DeadlineExceeded
 		}
 	}
-	if !now.Before(s.expires) {
+	if !now.Before(s.expires) || !now.Before(s.anchor.ExpiresAt()) {
 		return errors.New("original foundation snapshot expired")
 	}
 	return nil
