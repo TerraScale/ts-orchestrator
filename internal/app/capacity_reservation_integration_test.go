@@ -15,6 +15,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 )
 
 // Even a publisher reaching a victim's reply subject cannot manufacture home authority.
@@ -37,7 +38,7 @@ func TestCapacityReservationSignedReplyNATS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, scenario := range []string{"current home", "wrong signer", "wrong source", "wrong action", "wrong nonce", "wrong recipe", "expired", "missing pin", "unavailable pin"} {
+	for _, scenario := range []string{"current home", "wrong signer", "wrong source", "wrong action", "wrong nonce", "wrong recipe", "mixed pool reply", "changed pin", "expired", "missing pin", "unavailable pin"} {
 		t.Run(scenario, func(t *testing.T) {
 			request := capacityReservationRequest{Recipe: nodescale.Recipe{Cell: "fra"},
 				Request: budget.ReservationRequest{OperationID: entityid.New()}}
@@ -69,6 +70,9 @@ func TestCapacityReservationSignedReplyNATS(t *testing.T) {
 				if scenario == "wrong recipe" {
 					response.Receipt.RecipeSHA256 = "altered"
 				}
+				if scenario == "mixed pool reply" {
+					response.Pool = &capacityPoolResponse{Operation: rootoci.OperationAdvancePoolChild}
+				}
 				if scenario == "expired" {
 					now = now.Add(-time.Minute)
 				}
@@ -94,6 +98,16 @@ func TestCapacityReservationSignedReplyNATS(t *testing.T) {
 			defer subscription.Unsubscribe()
 			r := &capacityReservations{conn: conn, cell: "fra", user: user,
 				homeKey: func(context.Context) (ed25519.PublicKey, error) { return public, nil }}
+			if scenario == "changed pin" {
+				reads := 0
+				r.homeKey = func(context.Context) (ed25519.PublicKey, error) {
+					reads++
+					if reads > 1 {
+						return attacker.Public().(ed25519.PublicKey), nil
+					}
+					return public, nil
+				}
+			}
 			if scenario == "missing pin" {
 				r.homeKey = nil
 			}
