@@ -97,7 +97,8 @@ func TestContainerOriginalProfileArchiveBrokerIntegration(t *testing.T) {
 		return result
 	}
 	now := time.Now().UTC().Truncate(time.Second)
-	originalBundle.Delegation = resign(currentBundle.Delegation, now.Add(-4*time.Hour), now.Add(-time.Hour), releaseSigner.root)
+	originalExpiry := now.Add(5 * time.Second)
+	originalBundle.Delegation = resign(currentBundle.Delegation, now.Add(-time.Minute), originalExpiry, releaseSigner.root)
 	claimEnvelope, err := trust.DecodeEnvelope(currentBundle.Claim)
 	if err != nil {
 		t.Fatal(err)
@@ -115,15 +116,15 @@ func TestContainerOriginalProfileArchiveBrokerIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := range qualification.Evidence {
-		qualification.Evidence[i].CompletedAt = now.Add(-3 * time.Hour)
+		qualification.Evidence[i].CompletedAt = now.Add(-time.Second)
 	}
-	signExpired := func(value any, scope trust.Scope, key ed25519.PrivateKey) []byte {
+	signOriginal := func(value any, scope trust.Scope, key ed25519.PrivateKey) []byte {
 		t.Helper()
 		payload, err := trust.EncodePayload(value)
 		if err != nil {
 			t.Fatal(err)
 		}
-		envelope, err := trust.Sign(payload, scope, now.Add(-3*time.Hour), now.Add(-2*time.Hour), key)
+		envelope, err := trust.Sign(payload, scope, now, originalExpiry, key)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -133,14 +134,14 @@ func TestContainerOriginalProfileArchiveBrokerIntegration(t *testing.T) {
 		}
 		return wire
 	}
-	expiredClaim.Production.Qualification = signExpired(qualification, qualificationEnvelope.Scope, releaseSigner.root)
-	originalBundle.Claim = signExpired(expiredClaim, claimEnvelope.Scope, releaseSigner.leaf)
+	expiredClaim.Production.Qualification = signOriginal(qualification, qualificationEnvelope.Scope, releaseSigner.root)
+	originalBundle.Claim = signOriginal(expiredClaim, claimEnvelope.Scope, releaseSigner.leaf)
 	historical, err := release.VerifyContainerHistorical(originalBundle, releaseSigner.roots, target)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := release.VerifyProductionCurrent(expiredClaim.Production.Qualification, expiredClaim.Production.Delegation, releaseSigner.roots, qualification.Candidate, now); err == nil {
-		t.Fatal("original expired production qualification became current authority")
+	if _, err := release.VerifyProductionCurrent(expiredClaim.Production.Qualification, expiredClaim.Production.Delegation, releaseSigner.roots, qualification.Candidate, now); err != nil {
+		t.Fatal("original qualification was not current before protected apply", err)
 	}
 	claim := historical.Claim()
 	intent := delivery.Intent{SchemaVersion: delivery.SchemaVersion, OperationID: entityid.New(), Source: delivery.ArtifactSource{Repository: claim.SourceRepository, Commit: claim.SourceRevision, TreeDigest: claim.SourceTreeSHA256}, Cell: identity.Cell, Role: policy.Role, Environment: identity.Environment, Generation: 1, DesiredReplicas: 1, ConfigDigest: delivery.ConfigDigestOf(profile.Args, profile.Env, profile.Secrets), AuthorityEpoch: control.Current().Epoch, Container: &originalBundle}
@@ -264,6 +265,16 @@ func TestContainerOriginalProfileArchiveBrokerIntegration(t *testing.T) {
 	if _, err := selectContainerIntent(ctx, js, recovered, intent.OperationID); !errors.Is(err, delivery.ErrUnauthorized) {
 		t.Fatal("channel selector admitted held original provenance", err)
 	}
+	expiry := time.NewTimer(time.Until(originalExpiry))
+	defer expiry.Stop()
+	select {
+	case <-expiry.C:
+	case <-ctx.Done():
+		t.Fatal("original proof did not reach its real expiry", ctx.Err())
+	}
+	if _, err := release.VerifyProductionCurrent(expiredClaim.Production.Qualification, expiredClaim.Production.Delegation, releaseSigner.roots, qualification.Candidate, time.Now().UTC()); err == nil {
+		t.Fatal("original expired production qualification became current authority")
+	}
 	historicalRoots := maps.Clone(releaseSigner.roots)
 	for id, key := range keys.roots {
 		historicalRoots[id] = key
@@ -308,7 +319,7 @@ func TestContainerOriginalProfileArchiveBrokerIntegration(t *testing.T) {
 		t.Fatal("protected archive did not cross full shared historical continuity", err)
 	}
 	swapped := originalBundle
-	swapped.Delegation = resign(originalBundle.Delegation, now.Add(-4*time.Hour), now.Add(-30*time.Minute), releaseSigner.root)
+	swapped.Delegation = resign(originalBundle.Delegation, now.Add(-time.Minute), now.Add(time.Minute), releaseSigner.root)
 	swappedHistorical, err := release.VerifyContainerHistorical(swapped, historicalRoots, target)
 	if err != nil || swappedHistorical.Fingerprint() != historical.Fingerprint() || swappedHistorical.BundleSHA256() == historical.BundleSHA256() {
 		t.Fatal("full-bundle substitution did not retain the genuine original claim", err)
