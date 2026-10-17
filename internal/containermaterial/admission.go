@@ -214,8 +214,14 @@ func verifyTaskAssignment(task *api.Task, binding host.ContainerMaterialBinding)
 }
 
 func verifyTaskNode(node *api.Node, binding host.ContainerMaterialBinding, architecture string) error {
-	if node == nil || node.ID != binding.NodeID || node.Spec.Membership != api.NodeMembershipAccepted || node.Status.State != api.NodeStatus_READY ||
-		node.Spec.Availability != api.NodeAvailabilityActive || node.Spec.Annotations.Name != binding.HostID ||
+	if node == nil || node.Status.State != api.NodeStatus_READY || node.Spec.Availability != api.NodeAvailabilityActive {
+		return ErrPending
+	}
+	return verifyTaskNodeIdentity(node, binding, architecture)
+}
+
+func verifyTaskNodeIdentity(node *api.Node, binding host.ContainerMaterialBinding, architecture string) error {
+	if node == nil || node.ID != binding.NodeID || node.Spec.Membership != api.NodeMembershipAccepted || node.Spec.Annotations.Name != binding.HostID ||
 		node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] != binding.InstanceID ||
 		node.Spec.Annotations.Labels[swarmruntime.LabelRegion] != binding.Region ||
 		node.Spec.Annotations.Labels[swarmruntime.LabelExecutionScope] != "platform" ||
