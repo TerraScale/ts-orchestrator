@@ -54,7 +54,11 @@ func (r FoundationResolver) VerifyCurrentPoolDrainSource(ctx context.Context, re
 	if err != nil {
 		return err
 	}
-	spec, err := cellspec.VerifyCurrent(receipt.CellSpecWire, roots.Current, cellspec.Identity(identity), receipt.CapturedAt)
+	verifiedAt := receipt.CapturedAt
+	if receipt.Phase == drainwire.PoolStopped {
+		verifiedAt = receipt.StoppedAt
+	}
+	spec, err := cellspec.VerifyCurrent(receipt.CellSpecWire, roots.Current, cellspec.Identity(identity), verifiedAt)
 	if err != nil || !spec.RootSigned || spec.Generation != receipt.Source.CellSpecGeneration {
 		return errors.Join(errors.New("pool drain lacks independently verified exact root-signed capture spec"), err)
 	}

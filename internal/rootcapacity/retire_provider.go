@@ -9,6 +9,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
@@ -77,11 +78,20 @@ func (a *attempt) originalConfiguration(ctx context.Context, child region.PoolCh
 }
 
 func (a *attempt) terminateOriginal(ctx context.Context, child region.PoolChildRecord) (bool, error) {
+	if child.InstanceTerminal != nil {
+		return true, a.guard(ctx)
+	}
 	instance, err := a.originalInstance(ctx, child)
 	if err != nil {
 		return false, err
 	}
+	if instance.LifecycleState == core.InstanceLifecycleStateTerminated {
+		return a.retainTerminal(ctx, child, "instance", value(instance.Etag), value(instance.OpcRequestId), instance.Instance)
+	}
 	if child.Terminate == nil {
+		if err := a.verifyRetirementDrain(ctx, child, true, true); err != nil {
+			return false, err
+		}
 		if instance.LifecycleState != core.InstanceLifecycleStateRunning && instance.LifecycleState != core.InstanceLifecycleStateStopped {
 			return false, errors.New("unprepared original termination target is not a live exact worker")
 		}
@@ -89,6 +99,7 @@ func (a *attempt) terminateOriginal(ctx context.Context, child region.PoolChildR
 		if err != nil {
 			return false, err
 		}
+		child.Terminate.ExpiresAt = a.retirementDeadline()
 		child.Stage = region.PoolChildTerminating
 		a.record.PoolChildren[child.OperationID] = child
 		if err := a.save(ctx); err != nil {
@@ -96,6 +107,9 @@ func (a *attempt) terminateOriginal(ctx context.Context, child region.PoolChildR
 		}
 	}
 	if child.Terminate.AcceptedAt.IsZero() {
+		if err := retirementWireLive(child.Terminate); err != nil {
+			return false, err
+		}
 		compute, err := a.factory.Compute()
 		if err != nil {
 			return false, err
@@ -112,15 +126,27 @@ func (a *attempt) terminateOriginal(ctx context.Context, child region.PoolChildR
 		}
 	}
 	instance, err = a.originalInstance(ctx, child)
-	return err == nil && instance.LifecycleState == core.InstanceLifecycleStateTerminated, err
+	if err != nil || instance.LifecycleState != core.InstanceLifecycleStateTerminated {
+		return false, err
+	}
+	return a.retainTerminal(ctx, child, "instance", value(instance.Etag), value(instance.OpcRequestId), instance.Instance)
 }
 
 func (a *attempt) deleteOriginalBoot(ctx context.Context, child region.PoolChildRecord) (bool, error) {
+	if child.BootTerminal != nil {
+		return true, a.guard(ctx)
+	}
 	boot, err := a.originalBoot(ctx, child)
 	if err != nil {
 		return false, err
 	}
+	if boot.LifecycleState == core.BootVolumeLifecycleStateTerminated {
+		return a.retainTerminal(ctx, child, "boot", value(boot.Etag), value(boot.OpcRequestId), boot.BootVolume)
+	}
 	if child.DeleteBoot == nil {
+		if err := a.verifyRetirementDrain(ctx, child, true, true); err != nil {
+			return false, err
+		}
 		if boot.LifecycleState != core.BootVolumeLifecycleStateAvailable {
 			return false, fmt.Errorf("%w: preserved original boot is not available for exact deletion", ErrPending)
 		}
@@ -128,12 +154,16 @@ func (a *attempt) deleteOriginalBoot(ctx context.Context, child region.PoolChild
 		if err != nil {
 			return false, err
 		}
+		child.DeleteBoot.ExpiresAt = a.retirementDeadline()
 		a.record.PoolChildren[child.OperationID] = child
 		if err := a.save(ctx); err != nil {
 			return false, err
 		}
 	}
 	if child.DeleteBoot.AcceptedAt.IsZero() {
+		if err := retirementWireLive(child.DeleteBoot); err != nil {
+			return false, err
+		}
 		storage, err := a.factory.Blockstorage()
 		if err != nil {
 			return false, err
@@ -150,7 +180,60 @@ func (a *attempt) deleteOriginalBoot(ctx context.Context, child region.PoolChild
 		}
 	}
 	boot, err = a.originalBoot(ctx, child)
-	return err == nil && boot.LifecycleState == core.BootVolumeLifecycleStateTerminated, err
+	if err != nil || boot.LifecycleState != core.BootVolumeLifecycleStateTerminated {
+		return false, err
+	}
+	return a.retainTerminal(ctx, child, "boot", value(boot.Etag), value(boot.OpcRequestId), boot.BootVolume)
+}
+
+func (a *attempt) retainTerminal(ctx context.Context, child region.PoolChildRecord, kind, etag, requestID string, response any) (bool, error) {
+	if err := a.verifyRetirementDrain(ctx, child, true, false); err != nil {
+		return false, err
+	}
+	wire, resourceID := child.Terminate, child.InstanceID
+	if kind == "boot" {
+		if child.InstanceTerminal == nil {
+			return false, errors.New("boot terminal observation lacks original positive instance terminal history")
+		}
+		wire, resourceID = child.DeleteBoot, child.BootVolumeID
+	}
+	observed, err := terminalObservation(wire, resourceID, etag, requestID, response, time.Now().UTC())
+	if err != nil {
+		return false, err
+	}
+	if kind == "boot" {
+		child.BootTerminal = observed
+	} else {
+		child.InstanceTerminal = observed
+	}
+	a.record.PoolChildren[child.OperationID] = child
+	return true, a.save(ctx)
+}
+
+func terminalObservation(wire *region.PoolWireRecord, resourceID, etag, requestID string, response any, now time.Time) (*region.PoolTerminalObservation, error) {
+	if wire == nil || wire.Attempts == 0 || wire.IfMatch == "" || wire.ExpiresAt.IsZero() ||
+		wire.AcceptedAt.IsZero() && !wire.EverUnknown && wire.PendingAttemptID == "" ||
+		!wire.LastAttemptAt.Before(wire.ExpiresAt) || now.Before(wire.LastAttemptAt) || etag == "" {
+		return nil, errors.New("positive terminal response has no original conditional dispatched deletion")
+	}
+	switch actual := response.(type) {
+	case core.Instance:
+		if value(actual.Id) != resourceID || actual.LifecycleState != core.InstanceLifecycleStateTerminated {
+			return nil, errors.New("instance SDK response is not the exact positive terminal target")
+		}
+	case core.BootVolume:
+		if value(actual.Id) != resourceID || actual.LifecycleState != core.BootVolumeLifecycleStateTerminated {
+			return nil, errors.New("boot SDK response is not the exact positive terminal target")
+		}
+	default:
+		return nil, errors.New("terminal observation requires the actual typed SDK instance or boot response")
+	}
+	responseSHA, err := digestValue(response)
+	if err != nil {
+		return nil, err
+	}
+	return &region.PoolTerminalObservation{ResourceID: resourceID, Request: *wire, LifecycleState: "TERMINATED", ResponseSHA256: responseSHA,
+		ETag: etag, OpcRequestID: requestID, TerminalObservedAt: now}, nil
 }
 
 func (a *attempt) authorizeRetirement(ctx context.Context, kind string) error {
@@ -158,8 +241,13 @@ func (a *attempt) authorizeRetirement(ctx context.Context, kind string) error {
 	if !exists || child.Stage == region.PoolChildRetired || child.RemovalOperationID != a.operation {
 		return errors.New("retirement has no consumed exact original child and drain")
 	}
-	if err := a.verifyRetirementDrain(ctx, child, true); err != nil {
+	if err := a.verifyRetirementDrain(ctx, child, true, true); err != nil {
 		return err
+	}
+	wire := a.wire(kind)
+	if wire == nil || wire.ExpiresAt.IsZero() || !time.Now().Before(wire.ExpiresAt) ||
+		kind == "terminate" && child.InstanceTerminal != nil || kind == "delete-boot" && child.BootTerminal != nil {
+		return errors.New("original destructive dispatch is expired or already positively terminal")
 	}
 	if err := a.originalConfiguration(ctx, child); err != nil {
 		return err
@@ -199,9 +287,12 @@ func (a *attempt) authorizeRetirement(ctx context.Context, kind string) error {
 			}
 		}
 	}
-	instance, err := a.originalInstance(ctx, child)
-	if err != nil {
-		return err
+	var instance core.GetInstanceResponse
+	if kind != "delete-boot" {
+		instance, err = a.originalInstance(ctx, child)
+		if err != nil {
+			return err
+		}
 	}
 	boot, err := a.originalBoot(ctx, child)
 	if err != nil {
@@ -235,7 +326,7 @@ func (a *attempt) authorizeRetirement(ctx context.Context, kind string) error {
 		attached = true
 	}
 	if kind == "delete-boot" {
-		if attached || instance.LifecycleState != core.InstanceLifecycleStateTerminated || child.Terminate == nil || child.Terminate.AcceptedAt.IsZero() ||
+		if attached || child.InstanceTerminal == nil ||
 			child.DeleteBoot == nil || value(boot.Etag) != child.DeleteBoot.IfMatch || boot.LifecycleState != core.BootVolumeLifecycleStateAvailable {
 			return errors.New("boot deletion lacks positive original instance termination and exact idle preserved boot")
 		}
@@ -254,8 +345,8 @@ func (a *attempt) authorizeRetirement(ctx context.Context, kind string) error {
 	if err := a.guard(ctx); err != nil {
 		return err
 	}
-	if !time.Now().Before(a.lifecycle.ExpiresAt()) || a.drain == nil || !time.Now().Before(a.drain.ExpiresAt) {
+	if !time.Now().Before(a.lifecycle.ExpiresAt()) || a.drain == nil || !time.Now().Before(a.drain.ExpiresAt) || !time.Now().Before(wire.ExpiresAt) {
 		return errors.New("original known retirement authority expired before destructive dispatch")
 	}
-	return nil
+	return ociclient.LimitAdmission(ctx, wire.ExpiresAt)
 }

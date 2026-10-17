@@ -12,8 +12,8 @@ func completedPoolOperation(record region.FoundationRecord, poolID, operationID 
 	}
 	for _, child := range record.PoolChildren {
 		if child.PoolID == poolID && child.RemovalOperationID == operationID && child.Stage == region.PoolChildRetired &&
-			child.RetirementDrain != nil && child.Terminate != nil && !child.Terminate.AcceptedAt.IsZero() &&
-			child.DeleteBoot != nil && !child.DeleteBoot.AcceptedAt.IsZero() && !child.InstanceRetiredAt.IsZero() && !child.BootRetiredAt.IsZero() {
+			child.RetirementDrain != nil && child.InstanceTerminal != nil && child.BootTerminal != nil &&
+			!child.InstanceRetiredAt.IsZero() && !child.BootRetiredAt.IsZero() {
 			return true
 		}
 	}

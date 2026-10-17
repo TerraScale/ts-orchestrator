@@ -13,7 +13,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
-	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
 // RetirePoolChild consumes one genuine protected regional drain for the exact
@@ -57,14 +56,12 @@ func (c *Controller) RetirePoolChild(ctx context.Context, call rootoci.Call, req
 		return rootoci.PoolRetirementView{}, errors.Join(err, errors.New("retirement changed its original protected drain lineage"))
 	}
 	a.drain = &drain
-	for _, expiry := range []time.Time{drain.ExpiresAt, a.lifecycle.ExpiresAt()} {
-		if expiry.Before(a.deadline) {
-			a.deadline = expiry
-		}
+	if expiry := a.lifecycle.ExpiresAt(); expiry.Before(a.deadline) {
+		a.deadline = expiry
 	}
 	ctx, stop := context.WithDeadline(ctx, a.deadline)
 	defer stop()
-	if err := a.verifyRetirementDrain(ctx, child, false); err != nil {
+	if err := a.verifyRetirementDrain(ctx, child, child.Stage != region.PoolChildReady, child.Stage == region.PoolChildReady); err != nil {
 		return rootoci.PoolRetirementView{}, err
 	}
 	if err := a.claimPool(ctx, child.PoolID); err != nil {
@@ -74,6 +71,11 @@ func (c *Controller) RetirePoolChild(ctx context.Context, call rootoci.Call, req
 		_ = a.releasePool(ctx, a.record.PoolChildren[child.OperationID].Stage == region.PoolChildRetired)
 	}()
 	if child.Stage == region.PoolChildReady {
+		pin, err := a.resolver.PinPoolDrainSource(a.proofContext(ctx), drain)
+		if err != nil {
+			return rootoci.PoolRetirementView{}, err
+		}
+		child.DrainSource = &pin
 		child.RemovalOperationID, child.DrainAuthoritySHA256, child.Stage = a.operation, drainSHA, region.PoolChildDraining
 		a.record.PoolChildren[child.OperationID] = child
 		if err := a.save(ctx); err != nil {
@@ -85,6 +87,9 @@ func (c *Controller) RetirePoolChild(ctx context.Context, call rootoci.Call, req
 		return rootoci.PoolRetirementView{}, err
 	}
 	if child.Detach == nil {
+		if err := a.verifyRetirementDrain(ctx, child, true, true); err != nil {
+			return rootoci.PoolRetirementView{}, err
+		}
 		pool, err := a.originalPool(ctx, management, child.PoolID)
 		if err != nil {
 			return rootoci.PoolRetirementView{}, err
@@ -100,6 +105,7 @@ func (c *Controller) RetirePoolChild(ctx context.Context, call rootoci.Call, req
 		if err != nil {
 			return rootoci.PoolRetirementView{}, err
 		}
+		child.Detach.ExpiresAt = a.retirementDeadline()
 		child.DetachTargetFrom, child.Stage = value(pool.Size), region.PoolChildDetachPrepared
 		a.record.PoolChildren[child.OperationID] = child
 		if err := a.save(ctx); err != nil {
@@ -107,6 +113,9 @@ func (c *Controller) RetirePoolChild(ctx context.Context, call rootoci.Call, req
 		}
 	}
 	if child.Detach.AcceptedAt.IsZero() {
+		if err := retirementWireLive(child.Detach); err != nil {
+			return rootoci.PoolRetirementView{}, err
+		}
 		response, err := management.DetachInstancePoolInstance(a.writeContext(ctx, "detach"), a.detachRequest(child.PoolID, child.InstanceID))
 		if err != nil {
 			return rootoci.PoolRetirementView{}, err
@@ -127,7 +136,7 @@ func (c *Controller) RetirePoolChild(ctx context.Context, call rootoci.Call, req
 		if !complete {
 			return rootoci.PoolRetirementView{}, fmt.Errorf("%w: original known-child detach is still running", ErrPending)
 		}
-		if err := a.verifyRetirementDrain(ctx, child, true); err != nil {
+		if err := a.verifyRetirementDrain(ctx, child, true, false); err != nil {
 			return rootoci.PoolRetirementView{}, err
 		}
 		child.DetachedAt, child.Stage = time.Now().UTC(), region.PoolChildDetached
@@ -152,12 +161,11 @@ func (c *Controller) RetirePoolChild(ctx context.Context, call rootoci.Call, req
 	if !bootTerminal {
 		return rootoci.PoolRetirementView{}, fmt.Errorf("%w: original preserved boot is not positively terminal", ErrPending)
 	}
-	if err := a.verifyRetirementDrain(ctx, child, true); err != nil {
+	if err := a.verifyRetirementDrain(ctx, child, true, false); err != nil {
 		return rootoci.PoolRetirementView{}, err
 	}
-	instance, err := a.originalInstance(ctx, child)
-	if err != nil || instance.LifecycleState != core.InstanceLifecycleStateTerminated {
-		return rootoci.PoolRetirementView{}, errors.Join(err, errors.New("original instance lost positive terminal evidence before final accounting"))
+	if child.InstanceTerminal == nil || child.BootTerminal == nil {
+		return rootoci.PoolRetirementView{}, errors.New("original cleanup lacks retained positive instance and boot terminal evidence")
 	}
 	terminalAt := time.Now().UTC()
 	if err := a.record.CapacityLedger.RetireResource(child.OperationID, child.InstanceID, terminalAt); err != nil {
@@ -216,7 +224,7 @@ func (a *attempt) retirementView(ctx context.Context, child region.PoolChildReco
 		Stage: "retired", BootVolumeIDs: []string{child.BootVolumeID}, RecordSHA256: digest}, a.guard(ctx)
 }
 
-func (a *attempt) verifyRetirementDrain(ctx context.Context, child region.PoolChildRecord, consumed bool) error {
+func (a *attempt) verifyRetirementDrain(ctx context.Context, child region.PoolChildRecord, consumed, destructive bool) error {
 	if a.drain == nil || !a.lifecycle.IsVerified() {
 		return errors.New("known retirement lacks original lifecycle and drain authority")
 	}
@@ -238,11 +246,41 @@ func (a *attempt) verifyRetirementDrain(ctx context.Context, child region.PoolCh
 		consumed && (currentChild.RemovalOperationID != a.operation || currentChild.DrainAuthoritySHA256 != originalSHA) {
 		return errors.Join(err, currentErr, errors.New("original protected stopped drain changed before retirement effect"))
 	}
-	if err := drainwire.VerifyPoolReceiptStops(drain, time.Now().UTC()); err != nil {
+	verifyAt := time.Now().UTC()
+	if !destructive {
+		if !consumed {
+			return errors.New("historical outcome observation requires the original already-consumed drain")
+		}
+		verifyAt = drain.StoppedAt
+		if currentChild.DrainSource == nil {
+			return errors.New("historical outcome observation lost its original signed source identity pin")
+		}
+		if err := a.resolver.VerifyHistoricalPoolDrainSource(a.proofContext(ctx), drain, *currentChild.DrainSource); err != nil {
+			return err
+		}
+	}
+	if err := drainwire.VerifyPoolReceiptStops(drain, verifyAt); err != nil {
 		return err
 	}
-	if err := a.resolver.VerifyCurrentPoolDrainSource(a.proofContext(ctx), drain); err != nil {
-		return err
+	if destructive {
+		if err := a.resolver.VerifyCurrentPoolDrainSource(a.proofContext(ctx), drain); err != nil {
+			return err
+		}
 	}
 	return a.guard(ctx)
+}
+
+func (a *attempt) retirementDeadline() time.Time {
+	deadline := a.deadline
+	if a.drain != nil && a.drain.ExpiresAt.Before(deadline) {
+		deadline = a.drain.ExpiresAt
+	}
+	return deadline
+}
+
+func retirementWireLive(wire *region.PoolWireRecord) error {
+	if wire == nil || wire.ExpiresAt.IsZero() || !time.Now().Before(wire.ExpiresAt) {
+		return fmt.Errorf("%w: original destructive dispatch deadline is expired; only original outcome observation remains", ErrPending)
+	}
+	return nil
 }

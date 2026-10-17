@@ -21,6 +21,7 @@ func TestCompletedPoolOwnerRequiresOriginalPositiveCompletion(t *testing.T) {
 		{"retirement", "removal", region.FoundationRecord{PoolChildren: map[string]region.PoolChildRecord{"birth": {
 			PoolID: "pool", RemovalOperationID: "removal", Stage: region.PoolChildRetired, RetirementDrain: &drainwire.PoolReceipt{},
 			Terminate: positive, DeleteBoot: positive, InstanceRetiredAt: now, BootRetiredAt: now,
+			InstanceTerminal: &region.PoolTerminalObservation{}, BootTerminal: &region.PoolTerminalObservation{},
 		}}}},
 		{"quarantine", "quarantine", region.FoundationRecord{PoolQuarantines: map[string]region.PoolQuarantineRecord{"quarantine": {
 			PoolID: "pool", Detach: positive, DetachedAt: now,

@@ -303,6 +303,9 @@ func (a *attempt) writeContext(ctx context.Context, kind string) context.Context
 			return nil, err
 		}
 		deadline := a.deadline
+		if !wire.ExpiresAt.IsZero() && wire.ExpiresAt.Before(deadline) {
+			deadline = wire.ExpiresAt
+		}
 		if kind == "launch" && a.receipt.LaunchExpiresAt.Before(deadline) {
 			deadline = a.receipt.LaunchExpiresAt
 		}

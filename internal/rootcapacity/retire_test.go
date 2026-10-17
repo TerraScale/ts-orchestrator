@@ -2,6 +2,7 @@ package rootcapacity
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
 func TestRetirementUsesProtectedSelectorsWithoutCallerAuthorityBytes(t *testing.T) {
@@ -40,6 +42,33 @@ func TestRetirementUsesProtectedSelectorsWithoutCallerAuthorityBytes(t *testing.
 	request.RemovalOperationID = "successor-removal"
 	if retirementSelectors(request, child) {
 		t.Fatal("successor removal rebound the original retirement")
+	}
+}
+
+func TestUnknownOriginalDeletionCanRetainPositiveTerminalWithoutInventingAcceptance(t *testing.T) {
+	at := time.Now().UTC().Add(-2 * time.Minute)
+	wire := &region.PoolWireRecord{RequestSHA256: strings.Repeat("a", 64), IfMatch: "original-etag", Attempts: 1,
+		FirstAttemptAt: at, LastAttemptAt: at, ExpiresAt: at.Add(time.Minute), EverUnknown: true}
+	response := core.Instance{Id: new("original-instance"), LifecycleState: core.InstanceLifecycleStateTerminated}
+	observed, err := terminalObservation(wire, "original-instance", "terminal-etag", "original-get-request", response, time.Now().UTC())
+	if err != nil || observed == nil {
+		t.Fatalf("positive terminal recovery rejected original unknown deletion: %v", err)
+	}
+	if !observed.Request.AcceptedAt.IsZero() || observed.Request.WorkRequestID != "" || !wire.AcceptedAt.IsZero() || wire.WorkRequestID != "" {
+		t.Fatal("readonly terminal recovery invented mutation acceptance or work request")
+	}
+	if retirementWireLive(wire) == nil {
+		t.Fatal("positive terminal observation renewed original expired DELETE permission")
+	}
+	for _, changed := range []any{core.Instance{Id: response.Id, LifecycleState: core.InstanceLifecycleStateRunning},
+		core.Instance{Id: new("replacement-instance"), LifecycleState: core.InstanceLifecycleStateTerminated}, struct{}{}, "404"} {
+		if _, err := terminalObservation(wire, "original-instance", "terminal-etag", "get", changed, time.Now()); err == nil {
+			t.Fatal("nonterminal, foreign or absent resource became positive terminal evidence")
+		}
+	}
+	wire.EverUnknown = false
+	if _, err := terminalObservation(wire, "original-instance", "terminal-etag", "get", struct{}{}, time.Now()); err == nil {
+		t.Fatal("request without original dispatch acquired terminal recovery")
 	}
 }
 

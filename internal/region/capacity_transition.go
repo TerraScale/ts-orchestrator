@@ -78,6 +78,9 @@ func (r FoundationRecord) retainCapacity(previous FoundationRecord) error {
 			!retainedString(old.DrainAuthoritySHA256, next.DrainAuthoritySHA256) || !retainedTime(old.DetachedAt, next.DetachedAt) ||
 			!retainedTime(old.InstanceRetiredAt, next.InstanceRetiredAt) || !retainedTime(old.BootRetiredAt, next.BootRetiredAt) ||
 			old.RetirementDrain != nil && !sameCapacityValue(old.RetirementDrain, next.RetirementDrain) ||
+			old.DrainSource != nil && !sameCapacityValue(old.DrainSource, next.DrainSource) ||
+			old.InstanceTerminal != nil && !sameCapacityValue(old.InstanceTerminal, next.InstanceTerminal) ||
+			old.BootTerminal != nil && !sameCapacityValue(old.BootTerminal, next.BootTerminal) ||
 			!retainPoolWire(old.Launch, next.Launch) || !retainPoolWire(old.Attach, next.Attach) || !retainPoolWire(old.Detach, next.Detach) ||
 			!retainPoolWire(old.Terminate, next.Terminate) || !retainPoolWire(old.DeleteBoot, next.DeleteBoot) {
 			return errors.New("protected pool child lost or rebound original lifecycle evidence")
@@ -87,6 +90,8 @@ func (r FoundationRecord) retainCapacity(previous FoundationRecord) error {
 		next.ReadyAt, next.RemovalOperationID, next.DrainAuthoritySHA256, next.DetachedAt = old.ReadyAt, old.RemovalOperationID, old.DrainAuthoritySHA256, old.DetachedAt
 		next.DetachTargetFrom = old.DetachTargetFrom
 		next.RetirementDrain = old.RetirementDrain
+		next.DrainSource = old.DrainSource
+		next.InstanceTerminal, next.BootTerminal = old.InstanceTerminal, old.BootTerminal
 		next.InstanceRetiredAt, next.BootRetiredAt = old.InstanceRetiredAt, old.BootRetiredAt
 		if !sameCapacityValue(old, next) {
 			return errors.New("protected pool child changed original recipe, placement or boot identity")
@@ -110,7 +115,7 @@ func retainPoolWire(old, next *PoolWireRecord) bool {
 		return true
 	}
 	if next == nil || old.RequestSHA256 != next.RequestSHA256 || old.RetryToken != next.RetryToken || old.IfMatch != next.IfMatch ||
-		!old.FirstAttemptAt.Equal(next.FirstAttemptAt) || next.Attempts < old.Attempts || next.LastAttemptAt.Before(old.LastAttemptAt) ||
+		!old.FirstAttemptAt.Equal(next.FirstAttemptAt) || !old.ExpiresAt.Equal(next.ExpiresAt) || next.Attempts < old.Attempts || next.LastAttemptAt.Before(old.LastAttemptAt) ||
 		old.EverUnknown && !next.EverUnknown || old.TokenInvalidated && !next.TokenInvalidated ||
 		!retainedTime(old.AcceptedAt, next.AcceptedAt) || !retainedString(old.OpcRequestID, next.OpcRequestID) ||
 		!retainedString(old.WorkRequestID, next.WorkRequestID) || !retainedTime(old.WorkCompletedAt, next.WorkCompletedAt) {

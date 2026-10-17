@@ -23,6 +23,9 @@ func (r FoundationRecord) validatePoolDrains() error {
 			child.RecipeSHA256 != receipt.Child.RecipeSHA256 || child.Stage == PoolChildRetired {
 			return errors.New("protected pool drain differs from its original live child birth")
 		}
+		if child.RemovalOperationID != "" && (child.RemovalOperationID != receipt.Child.RemovalOperationID || child.DrainSource == nil || child.DrainSource.validateReceipt(receipt) != nil) {
+			return errors.New("consumed drain lost its original independently verified signed source pin")
+		}
 		instances[receipt.Child.InstanceID] = true
 	}
 	return nil
@@ -40,7 +43,7 @@ func (r FoundationRecord) retainPoolDrains(previous FoundationRecord) error {
 		if !exists || child.Stage != PoolChildRetired || old.Phase != drainwire.PoolStopped || child.RetirementDrain == nil ||
 			!sameCapacityValue(*child.RetirementDrain, old) || child.InstanceID != old.Child.InstanceID ||
 			child.RemovalOperationID != old.Child.RemovalOperationID || child.InstanceRetiredAt.IsZero() || child.BootRetiredAt.IsZero() ||
-			child.Terminate == nil || child.Terminate.AcceptedAt.IsZero() || child.DeleteBoot == nil || child.DeleteBoot.AcceptedAt.IsZero() {
+			child.InstanceTerminal == nil || child.BootTerminal == nil {
 			return errors.New("pending pool drain may leave only with exact full terminal child history")
 		}
 	}
