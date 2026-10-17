@@ -16,7 +16,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
-	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -205,7 +204,9 @@ func (b *rootReleaseChannels) Bind(ctx context.Context, conn *nats.Conn, sources
 	if err != nil {
 		return err
 	}
-	if err := conn.FlushWithContext(ctx); err != nil {
+	flushCtx, flushCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer flushCancel()
+	if err := conn.FlushWithContext(flushCtx); err != nil {
 		_ = subscription.Unsubscribe()
 		return err
 	}
@@ -230,6 +231,9 @@ type rootReleaseObservation struct {
 	rootRevision, specRevision uint64
 	deadline                   time.Time
 	scopeCtx                   context.Context
+	cancel                     context.CancelFunc
+	deadlineTimer              *time.Timer
+	witnesses                  rootReleaseWitnesses
 }
 
 func (b *rootReleaseChannels) beginChannel(ctx context.Context, call rootoci.Call, operation rootoci.Operation) (context.Context, context.CancelFunc, *rootReleaseObservation, error) {
@@ -258,8 +262,8 @@ func (b *rootReleaseChannels) beginChannel(ctx context.Context, call rootoci.Cal
 		return fail(err)
 	}
 	identity := source.Identity()
-	candidate := entityid.Derive("controller", identity.DeploymentID, identity.Cell, identity.Slot)
-	if candidate != call.RuntimeID() || identity.OCIRegion != b.factory.Region() || call.Expected().Cell != "" && !strings.EqualFold(call.Expected().Cell, identity.Cell) {
+	candidate := call.RuntimeID()
+	if candidate == "" || identity.OCIRegion != b.factory.Region() || call.Expected().Cell != "" && !strings.EqualFold(call.Expected().Cell, identity.Cell) {
 		return fail(rootoci.ErrUnauthorized)
 	}
 	lease, err := b.sources.Leases.AdmitRuntimeLease(ctx, identity.DeploymentID, candidate)
@@ -274,7 +278,15 @@ func (b *rootReleaseChannels) beginChannel(ctx context.Context, call rootoci.Cal
 		return fail(err)
 	}
 	registry.roots.path = ""
-	observation := &rootReleaseObservation{b: b, call: call, source: source, lease: lease, registry: registry, scopeCtx: ctx, deadline: earlierRootRelease(call.Deadline(), source.ExpiresAt(), lease.Deadline())}
+	observation := &rootReleaseObservation{b: b, call: call, source: source, lease: lease, registry: registry, scopeCtx: ctx, cancel: cancel, deadline: call.Deadline()}
+	observation.capDeadline(source.ExpiresAt(), lease.Deadline())
+	operationCancel := cancel
+	cancel = func() {
+		operationCancel()
+		if observation.deadlineTimer != nil {
+			observation.deadlineTimer.Stop()
+		}
+	}
 	roots, err := (rootReleaseKV{KeyValue: b.sources.Roots, js: b.js}).Get(ctx, rootChainKey)
 	if err != nil {
 		return fail(err)
@@ -300,7 +312,7 @@ func (b *rootReleaseChannels) beginChannel(ctx context.Context, call rootoci.Cal
 		registry.current = verified.Spec
 		observation.specRevision, observation.specWire = entry.Revision(), bytes.Clone(entry.Value())
 	}
-	board := rootReleaseKV{KeyValue: b.board, js: b.js, guard: observation.guard}
+	board := observation.pinnedKV(b.board)
 	observation.rollouts, err = rollout.BindReader(board, b.cfg.NATS.Cell)
 	if err != nil {
 		return fail(err)
@@ -309,7 +321,7 @@ func (b *rootReleaseChannels) beginChannel(ctx context.Context, call rootoci.Cal
 	if err != nil {
 		return fail(err)
 	}
-	observation.channelKV = rootReleaseKV{KeyValue: channelKV, js: b.js, guard: observation.guard}
+	observation.channelKV = observation.pinnedKV(channelKV)
 	ctx = ociclient.WithRequestGuard(ctx, observation.guard)
 	return ctx, cancel, observation, observation.guard(ctx)
 }
@@ -325,7 +337,7 @@ func earlierRootRelease(values ...time.Time) time.Time {
 }
 
 func (o *rootReleaseObservation) guard(ctx context.Context) error {
-	if o == nil || !time.Now().Before(o.deadline) || o.b.ctx.Err() != nil {
+	if o == nil || ctx.Err() != nil || o.scopeCtx.Err() != nil || !time.Now().Before(o.deadline) || o.b.ctx.Err() != nil || o.witnesses.err != nil {
 		return rootrelease.ErrPending
 	}
 	if err := o.call.Guard(ctx); err != nil {
@@ -340,7 +352,7 @@ func (o *rootReleaseObservation) guard(ctx context.Context) error {
 	if _, err := bootstrapstart.LoadAcceptedHostLaunchMaterial(o.b.sources.Accepted); err != nil {
 		return err
 	}
-	checkCtx, cancel := context.WithCancel(o.scopeCtx)
+	checkCtx, cancel := context.WithDeadline(o.scopeCtx, o.deadline)
 	stop := context.AfterFunc(ctx, cancel)
 	defer cancel()
 	defer stop()
@@ -364,7 +376,13 @@ func (o *rootReleaseObservation) guard(ctx context.Context) error {
 			return errors.Join(rootrelease.ErrPending, err)
 		}
 	}
-	return o.call.Guard(ctx)
+	if err := o.call.Guard(ctx); err != nil {
+		return err
+	}
+	if ctx.Err() != nil || o.scopeCtx.Err() != nil || !time.Now().Before(o.deadline) {
+		return rootrelease.ErrPending
+	}
+	return nil
 }
 
 func (o *rootReleaseObservation) location(ctx context.Context) (releasechannel.Location, error) {
@@ -406,7 +424,7 @@ func (b *rootReleaseChannels) ReconcileOrchestratorStatus(ctx context.Context, c
 		return rootoci.OrchestratorStatusReceipt{}, err
 	}
 	for _, binary := range verified {
-		o.deadline = earlierRootRelease(o.deadline, binary.ExpiresAt())
+		o.capDeadline(binary.ExpiresAt())
 	}
 	status := releasechannel.Status{Schema: releasechannel.StatusSchema, Cell: o.source.Identity().Cell, Environment: o.source.Identity().Environment, Architectures: []string{goruntime.GOARCH}, SourceRevision: channel.SourceRevision, RunNumber: channel.RunNumber, ReleaseSequence: channel.ReleaseSequence, UpdatedAt: time.Now().UTC(), State: releasechannel.StateRolling, Reason: "waiting for the release's retained generation"}
 	_, managed, _, err := loadSignedManagedControllerConfig(b.cfg)
@@ -441,7 +459,7 @@ func (b *rootReleaseChannels) ReconcileOrchestratorStatus(ctx context.Context, c
 	if generation.Generation != 0 {
 		control := rolloutControl{cell: b.cfg.NATS.Cell}
 		colocated := colocatedNodes(b.cfg.NATS.Cell, b.controllers, func(slot string) string { return o.registry.controllerNode(b.cfg.NATS.Cell, slot) })
-		control.program = rolloutexec.ReleaseProgram{Proofs: rootChannelProofs{b: b, ctx: ctx}, Controllers: b.controllers, Hosts: hostUnits(b.sources.Hosts.ListHosts, rootReleaseKV{KeyValue: b.board, js: b.js, guard: o.guard}, colocated)}
+		control.program = rolloutexec.ReleaseProgram{Proofs: rootChannelProofs{b: b, ctx: ctx, observation: o}, Controllers: b.controllers, Hosts: hostUnits(o.ListHosts, o.pinnedKV(b.board), colocated)}
 		status.State, status.Reason, err = control.generationState(ctx, o.rollouts, generation)
 		if err != nil {
 			return rootoci.OrchestratorStatusReceipt{}, err
@@ -452,11 +470,11 @@ func (b *rootReleaseChannels) ReconcileOrchestratorStatus(ctx context.Context, c
 				return rootoci.OrchestratorStatusReceipt{}, err
 			}
 			for _, unit := range append(slices.Clone(b.controllers), units...) {
-				proof, ok := (rootChannelProofs{b: b, ctx: ctx}).Latest(unit.ID)
+				proof, ok := (rootChannelProofs{b: b, ctx: ctx, observation: o}).Latest(unit.ID)
 				if !ok {
 					return rootoci.OrchestratorStatusReceipt{}, rootrelease.ErrPending
 				}
-				o.deadline = earlierRootRelease(o.deadline, proof.ReceivedAt.Add(rolloutexec.DefaultProofFreshness))
+				o.capDeadline(proof.ReceivedAt.Add(rolloutexec.DefaultProofFreshness))
 				b.mu.Lock()
 				wire := bytes.Clone(b.proofWires[unit.ID])
 				b.mu.Unlock()
@@ -464,9 +482,9 @@ func (b *rootReleaseChannels) ReconcileOrchestratorStatus(ctx context.Context, c
 				if err != nil {
 					return rootoci.OrchestratorStatusReceipt{}, err
 				}
-				o.deadline = earlierRootRelease(o.deadline, envelope.ExpiresAt)
+				o.capDeadline(envelope.ExpiresAt)
 			}
-			hosts, err := b.sources.Hosts.ListHosts(ctx)
+			hosts, err := o.ListHosts(ctx)
 			if err != nil {
 				return rootoci.OrchestratorStatusReceipt{}, err
 			}
@@ -475,7 +493,7 @@ func (b *rootReleaseChannels) ReconcileOrchestratorStatus(ctx context.Context, c
 					if !status.Verified || status.Retired {
 						return rootoci.OrchestratorStatusReceipt{}, rootrelease.ErrPending
 					}
-					o.deadline = earlierRootRelease(o.deadline, status.SessionExpiresAt)
+					o.capDeadline(status.SessionExpiresAt)
 				}
 			}
 		}
@@ -519,7 +537,7 @@ func (b *rootReleaseChannels) ReconcileOrchestratorStatus(ctx context.Context, c
 		if err != nil || !status.Pins.Equal(&releasechannel.ReleasePins{Rollback: rollback, KnownBad: bad}) {
 			return errors.Join(rootrelease.ErrPending, err)
 		}
-		return o.guard(ctx)
+		return o.validateWitnesses(ctx)
 	}); err != nil {
 		return rootoci.OrchestratorStatusReceipt{}, err
 	}
@@ -535,7 +553,7 @@ func (o *rootReleaseObservation) retainedBinary(retained rollout.Release) (relea
 	if !ok {
 		return release.BinaryReceipt{}, rootoci.ErrUnauthorized
 	}
-	binary, err := release.VerifyBinaryUpdateHistorical(retained.Receipt, retained.Delegation, o.registry.roots.current(), release.UpdateExpectation{Environment: o.source.Identity().Environment, Cell: o.source.Identity().Cell, Architecture: architecture})
+	binary, err := release.VerifyBinaryUpdateHistorical(retained.Receipt, retained.Delegation, o.registry.roots.historical(), release.UpdateExpectation{Environment: o.source.Identity().Environment, Cell: o.source.Identity().Cell, Architecture: architecture})
 	if err != nil || binary.Receipt().SHA256 != retained.Digest || binary.Receipt().SourceRevision != retained.SourceRevision {
 		return release.BinaryReceipt{}, errors.Join(rootrelease.ErrPending, err)
 	}
@@ -576,9 +594,17 @@ type rootReleaseKV struct {
 	jetstream.KeyValue
 	js    jetstream.JetStream
 	guard func(context.Context) error
+	pin   func(string, jetstream.KeyValueEntry, error) error
 }
 
-func (kv rootReleaseKV) Get(ctx context.Context, key string) (jetstream.KeyValueEntry, error) {
+func (kv rootReleaseKV) Get(ctx context.Context, key string) (entry jetstream.KeyValueEntry, readErr error) {
+	defer func() {
+		if kv.pin != nil {
+			if err := kv.pin(key, entry, readErr); err != nil {
+				entry, readErr = nil, err
+			}
+		}
+	}()
 	if kv.guard != nil {
 		if err := kv.guard(ctx); err != nil {
 			return nil, err
@@ -618,7 +644,10 @@ func (o *rootReleaseObservation) publishStatus(ctx context.Context, location rel
 		if attempt.Err() != nil {
 			return attempt.Err()
 		}
-		return guard(o.scopeCtx)
+		if err := guard(o.scopeCtx); err != nil {
+			return err
+		}
+		return o.guard(attempt)
 	})
 	wire, err := json.Marshal(status, json.Deterministic(true))
 	if err != nil || len(wire) > releasechannel.MaxValueBytes {
@@ -677,8 +706,9 @@ func (o *rootReleaseObservation) publishStatus(ctx context.Context, location rel
 }
 
 type rootChannelProofs struct {
-	b   *rootReleaseChannels
-	ctx context.Context
+	b           *rootReleaseChannels
+	ctx         context.Context
+	observation *rootReleaseObservation
 }
 
 func (p rootChannelProofs) Latest(unit string) (rolloutexec.HealthProof, bool) {
@@ -696,6 +726,14 @@ func (p rootChannelProofs) Latest(unit string) (rolloutexec.HealthProof, bool) {
 	verified, err := rolloutexec.VerifyHealthProof(wire, p.b.cfg.NATS.Cell, unit, keys, time.Now().UTC())
 	if err != nil || latest.ProcessID != verified.ProcessID || latest.StartNonce != verified.StartNonce || !latest.ObservedAt.Equal(verified.ObservedAt) || latest.BinarySHA256 != verified.BinarySHA256 {
 		return rolloutexec.HealthProof{}, false
+	}
+	if p.ctx.Err() != nil {
+		return rolloutexec.HealthProof{}, false
+	}
+	if p.observation != nil {
+		if err := p.observation.pinProof(p.ctx, unit, latest, wire); err != nil {
+			return rolloutexec.HealthProof{}, false
+		}
 	}
 	return latest, true
 }
