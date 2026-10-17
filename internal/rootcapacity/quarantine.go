@@ -9,7 +9,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
-	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
 // QuarantinePoolChild changes only unknown membership. An original protected
