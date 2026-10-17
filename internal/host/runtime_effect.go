@@ -40,8 +40,10 @@ type HostRuntimeIdentity struct {
 	identity   executionwire.WorkerIdentity
 	controller ed25519.PublicKey
 	deadline   time.Time
+	epoch      uint64
 }
 
+func (i HostRuntimeIdentity) SessionEpoch() uint64                   { return i.epoch }
 func (i HostRuntimeIdentity) Identity() executionwire.WorkerIdentity { return i.identity }
 func (i HostRuntimeIdentity) ExpiresAt() time.Time                   { return i.deadline }
 func (i HostRuntimeIdentity) ControllerPublicKey() ed25519.PublicKey {
@@ -63,7 +65,7 @@ func (a *Agent) RuntimeWorkerIdentity(instanceID, nodeID string) (HostRuntimeIde
 		HostSessionID: a.processID, RegistrationGeneration: current.RegistrationGeneration,
 		InstanceID: instanceID, NodeID: nodeID,
 	}
-	return HostRuntimeIdentity{identity: identity, controller: slices.Clone(a.cfg.ControllerPublicKey), deadline: deadline}, nil
+	return HostRuntimeIdentity{identity: identity, epoch: current.Epoch, controller: slices.Clone(a.cfg.ControllerPublicKey), deadline: deadline}, nil
 }
 
 // RuntimeEffect preserves request/reply nonce verification before exposing the

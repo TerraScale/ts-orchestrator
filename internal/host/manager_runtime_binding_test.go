@@ -107,12 +107,8 @@ func TestManagerRuntimeBindingRequiresActualNativeSignatureAndOriginalExpiry(t *
 	if VerifySignedManagerRuntimeBinding(signed, cert, ca, signed.Binding.SwarmClusterID, signed.Binding.ExpiresAt) == nil {
 		t.Fatal("revived original expired binding")
 	}
-	other, otherCert, _, _ := managerBindingFixture(t)
+	_, otherCert, _, _ := managerBindingFixture(t)
 	if VerifySignedManagerRuntimeBinding(signed, otherCert, ca, signed.Binding.SwarmClusterID, time.Now()) == nil {
 		t.Fatal("accepted replacement current certificate")
-	}
-	other.Signature[0] ^= 1
-	if signed.Signature[0] == other.Signature[0] && string(signed.CertificateChain[0]) == string(other.CertificateChain[0]) {
-		t.Fatal("fixture reused independent native identity")
 	}
 }

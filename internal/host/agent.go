@@ -42,6 +42,7 @@ type Agent struct {
 	cfg              AgentConfig
 	runner           Runner
 	mu               sync.RWMutex
+	sessionRenewMu   sync.Mutex
 	session          session
 	sessionSafeUntil time.Time
 	processID        string
@@ -613,6 +614,7 @@ func (a *Agent) maintainSessionLease(ctx context.Context, fail func(error)) {
 			fail(err)
 			return
 		}
+		a.sessionRenewMu.Lock()
 		var next session
 		renewCtx, renewCancel := context.WithDeadline(ctx, deadline)
 		_, err = a.sendToLeader(renewCtx, "session", struct {
@@ -628,6 +630,7 @@ func (a *Agent) maintainSessionLease(ctx context.Context, fail func(error)) {
 				}
 			}
 		}
+		a.sessionRenewMu.Unlock()
 		_, _, leaseErr := a.executionLease()
 		if leaseErr != nil {
 			fail(leaseErr)
