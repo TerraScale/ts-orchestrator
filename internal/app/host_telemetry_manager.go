@@ -19,6 +19,12 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 )
 
+// shortcut: native history cannot prove manager allocations; replace this refusal
+// when an authenticated, durable manager allocation timeline is available.
+func managerExpectedUsage(context.Context, time.Time, time.Time) ([]hostload.UsageInterval, error) {
+	return nil, errors.New("historical manager task allocations are unavailable")
+}
+
 // recordManaged retains native DATA reservations and replaces migrated roles
 // with each host's actual admitted task resources, including rollback tasks.
 func (t *hostTelemetry) recordManaged(ctx context.Context, history *nativeHistory, usage *runtimeObservability,
