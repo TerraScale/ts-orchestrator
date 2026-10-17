@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 )
@@ -358,6 +359,52 @@ func TestBackupHeldRestartDiscoversR3WithoutPriorHostCommand(t *testing.T) {
 	if _, err := controller.handleAuthorized(t.Context(), signedHostRequest(t, hostKey,
 		"backup-result", s.SessionID, s.Epoch, result)); err != nil {
 		t.Fatalf("old terminal receipt was rejected after Release renewal: %v", err)
+	}
+
+	// The signed host transport keeps namespace PID 1 separate from the exact
+	// host identity. Source supplies the actual kernel observation in production.
+	container := ManagedContainerRuntime{TaskID: "qualified-task", TaskSHA256: strings.Repeat("1", 64),
+		AdmissionSHA256: strings.Repeat("2", 64), EffectID: entityid.Derive("runtime-effect", "backup-test"),
+		ContainerID: "ts-qualified-task", HostPID: report.Managed.ProcessPID, MemberPID: 1,
+		KernelStart: report.Managed.ProcessStart, Cgroup: "/terrascale/ts-qualified-task", MountID: report.Managed.MountID,
+		PIDNamespace: 101, MountNamespace: 102, ControlDevice: 1, ControlInode: 103, PublicationDevice: 1, PublicationInode: 104}
+	report.Managed.Container = &container
+	report.Managed.ProcessCgroup = container.Cgroup
+	report.ObservedAt = time.Now().UTC()
+	if _, err := controller.handleAuthorized(t.Context(), signedHostRequest(t, hostKey,
+		"report", s.SessionID, s.Epoch, report)); err != nil {
+		t.Fatalf("container held report: %v", err)
+	}
+	if err := controller.RequestManagedBackupOperation(t.Context(), 1,
+		record.DatabaseID, record.PartitionID, memberID, "complete-status"); err != nil {
+		t.Fatal(err)
+	}
+	containerCommand, err := agent.fetchManagedBackupCommand(t.Context(), desired.Role)
+	if err != nil || containerCommand.Command == nil || containerCommand.Command.ExpectedProcess.PID != 1 ||
+		!containerCommand.Command.MatchesContainer(desired, registration, container, s.SessionID) {
+		t.Fatalf("container command lost exact namespace mapping: %+v, %v", containerCommand, err)
+	}
+	result.Command = *containerCommand.Command
+	if _, err := controller.handleAuthorized(t.Context(), signedHostRequest(t, hostKey,
+		"backup-result", s.SessionID, s.Epoch, result)); err != nil {
+		t.Fatalf("container terminal evidence: %v", err)
+	}
+	changed := container
+	changed.HostPID++
+	if containerCommand.Command.MatchesContainer(desired, registration, changed, s.SessionID) ||
+		containerCommand.Command.MatchesContainer(desired, registration, container, "other-session") {
+		t.Fatal("container command accepted replacement host process/session")
+	}
+	// A replaced runtime cannot submit the previous command's terminal evidence.
+	container.ControlInode++
+	report.ObservedAt = time.Now().UTC()
+	if _, err := controller.handleAuthorized(t.Context(), signedHostRequest(t, hostKey,
+		"report", s.SessionID, s.Epoch, report)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.handleAuthorized(t.Context(), signedHostRequest(t, hostKey,
+		"backup-result", s.SessionID, s.Epoch, result)); err == nil {
+		t.Fatal("replaced control socket submitted old process evidence")
 	}
 }
 
