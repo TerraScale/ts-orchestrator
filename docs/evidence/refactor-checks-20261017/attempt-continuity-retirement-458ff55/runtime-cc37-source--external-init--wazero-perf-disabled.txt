@@ -1,0 +1,9 @@
+SOURCE /home/mariogk/go/pkg/mod/github.com/tetratelabs/wazero@v1.12.0/internal/engine/wazevo/wazevoapi/perfmap_disabled.go
+FULL_FILE_SHA256 7f6d176f86479f70d571e0b58937a283d93c84b90e2df58969ddc9d00c450b11
+LINES 1-5
+
+//go:build !perfmap
+
+package wazevoapi
+
+const PerfMapEnabled = false

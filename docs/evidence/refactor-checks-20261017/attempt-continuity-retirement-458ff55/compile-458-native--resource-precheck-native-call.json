@@ -1,0 +1,14 @@
+{
+  "tool": "exec_command",
+  "arguments": {
+    "cmd": "python3 - <<'PY'\nimport hashlib,json,pathlib,os,time\np=pathlib.Path('/tmp/ts-attempt-458ff55-truecompile-shortb-sealed-7qtri3ou');sha=lambda b:hashlib.sha256(b).hexdigest()\nfor n,h in {'request.json':'0bdb48a444b99921dcb1de6a71299e10adbd071e4305ca7bc5458be2842787a8','run.py':'5afcbd76a236e8c1b5ca2061cedc14680a9487b3e86573db0fa5211a5aa6daac','SEAL.json':'f8b93d9bb1c3740ae770ba02504df981f574115969bd10f3c0b42e04546c545d'}.items():assert sha((p/n).read_bytes())==h\nreview=pathlib.Path('/tmp/ts-qa-attempt-458ff55-readiness-rvox46fg/review.json');assert sha(review.read_bytes())=='731ef2feffbf92d529814a4dfe4151b7fa469f8f8646f435382f53b4c428d1b8';r=json.loads(review.read_text());assert 'READY' in r['state'];assert not (p/'qa-output').exists()\nmem={k:int(v.split()[0]) for k,v in (line.split(':',1) for line in pathlib.Path('/proc/meminfo').read_text().splitlines())};load=os.getloadavg();flows=[]\nfor q in pathlib.Path('/proc').iterdir():\n if not q.name.isdigit():continue\n try:\n  comm=(q/'comm').read_text().strip()\n  if comm in {'go','compile','link','vet'}:flows.append({'pid':int(q.name),'comm':comm})\n except (FileNotFoundError,PermissionError,ProcessLookupError):pass\nproof={'state':'FRESH_RESOURCE_GATE_PASS' if mem['MemAvailable']>=16*1024*1024 and load[0]<12 and len(flows)<4 else 'RESOURCE_GATE_FAIL','mem_available_kib':mem['MemAvailable'],'loadavg':load,'compiler_flows':flows,'flow_limit_including_new':4,'new_target_flows':1,'readiness_sha256':sha(review.read_bytes()),'packet_pins_match':True,'qa_output_absent':True,'epoch':time.time()};print(json.dumps(proof,indent=2));assert proof['state']=='FRESH_RESOURCE_GATE_PASS'\nPY",
+    "max_output_tokens": 1700
+  },
+  "result": {
+    "chunk_id": "28c0ee",
+    "wall_time_seconds": 0.066857249,
+    "exit_code": 0,
+    "original_token_count": 102,
+    "output": "{\n  \"state\": \"FRESH_RESOURCE_GATE_PASS\",\n  \"mem_available_kib\": 26891536,\n  \"loadavg\": [\n    0.986328125,\n    1.1318359375,\n    1.48095703125\n  ],\n  \"compiler_flows\": [],\n  \"flow_limit_including_new\": 4,\n  \"new_target_flows\": 1,\n  \"readiness_sha256\": \"731ef2feffbf92d529814a4dfe4151b7fa469f8f8646f435382f53b4c428d1b8\",\n  \"packet_pins_match\": true,\n  \"qa_output_absent\": true,\n  \"epoch\": 1792213216.2664924\n}\n"
+  }
+}

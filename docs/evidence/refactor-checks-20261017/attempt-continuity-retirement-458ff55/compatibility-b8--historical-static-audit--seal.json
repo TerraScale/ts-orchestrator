@@ -1,0 +1,16 @@
+{
+  "state": "SEALED_SUPPLEMENT_SOURCE_ONLY_NO_GO_NO_RUNTIME_NO_LEASE_NO_RUNNER",
+  "commit": "cc37fe13cace70584c45ee368d6edcd80ebc5f2d",
+  "tree": "98aa116b8e32c0240b4fa1151bac47a5a7a410bd",
+  "supplement": "/tmp/ts-attempt-cc37-external-init-50is49fv",
+  "earlier_packet": "/tmp/ts-attempt-phase-dispatch-cc37-source-kh0o533k",
+  "earlier_packet_unchanged": true,
+  "earlier_manifest_sha256": "442231a57701cd42912c14f1aeff48a8e9fd41bf18b8602a8b9643c44bedbc72",
+  "request_sha256": "67bc411484ec63ce076328a0118171bd4578d0434439a8ddf78cfd4f3ba30894",
+  "runner_sha256": "cd42b3fcee241b6aed2ae6df5ba0167eb4e9d9086b916db5a69949f5f730df78",
+  "runner_directory_mode": "0o700",
+  "closure_sha256": "2bfb4b8e5dab2c68e39fcd06b5016ccbf4b0bc72a7e45168d8bbaf0ca5333d07",
+  "bindings_sha256": "81ade678d55ae702368fc4a93379733243610d224d9ec3b3ec4b752fb6af3d7c",
+  "classifications_sha256": "cbd6495e80b09d7934ef14fb799298920b82630c400bc182335cc6e9b1c759ff",
+  "checks": "Static inventories, classifications, module metadata, excerpts, frozen worktree, original source packet and unexecuted runner reverified before read-only seal; no Go command or runner invocation."
+}

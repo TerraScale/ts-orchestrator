@@ -1,0 +1,53 @@
+SOURCE /tmp/ts-attempt-phase-dispatch-integration/internal/ociregion/sdkcli/inventory.go
+FULL_FILE_SHA256 157e367629a8225a825e20089c88f6ec77384c737c3b94cd6205c55293f19f16
+LINES 110-158
+
+}
+
+// listIn adapts a compartment-scoped paginated list.
+func listIn[S, T any](service func(*Client) (S, error),
+	list func(context.Context, S, string, Command, *string) ([]T, *string, error),
+) handler {
+	return func(ctx context.Context, c *Client, command Command) (any, error) {
+		compartment, err := command.flag("compartment-id")
+		if err != nil {
+			return nil, err
+		}
+		client, err := service(c)
+		if err != nil {
+			return nil, err
+		}
+		return pages(command.All, func(page *string) ([]T, *string, error) {
+			return list(ctx, client, compartment, command, page)
+		})
+	}
+}
+
+func (c *Client) blockstorage() (core.BlockstorageClient, error) {
+	client, err := c.factory.Blockstorage()
+	c.pin(&client.BaseClient)
+	return client, err
+}
+
+func (c *Client) loadBalancer() (loadbalancer.LoadBalancerClient, error) {
+	client, err := c.factory.LoadBalancer()
+	if err != nil {
+		return client, err
+	}
+	c.pin(&client.BaseClient)
+	return client, nil
+}
+
+// nlbList keeps the CLI's {"items": [...]} collection shape.
+func nlbList(ctx context.Context, c *Client, command Command) (any, error) {
+	compartment, err := command.flag("compartment-id")
+	if err != nil {
+		return nil, err
+	}
+	client, err := c.factory.NetworkLoadBalancer()
+	if err != nil {
+		return nil, err
+	}
+	c.pin(&client.BaseClient)
+	items, err := pages(command.All, func(page *string) ([]networkloadbalancer.NetworkLoadBalancerSummary, *string, error) {
+		response, err := client.ListNetworkLoadBalancers(ctx, networkloadbalancer.ListNetworkLoadBalancersRequest{

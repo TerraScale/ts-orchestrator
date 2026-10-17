@@ -1,0 +1,16 @@
+SOURCE /tmp/ts-attempt-phase-dispatch-integration/third_party/nats-server/server/signal.go
+FULL_FILE_SHA256 798fcc1ae2efb8ed1c555c03d24a446cbc02ea8efff3aabd05d1b6f5cbb3195c
+LINES 200-211
+
+		pids = append(pids, pid)
+	}
+	return pids, nil
+}
+
+var kill = func(pid int, signal syscall.Signal) error {
+	return syscall.Kill(pid, signal)
+}
+
+var pgrep = func() ([]byte, error) {
+	return exec.Command("pgrep", processName).Output()
+}

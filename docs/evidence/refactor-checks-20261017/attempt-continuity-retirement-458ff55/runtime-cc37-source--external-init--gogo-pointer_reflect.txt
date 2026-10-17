@@ -1,0 +1,59 @@
+SOURCE /home/mariogk/go/pkg/mod/github.com/gogo/protobuf@v1.3.2/proto/pointer_reflect.go
+FULL_FILE_SHA256 849342d70a6cf2eb2cd2bc193ea5981d5a568636309e2c7126772545ca9481ed
+LINES 26-80
+
+// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+// +build purego appengine js
+
+// This file contains an implementation of proto field accesses using package reflect.
+// It is slower than the code in pointer_unsafe.go but it avoids package unsafe and can
+// be used on App Engine.
+
+package proto
+
+import (
+	"reflect"
+	"sync"
+)
+
+const unsafeAllowed = false
+
+// A field identifies a field in a struct, accessible from a pointer.
+// In this implementation, a field is identified by the sequence of field indices
+// passed to reflect's FieldByIndex.
+type field []int
+
+// toField returns a field equivalent to the given reflect field.
+func toField(f *reflect.StructField) field {
+	return f.Index
+}
+
+// invalidField is an invalid field identifier.
+var invalidField = field(nil)
+
+// zeroField is a noop when calling pointer.offset.
+var zeroField = field([]int{})
+
+// IsValid reports whether the field identifier is valid.
+func (f field) IsValid() bool { return f != nil }
+
+// The pointer type is for the table-driven decoder.
+// The implementation here uses a reflect.Value of pointer type to
+// create a generic pointer. In pointer_unsafe.go we use unsafe
+// instead of reflect to implement the same (but faster) interface.
+type pointer struct {
+	v reflect.Value
+}
+
+// toPointer converts an interface of pointer type to a pointer
+// that points to the same target.
+func toPointer(i *Message) pointer {
+	return pointer{v: reflect.ValueOf(*i)}
+}
+
+// toAddrPointer converts an interface to a pointer that points to

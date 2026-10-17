@@ -1,0 +1,65 @@
+{
+  "compile_transfer": {
+    "byte_identical_selected_closure": false,
+    "feature_compile_executed": false,
+    "historical_exact_b3e1_compile_independently_accepted": true,
+    "interpretation": "Retain b3e1 compile only as candidate evidence. A feature compile claim requires separately accepted matching evidence; this packet authorizes no rerun."
+  },
+  "connected_delta_assessment": [
+    {
+      "finding": "Feature lacks the additive root and retains the original final six-line declaration. Proposed root plus 253-byte deletion yields the same target-package files as the accepted b3e1 candidate.",
+      "paths": [
+        "internal/attempt/phase_dispatch_integration_test.go",
+        "internal/attempt/cloud_test.go"
+      ]
+    },
+    {
+      "finding": "Selected production import chain attempt -> bootstrapstart -> natscell -> embedded NATS server. Changes add private subscription ownership/cancellation state and update service-import registration, removal, account claim refresh and configure/reload retirement. This changes real NATS runtime behavior and struct layouts. Existing imported public API signatures are unchanged; two production positional serviceImport literals are updated for the extra field. No imports, init functions, or package-var call candidate declarations change. The rejected phase only runs New then Phase default and never constructs a NATS server or account. Source review finds no relevant rejection contract change, but this is not compiler/type checking or qualification of the lifecycle fix.",
+      "paths": [
+        "third_party/nats-server/server/accounts.go",
+        "third_party/nats-server/server/server.go"
+      ]
+    },
+    {
+      "finding": "Dependency test changes are excluded by go test -c ./internal/attempt; dependency test bodies are neither compiled as target tests nor run. Production ociclient files are unchanged.",
+      "paths": [
+        "internal/ociclient/factory_test.go",
+        "third_party/nats-server/server/service_import_lifecycle_test.go"
+      ]
+    },
+    {
+      "finding": "CI/script/evidence changes do not enter the selected Go package sources for the prior exact compile command. No module metadata changes.",
+      "paths": [
+        ".github/workflows/ci.yml",
+        "scripts/ci/image-inputs-changed.sh",
+        "scripts/ci/test_image_inputs_changed.py",
+        "docs/evidence/"
+      ]
+    }
+  ],
+  "external_files_checked_against_audit": 3657,
+  "frozen_feature_scope": "Only b8c3c96d/tree1880; feature movement requires fresh read-only delta assessment.",
+  "local_closure_files": 737,
+  "native_provenance": "All historical native files copied byte-exact from existing packets. Compile files retain actual surfaced argument/result objects for one launch and seven polls. Runtime packet retains its original surfaced objects, without synthesizing arguments/call traces. These are retained tool-surface records, not independent harness-backend or OS audit records.",
+  "prohibited_claims": [
+    "No integration/adoption performed",
+    "No canonical retirement or count change",
+    "No Go/build/test/discovery or ELF execution",
+    "No feature runtime/compile, full-suite/race/live/production qualification",
+    "No cloud/service/FIFO/queue/host mutations"
+  ],
+  "reviewed_at_utc": "2026-10-17T04:52:31.435315+00:00",
+  "runtime_transfer": {
+    "feature_runtime_executed": false,
+    "historical_root_pass": true,
+    "interpretation": "Historical exact cc37 root PASS attests its assertions. Source equivalence supports adopting this root for the unchanged rejected-phase contract; no instrumented direct-call trace or new feature runtime claim."
+  },
+  "selected_or_ambiguous_local_files": 700,
+  "source_commits": {
+    "accepted_compile": "b3e1fde77998257aef756bc02310019aa173a522",
+    "accepted_runtime": "cc37fe13cace70584c45ee368d6edcd80ebc5f2d",
+    "feature": "b8c3c96d03f552770f6370097fd89f4cbd406e5e"
+  },
+  "state": "SOURCE_COMPATIBLE_NARROW_PATCH_HISTORICAL_QUALIFICATION_ONLY",
+  "verdict": "Exact proposed two-path patch preserves both original assertions through the accepted external root. Attempt phase rejection runtime source contract is unchanged. Feature compilation is not qualified by the b3e1 compile because two selected transitive NATS production files differ."
+}

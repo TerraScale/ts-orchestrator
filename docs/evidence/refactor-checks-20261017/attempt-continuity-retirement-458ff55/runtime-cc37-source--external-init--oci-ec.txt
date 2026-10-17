@@ -1,0 +1,72 @@
+SOURCE /home/mariogk/go/pkg/mod/github.com/oracle/oci-go-sdk/v65@v65.126.0/common/eventual_consistency.go
+FULL_FILE_SHA256 decd3bbd64645fe3a35bb98b6b75ca9174cec8e44eb49bb38a75be9c1a608ce1
+LINES 110-177
+
+// newEcContext creates a new EC context based on the OCI_GO_SDK_EC_CONFIG environment variable.
+func newEcContext() *EventuallyConsistentContext {
+	ecConfig, ecConfigProvided := os.LookupEnv(OciGoSdkEcConfigEnvVarName)
+	if !ecConfigProvided {
+		ecConfig = ""
+	}
+
+	commaIndex := strings.Index(ecConfig, ",")
+	var ecConfigMode = ecConfig
+	var ecConfigRest = ""
+	if commaIndex >= 0 {
+		ecConfigMode = ecConfig[:commaIndex]
+		ecConfigRest = ecConfig[commaIndex+1:]
+	}
+	ecMode := getEcMode(ecConfigMode)
+
+	switch ecMode {
+	case File:
+		if len(ecConfigRest) < 1 {
+			ecLogf("%s: Expected file name after comma for 'File' mode ('file,/path/to/file'), was: '%s'", OciGoSdkEcConfigEnvVarName, ecConfig)
+			return nil
+		}
+		return newEcContextFile(ecConfigRest)
+	}
+
+	return newEcContextInProcess()
+}
+
+// newEcContextInProcess creates a new in-process EC context.
+func newEcContextInProcess() *EventuallyConsistentContext {
+	ecContext := EventuallyConsistentContext{
+		ecMode:                       InProcess,
+		readLock:                     ecInProcessReadLock,
+		readUnlock:                   ecInProcessReadUnlock,
+		writeLock:                    ecInProcessWriteLock,
+		writeUnlock:                  ecInProcessWriteUnlock,
+		getEndOfWindowUnsynchronized: ecInProcessGetEndOfWindowUnsynchronized,
+		setEndOfWindowUnsynchronized: ecInProcessSetEndOfWindowUnsynchronized,
+		timeNowProvider:              func() time.Time { return time.Now() },
+	}
+	return &ecContext
+}
+
+// newEcContextFile creates a new EC context kept in a file.
+// timestampFileName should be set to a file accessible by all processes that
+// need to share information about eventual consistency.
+// A sensible choice are files inside the temp directory, as returned by os.TempDir()
+// The lock file will use the same name, with the suffix ".lock" added.
+func newEcContextFile(timestampFileName string) *EventuallyConsistentContext {
+	timestampLockFileName := timestampFileName + ".lock"
+	ecContext := EventuallyConsistentContext{
+		ecMode:                       File,
+		readLock:                     ecFileReadLock,
+		readUnlock:                   ecFileReadUnlock,
+		writeLock:                    ecFileWriteLock,
+		writeUnlock:                  ecFileWriteUnlock,
+		getEndOfWindowUnsynchronized: ecFileGetEndOfWindowUnsynchronized,
+		setEndOfWindowUnsynchronized: ecFileSetEndOfWindowUnsynchronized,
+		timeNowProvider:              func() time.Time { return time.Now() },
+		timestampFileName:            &timestampFileName,
+		timestampFileLock:            flock.New(timestampLockFileName),
+	}
+	ecDebugf("%s: Using file modification time of file '%s' and lock file '%s'", OciGoSdkEcConfigEnvVarName, *ecContext.timestampFileName, timestampLockFileName)
+	return &ecContext
+}
+
+// InitializeEcContextFromEnvVar initializes the EcContext variable as configured
+// in the OCI_GO_SDK_EC_CONFIG environment variable.

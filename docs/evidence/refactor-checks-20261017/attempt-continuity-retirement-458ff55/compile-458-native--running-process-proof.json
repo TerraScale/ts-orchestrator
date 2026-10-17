@@ -1,0 +1,56 @@
+{
+  "state": "ACTUAL_RUNNING_PROCESS_PROOF",
+  "timeout_pid": 715292,
+  "timeout_argv": [
+    "/run/current-system/sw/bin/timeout",
+    "--signal=TERM",
+    "--kill-after=5s",
+    "180s",
+    "/run/current-system/sw/bin/env",
+    "-i",
+    "HOME=/home/mariogk",
+    "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "GOMAXPROCS=2",
+    "GOFLAGS=-p=2",
+    "GOTOOLCHAIN=local",
+    "LANG=C.UTF-8",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+    "test",
+    "-c",
+    "-mod=readonly",
+    "-p=1",
+    "-o",
+    "/tmp/ts-attempt-458ff55-truecompile-shortb-sealed-7qtri3ou/qa-output/binaries/attempt.test",
+    "./internal/attempt"
+  ],
+  "timeout_nice": 19,
+  "actual_go": [
+    {
+      "pid": 715293,
+      "exe": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "argv": [
+        "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+        "test",
+        "-c",
+        "-mod=readonly",
+        "-p=1",
+        "-o",
+        "/tmp/ts-attempt-458ff55-truecompile-shortb-sealed-7qtri3ou/qa-output/binaries/attempt.test",
+        "./internal/attempt"
+      ],
+      "environment": {
+        "HOME": "/home/mariogk",
+        "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+        "GOMAXPROCS": "2",
+        "GOFLAGS": "-p=2",
+        "GOTOOLCHAIN": "local",
+        "LANG": "C.UTF-8"
+      },
+      "GOROOT_present": false,
+      "nice": 19
+    }
+  ],
+  "shortb_inode_key": "00:2a:55360442",
+  "shortb_proc_locks_entries": [],
+  "no_lock_acquisition_by_reader": true
+}

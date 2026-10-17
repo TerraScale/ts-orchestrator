@@ -1,0 +1,39 @@
+{
+  "ELF_bytes_in_publication": false,
+  "binaries": [
+    {
+      "bytes": 59608166,
+      "copied": false,
+      "magic_hex": "7f454c46",
+      "metadata_origin": "/tmp/ts-attempt-b3e1-truecompile-shortb-sealed-5di2rygp/qa-output/receipt.json",
+      "mode": "0o600",
+      "never_executed": true,
+      "path": "/tmp/ts-attempt-b3e1-truecompile-shortb-sealed-5di2rygp/qa-output/binaries/attempt.test",
+      "qualification": "historical-b3-candidate-compile",
+      "sha256": "56b4cfed63770bf2b42047b1e418fc23a73ba506166e9302fbcbcc7b332432e6"
+    },
+    {
+      "bytes": 59608014,
+      "copied": false,
+      "magic_hex": "7f454c46",
+      "metadata_origin": "/tmp/ts-attempt-458ff55-truecompile-shortb-sealed-7qtri3ou/qa-output/receipt.json",
+      "mode": "0o600",
+      "never_executed": true,
+      "path": "/tmp/ts-attempt-458ff55-truecompile-shortb-sealed-7qtri3ou/qa-output/binaries/attempt.test",
+      "qualification": "fresh458-source-specific-compile",
+      "sha256": "ad1a1e163942da44aa3554d61c17d722926adf3f61bd19f597151808045c2c94"
+    }
+  ],
+  "exclusions": [
+    {
+      "origin": "/tmp/ts-attempt-b3e1-truecompile-shortb-sealed-5di2rygp/qa-output/binaries/attempt.test",
+      "reason": "ELF output directory excluded; binary metadata retained in receipts and excluded-binaries.json"
+    },
+    {
+      "origin": "/tmp/ts-attempt-458ff55-truecompile-shortb-sealed-7qtri3ou/qa-output/binaries/attempt.test",
+      "reason": "ELF output directory excluded; binary metadata retained in receipts and excluded-binaries.json"
+    }
+  ],
+  "historical_manifest_note": "Byte-exact historical manifests may name original binary or nested paths. Those are original-origin manifests; direct publication SHA256SUMS covers flattened actual files only.",
+  "never_execute": true
+}

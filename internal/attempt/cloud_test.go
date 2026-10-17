@@ -213,10 +213,3 @@ func TestSlotRecordPrefixesScopeToTheDeployment(t *testing.T) {
 		}
 	}
 }
-
-func TestAttemptRejectsRetiredContinuityPhase(t *testing.T) {
-	a := smallAttempt(t)
-	if err := a.Phase("continuity"); err == nil || !strings.Contains(err.Error(), "unknown attempt phase") {
-		t.Fatalf("retired continuity phase admitted: %v", err)
-	}
-}

@@ -1,0 +1,73 @@
+{
+  "worktree": "/tmp/ts-attempt-retirement-cc37-nu5lqc7w/source",
+  "branch": "refactor/attempt-continuity-retirement-cc37-nu5lqc7w",
+  "base": "cc37fe13cace70584c45ee368d6edcd80ebc5f2d",
+  "commit": "b3e1fde77998257aef756bc02310019aa173a522",
+  "tree": "1a6313d43566e860fc317749c3279bddb55590fe",
+  "status": "",
+  "source_scope": [
+    "M\tinternal/attempt/cloud_test.go"
+  ],
+  "tracked_files": 3834,
+  "original_source_worktree": "/tmp/ts-attempt-phase-dispatch-integration",
+  "original_source_head": "cc37fe13cace70584c45ee368d6edcd80ebc5f2d",
+  "original_source_status": "",
+  "connected_sha256": {
+    "internal/attempt/attempt.go": "418ccb6125235e45835b791e02ad6e8ca0ae706f34b108f5463919e3cc81aa5c",
+    "internal/attempt/attempt_test.go": "281d42f650bed81746d14d5d654ed0acabee210bf06863713239d148fb5178b8",
+    "internal/attempt/cloud.go": "64e5fb3451d40d85c96266b64a32b3e0a5026f20ad8e1ee6361d48aa48bfb8a9",
+    "internal/entityid/id.go": "e16d87bfe94500bfbc922d008ea3ce5412b7ac4201aa700bd0b40aed79e3982e",
+    "internal/cli/cli.go": "b9aa703266c72f7bbd6801fe5575151007999491329d81abe6b05dd19aa3f2e8"
+  },
+  "copied_actual_evidence_bindings": {
+    "accepted-runtime-review.json": {
+      "original_path": "/tmp/ts-qa-attempt-cc37-terminal-acceptance-ocqo7d_k/review.json",
+      "sha256": "de6f185ae94fdf9eb453cd4c2e3d7b9392c5c6fabd6f89d3884179484c8ab094",
+      "copy_sha256": "de6f185ae94fdf9eb453cd4c2e3d7b9392c5c6fabd6f89d3884179484c8ab094"
+    },
+    "accepted-runtime-receipt.json": {
+      "original_path": "/tmp/ts-attempt-cc37-shortb-runner-47vnkiv7/receipt.json",
+      "sha256": "383abec3b87961f937ba071b383a5bd21cb50d9d8e75842defcafd1bca2ea8c9",
+      "copy_sha256": "383abec3b87961f937ba071b383a5bd21cb50d9d8e75842defcafd1bca2ea8c9"
+    },
+    "accepted-runtime-stdout.jsonl": {
+      "original_path": "/tmp/ts-attempt-cc37-shortb-runner-47vnkiv7/stdout.jsonl",
+      "sha256": "ff8dda1e1f910010b5a081944804dd00d6ad742556970fdb21b9a0e717279369",
+      "copy_sha256": "ff8dda1e1f910010b5a081944804dd00d6ad742556970fdb21b9a0e717279369"
+    },
+    "accepted-runtime-stderr.log": {
+      "original_path": "/tmp/ts-attempt-cc37-shortb-runner-47vnkiv7/stderr.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "copy_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "accepted-runtime-SHA256SUMS.txt": {
+      "original_path": "/tmp/ts-attempt-cc37-shortb-runner-47vnkiv7/SHA256SUMS",
+      "sha256": "12abc96862b59a32dc6f03ef3715b253c38d79a4b24a05ad367b0f198902cee0",
+      "copy_sha256": "12abc96862b59a32dc6f03ef3715b253c38d79a4b24a05ad367b0f198902cee0"
+    },
+    "actual-prior-launch-tool-result.json": {
+      "original_path": "/tmp/ts-attempt-cc37-shortb-native-results-pzacv5bw/launch-tool-result.json",
+      "sha256": "34e319af4027a5e2b6eeb24a6751c536b803c78fc3c4cd7f74dd680843177c96",
+      "copy_sha256": "34e319af4027a5e2b6eeb24a6751c536b803c78fc3c4cd7f74dd680843177c96"
+    },
+    "actual-prior-terminal-tool-result.json": {
+      "original_path": "/tmp/ts-attempt-cc37-shortb-native-results-pzacv5bw/poll-006-tool-result.json",
+      "sha256": "23cef825ac5c6469c4aefad0e07444c634189e0315438ee476b157224c80a913",
+      "copy_sha256": "23cef825ac5c6469c4aefad0e07444c634189e0315438ee476b157224c80a913"
+    },
+    "actual-prior-native-SHA256SUMS.txt": {
+      "original_path": "/tmp/ts-attempt-cc37-shortb-native-results-pzacv5bw/SHA256SUMS",
+      "sha256": "41275c7c898f11d28b446bb5b264226e87adf0146a91aff456b2236849221c5f",
+      "copy_sha256": "41275c7c898f11d28b446bb5b264226e87adf0146a91aff456b2236849221c5f"
+    },
+    "independent-source-review.json": {
+      "original_path": "/tmp/ts-independent-attempt-customer-source-reviews-0xj4cbrz/attempt-cc37-independent-source-review.json",
+      "sha256": "4945d5fe3d3bdd7d46920f4cd809c9cba1571ca761c2d6e32366d3ceed78dcd6",
+      "copy_sha256": "4945d5fe3d3bdd7d46920f4cd809c9cba1571ca761c2d6e32366d3ceed78dcd6"
+    }
+  },
+  "accepted_runtime_session": 78728,
+  "accepted_runtime_pid": 595898,
+  "accepted_runtime_execution_is_historical_only": true,
+  "no_new_compile_runtime_push": true
+}

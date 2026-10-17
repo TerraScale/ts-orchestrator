@@ -1,0 +1,29 @@
+SOURCE /home/mariogk/go/pkg/mod/github.com/oklog/ulid/v2@v2.1.2/ulid.go
+FULL_FILE_SHA256 0ac87350cd2a4b98b3ac8fa2de168655edf9d0f6c9b5f78850643e07e240970f
+LINES 577-601
+
+func Monotonic(entropy io.Reader, inc uint64) *MonotonicEntropy {
+	m := MonotonicEntropy{
+		Reader: bufio.NewReader(entropy),
+		inc:    inc,
+	}
+
+	if m.inc == 0 {
+		m.inc = math.MaxUint32
+	}
+
+	if rng, ok := entropy.(rng); ok {
+		m.rng = rng
+	}
+
+	return &m
+}
+
+type rng interface{ Int63n(n int64) int64 }
+
+// LockedMonotonicReader wraps a MonotonicReader with a sync.Mutex for safe
+// concurrent use.
+type LockedMonotonicReader struct {
+	mu sync.Mutex
+	MonotonicReader
+}
