@@ -69,6 +69,7 @@ func startRootBrokerRuntime(ctx context.Context, cfg Config, authority *rootOCIA
 		_ = broker.Close()
 		return nil, err
 	}
+	broker.workers.Go(broker.runNetBirdListener)
 	broker.workers.Go(func() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
