@@ -493,6 +493,47 @@ func TestAssetPinsAndHashMismatch(t *testing.T) {
 		t.Fatal(e)
 	}
 	requireError(t, GenericPreflight(GenericOptions{Kernel: filepath.Join(dir, "kernel")}), "SHA-256 mismatch")
+
+	source := t.TempDir()
+	writeSource := func(name, content string) {
+		t.Helper()
+		path := filepath.Join(source, name)
+		if e := os.MkdirAll(filepath.Dir(path), 0o700); e != nil {
+			t.Fatal(e)
+		}
+		if e := os.WriteFile(path, []byte(content), 0o600); e != nil {
+			t.Fatal(e)
+		}
+	}
+	inputs := []string{"go.mod", "go.sum", "main.go", "main_test.go", "docs.go", "third_party/runtime/runtime.go", "third_party/runtime/docs/example.go"}
+	for _, name := range inputs {
+		writeSource(name, "original")
+	}
+	before, e := SourceDigest(source)
+	if e != nil {
+		t.Fatal(e)
+	}
+	for _, content := range []string{"archived source", "updated archived source"} {
+		for _, name := range []string{"docs/evidence/source.go", "docs/evidence/source_test.go", "docs/go.mod"} {
+			writeSource(name, content)
+		}
+		after, e := SourceDigest(source)
+		if e != nil {
+			t.Fatal(e)
+		}
+		requireEqual(t, after, before)
+	}
+	for _, name := range inputs {
+		writeSource(name, "changed")
+		after, e := SourceDigest(source)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if after == before {
+			t.Fatalf("source digest ignored build input %s", name)
+		}
+		writeSource(name, "original")
+	}
 }
 func TestAPISocketPathIsPrivateShortAndBounded(t *testing.T) {
 	dir, e := PrivateSocketDirectory()
