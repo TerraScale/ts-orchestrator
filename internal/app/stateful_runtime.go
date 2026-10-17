@@ -12,6 +12,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/executionleader"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/executionwire"
@@ -63,6 +64,24 @@ func newStatefulRuntime(config statefulRuntimeConfig) (*statefulRuntime, error) 
 // Requests remain pending until the complete producer and session pair exists.
 type statefulRuntimeSlot struct {
 	atomic.Pointer[statefulRuntime]
+}
+
+func (slot *statefulRuntimeSlot) ObserveRuntimeReadiness(ctx context.Context, challenge host.ContainerReadinessChallenge, hosts *host.Controller) (protocol.Envelope, error) {
+	runtime := slot.Load()
+	if runtime == nil {
+		return protocol.Envelope{}, containermaterial.ErrPending
+	}
+	if err := runtime.guard(ctx); err != nil {
+		return protocol.Envelope{}, err
+	}
+	envelope, err := runtime.effects.ObserveRuntimeReadiness(ctx, challenge, hosts)
+	if err != nil {
+		return protocol.Envelope{}, err
+	}
+	if err := runtime.guard(ctx); err != nil {
+		return protocol.Envelope{}, err
+	}
+	return envelope, nil
 }
 
 func (slot *statefulRuntimeSlot) apply(ctx context.Context, intent delivery.Intent) error {
