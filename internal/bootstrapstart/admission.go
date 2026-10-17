@@ -182,23 +182,28 @@ func (gate Gate) binaryChecker() BinaryChecker {
 // Only an executable that differs from it may
 // instead be the self-update current release.
 func (gate Gate) verifyRestartBinary(accepted AcceptedIdentity, roots trust.Keyring) error {
+	_, err := gate.readVerifiedRestartBinary(accepted, roots)
+	return err
+}
+
+func (gate Gate) readVerifiedRestartBinary(accepted AcceptedIdentity, roots trust.Keyring) (RunningBinary, error) {
 	binary, err := gate.binaryChecker().VerifyAccepted(accepted.Binary)
 	if err == nil && binary.SHA256 == accepted.Binary.SHA256 && binary.Bytes == accepted.Binary.Size &&
 		binary.Architecture == accepted.Binary.Architecture {
-		return nil
+		return binary, nil
 	}
 	if err == nil {
 		err = ErrRunningBinaryMismatch
 	}
 	if errors.Is(err, ErrRunningBinaryMismatch) && gate.SelfUpdate.Root != "" {
-		_, err = gate.binaryChecker().VerifySelfUpdated(gate.SelfUpdate, roots, release.UpdateExpectation{
+		binary, err = gate.binaryChecker().VerifySelfUpdated(gate.SelfUpdate, roots, release.UpdateExpectation{
 			Environment: accepted.Environment, Cell: accepted.Cell, Architecture: accepted.Binary.Architecture,
 		})
 		if err == nil {
-			return nil
+			return binary, nil
 		}
 	}
-	return fmt.Errorf("%w: installed executable differs: %v", ErrAdmission, err)
+	return RunningBinary{}, fmt.Errorf("%w: installed executable differs: %v", ErrAdmission, err)
 }
 
 func (gate Gate) locate(ctx context.Context) (bootstrap.BootstrapScope, string, error) {
