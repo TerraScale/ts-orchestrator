@@ -192,7 +192,8 @@ func (producer *rootMaterialAdmission) readers(ctx context.Context, call rootoci
 	if err != nil {
 		return fail(err)
 	}
-	service, err := delivery.ConnectClient(ctx, delivery.Config{Conn: conn, JS: js, Cell: cfg.NATS.Cell, Verifier: policy.codec, Authorize: policy.authorizeIntent})
+	service, err := delivery.ConnectClient(ctx, delivery.Config{Conn: conn, JS: js, Cell: cfg.NATS.Cell, Verifier: policy.codec, Authorize: policy.authorizeIntent,
+		ArtifactVerifier: policy.codec, AuthorizeArtifact: policy.authorizeArtifact})
 	if err != nil {
 		return fail(err)
 	}
