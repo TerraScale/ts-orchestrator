@@ -16,6 +16,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/capacityinventory"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/identity"
@@ -86,6 +87,10 @@ func launchFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, re
 		return OriginalFoundationWriter{}, err
 	}
 	record, etag, err := resolver.Store.Load(ctx, cell)
+	if err != nil {
+		return OriginalFoundationWriter{}, err
+	}
+	writerImage, imageExpected, err := foundationWriterImage(ctx, resolver, material, cell)
 	if err != nil {
 		return OriginalFoundationWriter{}, err
 	}
@@ -202,13 +207,19 @@ func launchFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, re
 		if err != nil || actual != digest {
 			return errors.Join(ErrFoundationFenced, err)
 		}
+		if _, _, err := foundationWriterImage(ctx, resolver, material, cell); err != nil {
+			return err
+		}
 		if err := authority.Guard(ctx, 0); err != nil {
 			return err
 		}
 		if err := allocation.Validate(request, quote, time.Now()); err != nil {
 			return err
 		}
-		for _, deadline := range []time.Time{material.ExpiresAt(), allocation.ExpiresAt(), quote.ExpiresAt(), pending.FirstAttemptAt.Add(bootstrapRetryLifetime), startup.FounderResources.LaunchDeadline} {
+		if err := writerImage.ValidFor(imageExpected, time.Now()); err != nil {
+			return err
+		}
+		for _, deadline := range []time.Time{writerImage.ExpiresAt(), material.ExpiresAt(), allocation.ExpiresAt(), quote.ExpiresAt(), pending.FirstAttemptAt.Add(bootstrapRetryLifetime), startup.FounderResources.LaunchDeadline} {
 			if err := ociclient.LimitAdmission(ctx, deadline); err != nil {
 				return err
 			}
@@ -336,6 +347,10 @@ func installFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, r
 	if err != nil {
 		return err
 	}
+	writerImage, imageExpected, err := foundationWriterImage(ctx, resolver, material, cell)
+	if err != nil {
+		return err
+	}
 	record, etag, err := resolver.Store.Load(ctx, cell)
 	if err != nil {
 		return err
@@ -384,6 +399,18 @@ func installFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, r
 			return err
 		}
 		if err := authority.Guard(ctx, 0); err != nil {
+			return err
+		}
+		if _, _, err := foundationWriterImage(ctx, resolver, material, cell); err != nil {
+			return err
+		}
+		if err := authority.Guard(ctx, 0); err != nil {
+			return err
+		}
+		if err := writerImage.ValidFor(imageExpected, time.Now()); err != nil {
+			return err
+		}
+		if err := ociclient.LimitAdmission(ctx, writerImage.ExpiresAt()); err != nil {
 			return err
 		}
 		return ociclient.LimitAdmission(ctx, material.ExpiresAt())
@@ -497,6 +524,14 @@ func (authority *HomeIAMAuthority) VerifyFoundationWriter(ctx context.Context) e
 	if pending == nil || pending.validate() != nil || pending.Cell != entry.Cell || pending.InstanceID != authority.instanceID || pending.InstallationID != authority.installationID || pending.Namespace != authority.domain.Namespace || pending.Bucket != authority.domain.HeadBucket || pending.KMSKeyID != authority.domain.HeadKMSKeyOCID || pending.BucketCompartment != authority.bucketCompartment || pending.Policy == nil || pending.Policy.PolicyID == "" || pending.Policy.VerifiedAt.IsZero() {
 		return ErrFoundationFenced
 	}
+	material, err := authority.resolver.BootstrapMaterial(ctx, entry.Cell)
+	if err != nil {
+		return err
+	}
+	writerImage, imageExpected, err := foundationWriterImage(ctx, authority.resolver, material, entry.Cell)
+	if err != nil {
+		return err
+	}
 	home, err := authority.factory.HomeRegion(ctx, authority.tenancyID)
 	if err != nil {
 		return err
@@ -509,7 +544,19 @@ func (authority *HomeIAMAuthority) VerifyFoundationWriter(ctx context.Context) e
 	if err != nil {
 		return err
 	}
-	return (&SourceFounder{iam: iam}).verifyPolicy(ctx, SourcePolicyRecord{Request: pending.Policy.Request, PolicyID: pending.Policy.PolicyID})
+	if err := (&SourceFounder{iam: iam}).verifyPolicy(ctx, SourcePolicyRecord{Request: pending.Policy.Request, PolicyID: pending.Policy.PolicyID}); err != nil {
+		return err
+	}
+	if err := authority.Guard(ctx, 0); err != nil {
+		return err
+	}
+	if err := writerImage.ValidFor(imageExpected, time.Now()); err != nil {
+		return err
+	}
+	if err := ociclient.LimitAdmission(ctx, writerImage.ExpiresAt()); err != nil {
+		return err
+	}
+	return ociclient.LimitAdmission(ctx, material.ExpiresAt())
 }
 
 func (record FoundationWriterRecord) validate() error {
@@ -542,3 +589,17 @@ func foundationWriterMetadata(slot string) map[string]string {
 }
 
 var foundationWriterKeyPattern = regexp.MustCompile(`^ocid1\.key\.oc1\.sa-saopaulo-1\.[a-z0-9]+(?:\.[a-z0-9]+)*$`)
+
+func foundationWriterImage(ctx context.Context, resolver FoundationResolver, material VerifiedBootstrapMaterial, cell string) (release.VerifiedFoundationWriterImage, release.ImageExpectation, error) {
+	startup, err := material.Startup()
+	if err != nil {
+		return release.VerifiedFoundationWriterImage{}, release.ImageExpectation{}, err
+	}
+	expected := release.ImageExpectation{Environment: material.Config().Environment, LogicalRegion: cell, OCIImageOCID: startup.ImageOCID, Architecture: strings.TrimPrefix(startup.ImageArchitecture, "linux-")}
+	reader, ok := resolver.Footprint.(*SignedFootprint)
+	if !ok {
+		return release.VerifiedFoundationWriterImage{}, expected, errors.New("writer image requires independently signed foundation")
+	}
+	proof, err := release.VerifyFoundationWriterImageCurrent(ctx, release.HostImageQualification{Receipt: startup.ReleaseImageReceiptWire, Delegation: startup.ReleaseDelegationWire, Expected: expected, Role: "manager"}, reader.roots, reader.openNetBirdEvidence, time.Now())
+	return proof, expected, err
+}
