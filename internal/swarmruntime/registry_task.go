@@ -28,8 +28,10 @@ func VerifyRegistryTask(ctx context.Context, client api.ControlClient, task *api
 	if err != nil {
 		return err
 	}
-	intent.releaseSequence = claim.ReleaseSequence
-	intent.releaseFingerprint = verified.ReleaseIdentity()
+	intent, err = intent.withVerifiedRelease(verified)
+	if err != nil {
+		return err
+	}
 	wanted, err := intent.serviceSpec()
 	if err != nil {
 		return err

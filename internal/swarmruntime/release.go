@@ -142,18 +142,11 @@ func applySignedService(ctx context.Context, client api.ControlClient, intent Se
 		return nil, err
 	}
 	claim := verified.Claim()
-	if claim.Image != intent.Container.Image {
-		return nil, errors.New("service image differs from signed OCI child manifest")
+	intent, err = intent.withVerifiedRelease(verified)
+	if err != nil {
+		return nil, err
 	}
-	intent.releaseSequence = claim.ReleaseSequence
-	intent.releaseFingerprint = verified.ReleaseIdentity()
 	spec, _ := intent.serviceSpec()
-	if intent.Generation != 0 {
-		intent.intentFingerprint, err = serviceIntentFingerprint(spec)
-		if err != nil {
-			return nil, err
-		}
-	}
 	services, err := client.ListServices(operation, &api.ListServicesRequest{Filters: &api.ListServicesRequest_Filters{Names: []string{spec.Annotations.Name}}})
 	if err != nil {
 		return nil, err
@@ -401,4 +394,25 @@ func (c guardedServiceClient) UpdateService(ctx context.Context, request *api.Up
 		return nil, err
 	}
 	return c.ControlClient.UpdateService(ctx, request, options...)
+}
+
+// Both mutation and task admission reconstruct the same authenticated revision.
+func (intent ServiceIntent) withVerifiedRelease(verified release.VerifiedContainer) (ServiceIntent, error) {
+	claim := verified.Claim()
+	if !verified.Valid(time.Now().UTC()) || intent.Container == nil || claim.Image != intent.Container.Image {
+		return ServiceIntent{}, errors.New("service image differs from current signed OCI child manifest")
+	}
+	intent.releaseSequence = claim.ReleaseSequence
+	intent.releaseFingerprint = verified.ReleaseIdentity()
+	spec, err := intent.serviceSpec()
+	if err != nil {
+		return ServiceIntent{}, err
+	}
+	if intent.Generation != 0 {
+		intent.intentFingerprint, err = serviceIntentFingerprint(spec)
+		if err != nil {
+			return ServiceIntent{}, err
+		}
+	}
+	return intent, nil
 }
