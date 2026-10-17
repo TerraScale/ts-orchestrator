@@ -136,8 +136,31 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bundle, err := SignFoundationDiscovery(t.Context(), prepared.Grant, prepared.Anchor, chain, roots, root, now.Add(-time.Second), now.Add(20*time.Minute))
+	grantPayload, err := trust.EncodePayload(prepared.Grant)
 	if err != nil {
+		t.Fatal(err)
+	}
+	scope := trust.Scope{Domain: foundationGrantDomain, DeploymentID: prepared.Anchor.DeploymentID, Cell: string(prepared.Anchor.Cell), Environment: prepared.Anchor.Environment, Role: "foundation", Slot: prepared.Anchor.ClusterID}
+	grantEnvelope, err := trust.Sign(grantPayload, scope, now.Add(-time.Second), now.Add(20*time.Minute), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grantWire, err := trust.EncodeEnvelope(grantEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grantDigest := sha256.Sum256(grantWire)
+	prepared.Anchor.FoundationScope.GrantSHA256 = hex.EncodeToString(grantDigest[:])
+	anchorEnvelope, err := bootstrap.SignBootstrapAnchor(prepared.Anchor, now.Add(-time.Second), now.Add(20*time.Minute), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchorWire, err := trust.EncodeEnvelope(anchorEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := RetainedFoundation{TenancyID: prepared.Grant.TenancyID, Namespace: prepared.Anchor.StorageDomain.Namespace, RootChainWire: chain, AnchorWire: anchorWire, GrantWire: grantWire}
+	if err := VerifyFoundationProvisionBundle(t.Context(), roots, bundle); err != nil {
 		t.Fatal(err)
 	}
 	cloud.bundle = bundle.clone()
