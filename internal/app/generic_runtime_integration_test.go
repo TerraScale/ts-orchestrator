@@ -246,6 +246,10 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	} {
 		candidate := intent.Clone()
 		mutate(candidate.Container)
+		if _, err := release.VerifyContainerCurrent(ctx, *candidate.Container, specs.roots.current(), target,
+			time.Now().UTC(), time.Now().UTC().Add(time.Minute), evidence, signer.allocations); err == nil {
+			t.Fatalf("%s refusal depended only on the absent delivery operation", name)
+		}
 		if err := controller.apply(ctx, candidate); err == nil {
 			t.Fatalf("%s refusal admitted an unauthenticated release", name)
 		}
