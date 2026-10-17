@@ -14,12 +14,14 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
 )
@@ -236,6 +238,27 @@ func runtimeFixtureHTTP(t *testing.T, architecture string, archive, runc []byte)
 	t.Cleanup(func() { http.DefaultTransport = original })
 }
 
+// Keep real offline tools in the QA runner's process group so its cleanup owns them.
+func runtimeFixtureExecute(ctx context.Context, dir string, env []string, command ...string) (string, error) {
+	if len(command) == 0 {
+		return "", errors.New("empty command")
+	}
+	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
+	cmd.Dir = dir
+	if env != nil {
+		cmd.Env = env
+	}
+	cmd.WaitDelay = 2 * time.Second
+	var output, stderr bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		action := strings.Join(command[:min(2, len(command))], " ")
+		return "", fmt.Errorf("%s failed: %s: %w", action, strings.TrimSpace(stderr.String()+output.String()), err)
+	}
+	return strings.TrimSpace(output.String()), nil
+}
+
 // guestfish protocol operations use real files; guest root ownership is virtualized for rootless tests.
 func runtimeFixtureGuest(t *testing.T) (*Guest, string) {
 	t.Helper()
@@ -254,7 +277,7 @@ func runtimeFixtureGuest(t *testing.T) (*Guest, string) {
 	guestPath := func(p string) string { return filepath.Join(root, p) }
 	g.exec = func(ctx context.Context, dir string, env []string, command ...string) (string, error) {
 		if len(command) < 3 || command[0] != "guestfish" || command[1] != "--remote" {
-			return Execute(ctx, dir, env, command...)
+			return runtimeFixtureExecute(ctx, dir, env, command...)
 		}
 		args := command[3:]
 		switch command[2] {
@@ -347,7 +370,7 @@ func runtimeFixtureSystemd(t *testing.T, g *Guest, root, work, architecture stri
 		t.Fatal(err)
 	}
 	for _, name := range []string{MetadataUnit, "containerd.service", "terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-managed-runtime.service", "terrascale-orchestrator-controller.service"} {
-		state, err := Execute(t.Context(), "", append(os.Environ(), "SYSTEMD_OFFLINE=1"), "systemctl", "--root="+root, "is-enabled", name)
+		state, err := runtimeFixtureExecute(t.Context(), "", append(os.Environ(), "SYSTEMD_OFFLINE=1"), "systemctl", "--root="+root, "is-enabled", name)
 		if err != nil || state != "enabled" {
 			t.Fatalf("guest %s is not enabled: %s, %v", name, state, err)
 		}
@@ -370,7 +393,7 @@ func runtimeFixtureSystemd(t *testing.T, g *Guest, root, work, architecture stri
 			t.Fatal(err)
 		}
 	}
-	if _, err := Execute(t.Context(), "", append(os.Environ(), "SYSTEMD_OFFLINE=1"), "systemd-analyze", "--root="+root, "--generators=no", "--man=no", "verify", MetadataUnit, "containerd.service", "terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-managed-runtime.service", "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service", "terrascale-orchestrator-bootstrap.service"); err != nil {
+	if _, err := runtimeFixtureExecute(t.Context(), "", append(os.Environ(), "SYSTEMD_OFFLINE=1"), "systemd-analyze", "--root="+root, "--generators=no", "--man=no", "verify", MetadataUnit, "containerd.service", "terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-managed-runtime.service", "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service", "terrascale-orchestrator-bootstrap.service"); err != nil {
 		t.Fatal(err)
 	}
 	for _, edge := range []struct{ unit, dependency string }{
