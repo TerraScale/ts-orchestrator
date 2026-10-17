@@ -225,14 +225,16 @@ func (b *Backend) AuthorizeNetBirdIntent(ctx context.Context, call rootoci.Call,
 }
 
 func (b *Backend) canonical(ctx context.Context, s *Sources, identity bootstrapstart.RuntimeIdentity, deadline time.Time) (rootoci.NetBirdIntent, error) {
-	if s.snapshot == nil || s.snapshot.Guard(ctx) != nil || s.material.Revalidate(ctx) != nil {
-		return rootoci.NetBirdIntent{}, rootoci.ErrUnauthorized
-	}
 	material := s.material
-	config := material.Config()
-	if deadline.After(material.ExpiresAt()) {
+	if ctx == nil || s.snapshot == nil || !time.Now().Before(deadline) || deadline.After(material.ExpiresAt()) || deadline.After(s.snapshot.ExpiresAt()) {
 		return rootoci.NetBirdIntent{}, rootoci.ErrUnauthorized
 	}
+	ctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	if s.snapshot.Guard(ctx) != nil || material.Revalidate(ctx) != nil {
+		return rootoci.NetBirdIntent{}, rootoci.ErrUnauthorized
+	}
+	config := material.Config()
 	if config.DeploymentID != identity.DeploymentID || config.ClusterID != identity.ClusterID || config.Environment != identity.Environment ||
 		config.Cell != strings.ToLower(identity.Cell) || config.Region != identity.OCIRegion {
 		return rootoci.NetBirdIntent{}, rootoci.ErrUnauthorized

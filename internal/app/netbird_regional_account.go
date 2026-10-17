@@ -126,11 +126,22 @@ func (s *netBirdRegionalAccount) current(ctx context.Context, admission region.V
 	if s == nil || ctx == nil {
 		return fail(foundation.ErrAdmissionExpired)
 	}
-	if !time.Now().Before(s.floor.ExpiresAt()) || s.reader.Guard(ctx) != nil || admission.Check(ctx) != nil || s.material.Revalidate(ctx) != nil {
-		return fail(s.end(errors.New("original regional account admission changed or expired")))
+	deadline := s.floor.ExpiresAt()
+	for _, expires := range []time.Time{s.material.ExpiresAt(), admission.ExpiresAt()} {
+		if expires.Before(deadline) {
+			deadline = expires
+		}
 	}
-	ctx, cancel := context.WithDeadline(ctx, s.floor.ExpiresAt())
+	if !time.Now().Before(deadline) {
+		return fail(s.end(errors.New("original regional account admission expired")))
+	}
+	ctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
+	stop := context.AfterFunc(s.reader.Context(), cancel)
+	defer stop()
+	if s.reader.Guard(ctx) != nil || admission.Check(ctx) != nil || s.material.Revalidate(ctx) != nil {
+		return fail(s.end(errors.New("original regional account admission changed")))
+	}
 	entry, lease, err := s.control.Read(ctx)
 	if err != nil {
 		return fail(err)
