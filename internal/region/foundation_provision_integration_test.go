@@ -861,7 +861,7 @@ func (c *provisionCloud) checkPolicyReservation(body map[string]any, token strin
 			c.test.Error(err)
 			return
 		}
-		expected, err := json.Marshal(pending.Policy.Request, json.Deterministic(true))
+		expected, err := foundationWriterPolicyBody(pending.Policy.Request)
 		if err != nil {
 			c.test.Error(err)
 			return
