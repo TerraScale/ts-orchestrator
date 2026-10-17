@@ -25,6 +25,7 @@ type VerifiedRuntimeIAM struct {
 	factory  *ociclient.Factory
 	observer *OCIInstanceObserver
 	imds     IMDSClient
+	gate     Gate
 	scope    bootstrap.FoundationScope
 	anchor   string
 }
@@ -33,10 +34,6 @@ func VerifyRuntimeIAM(ctx context.Context, reader *CurrentFounderAuthorityReader
 	current, err := reader.ReadRuntimeAuthority(ctx, accepted, time.Now().UTC())
 	if err != nil {
 		return VerifiedRuntimeIAM{}, err
-	}
-	scope, err := current.Anchor().FoundationScope()
-	if err != nil || scope.Validate() != nil {
-		return VerifiedRuntimeIAM{}, errors.Join(ErrSourceFounder, err)
 	}
 	config, err := currentLedgerConfig(current.Anchor(), reader.baked.Roots)
 	if err != nil {
@@ -54,8 +51,26 @@ func VerifyRuntimeIAM(ctx context.Context, reader *CurrentFounderAuthorityReader
 	if err != nil {
 		return VerifiedRuntimeIAM{}, err
 	}
+	return verifyRuntimeIAMWithSources(ctx, reader, accepted, factory, observer, NewIMDSClient(),
+		Gate{SelfUpdate: selfupdate.NewLayout(selfupdate.DefaultRoot)})
+}
+
+func verifyRuntimeIAMWithSources(ctx context.Context, reader *CurrentFounderAuthorityReader, accepted AcceptedIdentity,
+	factory *ociclient.Factory, observer *OCIInstanceObserver, imds IMDSClient, gate Gate,
+) (VerifiedRuntimeIAM, error) {
+	if ctx == nil || reader == nil || factory == nil || observer == nil || imds.client == nil || gate.Binary != nil {
+		return VerifiedRuntimeIAM{}, ErrSourceFounder
+	}
+	current, err := reader.ReadRuntimeAuthority(ctx, accepted, time.Now().UTC())
+	if err != nil {
+		return VerifiedRuntimeIAM{}, err
+	}
+	scope, err := current.Anchor().FoundationScope()
+	if err != nil || scope.Validate() != nil {
+		return VerifiedRuntimeIAM{}, errors.Join(ErrSourceFounder, err)
+	}
 	proof := VerifiedRuntimeIAM{reader: reader, accepted: accepted.Clone(), factory: factory,
-		observer: observer, imds: NewIMDSClient(), scope: scope, anchor: current.Anchor().Digest()}
+		observer: observer, imds: imds, gate: gate, scope: scope, anchor: current.Anchor().Digest()}
 	if err := proof.VerifyCurrent(ctx); err != nil {
 		return VerifiedRuntimeIAM{}, err
 	}
@@ -63,7 +78,7 @@ func VerifyRuntimeIAM(ctx context.Context, reader *CurrentFounderAuthorityReader
 }
 
 func (proof VerifiedRuntimeIAM) IsVerified() bool {
-	return proof.reader != nil && proof.factory != nil && proof.observer != nil && proof.anchor != ""
+	return proof.reader != nil && proof.factory != nil && proof.observer != nil && proof.imds.client != nil && proof.anchor != ""
 }
 func (proof VerifiedRuntimeIAM) InstanceID() string                         { return proof.accepted.InstanceOCID }
 func (proof VerifiedRuntimeIAM) FoundationScope() bootstrap.FoundationScope { return proof.scope }
@@ -91,8 +106,7 @@ func (proof VerifiedRuntimeIAM) VerifyCurrent(ctx context.Context) error {
 	if err != nil || scope != proof.scope || current.Anchor().Digest() != proof.anchor || current.Identity().OCIRegion != proof.factory.Region() {
 		return ErrSourceFounder
 	}
-	gate := Gate{SelfUpdate: selfupdate.NewLayout(selfupdate.DefaultRoot)}
-	if err := gate.verifyRestartBinary(proof.accepted, proof.reader.baked.Roots); err != nil {
+	if err := proof.gate.verifyRestartBinary(proof.accepted, proof.reader.baked.Roots); err != nil {
 		return err
 	}
 	instance, err := proof.imds.FetchInstanceID(ctx)

@@ -91,12 +91,18 @@ func NewRuntimeHomeIAMAuthority(ctx context.Context, reader *bootstrapstart.Curr
 	if err != nil {
 		return nil, err
 	}
+	return newRuntimeHomeIAMAuthority(ctx, proof, resolver, nil, genesis)
+}
+
+func newRuntimeHomeIAMAuthority(ctx context.Context, proof bootstrapstart.VerifiedRuntimeIAM, resolver FoundationResolver,
+	objects *objectstorage.ObjectStorageClient, genesis trust.Keyring,
+) (*HomeIAMAuthority, error) {
 	scope := proof.FoundationScope()
 	authority := &HomeIAMAuthority{runtime: proof, resolver: resolver, currentGenesis: genesis,
 		instanceID: proof.InstanceID(), tenancyID: scope.TenancyID, installationID: scope.InstallationID,
 		grantDigest: scope.GrantSHA256, grantGeneration: scope.GrantGeneration}
 	factory, guarded, err := proof.GuardedFactory(ctx)
-	return authority.initialize(ctx, factory, guarded, nil, err)
+	return authority.initialize(ctx, factory, guarded, objects, err)
 }
 
 func (authority *HomeIAMAuthority) initialize(ctx context.Context, factory *ociclient.Factory, guarded context.Context, objects *objectstorage.ObjectStorageClient, principalErr error) (*HomeIAMAuthority, error) {
