@@ -23,7 +23,7 @@ func TestReadLeaseAdmissionPinsRenewalAndRejectsSuccessor(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	admitted, err := reader.AdmitCurrentLease(ctx, runtime.config.DeploymentID, runtime.config.CandidateID, runtime.Current().Epoch)
+	admitted, err := reader.AdmitRuntimeLease(ctx, runtime.config.DeploymentID, runtime.config.CandidateID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,6 +36,12 @@ func TestReadLeaseAdmissionPinsRenewalAndRejectsSuccessor(t *testing.T) {
 	}
 	if _, err := reader.AdmitCurrentLease(t.Context(), runtime.config.DeploymentID, entityid.New(), admitted.Epoch()); err == nil {
 		t.Fatal("read admission accepted another candidate")
+	}
+	if _, err := reader.AdmitRuntimeLease(t.Context(), entityid.New(), runtime.config.CandidateID); err == nil {
+		t.Fatal("runtime read admission accepted another deployment")
+	}
+	if _, err := reader.AdmitRuntimeLease(t.Context(), runtime.config.DeploymentID, entityid.New()); err == nil {
+		t.Fatal("runtime read admission accepted another candidate")
 	}
 	cancel()
 	if err := admitted.Guard(t.Context()); err == nil {
