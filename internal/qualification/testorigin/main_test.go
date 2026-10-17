@@ -64,6 +64,13 @@ func TestMain(m *testing.M) {
 			os.Exit(1)
 		}
 		os.Exit(0)
+	case materialProducerCommand:
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
+		code := runMaterialProducer(ctx, os.Stdin, os.Stdout)
+		cancel()
+		stop()
+		os.Exit(code)
 	case natsWorldCommand:
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
