@@ -180,6 +180,47 @@ func TestSignedSpendingAuthorityDeniesCanceledObservation(t *testing.T) {
 	if err != nil || len(snapshot.Pending) == 0 {
 		t.Fatalf("canceled SDK observation must retain unknown cost: pending=%v err=%v", snapshot.Pending, err)
 	}
+	// This validates receipt predicates only; incomplete accounting below still
+	// prevents this fixture from authorizing an attach or a new purchase.
+	at := now.Add(-5 * time.Minute)
+	original := capacityledger.Quote{ScopeSHA256: proof.PhysicalScopeDigest(), Cell: "GRU", CompartmentID: "ocid1.compartment.oc1..workload",
+		Shape: "VM.Standard.A1.Flex", Currency: "USD", OCPUs: 2, MemoryGB: 4, BootGB: 50, MonthlyCents: 300, IssuedAt: at, ExpiresAt: at.Add(2 * time.Minute),
+		Prices: []ocicost.Price{{SKU: "B91961", PerUnit: 0}, {SKU: "B91962", PerUnit: 0}, {SKU: "B93297", PerUnit: 3.0 / (2 * 744)}, {SKU: "B93298", PerUnit: 0}}}
+	receipt := Reservation{OperationID: entityid.New(), RecipeSHA256: strings.Repeat("a", 64), Cell: original.Cell, CompartmentID: original.CompartmentID,
+		Shape: original.Shape, OCPUs: original.OCPUs, MemoryGB: original.MemoryGB, BootGB: original.BootGB, MonthlyCents: original.MonthlyCents,
+		InfrastructureBudgetID: proof.BudgetID(), GrantSHA256: proof.GrantDigest(), ScopeSHA256: proof.ScopeDigest(), ResolvedScopeSHA256: proof.PhysicalScopeDigest(),
+		BindingSHA256: proof.BindingDigest(), GrantGeneration: proof.Generation(), QuoteSHA256: original.SHA256(), OriginalQuote: new(original),
+		Currency: proof.Currency(), TenancyID: tenancy, IssuedAt: at.Add(time.Second), LaunchExpiresAt: at.Add(time.Minute)}
+	if err := sameOriginalReservation(receipt, receipt); err != nil {
+		t.Fatal(err)
+	}
+	if err := existingReservation(receipt, "", proof, time.Now()); err != nil {
+		t.Fatalf("existing commitment depends on expired launch or quote: %v", err)
+	}
+	if err := currentReservation(receipt, "", proof, time.Now()); err == nil {
+		t.Fatal("existing-child validation renewed expired launch permission")
+	}
+	for _, mutate := range []func(*Reservation){
+		func(r *Reservation) { r.RetiredAt = now },
+		func(r *Reservation) { r.GrantSHA256 = strings.Repeat("f", 64) },
+		func(r *Reservation) { r.GrantGeneration++ },
+		func(r *Reservation) { r.CompartmentID = "ocid1.compartment.oc1..foreign" },
+		func(r *Reservation) { r.BudgetID = entityid.New() },
+	} {
+		changed := receipt
+		mutate(&changed)
+		if err := existingReservation(changed, "", proof, time.Now()); err == nil {
+			t.Fatalf("existing commitment accepted changed authority or retirement: %+v", changed)
+		}
+	}
+	changed := receipt
+	changed.BindingSHA256 = strings.Repeat("d", 64)
+	if err := sameOriginalReservation(receipt, changed); err == nil {
+		t.Fatal("existing commitment accepted a replaced immutable origin binding")
+	}
+	if err := RevalidateExisting(ctx, &writer.Reader, receipt, proof, snapshot, time.Now()); err == nil || !strings.Contains(err.Error(), "incomplete") {
+		t.Fatalf("existing commitment bypassed complete accounting: %v", err)
+	}
 	headroom, err := InfrastructureHeadroom(ctx, &writer.Reader, proof, snapshot, entityid.New(), time.Now())
 	if err == nil || headroom != 0 || !strings.Contains(err.Error(), "incomplete") {
 		t.Fatalf("signed authority with canceled observation admitted capacity: headroom=%d err=%v", headroom, err)
