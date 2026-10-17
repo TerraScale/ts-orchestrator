@@ -157,6 +157,12 @@ func TestNetBirdNetworkRecoversLostCreatesAndRejectsDrift(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if record.AuxiliaryIDs == nil {
+			record.AuxiliaryIDs = map[string]string{}
+		}
+		if record.PendingCreates == nil {
+			record.PendingCreates = map[string]PendingFoundationCreate{}
+		}
 		_, cancel := context.WithCancelCause(t.Context())
 		t.Cleanup(func() { cancel(nil) })
 		attempt := &foundationAttempt{controller: &FoundationController{Store: store, Authority: recoveryAuthority{}}, record: record, etag: etag, leaseID: record.LeaseID, epoch: record.Epoch, cancel: cancel}
