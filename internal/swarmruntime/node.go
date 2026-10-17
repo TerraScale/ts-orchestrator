@@ -39,6 +39,7 @@ type NodeConfig struct {
 	ListenAddress    string
 	AdvertiseAddress string
 	Admission        Admission
+	guardGenesis     func(context.Context) error
 }
 
 // Node owns the upstream manager, agent, certificates and persistent task store.
@@ -147,6 +148,11 @@ func StartNode(ctx context.Context, cfg NodeConfig, executor exec.Executor) (*No
 			for _, entry := range entries {
 				if entry.Name() != "node.lock" {
 					return nil, errors.New("regional founder requires empty initial state or complete persisted identity")
+				}
+			}
+			if cfg.guardGenesis != nil {
+				if err := cfg.guardGenesis(ctx); err != nil {
+					return nil, err
 				}
 			}
 			genesisStartedAt = time.Now().UTC()

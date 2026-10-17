@@ -56,9 +56,13 @@ type bootstrapJoinMaterial struct {
 func StartAcceptedNode(ctx context.Context, reader *bootstrapstart.CurrentFounderAuthorityReader,
 	accepted bootstrapstart.AcceptedIdentity, foundations region.FoundationResolver,
 	vault vaultsecret.VaultClient, bundles vaultsecret.BundleClient, executor exec.Executor, root *rootoci.Service,
+	guardGenesis func(context.Context) error,
 ) (*Node, error) {
 	if root == nil {
 		return nil, errors.New("SwarmKit manager requires its guarded root capacity service")
+	}
+	if guardGenesis == nil {
+		guardGenesis = func(context.Context) error { return errors.New("runtime has no protected original creation permit") }
 	}
 	authority, err := reader.ReadRuntimeAuthority(ctx, accepted, time.Now().UTC())
 	if err != nil {
@@ -120,7 +124,7 @@ func StartAcceptedNode(ctx context.Context, reader *bootstrapstart.CurrentFounde
 	if err != nil {
 		return nil, err
 	}
-	n, err := startAcceptedNodeAt(ctx, swarmStateDirectory, identity, target, vault, bundles, executor, refresh)
+	n, err := startAcceptedNodeAt(ctx, swarmStateDirectory, identity, target, vault, bundles, executor, refresh, guardGenesis)
 	if err != nil {
 		return nil, err
 	}
@@ -131,6 +135,7 @@ func StartAcceptedNode(ctx context.Context, reader *bootstrapstart.CurrentFounde
 func startAcceptedNodeAt(ctx context.Context, stateDir string, identity bootstrapstart.RuntimeIdentity,
 	target vaultsecret.Target, vault vaultsecret.VaultClient, bundles vaultsecret.BundleClient,
 	executor exec.Executor, refresh func(context.Context) error,
+	guardGenesis func(context.Context) error,
 ) (*Node, error) {
 	if err := refresh(ctx); err != nil {
 		return nil, err
@@ -185,7 +190,7 @@ func startAcceptedNodeAt(ctx context.Context, stateDir string, identity bootstra
 	}
 	n, err := StartNode(ctx, NodeConfig{StateDir: nodeDir,
 		ListenAddress:    net.JoinHostPort(identity.PrivateIP, swarmManagerPort),
-		AdvertiseAddress: net.JoinHostPort(identity.PrivateIP, swarmManagerPort), Admission: admission}, executor)
+		AdvertiseAddress: net.JoinHostPort(identity.PrivateIP, swarmManagerPort), Admission: admission, guardGenesis: guardGenesis}, executor)
 	if err != nil {
 		return nil, err
 	}
