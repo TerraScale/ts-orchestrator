@@ -208,10 +208,19 @@ func (runner Runner) Run(ctx context.Context) error {
 	if err := runner.validate(); err != nil {
 		return err
 	}
+	return RunPolicy(ctx, runner.RunOnce)
+}
+
+// RunPolicy schedules the same fixed policy cadence when reconciliation is
+// performed through the authenticated root boundary.
+func RunPolicy(ctx context.Context, evaluate func(context.Context) (Report, error)) error {
+	if evaluate == nil {
+		return errors.New("volume backup policy requires reconciliation")
+	}
 	ticker := time.NewTicker(runInterval)
 	defer ticker.Stop()
 	for {
-		report, err := runner.RunOnce(ctx)
+		report, err := evaluate(ctx)
 		switch {
 		case errors.Is(err, authority.ErrNotLeader):
 		case err != nil && ctx.Err() == nil:
