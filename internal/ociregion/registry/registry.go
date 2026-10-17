@@ -12,10 +12,10 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/oracle/oci-go-sdk/v65/artifacts"
-	"github.com/oracle/oci-go-sdk/v65/common"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
@@ -218,7 +218,7 @@ func (c *Controller) Ensure(ctx context.Context, repository Repository) (artifac
 		if !ok || !time.Now().Before(deadline) {
 			return artifacts.ContainerRepository{}, errors.New("OCIR creation requires the original deadline")
 		}
-		state = Record{Repository: repository, OperationID: common.RetryToken(), CreateExpiresAt: deadline.UTC(), Images: map[string]ImageRecord{}}
+		state = Record{Repository: repository, OperationID: uuid.New().String(), CreateExpiresAt: deadline.UTC(), Images: map[string]ImageRecord{}}
 		if err := c.save(ctx, state); err != nil {
 			return artifacts.ContainerRepository{}, err
 		}
