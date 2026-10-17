@@ -729,7 +729,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	workloadRoot := rootoci.NewClient(rootoci.Expectations{Cell: cfg.NATS.Cell})
 	defer workloadRoot.Close()
 	rootInventory := &rootInventoryViews{client: workloadRoot}
-	nativeReleases.canary = newSmokeGate(nativeMemberCA).check
+	nativeReleases.canary = newSmokeGate(nativeMemberCA, workloadRoot).check
 	workloadReconciler, hostLoad, err := startWorkloadAutoscale(cfg.NATS.Cell, cfg.Controller.Autoscale,
 		profiles, specs, hostController, control, nativeReleases)
 	if err != nil {

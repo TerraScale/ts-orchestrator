@@ -22,9 +22,9 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
-	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 // A release fence's canary (TS-623) is the first node a fenced service
@@ -48,6 +48,8 @@ const (
 // canaryTarget is the node a release reaches first.
 type canaryTarget struct {
 	Role, Node, Address string
+	OperationID         string
+	Generation          uint64
 	Canary              cellspec.Canary
 	Baseline            bool
 	Profile             WorkloadProfile
@@ -105,7 +107,7 @@ type smokeGate struct {
 	// (controller.terrabase_ca_cert_file); nil fails its document check.
 	memberCA []byte
 	// credentials reads the canary's credentials from Vault.
-	credentials func(context.Context, vaultsecret.Ref) (string, error)
+	credentials func(context.Context, canaryTarget) (rootoci.NativeCanaryReceipt, error)
 	// public is the client of the public origins and of a ts-auth canary.
 	public *http.Client
 	// authPort is a ts-auth canary's port, tsauth.Port unless a test
@@ -113,13 +115,14 @@ type smokeGate struct {
 	authPort int
 }
 
-// newSmokeGate is the controller's gate: Vault through the instance
-// principal, and no redirect followed.
-func newSmokeGate(memberCA []byte) smokeGate {
+// newSmokeGate uses only the finite root-authorized native canary operation.
+func newSmokeGate(memberCA []byte, root *rootoci.Client) smokeGate {
 	return smokeGate{memberCA: memberCA,
-		credentials: func(ctx context.Context, ref vaultsecret.Ref) (string, error) {
-			values, err := vaultsecret.ReadRefs(ctx, map[string]vaultsecret.Ref{cellspec.CanaryKey: ref})
-			return values[cellspec.CanaryKey], err
+		credentials: func(ctx context.Context, target canaryTarget) (rootoci.NativeCanaryReceipt, error) {
+			if root == nil {
+				return rootoci.NativeCanaryReceipt{}, errors.New("native canary root authority is unavailable")
+			}
+			return root.MaterializeNativeCanary(ctx, rootoci.NativeCanaryRequest{OperationID: target.OperationID, Node: target.Node, Baseline: target.Baseline})
 		},
 		public: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 }
@@ -149,7 +152,19 @@ func (g smokeGate) check(ctx context.Context, target canaryTarget) map[string]st
 		}
 	}
 	fail(checkAuthDiscovery, discoverAuth(ctx, g.public, authURL))
-	authKey, terraBaseKey, err := g.keys(ctx, canary.Credentials)
+	credentials, err := g.credentials(ctx, target)
+	if err == nil && !time.Now().Before(credentials.ExpiresAt) {
+		err = errors.New("native canary credential delivery expired")
+	}
+	if err == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, credentials.ExpiresAt)
+		defer cancel()
+	}
+	authKey, terraBaseKey, keyErr := canaryKeys(credentials.Value)
+	if err == nil {
+		err = keyErr
+	}
 	if err != nil {
 		failed[checkAuthToken], failed[checkDocuments] = err.Error(), err.Error()
 	} else {
@@ -242,14 +257,9 @@ func discoverAuth(ctx context.Context, client *http.Client, authURL string) erro
 // canaryProbeKey is a well-formed ts-auth API key that no one holds.
 const canaryProbeKey = "tsk_00000000000000000000_0000000000000000000000000000000000000000000000000000"
 
-// keys reads the canary's ts-auth and TerraBase API keys; either may be
-// empty.
-func (g smokeGate) keys(ctx context.Context, ref vaultsecret.Ref) (authKey, terraBaseKey string, err error) {
-	value, err := g.credentials(ctx, ref)
-	if err != nil {
-		return "", "", fmt.Errorf("read the canary credentials: %w", err)
-	}
-	for _, key := range strings.Fields(value) {
+// canaryKeys parses the finite native canary credential inventory.
+func canaryKeys(value string) (authKey, terraBaseKey string, err error) {
+	for key := range strings.FieldsSeq(value) {
 		switch {
 		case strings.HasPrefix(key, "tsk_") && len(key) == len(canaryProbeKey) && key[24] == '_':
 			authKey = key
