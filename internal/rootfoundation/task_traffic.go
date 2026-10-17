@@ -28,7 +28,7 @@ func (b *Backend) TaskTrafficFoundation(ctx context.Context, call rootoci.Call) 
 }
 
 func (b *Backend) operationFoundation(ctx context.Context, call rootoci.Call, operation rootoci.Operation) (TaskTrafficScope, error) {
-	if b == nil || call.Operation() != operation || !time.Now().Before(call.Deadline()) {
+	if ctx == nil || b == nil || call.Operation() != operation || !time.Now().Before(call.Deadline()) {
 		return TaskTrafficScope{}, ErrScope
 	}
 	ctx, cancel := context.WithDeadline(ctx, call.Deadline())
@@ -42,6 +42,11 @@ func (b *Backend) operationFoundation(ctx context.Context, call rootoci.Call, op
 	if err != nil {
 		return TaskTrafficScope{}, err
 	}
+	if !time.Now().Before(expires) {
+		return TaskTrafficScope{}, ErrScope
+	}
+	ctx, stopFootprint := context.WithDeadline(ctx, expires)
+	defer stopFootprint()
 	record, _, err := resolver.Store.Load(ctx, b.cell)
 	if err != nil {
 		return TaskTrafficScope{}, err
@@ -90,16 +95,40 @@ type NodeOperationScope struct {
 	WorkloadCompartmentID string
 	ExpiresAt             time.Time
 	bindings              foundationbinding.VerifiedBindings
+	source                context.Context
+	call                  rootoci.Call
+	deadline              time.Time
 }
 
 func (s NodeOperationScope) Revalidate(ctx context.Context) error {
-	if !time.Now().Before(s.ExpiresAt) {
+	if ctx == nil || s.source == nil || s.source.Err() != nil || !time.Now().Before(s.deadline) {
 		return ErrScope
 	}
-	return s.bindings.Revalidate(ctx)
+	ctx, cancel := context.WithDeadline(ctx, s.deadline)
+	defer cancel()
+	stop := context.AfterFunc(s.source, cancel)
+	defer stop()
+	ctx = ociclient.WithRequestGuard(ctx, s.call.Guard)
+	if err := s.call.Guard(ctx); err != nil {
+		return err
+	}
+	if err := s.bindings.Revalidate(ctx); err != nil {
+		return err
+	}
+	if s.source.Err() != nil || ctx.Err() != nil || !time.Now().Before(s.deadline) {
+		return ErrScope
+	}
+	return s.call.Guard(ctx)
 }
 
 func (b *Backend) NodeOperationFoundation(ctx context.Context, call rootoci.Call) (NodeOperationScope, error) {
+	if ctx == nil {
+		return NodeOperationScope{}, ErrScope
+	}
+	original := ctx
+	ctx, stopCall := context.WithDeadline(ctx, call.Deadline())
+	defer stopCall()
+	ctx = ociclient.WithRequestGuard(ctx, call.Guard)
 	current, err := b.operationFoundation(ctx, call, rootoci.OperationReconcileNodeOperation)
 	if err != nil {
 		return NodeOperationScope{}, err
@@ -137,16 +166,24 @@ func (b *Backend) NodeOperationFoundation(ctx context.Context, call rootoci.Call
 		return NodeOperationScope{}, ErrScope
 	}
 	expires := current.ExpiresAt
+	if call.Deadline().Before(expires) {
+		expires = call.Deadline()
+	}
+	if until, ok := original.Deadline(); ok && until.Before(expires) {
+		expires = until
+	}
 	if bindings.ExpiresAt().Before(expires) {
 		expires = bindings.ExpiresAt()
 	}
 	if !time.Now().Before(expires) {
 		return NodeOperationScope{}, ErrScope
 	}
+	ctx, stopBindings := context.WithDeadline(ctx, expires)
+	defer stopBindings()
 	if err := b.guard(ctx, call); err != nil {
 		return NodeOperationScope{}, err
 	}
 	return NodeOperationScope{Foundation: current.Foundation, OCIRegion: current.OCIRegion,
 		ControlCompartmentID: control, WorkloadCompartmentID: workload,
-		ExpiresAt: expires, bindings: bindings}, nil
+		ExpiresAt: expires, bindings: bindings, source: original, call: call, deadline: expires}, nil
 }
