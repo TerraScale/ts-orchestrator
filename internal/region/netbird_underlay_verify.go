@@ -73,12 +73,13 @@ func (v VerifiedNetBirdJournalUnderlay) BootstrapPurpose(ctx context.Context) (b
 		return bootstrap.VerifiedNetBirdJournalPurpose{}, err
 	}
 	ctx, cancel := context.WithDeadline(ctx, deadline)
-	defer cancel()
+	stop := context.AfterFunc(v.original, cancel)
+	defer func() { stop(); cancel() }()
 	lower, err := v.purpose.BootstrapPurpose(ctx)
 	if err != nil {
 		return bootstrap.VerifiedNetBirdJournalPurpose{}, err
 	}
-	return lower.Limit(ctx, deadline)
+	return lower.LimitForOperation(ctx, v.original, deadline)
 }
 
 // VerifyNetBirdJournalUnderlayForOperation separates the initial read deadline
