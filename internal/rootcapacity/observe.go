@@ -34,7 +34,7 @@ func (c *Controller) ObservePoolChild(ctx context.Context, call rootoci.Call, re
 			selected = child
 		}
 	}
-	if selected.OperationID == "" || selected.Stage != region.PoolChildReady ||
+	if selected.OperationID == "" || selected.Stage != region.PoolChildReady || protectedChildFenced(record, selected.InstanceID) ||
 		request.OperationID != "" && request.OperationID != selected.OperationID || request.RecipeSHA256 != "" && request.RecipeSHA256 != selected.RecipeSHA256 ||
 		request.PoolID != "" && request.PoolID != selected.PoolID || request.ConfigurationID != "" && request.ConfigurationID != selected.ConfigurationID {
 		return rootoci.PoolChildView{}, rootoci.ErrPoolChildUnverified
@@ -85,7 +85,7 @@ func (c *Controller) ObservePoolChild(ctx context.Context, call rootoci.Call, re
 }
 
 func (a *attempt) childView(ctx context.Context, management core.ComputeManagementClient, child region.PoolChildRecord) (rootoci.PoolChildView, error) {
-	if child.Stage != region.PoolChildReady || child.Launch == nil || child.Attach == nil || child.Launch.AcceptedAt.IsZero() ||
+	if child.Stage != region.PoolChildReady || protectedChildFenced(a.record, child.InstanceID) || child.Launch == nil || child.Attach == nil || child.Launch.AcceptedAt.IsZero() ||
 		child.Attach.AcceptedAt.IsZero() || child.Attach.WorkCompletedAt.IsZero() {
 		return rootoci.PoolChildView{}, rootoci.ErrPoolChildUnverified
 	}
@@ -102,7 +102,7 @@ func (a *attempt) childView(ctx context.Context, management core.ComputeManageme
 		return rootoci.PoolChildView{}, err
 	}
 	latestSHA, err := digestValue(latest.PoolChildren[child.OperationID])
-	if err != nil || latestSHA != previousSHA {
+	if err != nil || latestSHA != previousSHA || protectedChildFenced(latest, child.InstanceID) {
 		return rootoci.PoolChildView{}, errors.Join(err, rootoci.ErrPoolChildUnverified)
 	}
 	profile := a.worker.Profile()
@@ -143,4 +143,20 @@ func (a *attempt) childView(ctx context.Context, management core.ComputeManageme
 		Role: facts.Recipe.Role, Architecture: facts.Recipe.Architecture, Descriptor: child.Descriptor, ObservedAt: now, ExpiresAt: expires, OriginalDeadline: a.deadline,
 		Registration: rootoci.PoolChildRegistration{Kind: rootoci.PoolChildRegistrationStatic, Environment: "production", Cell: a.record.Cell, Node: child.Node,
 			Role: facts.Recipe.Role, Architecture: facts.Recipe.Architecture, DescriptorSHA256: hex.EncodeToString(descriptorSHA[:])}}, nil
+}
+
+// A capture fences admission forever, including after its authority expires.
+// Terminal cleanup transfers the complete receipt into the original child.
+func protectedChildFenced(record region.FoundationRecord, instanceID string) bool {
+	for _, drain := range record.PoolDrains {
+		if drain.Child.InstanceID == instanceID {
+			return true
+		}
+	}
+	for _, child := range record.PoolChildren {
+		if child.InstanceID == instanceID && (child.RemovalOperationID != "" || child.RetirementDrain != nil || child.Stage == region.PoolChildRetired) {
+			return true
+		}
+	}
+	return false
 }
