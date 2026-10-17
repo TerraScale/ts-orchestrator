@@ -1,0 +1,59 @@
+{
+  "base": "ca1226b9b4011383f39c0753e19be295618accf8",
+  "worktree": "/tmp/ts-factory-boundary-50nn83zw/source",
+  "only_added_file": "internal/ociclient/factory_boundary_integration_test.go",
+  "source_sha256": "3059cbd54348685231ef87fd50ca1c3d5fa35242469199d8f129398dddd989b7",
+  "lines": 236,
+  "originals": [
+    {
+      "path": "internal/ociclient/factory_test.go",
+      "root": "TestOperationCardinalityIsBounded",
+      "declaration_sha256": "467cc1b629bdb3997c1a565e747fd04304d4f7a8c07082df07e1dd65c6a22c26",
+      "entire_original_file_byte_exact_to_base": true
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "root": "TestFactoryRejectsUncataloguedRegionsAndBadLimits",
+      "declaration_sha256": "825570b80de40bebc0de8796e830e63328c3f8bf5dfb70a5e24bae3c39007744",
+      "entire_original_file_byte_exact_to_base": true
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "root": "TestTenancyHomeRegionComesFromTheCatalog",
+      "declaration_sha256": "593e599c2add12966eb316af56f8754bf0d76524b37792afb1a9adad0a261716",
+      "entire_original_file_byte_exact_to_base": true
+    }
+  ],
+  "all_existing_tracked_source_bytes_unchanged": true,
+  "new_roots": [
+    "TestOperationCardinalityThroughVerifiedTLSHTTP",
+    "TestFactoryAdmissionThroughSignedSDKHTTP",
+    "TestTenancyHomeRegionThroughSignedSDKHTTP"
+  ],
+  "named_test_pass_events_expected": [
+    "TestOperationCardinalityThroughVerifiedTLSHTTP",
+    "TestFactoryAdmissionThroughSignedSDKHTTP",
+    "TestTenancyHomeRegionThroughSignedSDKHTTP",
+    "TestFactoryAdmissionThroughSignedSDKHTTP/valid",
+    "TestFactoryAdmissionThroughSignedSDKHTTP/uncatalogued_region",
+    "TestFactoryAdmissionThroughSignedSDKHTTP/nil_provider",
+    "TestFactoryAdmissionThroughSignedSDKHTTP/zero_compute_limit",
+    "TestTenancyHomeRegionThroughSignedSDKHTTP/GRU",
+    "TestTenancyHomeRegionThroughSignedSDKHTTP/sjc",
+    "TestTenancyHomeRegionThroughSignedSDKHTTP/FRA",
+    "TestTenancyHomeRegionThroughSignedSDKHTTP/unknown",
+    "TestTenancyHomeRegionThroughSignedSDKHTTP/missing"
+  ],
+  "distinct_safe_routes": 74,
+  "expected_operation_views": 65,
+  "specific_operations": 64,
+  "other_calls": 10,
+  "expected_total_wire_requests": 80,
+  "sequential_verified_loopback_tls_servers": 7,
+  "genuine_signed_sdk_calls": 6,
+  "signature_check": "Presence/nonempty SDK signature; not cryptographic server-side signature verification.",
+  "tenancy_scope": "Public Factory.Identity().GetTenancy real SDK HTTP decode then public TenancyHomeRegion, same decode/map chain used by production Factory.HomeRegion; does not directly invoke Factory.HomeRegion.",
+  "static_source_checks": "PASS",
+  "modern_go_1_27_guidance_read_before_edits": true,
+  "go_compile_runtime_or_formatter_execution": false
+}

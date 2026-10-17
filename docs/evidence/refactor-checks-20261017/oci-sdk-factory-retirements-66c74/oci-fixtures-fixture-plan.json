@@ -1,0 +1,33 @@
+{
+  "source": "/tmp/ts-terminal-sdk-boundary-7cswu3af/source",
+  "head": "b8fee5fcdcae1de49fc36313869ed332e66f00f6",
+  "files": [
+    "internal/oci/capacity_request_integration_test.go",
+    "internal/oci/journal_test.go",
+    "internal/oci/pool_receipt_integration_test.go",
+    "internal/oci/volume_observer_integration_test.go",
+    "internal/oci/volume_termination_test.go"
+  ],
+  "roots": [
+    "TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity",
+    "TestRegionIntentUsesFixedProductMapping",
+    "TestJournalBootBindingSurvivesReopenAndRejectsRebinding",
+    "TestJournalRepairsOwnershipProjectionAfterPartialFailure",
+    "TestJournalPinsSignedPlacementComputeProfile",
+    "TestJournalDistinguishesFreshIntentFromUnknownProviderOutcome",
+    "TestJournalOperationLookupRecoversPersistedAttachmentDevice",
+    "TestJournalRepairsInterruptedAttachmentProjectionWithoutRebinding",
+    "TestJournalConcurrentConflictingResultsHaveOneImmutableWinner",
+    "TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission",
+    "TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects",
+    "TestVolumeTerminationProofRejectsDifferentOrCorruptScope",
+    "TestVolumeTerminationProofRequiresSuccessfulWrite",
+    "TestVolumeTerminationProofSurvivesBrokerRestart"
+  ],
+  "selector": "^(TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity|TestRegionIntentUsesFixedProductMapping|TestJournalBootBindingSurvivesReopenAndRejectsRebinding|TestJournalRepairsOwnershipProjectionAfterPartialFailure|TestJournalPinsSignedPlacementComputeProfile|TestJournalDistinguishesFreshIntentFromUnknownProviderOutcome|TestJournalOperationLookupRecoversPersistedAttachmentDevice|TestJournalRepairsInterruptedAttachmentProjectionWithoutRebinding|TestJournalConcurrentConflictingResultsHaveOneImmutableWinner|TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission|TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects|TestVolumeTerminationProofRejectsDifferentOrCorruptScope|TestVolumeTerminationProofRequiresSuccessfulWrite|TestVolumeTerminationProofSurvivesBrokerRestart)$",
+  "test_timeout_seconds": 180,
+  "outer_timeout_seconds": 240,
+  "kill_after_seconds": 5,
+  "lock": "/tmp/ts-orch-refactor-general-check.lock",
+  "runtime_launched": false
+}

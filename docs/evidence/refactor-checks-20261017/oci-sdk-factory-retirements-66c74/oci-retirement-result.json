@@ -1,0 +1,100 @@
+{
+  "owner": "/root/qa_integrator/artifact_tests",
+  "attempt": 1,
+  "runtime_executed": false,
+  "default_vet": true,
+  "default_tags": true,
+  "source": "/tmp/ts-oci-sdk-volume-retirement",
+  "head": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+  "tree": "fa1475d043de69482d8a7884d920b134899ff973",
+  "argv": [
+    "nice",
+    "-n",
+    "19",
+    "timeout",
+    "--signal=TERM",
+    "--kill-after=5s",
+    "240s",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+    "test",
+    "-c",
+    "-mod=readonly",
+    "-p=1",
+    "-o",
+    "/tmp/ts-oci-sdk-volume-retirement-source-artifact-tests/oci.test",
+    "./internal/oci"
+  ],
+  "env": {
+    "HOME": "/home/mariogk",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "LANG": "C.UTF-8",
+    "GOMAXPROCS": "2",
+    "GOFLAGS": "-p=2",
+    "GOTOOLCHAIN": "local"
+  },
+  "lock": "/tmp/ts-orch-refactor-short-check-a.lock",
+  "wrapper_pid": 1068968,
+  "source_proof_sha256": "ce906c9e176236b8f606ceacfc52ff1e658b957deaaf2d544b526d512a7b4703",
+  "compile_plan_sha256": "a8c45af1191806faa09c42781adf62580ea52e9ff19ae5591346a6364a81b077",
+  "runner_sha256": "ea5cd7fd2f1f839c75bd4a608221403dd34d757edfa8afe69c953d24d2924a0e",
+  "source_adoption": false,
+  "count_or_ledger_update": false,
+  "lock_acquired": true,
+  "source_before": {
+    "head": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+    "tree": "fa1475d043de69482d8a7884d920b134899ff973",
+    "status": "",
+    "tracked_files": 5061,
+    "full_tracked_aggregate_sha256": "b08913e8a66023de7c6c36371b20299f5a9b8b6358a7b44c051d4831d7ca1059",
+    "source_proof_sha256": "ce906c9e176236b8f606ceacfc52ff1e658b957deaaf2d544b526d512a7b4703",
+    "changed_paths_from_additive": [
+      "internal/oci/sdk_test.go",
+      "internal/oci/volume_backup_history_review_test.go",
+      "internal/oci/volume_resize_test.go"
+    ]
+  },
+  "preflight": {
+    "available_ram_bytes": 28166234112,
+    "load1": 1.88623046875,
+    "compiler_pids": [
+      1069023
+    ],
+    "compiler_count": 1
+  },
+  "started_at": "2026-10-17T13:36:13.138722+00:00",
+  "command_pid": 1069121,
+  "exit_code": 0,
+  "elapsed_seconds": 44.64743374095997,
+  "finished_at": "2026-10-17T13:36:57.786553+00:00",
+  "cleanup_before": [],
+  "cleanup_after": [],
+  "cleanup_joined": true,
+  "external_binary": {
+    "path": "/tmp/ts-oci-sdk-volume-retirement-source-artifact-tests/oci.test",
+    "mode": "0o600",
+    "bytes": 34669451,
+    "sha256": "df2c52baf8ccb8248073d82911c60fa875d1ac8a5a1375e305ccbeeb1901df24",
+    "elf": true,
+    "never_executed": true
+  },
+  "source_after": {
+    "head": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+    "tree": "fa1475d043de69482d8a7884d920b134899ff973",
+    "status": "",
+    "tracked_files": 5061,
+    "full_tracked_aggregate_sha256": "b08913e8a66023de7c6c36371b20299f5a9b8b6358a7b44c051d4831d7ca1059",
+    "source_proof_sha256": "ce906c9e176236b8f606ceacfc52ff1e658b957deaaf2d544b526d512a7b4703",
+    "changed_paths_from_additive": [
+      "internal/oci/sdk_test.go",
+      "internal/oci/volume_backup_history_review_test.go",
+      "internal/oci/volume_resize_test.go"
+    ]
+  },
+  "source_unchanged": true,
+  "raw_sha256": {
+    "compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "state": "PASS",
+  "lock_released": true
+}

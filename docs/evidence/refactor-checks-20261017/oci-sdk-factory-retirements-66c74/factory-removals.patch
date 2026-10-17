@@ -1,0 +1,73 @@
+diff --git a/internal/ociclient/factory_test.go b/internal/ociclient/factory_test.go
+index 9f190598e680f7eefd5b1c4729a0934d2416c640..d0b91273d6a8b61cccb4db81b2cdf11bdfd55317 100644
+--- a/internal/ociclient/factory_test.go
++++ b/internal/ociclient/factory_test.go
+@@ -30,24 +30,6 @@ func (dispatcher fakeDispatcher) Do(*http.Request) (*http.Response, error) {
+ 	return &http.Response{StatusCode: dispatcher.status, Body: http.NoBody}, nil
+ }
+ 
+-func TestOperationCardinalityIsBounded(t *testing.T) {
+-	service := "bounded-" + strings.ReplaceAll(t.Name(), "/", "-")
+-	for index := range maxOperationsPerService + 10 {
+-		apiStats.record(service, "GET /r"+strings.Repeat("x", index%40)+string(rune('a'+index%26))+string(rune('a'+index/26)), 200, false, 0)
+-	}
+-	count := 0
+-	other := false
+-	for _, operation := range APIOperations() {
+-		if operation.Service == service {
+-			count++
+-			other = other || operation.Operation == "other"
+-		}
+-	}
+-	if count != maxOperationsPerService+1 || !other {
+-		t.Fatalf("operations for service = %d (other=%v), want bound plus other", count, other)
+-	}
+-}
+-
+ func TestFactoryObjectStorageRecordsHTTPAttempts(t *testing.T) {
+ 	provider := testProvider(t)
+ 	const operation = "HEAD /n/{id}/b/{id}/o/{id}"
+diff --git a/internal/ociclient/ociclient_test.go b/internal/ociclient/ociclient_test.go
+index b5f1936d7f55b1bc3e4571ef004006bfc56c6da3..9dfa310e5af91aba96054c4f6fa09349c6f793c6 100644
+--- a/internal/ociclient/ociclient_test.go
++++ b/internal/ociclient/ociclient_test.go
+@@ -139,19 +139,6 @@ func testProvider(t *testing.T) common.ConfigurationProvider {
+ 		string(pemKey(key)), nil)
+ }
+ 
+-func TestFactoryRejectsUncataloguedRegionsAndBadLimits(t *testing.T) {
+-	provider := testProvider(t)
+-	if _, err := New(provider, Options{Region: "xx-nowhere-1"}); err == nil {
+-		t.Fatal("accepted a region outside the catalog")
+-	}
+-	if _, err := New(nil, Options{Region: "sa-saopaulo-1"}); err == nil {
+-		t.Fatal("accepted a nil provider")
+-	}
+-	if _, err := New(provider, Options{Region: "sa-saopaulo-1", Limits: map[Service]Limit{ServiceCompute: {}}}); err == nil {
+-		t.Fatal("accepted a zero limit")
+-	}
+-}
+-
+ func TestConfiguredClientSharesLimiterAndRetriesThrottling(t *testing.T) {
+ 	var calls atomic.Int32
+ 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+@@ -256,19 +243,3 @@ func TestTransportFailuresRetryReadsOnly(t *testing.T) {
+ 		t.Fatalf("PUT was replayed after a dropped connection: calls=%d err=%v", calls.Load(), err)
+ 	}
+ }
+-
+-func TestTenancyHomeRegionComesFromTheCatalog(t *testing.T) {
+-	t.Parallel()
+-	for key, want := range map[string]string{"GRU": "sa-saopaulo-1", "sjc": "us-sanjose-1", "FRA": "eu-frankfurt-1"} {
+-		if got, err := TenancyHomeRegion(&key); err != nil || got != want {
+-			t.Errorf("%s = %q, %v", key, got, err)
+-		}
+-	}
+-	unknown := "XXX"
+-	if _, err := TenancyHomeRegion(&unknown); err == nil {
+-		t.Error("a home region outside the catalog was accepted")
+-	}
+-	if _, err := TenancyHomeRegion(nil); err == nil {
+-		t.Error("a tenancy without a home region key was accepted")
+-	}
+-}

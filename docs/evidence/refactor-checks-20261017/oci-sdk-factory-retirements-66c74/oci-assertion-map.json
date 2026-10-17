@@ -1,0 +1,1126 @@
+{
+  "base_head": "ca1226b9b4011383f39c0753e19be295618accf8",
+  "base_tree": "4439bb44e9dbcc6531a76dcf494a4f87cdb9b647",
+  "scope": "sdk_test.go and every *volume*test.go root; helper-only export file noted",
+  "source_files": {
+    "internal/oci/sdk_test.go": "70a23c5af82fa26050cbb832766dcdc9af152a74f50b55a78c758000d6cd2dc9",
+    "internal/oci/member_volume_restore_verify_test.go": "68ecaddd0fa3fbaf3f3588fdc4b10043f3c94220e054dd3c8d650818d528fd66",
+    "internal/oci/member_volume_retire_test.go": "7baafaf1556a4a172caa5e02189ffe7caa49a00dd0bd352bbead685c38df1a54",
+    "internal/oci/member_volume_test.go": "b13a573d84d207803414b260e8c1e5bb7eca9c2f48e3520a53cdddfff0851b48",
+    "internal/oci/terminal_volume_termination_test.go": "74b2c3bc27d694766ad2f7e423baeb003b4f0a9e7e4feafde9bf2cf9797f7393",
+    "internal/oci/volume_backup_export_test.go": "75ac9f7f91f0789f5d5f571bfd43e68514a75ce919c3cba133b0b695f27c8086",
+    "internal/oci/volume_backup_history_review_test.go": "461426dbd1cda010a56306c0b2983e95bdbc5a9a4af8430122e44c648773025b",
+    "internal/oci/volume_backup_prune_test.go": "7a5f9c4c66ff10f105e953e0b60079ef6419b2e2008b136c230eef7b2b92256c",
+    "internal/oci/volume_init_test.go": "cf7b57195ecc6c1493b147978ebab9d775c231212a97bb1a6dbe5937949e93de",
+    "internal/oci/volume_observer_integration_test.go": "ca132fd88f3fc76e2211849d68338537f7436bd927eba96afb8dbb6ab16c89a4",
+    "internal/oci/volume_reattach_test.go": "d5d2270fda692f3f9298483029bd75cc0432b01eac897e0ddc3502cc5e8ee27a",
+    "internal/oci/volume_resize_pending_review_test.go": "fb71a40f7de5a9b367dc804a1432352207f8b188472e7d4031cebb5379681913",
+    "internal/oci/volume_resize_test.go": "ac7aae80bcbaeaa3e8330278098e5823f4643af5cf680647ee25347785f5b0c5",
+    "internal/oci/volume_termination_test.go": "331f998b1b68f1ece7d61860ed1b5c15b5b136fa8b6b0c78ec6e65213541e99d"
+  },
+  "roots": [
+    {
+      "file": "internal/oci/sdk_test.go",
+      "root": "TestTerminalSDKDeletesUseExactIfMatchAndPreserveBoot",
+      "line": 26,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        34,
+        37,
+        40,
+        46
+      ],
+      "batch_replacement": "TestTerminalSDKDeleteSocketBoundary: all three DELETE paths, If-Match, preserve flags; raw PASS b8fee; adoption review pending",
+      "disposition": "candidate; retain original until qualified replacement PASS and review",
+      "replacement": {
+        "file": "internal/oci/terminal_sdk_boundary_integration_test.go",
+        "root": "TestTerminalSDKDeleteSocketBoundary",
+        "line": 23,
+        "runtime_status": "b8fee exact terminal baseline PASS; composed batch not run"
+      }
+    },
+    {
+      "file": "internal/oci/sdk_test.go",
+      "root": "TestLaunchInstanceMapsSignedProfileIntoOCIRequest",
+      "line": 50,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        67,
+        71,
+        86,
+        90,
+        94,
+        97,
+        103,
+        108,
+        111,
+        118,
+        125,
+        130
+      ],
+      "batch_replacement": "extend TLS: decoded real signed launch POST and normalized SDK response; reserved metadata rejection performs no extra POST",
+      "disposition": "candidate; retain original until qualified replacement PASS and review",
+      "replacement": {
+        "file": "internal/oci/sdk_socket_boundary_integration_test.go",
+        "root": "TestSDKSocketLaunchPreservesSignedProfileAndResponse",
+        "line": 120,
+        "runtime_status": "not compiled or run"
+      }
+    },
+    {
+      "file": "internal/oci/sdk_test.go",
+      "root": "TestLaunchInstanceRejectsSizingThatCannotRoundTripThroughSDK",
+      "line": 134,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        143,
+        146
+      ],
+      "batch_replacement": "extend TLS: float32-inexact sizing rejected before any socket request",
+      "disposition": "candidate; retain original until qualified replacement PASS and review",
+      "replacement": {
+        "file": "internal/oci/sdk_socket_boundary_integration_test.go",
+        "root": "TestSDKSocketLaunchRejectsInexactSizingBeforeAnyRequest",
+        "line": 207,
+        "runtime_status": "not compiled or run"
+      }
+    },
+    {
+      "file": "internal/oci/sdk_test.go",
+      "root": "TestManagedInstanceReadbackRequiresExactBootAndPrivateVNIC",
+      "line": 150,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        177,
+        186,
+        195,
+        199,
+        210,
+        214,
+        222,
+        228,
+        250,
+        257,
+        263,
+        268,
+        273
+      ],
+      "batch_replacement": "extend TLS: own/earlier-image positives; boot/VNIC transient+paginated states; empty lists; image/emptyimage/size/tier double classification; missing IDs no GET; source-dest/publicIP refusal",
+      "disposition": "candidate; retain original until qualified replacement PASS and review",
+      "replacement": {
+        "file": "internal/oci/sdk_socket_boundary_integration_test.go",
+        "root": "TestSDKSocketManagedReadbackPreservesBootAndPrivateVNICClassifications",
+        "line": 275,
+        "runtime_status": "not compiled or run"
+      }
+    },
+    {
+      "file": "internal/oci/sdk_test.go",
+      "root": "TestNamedHostObservationRequiresTheNamedRunningPrivateInstance",
+      "line": 319,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        332,
+        363
+      ],
+      "batch_replacement": "extend TLS: named RUNNING exact instance/privateIP positive; wrong name/id/stopped/publicIP/secondVNIC reject",
+      "disposition": "candidate; retain original until qualified replacement PASS and review",
+      "replacement": {
+        "file": "internal/oci/sdk_socket_boundary_integration_test.go",
+        "root": "TestSDKSocketNamedHostRequiresExactRunningPrivateInstance",
+        "line": 403,
+        "runtime_status": "not compiled or run"
+      }
+    },
+    {
+      "file": "internal/oci/member_volume_restore_verify_test.go",
+      "root": "TestVerifyRestoredAttachmentReadsExactScratchCopyWithoutMutatingOCI",
+      "line": 22,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        33
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/member_volume_restore_verify_test.go",
+      "root": "TestVerifyRestoredAttachmentFailsClosedOnWrongVolumeScopeStateAndAttachments",
+      "line": 37,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        125
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/member_volume_retire_test.go",
+      "root": "TestMemberVolumeResizeChecksRecordedIDBeforeAnyUpdate",
+      "line": 54,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        59,
+        64,
+        68
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/member_volume_retire_test.go",
+      "root": "TestMemberVolumeRetireRetainsAndNameReuseCreatesFreshVolume",
+      "line": 72,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        78,
+        85,
+        88,
+        94,
+        101,
+        107,
+        111,
+        114,
+        119,
+        124
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/member_volume_retire_test.go",
+      "root": "TestMemberVolumeRetirementRetriesUnknownOutcomes",
+      "line": 128,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        145,
+        149,
+        156
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/member_volume_retire_test.go",
+      "root": "TestMemberNameReuseLostCreateResponseReplaysFreshIncarnation",
+      "line": 162,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        165,
+        181,
+        185,
+        192
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/member_volume_retire_test.go",
+      "root": "TestMemberVolumeRetireRefusesOtherLiveAttachmentAndWrongRecordedData",
+      "line": 196,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        222
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/member_volume_test.go",
+      "root": "TestMemberVolumeCreatesAndAttachesOnceIdempotently",
+      "line": 85,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        92,
+        97,
+        104,
+        110,
+        115,
+        118
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/member_volume_test.go",
+      "root": "TestMemberVolumeLostCreateResponseReplaysOneVolume",
+      "line": 122,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        130,
+        133,
+        151,
+        155,
+        162,
+        165
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/member_volume_test.go",
+      "root": "TestMemberVolumeReattachesSameVolumeAfterHostReplacement",
+      "line": 169,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        175,
+        184,
+        189,
+        193
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/member_volume_test.go",
+      "root": "TestMemberVolumeRefusesToStealLiveAttachment",
+      "line": 197,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        205,
+        212,
+        216
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/member_volume_test.go",
+      "root": "TestMemberVolumeFailsClosedOnTerminatedVolume",
+      "line": 222,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        227,
+        234,
+        237
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/member_volume_test.go",
+      "root": "TestMemberVolumeRejectsInstancesAndNamesOutsideTheMember",
+      "line": 241,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        261,
+        267,
+        273,
+        277
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/member_volume_test.go",
+      "root": "TestMemberVolumeHoldsWhenDeviceIsBusy",
+      "line": 281,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        292,
+        295
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/member_volume_test.go",
+      "root": "TestMemberVolumeResizeGrowsOnlyUnderETag",
+      "line": 301,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        305,
+        311,
+        314,
+        320,
+        325,
+        330,
+        334,
+        338,
+        342,
+        348,
+        354
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/member_volume_test.go",
+      "root": "TestMemberVolumeDuplicateCreateKeyHolds",
+      "line": 358,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        370,
+        373
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/member_volume_test.go",
+      "root": "TestMemberVolumeRecordedVolumeIsNeverRecreated",
+      "line": 380,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        386,
+        390,
+        394,
+        402,
+        405
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/member_volume_test.go",
+      "root": "TestMemberVolumeCarriesTheCellBackupPolicy",
+      "line": 446,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        453,
+        456,
+        460,
+        468,
+        482,
+        485,
+        492,
+        495,
+        501
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/member_volume_test.go",
+      "root": "TestMemberVolumeRestoreDrill",
+      "line": 527,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        534,
+        549,
+        554,
+        559,
+        562,
+        566,
+        576,
+        580,
+        593,
+        604,
+        609,
+        614
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/terminal_volume_termination_test.go",
+      "root": "TestTerminalVolumeTerminationProofRetriesBeforeCompletion",
+      "line": 48,
+      "classification": "hybrid: fake OCI plus real journal",
+      "reason": "SDK/provider effect remains stubbed; real KV alone is not replacement evidence for OCI behavior; retain",
+      "assertion_lines": [
+        54,
+        68,
+        71,
+        77,
+        81,
+        87,
+        90,
+        94,
+        97
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/terminal_volume_termination_test.go",
+      "root": "TestTerminalVolumeTerminationProofPrecedesPendingInstance",
+      "line": 103,
+      "classification": "hybrid: fake OCI plus real journal",
+      "reason": "SDK/provider effect remains stubbed; real KV alone is not replacement evidence for OCI behavior; retain",
+      "assertion_lines": [
+        107,
+        117,
+        121,
+        124
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/terminal_volume_termination_test.go",
+      "root": "TestTerminalVolumeTerminationDuringOwnedReadSkipsDelete",
+      "line": 143,
+      "classification": "hybrid: fake OCI plus real journal",
+      "reason": "SDK/provider effect remains stubbed; real KV alone is not replacement evidence for OCI behavior; retain",
+      "assertion_lines": [
+        150,
+        153
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/terminal_volume_termination_test.go",
+      "root": "TestTerminalVolumeTerminationProofRequiresExactReadback",
+      "line": 157,
+      "classification": "hybrid: fake OCI plus real journal",
+      "reason": "SDK/provider effect remains stubbed; real KV alone is not replacement evidence for OCI behavior; retain",
+      "assertion_lines": [
+        188
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/terminal_volume_termination_test.go",
+      "root": "TestInspectTerminalStatusDoesNotWriteTerminationProof",
+      "line": 194,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        206,
+        209
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_backup_history_review_test.go",
+      "root": "TestVolumeBackupListingKeepsTheNewestBackupsOfALongHistory",
+      "line": 55,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        63,
+        67,
+        71
+      ],
+      "batch_replacement": "extend TLS: paginated >512 history returns newest512; exact sortBy/order/volume query",
+      "disposition": "candidate; retain original until qualified replacement PASS and review",
+      "replacement": {
+        "file": "internal/oci/sdk_socket_boundary_integration_test.go",
+        "root": "TestSDKSocketVolumeBackupPaginationKeepsNewestBoundedHistory",
+        "line": 484,
+        "runtime_status": "not compiled or run"
+      }
+    },
+    {
+      "file": "internal/oci/volume_backup_prune_test.go",
+      "root": "TestSDKOrphanPruningRequiresPositiveSourceDeletion",
+      "line": 66,
+      "classification": "hybrid: fake OCI plus real journal",
+      "reason": "SDK/provider effect remains stubbed; real KV alone is not replacement evidence for OCI behavior; retain",
+      "assertion_lines": [
+        100
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_backup_prune_test.go",
+      "root": "TestSDKOrphanTerminationSurvivesRetentionAndLeaderHandoff",
+      "line": 106,
+      "classification": "hybrid: fake OCI plus real journal",
+      "reason": "SDK/provider effect remains stubbed; real KV alone is not replacement evidence for OCI behavior; retain",
+      "assertion_lines": [
+        122,
+        131
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_backup_prune_test.go",
+      "root": "TestSDKOrphanPruningUsesTerminalLifecycleProof",
+      "line": 138,
+      "classification": "hybrid: fake OCI plus real journal",
+      "reason": "SDK/provider effect remains stubbed; real KV alone is not replacement evidence for OCI behavior; retain",
+      "assertion_lines": [
+        153
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_init_test.go",
+      "root": "TestInspectVolumeInitializationGrantsOneFirstFormat",
+      "line": 89,
+      "classification": "hybrid: fake OCI plus real journal",
+      "reason": "SDK/provider effect remains stubbed; real KV alone is not replacement evidence for OCI behavior; retain",
+      "assertion_lines": [
+        104,
+        129,
+        136,
+        141,
+        145
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_init_test.go",
+      "root": "TestInspectVolumeInitializationGrantsPinnedXFSFirstFormat",
+      "line": 149,
+      "classification": "hybrid: fake OCI plus real journal",
+      "reason": "SDK/provider effect remains stubbed; real KV alone is not replacement evidence for OCI behavior; retain",
+      "assertion_lines": [
+        154,
+        158
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_init_test.go",
+      "root": "TestInspectVolumeInitializationDeniesPriorDetachHistory",
+      "line": 162,
+      "classification": "hybrid: fake OCI plus real journal",
+      "reason": "SDK/provider effect remains stubbed; real KV alone is not replacement evidence for OCI behavior; retain",
+      "assertion_lines": [
+        167,
+        171
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_init_test.go",
+      "root": "TestVolumeFormatPermitJournalOneWinnerAndImmutableBinding",
+      "line": 175,
+      "classification": "real integration",
+      "reason": "real NATS KV concurrency/reopen/immutable binding; preserve",
+      "assertion_lines": [
+        179,
+        183,
+        215,
+        222,
+        226,
+        229,
+        234,
+        237
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_init_test.go",
+      "root": "TestInspectVolumeInitializationHoldsWhenAuthorityIsFenced",
+      "line": 241,
+      "classification": "hybrid: fake OCI plus real journal",
+      "reason": "SDK/provider effect remains stubbed; real KV alone is not replacement evidence for OCI behavior; retain",
+      "assertion_lines": [
+        245
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_observer_integration_test.go",
+      "root": "TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects",
+      "line": 28,
+      "classification": "real integration",
+      "reason": "actual signed SDK loopback + real NATS journal; b8fee runtime PASS; preserve all assertions",
+      "assertion_lines": [
+        39,
+        43,
+        46,
+        50,
+        54,
+        57,
+        61,
+        66,
+        70,
+        78,
+        81,
+        84,
+        87,
+        90,
+        99,
+        102,
+        113,
+        117,
+        121,
+        158,
+        211,
+        222,
+        228,
+        245,
+        249,
+        255,
+        263,
+        266,
+        269,
+        272,
+        276,
+        281,
+        286,
+        289,
+        293,
+        298,
+        303,
+        307,
+        311,
+        320,
+        324,
+        328,
+        331,
+        335,
+        338,
+        341
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_reattach_test.go",
+      "root": "TestFencedDetachRequiresATerminatedInstanceAndIsJournaled",
+      "line": 37,
+      "classification": "hybrid: fake OCI plus real journal",
+      "reason": "SDK/provider effect remains stubbed; real KV alone is not replacement evidence for OCI behavior; retain",
+      "assertion_lines": [
+        45,
+        48,
+        52,
+        58,
+        63,
+        66,
+        69,
+        73,
+        83,
+        87
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_reattach_test.go",
+      "root": "TestFencedDetachThatNeverSettlesIsRecordedUnknown",
+      "line": 91,
+      "classification": "hybrid: fake OCI plus real journal",
+      "reason": "SDK/provider effect remains stubbed; real KV alone is not replacement evidence for OCI behavior; retain",
+      "assertion_lines": [
+        100,
+        104,
+        108,
+        111,
+        122
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_reattach_test.go",
+      "root": "TestReattachAttachesOverDetachedHistoryAndGrantsOnlyAMount",
+      "line": 141,
+      "classification": "hybrid: fake OCI plus real journal",
+      "reason": "SDK/provider effect remains stubbed; real KV alone is not replacement evidence for OCI behavior; retain",
+      "assertion_lines": [
+        153,
+        158,
+        162,
+        170,
+        177,
+        181,
+        185,
+        189,
+        193,
+        197,
+        204
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_resize_pending_review_test.go",
+      "root": "TestKVJournalOwnsAVolumeGrownByItsOwnUnconfirmedResize",
+      "line": 13,
+      "classification": "real integration",
+      "reason": "real NATS KV pending/unknown result recovery; preserve",
+      "assertion_lines": [
+        20,
+        28,
+        31,
+        36,
+        41,
+        48,
+        52,
+        58,
+        63,
+        66,
+        69,
+        73,
+        76
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "root": "TestResizeRetainedVolumeGrowsAndKeepsDurableOwnership",
+      "line": 94,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        101,
+        105,
+        108,
+        112,
+        118,
+        125,
+        130,
+        134,
+        138
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "root": "TestResizeRetainedVolumeRecoversLostResponseAndHoldsStaleState",
+      "line": 142,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        147,
+        150,
+        156,
+        159,
+        171,
+        174,
+        180,
+        183,
+        188
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "root": "TestResizeAttemptsKeepTheUnmovedETagAndAreBounded",
+      "line": 192,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        199,
+        205,
+        214,
+        217,
+        222,
+        227
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "root": "TestResizeRetainedVolumeRefusesUnownedFencedAndOutOfBoundRequests",
+      "line": 231,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        235,
+        239,
+        245,
+        248,
+        254,
+        257
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "root": "TestVolumeAttachmentLookupUsesVolumeFilter",
+      "line": 261,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        266,
+        269
+      ],
+      "batch_replacement": "extend TLS: fleet filtered list uses exact volumeId/compartment/AD once, no compartment scan; foreign returned item excluded",
+      "disposition": "candidate; retain original until qualified replacement PASS and review",
+      "replacement": {
+        "file": "internal/oci/sdk_socket_boundary_integration_test.go",
+        "root": "TestSDKSocketVolumeAttachmentLookupKeepsExactFilter",
+        "line": 455,
+        "runtime_status": "not compiled or run"
+      }
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "root": "TestKVJournalAdvancesAndRepairsResizedVolumeOwnership",
+      "line": 273,
+      "classification": "real integration",
+      "reason": "real NATS KV receipts/projection recovery; preserve",
+      "assertion_lines": [
+        278,
+        286,
+        289,
+        300,
+        305,
+        308,
+        311,
+        314,
+        319,
+        322,
+        326,
+        330,
+        333,
+        338,
+        344,
+        347,
+        350,
+        353,
+        356
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "root": "TestTerminalTreatsObservedSupersededResizesAsSettled",
+      "line": 360,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        375,
+        379
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "root": "TestTerminalSettlesAResizeWhoseETagCanNoLongerMatch",
+      "line": 383,
+      "classification": "unit only",
+      "reason": "fake provider/SDK method/HTTP dispatcher or pure logic; no real provider socket",
+      "assertion_lines": [
+        389,
+        394
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "root": "TestKVJournalRepairsOwnershipFromALaterResizeAttempt",
+      "line": 400,
+      "classification": "real integration",
+      "reason": "real NATS KV later-attempt projection recovery; preserve",
+      "assertion_lines": [
+        405,
+        413,
+        416,
+        423,
+        426,
+        431,
+        434,
+        439,
+        442,
+        445,
+        448
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_termination_test.go",
+      "root": "TestVolumeTerminationProofRejectsDifferentOrCorruptScope",
+      "line": 15,
+      "classification": "real integration",
+      "reason": "real NATS/JetStream KV; scope/corruption negative checks; preserve",
+      "assertion_lines": [
+        21,
+        24,
+        27,
+        32,
+        49,
+        52,
+        55,
+        58
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_termination_test.go",
+      "root": "TestVolumeTerminationProofRequiresSuccessfulWrite",
+      "line": 70,
+      "classification": "real integration",
+      "reason": "real NATS KV wrapped only to fail Create; preserve",
+      "assertion_lines": [
+        74,
+        77,
+        80
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    },
+    {
+      "file": "internal/oci/volume_termination_test.go",
+      "root": "TestVolumeTerminationProofSurvivesBrokerRestart",
+      "line": 84,
+      "classification": "real integration",
+      "reason": "real NATS disk restart + retained TTL rejection; preserve",
+      "assertion_lines": [
+        91,
+        96,
+        102,
+        105,
+        109,
+        114,
+        117,
+        121,
+        126,
+        129
+      ],
+      "batch_replacement": null,
+      "disposition": "retain unchanged"
+    }
+  ],
+  "helper_assertions": [
+    {
+      "file": "internal/oci/member_volume_restore_verify_test.go",
+      "helper": "restoreVerifyFixture",
+      "assertion_lines": [
+        17
+      ]
+    },
+    {
+      "file": "internal/oci/member_volume_retire_test.go",
+      "helper": "retireFixture",
+      "assertion_lines": [
+        38,
+        48
+      ]
+    },
+    {
+      "file": "internal/oci/member_volume_test.go",
+      "helper": "memberVolumeFixture",
+      "assertion_lines": [
+        29,
+        39,
+        44
+      ]
+    },
+    {
+      "file": "internal/oci/member_volume_test.go",
+      "helper": "onlyVolume",
+      "assertion_lines": [
+        71
+      ]
+    },
+    {
+      "file": "internal/oci/terminal_volume_termination_test.go",
+      "helper": "TerminalVolumeProofForTest",
+      "assertion_lines": [
+        226
+      ]
+    },
+    {
+      "file": "internal/oci/volume_backup_export_test.go",
+      "helper": "VolumeBackupJournalForTest",
+      "assertion_lines": [
+        20
+      ]
+    },
+    {
+      "file": "internal/oci/volume_backup_export_test.go",
+      "helper": "ReopenVolumeBackupJournalForTest",
+      "assertion_lines": [
+        29
+      ]
+    },
+    {
+      "file": "internal/oci/volume_init_test.go",
+      "helper": "newVolumeInitFixture",
+      "assertion_lines": [
+        49,
+        54,
+        59,
+        68,
+        78
+      ]
+    },
+    {
+      "file": "internal/oci/volume_reattach_test.go",
+      "helper": "newReattachFixture",
+      "assertion_lines": [
+        23
+      ]
+    },
+    {
+      "file": "internal/oci/volume_resize_test.go",
+      "helper": "resizeFixture",
+      "assertion_lines": [
+        76,
+        82
+      ]
+    }
+  ],
+  "proposed_batch_originals": [
+    "TestTerminalSDKDeletesUseExactIfMatchAndPreserveBoot",
+    "TestLaunchInstanceMapsSignedProfileIntoOCIRequest",
+    "TestLaunchInstanceRejectsSizingThatCannotRoundTripThroughSDK",
+    "TestManagedInstanceReadbackRequiresExactBootAndPrivateVNIC",
+    "TestNamedHostObservationRequiresTheNamedRunningPrivateInstance",
+    "TestVolumeAttachmentLookupUsesVolumeFilter",
+    "TestVolumeBackupListingKeepsTheNewestBackupsOfALongHistory"
+  ],
+  "edit_claims_now": [
+    "internal/oci/sdk_socket_boundary_integration_test.go (new add-only)"
+  ],
+  "eventual_removal_claims": [
+    "internal/oci/sdk_test.go (five mapped roots; retain shared fake helpers if callers remain)",
+    "internal/oci/volume_resize_test.go (one mapped root only)",
+    "internal/oci/volume_backup_history_review_test.go (one mapped root; helper only if no references)"
+  ],
+  "production_or_fixture_helper_edits": false,
+  "checks_launched": false,
+  "candidate": {
+    "worktree": "/tmp/ts-oci-sdk-volume-socket-batch",
+    "head": "e5e72bbbfbf83f02c251ffe1fa98246137a3cedc",
+    "tree": "727f82020910c067fd106af5094a0e81d736dea2",
+    "branch": "refactor/oci-sdk-volume-socket-batch",
+    "prerequisite_commits": [
+      "7e03d5c3c",
+      "0c320b0fc"
+    ],
+    "prerequisite_paths_byte_identical_to_b8fee": true,
+    "original_files_byte_identical_to_ca1226": true,
+    "new_file_sha256": "d113103cafd338cd1972de5c5a2021c711dfecf58efff30aae4a112418e649ed",
+    "originals_retired": 0,
+    "compiled": false,
+    "runtime_executed": false,
+    "selector": "^(TestTerminalSDKDeleteSocketBoundary|TestSDKSocketLaunchPreservesSignedProfileAndResponse|TestSDKSocketLaunchRejectsInexactSizingBeforeAnyRequest|TestSDKSocketManagedReadbackPreservesBootAndPrivateVNICClassifications|TestSDKSocketNamedHostRequiresExactRunningPrivateInstance|TestSDKSocketVolumeAttachmentLookupKeepsExactFilter|TestSDKSocketVolumeBackupPaginationKeepsNewestBoundedHistory)$",
+    "expected_terminal_outcomes": 14,
+    "expected_package_passes": 1
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "owner": "/root/qa_integrator/artifact_tests",
+  "stage": "compile",
+  "argv": [
+    "nice",
+    "-n",
+    "19",
+    "timeout",
+    "--signal=TERM",
+    "--kill-after=5s",
+    "240s",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+    "test",
+    "-c",
+    "-mod=readonly",
+    "-p=1",
+    "-o",
+    "/tmp/ts-oci-sdk-volume-e5e72-check-artifact-tests/oci.test",
+    "./internal/oci"
+  ],
+  "env": {
+    "HOME": "/home/mariogk",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "LANG": "C.UTF-8",
+    "GOMAXPROCS": "2",
+    "GOFLAGS": "-p=2",
+    "GOTOOLCHAIN": "local"
+  },
+  "source_before": {
+    "head": "e5e72bbbfbf83f02c251ffe1fa98246137a3cedc",
+    "tree": "727f82020910c067fd106af5094a0e81d736dea2",
+    "status": "",
+    "tracked_count": 5061,
+    "tracked_bytes_manifest_sha256": "3d8a820e8cb0b0f7efc0ba38df00840ad6fb82abc3cfeafeec55342eb31d71a1",
+    "new_test_sha256": "d113103cafd338cd1972de5c5a2021c711dfecf58efff30aae4a112418e649ed"
+  },
+  "default_vet": true,
+  "default_tags": true,
+  "started_at": "2026-10-17T13:24:26.438174+00:00",
+  "pid": 1030989,
+  "exit_code": 0,
+  "elapsed_seconds": 43.224593585997354,
+  "finished_at": "2026-10-17T13:25:09.663236+00:00",
+  "cleanup_before": [],
+  "cleanup_after": [],
+  "cleanup_joined": true,
+  "source_after": {
+    "head": "e5e72bbbfbf83f02c251ffe1fa98246137a3cedc",
+    "tree": "727f82020910c067fd106af5094a0e81d736dea2",
+    "status": "",
+    "tracked_count": 5061,
+    "tracked_bytes_manifest_sha256": "3d8a820e8cb0b0f7efc0ba38df00840ad6fb82abc3cfeafeec55342eb31d71a1",
+    "new_test_sha256": "d113103cafd338cd1972de5c5a2021c711dfecf58efff30aae4a112418e649ed"
+  },
+  "source_unchanged": true,
+  "raw_sha256": {
+    "compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "external_binary": {
+    "path": "/tmp/ts-oci-sdk-volume-e5e72-check-artifact-tests/oci.test",
+    "mode": "0o600",
+    "bytes": 34747920,
+    "sha256": "25362430cfe099bc1cc84dc0dcc901fdc07001765bfb121ccc3ad8fb10c0b24a",
+    "elf": true,
+    "never_executed": true
+  }
+}

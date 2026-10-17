@@ -1,0 +1,60 @@
+{
+  "state": "PASS",
+  "head": "94f4292924680d9a36b3673be1018fa4b0e1e2ed",
+  "tree": "fa1475d043de69482d8a7884d920b134899ff973",
+  "compile_attempts": 1,
+  "runtime_executed": false,
+  "exit_code": 0,
+  "elapsed_seconds": 44.64743374095997,
+  "native_session": 51741,
+  "launch_chunk": "54467f",
+  "start_chunk": "3dcc10",
+  "terminal_chunk": "1dffca",
+  "process_group": 1069121,
+  "post_join_members": [],
+  "lock_released": true,
+  "source_unchanged": true,
+  "tracked_files": 5061,
+  "source_aggregate_sha256": "b08913e8a66023de7c6c36371b20299f5a9b8b6358a7b44c051d4831d7ca1059",
+  "external_binary": {
+    "path": "/tmp/ts-oci-sdk-volume-retirement-source-artifact-tests/oci.test",
+    "mode": "0o600",
+    "bytes": 34669451,
+    "sha256": "df2c52baf8ccb8248073d82911c60fa875d1ac8a5a1375e305ccbeeb1901df24",
+    "elf": true,
+    "never_executed": true
+  },
+  "files": {
+    "compile.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "mode": "0600"
+    },
+    "compile.stdout": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "mode": "0600"
+    },
+    "result.json": {
+      "sha256": "57c595083adf1d5cc74068b2b23e74ee1e0739c52e62cf1ed22fb651c43f9393",
+      "bytes": 3418,
+      "mode": "0600"
+    },
+    "run.py": {
+      "sha256": "ea5cd7fd2f1f839c75bd4a608221403dd34d757edfa8afe69c953d24d2924a0e",
+      "bytes": 6384,
+      "mode": "0600"
+    },
+    "running.json": {
+      "sha256": "ddfbaa50b568e2d360cdf057b4ff40529bf17d0b7da40df152db666f00af533e",
+      "bytes": 2121,
+      "mode": "0600"
+    },
+    "started.json": {
+      "sha256": "2a9f55e800946bc5adbdc7c69984c912d38fce810e41fe9f1aedf889de4636c8",
+      "bytes": 2095,
+      "mode": "0600"
+    }
+  },
+  "adoption_or_ledger_changes": false
+}

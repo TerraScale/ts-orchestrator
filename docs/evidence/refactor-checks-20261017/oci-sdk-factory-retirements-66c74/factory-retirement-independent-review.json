@@ -1,0 +1,152 @@
+{
+  "state": "ACCEPTED_EXACT_C0A_THREE_ORIGINAL_RETIREMENT_SOURCE_AND_DEFAULT_VET_TRUECOMPILE_READY_FOR_ADOPTION",
+  "source": {
+    "head": "c0a7945b717771b953e6392a4afe2cc9d699d343",
+    "tree": "5f6566d5347525dedce8408b34e9232458421ed4",
+    "parent": "fa44fa8a074af83fd5c9afdf8ca851fce7155147",
+    "parent_tree": "a7675fb7b4ff157263c8931177b84f313c2abdc6",
+    "immutable_commit": "Earlier direct loose-object SHA1 verification established exact c0a commit,5f tree and fa44 parent. Canonical current/reverse-spliced trees independently verified.",
+    "tracked_paths": 5059,
+    "current_fullseal": "697cad21f97451b897ae7d6268e41421ac6bd210db3df15b9cfd9de10e2592bd",
+    "equals_recorded_before_after": true,
+    "total_tracked_bytes": 160716403,
+    "no_untracked_paths": true,
+    "only_modified_paths": [
+      "internal/ociclient/factory_test.go",
+      "internal/ociclient/ociclient_test.go"
+    ],
+    "additions": 0,
+    "deletions": 47,
+    "deleted_bytes": 1705,
+    "spans": [
+      {
+        "root": "TestOperationCardinalityIsBounded",
+        "path": "internal/ociclient/factory_test.go",
+        "start_byte": 634,
+        "end_byte_exclusive": 1268,
+        "bytes": 634,
+        "lines": 18,
+        "declaration_sha256": "467cc1b629bdb3997c1a565e747fd04304d4f7a8c07082df07e1dd65c6a22c26",
+        "span_sha256": "6083a3d22d1ea9c76a97f6bde00d8180679e0c5cb0474bb55c6e1f73d3a14af2"
+      },
+      {
+        "root": "TestFactoryRejectsUncataloguedRegionsAndBadLimits",
+        "path": "internal/ociclient/ociclient_test.go",
+        "start_byte": 5144,
+        "end_byte_exclusive": 5648,
+        "bytes": 504,
+        "lines": 13,
+        "declaration_sha256": "825570b80de40bebc0de8796e830e63328c3f8bf5dfb70a5e24bae3c39007744",
+        "span_sha256": "f8b10a157cad0ea0267e85171bdda19414c646045fdcd9c02983bcb947bf6b3d"
+      },
+      {
+        "root": "TestTenancyHomeRegionComesFromTheCatalog",
+        "path": "internal/ociclient/ociclient_test.go",
+        "start_byte": 9805,
+        "end_byte_exclusive": 10372,
+        "bytes": 567,
+        "lines": 16,
+        "declaration_sha256": "593e599c2add12966eb316af56f8754bf0d76524b37792afb1a9adad0a261716",
+        "span_sha256": "0ff338d2a9810a45035eb37f51e9c617e88a50ec8ae20c97f8f56ba9bf3c6e56"
+      }
+    ],
+    "file_checks": [
+      {
+        "path": "internal/ociclient/factory_test.go",
+        "before_sha256": "e0e61c1c0e31b1e2a248e015df12796a6ad6336e72e78235b6a363192d800d2f",
+        "after_sha256": "e62c2d16f4a21ee74e0978854f5461cc714fea675d807867df324bb991b68ced",
+        "exact_splice": true,
+        "imports_exact": true
+      },
+      {
+        "path": "internal/ociclient/ociclient_test.go",
+        "before_sha256": "5b0ccffdaded4bab3ba32af925fbbb4d01e44bc2936531df6ac67fe5d978380c",
+        "after_sha256": "074b894168ee60f6757fe47b1c6e06dd46178e240bb79c4213fc1d13ab7b6fa9",
+        "exact_splice": true,
+        "imports_exact": true
+      }
+    ],
+    "all10_protected_roots_exact": true,
+    "all_other10_free_declarations_exact": true,
+    "replacements_exact": true,
+    "imports_docs_helpers_production_unchanged": true,
+    "sourceproof_sha256": "856ca1fa7bde2761e18551a594b4bf8a55ec9b9b360c79d3ff103f6a4384cbc0",
+    "accepted_fa44_review_sha256": "b9b77c69d5c5cede76c0fa8f67da6232de6abd536864a9df59ff89e4cb362c45",
+    "method": "Read-only checksummed index parsing; actual5059blob/mode checks; canonical Git tree construction; byte splices and declaration hashes. No Git executable."
+  },
+  "prior_assertion_equivalence": {
+    "report_path": "/tmp/ts-factory-fa44-independent-xzacpd4o/review.json",
+    "sha256": "b9b77c69d5c5cede76c0fa8f67da6232de6abd536864a9df59ff89e4cb362c45",
+    "source": "fa44fa8a074af83fd5c9afdf8ca851fce7155147",
+    "tree": "a7675fb7b4ff157263c8931177b84f313c2abdc6",
+    "retained": "Exact same three accepted replacement roots and helpers; no reimplementation or production changes.",
+    "scoped_runtime": "Acceptedfa44 exact3roots+9leaves+onepackage PASS0.418s; no skips/fail/extras; reused without runtime repetition on c0a.",
+    "limitations": "Signature presence/nonempty only; no cryptographic request-signature verification. Tenancy replacement uses genuine Identity.GetTenancy SDK decode then public TenancyHomeRegion; no direct Factory.HomeRegion invocation."
+  },
+  "compile": {
+    "result_path": "/tmp/ts-factory-c0a-capacity-qa-nb76q_u9/result.json",
+    "result_sha256": "0e2b3c40334b5e51d339016b476e087272ceb318b72a5bffea131fef3bfa4ba7",
+    "raw_log_path": "/tmp/ts-factory-c0a-capacity-qa-nb76q_u9/compile.log",
+    "raw_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "exit_code": 0,
+    "elapsed_seconds": 5.864393870986532,
+    "default_vet": true,
+    "default_tags": true,
+    "race": false,
+    "argv": [
+      "nice",
+      "-n",
+      "19",
+      "timeout",
+      "--signal=TERM",
+      "--kill-after=5s",
+      "240s",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "test",
+      "-c",
+      "-mod=readonly",
+      "-p=1",
+      "-o",
+      "/tmp/ts-factory-c0a-capacity-qa-nb76q_u9/ociclient.test",
+      "./internal/ociclient"
+    ],
+    "request_sha256": "d66e90a6b6f6ce4af64ca8f0b6e46468fba2ddbc662df9c4b79928c0d7fa0d52",
+    "runner_sha256": "d6684b8ed35a6dc32f2516cd830de9c9882f2301bdb449ee426465505c448fc8",
+    "process_group_absent": true,
+    "unexpected_descendants_observed": false,
+    "capacity_lock": "/tmp/ts-orch-refactor-capacity-check.lock",
+    "lock_released": true,
+    "binary": {
+      "path": "/tmp/ts-factory-c0a-capacity-qa-nb76q_u9/ociclient.test",
+      "mode": "0600",
+      "bytes": 16448385,
+      "sha256": "537f37968d2fa48ec436715530afbb0c1d81160a43e7faed79f35a04ec28e737",
+      "never_executed": "Owner result and reviewed compile-only runner provenance; current ELF bytes and nonexecutability independently verified; reviewer did not execute."
+    }
+  },
+  "decisions": {
+    "exact_source_ready_for_adoption": true,
+    "isolated_three_original_retirement_qualified": true,
+    "actual_adoption_reviewed": false,
+    "adoption_or_global_inventory_count_credit": false,
+    "remaining": "Parent owns adoption/publication of this exact source and subsequent actual-adoption verification/count reconciliation. This review does not perform or grant actual adoption/count credit."
+  },
+  "evidence": {
+    "/tmp/ts-factory-three-retirement-dk2lvz_z/source-proof.json": "856ca1fa7bde2761e18551a594b4bf8a55ec9b9b360c79d3ff103f6a4384cbc0",
+    "/tmp/ts-factory-three-retirement-dk2lvz_z/readiness.json": "df67c10d3e188d2735c15a221454b571027cdaf8d4bf6ef77eb42a70753b0cf0",
+    "/tmp/ts-factory-fa44-independent-xzacpd4o/review.json": "b9b77c69d5c5cede76c0fa8f67da6232de6abd536864a9df59ff89e4cb362c45"
+  },
+  "limits": [
+    "Compile only on c0a; no current-source runtime repeat, race, fullCI, production or unrelated-root execution credit.",
+    "Raw compile log is empty and hashchecked; owner result plus hashed reviewed runner provide execution/cleanup/CAPACITY-release provenance. Native launch/every-poll terminal archive is not independently reproduced in this compact report.",
+    "Historical environment/status, CAPACITY release and standaloneELF-never-executed retain owner execution provenance. Current full5059blob/mode seal, clean tracked-path set, canonical source trees and exact byte/declaration splices independently verified."
+  ],
+  "review_actions": {
+    "go_build_test_runner_scanner_binary_git_executable_calls": 0,
+    "source_deletions_or_edits": 0,
+    "git_or_ledger_mutations": 0,
+    "adoption_or_count_changes": 0,
+    "new_agents": 0,
+    "only_output": "fresh compact report0444/dir0555"
+  }
+}

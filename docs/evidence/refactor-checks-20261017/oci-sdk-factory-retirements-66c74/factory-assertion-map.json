@@ -1,0 +1,582 @@
+{
+  "state": "READ_ONLY_ASSERTION_MAPPING_NOT_EXECUTION_OR_RETIREMENT_AUTHORIZATION",
+  "source": {
+    "checkout": "/tmp/ts-refactor-main-union-3d9a933e",
+    "commit": "ca1226b9b4011383f39c0753e19be295618accf8",
+    "tree": "4439bb44e9dbcc6531a76dcf494a4f87cdb9b647",
+    "files": {
+      "factory.go": {
+        "sha256": "4f1d9c577bbeabb1b24443c9dbd97591f792fe3d9b069c38ef9cc86128aab0fa",
+        "same_bytes_as_accepted_d45_source": true
+      },
+      "retry.go": {
+        "sha256": "fbe4e95713de1ac7324b7c397645e14e8eb04485c7cc2543c7080ab148533351",
+        "same_bytes_as_accepted_d45_source": true
+      },
+      "identity.go": {
+        "sha256": "ed6d24a6b718e7b709daa0c7a8eef67d629f5cf18bed47dd34bdd9ea297c5d44",
+        "same_bytes_as_accepted_d45_source": true
+      },
+      "factory_test.go": {
+        "sha256": "e0e61c1c0e31b1e2a248e015df12796a6ad6336e72e78235b6a363192d800d2f",
+        "same_bytes_as_accepted_d45_source": false
+      },
+      "ociclient_test.go": {
+        "sha256": "5b0ccffdaded4bab3ba32af925fbbb4d01e44bc2936531df6ac67fe5d978380c",
+        "same_bytes_as_accepted_d45_source": true
+      },
+      "retry_integration_test.go": {
+        "sha256": "4aeb70a2d8d4215566a9a75579bf59daa7f44eae12f9c8cfc5df545d1344df00",
+        "same_bytes_as_accepted_d45_source": true
+      },
+      "identity_integration_test.go": {
+        "sha256": "e4350f9ee877ad861f0602fbadab1fc6e36dbc838b37e7b24581f3049704b8b4",
+        "same_bytes_as_accepted_d45_source": true
+      },
+      "instance_principal_test.go": {
+        "sha256": "0812da02bd38efd633bc340bc032ff3f8feafb88d0fe5c65409f7a69a9caaa67",
+        "same_bytes_as_accepted_d45_source": true
+      }
+    }
+  },
+  "scope": {
+    "excluded": "Retired TestOperationTemplateRemovesIdentifiers; retired TestInstrumentedDispatcherRecordsCallsErrorsAndThrottling",
+    "included_root_count": 13,
+    "unit_only_originals": 6,
+    "already_http_integration_originals": 6,
+    "accepted_additive_replacement": 1
+  },
+  "accepted_provenance": {
+    "dispatcher": {
+      "source_commit": "d45d64d2ca4f07254931258dc2b873f4adea097b",
+      "tree": "0c20ddfd5073ab15cfbd97b68aa3d4e1cf041e8d",
+      "selector": "^TestSignedSDKDispatcherRecordsCallsErrorsAndThrottling$",
+      "package": "github.com/TerraScale/ts-orchestrator/internal/ociclient",
+      "outcome": "one test/root PASS0.830s, package PASS0.842s; no child leaves/skips/failures/extras; exit0; session59523; wall5.033609s",
+      "vet": "off for scoped runtime; subsequent retirement true-compile/default-vet is compile-only credit",
+      "race": false,
+      "evidence": {
+        "qa-runtime-review.json": {
+          "path": "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/qa-runtime-review.json",
+          "sha256": "52f42b22c9df8ac573382f53aae066ff5d3a383cff821cff9856fcbcf8d057ca"
+        },
+        "runtime/qa-output/receipt.json": {
+          "path": "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime/qa-output/receipt.json",
+          "sha256": "6ea688957cfcea1b6104bcecb6a34a83149f048acb186c2fb6069893ca7dc2f2"
+        },
+        "runtime/qa-output/stdout.jsonl": {
+          "path": "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime/qa-output/stdout.jsonl",
+          "sha256": "67781a10f9ee9575684e9363b626a02ef87e888bb32de3b60826264783fb4f8f"
+        },
+        "runtime/request.json": {
+          "path": "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96/runtime/request.json",
+          "sha256": "db2786b475cb32e786a8c1aa61c8712668647441cbce2c235cfeb33a1e1cb0f3"
+        }
+      },
+      "current_source_comparison": "Replacement declaration equals d45 byte-for-byte (SHA22e69703...), as do factory.go/retry.go/identity.go; current tree as a whole has not run this selector in this mapping.",
+      "limits": [
+        "Signature presence only, not cryptographic signature verification",
+        "Private clock exact bookkeeping, not wall latency",
+        "MaxAttempts1: no retry/limiter/cancellation/cardinality closure",
+        "No full shared-tree, race, repeated or production qualification"
+      ]
+    },
+    "template": {
+      "root": "TestOperationTemplateThroughVerifiedTLSHTTP",
+      "source_commit": "eb2170c0fc376e3f5be381d81c14b397a44ee956",
+      "accepted_report": "/tmp/ts-qa-operation-eb217-independent-ywq2xfuh/review.json",
+      "accepted_report_sha256": "0b5c2a34acdc117e63e3272a645f26e576fd66d333da6f8202714e32d80cb11b",
+      "selector": "^TestOperationTemplateThroughVerifiedTLSHTTP$",
+      "outcomes": "root +13 named leaves +package PASS, zero extras/skips/failures; root0.07s/package0.082s",
+      "credit": "Normalization/raw URL, verified TLS, wire method/host/URI,204, body completion, one Calls1 Errors0 Throttled0 view and counter per case; not cardinality saturation",
+      "limits": "Compact accepted report provenance retained from preceding task; no fresh runtime here"
+    },
+    "other_scoped_runtime": "None located for six currently integration originals. Parent confirms no known accepted retry/cancellation receipt beyond current reports. Do not infer from compilation/source manifests or d45."
+  },
+  "roots": [
+    {
+      "root": "TestOperationCardinalityIsBounded",
+      "path": "internal/ociclient/factory_test.go",
+      "line": 33,
+      "declaration_sha256": "467cc1b629bdb3997c1a565e747fd04304d4f7a8c07082df07e1dd65c6a22c26",
+      "classification": "unit-only/private apiStats.record",
+      "assertions": [
+        {
+          "assertion": "74 unique operations (maxOperationsPerService64 +10) yield exactly65 operation views for one service, including other",
+          "existing_boundary": "none",
+          "accepted_coverage": "none",
+          "gap": "No existing boundary saturates cardinality. Accepted template root has13 cases in isolated services; accepted dispatcher root has one operation."
+        }
+      ],
+      "retirement_ready": false
+    },
+    {
+      "root": "TestFactoryObjectStorageRecordsHTTPAttempts",
+      "path": "internal/ociclient/factory_test.go",
+      "line": 51,
+      "declaration_sha256": "13064a19e592f7ef6451579a9c6c054de443c52511bbfe628eecae4d8be5e6be",
+      "classification": "original already uses real Factory.ObjectStorage SDK + TCP HTTP",
+      "assertions": [
+        {
+          "assertion": "success: HEAD200 -> ETag object-etag; exactly1 wire attempt; Calls+1 Errors+0 Throttled+0",
+          "existing_boundary": "TestFactoryObjectStorageRecordsHTTPAttempts/success",
+          "accepted_coverage": "no scoped runtime located"
+        },
+        {
+          "assertion": "throttled: HEAD429 then200 -> ETag; exactly2 attempts; Calls+2 Errors+1 Throttled+1",
+          "existing_boundary": "TestFactoryObjectStorageRecordsHTTPAttempts/throttled",
+          "accepted_coverage": "no scoped runtime located; d45 uses Compute GET and MaxAttempts1, so does not cover factory ObjectStorage retries"
+        },
+        {
+          "assertion": "transport error: dropped HEAD connection then200 -> ETag; exactly2 attempts; Calls+2 Errors+1 Throttled+0",
+          "existing_boundary": "TestFactoryObjectStorageRecordsHTTPAttempts/transport_error",
+          "accepted_coverage": "no scoped runtime located"
+        },
+        {
+          "assertion": "each leaf: LastStatus200, TotalSeconds increases, MaxSeconds>0; metrics contain none of namespace/bucket/object secrets",
+          "existing_boundary": "TestFactoryObjectStorageRecordsHTTPAttempts/{success,throttled,transport_error}",
+          "accepted_coverage": "d45 covers related operation-normalization/nonleak bookkeeping only; service/factory/duration assertions remain specific"
+        }
+      ],
+      "action": "retain original integration root; qualify fresh if selected"
+    },
+    {
+      "root": "TestSignedSDKDispatcherRecordsCallsErrorsAndThrottling",
+      "path": "internal/ociclient/factory_test.go",
+      "line": 135,
+      "declaration_sha256": "22e69703e18e9ae2c812a3c6cc98f654a10620042e1d7ecce373606bb349a823",
+      "classification": "accepted additive replacement, real signed Factory.Compute SDK + TCP HTTP",
+      "assertions": [
+        {
+          "assertion": "Three signed exact GET requests: valid RUNNING instance response; SDK429 TooManyRequests service error; dropped connection error; exactly3 requests",
+          "existing_boundary": "TestSignedSDKDispatcherRecordsCallsErrorsAndThrottling",
+          "accepted_coverage": "d45 scoped runtime"
+        },
+        {
+          "assertion": "APIOperations GET /instances/{id}: Calls3 Errors2 Throttled1 MaxSeconds0.25 TotalSeconds0.75; four exact Prometheus series; no ocid1. labels",
+          "existing_boundary": "TestSignedSDKDispatcherRecordsCallsErrorsAndThrottling",
+          "accepted_coverage": "d45 scoped runtime; deterministic private clock proves accumulation, not wall latency"
+        }
+      ],
+      "action": "retain accepted replacement; retired fake-dispatcher original is not a batch candidate"
+    },
+    {
+      "root": "TestShouldRetryNeverReplaysUnsafeMutations",
+      "path": "internal/ociclient/ociclient_test.go",
+      "line": 49,
+      "declaration_sha256": "2239ed5d381c9bbd171e3b5df1046bc389e3463846bc4906dc4169e3bebc5c9a",
+      "classification": "unit-only/synthetic operation responses",
+      "assertions": [
+        {
+          "case": "success",
+          "method": "GET",
+          "status": 200,
+          "token": "",
+          "want_retry": false,
+          "existing_boundary": "TestSignedSDKDispatcherRecordsCallsErrorsAndThrottling success",
+          "gap": "Accepted successful GET has one call; not a direct ShouldRetry(false) probe."
+        },
+        {
+          "case": "read throttled",
+          "method": "GET",
+          "status": 429,
+          "token": "",
+          "want_retry": true,
+          "existing_boundary": "TestConfiguredClientSharesLimiterAndRetriesThrottling + TestSignedSDKDispatcherRecordsCallsErrorsAndThrottling429 telemetry",
+          "gap": "L proves actual GET429 retry to success but has no located scoped runtime; d45 MaxAttempts1 does not prove replay."
+        },
+        {
+          "case": "delete throttled",
+          "method": "DELETE",
+          "status": 429,
+          "token": "",
+          "want_retry": true,
+          "existing_boundary": "none",
+          "gap": "Exact signed SDK/HTTP status+method outcome missing."
+        },
+        {
+          "case": "put throttled",
+          "method": "PUT",
+          "status": 429,
+          "token": "",
+          "want_retry": true,
+          "existing_boundary": "none",
+          "gap": "Exact signed SDK/HTTP status+method outcome missing."
+        },
+        {
+          "case": "read 503",
+          "method": "GET",
+          "status": 503,
+          "token": "",
+          "want_retry": true,
+          "existing_boundary": "TestReadCancellationJoinsSDKRetryAndPreservesHTTPDeadline/backoff",
+          "gap": "Cancellation stops a GET503/Retry-After60 at one attempt; it does not prove successful 503 replay."
+        },
+        {
+          "case": "head 500",
+          "method": "HEAD",
+          "status": 500,
+          "token": "",
+          "want_retry": true,
+          "existing_boundary": "none",
+          "gap": "Exact signed SDK/HTTP status+method outcome missing."
+        },
+        {
+          "case": "read 501",
+          "method": "GET",
+          "status": 501,
+          "token": "",
+          "want_retry": false,
+          "existing_boundary": "none",
+          "gap": "Exact signed SDK/HTTP status+method outcome missing."
+        },
+        {
+          "case": "read 404",
+          "method": "GET",
+          "status": 404,
+          "token": "",
+          "want_retry": false,
+          "existing_boundary": "none",
+          "gap": "Exact signed SDK/HTTP status+method outcome missing."
+        },
+        {
+          "case": "read 409",
+          "method": "GET",
+          "status": 409,
+          "token": "",
+          "want_retry": false,
+          "existing_boundary": "none",
+          "gap": "Exact signed SDK/HTTP status+method outcome missing."
+        },
+        {
+          "case": "tokened post 502",
+          "method": "POST",
+          "status": 502,
+          "token": "token",
+          "want_retry": true,
+          "existing_boundary": "TestAuthorityFencesSDKMutationRetries POST503",
+          "gap": "Authority root proves retry is fenced after tokened POST503; it does not prove POST502 replay to success."
+        },
+        {
+          "case": "untokened post 502",
+          "method": "POST",
+          "status": 502,
+          "token": "",
+          "want_retry": false,
+          "existing_boundary": "none",
+          "gap": "Exact signed SDK/HTTP status+method outcome missing."
+        },
+        {
+          "case": "delete 503",
+          "method": "DELETE",
+          "status": 503,
+          "token": "",
+          "want_retry": false,
+          "existing_boundary": "none",
+          "gap": "Exact signed SDK/HTTP status+method outcome missing."
+        },
+        {
+          "case": "put 500",
+          "method": "PUT",
+          "status": 500,
+          "token": "",
+          "want_retry": false,
+          "existing_boundary": "none",
+          "gap": "Exact signed SDK/HTTP status+method outcome missing."
+        },
+        {
+          "case": "429 service error without raw response -> retry true",
+          "existing_boundary": "none",
+          "gap": "Normal actual HTTP429 has a raw response. Preserve explicit public-policy fallback assertion unless a genuine SDK path producing service error without raw response is demonstrated."
+        },
+        {
+          "case": "503 service error with unknown request/no raw response -> retry false",
+          "existing_boundary": "none",
+          "gap": "Normal SDK URL transport errors recover a method. An HTTP response alone cannot prove conservative unknown-request fallback."
+        },
+        {
+          "case": "GET unexpectedEOF with raw synthetic request -> retry true",
+          "existing_boundary": "TestTransportFailuresRetryReadsOnly read dropped connections",
+          "gap": "T proves related real URL/network failure retries with exactly3 calls; synthetic raw-request EOF case differs; no scoped runtime located."
+        },
+        {
+          "case": "untokened POST unexpectedEOF with raw synthetic request -> retry false",
+          "existing_boundary": "none",
+          "gap": "TestTransportFailuresRetryReadsOnly asserts PUT nonreplay, not POST."
+        },
+        {
+          "case": "IdempotentPutRetryPolicy PUT503 true, DELETE503 false, POST503 false",
+          "existing_boundary": "none",
+          "gap": "Conditional PUT cancellation is not a503 classification/replay scenario; all three exact classifications uncovered."
+        }
+      ],
+      "retirement_ready": false
+    },
+    {
+      "root": "TestBackoffIsExponentialJitteredAndHonorsRetryAfter",
+      "path": "internal/ociclient/ociclient_test.go",
+      "line": 97,
+      "declaration_sha256": "ad89d19d7e9ab05a80b587a44fd8734cefcf10764ee1f4e66ca4831576452158",
+      "classification": "unit-only/private nextDelay",
+      "assertions": [
+        {
+          "assertion": "attempts1..4 strictly increase with Base1s/Max10s/Jitter0.5",
+          "existing_boundary": "none",
+          "gap": "No timestamped multiple wire retries assert exponential growth."
+        },
+        {
+          "assertion": "attempt30 delay <=10s",
+          "existing_boundary": "none",
+          "gap": "No cap-at-large-attempt assertion."
+        },
+        {
+          "assertion": "jitter0 delay < jitter0.999 delay, and low >=Base/2",
+          "existing_boundary": "none",
+          "gap": "No actual wire comparison under deterministic jitter extrema."
+        },
+        {
+          "assertion": "429 Retry-After4 yields exactly4s",
+          "existing_boundary": "TestReadCancellationJoinsSDKRetryAndPreservesHTTPDeadline/backoff has503/Retry-After60 only",
+          "gap": "Cancellation-within1s does not measure honored hint or429."
+        },
+        {
+          "assertion": "429 Retry-After3600 yields MaxDelay10s",
+          "existing_boundary": "none",
+          "gap": "No measured hint cap."
+        }
+      ],
+      "retirement_ready": false,
+      "proposal_limit": "Wire timing requires deliberate scheduler tolerances and bounded deterministic delays; original exact nextDelay duration equalities are stronger than noisy elapsed-time checks. Do not delete until explicit equivalence is reviewed."
+    },
+    {
+      "root": "TestFactoryRejectsUncataloguedRegionsAndBadLimits",
+      "path": "internal/ociclient/ociclient_test.go",
+      "line": 142,
+      "declaration_sha256": "825570b80de40bebc0de8796e830e63328c3f8bf5dfb70a5e24bae3c39007744",
+      "classification": "unit-only/public constructor validation",
+      "assertions": [
+        {
+          "assertion": "New(valid provider, xx-nowhere-1) errors",
+          "existing_boundary": "none",
+          "gap": "Valid-region success in existing SDK fixtures does not prove rejection."
+        },
+        {
+          "assertion": "New(nil, sa-saopaulo-1) errors",
+          "existing_boundary": "none",
+          "gap": "No nil-provider negative control."
+        },
+        {
+          "assertion": "New(valid provider, sa-saopaulo-1, Compute zero Limit) errors",
+          "existing_boundary": "none",
+          "gap": "No invalid-limit negative control."
+        }
+      ],
+      "retirement_ready": false
+    },
+    {
+      "root": "TestConfiguredClientSharesLimiterAndRetriesThrottling",
+      "path": "internal/ociclient/ociclient_test.go",
+      "line": 155,
+      "declaration_sha256": "d31945736abe6aec38683a5eada0e603384bd8a56d000c8a9f354c0b0be4a102",
+      "classification": "original already uses real Factory.Compute SDK + TCP HTTP",
+      "assertions": [
+        {
+          "assertion": "GET429 twice then success yields exactly3 wire calls and RUNNING; same-service limiter pointer reused",
+          "existing_boundary": "TestConfiguredClientSharesLimiterAndRetriesThrottling",
+          "accepted_coverage": "no scoped runtime located"
+        },
+        {
+          "assertion": "Consumed slow limiter rejects5s-deadline request immediately: error contains rate limiter, zero extra wire calls, original context still unexpired",
+          "existing_boundary": "TestConfiguredClientSharesLimiterAndRetriesThrottling",
+          "accepted_coverage": "none; d45 does not test limiter admission"
+        }
+      ],
+      "action": "retain original integration root"
+    },
+    {
+      "root": "TestTransportFailuresRetryReadsOnly",
+      "path": "internal/ociclient/ociclient_test.go",
+      "line": 219,
+      "declaration_sha256": "1ce50692c500b0b6c66899746c683f178f63848a2d2a3d8324308724f4b422f8",
+      "classification": "original already uses real Factory.Compute SDK + TCP HTTP",
+      "assertions": [
+        {
+          "assertion": "GET with two dropped connections retries to success; exactly3 wire attempts",
+          "existing_boundary": "TestTransportFailuresRetryReadsOnly",
+          "accepted_coverage": "no scoped runtime located"
+        },
+        {
+          "assertion": "PUT UpdateInstance with dropped connection returns error and exactly1 wire attempt",
+          "existing_boundary": "TestTransportFailuresRetryReadsOnly",
+          "accepted_coverage": "no scoped runtime located; conditional cancellation is a different failure mode"
+        }
+      ],
+      "action": "retain original integration root"
+    },
+    {
+      "root": "TestTenancyHomeRegionComesFromTheCatalog",
+      "path": "internal/ociclient/ociclient_test.go",
+      "line": 260,
+      "declaration_sha256": "593e599c2add12966eb316af56f8754bf0d76524b37792afb1a9adad0a261716",
+      "classification": "unit-only/public region-key mapping",
+      "assertions": [
+        {
+          "assertion": "GRU -> sa-saopaulo-1; lowercase sjc -> us-sanjose-1; FRA -> eu-frankfurt-1",
+          "existing_boundary": "none",
+          "gap": "TestAuthorityFencesSDKMutationRetries selects literal eu-frankfurt-1 through ForRegion; it does not decode or map tenancy region keys."
+        },
+        {
+          "assertion": "XXX and nil each error",
+          "existing_boundary": "none",
+          "gap": "No invalid/missing home-region-key HTTP outcome."
+        }
+      ],
+      "retirement_ready": false
+    },
+    {
+      "root": "TestInstancePrincipalSerializesFetchesButNotCachedRegions",
+      "path": "internal/ociclient/instance_principal_test.go",
+      "line": 13,
+      "declaration_sha256": "694a4863fd59bee4cb395adc8a7b65b31aba4353139a542013a0c7eadaccf1d9",
+      "classification": "original unit-only/injected constructor and package globals",
+      "assertions": [
+        {
+          "assertion": "Cached FRA lookup completes within10s while concurrent GRU constructor is blocked",
+          "existing_boundary": "none",
+          "gap": "Existing raw-credential SDK fixtures never fetch an instance-principal provider."
+        },
+        {
+          "assertion": "Two concurrent GRU creators converge on nonnil identical shared Factory",
+          "existing_boundary": "none",
+          "gap": "ForRegion cache assertions operate on another cache."
+        },
+        {
+          "assertion": "Injected constructor writes a shared sdkGlobal; race build would detect overlapping constructor calls",
+          "existing_boundary": "none",
+          "gap": "No -race runtime evidence located; passing nonrace would not establish serialization race safety."
+        }
+      ],
+      "retirement_ready": false,
+      "action": "separate future metadata/auth boundary; retain original"
+    },
+    {
+      "root": "TestReadCancellationJoinsSDKRetryAndPreservesHTTPDeadline",
+      "path": "internal/ociclient/retry_integration_test.go",
+      "line": 18,
+      "declaration_sha256": "414f9e41fb081d39ed286634c24be2e80287c439b2a9251d7ce60d07e400b9c6",
+      "classification": "original already uses real Factory.ObjectStorage SDK + TCP HTTP",
+      "assertions": [
+        {
+          "assertion": "inflight/backoff/transport each return context.DeadlineExceeded within1s for200ms deadline; exactly1 failed wire attempt",
+          "existing_boundary": "TestReadCancellationJoinsSDKRetryAndPreservesHTTPDeadline/{inflight,backoff,transport}",
+          "accepted_coverage": "no scoped runtime located"
+        },
+        {
+          "assertion": "inflight HTTP request observes cancellation within1s; backoff server sends503+Retry-After60; transport server drops connection",
+          "existing_boundary": "TestReadCancellationJoinsSDKRetryAndPreservesHTTPDeadline/{inflight,backoff,transport}",
+          "accepted_coverage": "no scoped runtime located"
+        },
+        {
+          "assertion": "After each cancellation, same client healthy GET succeeds with exact healthy body; repeated cancellation configuration tolerated",
+          "existing_boundary": "TestReadCancellationJoinsSDKRetryAndPreservesHTTPDeadline/{inflight,backoff,transport}",
+          "accepted_coverage": "no scoped runtime located"
+        }
+      ],
+      "action": "retain original integration root; useful focused runtime selector"
+    },
+    {
+      "root": "TestConditionalMutationCancellationJoinsSDKAndRetainsAmbiguousWrite",
+      "path": "internal/ociclient/retry_integration_test.go",
+      "line": 107,
+      "declaration_sha256": "31b9c4a1127f5aaa7ad4a3e025b487007b41049b82235b47f5bb7f748011e4d1",
+      "classification": "original already uses real conditional ObjectStorage SDK PUT + TCP HTTP",
+      "assertions": [
+        {
+          "assertion": "PUT requires If-None-Match* and records exact retained bytes before caller cancellation",
+          "existing_boundary": "TestConditionalMutationCancellationJoinsSDKAndRetainsAmbiguousWrite",
+          "accepted_coverage": "no scoped runtime located"
+        },
+        {
+          "assertion": "Caller receives context.Canceled within1s only after dispatcher returned; HTTP cancellation observed within1s",
+          "existing_boundary": "TestConditionalMutationCancellationJoinsSDKAndRetainsAmbiguousWrite",
+          "accepted_coverage": "no scoped runtime located"
+        },
+        {
+          "assertion": "Healthy follow-up GET returns healthy body; exactly1 write remains after ambiguous cancellation",
+          "existing_boundary": "TestConditionalMutationCancellationJoinsSDKAndRetainsAmbiguousWrite",
+          "accepted_coverage": "no scoped runtime located"
+        }
+      ],
+      "action": "retain original integration root"
+    },
+    {
+      "root": "TestAuthorityFencesSDKMutationRetries",
+      "path": "internal/ociclient/identity_integration_test.go",
+      "line": 17,
+      "declaration_sha256": "0ac27533f435d7512692a25a585477e0772148303d0856dac6e35e35cf59ee2e",
+      "classification": "original already uses real signed Network.CreateVcn SDK + TCP HTTP",
+      "assertions": [
+        {
+          "assertion": "ForRegion FRA preserves provider, returns same cached sibling and shared Network limiter",
+          "existing_boundary": "TestAuthorityFencesSDKMutationRetries",
+          "accepted_coverage": "no scoped runtime located"
+        },
+        {
+          "assertion": "Wire request contains Authorization and durable-operation-vcn retry token; server records authority loss then503",
+          "existing_boundary": "TestAuthorityFencesSDKMutationRetries",
+          "accepted_coverage": "no scoped runtime located; signature presence only"
+        },
+        {
+          "assertion": "Returned error contains authority transferred and wire calls stays1",
+          "existing_boundary": "TestAuthorityFencesSDKMutationRetries",
+          "accepted_coverage": "no scoped runtime located; does not establish general POST status matrix"
+        }
+      ],
+      "action": "retain original integration root"
+    }
+  ],
+  "recommendation": {
+    "existing_full_coverage_retirement_batch": "none",
+    "next_additive_batch": {
+      "title": "Public factory HTTP boundary: operation cardinality, admission validation and tenancy region-key decoding",
+      "original_roots": [
+        "TestOperationCardinalityIsBounded",
+        "TestFactoryRejectsUncataloguedRegionsAndBadLimits",
+        "TestTenancyHomeRegionComesFromTheCatalog"
+      ],
+      "design": [
+        {
+          "root": "TestOperationCardinalityIsBounded",
+          "extension": "Use public Instrument around verified TLS HTTP client. Send74 distinct literal alphabetic route templates for isolated service, preserving original unique routes. Assert original exact65 views and presence of other; additionally assert74 wire requests and aggregate74 calls. Never call apiStats.record or private helpers."
+        },
+        {
+          "root": "TestFactoryRejectsUncataloguedRegionsAndBadLimits",
+          "extension": "Use generated raw signing provider and public New/Compute with a live loopback SDK endpoint. Valid signed GET succeeds as positive control; original invalid region/nil provider/zero compute limit each rejects before a client can dispatch, with no extra server requests. Preserve all three negative assertions directly through public constructor."
+        },
+        {
+          "root": "TestTenancyHomeRegionComesFromTheCatalog",
+          "extension": "Real signed Identity.GetTenancy against loopback returns each original GRU/sjc/FRA/XXX/missing homeRegionKey JSON outcome; feed actual SDK-decoded response.HomeRegionKey into public TenancyHomeRegion and assert exact3 mappings/2 errors. This exercises the same decode+map chain as Factory.HomeRegion, but does not claim direct invocation of HomeRegion unless a genuine public transport seam is available."
+        }
+      ],
+      "qualification": "Add new meaningful boundary roots without deleting originals; parent owns source review, scoped current-source runtime/default-vet compile and independent review. Delete only after complete per-assertion equivalence and PASS. Keep existing HTTP originals."
+    },
+    "later_retry_batch": {
+      "original_roots": [
+        "TestShouldRetryNeverReplaysUnsafeMutations",
+        "TestBackoffIsExponentialJitteredAndHonorsRetryAfter"
+      ],
+      "needed": "Signed SDK status/method matrix for all13 table cases, transport POST/GET, request-level idempotent PUT versus DELETE/POST, measured deterministic backoff growth/jitter/hint/cap. Explicit no-raw/unknown-request policy probes still need preservation: normal HTTP does not naturally produce their synthetic metadata shape.",
+      "warning": "Do not claim cancellation fixture covers formula or that lost authority proves successful POST502 replay. Avoid replacing exact duration equalities with unreviewed loose timing checks."
+    },
+    "instance_principal": "Separate metadata/auth/concurrency boundary; existing injected-global test remains; race safety requires actual -race evidence."
+  },
+  "execution": {
+    "go_commands_run": 0,
+    "tests_run": 0,
+    "source_edits": 0,
+    "git_mutations": 0,
+    "new_agents": 0,
+    "report_only": true
+  },
+  "authority": "Mapping grants no scheduling, lease, adoption, deletion, count or global-classification authority."
+}

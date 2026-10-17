@@ -1,0 +1,64 @@
+{
+  "owner": "/root/qa_integrator/artifact_tests",
+  "pid": 982165,
+  "source": "/tmp/ts-terminal-sdk-boundary-7cswu3af/source",
+  "argv": [
+    "nice",
+    "-n",
+    "19",
+    "timeout",
+    "--signal=TERM",
+    "--kill-after=5s",
+    "240s",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+    "test",
+    "-json",
+    "-mod=readonly",
+    "-p=1",
+    "-count=1",
+    "-parallel=1",
+    "-timeout=180s",
+    "-run",
+    "^(TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity|TestRegionIntentUsesFixedProductMapping|TestJournalBootBindingSurvivesReopenAndRejectsRebinding|TestJournalRepairsOwnershipProjectionAfterPartialFailure|TestJournalPinsSignedPlacementComputeProfile|TestJournalDistinguishesFreshIntentFromUnknownProviderOutcome|TestJournalOperationLookupRecoversPersistedAttachmentDevice|TestJournalRepairsInterruptedAttachmentProjectionWithoutRebinding|TestJournalConcurrentConflictingResultsHaveOneImmutableWinner|TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission|TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects|TestVolumeTerminationProofRejectsDifferentOrCorruptScope|TestVolumeTerminationProofRequiresSuccessfulWrite|TestVolumeTerminationProofSurvivesBrokerRestart)$",
+    "./internal/oci"
+  ],
+  "env": {
+    "HOME": "/home/mariogk",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "LANG": "C.UTF-8",
+    "GOMAXPROCS": "2",
+    "GOFLAGS": "-p=2",
+    "GOTOOLCHAIN": "local"
+  },
+  "lock": "/tmp/ts-orch-refactor-general-check.lock",
+  "default_vet": true,
+  "default_tags": true,
+  "selector": "^(TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity|TestRegionIntentUsesFixedProductMapping|TestJournalBootBindingSurvivesReopenAndRejectsRebinding|TestJournalRepairsOwnershipProjectionAfterPartialFailure|TestJournalPinsSignedPlacementComputeProfile|TestJournalDistinguishesFreshIntentFromUnknownProviderOutcome|TestJournalOperationLookupRecoversPersistedAttachmentDevice|TestJournalRepairsInterruptedAttachmentProjectionWithoutRebinding|TestJournalConcurrentConflictingResultsHaveOneImmutableWinner|TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission|TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects|TestVolumeTerminationProofRejectsDifferentOrCorruptScope|TestVolumeTerminationProofRequiresSuccessfulWrite|TestVolumeTerminationProofSurvivesBrokerRestart)$",
+  "lock_acquired": true,
+  "source_before": {
+    "head": "b8fee5fcdcae1de49fc36313869ed332e66f00f6",
+    "tree": "dec3814e47b6f3facdab666d265677f184756663",
+    "status": "",
+    "test_sha256": "eeeb9ae628e5a3139a287da00ba017a10f8652f55240d4412b1fced8efce7c2f"
+  },
+  "started_at": "2026-10-17T13:09:22.880808+00:00",
+  "command_pid": 982297,
+  "exit_code": 0,
+  "elapsed_seconds": 13.19397605600534,
+  "runtime_executed": true,
+  "finished_at": "2026-10-17T13:09:36.075072+00:00",
+  "source_after": {
+    "head": "b8fee5fcdcae1de49fc36313869ed332e66f00f6",
+    "tree": "dec3814e47b6f3facdab666d265677f184756663",
+    "status": "",
+    "test_sha256": "eeeb9ae628e5a3139a287da00ba017a10f8652f55240d4412b1fced8efce7c2f"
+  },
+  "cleanup_before": [],
+  "cleanup_after": [],
+  "cleanup_joined": true,
+  "raw_sha256": {
+    "raw.jsonl": "c25fa3ec14a5e41ba78e9f80c55f1aa40c071042b560388e58ea61f205d7688a",
+    "raw.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "lock_released": true
+}

@@ -1,0 +1,92 @@
+{
+  "head": "c0a7945b717771b953e6392a4afe2cc9d699d343",
+  "tree": "5f6566d5347525dedce8408b34e9232458421ed4",
+  "source": "/tmp/ts-factory-three-retirement-dk2lvz_z/source",
+  "env": {
+    "HOME": "/home/mariogk",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "LANG": "C.UTF-8",
+    "GOMAXPROCS": "2",
+    "GOFLAGS": "-p=2",
+    "GOTOOLCHAIN": "local"
+  },
+  "uid": 1000,
+  "lock": "/tmp/ts-orch-refactor-capacity-check.lock",
+  "request_sha256": "d66e90a6b6f6ce4af64ca8f0b6e46468fba2ddbc662df9c4b79928c0d7fa0d52",
+  "runner_sha256": "d6684b8ed35a6dc32f2516cd830de9c9882f2301bdb449ee426465505c448fc8",
+  "runtime_executed": false,
+  "admission": {
+    "available_bytes": 27201789952,
+    "load1": 4.4658203125,
+    "existing_go_compiler_flows": [
+      1089436,
+      1089460
+    ],
+    "existing_compiler_tools": [
+      {
+        "pid": 1091759,
+        "tool": "compile"
+      },
+      {
+        "pid": 1092124,
+        "tool": "compile"
+      }
+    ],
+    "ram_minimum_bytes": 17179869184,
+    "load1_maximum_exclusive": 12,
+    "maximum_compiler_flows_including_this": 4
+  },
+  "source_before": {
+    "head": "c0a7945b717771b953e6392a4afe2cc9d699d343",
+    "tree": "5f6566d5347525dedce8408b34e9232458421ed4",
+    "status": "",
+    "tracked_paths": 5059,
+    "all_tracked_path_mode_sha256_seal": "697cad21f97451b897ae7d6268e41421ac6bd210db3df15b9cfd9de10e2592bd",
+    "source_proof_sha256": "856ca1fa7bde2761e18551a594b4bf8a55ec9b9b360c79d3ff103f6a4384cbc0"
+  },
+  "compile": {
+    "argv": [
+      "nice",
+      "-n",
+      "19",
+      "timeout",
+      "--signal=TERM",
+      "--kill-after=5s",
+      "240s",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "test",
+      "-c",
+      "-mod=readonly",
+      "-p=1",
+      "-o",
+      "/tmp/ts-factory-c0a-capacity-qa-nb76q_u9/ociclient.test",
+      "./internal/ociclient"
+    ],
+    "pid": 1092249,
+    "exit_code": 0,
+    "elapsed_seconds": 5.864393870986532,
+    "log": "/tmp/ts-factory-c0a-capacity-qa-nb76q_u9/compile.log",
+    "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "process_group_absent": true,
+    "unexpected_descendants_observed": false,
+    "default_vet": true,
+    "default_tags": true
+  },
+  "binary": {
+    "path": "/tmp/ts-factory-c0a-capacity-qa-nb76q_u9/ociclient.test",
+    "mode": "0600",
+    "bytes": 16448385,
+    "sha256": "537f37968d2fa48ec436715530afbb0c1d81160a43e7faed79f35a04ec28e737",
+    "never_executed": true
+  },
+  "source_after": {
+    "head": "c0a7945b717771b953e6392a4afe2cc9d699d343",
+    "tree": "5f6566d5347525dedce8408b34e9232458421ed4",
+    "status": "",
+    "tracked_paths": 5059,
+    "all_tracked_path_mode_sha256_seal": "697cad21f97451b897ae7d6268e41421ac6bd210db3df15b9cfd9de10e2592bd",
+    "source_proof_sha256": "856ca1fa7bde2761e18551a594b4bf8a55ec9b9b360c79d3ff103f6a4384cbc0"
+  },
+  "state": "PASS_EXACT_C0A_DEFAULT_VET_DEFAULT_TAG_TRUECOMPILE_ONLY",
+  "lock_released": true
+}

@@ -1,0 +1,77 @@
+{
+  "head": "fa44fa8a074af83fd5c9afdf8ca851fce7155147",
+  "tree": "a7675fb7b4ff157263c8931177b84f313c2abdc6",
+  "base": "ca1226b9b4011383f39c0753e19be295618accf8",
+  "worktree": "/tmp/ts-factory-boundary-50nn83zw/source",
+  "branch": "refactor/factory-boundary-50nn83zw",
+  "clean": true,
+  "file_claim": "internal/ociclient/factory_boundary_integration_test.go",
+  "source_sha256": "3059cbd54348685231ef87fd50ca1c3d5fa35242469199d8f129398dddd989b7",
+  "originals_retained": true,
+  "environment": {
+    "HOME": "/home/mariogk",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "LANG": "C.UTF-8",
+    "GOMAXPROCS": "2",
+    "GOFLAGS": "-p=2",
+    "GOTOOLCHAIN": "local"
+  },
+  "nice": 19,
+  "compile": {
+    "gofmt_diff": [
+      "gofmt",
+      "-d",
+      "internal/ociclient/factory_boundary_integration_test.go"
+    ],
+    "argv": [
+      "go",
+      "test",
+      "-c",
+      "-mod=readonly",
+      "-p=1",
+      "-o",
+      "EXTERNAL_QA_DIRECTORY/ociclient.test",
+      "./internal/ociclient"
+    ],
+    "outer_timeout_seconds": 240,
+    "default_vet": true,
+    "default_tags": true,
+    "race": false,
+    "ELF": "0600; never execute"
+  },
+  "runtime": {
+    "argv": [
+      "go",
+      "test",
+      "-json",
+      "-mod=readonly",
+      "-p=1",
+      "./internal/ociclient",
+      "-run",
+      "^(TestOperationCardinalityThroughVerifiedTLSHTTP|TestFactoryAdmissionThroughSignedSDKHTTP|TestTenancyHomeRegionThroughSignedSDKHTTP)$",
+      "-count=1",
+      "-parallel=1",
+      "-timeout=90s"
+    ],
+    "outer_timeout_seconds": 120,
+    "default_vet": true,
+    "default_tags": true,
+    "race": false,
+    "expected_named_pass": [
+      "TestOperationCardinalityThroughVerifiedTLSHTTP",
+      "TestFactoryAdmissionThroughSignedSDKHTTP",
+      "TestTenancyHomeRegionThroughSignedSDKHTTP",
+      "TestFactoryAdmissionThroughSignedSDKHTTP/valid",
+      "TestFactoryAdmissionThroughSignedSDKHTTP/uncatalogued_region",
+      "TestFactoryAdmissionThroughSignedSDKHTTP/nil_provider",
+      "TestFactoryAdmissionThroughSignedSDKHTTP/zero_compute_limit",
+      "TestTenancyHomeRegionThroughSignedSDKHTTP/GRU",
+      "TestTenancyHomeRegionThroughSignedSDKHTTP/sjc",
+      "TestTenancyHomeRegionThroughSignedSDKHTTP/FRA",
+      "TestTenancyHomeRegionThroughSignedSDKHTTP/unknown",
+      "TestTenancyHomeRegionThroughSignedSDKHTTP/missing"
+    ],
+    "scope": "3roots+9leaves,7serialverifiedloopbackTLSfixtures,80HTTPrequests;6signedSDKcalls;noexternalnetwork/cloud;nosiblingruntimecredit"
+  },
+  "status": "awaiting QA reservation; no Go/formatter/compile/runtime here"
+}

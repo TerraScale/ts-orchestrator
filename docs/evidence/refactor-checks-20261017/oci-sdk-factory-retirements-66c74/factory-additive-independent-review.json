@@ -1,0 +1,294 @@
+{
+  "state": "ACCEPTED_EXACT_FA44_ADDITIVE_AND_THREE_ORIGINAL_ASSERTION_EQUIVALENCE",
+  "source": {
+    "head": "fa44fa8a074af83fd5c9afdf8ca851fce7155147",
+    "tree": "a7675fb7b4ff157263c8931177b84f313c2abdc6",
+    "base_commit": "ca1226b9b4011383f39c0753e19be295618accf8",
+    "base_tree": "4439bb44e9dbcc6531a76dcf494a4f87cdb9b647",
+    "only_added_file": "internal/ociclient/factory_boundary_integration_test.go",
+    "lines": 236,
+    "source_sha256": "3059cbd54348685231ef87fd50ca1c3d5fa35242469199d8f129398dddd989b7",
+    "all_tracked_paths": 5059,
+    "total_bytes_read": 160718108,
+    "current_seal": "b571db01c5c148433f0da0f2c9a94ab803ee71efc30eb5062c7fb6f8720b0d46",
+    "current_seal_equals_all_recorded_phases": true,
+    "canonical_tree_excluding_new_file_equals_base": true,
+    "all_original_files_exact_to_base": true,
+    "originals": [
+      {
+        "root": "TestOperationCardinalityIsBounded",
+        "path": "internal/ociclient/factory_test.go",
+        "declaration_sha256": "467cc1b629bdb3997c1a565e747fd04304d4f7a8c07082df07e1dd65c6a22c26",
+        "entire_file_exact_to_base": true
+      },
+      {
+        "root": "TestFactoryRejectsUncataloguedRegionsAndBadLimits",
+        "path": "internal/ociclient/ociclient_test.go",
+        "declaration_sha256": "825570b80de40bebc0de8796e830e63328c3f8bf5dfb70a5e24bae3c39007744",
+        "entire_file_exact_to_base": true
+      },
+      {
+        "root": "TestTenancyHomeRegionComesFromTheCatalog",
+        "path": "internal/ociclient/ociclient_test.go",
+        "declaration_sha256": "593e599c2add12966eb316af56f8754bf0d76524b37792afb1a9adad0a261716",
+        "entire_file_exact_to_base": true
+      }
+    ],
+    "protected_declarations": [
+      {
+        "root": "TestFactoryObjectStorageRecordsHTTPAttempts",
+        "path": "internal/ociclient/factory_test.go",
+        "declaration_sha256": "13064a19e592f7ef6451579a9c6c054de443c52511bbfe628eecae4d8be5e6be",
+        "entire_file_exact_to_base": true
+      },
+      {
+        "root": "TestSignedSDKDispatcherRecordsCallsErrorsAndThrottling",
+        "path": "internal/ociclient/factory_test.go",
+        "declaration_sha256": "22e69703e18e9ae2c812a3c6cc98f654a10620042e1d7ecce373606bb349a823",
+        "entire_file_exact_to_base": true
+      },
+      {
+        "root": "TestShouldRetryNeverReplaysUnsafeMutations",
+        "path": "internal/ociclient/ociclient_test.go",
+        "declaration_sha256": "2239ed5d381c9bbd171e3b5df1046bc389e3463846bc4906dc4169e3bebc5c9a",
+        "entire_file_exact_to_base": true
+      },
+      {
+        "root": "TestBackoffIsExponentialJitteredAndHonorsRetryAfter",
+        "path": "internal/ociclient/ociclient_test.go",
+        "declaration_sha256": "ad89d19d7e9ab05a80b587a44fd8734cefcf10764ee1f4e66ca4831576452158",
+        "entire_file_exact_to_base": true
+      },
+      {
+        "root": "TestConfiguredClientSharesLimiterAndRetriesThrottling",
+        "path": "internal/ociclient/ociclient_test.go",
+        "declaration_sha256": "d31945736abe6aec38683a5eada0e603384bd8a56d000c8a9f354c0b0be4a102",
+        "entire_file_exact_to_base": true
+      },
+      {
+        "root": "TestTransportFailuresRetryReadsOnly",
+        "path": "internal/ociclient/ociclient_test.go",
+        "declaration_sha256": "1ce50692c500b0b6c66899746c683f178f63848a2d2a3d8324308724f4b422f8",
+        "entire_file_exact_to_base": true
+      },
+      {
+        "root": "TestInstancePrincipalSerializesFetchesButNotCachedRegions",
+        "path": "internal/ociclient/instance_principal_test.go",
+        "declaration_sha256": "694a4863fd59bee4cb395adc8a7b65b31aba4353139a542013a0c7eadaccf1d9",
+        "entire_file_exact_to_base": true
+      },
+      {
+        "root": "TestReadCancellationJoinsSDKRetryAndPreservesHTTPDeadline",
+        "path": "internal/ociclient/retry_integration_test.go",
+        "declaration_sha256": "414f9e41fb081d39ed286634c24be2e80287c439b2a9251d7ce60d07e400b9c6",
+        "entire_file_exact_to_base": true
+      },
+      {
+        "root": "TestConditionalMutationCancellationJoinsSDKAndRetainsAmbiguousWrite",
+        "path": "internal/ociclient/retry_integration_test.go",
+        "declaration_sha256": "31b9c4a1127f5aaa7ad4a3e025b487007b41049b82235b47f5bb7f748011e4d1",
+        "entire_file_exact_to_base": true
+      },
+      {
+        "root": "TestAuthorityFencesSDKMutationRetries",
+        "path": "internal/ociclient/identity_integration_test.go",
+        "declaration_sha256": "0ac27533f435d7512692a25a585477e0772148303d0856dac6e35e35cf59ee2e",
+        "entire_file_exact_to_base": true
+      }
+    ],
+    "git_executable_calls": 0,
+    "immutable_commit_proof": "Earlier read-only loose-object decompression verified commit SHA1 fa44, tree a767 and parent ca122. That loose object was subsequently absent; current packed ref remains fa44. Actual-file canonical trees independently match the candidate and base tree IDs."
+  },
+  "equivalence": [
+    {
+      "original": "TestOperationCardinalityIsBounded",
+      "replacement": "TestOperationCardinalityThroughVerifiedTLSHTTP",
+      "complete": true,
+      "original_assertions": "64+10 distinct keys for one service yield exactly65 views including other.",
+      "replacement_inputs": "74 unique safe alphabetic routes through public Instrument over verified TLS. Spelling differs from original private-record keys; cardinality and distinctness preserved.",
+      "retained": "Exactly65 API views; expected map requires64 named operations Calls1 and other Calls10, implying original other-presence check. TotalCalls74 and wire74.",
+      "added": "Exact GET URI/order/status200, drained/closed bodies, per-view Errors0/Throttled0/LastStatus200, all65 exact request counter series.",
+      "limits": "HTTP instrumentation boundary, not signed SDK or limiter. Fixed current64 cap deliberately pinned."
+    },
+    {
+      "original": "TestFactoryRejectsUncataloguedRegionsAndBadLimits",
+      "replacement": "TestFactoryAdmissionThroughSignedSDKHTTP",
+      "complete": true,
+      "inputs": [
+        "valid provider + Region xx-nowhere-1 -> error",
+        "nil provider + Region sa-saopaulo-1 -> error",
+        "valid provider + Region sa-saopaulo-1 + Compute Limit{PerSecond:0,Burst:0} -> error"
+      ],
+      "retained": "All three exact original invalid New inputs and err!=nil; additional nil-factory assertions strengthen them.",
+      "added": "Valid raw RSA signing provider/New/Compute first sends genuine SDK GetInstance over verifiedTLS, exact instance URI and decoded matchingID/RUNNING, wire1. Every rejection leaves wire1.",
+      "limits": "Invalid constructor cases inherently validate locally. Signature presence/nonempty only, no cryptographic verification."
+    },
+    {
+      "original": "TestTenancyHomeRegionComesFromTheCatalog",
+      "replacement": "TestTenancyHomeRegionThroughSignedSDKHTTP",
+      "complete": true,
+      "inputs": [
+        [
+          "GRU",
+          "sa-saopaulo-1"
+        ],
+        [
+          "sjc",
+          "us-sanjose-1"
+        ],
+        [
+          "FRA",
+          "eu-frankfurt-1"
+        ],
+        [
+          "XXX",
+          "error"
+        ],
+        [
+          null,
+          "error"
+        ]
+      ],
+      "retained": "All3 exact mappings, lowercase sjc, unknownXXX error and nil-key error. Each actual SDK decoded key checked exactly before mapping; omitted JSON field must decode nil.",
+      "added": "Five real Factory.Identity SDK GetTenancy verifiedTLS signedGETs, exact tenancyURI, decodedID and wire1 per fixture. Public TenancyHomeRegion consumes actual SDK-decoded pointer.",
+      "production_chain": "Factory.HomeRegion constructs Identity, calls GetTenancy and maps response.HomeRegionKey. Replacement repeats this substantive public SDK decode+map chain with pinned loopback host; no private-helper relabeling.",
+      "limits": "No direct Factory.HomeRegion invocation, SDK-error wrapping or production endpoint choice qualification; original tested mapping only, so no original assertion lost. Signature presence/nonempty only."
+    }
+  ],
+  "decisions": {
+    "additive_ready": true,
+    "three_original_assertion_equivalence_ready": true,
+    "isolated_three_original_retirement_proposal_ready": true,
+    "retirement_successor_qualified": false,
+    "remaining": "Prepare exact3-declaration-only deletion successor preserving all other source bytes/declarations; review strictly necessary unused import cleanup, then obtain successor source review and truecompile.",
+    "protected": "Retry/backoff/principal originals, all six existing SDK/HTTP originals, and accepted signed dispatcher replacement remain byte exact.",
+    "authority": "No deletion/adoption/global count or scheduling credit granted."
+  },
+  "limits": [
+    "One focused nonrace run; no sibling-root, unrelated package, globalCI or production runtime credit.",
+    "Hashed owner result/full rawruntime/log hashes/reviewed runner support scoped execution provenance; this compact report does not independently reproduce native launch/every-poll terminal archive.",
+    "Environment, historical source-phase status and standaloneELF-never-executed retain owner provenance. Current full5059file/mode seal and both canonical immutable source trees independently verified."
+  ],
+  "review_actions": {
+    "source_edits": 0,
+    "deletions": 0,
+    "go_build_test_formatter_runner_git_executable_calls": 0,
+    "git_or_ledger_mutations": 0,
+    "new_agents": 0,
+    "only_output": "fresh report0444/dir0555"
+  },
+  "qa": {
+    "result_path": "/tmp/ts-factory-fa44-qa-f6clyi_l/result.json",
+    "result_sha256": "c1ab858972618202e49701f872913ed306d7597d25f65ccbc10d7c529b8f74ff",
+    "runtime_path": "/tmp/ts-factory-fa44-qa-f6clyi_l/runtime.log",
+    "runtime_sha256": "51a7f4722d337be318e2da7b3d83559e0dfa240dd99e6fc1cfdd200f360c4a6f",
+    "format": "gofmt-d empty/exit0",
+    "compile": "true go test-c/defaultvet/defaulttags PASS5.562062s",
+    "runtime": "fresh count1/defaultvet/defaulttags/nonrace: exact3roots+9leaves+onepackage PASS0.418s;52events=start1/run12/output26/pass13;zero skips/failures/extras/duplicates",
+    "named_pass": [
+      "TestOperationCardinalityThroughVerifiedTLSHTTP",
+      "TestFactoryAdmissionThroughSignedSDKHTTP/valid",
+      "TestFactoryAdmissionThroughSignedSDKHTTP/uncatalogued_region",
+      "TestFactoryAdmissionThroughSignedSDKHTTP/nil_provider",
+      "TestFactoryAdmissionThroughSignedSDKHTTP/zero_compute_limit",
+      "TestFactoryAdmissionThroughSignedSDKHTTP",
+      "TestTenancyHomeRegionThroughSignedSDKHTTP/GRU",
+      "TestTenancyHomeRegionThroughSignedSDKHTTP/sjc",
+      "TestTenancyHomeRegionThroughSignedSDKHTTP/FRA",
+      "TestTenancyHomeRegionThroughSignedSDKHTTP/unknown",
+      "TestTenancyHomeRegionThroughSignedSDKHTTP/missing",
+      "TestTenancyHomeRegionThroughSignedSDKHTTP"
+    ],
+    "steps": [
+      {
+        "name": "gofmt",
+        "argv": [
+          "nice",
+          "-n",
+          "19",
+          "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/gofmt",
+          "-d",
+          "internal/ociclient/factory_boundary_integration_test.go"
+        ],
+        "pid": 1052472,
+        "exit_code": 0,
+        "elapsed_seconds": 0.009224715002346784,
+        "log": "/tmp/ts-factory-fa44-qa-f6clyi_l/gofmt.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "process_group_absent": true,
+        "unexpected_descendants_observed": false
+      },
+      {
+        "name": "compile",
+        "argv": [
+          "nice",
+          "-n",
+          "19",
+          "timeout",
+          "--signal=TERM",
+          "--kill-after=5s",
+          "240s",
+          "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+          "test",
+          "-c",
+          "-mod=readonly",
+          "-p=1",
+          "-o",
+          "/tmp/ts-factory-fa44-qa-f6clyi_l/ociclient.test",
+          "./internal/ociclient"
+        ],
+        "pid": 1052476,
+        "exit_code": 0,
+        "elapsed_seconds": 5.562062321987469,
+        "log": "/tmp/ts-factory-fa44-qa-f6clyi_l/compile.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "process_group_absent": true,
+        "unexpected_descendants_observed": false
+      },
+      {
+        "name": "runtime",
+        "argv": [
+          "nice",
+          "-n",
+          "19",
+          "timeout",
+          "--signal=TERM",
+          "--kill-after=5s",
+          "120s",
+          "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+          "test",
+          "-json",
+          "-mod=readonly",
+          "-p=1",
+          "./internal/ociclient",
+          "-run",
+          "^(TestOperationCardinalityThroughVerifiedTLSHTTP|TestFactoryAdmissionThroughSignedSDKHTTP|TestTenancyHomeRegionThroughSignedSDKHTTP)$",
+          "-count=1",
+          "-parallel=1",
+          "-timeout=90s"
+        ],
+        "pid": 1053022,
+        "exit_code": 0,
+        "elapsed_seconds": 1.8916758029954508,
+        "log": "/tmp/ts-factory-fa44-qa-f6clyi_l/runtime.log",
+        "log_sha256": "51a7f4722d337be318e2da7b3d83559e0dfa240dd99e6fc1cfdd200f360c4a6f",
+        "process_group_absent": true,
+        "unexpected_descendants_observed": false
+      }
+    ],
+    "binary": {
+      "path": "/tmp/ts-factory-fa44-qa-f6clyi_l/ociclient.test",
+      "mode": "0600",
+      "bytes": 16458037,
+      "sha256": "cd9a2a422a2fbc124460459fa7114a79f691e2d52320a75bc4f26bc62c9ec3b4",
+      "never_executed": "Owner result+reviewed runner provenance; current ELF bytes/nonexecutability verified; reviewer did not execute."
+    },
+    "request_sha256": "f6929197b3bd9221c5d2d5ca9c3e32cc739bbaafa17938d057a94c8c790452bd",
+    "runner_sha256": "164bd5c2fb6cddd12bc722acd042384ece5616c670b7992836637fd0f0dbcd48"
+  },
+  "evidence": {
+    "/tmp/ts-ociclient-assertion-map-ca122-821_szxz/report.json": "738367a92d0bea2ff3d64cfc88381981049b900b7e55d5907898dcb868706027",
+    "/tmp/ts-factory-boundary-50nn83zw/readiness.json": "f6929197b3bd9221c5d2d5ca9c3e32cc739bbaafa17938d057a94c8c790452bd",
+    "/tmp/ts-factory-boundary-50nn83zw/source-proof.json": "2c5c148a64106c81afe3381611864f18eb48fa40d3045798fdffc542f0b4d13f"
+  }
+}

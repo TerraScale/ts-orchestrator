@@ -1,0 +1,73 @@
+{
+  "owner": "/root/qa_integrator/artifact_tests",
+  "head": "e5e72bbbfbf83f02c251ffe1fa98246137a3cedc",
+  "tree": "727f82020910c067fd106af5094a0e81d736dea2",
+  "source_unchanged": true,
+  "tracked_files": 5061,
+  "compile_exit": 0,
+  "compile_seconds": 43.224593585997354,
+  "external_binary": {
+    "path": "/tmp/ts-oci-sdk-volume-e5e72-check-artifact-tests/oci.test",
+    "mode": "0o600",
+    "bytes": 34747920,
+    "sha256": "25362430cfe099bc1cc84dc0dcc901fdc07001765bfb121ccc3ad8fb10c0b24a",
+    "elf": true,
+    "never_executed": true
+  },
+  "runtime_exit": 0,
+  "runtime_seconds": 3.5002922249841504,
+  "package_seconds": 1.354,
+  "expected_roots": 6,
+  "passed_roots": 6,
+  "expected_subtests": 4,
+  "passed_subtests": 4,
+  "expected_package_passes": 1,
+  "actual_package_passes": 1,
+  "run_event_names": [
+    "TestSDKSocketLaunchPreservesSignedProfileAndResponse",
+    "TestSDKSocketLaunchRejectsInexactSizingBeforeAnyRequest",
+    "TestSDKSocketManagedReadbackPreservesBootAndPrivateVNICClassifications",
+    "TestSDKSocketManagedReadbackPreservesBootAndPrivateVNICClassifications/image",
+    "TestSDKSocketManagedReadbackPreservesBootAndPrivateVNICClassifications/instance_without_image",
+    "TestSDKSocketManagedReadbackPreservesBootAndPrivateVNICClassifications/size",
+    "TestSDKSocketManagedReadbackPreservesBootAndPrivateVNICClassifications/tier",
+    "TestSDKSocketNamedHostRequiresExactRunningPrivateInstance",
+    "TestSDKSocketVolumeAttachmentLookupKeepsExactFilter",
+    "TestSDKSocketVolumeBackupPaginationKeepsNewestBoundedHistory"
+  ],
+  "pass_event_names": [
+    "TestSDKSocketLaunchPreservesSignedProfileAndResponse",
+    "TestSDKSocketLaunchRejectsInexactSizingBeforeAnyRequest",
+    "TestSDKSocketManagedReadbackPreservesBootAndPrivateVNICClassifications/image",
+    "TestSDKSocketManagedReadbackPreservesBootAndPrivateVNICClassifications/instance_without_image",
+    "TestSDKSocketManagedReadbackPreservesBootAndPrivateVNICClassifications/size",
+    "TestSDKSocketManagedReadbackPreservesBootAndPrivateVNICClassifications/tier",
+    "TestSDKSocketManagedReadbackPreservesBootAndPrivateVNICClassifications",
+    "TestSDKSocketNamedHostRequiresExactRunningPrivateInstance",
+    "TestSDKSocketVolumeAttachmentLookupKeepsExactFilter",
+    "TestSDKSocketVolumeBackupPaginationKeepsNewestBoundedHistory"
+  ],
+  "failed_or_skipped": [],
+  "raw_sha256": {
+    "compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime.stdout": "2fb0c53f2b9ad183abeaa5ad990f94f6b6c417a9a6c6d7eb7de777f72f4119f6",
+    "runtime.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "lock": "/tmp/ts-orch-refactor-short-check-a.lock",
+  "lock_released": true,
+  "cleanup_joined": true,
+  "originals_removed": 0,
+  "adoption": false,
+  "reuse_existing_terminal_and_14fixture_outcomes": true,
+  "native_handles": {
+    "session_id": 39480,
+    "launch_chunk": "e1f21b",
+    "poll_chunks": [
+      "9e24d7",
+      "56ba92",
+      "d1346d"
+    ],
+    "terminal_chunk": "197224"
+  }
+}

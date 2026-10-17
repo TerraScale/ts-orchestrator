@@ -1,0 +1,174 @@
+{
+  "head": "fa44fa8a074af83fd5c9afdf8ca851fce7155147",
+  "tree": "a7675fb7b4ff157263c8931177b84f313c2abdc6",
+  "source": "/tmp/ts-factory-boundary-50nn83zw/source",
+  "env": {
+    "HOME": "/home/mariogk",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "LANG": "C.UTF-8",
+    "GOMAXPROCS": "2",
+    "GOFLAGS": "-p=2",
+    "GOTOOLCHAIN": "local"
+  },
+  "uid": 1000,
+  "lock": "/tmp/ts-orch-refactor-short-check-a.lock",
+  "steps": [
+    {
+      "name": "gofmt",
+      "argv": [
+        "nice",
+        "-n",
+        "19",
+        "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/gofmt",
+        "-d",
+        "internal/ociclient/factory_boundary_integration_test.go"
+      ],
+      "pid": 1052472,
+      "exit_code": 0,
+      "elapsed_seconds": 0.009224715002346784,
+      "log": "/tmp/ts-factory-fa44-qa-f6clyi_l/gofmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "process_group_absent": true,
+      "unexpected_descendants_observed": false
+    },
+    {
+      "name": "compile",
+      "argv": [
+        "nice",
+        "-n",
+        "19",
+        "timeout",
+        "--signal=TERM",
+        "--kill-after=5s",
+        "240s",
+        "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+        "test",
+        "-c",
+        "-mod=readonly",
+        "-p=1",
+        "-o",
+        "/tmp/ts-factory-fa44-qa-f6clyi_l/ociclient.test",
+        "./internal/ociclient"
+      ],
+      "pid": 1052476,
+      "exit_code": 0,
+      "elapsed_seconds": 5.562062321987469,
+      "log": "/tmp/ts-factory-fa44-qa-f6clyi_l/compile.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "process_group_absent": true,
+      "unexpected_descendants_observed": false
+    },
+    {
+      "name": "runtime",
+      "argv": [
+        "nice",
+        "-n",
+        "19",
+        "timeout",
+        "--signal=TERM",
+        "--kill-after=5s",
+        "120s",
+        "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+        "test",
+        "-json",
+        "-mod=readonly",
+        "-p=1",
+        "./internal/ociclient",
+        "-run",
+        "^(TestOperationCardinalityThroughVerifiedTLSHTTP|TestFactoryAdmissionThroughSignedSDKHTTP|TestTenancyHomeRegionThroughSignedSDKHTTP)$",
+        "-count=1",
+        "-parallel=1",
+        "-timeout=90s"
+      ],
+      "pid": 1053022,
+      "exit_code": 0,
+      "elapsed_seconds": 1.8916758029954508,
+      "log": "/tmp/ts-factory-fa44-qa-f6clyi_l/runtime.log",
+      "log_sha256": "51a7f4722d337be318e2da7b3d83559e0dfa240dd99e6fc1cfdd200f360c4a6f",
+      "process_group_absent": true,
+      "unexpected_descendants_observed": false
+    }
+  ],
+  "runtime_executed": true,
+  "request_sha256": "f6929197b3bd9221c5d2d5ca9c3e32cc739bbaafa17938d057a94c8c790452bd",
+  "runner_sha256": "164bd5c2fb6cddd12bc722acd042384ece5616c670b7992836637fd0f0dbcd48",
+  "admission": {
+    "available_bytes": 27898183680,
+    "load1": 1.80126953125,
+    "existing_compiler_processes": [
+      {
+        "pid": 1050731,
+        "tool": "go"
+      },
+      {
+        "pid": 1051880,
+        "tool": "compile"
+      }
+    ],
+    "ram_minimum_bytes": 17179869184,
+    "load1_maximum_exclusive": 12,
+    "compiler_cap": 4
+  },
+  "source_before": {
+    "head": "fa44fa8a074af83fd5c9afdf8ca851fce7155147",
+    "tree": "a7675fb7b4ff157263c8931177b84f313c2abdc6",
+    "status": "",
+    "tracked_paths": 5059,
+    "all_tracked_path_mode_sha256_seal": "b571db01c5c148433f0da0f2c9a94ab803ee71efc30eb5062c7fb6f8720b0d46",
+    "new_file_sha256": "3059cbd54348685231ef87fd50ca1c3d5fa35242469199d8f129398dddd989b7"
+  },
+  "binary": {
+    "path": "/tmp/ts-factory-fa44-qa-f6clyi_l/ociclient.test",
+    "mode": "0600",
+    "bytes": 16458037,
+    "sha256": "cd9a2a422a2fbc124460459fa7114a79f691e2d52320a75bc4f26bc62c9ec3b4",
+    "never_executed": true
+  },
+  "source_after_compile": {
+    "head": "fa44fa8a074af83fd5c9afdf8ca851fce7155147",
+    "tree": "a7675fb7b4ff157263c8931177b84f313c2abdc6",
+    "status": "",
+    "tracked_paths": 5059,
+    "all_tracked_path_mode_sha256_seal": "b571db01c5c148433f0da0f2c9a94ab803ee71efc30eb5062c7fb6f8720b0d46",
+    "new_file_sha256": "3059cbd54348685231ef87fd50ca1c3d5fa35242469199d8f129398dddd989b7"
+  },
+  "runtime": {
+    "named_pass": [
+      "TestOperationCardinalityThroughVerifiedTLSHTTP",
+      "TestFactoryAdmissionThroughSignedSDKHTTP/valid",
+      "TestFactoryAdmissionThroughSignedSDKHTTP/uncatalogued_region",
+      "TestFactoryAdmissionThroughSignedSDKHTTP/nil_provider",
+      "TestFactoryAdmissionThroughSignedSDKHTTP/zero_compute_limit",
+      "TestFactoryAdmissionThroughSignedSDKHTTP",
+      "TestTenancyHomeRegionThroughSignedSDKHTTP/GRU",
+      "TestTenancyHomeRegionThroughSignedSDKHTTP/sjc",
+      "TestTenancyHomeRegionThroughSignedSDKHTTP/FRA",
+      "TestTenancyHomeRegionThroughSignedSDKHTTP/unknown",
+      "TestTenancyHomeRegionThroughSignedSDKHTTP/missing",
+      "TestTenancyHomeRegionThroughSignedSDKHTTP"
+    ],
+    "package_pass": {
+      "Time": "2026-10-17T10:31:29.99008244-03:00",
+      "Action": "pass",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/ociclient",
+      "Elapsed": 0.418
+    },
+    "fail": 0,
+    "skip": 0,
+    "extra_missing_duplicate_test_identities": 0,
+    "raw_events": 52,
+    "scope": "3roots+9leaves,7serialverifiedloopbackTLSfixtures,80HTTPrequests;6signedSDKcalls;noexternalnetwork/cloud;nosiblingruntimecredit",
+    "signature_presence_only": true,
+    "direct_Factory_HomeRegion_invocation": false
+  },
+  "source_after": {
+    "head": "fa44fa8a074af83fd5c9afdf8ca851fce7155147",
+    "tree": "a7675fb7b4ff157263c8931177b84f313c2abdc6",
+    "status": "",
+    "tracked_paths": 5059,
+    "all_tracked_path_mode_sha256_seal": "b571db01c5c148433f0da0f2c9a94ab803ee71efc30eb5062c7fb6f8720b0d46",
+    "new_file_sha256": "3059cbd54348685231ef87fd50ca1c3d5fa35242469199d8f129398dddd989b7"
+  },
+  "state": "PASS_EXACT_FA44_FORMAT_DEFAULT_VET_TRUECOMPILE_AND_THREE_SELECTED_TLS_BOUNDARY_ROOTS",
+  "lock_released": true
+}

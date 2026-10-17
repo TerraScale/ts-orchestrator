@@ -1,0 +1,45 @@
+{
+  "owner": "/root/qa_integrator/artifact_tests",
+  "pid": 978441,
+  "source": "/tmp/ts-terminal-sdk-boundary-7cswu3af/source",
+  "argv": [
+    "nice",
+    "-n",
+    "19",
+    "timeout",
+    "--signal=TERM",
+    "--kill-after=5s",
+    "120s",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+    "test",
+    "-json",
+    "-mod=readonly",
+    "-p=1",
+    "-count=1",
+    "-parallel=1",
+    "-timeout=60s",
+    "-run",
+    "^TestTerminalSDKDeleteSocketBoundary$",
+    "./internal/oci"
+  ],
+  "env": {
+    "HOME": "/home/mariogk",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "LANG": "C.UTF-8",
+    "GOMAXPROCS": "2",
+    "GOFLAGS": "-p=2",
+    "GOTOOLCHAIN": "local"
+  },
+  "lock": "/tmp/ts-orch-refactor-general-check.lock",
+  "default_vet": true,
+  "default_tags": true,
+  "selector": "^TestTerminalSDKDeleteSocketBoundary$",
+  "lock_acquired": true,
+  "source_before": {
+    "head": "b8fee5fcdcae1de49fc36313869ed332e66f00f6",
+    "tree": "dec3814e47b6f3facdab666d265677f184756663",
+    "status": "",
+    "test_sha256": "eeeb9ae628e5a3139a287da00ba017a10f8652f55240d4412b1fced8efce7c2f"
+  },
+  "started_at": "2026-10-17T13:08:09.836386+00:00"
+}
