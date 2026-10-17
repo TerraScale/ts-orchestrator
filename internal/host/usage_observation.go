@@ -11,6 +11,8 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/hostload"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 // UsageTask records resources independently verified against the manager's task
@@ -23,17 +25,29 @@ type UsageTask struct {
 	SpecSHA256    string           `json:"spec_sha256"`
 }
 
+// UsageSource names the authenticated applied manager boundary, not a host clock.
+type UsageSource struct {
+	Version     uint64 `json:"version"`
+	NodeID      string `json:"node_id"`
+	ClusterID   string `json:"cluster_id"`
+	ServerEpoch string `json:"server_epoch"`
+	Term        uint64 `json:"term"`
+	Leader      uint64 `json:"leader"`
+}
+
 // UsageObservation is a point observation in the existing host control log.
-// PreviousSequence closes an interval only when the manager's actual versioned
-// event history proves uninterrupted allocation identity through this commit.
+// Coverage lags one report: PreviousSequence and CoveredSequence bound the two
+// preceding points; this record's timestamp never extends that interval.
 type UsageObservation struct {
 	Version          int                         `json:"version"`
 	Registration     Registration                `json:"registration"`
 	DeploymentID     string                      `json:"deployment_id"`
 	Epoch            uint64                      `json:"epoch"`
 	SessionID        string                      `json:"session_id"`
-	ManagerVersion   uint64                      `json:"manager_version"`
+	Source           UsageSource                 `json:"source"`
+	PriorSequence    uint64                      `json:"prior_sequence,omitzero"`
 	PreviousSequence uint64                      `json:"previous_sequence,omitzero"`
+	CoveredSequence  uint64                      `json:"covered_sequence,omitzero"`
 	Tasks            []UsageTask                 `json:"tasks,omitempty"`
 	Requests         map[string]hostload.Request `json:"requests"`
 	Report           hostload.Report             `json:"report"`
@@ -67,8 +81,48 @@ func (c *Controller) CommitUsageObservation(ctx context.Context, observation Usa
 	if err != nil && !errors.Is(err, authority.ErrNotFound) {
 		return CommittedUsage{}, err
 	}
-	if observation.PreviousSequence != 0 && observation.PreviousSequence != previous.Sequence {
-		return CommittedUsage{}, errors.New("usage continuity differs from the committed predecessor")
+	observation.PriorSequence = previous.Sequence
+	var prior UsageObservation
+	if observation.CoveredSequence != 0 {
+		if previous.Sequence == 0 || json.Unmarshal(previous.Payload, &prior, json.RejectUnknownMembers(true)) != nil {
+			return CommittedUsage{}, errors.New("usage coverage predecessor is unavailable")
+		}
+		if observation.CoveredSequence != previous.Sequence || observation.PreviousSequence != prior.PriorSequence {
+			// A concurrent accepted report may have advanced the head. Keep this
+			// authenticated point while dropping its stale continuity claim.
+			observation.PreviousSequence, observation.CoveredSequence = 0, 0
+		}
+	}
+	if observation.CoveredSequence != 0 {
+		raw, err := c.controlLog.GetMsg(ctx, observation.PreviousSequence)
+		if err != nil {
+			return CommittedUsage{}, err
+		}
+		first, err := authority.DecodeUsageObservationEntry(raw, c.cell)
+		var start UsageObservation
+		if err != nil || first.SubjectKey != key || json.Unmarshal(first.Payload, &start, json.RejectUnknownMembers(true)) != nil {
+			return CommittedUsage{}, errors.Join(err, errors.New("usage coverage start is unavailable"))
+		}
+		if !sameUsageAllocation(start, prior) || !sameUsageAllocation(prior, observation) ||
+			start.Source.Version > prior.Source.Version || prior.Source.Version > observation.Source.Version {
+			observation.PreviousSequence, observation.CoveredSequence = 0, 0
+		}
+		// A host could have been retired and re-enrolled between equal endpoints.
+		// Any intervening admission mutation invalidates this interval.
+		for _, kind := range []string{"registration", "retirement"} {
+			if observation.CoveredSequence == 0 {
+				break
+			}
+			raw, err := c.controlLog.GetMsg(ctx, observation.PreviousSequence+1,
+				jetstream.WithGetMsgSubject(protocol.Control(c.cell, "host")+"."+kind+"."+key))
+			if err != nil && !errors.Is(err, jetstream.ErrMsgNotFound) {
+				return CommittedUsage{}, err
+			}
+			if raw != nil && raw.Sequence <= observation.CoveredSequence {
+				observation.PreviousSequence, observation.CoveredSequence = 0, 0
+				break
+			}
+		}
 	}
 	data, err := json.Marshal(observation)
 	if err != nil {
@@ -98,9 +152,19 @@ func (c *Controller) CommitUsageObservation(ctx context.Context, observation Usa
 	return CommittedUsage{Observation: observation, Entry: entry}, nil
 }
 
+func sameUsageAllocation(a, b UsageObservation) bool {
+	a.Source.Version, b.Source.Version = 0, 0
+	return a.Source == b.Source && a.Epoch == b.Epoch && a.DeploymentID == b.DeploymentID && a.SessionID == b.SessionID &&
+		reflect.DeepEqual(a.Registration, b.Registration) && reflect.DeepEqual(a.Tasks, b.Tasks) && reflect.DeepEqual(a.Requests, b.Requests)
+}
+
 func validateUsageObservation(value UsageObservation, cell string) error {
 	if value.Version != 1 || value.Epoch == 0 || !entityid.Valid(value.DeploymentID) ||
-		!entityid.Valid(value.SessionID) || value.ManagerVersion == 0 || value.Registration.ID != entityid.Derive("host", cell, value.Registration.Node) {
+		!entityid.Valid(value.SessionID) || value.Source.Version == 0 || value.Source.NodeID == "" || value.Source.ClusterID == "" ||
+		value.Source.ServerEpoch == "" || value.Source.Term == 0 || value.Source.Leader == 0 ||
+		(value.PreviousSequence == 0) != (value.CoveredSequence == 0) || value.CoveredSequence > value.PriorSequence ||
+		value.CoveredSequence != 0 && value.PreviousSequence >= value.CoveredSequence ||
+		value.Registration.ID != entityid.Derive("host", cell, value.Registration.Node) {
 		return errors.New("usage observation identity, version or manager watermark is invalid")
 	}
 	if err := validateRegistration(value.Registration, cell); err != nil {
