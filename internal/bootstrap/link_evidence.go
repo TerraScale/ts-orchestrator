@@ -83,14 +83,12 @@ func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, cl
 		return deny()
 	}
 	deliveryExpires := template.ExpiresAt()
-	deliveryAuthorityExpires := template.AuthorityExpiresAt()
 	if len(evidence.Delivery) != 0 {
 		envelope, err := trust.DecodeEnvelope(evidence.Delivery)
 		if err != nil {
 			return deny()
 		}
 		deliveryExpires = minTimeLink(deliveryExpires, envelope.ExpiresAt)
-		deliveryAuthorityExpires = minTimeLink(deliveryAuthorityExpires, envelope.ExpiresAt)
 	}
 	// Unverified input can only shorten the read budget; provenance still follows.
 	ctx, cancelOriginal := template.currentReadContext(ctx)
@@ -118,33 +116,17 @@ func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, cl
 	}
 	ctx, cancelHome := context.WithDeadline(ctx, home.ExpiresAt())
 	defer cancelHome()
-	isHome := template.startupIdentity().Cell == oci.RegionGRU
-	kind := "spoke-link-v1"
-	binding := ""
-	key := ""
-	if isHome {
-		kind = "link"
-		wire, _ := json.Marshal([]string{"link", digestBytes(regional.MaterialRecord()), digestBytes(home.MaterialRecord()), ""}, json.Deterministic(true))
-		binding = digestBytes(wire)
-		scope := digestBytes([]byte(template.InstallationID() + "\x00gru\x00link\x00" + binding))
-		key = home.StorageDomain().Prefix + "/bootstrap/v2/material-source/link-" + scope + ".json"
-		if len(evidence.Delivery) != 0 {
-			return deny()
-		}
-	} else {
+	if template.startupIdentity().Cell != oci.RegionGRU {
 		recipient, err := VerifyLinkRecipient(ctx, regional, home, now)
 		if err != nil {
 			return deny()
 		}
-		binding = recipient.BindingSHA256()
-		key = recipient.LinkObjectKey()
-		payload, err := VerifyLinkDelivery(ctx, recipient, evidence.Delivery, now)
-		want, encodeErr := LinkDeliveryPayload(evidence)
-		if err != nil || encodeErr != nil || !bytes.Equal(payload, want) {
+		if _, err := VerifyLinkDelivery(ctx, recipient, evidence.Delivery, now); err != nil {
 			return deny()
 		}
 	}
-	if evidence.SourceObjectKey != key {
+	kind, binding, key, err := startupLinkLocator(template.startupTemplateEvidence, regional.evidence(), home.evidence(), evidence, now)
+	if err != nil {
 		return deny()
 	}
 	domain := home.StorageDomain()
@@ -160,6 +142,58 @@ func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, cl
 	if err != nil || len(stateWire) >= 2<<20 || response.ETag == nil || *response.ETag == "" {
 		return deny()
 	}
+	authorityExpires, err := validateStartupLinkEvidence(template.startupTemplateEvidence, regional.evidence(), home.evidence(), evidence, kind, binding, stateWire, now)
+	if err != nil {
+		return deny()
+	}
+	expires := minTimeLink(authorityExpires, minTimeLink(deliveryExpires, minTimeLink(regional.ExpiresAt(), minTimeLink(homeTemplate.ExpiresAt(), home.ExpiresAt()))))
+	if ctx.Err() != nil || template.currentLifetimeError() != nil || homeTemplate.currentLifetimeError() != nil || !time.Now().Before(expires) {
+		return deny()
+	}
+	verified := VerifiedStartupLink{template: template, client: client, evidence: evidence, expires: expires, authorityExpires: authorityExpires}
+	verified.evidence = verified.Evidence()
+	return verified, nil
+}
+
+func startupLinkLocator(template startupTemplateEvidence, regional, home regionalSourceEvidence, evidence RegionalLinkEvidence, now time.Time) (string, string, string, error) {
+	isHome := template.identity.Cell == oci.RegionGRU
+	kind := "spoke-link-v1"
+	binding := ""
+	key := ""
+	if isHome {
+		kind = "link"
+		wire, _ := json.Marshal([]string{"link", digestBytes(regional.MaterialRecord()), digestBytes(home.MaterialRecord()), ""}, json.Deterministic(true))
+		binding = digestBytes(wire)
+		scope := digestBytes([]byte(template.installationID + "\x00gru\x00link\x00" + binding))
+		key = home.StorageDomain().Prefix + "/bootstrap/v2/material-source/link-" + scope + ".json"
+		if len(evidence.Delivery) != 0 {
+			return "", "", "", ErrManifestInvalid
+		}
+	} else {
+		recipient, err := linkRecipientEvidenceFor(regional, home)
+		if err != nil {
+			return "", "", "", ErrManifestInvalid
+		}
+		binding = recipient.bindingSHA256
+		key = recipient.key
+		payload, err := verifyLinkDeliveryEvidence(recipient, evidence.Delivery, now)
+		want, encodeErr := LinkDeliveryPayload(evidence)
+		if err != nil || encodeErr != nil || !bytes.Equal(payload, want) {
+			return "", "", "", ErrManifestInvalid
+		}
+	}
+	if evidence.SourceObjectKey != key {
+		return "", "", "", ErrManifestInvalid
+	}
+	return kind, binding, key, nil
+}
+
+func validateStartupLinkEvidence(template startupTemplateEvidence, regional, home regionalSourceEvidence, evidence RegionalLinkEvidence, kind, binding string, stateWire []byte, now time.Time) (time.Time, error) {
+	deny := func() (time.Time, error) { return time.Time{}, ErrManifestInvalid }
+	if !validDigest(evidence.SourceSHA256) || len(evidence.MaterialRecord) == 0 || len(evidence.MaterialRecord) > 48<<10 || len(evidence.Journal) == 0 || len(evidence.Journal) > 64<<10 {
+		return deny()
+	}
+	isHome := template.identity.Cell == oci.RegionGRU
 	var state struct {
 		Actor          SourceInventoryActor `json:"actor"`
 		SchemaVersion  int                  `json:"schemaVersion"`
@@ -178,8 +212,8 @@ func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, cl
 		Journal  []byte `json:"journal"`
 		Delivery []byte `json:"delivery"`
 	}
-	if json.Unmarshal(stateWire, &state) != nil || state.SchemaVersion != 1 || state.Actor != evidence.Actor || state.Actor.InstanceID != home.OriginalActor().InstanceID || !validDigest(state.Actor.GrantDigest) || !validDigest(state.Actor.TemplateDigest) || state.Generation == home.Template().Generation() && (state.Actor.GrantDigest != home.Template().GrantDigest() || state.Actor.TemplateDigest != home.Template().TemplateDigest()) || state.Kind != kind || state.BindingSHA256 != binding || state.InstallationID != template.InstallationID() || state.Cell != strings.ToLower(string(template.startupIdentity().Cell)) || state.Generation == 0 || state.Generation > template.Generation() || state.PlanSHA256 != template.PlanDigest() || state.Target != template.escrow || !isOCID(state.Reference.SecretOCID, "vaultsecret") || state.Reference.SHA256 != evidence.SourceSHA256 || state.Reference.MaxBytes <= 0 || state.Reference.MaxBytes > 25<<10 || !bytes.Equal(state.Journal, evidence.Journal) || !bytes.Equal(state.Delivery, evidence.Delivery) {
-		return deny()
+	if json.Unmarshal(stateWire, &state) != nil || state.SchemaVersion != 1 || state.Actor != evidence.Actor || state.Actor.InstanceID != home.OriginalActor().InstanceID || !validDigest(state.Actor.GrantDigest) || !validDigest(state.Actor.TemplateDigest) || state.Generation == home.recipe.generation && (state.Actor.GrantDigest != home.recipe.grantDigest || state.Actor.TemplateDigest != home.recipe.templateDigest) || state.Kind != kind || state.BindingSHA256 != binding || state.InstallationID != template.installationID || state.Cell != strings.ToLower(string(template.identity.Cell)) || state.Generation == 0 || state.Generation > template.generation || state.PlanSHA256 != template.planDigest || state.Target != template.escrow || !isOCID(state.Reference.SecretOCID, "vaultsecret") || state.Reference.SHA256 != evidence.SourceSHA256 || state.Reference.MaxBytes <= 0 || state.Reference.MaxBytes > 25<<10 || !bytes.Equal(state.Journal, evidence.Journal) || !bytes.Equal(state.Delivery, evidence.Delivery) {
+		return time.Time{}, ErrManifestInvalid
 	}
 	var record struct {
 		SchemaVersion  int            `json:"schemaVersion"`
@@ -208,8 +242,8 @@ func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, cl
 			CellAccountNKey string `json:"cellAccountNkey"`
 		} `json:"public"`
 	}
-	if json.Unmarshal(evidence.MaterialRecord, &record) != nil || json.Unmarshal(regional.MaterialRecord(), &sourceRecord) != nil || json.Unmarshal(home.MaterialRecord(), &homeRecord) != nil || record.SchemaVersion != 1 || digestBytes(record.Config) != template.PlanDigest() || !bytes.Equal(record.Public, sourceRecord.Public) || record.IssuedAt.IsZero() || now.Before(record.IssuedAt) || !now.Before(record.ExpiresAt) || record.SourceSHA256 != digestBytes(regional.MaterialRecord()) || record.HomeSHA256 != digestBytes(home.MaterialRecord()) || record.HomeAccount != homeRecord.Public.CellAccountNKey || !nkeys.IsValidPublicAccountKey(record.Signer) || record.Signer == record.HomeAccount || !isHome && !validDigest(record.HomeLinkSHA256) || isHome && record.HomeLinkSHA256 != "" {
-		return deny()
+	if json.Unmarshal(evidence.MaterialRecord, &record) != nil || json.Unmarshal(regional.MaterialRecord(), &sourceRecord) != nil || json.Unmarshal(home.MaterialRecord(), &homeRecord) != nil || record.SchemaVersion != 1 || digestBytes(record.Config) != template.planDigest || !bytes.Equal(record.Public, sourceRecord.Public) || record.IssuedAt.IsZero() || now.Before(record.IssuedAt) || !now.Before(record.ExpiresAt) || record.SourceSHA256 != digestBytes(regional.MaterialRecord()) || record.HomeSHA256 != digestBytes(home.MaterialRecord()) || record.HomeAccount != homeRecord.Public.CellAccountNKey || !nkeys.IsValidPublicAccountKey(record.Signer) || record.Signer == record.HomeAccount || !isHome && !validDigest(record.HomeLinkSHA256) || isHome && record.HomeLinkSHA256 != "" {
+		return time.Time{}, ErrManifestInvalid
 	}
 	var journal struct {
 		SchemaVersion  int                `json:"schemaVersion"`
@@ -221,8 +255,8 @@ func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, cl
 			Verified   bool   `json:"verified"`
 		} `json:"entries"`
 	}
-	if json.Unmarshal(evidence.Journal, &journal) != nil || journal.SchemaVersion != 1 || journal.Target != template.VaultTarget() || journal.MaterialSHA256 != digestBytes(evidence.MaterialRecord) {
-		return deny()
+	if json.Unmarshal(evidence.Journal, &journal) != nil || journal.SchemaVersion != 1 || journal.Target != template.vault || journal.MaterialSHA256 != digestBytes(evidence.MaterialRecord) {
+		return time.Time{}, ErrManifestInvalid
 	}
 	expected := map[string]string{"interregion-ca.pem": ""}
 	if isHome {
@@ -231,20 +265,20 @@ func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, cl
 	} else {
 		expected[LinkCredentialsFile] = ""
 	}
-	for _, slot := range template.startupIdentity().ControllerSlots {
+	for _, slot := range template.identity.ControllerSlots {
 		cert, key := InterRegionTLSFiles(slot)
 		expected[cert] = slot
 		expected[key] = slot
 	}
 	if len(record.Files) != len(expected) {
-		return deny()
+		return time.Time{}, ErrManifestInvalid
 	}
 	seen := make(map[string]bool, len(expected))
 	count := 0
 	for _, file := range record.Files {
 		slot, ok := expected[file.Name]
 		if !ok || seen[file.Name] || slot != file.Slot || !validDigest(file.SHA256) || file.MaxBytes <= 0 || file.MaxBytes > MaxSecretBytes {
-			return deny()
+			return time.Time{}, ErrManifestInvalid
 		}
 		seen[file.Name] = true
 		purpose := SecretInterRegion
@@ -254,7 +288,7 @@ func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, cl
 			purpose = SecretRegionalShared
 		}
 		if file.Purpose != purpose {
-			return deny()
+			return time.Time{}, ErrManifestInvalid
 		}
 		if purpose == "owner-only" {
 			continue
@@ -266,11 +300,11 @@ func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, cl
 		}
 		i := slices.IndexFunc(evidence.References, func(ref SecretReference) bool { return ref.TargetFile == target })
 		if i < 0 {
-			return deny()
+			return time.Time{}, ErrManifestInvalid
 		}
 		ref := evidence.References[i]
 		if ref.Purpose != file.Purpose || ref.Slot != file.Slot || ref.SHA256 != file.SHA256 || ref.MaxBytes != file.MaxBytes || ref.VersionNumber != 1 || !isOCID(ref.SecretOCID, "vaultsecret") {
-			return deny()
+			return time.Time{}, ErrManifestInvalid
 		}
 		j := slices.IndexFunc(journal.Entries, func(entry struct {
 			FileName   string `json:"fileName"`
@@ -280,18 +314,20 @@ func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, cl
 			return entry.FileName == file.Name && entry.Verified && entry.SecretOCID == ref.SecretOCID
 		})
 		if j < 0 {
-			return deny()
+			return time.Time{}, ErrManifestInvalid
 		}
 	}
 	if count != len(evidence.References) || count != len(journal.Entries) {
-		return deny()
+		return time.Time{}, ErrManifestInvalid
 	}
-	expires := minTimeLink(deliveryExpires, minTimeLink(record.ExpiresAt, minTimeLink(regional.ExpiresAt(), minTimeLink(homeTemplate.ExpiresAt(), home.ExpiresAt()))))
-	authorityExpires := minTimeLink(deliveryAuthorityExpires, minTimeLink(record.ExpiresAt, minTimeLink(regional.AuthorityExpiresAt(), minTimeLink(homeTemplate.AuthorityExpiresAt(), home.AuthorityExpiresAt()))))
-	if ctx.Err() != nil || template.currentLifetimeError() != nil || homeTemplate.currentLifetimeError() != nil || !time.Now().Before(expires) {
-		return deny()
+
+	expires := minTimeLink(template.authorityExpiresAt, minTimeLink(record.ExpiresAt, minTimeLink(regional.authorityExpiresAt, home.authorityExpiresAt)))
+	if len(evidence.Delivery) != 0 {
+		delivery, err := trust.DecodeEnvelope(evidence.Delivery)
+		if err != nil {
+			return deny()
+		}
+		expires = minTimeLink(expires, delivery.ExpiresAt)
 	}
-	verified := VerifiedStartupLink{template: template, client: client, evidence: evidence, expires: expires, authorityExpires: authorityExpires}
-	verified.evidence = verified.Evidence()
-	return verified, nil
+	return expires, nil
 }

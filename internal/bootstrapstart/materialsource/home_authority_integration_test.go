@@ -2,6 +2,7 @@ package materialsource
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
@@ -91,6 +92,7 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 		t.Fatal(err)
 	}
 	var publicReads, forbiddenRequests atomic.Int64
+	var denyHistoricalSource atomic.Bool
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || !strings.HasPrefix(r.URL.Path, "/n/") {
 			forbiddenRequests.Add(1)
@@ -100,6 +102,11 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 			return
 		}
 		publicReads.Add(1)
+		if denyHistoricalSource.Load() && strings.HasSuffix(r.URL.Path, "/o/"+source.key) {
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, `{"code":"ObjectNotFound","message":"original source unavailable"}`)
+			return
+		}
 		server.ServeHTTP(w, r)
 	}))
 	defer endpoint.Close()
@@ -119,6 +126,30 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 	authority, err := bootstrap.LoadHomeStartupAuthority(t.Context(), grantWire, anchor, roots, &publicObjects, now)
 	if err != nil || authority.Manifest().Cell != oci.RegionGRU || authority.Digest() != bound.Digest() {
 		t.Fatalf("public SFO to GRU startup proof: %v", err)
+	}
+	originalEnvelope, err := trust.DecodeEnvelope(home.Wire())
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, err := bootstrap.VerifyHistoricalBootstrapAnchor(originalEnvelope, roots,
+		bootstrap.BootstrapAnchorExpectation{DeploymentID: home.Anchor().DeploymentID, Environment: home.Anchor().Environment, Cell: home.Anchor().Cell}, bound.IssuedAt(), bootstrap.BootstrapAnchorTrustPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	historical, err := bootstrap.VerifyHistoricalDerivedStartupAuthority(t.Context(), grantWire, original, roots, &publicObjects, bound.Wire())
+	if err != nil || historical.Digest() != bound.Digest() || historical.Manifest().Cell != oci.RegionGRU {
+		t.Fatalf("original signed source historical evidence: %v", err)
+	}
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := bootstrap.VerifyHistoricalDerivedStartupAuthority(canceled, grantWire, original, roots, &publicObjects, bound.Wire()); err == nil {
+		t.Fatal("historical source ignored canceled observation")
+	}
+	denyHistoricalSource.Store(true)
+	_, missingErr := bootstrap.VerifyHistoricalDerivedStartupAuthority(t.Context(), grantWire, original, roots, &publicObjects, bound.Wire())
+	denyHistoricalSource.Store(false)
+	if missingErr == nil {
+		t.Fatal("historical signatures bypassed missing exact original source CAS")
 	}
 	public, err := authority.ControllerResponsePublicKey()
 	if err != nil || base64.StdEncoding.EncodeToString(public) != material.Record().Public.ControllerResponsePublicKey {

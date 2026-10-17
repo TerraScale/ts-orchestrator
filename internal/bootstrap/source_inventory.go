@@ -97,14 +97,39 @@ func LoadRegionalSource(ctx context.Context, template VerifiedStartupTemplate, c
 	if template.VerifyCurrentContext(ctx, now) != nil || template.startupIdentity().InitialSourceRegistration == nil {
 		return deny()
 	}
-	foundation, foundationErr := template.anchor.FoundationScope()
-	if foundationErr != nil {
-		return deny()
-	}
-	domain := foundation.StorageDomain
-	response, err := client.GetObject(ociclient.RequestContext(ctx), objectstorage.GetObjectRequest{NamespaceName: new(domain.Namespace), BucketName: new(domain.HeadBucket), ObjectName: new(startupSourceKey(template))})
+	proof, err := loadRegionalSourceEvidence(ctx, template.startupTemplateEvidence, client, now)
 	if err != nil {
 		return VerifiedRegionalSource{}, err
+	}
+	expires := minTimeLink(proof.authorityExpiresAt, template.ExpiresAt())
+	if ctx.Err() != nil || template.currentLifetimeError() != nil || !time.Now().Before(expires) {
+		return deny()
+	}
+	return VerifiedRegionalSource{template: template, client: client, binding: proof.binding, wire: proof.wire, ledgerKey: proof.ledgerKey, expiresAt: expires, authorityExpiresAt: proof.authorityExpiresAt}, nil
+}
+
+func RegionalSourceInventoryScope(template VerifiedStartupTemplate) trust.Scope {
+	return regionalSourceInventoryScope(template.startupTemplateEvidence)
+}
+
+// regionalSourceEvidence retains signed data without current source authority.
+type regionalSourceEvidence struct {
+	recipe             startupTemplateEvidence
+	binding            RegionalSourceInventory
+	wire               []byte
+	ledgerKey          ed25519.PublicKey
+	authorityExpiresAt time.Time
+}
+
+func loadRegionalSourceEvidence(ctx context.Context, template startupTemplateEvidence, client ObjectStorageClient, now time.Time) (regionalSourceEvidence, error) {
+	deny := func() (regionalSourceEvidence, error) { return regionalSourceEvidence{}, ErrManifestInvalid }
+	if ctx == nil || ctx.Err() != nil || client == nil || template.identity.InitialSourceRegistration == nil {
+		return deny()
+	}
+	domain := template.sourceDomain()
+	response, err := client.GetObject(ociclient.RequestContext(ctx), objectstorage.GetObjectRequest{NamespaceName: new(domain.Namespace), BucketName: new(domain.HeadBucket), ObjectName: new(template.sourceKey())})
+	if err != nil {
+		return regionalSourceEvidence{}, err
 	}
 	if response.Content == nil {
 		return deny()
@@ -130,7 +155,7 @@ func LoadRegionalSource(ctx context.Context, template VerifiedStartupTemplate, c
 		} `json:"reference"`
 		Inventory []byte `json:"inventory"`
 	}
-	if json.Unmarshal(wire, &state) != nil || state.SchemaVersion != 1 || state.Kind != "" || state.InstallationID != template.InstallationID() || state.Cell != strings.ToLower(string(template.startupIdentity().Cell)) || state.Generation == 0 || state.Generation > template.Generation() || state.PlanSHA256 != template.PlanDigest() || state.Target != template.escrow || !isOCID(state.Reference.SecretOCID, "vaultsecret") || !validDigest(state.Reference.SHA256) || state.Reference.MaxBytes <= 0 || state.Reference.MaxBytes > 25<<10 || len(state.Inventory) == 0 || len(state.Inventory) > 64<<10 {
+	if json.Unmarshal(wire, &state) != nil || state.SchemaVersion != 1 || state.Kind != "" || state.InstallationID != template.installationID || state.Cell != strings.ToLower(string(template.identity.Cell)) || state.Generation == 0 || state.Generation > template.generation || state.PlanSHA256 != template.planDigest || state.Target != template.escrow || !isOCID(state.Reference.SecretOCID, "vaultsecret") || !validDigest(state.Reference.SHA256) || state.Reference.MaxBytes <= 0 || state.Reference.MaxBytes > 25<<10 || len(state.Inventory) == 0 || len(state.Inventory) > 64<<10 {
 		return deny()
 	}
 	envelope, err := trust.DecodeEnvelope(state.Inventory)
@@ -138,7 +163,7 @@ func LoadRegionalSource(ctx context.Context, template VerifiedStartupTemplate, c
 		return deny()
 	}
 	var binding RegionalSourceInventory
-	if json.Unmarshal(envelope.Payload, &binding, json.RejectUnknownMembers(true)) != nil || binding.SchemaVersion != 1 || binding.Actor != state.Actor || !isOCID(binding.Actor.InstanceID, "instance") || !validDigest(binding.Actor.GrantDigest) || !validDigest(binding.Actor.TemplateDigest) || state.Generation == template.Generation() && (binding.Actor.GrantDigest != template.GrantDigest() || binding.Actor.TemplateDigest != template.TemplateDigest()) || binding.GrantSHA256 != template.GrantDigest() || binding.PlanSHA256 != template.PlanDigest() || binding.SourceSHA256 != state.Reference.SHA256 {
+	if json.Unmarshal(envelope.Payload, &binding, json.RejectUnknownMembers(true)) != nil || binding.SchemaVersion != 1 || binding.Actor != state.Actor || !isOCID(binding.Actor.InstanceID, "instance") || !validDigest(binding.Actor.GrantDigest) || !validDigest(binding.Actor.TemplateDigest) || state.Generation == template.generation && (binding.Actor.GrantDigest != template.grantDigest || binding.Actor.TemplateDigest != template.templateDigest) || binding.GrantSHA256 != template.grantDigest || binding.PlanSHA256 != template.planDigest || binding.SourceSHA256 != state.Reference.SHA256 {
 		return deny()
 	}
 	var record struct {
@@ -150,7 +175,7 @@ func LoadRegionalSource(ctx context.Context, template VerifiedStartupTemplate, c
 			PeerSignerPublicKey   string `json:"peerSignerPublicKey"`
 		} `json:"public"`
 	}
-	if json.Unmarshal(binding.MaterialRecord, &record) != nil || digestBytes(record.Config) != template.PlanDigest() || record.IssuedAt.IsZero() || !now.Before(record.ExpiresAt) {
+	if json.Unmarshal(binding.MaterialRecord, &record) != nil || digestBytes(record.Config) != template.planDigest || record.IssuedAt.IsZero() || !now.Before(record.ExpiresAt) {
 		return deny()
 	}
 	key, err := base64.StdEncoding.Strict().DecodeString(record.Public.LedgerSignerPublicKey)
@@ -159,17 +184,33 @@ func LoadRegionalSource(ctx context.Context, template VerifiedStartupTemplate, c
 		return deny()
 	}
 	id, _ := trust.KeyID(key)
-	if _, err := trust.VerifyCurrent(envelope, RegionalSourceInventoryScope(template), trust.Keyring{id: key}, now, ManifestTrustPolicy()); err != nil || envelope.IssuedAt.Before(template.IssuedAt()) || envelope.IssuedAt.Before(record.IssuedAt) || envelope.ExpiresAt.After(template.AuthorityExpiresAt()) || envelope.ExpiresAt.After(record.ExpiresAt) {
+	if _, err := trust.VerifyCurrent(envelope, regionalSourceInventoryScope(template), trust.Keyring{id: key}, now, ManifestTrustPolicy()); err != nil || envelope.IssuedAt.Before(template.issuedAt) || envelope.IssuedAt.Before(record.IssuedAt) || envelope.ExpiresAt.After(template.authorityExpiresAt) || envelope.ExpiresAt.After(record.ExpiresAt) {
 		return deny()
 	}
-	expires := minTimeLink(envelope.ExpiresAt, template.ExpiresAt())
-	if ctx.Err() != nil || template.currentLifetimeError() != nil || !time.Now().Before(expires) {
-		return deny()
+	if err := ctx.Err(); err != nil {
+		return regionalSourceEvidence{}, err
 	}
-	return VerifiedRegionalSource{template: template, client: client, binding: binding, wire: bytes.Clone(state.Inventory), ledgerKey: bytes.Clone(key), expiresAt: expires, authorityExpiresAt: envelope.ExpiresAt}, nil
+	return regionalSourceEvidence{recipe: template, binding: binding, wire: bytes.Clone(state.Inventory), ledgerKey: bytes.Clone(key), authorityExpiresAt: envelope.ExpiresAt}, nil
 }
 
-func RegionalSourceInventoryScope(template VerifiedStartupTemplate) trust.Scope {
-	identity := template.startupIdentity()
-	return trust.Scope{Domain: "terrascale.bootstrap.source-inventory", DeploymentID: identity.DeploymentID, Cell: string(identity.Cell), Environment: identity.Environment, Role: "source", Slot: template.InstallationID()}
+func regionalSourceInventoryScope(template startupTemplateEvidence) trust.Scope {
+	identity := template.identity
+	return trust.Scope{Domain: "terrascale.bootstrap.source-inventory", DeploymentID: identity.DeploymentID, Cell: string(identity.Cell), Environment: identity.Environment, Role: "source", Slot: template.installationID}
+}
+
+func (source VerifiedRegionalSource) evidence() regionalSourceEvidence {
+	return regionalSourceEvidence{recipe: source.template.startupTemplateEvidence, binding: source.binding, wire: bytes.Clone(source.wire), ledgerKey: bytes.Clone(source.ledgerKey), authorityExpiresAt: source.authorityExpiresAt}
+}
+func (source regionalSourceEvidence) OriginalActor() SourceInventoryActor {
+	return source.binding.Actor
+}
+func (source regionalSourceEvidence) MaterialRecord() []byte {
+	return bytes.Clone(source.binding.MaterialRecord)
+}
+func (source regionalSourceEvidence) StorageDomain() StorageDomain {
+	return source.recipe.sourceDomain()
+}
+func (source regionalSourceEvidence) Manifest() Manifest {
+	manifest, _ := source.recipe.ManifestFor(source.recipe.template.SeedSlot, nil)
+	return manifest
 }

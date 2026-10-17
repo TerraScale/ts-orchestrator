@@ -39,26 +39,17 @@ func VerifyLinkRecipient(ctx context.Context, regional, home VerifiedRegionalSou
 	if err := home.VerifyCurrent(ctx, now); err != nil {
 		return LinkRecipient{}, err
 	}
-	recipient, issuer := regional.Manifest(), home.Manifest()
-	rt, ht := regional.template, home.template
-	if issuer.Cell != oci.RegionGRU || recipient.Cell == oci.RegionGRU || rt.InstallationID() != ht.InstallationID() || rt.Generation() != ht.Generation() || rt.GrantDigest() != ht.GrantDigest() || recipient.DeploymentID != issuer.DeploymentID || recipient.Environment != issuer.Environment || regional.StorageDomain() != home.StorageDomain() || recipient.ClusterID == issuer.ClusterID || rt.startupIdentity().InitialSourceRegistration == nil || ht.startupIdentity().InitialSourceRegistration == nil {
-		return LinkRecipient{}, ErrManifestInvalid
-	}
-	sourceSHA, homeSHA := digestBytes(regional.MaterialRecord()), digestBytes(home.MaterialRecord())
-	bindingWire, err := json.Marshal([]string{"spoke-link-v1", sourceSHA, homeSHA}, json.Deterministic(true))
+	proof, err := linkRecipientEvidenceFor(regional.evidence(), home.evidence())
 	if err != nil {
 		return LinkRecipient{}, err
 	}
-	binding := digestBytes(bindingWire)
-	scope := sha256.Sum256([]byte(rt.InstallationID() + "\x00" + strings.ToLower(string(recipient.Cell)) + "\x00spoke-link-v1\x00" + binding))
-	key := home.StorageDomain().Prefix + "/bootstrap/v2/material-source/spoke-link-" + hex.EncodeToString(scope[:]) + ".json"
 	if err := ctx.Err(); err != nil {
 		return LinkRecipient{}, err
 	}
 	if regional.template.currentLifetimeError() != nil || home.template.currentLifetimeError() != nil || !time.Now().Before(minTimeLink(regional.ExpiresAt(), home.ExpiresAt())) {
 		return LinkRecipient{}, ErrManifestInvalid
 	}
-	return LinkRecipient{regional: regional, home: home, sourceSHA256: sourceSHA, homeSHA256: homeSHA, bindingSHA256: binding, key: key}, nil
+	return LinkRecipient{regional: regional, home: home, sourceSHA256: proof.sourceSHA256, homeSHA256: proof.homeSHA256, bindingSHA256: proof.bindingSHA256, key: proof.key}, nil
 }
 
 func (recipient LinkRecipient) IsVerified() bool {
@@ -157,13 +148,13 @@ func VerifyLinkDelivery(ctx context.Context, recipient LinkRecipient, wire []byt
 	if recipient.VerifyCurrent(ctx, now) != nil {
 		return nil, ErrManifestInvalid
 	}
-	keyID, err := trust.KeyID(recipient.home.ledgerKey)
+	proof, err := linkRecipientEvidenceFor(recipient.regional.evidence(), recipient.home.evidence())
 	if err != nil {
 		return nil, err
 	}
-	payload, err := trust.VerifyCurrent(envelope, recipient.deliveryScope(), trust.Keyring{keyID: recipient.home.ledgerKey}, now, ManifestTrustPolicy())
-	if err != nil || envelope.ExpiresAt.After(recipient.AuthorityExpiresAt()) {
-		return nil, ErrManifestInvalid
+	payload, err := verifyLinkDeliveryEvidence(proof, wire, now)
+	if err != nil {
+		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -185,4 +176,48 @@ func (recipient LinkRecipient) RegionalSourceTemplate() VerifiedStartupTemplate 
 
 func (recipient LinkRecipient) OriginalActor() SourceInventoryActor {
 	return recipient.regional.OriginalActor()
+}
+
+type linkRecipientEvidence struct {
+	regional, home                               regionalSourceEvidence
+	sourceSHA256, homeSHA256, bindingSHA256, key string
+}
+
+func linkRecipientEvidenceFor(regional, home regionalSourceEvidence) (linkRecipientEvidence, error) {
+	recipient, issuer := regional.Manifest(), home.Manifest()
+	rt, ht := regional.recipe, home.recipe
+	if issuer.Cell != oci.RegionGRU || recipient.Cell == oci.RegionGRU || rt.installationID != ht.installationID || rt.generation != ht.generation || rt.grantDigest != ht.grantDigest || recipient.DeploymentID != issuer.DeploymentID || recipient.Environment != issuer.Environment || regional.StorageDomain() != home.StorageDomain() || recipient.ClusterID == issuer.ClusterID || rt.identity.InitialSourceRegistration == nil || ht.identity.InitialSourceRegistration == nil {
+		return linkRecipientEvidence{}, ErrManifestInvalid
+	}
+	sourceSHA, homeSHA := digestBytes(regional.MaterialRecord()), digestBytes(home.MaterialRecord())
+	bindingWire, err := json.Marshal([]string{"spoke-link-v1", sourceSHA, homeSHA}, json.Deterministic(true))
+	if err != nil {
+		return linkRecipientEvidence{}, err
+	}
+	binding := digestBytes(bindingWire)
+	scope := sha256.Sum256([]byte(rt.installationID + "\x00" + strings.ToLower(string(recipient.Cell)) + "\x00spoke-link-v1\x00" + binding))
+	key := home.StorageDomain().Prefix + "/bootstrap/v2/material-source/spoke-link-" + hex.EncodeToString(scope[:]) + ".json"
+
+	return linkRecipientEvidence{regional: regional, home: home, sourceSHA256: sourceSHA, homeSHA256: homeSHA, bindingSHA256: binding, key: key}, nil
+}
+
+func verifyLinkDeliveryEvidence(recipient linkRecipientEvidence, wire []byte, now time.Time) ([]byte, error) {
+	if len(wire) == 0 || len(wire) > 64<<10 {
+		return nil, ErrManifestInvalid
+	}
+	envelope, err := trust.DecodeEnvelope(wire)
+	if err != nil {
+		return nil, err
+	}
+	keyID, err := trust.KeyID(recipient.home.ledgerKey)
+	if err != nil {
+		return nil, err
+	}
+	manifest := recipient.regional.Manifest()
+	scope := trust.Scope{Domain: "terrascale.bootstrap.link-delivery", DeploymentID: manifest.DeploymentID, Cell: string(manifest.Cell), Environment: manifest.Environment, Role: "link", Slot: recipient.bindingSHA256}
+	payload, err := trust.VerifyCurrent(envelope, scope, trust.Keyring{keyID: recipient.home.ledgerKey}, now, ManifestTrustPolicy())
+	if err != nil || envelope.ExpiresAt.After(minTimeLink(recipient.regional.authorityExpiresAt, recipient.home.authorityExpiresAt)) {
+		return nil, ErrManifestInvalid
+	}
+	return payload, nil
 }

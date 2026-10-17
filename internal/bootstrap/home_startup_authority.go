@@ -47,7 +47,7 @@ func VerifyBoundRegionalStartupTemplateForOperation(ctx, original context.Contex
 }
 
 func verifyRegionalStartupTemplateBindings(wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, requestedCell oci.Region, bindings *startupBindings, now time.Time) (VerifiedStartupTemplate, error) {
-	ociRegion, regionErr := requestedCell.OCIRegion()
+	_, regionErr := requestedCell.OCIRegion()
 	if !anchor.IsVerified() || regionErr != nil || now.IsZero() || len(wire) == 0 || len(wire) > 1<<20 {
 		return VerifiedStartupTemplate{}, ErrManifestInvalid
 	}
@@ -65,73 +65,9 @@ func verifyRegionalStartupTemplateBindings(wire []byte, roots trust.Keyring, anc
 	if err != nil {
 		return VerifiedStartupTemplate{}, err
 	}
-	home, err := anchor.FoundationScope()
-	if err != nil || digestBytes(wire) != home.GrantSHA256 {
-		return VerifiedStartupTemplate{}, ErrManifestInvalid
-	}
-	envelope, err := trust.DecodeEnvelope(wire)
+	identity, err := regionalStartupIdentity(wire, roots, anchor.Anchor(), anchor.ExpiresAt(), requestedCell, bindings, now)
 	if err != nil {
 		return VerifiedStartupTemplate{}, err
-	}
-	payload, err := trust.VerifyCurrent(envelope, trust.Scope{Domain: "terrascale.foundation.scope", DeploymentID: home.DeploymentID,
-		Cell: string(oci.RegionGRU), Environment: local.Environment, Role: "foundation", Slot: home.ClusterID}, roots, now, BootstrapAnchorTrustPolicy())
-	if err != nil || envelope.ExpiresAt.After(anchor.ExpiresAt()) {
-		return VerifiedStartupTemplate{}, ErrManifestInvalid
-	}
-	var grant struct {
-		SchemaVersion  int    `json:"schemaVersion"`
-		InstallationID string `json:"installationId"`
-		Generation     uint64 `json:"generation"`
-		TenancyID      string `json:"tenancyId"`
-		Regions        []struct {
-			Generation uint64 `json:"generation"`
-			Plan       struct {
-				Cell   string `json:"cell"`
-				Region string `json:"region"`
-			} `json:"plan"`
-			BootstrapMaterial *struct {
-				InstallationID     string                     `json:"installationId"`
-				PlanSHA256         string                     `json:"planSha256"`
-				Startup            *StartupTemplate           `json:"startup"`
-				SourceRegistration *InitialSourceRegistration `json:"sourceRegistration"`
-			} `json:"bootstrapMaterial"`
-		} `json:"regions"`
-	}
-	if json.Unmarshal(payload, &grant) != nil || (grant.SchemaVersion != 1 || bindings != nil) && (grant.SchemaVersion != 2 || bindings == nil) || grant.InstallationID != home.InstallationID || grant.Generation != home.GrantGeneration || grant.TenancyID != home.TenancyID {
-		return VerifiedStartupTemplate{}, ErrManifestInvalid
-	}
-	var identity BootstrapAnchor
-	for _, region := range grant.Regions {
-		if region.Plan.Cell != string(requestedCell) {
-			continue
-		}
-		material := region.BootstrapMaterial
-		if identity.Cell != "" || region.Generation != grant.Generation || region.Plan.Region != ociRegion || material == nil || material.InstallationID != home.InstallationID || material.Startup == nil || material.SourceRegistration == nil {
-			return VerifiedStartupTemplate{}, ErrManifestInvalid
-		}
-		if bindings == nil && material.Startup.Validate() != nil || bindings != nil && material.Startup.ValidateFoundation(string(requestedCell)) != nil {
-			return VerifiedStartupTemplate{}, ErrManifestInvalid
-		}
-		registration := material.SourceRegistration.Clone()
-		if registration.Validate() != nil || registration.InstallationID != home.InstallationID || registration.Environment != local.Environment || registration.Cell != requestedCell || registration.Generation != home.GrantGeneration || registration.PlanSHA256 != material.PlanSHA256 || registration.SeedSlot != material.Startup.SeedSlot {
-			return VerifiedStartupTemplate{}, ErrManifestInvalid
-		}
-		if requestedCell == oci.RegionGRU && (registration.DeploymentID != home.DeploymentID || registration.ClusterID != home.ClusterID || registration.StorageDomain != home.StorageDomain || ociRegion != home.OCIRegion) {
-			return VerifiedStartupTemplate{}, ErrManifestInvalid
-		}
-		intentWire := material.Startup.ControllerFiles[0].Bytes
-		intent, err := canonicalRegionIntent(intentWire)
-		if err != nil {
-			return VerifiedStartupTemplate{}, err
-		}
-		identity = BootstrapAnchor{SchemaVersion: BootstrapAnchorSchemaVersion, DeploymentID: registration.DeploymentID,
-			Environment: local.Environment, ClusterID: registration.ClusterID, Cell: requestedCell, OCIRegion: ociRegion,
-			StorageDomain: registration.StorageDomain, FoundationScope: new(home), InitialSourceRegistration: new(registration),
-			ControllerSlots: registration.ControllerSlots, InitialRegionIntentGeneration: intent.Generation,
-			InitialRegionIntentSHA256: digestBytes(intentWire), InitialRegionIntentWire: bytes.Clone(intentWire)}
-	}
-	if identity.Validate() != nil {
-		return VerifiedStartupTemplate{}, ErrManifestInvalid
 	}
 	return verifyStartupTemplateForIdentityBindings(wire, roots, anchor, identity, bindings, now)
 }
@@ -182,4 +118,80 @@ func (authority DerivedStartupAuthority) ControllerResponsePublicKey() (ed25519.
 		return nil, ErrManifestInvalid
 	}
 	return ed25519.PublicKey(key), nil
+}
+
+func regionalStartupIdentity(wire []byte, roots trust.Keyring, local BootstrapAnchor, anchorExpiry time.Time, requestedCell oci.Region, bindings *startupBindings, now time.Time) (BootstrapAnchor, error) {
+	ociRegion, err := requestedCell.OCIRegion()
+	if err != nil {
+		return BootstrapAnchor{}, err
+	}
+	home := local.FoundationScope
+	if home == nil || home.Validate() != nil || digestBytes(wire) != home.GrantSHA256 {
+		return BootstrapAnchor{}, ErrManifestInvalid
+	}
+	envelope, err := trust.DecodeEnvelope(wire)
+	if err != nil {
+		return BootstrapAnchor{}, err
+	}
+	payload, err := trust.VerifyCurrent(envelope, trust.Scope{Domain: "terrascale.foundation.scope", DeploymentID: home.DeploymentID,
+		Cell: string(oci.RegionGRU), Environment: local.Environment, Role: "foundation", Slot: home.ClusterID}, roots, now, BootstrapAnchorTrustPolicy())
+	if err != nil || envelope.ExpiresAt.After(anchorExpiry) {
+		return BootstrapAnchor{}, ErrManifestInvalid
+	}
+	var grant struct {
+		SchemaVersion  int    `json:"schemaVersion"`
+		InstallationID string `json:"installationId"`
+		Generation     uint64 `json:"generation"`
+		TenancyID      string `json:"tenancyId"`
+		Regions        []struct {
+			Generation uint64 `json:"generation"`
+			Plan       struct {
+				Cell   string `json:"cell"`
+				Region string `json:"region"`
+			} `json:"plan"`
+			BootstrapMaterial *struct {
+				InstallationID     string                     `json:"installationId"`
+				PlanSHA256         string                     `json:"planSha256"`
+				Startup            *StartupTemplate           `json:"startup"`
+				SourceRegistration *InitialSourceRegistration `json:"sourceRegistration"`
+			} `json:"bootstrapMaterial"`
+		} `json:"regions"`
+	}
+	if json.Unmarshal(payload, &grant) != nil || (grant.SchemaVersion != 1 || bindings != nil) && (grant.SchemaVersion != 2 || bindings == nil) || grant.InstallationID != home.InstallationID || grant.Generation != home.GrantGeneration || grant.TenancyID != home.TenancyID {
+		return BootstrapAnchor{}, ErrManifestInvalid
+	}
+	var identity BootstrapAnchor
+	for _, region := range grant.Regions {
+		if region.Plan.Cell != string(requestedCell) {
+			continue
+		}
+		material := region.BootstrapMaterial
+		if identity.Cell != "" || region.Generation != grant.Generation || region.Plan.Region != ociRegion || material == nil || material.InstallationID != home.InstallationID || material.Startup == nil || material.SourceRegistration == nil {
+			return BootstrapAnchor{}, ErrManifestInvalid
+		}
+		if bindings == nil && material.Startup.Validate() != nil || bindings != nil && material.Startup.ValidateFoundation(string(requestedCell)) != nil {
+			return BootstrapAnchor{}, ErrManifestInvalid
+		}
+		registration := material.SourceRegistration.Clone()
+		if registration.Validate() != nil || registration.InstallationID != home.InstallationID || registration.Environment != local.Environment || registration.Cell != requestedCell || registration.Generation != home.GrantGeneration || registration.PlanSHA256 != material.PlanSHA256 || registration.SeedSlot != material.Startup.SeedSlot {
+			return BootstrapAnchor{}, ErrManifestInvalid
+		}
+		if requestedCell == oci.RegionGRU && (registration.DeploymentID != home.DeploymentID || registration.ClusterID != home.ClusterID || registration.StorageDomain != home.StorageDomain || ociRegion != home.OCIRegion) {
+			return BootstrapAnchor{}, ErrManifestInvalid
+		}
+		intentWire := material.Startup.ControllerFiles[0].Bytes
+		intent, err := canonicalRegionIntent(intentWire)
+		if err != nil {
+			return BootstrapAnchor{}, err
+		}
+		identity = BootstrapAnchor{SchemaVersion: BootstrapAnchorSchemaVersion, DeploymentID: registration.DeploymentID,
+			Environment: local.Environment, ClusterID: registration.ClusterID, Cell: requestedCell, OCIRegion: ociRegion,
+			StorageDomain: registration.StorageDomain, FoundationScope: new(*home), InitialSourceRegistration: new(registration),
+			ControllerSlots: registration.ControllerSlots, InitialRegionIntentGeneration: intent.Generation,
+			InitialRegionIntentSHA256: digestBytes(intentWire), InitialRegionIntentWire: bytes.Clone(intentWire)}
+	}
+	if identity.Validate() != nil {
+		return BootstrapAnchor{}, ErrManifestInvalid
+	}
+	return identity, nil
 }
