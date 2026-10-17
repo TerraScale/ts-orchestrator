@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"io"
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 
@@ -127,7 +128,7 @@ func TestCapturedInventoryUsesAnchorDomainAndExactKeys(t *testing.T) {
 			t.Fatalf("unbound captured route: %+v", route)
 		}
 	}
-	wrong := controllers
+	wrong := slices.Clone(controllers)
 	wrong[0].Slot = "another-slot"
 	if _, err := BuildCapturedInventory(anchor, wrong, store); err == nil {
 		t.Fatal("slot set outside signed anchor accepted")
