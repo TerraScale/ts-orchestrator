@@ -167,6 +167,30 @@ type FoundationController struct {
 	Foundations Foundations
 }
 
+// ReconcileCell selects one authenticated intent without accepting a caller's
+// plan, resource identifiers or provider checkpoints.
+func (c *FoundationController) ReconcileCell(ctx context.Context, cell string, epoch uint64) (FoundationRecord, error) {
+	if c == nil || c.Footprint == nil || c.Authority == nil || c.Store == nil || c.Foundations == nil || epoch == 0 {
+		return FoundationRecord{}, errors.New("regional foundation requires authenticated footprint, authority, durable store and OCI provider")
+	}
+	if err := c.Authority.Guard(ctx, epoch); err != nil {
+		return FoundationRecord{}, err
+	}
+	footprint, err := c.Footprint.AuthorizedRegions(ctx)
+	if err != nil {
+		return FoundationRecord{}, err
+	}
+	if err := validateFootprint(footprint); err != nil {
+		return FoundationRecord{}, err
+	}
+	for _, intent := range footprint.Regions {
+		if intent.Plan["cell"] == cell {
+			return c.reconcile(ctx, epoch, footprint, intent)
+		}
+	}
+	return FoundationRecord{}, errors.New("region is outside authenticated foundation footprint")
+}
+
 func (c *FoundationController) Reconcile(ctx context.Context, epoch uint64) ([]FoundationResult, error) {
 	if c.Footprint == nil || c.Authority == nil || c.Store == nil || c.Foundations == nil || epoch == 0 {
 		return nil, errors.New("regional foundations require authenticated footprint, authority, durable store and OCI provider")
