@@ -45,11 +45,12 @@ func (authority *rootOCIAuthority) withManagerRuntimeObservation(ctx context.Con
 		source.session == nil || source.session.Err() != nil || ctx == nil || ctx.Err() != nil {
 		return rootoci.ErrUnauthorized
 	}
-	deadline, ok := ctx.Deadline()
-	if !ok {
+	if _, ok := ctx.Deadline(); !ok {
 		return rootoci.ErrUnauthorized
 	}
-	for _, expiry := range []time.Time{identity.ExpiresAt(), current.ExpiresAt(), sources.deadline} {
+	// The operation budget cannot replace the signed sources' original lifetime.
+	deadline := identity.ExpiresAt()
+	for _, expiry := range []time.Time{current.ExpiresAt(), sources.deadline} {
 		deadline = earlier(deadline, expiry)
 	}
 	ctx, cancelOriginal := context.WithDeadline(ctx, deadline)
@@ -87,7 +88,7 @@ func (authority *rootOCIAuthority) withManagerRuntimeObservation(ctx context.Con
 	if err != nil {
 		return err
 	}
-	deadline = earlier(deadline, snapshot.ExpiresAt())
+	deadline = earlier(deadline, snapshot.SessionSourceExpiresAt())
 	ctx, cancelSnapshot := context.WithDeadline(ctx, deadline)
 	defer cancelSnapshot()
 	registration := snapshot.Registration()
@@ -177,7 +178,7 @@ func (authority *rootOCIAuthority) withManagerRuntimeObservation(ctx context.Con
 		if !found || !reflect.DeepEqual(actual, signed) || !reflect.DeepEqual(published.Registration(), registration) ||
 			published.SessionID() != worker.HostSessionID || published.SessionEpoch() != identity.SessionEpoch() ||
 			published.RegistrationRevision() != signed.Binding.RegistrationRevision || published.SourceRevision() <= signed.Binding.SourceRevision ||
-			published.ExpiresAt().Before(signed.Binding.ExpiresAt) {
+			published.SessionSourceExpiresAt().Before(signed.Binding.ExpiresAt) {
 			return rootoci.ErrUnauthorized
 		}
 		snapshot = published
@@ -196,16 +197,21 @@ func (authority *rootOCIAuthority) publishManagerRuntimeBinding(ctx context.Cont
 	binding *swarmruntime.ControllerHostBinding, identity host.HostRuntimeIdentity, current bootstrapstart.RuntimeAuthority,
 ) error {
 	return authority.withManagerRuntimeObservation(ctx, process, binding, identity, current, func(observation rootManagerRuntimeObservation) error {
-		if retained := process.managerBinding; retained != nil && retained.session == authority.ownhost.session {
+		if retained := process.managerBinding; retained != nil {
 			old, expected := retained.signed.Binding, observation.payload
-			expected.SourceRevision, expected.IssuedAt, expected.ExpiresAt = old.SourceRevision, old.IssuedAt, old.ExpiresAt
-			if old == expected && old.SourceRevision <= observation.payload.SourceRevision &&
-				!old.ExpiresAt.After(observation.payload.ExpiresAt) && time.Now().Before(old.ExpiresAt) {
+			if retained.session == authority.ownhost.session {
+				expected.SourceRevision, expected.IssuedAt, expected.ExpiresAt = old.SourceRevision, old.IssuedAt, old.ExpiresAt
+				if old != expected || old.SourceRevision > observation.payload.SourceRevision ||
+					old.ExpiresAt.After(observation.payload.ExpiresAt) || !time.Now().Before(old.ExpiresAt) {
+					return rootoci.ErrUnauthorized
+				}
 				ctx, cancel := context.WithDeadline(observation.ctx, old.ExpiresAt)
 				defer cancel()
 				return observation.readback(ctx, retained.signed)
 			}
-			if observation.payload.SourceRevision <= old.SourceRevision {
+			// Only an independently admitted new ownhost session may replace it.
+			if retained.session == nil || retained.session.Err() == nil ||
+				old.HostSessionID == expected.HostSessionID && old.HostSessionEpoch == expected.HostSessionEpoch {
 				return rootoci.ErrUnauthorized
 			}
 		} else if old := observation.existing; old != nil && old.Binding.RuntimeCandidateID == observation.payload.RuntimeCandidateID &&
