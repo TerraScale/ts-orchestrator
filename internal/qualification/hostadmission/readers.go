@@ -28,12 +28,13 @@ func (r StartupReader) begin(ctx context.Context, call rootoci.Call, operation r
 		return ctx, cancel, ErrAdmission
 	}
 	ctx, cancel = context.WithDeadline(ctx, minTime(r.ExpiresAt(), call.Deadline()))
-	return ociclient.WithAuthority(ctx, func(ctx context.Context) error {
+	guard := func(ctx context.Context) error {
 		if call.Guard(ctx) != nil {
 			return ErrAdmission
 		}
 		return r.state.localGuard(ctx)
-	}), cancel, nil
+	}
+	return ociclient.WithRequestGuard(ociclient.WithAuthority(ctx, guard), guard), cancel, nil
 }
 
 func (r StartupReader) finish(ctx context.Context, call rootoci.Call) error {
@@ -95,7 +96,7 @@ func (r StartupReader) ObserveFleet(ctx context.Context, call rootoci.Call) ([]o
 			return nil, err
 		}
 		host, err := r.state.observer.ObserveInstance(ctx, h.InstanceID)
-		if err != nil || r.state.matchHost(host, h) != nil {
+		if err != nil || r.state.matchHost(ctx, host, h) != nil {
 			return nil, ErrAdmission
 		}
 		observed = append(observed, oci.Instance{ID: host.InstanceOCID, Region: oci.Region(r.Candidate().Cell), PrivateIP: host.PrimaryPrivateIP,

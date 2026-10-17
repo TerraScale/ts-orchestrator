@@ -99,6 +99,9 @@ func (s *readerState) localGuard(ctx context.Context) error {
 	if kernel != a.KernelRelease || filepath.Base(kernel) != kernel || hashFile("/boot/vmlinuz-"+kernel) != a.KernelSHA256 {
 		return ErrAdmission
 	}
+	if ctx.Err() != nil || !time.Now().Before(s.verified.deadline) {
+		return ErrAdmission
+	}
 	return nil
 }
 
@@ -110,6 +113,7 @@ func (r StartupReader) Guard(ctx context.Context) error {
 	}
 	s := r.state
 	bounded, cancel := context.WithDeadline(ctx, s.verified.deadline)
+	bounded = ociclient.WithRequestGuard(bounded, s.localGuard)
 	defer cancel()
 	current, err := s.observeCurrent(bounded)
 	if err != nil || current.InstanceOCID != s.verified.host.InstanceID {
@@ -135,20 +139,20 @@ func (s *readerState) observeCurrent(ctx context.Context) (bootstrapstart.Instan
 		return bootstrapstart.InstanceObservation{}, ErrAdmission
 	}
 	observation, err := s.observer.ObserveInstance(ctx, id)
-	if err != nil || s.matchHost(observation, s.verified.host) != nil {
+	if err != nil || s.matchHost(ctx, observation, s.verified.host) != nil {
 		return bootstrapstart.InstanceObservation{}, errors.Join(ErrAdmission, err)
 	}
 	return observation, nil
 }
 
-func (s *readerState) matchHost(observation bootstrapstart.InstanceObservation, h BoundHost) error {
+func (s *readerState) matchHost(ctx context.Context, observation bootstrapstart.InstanceObservation, h BoundHost) error {
 	a := s.verified.approval
 	for _, spec := range a.Hosts {
 		if spec.Name == h.Name {
 			if observation.InstanceOCID == h.InstanceID && observation.ImageOCID == h.ImageID && observation.CompartmentOCID == a.Compartment &&
 				observation.PrimaryPrivateIP == h.PrivateIP && observation.SubnetOCID == a.Subnet && observation.PrimaryVNIC && len(observation.NSGOCIDs) == 0 &&
 				observation.AvailabilityDomain == spec.AvailabilityDomain && observation.FaultDomain == spec.FaultDomain && observation.Shape == spec.Shape && observation.LifecycleState == "RUNNING" {
-				return nil
+				return s.observeGeometry(ctx, h, spec)
 			}
 			return ErrAdmission
 		}
