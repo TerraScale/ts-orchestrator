@@ -238,6 +238,9 @@ func functionRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *hos
 		if err != nil {
 			return nil, err
 		}
+		ctx, stopIssuer := context.WithDeadline(ctx, admission.Deadline)
+		defer stopIssuer()
+		issuerGuard := admission.VerifyCurrent
 		confirmed, err := agent.CurrentRegistryAdmission(ctx, binding)
 		if err != nil {
 			return nil, err
@@ -259,12 +262,15 @@ func functionRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *hos
 			if !time.Now().Before(admissionDeadline) {
 				return errors.New("function registry original admission expired before Vault credential read")
 			}
+			if err := issuerGuard(ctx); err != nil {
+				return err
+			}
 			current, err := agent.CurrentRegistryAdmission(ctx, binding)
 			if err != nil {
 				return err
 			}
 			now := time.Now().UTC()
-			if !bytes.Equal(document.Document, current.Document) || !now.Before(deadline) || !now.Before(document.ExpiresAt) ||
+			if !bytes.Equal(document.Document, current.Document) || !now.Before(admissionDeadline) || !now.Before(document.ExpiresAt) ||
 				!now.Before(confirmed.ExpiresAt) || !now.Before(current.ExpiresAt) || !receipt.Valid() || !verified.Valid(now) ||
 				signed.Validate(now) != nil || roots.reply("").Head != rootHead {
 				return errors.New("function registry authority changed during Vault credential read")

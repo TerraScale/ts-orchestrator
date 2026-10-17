@@ -346,6 +346,9 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 		if err != nil {
 			return nil, err
 		}
+		ctx, stopIssuer := context.WithDeadline(ctx, admission.Deadline)
+		defer stopIssuer()
+		issuerGuard := admission.VerifyCurrent
 		confirmed, err := reader.ReadRuntimeAuthority(ctx, accepted, time.Now().UTC())
 		if err != nil || confirmed.Identity() != identity {
 			return nil, errors.New("registry runtime authority changed during credential admission")
@@ -388,6 +391,9 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 			if !time.Now().Before(admissionDeadline) {
 				return errors.New("registry manager original admission expired before Vault credential read")
 			}
+			if err := issuerGuard(ctx); err != nil {
+				return err
+			}
 			current, err := agent.CurrentRegistryAdmission(ctx, binding)
 			if err != nil {
 				return err
@@ -396,7 +402,7 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 				return errors.New("registry manager authority changed during Vault credential read")
 			}
 			now := time.Now().UTC()
-			if !now.Before(deadline) || !now.Before(document.ExpiresAt) || !now.Before(confirmedDocument.ExpiresAt) || !now.Before(current.ExpiresAt) ||
+			if !now.Before(admissionDeadline) || !now.Before(document.ExpiresAt) || !now.Before(confirmedDocument.ExpiresAt) || !now.Before(current.ExpiresAt) ||
 				!verified.Valid(now) || rootState.reply("").Head != rootHead {
 				return errors.New("registry manager admission expired during Vault credential read")
 			}
@@ -431,6 +437,8 @@ func runtimeRegistryPullAdmission(ctx context.Context, factory *ociclient.Factor
 	if err != nil {
 		return nil, err
 	}
+	ctx, stopIssuer := context.WithDeadline(ctx, issuer.ExpiresAt())
+	defer stopIssuer()
 	if issuer.Intent().OCIRegion != expected.Region || issuer.ImageRepository() != name {
 		return nil, errors.New("registry issuer differs from admitted OCI region or signed image repository")
 	}
@@ -466,7 +474,22 @@ func runtimeRegistryPullAdmission(ctx context.Context, factory *ociclient.Factor
 		return nil, errors.New("registry release authorization expired during credential admission")
 	}
 	deadline, _ := ctx.Deadline()
-	return &swarmruntime.RegistryAdmission{ServiceID: task.ServiceID, Environment: expected.Environment, Region: expected.Region, Scope: scope, Secret: owned, Claim: claim, Deadline: deadline}, nil
+	issuerGuard := func(ctx context.Context) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !time.Now().Before(deadline) || roots.reply("").Head != currentRoots.Head {
+			return errors.New("registry original issuer admission expired or trusted roots changed")
+		}
+		if err := freshFoundations.GuardOCIRIssuer(ctx, issuer); err != nil {
+			return err
+		}
+		if !time.Now().Before(deadline) || roots.reply("").Head != currentRoots.Head || !verified.Valid(time.Now().UTC()) {
+			return errors.New("registry issuer admission changed during source verification")
+		}
+		return ctx.Err()
+	}
+	return &swarmruntime.RegistryAdmission{ServiceID: task.ServiceID, Environment: expected.Environment, Region: expected.Region, Scope: scope, Secret: owned, Claim: claim, Deadline: deadline, VerifyCurrent: issuerGuard}, nil
 }
 
 func (controller *containerMaterialController) registryAdmission(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding) (host.RegistryAdmissionDocument, error) {
@@ -581,6 +604,9 @@ func workerRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *host.
 		if err != nil {
 			return nil, err
 		}
+		ctx, stopIssuer := context.WithDeadline(ctx, admission.Deadline)
+		defer stopIssuer()
+		issuerGuard := admission.VerifyCurrent
 		confirmedDocument, err := agent.CurrentRegistryAdmission(ctx, binding)
 		if err != nil {
 			return nil, err
@@ -607,12 +633,15 @@ func workerRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *host.
 			if !time.Now().Before(admissionDeadline) {
 				return errors.New("registry worker original admission expired before Vault credential read")
 			}
+			if err := issuerGuard(ctx); err != nil {
+				return err
+			}
 			current, err := agent.CurrentRegistryAdmission(ctx, binding)
 			if err != nil {
 				return err
 			}
 			now := time.Now().UTC()
-			if !bytes.Equal(document.Document, current.Document) || !now.Before(deadline) || !now.Before(document.ExpiresAt) ||
+			if !bytes.Equal(document.Document, current.Document) || !now.Before(admissionDeadline) || !now.Before(document.ExpiresAt) ||
 				!now.Before(confirmedDocument.ExpiresAt) || !now.Before(current.ExpiresAt) || !verified.Valid(now) ||
 				signed.Validate(now) != nil || roots.reply("").Head != rootHead {
 				return errors.New("registry worker authority changed during Vault credential read")
