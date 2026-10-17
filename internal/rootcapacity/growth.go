@@ -42,7 +42,7 @@ func (a *attempt) growthBirthEpoch() (uint64, error) {
 		epoch = wire.GrowthAuthority.BirthEpoch
 	}
 	if child, exists := a.record.PoolChildren[a.receipt.OperationID]; exists {
-		if len(wires) == 0 && !a.growthChildPrepared {
+		if len(wires) == 0 {
 			return 0, fmt.Errorf("%w: legacy reserved child has no recoverable original growth source", ErrPending)
 		}
 		if child.BirthEpoch == 0 || epoch != 0 && child.BirthEpoch != epoch {

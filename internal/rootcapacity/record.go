@@ -31,31 +31,30 @@ var ErrPending = errors.New("protected capacity operation is pending")
 // attempt is constructed only after the home handler independently resolves
 // the original durable reservation, signed source and actual home connection.
 type attempt struct {
-	call                rootoci.Call
-	resolver            region.FoundationResolver
-	store               *region.ObjectFoundationStore
-	writer              *region.CapacityJournalWriter
-	factory             *ociclient.Factory
-	home                *globalcontrol.Reader
-	leader              *authority.Reader
-	credentials         *rootsecret.ControllerReader
-	original            authority.Snapshot
-	deadline            time.Time
-	receipt             budget.Reservation
-	worker              region.VerifiedWorkerRecipe
-	membership          region.VerifiedPoolMembership
-	lifecycle           region.VerifiedPoolLifecycle
-	drain               *drainwire.PoolReceipt
-	birthOperation      string
-	recipe              nodescale.Recipe
-	record              region.FoundationRecord
-	etag                string
-	operation           string
-	poolID              string
-	leaseID             string
-	observation         *rootoci.PoolChildObservation
-	growthReadbacks     map[string]bool
-	growthChildPrepared bool
+	call            rootoci.Call
+	resolver        region.FoundationResolver
+	store           *region.ObjectFoundationStore
+	writer          *region.CapacityJournalWriter
+	factory         *ociclient.Factory
+	home            *globalcontrol.Reader
+	leader          *authority.Reader
+	credentials     *rootsecret.ControllerReader
+	original        authority.Snapshot
+	deadline        time.Time
+	receipt         budget.Reservation
+	worker          region.VerifiedWorkerRecipe
+	membership      region.VerifiedPoolMembership
+	lifecycle       region.VerifiedPoolLifecycle
+	drain           *drainwire.PoolReceipt
+	birthOperation  string
+	recipe          nodescale.Recipe
+	record          region.FoundationRecord
+	etag            string
+	operation       string
+	poolID          string
+	leaseID         string
+	observation     *rootoci.PoolChildObservation
+	growthReadbacks map[string]bool
 }
 
 func (a *attempt) guard(ctx context.Context) error {

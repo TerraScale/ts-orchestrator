@@ -252,11 +252,9 @@ func (a *attempt) prepareChild(ctx context.Context, management core.ComputeManag
 		PublicCAPEM: bytes.Clone(request.PublicCAPEM), AvailabilityDomains: slices.Clone(request.AvailabilityDomains),
 		PoolID: poolID, ConfigurationID: configurationID, TargetFrom: value(pool.Size), BirthEpoch: birthEpoch, AvailabilityDomain: a.recipe.AvailabilityDomains[len(members)%len(a.recipe.AvailabilityDomains)],
 		SubnetID: a.recipe.SubnetID, Stage: region.PoolChildReserved, Node: node, Descriptor: string(descriptor)}
-	a.record.PoolChildren[a.receipt.OperationID] = child
-	if err := a.save(ctx); err != nil {
-		return region.PoolChildRecord{}, err
-	}
-	a.growthChildPrepared = true
+	// Keep this first child local until the caller reserves its finite launch
+	// wire. The existing launch checkpoint saves both together; even deferred
+	// lease release cannot persist an unbound Reserved child after an error.
 	return child, nil
 }
 
