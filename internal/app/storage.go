@@ -22,8 +22,8 @@ import (
 //
 // The returned stop cancels the collector and waits for it, so the controller
 // joins it on every return path before closing the NATS runtime it uses.
-func startControllerStorageCapacity(ctx context.Context, cfg Config, runtime *natscell.Runtime, fullClusterReady func() bool) (func(), error) {
-	if cfg.NATS.Embedded == nil || runtime == nil {
+func startControllerStorageCapacity(ctx context.Context, cfg Config, runtime *natscell.Runtime, native controllerBrokerNative, fullClusterReady func() bool) (func(), error) {
+	if cfg.NATS.Embedded == nil || runtime == nil || native == nil {
 		return nil, errors.New("storage capacity requires the embedded regional NATS server")
 	}
 	store, _, err := retryControllerOpen(ctx, "open storage usage bucket", fullClusterReady, false,
@@ -35,7 +35,7 @@ func startControllerStorageCapacity(ctx context.Context, cfg Config, runtime *na
 	}
 	collector := capacity.Collector{
 		Cell: cfg.NATS.Cell, Node: cfg.NATS.Instance,
-		Targets: capacity.ControllerTargets(cfg.NATS.Embedded.StoreDir, runtime.LocalStoreUsedBytes, cfg.NATS.Embedded.StoreLimitBytes()),
+		Targets: capacity.ControllerTargets(cfg.NATS.Embedded.StoreDir, native.LocalStoreUsedBytes, cfg.NATS.Embedded.StoreLimitBytes()),
 	}
 	return ownedLoop(ctx, "controller storage capacity collector", func(ctx context.Context) error {
 		return capacity.Run(ctx, collector, store, capacity.DefaultPolicy(), storage.DefaultCollectInterval, capacity.LogSignal)

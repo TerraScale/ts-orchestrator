@@ -263,7 +263,7 @@ func TestMembershipReplacesTerminatedControllerUnderSameServerName(t *testing.T)
 	defer cancel()
 	cluster := startMembershipCluster(t, ctx)
 	seed := cluster.runtime(0)
-	peers := natsMembershipPeers{runtime: seed}
+	peers := natsMembershipPeers{native: seed}
 	waitMembership(t, ctx, "all metadata peers online", func() bool {
 		meta, err := peers.Meta(ctx)
 		return err == nil && meta.Leader != "" && len(meta.Peers) == 2 &&

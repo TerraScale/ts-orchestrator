@@ -69,7 +69,7 @@ func TestPlacementVolumeIDsSkipsAnUnreadablePartition(t *testing.T) {
 }
 
 func TestStorageFeaturesRequireTheirDependenciesWithoutAnOptIn(t *testing.T) {
-	if _, err := startControllerStorageCapacity(t.Context(), Config{}, nil, nil); err == nil {
+	if _, err := startControllerStorageCapacity(t.Context(), Config{}, nil, nil, nil); err == nil {
 		t.Fatal("capacity collector silently skipped without its embedded broker")
 	}
 	if _, err := startVolumeBackups(t.Context(), nil, nil, nil, nil); err == nil {
@@ -87,7 +87,10 @@ func TestControllerCollectsStorageWithoutSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer runtime.Close()
-	stop, err := startControllerStorageCapacity(ctx, cfg, runtime, func() bool { return true })
+	if _, err := startControllerStorageCapacity(ctx, cfg, runtime, nil, func() bool { return true }); err == nil {
+		t.Fatal("transport-only broker substituted for the native storage reader")
+	}
+	stop, err := startControllerStorageCapacity(ctx, cfg, runtime, runtime, func() bool { return true })
 	if err != nil {
 		t.Fatal(err)
 	}

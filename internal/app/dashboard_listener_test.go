@@ -207,7 +207,7 @@ func TestNetBirdDashboardServesAuthenticatedResourceAPIs(t *testing.T) {
 	t.Cleanup(runtime.close)
 	lease := observedAuthority{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Leader: true, Ready: true, Epoch: 1,
 		ExpiresAt: time.Now().Add(time.Minute)}}
-	if err := runtime.attachController(ctx, controllerObservation{nats: broker, replicas: 1, brokerIDs: []string{"one"}, authority: lease},
+	if err := runtime.attachController(ctx, controllerObservation{nats: broker, native: broker, replicas: 1, brokerIDs: []string{"one"}, authority: lease},
 		[]observability.FilesystemRole{{Role: "boot", Path: t.TempDir()}}); err != nil {
 		t.Fatal(err)
 	}

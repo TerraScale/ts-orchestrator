@@ -154,7 +154,7 @@ func TestDashboardRolloutHistoryRetainsTerminalRecords(t *testing.T) {
 				t.Fatalf("persisted record: %s %v", loaded.Phase, err)
 			}
 
-			if err := telemetry.attachController(ctx, controllerObservation{nats: broker, replicas: 1, brokerIDs: []string{"one"}, authority: lease, rollouts: store}, nil); err != nil {
+			if err := telemetry.attachController(ctx, controllerObservation{nats: broker, native: broker, replicas: 1, brokerIDs: []string{"one"}, authority: lease, rollouts: store}, nil); err != nil {
 				t.Fatal(err)
 			}
 			browse := func(path string, authorized bool) *httptest.ResponseRecorder {

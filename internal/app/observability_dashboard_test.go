@@ -101,7 +101,7 @@ func TestControllerDashboardRequiresSignIn(t *testing.T) {
 	}
 	lease := observedAuthority{snapshot: authority.Snapshot{Leader: true, Ready: true, OwnerID: "0000000000DV8998ZCQW1J2V2R", Epoch: 3,
 		ExpiresAt: time.Now().Add(time.Minute)}}
-	if err := telemetry.attachController(ctx, controllerObservation{nats: nats, replicas: 1,
+	if err := telemetry.attachController(ctx, controllerObservation{nats: nats, native: nats, replicas: 1,
 		brokerIDs: []string{"one", "two"}, authority: lease}, nil); err != nil {
 		t.Fatal(err)
 	}

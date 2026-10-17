@@ -180,6 +180,7 @@ func watchObservabilityListener(serveErrors <-chan error) {
 // broker, authority and placement state are open. Nil fields are omitted.
 type controllerObservation struct {
 	nats       *natscell.Runtime
+	native     controllerBrokerNative
 	replicas   int
 	brokerIDs  []string
 	authority  authority.Fencer
@@ -226,6 +227,9 @@ type controllerObservation struct {
 func (runtime *runtimeObservability) attachController(ctx context.Context, observed controllerObservation,
 	filesystems []observability.FilesystemRole,
 ) error {
+	if observed.native == nil {
+		return errors.New("controller observations require the native regional broker reader")
+	}
 	runtime.sessionJS, runtime.sessionReplicas = observed.nats.JetStream(), observed.replicas
 	runtime.attachLogs(ctx, observed)
 	if runtime.server != nil && runtime.config.BearerTokenFile != "" {
@@ -241,13 +245,13 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 	runtime.registry.Register(oci.Metrics)
 	runtime.registry.Register(placement.Metrics)
 	runtime.health.Add(observability.Check{Name: "nats", Run: func(context.Context) (bool, string) {
-		if observed.nats.Ready() {
+		if observed.native.Ready() {
 			return true, "regional broker connected"
 		}
 		return false, "regional broker is not connected"
 	}})
 	runtime.health.Add(observability.Check{Name: "cluster", Run: func(context.Context) (bool, string) {
-		if observed.nats.FullClusterReady(observed.replicas) {
+		if observed.native.FullClusterReady(observed.replicas) {
 			return true, fmt.Sprintf("%d of %d replicas routed", observed.replicas, observed.replicas)
 		}
 		return false, "regional cluster is below its full replica count"
@@ -264,7 +268,7 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 	config := observability.CollectorConfig{Cell: runtime.cell, Member: runtime.member, Role: runtime.role,
 		Registry: runtime.registry, Health: runtime.health, Filesystems: filesystems,
 		Authority:   func() observability.AuthorityView { return authorityView(observed.authority.Current()) },
-		NATS:        observed.nats.Observe,
+		NATS:        observed.native.Observe,
 		Delivery:    delivery.View,
 		KVSnapshots: observed.kvSnapshots,
 		OCI:         oci.APIView,

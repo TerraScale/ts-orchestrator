@@ -79,7 +79,7 @@ func TestControllerRolloutsAndBudgetsReachInsightsAndTheDashboard(t *testing.T) 
 	if _, err := store.Commit(ctx, revision, preflight); err != nil {
 		t.Fatal(err)
 	}
-	if err := telemetry.attachController(ctx, controllerObservation{nats: nats, replicas: 1,
+	if err := telemetry.attachController(ctx, controllerObservation{nats: nats, native: nats, replicas: 1,
 		brokerIDs: []string{"one"}, authority: lease, rollouts: store}, nil); err != nil {
 		t.Fatal(err)
 	}
