@@ -37,6 +37,7 @@ type VerifiedStartupTemplate struct {
 
 // startupBindings retains independent logical birth proof and finite target observation.
 type startupBindings struct {
+	original         context.Context
 	logical          *foundationbinding.VerifiedBindings
 	vault            foundationbinding.VerifiedStartupVault
 	factory          *ociclient.Factory
@@ -44,8 +45,13 @@ type startupBindings struct {
 }
 
 func (bindings startupBindings) Revalidate(ctx context.Context) error {
+	if ctx == nil || bindings.original == nil || bindings.original.Err() != nil {
+		return ErrManifestInvalid
+	}
 	boundedCtx, cancel := context.WithDeadline(ctx, bindings.vault.ExpiresAt())
 	defer cancel()
+	stopOriginal := context.AfterFunc(bindings.original, cancel)
+	defer stopOriginal()
 	if bindings.logical != nil {
 		if err := bindings.logical.Revalidate(boundedCtx); err != nil {
 			return err
@@ -377,7 +383,7 @@ func verifyStartupTemplateForIdentityBindings(wire []byte, roots trust.Keyring, 
 // VerifyBoundStartupTemplate independently checks schema-2 startup against the
 // exact original grant, create provenance and current OCI resource facts.
 func VerifyBoundStartupTemplate(ctx context.Context, factory *ociclient.Factory, wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, now time.Time) (VerifiedStartupTemplate, error) {
-	bindings, err := verifyStartupBindings(ctx, factory, wire, roots, anchor, string(anchor.Anchor().Cell), now)
+	bindings, err := verifyStartupBindings(ctx, ctx, factory, wire, roots, anchor, string(anchor.Anchor().Cell), now)
 	if err != nil {
 		return VerifiedStartupTemplate{}, err
 	}
@@ -391,7 +397,13 @@ func VerifyBoundStartupTemplate(ctx context.Context, factory *ociclient.Factory,
 	return verified, nil
 }
 
-func verifyStartupBindings(ctx context.Context, factory *ociclient.Factory, wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, cell string, now time.Time) (*startupBindings, error) {
+func verifyStartupBindings(ctx, original context.Context, factory *ociclient.Factory, wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, cell string, now time.Time) (*startupBindings, error) {
+	if ctx == nil || original == nil || ctx.Err() != nil || original.Err() != nil {
+		return nil, ErrManifestInvalid
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	stopOriginal := context.AfterFunc(original, cancel)
+	defer func() { stopOriginal(); cancel() }()
 	identity := anchor.Anchor()
 	envelope, err := trust.DecodeEnvelope(anchor.Wire())
 	if err != nil {
@@ -463,11 +475,11 @@ func verifyStartupBindings(ctx context.Context, factory *ociclient.Factory, wire
 	}
 	authority := foundationbinding.Authority{Scope: scope, Roots: roots, Policy: BootstrapAnchorTrustPolicy(), GrantSHA256: home.GrantSHA256, Generation: home.GrantGeneration,
 		InstallationID: home.InstallationID, TenancyID: home.TenancyID, Namespace: home.StorageDomain.Namespace, Bucket: home.StorageDomain.HeadBucket, Prefix: home.StorageDomain.Prefix, Cell: cell, Keys: keys}
-	vault, err := foundationbinding.VerifyStartupVault(ctx, factory, authority, wire, anchor.ExpiresAt())
+	vault, err := foundationbinding.VerifyStartupVaultForOperation(ctx, original, factory, authority, wire, anchor.ExpiresAt())
 	if err != nil {
 		return nil, err
 	}
-	bound := &startupBindings{factory: factory, vault: vault, targetReferences: targetReferences}
+	bound := &startupBindings{original: original, factory: factory, vault: vault, targetReferences: targetReferences}
 	keys = slices.DeleteFunc(keys, func(role string) bool { return targetReferences[role] })
 	authority.Keys = keys
 	if len(keys) != 0 {
@@ -495,5 +507,13 @@ func (verified VerifiedStartupTemplate) ForCell(ctx context.Context, cell oci.Re
 	}
 	ctx, cancel := context.WithDeadline(ctx, verified.expiresAt)
 	defer cancel()
-	return VerifyBoundRegionalStartupTemplate(ctx, verified.bindings.factory, verified.grantWire, verified.roots, verified.anchor, cell, now)
+	// The sibling retains the original cap after this operation returns.
+	original, cancelOriginal := context.WithDeadline(verified.bindings.original, verified.expiresAt)
+	sibling, err := VerifyBoundRegionalStartupTemplateForOperation(ctx, original, verified.bindings.factory, verified.grantWire, verified.roots, verified.anchor, cell, now)
+	if err != nil {
+		cancelOriginal()
+		return VerifiedStartupTemplate{}, err
+	}
+	context.AfterFunc(original, cancelOriginal)
+	return sibling, nil
 }

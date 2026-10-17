@@ -75,3 +75,13 @@ func (r FoundationResolver) BootstrapMaterial(ctx context.Context, cell string) 
 	}
 	return reader.AuthorizedBootstrapMaterial(ctx, cell)
 }
+
+// BootstrapMaterialForOperation preserves the original signed startup lifetime
+// while bounding discovery with a separate operation context.
+func (r FoundationResolver) BootstrapMaterialForOperation(ctx, original context.Context, cell string) (VerifiedBootstrapMaterial, error) {
+	reader, ok := r.Footprint.(*SignedFootprint)
+	if !ok || reader == nil {
+		return VerifiedBootstrapMaterial{}, errors.New("foundation scope does not authorize bootstrap material discovery")
+	}
+	return reader.AuthorizedBootstrapMaterialForOperation(ctx, original, cell)
+}
