@@ -67,6 +67,7 @@ type BootstrapStartupIntent = bootstrap.StartupTemplate
 
 type VerifiedBootstrapMaterial struct {
 	source           *SignedFootprint
+	original         context.Context
 	cell             string
 	intent           BootstrapMaterialIntent
 	generation       uint64
@@ -101,12 +102,13 @@ func (v VerifiedBootstrapMaterial) Revalidate(ctx context.Context) error {
 	if v.source == nil || !v.IsVerified() || !time.Now().Before(v.expires) {
 		return errors.New("bootstrap material authority is absent or expired")
 	}
-	if v.startupAuthority != nil {
-		boundedCtx, cancel := context.WithDeadline(ctx, v.expires)
-		defer cancel()
-		ctx = boundedCtx
+	if ctx == nil {
+		return errors.New("bootstrap material requires a live revalidation context")
 	}
-	current, err := v.source.AuthorizedBootstrapMaterial(ctx, v.cell)
+	ctx, cancel := context.WithDeadline(ctx, v.expires)
+	stopOriginal := context.AfterFunc(v.original, cancel)
+	defer func() { stopOriginal(); cancel() }()
+	current, err := v.source.AuthorizedBootstrapMaterialForOperation(ctx, v.original, v.cell)
 	if err != nil {
 		return err
 	}
@@ -148,7 +150,9 @@ func (v VerifiedBootstrapMaterial) Generation() uint64                     { ret
 func (v VerifiedBootstrapMaterial) PlanDigest() string                     { return v.intent.PlanSHA256 }
 func (v VerifiedBootstrapMaterial) StorageDomain() bootstrap.StorageDomain { return v.storage }
 func (v VerifiedBootstrapMaterial) ExpiresAt() time.Time                   { return v.expires }
-func (v VerifiedBootstrapMaterial) IsVerified() bool                       { return v.generation > 0 }
+func (v VerifiedBootstrapMaterial) IsVerified() bool {
+	return v.generation > 0 && v.original != nil && v.original.Err() == nil
+}
 func (v VerifiedBootstrapMaterial) Config() bootstrapmaterial.Config {
 	config := v.intent.Config
 	config.Slots = slices.Clone(config.Slots)
@@ -156,6 +160,23 @@ func (v VerifiedBootstrapMaterial) Config() bootstrapmaterial.Config {
 }
 
 func (s *SignedFootprint) AuthorizedBootstrapMaterial(ctx context.Context, cell string) (VerifiedBootstrapMaterial, error) {
+	return s.AuthorizedBootstrapMaterialForOperation(ctx, ctx, cell)
+}
+
+// AuthorizedBootstrapMaterialForOperation retains the original startup lifetime
+// independently of the current SDK read budget.
+func (s *SignedFootprint) AuthorizedBootstrapMaterialForOperation(ctx, original context.Context, cell string) (VerifiedBootstrapMaterial, error) {
+	if ctx == nil || original == nil || ctx.Err() != nil || original.Err() != nil {
+		return VerifiedBootstrapMaterial{}, errors.New("bootstrap material requires live operation and original contexts")
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	stopOriginal := context.AfterFunc(original, cancel)
+	defer func() { stopOriginal(); cancel() }()
+	if deadline, ok := original.Deadline(); ok {
+		var cancelDeadline context.CancelFunc
+		ctx, cancelDeadline = context.WithDeadline(ctx, deadline)
+		defer cancelDeadline()
+	}
 	grantWire, err := s.readGrant(ctx)
 	if err != nil {
 		return VerifiedBootstrapMaterial{}, err
@@ -226,7 +247,7 @@ func (s *SignedFootprint) AuthorizedBootstrapMaterial(ctx context.Context, cell 
 		if material.Startup != nil {
 			startup := material.Startup.Clone()
 			var boundPlan map[string]any
-			startup, boundPlan, startupAuthority, err = s.boundStartup(ctx, startup, intent.Plan, grantWire)
+			startup, boundPlan, startupAuthority, err = s.boundStartup(ctx, original, startup, intent.Plan, grantWire)
 			if err != nil {
 				return VerifiedBootstrapMaterial{}, err
 			}
@@ -269,7 +290,10 @@ func (s *SignedFootprint) AuthorizedBootstrapMaterial(ctx context.Context, cell 
 		if err := ctx.Err(); err != nil {
 			return VerifiedBootstrapMaterial{}, err
 		}
-		return VerifiedBootstrapMaterial{source: s, cell: cell, intent: material, generation: intent.Generation, storage: s.storage, expires: expires, escrow: escrow, image: image, grantWire: bytes.Clone(grantWire), ledgerPublicKey: ledgerPublicKey, startupAuthority: startupAuthority}, nil
+		if err := original.Err(); err != nil {
+			return VerifiedBootstrapMaterial{}, err
+		}
+		return VerifiedBootstrapMaterial{source: s, original: original, cell: cell, intent: material, generation: intent.Generation, storage: s.storage, expires: expires, escrow: escrow, image: image, grantWire: bytes.Clone(grantWire), ledgerPublicKey: ledgerPublicKey, startupAuthority: startupAuthority}, nil
 	}
 	return VerifiedBootstrapMaterial{}, errors.New("signed foundation scope does not authorize regional credential generation")
 }

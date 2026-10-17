@@ -23,7 +23,13 @@ func VerifyRegionalStartupTemplate(wire []byte, roots trust.Keyring, anchor Veri
 // VerifyBoundRegionalStartupTemplate independently resolves the selected cell's
 // schema-2 resources from the same original protected foundation grant.
 func VerifyBoundRegionalStartupTemplate(ctx context.Context, factory *ociclient.Factory, wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, requestedCell oci.Region, now time.Time) (VerifiedStartupTemplate, error) {
-	bindings, err := verifyStartupBindings(ctx, factory, wire, roots, anchor, string(requestedCell), now)
+	return VerifyBoundRegionalStartupTemplateForOperation(ctx, ctx, factory, wire, roots, anchor, requestedCell, now)
+}
+
+// VerifyBoundRegionalStartupTemplateForOperation keeps the original authority
+// lifetime while independently bounding this operation's protected SDK reads.
+func VerifyBoundRegionalStartupTemplateForOperation(ctx, original context.Context, factory *ociclient.Factory, wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, requestedCell oci.Region, now time.Time) (VerifiedStartupTemplate, error) {
+	bindings, err := verifyStartupBindings(ctx, original, factory, wire, roots, anchor, string(requestedCell), now)
 	if err != nil {
 		return VerifiedStartupTemplate{}, err
 	}
@@ -32,6 +38,9 @@ func VerifyBoundRegionalStartupTemplate(ctx context.Context, factory *ociclient.
 		return VerifiedStartupTemplate{}, err
 	}
 	if err := ctx.Err(); err != nil {
+		return VerifiedStartupTemplate{}, err
+	}
+	if err := original.Err(); err != nil {
 		return VerifiedStartupTemplate{}, err
 	}
 	return verified, nil
