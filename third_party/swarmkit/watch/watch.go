@@ -97,16 +97,18 @@ func (q *Queue) WatchContext(ctx context.Context) (eventq chan events.Event) {
 // function. The returned cancel function will stop the flow of events and
 // close the channel.
 func (q *Queue) CallbackWatch(matcher events.Matcher) (eventq chan events.Event, cancel func()) {
-	return q.callbackWatch(matcher, q.limit, q.closeOutChan)
+	return q.callbackWatch(matcher, q.limit, q.closeOutChan, nil)
 }
 
 // CallbackWatchBounded closes the subscription on overflow instead of dropping
 // observation events or allowing an unbounded slow-consumer queue.
-func (q *Queue) CallbackWatchBounded(matcher events.Matcher) (eventq chan events.Event, cancel func()) {
-	return q.callbackWatch(matcher, 1024, true)
+func (q *Queue) CallbackWatchBounded(matcher events.Matcher) (eventq chan events.Event, cancel func(), closed <-chan struct{}) {
+	done := make(chan struct{})
+	eventq, cancel = q.callbackWatch(matcher, 1024, true, done)
+	return eventq, cancel, done
 }
 
-func (q *Queue) callbackWatch(matcher events.Matcher, limit uint64, closeOutChan bool) (eventq chan events.Event, cancel func()) {
+func (q *Queue) callbackWatch(matcher events.Matcher, limit uint64, closeOutChan bool, closed chan struct{}) (eventq chan events.Event, cancel func()) {
 	chanSink, ch := q.sinkGen.NewChannelSink()
 	lq := queue.NewLimitQueue(chanSink, limit)
 	sink := events.Sink(lq)
@@ -147,6 +149,9 @@ func (q *Queue) callbackWatch(matcher events.Matcher, limit uint64, closeOutChan
 	outChan := make(chan events.Event)
 	go func() {
 		defer externalCancelFunc()
+		if closed != nil {
+			defer close(closed)
+		}
 		if closeOutChan {
 			defer close(outChan)
 		}

@@ -257,6 +257,10 @@ func (s *managementObservationServer) visible(object *api.Object) bool {
 }
 
 func (s *managementObservationServer) observe(stream grpc.ServerStream) error {
+	guard, ok := stream.(guardedManagementStream)
+	if !ok {
+		return denied()
+	}
 	var input wrapperspb.BytesValue
 	if err := stream.RecvMsg(&input); err != nil {
 		return err
@@ -320,6 +324,14 @@ func (s *managementObservationServer) observe(stream grpc.ServerStream) error {
 		return status.Error(codes.FailedPrecondition, "observation source epoch changed")
 	}
 	validate := func() error {
+		select {
+		case <-observed.Closed:
+			return status.Error(codes.OutOfRange, "observation stream lost continuity")
+		default:
+		}
+		if err := guard.validate(stream.Context()); err != nil {
+			return err
+		}
 		if s.node.upstream.Manager() != manager {
 			return errors.New("observation manager replaced")
 		}
@@ -336,10 +348,9 @@ func (s *managementObservationServer) observe(stream grpc.ServerStream) error {
 		if len(wire) > observationMessageLimit {
 			return status.Error(codes.ResourceExhausted, "observation exceeds fixed message bound")
 		}
-		if err := stream.SendMsg(&wrapperspb.BytesValue{Value: wire}); err != nil {
-			return err
-		}
-		return validate()
+		return sendManagementObservation(stream.Context(), observed.Closed, validate, func() error {
+			return stream.SendMsg(&wrapperspb.BytesValue{Value: wire})
+		})
 	}
 	snapshotWire, err := snapshot.Marshal()
 	if err != nil {
@@ -429,6 +440,38 @@ func (s *managementObservationServer) observe(stream grpc.ServerStream) error {
 			} else {
 				return errors.New("observation received an unknown event")
 			}
+		}
+	}
+}
+
+// Returning the handler closes gRPC's transport stream and releases SendMsg.
+// A buffered result lets that one sender exit after overflow or revocation.
+func sendManagementObservation(ctx context.Context, closed <-chan struct{}, validate func() error, send func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := validate(); err != nil {
+		return err
+	}
+	result := make(chan error, 1)
+	go func() { result <- send() }()
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-closed:
+			return status.Error(codes.OutOfRange, "observation stream lost continuity")
+		case <-ticker.C:
+			if err := validate(); err != nil {
+				return err
+			}
+		case err := <-result:
+			if err != nil {
+				return err
+			}
+			return validate()
 		}
 	}
 }
