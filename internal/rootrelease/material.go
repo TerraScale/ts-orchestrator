@@ -76,9 +76,31 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 	if err != nil {
 		return materialScope{}, err
 	}
-	if _, err := containermaterial.VerifyProfile(specEntry.Value(), roots.Current, cellspec.Identity{DeploymentID: identity.DeploymentID, Cell: strings.ToLower(identity.Cell), Environment: identity.Environment}, intent); err != nil {
-		return materialScope{}, err
+
+	specIdentity := cellspec.Identity{DeploymentID: identity.DeploymentID, Cell: strings.ToLower(identity.Cell), Environment: identity.Environment}
+	switch operation {
+	case rootoci.OperationRetainedContainerEvidence, rootoci.OperationRetainedContainerAllocation:
+		// Historical bytes may describe an older profile. Current signed authority
+		// must still retain the role; these reads never admit that old profile.
+		adopted, err := cellspec.VerifyHistorical(specEntry.Value(), roots.Current, specIdentity)
+		if err != nil || !adopted.RootSigned {
+			return materialScope{}, errors.Join(ErrPending, err)
+		}
+		retainedRole := false
+		for _, service := range adopted.Services {
+			if service.Role == intent.Role {
+				retainedRole = true
+			}
+		}
+		if !retainedRole {
+			return materialScope{}, rootoci.ErrUnauthorized
+		}
+	default:
+		if _, err := containermaterial.VerifyProfile(specEntry.Value(), roots.Current, specIdentity, intent); err != nil {
+			return materialScope{}, err
+		}
 	}
+
 	envelope, err := trust.DecodeEnvelope(intent.Container.Claim)
 	if err != nil {
 		return materialScope{}, err
@@ -102,24 +124,47 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 	if !ok {
 		return materialScope{}, rootoci.ErrUnauthorized
 	}
-	expires = earlier(expires, source.ExpiresAt(), envelope.ExpiresAt)
-	qualification, err := trust.DecodeEnvelope(claim.Production.Qualification)
-	if err != nil {
-		return materialScope{}, err
-	}
-	expires = earlier(expires, qualification.ExpiresAt)
-	for _, wire := range [][]byte{intent.Container.Delegation, claim.Production.Delegation} {
-		if len(wire) == 0 {
-			continue
+
+	expires = earlier(expires, source.ExpiresAt())
+	verifyAt := now
+	switch operation {
+	case rootoci.OperationRetainedContainerEvidence, rootoci.OperationRetainedContainerAllocation:
+		// The signed issue instant authenticates provenance, never execution now.
+		verifyAt = envelope.IssuedAt
+		if now.Before(verifyAt) {
+			return materialScope{}, trust.ErrExpired
 		}
-		delegation, err := trust.DecodeEnvelope(wire)
+		migration, err := trust.DecodeEnvelope(intent.Container.Migration)
 		if err != nil {
 			return materialScope{}, err
 		}
-		expires = earlier(expires, delegation.ExpiresAt)
+		if _, err := release.VerifySequenceMigrationCurrent(migration, roots.Current, intent.Role, intent.Environment, migration.IssuedAt); err != nil {
+			return materialScope{}, err
+		}
+	default:
+		expires = earlier(expires, envelope.ExpiresAt)
+		qualification, err := trust.DecodeEnvelope(claim.Production.Qualification)
+		if err != nil {
+			return materialScope{}, err
+		}
+		expires = earlier(expires, qualification.ExpiresAt)
+		for _, wire := range [][]byte{intent.Container.Delegation, claim.Production.Delegation} {
+			if len(wire) == 0 {
+				continue
+			}
+			delegation, err := trust.DecodeEnvelope(wire)
+			if err != nil {
+				return materialScope{}, err
+			}
+			expires = earlier(expires, delegation.ExpiresAt)
+		}
+		// An envelope's expiry is exclusive; the original finite read cannot renew it.
+		expires = expires.Add(-time.Nanosecond)
+		if !now.Before(expires) {
+			return materialScope{}, trust.ErrExpired
+		}
+
 	}
-	// An envelope's expiry is exclusive; the original finite read cannot renew it.
-	expires = expires.Add(-time.Nanosecond)
 	if !now.Before(expires) {
 		return materialScope{}, trust.ErrExpired
 	}
@@ -139,20 +184,26 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 		_, err = trust.VerifyDelegatedCurrent(envelope, release.ContainerScope(target), grant, at, trust.Policy{MaxLifetime: release.MaxUpdateReceiptLifetime})
 		return err
 	}
-	if err := verifyClaim(now); err != nil {
+	if err := verifyClaim(verifyAt); err != nil {
 		return materialScope{}, err
 	}
-	if err := verifyClaim(expires); err != nil {
-		return materialScope{}, err
+
+	if operation == rootoci.OperationContainerEvidence || operation == rootoci.OperationContainerAllocation {
+		if err := verifyClaim(expires); err != nil {
+			return materialScope{}, err
+		}
 	}
 	_, imageDigest, _ := strings.Cut(claim.Image, "@sha256:")
 	candidate := release.ProductionExpectation{SourceRevision: claim.SourceRevision, ArtifactSHA256: imageDigest, QualificationSHA256: claim.QualificationSHA256, Cell: target.Cell, Environment: target.Environment, Runtime: release.ProductionRuntime, Architecture: target.Architecture, Role: target.Role}
-	proof, err := release.VerifyProductionCurrent(claim.Production.Qualification, claim.Production.Delegation, roots.Current, candidate, now)
+	proof, err := release.VerifyProductionCurrent(claim.Production.Qualification, claim.Production.Delegation, roots.Current, candidate, verifyAt)
 	if err != nil {
 		return materialScope{}, err
 	}
-	if _, err := release.VerifyProductionCurrent(claim.Production.Qualification, claim.Production.Delegation, roots.Current, candidate, expires); err != nil {
-		return materialScope{}, err
+
+	if operation == rootoci.OperationContainerEvidence || operation == rootoci.OperationContainerAllocation {
+		if _, err := release.VerifyProductionCurrent(claim.Production.Qualification, claim.Production.Delegation, roots.Current, candidate, expires); err != nil {
+			return materialScope{}, err
+		}
 	}
 	pinned, err := intent.Fingerprint()
 	if err != nil {
@@ -197,6 +248,15 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 }
 
 func (b *Backend) ContainerEvidence(ctx context.Context, call rootoci.Call, request rootoci.ContainerEvidenceRequest) (rootoci.ContainerEvidenceChunk, error) {
+	return b.containerEvidence(ctx, call, rootoci.OperationContainerEvidence, request)
+}
+
+func (b *Backend) RetainedContainerEvidence(ctx context.Context, call rootoci.Call, request rootoci.RetainedContainerEvidenceRequest) (rootoci.RetainedContainerEvidenceChunk, error) {
+	result, err := b.containerEvidence(ctx, call, rootoci.OperationRetainedContainerEvidence, rootoci.ContainerEvidenceRequest(request))
+	return rootoci.RetainedContainerEvidenceChunk(result), err
+}
+
+func (b *Backend) containerEvidence(ctx context.Context, call rootoci.Call, operation rootoci.Operation, request rootoci.ContainerEvidenceRequest) (rootoci.ContainerEvidenceChunk, error) {
 	var result rootoci.ContainerEvidenceChunk
 	if !validDigest(request.EvidenceSHA256) || request.Offset < 0 || request.Offset >= release.MaxProductionEvidenceBytes {
 		return result, rootoci.ErrInvalid
@@ -206,7 +266,7 @@ func (b *Backend) ContainerEvidence(ctx context.Context, call rootoci.Call, requ
 		return result, err
 	}
 	defer cancel()
-	scope, err := b.material(ctx, call, rootoci.OperationContainerEvidence, request.OperationID, request.ExpectedFingerprint)
+	scope, err := b.material(ctx, call, operation, request.OperationID, request.ExpectedFingerprint)
 	if err != nil {
 		return result, err
 	}
@@ -255,13 +315,22 @@ func (b *Backend) ContainerEvidence(ctx context.Context, call rootoci.Call, requ
 }
 
 func (b *Backend) ContainerAllocation(ctx context.Context, call rootoci.Call, request rootoci.ContainerAllocationRequest) (rootoci.ContainerAllocationObservation, error) {
+	return b.containerAllocation(ctx, call, rootoci.OperationContainerAllocation, request)
+}
+
+func (b *Backend) RetainedContainerAllocation(ctx context.Context, call rootoci.Call, request rootoci.RetainedContainerAllocationRequest) (rootoci.RetainedContainerAllocationObservation, error) {
+	result, err := b.containerAllocation(ctx, call, rootoci.OperationRetainedContainerAllocation, rootoci.ContainerAllocationRequest(request))
+	return rootoci.RetainedContainerAllocationObservation(result), err
+}
+
+func (b *Backend) containerAllocation(ctx context.Context, call rootoci.Call, operation rootoci.Operation, request rootoci.ContainerAllocationRequest) (rootoci.ContainerAllocationObservation, error) {
 	var result rootoci.ContainerAllocationObservation
 	ctx, cancel, err := materialContext(ctx, call)
 	if err != nil {
 		return result, err
 	}
 	defer cancel()
-	scope, err := b.material(ctx, call, rootoci.OperationContainerAllocation, request.OperationID, request.ExpectedFingerprint)
+	scope, err := b.material(ctx, call, operation, request.OperationID, request.ExpectedFingerprint)
 	if err != nil {
 		return result, err
 	}
