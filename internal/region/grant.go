@@ -66,16 +66,17 @@ type BootstrapMaterialIntent struct {
 type BootstrapStartupIntent = bootstrap.StartupTemplate
 
 type VerifiedBootstrapMaterial struct {
-	source          *SignedFootprint
-	cell            string
-	intent          BootstrapMaterialIntent
-	generation      uint64
-	storage         bootstrap.StorageDomain
-	expires         time.Time
-	escrow          bootstrapmaterial.VaultTarget
-	image           release.VerifiedImage
-	grantWire       []byte
-	ledgerPublicKey string
+	source           *SignedFootprint
+	cell             string
+	intent           BootstrapMaterialIntent
+	generation       uint64
+	storage          bootstrap.StorageDomain
+	expires          time.Time
+	escrow           bootstrapmaterial.VaultTarget
+	image            release.VerifiedImage
+	grantWire        []byte
+	ledgerPublicKey  string
+	startupAuthority *bootstrap.VerifiedStartupTemplate
 }
 
 func (v VerifiedBootstrapMaterial) SourceRegistration() (bootstrap.InitialSourceRegistration, error) {
@@ -100,6 +101,11 @@ func (v VerifiedBootstrapMaterial) Revalidate(ctx context.Context) error {
 	if v.source == nil || !v.IsVerified() || !time.Now().Before(v.expires) {
 		return errors.New("bootstrap material authority is absent or expired")
 	}
+	if v.startupAuthority != nil {
+		boundedCtx, cancel := context.WithDeadline(ctx, v.expires)
+		defer cancel()
+		ctx = boundedCtx
+	}
 	current, err := v.source.AuthorizedBootstrapMaterial(ctx, v.cell)
 	if err != nil {
 		return err
@@ -111,6 +117,11 @@ func (v VerifiedBootstrapMaterial) Revalidate(ctx context.Context) error {
 	actual, err := json.Marshal(current.intent, json.Deterministic(true))
 	if err != nil || current.generation != v.generation || !bytes.Equal(current.grantWire, v.grantWire) || !bytes.Equal(expected, actual) {
 		return errors.New("bootstrap material authority or owned resources changed")
+	}
+	if v.startupAuthority != nil {
+		if err := v.startupAuthority.VerifyCurrentContext(ctx, time.Now()); err != nil {
+			return err
+		}
 	}
 	return ctx.Err()
 }
@@ -211,10 +222,11 @@ func (s *SignedFootprint) AuthorizedBootstrapMaterial(ctx context.Context, cell 
 			return VerifiedBootstrapMaterial{}, errors.New("bootstrap escrow is outside the signed owned home foundation")
 		}
 		var image release.VerifiedImage
+		var startupAuthority *bootstrap.VerifiedStartupTemplate
 		if material.Startup != nil {
 			startup := material.Startup.Clone()
 			var boundPlan map[string]any
-			startup, boundPlan, err = s.boundStartup(ctx, startup, intent.Plan, grantWire)
+			startup, boundPlan, startupAuthority, err = s.boundStartup(ctx, startup, intent.Plan, grantWire)
 			if err != nil {
 				return VerifiedBootstrapMaterial{}, err
 			}
@@ -225,6 +237,9 @@ func (s *SignedFootprint) AuthorizedBootstrapMaterial(ctx context.Context, cell 
 			material.Startup = &startup
 			if image.ExpiresAt().Before(expires) {
 				expires = image.ExpiresAt()
+			}
+			if startupAuthority != nil && startupAuthority.ExpiresAt().Before(expires) {
+				expires = startupAuthority.ExpiresAt()
 			}
 		}
 		config.Slots = slices.Clone(config.Slots)
@@ -248,7 +263,13 @@ func (s *SignedFootprint) AuthorizedBootstrapMaterial(ctx context.Context, cell 
 			}
 			ledgerPublicKey = base64.StdEncoding.EncodeToString(key)
 		}
-		return VerifiedBootstrapMaterial{source: s, cell: cell, intent: material, generation: intent.Generation, storage: s.storage, expires: expires, escrow: escrow, image: image, grantWire: bytes.Clone(grantWire), ledgerPublicKey: ledgerPublicKey}, nil
+		if startupAuthority != nil && !time.Now().Before(expires) {
+			return VerifiedBootstrapMaterial{}, errors.New("regional startup observation expired during authorization")
+		}
+		if err := ctx.Err(); err != nil {
+			return VerifiedBootstrapMaterial{}, err
+		}
+		return VerifiedBootstrapMaterial{source: s, cell: cell, intent: material, generation: intent.Generation, storage: s.storage, expires: expires, escrow: escrow, image: image, grantWire: bytes.Clone(grantWire), ledgerPublicKey: ledgerPublicKey, startupAuthority: startupAuthority}, nil
 	}
 	return VerifiedBootstrapMaterial{}, errors.New("signed foundation scope does not authorize regional credential generation")
 }
