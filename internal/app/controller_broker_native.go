@@ -48,7 +48,7 @@ type rootBrokerResponse struct {
 	Meta    *natscell.MetaView              `json:"meta,omitzero"`
 	Metrics *observability.NATSView         `json:"metrics,omitzero"`
 	Store   *uint64                         `json:"store,omitzero"`
-	Streams []natscell.StreamState          `json:"streams,omitzero"`
+	Streams *[]natscell.StreamState         `json:"streams,omitzero"`
 	Account *natscell.ControllerAccountView `json:"account,omitzero"`
 	Error   string                          `json:"error,omitempty"`
 }
