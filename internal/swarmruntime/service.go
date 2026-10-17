@@ -3,6 +3,7 @@ package swarmruntime
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"regexp"
@@ -340,10 +341,9 @@ func serviceIntentFingerprint(spec *api.ServiceSpec) (string, error) {
 	spec.Mode = nil
 	delete(spec.Annotations.Labels, LabelOperationID)
 	delete(spec.Annotations.Labels, labelIntentFingerprint)
-	wire := proto.NewBuffer(nil)
-	wire.SetDeterministic(true)
-	if err := wire.Marshal(spec); err != nil {
+	wire, err := json.Marshal(spec, json.Deterministic(true))
+	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%x", sha256.Sum256(wire.Bytes())), nil
+	return fmt.Sprintf("%x", sha256.Sum256(wire)), nil
 }
