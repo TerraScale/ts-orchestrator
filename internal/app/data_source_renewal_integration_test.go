@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto"
+	"crypto/ecdh"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
@@ -20,12 +21,17 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/managedmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/placement"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
@@ -72,6 +78,7 @@ const (
 	renewalFixtureAuth     = "auth.sa-saopaulo-1.oraclecloud.com"
 	renewalFixtureSecrets  = "secrets.vaults.sa-saopaulo-1.oci.oraclecloud.com"
 	renewalFixtureStorage  = "objectstorage.sa-saopaulo-1.oraclecloud.com"
+	renewalFixtureCompute  = "iaas.sa-saopaulo-1.oraclecloud.com"
 )
 
 // This prerequisite crosses production IMDS, federation, Vault and SDK CAS.
@@ -99,20 +106,7 @@ func TestSourceRenewalSDKFixtureIntegration(t *testing.T) {
 	if err != nil || resolved.AccessKeyID != "fixture-access" || resolved.SecretAccessKey != "fixture-secret" {
 		t.Fatalf("production exact Vault resolution: %v", err)
 	}
-	provider, err := ociclient.InstancePrincipalProvider(common.Region("sa-saopaulo-1"), bootstrap.BoundInstancePrincipalDispatcher)
-	if err != nil {
-		t.Fatal(err)
-	}
-	storage, err := objectstorage.NewObjectStorageClientWithConfigurationProvider(provider)
-	if err != nil {
-		t.Fatal(err)
-	}
-	storage.HTTPClient, err = bootstrap.NewInstancePrincipalSDKHTTPClient()
-	if err != nil {
-		t.Fatal(err)
-	}
-	noRetry := common.NoRetryPolicy()
-	storage.SetCustomClientConfiguration(common.CustomClientConfiguration{RetryPolicy: &noRetry})
+	storage := renewalStorageClient(t)
 	const allocationPath = "/n/fixture/b/gru-1-head/o/source-renewal-cas"
 	fixture.allowCAS(renewalFixtureStorage, allocationPath)
 	wire := []byte("first retained fixture allocation")
@@ -141,6 +135,196 @@ func TestSourceRenewalSDKFixtureIntegration(t *testing.T) {
 	if fixture.rejected != 0 || fixture.federations < 2 || fixture.reads != 2 || fixture.writes != 1 || fixture.conflicts != 1 {
 		t.Fatalf("unexpected fixture boundary counts: federation=%d reads=%d writes=%d conflicts=%d rejected=%d", fixture.federations, fixture.reads, fixture.writes, fixture.conflicts, fixture.rejected)
 	}
+}
+
+// This prerequisite starts with retained fixture material. It does not qualify
+// TerraBase's native material producer or invoke PrepareInitial/NativeValidator.
+func TestSourceRenewalRetainedMaterialIntegration(t *testing.T) {
+	if !renewalIsolatedChild(t) {
+		return
+	}
+	cloud := newRenewalCloud(t)
+	control, err := authority.Start(t.Context(), testRolloutJetStream(t), authority.Config{
+		DeploymentID: entityid.New(), Scope: "gru", CandidateID: entityid.New(), Replicas: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = control.Close() })
+	if !control.Current().CanMutate() {
+		t.Fatal("retained-material fixture did not acquire genuine R3 authority")
+	}
+	material := renewalRetainMaterial(t, cloud, renewalStorageClient(t), control, "/srv/source-renewal")
+	if material.receipt.Spec.Scope.DatabaseID == material.receipt.Spec.PlacementDatabaseID ||
+		material.receipt.Spec.Backup == nil || !bytes.Equal(material.bundle.Authority.TrustedKey, material.bundle.Retained.AuthoritySigner.Public().(ed25519.PublicKey)) {
+		t.Fatal("retained fixture lacks distinct business scope, backup or authority continuity")
+	}
+	cloud.mu.Lock()
+	defer cloud.mu.Unlock()
+	if cloud.rejected != 0 || cloud.writes != 1 || cloud.reads != 2 {
+		t.Fatalf("retained material SDK boundary: reads=%d writes=%d rejected=%d", cloud.reads, cloud.writes, cloud.rejected)
+	}
+}
+
+func renewalStorageClient(t *testing.T) objectstorage.ObjectStorageClient {
+	t.Helper()
+	provider, err := ociclient.InstancePrincipalProvider(common.Region("sa-saopaulo-1"), bootstrap.BoundInstancePrincipalDispatcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storage, err := objectstorage.NewObjectStorageClientWithConfigurationProvider(provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storage.HTTPClient, err = bootstrap.NewInstancePrincipalSDKHTTPClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+	noRetry := common.NoRetryPolicy()
+	storage.SetCustomClientConfiguration(common.CustomClientConfiguration{RetryPolicy: &noRetry})
+	return storage
+}
+
+type renewalMaterial struct {
+	deployment managedmaterial.InitialDeployment
+	service    managedmaterial.PreparationService
+	receipt    managedmaterial.PreparationReceipt
+	bundle     managedmaterial.InitialBundle
+}
+
+func renewalRetainMaterial(t *testing.T, cloud *renewalCloud, storage objectstorage.ObjectStorageClient,
+	control *authority.Runtime, root string,
+) renewalMaterial {
+	t.Helper()
+	now := time.Now().UTC()
+	public, signer, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, controller, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipient, err := ecdh.X25519().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, err := placement.RegionSeatIDs(oci.RegionGRU)
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.sourcerenewallive", VersionNumber: 1}
+	deployment, err := managedmaterial.NewDeploymentIdentity(managedmaterial.InitialDeployment{
+		Region: oci.RegionGRU, PlacementDatabaseID: entityid.New(), PartitionID: entityid.New(),
+		LiveS3: managedmaterial.LiveS3Target{Bucket: "source-renewal-live", Region: "sa-saopaulo-1",
+			Endpoint:   "https://fixture.compat.objectstorage.sa-saopaulo-1.oci.customer-oci.com",
+			Credential: live, NativeOCIRoot: &managedmaterial.NativeOCIRoot{Namespace: "fixture"}},
+		Members: [2]managedmaterial.DeploymentMember{
+			{SeatID: seats[0], ServerName: "owner.source-renewal.test", FailureDomain: "FAULT-DOMAIN-1", PrivateIP: "10.44.0.11"},
+			{SeatID: seats[1], ServerName: "peer.source-renewal.test", FailureDomain: "FAULT-DOMAIN-2", PrivateIP: "10.44.0.12"}},
+		ReplicationPort: 9443, ClientPort: 9465, ManagedRuntimeRoot: root}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	draft, err := deployment.DraftSpec()
+	if err != nil {
+		t.Fatal(err)
+	}
+	backup := managedmaterial.BackupS3Target{Bucket: "source-renewal-backup", Region: "sa-saopaulo-1",
+		Endpoint:         "https://fixture.compat.objectstorage.sa-saopaulo-1.oci.customer-oci.com",
+		Credential:       oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.sourcerenewalbackup", VersionNumber: 1},
+		CredentialSHA256: strings.Repeat("0", 64)}
+	target, err := backup.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential, err := protocol.EncodeJSON(struct {
+		Version         uint64 `json:"version"`
+		TargetDigest    string `json:"target_digest"`
+		AccessKeyID     string `json:"access_key_id"`
+		SecretAccessKey string `json:"secret_access_key"`
+	}{1, target, "fixture-backup-access", "fixture-backup-secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	backup.CredentialSHA256 = fmt.Sprintf("%x", sha256.Sum256(credential))
+	dataKey := bytes.Repeat([]byte{0x42}, 32)
+	draft.Backup = &managedmaterial.InitialBackupSpec{Target: backup,
+		OwnerMemberID: deployment.Members[0].MemberID,
+		DataKey:       oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.sourcerenewalkey", VersionNumber: 1},
+		DataKeyID:     entityid.New(), DataKeySHA256: fmt.Sprintf("%x", sha256.Sum256(dataKey)),
+		RetentionPolicyID: "retention-30d", RetentionUntilUnixMS: uint64(now.Add(30 * 24 * time.Hour).UnixMilli()), MaxPointCadenceMS: 60_000}
+	spec, err := managedmaterial.SignRecipientGrant(draft, recipient, signer, now.Add(time.Hour), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	putSecret := func(reference oci.SecretVersionReference, wire []byte) {
+		cloud.putJSON(t, renewalFixtureSecrets, "/20190301/secretbundles/"+reference.SecretOCID+"?versionNumber=1", map[string]any{
+			"secretId": reference.SecretOCID, "versionNumber": reference.VersionNumber,
+			"secretBundleContent": map[string]string{"contentType": "BASE64", "content": base64.StdEncoding.EncodeToString(wire)}})
+	}
+	putSecret(live, []byte(`{"version":1,"access_key_id":"fixture-live-access","secret_access_key":"fixture-live-secret"}`))
+	putSecret(backup.Credential, credential)
+	putSecret(spec.Backup.DataKey, dataKey)
+	const kms = "ocid1.key.oc1.sa-saopaulo-1.sourcerenewal"
+	repository, err := managedmaterial.NewRepository(managedmaterial.RepositoryConfig{
+		Region: oci.RegionGRU, Cell: "gru", Namespace: "fixture", Bucket: "gru-1-head", KMSKeyID: kms}, storage, control)
+	if err != nil {
+		t.Fatal(err)
+	}
+	specWire, err := protocol.EncodeJSON(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	specSHA := fmt.Sprintf("%x", sha256.Sum256(specWire))
+	name := "material/v2/gru/" + spec.PlacementDatabaseID + "/" + spec.PartitionID + "/g1-" + specSHA + ".json"
+	cloud.mu.Lock()
+	cloud.routes[renewalFixtureStorage+"/n/fixture/b/gru-1-head/o/"+name] = renewalCloudRoute{cas: true, kmsKey: kms}
+	cloud.mu.Unlock()
+	epoch := control.Current().Epoch
+	if err := control.Guard(t.Context(), epoch); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := repository.LookupInitial(t.Context(), spec.PartitionID, spec, controller.Public().(ed25519.PublicKey)); !errors.Is(err, managedmaterial.ErrMaterialNotFound) {
+		t.Fatalf("exact retained fixture object must initially be absent: %v", err)
+	}
+	// Signed starting-state records exercise retention and readback only;
+	// native material generation/validation is outside this fixture's claim.
+	bundle, err := managedmaterial.GenerateInitial(spec, public, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	object, err := repository.CreateInitial(t.Context(), epoch, spec.PartitionID, spec, bundle, controller)
+	if err != nil || object.VersionID == "" || object.ETag == "" || object.SpecSHA256 != specSHA || object.Name != name {
+		t.Fatalf("real SDK immutable material CAS: %v", err)
+	}
+	receipt, err := managedmaterial.SignPreparationReceipt("gru", spec.PartitionID, spec, bundle, object, controller, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire, err := protocol.EncodeJSON(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sequence, err := control.CommitMaterialReceipt(t.Context(), epoch, spec.PlacementDatabaseID, spec.PartitionID,
+		entityid.Derive("material-preparation", specSHA), 0, wire)
+	if err != nil || sequence == 0 {
+		t.Fatalf("real R3 retained material commit: sequence=%d error=%v", sequence, err)
+	}
+	entry, err := control.ReadMaterialReceipt(t.Context(), spec.PlacementDatabaseID, spec.PartitionID)
+	if err != nil || entry.Sequence != sequence || entry.Kind != authority.MutationMaterialReceipt || !bytes.Equal(entry.Payload, wire) {
+		t.Fatalf("retained material R3 readback: %v", err)
+	}
+	service := managedmaterial.PreparationService{Cell: "gru", Repository: repository, Receipts: control,
+		Fencer: control, ControllerKey: controller, RecipientSigner: public, AllowedSubnetCIDR: "10.44.0.0/24"}
+	confirmed, actual, err := service.CurrentBundle(t.Context(), spec.PlacementDatabaseID, spec.PartitionID)
+	if err != nil || confirmed.Signature != receipt.Signature || confirmed.Object != object {
+		t.Fatalf("authenticated retained material CurrentBundle: %v", err)
+	}
+	if err := managedmaterial.VerifyPreparationReceipt(confirmed, controller.Public().(ed25519.PublicKey), "gru", spec.PartitionID, actual); err != nil {
+		t.Fatalf("retained material signature and file hashes: %v", err)
+	}
+	t.Logf("signed retained-material fixture: R3 sequence=%d, immutable version=%s; native producer validation outside claim", sequence, object.VersionID)
+	return renewalMaterial{deployment: deployment, service: service, receipt: confirmed, bundle: actual}
 }
 
 func renewalIsolatedChild(t *testing.T) bool {
@@ -183,9 +367,10 @@ func renewalIsolatedChild(t *testing.T) bool {
 }
 
 type renewalCloudRoute struct {
-	body []byte
-	etag string
-	cas  bool
+	body            []byte
+	etag            string
+	cas             bool
+	version, kmsKey string
 }
 
 type renewalCloud struct {
@@ -220,7 +405,7 @@ func newRenewalCloud(t *testing.T) *renewalCloud {
 	leaf := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "Source renewal fixture instance",
 		ExtraNames: []pkix.AttributeTypeAndValue{{Type: []int{2, 5, 4, 13}, Value: "opc-tenant:" + renewalFixtureTenancy}}},
 		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature,
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, DNSNames: []string{renewalFixtureAuth, renewalFixtureSecrets, renewalFixtureStorage}}
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, DNSNames: []string{renewalFixtureAuth, renewalFixtureSecrets, renewalFixtureStorage, renewalFixtureCompute}}
 	leafDER, err := x509.CreateCertificate(rand.Reader, leaf, root, &leafKey.PublicKey, rootKey)
 	if err != nil {
 		t.Fatal(err)
@@ -262,7 +447,7 @@ func newRenewalCloud(t *testing.T) *renewalCloud {
 		// DialTLSContext survives its clone and still validates the original hostname.
 		DialTLSContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 			hostname, port, err := net.SplitHostPort(address)
-			if err != nil || network != "tcp" || port != "443" || hostname != renewalFixtureAuth && hostname != renewalFixtureSecrets && hostname != renewalFixtureStorage {
+			if err != nil || network != "tcp" || port != "443" || hostname != renewalFixtureAuth && hostname != renewalFixtureSecrets && hostname != renewalFixtureStorage && hostname != renewalFixtureCompute {
 				return nil, errors.New("renewal fixture refuses unlisted TLS destination")
 			}
 			dialer := &tls.Dialer{Config: &tls.Config{RootCAs: trusted, ServerName: hostname, MinVersion: tls.VersionTLS12}}
@@ -353,13 +538,26 @@ func (fixture *renewalCloud) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMisdirectedRequest)
 		return
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, (64<<10)+1))
-	if err != nil || len(body) > 64<<10 || fixture.verify(r) != nil || r.Method == http.MethodPut && r.ContentLength != int64(len(body)) {
+	limit := 64 << 10
+	if route.kmsKey != "" {
+		limit = 8 << 20 // Production retained-material repository bound.
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, int64(limit)+1))
+	if err != nil || len(body) > limit || fixture.verify(r) != nil || r.Method == http.MethodPut && r.ContentLength != int64(len(body)) {
 		fixture.rejected++
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
 	if r.Method == http.MethodPut {
+		if route.kmsKey != "" {
+			checksum := sha256.Sum256(body)
+			if r.Header.Get("If-None-Match") != "*" || r.Header.Get("opc-sse-kms-key-id") != route.kmsKey ||
+				r.Header.Get("opc-checksum-algorithm") != "SHA256" || r.Header.Get("opc-content-sha256") != base64.StdEncoding.EncodeToString(checksum[:]) {
+				fixture.rejected++
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+		}
 		if r.Header.Get("If-None-Match") == "*" && route.body != nil || r.Header.Get("If-Match") != "" && (route.body == nil || r.Header.Get("If-Match") != route.etag) {
 			fixture.conflicts++
 			w.Header().Set("Content-Type", "application/json")
@@ -373,6 +571,13 @@ func (fixture *renewalCloud) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		route.body, route.etag = bytes.Clone(body), fmt.Sprintf(`"%x"`, sha256.Sum256(body))
+		if route.kmsKey != "" {
+			route.version = fmt.Sprintf("fixture-%x", sha256.Sum256(body))
+			pinned := route
+			pinned.cas = false
+			fixture.routes[r.Host+r.URL.RequestURI()+"?versionId="+route.version] = pinned
+			w.Header().Set("version-id", route.version)
+		}
 		fixture.routes[r.Host+r.URL.RequestURI()] = route
 		fixture.writes++
 		w.Header().Set("ETag", route.etag)
@@ -385,7 +590,19 @@ func (fixture *renewalCloud) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"code":"ObjectNotFound","message":"fixture CAS object absent"}`)
 		return
 	}
+	if r.Header.Get("If-Match") != "" && r.Header.Get("If-Match") != route.etag ||
+		r.URL.Query().Get("versionId") != "" && (r.URL.Query().Get("versionId") != route.version || r.Header.Get("If-Match") != route.etag) {
+		fixture.conflicts++
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusPreconditionFailed)
+		_, _ = io.WriteString(w, `{"code":"PreconditionFailed","message":"fixture immutable version conflict"}`)
+		return
+	}
 	fixture.reads++
+	if route.version != "" {
+		w.Header().Set("version-id", route.version)
+	}
+	w.Header().Set("Content-Length", strconv.Itoa(len(route.body)))
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("ETag", route.etag)
 	w.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
