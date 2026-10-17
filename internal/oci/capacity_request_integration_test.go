@@ -8,12 +8,15 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/natstest"
 )
 
 func TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity(t *testing.T) {
-	config := natscell.Config{Cell: "lab", Instance: "capacity-request", Replicas: 1, Lab: true,
+	fixture := natstest.NATS(t, "lab")
+	config := natscell.Config{Cell: "lab", Instance: "capacity-request", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "jetstream")}}
-	runtime, err := natscell.Start(t.Context(), config)
+	config = fixture.Config(t, config)
+	runtime, err := fixture.Start(t, t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +39,7 @@ func TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity(t *testing.T)
 	if err := runtime.Close(); err != nil {
 		t.Fatal(err)
 	}
-	runtime, err = natscell.Start(t.Context(), config)
+	runtime, err = fixture.Start(t, t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
 	}

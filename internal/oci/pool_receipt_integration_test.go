@@ -20,15 +20,18 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/natstest"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 )
 
 func TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission(t *testing.T) {
 	const configurationID = "ocid1.instanceconfiguration.oc1..original"
 	const poolID = "ocid1.instancepool.oc1..original"
-	config := natscell.Config{Cell: "lab", Instance: "pool-receipts", Replicas: 1, Lab: true,
+	fixture := natstest.NATS(t, "lab")
+	config := natscell.Config{Cell: "lab", Instance: "pool-receipts", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "jetstream")}}
-	runtime, err := natscell.Start(t.Context(), config)
+	config = fixture.Config(t, config)
+	runtime, err := fixture.Start(t, t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +172,7 @@ func TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmis
 	if err := runtime.Close(); err != nil {
 		t.Fatal(err)
 	}
-	runtime, err = natscell.Start(t.Context(), config)
+	runtime, err = fixture.Start(t, t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
 	}
