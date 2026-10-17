@@ -68,6 +68,17 @@ func NewController(ctx context.Context, reader *bootstrapstart.CurrentFounderAut
 	return b, nil
 }
 
+// GuardedHomeIAM shares the original admitted authority with required root domains.
+func (b *Backend) GuardedHomeIAM(ctx context.Context) (*region.HomeIAMAuthority, error) {
+	if os.Geteuid() != 0 || ctx == nil || b == nil || b.home == nil {
+		return nil, ErrScope
+	}
+	if err := b.home.Guard(ctx, 0); err != nil {
+		return nil, err
+	}
+	return b.home, nil
+}
+
 func local(ctx context.Context) (*Backend, region.FoundationResolver, error) {
 	if os.Geteuid() != 0 || ctx.Err() != nil {
 		return nil, region.FoundationResolver{}, errors.Join(ErrScope, ctx.Err())

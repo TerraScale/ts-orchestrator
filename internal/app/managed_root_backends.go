@@ -52,7 +52,11 @@ func newManagedRootBackends(ctx context.Context, cfg Config, local automaticFoun
 	if err != nil {
 		return nil, fmt.Errorf("construct root foundation and resource backend: %w", err)
 	}
-	capacity, err := newRootCapacityBackend(ctx, local.factory, local.foundations)
+	homeIAM, err := foundation.GuardedHomeIAM(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("retain original root home IAM authority: %w", err)
+	}
+	capacity, err := newRootCapacityBackend(ctx, local.factory, local.foundations, homeIAM)
 	if err != nil {
 		return nil, fmt.Errorf("construct root capacity backend: %w", err)
 	}
