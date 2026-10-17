@@ -406,3 +406,37 @@ func netBirdBrokerSecret(ctx context.Context, factory *ociclient.Factory, target
 	}
 	return *secret.Id, nil
 }
+
+// Every whole-record writer retains original broker IAM history. A sibling
+// update cannot turn an unknown or completed effect into a fresh reservation.
+func (record FoundationRecord) retainNetBirdBrokerPolicies(next FoundationRecord) error {
+	denied := errors.New("NetBird broker original IAM request, deadline or outcome cannot be removed or rewritten")
+	for key, original := range record.NetBirdBrokerPolicies {
+		current, ok := next.NetBirdBrokerPolicies[key]
+		if !ok {
+			return denied
+		}
+		before, after := original, current
+		before.Dispatches, after.Dispatches = 0, 0
+		before.LastDispatchedAt, after.LastDispatchedAt = time.Time{}, time.Time{}
+		before.Uncertain, after.Uncertain = false, false
+		before.PolicyID, after.PolicyID = "", ""
+		a, err := json.Marshal(before, json.Deterministic(true))
+		b, nextErr := json.Marshal(after, json.Deterministic(true))
+		if err != nil || nextErr != nil || string(a) != string(b) || current.Dispatches < original.Dispatches || current.Dispatches > original.Dispatches+1 {
+			return denied
+		}
+		if original.PolicyID != "" {
+			if current.PolicyID != original.PolicyID || current.Dispatches != original.Dispatches || !current.LastDispatchedAt.Equal(original.LastDispatchedAt) || current.Uncertain {
+				return denied
+			}
+		} else if current.Dispatches == original.Dispatches {
+			if !current.LastDispatchedAt.Equal(original.LastDispatchedAt) || current.Uncertain != original.Uncertain && (!original.Uncertain || current.Uncertain || current.PolicyID == "") || current.PolicyID != "" && (!original.Uncertain || current.Uncertain) {
+				return denied
+			}
+		} else if !current.Uncertain || current.PolicyID != "" || current.LastDispatchedAt.Before(original.LastDispatchedAt) {
+			return denied
+		}
+	}
+	return nil
+}

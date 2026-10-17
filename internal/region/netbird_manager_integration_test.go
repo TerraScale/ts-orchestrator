@@ -581,6 +581,53 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 		!current.NetBirdBrokerPolicies[key].ExpiresAt.Equal(originalDeadline) || current.NetBirdManager.StoreState != "ready" {
 		t.Fatalf("restart lost original unknown IAM outcome or manager sibling: %v", err)
 	}
+	for _, mutation := range []struct {
+		name  string
+		apply func(*FoundationRecord)
+	}{
+		{"omit-map", func(r *FoundationRecord) { r.NetBirdBrokerPolicies = nil }},
+		{"omit-key", func(r *FoundationRecord) { delete(r.NetBirdBrokerPolicies, key) }},
+		{"renew-deadline", func(r *FoundationRecord) {
+			p := r.NetBirdBrokerPolicies[key]
+			p.ExpiresAt = p.ExpiresAt.Add(time.Minute)
+			r.NetBirdBrokerPolicies[key] = p
+		}},
+		{"reset-dispatch", func(r *FoundationRecord) {
+			p := r.NetBirdBrokerPolicies[key]
+			p.Dispatches = 0
+			p.LastDispatchedAt = time.Time{}
+			p.Uncertain = false
+			r.NetBirdBrokerPolicies[key] = p
+		}},
+	} {
+		candidate := current
+		candidate.NetBirdBrokerPolicies = maps.Clone(current.NetBirdBrokerPolicies)
+		mutation.apply(&candidate)
+		if _, err := store.CompareAndSwap(t.Context(), candidate, etag); err == nil {
+			t.Fatalf("whole-record CAS accepted broker history mutation %s", mutation.name)
+		}
+	}
+	completed := pending
+	completed.PolicyID, completed.Uncertain = "ocid1.policy.oc1..netbird", false
+	current.NetBirdBrokerPolicies[key] = completed
+	if _, err := store.CompareAndSwap(t.Context(), current, etag); err != nil {
+		t.Fatal(err)
+	}
+	current, etag, err = store.Load(t.Context(), "GRU")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, policy := range []string{"", "ocid1.policy.oc1..replacement"} {
+		candidate := current
+		candidate.NetBirdBrokerPolicies = maps.Clone(current.NetBirdBrokerPolicies)
+		changed := completed
+		changed.PolicyID = policy
+		changed.Uncertain = policy == ""
+		candidate.NetBirdBrokerPolicies[key] = changed
+		if _, err := store.CompareAndSwap(t.Context(), candidate, etag); err == nil {
+			t.Fatal("whole-record CAS removed or changed positive broker policy identity")
+		}
+	}
 	widened := current.NetBirdBrokerPolicies[key]
 	widened.Request.Statements = append(widened.Request.Statements, "Allow any-user to read secret-bundles in tenancy")
 	current.NetBirdBrokerPolicies[key] = widened
