@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -508,7 +509,7 @@ func (authority *HomeIAMAuthority) VerifyFoundationWriter(ctx context.Context) e
 func (record FoundationWriterRecord) validate() error {
 	digest, err := netBirdRequestDigest(record.Request)
 	entry, ok := catalog.Lookup(record.Cell)
-	if err != nil || !ok || !slices.Contains([]string{"GRU", "SFO", "FRA"}, record.Cell) || !entityid.Valid(record.InstallationID) || record.SlotID != BootstrapSlotID(record.InstallationID, record.Cell, "controller", record.Slot) || record.OperationID != BootstrapOperationID(record.InstallationID, record.SlotID) || record.InstanceID != "" && !strings.HasPrefix(record.InstanceID, "ocid1.instance.oc1."+entry.OCIRegion+".") || record.Generation == 0 || !sourceDigest(record.GrantSHA256) || !sourceDigest(record.ProfileSHA256) || !sourceDigest(record.RecipeSHA256) || !sourceDigest(record.ScopeSHA256) || !sourceDigest(record.PhysicalScopeSHA256) || record.BindingSHA256 != "" && !sourceDigest(record.BindingSHA256) || record.RequestDigest != digest || record.RetryToken != BootstrapRetryToken(record.OperationID, digest) || record.FirstAttemptAt.IsZero() || !bootstrapSlotName.MatchString(record.Slot) || !validAuxiliaryID("key", record.KMSKeyID, foundationHomeRegion) || !sourceStoragePattern.MatchString(record.Namespace) || !sourceStoragePattern.MatchString(record.Bucket) || !sourceCompartmentPattern.MatchString(record.BucketCompartment) || record.InstanceID != "" && !sourceInstancePattern.MatchString(record.InstanceID) || record.Request.CompartmentId == nil || !sourceCompartmentPattern.MatchString(*record.Request.CompartmentId) || !maps.Equal(record.Request.Metadata, foundationWriterMetadata(record.Slot)) || len(record.Request.ExtendedMetadata) != 0 {
+	if err != nil || !ok || !slices.Contains([]string{"GRU", "SFO", "FRA"}, record.Cell) || !entityid.Valid(record.InstallationID) || record.SlotID != BootstrapSlotID(record.InstallationID, record.Cell, "controller", record.Slot) || record.OperationID != BootstrapOperationID(record.InstallationID, record.SlotID) || record.InstanceID != "" && !strings.HasPrefix(record.InstanceID, "ocid1.instance.oc1."+entry.OCIRegion+".") || record.Generation == 0 || !sourceDigest(record.GrantSHA256) || !sourceDigest(record.ProfileSHA256) || !sourceDigest(record.RecipeSHA256) || !sourceDigest(record.ScopeSHA256) || !sourceDigest(record.PhysicalScopeSHA256) || record.BindingSHA256 != "" && !sourceDigest(record.BindingSHA256) || record.RequestDigest != digest || record.RetryToken != BootstrapRetryToken(record.OperationID, digest) || record.FirstAttemptAt.IsZero() || !bootstrapSlotName.MatchString(record.Slot) || !foundationWriterKeyPattern.MatchString(record.KMSKeyID) || !sourceStoragePattern.MatchString(record.Namespace) || !sourceStoragePattern.MatchString(record.Bucket) || !sourceCompartmentPattern.MatchString(record.BucketCompartment) || record.InstanceID != "" && !sourceInstancePattern.MatchString(record.InstanceID) || record.Request.CompartmentId == nil || !sourceCompartmentPattern.MatchString(*record.Request.CompartmentId) || !maps.Equal(record.Request.Metadata, foundationWriterMetadata(record.Slot)) || len(record.Request.ExtendedMetadata) != 0 {
 		return errors.New("home writer original launch reservation is invalid")
 	}
 	if record.Policy == nil {
@@ -533,3 +534,5 @@ func (record FoundationWriterRecord) validate() error {
 func foundationWriterMetadata(slot string) map[string]string {
 	return map[string]string{"terrascale-bootstrap": fmt.Sprintf(`{"schemaVersion":1,"slot":%q}`, slot)}
 }
+
+var foundationWriterKeyPattern = regexp.MustCompile(`^ocid1\.key\.oc1\.sa-saopaulo-1\.[a-z0-9]+(?:\.[a-z0-9]+)*$`)
