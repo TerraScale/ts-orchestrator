@@ -83,6 +83,12 @@ func LoadBakedInputs() (BakedInputs, error) {
 	return bakedStore{directory: BakedDirectory, chainFile: RootChainFile, ownerUID: 0, ownerGID: 0}.load()
 }
 
+// LoadImageRoots reads only the existing fixed root-owned image root inventory.
+// Finite qualification verifies its own signed purpose without a production identity.
+func LoadImageRoots() (trust.Keyring, error) {
+	return bakedStore{directory: BakedDirectory, ownerUID: 0, ownerGID: 0}.loadRoots()
+}
+
 // BakedInputsPresent is a routing check, not validation. Any object at the
 // fixed path, including an invalid file or symlink, requires production
 // admission and therefore fails through LoadBakedInputs. Only an absent path
