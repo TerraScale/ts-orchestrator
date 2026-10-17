@@ -373,7 +373,13 @@ func telemetrySnapshotTasks(specs *specRegistry, nodes []*api.Node, allTasks []*
 	}
 	var tasks []*api.Task
 	for _, task := range allTasks {
-		if task == nil || task.NodeID != nodeID || task.Status.State >= api.TaskStateCompleted {
+		if task == nil || task.NodeID != nodeID {
+			continue
+		}
+		if _, known := api.TaskState_name[int32(task.Status.State)]; !known {
+			return nil, fmt.Errorf("manager task %s has an unknown allocation state", task.ID)
+		}
+		if task.Status.State >= api.TaskStateCompleted {
 			continue
 		}
 		labels := task.ServiceAnnotations.Labels
