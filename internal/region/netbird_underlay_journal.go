@@ -20,17 +20,18 @@ var netBirdUnderlaySteps = []string{"manager_gateway", "writer_gateway", "connec
 // NetBirdUnderlayRecord is a single immutable original private network recipe.
 // Possibly sent requests survive renewal, crashes and unrelated journal writes.
 type NetBirdUnderlayRecord struct {
-	PurposeSHA256 string                                 `json:"purposeSha256"`
-	GrantSHA256   string                                 `json:"grantSha256"`
-	OperationID   string                                 `json:"operationId"`
-	IntentDigest  string                                 `json:"intentDigest"`
-	Epoch         uint64                                 `json:"epoch"`
-	Recipe        bootstrap.NetBirdJournalUnderlayRecipe `json:"recipe"`
-	Manager       NetBirdUnderlayEndpoint                `json:"manager"`
-	Writer        NetBirdUnderlayEndpoint                `json:"writer"`
-	StartedAt     time.Time                              `json:"startedAt"`
-	ExpiresAt     time.Time                              `json:"expiresAt"`
-	Requests      map[string]NetBirdUnderlayRequest      `json:"requests"`
+	PurposeSHA256 string                                  `json:"purposeSha256"`
+	GrantSHA256   string                                  `json:"grantSha256"`
+	Origin        bootstrap.NetBirdJournalOriginReference `json:"origin"`
+	OperationID   string                                  `json:"operationId"`
+	IntentDigest  string                                  `json:"intentDigest"`
+	Epoch         uint64                                  `json:"epoch"`
+	Recipe        bootstrap.NetBirdJournalUnderlayRecipe  `json:"recipe"`
+	Manager       NetBirdUnderlayEndpoint                 `json:"manager"`
+	Writer        NetBirdUnderlayEndpoint                 `json:"writer"`
+	StartedAt     time.Time                               `json:"startedAt"`
+	ExpiresAt     time.Time                               `json:"expiresAt"`
+	Requests      map[string]NetBirdUnderlayRequest       `json:"requests"`
 }
 
 type NetBirdUnderlayEndpoint struct {
@@ -63,6 +64,12 @@ type NetBirdUnderlayRequest struct {
 }
 
 func (r NetBirdUnderlayRecord) validate() error {
+	if err := r.Origin.Validate(); err != nil {
+		return err
+	}
+	if r.Origin.GrantSHA256 != r.GrantSHA256 {
+		return errors.New("NetBird underlay archive differs from its original signed grant")
+	}
 	if !sourceDigest(r.PurposeSHA256) || !sourceDigest(r.GrantSHA256) || !sourceDigest(r.IntentDigest) || !entityid.Valid(r.OperationID) || r.Epoch == 0 ||
 		r.StartedAt.IsZero() || !r.StartedAt.Before(r.ExpiresAt) || len(r.Requests) > len(netBirdUnderlaySteps) || r.Manager.validate() != nil || r.Writer.validate() != nil ||
 		r.Manager.InstanceID == r.Writer.InstanceID || r.Manager.VNICID == r.Writer.VNICID || r.Manager.NetworkID == r.Writer.NetworkID || r.Manager.SubnetID == r.Writer.SubnetID ||
