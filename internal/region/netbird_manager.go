@@ -59,20 +59,21 @@ type NetBirdManagerIntent struct {
 // NetBirdManagerLaunch is an immutable singleton reservation in the existing
 // foundation journal. New grant generations cannot reset a pending launch.
 type NetBirdManagerLaunch struct {
-	SlotID              string    `json:"slotId"`
-	OperationID         string    `json:"operationId"`
-	ProfileSHA256       string    `json:"profileSha256"`
-	RecipeSHA256        string    `json:"recipeSha256"`
-	RequestDigest       string    `json:"requestDigest"`
-	RetryToken          string    `json:"retryToken"`
-	StartedAt           time.Time `json:"startedAt"`
-	InstanceID          string    `json:"instanceId,omitempty"`
-	BootVolumeID        string    `json:"bootVolumeId,omitempty"`
-	StoreState          string    `json:"storeState"`
-	OriginGrantSHA256   string    `json:"originGrantSha256"`
-	OriginBindingSHA256 string    `json:"originBindingSha256,omitempty"`
-	OriginalScopeSHA256 string    `json:"originalScopeSha256"`
-	PhysicalScopeSHA256 string    `json:"physicalScopeSha256"`
+	SlotID              string                `json:"slotId"`
+	OperationID         string                `json:"operationId"`
+	ProfileSHA256       string                `json:"profileSha256"`
+	RecipeSHA256        string                `json:"recipeSha256"`
+	RequestDigest       string                `json:"requestDigest"`
+	RetryToken          string                `json:"retryToken"`
+	StartedAt           time.Time             `json:"startedAt"`
+	InstanceID          string                `json:"instanceId,omitempty"`
+	BootVolumeID        string                `json:"bootVolumeId,omitempty"`
+	StoreState          string                `json:"storeState"`
+	OriginGrantSHA256   string                `json:"originGrantSha256"`
+	OriginBindingSHA256 string                `json:"originBindingSha256,omitempty"`
+	OriginalScopeSHA256 string                `json:"originalScopeSha256"`
+	PhysicalScopeSHA256 string                `json:"physicalScopeSha256"`
+	AccountEffect       *NetBirdAccountEffect `json:"accountEffect,omitempty"`
 }
 
 type verifiedNetBirdIntent struct {
