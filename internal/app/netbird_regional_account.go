@@ -98,7 +98,7 @@ func openNetBirdRegionalAccount(ctx context.Context, local automaticFoundation, 
 	if err != nil {
 		return fail(err)
 	}
-	s.floor, err = region.OpenRegionalTrustFloor(reader.Context(), target, s.genesis, cell)
+	s.floor, err = region.OpenRegionalTrustFloorForOperation(ctx, reader.Context(), s.material.ExpiresAt(), target, s.genesis, cell)
 	if err != nil {
 		return fail(err)
 	}
