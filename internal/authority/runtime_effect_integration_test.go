@@ -102,6 +102,10 @@ func TestRuntimeEffectR3Integration(t *testing.T) {
 	if err != nil || len(pending) != 1 || pending[0].Sequence != initial || !bytes.Equal(pending[0].Material, material) {
 		t.Fatalf("retained effect=%+v,%v", pending, err)
 	}
+	rootHistory, err := leaseReader.ListAllRuntimeEffectHistory(ctx)
+	if err != nil || len(rootHistory) != 1 || !reflect.DeepEqual(rootHistory[0], pending[0]) {
+		t.Fatalf("independent root history differs from original retained hold: %+v, %v", rootHistory, err)
+	}
 	pending[0].Material[0] ^= 1
 	pending, err = old.ListUnresolvedRuntimeEffects(ctx, scope)
 	if err != nil || !bytes.Equal(pending[0].Material, material) {
@@ -327,6 +331,10 @@ func TestRuntimeEffectR3Integration(t *testing.T) {
 			t.Fatalf("history lost settled provenance: %+v", retained)
 		}
 	}
+	rootHistory, err = leaseReader.ListAllRuntimeEffectHistory(ctx)
+	if err != nil || len(rootHistory) != 2 {
+		t.Fatalf("independent root reader lost settled DATA history: %+v, %v", rootHistory, err)
+	}
 	expiring := effect
 	expiring.Scope = WorkloadScope{DatabaseID: entityid.New(), PartitionID: entityid.New()}
 	expiring.EffectID, expiring.Epoch = entityid.New(), epoch
@@ -362,6 +370,9 @@ func TestRuntimeEffectR3Integration(t *testing.T) {
 	}
 	if _, err := current.ListUnresolvedRuntimeEffects(ctx, scope); err == nil {
 		t.Fatal("malformed settled history did not retain the scoped hold")
+	}
+	if _, err := leaseReader.ListAllRuntimeEffectHistory(ctx); err == nil {
+		t.Fatal("independent root reader accepted malformed settled DATA history")
 	}
 	if _, err := current.ListAllUnresolvedRuntimeEffects(ctx); err == nil {
 		t.Fatal("recovery inventory ignored malformed retained history")

@@ -290,13 +290,31 @@ func (r *Runtime) listRuntimeEffects(ctx context.Context, scopeFilter string) ([
 	}
 	r.readMu.Lock()
 	defer r.readMu.Unlock()
-	prefix := fmt.Sprintf("%s.%s.placement.runtime.", controlSubjectRoot, r.config.Scope)
-	info, err := r.readStream.Info(ctx, jetstream.WithSubjectFilter(prefix+scopeFilter+">"))
+	return listRuntimeEffects(ctx, r.readStream, r.config.Scope, scopeFilter, r.config.Replicas)
+}
+
+// ListAllRuntimeEffectHistory includes settled records so root cannot mistake
+// a disappeared registration or task for a worker with no prior DATA effects.
+func (r *Reader) ListAllRuntimeEffectHistory(ctx context.Context) ([]RuntimeEffect, error) {
+	if r == nil || r.stream == nil {
+		return nil, ErrFenced
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return listRuntimeEffects(ctx, r.stream, r.scope, "", 3)
+}
+
+func listRuntimeEffects(ctx context.Context, stream jetstream.Stream, scope, scopeFilter string, replicas int) ([]RuntimeEffect, error) {
+	prefix := fmt.Sprintf("%s.%s.placement.runtime.", controlSubjectRoot, scope)
+	info, err := stream.Info(ctx, jetstream.WithSubjectFilter(prefix+scopeFilter+">"))
 	if err != nil {
 		return nil, err
 	}
-	if err := verifyControlStreamConfig(info.Config, r.config.Replicas); err != nil {
+	if err := verifyControlStreamConfig(info.Config, replicas); err != nil {
 		return nil, err
+	}
+	if len(info.State.Subjects) > hostHistoryLimit {
+		return nil, ErrListTooLarge
 	}
 	keys := make([]string, 0, len(info.State.Subjects))
 	for subject := range info.State.Subjects {
@@ -310,12 +328,12 @@ func (r *Runtime) listRuntimeEffects(ctx context.Context, scopeFilter string) ([
 	var effects []RuntimeEffect
 	for _, key := range keys {
 		parts := strings.Split(key, ".")
-		scope := WorkloadScope{DatabaseID: parts[0], PartitionID: parts[1]}
-		entry, err := readMutation(ctx, r.readStream, r.config.Scope, MutationRuntimeEffect, key)
+		workload := WorkloadScope{DatabaseID: parts[0], PartitionID: parts[1]}
+		entry, err := readMutation(ctx, stream, scope, MutationRuntimeEffect, key)
 		if err != nil {
 			return nil, err
 		}
-		effect, err := decodeRuntimeEffect(entry, scope, parts[2])
+		effect, err := decodeRuntimeEffect(entry, workload, parts[2])
 		if err != nil {
 			return nil, err
 		}
