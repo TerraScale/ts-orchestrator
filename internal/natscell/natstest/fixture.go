@@ -190,6 +190,9 @@ func (a *NATSFixture) Config(t *testing.T, cfg natscell.Config) natscell.Config 
 		if embedded.Port == 0 {
 			embedded.Port = -1
 		}
+		if err := natscell.ValidateProductionCredentials(cfg); err != nil {
+			t.Fatalf("fixture production credentials: %v", err)
+		}
 	}
 	return cfg
 }
