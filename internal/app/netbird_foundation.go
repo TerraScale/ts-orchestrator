@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
@@ -96,6 +97,8 @@ func netBirdFoundationSupervisor(ctx context.Context, local automaticFoundation,
 	if err != nil {
 		return foundation.Supervisor{}, err
 	}
+	lifetime := ctx
+	sessions := make(map[string]*netBirdRegionalAccount)
 	return foundation.Supervisor{
 		PrepareStore: func(ctx context.Context) error { return prepareNetBirdFoundationStore(ctx, local, admission) },
 		StoreReady:   admission.MarkStoreReady,
@@ -103,8 +106,8 @@ func netBirdFoundationSupervisor(ctx context.Context, local automaticFoundation,
 			return bootstrapNetBirdManagerAccount(ctx, local, admission, quiesce)
 		},
 		Mesh: func(ctx context.Context) error { return connectNetBirdManagerMesh(ctx, local, admission) },
-		Account: func(ctx context.Context, quiesce func(context.Context) error) error {
-			return reconcileNetBirdFoundationAccount(ctx, local, admission, quiesce)
+		Account: func(ctx context.Context, _ func(context.Context) error) error {
+			return reconcileNetBirdFoundationAccount(ctx, lifetime, local, admission, sessions)
 		},
 		Vault: foundation.BootstrapVault{
 			StoreGeneration: admission.StoreGeneration(), Target: admission.VaultTarget(), Management: &client, Bundles: &bundles,
@@ -189,16 +192,14 @@ func prepareNetBirdFoundationStore(ctx context.Context, local automaticFoundatio
 }
 
 // Supervisor holds the same process lock used by bootstrap and snapshots throughout this call.
-func reconcileNetBirdFoundationAccount(ctx context.Context, local automaticFoundation, admission region.VerifiedNetBirdManager, quiesce func(context.Context) error) error {
+func reconcileNetBirdFoundationAccount(ctx, lifetime context.Context, local automaticFoundation, admission region.VerifiedNetBirdManager, sessions map[string]*netBirdRegionalAccount) error {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
-	check := func() error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		return admission.Check(ctx)
+	if err := admission.Check(ctx); err != nil {
+		return err
 	}
-	if err := check(); err != nil {
+	footprint, err := local.foundations.Footprint.AuthorizedRegions(ctx)
+	if err != nil {
 		return err
 	}
 	bundles, err := vaultsecret.SecretsClient(local.factory)
@@ -209,29 +210,72 @@ func reconcileNetBirdFoundationAccount(ctx context.Context, local automaticFound
 	if err != nil {
 		return err
 	}
+	var pending []error
+	for _, authorized := range footprint.Regions {
+		cell, ok := authorized.Plan["cell"].(string)
+		if !ok {
+			return errors.New("NetBird regional account footprint has no canonical cell")
+		}
+		session := sessions[cell]
+		if session == nil {
+			// The admission's original lifetime remains the ceiling; no per-effect
+			// timeout becomes the source lifetime of a retained broker connection.
+			session, err = openNetBirdRegionalAccount(lifetime, local, admission, cell)
+			if err != nil {
+				// Even an uncertain first authentication requires a new admitted lifecycle.
+				err = errors.Join(foundation.ErrAdmissionExpired, err)
+				sessions[cell] = &netBirdRegionalAccount{cell: cell, failure: err}
+				pending = append(pending, fmt.Errorf("NetBird %s original account reader: %w", cell, err))
+				continue
+			}
+			sessions[cell] = session
+		}
+		if err := reconcileNetBirdRegionalAccount(ctx, admission, session, token); err != nil {
+			pending = append(pending, fmt.Errorf("NetBird %s account: %w", cell, err))
+		}
+	}
+	return errors.Join(pending...)
+}
+
+func reconcileNetBirdRegionalAccount(ctx context.Context, admission region.VerifiedNetBirdManager, session *netBirdRegionalAccount, token string) error {
+	original, desired, err := session.current(ctx, admission)
+	if err != nil {
+		return err
+	}
+	deadline := original.ExpiresAt
+	for _, expires := range []time.Time{session.floor.ExpiresAt(), session.material.ExpiresAt(), admission.ExpiresAt()} {
+		if expires.Before(deadline) {
+			deadline = expires
+		}
+	}
+	ctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	stop := context.AfterFunc(session.reader.Context(), cancel)
+	defer stop()
+	check := func() error {
+		current, actual, err := session.current(ctx, admission)
+		if err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(current, original) || !reflect.DeepEqual(actual, desired) {
+			return errors.New("NetBird account operation's original proposal changed")
+		}
+		return ctx.Err()
+	}
 	api, err := manager.NewFencedAPI("http://127.0.0.1:18081", token, check)
 	if err != nil {
 		return err
 	}
 	defer api.Close()
-	if err := manager.RestrictBaseline(ctx, api); err != nil {
-		return err
-	}
-	report, syncErr := manager.Sync(ctx, api, manager.GRU(), true)
+	report, syncErr := manager.Sync(ctx, api, desired, true)
 	for _, change := range report.Changes {
-		log.Printf("NetBird account applied: %s", change)
+		log.Printf("NetBird %s account applied: %s", session.cell, change)
 	}
-	// The sole host owner preserves independent hygiene even when an account shape refuses sync.
-	report, pruneErr := manager.Prune(ctx, api, manager.GRU(), manager.PruneOptions{}, true)
+	report, pruneErr := manager.Prune(ctx, api, desired, manager.PruneOptions{}, true)
 	for _, change := range report.Changes {
-		log.Printf("NetBird peer hygiene applied: %s", change)
+		log.Printf("NetBird %s peer hygiene applied: %s", session.cell, change)
 	}
-	for _, failure := range []error{syncErr, pruneErr} {
-		if failure != nil {
-			log.Printf("NetBird account reconciliation deferred: %v", failure)
-		}
-	}
-	return nil
+	return errors.Join(syncErr, pruneErr, check())
 }
 
 func reconcileNetBirdRegionEnrollment(ctx context.Context, local automaticFoundation, admission region.VerifiedNetBirdManager, cell string, desired manager.Desired, quiesce func(context.Context) error, api *manager.API) error {
