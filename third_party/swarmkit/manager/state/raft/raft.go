@@ -623,7 +623,7 @@ func (n *Node) Run(ctx context.Context) error {
 			// saveToStorage.
 			if !raft.IsEmptySnap(rd.Snapshot) {
 				// Load the snapshot data into the store
-				if err := n.restoreFromSnapshotAt(ctx, rd.Snapshot.Data, rd.Snapshot.Metadata.Index); err != nil {
+				if err := n.restoreFromSnapshot(ctx, rd.Snapshot.Data, rd.Snapshot.Metadata.Index); err != nil {
 					log.G(ctx).WithError(err).Error("failed to restore cluster from snapshot")
 				}
 				n.appliedIndex = rd.Snapshot.Metadata.Index
@@ -746,12 +746,8 @@ func (n *Node) Run(ctx context.Context) error {
 	}
 }
 
-func (n *Node) restoreFromSnapshot(ctx context.Context, data []byte) error {
-	return n.restoreFromSnapshotAt(ctx, data, 0)
-}
-
-func (n *Node) restoreFromSnapshotAt(ctx context.Context, data []byte, index uint64) error {
-	snapCluster, err := n.clusterSnapshotAt(data, index)
+func (n *Node) restoreFromSnapshot(ctx context.Context, data []byte, index uint64) error {
+	snapCluster, err := n.clusterSnapshot(data, index)
 	if err != nil {
 		return err
 	}
@@ -1606,7 +1602,7 @@ func (n *Node) proposeValueAt(ctx context.Context, storeAction []api.StoreAction
 	defer metrics.StartTimer(proposeLatencyTimer)()
 	ctx, cancel := n.WithContext(ctx)
 	defer cancel()
-	_, err := n.processInternalRaftRequestAt(ctx, &api.InternalRaftRequest{Action: storeAction}, cb, commitAt)
+	_, err := n.processInternalRaftRequest(ctx, &api.InternalRaftRequest{Action: storeAction}, cb, commitAt)
 
 	return err
 }
@@ -1661,6 +1657,15 @@ func (n *Node) changesBetween(from, to api.Version, maxBytes uint64) ([]state.Ch
 	}
 	if from.Index < to.Index && (len(pbs) == 0 || pbs[len(pbs)-1].Index != to.Index) {
 		return nil, errors.New("requested observation history exceeds replay limit")
+	}
+	// Raft permits the first entry to exceed Entries' requested byte limit.
+	var replayBytes uint64
+	for _, entry := range pbs {
+		size := uint64(entry.Size())
+		if size > maxBytes-replayBytes {
+			return nil, errors.New("requested observation history exceeds replay limit")
+		}
+		replayBytes += size
 	}
 
 	var changes []state.Change
@@ -1807,11 +1812,7 @@ func (n *Node) saveToStorage(
 // 1. Gets the necessary replies back from the participating nodes and also performs the commit itself, or
 // 2. There is an error, or
 // 3. Until the raft node finalizes all the proposals on node shutdown.
-func (n *Node) processInternalRaftRequest(ctx context.Context, r *api.InternalRaftRequest, cb func()) (proto.Message, error) {
-	return n.processInternalRaftRequestAt(ctx, r, cb, nil)
-}
-
-func (n *Node) processInternalRaftRequestAt(ctx context.Context, r *api.InternalRaftRequest, cb func(), commitAt func(uint64)) (proto.Message, error) {
+func (n *Node) processInternalRaftRequest(ctx context.Context, r *api.InternalRaftRequest, cb func(), commitAt func(uint64)) (proto.Message, error) {
 	n.stopMu.RLock()
 	if !n.IsMember() {
 		n.stopMu.RUnlock()

@@ -74,7 +74,7 @@ func (n *Node) loadAndStart(ctx context.Context, forceNewCluster bool) error {
 	n.Config.ID = raftNode.RaftID
 
 	if snapshot != nil {
-		snapCluster, err := n.clusterSnapshotAt(snapshot.Data, snapshot.Metadata.Index)
+		snapCluster, err := n.clusterSnapshot(snapshot.Data, snapshot.Metadata.Index)
 		if err != nil {
 			return err
 		}
@@ -248,11 +248,7 @@ func (n *Node) triggerSnapshot(ctx context.Context, raftConfig api.RaftConfig) {
 	<-viewStarted
 }
 
-func (n *Node) clusterSnapshot(data []byte) (api.ClusterSnapshot, error) {
-	return n.clusterSnapshotAt(data, 0)
-}
-
-func (n *Node) clusterSnapshotAt(data []byte, index uint64) (api.ClusterSnapshot, error) {
+func (n *Node) clusterSnapshot(data []byte, index uint64) (api.ClusterSnapshot, error) {
 	var snapshot api.Snapshot
 	if err := snapshot.Unmarshal(data); err != nil {
 		return snapshot.Membership, err
