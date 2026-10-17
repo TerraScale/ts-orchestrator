@@ -392,7 +392,7 @@ func TestCopyRefusesUnpinnedAndReplacedResources(t *testing.T) {
 						}
 					} else {
 						name := r.MirrorBucket
-						if resource == "0000000000SF1REEJJX6TC691V" {
+						if resource == "seed" {
 							name = r.SeedBucket
 						}
 						if unpinned {
