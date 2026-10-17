@@ -100,6 +100,9 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 		if err := record.retainNetBirdManager(previous); err != nil {
 			return "", err
 		}
+		if err := record.retainNetBirdMaterial(previous); err != nil {
+			return "", err
+		}
 		if err := previous.retainOCIRIssuances(record); err != nil {
 			return "", err
 		}
@@ -148,6 +151,9 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 }
 
 func (r FoundationRecord) validate() error {
+	if err := r.validateNetBirdMaterial(); err != nil {
+		return err
+	}
 	if err := r.validateOCIRIssuances(); err != nil {
 		return err
 	}
@@ -169,6 +175,10 @@ func (r FoundationRecord) validate() error {
 		return errors.New("foundation record lease is invalid")
 	}
 	switch r.Stage {
+	case "material":
+		if !r.netBirdMaterialOnly() {
+			return errors.New("material-only reservation cannot authorize foundation progress")
+		}
 	case "foundation":
 		if r.LeaseID == "" || !r.CompletedAt.IsZero() || r.BlockedReason != "" {
 			return errors.New("active foundation record has invalid outcome")

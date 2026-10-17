@@ -169,7 +169,7 @@ func PrepareFoundationGrantSDK(ctx context.Context, input FoundationPreparationI
 			return Live{}, err
 		}
 		return liveSDK(ctx, regional, tenancy, ociRegion)
-	})
+	}, factory.Provider())
 	if err != nil {
 		return FoundationPreparation{}, err
 	}
@@ -185,12 +185,23 @@ func PrepareFoundationGrantSDK(ctx context.Context, input FoundationPreparationI
 
 // PrepareFoundationGrant derives the complete fixed first footprint from one
 // platform template and current verified image-source results.
-func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInput, images map[string]releasechannel.CurrentImage, lookup Lookup) (FoundationPreparation, error) {
+func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInput, images map[string]releasechannel.CurrentImage, lookup Lookup, provider common.ConfigurationProvider) (FoundationPreparation, error) {
 	if err := input.validate(); err != nil {
 		return FoundationPreparation{}, err
 	}
 	if lookup == nil {
 		return FoundationPreparation{}, errors.New("foundation preparation requires current OCI regional catalog facts")
+	}
+	if provider == nil {
+		return FoundationPreparation{}, errors.New("foundation preparation requires its authenticated original user provider")
+	}
+	producer, err := provider.UserOCID()
+	if err != nil || !netBirdMaterialUser(producer) {
+		return FoundationPreparation{}, errors.New("foundation preparation lacks an authenticated original user")
+	}
+	tenancy, err := provider.TenancyOCID()
+	if err != nil || tenancy != input.TenancyID {
+		return FoundationPreparation{}, errors.New("foundation preparation user belongs to a different tenancy")
 	}
 	var template map[string]any
 	if err := json.Unmarshal([]byte(platform.FoundationTemplate()), &template); err != nil {
@@ -268,7 +279,7 @@ func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInpu
 				FoundationScope: &bootstrap.FoundationScope{InstallationID: installation, DeploymentID: material.Config.DeploymentID, ClusterID: material.Config.ClusterID, TenancyID: input.TenancyID, OCIRegion: foundationHomeRegion, StorageDomain: input.HomeStorageDomain, GrantGeneration: 1}}
 		}
 	}
-	manager, managerSlot, err := prepareFoundationNetBird(input, installation, grant.Regions[0].Plan, images["netbird-manager"])
+	manager, managerSlot, err := prepareFoundationNetBird(input, installation, grant.Regions[0].Plan, images["netbird-manager"], producer)
 	if err != nil {
 		return FoundationPreparation{}, err
 	}
@@ -285,6 +296,13 @@ func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInpu
 	grant.WorkloadGenesis, err = foundationWorkloadGenesis(grant, input.HomeStorageDomain)
 	if err != nil {
 		return FoundationPreparation{}, err
+	}
+	for index := range grant.Regions {
+		authorization, err := foundationAdmissionAttestor(grant, input.HomeStorageDomain, grant.Regions[index])
+		if err != nil {
+			return FoundationPreparation{}, err
+		}
+		grant.Regions[index].BootstrapMaterial.AdmissionAttestor = &authorization
 	}
 	if err := ValidatePreparedFoundation(grant); err != nil {
 		return FoundationPreparation{}, err
@@ -437,8 +455,12 @@ func validatePreparationImage(image releasechannel.CurrentImage, cell string) er
 	return nil
 }
 
-func prepareFoundationNetBird(input FoundationPreparationInput, installation string, plan map[string]any, image releasechannel.CurrentImage) (NetBirdManagerIntent, BootstrapSlotIntent, error) {
+func prepareFoundationNetBird(input FoundationPreparationInput, installation string, plan map[string]any, image releasechannel.CurrentImage, producer string) (NetBirdManagerIntent, BootstrapSlotIntent, error) {
 	if err := validatePreparationImage(image, "GRU"); err != nil {
+		return NetBirdManagerIntent{}, BootstrapSlotIntent{}, err
+	}
+	material, err := newNetBirdMaterialAuthority(installation, input.TenancyID, producer, input.SourceVaultTarget)
+	if err != nil {
 		return NetBirdManagerIntent{}, BootstrapSlotIntent{}, err
 	}
 	// The dedicated manager uses its own /24 next to the controller network.
@@ -451,7 +473,7 @@ func prepareFoundationNetBird(input FoundationPreparationInput, installation str
 	managerNetwork := netip.PrefixFrom(netip.AddrFrom4(address), 24)
 	address[3] = 10
 	host := input.NetBirdManager
-	intent := NetBirdManagerIntent{Role: NetBirdManagerRole, StoreOrigin: "new", ImageOCID: image.Image.Receipt().OCIImageOCID, Architecture: "arm64",
+	intent := NetBirdManagerIntent{Material: &material, Role: NetBirdManagerRole, StoreOrigin: "new", ImageOCID: image.Image.Receipt().OCIImageOCID, Architecture: "arm64",
 		Profile:          NetBirdManagerProfile{AvailabilityDomain: plan["availability_domain"].(string), FaultDomain: "FAULT-DOMAIN-1", PrivateIP: netip.AddrFrom4(address).String(), NetworkCIDR: managerNetwork.String(), Shape: "VM.Standard.A1.Flex", OCPUs: float32(host.OCPUs), MemoryGB: float32(host.MemoryGB), BootVolumeGB: host.BootGB},
 		ImageReceiptWire: slices.Clone(image.ReceiptWire), ImageDelegationWire: slices.Clone(image.DelegationWire), QualificationWire: slices.Clone(image.QualificationWire), QualificationDelegationWire: slices.Clone(image.QualificationDelegationWire)}
 	profileDigest, err := NetBirdManagerProfileDigest(intent.Profile)
@@ -500,6 +522,9 @@ func controllerBootstrapSlot(installation, cell string, startup bootstrap.Startu
 // ValidatePreparedFoundation prevents the ceremony from signing spending
 // hashes unrelated to the recipes its launch consumers actually enforce.
 func ValidatePreparedFoundation(grant FoundationGrant) error {
+	if err := validateFoundationNetBirdMaterial(grant); err != nil {
+		return err
+	}
 	var home bootstrap.StorageDomain
 	for _, regional := range grant.Regions {
 		if regional.Plan["cell"] == "GRU" && regional.BootstrapMaterial != nil && regional.BootstrapMaterial.SourceRegistration != nil {
@@ -507,6 +532,9 @@ func ValidatePreparedFoundation(grant FoundationGrant) error {
 		}
 	}
 	if err := validateFoundationWorkloadGenesis(grant, home); err != nil {
+		return err
+	}
+	if err := validateFoundationAdmissionAttestors(grant, home); err != nil {
 		return err
 	}
 	if err := validatePreparedReleaseAuthorities(grant.ReleaseAuthorities); err != nil {

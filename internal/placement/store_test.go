@@ -325,6 +325,49 @@ func TestMemberPinReaderOpensExistingDurableStateWithoutWrites(t *testing.T) {
 	if count, _, err := direct.Pending(); err != nil || count != 0 || reads != 3 {
 		t.Fatalf("member reader bypassed leader: leader=%d, direct=%d, error=%v", reads, count, err)
 	}
+
+	lookupIntent := validIntent(oci.RegionGRU)
+	lookupIntent.PartitionID = "00000000001WFHC56Q8NB0X6T8"
+	lookupState := testMemberState(t, committedTestIntent(t, lookupIntent), Seat{
+		MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU,
+		FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent,
+	}, StagePreparedHost)
+	lookupKey := memberStateKey(lookupState.DatabaseID, lookupState.PartitionID, lookupState.MemberID)
+	if lookupKey == memberStateKey(state.DatabaseID, state.PartitionID, state.MemberID) {
+		t.Fatal("fresh partition lookup reused the written member key")
+	}
+	if _, err := kv.Get(t.Context(), lookupKey); !errors.Is(err, jetstream.ErrKeyNotFound) {
+		t.Fatalf("never-written native member key = %v, want ErrKeyNotFound", err)
+	}
+	lookupStore := &jetStreamStore{state: kv}
+	if _, err := lookupStore.ReadMember(t.Context(), lookupState.DatabaseID, lookupState.PartitionID, lookupState.MemberID); !errors.Is(err, ErrMemberNotFound) {
+		t.Fatalf("never-written exact member lookup = %v, want ErrMemberNotFound", err)
+	}
+	lookupWire, err := protocol.EncodeJSON(lookupState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lookupRevision, err := kv.Put(t.Context(), lookupKey, lookupWire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	member, err = lookupStore.ReadMember(t.Context(), lookupState.DatabaseID, lookupState.PartitionID, lookupState.MemberID)
+	if err != nil || member.Revision != lookupRevision || !reflect.DeepEqual(member.State, lookupState) {
+		t.Fatalf("native exact member lookup = %+v, %v; want revision %d and original state", member, err, lookupRevision)
+	}
+	if err := observer.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if count, _, err := direct.Pending(); err != nil || count != 3 {
+		t.Fatalf("native exact member lookup requests = %d, %v; want 3", count, err)
+	}
+	wantSubject := prefix + ".DIRECT.GET.KV_" + stateBucketName + ".$KV." + stateBucketName + "." + lookupKey
+	for range 3 {
+		request, err := direct.NextMsgWithContext(t.Context())
+		if err != nil || request.Subject != wantSubject {
+			t.Fatalf("native exact member request = %+v, %v; want subject %q", request, err, wantSubject)
+		}
+	}
 }
 
 func TestMemberStateKeyIncludesPartitionIdentity(t *testing.T) {
@@ -336,37 +379,6 @@ func TestMemberStateKeyIncludesPartitionIdentity(t *testing.T) {
 	if !entityid.Valid(first) || !entityid.Valid(second) {
 		t.Fatal("member keys must be plain ULIDs")
 	}
-}
-
-func TestReadMemberUsesExactKeyAndReturnsExplicitAbsence(t *testing.T) {
-	state := validMemberStateForPins(t)
-	state.DatabaseID = "0000000000JJVVW9EMWY1PE1VX"
-	data, err := protocol.EncodeJSON(state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	entry := fixedMemberEntry{key: memberStateKey(state.DatabaseID, state.PartitionID, state.MemberID), value: data, revision: 9}
-	kv := &exactLookupKV{entry: entry}
-	store := &jetStreamStore{state: kv}
-	got, err := store.ReadMember(context.Background(), state.DatabaseID, state.PartitionID, state.MemberID)
-	if err != nil || got.Revision != entry.revision || !reflect.DeepEqual(got.State, state) {
-		t.Fatalf("exact member lookup = %+v, %v; want revision %d and original state", got, err, entry.revision)
-	}
-	if kv.key != memberStateKey(state.DatabaseID, state.PartitionID, state.MemberID) {
-		t.Fatalf("member lookup read key %q; want exact composite key", kv.key)
-	}
-
-	kv.err = jetstream.ErrKeyNotFound
-	if _, err := store.ReadMember(context.Background(), state.DatabaseID, state.PartitionID, state.MemberID); !errors.Is(err, ErrMemberNotFound) {
-		t.Fatalf("missing exact member lookup error = %v, want ErrMemberNotFound", err)
-	}
-}
-
-type exactLookupKV struct {
-	jetstream.KeyValue
-	entry fixedMemberEntry
-	key   string
-	err   error
 }
 
 func TestListMembersReadsOnlyRequestedPartitionSeats(t *testing.T) {
@@ -397,14 +409,6 @@ func (kv *partitionLookupKV) Get(_ context.Context, key string) (jetstream.KeyVa
 	kv.reads++
 	if key != kv.entry.key {
 		return nil, jetstream.ErrKeyNotFound
-	}
-	return kv.entry, nil
-}
-
-func (kv *exactLookupKV) Get(_ context.Context, key string) (jetstream.KeyValueEntry, error) {
-	kv.key = key
-	if kv.err != nil {
-		return nil, kv.err
 	}
 	return kv.entry, nil
 }

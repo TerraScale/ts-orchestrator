@@ -46,15 +46,16 @@ type NetBirdManagerProfile struct {
 // NetBirdManagerIntent extends the same root-signed foundation footprint. Image
 // and runtime qualification are independent of permission to buy this slot.
 type NetBirdManagerIntent struct {
-	Role                        string                `json:"role"`
-	StoreOrigin                 string                `json:"storeOrigin"`
-	Profile                     NetBirdManagerProfile `json:"profile"`
-	ImageOCID                   string                `json:"imageOcid"`
-	Architecture                string                `json:"architecture"`
-	ImageReceiptWire            []byte                `json:"imageReceiptWire"`
-	ImageDelegationWire         []byte                `json:"imageDelegationWire"`
-	QualificationWire           []byte                `json:"qualificationWire"`
-	QualificationDelegationWire []byte                `json:"qualificationDelegationWire"`
+	Material                    *NetBirdMaterialAuthority `json:"material,omitempty"`
+	Role                        string                    `json:"role"`
+	StoreOrigin                 string                    `json:"storeOrigin"`
+	Profile                     NetBirdManagerProfile     `json:"profile"`
+	ImageOCID                   string                    `json:"imageOcid"`
+	Architecture                string                    `json:"architecture"`
+	ImageReceiptWire            []byte                    `json:"imageReceiptWire"`
+	ImageDelegationWire         []byte                    `json:"imageDelegationWire"`
+	QualificationWire           []byte                    `json:"qualificationWire"`
+	QualificationDelegationWire []byte                    `json:"qualificationDelegationWire"`
 }
 
 // NetBirdManagerLaunch is an immutable singleton reservation in the existing
@@ -361,13 +362,14 @@ func NetBirdManagerRecipeDigest(intent NetBirdManagerIntent, imageSHA256 string)
 		return "", errors.New("NetBird manager recipe requires a qualified image digest")
 	}
 	wire, err := json.Marshal(struct {
-		Role        string                `json:"role"`
-		StoreOrigin string                `json:"storeOrigin"`
-		Profile     NetBirdManagerProfile `json:"profile"`
-		ImageOCID   string                `json:"imageOcid"`
-		ImageSHA256 string                `json:"imageSha256"`
-		Runtime     string                `json:"runtime"`
-	}{NetBirdManagerRole, intent.StoreOrigin, intent.Profile, intent.ImageOCID, imageSHA256, NetBirdManagerRuntime}, json.Deterministic(true))
+		Role        string                    `json:"role"`
+		StoreOrigin string                    `json:"storeOrigin"`
+		Profile     NetBirdManagerProfile     `json:"profile"`
+		ImageOCID   string                    `json:"imageOcid"`
+		ImageSHA256 string                    `json:"imageSha256"`
+		Runtime     string                    `json:"runtime"`
+		Material    *NetBirdMaterialAuthority `json:"material,omitempty"`
+	}{NetBirdManagerRole, intent.StoreOrigin, intent.Profile, intent.ImageOCID, imageSHA256, NetBirdManagerRuntime, intent.Material}, json.Deterministic(true))
 	if err != nil {
 		return "", err
 	}

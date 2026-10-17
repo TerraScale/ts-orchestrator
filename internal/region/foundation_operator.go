@@ -46,8 +46,7 @@ func (authority *HomeIAMAuthority) reserveFoundationWorkloadOrigin(ctx context.C
 	if err := authority.Guard(ctx, 0); err != nil {
 		return err
 	}
-	reader, ok := authority.resolver.Footprint.(*SignedFootprint)
-	if !ok {
+	if _, ok := authority.resolver.Footprint.(*SignedFootprint); !ok {
 		return errors.New("founding workload origin lacks its verified foundation reader")
 	}
 	envelope, err := trust.DecodeEnvelope(authority.operator.bundle.GrantWire)
@@ -81,6 +80,15 @@ func (authority *HomeIAMAuthority) reserveFoundationWorkloadOrigin(ctx context.C
 	if err := authority.Guard(ctx, 0); err != nil {
 		return err
 	}
+	return nil
+}
+
+func (authority *HomeIAMAuthority) verifyFoundationWorkloadStartup(ctx context.Context) error {
+	grant, err := authority.originalMaterialGrant()
+	if err != nil || grant.SchemaVersion != 3 {
+		return err
+	}
+	reader := authority.resolver.Footprint.(*SignedFootprint)
 	// Existing consumers must understand the signed lineage before paid work.
 	_, err = bootstrap.VerifyBoundRegionalStartupTemplate(ctx, authority.factory, authority.operator.bundle.GrantWire, reader.roots, reader.bootstrapAnchor, oci.RegionGRU, time.Now())
 	return err
@@ -219,6 +227,17 @@ func newOperatorHomeIAMAuthority(ctx context.Context, factory *ociclient.Factory
 	if err != nil || tenancy != bundle.TenancyID {
 		return nil, FoundationResolver{}, errors.New("initial provisioning differs from authenticated operator tenancy")
 	}
+	grant, err := decodeOriginalMaterialGrant(bundle)
+	if err != nil {
+		return nil, FoundationResolver{}, err
+	}
+	if grant.SchemaVersion == 3 {
+		for _, intent := range grant.Regions {
+			if intent.NetBirdManager != nil && (intent.NetBirdManager.Material == nil || intent.NetBirdManager.Material.Context.ProducerUserID != principal) {
+				return nil, FoundationResolver{}, errors.New("initial user differs from original signed material producer")
+			}
+		}
+	}
 	reader, ok := resolver.Footprint.(*SignedFootprint)
 	if !ok {
 		return nil, FoundationResolver{}, errors.New("initial provisioning requires its verified signed foundation")
@@ -264,6 +283,14 @@ func newOperatorHomeIAMAuthority(ctx context.Context, factory *ociclient.Factory
 		ledger.LifecycleState != keymanagement.KeyLifecycleStateEnabled || ledger.ProtectionMode != keymanagement.KeyProtectionModeHsm || ledger.KeyShape == nil ||
 		ledger.KeyShape.Algorithm != keymanagement.KeyShapeAlgorithmAes || ledger.KeyShape.Length == nil || *ledger.KeyShape.Length != 32 {
 		return nil, FoundationResolver{}, errors.Join(errors.New("initial ledger key is not enabled HSM AES-256 in the signed home escrow Vault and compartment"), err)
+	}
+	if grant.SchemaVersion == 3 {
+		source, err := management.GetKey(ociclient.RequestContext(ctx), keymanagement.GetKeyRequest{KeyId: new(target.KMSKeyOCID)})
+		if err != nil || deref(source.Id) != target.KMSKeyOCID || deref(source.CompartmentId) != compartment || deref(source.VaultId) != target.VaultOCID ||
+			source.LifecycleState != keymanagement.KeyLifecycleStateEnabled || source.KeyShape == nil ||
+			source.KeyShape.Algorithm != keymanagement.KeyShapeAlgorithmAes || source.KeyShape.Length == nil || *source.KeyShape.Length != 32 {
+			return nil, FoundationResolver{}, errors.Join(errors.New("initial source key is not enabled AES-256 in the signed home escrow Vault and compartment"), err)
+		}
 	}
 	objects, err := home.ObjectStorage()
 	if err != nil {

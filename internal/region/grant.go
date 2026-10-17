@@ -56,12 +56,13 @@ type FoundationGrant struct {
 // digest covers public generation inputs; secret output bytes are checkpointed
 // separately by the existing immutable source producer.
 type BootstrapMaterialIntent struct {
-	InstallationID     string                               `json:"installationId"`
-	PlanSHA256         string                               `json:"planSha256"`
-	Config             bootstrapmaterial.Config             `json:"config"`
-	SourceVaultTarget  bootstrapmaterial.VaultTarget        `json:"sourceVaultTarget"`
-	Startup            *BootstrapStartupIntent              `json:"startup,omitempty"`
-	SourceRegistration *bootstrap.InitialSourceRegistration `json:"sourceRegistration,omitempty"`
+	InstallationID     string                                  `json:"installationId"`
+	PlanSHA256         string                                  `json:"planSha256"`
+	Config             bootstrapmaterial.Config                `json:"config"`
+	SourceVaultTarget  bootstrapmaterial.VaultTarget           `json:"sourceVaultTarget"`
+	Startup            *BootstrapStartupIntent                 `json:"startup,omitempty"`
+	SourceRegistration *bootstrap.InitialSourceRegistration    `json:"sourceRegistration,omitempty"`
+	AdmissionAttestor  *release.AdmissionAttestorAuthorization `json:"admissionAttestor,omitempty"`
 }
 
 type BootstrapStartupIntent = bootstrap.StartupTemplate
@@ -173,6 +174,9 @@ func (s *SignedFootprint) AuthorizedBootstrapMaterial(ctx context.Context, cell 
 			break
 		}
 		material := *intent.BootstrapMaterial
+		if material.AdmissionAttestor != nil {
+			material.AdmissionAttestor = new(*material.AdmissionAttestor)
+		}
 		if material.SourceRegistration != nil {
 			registration := material.SourceRegistration.Clone()
 			slots := make([]string, len(material.Config.Slots))
@@ -434,43 +438,60 @@ func (s *SignedFootprint) verifyGrant(wire []byte) (ApprovedFootprint, time.Time
 
 // verifyOriginalGrant authenticates producer documents without admitting runtime use.
 func (s *SignedFootprint) verifyOriginalGrant(wire []byte) (ApprovedFootprint, time.Time, error) {
+	grant, expires, err := s.verifyOriginalDocument(wire)
+	if err != nil {
+		return ApprovedFootprint{}, time.Time{}, err
+	}
+	digest := sha256.Sum256(wire)
+	footprint := ApprovedFootprint{GrantSHA256: hex.EncodeToString(digest[:]), TenancyID: grant.TenancyID, ParentCompartmentID: grant.ParentCompartmentID,
+		SharedCompartmentID: grant.SharedCompartmentID, Regions: grant.Regions}
+	return footprint, expires, nil
+}
+
+func (s *SignedFootprint) verifyOriginalDocument(wire []byte) (FoundationGrant, time.Time, error) {
 	if !time.Now().Before(s.expires) {
-		return ApprovedFootprint{}, time.Time{}, errors.New("foundation bootstrap authority expired")
+		return FoundationGrant{}, time.Time{}, errors.New("foundation bootstrap authority expired")
 	}
 	digest := sha256.Sum256(wire)
 	if hex.EncodeToString(digest[:]) != s.home.GrantSHA256 {
-		return ApprovedFootprint{}, time.Time{}, errors.New("foundation grant differs from root-pinned exact wire")
+		return FoundationGrant{}, time.Time{}, errors.New("foundation grant differs from root-pinned exact wire")
 	}
 	envelope, err := trust.DecodeEnvelope(wire)
 	if err != nil {
-		return ApprovedFootprint{}, time.Time{}, err
+		return FoundationGrant{}, time.Time{}, err
 	}
 	payload, err := trust.VerifyCurrent(envelope, s.scope, s.roots, time.Now(), bootstrap.BootstrapAnchorTrustPolicy())
 	if err != nil {
-		return ApprovedFootprint{}, time.Time{}, err
+		return FoundationGrant{}, time.Time{}, err
 	}
 	if envelope.ExpiresAt.After(s.expires) {
-		return ApprovedFootprint{}, time.Time{}, errors.New("foundation scope outlives bootstrap authority")
+		return FoundationGrant{}, time.Time{}, errors.New("foundation scope outlives bootstrap authority")
 	}
 	var grant FoundationGrant
 	if err := json.Unmarshal(payload, &grant, json.RejectUnknownMembers(true)); err != nil {
-		return ApprovedFootprint{}, time.Time{}, errors.New("foundation scope schema invalid")
+		return FoundationGrant{}, time.Time{}, errors.New("foundation scope schema invalid")
 	}
 	if grant.InstallationID != s.home.InstallationID || (grant.SchemaVersion != 1 && grant.SchemaVersion != 2 && grant.SchemaVersion != 3) || grant.Generation != s.home.GrantGeneration || grant.TenancyID != s.tenancy || grant.MonthlyLimitMinor <= 0 ||
 		(grant.Currency != "USD" && grant.Currency != "BRL") || grant.CleanupOwner == "" || len(grant.CleanupOwner) > 128 {
-		return ApprovedFootprint{}, time.Time{}, errors.New("foundation scope lacks matching tenancy, numerical spend authority or cleanup owner")
+		return FoundationGrant{}, time.Time{}, errors.New("foundation scope lacks matching tenancy, numerical spend authority or cleanup owner")
 	}
 	if err := validateFoundationWorkloadGenesis(grant, s.storage); err != nil {
-		return ApprovedFootprint{}, time.Time{}, err
+		return FoundationGrant{}, time.Time{}, err
+	}
+	if err := validateFoundationAdmissionAttestors(grant, s.storage); err != nil {
+		return FoundationGrant{}, time.Time{}, err
 	}
 	footprint := ApprovedFootprint{GrantSHA256: hex.EncodeToString(digest[:]), TenancyID: grant.TenancyID, ParentCompartmentID: grant.ParentCompartmentID,
 		SharedCompartmentID: grant.SharedCompartmentID, Regions: grant.Regions}
 	for _, intent := range footprint.Regions {
 		if intent.Generation != grant.Generation {
-			return ApprovedFootprint{}, time.Time{}, errors.New("foundation intent generation differs from signed grant")
+			return FoundationGrant{}, time.Time{}, errors.New("foundation intent generation differs from signed grant")
 		}
 	}
-	return footprint, envelope.ExpiresAt, validateFootprint(footprint)
+	if err := validateFootprint(footprint); err != nil {
+		return FoundationGrant{}, time.Time{}, err
+	}
+	return grant, envelope.ExpiresAt, nil
 }
 
 // NewFoundationDiscovery supplies a concrete pre-overlay record reader using

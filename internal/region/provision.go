@@ -23,8 +23,17 @@ func ProvisionFoundationBundle(ctx context.Context, factory *ociclient.Factory, 
 	}
 	ctx, cancel := context.WithDeadline(ctx, authority.operator.deadline)
 	defer cancel()
+	if err := authority.reserveNetBirdMaterialBirth(ctx); err != nil {
+		return fmt.Errorf("reserve original material birth before origins: %w", err)
+	}
 	if err := authority.reserveFoundationWorkloadOrigin(ctx); err != nil {
 		return fmt.Errorf("reserve original workload lineage before foundation effects: %w", err)
+	}
+	if err := authority.produceNetBirdMaterial(ctx); err != nil {
+		return fmt.Errorf("retain original NetBird material: %w", err)
+	}
+	if err := authority.verifyFoundationWorkloadStartup(ctx); err != nil {
+		return err
 	}
 	reader := resolver.Footprint.(*SignedFootprint)
 	footprint, err := reader.AuthorizedRegions(ctx)

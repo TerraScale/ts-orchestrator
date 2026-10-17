@@ -185,14 +185,6 @@ func (r *Reconciler) ownedLocked(role string) bool {
 	return slices.ContainsFunc(r.specs, func(spec ServiceSpec) bool { return spec.Role == role })
 }
 
-// Signals returns the configured signal source, nil when none.
-func (r *Reconciler) Signals() autoscale.Source {
-	if r == nil {
-		return nil
-	}
-	return r.config.Signals
-}
-
 // Leading reports whether this member's authority may mutate right now and
 // the reconciler has already ticked in the current term, so its results and
 // signal source belong to this term. Between a re-acquired lease and the

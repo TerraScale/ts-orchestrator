@@ -29,6 +29,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
@@ -107,6 +108,127 @@ func TestGenerateStableAndProductionValid(t *testing.T) {
 			t.Fatalf("%s is not owner-only: %v", name, err)
 		}
 	}
+	t.Run("prospective attestor data format only", func(t *testing.T) {
+		cfg := testConfig()
+		authorization := testAdmissionAuthorization(t, cfg)
+		path := filepath.Join(t.TempDir(), "candidate")
+		record, err := GenerateAdmissionCandidate(path, cfg, authorization, now)
+		if err != nil || len(record.Files) != len(first.Files)+3 || !dedicatedAdmissionKey(record.Public) || ValidateLive(path, record) != nil {
+			t.Fatalf("dedicated candidate format: %v", err)
+		}
+		metadata, err := os.ReadFile(filepath.Join(path, metadataName))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, slot := range cfg.Slots {
+			if !slices.ContainsFunc(record.Files, func(file File) bool {
+				return file.Name == slot.Name+"-admission.key" && file.Purpose == bootstrap.SecretController && file.Slot == slot.Name
+			}) {
+				t.Fatalf("missing exact dedicated private slot %s", slot.Name)
+			}
+		}
+		replayed, err := GenerateAdmissionCandidate(path, cfg, authorization, now.Add(time.Minute))
+		actual, readErr := os.ReadFile(filepath.Join(path, metadataName))
+		if err != nil || readErr != nil || !reflect.DeepEqual(record, replayed) || !bytes.Equal(actual, metadata) {
+			t.Fatalf("candidate replay changed original bytes: %v %v", err, readErr)
+		}
+		changed := authorization
+		changed.SourceRegistrationSHA256 = strings.Repeat("b", 64)
+		if _, err := GenerateAdmissionCandidate(path, cfg, changed, now); err == nil {
+			t.Fatal("different authorization adopted the original candidate")
+		}
+		noncanonical := record
+		noncanonical.Public.AdmissionAttestor.PublicKey = record.Public.LedgerSignerPublicKey[:8] + "\n" + record.Public.LedgerSignerPublicKey[8:]
+		if noncanonical.Public.AdmissionAttestor.Validate() == nil || dedicatedAdmissionKey(noncanonical.Public) || ValidateAdmissionInventory(noncanonical) == nil {
+			t.Fatal("noncanonical reused ledger key passed public-only inventory checks")
+		}
+		reused := record.Public
+		reused.AdmissionAttestor.PublicKey = record.Public.LedgerSignerPublicKey
+		reused.LedgerSignerPublicKey = record.Public.LedgerSignerPublicKey[:8] + "\r\n" + record.Public.LedgerSignerPublicKey[8:]
+		if dedicatedAdmissionKey(reused) {
+			t.Fatal("different encodings of the same issuer key defeated separation")
+		}
+		for name, mutate := range map[string]func(*testing.T, string, *Record){
+			"missing public descriptor": func(_ *testing.T, _ string, r *Record) {
+				r.Public.AdmissionAttestor = release.AdmissionAttestorMaterial{}
+			},
+			"partial public descriptor": func(_ *testing.T, _ string, r *Record) { r.Public.AdmissionAttestor.AuthorizationSHA256 = "" },
+			"reused public key": func(_ *testing.T, _ string, r *Record) {
+				r.Public.AdmissionAttestor.PublicKey = r.Public.LedgerSignerPublicKey
+			},
+			"missing private file": func(t *testing.T, p string, r *Record) {
+				if err := os.Remove(filepath.Join(p, "controller-b-admission.key")); err != nil {
+					t.Fatal(err)
+				}
+				r.Files = slices.DeleteFunc(r.Files, func(file File) bool { return file.Name == "controller-b-admission.key" })
+			},
+			"wrong private key with matching digest": func(t *testing.T, p string, r *Record) {
+				wire, err := os.ReadFile(filepath.Join(p, "controller-a-response.key"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(p, "controller-a-admission.key"), wire, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				for index := range r.Files {
+					if r.Files[index].Name == "controller-a-admission.key" {
+						r.Files[index].SHA256 = digest(wire)
+						r.Files[index].MaxBytes = int64(len(wire))
+					}
+				}
+			},
+			"foreign private slot": func(_ *testing.T, _ string, r *Record) {
+				for index := range r.Files {
+					if r.Files[index].Name == "controller-a-admission.key" {
+						r.Files[index].Slot = "controller-b"
+					}
+				}
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				copyPath := t.TempDir()
+				entries, err := os.ReadDir(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, entry := range entries {
+					wire, err := os.ReadFile(filepath.Join(path, entry.Name()))
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(filepath.Join(copyPath, entry.Name()), wire, 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				candidate := record
+				candidate.Files = slices.Clone(record.Files)
+				mutate(t, copyPath, &candidate)
+				wire, err := json.Marshal(candidate)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(copyPath, metadataName), wire, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(copyPath, readyName), []byte(digest(wire)+"\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := Load(copyPath); err == nil {
+					t.Fatal("invalid dedicated material loaded")
+				}
+			})
+		}
+	})
+}
+
+func testAdmissionAuthorization(t *testing.T, cfg Config) release.AdmissionAttestorAuthorization {
+	t.Helper()
+	wire, err := json.Marshal(cfg, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return release.AdmissionAttestorAuthorization{Schema: release.AdmissionAttestorAuthorizationSchema, Domain: "terrascale.release.container-admission", Action: "reserve", SourceBinding: "original-source-inventory.v1", TenancyID: "ocid1.tenancy.oc1..test", InstallationID: "0000000000YTR4D9RJ6W8NG1HC", DeploymentID: cfg.DeploymentID, ClusterID: cfg.ClusterID, Cell: strings.ToUpper(cfg.Cell), Environment: cfg.Environment, Generation: 1,
+		ControllerSlots: [3]string{"controller-a", "controller-b", "controller-c"}, Roles: [3]string{"function-worker", "terrabase", "ts-auth"}, PlanSHA256: digest(wire), WorkloadGenesisSHA256: strings.Repeat("a", 64), SourceRegistrationSHA256: strings.Repeat("c", 64), SourceNamespace: "ns", SourceBucket: "gru-1-head", SourceObject: "bootstrap/bootstrap/v2/material-source/" + strings.Repeat("d", 64) + ".json"}
 }
 
 // Every controller receives the cell's C# TerraBase member CA as host-issuer
@@ -538,8 +660,8 @@ func TestLoadRejectsWorldReadableOrLinkedMaterial(t *testing.T) {
 	}
 }
 
-// legacyMaterial rewrites generated material as a source generated before
-// the member CA existed: 32 files, no CA pair.
+// legacyMaterial removes only the optional member CA pair from generated
+// material, retaining every currently mandatory file.
 func legacyMaterial(t *testing.T, directory string, record Record) Record {
 	t.Helper()
 	record.Files = slices.DeleteFunc(slices.Clone(record.Files), func(file File) bool {
@@ -572,7 +694,7 @@ func TestLegacyMaterialWithoutMemberCAStillLoads(t *testing.T) {
 		t.Fatal(err)
 	}
 	legacy := legacyMaterial(t, directory, generated)
-	if len(legacy.Files) != 32 || legacy.HasMemberCA() || !generated.HasMemberCA() {
+	if len(legacy.Files) != 35 || legacy.HasMemberCA() || !generated.HasMemberCA() {
 		t.Fatalf("legacy fixture has %d files", len(legacy.Files))
 	}
 	loaded, err := Load(directory)
@@ -584,6 +706,20 @@ func TestLegacyMaterialWithoutMemberCAStillLoads(t *testing.T) {
 	}
 	if err := ValidateLive(directory, legacy); err != nil {
 		t.Fatalf("legacy material failed live validation: %v", err)
+	}
+	legacyMetadata, err := os.ReadFile(filepath.Join(directory, metadataName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacy.Public.AdmissionAttestor != (release.AdmissionAttestorMaterial{}) {
+		t.Fatal("legacy archive acquired attestor public material")
+	}
+	if _, err := GenerateAdmissionCandidate(directory, testConfig(), testAdmissionAuthorization(t, testConfig()), now); err == nil {
+		t.Fatal("legacy archive upgraded with a new attestor")
+	}
+	after, err := os.ReadFile(filepath.Join(directory, metadataName))
+	if err != nil || !bytes.Equal(legacyMetadata, after) {
+		t.Fatal("refused legacy upgrade changed original bytes")
 	}
 	half := filepath.Join(t.TempDir(), "material")
 	record, err := Generate(half, testConfig(), now)

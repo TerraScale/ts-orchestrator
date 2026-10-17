@@ -59,24 +59,26 @@ type materialSourceActor struct {
 }
 
 type materialSourceState struct {
-	SchemaVersion  int                           `json:"schemaVersion"`
-	Actor          materialSourceActor           `json:"actor"`
-	Kind           string                        `json:"kind,omitempty"`
-	BindingSHA256  string                        `json:"bindingSha256,omitempty"`
-	InstallationID string                        `json:"installationId"`
-	Cell           string                        `json:"cell"`
-	Generation     uint64                        `json:"generation"`
-	PlanSHA256     string                        `json:"planSha256"`
-	Target         bootstrapmaterial.VaultTarget `json:"target"`
-	SecretName     string                        `json:"secretName"`
-	RetryToken     string                        `json:"retryToken"`
-	StartedAt      time.Time                     `json:"startedAt"`
-	Reference      materialSourceReference       `json:"reference"`
-	Inventory      []byte                        `json:"inventory,omitempty"`
-	Delivery       []byte                        `json:"delivery,omitempty"`
-	Journal        []byte                        `json:"journal,omitempty"`
-	Startup        map[string][]byte             `json:"startup,omitempty"`
-	SeedCompletion []byte                        `json:"seedCompletion,omitempty"`
+	SchemaVersion                int                           `json:"schemaVersion"`
+	Actor                        materialSourceActor           `json:"actor"`
+	Kind                         string                        `json:"kind,omitempty"`
+	BindingSHA256                string                        `json:"bindingSha256,omitempty"`
+	InstallationID               string                        `json:"installationId"`
+	Cell                         string                        `json:"cell"`
+	Generation                   uint64                        `json:"generation"`
+	PlanSHA256                   string                        `json:"planSha256"`
+	Target                       bootstrapmaterial.VaultTarget `json:"target"`
+	SecretName                   string                        `json:"secretName"`
+	RetryToken                   string                        `json:"retryToken"`
+	StartedAt                    time.Time                     `json:"startedAt"`
+	Reference                    materialSourceReference       `json:"reference"`
+	Inventory                    []byte                        `json:"inventory,omitempty"`
+	AdmissionAuthorizationSHA256 string                        `json:"admissionAuthorizationSha256,omitempty"`
+	OriginalAdmissionInventory   []byte                        `json:"originalAdmissionInventory,omitempty"`
+	Delivery                     []byte                        `json:"delivery,omitempty"`
+	Journal                      []byte                        `json:"journal,omitempty"`
+	Startup                      map[string][]byte             `json:"startup,omitempty"`
+	SeedCompletion               []byte                        `json:"seedCompletion,omitempty"`
 }
 
 // ColdStartMaterial retains the one CAS revision authorizing source escrow and
@@ -114,17 +116,30 @@ func resolveSource(ctx context.Context, source *ColdStartMaterial, management bo
 	}
 	ctx = ociclient.WithAuthority(ctx, source.guard)
 	grant, cfg := source.grant, source.grant.Config()
+	admission, err := source.admissionAuthorization(ctx)
+	if err != nil {
+		return nil, err
+	}
 	state, etag, err := source.read(ctx)
 	if errors.Is(err, os.ErrNotExist) {
+		if admission != "" {
+			// No genuine schema3 original-actor reservation entry exists yet.
+			return nil, ErrMaterialSource
+		}
 		if err := source.allowNewRegionalSource(); err != nil {
 			return nil, err
 		}
 		state = materialSourceState{SchemaVersion: 1, Actor: source.currentActor(), InstallationID: grant.InstallationID(), Cell: cfg.Cell, Generation: grant.Generation(), PlanSHA256: grant.PlanDigest(), Target: grant.EscrowTarget(), Kind: source.kind, BindingSHA256: source.binding, SecretName: source.secretName, RetryToken: uuid.New().String(), StartedAt: now.UTC()}
+		state.AdmissionAuthorizationSHA256 = admission
 		_, _ = source.write(ctx, state, "")
 		state, etag, err = source.read(ctx)
 	}
 	if err != nil {
 		return nil, err
+	}
+	// An interrupted original inventory selection cannot become a new birth.
+	if admission != "" && state.Reference.SecretOCID != "" && len(state.OriginalAdmissionInventory) == 0 {
+		return nil, ErrMaterialSource
 	}
 	source.state, source.etag = state, etag
 	id, err := source.lookupEscrow(ctx, bundles)
@@ -181,6 +196,14 @@ func resolveSource(ctx context.Context, source *ColdStartMaterial, management bo
 	if state.Reference.SecretOCID == "" {
 		source.state.Reference = materialSourceReference{SecretOCID: id, SHA256: digestWire(body), MaxBytes: int64(len(body))}
 		checkpoint = true
+		if admission != "" {
+			// Freeze the exact Vault-v1 archive before selecting its inventory.
+			source.etag, err = source.write(ctx, source.state, source.etag)
+			if err != nil {
+				return nil, err
+			}
+			checkpoint = false
+		}
 	}
 	if source.kind == "" {
 		inventory, signErr := source.signInventory(ctx)
@@ -189,6 +212,10 @@ func resolveSource(ctx context.Context, source *ColdStartMaterial, management bo
 		}
 		if !bytes.Equal(inventory, source.state.Inventory) {
 			source.state.Inventory = inventory
+			checkpoint = true
+		}
+		if admission != "" && len(source.state.OriginalAdmissionInventory) == 0 {
+			source.state.OriginalAdmissionInventory = bytes.Clone(inventory)
 			checkpoint = true
 		}
 	}
@@ -206,6 +233,9 @@ func resolveSource(ctx context.Context, source *ColdStartMaterial, management bo
 func (source *ColdStartMaterial) Provision(ctx context.Context, target bootstrapmaterial.VaultTarget, management bootstrapmaterial.VaultClient, bundles bootstrapmaterial.BundleClient, now time.Time) (bootstrapmaterial.Publication, error) {
 	if source == nil || !now.Before(source.grant.ExpiresAt()) || source.verifySource(ctx) != nil || !source.publicationTargetAllowed(target) {
 		return bootstrapmaterial.Publication{}, ErrMaterialSource
+	}
+	if err := source.validateAdmissionRecord(ctx, source.record); err != nil {
+		return bootstrapmaterial.Publication{}, err
 	}
 	ctx, cancel := context.WithDeadline(ctx, source.record.ExpiresAt)
 	defer cancel()
@@ -251,7 +281,15 @@ func (source *ColdStartMaterial) generate(ctx context.Context, now time.Time) ([
 	path := filepath.Join(parent, "source")
 	var record bootstrapmaterial.Record
 	if source.link == nil {
-		record, err = bootstrapmaterial.Generate(path, source.grant.Config(), now)
+		proof, proofErr := source.grant.AdmissionAttestor(ctx)
+		if proofErr != nil {
+			return nil, proofErr
+		}
+		if proof.IsVerified() {
+			record, err = proof.Generate(ctx, path, now)
+		} else {
+			record, err = bootstrapmaterial.Generate(path, source.grant.Config(), now)
+		}
 	} else {
 		if err := source.link.verify(ctx); err != nil {
 			return nil, err
@@ -419,6 +457,10 @@ func (source *ColdStartMaterial) read(ctx context.Context) (materialSourceState,
 	if ref.SecretOCID != "" && (!validDigest(ref.SHA256) || ref.MaxBytes <= 0 || ref.MaxBytes > min(int64(materialSourceSecretLimit), bootstrap.MaxSecretBytes)) || ref.SecretOCID == "" && (ref.SHA256 != "" || ref.MaxBytes != 0 || len(state.Journal) > 0) {
 		return materialSourceState{}, "", ErrMaterialSource
 	}
+	admission, err := source.admissionAuthorization(ctx)
+	if err != nil || state.AdmissionAuthorizationSHA256 != admission || len(state.OriginalAdmissionInventory) > bootstrap.MaxManifestBytes || len(state.OriginalAdmissionInventory) > 0 && (admission == "" || state.Kind != "" || ref.SecretOCID == "" || len(state.Inventory) == 0) {
+		return materialSourceState{}, "", ErrMaterialSource
+	}
 	return state, *response.ETag, nil
 }
 
@@ -428,6 +470,13 @@ func (source *ColdStartMaterial) write(ctx context.Context, state materialSource
 	}
 	if state.Actor.InstanceID != source.actor.InstanceID() || source.state.Actor.InstanceID != "" && state.Actor != source.state.Actor || source.state.Actor.InstanceID == "" && state.Actor != source.currentActor() {
 		return "", ErrMaterialSource
+	}
+	if etag != "" && (state.AdmissionAuthorizationSHA256 != "" || source.state.AdmissionAuthorizationSHA256 != "") {
+		prior, priorETag, err := source.read(ctx)
+		defer clear(prior.Journal)
+		if err != nil || priorETag != etag || !immutableAdmissionSource(prior, state) {
+			return "", ErrMaterialSource
+		}
 	}
 	ctx = ociclient.WithAuthority(ctx, source.guard)
 	if ctx.Err() != nil || !time.Now().Before(source.grant.ExpiresAt()) || source.link != nil && source.link.verify(ctx) != nil {
@@ -479,6 +528,9 @@ func (source *ColdStartMaterial) restore(ctx context.Context) error {
 	}
 	record, err := source.loadRecord(parent)
 	if err != nil {
+		return err
+	}
+	if err := source.validateAdmissionRecord(ctx, record); err != nil {
 		return err
 	}
 	configWire, err := json.Marshal(record.Config, json.Deterministic(true))
@@ -655,7 +707,7 @@ func (source *ColdStartMaterial) refresh(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if state.Reference != source.state.Reference {
+	if state.Reference != source.state.Reference || !immutableAdmissionSource(source.state, state) {
 		clear(state.Journal)
 		return ErrMaterialSource
 	}
@@ -674,6 +726,9 @@ type VerifiedColdStartMaterial struct {
 }
 
 func (source *ColdStartMaterial) InstallMaterial(ctx context.Context) (VerifiedColdStartMaterial, error) {
+	if source != nil && source.state.AdmissionAuthorizationSHA256 != "" {
+		return VerifiedColdStartMaterial{}, ErrMaterialSource
+	}
 	if source == nil || source.publication.SchemaVersion != 1 || len(source.publication.References) == 0 {
 		return VerifiedColdStartMaterial{}, ErrMaterialSource
 	}

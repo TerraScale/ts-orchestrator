@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -16,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -80,12 +82,18 @@ func newFoundationProvisionFixture(t *testing.T) foundationProvisionFixture {
 		HomeStorageDomain: bootstrap.StorageDomain{Namespace: "ns", HeadBucket: foundationDiscoveryBucket, LedgerBucket: "gru-1-ledger", HeadKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head", LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledger", Prefix: "bootstrap"},
 		SourceVaultTarget: bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..control", VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.home", KMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head"}, TrustedSigners: signers, GRUController: host, SFOController: host, FRAController: host, NetBirdManager: host}
 	approval.ReleaseAuthorities = provisionReleaseAuthorities(t, root, leafPublic, approval.HomeStorageDomain, now)
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawProvider := common.NewRawConfigurationProvider(approval.TenancyID, "ocid1.user.oc1..test", foundationHomeRegion, "test", string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(rsaKey)})), nil)
+	provider := &provisionProvider{ConfigurationProvider: rawProvider}
 	historicalAuthorities := approval.ReleaseAuthorities
 	approval.ReleaseAuthorities = slices.Clone(historicalAuthorities)
 	for index := range approval.ReleaseAuthorities {
 		approval.ReleaseAuthorities[index].SequenceMigrationWire = nil
 	}
-	cloud := &provisionCloud{test: t, directory: t.TempDir(), rows: map[string]map[string]any{}, collections: map[string]string{}, tokens: map[string]string{}, rules: map[string][]any{}, retention: map[string][]any{}, launches: map[string]string{}, tariff: 0.0001, lostLaunch: true, lostPolicy: true}
+	cloud := &provisionCloud{test: t, directory: t.TempDir(), rows: map[string]map[string]any{}, collections: map[string]string{}, tokens: map[string]string{}, rules: map[string][]any{}, retention: map[string][]any{}, launches: map[string]string{}, tariff: 0.0001, lostLaunch: true, lostPolicy: true, lostMaterialIndex: -1, materialRoot: bytes.Repeat([]byte{'Q'}, 64)}
 	images := map[string]releasechannel.CurrentImage{}
 	for _, role := range []string{"GRU", "SFO", "FRA", "netbird-manager"} {
 		cell := role
@@ -120,7 +128,7 @@ func newFoundationProvisionFixture(t *testing.T) foundationProvisionFixture {
 		cloud.rows[serviceID] = map[string]any{"id": serviceID, "name": "All " + entry.OCIRegionKey + " Services In Oracle Services Network", "cidrBlock": serviceCIDR}
 		cloud.collections[serviceID] = "services"
 		return Live{AvailabilityDomain: "scenario:AD-1", ServiceID: serviceID, ServiceCIDR: serviceCIDR}, nil
-	})
+	}, provider)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,6 +167,31 @@ func newFoundationProvisionFixture(t *testing.T) foundationProvisionFixture {
 	prepared.Grant.SchemaVersion = 2
 	prepared.Grant.WorkloadGenesis = nil
 	prepared.Grant.ReleaseAuthorities = historicalAuthorities
+	prepared.Grant.Regions = slices.Clone(prepared.Grant.Regions)
+	for index := range prepared.Grant.Regions {
+		material := *prepared.Grant.Regions[index].BootstrapMaterial
+		material.AdmissionAttestor = nil
+		prepared.Grant.Regions[index].BootstrapMaterial = &material
+		if manager := prepared.Grant.Regions[index].NetBirdManager; manager != nil {
+			legacy := *manager
+			legacy.Material = nil
+			prepared.Grant.Regions[index].NetBirdManager = &legacy
+		}
+	}
+	spend := *prepared.Grant.InfrastructureSpend
+	allocation := *spend.Bootstrap
+	allocation.Slots = slices.Clone(allocation.Slots)
+	spend.Bootstrap = &allocation
+	prepared.Grant.InfrastructureSpend = &spend
+	for index := range allocation.Slots {
+		if allocation.Slots[index].Role == NetBirdManagerRole {
+			manager := prepared.Grant.Regions[0].NetBirdManager
+			allocation.Slots[index].RecipeSHA256, err = NetBirdManagerRecipeDigest(*manager, images["netbird-manager"].Image.Receipt().ImageSHA256)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	bundle := signProvisionFoundation(t, prepared, chain, root, now)
 	if err := VerifyFoundationProvisionBundle(t.Context(), roots, bundle); err != nil {
 		t.Fatal(err)
@@ -190,12 +223,6 @@ func newFoundationProvisionFixture(t *testing.T) foundationProvisionFixture {
 	}
 	http.DefaultTransport = transport
 	t.Cleanup(func() { http.DefaultTransport = original; transport.CloseIdleConnections() })
-	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rawProvider := common.NewRawConfigurationProvider(approval.TenancyID, "ocid1.user.oc1..test", foundationHomeRegion, "test", string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(rsaKey)})), nil)
-	provider := &provisionProvider{ConfigurationProvider: rawProvider}
 	factoryFor := func() *ociclient.Factory {
 		limits := map[ociclient.Service]ociclient.Limit{}
 		for service := range ociclient.DefaultLimits {
@@ -438,6 +465,12 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 	if prepared.Grant.SchemaVersion != 3 || len(prepared.Grant.WorkloadGenesis) != 9 {
 		t.Fatal("new founding preparation did not derive the complete prospective lineage")
 	}
+	for _, regional := range prepared.Grant.Regions {
+		expected, err := foundationAdmissionAttestor(prepared.Grant, fixture.approval.HomeStorageDomain, regional)
+		if err != nil || regional.BootstrapMaterial.AdmissionAttestor == nil || *regional.BootstrapMaterial.AdmissionAttestor != expected {
+			t.Fatalf("prepared region lacks exact dedicated attestor authorization: %v", err)
+		}
+	}
 	bundle := signProvisionFoundation(t, prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
 	if err := VerifyFoundationProvisionBundle(t.Context(), fixture.roots, bundle); err != nil {
 		t.Fatalf("original root-signed prospective founding grant: %v", err)
@@ -462,10 +495,57 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 		"mixed historical migration": func(grant *FoundationGrant) {
 			grant.ReleaseAuthorities[0].SequenceMigrationWire = []byte("test-only conflicting migration input")
 		},
+		"missing material purpose": func(grant *FoundationGrant) { grant.Regions[0].NetBirdManager.Material = nil },
+		"foreign material producer": func(grant *FoundationGrant) {
+			grant.Regions[0].NetBirdManager.Material.Context.ProducerUserID = "ocid1.user.oc1..foreign"
+		},
+		"foreign material target": func(grant *FoundationGrant) {
+			grant.Regions[0].NetBirdManager.Material.Context.Target.KMSKeyOCID = "ocid1.key.oc1.sa-saopaulo-1.foreign"
+		},
+		"foreign material lineage": func(grant *FoundationGrant) {
+			grant.Regions[0].NetBirdManager.Material.LineageSHA256 = strings.Repeat("a", 64)
+		},
+		"ordinary material name":         func(grant *FoundationGrant) { grant.Regions[0].NetBirdManager.Material.Names[0] = "gru-1-netbird-root" },
+		"restored material":              func(grant *FoundationGrant) { grant.Regions[0].NetBirdManager.StoreOrigin = "restore" },
+		"later material grant":           func(grant *FoundationGrant) { grant.Generation = 2 },
+		"missing attestor authorization": func(grant *FoundationGrant) { grant.Regions[0].BootstrapMaterial.AdmissionAttestor = nil },
+		"duplicate attestor authorization": func(grant *FoundationGrant) {
+			grant.Regions[0].BootstrapMaterial.AdmissionAttestor = new(*grant.Regions[1].BootstrapMaterial.AdmissionAttestor)
+		},
+		"foreign attestor scope": func(grant *FoundationGrant) {
+			grant.Regions[0].BootstrapMaterial.AdmissionAttestor.InstallationID = "0000000000YTR4D9RJ6W8NG1HC"
+		},
+		"foreign attestor source store": func(grant *FoundationGrant) {
+			grant.Regions[0].BootstrapMaterial.AdmissionAttestor.SourceNamespace = "foreign"
+		},
+		"foreign attestor source object": func(grant *FoundationGrant) {
+			grant.Regions[0].BootstrapMaterial.AdmissionAttestor.SourceObject += ".other"
+		},
+		"foreign attestor plan": func(grant *FoundationGrant) {
+			grant.Regions[0].BootstrapMaterial.AdmissionAttestor.PlanSHA256 = strings.Repeat("a", 64)
+		},
+		"foreign attestor registration": func(grant *FoundationGrant) {
+			grant.Regions[0].BootstrapMaterial.AdmissionAttestor.SourceRegistrationSHA256 = strings.Repeat("a", 64)
+		},
+		"foreign attestor genesis": func(grant *FoundationGrant) {
+			grant.Regions[0].BootstrapMaterial.AdmissionAttestor.WorkloadGenesisSHA256 = strings.Repeat("a", 64)
+		},
+		"foreign attestor domain": func(grant *FoundationGrant) {
+			grant.Regions[0].BootstrapMaterial.AdmissionAttestor.Domain = "bootstrap-intent"
+		},
+		"foreign attestor action": func(grant *FoundationGrant) { grant.Regions[0].BootstrapMaterial.AdmissionAttestor.Action = "sign" },
+		"foreign attestor binding": func(grant *FoundationGrant) {
+			grant.Regions[0].BootstrapMaterial.AdmissionAttestor.SourceBinding = "latest-source"
+		},
+		"schema1 with attestor": func(grant *FoundationGrant) { grant.SchemaVersion = 1; grant.WorkloadGenesis = nil },
+		"schema2 with attestor": func(grant *FoundationGrant) { grant.SchemaVersion = 2; grant.WorkloadGenesis = nil },
 	} {
 		candidate := prepared
-		candidate.Grant.WorkloadGenesis = slices.Clone(prepared.Grant.WorkloadGenesis)
-		candidate.Grant.ReleaseAuthorities = slices.Clone(prepared.Grant.ReleaseAuthorities)
+		candidate.Grant = FoundationGrant{}
+		grantWire, err := json.Marshal(prepared.Grant)
+		if err != nil || json.Unmarshal(grantWire, &candidate.Grant) != nil {
+			t.Fatalf("clone prospective root document: %v", err)
+		}
 		mutate(&candidate.Grant)
 		invalid := signProvisionFoundation(t, candidate, bundle.RootChainWire, fixture.root, fixture.now)
 		factory := fixture.factoryFor()
@@ -500,6 +580,8 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 	if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) || fixture.cloud.creates != before || fixture.cloud.launchPosts != 0 {
 		t.Fatalf("identical origin replay initialized a runtime or changed the startup refusal: %v", err)
 	}
+	fixture.assertMaterial(t)
+	t.Run("original material recovery and refusal", foundationNetBirdMaterialSDKScenario)
 	t.Run("independent historical operator", func(t *testing.T) {
 		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 		if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, fixture.bundle); err == nil || !strings.Contains(err.Error(), "permanent founding workload origin") || fixture.cloud.creates != before || fixture.cloud.launchPosts != 0 {
@@ -513,7 +595,7 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 		replacement, err := PrepareFoundationGrant(t.Context(), approval, fixture.images, func(_ context.Context, _ string, region string) (Live, error) {
 			entry, _ := catalog.CellForOCIRegion(region)
 			return Live{AvailabilityDomain: "scenario:AD-1", ServiceID: "ocid1.service.oc1." + region + ".services", ServiceCIDR: "all-" + strings.ToLower(entry.OCIRegionKey) + "-services-in-oracle-services-network"}, nil
-		})
+		}, fixture.provider)
 		if err != nil || replacement.Grant.InstallationID == prepared.Grant.InstallationID {
 			t.Fatalf("replacement installation fixture: %v", err)
 		}
@@ -525,6 +607,16 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 	resolver, err := verifyRetainedFoundation(t.Context(), bundle, fixture.roots)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, regional := range prepared.Grant.Regions {
+		cell := regional.Plan["cell"].(string)
+		proof, err := resolver.Footprint.(*SignedFootprint).AdmissionAttestor(t.Context(), cell)
+		if err != nil || !proof.IsVerified() || proof.Authorization() != *regional.BootstrapMaterial.AdmissionAttestor {
+			t.Fatalf("original root document did not produce its exact %s authorization: %v", cell, err)
+		}
+		if selected, err := proof.OriginalBinding(t.Context(), nil); err == nil || selected.IsVerified() {
+			t.Fatal("document-only proof inferred a protected original actor/source binding")
+		}
 	}
 	if authority, err := resolver.ContainerReleaseAuthority(t.Context(), "GRU", "terrabase", "production"); err == nil || !strings.Contains(err.Error(), "no admitted runtime consumer") || authority.IsVerified() {
 		t.Fatal("prospective origin minted container ordering authority without a consumer")
@@ -584,6 +676,10 @@ func (p *provisionProvider) UserOCID() (string, error) {
 }
 
 type provisionCloud struct {
+	materialRoot                   []byte
+	materialPosts                  int
+	lostMaterialIndex              int
+	materialFault                  string
 	test                           *testing.T
 	mu                             sync.Mutex
 	directory                      string
@@ -658,6 +754,416 @@ func (c *provisionCloud) seedPrerequisites(input FoundationPreparationInput) {
 	}
 }
 
+func (fixture foundationProvisionFixture) assertMaterial(t *testing.T) {
+	t.Helper()
+	record := fixture.cloud.journal("GRU")
+	j := record.NetBirdMaterial
+	if j == nil || !j.Complete || record.Stage != "material" || !record.CompletedAt.IsZero() || len(record.ResourceIDs) != 0 || record.FoundationWriter != nil || record.NetBirdManager != nil || fixture.cloud.materialPosts < 4 || fixture.cloud.creates != 0 || fixture.cloud.launchPosts != 0 || fixture.cloud.hasAnchor() {
+		t.Fatal("material-only entrypoint fabricated foundation, launch or serving completion")
+	}
+	wire, err := os.ReadFile(fixture.cloud.objectPath("gru-1-head/" + foundationObjectPrefix + "GRU.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, create := range j.Creates {
+		actual, err := os.ReadFile(fixture.cloud.objectPath("material-value/" + create.SecretID))
+		if err != nil || create.Version != 1 || create.ContentSHA256 != netBirdMaterialSHA(actual) || create.FirstDispatchedAt.IsZero() {
+			t.Fatalf("material ref lacks immutable content/version provenance: %v", err)
+		}
+		if bytes.Contains(wire, actual) || bytes.Contains(wire, []byte(base64.StdEncoding.EncodeToString(actual))) {
+			t.Fatal("material plaintext leaked into protected journal")
+		}
+		if index == 0 {
+			if !bytes.Equal(actual, fixture.cloud.materialRoot) {
+				t.Fatal("Vault transport was decoded more than once")
+			}
+			continue
+		}
+		// Independently expand RFC5869 against the actual remote Vault wire value.
+		extract := hmac.New(sha256.New, []byte(j.Authority.LineageSHA256))
+		extract.Write(fixture.cloud.materialRoot)
+		expand := hmac.New(sha256.New, extract.Sum(nil))
+		purpose := [3]string{"NETBIRD_RELAY_AUTH_SECRET", "NETBIRD_SESSION_COOKIE_ENCRYPTION_KEY", "NETBIRD_DATASTORE_ENCRYPTION_KEY"}[index-1]
+		expand.Write([]byte("netbird-manager-config-hkdf-sha256-v1:" + purpose))
+		expand.Write([]byte{1})
+		expected := base64.StdEncoding.EncodeToString(expand.Sum(nil))
+		if string(actual) != expected || len(actual) != 44 || bytes.Contains(wire, []byte(base64.StdEncoding.EncodeToString(actual))) {
+			t.Fatal("actual SDK child value differs from independent derivation or leaked encoded content")
+		}
+	}
+}
+
+func foundationNetBirdMaterialSDKScenario(t *testing.T) {
+	for _, mismatch := range []string{"authenticated original user changed", "existing source key disabled"} {
+		t.Run(mismatch, func(t *testing.T) {
+			fixture := newFoundationProvisionFixture(t)
+			bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
+			fixture.cloud.bundle = bundle
+			if mismatch == "authenticated original user changed" {
+				key, err := fixture.provider.PrivateRSAKey()
+				if err != nil {
+					t.Fatal(err)
+				}
+				fixture.provider.ConfigurationProvider = common.NewRawConfigurationProvider(fixture.approval.TenancyID, "ocid1.user.oc1..different", foundationHomeRegion, "test", string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), nil)
+			} else {
+				fixture.cloud.rows[fixture.approval.SourceVaultTarget.KMSKeyOCID]["lifecycleState"] = "DISABLED"
+			}
+			if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); err == nil || fixture.cloud.materialPosts != 0 || fixture.cloud.creates != 0 || fixture.cloud.launchPosts != 0 {
+				t.Fatalf("foreign producer or disabled exact escrow key reached material effects: %v", err)
+			}
+			if _, err := os.Stat(fixture.cloud.objectPath("gru-1-head/" + foundationObjectPrefix + "GRU.json")); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("invalid original producer or key created a material birth")
+			}
+		})
+	}
+	t.Run("maximum opaque root", func(t *testing.T) {
+		fixture := newFoundationProvisionFixture(t)
+		bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
+		fixture.cloud.bundle, fixture.cloud.materialRoot = bundle, bytes.Repeat([]byte{'Q'}, 1024)
+		if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) {
+			t.Fatalf("bounded opaque1024byte root failed material-only entrypoint: %v", err)
+		}
+		fixture.assertMaterial(t)
+	})
+	for _, lost := range []int{0, 2} {
+		t.Run(fmt.Sprintf("lost original response %d", lost), func(t *testing.T) {
+			fixture := newFoundationProvisionFixture(t)
+			bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
+			fixture.cloud.bundle, fixture.cloud.lostMaterialIndex = bundle, lost
+			if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); err == nil || errors.Is(err, bootstrap.ErrManifestInvalid) {
+				t.Fatalf("accepted Vault response loss did not retain uncertain original operation: %v", err)
+			}
+			before := fixture.cloud.journal("GRU").NetBirdMaterial.Creates[lost]
+			if before.SecretID != "" || before.FirstDispatchedAt.IsZero() || before.RequestSHA256 == "" || before.RetryToken == "" {
+				t.Fatal("lost material response lacked protected original dispatch")
+			}
+			if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) {
+				t.Fatalf("factory reopen did not finish material before unchanged startup refusal: %v", err)
+			}
+			after := fixture.cloud.journal("GRU").NetBirdMaterial.Creates[lost]
+			if before.RequestSHA256 != after.RequestSHA256 || before.RetryToken != after.RetryToken || !before.FirstDispatchedAt.Equal(after.FirstDispatchedAt) || fixture.cloud.materialPosts != 5 {
+				t.Fatal("material recovery reset request/token/time or created replacement")
+			}
+			fixture.assertMaterial(t)
+		})
+	}
+	for _, fault := range []string{"malformed encoding", "short root", "oversized root", "foreign version", "not CURRENT", "foreign target", "wrong generation", "automatic generation missing", "template added", "rotation added", "foreign same name", "token invalidated"} {
+		t.Run(fault, func(t *testing.T) {
+			fixture := newFoundationProvisionFixture(t)
+			bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
+			fixture.cloud.bundle, fixture.cloud.materialFault = bundle, fault
+			if fault == "short root" {
+				fixture.cloud.materialRoot = bytes.Repeat([]byte{'Q'}, 63)
+			}
+			if fault == "oversized root" {
+				fixture.cloud.materialRoot = bytes.Repeat([]byte{'Q'}, 1025)
+			}
+			if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); err == nil || errors.Is(err, bootstrap.ErrManifestInvalid) {
+				t.Fatalf("invalid Vault custody reached startup boundary: %v", err)
+			}
+			journal := fixture.cloud.journal("GRU")
+			if fixture.cloud.materialPosts != 1 || fixture.cloud.creates != 0 || fixture.cloud.launchPosts != 0 || journal.NetBirdMaterial.Complete || journal.NetBirdMaterial.Creates[1].RequestSHA256 != "" {
+				t.Fatal("invalid root material reached derivation, infrastructure or replacement")
+			}
+			if fault == "foreign same name" || fault == "token invalidated" {
+				before := journal.NetBirdMaterial.Creates[0]
+				posts := fixture.cloud.materialPosts
+				if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); err == nil {
+					t.Fatal("conflicting same-name material was adopted")
+				}
+				after := fixture.cloud.journal("GRU").NetBirdMaterial.Creates[0]
+				if before != after || after.SecretID != "" || after.HoldReason != "create-refused" || fixture.cloud.materialPosts != posts {
+					t.Fatal("conflict/invalidation reset original unknown material")
+				}
+			}
+		})
+	}
+	t.Run("expired unknown original request", func(t *testing.T) {
+		fixture := newFoundationProvisionFixture(t)
+		bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
+		fixture.cloud.bundle, fixture.cloud.lostMaterialIndex = bundle, 0
+		if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); err == nil {
+			t.Fatal("lost original create did not remain unresolved")
+		}
+		record := fixture.cloud.journal("GRU")
+		record.StartedAt = time.Now().Add(-25 * time.Hour).UTC()
+		record.NetBirdMaterial.BornAt = record.StartedAt
+		record.NetBirdMaterial.Creates[0].FirstDispatchedAt = time.Now().Add(-24 * time.Hour).UTC()
+		wire, err := json.Marshal(record, json.Deterministic(true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixture.cloud.writeObject("gru-1-head/"+foundationObjectPrefix+"GRU.json", wire)
+		posts := fixture.cloud.materialPosts
+		if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); err == nil || fixture.cloud.materialPosts != posts {
+			t.Fatalf("expired unknown operation replayed or minted another token: %v", err)
+		}
+		if fixture.cloud.journal("GRU").NetBirdMaterial.Creates[0].HoldReason != "retry-expired" {
+			t.Fatal("expired original create did not retain permanent HOLD")
+		}
+	})
+	t.Run("pinned material outlives retry tokens", func(t *testing.T) {
+		fixture := newFoundationProvisionFixture(t)
+		bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
+		fixture.cloud.bundle = bundle
+		if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) {
+			t.Fatalf("initial material-only preparation failed: %v", err)
+		}
+		record := fixture.cloud.journal("GRU")
+		record.StartedAt = time.Now().Add(-25 * time.Hour).UTC()
+		record.NetBirdMaterial.BornAt = record.StartedAt
+		for index := range record.NetBirdMaterial.Creates {
+			record.NetBirdMaterial.Creates[index].FirstDispatchedAt = time.Now().Add(-24 * time.Hour).UTC()
+		}
+		wire, err := json.Marshal(record, json.Deterministic(true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixture.cloud.writeObject("gru-1-head/"+foundationObjectPrefix+"GRU.json", wire)
+		posts := fixture.cloud.materialPosts
+		if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) || fixture.cloud.materialPosts != posts {
+			t.Fatalf("pinned exact material was replaced after retry-token lifetime: %v", err)
+		}
+		fixture.assertMaterial(t)
+	})
+	for _, failure := range []string{"missing journal and secrets", "retained origins without birth", "replaced CURRENT", "changed root content", "deleted child", "unknown original manager reservation", "original manager instance reservation"} {
+		t.Run(failure, func(t *testing.T) {
+			fixture := newFoundationProvisionFixture(t)
+			bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
+			fixture.cloud.bundle = bundle
+			if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) {
+				t.Fatalf("initial material-only preparation failed: %v", err)
+			}
+			record := fixture.cloud.journal("GRU")
+			switch failure {
+			case "missing journal and secrets", "retained origins without birth":
+				if err := os.Remove(fixture.cloud.objectPath("gru-1-head/" + foundationObjectPrefix + "GRU.json")); err != nil {
+					t.Fatal(err)
+				}
+				if failure == "missing journal and secrets" {
+					for _, create := range record.NetBirdMaterial.Creates {
+						delete(fixture.cloud.rows, create.SecretID)
+						if err := os.Remove(fixture.cloud.objectPath("material-value/" + create.SecretID)); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
+			case "replaced CURRENT":
+				fixture.cloud.rows[record.NetBirdMaterial.Creates[0].SecretID]["currentVersionNumber"] = int64(2)
+			case "changed root content":
+				fixture.cloud.writeObject("material-value/"+record.NetBirdMaterial.Creates[0].SecretID, bytes.Repeat([]byte{'R'}, 64))
+			case "deleted child":
+				delete(fixture.cloud.rows, record.NetBirdMaterial.Creates[1].SecretID)
+			default:
+				// Corrupt an actual retained journal; this is refusal input, never actor evidence.
+				record.NetBirdManager = &NetBirdManagerLaunch{}
+				if failure == "original manager instance reservation" {
+					record.NetBirdManager.InstanceID = "ocid1.instance.oc1.sa-saopaulo-1.original"
+				}
+				wire, err := json.Marshal(record)
+				if err != nil {
+					t.Fatal(err)
+				}
+				fixture.cloud.writeObject("gru-1-head/"+foundationObjectPrefix+"GRU.json", wire)
+			}
+			posts := fixture.cloud.materialPosts
+			if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); err == nil || errors.Is(err, bootstrap.ErrManifestInvalid) || fixture.cloud.materialPosts != posts || fixture.cloud.creates != 0 || fixture.cloud.launchPosts != 0 {
+				t.Fatalf("lost/replaced original custody regenerated material or progressed: %v", err)
+			}
+		})
+	}
+	t.Run("protected CAS never resets material", func(t *testing.T) {
+		fixture := newFoundationProvisionFixture(t)
+		bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
+		fixture.cloud.bundle = bundle
+		if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) {
+			t.Fatalf("initial material-only preparation failed: %v", err)
+		}
+		client, err := fixture.factoryFor().ObjectStorage()
+		if err != nil {
+			t.Fatal(err)
+		}
+		store, err := NewObjectFoundationStore(&client, fixture.approval.HomeStorageDomain.Namespace, fixture.approval.HomeStorageDomain.HeadBucket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		original, err := os.ReadFile(fixture.cloud.objectPath("gru-1-head/" + foundationObjectPrefix + "GRU.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, mutate := range []func(*FoundationRecord){
+			func(r *FoundationRecord) { r.NetBirdMaterial.Creates[0].RetryToken = strings.Repeat("a", 64) },
+			func(r *FoundationRecord) {
+				r.NetBirdMaterial.Creates[0].FirstDispatchedAt = r.NetBirdMaterial.Creates[0].FirstDispatchedAt.Add(time.Second)
+			},
+			func(r *FoundationRecord) { r.NetBirdMaterial.Creates[0].SecretID += ".replacement" },
+			func(r *FoundationRecord) { r.NetBirdMaterial.Creates[0].ContentSHA256 = strings.Repeat("a", 64) },
+			func(r *FoundationRecord) { r.NetBirdMaterial.Complete = false },
+			func(r *FoundationRecord) {
+				r.NetBirdMaterial = nil
+				r.Stage = "blocked"
+				r.BlockedReason = "foundation-unavailable"
+			},
+			func(r *FoundationRecord) { r.AuxiliaryIDs["head_bucket"] = "ocid1.bucket.oc1.sa-saopaulo-1.foreign" },
+		} {
+			record, etag, err := store.Load(t.Context(), "GRU")
+			if err != nil {
+				t.Fatal(err)
+			}
+			mutate(&record)
+			if _, err := store.CompareAndSwap(t.Context(), record, etag); err == nil {
+				t.Fatal("actual protected ObjectStorage CAS accepted material reset")
+			}
+			retained, err := os.ReadFile(fixture.cloud.objectPath("gru-1-head/" + foundationObjectPrefix + "GRU.json"))
+			if err != nil || !bytes.Equal(retained, original) {
+				t.Fatal("refused material reset changed original protected bytes")
+			}
+		}
+		fixture.assertMaterial(t)
+	})
+}
+
+func (c *provisionCloud) serveMaterial(w http.ResponseWriter, r *http.Request, parts []string) {
+	if parts[0] == "secretbundles" && r.Method == http.MethodGet && len(parts) == 2 {
+		id := parts[1]
+		value, err := os.ReadFile(c.objectPath("material-value/" + id))
+		if err != nil {
+			c.notFound(w)
+			return
+		}
+		if r.URL.Query().Get("versionNumber") != "1" || r.URL.Query().Get("stage") != "CURRENT" {
+			c.test.Error("material read did not request exact version1 CURRENT by ID")
+		}
+		encoded := base64.StdEncoding.EncodeToString(value)
+		if c.materialFault == "malformed encoding" {
+			encoded = "!invalid-base64!"
+		}
+		version, stages := int64(1), []string{"CURRENT"}
+		if c.materialFault == "foreign version" {
+			version = 2
+		}
+		if c.materialFault == "not CURRENT" {
+			stages = []string{"PREVIOUS"}
+		}
+		json.MarshalWrite(w, map[string]any{"secretId": id, "versionNumber": version, "stages": stages, "secretBundleContent": map[string]any{"contentType": "BASE64", "content": encoded}})
+		return
+	}
+	if parts[0] == "secrets" && r.Method == http.MethodGet && len(parts) == 2 {
+		row := c.rows[parts[1]]
+		if row == nil {
+			c.notFound(w)
+			return
+		}
+		observed := maps.Clone(row)
+		switch c.materialFault {
+		case "foreign target":
+			observed["keyId"] = "ocid1.key.oc1.sa-saopaulo-1.foreign"
+		case "wrong generation":
+			observed["secretGenerationContext"] = map[string]any{"generationType": "BYTES", "generationTemplate": "BYTES_1024"}
+		case "automatic generation missing":
+			delete(observed, "isAutoGenerationEnabled")
+		case "template added":
+			observed["secretGenerationContext"] = map[string]any{"generationType": "BYTES", "generationTemplate": "BYTES_512", "secretTemplate": "%GENERATED_BYTES%"}
+		case "rotation added":
+			observed["rotationConfig"] = map[string]any{"isScheduledRotationEnabled": true, "rotationInterval": "P30D"}
+		}
+		json.MarshalWrite(w, observed)
+		return
+	}
+	if parts[0] != "secrets" || r.Method != http.MethodPost || len(parts) != 1 {
+		c.unexpected(w, r)
+		return
+	}
+	wire, err := io.ReadAll(io.LimitReader(r.Body, 8193))
+	if err != nil || len(wire) > 8192 {
+		c.test.Fatal("material request exceeded wire bound")
+	}
+	var body map[string]any
+	if err := json.Unmarshal(wire, &body); err != nil {
+		c.test.Fatal(err)
+	}
+	record := c.journal("GRU")
+	j := record.NetBirdMaterial
+	if j == nil || record.Stage != "material" {
+		c.test.Fatal("Vault effect preceded original protected birth")
+	}
+	index := slices.Index(j.Authority.Names[:], fmt.Sprint(body["secretName"]))
+	if index < 0 {
+		c.test.Fatal("Vault name differs from independently signed material names")
+	}
+	create := j.Creates[index]
+	if create.RequestSHA256 != netBirdMaterialSHA(wire) || create.RetryToken != r.Header.Get("opc-retry-token") || create.FirstDispatchedAt.IsZero() || create.SecretID != "" ||
+		index > 0 && (j.Creates[0].Version != 1 || j.Creates[0].ContentSHA256 == "") {
+		c.test.Fatal("Vault effect preceded exact body/token/time reservation or pinned root")
+	}
+	grant, err := decodeOriginalMaterialGrant(c.bundle)
+	if err != nil || len(grant.WorkloadGenesis) != 9 {
+		c.test.Fatal("material fixture lacks actual signed original lineage")
+	}
+	expected, err := json.Marshal(c.bundle, json.Deterministic(true))
+	if err != nil {
+		c.test.Fatal(err)
+	}
+	for _, origin := range grant.WorkloadGenesis {
+		name, err := release.WorkloadGenesisObject(origin.TenancyID, origin.Cell, origin.Environment, origin.Role)
+		if err != nil {
+			c.test.Fatal(err)
+		}
+		retained, err := os.ReadFile(c.objectPath("gru-1-head/" + name))
+		if err != nil || !bytes.Equal(retained, expected) {
+			c.test.Fatal("Vault generation preceded all nine exact immutable origin readbacks")
+		}
+	}
+	c.materialPosts++
+	if c.materialFault == "foreign same name" || c.materialFault == "token invalidated" {
+		w.WriteHeader(http.StatusConflict)
+		io.WriteString(w, `{"code":"Conflict","message":"original material unresolved"}`)
+		return
+	}
+	if id := c.tokens[create.RetryToken]; id != "" {
+		request, err := os.ReadFile(c.objectPath("material-request/" + id))
+		if err != nil || !bytes.Equal(request, wire) {
+			c.test.Fatal("material retry changed exact original serialized SDK request")
+		}
+		json.MarshalWrite(w, c.rows[id])
+		return
+	}
+	value := c.materialRoot
+	if index == 0 {
+		generation, ok := body["secretGenerationContext"].(map[string]any)
+		if !ok || generation["generationType"] != "BYTES" || generation["generationTemplate"] != "BYTES_512" || generation["secretTemplate"] != nil || body["secretContent"] != nil || body["enableAutoGeneration"] != true || body["rotationConfig"] != nil || body["replicationConfig"] != nil {
+			c.test.Fatal("root request changed fixed provider-generated material template")
+		}
+	} else {
+		content, ok := body["secretContent"].(map[string]any)
+		if !ok || content["contentType"] != "BASE64" || content["stage"] != "CURRENT" || body["secretGenerationContext"] != nil || body["enableAutoGeneration"] != nil {
+			c.test.Fatal("child request changed fixed derived material format")
+		}
+		value, err = base64.StdEncoding.DecodeString(fmt.Sprint(content["content"]))
+		if err != nil || len(value) != 44 {
+			c.test.Fatal("child SDK payload is not padded32byte base64 material")
+		}
+	}
+	id := fmt.Sprintf("ocid1.vaultsecret.oc1.sa-saopaulo-1.material%d", index)
+	row := maps.Clone(body)
+	delete(row, "secretContent")
+	delete(row, "enableAutoGeneration")
+	row["id"], row["lifecycleState"], row["currentVersionNumber"], row["timeCreated"] = id, "ACTIVE", int64(1), time.Now().UTC().Format(time.RFC3339)
+	if index == 0 {
+		row["isAutoGenerationEnabled"] = true
+	}
+	c.rows[id], c.collections[id], c.tokens[create.RetryToken] = row, "secrets", id
+	c.writeObject("material-value/"+id, value)
+	c.writeObject("material-request/"+id, wire)
+	if c.lostMaterialIndex == index {
+		c.lostMaterialIndex = -1
+		w.WriteHeader(http.StatusServiceUnavailable)
+		io.WriteString(w, `{"code":"InternalError","message":"accepted original material response lost"}`)
+		return
+	}
+	json.MarshalWrite(w, row)
+}
+
 func (c *provisionCloud) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -691,6 +1197,10 @@ func (c *provisionCloud) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	parts = parts[1:]
 	collection := parts[0]
+	if collection == "secrets" || collection == "secretbundles" {
+		c.serveMaterial(w, r, parts)
+		return
+	}
 	if collection == "tenancies" {
 		io.WriteString(w, `{"homeRegionKey":"GRU"}`)
 		return
@@ -1069,6 +1579,12 @@ func (c *provisionCloud) serveStorage(w http.ResponseWriter, r *http.Request) {
 					w.WriteHeader(400)
 					return
 				}
+			}
+		}
+		if strings.HasPrefix(object, "orchestrator/workload-genesis/v1/") {
+			birth := c.journal("GRU")
+			if birth.Stage != "material" || birth.NetBirdMaterial == nil || birth.NetBirdMaterial.BornAt.IsZero() || c.materialPosts != 0 {
+				c.test.Fatal("first immutable origin effect preceded protected material birth or followed Vault generation")
 			}
 		}
 		c.writeObject(bucket+"/"+object, wire)
