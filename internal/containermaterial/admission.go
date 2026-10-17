@@ -328,7 +328,7 @@ func verifyExpected(proof Profile, expected swarmruntime.ServiceIntent, verified
 func ServiceIntent(proof Profile, architecture string) (swarmruntime.ServiceIntent, error) {
 	intent, profile := proof.intent, proof.profile
 	region, known := catalog.LookupName(proof.identity.Cell)
-	if proof.fingerprint == "" || !known || intent.Container == nil {
+	if proof.fingerprint == "" || !known || intent.Container == nil || !entityid.Valid(proof.runtimeOperationID) {
 		return swarmruntime.ServiceIntent{}, ErrPending
 	}
 	envelope, err := trust.DecodeEnvelope(intent.Container.Claim)
