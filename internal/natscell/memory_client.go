@@ -33,6 +33,23 @@ func ConnectMemory(ctx context.Context, cell, endpoint string, credentials []byt
 		return nil, errors.New("in-memory NATS client certificate is invalid")
 	}
 	deadline := leaf.NotAfter
+	intermediates := x509.NewCertPool()
+	for _, der := range config.Certificates[0].Certificate[1:] {
+		certificate, err := x509.ParseCertificate(der)
+		if err != nil {
+			return nil, err
+		}
+		intermediates.AddCert(certificate)
+	}
+	chains, err := leaf.Verify(x509.VerifyOptions{Roots: config.RootCAs, Intermediates: intermediates, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
+	if err != nil {
+		return nil, err
+	}
+	for _, certificate := range chains[0] {
+		if certificate.NotAfter.Before(deadline) {
+			deadline = certificate.NotAfter
+		}
+	}
 	if claim.Expires > 0 && time.Unix(claim.Expires, 0).Before(deadline) {
 		deadline = time.Unix(claim.Expires, 0)
 	}

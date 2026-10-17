@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -53,18 +54,18 @@ func TestWorkloadMaterialRejectsUnsealedAdmissions(t *testing.T) {
 func TestCurrentMetadataNeverReadsBundles(t *testing.T) {
 	const id = "ocid1.vaultsecret.oc1.sa-saopaulo-1.owned"
 	reference := vaultsecret.Ref{Vault: "ocid1.vault.oc1.sa-saopaulo-1.owned", Name: "gru-ts-api-password"}
-	mode := "current"
-	var requests int
+	var mode atomic.Int32
+	var requests atomic.Int32
 	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		requests++
+		requests.Add(1)
 		writer.Header().Set("Content-Type", "application/json")
 		expires := time.Now().Add(time.Hour)
-		if mode == "expired" {
+		if mode.Load() == 2 {
 			expires = time.Now().Add(-time.Second)
 		}
 		secret := map[string]any{"id": id, "compartmentId": "compartment", "vaultId": reference.Vault, "secretName": reference.Name,
 			"lifecycleState": "ACTIVE", "currentVersionNumber": 7, "timeOfCurrentVersionExpiry": expires.UTC().Format(time.RFC3339Nano)}
-		if mode == "foreign" {
+		if mode.Load() == 1 {
 			secret["vaultId"] = "another-vault"
 		}
 		var response any
@@ -78,10 +79,10 @@ func TestCurrentMetadataNeverReadsBundles(t *testing.T) {
 			response = secret
 		case strings.HasSuffix(request.URL.Path, "/secrets/"+id+"/versions/7"):
 			stage, number := "CURRENT", 7
-			if mode == "pending" {
+			if mode.Load() == 3 {
 				stage = "PENDING"
 			}
-			if mode == "version" {
+			if mode.Load() == 4 {
 				number++
 			}
 			response = map[string]any{"secretId": id, "versionNumber": number, "stages": []string{stage}, "timeOfCurrentVersionExpiry": expires.UTC().Format(time.RFC3339Nano)}
@@ -108,19 +109,19 @@ func TestCurrentMetadataNeverReadsBundles(t *testing.T) {
 	ociclient.PinHost(&client.BaseClient, server.URL)
 	client.HTTPClient = server.Client()
 	value, err := observeCurrentMetadata(t.Context(), &client, "compartment", reference)
-	if err != nil || value.ID != id || value.Version != 7 || !time.Now().Before(value.ExpiresAt) || requests != 3 {
+	if err != nil || value.ID != id || value.Version != 7 || !time.Now().Before(value.ExpiresAt) || requests.Load() != 3 {
 		t.Fatal("exact CURRENT metadata was not observed", err)
 	}
-	for _, scenario := range []string{"foreign", "expired", "pending", "version"} {
-		mode = scenario
+	for _, scenario := range []int32{1, 2, 3, 4} {
+		mode.Store(scenario)
 		if _, err := observeCurrentMetadata(t.Context(), &client, "compartment", reference); !errors.Is(err, ErrDelivery) {
 			t.Fatal("invalid metadata was accepted", scenario, err)
 		}
 	}
-	mode = "current"
-	before := requests
+	mode.Store(0)
+	before := requests.Load()
 	client.HTTPClient = credentialDispatcher{next: client.HTTPClient, guard: func() error { return ErrDelivery }}
-	if _, err := observeCurrentMetadata(t.Context(), &client, "compartment", reference); !errors.Is(err, ErrDelivery) || requests != before {
+	if _, err := observeCurrentMetadata(t.Context(), &client, "compartment", reference); !errors.Is(err, ErrDelivery) || requests.Load() != before {
 		t.Fatal("revoked metadata admission reached the provider", err)
 	}
 }
