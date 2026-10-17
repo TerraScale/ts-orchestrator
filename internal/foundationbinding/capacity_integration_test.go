@@ -68,6 +68,18 @@ func TestCapacityLedgerRequiresCurrentSignedGrantAndProtectedSDKRecord(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
+	var additive map[string]map[string]any
+	if err := json.Unmarshal(s.record.PoolChildren, &additive); err != nil {
+		t.Fatal(err)
+	}
+	metadata := additive[receipt.OperationID]
+	metadata["publicCaPem"], metadata["availabilityDomains"] = []byte("original public CA"), []string{"original AD"}
+	metadata["node"], metadata["descriptor"] = "ts-sfo-4", "original descriptor"
+	metadata["launch"].(map[string]any)["pendingAttemptId"] = entityid.New()
+	s.record.PoolChildren, err = json.Marshal(additive)
+	if err != nil {
+		t.Fatal(err)
+	}
 	born, err := bindings.CapacityLedger(t.Context())
 	if err != nil {
 		t.Fatal(err)
