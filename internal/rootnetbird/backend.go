@@ -46,6 +46,8 @@ type Sources struct {
 	Authority    *bootstrapstart.CurrentFounderAuthorityReader
 	Accepted     bootstrapstart.AcceptedIdentity
 	Credentials  *rootsecret.ControllerReader
+	snapshot     *region.CurrentFoundationSnapshot
+	material     region.VerifiedBootstrapMaterial
 }
 
 var _ rootoci.NetBird = (*Backend)(nil)
@@ -59,7 +61,7 @@ func New(factory *ociclient.Factory) (*Backend, error) {
 }
 
 func (b *Backend) Bind(s Sources) error {
-	if b == nil || os.Geteuid() != 0 || s.JS == nil || s.JS.Conn() == nil || s.Specs == nil || s.Roots == nil ||
+	if b == nil || b.factory == nil || os.Geteuid() != 0 || s.JS == nil || s.JS.Conn() == nil || s.Specs == nil || s.Roots == nil ||
 		s.Leases == nil || s.Authority == nil || s.Accepted.Validate() != nil || s.Credentials == nil ||
 		s.Credentials.Conn() != s.JS.Conn() || s.Specs.Bucket() != "TS_SERVICE_SET" || s.Roots.Bucket() != "TS_TRUST_ROOTS" {
 		return rootoci.ErrUnauthorized
@@ -69,6 +71,21 @@ func (b *Backend) Bind(s Sources) error {
 		return rootoci.ErrUnauthorized
 	}
 	s.Accepted = s.Accepted.Clone()
+	snapshot, err := region.DiscoverCurrentFoundationSnapshot(lifetime, b.factory)
+	if err != nil {
+		return err
+	}
+	material, err := snapshot.Resolver().BootstrapMaterial(lifetime, s.Accepted.Cell)
+	if err != nil {
+		return err
+	}
+	config := material.Config()
+	if config.DeploymentID != s.Accepted.DeploymentID || config.ClusterID != s.Accepted.ClusterID ||
+		config.Environment != s.Accepted.Environment || config.Cell != strings.ToLower(s.Accepted.Cell) || config.Region != b.factory.Region() ||
+		snapshot.Guard(lifetime) != nil || material.Revalidate(lifetime) != nil || s.Credentials.Guard(lifetime) != nil {
+		return rootoci.ErrUnauthorized
+	}
+	s.snapshot, s.material = snapshot, material
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.sources != nil {
@@ -208,14 +225,10 @@ func (b *Backend) AuthorizeNetBirdIntent(ctx context.Context, call rootoci.Call,
 }
 
 func (b *Backend) canonical(ctx context.Context, s *Sources, identity bootstrapstart.RuntimeIdentity, deadline time.Time) (rootoci.NetBirdIntent, error) {
-	resolver, err := region.DiscoverCurrentFoundation(ctx, b.factory)
-	if err != nil {
-		return rootoci.NetBirdIntent{}, err
+	if s.snapshot == nil || s.snapshot.Guard(ctx) != nil || s.material.Revalidate(ctx) != nil {
+		return rootoci.NetBirdIntent{}, rootoci.ErrUnauthorized
 	}
-	material, err := resolver.BootstrapMaterial(ctx, identity.Cell)
-	if err != nil {
-		return rootoci.NetBirdIntent{}, err
-	}
+	material := s.material
 	config := material.Config()
 	if deadline.After(material.ExpiresAt()) {
 		return rootoci.NetBirdIntent{}, rootoci.ErrUnauthorized
