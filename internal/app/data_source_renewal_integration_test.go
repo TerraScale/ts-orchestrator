@@ -1705,7 +1705,9 @@ func renewalDelivery(t *testing.T, js jetstream.JetStream, control *authority.Ru
 		Cell:   "gru", Role: "terrabase", Environment: "production", Generation: 1, DesiredReplicas: 1,
 		ConfigDigest: delivery.ConfigDigestOf(nil, nil, nil), AuthorityEpoch: control.Current().Epoch, Container: &signed.bundle}
 	allocations := func(_ context.Context, operation string, bundle release.ContainerBundle, _ trust.Keyring, target release.ContainerTarget) (release.SequenceLocation, error) {
-		if operation != intent.OperationID || !bytes.Equal(bundle.Claim, signed.bundle.Claim) || target.Cell != claim.Cell ||
+		if operation != intent.OperationID || !bytes.Equal(bundle.Claim, signed.bundle.Claim) ||
+			!bytes.Equal(bundle.Index, signed.bundle.Index) || !bytes.Equal(bundle.Sequence, signed.bundle.Sequence) ||
+			!bytes.Equal(bundle.Delegation, signed.bundle.Delegation) || !bytes.Equal(bundle.Migration, signed.bundle.Migration) || target.Cell != claim.Cell ||
 			target.Environment != claim.Environment || target.Role != claim.Role || target.Architecture != claim.Architecture {
 			return release.SequenceLocation{}, execution.ErrUnsafe
 		}
