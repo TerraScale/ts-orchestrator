@@ -33,7 +33,18 @@ type ContainerSecretValue struct {
 }
 
 type ContainerMaterialReceipt struct {
+	Task   ContainerTaskMaterial           `json:"task"`
 	Values map[string]ContainerSecretValue `json:"values"`
+}
+
+// ContainerTaskMaterial is root-checked output for file delivery and version CAS.
+type ContainerTaskMaterial struct {
+	Binding      host.ContainerMaterialBinding `json:"binding"`
+	OperationID  string                        `json:"operation_id"`
+	ConfigDigest string                        `json:"config_digest"`
+	Generation   uint64                        `json:"generation"`
+	User         string                        `json:"user"`
+	ExpiresAt    time.Time                     `json:"expires_at"`
 }
 
 // ObserveContainerGenerationRequest selects an actual task, never Vault refs.
@@ -42,6 +53,7 @@ type ObserveContainerGenerationRequest struct {
 }
 
 type ContainerGenerationReceipt struct {
+	Task   ContainerTaskMaterial              `json:"task"`
 	Values map[string]ContainerSecretMetadata `json:"values"`
 }
 
