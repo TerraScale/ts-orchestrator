@@ -32,6 +32,27 @@ type rootOCIProcess struct {
 	stopLease      func()
 	brokerStartup  *rootBrokerStartup
 	managerBinding *rootManagerRuntimeBinding
+	supervisor     rootOCIProcessSupervisor
+}
+
+type rootOCIProcessSupervisor interface {
+	verify(context.Context, *rootoci.ProcessWitness) error
+}
+
+type rootOCISystemdSupervisor struct {
+	invocation, cgroup string
+}
+
+func (supervisor rootOCISystemdSupervisor) verify(ctx context.Context, witness *rootoci.ProcessWitness) error {
+	if witness == nil || witness.Verify() != nil {
+		return rootoci.ErrUnauthorized
+	}
+	service, err := observeRootOCIController(ctx)
+	if err != nil || service.pid != witness.Peer().PID || service.invocation != supervisor.invocation ||
+		service.cgroup != supervisor.cgroup || !rootOCIProcessCgroup(witness.Cgroup(), service.cgroup) || witness.Verify() != nil {
+		return rootoci.ErrUnauthorized
+	}
+	return nil
 }
 
 func (process *rootOCIProcess) close() {
@@ -296,12 +317,10 @@ func (authority *rootOCIAuthority) verifyProcess(ctx context.Context, process *r
 		}
 		return nil
 	}
-	service, err := observeRootOCIController(ctx)
-	if err != nil || service.pid != process.witness.Peer().PID || service.invocation != process.invocation ||
-		!rootOCIProcessCgroup(process.witness.Cgroup(), service.cgroup) || process.witness.Verify() != nil {
+	if process.supervisor == nil {
 		return rootoci.ErrUnauthorized
 	}
-	return nil
+	return process.supervisor.verify(ctx, process.witness)
 }
 
 func earlier(left, right time.Time) time.Time {
@@ -347,6 +366,7 @@ func (authority *rootOCIAuthority) currentProcess(ctx context.Context, peer nati
 		authority.main.close()
 	}
 	authority.main = authority.process(witness, service.invocation)
+	authority.main.supervisor = rootOCISystemdSupervisor{invocation: service.invocation, cgroup: service.cgroup}
 	return authority.main, nil
 }
 
