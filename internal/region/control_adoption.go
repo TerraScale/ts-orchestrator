@@ -42,6 +42,12 @@ func AdoptRegionalControlSources(ctx context.Context, factory *ociclient.Factory
 	if err != nil {
 		return err
 	}
+	purposeExpiry, err := regionalControlPurposeExpiry(operation, resolver, identity.Cell)
+	if err != nil {
+		return err
+	}
+	operation, stopPurpose := context.WithDeadline(operation, purposeExpiry)
+	defer stopPurpose()
 	home, err := NewRuntimeHomeIAMAuthority(operation, reader, accepted, resolver)
 	if err != nil {
 		return err
@@ -49,12 +55,6 @@ func AdoptRegionalControlSources(ctx context.Context, factory *ociclient.Factory
 	if err := home.VerifyFoundationWriter(operation); err != nil {
 		return err
 	}
-	purposeExpiry, err := regionalControlPurposeExpiry(operation, resolver, identity.Cell)
-	if err != nil {
-		return err
-	}
-	operation, stopPurpose := context.WithDeadline(operation, purposeExpiry)
-	defer stopPurpose()
 	approved, err := resolver.Resolve(operation, identity.Cell)
 	if err != nil {
 		return err
@@ -111,6 +111,15 @@ func AdoptRegionalControlSources(ctx context.Context, factory *ociclient.Factory
 	if err != nil {
 		return err
 	}
+	sourceExpiry, err := controlAdmissionExpiry(before, root, spec)
+	if err != nil {
+		return err
+	}
+	if !sourceExpiry.IsZero() {
+		var stopSource context.CancelFunc
+		operation, stopSource = context.WithDeadline(operation, sourceExpiry)
+		defer stopSource()
+	}
 	guard := func(ctx context.Context) error {
 		if err := home.VerifyFoundationWriter(ctx); err != nil {
 			return err
@@ -122,6 +131,8 @@ func AdoptRegionalControlSources(ctx context.Context, factory *ociclient.Factory
 		if currentAuthority.Identity() != identity || currentAuthority.Anchor().Digest() != creation.AnchorSHA256 || !time.Now().Before(expires) {
 			return errors.New("regional control accepted writer source changed or expired")
 		}
+		ctx, stopAuthority := context.WithDeadline(ctx, currentAuthority.ExpiresAt())
+		defer stopAuthority()
 		if err := storage.RevalidateRuntime(ctx, runtime); err != nil {
 			return err
 		}
@@ -129,9 +140,12 @@ func AdoptRegionalControlSources(ctx context.Context, factory *ociclient.Factory
 		if err != nil {
 			return err
 		}
-		if err := requireRegionalControlPurpose(ctx, currentResolver, identity.Cell); err != nil {
+		purposeExpiry, err := regionalControlPurposeExpiry(ctx, currentResolver, identity.Cell)
+		if err != nil {
 			return err
 		}
+		ctx, stopPurpose := context.WithDeadline(ctx, purposeExpiry)
+		defer stopPurpose()
 		currentApproved, err := currentResolver.Resolve(ctx, identity.Cell)
 		if err != nil {
 			return err
@@ -167,7 +181,13 @@ func AdoptRegionalControlSources(ctx context.Context, factory *ociclient.Factory
 		if err := ociclient.LimitAdmission(ctx, storage.ExpiresAt()); err != nil {
 			return err
 		}
-		return limitControlAdmission(ctx, before, root, spec)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !sourceExpiry.IsZero() {
+			return ociclient.LimitAdmission(ctx, sourceExpiry)
+		}
+		return nil
 	}
 	if err := guard(operation); err != nil {
 		return err
@@ -216,9 +236,12 @@ func AdoptRegionalControlSources(ctx context.Context, factory *ociclient.Factory
 	if err != nil {
 		return err
 	}
-	if err := requireRegionalControlPurpose(operation, currentResolver, identity.Cell); err != nil {
+	purposeExpiry, err = regionalControlPurposeExpiry(operation, currentResolver, identity.Cell)
+	if err != nil {
 		return err
 	}
+	operation, stopFinalPurpose := context.WithDeadline(operation, purposeExpiry)
+	defer stopFinalPurpose()
 	return storage.RevalidateRuntime(operation, runtime)
 }
 
@@ -289,27 +312,31 @@ func verifiedControlAdvance(before RuntimeTrustFloor, root, spec controlSource, 
 	return next, nil
 }
 
-func limitControlAdmission(ctx context.Context, before RuntimeTrustFloor, root, spec controlSource) error {
+func controlAdmissionExpiry(before RuntimeTrustFloor, root, spec controlSource) (time.Time, error) {
+	var expires time.Time
+	retain := func(deadline time.Time) {
+		if expires.IsZero() || deadline.Before(expires) {
+			expires = deadline
+		}
+	}
 	chain, err := trust.DecodeRootChain(root.wire)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	if uint64(len(chain.Rotations)) < before.RootSequence {
-		return errors.New("regional control admission lost its protected root prefix")
+		return time.Time{}, errors.New("regional control admission lost its protected root prefix")
 	}
 	for _, rotation := range chain.Rotations[before.RootSequence:] {
 		for _, envelope := range rotation.Signatures {
-			if err := ociclient.LimitAdmission(ctx, envelope.ExpiresAt); err != nil {
-				return err
-			}
+			retain(envelope.ExpiresAt)
 		}
 	}
 	if before.SpecRevision != 0 && before.SpecSHA256 == brokerSourceDigest(spec.wire) {
-		return ctx.Err()
+		return expires, nil
 	}
 	var signed cellspec.Signed
 	if err := json.Unmarshal(spec.wire, &signed); err != nil {
-		return err
+		return time.Time{}, err
 	}
 	for _, wire := range [][]byte{signed.Spec, signed.Delegation} {
 		if len(wire) == 0 {
@@ -317,11 +344,9 @@ func limitControlAdmission(ctx context.Context, before RuntimeTrustFloor, root, 
 		}
 		envelope, err := trust.DecodeEnvelope(wire)
 		if err != nil {
-			return err
+			return time.Time{}, err
 		}
-		if err := ociclient.LimitAdmission(ctx, envelope.ExpiresAt); err != nil {
-			return err
-		}
+		retain(envelope.ExpiresAt)
 	}
-	return ctx.Err()
+	return expires, nil
 }

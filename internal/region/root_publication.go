@@ -129,10 +129,12 @@ func (proof VerifiedBrokerCreation) commitPublication(ctx context.Context, runti
 		if err := proof.RevalidateRuntime(ctx, runtime); err != nil {
 			return err
 		}
-		current, held, _, _, err := proof.publicationSource(ctx)
+		current, held, _, purposeExpiry, err := proof.publicationSource(ctx)
 		if err != nil {
 			return err
 		}
+		ctx, cancel := context.WithDeadline(ctx, purposeExpiry)
+		defer cancel()
 		if held != etag || *current.RuntimeLineage.TrustFloor != before {
 			return ErrFoundationConflict
 		}

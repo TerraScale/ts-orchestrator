@@ -189,3 +189,25 @@ func TestControlAdoptionRequiresCurrentRootExtension(t *testing.T) {
 		t.Fatalf("new spec signed by terminal root: next=%+v err=%v", next, err)
 	}
 }
+
+func TestControlAdmissionRetainsEarliestNewWireExpiry(t *testing.T) {
+	f := newControlFixture(t)
+	if expiry, err := controlAdmissionExpiry(f.before, f.root, f.spec); err != nil || !expiry.Equal(f.now.Add(-time.Hour)) {
+		t.Fatalf("unknown expired wire must retain its original cap: expiry=%s err=%v", expiry, err)
+	}
+	before := f.before
+	before.SpecRevision, before.SpecSHA256 = f.spec.revision, brokerSourceDigest(f.spec.wire)
+	if expiry, err := controlAdmissionExpiry(before, f.root, f.spec); err != nil || !expiry.IsZero() {
+		t.Fatalf("already adopted history supplied a new current-signature cap: expiry=%s err=%v", expiry, err)
+	}
+	spec := f.spec
+	spec.wire = f.signSpec(t, 2, f.now.Add(-30*time.Minute), f.private, f.genesis)
+	for _, age := range []time.Duration{45 * time.Minute, 10 * time.Minute} {
+		chain, _, _ := f.rotate(t, f.chain, f.private, f.now.Add(-age))
+		root := f.rootSource(t, chain, f.root.revision+1)
+		want := f.now.Add(min(time.Hour-age, 30*time.Minute))
+		if expiry, err := controlAdmissionExpiry(f.before, root, spec); err != nil || !expiry.Equal(want) {
+			t.Fatalf("rotation age %s: expiry=%s want=%s err=%v", age, expiry, want, err)
+		}
+	}
+}

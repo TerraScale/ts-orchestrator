@@ -35,7 +35,7 @@ func TestRegionalControlZeroProofsRefuseAuthority(t *testing.T) {
 		})
 	}
 	for _, resolver := range []FoundationResolver{{}, {Footprint: (*SignedFootprint)(nil)}} {
-		if err := requireRegionalControlPurpose(ctx, resolver, "GRU"); err == nil {
+		if _, err := regionalControlPurposeExpiry(ctx, resolver, "GRU"); err == nil {
 			t.Fatal("unsigned resolver supplied regional-control-lineage authority")
 		}
 	}
