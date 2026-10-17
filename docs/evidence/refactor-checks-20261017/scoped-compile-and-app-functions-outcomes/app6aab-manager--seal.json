@@ -1,0 +1,23 @@
+{
+  "request_sha256": "1dcf11a8c2e514659da855837d80a5d9ff0590933b7bc0e61b3e4f32d5b99c4e",
+  "wrapper_sha256": "de50a17b60ae8f4a3a69323822ee961f1499be92384b36edcfd054dbf1e4a734",
+  "source_manifest_sha256": "f3a94a3541646bf3f6b85fbf801ade78cdae256f00f14ca010abf5c240177f2a",
+  "static_review_sha256": "176e5047f870f6fceda150b97a3714c9e81f47e26c4d56c01766c935cad3532f",
+  "static_closure_sha256": "dbb00d284344a03e4a09251e8557b60a2375b66c1f026e0368e08a8d3b266442",
+  "launch_argv": [
+    "/run/current-system/sw/bin/env",
+    "-i",
+    "HOME=/home/mariogk",
+    "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "GOMAXPROCS=2",
+    "GOFLAGS=-p=2",
+    "GOTOOLCHAIN=local",
+    "LANG=C.UTF-8",
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+    "-I",
+    "-B",
+    "/tmp/ts-app-6aab71080-manager-ovykz2r5/run.py",
+    "1dcf11a8c2e514659da855837d80a5d9ff0590933b7bc0e61b3e4f32d5b99c4e",
+    "de50a17b60ae8f4a3a69323822ee961f1499be92384b36edcfd054dbf1e4a734"
+  ]
+}

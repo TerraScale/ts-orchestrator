@@ -1,0 +1,11 @@
+{
+  "state": "FOCUSED_GENERATION_REGRESSION_ACCEPTED",
+  "receipt_sha256": "323697cc8864be9f6adb27c1f7dba6fd96c281651e806869fd567872d38e4775",
+  "final_seal_sha256": "8adbc58792ece6034d217dd645d82c257d74d0dc9e3f67475ad10dc9def55bd0",
+  "raw_event_count": 8,
+  "exact_one_root_run_and_pass": true,
+  "one_package_start_and_pass": true,
+  "no_fail_skip_extra": true,
+  "source_unchanged": true,
+  "scope": "Pure-memory duration fingerprint regression; vet off; no manager/native/cloud claim. Native terminal owner-retained, independent parsing follows."
+}

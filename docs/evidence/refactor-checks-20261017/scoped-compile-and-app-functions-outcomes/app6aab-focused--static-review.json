@@ -1,0 +1,14 @@
+{
+  "selector": "TestServiceIntentGeneration",
+  "entry": "internal/swarmruntime/service_authority_test.go:53",
+  "selected_behavior": "Construct default signed serviceSpec, fingerprint both5s delays, retain scale/ForceUpdate/OperationID equivalence, reject workload fingerprint equivalence after Update.Delay+1ns and Rollback.Delay+1ns, preserve generation checks. No subtests.",
+  "listeners": "none from selected root",
+  "subprocesses": "Go compiler/linker and selected test binary only; no hidden helper argv",
+  "state": "selected root is pure memory; Go build/test temp cache only",
+  "cleanup": "normal test process exit; no manager/containerd/NATS fixture started",
+  "testmain_review": "Flag declaration and architecture-pinned image selection only at init; TestMain exact hidden argv paths absent. Normal m.Run. All default Linux test files and conservatively tagged variants retained in closure.",
+  "removed_config_switch_findings": [],
+  "api_prerequisite_review": "Source survey of all package tests: no removed Lab/NATSLab fields, no StartAcceptedNode call; StartNode3args and NewAutoscaler5args match current signatures; NodeConfig, host.ControllerConfig, hostload.AggregatorConfig/Request literals reviewed against same commit. Compilation remains unproven.",
+  "scope": "Focused pure regression only; no connected manager, native runtime or cloud qualification.",
+  "external_init_review": "Same SwarmKit/OCI/host production initializer baseline as prior APP closure; hidden native helper modes absent. No daemon called by selected root."
+}

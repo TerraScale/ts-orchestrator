@@ -1,0 +1,35 @@
+{
+  "state": "NOT_QUALIFIED",
+  "exit_code": 1,
+  "wall_seconds": 57.026385788980406,
+  "max_child_rss_kib": 1061136,
+  "source_unchanged": true,
+  "expected_tests": [
+    "TestFunctionPublicationFencesRootsAcrossArtifactWait/current",
+    "TestFunctionPublicationFencesRootsAcrossArtifactWait/rotated",
+    "TestFunctionPublicationFencesRootsAcrossArtifactWait/expired",
+    "TestFunctionPublicationFencesRootsAcrossArtifactWait/released_leader",
+    "TestFunctionPublicationFencesRootsAcrossArtifactWait",
+    "TestFunctionPublicationOrdersRootWritersBeforeIntentCAS/apply",
+    "TestFunctionPublicationOrdersRootWritersBeforeIntentCAS/repair",
+    "TestFunctionPublicationOrdersRootWritersBeforeIntentCAS",
+    "TestRootRegistryAdoptsOnlyExtendingChains",
+    "TestRootRepairNeverRollsBackAValidRecord"
+  ],
+  "expected_package": "github.com/TerraScale/ts-orchestrator/internal/app",
+  "actual_name_counts": {},
+  "malformed_json_lines": [],
+  "test_outcomes": [],
+  "package_outcomes": [
+    {
+      "Time": "2026-10-17T01:06:45.427244252-03:00",
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/app",
+      "Elapsed": 0,
+      "FailedBuild": "github.com/TerraScale/ts-orchestrator/internal/host"
+    }
+  ],
+  "stdout_sha256": "9151f158ad6e7e1498b464865754076339791742cb2a747cc25b6cefa48f3955",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "scope": "Actual local authenticated JetStream/authority admission ordering only. No live OCI, native worker execution, sealed issuer qualification, original creation lineage or distributed cross-stream transaction claim."
+}

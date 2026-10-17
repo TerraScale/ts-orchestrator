@@ -1,0 +1,16 @@
+{
+  "tool": "write_stdin",
+  "arguments": {
+    "session_id": 93328,
+    "chars": "",
+    "yield_time_ms": 10000,
+    "max_output_tokens": 5000
+  },
+  "result": {
+    "chunk_id": "5a39d0",
+    "wall_time_seconds": 10.002001837,
+    "session_id": 93328,
+    "original_token_count": 0,
+    "output": ""
+  }
+}

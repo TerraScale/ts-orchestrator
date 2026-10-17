@@ -1,0 +1,14 @@
+{
+  "provenance": "Machine-captured directly from actual tools.exec_command/tools.write_stdin returned objects in functions.exec; exact arguments/result values serialized immediately after each call; no transcription, replay or reexecution.",
+  "session_id": 93328,
+  "actual_pid": 648221,
+  "request_packet": "/tmp/ts-function-roots-afad42a3-sealed-57p8l5va",
+  "files": {
+    "00.actual.json": "67319e4292cddf569deb3bcfb6a5d93b80c84e3ec985935f33a0d2082c7b9a54",
+    "01.actual.json": "25b59060ccd6d5a05057c9c66ef3491d914fcf90c6ca7dcf761848d3a823a350",
+    "02.actual.json": "cd82dbea9e96fd8238ba9c29b6bc64b62426930e6236c35da4c04c2aa490167a",
+    "03.actual.json": "2daf7200643877ada1b41299b573e03365644303e52740f263c115ecaaffe000",
+    "04.actual.json": "2a7f35cb5f64efb9af3be3f8e8950c0ba48fe3b349e84b100c8ce636e2dd64c8",
+    "05.actual.json": "ccc21a985a11ec4866cad4cbef71a36e7794f01aaad33bce31c68a6dbcbbec51"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "nonblocking_reacquire_then_release": [
+    "/tmp/ts-orch-refactor-general-check.lock",
+    "/tmp/ts-orch-refactor-gate-check.lock"
+  ],
+  "daemonfixture": "released at native terminal"
+}
