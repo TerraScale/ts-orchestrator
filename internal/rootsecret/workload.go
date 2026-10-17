@@ -47,7 +47,7 @@ func (service MaterialService) MaterializeContainer(ctx context.Context, call ro
 		return rootoci.ContainerMaterialReceipt{}, ErrDelivery
 	}
 	profile := admitted.Profile()
-	result := rootoci.ContainerMaterialReceipt{Values: make(map[string]rootoci.ContainerSecretValue)}
+	result := rootoci.ContainerMaterialReceipt{Task: containerTaskReceipt(admitted.Task()), Values: make(map[string]rootoci.ContainerSecretValue)}
 	if profile.NoSecrets() {
 		if guard() != nil {
 			return rootoci.ContainerMaterialReceipt{}, ErrDelivery
@@ -101,7 +101,7 @@ func (service MaterialService) ObserveContainerGeneration(ctx context.Context, c
 		return rootoci.ContainerGenerationReceipt{}, ErrDelivery
 	}
 	profile := admitted.Profile()
-	result := rootoci.ContainerGenerationReceipt{Values: make(map[string]rootoci.ContainerSecretMetadata)}
+	result := rootoci.ContainerGenerationReceipt{Task: containerTaskReceipt(admitted.Task()), Values: make(map[string]rootoci.ContainerSecretMetadata)}
 	if profile.NoSecrets() {
 		if guard() != nil {
 			return rootoci.ContainerGenerationReceipt{}, ErrDelivery
@@ -156,6 +156,13 @@ func (service MaterialService) ObserveContainerGeneration(ctx context.Context, c
 		}
 	}
 	return result, nil
+}
+
+func containerTaskReceipt(task containermaterial.TaskMaterial) rootoci.ContainerTaskMaterial {
+	return rootoci.ContainerTaskMaterial{
+		Binding: task.Binding, OperationID: task.OperationID, ConfigDigest: task.ConfigDigest,
+		Generation: task.Generation, User: task.User, ExpiresAt: task.ExpiresAt,
+	}
 }
 
 func workloadCall(ctx context.Context, call rootoci.Call, operation rootoci.Operation) error {
