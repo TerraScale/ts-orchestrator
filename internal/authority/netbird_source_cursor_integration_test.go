@@ -70,7 +70,10 @@ func TestNetBirdPublicSourceReplicatedScanCursor(t *testing.T) {
 					var last *jetstream.ConsumerInfo
 					var lastErr error
 					for {
-						snapshot, requestErr := consumer.Info(phase)
+						// INFO can go unanswered while leadership transfers; leave time to retry.
+						attempt, cancelAttempt := context.WithTimeout(phase, 250*time.Millisecond)
+						snapshot, requestErr := consumer.Info(attempt)
+						cancelAttempt()
 						lastErr = requestErr
 						if requestErr == nil {
 							last = snapshot
