@@ -43,18 +43,21 @@ import (
 )
 
 // ControllerManagerStartupFixture contains authority created by the signed
-// external-seed producers and Gate. It does not attest native image execution,
-// live credential installation, HomeIAM or either managed peer's completion.
+// external-seed producers and Gate. Only the installed constructor checks live
+// installed credentials. No constructor attests native image execution, HomeIAM
+// or either managed peer's completion.
 type ControllerManagerStartupFixture struct {
-	Reader   *CurrentFounderAuthorityReader
-	Accepted AcceptedIdentity
-	Observer *OCIInstanceObserver
-	Roots    trust.Keyring
-	Root     ed25519.PrivateKey
-	Launch   LaunchMaterial
-	Instance InstanceObservation
-	Anchor   bootstrap.VerifiedBootstrapAnchor
-	Storage  *objectstorage.ObjectStorageClient
+	Reader       *CurrentFounderAuthorityReader
+	Accepted     AcceptedIdentity
+	Observer     *OCIInstanceObserver
+	Roots        trust.Keyring
+	Root         ed25519.PrivateKey
+	Launch       LaunchMaterial
+	Instance     InstanceObservation
+	Anchor       bootstrap.VerifiedBootstrapAnchor
+	Storage      *objectstorage.ObjectStorageClient
+	Manifest     bootstrap.Manifest
+	ManifestWire []byte
 
 	recipientSources  controllerRecipientSources
 	retirementFixture *managerRetirementFixtureSources
@@ -62,6 +65,7 @@ type ControllerManagerStartupFixture struct {
 
 const ControllerManagerStartupDeployment = "0000000000F9PR1WNVDTEXS31Z"
 const ControllerManagerStartupCluster = "0000000000RMSAJ9B0JFV7ESHN"
+const ControllerManagerStartupImage = "ocid1.image.oc1.sa-saopaulo-1.managerstartup"
 
 // NewControllerManagerStartupFixture reuses the recipient fixture's signed
 // SDK/CAS boundary, completing only controller-c before the downstream manager.
@@ -70,7 +74,7 @@ func NewControllerManagerStartupFixture(t *testing.T, enrollment []byte, broker 
 ) *ControllerManagerStartupFixture {
 	t.Helper()
 	return newControllerManagerStartupFixture(t, enrollment, broker, root, foundation,
-		RunningBinary{SHA256: strings.Repeat("a", 64), Bytes: 13, Architecture: runtime.GOARCH}, managerStartupChecks{})
+		RunningBinary{SHA256: strings.Repeat("a", 64), Bytes: 13, Architecture: runtime.GOARCH}, managerStartupChecks{}, nil)
 }
 
 // NewMeasuredControllerManagerStartupFixture signs the actual test executable
@@ -79,6 +83,17 @@ func NewControllerManagerStartupFixture(t *testing.T, enrollment []byte, broker 
 func NewMeasuredControllerManagerStartupFixture(t *testing.T, enrollment []byte, broker identityrekey.BrokerIdentity,
 	root ed25519.PrivateKey, foundation bootstrap.FoundationScope,
 ) *ControllerManagerStartupFixture {
+	t.Helper()
+	binary := measuredControllerManagerFixtureBinary(t)
+	fixture := newControllerManagerStartupFixture(t, enrollment, broker, root, foundation, binary, executableBinaryChecker{}, nil)
+	measured, err := VerifyAcceptedRunningBinary(fixture.Accepted.Binary)
+	if err != nil || measured != binary {
+		t.Fatal("accepted manager fixture lost the actual executable measurement", err)
+	}
+	return fixture
+}
+
+func measuredControllerManagerFixtureBinary(t *testing.T) RunningBinary {
 	t.Helper()
 	executable, err := os.Open("/proc/self/exe")
 	if err != nil {
@@ -94,17 +109,12 @@ func NewMeasuredControllerManagerStartupFixture(t *testing.T, enrollment []byte,
 	if err != nil || count != info.Size() {
 		t.Fatal("measure manager fixture executable", err)
 	}
-	binary := RunningBinary{SHA256: hex.EncodeToString(hash.Sum(nil)), Bytes: count, Architecture: runtime.GOARCH}
-	fixture := newControllerManagerStartupFixture(t, enrollment, broker, root, foundation, binary, executableBinaryChecker{})
-	measured, err := VerifyAcceptedRunningBinary(fixture.Accepted.Binary)
-	if err != nil || measured != binary {
-		t.Fatal("accepted manager fixture lost the actual executable measurement", err)
-	}
-	return fixture
+	return RunningBinary{SHA256: hex.EncodeToString(hash.Sum(nil)), Bytes: count, Architecture: runtime.GOARCH}
 }
 
 func newControllerManagerStartupFixture(t *testing.T, enrollment []byte, broker identityrekey.BrokerIdentity,
 	root ed25519.PrivateKey, foundation bootstrap.FoundationScope, binary RunningBinary, checker BinaryChecker,
+	installed *ControllerManagerStartupTemplate,
 ) *ControllerManagerStartupFixture {
 	t.Helper()
 	bundle, err := hostenroll.ParsePublicBundle(enrollment)
@@ -173,10 +183,23 @@ func newControllerManagerStartupFixture(t *testing.T, enrollment []byte, broker 
 	if err != nil {
 		t.Fatal(err)
 	}
+	intentGeneration := uint64(4)
+	if installed != nil {
+		for _, file := range installed.Manifests[seed].ControllerFiles {
+			if file.Name == "oci-region-intent.json" {
+				regionWire = bytes.Clone(file.Bytes)
+			}
+		}
+		intent, err := oci.ParseRegionIntent(regionWire)
+		if err != nil || intent.BootstrapRegion != oci.RegionGRU {
+			t.Fatal("installed fixture requires its actual GRU region intent", err)
+		}
+		intentGeneration = intent.Generation
+	}
 	anchorValue := bootstrap.BootstrapAnchor{SchemaVersion: bootstrap.BootstrapAnchorSchemaVersion,
 		DeploymentID: deployment, ClusterID: cluster, Environment: "production", Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1",
 		StorageDomain: domain, FoundationScope: &foundation, ControllerSlots: slots, LedgerDelegationWire: envelopeWire(grant(ledgerPublic, bootstrap.BootstrapLedgerCapabilityDomains(), slots)),
-		InitialRegionIntentGeneration: 4, InitialRegionIntentSHA256: digestWire(regionWire), InitialRegionIntentWire: regionWire}
+		InitialRegionIntentGeneration: intentGeneration, InitialRegionIntentSHA256: digestWire(regionWire), InitialRegionIntentWire: regionWire}
 	anchorEnvelope, err := bootstrap.SignBootstrapAnchor(anchorValue, now.Add(-time.Minute), now.Add(time.Hour), root)
 	if err != nil {
 		t.Fatal(err)
@@ -197,12 +220,13 @@ func newControllerManagerStartupFixture(t *testing.T, enrollment []byte, broker 
 			NetworkSecurityGroupOCIDs: []string{"ocid1.networksecuritygroup.oc1.sa-saopaulo-1." + slot}, Shape: "VM.Standard.E5.Flex"})
 	}
 	manifests := make(map[string][]byte, 3)
+	manifestValues := make(map[string]bootstrap.Manifest, 3)
 	var seedManifest bootstrap.Manifest
 	for _, slot := range slots {
 		manifest := bootstrap.Manifest{SchemaVersion: bootstrap.ManifestSchemaVersion, DeploymentID: deployment,
 			ClusterID: cluster, Environment: "production", Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1",
-			IntentGeneration: 4, IntentSHA256: digestWire(regionWire), ControllerRole: "controller", Slot: slot, SeedSlot: seed,
-			ControllerSlots: slots, Profiles: profiles, ImageOCID: "ocid1.image.oc1.sa-saopaulo-1.managerstartup",
+			IntentGeneration: intentGeneration, IntentSHA256: digestWire(regionWire), ControllerRole: "controller", Slot: slot, SeedSlot: seed,
+			ControllerSlots: slots, Profiles: profiles, ImageOCID: ControllerManagerStartupImage,
 			ImageArchitecture: "linux-" + runtime.GOARCH, ReleaseReceiptSHA256: digestWire(imageWire), ReleaseImageReceiptWire: imageWire,
 			ReleaseDelegationWire: imageGrantWire, PeerReceiptDelegation: &peerGrant, StorageDomain: domain}
 		manifest.ControllerConfig = []byte(`{"nats":{},"controller":{}}`)
@@ -230,11 +254,26 @@ func newControllerManagerStartupFixture(t *testing.T, enrollment []byte, broker 
 				SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1." + slot + "-material", VersionNumber: 1,
 				SHA256: digestWire([]byte(name)), MaxBytes: 65536, TargetFile: name})
 		}
+		if installed != nil {
+			input, ok := installed.Manifests[slot]
+			if !ok || len(input.ControllerConfig) == 0 || len(input.Secrets) == 0 {
+				t.Fatal("installed fixture requires all three rendered manifests")
+			}
+			manifest.ControllerConfig = bytes.Clone(input.ControllerConfig)
+			manifest.ControllerConfigSHA256 = digestWire(manifest.ControllerConfig)
+			manifest.ControllerFiles = cloneConfigFiles(input.ControllerFiles)
+			manifest.Secrets = slices.Clone(input.Secrets)
+			if len(manifest.ControllerFiles) != len(bootstrap.ControllerConfigFileNames) ||
+				!bytes.Equal(manifest.ControllerFiles[0].Bytes, regionWire) {
+				t.Fatal("installed fixture config sidecars differ from its signed anchor")
+			}
+		}
 		envelope, err := bootstrap.SignManifest(manifest, now.Add(-time.Minute), now.Add(time.Hour), root)
 		if err != nil {
 			t.Fatal(err)
 		}
 		manifests[slot] = envelopeWire(envelope)
+		manifestValues[slot] = manifest
 		if slot == seed {
 			seedManifest = manifest
 		}
@@ -257,6 +296,9 @@ func newControllerManagerStartupFixture(t *testing.T, enrollment []byte, broker 
 			TLSMaterial: bootstrap.FounderTLSMaterialDigests{ClientCA: digestWire([]byte("ca.pem")), RouteCA: digestWire([]byte("ca.pem")),
 				ClientCertificate: digestWire([]byte(slot + "-tls-cert.pem")), RouteCertificate: digestWire([]byte(slot + "-tls-cert.pem")),
 				ClientPrivateKey: digestWire([]byte(slot + "-tls-key.pem")), RoutePrivateKey: digestWire([]byte(slot + "-tls-key.pem"))}})
+		if installed != nil {
+			peers[len(peers)-1].TLSMaterial = installedManagerTLSMaterial(t, manifestValues[slot])
+		}
 	}
 	plan := bootstrap.FounderPlan{SchemaVersion: bootstrap.FounderPlanSchemaVersion, DeploymentID: deployment, Cell: oci.RegionGRU,
 		Environment: "production", SeedSlot: seed, AnchorSHA256: anchor.Digest(), ControllerSlots: slots,
@@ -360,7 +402,8 @@ func newControllerManagerStartupFixture(t *testing.T, enrollment []byte, broker 
 	if _, err := ledger.RecordExternalSeed(t.Context(), scope, manifests[seed], completion.ReceiptWire, facts, completion.ResultWire, completion.CompletedHeadWire); err != nil {
 		t.Fatal(err)
 	}
-	fixture := &ControllerManagerStartupFixture{Roots: roots, Root: root, Observer: observer, Instance: observed, Anchor: anchor, Storage: storage}
+	fixture := &ControllerManagerStartupFixture{Roots: roots, Root: root, Observer: observer, Instance: observed,
+		Anchor: anchor, Storage: storage, Manifest: seedManifest, ManifestWire: bytes.Clone(manifests[seed])}
 	directory := t.TempDir()
 	write := func(name string, wire []byte, mode os.FileMode) {
 		t.Helper()
@@ -372,6 +415,9 @@ func newControllerManagerStartupFixture(t *testing.T, enrollment []byte, broker 
 		}
 	}
 	trustDirectory := filepath.Join(directory, "bootstrap")
+	if installed != nil {
+		trustDirectory = BakedDirectory
+	}
 	der, err := x509.MarshalPKIXPublicKey(public)
 	if err != nil {
 		t.Fatal(err)
@@ -393,16 +439,21 @@ func newControllerManagerStartupFixture(t *testing.T, enrollment []byte, broker 
 	storeDirectory := filepath.Join(directory, "nats")
 	serverWire := []byte("gru-1-ctl-3\n")
 	nodeWire := []byte(`{"version":1,"cell":"gru","instance":"controller-c","node_id":"NODE0001"}`)
-	write(filepath.Join(storeDirectory, "server-name"), serverWire, 0o600)
-	write(filepath.Join(storeDirectory, "node-identity.json"), nodeWire, 0o600)
-	if err := os.Chmod(storeDirectory, 0o700); err != nil {
-		t.Fatal(err)
+	if installed == nil {
+		write(filepath.Join(storeDirectory, "server-name"), serverWire, 0o600)
+		write(filepath.Join(storeDirectory, "node-identity.json"), nodeWire, 0o600)
+		if err := os.Chmod(storeDirectory, 0o700); err != nil {
+			t.Fatal(err)
+		}
 	}
 	store := identityrekey.StoreIdentity{Directory: storeDirectory, ServerName: "gru-1-ctl-3", RaftNodeID: "NODE0001",
 		ServerNameSHA256: digestWire(serverWire), NodeIdentitySHA256: digestWire(nodeWire)}
 	markerDirectory, floorDirectory := filepath.Join(directory, "marker"), filepath.Join(directory, "floor")
+	if installed != nil {
+		markerDirectory, floorDirectory = MarkerDirectory, FounderSelectionFloorDirectory
+	}
 	for _, path := range []string{markerDirectory, floorDirectory} {
-		if err := os.Mkdir(path, 0o700); err != nil {
+		if err := os.MkdirAll(path, 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -428,6 +479,15 @@ func newControllerManagerStartupFixture(t *testing.T, enrollment []byte, broker 
 		InitialFounderFloor: func(context.Context, AcceptedInstall, time.Time) error {
 			return floor.Initialize(1, digestWire(selectionWire))
 		}}
+	if installed != nil {
+		configureInstalledManagerFixtureGate(t, &gate, installed, seedManifest)
+		markers = gate.Markers
+		floor = &FounderSelectionFloorStore{directory: FounderSelectionFloorDirectory, ownerUID: installed.ServiceUID}
+		trustStore = *gate.trustStore
+		gate.InitialFounderFloor = func(context.Context, AcceptedInstall, time.Time) error {
+			return floor.InitializeForService(1, digestWire(selectionWire), installed.ServiceGID)
+		}
+	}
 	marker, err := gate.AdmitInitial(t.Context())
 	if err != nil {
 		t.Fatal(err)
