@@ -49,6 +49,7 @@ import (
 	"github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -72,6 +73,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -918,6 +920,10 @@ func renewalMemberMain() error {
 	if err := json.Unmarshal([]byte(os.Getenv("TS_SOURCE_RENEWAL_AUTHORITY")), &authority); err != nil {
 		return err
 	}
+	var peer memberstatus.Survivor
+	if err := json.Unmarshal([]byte(os.Getenv("TS_SOURCE_RENEWAL_PEER")), &peer); err != nil {
+		return err
+	}
 	shard, err := strconv.ParseUint(arguments["--shard-id"], 10, 64)
 	if err != nil {
 		return err
@@ -939,11 +945,13 @@ func renewalMemberMain() error {
 	if err := marker("started"); err != nil {
 		return err
 	}
+	var held atomic.Bool
 	server := &http.Server{ReadHeaderTimeout: 5 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/backup/prepare" && r.Method == http.MethodPost {
 			if _, err := io.Copy(io.Discard, io.LimitReader(r.Body, 64<<10)); err != nil {
 				return
 			}
+			held.Store(true)
 			if err := marker("prepare-started"); err != nil {
 				w.WriteHeader(500)
 				return
@@ -962,12 +970,41 @@ func renewalMemberMain() error {
 				}
 			}
 		}
-		if r.URL.Path != "/v1/member/status" || r.Method != http.MethodGet {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/member/status" && r.URL.Path != "/v1/member/serving-proof" {
 			w.WriteHeader(404)
 			return
 		}
-		reply := memberstatus.Status{SchemaVersion: 2, Nonce: r.URL.Query().Get("nonce"), Process: process, Scope: scope, Authority: authority,
-			Local: memberstatus.Local{StorageRecovered: true, ReplicationListenerReady: true}, Capabilities: memberstatus.Capabilities{ServingProof: true, DurableDrain: true}, CredentialGeneration: 1}
+		nonce := r.URL.Query().Get("nonce")
+		if len(nonce) != 32 || strings.Trim(nonce, "0123456789abcdef") != "" {
+			w.WriteHeader(400)
+			return
+		}
+		serving := !held.Load()
+		var reply any
+		if r.URL.Path == "/v1/member/status" {
+			if !serving {
+				if err := marker("held-status-" + nonce); err != nil {
+					w.WriteHeader(500)
+					return
+				}
+			}
+			reply = memberstatus.Status{SchemaVersion: 2, Nonce: nonce, Process: process, Scope: scope, Authority: authority, Serving: serving,
+				Local:        memberstatus.Local{StorageRecovered: true, ReplicationListenerReady: true, Healthy: true, Ready: serving},
+				Capabilities: memberstatus.Capabilities{ServingProof: true, DurableDrain: true}, CredentialGeneration: 1}
+		} else {
+			if !serving {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			// Typed fixture evidence exercises Source/Unix integration, not TerraBase replication.
+			reply = memberstatus.ServingProof{SchemaVersion: 1, Nonce: nonce, Process: process, Scope: scope, Authority: authority, Serving: true,
+				Listeners: memberstatus.Listeners{Client: true, Replication: true},
+				Object: memberstatus.ObjectProof{RootSHA256: strings.Repeat("5", 64), TargetSHA256: strings.Repeat("6", 64),
+					NativeCommitSeqAtRecovery: 30, InboxArchiveSHA256AtRecovery: strings.Repeat("8", 64), LocalSourceSequence: 12,
+					RemoteInboxDurableSequence: 9, RemoteAppliedSequence: 9},
+				Replication: memberstatus.ReplicationProof{LocalSourceSequence: 12, PeerMemberID: peer.MemberID, PeerIncarnation: peer.Incarnation,
+					CurrentAuthenticated: true, PeerDurableSequence: 12, PeerAppliedSequence: 12, LocalInboxDurableSequence: 9, LocalInboxAppliedSequence: 9}}
+		}
 		wire, err := json.Marshal(reply)
 		if err != nil {
 			w.WriteHeader(500)
@@ -1797,7 +1834,12 @@ func TestSourceBackupRenewalIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	image, objects := renewalMemberImage(t, client, []string{"TS_SOURCE_RENEWAL_AUTHORITY=" + string(authorityWire)})
+	peerMember := material.receipt.Spec.Members[memberIndex^1]
+	peerWire, err := protocol.EncodeJSON(memberstatus.Survivor{MemberID: peerMember.MemberID, Incarnation: peerMember.Incarnation})
+	if err != nil {
+		t.Fatal(err)
+	}
+	image, objects := renewalMemberImage(t, client, []string{"TS_SOURCE_RENEWAL_AUTHORITY=" + string(authorityWire), "TS_SOURCE_RENEWAL_PEER=" + string(peerWire)})
 	signed := renewalQualifyImage(t, cloud, storage, image, objects, execution.RetainedData{
 		DatabaseID: state.DatabaseID, PartitionID: state.PartitionID, VolumeID: state.VolumeID,
 		FileSystemUUID: volume.FileSystemUUID, FileSystemType: "ext4", DiskFormatSHA256: strings.Repeat("d", 64),
@@ -1983,12 +2025,13 @@ func TestSourceBackupRenewalIntegration(t *testing.T) {
 	if err := releases.Submit(t.Context(), deployment); err != nil {
 		t.Fatal(err)
 	}
-	renewalAssertBackupLifecycle(t, cloud, control, members, hosts, agent, session, source, client, upstream, material, state, desired, response)
+	renewalAssertBackupLifecycle(t, cloud, control, members, hosts, agent, session, source, client, upstream, effects, broker.Conn(), material, state, desired, response)
 }
 
 func renewalAssertBackupLifecycle(t *testing.T, cloud *renewalCloud, control *authority.Runtime, members placement.Store,
 	hosts *host.Controller, agent *host.Agent, session *execution.WorkerSession, source *execution.Source,
-	client *containerd.Client, manager api.ControlClient, material renewalMaterial, state placement.MemberState,
+	client *containerd.Client, manager api.ControlClient, effects *swarmruntime.EffectSessions, conn *nats.Conn,
+	material renewalMaterial, state placement.MemberState,
 	desired host.Desired, response ed25519.PrivateKey,
 ) {
 	t.Helper()
@@ -2062,6 +2105,54 @@ func renewalAssertBackupLifecycle(t *testing.T, cloud *renewalCloud, control *au
 	if _, err := os.Lstat(publication); err != nil {
 		t.Fatalf("Source did not publish its actual Unix root socket: %v", err)
 	}
+	renewalWait(t, "current manager RUNNING task", first.ExpiresAt, func() bool {
+		current, err := manager.GetTask(t.Context(), &api.GetTaskRequest{TaskID: task.ID})
+		if err != nil || current == nil || current.Task == nil {
+			t.Fatalf("refresh actual manager task: %v", err)
+		}
+		if current.Task.Status.State != api.TaskStateRunning {
+			return false
+		}
+		task = current.Task.Copy()
+		return true
+	})
+	subject, err := protocol.AgentObservationSubject("gru", first.NATSUserPublicKey, "runtime-readiness")
+	if err != nil {
+		t.Fatal(err)
+	}
+	traffic, err := conn.SubscribeSync(subject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer traffic.Unsubscribe()
+	if err := traffic.SetPendingLimits(128, 512<<10); err != nil {
+		t.Fatal(err)
+	}
+	flushCtx, flushCancel := context.WithTimeout(t.Context(), time.Second)
+	err = conn.FlushWithContext(flushCtx)
+	flushCancel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	captureStarted := time.Now()
+	readinessCtx, readinessCancel := context.WithTimeout(t.Context(), 4*time.Second)
+	captureDeadline, _ := readinessCtx.Deadline()
+	witness, err := effects.CaptureTaskReadiness(readinessCtx, task, hosts)
+	readinessCancel()
+	if err != nil || witness == nil || !time.Now().Before(witness.Deadline()) {
+		t.Fatalf("fresh serving Source readiness: %v", err)
+	}
+	firstReadinessDeadline := witness.Deadline()
+	if firstReadinessDeadline.After(captureDeadline) {
+		t.Fatal("readiness witness exceeded its original caller lifetime")
+	}
+	if err := witness.Recheck(t.Context()); err != nil || !witness.Deadline().Equal(firstReadinessDeadline) {
+		t.Fatalf("fresh Source readiness recheck changed its original witness: %v", err)
+	}
+	_, proofs := renewalReadinessTraffic(t, conn, traffic, first, state.HostNode, captureStarted)
+	if len(proofs) != 2 {
+		t.Fatalf("capture and recheck require two fresh signed Source proof nonces, got %d", len(proofs))
+	}
 	operator, signer, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -2104,6 +2195,48 @@ func renewalAssertBackupLifecycle(t *testing.T, cloud *renewalCloud, control *au
 	if err != nil || !started.Before(first.ExpiresAt) {
 		t.Fatalf("Prepare must block before the first grant deadline: started=%s first=%s error=%v", started, first.ExpiresAt, err)
 	}
+	heldStatus, err := filepath.Glob(marker("held-status-*"))
+	if err != nil || len(heldStatus) != 0 {
+		t.Fatalf("unexpected held-member status before the new challenge: count=%d error=%v", len(heldStatus), err)
+	}
+	blockedStarted := time.Now()
+	readinessCtx, readinessCancel = context.WithTimeout(t.Context(), 4*time.Second)
+	denied, readinessErr := effects.CaptureTaskReadiness(readinessCtx, task, hosts)
+	blockedEnded := time.Now()
+	readinessCancel()
+	if denied != nil || !errors.Is(readinessErr, context.DeadlineExceeded) {
+		t.Fatalf("held non-serving member must deny the fresh bounded challenge: %v", readinessErr)
+	}
+	polls, heldProofs := renewalReadinessTraffic(t, conn, traffic, first, state.HostNode, blockedStarted)
+	if polls == 0 || len(heldProofs) != 0 {
+		t.Fatalf("blocked Prepare readiness traffic: fresh signed polls=%d serving proofs=%d", polls, len(heldProofs))
+	}
+	if err := traffic.Unsubscribe(); err != nil {
+		t.Fatal(err)
+	}
+	heldStatus, err = filepath.Glob(marker("held-status-*"))
+	if err != nil || len(heldStatus) == 0 || len(heldStatus) > 32 {
+		t.Fatalf("independent Source must reach the held member within the challenge: count=%d error=%v", len(heldStatus), err)
+	}
+	observedHeld := false
+	for _, path := range heldStatus {
+		wire, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		at, err := time.Parse(time.RFC3339Nano, string(wire))
+		nonce := strings.TrimPrefix(filepath.Base(path), "fixture-held-status-")
+		if err != nil || len(nonce) != 32 || strings.Trim(nonce, "0123456789abcdef") != "" {
+			t.Fatalf("invalid held-member status evidence: %v", err)
+		}
+		if _, reused := proofs[nonce]; reused {
+			t.Fatal("held-member status reused a prior serving proof nonce")
+		}
+		observedHeld = observedHeld || !at.Before(blockedStarted) && !at.After(blockedEnded)
+	}
+	if !observedHeld {
+		t.Fatal("no fresh Unix status observation during the blocked Prepare challenge")
+	}
 	var renewed authority.RuntimeEffect
 	renewalWait(t, "blocked Prepare crosses initial deadline using actual R3 renewal", first.ExpiresAt.Add(10*time.Second), func() bool {
 		history, err := control.ListRuntimeEffectHistory(t.Context(), scope)
@@ -2131,6 +2264,12 @@ func renewalAssertBackupLifecycle(t *testing.T, cloud *renewalCloud, control *au
 	if err != nil || current.EffectID() != first.EffectID || !current.Deadline().After(first.ExpiresAt) {
 		t.Fatalf("actual WorkerSession did not adopt renewed deadline: %v", err)
 	}
+	if !witness.Deadline().Equal(firstReadinessDeadline) || time.Now().Before(firstReadinessDeadline) || witness.Recheck(t.Context()) == nil {
+		t.Fatal("renewed held effect extended or revived the original readiness witness")
+	}
+	if _, err := agent.RuntimeWorkerIdentity(state.InstanceID, task.NodeID); err != nil {
+		t.Fatalf("host session expired instead of the original readiness witness: %v", err)
+	}
 	// Change one exact provider ETag. The genuine producer's next independent
 	// volume read must refuse renewal, while the host session remains valid.
 	cloud.mu.Lock()
@@ -2141,6 +2280,21 @@ func renewalAssertBackupLifecycle(t *testing.T, cloud *renewalCloud, control *au
 	cloud.routes[path] = route
 	cloud.mu.Unlock()
 	failedAt := time.Now()
+	readinessCtx, readinessCancel = context.WithTimeout(t.Context(), 4*time.Second)
+	denied, readinessErr = effects.CaptureTaskReadiness(readinessCtx, task, hosts)
+	readinessCancel()
+	if denied != nil || !errors.Is(readinessErr, oci.ErrAttachmentRecoveryHold) {
+		t.Fatalf("new readiness capture must reject the changed attachment through the genuine provider: %v", readinessErr)
+	}
+	cloud.mu.Lock()
+	readsAfterCapture := cloud.routes[path].reads
+	cloud.mu.Unlock()
+	if readsAfterCapture <= readsBeforeFailure {
+		t.Fatal("ETag readiness denial did not independently read the real attachment")
+	}
+	if _, err := agent.RuntimeWorkerIdentity(state.InstanceID, task.NodeID); err != nil {
+		t.Fatalf("host session expired instead of the new provider-denied readiness capture: %v", err)
+	}
 	renewalWait(t, "expiry withdraws actual publication and stops exact writer", renewed.ExpiresAt.Add(15*time.Second), func() bool {
 		_, socketErr := os.Lstat(publication)
 		stopped, err := renewalOriginalProcessStopped(before.Process.PID, before.Process.KernelStart)
@@ -2204,6 +2358,95 @@ func renewalAssertBackupLifecycle(t *testing.T, cloud *renewalCloud, control *au
 	t.Logf("real Source: Prepare blocked at %s, first deadline %s, renewed deadline %s; provider refusal at %s withdrew publication and stopped task=%s hostPID=%d start=%s; retained effect=%s",
 		started.Format(time.RFC3339Nano), first.ExpiresAt.Format(time.RFC3339Nano), renewed.ExpiresAt.Format(time.RFC3339Nano), failedAt.Format(time.RFC3339Nano),
 		task.ID, before.Process.PID, before.Process.KernelStart, last.Phase)
+}
+
+// Observe the actual signed Source requests; this fixture never replies for it.
+func renewalReadinessTraffic(t *testing.T, conn *nats.Conn, subscription *nats.Subscription, effect authority.RuntimeEffect, node string, since time.Time) (int, map[string]struct{}) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if err := conn.FlushWithContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	count, _, err := subscription.Pending()
+	if err != nil || count > 128 {
+		t.Fatalf("bounded readiness observation pending count=%d error=%v", count, err)
+	}
+	if dropped, err := subscription.Dropped(); err != nil || dropped != 0 {
+		t.Fatalf("readiness observation lost signed requests: dropped=%d error=%v", dropped, err)
+	}
+	key, err := base64.StdEncoding.DecodeString(effect.WorkerPublicKey)
+	if err != nil || len(key) != ed25519.PublicKeySize {
+		t.Fatalf("retained readiness host key: %v", err)
+	}
+	proofs, challenges, requests := map[string]struct{}{}, map[string]struct{}{}, map[string]struct{}{}
+	polls := 0
+	for range count {
+		message, err := subscription.NextMsg(time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var envelope protocol.Envelope
+		if err := protocol.DecodeStrict(message.Data, &envelope, 64<<10); err != nil {
+			t.Fatal(err)
+		}
+		var request struct {
+			Node              string `json:"node"`
+			Operation         string `json:"operation"`
+			SessionID         string `json:"session_id"`
+			NATSUserPublicKey string `json:"nats_user_public_key"`
+			Nonce             string `json:"nonce"`
+			Payload           struct {
+				TaskID          string                            `json:"task_id"`
+				TaskSHA256      string                            `json:"task_sha256"`
+				AdmissionSHA256 string                            `json:"admission_sha256"`
+				EffectID        string                            `json:"effect_id"`
+				Challenge       *host.ContainerReadinessChallenge `json:"challenge"`
+				Report          *host.ManagedRuntimeReport        `json:"report"`
+			} `json:"payload"`
+		}
+		if err := json.Unmarshal(envelope.Payload, &request); err != nil {
+			t.Fatal(err)
+		}
+		// Verify retained observation authenticity at issuance; it grants no current authority.
+		if err := protocol.VerifyEnvelope(envelope, protocol.EnvelopeScope{Region: "gru", Kind: "host.runtime-readiness", Actor: node,
+			OperationID: entityid.Derive("host-request", request.Nonce), Epoch: effect.Epoch}, ed25519.PublicKey(key), envelope.IssuedAt,
+			protocol.VerifyPolicy{MaxLifetime: 10 * time.Second}); err != nil {
+			t.Fatal(err)
+		}
+		query := request.Payload
+		if request.Node != node || request.Operation != "runtime-readiness" || request.SessionID != effect.HostSessionID ||
+			request.NATSUserPublicKey != effect.NATSUserPublicKey || query.TaskID != effect.TaskID || query.TaskSHA256 != effect.TaskSHA256 ||
+			query.AdmissionSHA256 != effect.AdmissionSHA256 || query.EffectID != effect.EffectID {
+			t.Fatal("signed Source readiness request changed the original task/session/effect binding")
+		}
+		if _, duplicate := requests[request.Nonce]; duplicate {
+			t.Fatal("Source reused a signed readiness request nonce")
+		}
+		requests[request.Nonce] = struct{}{}
+		if envelope.IssuedAt.Before(since) {
+			continue
+		}
+		if query.Challenge == nil && query.Report == nil {
+			polls++
+			continue
+		}
+		if query.Challenge == nil || query.Report == nil || query.Report.ServingProof == nil ||
+			query.Challenge.TaskID != effect.TaskID || query.Challenge.TaskSHA256 != effect.TaskSHA256 ||
+			query.Challenge.AdmissionSHA256 != effect.AdmissionSHA256 || query.Challenge.EffectID != effect.EffectID ||
+			!envelope.IssuedAt.Before(query.Challenge.Deadline) || query.Challenge.Deadline.After(envelope.IssuedAt.Add(3*time.Second)) {
+			t.Fatal("Source readiness result lacked its exact fresh challenge and serving proof")
+		}
+		if _, duplicate := challenges[query.Challenge.Nonce]; duplicate {
+			t.Fatal("Source reused a readiness challenge nonce")
+		}
+		challenges[query.Challenge.Nonce] = struct{}{}
+		if _, duplicate := proofs[query.Report.ServingProof.Nonce]; duplicate {
+			t.Fatal("Source reused a member serving proof nonce")
+		}
+		proofs[query.Report.ServingProof.Nonce] = struct{}{}
+	}
+	return polls, proofs
 }
 
 // Match the original kernel start time; an inspection error is never a stop.
