@@ -64,7 +64,7 @@ func managerBindingFixture(t *testing.T) (SignedManagerRuntimeBinding, []byte, [
 		Environment: "production", Cell: "gru", OCIRegion: "sa-saopaulo-1", NodeID: nodeID, InstanceID: "ocid1.instance.oc1.sa-saopaulo-1.manager",
 		HostID: entityid.Derive("host", "gru", "controller-a"), HostNode: "controller-a", HostSessionID: entityid.New(), HostSessionEpoch: 1,
 		RegistrationGeneration: 1, RegistrationRevision: 3, SourceRevision: 7, HostPublicKey: base64.StdEncoding.EncodeToString(hostKey), NATSUserPublicKey: natsPublic,
-		RuntimeCandidateID: entityid.New(), AcceptanceSHA256: strings.Repeat("1", 64), AnchorSHA256: strings.Repeat("2", 64), SourceSHA256: strings.Repeat("3", 64),
+		RuntimeCandidateID: entityid.New(), BinarySHA256: strings.Repeat("a", 64), AcceptanceSHA256: strings.Repeat("1", 64), AnchorSHA256: strings.Repeat("2", 64), SourceSHA256: strings.Repeat("3", 64),
 		CertificateSHA256: hex.EncodeToString(certHash[:]), ClusterCASHA256: hex.EncodeToString(caHash[:]), IssuedAt: now, ExpiresAt: now.Add(20 * time.Second)}
 	signed := SignedManagerRuntimeBinding{Binding: b, CertificateChain: [][]byte{der, caDER}}
 	signManagerBindingFixture(t, &signed, key)
@@ -91,6 +91,7 @@ func TestManagerRuntimeBindingRequiresActualNativeSignatureAndOriginalExpiry(t *
 	}
 	for name, change := range map[string]func(*SignedManagerRuntimeBinding){
 		"candidate":  func(s *SignedManagerRuntimeBinding) { s.Binding.RuntimeCandidateID = entityid.New() },
+		"binary":     func(s *SignedManagerRuntimeBinding) { s.Binding.BinarySHA256 = strings.Repeat("b", 64) },
 		"session":    func(s *SignedManagerRuntimeBinding) { s.Binding.HostSessionID = entityid.New() },
 		"expiry":     func(s *SignedManagerRuntimeBinding) { s.Binding.ExpiresAt = s.Binding.ExpiresAt.Add(time.Second) },
 		"signature":  func(s *SignedManagerRuntimeBinding) { s.Signature[0] ^= 1 },
@@ -110,5 +111,16 @@ func TestManagerRuntimeBindingRequiresActualNativeSignatureAndOriginalExpiry(t *
 	_, otherCert, _, _ := managerBindingFixture(t)
 	if VerifySignedManagerRuntimeBinding(signed, otherCert, ca, signed.Binding.SwarmClusterID, time.Now()) == nil {
 		t.Fatal("accepted replacement current certificate")
+	}
+}
+
+func TestManagerRuntimeBindingRequiresCanonicalBinaryDigest(t *testing.T) {
+	signed, _, _, _ := managerBindingFixture(t)
+	for _, digest := range []string{"", strings.Repeat("a", 63), strings.Repeat("A", 64), strings.Repeat("g", 64)} {
+		binding := signed.Binding
+		binding.BinarySHA256 = digest
+		if _, err := ManagerRuntimeSigningBytes(binding); err == nil {
+			t.Fatalf("accepted invalid executable digest %q", digest)
+		}
 	}
 }
