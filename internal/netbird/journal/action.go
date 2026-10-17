@@ -12,6 +12,7 @@ import (
 const (
 	Endpoint        = "/v1/netbird/account-journal"
 	Domain          = "terrascale.netbird.account-journal.v1"
+	SignatureHeader = "X-TerraScale-NetBird-Journal-Signature"
 	MaxMessageBytes = 96 << 10
 )
 
