@@ -26,5 +26,12 @@ type AtlasTopologyReceipt struct {
 func (client *Client) ReconcileAtlasTopology(ctx context.Context) (AtlasTopologyReceipt, error) {
 	var receipt AtlasTopologyReceipt
 	err := client.invoke(ctx, OperationReconcileAtlasTopology, struct{}{}, &receipt)
-	return receipt, err
+	if err != nil {
+		return AtlasTopologyReceipt{}, err
+	}
+	if ctx.Err() != nil || !time.Now().Before(receipt.ExpiresAt) ||
+		(receipt.State != AtlasTopologyPublished && receipt.State != AtlasTopologyUnconfigured) {
+		return AtlasTopologyReceipt{}, ErrUnavailable
+	}
+	return receipt, nil
 }

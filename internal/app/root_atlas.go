@@ -41,6 +41,9 @@ type rootAtlasObservation struct {
 }
 
 func (b *rootReleaseChannels) ReconcileAtlasTopology(parent context.Context, call rootoci.Call) (rootoci.AtlasTopologyReceipt, error) {
+	if parent == nil {
+		return rootoci.AtlasTopologyReceipt{}, rootoci.ErrUnauthorized
+	}
 	if b == nil || !b.atlas.mu.TryLock() {
 		return rootoci.AtlasTopologyReceipt{}, rootrelease.ErrPending
 	}
