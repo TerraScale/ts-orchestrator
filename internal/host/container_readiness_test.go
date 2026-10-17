@@ -189,9 +189,11 @@ func TestContainerReadinessAuthenticatedChallengeIsOneUse(t *testing.T) {
 	query := containerReadinessQuery{TaskID: effect.TaskID, TaskSHA256: effect.TaskSHA256, AdmissionSHA256: effect.AdmissionSHA256, EffectID: effect.EffectID}
 	var challenge *ContainerReadinessChallenge
 	for challenge == nil {
-		if err := exchange(ctx, conn, registration.Cell, controllerKey.Public().(ed25519.PublicKey), signedHostRequest(t, private, "runtime-readiness", session.SessionID, session.Epoch, query), &challenge); err != nil {
+		var reply containerReadinessReply
+		if err := exchange(ctx, conn, registration.Cell, controllerKey.Public().(ed25519.PublicKey), signedHostRequest(t, private, "runtime-readiness", session.SessionID, session.Epoch, query), &reply); err != nil {
 			t.Fatal(err)
 		}
+		challenge = reply.Challenge
 		select {
 		case err := <-result:
 			t.Fatalf("challenge ended before response: %v", err)
@@ -199,14 +201,14 @@ func TestContainerReadinessAuthenticatedChallengeIsOneUse(t *testing.T) {
 		}
 	}
 	query.Challenge, query.Report = challenge, &report
-	var acknowledged ContainerReadinessChallenge
+	var acknowledged containerReadinessReply
 	if err := exchange(ctx, conn, registration.Cell, controllerKey.Public().(ed25519.PublicKey), signedHostRequest(t, private, "runtime-readiness", session.SessionID, session.Epoch, query), &acknowledged); err != nil {
 		t.Fatal(err)
 	}
 	if err := <-result; err != nil {
 		t.Fatal(err)
 	}
-	if calls != 2 || acknowledged != *challenge {
+	if calls != 2 || acknowledged.Challenge == nil || *acknowledged.Challenge != *challenge {
 		t.Fatal("original session was not verified before and after the fresh observation")
 	}
 	if err := exchange(ctx, conn, registration.Cell, controllerKey.Public().(ed25519.PublicKey), signedHostRequest(t, private, "runtime-readiness", session.SessionID, session.Epoch, query), &acknowledged); err == nil {

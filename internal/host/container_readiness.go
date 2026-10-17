@@ -29,6 +29,10 @@ type containerReadinessQuery struct {
 	Report          *ManagedRuntimeReport        `json:"report,omitempty"`
 }
 
+type containerReadinessReply struct {
+	Challenge *ContainerReadinessChallenge `json:"challenge,omitempty"`
+}
+
 type containerReadinessPending struct {
 	challenge ContainerReadinessChallenge
 	effect    authority.RuntimeEffect
@@ -178,14 +182,14 @@ func (c *Controller) serveContainerReadiness(ctx context.Context, req request, r
 		if query.Challenge != nil {
 			return nil, errors.New("readiness challenge expired or was consumed")
 		}
-		return (*ContainerReadinessChallenge)(nil), nil
+		return containerReadinessReply{}, nil
 	}
 	_, desired, err := c.readinessAuthority(ctx, pending.effect, pending.challenge.Nonce)
 	if err != nil || current.SessionID != pending.effect.HostSessionID {
 		return nil, errors.Join(authority.ErrFenced, err)
 	}
 	if query.Challenge == nil {
-		return pending.challenge, nil
+		return containerReadinessReply{Challenge: &pending.challenge}, nil
 	}
 	if err := validateContainerReadinessReport(pending.effect, desired, *query.Report); err != nil {
 		return nil, err
@@ -197,21 +201,22 @@ func (c *Controller) serveContainerReadiness(ctx context.Context, req request, r
 	}
 	pending.completed = true
 	pending.result <- *query.Report
-	return pending.challenge, nil
+	return containerReadinessReply{Challenge: &pending.challenge}, nil
 }
 
 func (a *Agent) ContainerReadinessChallenge(ctx context.Context, binding ManagedContainerRuntime) (*ContainerReadinessChallenge, error) {
 	if _, _, err := a.executionLease(); err != nil {
 		return nil, err
 	}
-	var challenge *ContainerReadinessChallenge
-	err := a.request(ctx, "runtime-readiness", containerReadinessQuery{TaskID: binding.TaskID, TaskSHA256: binding.TaskSHA256, AdmissionSHA256: binding.AdmissionSHA256, EffectID: binding.EffectID}, &challenge)
+	var reply containerReadinessReply
+	err := a.request(ctx, "runtime-readiness", containerReadinessQuery{TaskID: binding.TaskID, TaskSHA256: binding.TaskSHA256, AdmissionSHA256: binding.AdmissionSHA256, EffectID: binding.EffectID}, &reply)
 	if err != nil {
 		return nil, err
 	}
 	if _, _, err := a.executionLease(); err != nil {
 		return nil, err
 	}
+	challenge := reply.Challenge
 	if challenge != nil && (challenge.TaskID != binding.TaskID || challenge.TaskSHA256 != binding.TaskSHA256 || challenge.AdmissionSHA256 != binding.AdmissionSHA256 ||
 		challenge.EffectID != binding.EffectID || !lowerHex(challenge.Nonce, 32) || !time.Now().Before(challenge.Deadline)) {
 		return nil, errors.New("readiness challenge differs from the held local task")
@@ -226,12 +231,12 @@ func (a *Agent) ContainerReadinessResult(ctx context.Context, challenge Containe
 	if !time.Now().Before(challenge.Deadline) {
 		return authority.ErrFenced
 	}
-	var accepted ContainerReadinessChallenge
+	var accepted containerReadinessReply
 	if err := a.request(ctx, "runtime-readiness", containerReadinessQuery{TaskID: challenge.TaskID, TaskSHA256: challenge.TaskSHA256,
 		AdmissionSHA256: challenge.AdmissionSHA256, EffectID: challenge.EffectID, Challenge: &challenge, Report: &report}, &accepted); err != nil {
 		return err
 	}
-	if accepted != challenge {
+	if accepted.Challenge == nil || *accepted.Challenge != challenge {
 		return errors.New("readiness result acknowledgment differs from the challenge")
 	}
 	_, _, err := a.executionLease()
