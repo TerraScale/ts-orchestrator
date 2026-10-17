@@ -55,6 +55,12 @@ func (c *cloud) superviseRetainedImage(ctx context.Context, path string, observe
 	if err != nil {
 		return err
 	}
+	if ctx.Err() != nil && j.RetentionEndedAt.IsZero() {
+		j.RetentionEndedAt = c.now().UTC()
+		if err := checkpoint(path, j); err != nil {
+			return err
+		}
+	}
 	// Host cleanup cannot wait for a publication read or inherit image retention.
 	hostErr := c.cleanupHosts(cleanup, path, &j)
 	objectErr := c.cleanupObject(cleanup, path, &j)
@@ -70,9 +76,24 @@ func (c *cloud) superviseRetainedImage(ctx context.Context, path string, observe
 		if err := cleanup.Err(); err != nil {
 			return errors.Join(lastErr, err)
 		}
+		observationStarted := c.now().UTC()
+		if ctx.Err() != nil && j.RetentionEndedAt.IsZero() {
+			j.RetentionEndedAt = observationStarted
+			if err := checkpoint(path, j); err != nil {
+				return err
+			}
+		}
 		observation, stop := context.WithTimeout(cleanup, 30*time.Second)
 		transfer, observeErr := c.observeImageTransfer(observation, observer, j)
 		stop()
+		// A read overlapping cancellation cannot establish a later transfer cap.
+		if ctx.Err() != nil && j.RetentionEndedAt.IsZero() {
+			j.RetentionEndedAt = observationStarted
+			if err := checkpoint(path, j); err != nil {
+				return err
+			}
+			continue
+		}
 		if observeErr == nil && transfer.manifestSHA256 != "" {
 			j.ImageManifestSHA256 = transfer.manifestSHA256
 			if err := checkpoint(path, j); err != nil {
@@ -82,14 +103,6 @@ func (c *cloud) superviseRetainedImage(ctx context.Context, path string, observe
 			return c.cleanup(cleanup, path)
 		}
 		lastErr = observeErr
-		// Cancellation permits early cleanup, but an earlier completed transfer must
-		// still be authenticated before any exact-image deletion.
-		if ctx.Err() != nil && j.RetentionEndedAt.IsZero() {
-			j.RetentionEndedAt = c.now().UTC()
-			if err := checkpoint(path, j); err != nil {
-				return err
-			}
-		}
 		retained, err := c.retainImage(j)
 		if err != nil {
 			return err

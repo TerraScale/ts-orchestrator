@@ -48,7 +48,7 @@ func NewClient(factory *ociclient.Factory, endpoint string) (API, error) {
 	return newSDKClient(factory, endpoint)
 }
 
-func newSDKClient(factory *ociclient.Factory, endpoint string) (*sdkClient, error) {
+func newSDKClient(factory *ociclient.Factory, endpoint string) (API, error) {
 	compute, err := factory.Compute()
 	if err != nil {
 		return nil, err
@@ -64,8 +64,13 @@ func newSDKClient(factory *ociclient.Factory, endpoint string) (*sdkClient, erro
 	ociclient.PinHost(&compute.BaseClient, endpoint)
 	ociclient.PinHost(&objects.BaseClient, endpoint)
 	ociclient.PinHost(&work.BaseClient, endpoint)
+	return NewClientFromSDK(compute, objects, work), nil
+}
+
+// NewClientFromSDK preserves the caller's already-installed request guards.
+func NewClientFromSDK(compute core.ComputeClient, objects objectstorage.ObjectStorageClient, work workrequests.WorkRequestClient) API {
 	return &sdkClient{compute: compute, objects: objects, workRequest: work,
-		uploadRetry: ociclient.IdempotentPutRetryPolicy(ociclient.RetryOptions{})}, nil
+		uploadRetry: ociclient.IdempotentPutRetryPolicy(ociclient.RetryOptions{})}
 }
 
 func page(next *string) (*string, bool) {
