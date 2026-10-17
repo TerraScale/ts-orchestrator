@@ -197,6 +197,11 @@ func (s *ResourceStore) commit(ctx context.Context, record region.FoundationReco
 		journal.Resources[key.String()] = *entry
 		desired = entry.Desired
 	}
+	if record.OCIResources != nil {
+		if err := ociresource.ValidateNativeMaintenanceHistory(*record.OCIResources, journal); err != nil {
+			return ociresource.Desired{}, err
+		}
+	}
 	record.OCIResources = &journal
 	// The ETag covers every original field, including IAM and create history.
 	// An ambiguous result is reread next pass; this CAS is never retried here.

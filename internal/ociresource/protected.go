@@ -38,9 +38,10 @@ type ProtectedResource struct {
 // ProtectedJournal shares the foundation record's existing finite byte bound.
 // Resource revisions advance only after that whole protected object commits.
 type ProtectedJournal struct {
-	Revision  uint64                       `json:"revision"`
-	Source    ResourceSource               `json:"source"`
-	Resources map[string]ProtectedResource `json:"resources"`
+	Revision          uint64                               `json:"revision"`
+	Source            ResourceSource                       `json:"source"`
+	Resources         map[string]ProtectedResource         `json:"resources"`
+	NativeMaintenance map[string]NativeMaintenanceProgress `json:"nativeMaintenance,omitempty"`
 }
 
 func (j ProtectedJournal) Validate(cell string) error {
@@ -49,6 +50,23 @@ func (j ProtectedJournal) Validate(cell string) error {
 	}
 	if err := j.Source.Validate(); err != nil {
 		return err
+	}
+	unsettled := make(map[string]bool)
+	for operation, progress := range j.NativeMaintenance {
+		if err := progress.Validate(); err != nil {
+			return err
+		}
+		if operation != progress.Workflow.OperationID || progress.Workflow.Cell != cell || progress.Revision > j.Revision {
+			return errors.New("native maintenance differs from its protected key, cell or revision")
+		}
+		last := progress.Phases[len(progress.Phases)-1]
+		if last.Kind != NativeMaintenanceSettled || last.SucceededAt.IsZero() {
+			target := progress.Workflow.InstanceID + "\x00" + progress.Workflow.Unit
+			if unsettled[target] {
+				return errors.New("native maintenance has overlapping unsettled workflows on one physical target")
+			}
+			unsettled[target] = true
+		}
 	}
 	for key, resource := range j.Resources {
 		if key != resource.Desired.Key.String() || resource.Desired.Key.Region != cell ||
