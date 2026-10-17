@@ -195,6 +195,7 @@ func (s NetBirdBrokerSource) ForStartupSlot(ctx context.Context, slot string) (N
 		!bytes.Equal(startup.MaterialRecord(), s.source.MaterialRecord()) || s.Guard(ctx) != nil {
 		return NetBirdBrokerSource{}, ErrDelivery
 	}
+	s.expires = minDeadline(s.ExpiresAt(), startup.ExpiresAt())
 	s.startup = startup
 	if s.Guard(ctx) != nil {
 		return NetBirdBrokerSource{}, ErrDelivery
