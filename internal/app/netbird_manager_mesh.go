@@ -166,8 +166,23 @@ func connectNetBirdManagerMesh(ctx context.Context, local automaticFoundation, a
 	if err := enrollNetBirdBootstrap(ctx, netbird.PublicConfigPath, io.Discard, netbirdBootstrapRuntime{
 		binary: binary, fallback: fallback, status: client.ManagedStatus, defaults: client.ReadBootstrapConfig,
 		install: func(ctx context.Context, pin client.Pin, cfg netbird.Config, options client.ManagedOptions) (client.ManagedResult, error) {
-			return client.InstallManaged(ctx, pin, cfg, options, reader)
-		}, confirm: client.ConfirmManaged,
+			if err := admission.Check(ctx); err != nil {
+				return client.ManagedResult{}, err
+			}
+			installed, err := client.InstallManaged(ctx, pin, cfg, options, reader)
+			if err != nil {
+				return installed, err
+			}
+			return installed, admission.Check(ctx)
+		}, confirm: func(ctx context.Context, transaction string) error {
+			if err := admission.Check(ctx); err != nil {
+				return err
+			}
+			if err := client.ConfirmManaged(ctx, transaction); err != nil {
+				return err
+			}
+			return admission.Check(ctx)
+		},
 		enroll: func(ctx context.Context, _ netbird.Config) error {
 			if err := client.VerifyBinary(binary, archive.BinarySHA256, runtime.GOARCH); err != nil {
 				return errors.New("NetBird manager installed client differs from its qualified image pin")
@@ -177,6 +192,9 @@ func connectNetBirdManagerMesh(ctx context.Context, local automaticFoundation, a
 			}
 			if err := exec.CommandContext(ctx, "systemctl", "start", "netbird.service").Run(); err != nil {
 				return errors.New("NetBird manager client service could not start")
+			}
+			if err := admission.Check(ctx); err != nil {
+				return err
 			}
 			return client.EnrollBootstrap(ctx, netbird.PublicConfigPath, reader)
 		},
