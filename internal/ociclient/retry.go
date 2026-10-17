@@ -141,7 +141,9 @@ func (d readDispatcher) Do(request *http.Request) (*http.Response, error) {
 		if guard == nil {
 			err = errors.New("OCI request session is unavailable")
 		} else {
-			err = guard(request.Context())
+			// Authorization may itself read OCI; those reads must not recurse
+			// into the guard they are currently establishing.
+			err = guard(context.WithValue(request.Context(), requestGuardKey{}, struct{}{}))
 		}
 		if err != nil {
 			if finish != nil {
