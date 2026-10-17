@@ -314,7 +314,7 @@ func exerciseDerivedFounderPeers(t *testing.T, seedInstall derivedAdmissionInsta
 	if err != nil {
 		t.Fatal(err)
 	}
-	protocol := &derivedPeerProtocol{plan: seedInstall.selected.Plan.Plan(), region: seed.Manifest().OCIRegion, instances: map[string]derivedPeerInstance{}, retries: map[string]string{}}
+	protocol := &derivedPeerProtocol{started: time.Now(), plan: seedInstall.selected.Plan.Plan(), region: seed.Manifest().OCIRegion, instances: map[string]derivedPeerInstance{}, retries: map[string]string{}}
 	server := httptest.NewTLSServer(protocol)
 	t.Cleanup(server.Close)
 	adapter, err := NewFounderOCI(seed.Manifest().Cell, factory.Provider(), seedInstall.launch)
@@ -332,22 +332,21 @@ func exerciseDerivedFounderPeers(t *testing.T, seedInstall derivedAdmissionInsta
 			observed, err := founder.ObserveCurrent(ctx)
 			return bootstrap.ControllerPlacement{AvailabilityDomain: observed.AvailabilityDomain, FaultDomain: observed.FaultDomain}, err
 		},
-		openLedger: func(ctx context.Context, selected CurrentFounderAuthority, roots trust.Keyring) (*bootstrap.Ledger, error) {
-			objects, err := factory.ObjectStorage()
-			if err != nil {
-				return nil, err
-			}
-			return selected.Derived.SeedAuthority().OpenLedgerWithClient(ctx, roots, &objects)
+		openLedger: func(context.Context, CurrentFounderAuthority, trust.Keyring) (*bootstrap.Ledger, error) {
+			// The admitted ledger retains current source checks and all signed controller slots.
+			return seedInstall.ledger, nil
 		}}
 	completed := make(map[string]bootstrap.SlotState, 2)
 	for _, row := range seedInstall.selected.Plan.Plan().Peers {
 		t.Logf("derived peer %s: actual SDK launch and durable completion", row.Slot)
+		started := time.Now()
 		if err := caller.runPeer(ctx, row.Slot); err != nil {
 			protocol.mu.Lock()
 			trace := strings.Join(protocol.requests, "\n")
 			protocol.mu.Unlock()
-			t.Fatalf("actual derived founder peer %s: %v\nactual SDK requests:\n%s", row.Slot, err, trace)
+			t.Fatalf("actual derived founder peer %s after %s: %v\nactual SDK requests:\n%s", row.Slot, time.Since(started), err, trace)
 		}
+		t.Logf("derived peer %s: actual SDK launch and durable completion elapsed=%s", row.Slot, time.Since(started))
 		state, err := seedInstall.ledger.ReadSlot(ctx, bootstrap.BootstrapScope{DeploymentID: seedInstall.accepted.DeploymentID, Cell: seedInstall.accepted.Cell, Slot: row.Slot})
 		if err != nil || state.ResultRecord == nil || state.PeerReceiptRecord == nil || state.CandidateRecord == nil || state.ManifestRecord == nil || state.Result == nil || state.Candidate == nil || state.Head.Attempt != 1 || state.Head.Generation != 1 || state.Head.ResultDigest != state.ResultRecord.SHA256 || state.Head.CandidateDigest != state.CandidateRecord.SHA256 || state.Result.InstanceOCID != state.Candidate.InstanceOCID || state.ManifestRecord.SHA256 != row.ManifestSHA256 {
 			t.Fatalf("exact derived peer %s durable completion: %v", row.Slot, err)
@@ -366,7 +365,9 @@ func exerciseDerivedFounderPeers(t *testing.T, seedInstall derivedAdmissionInsta
 		if err != nil {
 			t.Fatal(err)
 		}
+		started = time.Now()
 		peer := exerciseDerivedInstallation(t, authority, founder, anchor, roots, sourceDirectory, metadata, observer, &forwarded)
+		t.Logf("derived peer %s: Gate, floor, accepted restart and runtime authority elapsed=%s", row.Slot, time.Since(started))
 		if peer.accepted.ResultSHA256 != state.ResultRecord.SHA256 || peer.accepted.ReceiptSHA256 != state.PeerReceiptRecord.SHA256 || peer.accepted.InstanceOCID != state.Result.InstanceOCID || peer.floor.Check(seedInstall.selected.SelectionGeneration, seedInstall.selected.SelectionSHA256) != nil {
 			t.Fatal("peer Gate or floor changed the source-signed completed history")
 		}
@@ -378,9 +379,11 @@ func exerciseDerivedFounderPeers(t *testing.T, seedInstall derivedAdmissionInsta
 		t.Fatalf("lost-response SDK retry duplicated a peer: instances=%d attempts=%d lost=%v", launches, attempts, lost)
 	}
 	for _, row := range seedInstall.selected.Plan.Plan().Peers {
+		started := time.Now()
 		if err := caller.runPeer(ctx, row.Slot); err != nil {
-			t.Fatalf("completed derived founder retry %s: %v", row.Slot, err)
+			t.Fatalf("completed derived founder retry %s after %s: %v", row.Slot, time.Since(started), err)
 		}
+		t.Logf("derived peer %s: completed founder retry elapsed=%s", row.Slot, time.Since(started))
 		state, err := seedInstall.ledger.ReadSlot(ctx, bootstrap.BootstrapScope{DeploymentID: seedInstall.accepted.DeploymentID, Cell: seedInstall.accepted.Cell, Slot: row.Slot})
 		prior := completed[row.Slot]
 		if err != nil || state.ResultRecord == nil || state.PeerReceiptRecord == nil || !bytes.Equal(state.HeadRecord.Bytes, prior.HeadRecord.Bytes) || !bytes.Equal(state.ResultRecord.Bytes, prior.ResultRecord.Bytes) || !bytes.Equal(state.PeerReceiptRecord.Bytes, prior.PeerReceiptRecord.Bytes) {
@@ -426,6 +429,7 @@ type derivedPeerInstance struct {
 // ledger writes or verified capabilities; all completion uses production code.
 type derivedPeerProtocol struct {
 	mu             sync.Mutex
+	started        time.Time
 	plan           bootstrap.FounderPlan
 	region         string
 	instances      map[string]derivedPeerInstance
@@ -461,7 +465,7 @@ func (server *derivedPeerProtocol) ServeHTTP(w http.ResponseWriter, r *http.Requ
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
-	server.requests = append(server.requests, fmt.Sprintf("%s %s %s", time.Now().UTC().Format(time.RFC3339Nano), r.Method, r.URL.RequestURI()))
+	server.requests = append(server.requests, fmt.Sprintf("%s elapsed=%s %s %s", time.Now().UTC().Format(time.RFC3339Nano), time.Since(server.started), r.Method, r.URL.RequestURI()))
 	if r.Method == http.MethodPost && r.URL.Path == "/20160918/instances" {
 		wire, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		var details derivedPeerLaunchDetails
