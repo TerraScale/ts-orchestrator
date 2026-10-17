@@ -41,7 +41,7 @@ func New(ctx context.Context, factory *ociclient.Factory, resolver region.Founda
 
 func (c *Controller) open(ctx context.Context, call rootoci.Call, cell, operation string, epoch uint64) (*attempt, func(), error) {
 	if c == nil || c.factory == nil || c.store == nil || ctx == nil || call.Guard(ctx) != nil ||
-		cell != strings.ToUpper(cell) || !entityid.Valid(operation) || epoch == 0 {
+		cell != strings.ToUpper(cell) || !entityid.Valid(operation) {
 		return nil, nil, rootoci.ErrUnauthorized
 	}
 	expected := call.Expected()
@@ -74,7 +74,7 @@ func (c *Controller) open(ctx context.Context, call rootoci.Call, cell, operatio
 		return fail(err)
 	}
 	lease, err := leader.CurrentLease(ctx)
-	if err != nil || lease.Epoch != epoch || call.RuntimeID() != "" && call.RuntimeID() != lease.CandidateID {
+	if err != nil || epoch != 0 && lease.Epoch != epoch || call.RuntimeID() != "" && call.RuntimeID() != lease.CandidateID {
 		return fail(errors.Join(err, authority.ErrFenced))
 	}
 	a := &attempt{call: call, resolver: c.resolver, store: c.store, home: home, leader: leader,
@@ -90,8 +90,14 @@ func (c *Controller) open(ctx context.Context, call rootoci.Call, cell, operatio
 	if err != nil {
 		return fail(err)
 	}
-	if a.record.Generation != authorized.Generation || a.record.IntentDigest != authorized.IntentDigest || a.record.TenancyID != authorized.TenancyID || a.record.Stage != "reconciled" {
+	if a.record.Generation != authorized.Generation || a.record.IntentDigest != authorized.IntentDigest || a.record.TenancyID != authorized.TenancyID ||
+		a.record.Cell != cell || a.record.OCIRegion != authorized.OCIRegion || a.record.GrantSHA256 != authorized.GrantSHA256 ||
+		a.record.ParentCompartmentID != authorized.ParentCompartmentID || a.record.SharedCompartmentID != authorized.SharedCompartmentID || a.record.Stage != "reconciled" {
 		return fail(errors.New("protected foundation changed during capacity authority resolution"))
+	}
+	a.factory, err = c.factory.ForRegion(a.record.OCIRegion)
+	if err != nil {
+		return fail(err)
 	}
 	if err := a.guard(ctx); err != nil {
 		return fail(err)
@@ -100,7 +106,7 @@ func (c *Controller) open(ctx context.Context, call rootoci.Call, cell, operatio
 }
 
 func (c *Controller) beginChild(ctx context.Context, call rootoci.Call, request rootoci.PoolChildExpectation) (*attempt, func(), error) {
-	if request.ReservationID != request.OperationID || len(request.PublicCAPEM) == 0 || len(request.PublicCAPEM) > 32<<10 ||
+	if request.Epoch == 0 || request.ReservationID != request.OperationID || len(request.PublicCAPEM) == 0 || len(request.PublicCAPEM) > 32<<10 ||
 		len(request.AvailabilityDomains) == 0 || len(request.AvailabilityDomains) > 3 {
 		return nil, nil, rootoci.ErrInvalid
 	}
@@ -108,6 +114,10 @@ func (c *Controller) beginChild(ctx context.Context, call rootoci.Call, request 
 	if err != nil {
 		return nil, nil, err
 	}
+	return c.resolveChild(ctx, call, request, a, close)
+}
+
+func (c *Controller) resolveChild(ctx context.Context, call rootoci.Call, request rootoci.PoolChildExpectation, a *attempt, close func()) (*attempt, func(), error) {
 	fail := func(err error) (*attempt, func(), error) { close(); return nil, nil, err }
 	capacity, exists, err := budget.ReadCapacity(ctx, a.home)
 	if err != nil || !exists {
@@ -121,8 +131,9 @@ func (c *Controller) beginChild(ctx context.Context, call rootoci.Call, request 
 	if _, err := a.receipt.FinancialReceipt(); err != nil {
 		return fail(err)
 	}
-	if !strings.EqualFold(a.receipt.Cell, request.Cell) || a.receipt.RecipeSHA256 != request.RecipeSHA256 ||
-		a.receipt.GrantSHA256 != request.GrantSHA256 || a.receipt.GrantGeneration != request.Generation ||
+	if a.record.Generation != request.Generation || a.record.GrantSHA256 != request.GrantSHA256 ||
+		!strings.EqualFold(a.receipt.Cell, request.Cell) || a.receipt.RecipeSHA256 != request.RecipeSHA256 ||
+		a.receipt.GrantGeneration > request.Generation ||
 		call.Expected().GrantSHA256 != "" && call.Expected().GrantSHA256 != request.GrantSHA256 {
 		return fail(errors.New("pool expectation differs from original authenticated reservation"))
 	}

@@ -249,6 +249,13 @@ func (v VerifiedWorkerRecipe) Recipe() WorkerRecipe {
 	return r
 }
 func (v VerifiedWorkerRecipe) Profile() VerifiedWorkerProfile { return v.profile }
+func (v VerifiedWorkerRecipe) ExpiresAt() time.Time {
+	expires := v.profile.ExpiresAt()
+	if sourceExpires := v.source.ExpiresAt(); sourceExpires.Before(expires) {
+		expires = sourceExpires
+	}
+	return expires
+}
 func (v VerifiedWorkerRecipe) SourceSHA256() string {
 	if !v.source.IsVerified() {
 		return ""
