@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto"
+	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
@@ -62,6 +63,9 @@ func (n *Node) SignManagerRuntimeBinding(ctx context.Context, binding host.Manag
 	leaf, err := x509.ParseCertificate(chain[0])
 	if err != nil {
 		return empty, err
+	}
+	if _, ok := leaf.PublicKey.(*ecdsa.PublicKey); !ok {
+		return empty, errors.New("manager runtime signing requires the native ECDSA certificate")
 	}
 	certificateDigest := sha256.Sum256(chain[0])
 	if binding.CertificateSHA256 != hex.EncodeToString(certificateDigest[:]) || binding.ExpiresAt.After(leaf.NotAfter) ||
