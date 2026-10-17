@@ -317,9 +317,6 @@ func (current view) hosts() []hostRow {
 				rows[member.HostNode] = row
 			}
 			row.Seats++
-			if member.Stage == "serving" {
-				row.Serving++
-			}
 			if member.FailureDomain != "" && !slices.Contains(row.Domains, member.FailureDomain) {
 				row.Domains = append(row.Domains, member.FailureDomain)
 			}
@@ -645,4 +642,12 @@ func apiMean(operation observability.OCIOperationView) string {
 		return "-"
 	}
 	return formatSeconds(operation.TotalSeconds / float64(operation.Calls))
+}
+
+// Placement stages are durable progress, not current native runtime readiness.
+func placementServingText(database observability.DatabaseView) string {
+	if database.Readiness != "observed" {
+		return joinDetail("unknown", cmp.Or(database.ReadinessReason, "live native root task and member readiness unavailable"))
+	}
+	return itoa(database.Serving)
 }

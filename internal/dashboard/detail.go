@@ -378,9 +378,11 @@ func (current view) partitionChart() chartSpec {
 		desired[0].Name, desired[0].Dashed, desired[0].Status = "desired", true, "idle"
 		series = append(series, desired[0])
 	}
-	if serving := current.historyRange(observability.HistPartitionServing, labels, "", false); len(serving) > 0 {
-		serving[0].Name, serving[0].Status = "serving", "ok"
-		series = append(series, serving[0])
+	if database := current.partition(); database != nil && database.Readiness == "observed" {
+		if serving := current.historyRange(observability.HistPartitionServing, labels, "", false); len(serving) > 0 {
+			serving[0].Name, serving[0].Status = "serving", "ok"
+			series = append(series, serving[0])
+		}
 	}
 	spec := current.lineChart("line", "count", series, "No seat history for this partition yet.")
 	spec.Min = float(0)

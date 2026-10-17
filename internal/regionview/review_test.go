@@ -98,7 +98,7 @@ func TestTerminalPartitionsAreNotActiveWork(t *testing.T) {
 			Members: []observability.MemberView{{SeatID: "a", HostNode: "h2", Stage: "serving"}},
 			Rollout: &observability.RolloutView{OperationID: "op", Seats: 2, Completed: 1}}}}
 	summary := (&Provider{Cell: "gru", Cluster: staticCluster{cluster(leader)}}).Local(t.Context())
-	if summary.TerraBase.Databases != 1 || summary.TerraBase.ServingSeats != 2 || len(summary.Hosts) != 1 ||
+	if summary.TerraBase.Databases != 1 || summary.TerraBase.ServingSeats != 0 || summary.TerraBase.Readiness != "unknown" || summary.TerraBase.ReadinessReason == "" || len(summary.Hosts) != 1 ||
 		len(summary.Rollouts) != 0 {
 		t.Fatalf("terminal partition counted as live: terrabase=%+v hosts=%+v rollouts=%+v", summary.TerraBase,
 			summary.Hosts, summary.Rollouts)

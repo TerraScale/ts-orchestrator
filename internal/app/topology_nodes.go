@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
-	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/regionview"
 )
@@ -14,7 +13,7 @@ import (
 // topologySource lists the cell's granted nodes for the region view. Every
 // read is best effort: one that fails leaves its fields empty. ops is nil
 // without a release channel.
-func topologySource(cell string, brokerIDs []string, services *specRegistry, hosts *host.Controller,
+func topologySource(cell string, brokerIDs []string, services *specRegistry,
 	ops *nodeOps,
 ) func(context.Context) []regionview.Node {
 	return func(ctx context.Context) []regionview.Node {
@@ -24,7 +23,6 @@ func topologySource(cell string, brokerIDs []string, services *specRegistry, hos
 		for _, id := range brokerIDs {
 			members[services.controllerNode(cell, id)] = id
 		}
-		statuses, _ := hosts.ListHosts(ctx)
 		var status nodeOpReply
 		if ops != nil {
 			status, _ = ops.status(ctx)
@@ -33,7 +31,7 @@ func topologySource(cell string, brokerIDs []string, services *specRegistry, hos
 		if fence, _ := services.releaseFence(); fence != nil {
 			sets = fence.BackendSets
 		}
-		nodes := topologyNodes(services.hostGrants(), members, statuses, status, sets)
+		nodes := topologyNodes(services.hostGrants(), members, status, sets)
 		for index := range nodes {
 			if nodes[index].Member != "" {
 				nodes[index].Server = natscell.ServerName(cell, nodes[index].Member)
@@ -44,28 +42,18 @@ func topologySource(cell string, brokerIDs []string, services *specRegistry, hos
 }
 
 // topologyNodes is one node per host grant, sorted by name: its controller
-// member, each granted role's verified report, its fence and active
+// member, each granted role, its fence and active
 // operation, and its backends (the fenced ones, else one per backend set of
 // a role it runs).
-func topologyNodes(grants []cellspec.HostGrant, members map[string]string, hosts []host.HostStatus,
+func topologyNodes(grants []cellspec.HostGrant, members map[string]string,
 	status nodeOpReply, sets []cellspec.FencedSet,
 ) []regionview.Node {
 	nodes := make([]regionview.Node, 0, len(grants))
 	for _, grant := range grants {
 		node := regionview.Node{Name: grant.Node, Address: grant.PrivateIP, Member: members[grant.Node]}
-		at := slices.IndexFunc(hosts, func(candidate host.HostStatus) bool {
-			return candidate.Verified && candidate.Registration.Node == grant.Node
-		})
 		for _, role := range grant.Roles {
-			service := regionview.Service{Role: role}
-			if at >= 0 {
-				for _, report := range hosts[at].Reports {
-					if report.Role == role {
-						service.Digest, service.State = report.Digest, report.State
-					}
-				}
-			}
-			node.Services = append(node.Services, service)
+			node.Services = append(node.Services, regionview.Service{Role: role, State: "unknown",
+				StateReason: "current manager task readiness is unavailable in node topology"})
 		}
 		for _, op := range status.Operations {
 			if op.Node == grant.Node && op.active() {

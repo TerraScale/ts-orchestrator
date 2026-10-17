@@ -214,6 +214,8 @@ func serviceStatus(state string) (string, string) {
 		return "run", "starting"
 	case "stopped":
 		return "warn", "stopped"
+	case "unknown":
+		return "warn", "unknown"
 	case "":
 		return "bad", "no current report"
 	default:
@@ -326,14 +328,10 @@ func (current view) topologyNode(summary regionview.Summary, node regionview.Nod
 			row("ts-orch controller", "missing: did not answer", "bad", link)
 		}
 	}
-	if len(node.Services) > 0 {
-		status, detail := "bad", "no current report"
-		if slices.ContainsFunc(node.Services, func(service regionview.Service) bool { return service.State != "" }) {
-			status, detail = "ok", "session reporting"
-		}
-		row("ts-orch agent", detail, status, href)
-	} else if member, ok := members[node.Name]; ok && member.Role == "host" {
+	if member, ok := members[node.Name]; ok && member.Role == "host" {
 		row("ts-orch agent", joinDetail(short(member.Version, 14), readyText(member.Ready)), boolStatus(member.Ready), href)
+	} else if len(node.Services) > 0 {
+		row("ts-orch agent", "current host membership unavailable", "warn", href)
 	}
 	host, hasSeats := seats[node.Name]
 	if !hasSeats && node.Member != "" {
@@ -341,23 +339,19 @@ func (current view) topologyNode(summary regionview.Summary, node regionview.Nod
 	}
 	seatText := ""
 	if hasSeats {
-		seatText = itoa(host.Serving) + "/" + itoa(host.Seats) + " seats serving"
+		seatText = itoa(host.Seats) + " seats; readiness unknown: current native root task and member source unavailable"
 	}
 	for _, service := range node.Services {
 		status, state := serviceStatus(service.State)
-		detail := joinDetail(shortDigest(service.Digest), state)
+		detail := joinDetail(shortDigest(service.Digest), state, service.StateReason)
 		if service.Role == "terrabase" && seatText != "" {
-			detail = joinDetail(shortDigest(service.Digest), state, seatText)
+			detail = joinDetail(shortDigest(service.Digest), state, service.StateReason, seatText)
 			seatText = ""
 		}
 		row(cmp.Or(roleLabels[service.Role], service.Role), detail, status, href)
 	}
 	if seatText != "" {
-		status := "ok"
-		if host.Serving < host.Seats {
-			status = "warn"
-		}
-		row("TerraBase member", seatText, status, href)
+		row("TerraBase member", seatText, "warn", href)
 	}
 	if len(node.Fence) > 0 {
 		row("fenced", strings.Join(node.Fence, ", "), "warn", href)
@@ -435,24 +429,21 @@ func nodeAt(nodes []topoNode, name string) int {
 }
 
 // replicationEdges joins every two nodes that carry seats of one TerraBase
-// partition, from this region's placement. An edge is healthy when every
-// shared partition's seats on both ends serve; its tooltip names the
-// largest replication lag either end last reported.
+// partition's durable roster. It does not infer live replication readiness
+// from durable stages; its tooltip can include measured replication lag.
 func (current view) replicationEdges(nodes []topoNode) []topoEdge {
 	placement := current.placement()
 	if placement == nil {
 		return nil
 	}
-	type pair struct{ partitions, unhealthy int }
+	type pair struct{ partitions int }
 	pairs := map[[2]int]*pair{}
 	var order [][2]int
 	for _, database := range placement.Databases {
 		ends := map[int]bool{}
-		healthy := true
 		for _, seat := range database.Members {
 			if at := nodeAt(nodes, seat.HostNode); at >= 0 && seat.HostNode != "" {
 				ends[at] = true
-				healthy = healthy && seat.Stage == "serving"
 			}
 		}
 		sorted := slices.Sorted(func(yield func(int) bool) {
@@ -470,9 +461,6 @@ func (current view) replicationEdges(nodes []topoNode) []topoEdge {
 					order = append(order, key)
 				}
 				pairs[key].partitions++
-				if !healthy {
-					pairs[key].unhealthy++
-				}
 			}
 		}
 	}
@@ -482,10 +470,7 @@ func (current view) replicationEdges(nodes []topoNode) []topoEdge {
 		from, to := nodes[key[0]], nodes[key[1]]
 		y1, y2 := from.Y+20, to.Y+20
 		dx := min(topoReplLane-6, 14+(y2-y1)/4)
-		status, title := "ok", from.Name+" ↔ "+to.Name+": "+itoa(pairs[key].partitions)+" partition(s) replicate"
-		if pairs[key].unhealthy > 0 {
-			status, title = "warn", title+", "+itoa(pairs[key].unhealthy)+" with a seat not serving"
-		}
+		status, title := "warn", from.Name+" ↔ "+to.Name+": "+itoa(pairs[key].partitions)+" partition(s) share durable placement; current replication readiness unknown"
 		label := ""
 		if lag, ok := current.replicationLag(from.Name, to.Name); ok {
 			label = formatFloat(lag, 0)

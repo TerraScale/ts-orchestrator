@@ -40,22 +40,24 @@ type placementStatusRequest struct {
 }
 
 // placementStatusReport is the regional leader's durable placement record for
-// one database partition joined with its current host sessions and reports.
+// one database partition joined with its current host sessions.
 // It is signed by the controller response key the operator already pins.
 type placementStatusReport struct {
-	Cell           string                  `json:"cell"`
-	DatabaseID     string                  `json:"database_id"`
-	PartitionID    string                  `json:"partition_id"`
-	Nonce          string                  `json:"nonce"`
-	ObservedAt     time.Time               `json:"observed_at"`
-	AuthorityEpoch uint64                  `json:"authority_epoch"`
-	Generation     uint64                  `json:"generation,omitzero"`
-	PayloadSHA256  string                  `json:"payload_sha256,omitempty"`
-	Sequence       uint64                  `json:"placement_sequence,omitzero"`
-	Terminal       bool                    `json:"terminal,omitzero"`
-	Serving        bool                    `json:"serving"`
-	Members        []placementMemberStatus `json:"members"`
-	Holds          []placementHoldRecord   `json:"holds,omitempty"`
+	Cell            string                  `json:"cell"`
+	DatabaseID      string                  `json:"database_id"`
+	PartitionID     string                  `json:"partition_id"`
+	Nonce           string                  `json:"nonce"`
+	ObservedAt      time.Time               `json:"observed_at"`
+	AuthorityEpoch  uint64                  `json:"authority_epoch"`
+	Generation      uint64                  `json:"generation,omitzero"`
+	PayloadSHA256   string                  `json:"payload_sha256,omitempty"`
+	Sequence        uint64                  `json:"placement_sequence,omitzero"`
+	Terminal        bool                    `json:"terminal,omitzero"`
+	Serving         bool                    `json:"serving"`
+	Readiness       string                  `json:"readiness"`
+	ReadinessReason string                  `json:"readiness_reason"`
+	Members         []placementMemberStatus `json:"members"`
+	Holds           []placementHoldRecord   `json:"holds,omitempty"`
 }
 
 type placementMemberStatus struct {
@@ -389,7 +391,8 @@ func (source placementStatusSource) answer(ctx context.Context, wire []byte) ([]
 func (source placementStatusSource) report(ctx context.Context, request placementStatusRequest, epoch uint64) (placementStatusReport, error) {
 	now := time.Now().UTC()
 	report := placementStatusReport{Cell: source.cell, DatabaseID: request.DatabaseID, PartitionID: request.PartitionID,
-		Nonce: request.Nonce, ObservedAt: now, AuthorityEpoch: epoch}
+		Nonce: request.Nonce, ObservedAt: now, AuthorityEpoch: epoch,
+		Readiness: "unknown", ReadinessReason: "current native root task and member readiness source is unavailable"}
 	intents, err := source.placements.ListIntents(ctx)
 	if err != nil {
 		return placementStatusReport{}, err
@@ -438,7 +441,6 @@ func (source placementStatusSource) report(ctx context.Context, request placemen
 			seats = append(seats, member.State.MemberID)
 		}
 	}
-	report.Serving = intent != nil && !report.Terminal && len(seats) > 0
 	for _, seat := range seats {
 		entry := placementMemberStatus{SeatID: seat, Stage: "unprepared"}
 		if intent != nil {
@@ -465,10 +467,9 @@ func (source placementStatusSource) report(ctx context.Context, request placemen
 				entry.UpdatePins = &pins
 			}
 			if status, registered := byNode[state.HostNode]; registered && state.HostNode != "" {
-				entry.Host = memberHostStatus(status, state, now)
+				entry.Host = memberHostStatus(status, now)
 			}
 		}
-		report.Serving = report.Serving && entry.Stage == string(placement.StageServing)
 		report.Members = append(report.Members, entry)
 	}
 	report.Holds = source.holds.recent(now)
@@ -481,27 +482,10 @@ func (source placementStatusSource) report(ctx context.Context, request placemen
 	return report, nil
 }
 
-func memberHostStatus(status host.HostStatus, state placement.MemberState, now time.Time) *placementHostStatus {
-	observed := &placementHostStatus{SessionCurrent: status.Verified && now.Before(status.SessionExpiresAt),
+// Durable member stages and host reports cannot assert current runtime serving.
+func memberHostStatus(status host.HostStatus, now time.Time) *placementHostStatus {
+	return &placementHostStatus{SessionCurrent: status.Verified && !status.Retired && now.Before(status.SessionExpiresAt),
 		SessionExpiresAt: status.SessionExpiresAt}
-	for _, report := range status.Reports {
-		if report.Managed == nil || report.Managed.Member.Scope.MemberID != state.CanonicalRosterRow.MemberID {
-			continue
-		}
-		observed.ReportState, observed.ReportError, observed.ReportDigest = report.State, report.Error, report.Digest
-		observed.ReportGeneration, observed.ReportObservedAt = report.Generation, report.ObservedAt
-		observed.MountPath, observed.ProcessPID = report.Managed.MountPath, report.Managed.ProcessPID
-		observed.StorageRecovered, observed.ListenerReady = report.Managed.StorageRecovered, report.Managed.ListenerReady
-		observed.ServingProof = report.Managed.ServingProof != nil
-	}
-	if observed.ReportState == "" {
-		for _, report := range status.Reports {
-			if report.Managed == nil && report.Error != "" {
-				observed.ReportState, observed.ReportError = report.State, report.Error
-			}
-		}
-	}
-	return observed
 }
 
 // holdMentions keeps a hold only when it names this database or one of its

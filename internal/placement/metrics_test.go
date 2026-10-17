@@ -37,7 +37,7 @@ func TestSummarizeCountsStagesAndRolloutProgress(t *testing.T) {
 		t.Fatalf("view = %+v", view)
 	}
 	database := view.Databases[0]
-	if database.DesiredSeats != 3 || database.Serving != 2 || database.Generation != 4 || len(database.Members) != 3 {
+	if database.DesiredSeats != 3 || database.Serving != 0 || database.Readiness != "unknown" || database.ReadinessReason == "" || database.Generation != 4 || len(database.Members) != 3 {
 		t.Fatalf("database = %+v", database)
 	}
 	rollout := database.Rollout

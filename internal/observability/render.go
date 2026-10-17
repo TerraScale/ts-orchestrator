@@ -94,8 +94,10 @@ func WritePlacementMetrics(w io.Writer, view PlacementView) {
 		labels := []string{"database", database.DatabaseID, "partition", database.PartitionID}
 		WriteGauge(w, Series(MetricPrefix+"terrabase_replicas", slices.Concat(labels, []string{"state", "desired"})...),
 			float64(database.DesiredSeats))
-		WriteGauge(w, Series(MetricPrefix+"terrabase_replicas", slices.Concat(labels, []string{"state", "serving"})...),
-			float64(database.Serving))
+		if database.Readiness == "observed" {
+			WriteGauge(w, Series(MetricPrefix+"terrabase_replicas", slices.Concat(labels, []string{"state", "serving"})...),
+				float64(database.Serving))
+		}
 		WriteGauge(w, Series(MetricPrefix+"terrabase_generation", labels...), float64(database.Generation))
 		if rollout := database.Rollout; rollout != nil {
 			WriteGauge(w, Series(MetricPrefix+"rollout_progress_ratio", labels...), rollout.Progress())
