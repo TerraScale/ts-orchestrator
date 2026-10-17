@@ -290,12 +290,42 @@ func (r *Runtime) listRuntimeEffects(ctx context.Context, scopeFilter string) ([
 	}
 	r.readMu.Lock()
 	defer r.readMu.Unlock()
-	prefix := fmt.Sprintf("%s.%s.placement.runtime.", controlSubjectRoot, r.config.Scope)
-	info, err := r.readStream.Info(ctx, jetstream.WithSubjectFilter(prefix+scopeFilter+">"))
+	return listRuntimeEffects(ctx, r.readStream, r.config.Scope, r.config.Replicas, scopeFilter)
+}
+
+// ListRuntimeEffectHistory reads the same canonical effects without write authority.
+func (r *Reader) ListRuntimeEffectHistory(ctx context.Context, scope WorkloadScope) ([]RuntimeEffect, error) {
+	if _, err := placementIntentSubjectKey(scope.DatabaseID, scope.PartitionID); err != nil {
+		return nil, err
+	}
+	return r.listRuntimeEffects(ctx, scope.DatabaseID+"."+scope.PartitionID+".")
+}
+
+func (r *Reader) ListAllUnresolvedRuntimeEffects(ctx context.Context) ([]RuntimeEffect, error) {
+	effects, err := r.listRuntimeEffects(ctx, "")
+	return slices.DeleteFunc(effects, func(effect RuntimeEffect) bool { return effect.Phase == RuntimeEffectSettled }), err
+}
+
+func (r *Reader) listRuntimeEffects(ctx context.Context, scopeFilter string) ([]RuntimeEffect, error) {
+	if r == nil || r.stream == nil {
+		return nil, ErrFenced
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	info, err := r.stream.Info(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := verifyControlStreamConfig(info.Config, r.config.Replicas); err != nil {
+	return listRuntimeEffects(ctx, r.stream, r.scope, info.Config.Replicas, scopeFilter)
+}
+
+func listRuntimeEffects(ctx context.Context, stream jetstream.Stream, cell string, replicas int, scopeFilter string) ([]RuntimeEffect, error) {
+	prefix := fmt.Sprintf("%s.%s.placement.runtime.", controlSubjectRoot, cell)
+	info, err := stream.Info(ctx, jetstream.WithSubjectFilter(prefix+scopeFilter+">"))
+	if err != nil {
+		return nil, err
+	}
+	if err := verifyControlStreamConfig(info.Config, replicas); err != nil {
 		return nil, err
 	}
 	keys := make([]string, 0, len(info.State.Subjects))
@@ -311,7 +341,7 @@ func (r *Runtime) listRuntimeEffects(ctx context.Context, scopeFilter string) ([
 	for _, key := range keys {
 		parts := strings.Split(key, ".")
 		scope := WorkloadScope{DatabaseID: parts[0], PartitionID: parts[1]}
-		entry, err := readMutation(ctx, r.readStream, r.config.Scope, MutationRuntimeEffect, key)
+		entry, err := readMutation(ctx, stream, cell, MutationRuntimeEffect, key)
 		if err != nil {
 			return nil, err
 		}

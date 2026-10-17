@@ -9,6 +9,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/executionwire"
 	"github.com/moby/swarmkit/v2/api"
 )
@@ -51,24 +52,68 @@ func (s *EffectSessions) CheckTaskReadiness(ctx context.Context, task *api.Task,
 // nonce-bound Source observation. Neither Swarm running nor an execution hold
 // alone establishes serving readiness.
 func (s *EffectSessions) CaptureTaskReadiness(ctx context.Context, task *api.Task, hosts *host.Controller) (*TaskReadinessWitness, error) {
+	original, material, verify, err := s.taskReadinessAuthority(ctx, task, hosts)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithDeadline(ctx, original.ExpiresAt)
+	defer cancel()
+	probe := func(check context.Context) (host.ManagedRuntimeReport, time.Time, error) {
+		report, deadline, err := hosts.ObserveContainerReadiness(check, *original, verify)
+		if err != nil {
+			return host.ManagedRuntimeReport{}, time.Time{}, err
+		}
+		if report.Container == nil || report.ServingProof == nil {
+			return host.ManagedRuntimeReport{}, time.Time{}, memberstatus.ErrNotServing
+		}
+		expected := memberstatus.Identity{Process: memberstatus.Process{PID: report.Container.MemberPID, StartNonce: report.ProcessBootID}, Scope: material.Scope, Authority: material.MemberAuthority}
+		if err := memberstatus.VerifyReportedServing(*report.ServingProof, expected, material.Survivor); err != nil {
+			return host.ManagedRuntimeReport{}, time.Time{}, err
+		}
+		if !time.Now().Before(deadline) {
+			return host.ManagedRuntimeReport{}, time.Time{}, authority.ErrFenced
+		}
+		if err := s.authority.Guard(check, original.Epoch); err != nil {
+			return host.ManagedRuntimeReport{}, time.Time{}, err
+		}
+		return report, deadline, nil
+	}
+	report, deadline, err := probe(ctx)
+	if err != nil {
+		return nil, err
+	}
+	binding, boot, generation := *report.Container, report.ProcessBootID, report.ClientCredentialGeneration
+	return &TaskReadinessWitness{deadline: deadline, recheck: func(check context.Context) error {
+		current, _, err := probe(check)
+		if err != nil {
+			return err
+		}
+		if *current.Container != binding || current.ProcessBootID != boot || current.ClientCredentialGeneration != generation {
+			return memberstatus.ErrStaleBinding
+		}
+		return nil
+	}}, nil
+}
+
+func (s *EffectSessions) taskReadinessAuthority(ctx context.Context, task *api.Task, hosts *host.Controller) (*authority.RuntimeEffect, executionwire.WorkerGrantMaterial, func(context.Context, host.RuntimeEffectCaller) error, error) {
 	if task == nil || hosts == nil || task.Status.State != api.TaskStateRunning {
-		return nil, errors.New("running stateful task unavailable")
+		return nil, executionwire.WorkerGrantMaterial{}, nil, errors.New("running stateful task unavailable")
 	}
 	task = task.Copy()
 	epoch, err := s.current(ctx)
 	if err != nil {
-		return nil, err
+		return nil, executionwire.WorkerGrantMaterial{}, nil, err
 	}
 	if err := s.recover(ctx, epoch); err != nil {
-		return nil, err
+		return nil, executionwire.WorkerGrantMaterial{}, nil, err
 	}
 	hash, err := executionwire.TaskSHA256(task)
 	if err != nil {
-		return nil, err
+		return nil, executionwire.WorkerGrantMaterial{}, nil, err
 	}
 	effects, err := s.authority.ListAllUnresolvedRuntimeEffects(ctx)
 	if err != nil {
-		return nil, err
+		return nil, executionwire.WorkerGrantMaterial{}, nil, err
 	}
 	var original *authority.RuntimeEffect
 	for i := range effects {
@@ -76,20 +121,18 @@ func (s *EffectSessions) CaptureTaskReadiness(ctx context.Context, task *api.Tas
 			continue
 		}
 		if original != nil {
-			return nil, errors.New("stateful task has ambiguous unresolved effects")
+			return nil, executionwire.WorkerGrantMaterial{}, nil, errors.New("stateful task has ambiguous unresolved effects")
 		}
 		original = &effects[i]
 	}
 	if original == nil || original.TaskSHA256 != hash || original.ServiceID != task.ServiceID || original.NodeID != task.NodeID ||
 		original.Phase != authority.RuntimeEffectHeld || original.Epoch != epoch || !time.Now().Before(original.ExpiresAt) {
-		return nil, authority.ErrFenced
+		return nil, executionwire.WorkerGrantMaterial{}, nil, authority.ErrFenced
 	}
 	material, err := runtimeMaterial(*original)
 	if err != nil {
-		return nil, err
+		return nil, executionwire.WorkerGrantMaterial{}, nil, err
 	}
-	ctx, cancel := context.WithDeadline(ctx, original.ExpiresAt)
-	defer cancel()
 	verify := func(check context.Context, caller host.RuntimeEffectCaller) error {
 		if caller.Epoch() != epoch || caller.SessionID() != original.HostSessionID || caller.Registration().ID != original.RegistrationID ||
 			!time.Now().Before(original.ExpiresAt) {
@@ -127,41 +170,27 @@ func (s *EffectSessions) CaptureTaskReadiness(ctx context.Context, task *api.Tas
 		}
 		return s.authority.Guard(check, epoch)
 	}
-	probe := func(check context.Context) (host.ManagedRuntimeReport, time.Time, error) {
-		report, deadline, err := hosts.ObserveContainerReadiness(check, *original, verify)
-		if err != nil {
-			return host.ManagedRuntimeReport{}, time.Time{}, err
-		}
-		if report.Container == nil || report.ServingProof == nil {
-			return host.ManagedRuntimeReport{}, time.Time{}, memberstatus.ErrNotServing
-		}
-		expected := memberstatus.Identity{Process: memberstatus.Process{PID: report.Container.MemberPID, StartNonce: report.ProcessBootID}, Scope: material.Scope, Authority: material.MemberAuthority}
-		if err := memberstatus.VerifyReportedServing(*report.ServingProof, expected, material.Survivor); err != nil {
-			return host.ManagedRuntimeReport{}, time.Time{}, err
-		}
-		if !time.Now().Before(deadline) {
-			return host.ManagedRuntimeReport{}, time.Time{}, authority.ErrFenced
-		}
-		if err := s.authority.Guard(check, epoch); err != nil {
-			return host.ManagedRuntimeReport{}, time.Time{}, err
-		}
-		return report, deadline, nil
+	return original, material, verify, nil
+}
+
+// ObserveRuntimeReadiness narrows the relay to the actual current manager task,
+// held material and Source. Root must independently admit the returned signature.
+func (s *EffectSessions) ObserveRuntimeReadiness(ctx context.Context, challenge host.ContainerReadinessChallenge, hosts *host.Controller) (protocol.Envelope, error) {
+	if s == nil || ctx == nil || ctx.Err() != nil {
+		return protocol.Envelope{}, authority.ErrFenced
 	}
-	report, deadline, err := probe(ctx)
+	reply, err := s.control.GetTask(ctx, &api.GetTaskRequest{TaskID: challenge.TaskID})
 	if err != nil {
-		return nil, err
+		return protocol.Envelope{}, err
 	}
-	binding, boot, generation := *report.Container, report.ProcessBootID, report.ClientCredentialGeneration
-	return &TaskReadinessWitness{deadline: deadline, recheck: func(check context.Context) error {
-		current, _, err := probe(check)
-		if err != nil {
-			return err
-		}
-		if *current.Container != binding || current.ProcessBootID != boot || current.ClientCredentialGeneration != generation {
-			return memberstatus.ErrStaleBinding
-		}
-		return nil
-	}}, nil
+	if reply == nil || reply.Task == nil {
+		return protocol.Envelope{}, authority.ErrFenced
+	}
+	original, _, verify, err := s.taskReadinessAuthority(ctx, reply.Task, hosts)
+	if err != nil {
+		return protocol.Envelope{}, err
+	}
+	return hosts.ObserveSignedContainerReadiness(ctx, *original, challenge, verify)
 }
 
 func sameReadinessEffect(original, current authority.RuntimeEffect) bool {
