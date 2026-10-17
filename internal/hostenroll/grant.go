@@ -8,10 +8,12 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -74,6 +76,28 @@ type Grant struct {
 type GrantStore struct {
 	kv jetstream.KeyValue
 	js jetstream.JetStream
+}
+
+// OpenExistingGrantStore cannot create or repair enrollment state for a root effect.
+func OpenExistingGrantStore(ctx context.Context, js jetstream.JetStream, replicas int) (*GrantStore, error) {
+	if js == nil || replicas < 1 || replicas > 5 {
+		return nil, errors.New("existing enrollment requires replicated JetStream")
+	}
+	kv, err := js.KeyValue(ctx, GrantBucket)
+	if err != nil {
+		return nil, err
+	}
+	status, err := kv.Status(ctx)
+	if err != nil {
+		return nil, err
+	}
+	config := status.Config()
+	if kv.Bucket() != GrantBucket || status.Bucket() != GrantBucket || config.Bucket != GrantBucket ||
+		config.Replicas != replicas || config.Storage != jetstream.FileStorage || config.TTL != 0 ||
+		config.History < 2 || config.MaxValueSize != MaxGrantBytes || config.MaxBytes != 64<<20 {
+		return nil, errors.New("existing enrollment bucket differs from the regional durable contract")
+	}
+	return &GrantStore{kv: kv, js: js}, nil
 }
 
 func OpenGrantStore(ctx context.Context, js jetstream.JetStream, replicas int) (*GrantStore, error) {
@@ -166,6 +190,45 @@ func (store *GrantStore) Forget(ctx context.Context, instanceID string) error {
 		return fmt.Errorf("forget host enrollment grant: %w", err)
 	}
 	return nil
+}
+
+// ForgetExpected consumes only the exact completed enrollment. A missing grant
+// after an ambiguous delete never proves that this call performed the deletion.
+func (store *GrantStore) ForgetExpected(ctx context.Context, expected Grant, revision uint64) (uint64, error) {
+	if store == nil || store.kv == nil || store.js == nil || revision == 0 || expected.SchemaVersion != 1 ||
+		expected.InstanceID == "" || !entityid.Valid(expected.CreateKey) || expected.Disabled || expected.TerminalOperationID != "" ||
+		len(expected.Request) == 0 || len(expected.Response) == 0 || len(expected.Request) > MaxGrantBytes || len(expected.Response) > MaxGrantBytes ||
+		expected.RenewalToken != "" && len(expected.RenewalResponse) == 0 {
+		return 0, mutationNotApplied(errors.New("forget requires an exact completed live enrollment"))
+	}
+	stream, err := grantLeaderReader(store.js)
+	if err != nil {
+		return 0, mutationNotApplied(err)
+	}
+	current, actualRevision, err := readCurrentGrant(ctx, stream, expected.InstanceID)
+	if err != nil {
+		return 0, mutationNotApplied(err)
+	}
+	if revision != actualRevision || !sameGrant(current, expected) {
+		return 0, mutationNotApplied(ErrTerminalFenceConflict)
+	}
+	if err := store.kv.Delete(ctx, grantKey(expected.InstanceID), jetstream.LastRevision(revision)); err != nil {
+		if errors.Is(err, jetstream.ErrKeyRevisionMismatch) {
+			return 0, mutationNotApplied(err)
+		}
+		return 0, fmt.Errorf("exact enrollment delete outcome is unknown: %w", err)
+	}
+	subject := "$KV." + GrantBucket + "." + grantKey(expected.InstanceID)
+	deleted, err := stream.GetLastMsg("KV_"+GrantBucket, subject, nats.Context(ctx))
+	if err != nil {
+		return 0, fmt.Errorf("observe acknowledged enrollment delete: %w", err)
+	}
+	if deleted == nil || deleted.Subject != subject || deleted.Sequence <= revision || deleted.Time.IsZero() ||
+		deleted.Header.Get("KV-Operation") != "DEL" || deleted.Header.Get(jetstream.MarkerReasonHeader) != "" ||
+		deleted.Header.Get(jetstream.ExpectedLastSubjSeqHeader) != strconv.FormatUint(revision, 10) || len(deleted.Data) != 0 {
+		return 0, errors.New("acknowledged enrollment delete has no exact current CAS tombstone")
+	}
+	return deleted.Sequence, nil
 }
 
 // Finish persists exact signed bytes before any network response. A lost reply
