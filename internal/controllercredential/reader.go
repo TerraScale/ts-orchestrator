@@ -23,6 +23,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
+	"github.com/oracle/oci-go-sdk/v65/secrets"
 	"golang.org/x/sys/unix"
 )
 
@@ -135,31 +136,12 @@ func (reader *ControllerReader) Guard(ctx context.Context) error {
 }
 
 func openControllerReaderLease(ctx context.Context) (*ControllerReader, error) {
-	if os.Geteuid() != 0 || ctx == nil || ctx.Err() != nil {
-		return nil, ErrDelivery
-	}
-	for _, name := range ociclient.SecretUnsafeEnv {
-		if _, set := os.LookupEnv(name); set {
-			return nil, ErrDelivery
-		}
-	}
-	snapshot, err := loadControllerReaderSnapshot()
+	snapshot, err := controllerReaderConnectionSnapshot(ctx)
 	if err != nil {
-		return nil, ErrDelivery
-	}
-	guard := func() error {
-		if ctx.Err() != nil || !snapshot.expires.IsZero() && !time.Now().Before(snapshot.expires) {
-			return ErrDelivery
-		}
-		current, err := loadControllerReaderSnapshot()
-		if err != nil || !reflect.DeepEqual(snapshot, current) || ctx.Err() != nil ||
-			!snapshot.expires.IsZero() && !time.Now().Before(snapshot.expires) {
-			return ErrDelivery
-		}
-		return nil
+		return nil, err
 	}
 	region, err := snapshot.acceptedRegion()
-	if err != nil || guard() != nil {
+	if err != nil {
 		return nil, ErrDelivery
 	}
 	factory, err := ociclient.InstancePrincipal(region)
@@ -168,6 +150,45 @@ func openControllerReaderLease(ctx context.Context) (*ControllerReader, error) {
 	}
 	client, err := vaultsecret.SecretsClient(factory)
 	if err != nil {
+		return nil, ErrDelivery
+	}
+	return connectControllerReaderLease(ctx, snapshot, client)
+}
+
+func controllerReaderConnectionSnapshot(ctx context.Context) (controllerReaderSnapshot, error) {
+	if os.Geteuid() != 0 || ctx == nil || ctx.Err() != nil {
+		return controllerReaderSnapshot{}, ErrDelivery
+	}
+	for _, name := range ociclient.SecretUnsafeEnv {
+		if _, set := os.LookupEnv(name); set {
+			return controllerReaderSnapshot{}, ErrDelivery
+		}
+	}
+	snapshot, err := loadControllerReaderSnapshot()
+	if err != nil {
+		return controllerReaderSnapshot{}, ErrDelivery
+	}
+	if _, err := snapshot.acceptedRegion(); err != nil || snapshot.guard(ctx) != nil {
+		return controllerReaderSnapshot{}, ErrDelivery
+	}
+	return snapshot, nil
+}
+
+func (snapshot controllerReaderSnapshot) guard(ctx context.Context) error {
+	if ctx == nil || ctx.Err() != nil || !snapshot.expires.IsZero() && !time.Now().Before(snapshot.expires) {
+		return ErrDelivery
+	}
+	current, err := loadControllerReaderSnapshot()
+	if err != nil || !reflect.DeepEqual(snapshot, current) || ctx.Err() != nil ||
+		!snapshot.expires.IsZero() && !time.Now().Before(snapshot.expires) {
+		return ErrDelivery
+	}
+	return nil
+}
+
+func connectControllerReaderLease(ctx context.Context, snapshot controllerReaderSnapshot, client secrets.SecretsClient) (*ControllerReader, error) {
+	guard := func() error { return snapshot.guard(ctx) }
+	if guard() != nil {
 		return nil, ErrDelivery
 	}
 	readDeadline := time.Now().Add(30 * time.Second)
