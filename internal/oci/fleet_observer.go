@@ -49,7 +49,3 @@ func (o *fleetObserver) ObserveSelected(ctx context.Context, selectInstance func
 }
 
 type fleetObservationProvider struct{ volumeObservationProvider }
-
-func (p fleetObservationProvider) ListInstances(ctx context.Context, compartment string) ([]CloudInstance, error) {
-	return p.Provider.ListInstances(ociclient.RequestContext(ctx), compartment)
-}
