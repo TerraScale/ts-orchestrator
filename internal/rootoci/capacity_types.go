@@ -55,6 +55,22 @@ type PoolChildObservation struct {
 	Generation      uint64 `json:"generation,omitzero"`
 }
 
+const PoolChildRegistrationStatic = "protected-static-pool"
+
+// PoolChildRegistration binds the original canonical descriptor to its signed
+// worker profile. Static kind permits no managed placement/member/OCI binding,
+// system reserve or TerraBase data volume. Enrollment keys and current snapshot
+// ordering remain independently verified by the consumer.
+type PoolChildRegistration struct {
+	Kind             string `json:"kind"`
+	Environment      string `json:"environment"`
+	Cell             string `json:"cell"`
+	Node             string `json:"node"`
+	Role             string `json:"role"`
+	Architecture     string `json:"architecture"`
+	DescriptorSHA256 string `json:"descriptor_sha256"`
+}
+
 // PoolChildView is descriptive. Only the concrete authenticated root client
 // can turn a current admission response into an opaque VerifiedPoolChild.
 type PoolChildView struct {
@@ -92,6 +108,8 @@ type PoolChildView struct {
 	ObservedAt           time.Time `json:"observed_at"`
 	ExpiresAt            time.Time `json:"expires_at"`
 	OriginalDeadline     time.Time `json:"original_deadline"`
+
+	Registration PoolChildRegistration `json:"registration"`
 }
 
 type PoolRetirementView struct {
