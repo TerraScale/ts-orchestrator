@@ -65,6 +65,25 @@ func (s NetBirdBrokerSource) readContext(ctx context.Context) (context.Context, 
 }
 
 func (s NetBirdBrokerSource) Guard(ctx context.Context) error {
+	if ctx == nil || s.snapshot == nil {
+		return ErrDelivery
+	}
+	ctx, cancel := s.readContext(ctx)
+	defer cancel()
+	if s.guardPublicSource(ctx) != nil {
+		return ErrDelivery
+	}
+	for index, slot := range s.source.Manifest().ControllerSlots {
+		ip, err := netbird.BrokerRoute(ctx, netBirdControllerPeerName(string(s.source.Manifest().Cell), slot))
+		if err != nil || index >= len(s.endpoints) || s.endpoints[index] != (NetBirdBrokerEndpoint{Address: "tls://" + net.JoinHostPort(ip.String(), "4222"), ServerName: slot}) {
+			return ErrDelivery
+		}
+	}
+	return ctx.Err()
+}
+
+// guardPublicSource authenticates the retained source without mesh locators.
+func (s NetBirdBrokerSource) guardPublicSource(ctx context.Context) error {
 	if ctx == nil || ctx.Err() != nil || s.snapshot == nil || !s.source.IsVerified() || !s.startup.IsVerified() {
 		return ErrDelivery
 	}
@@ -78,12 +97,6 @@ func (s NetBirdBrokerSource) Guard(ctx context.Context) error {
 	}
 	if err := s.startup.VerifyCurrent(ctx, time.Now().UTC()); err != nil {
 		return ErrDelivery
-	}
-	for index, slot := range s.source.Manifest().ControllerSlots {
-		ip, err := netbird.BrokerRoute(ctx, netBirdControllerPeerName(string(s.source.Manifest().Cell), slot))
-		if err != nil || index >= len(s.endpoints) || s.endpoints[index] != (NetBirdBrokerEndpoint{Address: "tls://" + net.JoinHostPort(ip.String(), "4222"), ServerName: slot}) {
-			return ErrDelivery
-		}
 	}
 	return ctx.Err()
 }
@@ -102,6 +115,33 @@ func LoadNetBirdBrokerSource(ctx context.Context, factory *ociclient.Factory, ce
 // LoadNetBirdBrokerSourceForOperation retains the original lifecycle while all
 // discovery reads use the caller's independently bounded operation context.
 func LoadNetBirdBrokerSourceForOperation(ctx, originalCtx context.Context, factory *ociclient.Factory, cell, slot string) (NetBirdBrokerSource, error) {
+	if ctx == nil || originalCtx == nil {
+		return NetBirdBrokerSource{}, ErrDelivery
+	}
+	ctx, cancelOperation := netBirdReadContext(ctx, originalCtx, time.Now().Add(30*time.Second))
+	defer cancelOperation()
+	result, err := loadNetBirdPublicSourceForOperation(ctx, originalCtx, factory, cell, slot)
+	if err != nil {
+		return NetBirdBrokerSource{}, err
+	}
+	ctx, cancel := result.readContext(ctx)
+	defer cancel()
+	for _, controller := range result.source.Manifest().ControllerSlots {
+		ip, err := netbird.BrokerRoute(ctx, netBirdControllerPeerName(cell, controller))
+		if err != nil {
+			return NetBirdBrokerSource{}, ErrDelivery
+		}
+		result.endpoints = append(result.endpoints, NetBirdBrokerEndpoint{Address: "tls://" + net.JoinHostPort(ip.String(), "4222"), ServerName: controller})
+	}
+	if len(result.endpoints) == 0 || result.Guard(ctx) != nil {
+		return NetBirdBrokerSource{}, ErrDelivery
+	}
+	return result, nil
+}
+
+// The early journal source reuses these authenticated inputs before the mesh
+// exists. Only the later broker source may resolve overlay addresses.
+func loadNetBirdPublicSourceForOperation(ctx, originalCtx context.Context, factory *ociclient.Factory, cell, slot string) (NetBirdBrokerSource, error) {
 	var result NetBirdBrokerSource
 	if factory == nil || ctx == nil || originalCtx == nil || ctx.Err() != nil || originalCtx.Err() != nil || cell != strings.ToUpper(cell) {
 		return result, ErrDelivery
@@ -171,14 +211,7 @@ func LoadNetBirdBrokerSourceForOperation(ctx, originalCtx context.Context, facto
 	}
 	ctx, cancelMaterialLifetime := context.WithDeadline(ctx, result.ExpiresAt())
 	defer cancelMaterialLifetime()
-	for _, controller := range result.source.Manifest().ControllerSlots {
-		ip, err := netbird.BrokerRoute(ctx, netBirdControllerPeerName(cell, controller))
-		if err != nil {
-			return NetBirdBrokerSource{}, ErrDelivery
-		}
-		result.endpoints = append(result.endpoints, NetBirdBrokerEndpoint{Address: "tls://" + net.JoinHostPort(ip.String(), "4222"), ServerName: controller})
-	}
-	if len(result.endpoints) == 0 || result.Guard(ctx) != nil {
+	if result.guardPublicSource(ctx) != nil {
 		return NetBirdBrokerSource{}, ErrDelivery
 	}
 	return result, nil
