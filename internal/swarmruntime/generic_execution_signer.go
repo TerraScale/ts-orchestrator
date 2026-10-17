@@ -42,6 +42,10 @@ func (n *Node) SignGenericExecution(ctx context.Context, h drainwire.ExecutionHo
 	if err != nil {
 		return empty, err
 	}
+	leaf, err := x509.ParseCertificate(chain[0])
+	if err != nil || h.ExpiresAt.After(leaf.NotAfter) {
+		return empty, errors.Join(errors.New("generic execution lifetime exceeds actual manager signing certificate"), err)
+	}
 	wire, err := drainwire.HoldSigningBytes(h)
 	if err != nil {
 		return empty, err

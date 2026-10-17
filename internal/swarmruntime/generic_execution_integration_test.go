@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"os"
@@ -392,6 +393,19 @@ func TestContainerdGenericExecutionRetainsOriginalProcessAcrossReopen(t *testing
 	}
 	if _, err := founder.SignGenericExecution(ctx, original.Hold.Hold, nil); err == nil {
 		t.Fatal("manager key signed without mandatory retained-source guard")
+	}
+	managerLeaf, err := x509.ParseCertificate(original.Hold.CertificateChain[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	beyondKey := original.Hold.Hold
+	beyondKey.ExpiresAt = managerLeaf.NotAfter.Add(time.Nanosecond)
+	guardCalled := false
+	if _, err := founder.SignGenericExecution(ctx, beyondKey, func(check context.Context) error {
+		guardCalled = true
+		return VerifyGenericExecutionAssignment(check, control, beyondKey)
+	}); err == nil || guardCalled {
+		t.Fatal("manager key lifetime failed to refuse before signing guard", err)
 	}
 	if _, err := worker.SignGenericExecution(ctx, original.Hold.Hold, func(check context.Context) error {
 		return VerifyGenericExecutionAssignment(check, control, original.Hold.Hold)
