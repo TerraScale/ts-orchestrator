@@ -48,7 +48,11 @@ func Serve(ctx context.Context, input io.Reader, output io.Writer) error {
 		if err := json.Unmarshal(scanner.Bytes(), &c, json.RejectUnknownMembers(true)); err != nil {
 			return err
 		}
-		operation, cancel := context.WithTimeout(lifetime, 45*time.Second)
+		deadline := 45 * time.Second
+		if c.Operation == "root-credential-boundary" {
+			deadline = 3 * time.Minute
+		}
+		operation, cancel := context.WithTimeout(lifetime, deadline)
 		result, err := w.execute(operation, c)
 		cancel()
 		if err != nil {
@@ -70,6 +74,8 @@ type worker struct {
 	partition                      []string
 	stopped                        bool
 	credentialOnly                 bool
+	identity                       Identity
+	sourceRevision                 string
 }
 
 func (w *worker) execute(ctx context.Context, c command) (response, error) {
@@ -84,6 +90,7 @@ func (w *worker) execute(ctx context.Context, c command) (response, error) {
 		if c.Operation == "credential-identity" {
 			w.root = "/run/ts-native-" + c.RunID
 			w.role, w.binaryHash, w.credentialOnly = c.Mode, observed.Identity.BinarySHA256, true
+			w.identity, w.sourceRevision = observed.Identity, c.SourceRevision
 			return observed, nil
 		}
 		root := "/var/lib/terrascale-orchestrator-host/swarm"
@@ -125,6 +132,9 @@ func (w *worker) execute(ctx context.Context, c command) (response, error) {
 		return response{}, errors.New("identity must be verified before runtime operations")
 	}
 	if w.credentialOnly {
+		if c.Operation == "root-credential-boundary" {
+			return w.rootCredentialBoundary(ctx, c.RootCredentialProof)
+		}
 		return response{}, errors.New("credential observer cannot operate the managed runtime")
 	}
 	switch c.Operation {

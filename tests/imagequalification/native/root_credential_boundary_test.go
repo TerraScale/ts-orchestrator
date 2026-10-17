@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/app"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 )
 
@@ -45,5 +46,48 @@ func TestRootCredentialCollectorRefusesMissingOrForeignResult(t *testing.T) {
 				t.Fatal("failed probe lost its failure transcript")
 			}
 		})
+	}
+}
+
+func TestRootCredentialResultRequiresSixReadersAndLiveRefusals(t *testing.T) {
+	hash := strings.Repeat("a", 64)
+	w := &worker{binaryHash: hash, identity: Identity{InstanceID: "instance", ImageOCID: "image"}}
+	observation := app.RootOCIQualificationObservation{SHA256: hash, Bytes: 2}
+	valid := app.RootOCIQualificationResult{SchemaVersion: 1, InstanceID: "instance", ImageID: "image", BinarySHA256: hash, NamespaceSHA256: hash, SourceSHA256: hash, PeerUID: 999, Socket: rootCredentialSocket, Readers: app.RootOCIQualificationReaders{Inventory: observation, LocalInstance: observation, Fleet: observation, Costs: observation, Image: observation, ReleaseChannel: observation}, Negative: app.RootOCIQualificationDenials{SameUIDProcessDenied: true, ProtectedWriteDenied: true, RawSignDenied: true, IMDSDenied: true}}
+	if err := verifyRootCredentialResult(valid, w, 999); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		change func(*app.RootOCIQualificationResult)
+	}{
+		{"inventory", func(r *app.RootOCIQualificationResult) { r.Readers.Inventory.Bytes = 0 }},
+		{"local-instance", func(r *app.RootOCIQualificationResult) { r.Readers.LocalInstance.SHA256 = "" }},
+		{"fleet", func(r *app.RootOCIQualificationResult) { r.Readers.Fleet.Bytes = 0 }},
+		{"costs", func(r *app.RootOCIQualificationResult) { r.Readers.Costs.Bytes = 0 }},
+		{"image", func(r *app.RootOCIQualificationResult) { r.Readers.Image.Bytes = 0 }},
+		{"release", func(r *app.RootOCIQualificationResult) { r.Readers.ReleaseChannel.Bytes = 0 }},
+		{"imds", func(r *app.RootOCIQualificationResult) { r.Negative.IMDSDenied = false }},
+		{"signing", func(r *app.RootOCIQualificationResult) { r.Negative.RawSignDenied = false }},
+		{"same-uid-ipc", func(r *app.RootOCIQualificationResult) { r.Negative.SameUIDProcessDenied = false }},
+		{"protected-write", func(r *app.RootOCIQualificationResult) { r.Negative.ProtectedWriteDenied = false }},
+		{"foreign-binary", func(r *app.RootOCIQualificationResult) { r.BinarySHA256 = strings.Repeat("b", 64) }},
+		{"wrong-uid", func(r *app.RootOCIQualificationResult) { r.PeerUID = 0 }},
+		{"wrong-socket", func(r *app.RootOCIQualificationResult) { r.Socket = "/missing/socket" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			r := valid
+			test.change(&r)
+			if err := verifyRootCredentialResult(r, w, 999); err == nil {
+				t.Fatal("incomplete or foreign credential result accepted")
+			}
+		})
+	}
+}
+
+func TestRootCredentialOutputRejectsOversize(t *testing.T) {
+	output := new(rootCredentialOutput)
+	if _, err := output.Write(make([]byte, maxRootCredentialResultBytes+1)); err == nil || output.Len() != 0 {
+		t.Fatal("oversized installed result retained")
 	}
 }

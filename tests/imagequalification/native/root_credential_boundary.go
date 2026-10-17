@@ -32,7 +32,7 @@ func validateRootCredentialRequest(req Request) error {
 	}
 	for _, h := range req.Hosts {
 		proof, found := req.RootCredentialProofs[h.OCID]
-		if !found || len(proof) == 0 || len(proof) > 256<<10 {
+		if !found || len(proof) == 0 || len(proof) > maxRootCredentialProofBytes {
 			return errors.New("root credential qualification host proof absent or oversized")
 		}
 	}
