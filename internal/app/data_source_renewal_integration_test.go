@@ -75,7 +75,6 @@ import (
 	"syscall"
 	"testing"
 	"time"
-	"uuid"
 )
 
 const (
@@ -717,7 +716,7 @@ func newRenewalContainerd(t *testing.T, directory string) *containerd.Client {
 	}
 }
 
-func renewalLoopVolume(t *testing.T, directory, mount string) hostvolume.MountPins {
+func renewalLoopVolume(t *testing.T, directory, mount, id string) hostvolume.MountPins {
 	t.Helper()
 	image := filepath.Join(directory, "retained.ext4")
 	file, err := os.OpenFile(image, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
@@ -737,7 +736,6 @@ func renewalLoopVolume(t *testing.T, directory, mount string) hostvolume.MountPi
 		defer cancel()
 		renewalCommand(t, ctx, "losetup", "--detach", device)
 	})
-	id := uuid.New().String()
 	tool, args, err := hostvolume.FormatCommand("ext4", id)
 	if err != nil {
 		t.Fatal(err)
@@ -1732,8 +1730,7 @@ func TestSourceBackupRenewalIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	volume := renewalLoopVolume(t, directory, mount)
-	material.deployment.Members[0].FileSystemUUID = volume.FileSystemUUID
+	volume := renewalLoopVolume(t, directory, mount, owner.FileSystemUUID)
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -1814,6 +1811,17 @@ func TestSourceBackupRenewalIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	effectCtx, stopEffects := context.WithCancel(t.Context())
+	effectDone := make(chan error, 1)
+	go func() { effectDone <- effects.Run(effectCtx) }()
+	t.Cleanup(func() {
+		stopEffects()
+		select {
+		case <-effectDone:
+		case <-time.After(10 * time.Second):
+			t.Error("runtime effect recovery loop did not stop")
+		}
+	})
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
