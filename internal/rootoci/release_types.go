@@ -14,6 +14,7 @@ const OperationReconcileContainerStatus Operation = "reconcile_container_status"
 type Releases interface {
 	ContainerReleases
 	ChannelReleases
+	AtlasTopology
 }
 
 type ContainerReleases interface {

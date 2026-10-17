@@ -47,6 +47,7 @@ type rootReleaseChannels struct {
 	bound       bool
 	keys        rolloutexec.KeyResolver
 	proofWires  map[string][]byte
+	atlas       rootAtlasState
 }
 
 var _ rootoci.Releases = (*rootReleaseChannels)(nil)

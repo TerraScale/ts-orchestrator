@@ -6,18 +6,26 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/atlas"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/nativerootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
@@ -47,6 +55,7 @@ func TestRootOCICallerContinuity(t *testing.T) {
 	defer listener.Close()
 	child := startRootOCIContinuityChild(t, ctx)
 	admission.admit(t, t.Context(), child.command.Process.Pid)
+	exerciseContinuityAtlas(t, ctx, admission, child, pool)
 	first := child.invoke(t)
 	second := child.invoke(t)
 	if first.Error != "" || second.Error != "" || len(first.View.SessionBindingSHA256) != 64 ||
@@ -161,7 +170,7 @@ func newContinuityService(t *testing.T, pool *continuityPool) *rootoci.Service {
 	service, err := rootoci.NewService(rootoci.Backends{
 		Readers: &continuityReader{}, Capacity: pool,
 		Foundations: &struct{ rootoci.Foundation }{}, Credentials: &struct{ rootoci.Credentials }{},
-		NetBird: &struct{ rootoci.NetBird }{}, Releases: &struct{ rootoci.Releases }{},
+		NetBird: &struct{ rootoci.NetBird }{}, Releases: pool,
 		Volumes: &struct{ rootoci.VolumeReader }{}, Workloads: &struct{ rootoci.WorkloadCredentials }{},
 		Backups: &struct{ rootoci.VolumeBackups }{}, ContainerMaterial: &struct{ rootoci.ContainerMaterial }{},
 	})
@@ -243,6 +252,8 @@ func (a *continuityAdmission) close() {
 
 type continuityPool struct {
 	rootoci.Pool
+	rootoci.Releases
+	atlas            *continuityAtlas
 	mu               sync.Mutex
 	original         string
 	effects          int
@@ -251,10 +262,153 @@ type continuityPool struct {
 	finished         chan struct{}
 }
 
+func (p *continuityPool) ReconcileAtlasTopology(ctx context.Context, call rootoci.Call) (rootoci.AtlasTopologyReceipt, error) {
+	if p.atlas == nil {
+		return rootoci.AtlasTopologyReceipt{}, rootoci.ErrUnavailable
+	}
+	return p.atlas.ReconcileAtlasTopology(ctx, call)
+}
+
 func (p *continuityPool) count() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.effects
+}
+
+// This fixture retains a fixed test-only root key and exercises the real IPC,
+// Publisher and HTTP transport. It does not produce accepted founder/Vault facts.
+type continuityAtlas struct {
+	publisher atlas.Publisher
+	config    atlas.Config
+	finished  chan struct{}
+	mu        sync.Mutex
+}
+
+func (b *continuityAtlas) ReconcileAtlasTopology(ctx context.Context, call rootoci.Call) (rootoci.AtlasTopologyReceipt, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	defer close(b.finished)
+	if err := call.Guard(ctx); err != nil {
+		return rootoci.AtlasTopologyReceipt{}, err
+	}
+	b.publisher.HTTP = &http.Client{Timeout: time.Second,
+		Transport: newRootAtlasHTTP(b.config, call.Guard, call.Guard, call.Seal)}
+	if err := b.publisher.Publish(ctx, b.config, time.Now(), call.Guard); err != nil {
+		return rootoci.AtlasTopologyReceipt{}, err
+	}
+	if err := call.Guard(ctx); err != nil {
+		return rootoci.AtlasTopologyReceipt{}, err
+	}
+	if err := call.Seal(ctx); err != nil {
+		return rootoci.AtlasTopologyReceipt{}, err
+	}
+	return rootoci.AtlasTopologyReceipt{State: rootoci.AtlasTopologyPublished, ExpiresAt: call.Deadline()}, nil
+}
+
+func exerciseContinuityAtlas(t *testing.T, ctx context.Context, admission *continuityAdmission, child *continuityChild, pool *continuityPool) {
+	t.Helper()
+	pemKey, err := atlas.NewKey(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := atlas.ParseKey(pemKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var scenario atomic.Value
+	scenario.Store("publish")
+	var posts atomic.Int64
+	var updated atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mode := scenario.Load().(string)
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/readyz":
+			if mode == "revoke during probe" {
+				admission.cancelLease()
+			}
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/publish":
+			posts.Add(1)
+			body, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+			signature, signErr := base64.RawURLEncoding.DecodeString(r.Header.Get("X-Atlas-Signature"))
+			digest := sha256.Sum256(append([]byte("atlas-publish-v1\n"+r.Header.Get("X-Atlas-Timestamp")+"\n"), body...))
+			if err != nil || signErr != nil || len(signature) != 64 ||
+				!ecdsa.Verify(&key.PublicKey, digest[:], new(big.Int).SetBytes(signature[:32]), new(big.Int).SetBytes(signature[32:])) {
+				t.Error("actual root HTTP publish did not carry its fixed key's signature")
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			var document struct {
+				Topology struct {
+					Updated int64 `json:"updated"`
+					Regions []struct {
+						ID string `json:"id"`
+						OK bool   `json:"ok"`
+					} `json:"regions"`
+				} `json:"topology"`
+			}
+			if json.Unmarshal(body, &document) != nil || len(document.Topology.Regions) != 1 ||
+				document.Topology.Regions[0].ID != "gru-1" || !document.Topology.Regions[0].OK ||
+				document.Topology.Updated <= updated.Load() || bytes.Contains(body, []byte(pemKey)) {
+				t.Error("actual published topology lost fixed regions, readiness or monotonic time")
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			if mode == "redirect" {
+				w.Header().Set("Location", "/redirected")
+				w.WriteHeader(http.StatusTemporaryRedirect)
+				return
+			}
+			updated.Store(document.Topology.Updated)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			if mode == "revoke during response" {
+				w.(http.Flusher).Flush()
+				admission.cancelLease()
+			}
+			_, _ = io.WriteString(w, `{"topology":"updated"}`)
+		default:
+			t.Error("Atlas escaped its fixed HTTP endpoints", r.Method, r.URL)
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	defer server.Close()
+	backend := &continuityAtlas{publisher: atlas.Publisher{Key: key},
+		config: atlas.Config{URL: server.URL, Regions: []atlas.Region{{ID: "gru-1", API: server.URL}}}}
+	pool.atlas = backend
+	defer func() { pool.atlas = nil }()
+	for _, mode := range []string{"publish", "publish", "redirect", "revoke during probe", "revoke during response"} {
+		scenario.Store(mode)
+		backend.finished = make(chan struct{})
+		before := posts.Load()
+		if _, err := io.WriteString(child.input, "atlas\n"); err != nil {
+			t.Fatal(err)
+		}
+		result := child.receive(t)
+		select {
+		case <-backend.finished:
+		case <-ctx.Done():
+			t.Fatal("Atlas operation did not finish after the actual HTTP wait", ctx.Err())
+		}
+		if mode == "publish" {
+			if result.Error != "" || result.Atlas.State != rootoci.AtlasTopologyPublished ||
+				!time.Now().Before(result.Atlas.ExpiresAt) || posts.Load() != before+1 {
+				t.Fatal("fixed root publish failed across the actual nonroot IPC boundary", result)
+			}
+		} else {
+			if result.Error == "" || result.Atlas.State != "" || !result.OutcomeUnknown {
+				t.Fatal("redirected or revoked HTTP wait returned a publish receipt", mode, result)
+			}
+			want := before + 1
+			if mode == "revoke during probe" {
+				want = before
+			}
+			if posts.Load() != want {
+				t.Fatal("Atlas replayed a signed POST or published after probe revocation", mode, posts.Load(), want)
+			}
+		}
+		admission.replace(t.Context())
+	}
 }
 
 // The recording effect is test-only; no SDK, accepted birth or saved wire is minted.
@@ -309,6 +463,7 @@ func continuityExpectation() rootoci.PoolChildExpectation {
 
 type continuityReply struct {
 	View           rootoci.PoolChildView
+	Atlas          rootoci.AtlasTopologyReceipt
 	Error          string
 	OutcomeUnknown bool
 }
@@ -380,12 +535,15 @@ func runRootOCIContinuityChild(t *testing.T) {
 		operation := commands.Text()
 		client := rootoci.NewClient(rootoci.Expectations{Cell: "GRU", Epoch: 1})
 		var view rootoci.PoolChildView
+		var topology rootoci.AtlasTopologyReceipt
 		var err error
 		switch operation {
 		case "advance":
 			view, err = client.AdvancePoolChild(t.Context(), continuityExpectation())
 		case "observe":
 			_, err = client.Inventory(t.Context())
+		case "atlas":
+			topology, err = client.ReconcileAtlasTopology(t.Context())
 		case "cancel":
 			ctx, cancel := context.WithCancel(t.Context())
 			done := make(chan continuityReply, 1)
@@ -411,7 +569,7 @@ func runRootOCIContinuityChild(t *testing.T) {
 			t.Fatal("invalid fixture command")
 		}
 		_ = client.Close()
-		result := continuityReply{View: view}
+		result := continuityReply{View: view, Atlas: topology, OutcomeUnknown: errors.Is(err, rootoci.ErrOutcomeUnknown)}
 		if err != nil {
 			result.Error = err.Error()
 		}

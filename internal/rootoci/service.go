@@ -121,6 +121,8 @@ func (service *Service) validRequest(request wireRequest) bool {
 	case OperationReconcileOrchestratorStatus:
 		var input OrchestratorStatusRequest
 		return decodePayload(request.Payload, &input) == nil && validDigest(input.ExpectedChannelSHA256)
+	case OperationReconcileAtlasTopology:
+		return decodePayload(request.Payload, new(struct{})) == nil
 	case OperationNativeRelease:
 		var input NativeReleaseRequest
 		return decodePayload(request.Payload, &input) == nil && validNativeRole(input.Role)
@@ -279,6 +281,16 @@ func (service *Service) dispatch(ctx context.Context, call Call, request wireReq
 		}
 		wire, err := json.Marshal(receipt)
 		if err != nil || len(wire) > releasechannel.MaxValueBytes || !validResponseExpiry(receipt.ExpiresAt, call) {
+			return nil, ErrUnavailable
+		}
+		return receipt, nil
+	case OperationReconcileAtlasTopology:
+		receipt, err := service.backends.Releases.ReconcileAtlasTopology(ctx, call)
+		if err != nil {
+			return nil, err
+		}
+		if !validResponseExpiry(receipt.ExpiresAt, call) ||
+			(receipt.State != AtlasTopologyPublished && receipt.State != AtlasTopologyUnconfigured) {
 			return nil, ErrUnavailable
 		}
 		return receipt, nil

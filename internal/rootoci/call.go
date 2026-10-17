@@ -189,6 +189,31 @@ func (call Call) Guard(ctx context.Context) error {
 	return nil
 }
 
+// Seal checks only the original process, contexts and finite admission cap after
+// later waits. It does not reauthorize, refresh or grant effect authority.
+func (call Call) Seal(ctx context.Context) error {
+	state := call.state
+	if ctx == nil || state == nil || state.ctx == nil || ctx.Err() != nil || state.ctx.Err() != nil ||
+		state.deadline.IsZero() || !time.Now().Before(state.deadline) {
+		return ErrUnauthorized
+	}
+	if state.root {
+		if os.Geteuid() != 0 {
+			return ErrUnauthorized
+		}
+	} else if state.witness == nil || !validLease(state.lease) {
+		return ErrUnauthorized
+	}
+	if state.witness != nil && state.witness.Verify() != nil {
+		return ErrUnauthorized
+	}
+	if ctx.Err() != nil || state.ctx.Err() != nil || !time.Now().Before(state.deadline) ||
+		!state.root && !validLease(state.lease) {
+		return ErrUnauthorized
+	}
+	return nil
+}
+
 func validLease(lease Lease) bool {
 	return lease.Context != nil && lease.Context.Done() != nil && lease.Context.Err() == nil && lease.Binding != "" && len(lease.Binding) <= 4096 &&
 		(lease.RuntimeID == "" || validSelector(lease.RuntimeID)) &&
