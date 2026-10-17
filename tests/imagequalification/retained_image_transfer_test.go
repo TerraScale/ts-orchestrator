@@ -299,9 +299,18 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 		mu.Lock()
 		objects[releasechannel.ImageProductionEvidenceObject(hashBytes(otherBody))] = otherBody
 		mu.Unlock()
-		otherWire := sign(otherReceipt, release.ImageScope(otherReceipt, a.Candidate.Environment), leaf, f.now.Add(time.Hour))
+		otherScope := release.ImageScope(otherReceipt, a.Candidate.Environment)
+		otherWire := sign(otherReceipt, otherScope, leaf, f.now.Add(time.Hour))
+		otherDelegation, err := trust.SignDelegation(trust.Delegation{SchemaVersion: 1, SubjectKeyID: leafID, SubjectPublicKey: encoded, Capabilities: []trust.Capability{{Domain: otherScope.Domain, DeploymentID: otherScope.DeploymentID, Cell: otherScope.Cell, Environment: otherScope.Environment, Role: otherScope.Role, Slots: []string{otherScope.Slot}, Actions: []string{"sign"}}}}, f.now.Add(-time.Minute), f.now.Add(time.Hour), f.private)
+		if err != nil {
+			t.Fatal(err)
+		}
+		otherDelegationWire, err := trust.EncodeEnvelope(otherDelegation)
+		if err != nil {
+			t.Fatal(err)
+		}
 		expected := releasechannel.CurrentImageExpectation{Cell: a.Candidate.Cell, Environment: a.Candidate.Environment, Architecture: a.Candidate.Architecture, Role: release.FoundationWriterRole}
-		if err := releasechannel.PublishCurrentImage(t.Context(), location, otherWire, delegationWire, f.roots, expected, f.now); err != nil {
+		if err := releasechannel.PublishCurrentImage(t.Context(), location, otherWire, otherDelegationWire, f.roots, expected, f.now); err != nil {
 			t.Fatal(err)
 		}
 		otherCurrent, found, err := releasechannel.ReadPublishedImageSDK(t.Context(), observer, a.Namespace, f.roots, expected, "", now)
