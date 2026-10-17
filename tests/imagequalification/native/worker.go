@@ -145,10 +145,10 @@ func (w *worker) execute(ctx context.Context, c command) (response, error) {
 		if w.stopped {
 			return response{}, errors.New("runtime already stopped")
 		}
+		w.stopped = true
 		if out, err := exec.CommandContext(ctx, "/usr/bin/systemctl", "stop", runtimeUnit).CombinedOutput(); err != nil {
 			return response{}, fmt.Errorf("stop installed runtime: %w: %s", err, out)
 		}
-		w.stopped = true
 		return response{}, nil
 	case "restore":
 		if !w.stopped {
