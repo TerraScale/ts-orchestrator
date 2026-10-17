@@ -20,12 +20,13 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/networkplan"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
 )
 
-func netBirdManagerAPI(ctx context.Context, local automaticFoundation, admission region.VerifiedNetBirdManager) (*manager.API, error) {
-	if err := admission.Check(ctx); err != nil {
+func netBirdManagerAPI(ctx context.Context, local automaticFoundation, admission region.VerifiedNetBirdManager, process *rootoci.ProcessWitness) (*manager.API, error) {
+	if err := checkNetBirdManagerProcess(process, admission, ctx); err != nil {
 		return nil, err
 	}
 	bundles, err := vaultsecret.SecretsClient(local.factory)
@@ -36,13 +37,13 @@ func netBirdManagerAPI(ctx context.Context, local automaticFoundation, admission
 	if err != nil {
 		return nil, err
 	}
-	return manager.NewFencedAPI("http://127.0.0.1:18081", token, func() error { return admission.Check(ctx) })
+	return manager.NewReadOnlyAPI("http://127.0.0.1:18081", token)
 }
 
-func bootstrapNetBirdManagerAccount(ctx context.Context, local automaticFoundation, admission region.VerifiedNetBirdManager, quiesce func(context.Context) error) error {
+func bootstrapNetBirdManagerAccount(ctx context.Context, local automaticFoundation, admission region.VerifiedNetBirdManager, process *rootoci.ProcessWitness, quiesce func(context.Context) error) error {
 	ctx, cancel := context.WithDeadline(ctx, admission.ExpiresAt())
 	defer cancel()
-	api, err := netBirdManagerAPI(ctx, local, admission)
+	api, err := netBirdManagerAPI(ctx, local, admission, process)
 	if err != nil {
 		return err
 	}
@@ -65,7 +66,7 @@ func bootstrapNetBirdManagerAccount(ctx context.Context, local automaticFoundati
 	}
 	_, err = manager.ReconcileManagerEnrollment(ctx, api, foundation.DataDirectory+"/data/terrascale-enrollment/manager", manager.EnrollmentVault{
 		Target: admission.VaultTarget(), Management: &management, Bundles: bundles, Name: manager.ManagerSetupKeySecret,
-	}, manager.EnrollmentAuthority{Check: func() error { return admission.Check(ctx) }, Quiesce: quiesce})
+	}, manager.EnrollmentAuthority{Check: func() error { return checkNetBirdManagerProcess(process, admission, ctx) }, Quiesce: quiesce})
 	if err != nil {
 		return err
 	}
@@ -92,7 +93,7 @@ func bootstrapNetBirdManagerAccount(ctx context.Context, local automaticFoundati
 			continue
 		}
 		check := func() error {
-			if err := admission.Check(ctx); err != nil {
+			if err := checkNetBirdManagerProcess(process, admission, ctx); err != nil {
 				return err
 			}
 			current, err := region.DiscoverCurrentFoundation(ctx, local.factory)
@@ -105,7 +106,7 @@ func bootstrapNetBirdManagerAccount(ctx context.Context, local automaticFoundati
 			}
 			for _, authorized := range footprint.Regions {
 				if authorized.Plan["cell"] == cell {
-					return admission.Check(ctx)
+					return checkNetBirdManagerProcess(process, admission, ctx)
 				}
 			}
 			return errors.New("NetBird manager broker access region left the current signed footprint")
@@ -117,13 +118,13 @@ func bootstrapNetBirdManagerAccount(ctx context.Context, local automaticFoundati
 	return nil
 }
 
-func readNetBirdManagerSetupKey(ctx context.Context, local automaticFoundation, admission region.VerifiedNetBirdManager, cfg netbird.Config) ([]byte, error) {
+func readNetBirdManagerSetupKey(ctx context.Context, local automaticFoundation, admission region.VerifiedNetBirdManager, process *rootoci.ProcessWitness, cfg netbird.Config) ([]byte, error) {
 	ctx, cancel := context.WithDeadline(ctx, admission.ExpiresAt())
 	defer cancel()
 	if cfg.ManagementURL != netbird.DefaultManagementURL || cfg.Region != local.factory.Region() {
 		return nil, errors.New("NetBird manager client differs from its admitted regional management endpoint")
 	}
-	if err := admission.Check(ctx); err != nil {
+	if err := checkNetBirdManagerProcess(process, admission, ctx); err != nil {
 		return nil, err
 	}
 	bundles, err := vaultsecret.SecretsClient(local.factory)
@@ -143,19 +144,19 @@ func readNetBirdManagerSetupKey(ctx context.Context, local automaticFoundation, 
 		clear(key)
 		return nil, errors.New("NetBird manager enrollment CURRENT changed during delivery")
 	}
-	if err := admission.Check(ctx); err != nil {
+	if err := checkNetBirdManagerProcess(process, admission, ctx); err != nil {
 		clear(key)
 		return nil, err
 	}
 	return key, nil
 }
 
-func connectNetBirdManagerMesh(ctx context.Context, local automaticFoundation, admission region.VerifiedNetBirdManager) error {
+func connectNetBirdManagerMesh(ctx context.Context, local automaticFoundation, admission region.VerifiedNetBirdManager, process *rootoci.ProcessWitness) error {
 	ctx, expire := context.WithDeadline(ctx, admission.ExpiresAt())
 	defer expire()
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
-	if err := admission.Check(ctx); err != nil {
+	if err := checkNetBirdManagerProcess(process, admission, ctx); err != nil {
 		return err
 	}
 	pin, cfg, err := client.ReadBootstrapConfig(ctx, netbird.PublicConfigPath, true)
@@ -175,39 +176,39 @@ func connectNetBirdManagerMesh(ctx context.Context, local automaticFoundation, a
 		return errors.New("NetBird manager image has no verified pinned client")
 	}
 	reader := func(ctx context.Context, cfg netbird.Config) ([]byte, error) {
-		return readNetBirdManagerSetupKey(ctx, local, admission, cfg)
+		return readNetBirdManagerSetupKey(ctx, local, admission, process, cfg)
 	}
 	if err := enrollNetBirdBootstrap(ctx, netbird.PublicConfigPath, io.Discard, netbirdBootstrapRuntime{
 		binary: binary, fallback: fallback, status: client.ManagedStatus, defaults: client.ReadBootstrapConfig,
 		install: func(ctx context.Context, pin client.Pin, cfg netbird.Config, options client.ManagedOptions) (client.ManagedResult, error) {
-			if err := admission.Check(ctx); err != nil {
+			if err := checkNetBirdManagerProcess(process, admission, ctx); err != nil {
 				return client.ManagedResult{}, err
 			}
 			installed, err := client.InstallManaged(ctx, pin, cfg, options, reader)
 			if err != nil {
 				return installed, err
 			}
-			return installed, admission.Check(ctx)
+			return installed, checkNetBirdManagerProcess(process, admission, ctx)
 		}, confirm: func(ctx context.Context, transaction string) error {
-			if err := admission.Check(ctx); err != nil {
+			if err := checkNetBirdManagerProcess(process, admission, ctx); err != nil {
 				return err
 			}
 			if err := client.ConfirmManaged(ctx, transaction); err != nil {
 				return err
 			}
-			return admission.Check(ctx)
+			return checkNetBirdManagerProcess(process, admission, ctx)
 		},
 		enroll: func(ctx context.Context, _ netbird.Config) error {
 			if err := client.VerifyBinary(binary, archive.BinarySHA256, runtime.GOARCH); err != nil {
 				return errors.New("NetBird manager installed client differs from its qualified image pin")
 			}
-			if err := admission.Check(ctx); err != nil {
+			if err := checkNetBirdManagerProcess(process, admission, ctx); err != nil {
 				return err
 			}
 			if err := exec.CommandContext(ctx, "systemctl", "start", "netbird.service").Run(); err != nil {
 				return errors.New("NetBird manager client service could not start")
 			}
-			if err := admission.Check(ctx); err != nil {
+			if err := checkNetBirdManagerProcess(process, admission, ctx); err != nil {
 				return err
 			}
 			return client.EnrollBootstrap(ctx, netbird.PublicConfigPath, reader)
@@ -223,7 +224,7 @@ func connectNetBirdManagerMesh(ctx context.Context, local automaticFoundation, a
 	if err != nil || !netip.MustParsePrefix(networkplan.Mesh).Contains(address.Addr()) {
 		return errors.New("NetBird manager client has no admitted mesh address")
 	}
-	api, err := netBirdManagerAPI(ctx, local, admission)
+	api, err := netBirdManagerAPI(ctx, local, admission, process)
 	if err != nil {
 		return err
 	}
@@ -250,5 +251,15 @@ func connectNetBirdManagerMesh(ctx context.Context, local automaticFoundation, a
 	if matched != 1 {
 		return errors.New("NetBird manager peer identity is absent or ambiguous")
 	}
-	return admission.Check(ctx)
+	return checkNetBirdManagerProcess(process, admission, ctx)
+}
+
+func checkNetBirdManagerProcess(process *rootoci.ProcessWitness, admission region.VerifiedNetBirdManager, ctx context.Context) error {
+	if err := process.Verify(); err != nil {
+		return err
+	}
+	if err := admission.Check(ctx); err != nil {
+		return err
+	}
+	return process.Verify()
 }

@@ -60,7 +60,7 @@ func RestrictBaseline(ctx context.Context, api *API) error {
 	if err := api.do(ctx, "DELETE", "/policies/"+url.PathEscape(policy.ID), nil, nil); err != nil {
 		return err
 	}
-	// A lost response is recovered by the next locked pass; never infer deletion from a successful status alone.
+	// A synchronous positive response still requires exact readback.
 	var remaining []apiPolicy
 	if err := api.do(ctx, "GET", "/policies", nil, &remaining); err != nil {
 		return err

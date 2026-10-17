@@ -16,6 +16,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/netbird/manager"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
@@ -37,6 +38,8 @@ func RunNetBirdFoundation(ctx context.Context, args []string, output io.Writer) 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	local, err := foundationDiscovery(ctx)
 	if err != nil {
 		return fmt.Errorf("discover NetBird foundation: %w", err)
@@ -97,17 +100,42 @@ func netBirdFoundationSupervisor(ctx context.Context, local automaticFoundation,
 	if err != nil {
 		return foundation.Supervisor{}, err
 	}
-	lifetime := ctx
-	sessions := make(map[string]*netBirdRegionalAccount)
+	process, err := rootoci.CaptureProcess(os.Getpid())
+	if err != nil {
+		return foundation.Supervisor{}, err
+	}
+	context.AfterFunc(ctx, func() { _ = process.Close() })
+	store, target := admission.StoreGeneration(), admission.VaultTarget()
+	observe := func(parent context.Context) (func(), error) {
+		operation, cancel := context.WithCancel(parent)
+		fail := func(err error) (func(), error) { cancel(); return nil, err }
+		if err := process.Verify(); err != nil {
+			return fail(err)
+		}
+		snapshot, err := region.DiscoverCurrentFoundationSnapshot(operation, local.factory)
+		if err != nil {
+			return fail(err)
+		}
+		current, err := region.AdmitNetBirdManager(operation, local.factory, snapshot.Resolver(), local.instanceID)
+		if err != nil {
+			return fail(err)
+		}
+		if current.StoreGeneration() != store || current.VaultTarget() != target || snapshot.Guard(operation) != nil || process.Verify() != nil || current.Check(operation) != nil {
+			return fail(errors.New("fresh NetBird manager observation differs from its original process or persistent store"))
+		}
+		local.foundations, admission = snapshot.Resolver(), current
+		return cancel, nil
+	}
 	return foundation.Supervisor{
+		Observe:      observe,
 		PrepareStore: func(ctx context.Context) error { return prepareNetBirdFoundationStore(ctx, local, admission) },
-		StoreReady:   admission.MarkStoreReady,
+		StoreReady:   func(ctx context.Context) error { return admission.MarkStoreReady(ctx) },
 		BootstrapAccount: func(ctx context.Context, quiesce func(context.Context) error) error {
-			return bootstrapNetBirdManagerAccount(ctx, local, admission, quiesce)
+			return bootstrapNetBirdManagerAccount(ctx, local, admission, process, quiesce)
 		},
-		Mesh: func(ctx context.Context) error { return connectNetBirdManagerMesh(ctx, local, admission) },
+		Mesh: func(ctx context.Context) error { return connectNetBirdManagerMesh(ctx, local, admission, process) },
 		Account: func(ctx context.Context, _ func(context.Context) error) error {
-			return reconcileNetBirdFoundationAccount(ctx, lifetime, local, admission, sessions)
+			return reconcileNetBirdFoundationAccount(ctx, local, admission, process)
 		},
 		Vault: foundation.BootstrapVault{
 			StoreGeneration: admission.StoreGeneration(), Target: admission.VaultTarget(), Management: &client, Bundles: &bundles,
@@ -115,7 +143,7 @@ func netBirdFoundationSupervisor(ctx context.Context, local automaticFoundation,
 				// Backup must resume on cancellation, with the manager's current admission still required.
 				checkCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
 				defer cancel()
-				return admission.Check(checkCtx)
+				return errors.Join(process.Verify(), admission.Check(checkCtx))
 			},
 		}}, nil
 }
@@ -173,26 +201,16 @@ func netBirdFoundationBackupTargets(ctx context.Context, local automaticFoundati
 
 // The durable source authorizes genesis once; backup absence never authorizes a fresh identity.
 func prepareNetBirdFoundationStore(ctx context.Context, local automaticFoundation, admission region.VerifiedNetBirdManager) error {
-	resolver, err := region.DiscoverCurrentFoundation(ctx, local.factory)
-	if err != nil {
+	if err := admission.Check(ctx); err != nil {
 		return err
 	}
-	current, err := region.AdmitNetBirdManager(ctx, local.factory, resolver, local.instanceID)
-	if err != nil {
-		return err
-	}
-	if current.StoreGeneration() != admission.StoreGeneration() || current.VaultTarget() != admission.VaultTarget() {
-		return errors.New("NetBird manager store authority changed")
-	}
-	admission = current
-	local.foundations = resolver
 	return foundation.PrepareStore(ctx, foundation.DataDirectory, admission, func(ctx context.Context) ([2]foundation.BackupTarget, error) {
 		return netBirdFoundationBackupTargets(ctx, local, admission)
 	})
 }
 
 // Supervisor holds the same process lock used by bootstrap and snapshots throughout this call.
-func reconcileNetBirdFoundationAccount(ctx, lifetime context.Context, local automaticFoundation, admission region.VerifiedNetBirdManager, sessions map[string]*netBirdRegionalAccount) error {
+func reconcileNetBirdFoundationAccount(ctx context.Context, local automaticFoundation, admission region.VerifiedNetBirdManager, process *rootoci.ProcessWitness) error {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
 	if err := admission.Check(ctx); err != nil {
@@ -216,21 +234,16 @@ func reconcileNetBirdFoundationAccount(ctx, lifetime context.Context, local auto
 		if !ok {
 			return errors.New("NetBird regional account footprint has no canonical cell")
 		}
-		session := sessions[cell]
-		if session == nil {
-			// The admission's original lifetime remains the ceiling; no per-effect
-			// timeout becomes the source lifetime of a retained broker connection.
-			session, err = openNetBirdRegionalAccount(lifetime, local, admission, cell)
+		if err := func() error {
+			operation, cancel := context.WithCancel(ctx)
+			defer cancel()
+			session, err := openNetBirdRegionalAccount(operation, local, admission, process, cell)
 			if err != nil {
-				// Even an uncertain first authentication requires a new admitted lifecycle.
-				err = errors.Join(foundation.ErrAdmissionExpired, err)
-				sessions[cell] = &netBirdRegionalAccount{cell: cell, failure: err}
-				pending = append(pending, fmt.Errorf("NetBird %s original account reader: %w", cell, err))
-				continue
+				return err
 			}
-			sessions[cell] = session
-		}
-		if err := reconcileNetBirdRegionalAccount(ctx, admission, session, token); err != nil {
+			defer session.reader.Conn().Close()
+			return reconcileNetBirdRegionalAccount(operation, admission, session, token)
+		}(); err != nil {
 			pending = append(pending, fmt.Errorf("NetBird %s account: %w", cell, err))
 		}
 	}
@@ -262,7 +275,7 @@ func reconcileNetBirdRegionalAccount(ctx context.Context, admission region.Verif
 		}
 		return ctx.Err()
 	}
-	api, err := manager.NewFencedAPI("http://127.0.0.1:18081", token, check)
+	api, err := manager.NewReadOnlyAPI("http://127.0.0.1:18081", token)
 	if err != nil {
 		return err
 	}

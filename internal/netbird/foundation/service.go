@@ -23,11 +23,12 @@ const (
 	localOrigin    = "http://127.0.0.1:18081"
 )
 
-// ErrAdmissionExpired requires a new process and fresh original admission.
+// ErrAdmissionExpired ends the held operation; only an independent observation may follow.
 var ErrAdmissionExpired = errors.New("NetBird original admission ended")
 
 // Supervisor owns upstream foundation processes independently of SwarmKit and the overlay.
 type Supervisor struct {
+	Observe          func(context.Context) (func(), error)
 	Vault            BootstrapVault
 	PrepareStore     func(context.Context) error
 	StoreReady       func(context.Context) error
@@ -37,7 +38,7 @@ type Supervisor struct {
 }
 
 func (s Supervisor) validate() error {
-	if s.PrepareStore == nil || s.StoreReady == nil || s.BootstrapAccount == nil || s.Mesh == nil || s.Account == nil {
+	if s.Observe == nil || s.PrepareStore == nil || s.StoreReady == nil || s.BootstrapAccount == nil || s.Mesh == nil || s.Account == nil {
 		return errors.New("NetBird supervisor requires authenticated store lifecycle and serialized account owner")
 	}
 	return s.Vault.validate()
@@ -105,9 +106,6 @@ func (s Supervisor) Run(ctx context.Context) error {
 			return ctx.Err()
 		case <-account.C:
 			if err := s.maintain(ctx); err != nil {
-				if errors.Is(err, ErrAdmissionExpired) {
-					return err
-				}
 				log.Printf("NetBird account reconciliation deferred: %v", err)
 			}
 		case <-renew.C:
@@ -141,6 +139,11 @@ func (s Supervisor) Reconcile(ctx context.Context) (BootstrapResult, error) {
 	if err = s.validate(); err != nil {
 		return result, err
 	}
+	finish, err := s.Observe(ctx)
+	if err != nil {
+		return result, err
+	}
+	defer finish()
 	runtime, err := newFoundationRuntime()
 	if err != nil {
 		return result, err
@@ -206,6 +209,11 @@ func (s Supervisor) maintain(ctx context.Context) error {
 		return err
 	}
 	defer unlock()
+	finish, err := s.Observe(ctx)
+	if err != nil {
+		return err
+	}
+	defer finish()
 	if err := s.BootstrapAccount(ctx, s.quiesceLocked); err != nil {
 		return err
 	}

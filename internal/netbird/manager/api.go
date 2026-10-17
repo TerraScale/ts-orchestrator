@@ -67,10 +67,13 @@ func NewAPI(managementURL, token string) (*API, error) {
 		return nil, errors.New("NetBird admin PAT has an invalid shape")
 	}
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
 	transport := &http.Transport{
-		Proxy: nil, DialContext: dialer.DialContext, ForceAttemptHTTP2: true,
+		Proxy: nil, DialContext: dialer.DialContext, Protocols: protocols,
 		TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: requestTimeout,
-		MaxIdleConns: 4, IdleConnTimeout: 30 * time.Second,
+		// A reused connection or HTTP/2 stream can transparently replay an uncertain mutation.
+		DisableKeepAlives: true,
 	}
 	return &API{base: base, token: token, http: &http.Client{
 		Transport: transport, Timeout: requestTimeout,
@@ -89,6 +92,14 @@ func NewFencedAPI(managementURL, token string, check func() error) (*API, error)
 	}
 	api.beforeWrite = check
 	return api, nil
+}
+
+// ErrAccountWriterUnavailable denies effects until the protected original writer is reachable.
+var ErrAccountWriterUnavailable = errors.New("protected NetBird account writer is unavailable")
+
+// NewReadOnlyAPI permits observation without treating manager admission as write authority.
+func NewReadOnlyAPI(managementURL, token string) (*API, error) {
+	return NewFencedAPI(managementURL, token, func() error { return ErrAccountWriterUnavailable })
 }
 
 // Close releases idle connections.
@@ -139,7 +150,7 @@ func (api *API) do(ctx context.Context, method, path string, in, out any) error 
 		return fmt.Errorf("NetBird API %s %s: %w", method, path, err)
 	}
 	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode > 299 {
+	if response.StatusCode < 200 || response.StatusCode > 299 || method != http.MethodGet && response.StatusCode == http.StatusAccepted {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
 		return &StatusError{Method: method, Path: path, Status: response.StatusCode}
 	}

@@ -27,20 +27,25 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// One supervisor retains one finite original session per region; no reconnect,
+// Each independent reconciliation owns one finite original reader; no reconnect,
 // replacement credential or restored cursor can continue its account effects.
 type netBirdRegionalAccount struct {
-	reader   *rootsecret.NetBirdReader
-	control  *authority.NetBirdRead
-	public   *authority.NetBirdSourceRead
-	material region.VerifiedBootstrapMaterial
-	floor    region.VerifiedRegionalTrustFloor
-	genesis  trust.Keyring
-	cell     string
-	failure  error
+	process    *rootoci.ProcessWitness
+	intentWire []byte
+	reader     *rootsecret.NetBirdReader
+	control    *authority.NetBirdRead
+	public     *authority.NetBirdSourceRead
+	material   region.VerifiedBootstrapMaterial
+	floor      region.VerifiedRegionalTrustFloor
+	genesis    trust.Keyring
+	cell       string
+	failure    error
 }
 
-func openNetBirdRegionalAccount(ctx context.Context, local automaticFoundation, admission region.VerifiedNetBirdManager, cell string) (*netBirdRegionalAccount, error) {
+func openNetBirdRegionalAccount(ctx context.Context, local automaticFoundation, admission region.VerifiedNetBirdManager, process *rootoci.ProcessWitness, cell string) (*netBirdRegionalAccount, error) {
+	if err := process.Verify(); err != nil {
+		return nil, err
+	}
 	reader, err := rootsecret.OpenNetBirdReader(ctx, admission, cell)
 	if err != nil {
 		return nil, err
@@ -70,7 +75,7 @@ func openNetBirdRegionalAccount(ctx context.Context, local automaticFoundation, 
 	if err != nil {
 		return fail(err)
 	}
-	s := &netBirdRegionalAccount{reader: reader, cell: cell}
+	s := &netBirdRegionalAccount{process: process, reader: reader, cell: cell}
 	s.control, err = authority.ConnectNetBirdRead(ctx, js, strings.ToLower(cell), proof.Nonce)
 	if err != nil {
 		return fail(err)
@@ -97,7 +102,7 @@ func openNetBirdRegionalAccount(ctx context.Context, local automaticFoundation, 
 	if err != nil {
 		return fail(err)
 	}
-	if reader.Guard(ctx) != nil || s.material.Revalidate(ctx) != nil {
+	if process.Verify() != nil || reader.Guard(ctx) != nil || s.material.Revalidate(ctx) != nil {
 		return fail(errors.New("NetBird regional account source changed during admission"))
 	}
 	return s, nil
@@ -139,7 +144,7 @@ func (s *netBirdRegionalAccount) current(ctx context.Context, admission region.V
 	defer cancel()
 	stop := context.AfterFunc(s.reader.Context(), cancel)
 	defer stop()
-	if s.reader.Guard(ctx) != nil || admission.Check(ctx) != nil || s.material.Revalidate(ctx) != nil {
+	if s.process.Verify() != nil || s.reader.Guard(ctx) != nil || admission.Check(ctx) != nil || s.material.Revalidate(ctx) != nil {
 		return fail(s.end(errors.New("original regional account admission changed")))
 	}
 	entry, lease, err := s.control.Read(ctx)
@@ -198,7 +203,7 @@ func (s *netBirdRegionalAccount) current(ctx context.Context, admission region.V
 	if err != nil || ctx.Err() != nil || !time.Now().Before(intent.ExpiresAt) {
 		return fail(err)
 	}
-	if s.reader.Guard(ctx) != nil || admission.Check(ctx) != nil || s.material.Revalidate(ctx) != nil ||
+	if s.process.Verify() != nil || s.reader.Guard(ctx) != nil || admission.Check(ctx) != nil || s.material.Revalidate(ctx) != nil ||
 		s.floor.CheckAdoptedSources(ctx, root.Created, root.Revision, root.Wire, spec.Created, spec.Revision, spec.Wire) != nil {
 		return fail(s.end(errors.New("original regional account admission changed before effects")))
 	}
@@ -211,6 +216,11 @@ func (s *netBirdRegionalAccount) current(ctx context.Context, admission region.V
 		finalLease.OwnerID != original.OwnerID || finalLease.Epoch != original.Epoch || finalLease.Revision < original.Revision ||
 		s.reader.Context().Err() != nil || !s.reader.Conn().IsConnected() || ctx.Err() != nil || !time.Now().Before(intent.ExpiresAt) {
 		return fail(err)
+	}
+	if s.intentWire == nil {
+		s.intentWire = bytes.Clone(entry.Payload)
+	} else if !bytes.Equal(s.intentWire, entry.Payload) {
+		return fail(errors.New("NetBird original operation proposal changed"))
 	}
 	return intent, desired, nil
 }
