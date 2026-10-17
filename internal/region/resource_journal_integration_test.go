@@ -3,6 +3,7 @@ package region
 import (
 	"encoding/json/v2"
 	"errors"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -30,6 +31,15 @@ func TestProtectedResourceJournalSharesFoundationCASAndByteBound(t *testing.T) {
 	desired.Operation.Requests = []ociresource.RequestAttempt{{Method: "PUT", URL: "https://iaas.example/owned", Body: []byte(`{"rules":[{"port":4222}]}`), RetryToken: "original-token", IfMatch: "original-etag", StartedAt: now, Deadline: now.Add(time.Minute)}}
 	source := ociresource.ResourceSource{ControllerConfigSHA256: strings.Repeat("a", 64), GrantSHA256: strings.Repeat("b", 64)}
 	record := FoundationRecord{SchemaVersion: 1, Cell: "GRU", OCIRegion: "sa-saopaulo-1", TenancyID: "ocid1.tenancy.oc1..test", ParentCompartmentID: "ocid1.compartment.oc1..parent", SharedCompartmentID: "ocid1.compartment.oc1..shared", Generation: 1, IntentDigest: strings.Repeat("c", 64), OperationID: entityid.New(), Epoch: 1, Stage: "reconciled", StartedAt: now, UpdatedAt: now, CompletedAt: now, ResourceIDs: map[string]string{"vault": "ocid1.vault.oc1.sa-saopaulo-1.original"}, OCIResources: &ociresource.ProtectedJournal{Revision: 1, Source: source, Resources: map[string]ociresource.ProtectedResource{desired.Key.String(): {Revision: 1, Source: source, Desired: desired}}}}
+	// These are retained metadata bytes, not an admitted native source or dispatch.
+	workflow := ociresource.NativeMaintenanceWorkflow{Cell: "GRU", Unit: "terrascale-orchestrator-controller.service", InstanceID: "ocid1.instance.oc1.sa-saopaulo-1.metadata",
+		SourceSHA256: strings.Repeat("d", 64), ChannelSHA256: strings.Repeat("e", 64), FromDigest: strings.Repeat("f", 64), ToDigest: strings.Repeat("1", 64), StartedAt: now, ExpiresAt: now.Add(time.Minute)}
+	workflow.OperationID = entityid.Derive("native-orchestrator-maintenance", workflow.Cell, workflow.Unit, workflow.InstanceID, workflow.SourceSHA256, workflow.ChannelSHA256, workflow.FromDigest, workflow.ToDigest)
+	phase := ociresource.NativeMaintenancePhase{Kind: ociresource.NativeMaintenanceDrain, RequestSHA256: strings.Repeat("2", 64), CallSHA256: strings.Repeat("3", 64),
+		CandidateID: entityid.Derive("metadata-candidate"), Epoch: 1, SourceSHA256: strings.Repeat("4", 64), ReservedAt: now, DispatchBefore: now.Add(time.Second)}
+	phase.PhaseID = entityid.Derive("native-maintenance-phase", workflow.OperationID, string(phase.Kind), phase.RequestSHA256)
+	progress := ociresource.NativeMaintenanceProgress{Revision: 1, Workflow: workflow, Phases: []ociresource.NativeMaintenancePhase{phase}}
+	record.OCIResources.NativeMaintenance = map[string]ociresource.NativeMaintenanceProgress{workflow.OperationID: progress}
 	etag, err := store.CompareAndSwap(t.Context(), record, "")
 	if err != nil {
 		t.Fatal(err)
@@ -41,6 +51,43 @@ func TestProtectedResourceJournalSharesFoundationCASAndByteBound(t *testing.T) {
 	loaded, loadedETag, err := restarted.Load(t.Context(), "GRU")
 	if err != nil || loadedETag != etag || !reflect.DeepEqual(loaded.OCIResources, record.OCIResources) || !reflect.DeepEqual(loaded.ResourceIDs, record.ResourceIDs) {
 		t.Fatalf("protected original history changed: %+v %v", loaded, err)
+	}
+	retainedWire, err := json.Marshal(loaded, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []string{"deadline", "restart without preparation", "duplicate request", "new channel on unsettled target"} {
+		rejected := loaded
+		journal := *loaded.OCIResources
+		journal.NativeMaintenance = maps.Clone(journal.NativeMaintenance)
+		native := progress
+		native.Phases = slices.Clone(progress.Phases)
+		switch change {
+		case "deadline":
+			native.Phases[0].DispatchBefore = workflow.ExpiresAt.Add(time.Second)
+		case "restart without preparation":
+			native.Phases[0].Kind = ociresource.NativeMaintenanceRestart
+		case "duplicate request":
+			native.Phases = append(native.Phases, native.Phases[0])
+		case "new channel on unsettled target":
+			native.Workflow.ChannelSHA256 = strings.Repeat("5", 64)
+			w := native.Workflow
+			native.Workflow.OperationID = entityid.Derive("native-orchestrator-maintenance", w.Cell, w.Unit, w.InstanceID, w.SourceSHA256, w.ChannelSHA256, w.FromDigest, w.ToDigest)
+			native.Phases[0].PhaseID = entityid.Derive("native-maintenance-phase", native.Workflow.OperationID, string(phase.Kind), phase.RequestSHA256)
+		}
+		journal.NativeMaintenance[native.Workflow.OperationID] = native
+		rejected.OCIResources = &journal
+		if _, err := restarted.CompareAndSwap(t.Context(), rejected, loadedETag); err == nil {
+			t.Fatalf("invalid native metadata entered protected CAS: %s", change)
+		}
+		unchanged, unchangedETag, err := restarted.Load(t.Context(), "GRU")
+		if err != nil {
+			t.Fatal(err)
+		}
+		wire, err := json.Marshal(unchanged, json.Deterministic(true))
+		if err != nil || unchangedETag != loadedETag || string(wire) != string(retainedWire) {
+			t.Fatalf("native metadata rejection changed retained CAS bytes: %s: %v", change, err)
+		}
 	}
 	stored := loaded.OCIResources.Resources[desired.Key.String()].Desired
 	resumed, err := ociresource.OperationRecord(stored, 2, now.Add(time.Second), false)
