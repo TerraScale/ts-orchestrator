@@ -168,6 +168,7 @@ type VerifiedNetBirdManager struct {
 	target          vaultsecret.Target
 	storeGeneration string
 	expires         time.Time
+	original        context.Context
 	check           func(context.Context) error
 	recovery        bool
 	transition      func(context.Context, bool) error
@@ -190,15 +191,23 @@ func (v VerifiedNetBirdManager) MarkStoreReady(ctx context.Context) error {
 	return v.transition(ctx, true)
 }
 func (v VerifiedNetBirdManager) Check(ctx context.Context) error {
-	if v.check == nil || v.storeGeneration == "" || v.expires.IsZero() {
+	if v.check == nil || v.storeGeneration == "" || v.expires.IsZero() || v.original == nil {
 		return errors.New("dedicated NetBird manager admission is absent")
 	}
 	ctx, cancel := context.WithDeadline(ctx, v.expires)
 	defer cancel()
+	stop := context.AfterFunc(v.original, cancel)
+	defer stop()
+	if err := v.original.Err(); err != nil {
+		return err
+	}
 	if err := checkNetBirdManagerDeadline(ctx, v.expires); err != nil {
 		return err
 	}
 	if err := v.check(ctx); err != nil {
+		return err
+	}
+	if err := v.original.Err(); err != nil {
 		return err
 	}
 	return checkNetBirdManagerDeadline(ctx, v.expires)
@@ -246,7 +255,11 @@ func AdmitNetBirdManager(ctx context.Context, factory *ociclient.Factory, resolv
 func admitNetBirdManager(ctx context.Context, resolver FoundationResolver, reader *SignedFootprint, observer bootstrapstart.InstanceObserver,
 	instanceID string, verifyBinary func(release.VerifiedImage) (bootstrapstart.RunningBinary, error),
 ) (VerifiedNetBirdManager, error) {
+	originalContext := ctx
 	current := func(ctx context.Context) (netBirdManagerAdmissionState, error) {
+		if err := originalContext.Err(); err != nil {
+			return netBirdManagerAdmissionState{}, err
+		}
 		intent, err := reader.authorizedNetBirdManager(ctx)
 		if err != nil {
 			return netBirdManagerAdmissionState{}, err
@@ -263,6 +276,9 @@ func admitNetBirdManager(ctx context.Context, resolver FoundationResolver, reade
 		if err != nil {
 			return netBirdManagerAdmissionState{}, err
 		}
+		allocationContext, cancelAllocation := context.WithDeadline(ctx, allocation.ExpiresAt())
+		defer cancelAllocation()
+		ctx = allocationContext
 		if err := validateNetBirdAllocation(allocation, intent, record.ResourceIDs["control_compartment"]); err != nil {
 			return netBirdManagerAdmissionState{}, err
 		}
@@ -302,26 +318,69 @@ func admitNetBirdManager(ctx context.Context, resolver FoundationResolver, reade
 		if allocation.ExpiresAt().Before(expiry) {
 			expiry = allocation.ExpiresAt()
 		}
-		originalLaunch := *launch
-		originalLaunch.StoreState = ""
-		wire, err := json.Marshal(map[string]any{
-			"grant": intent.grantDigest, "installation": intent.installationID, "generation": intent.generation,
-			"profile": intent.profileDigest, "recipe": intent.recipeDigest, "image": intent.intent.ImageOCID,
-			"foundationOperation": record.OperationID, "foundationEpoch": record.Epoch,
-			"foundationGeneration": record.Generation, "foundationIntent": record.IntentDigest,
-			"launch": originalLaunch, "target": target, "store": store,
-			"allocationOperation": allocation.OperationID(), "allocationGrant": allocation.GrantDigest(),
-			"allocationGeneration": allocation.Generation(), "allocationBudget": allocation.BudgetID(),
-			"allocationScope": allocation.ScopeDigest(), "allocationPhysicalScope": allocation.PhysicalScopeDigest(),
-			"allocationBinding": allocation.BindingDigest(), "allocationSlot": allocation.Slot(), "allocationSignedSlot": allocation.SignedSlot(),
-		}, json.Deterministic(true))
+		if deadline, bounded := originalContext.Deadline(); bounded && deadline.Before(expiry) {
+			expiry = deadline
+		}
+		pin := func(record FoundationRecord) ([sha256.Size]byte, error) {
+			if record.NetBirdManager == nil {
+				return [sha256.Size]byte{}, errors.New("dedicated manager checkpoint disappeared")
+			}
+			nextTarget, err := record.VaultTarget()
+			if err != nil {
+				return [sha256.Size]byte{}, err
+			}
+			originalLaunch := *record.NetBirdManager
+			originalLaunch.StoreState = ""
+			wire, err := json.Marshal(map[string]any{
+				"grant": intent.grantDigest, "installation": intent.installationID, "generation": intent.generation,
+				"profile": intent.profileDigest, "recipe": intent.recipeDigest, "image": intent.intent.ImageOCID,
+				"foundationOperation": record.OperationID, "foundationEpoch": record.Epoch,
+				"foundationGeneration": record.Generation, "foundationIntent": record.IntentDigest,
+				"foundationStage": record.Stage, "foundationLease": record.LeaseID,
+				"managerSubnet": record.AuxiliaryIDs["netbird_manager_subnet"], "managerNSG": record.AuxiliaryIDs["netbird_manager_nsg"],
+				"controlCompartment": record.ResourceIDs["control_compartment"],
+				"launch":             originalLaunch, "target": nextTarget, "store": store,
+				"allocationOperation": allocation.OperationID(), "allocationGrant": allocation.GrantDigest(),
+				"allocationGeneration": allocation.Generation(), "allocationBudget": allocation.BudgetID(),
+				"allocationScope": allocation.ScopeDigest(), "allocationPhysicalScope": allocation.PhysicalScopeDigest(),
+				"allocationBinding": allocation.BindingDigest(), "allocationSlot": allocation.Slot(), "allocationSignedSlot": allocation.SignedSlot(),
+			}, json.Deterministic(true))
+			if err != nil {
+				return [sha256.Size]byte{}, err
+			}
+			return sha256.Sum256(wire), nil
+		}
+		snapshot, err := pin(record)
 		if err != nil {
+			return netBirdManagerAdmissionState{}, err
+		}
+		if err := allocation.Revalidate(ctx); err != nil {
+			return netBirdManagerAdmissionState{}, err
+		}
+		// SDK and binary observations may block; reread the original pins after them.
+		finalRecord, err := resolver.Resolve(ctx, "GRU")
+		if err != nil {
+			return netBirdManagerAdmissionState{}, err
+		}
+		finalPin, err := pin(finalRecord)
+		if err != nil || finalPin != snapshot {
+			return netBirdManagerAdmissionState{}, errors.New("dedicated manager foundation changed during observation")
+		}
+		finalGrant, err := reader.readGrant(ctx)
+		if err != nil {
+			return netBirdManagerAdmissionState{}, err
+		}
+		grantPin := sha256.Sum256(finalGrant)
+		if hex.EncodeToString(grantPin[:]) != intent.grantDigest {
+			return netBirdManagerAdmissionState{}, errors.New("dedicated manager original grant changed during observation")
+		}
+		if err := originalContext.Err(); err != nil {
 			return netBirdManagerAdmissionState{}, err
 		}
 		if err := checkNetBirdManagerDeadline(ctx, expiry); err != nil {
 			return netBirdManagerAdmissionState{}, err
 		}
-		return netBirdManagerAdmissionState{target: target, store: store, expires: expiry, snapshot: sha256.Sum256(wire)}, nil
+		return netBirdManagerAdmissionState{target: target, store: store, expires: expiry, snapshot: snapshot}, nil
 	}
 	original, err := current(ctx)
 	if err != nil {
@@ -330,6 +389,8 @@ func admitNetBirdManager(ctx context.Context, resolver FoundationResolver, reade
 	check := func(ctx context.Context) error {
 		ctx, cancel := context.WithDeadline(ctx, original.expires)
 		defer cancel()
+		stop := context.AfterFunc(originalContext, cancel)
+		defer stop()
 		if err := checkNetBirdManagerDeadline(ctx, original.expires); err != nil {
 			return err
 		}
@@ -353,6 +414,8 @@ func admitNetBirdManager(ctx context.Context, resolver FoundationResolver, reade
 	transition := func(ctx context.Context, ready bool) error {
 		ctx, cancel := context.WithDeadline(ctx, original.expires)
 		defer cancel()
+		stop := context.AfterFunc(originalContext, cancel)
+		defer stop()
 		if err := check(ctx); err != nil {
 			return err
 		}
@@ -386,7 +449,7 @@ func admitNetBirdManager(ctx context.Context, resolver FoundationResolver, reade
 	if err := check(ctx); err != nil {
 		return VerifiedNetBirdManager{}, err
 	}
-	return VerifiedNetBirdManager{target: original.target, storeGeneration: original.store, expires: original.expires, check: check, transition: transition,
+	return VerifiedNetBirdManager{target: original.target, storeGeneration: original.store, expires: original.expires, original: originalContext, check: check, transition: transition,
 		recovery: intent.intent.StoreOrigin == "restore" || record.NetBirdManager.StoreState != "empty"}, nil
 }
 
