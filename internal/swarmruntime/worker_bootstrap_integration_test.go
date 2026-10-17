@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"encoding/pem"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -160,6 +161,18 @@ func TestWorkerBootstrapIntegration(t *testing.T) {
 		return accepted
 	}
 	accepted := verify(signed)
+	t.Run("signed-static-worker-still-requires-root-creation", func(t *testing.T) {
+		var retained hostenroll.WorkerTransport
+		if err := json.Unmarshal(accepted.Wire(), &retained, json.RejectUnknownMembers(true)); err != nil {
+			t.Fatal(err)
+		}
+		previous := manager.workerAuthority
+		manager.workerAuthority = &workerAuthority{public: responsePublic}
+		defer func() { manager.workerAuthority = previous }()
+		if _, err := manager.PrepareEnrolledWorker(ctx, WorkerRegistrationQuery{Request: retained.Request, Response: retained.Response}); !errors.Is(err, ErrWorkerCreationLineagePending) {
+			t.Fatalf("signed enrollment minted pool creation authority: %v", err)
+		}
+	})
 	missingVersion := signed
 	missingVersion.SecretVersion = 2
 	if _, err := startAcceptedWorkerAt(ctx, t.TempDir(), verify(missingVersion), bundles, nodeIdleExecutor{}); err == nil {
