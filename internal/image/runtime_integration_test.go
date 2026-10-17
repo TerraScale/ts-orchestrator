@@ -27,6 +27,8 @@ import (
 )
 
 func TestManagedRuntimeImageIntegration(t *testing.T) {
+	// Offline verification must not run the host's environment generators.
+	t.Setenv("SYSTEMD_ENVIRONMENT_GENERATOR_PATH", t.TempDir())
 	for _, architecture := range []string{"arm64", "amd64"} {
 		t.Run(architecture, func(t *testing.T) {
 			containerd := runtimeFixtureELF(architecture, "github.com/containerd/containerd/v2", "v"+containerdVersion)
