@@ -640,18 +640,30 @@ func (h *nativeHistory) proofs(ctx context.Context, intent delivery.Intent) (map
 	if h.hosts == nil {
 		return nil, errors.New("native release observer is not ready")
 	}
-	receipt, err := h.deliveries.StatusFor(ctx, intent)
+	return observeNativeProofs(ctx, h.deliveries, h.hosts, intent)
+}
+
+type nativeStatusReader interface {
+	ListDesired(context.Context, string) ([]host.Desired, error)
+	ListHosts(context.Context) ([]host.HostStatus, error)
+}
+
+func observeNativeProofs(ctx context.Context, deliveries *delivery.Service, hosts nativeStatusReader, intent delivery.Intent) (map[string]host.Report, error) {
+	if hosts == nil {
+		return nil, errors.New("native release observer is not ready")
+	}
+	receipt, err := deliveries.StatusFor(ctx, intent)
 	if errors.Is(err, delivery.ErrPending) {
 		return nil, nil
 	}
 	if err != nil || receipt.Status != "accepted" {
 		return nil, err
 	}
-	desired, err := h.hosts.ListDesired(ctx, intent.Role)
+	desired, err := hosts.ListDesired(ctx, intent.Role)
 	if err != nil {
 		return nil, err
 	}
-	statuses, err := h.hosts.ListHosts(ctx)
+	statuses, err := hosts.ListHosts(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -659,7 +671,7 @@ func (h *nativeHistory) proofs(ctx context.Context, intent delivery.Intent) (map
 	if err != nil || len(nodes) == 0 {
 		return nil, err
 	}
-	confirmed, err := h.hosts.ListDesired(ctx, intent.Role)
+	confirmed, err := hosts.ListDesired(ctx, intent.Role)
 	if err != nil {
 		return nil, err
 	}
