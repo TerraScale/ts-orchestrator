@@ -130,6 +130,8 @@ func readRegionalTrustFloor(ctx context.Context, factory *ociclient.Factory, gen
 	if err != nil {
 		return RegionalTrustFloorInfo{}, time.Time{}, err
 	}
+	ctx, cancel := context.WithDeadline(ctx, purposeExpiry)
+	defer cancel()
 	record, err := resolver.Resolve(ctx, cell)
 	if err != nil {
 		return RegionalTrustFloorInfo{}, time.Time{}, err
@@ -158,16 +160,13 @@ func readRegionalTrustFloor(ctx context.Context, factory *ociclient.Factory, gen
 	return RegionalTrustFloorInfo{Cell: cell, Origin: lineage.Original(), Broker: broker, Floor: *lineage.TrustFloor}, expires, ctx.Err()
 }
 
-func requireRegionalControlPurpose(ctx context.Context, resolver FoundationResolver, cell string) error {
-	_, err := regionalControlPurposeExpiry(ctx, resolver, cell)
-	return err
-}
-
 func regionalControlPurposeExpiry(ctx context.Context, resolver FoundationResolver, cell string) (time.Time, error) {
 	reader, ok := resolver.Footprint.(*SignedFootprint)
 	if !ok || reader == nil {
 		return time.Time{}, errors.New("regional control lineage requires its signed foundation scope")
 	}
+	ctx, cancel := context.WithDeadline(ctx, reader.expires)
+	defer cancel()
 	footprint, expires, err := reader.authorizedRegions(ctx)
 	if err != nil {
 		return time.Time{}, err
