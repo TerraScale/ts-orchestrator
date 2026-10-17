@@ -28,6 +28,9 @@ type Resource struct {
 	ID, Cell, CompartmentID, LifecycleState string
 	OperationID, RecipeSHA256               string
 	MonthlyCents                            uint64
+	Shape                                   string
+	OCPUs, MemoryGB, SizeGB                 float64
+	VPUs                                    int64
 }
 
 // Snapshot keeps unsuccessful and unsupported observations visible. Only the
