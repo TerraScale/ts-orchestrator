@@ -146,7 +146,7 @@ func (authority *rootOCIAuthority) publishManagerRuntimeBinding(ctx context.Cont
 		expected := payload
 		expected.SourceRevision, expected.IssuedAt, expected.ExpiresAt = old.SourceRevision, old.IssuedAt, old.ExpiresAt
 		if old == expected && old.SourceRevision <= payload.SourceRevision && !old.ExpiresAt.After(deadline) && time.Now().Before(old.ExpiresAt) {
-			if err := source.agent.SetManagerRuntimeBinding(retained.signed); err != nil {
+			if err := source.agent.SetManagerRuntimeBinding(ctx, retained.signed); err != nil {
 				return err
 			}
 			return guard(ctx)
@@ -162,7 +162,7 @@ func (authority *rootOCIAuthority) publishManagerRuntimeBinding(ctx context.Cont
 	if err := guard(ctx); err != nil {
 		return err
 	}
-	if err := source.agent.SetManagerRuntimeBinding(signed); err != nil {
+	if err := source.agent.SetManagerRuntimeBinding(ctx, signed); err != nil {
 		return err
 	}
 	process.managerBinding = &rootManagerRuntimeBinding{signed: signed, session: source.session}
