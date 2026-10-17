@@ -55,6 +55,7 @@ type FoundationWriterRecord struct {
 	FirstAttemptAt      time.Time                  `json:"firstAttemptAt"`
 	InstanceID          string                     `json:"instanceId,omitempty"`
 	Policy              *FoundationWriterPolicy    `json:"policy,omitempty"`
+	CapacityJournal     *CapacityJournalPolicy     `json:"capacityJournal,omitempty"`
 }
 
 type FoundationWriterPolicy struct {
@@ -602,6 +603,9 @@ func (record FoundationWriterRecord) validate() error {
 		return errors.New("home writer original launch reservation is invalid")
 	}
 	if record.Policy == nil {
+		if record.CapacityJournal != nil {
+			return errors.New("capacity journal lacks the original foundation writer policy")
+		}
 		return nil
 	}
 	expected, err := foundationWriterPolicy(record)
@@ -617,7 +621,7 @@ func (record FoundationWriterRecord) validate() error {
 	if err != nil || string(expectedWire) != string(actualWire) || policy.RequestDigest != digestSource(actualWire) || policy.RetryToken != digestSource([]byte(record.RequestDigest+"\x00"+record.InstanceID+"\x00"+policy.RequestDigest)) || policy.FirstAttemptAt.Before(record.FirstAttemptAt) || policy.PolicyID == "" && !policy.VerifiedAt.IsZero() || policy.PolicyID != "" && (!validAuxiliaryID("controller_usage_policy", policy.PolicyID, "") || policy.VerifiedAt.Before(policy.FirstAttemptAt)) {
 		return errors.New("home writer IAM reservation differs from its canonical original policy")
 	}
-	return nil
+	return record.validateCapacityJournal()
 }
 
 func foundationWriterMetadata(slot string) map[string]string {

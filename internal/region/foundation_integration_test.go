@@ -210,6 +210,9 @@ func TestFoundationRecordsPersistAndFenceConcurrentWriters(t *testing.T) {
 			}
 		}
 	}
+	t.Run("capacity_journal_retention", func(t *testing.T) {
+		capacityJournalSDKScenario(t, restarted)
+	})
 	current.FoundationWriter.Policy.Request.Statements = append(current.FoundationWriter.Policy.Request.Statements, "Allow any-user to manage objects in tenancy")
 	corrupt, err := json.Marshal(current, json.Deterministic(true))
 	if err != nil {
