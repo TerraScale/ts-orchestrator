@@ -2,6 +2,7 @@ package rootoci
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"math"
@@ -138,6 +139,13 @@ func validPoolChildAdmission(view PoolChildView, now time.Time) bool {
 		view.ObservedAt.IsZero() || view.ObservedAt.After(now) || !now.Before(view.ExpiresAt) ||
 		!now.Before(view.OriginalDeadline) || view.ExpiresAt.After(view.OriginalDeadline) ||
 		!view.ExpiresAt.After(view.ObservedAt) || len(view.BootVolumeIDs) != 1 {
+		return false
+	}
+	registration := view.Registration
+	descriptorSHA256 := sha256.Sum256([]byte(view.Descriptor))
+	if registration.Kind != PoolChildRegistrationStatic || registration.Environment != "production" ||
+		registration.Cell != view.Cell || registration.Node != view.Node || registration.Role != view.Role ||
+		registration.Architecture != view.Architecture || registration.DescriptorSHA256 != hex.EncodeToString(descriptorSHA256[:]) {
 		return false
 	}
 	for _, digest := range []string{view.RecipeSHA256, view.GrantSHA256, view.ProfileSHA256, view.SourceSHA256,
