@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -40,6 +41,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
 // This extends the existing signed SDK/disk journal scenario through the actual
@@ -230,6 +232,168 @@ func foundationProvisionSDKScenario(t *testing.T) {
 		return factory
 	}
 	factory := factoryFor()
+	t.Run("existing_rule_protection_prelude", func(t *testing.T) {
+		bucket := approval.HomeStorageDomain.LedgerBucket
+		cloud.mu.Lock()
+		originalRules := cloud.retention[bucket]
+		unlocked := maps.Clone(originalRules[0].(map[string]any))
+		delete(unlocked, "timeRuleLocked")
+		unlocked["etag"] = "unlocked-retention"
+		cloud.retention[bucket] = []any{unlocked}
+		beforeCreates := cloud.creates
+		cloud.mu.Unlock()
+		defer func() {
+			cloud.mu.Lock()
+			cloud.retention[bucket] = originalRules
+			cloud.lockResponse = 0
+			cloud.mu.Unlock()
+		}()
+		candidate, err := PrepareFoundationGrantSDK(t.Context(), approval, factory, roots)
+		if err != nil || candidate.LedgerProtection == nil || !reflect.ValueOf(candidate.Grant).IsZero() || !reflect.ValueOf(candidate.Anchor).IsZero() {
+			t.Fatalf("actual SDK did not prepare the separate existing-rule protection stage: %v", err)
+		}
+		cloud.mu.Lock()
+		if cloud.creates != beforeCreates || cloud.lockUpdates != 0 {
+			t.Error("preparing unsigned ledger protection mutated OCI")
+		}
+		cloud.mu.Unlock()
+		preludeChain, err := trust.EncodeRootChain(trust.RootChain{Version: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		prelude, err := SignFoundationPreparation(t.Context(), candidate, preludeChain, roots, root, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := VerifyFoundationProvisionBundle(t.Context(), roots, prelude); err == nil {
+			t.Fatal("protection prelude became final ready foundation authority")
+		}
+		for _, field := range []string{"purpose", "duration", "original lock", "deadline", "lock time", "request", "mixed final"} {
+			t.Run(field, func(t *testing.T) {
+				changed := candidate
+				purpose := *candidate.LedgerProtection
+				changed.LedgerProtection = &purpose
+				switch field {
+				case "purpose":
+					purpose.Purpose = rootOperationJournalPurpose
+				case "duration":
+					purpose.DurationDays++
+				case "original lock":
+					purpose.OriginalLockedAt = purpose.IssuedAt
+				case "deadline":
+					purpose.DispatchDeadline = purpose.DispatchDeadline.Add(time.Second)
+				case "lock time":
+					purpose.LockedAt = purpose.LockedAt.Add(time.Second)
+				case "request":
+					purpose.RequestSHA256 = strings.Repeat("0", 64)
+				case "mixed final":
+					changed.Grant = prepared.Grant
+				}
+				if _, err := SignFoundationPreparation(t.Context(), changed, preludeChain, roots, root, time.Now()); err == nil {
+					t.Fatal("changed or mixed protection stage was signed")
+				}
+			})
+		}
+		bad := prelude.clone()
+		bad.LedgerProtectionWire = append(bad.LedgerProtectionWire, ' ')
+		beforeProvider, beforeRequests := provider.reads.Load(), cloud.requests
+		if err := ProvisionFoundationBundle(t.Context(), factory, roots, bad); err == nil || provider.reads.Load() != beforeProvider || cloud.requests != beforeRequests {
+			t.Fatal("invalid prelude reached OCI identity or SDK")
+		}
+		for _, field := range []string{"missing rule", "bucket", "etag", "duration", "zero timestamp", "different lock"} {
+			t.Run(field, func(t *testing.T) {
+				cloud.mu.Lock()
+				changed := maps.Clone(unlocked)
+				cloud.retention[bucket] = []any{changed}
+				bucketRow := cloud.rows[candidate.LedgerProtection.BucketID]
+				originalBucketID := bucketRow["id"]
+				switch field {
+				case "missing rule":
+					cloud.retention[bucket] = nil
+				case "bucket":
+					bucketRow["id"] = "ocid1.bucket.oc1.sa-saopaulo-1.replacement"
+				case "etag":
+					changed["etag"] = "foreign-etag"
+				case "duration":
+					changed["duration"] = map[string]any{"timeAmount": 34, "timeUnit": "DAYS"}
+				case "zero timestamp":
+					changed["timeRuleLocked"] = time.Time{}
+				case "different lock":
+					changed["timeRuleLocked"] = candidate.LedgerProtection.LockedAt.Add(time.Hour)
+				}
+				before := cloud.lockUpdates
+				cloud.mu.Unlock()
+				err := ProvisionFoundationBundle(t.Context(), factory, roots, prelude)
+				cloud.mu.Lock()
+				bucketRow["id"] = originalBucketID
+				cloud.retention[bucket] = []any{unlocked}
+				updates := cloud.lockUpdates
+				cloud.mu.Unlock()
+				if err == nil || errors.Is(err, ErrFoundationLedgerProtectionPending) || updates != before {
+					t.Fatalf("changed original target reached protection update: %v", err)
+				}
+			})
+		}
+		canceled, cancel := context.WithCancel(t.Context())
+		cancel()
+		beforeProvider, beforeRequests = provider.reads.Load(), cloud.requests
+		if err := ProvisionFoundationBundle(canceled, factory, roots, prelude); !errors.Is(err, context.Canceled) || provider.reads.Load() != beforeProvider || cloud.requests != beforeRequests {
+			t.Fatal("canceled prelude reached OCI")
+		}
+		limited, err := ociclient.New(provider, ociclient.Options{Region: foundationHomeRegion,
+			Limits: map[ociclient.Service]ociclient.Limit{ociclient.ServiceObjectStorage: {PerSecond: 0.2, Burst: 1}}, Retry: ociclient.RetryOptions{MaxAttempts: 1}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		limitedObjects, err := limited.ObjectStorage()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := limitedObjects.GetBucket(t.Context(), objectstorage.GetBucketRequest{NamespaceName: new(approval.HomeStorageDomain.Namespace), BucketName: new(bucket)}); err != nil {
+			t.Fatal(err)
+		}
+		waiting, stop := context.WithCancel(t.Context())
+		timer := time.AfterFunc(100*time.Millisecond, stop)
+		beforeRequests = cloud.requests
+		err = ProvisionFoundationBundle(waiting, limited, roots, prelude)
+		timer.Stop()
+		stop()
+		if !errors.Is(err, context.Canceled) || cloud.requests != beforeRequests {
+			t.Fatalf("canceled original call escaped actual SDK limiter: %v", err)
+		}
+		for _, response := range []int{http.StatusOK, http.StatusServiceUnavailable, http.StatusPreconditionFailed} {
+			cloud.mu.Lock()
+			cloud.retention[bucket] = []any{maps.Clone(unlocked)}
+			cloud.lockResponse = 0
+			if response != http.StatusOK {
+				cloud.lockResponse = response
+			}
+			before := cloud.lockUpdates
+			cloud.mu.Unlock()
+			if err := ProvisionFoundationBundle(t.Context(), factory, roots, prelude); !errors.Is(err, ErrFoundationLedgerProtectionPending) {
+				t.Fatalf("exact desired SDK readback did not report scheduled pending after %d: %v", response, err)
+			}
+			if err := ProvisionFoundationBundle(t.Context(), factory, roots, prelude); !errors.Is(err, ErrFoundationLedgerProtectionPending) {
+				t.Fatal("repeated prelude did not observe the same desired state", err)
+			}
+			cloud.mu.Lock()
+			updates, creates := cloud.lockUpdates, cloud.creates
+			cloud.mu.Unlock()
+			if updates != before+1 || creates != beforeCreates {
+				t.Fatal("existing-rule convergence replayed its update or created a resource")
+			}
+		}
+		if _, err := observeRootOperationLedgerPreparation(t.Context(), factory, approval.HomeStorageDomain, approval.SourceVaultTarget.CompartmentOCID); err == nil {
+			t.Fatal("scheduled protection became effective final observation")
+		}
+		if _, err := PrepareFoundationGrantSDK(t.Context(), approval, factory, roots); !errors.Is(err, ErrFoundationLedgerProtectionPending) {
+			t.Fatal("scheduled protection became a final signing candidate", err)
+		}
+		candidate.Grant, candidate.Anchor = prepared.Grant, prepared.Anchor
+		if _, err := SignFoundationPreparation(t.Context(), candidate, preludeChain, roots, root, time.Now()); err == nil {
+			t.Fatal("scheduled prelude signed a final grant")
+		}
+	})
 	ledger, err := observeRootOperationLedgerPreparation(t.Context(), factory, approval.HomeStorageDomain, approval.SourceVaultTarget.CompartmentOCID)
 	if err != nil {
 		t.Fatal(err)
@@ -528,6 +692,7 @@ type provisionCloud struct {
 	lostOCIRPolicy                 bool
 	lostOCIRCommit                 bool
 	requests, creates, launchPosts int
+	lockUpdates, lockResponse      int
 }
 
 func (c *provisionCloud) objectPath(key string) string {
@@ -1052,6 +1217,45 @@ func (c *provisionCloud) serveStorage(w http.ResponseWriter, r *http.Request) {
 	if suffix == "" && r.Method == http.MethodGet {
 		w.Header().Set("etag", "bucket")
 		json.MarshalWrite(w, row)
+		return
+	}
+	if strings.HasPrefix(suffix, "retentionRules/") && r.Method == http.MethodPut {
+		c.lockUpdates++
+		id := strings.TrimPrefix(suffix, "retentionRules/")
+		var rule map[string]any
+		for _, value := range c.retention[bucket] {
+			if value.(map[string]any)["id"] == id {
+				rule = value.(map[string]any)
+			}
+		}
+		if rule == nil || r.Header.Get("If-Match") != fmt.Sprint(rule["etag"]) {
+			w.WriteHeader(http.StatusPreconditionFailed)
+			return
+		}
+		var body map[string]any
+		if err := json.UnmarshalRead(r.Body, &body); err != nil {
+			c.test.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		locked, err := time.Parse(time.RFC3339Nano, fmt.Sprint(body["timeRuleLocked"]))
+		duration, _ := body["duration"].(map[string]any)
+		if err != nil || !locked.After(time.Now().Add(14*24*time.Hour)) || body["displayName"] != "ledger-retention" ||
+			fmt.Sprint(duration["timeAmount"]) != "35" || duration["timeUnit"] != "DAYS" || r.Header.Get("opc-retry-token") != "" {
+			c.test.Error("ledger protection PUT widened its fixed SDK request")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		rule["duration"], rule["timeRuleLocked"], rule["etag"] = duration, locked, "scheduled-retention"
+		if c.lockResponse != 0 {
+			status := c.lockResponse
+			c.lockResponse = 0
+			w.WriteHeader(status)
+			io.WriteString(w, `{"code":"ConcurrentOrUnknownUpdate","message":"exact desired state now exists; no request provenance implied"}`)
+			return
+		}
+		w.Header().Set("etag", fmt.Sprint(rule["etag"]))
+		json.MarshalWrite(w, rule)
 		return
 	}
 	if strings.HasPrefix(suffix, "retentionRules/") && r.Method == http.MethodGet {

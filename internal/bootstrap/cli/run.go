@@ -12,6 +12,7 @@ import (
 const usage = `Usage: ts-orch bootstrap <command> [flags]
 
 Commands:
+  foundation prepare|sign
   verify-anchor
   verify-manifest
   sign-ledger-delegation

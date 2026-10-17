@@ -1,18 +1,39 @@
 package region
 
 import (
+	"bytes"
 	"context"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
-// ProvisionFoundationBundle is the explicit paid provisioning path. Every
-// resource comes from the same offline-approved bundle; discovery is last.
+// ProvisionFoundationBundle consumes the signed preparation stage. A lock
+// prelude reports pending; only the strict final bundle provisions the footprint.
 func ProvisionFoundationBundle(ctx context.Context, factory *ociclient.Factory, genesis trust.Keyring, bundle RetainedFoundation) error {
+	if len(bundle.LedgerProtectionWire) != 0 {
+		purpose, err := verifyRootOperationLedgerLockPrelude(ctx, bundle, genesis)
+		if err != nil {
+			return err
+		}
+		ctx, cancel := context.WithDeadline(ctx, purpose.DispatchDeadline)
+		defer cancel()
+		roots := trust.Keyring{}
+		for id, key := range genesis {
+			roots[id] = bytes.Clone(key)
+		}
+		operation := verifiedRootOperationLedgerLockPrelude{purpose: purpose, original: ctx, expires: purpose.DispatchDeadline,
+			bundle: bundle.clone(), genesis: roots}
+		observed, err := applyRootOperationLedgerLockPrelude(ctx, factory, operation)
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("%w until %s", ErrFoundationLedgerProtectionPending, observed.LockedAt.Format(time.RFC3339))
+	}
 	if err := VerifyFoundationProvisionBundle(ctx, genesis, bundle); err != nil {
 		return err
 	}
@@ -102,4 +123,13 @@ func VerifyFoundationProvisionBundle(ctx context.Context, genesis trust.Keyring,
 		return err
 	}
 	return ValidatePreparedFoundation(grant)
+}
+
+// Verification of the prelude-only stage cannot validate a final grant.
+func verifyFoundationCreateInput(ctx context.Context, genesis trust.Keyring, bundle RetainedFoundation) error {
+	if len(bundle.LedgerProtectionWire) != 0 {
+		_, err := verifyRootOperationLedgerLockPrelude(ctx, bundle, genesis)
+		return err
+	}
+	return VerifyFoundationProvisionBundle(ctx, genesis, bundle)
 }

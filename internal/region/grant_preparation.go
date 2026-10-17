@@ -31,11 +31,12 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
-// FoundationPreparation keeps the root ceremony's two public inputs together;
-// only signing the grant establishes the anchor's exact grant-wire digest.
+// FoundationPreparation contains the next unsigned ceremony stage. Protection
+// carries no final grant or anchor; final signing binds their exact grant wire.
 type FoundationPreparation struct {
-	Grant  FoundationGrant           `json:"grant"`
-	Anchor bootstrap.BootstrapAnchor `json:"anchor"`
+	Grant            FoundationGrant                 `json:"grant"`
+	Anchor           bootstrap.BootstrapAnchor       `json:"anchor"`
+	LedgerProtection *RootOperationLedgerLockPrelude `json:"ledgerProtection,omitempty"`
 }
 
 // FoundationHostApproval is a finite permission for one initial A1 host.
@@ -106,9 +107,9 @@ func validatePreparedReleaseAuthorities(authorities []ContainerReleaseAuthorityI
 	return nil
 }
 
-// PrepareFoundationGrantSDK only reads current public signed image metadata and
-// OCI catalog facts. The returned candidate remains unsigned until the existing
-// offline root ceremony; no cloud resource or credential is created here.
+// PrepareFoundationGrantSDK reads the existing ledger protection first, then
+// current image and catalog facts only when protection is effective. Its next
+// stage remains unsigned; preparation creates no cloud resource or credential.
 func PrepareFoundationGrantSDK(ctx context.Context, input FoundationPreparationInput, factory *ociclient.Factory, roots trust.Keyring) (FoundationPreparation, error) {
 	if err := input.validate(); err != nil {
 		return FoundationPreparation{}, err
@@ -145,6 +146,33 @@ func PrepareFoundationGrantSDK(ctx context.Context, input FoundationPreparationI
 		return FoundationPreparation{}, err
 	}
 	roots = lineage.Current
+	original, err := observeRootOperationLedgerLockPrelude(ctx, factory, input.HomeStorageDomain, input.SourceVaultTarget.CompartmentOCID)
+	if err != nil {
+		return FoundationPreparation{}, err
+	}
+	if original.LockedAt.IsZero() {
+		operator, err := factory.Provider().UserOCID()
+		if err != nil {
+			return FoundationPreparation{}, err
+		}
+		issued := time.Now().UTC().Truncate(time.Second)
+		purpose := RootOperationLedgerLockPrelude{SchemaVersion: 1, Purpose: rootOperationLedgerLockPurpose,
+			InstallationID: installation, DeploymentID: entityid.Derive("foundation-deployment", installation, "GRU"), ClusterID: entityid.Derive("foundation-cluster", installation, "GRU"),
+			TenancyID: input.TenancyID, Cell: "GRU", OperatorID: operator, Storage: input.HomeStorageDomain, CompartmentID: input.SourceVaultTarget.CompartmentOCID,
+			BucketID: original.BucketID, RuleID: original.RuleID, OriginalETag: original.ETag, OriginalDurationDays: original.DurationDays,
+			IssuedAt: issued, DispatchDeadline: issued.Add(rootOperationLedgerLockLifetime), LockedAt: issued.Add(rootOperationLedgerLockDelay), DurationDays: rootOperationLedgerRetentionDays}
+		_, purpose.RequestSHA256, err = rootOperationLedgerLockRequest(purpose)
+		if err != nil {
+			return FoundationPreparation{}, err
+		}
+		if err := purpose.validate(); err != nil {
+			return FoundationPreparation{}, err
+		}
+		return FoundationPreparation{LedgerProtection: &purpose}, nil
+	}
+	if original.LockedAt.After(time.Now()) {
+		return FoundationPreparation{}, fmt.Errorf("%w until %s", ErrFoundationLedgerProtectionPending, original.LockedAt.Format(time.RFC3339))
+	}
 	images := make(map[string]releasechannel.CurrentImage, 4)
 	for _, cell := range []string{"GRU", "SFO", "FRA", "netbird-manager"} {
 		role, region := "controller", cell

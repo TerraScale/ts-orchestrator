@@ -39,6 +39,8 @@ func (c command) runAt(args []string, now time.Time) error {
 		return errors.New(usage)
 	}
 	switch args[0] {
+	case "foundation":
+		return c.foundation(args[1:])
 	case "verify-anchor":
 		return c.verifyBootstrapAnchorAt(args[1:], now)
 	case "verify-manifest":

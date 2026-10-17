@@ -12,20 +12,22 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
-// RetainedFoundation carries public signed discovery documents. Its locators
-// are untrusted until VerifyRetainedFoundation binds them to the signed scope.
+// RetainedFoundation carries either the separate protection prelude or final
+// discovery documents. Prelude bytes never establish a final retained scope.
 type RetainedFoundation struct {
-	TenancyID     string `json:"tenancyId"`
-	Namespace     string `json:"namespace"`
-	RootChainWire []byte `json:"rootChainWire"`
-	AnchorWire    []byte `json:"anchorWire"`
-	GrantWire     []byte `json:"grantWire"`
+	TenancyID            string `json:"tenancyId"`
+	Namespace            string `json:"namespace"`
+	RootChainWire        []byte `json:"rootChainWire"`
+	AnchorWire           []byte `json:"anchorWire"`
+	GrantWire            []byte `json:"grantWire"`
+	LedgerProtectionWire []byte `json:"ledgerProtectionWire,omitempty"`
 }
 
 func (r RetainedFoundation) clone() RetainedFoundation {
 	r.RootChainWire = bytes.Clone(r.RootChainWire)
 	r.AnchorWire = bytes.Clone(r.AnchorWire)
 	r.GrantWire = bytes.Clone(r.GrantWire)
+	r.LedgerProtectionWire = bytes.Clone(r.LedgerProtectionWire)
 	return r
 }
 
@@ -56,7 +58,7 @@ func VerifyRetainedFoundation(ctx context.Context, snapshot RetainedFoundation) 
 }
 
 func verifyRetainedFoundation(ctx context.Context, snapshot RetainedFoundation, genesis trust.Keyring) (FoundationResolver, error) {
-	if !strings.HasPrefix(snapshot.TenancyID, "ocid1.tenancy.") || len(snapshot.TenancyID) > 512 ||
+	if len(snapshot.LedgerProtectionWire) != 0 || !strings.HasPrefix(snapshot.TenancyID, "ocid1.tenancy.") || len(snapshot.TenancyID) > 512 ||
 		snapshot.Namespace == "" || len(snapshot.Namespace) > 255 || strings.ContainsAny(snapshot.Namespace, "/\\\r\n") ||
 		len(snapshot.RootChainWire) == 0 || len(snapshot.RootChainWire) > trust.MaxRootChainBytes ||
 		len(snapshot.AnchorWire) == 0 || len(snapshot.AnchorWire) > bootstrap.MaxBootstrapAnchorBytes ||

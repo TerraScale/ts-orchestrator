@@ -120,7 +120,7 @@ func provisionFromFile(ctx context.Context, args []string, out io.Writer) error 
 	if err != nil {
 		return err
 	}
-	if err := VerifyFoundationProvisionBundle(ctx, genesis, bundle); err != nil {
+	if err := verifyFoundationCreateInput(ctx, genesis, bundle); err != nil {
 		return err
 	}
 	factory, err := ociclient.OperatorConfig(foundationHomeRegion)
@@ -128,6 +128,10 @@ func provisionFromFile(ctx context.Context, args []string, out io.Writer) error 
 		return err
 	}
 	if err := ProvisionFoundationBundle(ctx, factory, genesis, bundle); err != nil {
+		if errors.Is(err, ErrFoundationLedgerProtectionPending) {
+			_, writeErr := fmt.Fprintln(out, err)
+			return writeErr
+		}
 		return err
 	}
 	_, err = fmt.Fprintln(out, "provisioned exact signed foundation footprint")
