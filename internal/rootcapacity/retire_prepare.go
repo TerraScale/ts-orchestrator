@@ -86,10 +86,11 @@ func (c *Controller) PreparePoolRetirement(ctx context.Context, call rootoci.Cal
 	if err := a.guard(ctx); err != nil || !time.Now().Before(a.deadline) {
 		return fail(errors.Join(err, rootoci.ErrUnauthorized))
 	}
-	return rootoci.PoolRetirementPreparation{Node: child.Node, Retirement: rootoci.PoolRetirementExpectation{
-		Child: rootoci.PoolChildExpectation{Cell: record.Cell, OperationID: child.OperationID, ReservationID: child.OperationID,
-			RecipeSHA256: child.RecipeSHA256, PoolID: child.PoolID, ConfigurationID: child.ConfigurationID,
-			GrantSHA256: receipt.GrantSHA256, Generation: receipt.GrantGeneration, Epoch: child.BirthEpoch}, InstanceID: child.InstanceID}}, nil
+	return rootoci.PoolRetirementPreparation{CurrentGrantSHA256: binding.GrantSHA256, CurrentGeneration: binding.Generation,
+		Node: child.Node, Retirement: rootoci.PoolRetirementExpectation{
+			Child: rootoci.PoolChildExpectation{Cell: record.Cell, OperationID: child.OperationID, ReservationID: child.OperationID,
+				RecipeSHA256: child.RecipeSHA256, PoolID: child.PoolID, ConfigurationID: child.ConfigurationID,
+				GrantSHA256: receipt.GrantSHA256, Generation: receipt.GrantGeneration, Epoch: child.BirthEpoch}, InstanceID: child.InstanceID}}, nil
 }
 
 func retirementPreparationBirth(record region.FoundationRecord, instanceID string) (region.PoolChildRecord, capacityledger.Receipt, error) {
