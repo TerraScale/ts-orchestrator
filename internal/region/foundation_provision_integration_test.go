@@ -204,6 +204,44 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	if firstToken == "" || firstID == "" {
 		t.Fatal("missing accepted original GRU launch")
 	}
+	origin := bootstrap.NetBirdJournalOriginReference{Namespace: approval.HomeStorageDomain.Namespace,
+		GrantObject: strings.TrimSuffix(approval.HomeStorageDomain.Prefix, "/") + "/" + foundationGrantObject,
+		GrantSHA256: digestSource(bundle.GrantWire), RootChainSHA256: digestSource(bundle.RootChainWire)}
+	documents, err := bootstrap.ReadNetBirdJournalOrigin(t.Context(), factoryFor(), roots, origin, now)
+	if err != nil || !bytes.Equal(documents.GrantWire, bundle.GrantWire) || !bytes.Equal(documents.RootChainWire, bundle.RootChainWire) {
+		t.Fatalf("actual original prerequisite archive readback: %v", err)
+	}
+	originalGrantEnvelope, err := trust.DecodeEnvelope(bundle.GrantWire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bootstrap.ReadNetBirdJournalOrigin(t.Context(), factoryFor(), roots, origin, originalGrantEnvelope.IssuedAt.Add(-time.Second)); err == nil {
+		t.Fatal("original archive accepted an operation before its signed grant")
+	}
+	for _, document := range []struct {
+		key  string
+		wire []byte
+	}{
+		{origin.GrantObject, bundle.GrantWire}, {foundationRootChainObject, bundle.RootChainWire},
+	} {
+		key := "gru-1-head/" + document.key
+		changed := bytes.Clone(document.wire)
+		changed[len(changed)-1] ^= 1
+		cloud.writeObject(key, changed)
+		_, changedErr := bootstrap.ReadNetBirdJournalOrigin(t.Context(), factoryFor(), roots, origin, now)
+		cloud.writeObject(key, document.wire)
+		if changedErr == nil {
+			t.Fatalf("original archive accepted substituted %s", document.key)
+		}
+		if err := os.Remove(cloud.objectPath(key)); err != nil {
+			t.Fatal(err)
+		}
+		_, missingErr := bootstrap.ReadNetBirdJournalOrigin(t.Context(), factoryFor(), roots, origin, now)
+		cloud.writeObject(key, document.wire)
+		if missingErr == nil {
+			t.Fatalf("original archive accepted missing %s", document.key)
+		}
+	}
 	// New operator/factory resumes that exact token and checkpoints the same ID;
 	// the first exact writer policy then loses its create response.
 	if err := ProvisionFoundationBundle(t.Context(), factoryFor(), roots, bundle); err == nil || cloud.lostPolicy {
