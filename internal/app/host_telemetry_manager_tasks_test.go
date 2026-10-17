@@ -33,9 +33,32 @@ func TestManagerUsageTaskInventoryRefusesUnknownState(t *testing.T) {
 				ServiceAnnotations: api.Annotations{Labels: map[string]string{
 					swarmruntime.LabelRegion: "sa-saopaulo-1", swarmruntime.LabelEnvironment: registration.Environment,
 				}}}
-			tasks, err := telemetrySnapshotTasks(nil, []*api.Node{node}, []*api.Task{task}, registration)
+			tasks, err := telemetrySnapshotTasks(nil, []*api.Node{node}, []*api.Task{task}, registration, func(string) bool { return true })
 			if (err != nil) != tc.unknown || len(tasks) != tc.count {
 				t.Fatalf("allocation inventory for state %d: tasks=%d, error=%v", tc.state, len(tasks), err)
+			}
+		})
+	}
+}
+
+func TestManagerUsageTaskInventoryRequiresManagedNode(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		roles   []string
+		missing bool
+	}{
+		{name: "generic role", roles: []string{"api"}, missing: true},
+		{name: "function role", roles: []string{"function-worker"}, missing: true},
+		{name: "native and generic roles", roles: []string{"terrabase", "api"}, missing: true},
+		{name: "native data role", roles: []string{"terrabase"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			registration := host.Registration{Cell: "gru", Node: "host-a", Environment: "production", Roles: tc.roles,
+				ID: entityid.Derive("host", "gru", "host-a")}
+			owns := func(role string) bool { return role == "api" || role == "function-worker" }
+			tasks, err := telemetrySnapshotTasks(nil, nil, nil, registration, owns)
+			if (err != nil) != tc.missing || len(tasks) != 0 {
+				t.Fatalf("missing manager node for registered roles %v: tasks=%d, error=%v", tc.roles, len(tasks), err)
 			}
 		})
 	}

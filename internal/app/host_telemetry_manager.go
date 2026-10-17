@@ -86,7 +86,7 @@ func (t *hostTelemetry) recordManaged(ctx context.Context, history *nativeHistor
 		return errors.New("usage spec is not the adopted signed revision")
 	}
 	specDigest := fmt.Sprintf("%x", sha256.Sum256(spec.Value()))
-	tasks, err := telemetrySnapshotTasks(history.services, snapshot.Nodes, snapshot.Tasks, registration)
+	tasks, err := telemetrySnapshotTasks(history.services, snapshot.Nodes, snapshot.Tasks, registration, owns)
 	if err != nil {
 		return err
 	}
@@ -177,7 +177,7 @@ func (t *hostTelemetry) recordManaged(ctx context.Context, history *nativeHistor
 				return err
 			}
 		}
-		confirmedTasks, err := telemetryTasks(ctx, history.services, client, registration)
+		confirmedTasks, err := telemetryTasks(ctx, history.services, client, registration, owns)
 		if err != nil {
 			return err
 		}
@@ -328,7 +328,7 @@ func telemetryRegistration(ctx context.Context, history *nativeHistory, origin h
 	return registration, nil
 }
 
-func telemetryTasks(ctx context.Context, specs *specRegistry, client api.ControlClient, registration host.Registration) ([]*api.Task, error) {
+func telemetryTasks(ctx context.Context, specs *specRegistry, client api.ControlClient, registration host.Registration, owns func(string) bool) ([]*api.Task, error) {
 	response, err := client.ListNodes(ctx, &api.ListNodesRequest{})
 	if err != nil {
 		return nil, err
@@ -343,10 +343,13 @@ func telemetryTasks(ctx context.Context, specs *specRegistry, client api.Control
 	if listed == nil {
 		return nil, errors.New("manager task inventory is unavailable")
 	}
-	return telemetrySnapshotTasks(specs, response.Nodes, listed.Tasks, registration)
+	return telemetrySnapshotTasks(specs, response.Nodes, listed.Tasks, registration, owns)
 }
 
-func telemetrySnapshotTasks(specs *specRegistry, nodes []*api.Node, allTasks []*api.Task, registration host.Registration) ([]*api.Task, error) {
+func telemetrySnapshotTasks(specs *specRegistry, nodes []*api.Node, allTasks []*api.Task, registration host.Registration, owns func(string) bool) ([]*api.Task, error) {
+	if owns == nil {
+		return nil, errors.New("manager allocation role source is unavailable")
+	}
 	if len(nodes) > 4096 || len(allTasks) > 4096 {
 		return nil, errors.New("manager inventory exceeds telemetry bounds")
 	}
@@ -369,6 +372,9 @@ func telemetrySnapshotTasks(specs *specRegistry, nodes []*api.Node, allTasks []*
 		nodeID = node.ID
 	}
 	if nodeID == "" {
+		if slices.ContainsFunc(registration.Roles, owns) {
+			return nil, errors.New("manager allocation node is unavailable for its registered role")
+		}
 		return nil, nil
 	}
 	var tasks []*api.Task
