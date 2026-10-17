@@ -33,6 +33,8 @@ func (n *Node) CapturePoolDrain(ctx context.Context, child drainwire.PoolChild, 
 		source.ManagerInstanceID != n.admission.InstanceID || source.ManagerNodeID != n.ID() {
 		return empty, ErrPoolDrainPending
 	}
+	ctx, cancel := context.WithDeadline(ctx, source.ExpiresAt)
+	defer cancel()
 	region, err := oci.Region(child.Cell).OCIRegion()
 	if err != nil || region != n.admission.Region {
 		return empty, ErrPoolDrainPending
@@ -84,6 +86,10 @@ func (n *Node) CapturePoolDrain(ctx context.Context, child drainwire.PoolChild, 
 			return empty, err
 		}
 	}
+	barrier, err := poolDrainPauseBarrier(ctx, leases, original)
+	if err != nil {
+		return empty, err
+	}
 	cluster, err := reader.ClusterIdentity(ctx)
 	if err != nil || cluster == nil {
 		return empty, errors.Join(ErrPoolDrainPending, err)
@@ -105,7 +111,8 @@ func (n *Node) CapturePoolDrain(ctx context.Context, child drainwire.PoolChild, 
 		deadline = original
 	}
 	receipt := drainwire.PoolReceipt{Child: child, Source: source, Host: current, NodeID: worker.ID,
-		CellSpecWire: bytes.Clone(specWire), RootChainWire: bytes.Clone(rootWire),
+		PauseBarrierRevision: barrier,
+		CellSpecWire:         bytes.Clone(specWire), RootChainWire: bytes.Clone(rootWire),
 		ClusterID: cluster.ID, ClusterCAPEM: bytes.Clone(cluster.RootCACert), WorkerCertificate: bytes.Clone(worker.Certificate.Certificate),
 		CapturedAt: now, ExpiresAt: deadline, Phase: drainwire.PoolCaptured}
 	for _, node := range nodes.Nodes {
@@ -198,6 +205,9 @@ func (n *Node) checkPoolDrain(ctx context.Context, receipt drainwire.PoolReceipt
 	if original.OwnerID != receipt.Source.OwnerID || original.Revision < receipt.Source.LeaseRevision || original.ExpiresAt.Before(receipt.ExpiresAt) {
 		return errors.Join(ErrPoolDrainPending, err)
 	}
+	if original.Revision < receipt.PauseBarrierRevision {
+		return ErrPoolDrainPending
+	}
 	current, err := hosts.CurrentGenericExecutionSession(ctx, receipt.Host.HostNode)
 	if err != nil || !current.SameIdentity(receipt.Host) || current.ExpiresAt.Before(receipt.ExpiresAt) ||
 		current.InstanceID != "" && current.InstanceID != receipt.Child.InstanceID {
@@ -289,6 +299,41 @@ func poolDrainHost(ctx context.Context, hosts *host.Reader, registrationID strin
 		return "", ErrPoolDrainPending
 	}
 	return node, nil
+}
+
+// A later lease append shares the immutable hold log's sequence and writer
+// mutex: every pre-PAUSE acquire either precedes it or retries under PAUSE.
+func poolDrainPauseBarrier(ctx context.Context, leases *authority.Reader, original authority.Snapshot) (uint64, error) {
+	baseline, err := leases.CurrentLease(ctx)
+	if err != nil {
+		return 0, err
+	}
+	same := func(current authority.Snapshot) bool {
+		return current.Scope == original.Scope && current.DeploymentID == original.DeploymentID && current.CandidateID == original.CandidateID &&
+			current.OwnerID == original.OwnerID && current.Epoch == original.Epoch && current.Revision >= original.Revision
+	}
+	if !same(baseline) {
+		return 0, authority.ErrFenced
+	}
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		case <-ticker.C:
+			current, err := leases.CurrentLease(ctx)
+			if err != nil {
+				return 0, err
+			}
+			if !same(current) {
+				return 0, authority.ErrFenced
+			}
+			if current.Revision > baseline.Revision {
+				return current.Revision, nil
+			}
+		}
+	}
 }
 
 func poolDrainWorker(nodes []*api.Node, instanceID string) (*api.Node, error) {

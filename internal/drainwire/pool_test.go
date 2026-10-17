@@ -21,7 +21,7 @@ func poolReceiptFixture() PoolReceipt {
 		HostSessionID: entityid.New(), RegistrationGeneration: 1, HostEpoch: 41, ExpiresAt: now.Add(time.Minute)}
 	hold := ExecutionHold{HostSession: host, OriginalEpoch: 2, NodeID: "worker", TaskID: "task", ServiceID: "service",
 		TaskSHA256: digest, ExecutionSHA256: digest, ExecutionSessionID: entityid.New(), IssuedAt: now.Add(-time.Second)}
-	return PoolReceipt{Child: child, CellSpecWire: specWire, RootChainWire: rootWire,
+	return PoolReceipt{Child: child, CellSpecWire: specWire, RootChainWire: rootWire, PauseBarrierRevision: 2,
 		Source: PoolSource{ControllerConfigSHA256: digest, CellSpecSHA256: fmt.Sprintf("%x", sha256.Sum256(specWire)), CellSpecGeneration: 1,
 			RootSHA256: fmt.Sprintf("%x", sha256.Sum256(rootWire)), ManagerInstanceID: "ocid1.instance.manager", ManagerNodeID: "manager", DeploymentID: entityid.New(),
 			CandidateID: entityid.New(), OwnerID: entityid.New(), Epoch: 3, LeaseRevision: 1, ExpiresAt: host.ExpiresAt},

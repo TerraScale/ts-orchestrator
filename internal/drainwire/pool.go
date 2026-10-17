@@ -60,26 +60,27 @@ type PoolTask struct {
 // PoolReceipt is retained in the existing protected foundation CAS object.
 // Captured tasks and holds never disappear when Swarm forgets a task.
 type PoolReceipt struct {
-	Child               PoolChild            `json:"child"`
-	Source              PoolSource           `json:"source"`
-	CellSpecWire        []byte               `json:"cell_spec_wire"`
-	RootChainWire       []byte               `json:"root_chain_wire"`
-	Host                HostSession          `json:"host"`
-	NodeID              string               `json:"node_id"`
-	ClusterID           string               `json:"cluster_id"`
-	ClusterCAPEM        []byte               `json:"cluster_ca_pem"`
-	ManagerCertificates [][]byte             `json:"manager_certificates"`
-	WorkerCertificate   []byte               `json:"worker_certificate"`
-	Tasks               []PoolTask           `json:"tasks"`
-	Holds               []SignedHold         `json:"holds"`
-	Challenges          []DrainStopChallenge `json:"challenges"`
-	Stops               []SignedStop         `json:"stops,omitempty"`
-	CapturedAt          time.Time            `json:"captured_at"`
-	ExpiresAt           time.Time            `json:"expires_at"`
-	Phase               string               `json:"phase"`
-	StoppedAt           time.Time            `json:"stopped_at,omitzero"`
-	BackendsCheckedAt   time.Time            `json:"backends_checked_at,omitzero"`
-	DataCheckedAt       time.Time            `json:"data_checked_at,omitzero"`
+	Child                PoolChild            `json:"child"`
+	Source               PoolSource           `json:"source"`
+	CellSpecWire         []byte               `json:"cell_spec_wire"`
+	RootChainWire        []byte               `json:"root_chain_wire"`
+	PauseBarrierRevision uint64               `json:"pause_barrier_revision"`
+	Host                 HostSession          `json:"host"`
+	NodeID               string               `json:"node_id"`
+	ClusterID            string               `json:"cluster_id"`
+	ClusterCAPEM         []byte               `json:"cluster_ca_pem"`
+	ManagerCertificates  [][]byte             `json:"manager_certificates"`
+	WorkerCertificate    []byte               `json:"worker_certificate"`
+	Tasks                []PoolTask           `json:"tasks"`
+	Holds                []SignedHold         `json:"holds"`
+	Challenges           []DrainStopChallenge `json:"challenges"`
+	Stops                []SignedStop         `json:"stops,omitempty"`
+	CapturedAt           time.Time            `json:"captured_at"`
+	ExpiresAt            time.Time            `json:"expires_at"`
+	Phase                string               `json:"phase"`
+	StoppedAt            time.Time            `json:"stopped_at,omitzero"`
+	BackendsCheckedAt    time.Time            `json:"backends_checked_at,omitzero"`
+	DataCheckedAt        time.Time            `json:"data_checked_at,omitzero"`
 }
 
 func (c PoolChild) Validate() error {
@@ -105,7 +106,7 @@ func (r PoolReceipt) Validate() error {
 		r.CapturedAt.IsZero() || !r.ExpiresAt.After(r.CapturedAt) || r.ExpiresAt.Sub(r.CapturedAt) > 30*time.Minute ||
 		r.ExpiresAt.After(source.ExpiresAt) || r.ClusterID == "" || r.NodeID == "" || r.NodeID == source.ManagerNodeID ||
 		len(r.ClusterCAPEM) == 0 || len(r.ClusterCAPEM) > 32<<10 || len(r.WorkerCertificate) == 0 || len(r.WorkerCertificate) > 16<<10 ||
-		len(r.ManagerCertificates) == 0 || len(r.ManagerCertificates) > 3 ||
+		len(r.ManagerCertificates) == 0 || len(r.ManagerCertificates) > 3 || r.PauseBarrierRevision <= source.LeaseRevision ||
 		len(r.CellSpecWire) == 0 || len(r.CellSpecWire) > 48<<10 || len(r.RootChainWire) == 0 || len(r.RootChainWire) > 64<<10 ||
 		r.Host.Cell != strings.ToLower(r.Child.Cell) || r.Host.InstanceID != r.Child.InstanceID ||
 		r.Host.HostNode == "" || !entityid.Valid(r.Host.RegistrationID) || !entityid.Valid(r.Host.HostSessionID) || r.Host.RegistrationGeneration == 0 ||
