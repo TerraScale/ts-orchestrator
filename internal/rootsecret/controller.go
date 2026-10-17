@@ -40,6 +40,9 @@ func (Service) DeliverControllerGeneration(ctx context.Context, call rootoci.Cal
 	if os.Geteuid() != 0 || ctx == nil || len(request.Chain) == 0 || len(request.Chain) > rootoci.MaxGenerationChainBytes || call.Guard(ctx) != nil {
 		return fail()
 	}
+	if operation := call.Operation(); operation != "" && operation != rootoci.OperationDeliverControllerGeneration {
+		return fail()
+	}
 	if call.Deadline().IsZero() || !time.Now().Before(call.Deadline()) {
 		return fail()
 	}
@@ -54,7 +57,7 @@ func (Service) DeliverControllerGeneration(ctx context.Context, call rootoci.Cal
 		}
 	}
 	accepted, err := bootstrapstart.NewMarkerStore().ReadIdentity()
-	if err != nil || !strings.EqualFold(call.Expected().Cell, accepted.Cell) {
+	if err != nil || call.Expected().Cell != "" && !strings.EqualFold(call.Expected().Cell, accepted.Cell) {
 		return fail()
 	}
 	target, err := bootstrapstart.GenerationTargetFromAccepted(accepted)
