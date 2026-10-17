@@ -98,7 +98,7 @@ func (t *hostTelemetry) recordManaged(ctx context.Context, history *nativeHistor
 	for _, task := range tasks {
 		role := task.ServiceAnnotations.Labels[swarmruntime.LabelRole]
 		if !owns(role) {
-			continue
+			return errors.New("manager allocation role has no verified usage source")
 		}
 		if err := verify(ctx, registration, task); err != nil {
 			return err
@@ -187,7 +187,7 @@ func (t *hostTelemetry) recordManaged(ctx context.Context, history *nativeHistor
 		}
 		for _, task := range confirmedTasks {
 			if !owns(task.ServiceAnnotations.Labels[swarmruntime.LabelRole]) {
-				continue
+				return errors.New("manager allocation role has no verified usage source")
 			}
 			before, exists := remaining[task.ID]
 			if !exists || !proto.Equal(task, before) {
