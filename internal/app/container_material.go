@@ -271,8 +271,9 @@ func (controller *containerMaterialController) recipientEvidence(ctx context.Con
 	if entry.Revision() != adopted {
 		return fail()
 	}
-	roots := config.Specs.roots.current()
-	rootHead := config.Specs.roots.reply("").Head
+	config.Specs.roots.mu.Lock()
+	roots, rootHead := config.Specs.roots.verified.Current, config.Specs.roots.verified.Head
+	config.Specs.roots.mu.Unlock()
 	proof, err := containermaterial.VerifyProfile(entry.Value(), roots, config.Specs.identity, intent)
 	if err != nil {
 		return containerMaterialEvidence{}, err
