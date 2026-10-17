@@ -119,10 +119,10 @@ func (dashboard *Dashboard) loadJournal(ctx context.Context, current *view) {
 		}
 	}
 	if needs&needInventory != 0 && journal.Inventory != nil {
-		if items, err := journal.Inventory.Inventory(ctx); err != nil {
+		observation, err := journal.Inventory.Inventory(ctx)
+		current.Inventory, current.InventoryObservation = observation.Items, &observation
+		if err != nil {
 			current.Unavailable = append(current.Unavailable, "OCI inventory")
-		} else {
-			current.Inventory = items
 		}
 	}
 }

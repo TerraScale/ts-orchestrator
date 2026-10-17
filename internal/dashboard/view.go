@@ -171,6 +171,7 @@ type view struct {
 	Volumes              []insights.Volume
 	Qualifications       []Qualification
 	Inventory            []InventoryItem
+	InventoryObservation *InventoryObservation
 	MetricCatalog        *observability.CatalogResult
 	MetricHistory        *observability.CatalogHistory
 	MetricHistoryLimited bool
