@@ -177,11 +177,24 @@ func (b *rootPoolBackend) forward(ctx context.Context, call rootoci.Call, cell s
 	}
 	ctx, cancel := context.WithDeadline(ctx, call.Deadline())
 	defer cancel()
-	connection, err := rootsecret.ConnectControllerReader(ctx)
+	reader, err := rootsecret.OpenControllerReader(ctx)
 	if err != nil {
 		return capacityPoolResponse{}, err
 	}
+	connection := reader.Conn()
 	defer connection.Close()
+	ctx, stopReader := context.WithDeadline(reader.Context(), call.Deadline())
+	defer stopReader()
+	guard := func(ctx context.Context) error {
+		if err := call.Guard(ctx); err != nil {
+			return err
+		}
+		return reader.Guard(ctx)
+	}
+	ctx = ociclient.WithRequestGuard(ctx, guard)
+	if err := guard(ctx); err != nil {
+		return capacityPoolResponse{}, err
+	}
 	if connection.Opts.UserJWT == nil {
 		return capacityPoolResponse{}, rootoci.ErrUnauthorized
 	}
@@ -190,16 +203,36 @@ func (b *rootPoolBackend) forward(ctx context.Context, call rootoci.Call, cell s
 		return capacityPoolResponse{}, err
 	}
 	claim, err := jwt.DecodeUserClaims(raw)
-	if err != nil || call.Guard(ctx) != nil {
+	if err != nil || guard(ctx) != nil {
 		return capacityPoolResponse{}, rootoci.ErrUnauthorized
 	}
-	r := &capacityReservations{cell: strings.ToLower(cell), user: claim.Subject, conn: connection, homeKey: homeCapacityResponseKey}
-	request.Deadline = call.Deadline()
+	original, err := loadHomeCapacityResponseAuthority(ctx)
+	if err != nil || guard(ctx) != nil {
+		return capacityPoolResponse{}, errors.Join(rootoci.ErrUnauthorized, err)
+	}
+	ctx, stopSource := context.WithDeadline(ctx, original.expires)
+	defer stopSource()
+	homeKey := func(ctx context.Context) (ed25519.PublicKey, error) {
+		if err := guard(ctx); err != nil {
+			return nil, err
+		}
+		current, err := loadHomeCapacityResponseAuthority(ctx)
+		if err != nil || guard(ctx) != nil || current.localDigest != original.localDigest || current.homeDigest != original.homeDigest ||
+			!current.key.Equal(original.key) || current.expires.Before(original.expires) {
+			return nil, errors.Join(rootoci.ErrUnauthorized, err)
+		}
+		return original.key, nil
+	}
+	r := &capacityReservations{cell: strings.ToLower(cell), user: claim.Subject, conn: connection, homeKey: homeKey}
+	request.Deadline, _ = ctx.Deadline()
+	if err := guard(ctx); err != nil {
+		return capacityPoolResponse{}, err
+	}
 	response, err := r.exchange(ctx, "observe", capacityReservationRequest{Pool: &request})
 	if err != nil {
 		return capacityPoolResponse{}, err
 	}
-	if call.Guard(ctx) != nil {
+	if guard(ctx) != nil {
 		return capacityPoolResponse{}, rootoci.ErrUnauthorized
 	}
 	if response.Receipt != nil || response.Pool == nil || response.Pool.Operation != request.Operation {
@@ -208,30 +241,52 @@ func (b *rootPoolBackend) forward(ctx context.Context, call rootoci.Call, cell s
 	return *response.Pool, nil
 }
 
-func homeCapacityResponseKey(ctx context.Context) (ed25519.PublicKey, error) {
+type homeCapacityResponseAuthority struct {
+	key                     ed25519.PublicKey
+	localDigest, homeDigest string
+	expires                 time.Time
+}
+
+func loadHomeCapacityResponseAuthority(ctx context.Context) (homeCapacityResponseAuthority, error) {
+	fail := func(err error) (homeCapacityResponseAuthority, error) { return homeCapacityResponseAuthority{}, err }
 	local, derived, present, err := installedAutomaticStartup(ctx)
 	if err != nil || !present {
-		return nil, errors.Join(errors.New("capacity requires authenticated automatic startup"), err)
+		return fail(errors.Join(errors.New("capacity requires authenticated automatic startup"), err))
 	}
+	ctx, stopLocal := context.WithDeadline(ctx, derived.ExpiresAt())
+	defer stopLocal()
 	template, err := bootstrap.VerifyBoundRegionalStartupTemplate(ctx, local.factory, derived.GrantWire(), local.baked.Roots, local.anchor, oci.RegionGRU, time.Now().UTC())
 	if err != nil {
-		return nil, err
+		return fail(err)
 	}
+	ctx, stopTemplate := context.WithDeadline(ctx, template.ExpiresAt())
+	defer stopTemplate()
 	home, err := local.anchor.FoundationScope()
 	if err != nil {
-		return nil, err
+		return fail(err)
 	}
 	factory, err := local.factory.ForRegion(home.OCIRegion)
 	if err != nil {
-		return nil, err
+		return fail(err)
 	}
 	objects, err := factory.ObjectStorage()
 	if err != nil {
-		return nil, err
+		return fail(err)
 	}
 	authority, err := bootstrap.LoadDerivedStartupAuthority(ctx, template, &objects, template.Template().SeedSlot, time.Now().UTC())
 	if err != nil {
-		return nil, err
+		return fail(err)
 	}
-	return authority.ControllerResponsePublicKey()
+	key, err := authority.ControllerResponsePublicKey()
+	if err != nil || ctx.Err() != nil {
+		return fail(errors.Join(rootoci.ErrUnauthorized, err, ctx.Err()))
+	}
+	expires, _ := ctx.Deadline()
+	if authority.ExpiresAt().Before(expires) {
+		expires = authority.ExpiresAt()
+	}
+	if !time.Now().Before(expires) {
+		return fail(rootoci.ErrUnauthorized)
+	}
+	return homeCapacityResponseAuthority{key: key, localDigest: derived.Digest(), homeDigest: authority.Digest(), expires: expires}, nil
 }
