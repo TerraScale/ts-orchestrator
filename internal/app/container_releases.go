@@ -150,6 +150,14 @@ func (r *serviceReleases) containerPass(ctx context.Context, kv jetstream.KeyVal
 			if err != nil || !bytes.Equal(originalWire, currentWire) {
 				return errors.Join(containermaterial.ErrPending, err)
 			}
+			retained, currentReference, err = r.deliveries.ContainerProvenance(ctx, original.OperationID)
+			if err != nil || currentReference != reference {
+				return errors.Join(containermaterial.ErrPending, err)
+			}
+			fingerprint, err = retained.Fingerprint()
+			if err != nil || fingerprint != originalFingerprint {
+				return errors.Join(containermaterial.ErrPending, err)
+			}
 			return ctx.Err()
 		}
 		if state.Intent == nil || state.Intent.Container == nil || state.Intent.Generation < floor.Generation {
@@ -185,6 +193,13 @@ func (r *serviceReleases) containerPass(ctx context.Context, kv jetstream.KeyVal
 		}
 		return ctx.Err()
 	}
+	observationGuard := func() error {
+		current, err := r.channel.readContainerRelease(ctx, role, target.Architecture)
+		if err != nil || !current.Found || current.BundleSHA256 != observation.BundleSHA256 || current.Fingerprint != observation.Fingerprint || current.Floor == nil || *current.Floor != *observation.Floor {
+			return errors.Join(containermaterial.ErrPending, err)
+		}
+		return ctx.Err()
+	}
 	guard := func() error {
 		if err := selectorGuard(); err != nil {
 			return err
@@ -194,9 +209,8 @@ func (r *serviceReleases) containerPass(ctx context.Context, kv jetstream.KeyVal
 				return err
 			}
 		}
-		currentObservation, err := r.channel.readContainerRelease(ctx, role, target.Architecture)
-		if err != nil || !currentObservation.Found || currentObservation.BundleSHA256 != observation.BundleSHA256 || currentObservation.Fingerprint != observation.Fingerprint || currentObservation.Floor == nil || *currentObservation.Floor != *observation.Floor {
-			return errors.Join(containermaterial.ErrPending, err)
+		if err := observationGuard(); err != nil {
+			return err
 		}
 		if err := selectorGuard(); err != nil {
 			return err
@@ -219,6 +233,12 @@ func (r *serviceReleases) containerPass(ctx context.Context, kv jetstream.KeyVal
 			return err
 		}
 		if err := r.fencer.Guard(ctx, epoch); err != nil {
+			return err
+		}
+		if err := selectorGuard(); err != nil {
+			return err
+		}
+		if err := observationGuard(); err != nil {
 			return err
 		}
 		if err := selectorGuard(); err != nil {
