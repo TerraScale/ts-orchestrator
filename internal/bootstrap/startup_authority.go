@@ -43,6 +43,17 @@ type startupBindings struct {
 	targetReferences map[string]bool
 }
 
+func (bindings startupBindings) Revalidate(ctx context.Context) error {
+	boundedCtx, cancel := context.WithDeadline(ctx, bindings.vault.ExpiresAt())
+	defer cancel()
+	if bindings.logical != nil {
+		if err := bindings.logical.Revalidate(boundedCtx); err != nil {
+			return err
+		}
+	}
+	return bindings.vault.Revalidate(boundedCtx)
+}
+
 func (bindings startupBindings) project(template StartupTemplate, cell string) (StartupTemplate, error) {
 	return projectFoundationStartup(template, cell, func(reference string) (string, error) {
 		actualCell, role, err := foundationbinding.Parse(reference)
@@ -153,12 +164,7 @@ func (verified VerifiedStartupTemplate) VerifyCurrentContext(ctx context.Context
 		return err
 	}
 	if verified.bindings != nil {
-		if verified.bindings.logical != nil {
-			if err := verified.bindings.logical.Revalidate(ctx); err != nil {
-				return err
-			}
-		}
-		if err := verified.bindings.vault.Revalidate(ctx); err != nil {
+		if err := verified.bindings.Revalidate(ctx); err != nil {
 			return err
 		}
 	}
