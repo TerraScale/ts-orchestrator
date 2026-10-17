@@ -64,6 +64,13 @@ func TestParseNodeSigningKeyCapsEveryVerifiedCertificate(t *testing.T) {
 			if key == nil || len(chain) != 2 || !deadline.Equal(expected) {
 				t.Fatalf("verified %s expiry not retained: chain=%d deadline=%s want=%s", limiting, len(chain), deadline, expected)
 			}
+			verified, leaf, certificateExpiry, err := verifyNodeCertificateChain("leaf", append(wire[2], wire[1]...), wire[0])
+			if err != nil || len(verified) != 2 || leaf == nil || leaf.Subject.CommonName != "leaf" || !certificateExpiry.Equal(expected) {
+				t.Fatalf("actual native member %s expiry not retained: deadline=%s want=%s error=%v", limiting, certificateExpiry, expected, err)
+			}
+			if _, _, _, err := verifyNodeCertificateChain("other-member", append(wire[2], wire[1]...), wire[0]); err == nil {
+				t.Fatal("another native member's certificate supplied an expiry cap")
+			}
 		})
 	}
 }
