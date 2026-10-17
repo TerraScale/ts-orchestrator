@@ -170,6 +170,7 @@ type Runtime struct {
 	once            sync.Once
 	storeLock       *os.File
 	genesis         *brokerGenesis
+	storeConfig     Config
 }
 
 func (r *Runtime) Conn() *nats.Conn { return r.conn }
