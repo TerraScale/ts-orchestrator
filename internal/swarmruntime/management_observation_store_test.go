@@ -60,7 +60,7 @@ func TestManagementObservationStoreBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	var node *api.Node
-	at, _, live, cancel, err := s.Observe(nil, func(tx store.ReadTx) error { node = store.GetNode(tx, "first"); return nil }, api.EventCreateNode{}, state.EventCommit{})
+	at, _, live, _, cancel, err := s.Observe(nil, func(tx store.ReadTx) error { node = store.GetNode(tx, "first"); return nil }, api.EventCreateNode{}, state.EventCommit{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestManagementObservationStoreBoundaries(t *testing.T) {
 		}
 	}
 captured:
-	current, replay, _, stop, err := s.Observe(&at, func(store.ReadTx) error { return nil }, state.EventCommit{})
+	current, replay, _, _, stop, err := s.Observe(&at, func(store.ReadTx) error { return nil }, state.EventCommit{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,17 +98,17 @@ captured:
 		t.Fatalf("bounded replay missed committed batch: %+v %+v", current, replay)
 	}
 	p.floor = 2
-	if _, _, _, _, err := s.Observe(&at, func(store.ReadTx) error { return nil }, state.EventCommit{}); err == nil {
+	if _, _, _, _, _, err := s.Observe(&at, func(store.ReadTx) error { return nil }, state.EventCommit{}); err == nil {
 		t.Fatal("compaction gap accepted as continuous")
 	}
-	if _, _, _, _, err := s.Observe(&api.Version{Index: 3}, func(store.ReadTx) error { return nil }, state.EventCommit{}); err == nil {
+	if _, _, _, _, _, err := s.Observe(&api.Version{Index: 3}, func(store.ReadTx) error { return nil }, state.EventCommit{}); err == nil {
 		t.Fatal("future resume accepted as continuous")
 	}
 	// Restores bind their real snapshot index, without fake writes.
 	if err := s.RestoreAt(&api.StoreSnapshot{}, api.Version{Index: 40}); err != nil {
 		t.Fatal(err)
 	}
-	version, _, _, stop, err := s.Observe(nil, func(tx store.ReadTx) error {
+	version, _, _, _, stop, err := s.Observe(nil, func(tx store.ReadTx) error {
 		if store.GetNode(tx, "first") != nil || store.GetNode(tx, "second") != nil {
 			return errors.New("restore did not replace state")
 		}
@@ -124,7 +124,7 @@ captured:
 	if err := s.RestoreAt(&api.StoreSnapshot{}, api.Version{Index: 41}); err != nil {
 		t.Fatal(err)
 	}
-	version, _, _, stop, err = s.Observe(nil, func(store.ReadTx) error { return nil }, state.EventCommit{})
+	version, _, _, _, stop, err = s.Observe(nil, func(store.ReadTx) error { return nil }, state.EventCommit{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ captured:
 	if err := s.ApplyStoreActionsAt([]api.StoreAction{action}, api.Version{Index: 42}); err != nil {
 		t.Fatal(err)
 	}
-	version, _, _, stop, err = s.Observe(nil, func(tx store.ReadTx) error {
+	version, _, _, _, stop, err = s.Observe(nil, func(tx store.ReadTx) error {
 		if store.GetNode(tx, "follower") == nil {
 			return errors.New("follower transaction missing from snapshot")
 		}
@@ -157,7 +157,7 @@ captured:
 func TestManagementObservationSlowConsumer(t *testing.T) {
 	queue := watch.NewQueue()
 	defer queue.Close()
-	events, cancel := queue.CallbackWatchBounded(nil)
+	events, cancel, closed := queue.CallbackWatchBounded(nil)
 	defer cancel()
 	for i := range 4096 {
 		queue.Publish(i)
@@ -170,6 +170,8 @@ func TestManagementObservationSlowConsumer(t *testing.T) {
 			if !ok {
 				return
 			}
+		case <-closed:
+			return
 		case <-deadline.C:
 			t.Fatal("overflow left a blocked stream or silently dropped continuity")
 		}
