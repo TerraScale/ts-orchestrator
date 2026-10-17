@@ -619,7 +619,12 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 	if _, _, err := releasechannel.ReadCurrentImageSDK(t.Context(), observer, a.Namespace, f.roots, releasechannel.CurrentImageExpectation{Cell: a.Candidate.Cell, Environment: a.Candidate.Environment, Architecture: a.Candidate.Architecture, Role: release.FoundationWriterRole}, f.now.Add(90*time.Minute)); err == nil {
 		t.Fatal("historical ownership transition renewed current writer authority")
 	}
-	for _, scenario := range []string{"missing-publication", "missing-recorded-manifest", "changed-manifest", "changed-evidence", "other-compartment", "other-image-bytes", "late-publication", "publication-at-deadline-second", "future-publication", "missing-timestamp", "deleted-image", "reimported-image", "other-root-gate", "other-approved-destination", "canceled"} {
+	beforeCancellation := recovered
+	beforeCancellation.RetentionEndedAt = f.now.Add(2 * time.Second)
+	if accepted, err := c.observeImageTransfer(t.Context(), observer, beforeCancellation); err != nil || accepted != transfer {
+		t.Fatalf("earlier authenticated publication lost ownership after cancellation: %+v %v", accepted, err)
+	}
+	for _, scenario := range []string{"missing-publication", "missing-recorded-manifest", "changed-manifest", "changed-evidence", "other-compartment", "other-image-bytes", "late-publication", "publication-at-deadline-second", "publication-after-cancellation", "future-publication", "missing-timestamp", "deleted-image", "reimported-image", "other-root-gate", "other-approved-destination", "canceled"} {
 		t.Run(scenario, func(t *testing.T) {
 			mu.Lock()
 			mode = scenario
@@ -636,6 +641,8 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 				copyJournal.RootGateSHA256 = strings.Repeat("e", 64)
 			case "other-approved-destination":
 				copyCloud.prepared.approval.ImagePublicationBucket = "qualification"
+			case "publication-after-cancellation":
+				copyJournal.RetentionEndedAt = f.now.Add(time.Second)
 			case "reimported-image":
 				copyJournal.ImageID = "ocid1.image.oc1.sa-saopaulo-1.reimported"
 			case "late-publication", "publication-at-deadline-second":
