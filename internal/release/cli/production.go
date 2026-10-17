@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"flag"
@@ -56,15 +55,12 @@ func (c command) verifyProductionCandidate(evidenceDir string, roots trust.Keyri
 		return fmt.Errorf("%s %s: %w", expected.Cell, expected.Architecture, err)
 	}
 	for _, evidence := range qualification.Evidence {
-		file, size, digest, err := c.openHashedArtifact(filepath.Join(evidenceDir, "objects", evidence.SHA256), release.MaxProductionEvidenceBytes)
+		file, err := openRegular(filepath.Join(evidenceDir, "objects", evidence.SHA256))
 		if err != nil {
 			return fmt.Errorf("%w: %s %s evidence: %w", release.ErrProductionQualification, expected.Cell, evidence.Gate, err)
 		}
-		if err := file.Close(); err != nil {
-			return err
-		}
-		if size != evidence.Bytes || hex.EncodeToString(digest) != evidence.SHA256 {
-			return fmt.Errorf("%w: %s %s retained evidence bytes differ", release.ErrProductionQualification, expected.Cell, evidence.Gate)
+		if err := errors.Join(release.VerifyProductionEvidence(c.ctx, file, evidence, expected), file.Close()); err != nil {
+			return fmt.Errorf("%s %s retained evidence: %w", expected.Cell, evidence.Gate, err)
 		}
 	}
 	return c.ctx.Err()
