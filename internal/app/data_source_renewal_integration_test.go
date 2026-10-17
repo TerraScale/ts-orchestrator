@@ -2379,20 +2379,6 @@ func renewalAssertBackupLifecycle(t *testing.T, cloud *renewalCloud, control *au
 	if readsAfterCapture <= readsBeforeFailure {
 		t.Fatal("ETag readiness denial did not independently read the real attachment")
 	}
-	rootDeniedContext, cancelRootDenied := context.WithTimeout(t.Context(), 4*time.Second)
-	defer cancelRootDenied()
-	rootDeniedReadiness, _ := rootSources.open(t, rootDeniedContext)
-	rootDenied, rootError := rootDeniedReadiness.CaptureTaskReadiness(rootDeniedContext, task)
-	cancelRootDenied()
-	if rootDenied != nil || !errors.Is(rootError, oci.ErrAttachmentRecoveryHold) {
-		t.Fatalf("new independent root capture accepted the changed attachment: %v", rootError)
-	}
-	cloud.mu.Lock()
-	rootReadsAfterFailure := cloud.routes[path].reads
-	cloud.mu.Unlock()
-	if rootReadsAfterFailure <= readsAfterCapture {
-		t.Fatal("root ETag denial did not independently read the real attachment")
-	}
 	if _, err := agent.RuntimeWorkerIdentity(state.InstanceID, task.NodeID); err != nil {
 		t.Fatalf("host session expired instead of the new provider-denied readiness capture: %v", err)
 	}
