@@ -15,14 +15,16 @@ func TestStartMarksOnlyUnreachableBrokersUnavailable(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	port := freeClientPort(t)
-	_, err := Start(ctx, Config{Cell: "lab", Instance: "client", Replicas: 1, Lab: true,
-		URL: fmt.Sprintf("nats://127.0.0.1:%d", port)})
+	region := productionTestRegion(t, "lab", "broker")
+	config, _ := productionTestUser(t, region, "client", "host", false)
+	config.URL = fmt.Sprintf("tls://127.0.0.1:%d", port)
+	_, err := Start(ctx, config)
 	if err == nil || !errors.Is(err, ErrUnavailable) || !strings.HasPrefix(err.Error(), "connect regional NATS: ") {
 		t.Fatalf("unreachable broker = %v, want ErrUnavailable with the connect cause", err)
 	}
 	for name, config := range map[string]Config{
-		"invalid cell":     {Cell: "Lab", Instance: "client", Replicas: 1, Lab: true, URL: "nats://127.0.0.1:4222"},
-		"invalid replicas": {Cell: "lab", Instance: "client", Replicas: 2, Lab: true, URL: "nats://127.0.0.1:4222"},
+		"invalid cell":     {Cell: "Lab", Instance: "client", Replicas: 1, URL: "nats://127.0.0.1:4222"},
+		"invalid replicas": {Cell: "lab", Instance: "client", Replicas: 2, URL: "nats://127.0.0.1:4222"},
 		"missing credentials": {Cell: "gru", Instance: "operator", Replicas: 3, ClientRole: "operator",
 			URL:             "tls://10.251.0.11:4222,tls://10.251.0.12:4222,tls://10.251.0.13:4222",
 			CredentialsFile: "missing.creds", TLS: TLSFiles{CAFile: "ca", CertFile: "cert", KeyFile: "key"},
