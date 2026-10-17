@@ -1,0 +1,272 @@
+{
+  "schema": "independent-root200-prospective-composition-review-v1",
+  "reviewer": "/root/nats_next_conversion",
+  "decision": "ACCEPT_PROSPECTIVE_SOURCE_ONLY_COMPOSITION_NOT_APPLIED",
+  "reviewed_utc": "2026-10-17T19:15:17.261684+00:00",
+  "reviewed_worktree": "/tmp/ts-qa-root200-source-evidence-52eef",
+  "reviewed_branch": "refactor/qa-root200-source-evidence-20261017",
+  "reviewed_commit": "9973792dc237352e0d791f28b46fe0a6d6ef0ad0",
+  "reviewed_tree": "699b6424311ee4c291bb6ac1063dbdf18640ab58",
+  "reviewed_parent": "a01f69353eb680667de80193f9633a4e65ee1c01",
+  "packet": "docs/evidence/refactor-checks-20261017/source-classification-52eef-root200",
+  "packet_pins": {
+    "manifest.json": "51e0cc37cfc78b8e2c7aeed4f358b381d0f2fd4f4c7e00cc3bf13ec569412fa2",
+    "composition/receipt.json": "63d10fe3670fd721ead0f4101ba1e1c1737091388b2b8d19be70a0091f70b885",
+    "SHA256SUMS": "f642c7f175bf3566f8a4e21c4439588586ac03c550b63df7114207852543385b"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "scope": "Independent prospective composition review of the exact60-file documentation-only successor. This receipt neither applies ledgers nor promotes source/runtime qualifications.",
+  "semantic_review_reused": {
+    "path": "/tmp/ts-qa-root200-independent-yfmddpd3/review.json",
+    "sha256": "f77ff16ec4a1382d224de2b0eb17381e6568d8680970b9b5936b8f6b068b0bf9",
+    "decision": "ACCEPT_SOURCE_CLASSIFICATION_ONLY_PENDING_ROOT_PUBLICATION",
+    "prior_verified_declarations": 400,
+    "prior_verified_assertion_citations": 242,
+    "reuse_reason": "ROOT explicitly requested reuse of pinned central semantic acceptance rather than reclassification of the same200 roots absent a discrepancy.",
+    "independently_readjudicated_by_this_review": false
+  },
+  "verified": {
+    "documentation_additions_only": 60,
+    "source_changes": 0,
+    "checks_passed": 124,
+    "checksum_entries_recomputed": 148,
+    "packet_checksum_entries": 59,
+    "original_input_checksum_entries": 89,
+    "original_owner_packets_byte_identical": 10,
+    "original_peer_packets_byte_identical": 10,
+    "original_owner_checksum_files_byte_identical": 10,
+    "original_peer_checksum_files_byte_identical": 10,
+    "aggregate_files_byte_identical": 7,
+    "central_semantic_review_byte_identical": true,
+    "distinct_owner_identities": 10,
+    "distinct_peer_identities": 10,
+    "each_peer_distinct_from_reviewed_owner": true,
+    "exact_historical_allocation_slice": [
+      100,
+      300
+    ],
+    "literal_roots": 200,
+    "unique_roots": 200,
+    "aggregate_roots_equal_original_owner_concatenation": true,
+    "composition_baseline": "Current adopted504, not historical409; historical409 is used only to verify allocation identities.",
+    "current504_accounting_sha256": "68f349660664c5e2c149d84699b9c752409877f3c9e1d2f6ee08b899cc10149c",
+    "all_originals_conserved": 4319,
+    "retained_originals": 4300,
+    "same_prior_retired_ids": 19,
+    "prior_classified504_preserved": true,
+    "prior_reviewed_unresolved77_preserved": true,
+    "new_reviewed_unresolved9_retained": true,
+    "other_unadjudicated_exact200_subtraction": true,
+    "full_summary_mirrors": 12,
+    "completion_mirrors": 10,
+    "progress_mirrors": 2,
+    "outside_mirrors_changes": "Only as_of timestamp and exactly one appended classification_adjudication_history entry per ledger.",
+    "existing_history_prefixes_preserved": true,
+    "existing_limits_prefix_preserved": true,
+    "first100_adoption_and_summary_preserved": true,
+    "inherited_source_runtime_scope_preserved": true,
+    "new200_runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+    "final_live_ledger_reads": [
+      {
+        "ledger": "completion",
+        "path": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+        "sha256": "f826a8c56536a0c3058550a4ef132df218bafe34efeb89d40e84f391b2f6ee08",
+        "mode": "0o600",
+        "bytes": 1440003
+      },
+      {
+        "ledger": "progress",
+        "path": "/tmp/ts-qa-main-union-progress-20261016.json",
+        "sha256": "959f7e2c9f373cc3e0284fbcf4974b8f053f56a1f1f046d648d0a3e0500dd812",
+        "mode": "0o644",
+        "bytes": 177076
+      }
+    ],
+    "worktree_clean_at_finalization": true
+  },
+  "counts_before": {
+    "classified": 504,
+    "integration": 206,
+    "mixed": 86,
+    "originals": 4319,
+    "other_unadjudicated": 3719,
+    "retained": 4300,
+    "retired": 19,
+    "reviewed_unresolved_included": 77,
+    "unadjudicated": 3796,
+    "unit": 212
+  },
+  "delta": {
+    "reviewed": 200,
+    "classified": 191,
+    "integration": 52,
+    "unit": 103,
+    "mixed": 36,
+    "reviewed_unresolved": 9,
+    "retirement": 0,
+    "runtime": 0
+  },
+  "counts_after": {
+    "classified": 695,
+    "integration": 258,
+    "mixed": 122,
+    "originals": 4319,
+    "other_unadjudicated": 3519,
+    "retained": 4300,
+    "retired": 19,
+    "reviewed_unresolved_included": 86,
+    "unadjudicated": 3605,
+    "unit": 315
+  },
+  "ledgers": {
+    "completion": {
+      "actual_path": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+      "fresh_sha256": "f826a8c56536a0c3058550a4ef132df218bafe34efeb89d40e84f391b2f6ee08",
+      "before_sha256": "f826a8c56536a0c3058550a4ef132df218bafe34efeb89d40e84f391b2f6ee08",
+      "proposed_sha256": "23ee27661856ecc7192e5883ce2d6b6ab6c4f07507b293835245932684154d29",
+      "actual_mode": "0o600",
+      "mirror_count": 10,
+      "history_entries_before": 5,
+      "history_entries_proposed": 6
+    },
+    "progress": {
+      "actual_path": "/tmp/ts-qa-main-union-progress-20261016.json",
+      "fresh_sha256": "959f7e2c9f373cc3e0284fbcf4974b8f053f56a1f1f046d648d0a3e0500dd812",
+      "before_sha256": "959f7e2c9f373cc3e0284fbcf4974b8f053f56a1f1f046d648d0a3e0500dd812",
+      "proposed_sha256": "c525ac5e5f8a1d7b99da51d8dbc142ae15e97ffea1c0b5f10b8c3696bb3ae9e2",
+      "actual_mode": "0o644",
+      "mirror_count": 2,
+      "history_entries_before": 5,
+      "history_entries_proposed": 6
+    }
+  },
+  "original_owner_and_peer_pins": [
+    {
+      "range": [
+        100,
+        120
+      ],
+      "owner": "/root/classification_100_dispatch/batch_00_20",
+      "reviewer": "/root/classification_100_dispatch/batch_280_300",
+      "owner_sha256": "a2a852e897a85995594b3fa32751aca51bf3268220f29d42c2ada1875bebb269",
+      "peer_sha256": "eb12ec202f60d80a3888920aa5806b1ab16eb8f31c9be04f313e7e0f6312dc7b"
+    },
+    {
+      "range": [
+        120,
+        140
+      ],
+      "owner": "/root/classification_100_dispatch/batch_60_80",
+      "reviewer": "/root/classification_100_dispatch/batch_00_20",
+      "owner_sha256": "684652c18f455a21eef5331d8ddd5d54886dc1fe0bd44866baad8d4f4a06f9cb",
+      "peer_sha256": "a9caf4dbf7ce0e1bd19a0c52262c933a2c71eac8fb38d9135d95fce3db715e8e"
+    },
+    {
+      "range": [
+        140,
+        160
+      ],
+      "owner": "/root/classification_100_dispatch/batch_140_160",
+      "reviewer": "/root/classification_100_dispatch/batch_60_80",
+      "owner_sha256": "9ef9f63d55e04452f5d891a7541f9344b4987f47287f5d8cb6984cafb58f4ffb",
+      "peer_sha256": "e211ab818a3e6cd0c87a054dd4278db4a4ba46a4d624d220cd28657e730b341d"
+    },
+    {
+      "range": [
+        160,
+        180
+      ],
+      "owner": "/root/classification_100_dispatch/batch_160_180",
+      "reviewer": "/root/classification_100_dispatch/batch_140_160",
+      "owner_sha256": "3ccae077441f5b737767485f35b2d5cb0a364b5509ccb51c365976f036c10cfd",
+      "peer_sha256": "2436a4d57f0881aa5f9d24c4b1e366348d5090ffed963b90da89408e5624767f"
+    },
+    {
+      "range": [
+        180,
+        200
+      ],
+      "owner": "/root/classification_100_dispatch/batch_180_200",
+      "reviewer": "/root/classification_100_dispatch/batch_160_180",
+      "owner_sha256": "820c4182e878b9a3ef7977baef4434aa1988d6497e4f20152f526b7fa16f6839",
+      "peer_sha256": "d29d118b52e44f24fb501b96681d1689c50b1b30afee6f57f61259b9aafd27ca"
+    },
+    {
+      "range": [
+        200,
+        220
+      ],
+      "owner": "/root/classification_100_dispatch/batch_200_220",
+      "reviewer": "/root/classification_100_dispatch/batch_180_200",
+      "owner_sha256": "da68319e34ab2c5f9edda5a22893dd7c10ad0b66d30d0a326bb2cfa590bd936a",
+      "peer_sha256": "4af3a7249166af0bc8c7883e595b002e942e17059d51b1f310af038929bbcd7f"
+    },
+    {
+      "range": [
+        220,
+        240
+      ],
+      "owner": "/root/classification_100_dispatch/batch_220_240",
+      "reviewer": "/root/classification_100_dispatch/batch_200_220",
+      "owner_sha256": "3d6e828e88e55199f0605dde0d73a3603baf47bab23fc2c962c4b7a37a7c4810",
+      "peer_sha256": "8eb75ccfc304e3ec0272a72c92857f0a5ef7b5663b0a7f9cee4e7ba107669b38"
+    },
+    {
+      "range": [
+        240,
+        260
+      ],
+      "owner": "/root/classification_100_dispatch/batch_240_260",
+      "reviewer": "/root/classification_100_dispatch/batch_220_240",
+      "owner_sha256": "ca4ba80fa622b269f7758f57dd6b363e00ff13b3d3fdc276d9e730e49afda1a9",
+      "peer_sha256": "46867428a4b12e21a4801e3164bcfa78591c9e543b4872924ba40919a4e8cd50"
+    },
+    {
+      "range": [
+        260,
+        280
+      ],
+      "owner": "/root/classification_100_dispatch/batch_260_280",
+      "reviewer": "/root/classification_100_dispatch/batch_240_260",
+      "owner_sha256": "a213725e9a899e4bcb7cb3281c9a42d188ec6e4477d29e80dc1b3969730e71b5",
+      "peer_sha256": "bcd38257366328fbfe112408ab6d32efcea75bbae3b8f4d074229666cce5efee"
+    },
+    {
+      "range": [
+        280,
+        300
+      ],
+      "owner": "/root/classification_100_dispatch/batch_280_300",
+      "reviewer": "/root/classification_100_dispatch/batch_260_280",
+      "owner_sha256": "be887dd6c061f5f58ef227791ff016c69cf6642a697334446287f9e2e43c7d2a",
+      "peer_sha256": "c1b3d237e88741b89ef59088b8dfc0572fc7b1318bd670b8117c95cfe7289fd1"
+    }
+  ],
+  "independent_check_artifacts": {
+    "verifier": {
+      "path": "/tmp/ts-root200-prospective-composition-independent-zm4mb8d2/verify.py",
+      "sha256": "a8fc3a9450ffb2b09cf3debd7dc986eed75efefbd1673e6e8fd4587f5aeef82a"
+    },
+    "check_results": {
+      "path": "/tmp/ts-root200-prospective-composition-independent-zm4mb8d2/checks.json",
+      "sha256": "938c9f26831aedc79f429c92bf4b331f5af7538802dc8d35160c770a24e54784"
+    }
+  },
+  "findings": [],
+  "all_five_categories": "OPEN",
+  "complete": false,
+  "actual_shared_ledger_mutation": false,
+  "canonical_source_mutation": false,
+  "compile_credit": 0,
+  "runtime_credit": 0,
+  "retirement_delta": 0,
+  "deletion_credit": 0,
+  "qualification_transfer": false,
+  "limits": [
+    "Prospective acceptance only. Application remains a separate QA/ROOT action requiring a fresh before-hash check at application time.",
+    "The400 declaration and242 assertion-citation semantic checks are inherited solely through byte-identical pinned central acceptance; they were not rerun by this composition review.",
+    "No Go, formatter, compiler, build, test, lint, benchmark, runtime, probe, fixture, cloud, lease or lock execution occurred.",
+    "Cached SDK remote/zip provenance was not reverified. Existing historical evidence retains its original exact scope; new200 source classifications create no compile/runtime/completion credit."
+  ]
+}
