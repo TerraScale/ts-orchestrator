@@ -110,5 +110,5 @@ func statusError(status string) error {
 
 // observationOnly does not grant the six-operation startup exemption.
 func (operation Operation) observationOnly() bool {
-	return operation.ReadOnly() || operation == OperationObservePoolChild || operation == OperationInspectVolumeMount || operation == OperationObserveTerminatedInstance || operation == OperationObserveContainerGeneration
+	return operation.ReadOnly() || operation == OperationObservePoolChild || operation == OperationInspectVolumeMount || operation == OperationObserveTerminatedInstance || operation == OperationObserveContainerGeneration || operation == OperationContainerEvidence || operation == OperationContainerAllocation
 }
