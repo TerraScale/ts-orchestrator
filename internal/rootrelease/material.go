@@ -65,11 +65,13 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 		return materialScope{}, err
 	}
 	materialRoots := roots.Current
+	readIntent := s.Intents.ContainerIntent
 	if operation == rootoci.OperationRetainedContainerEvidence || operation == rootoci.OperationRetainedContainerAllocation {
 		// Rotated roots authenticate retained provenance, never current authority.
 		materialRoots = roots.Historical
+		readIntent = s.Intents.RetainedContainerIntent
 	}
-	intent, err := s.Intents.ContainerIntent(ctx, operationID)
+	intent, err := readIntent(ctx, operationID)
 	if err != nil {
 		return materialScope{}, err
 	}
@@ -236,7 +238,7 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 		if err != nil || specNow.Revision() != specEntry.Revision() || !bytes.Equal(specNow.Value(), specEntry.Value()) {
 			return errors.Join(ErrPending, err)
 		}
-		currentIntent, err := s.Intents.ContainerIntent(ctx, operationID)
+		currentIntent, err := readIntent(ctx, operationID)
 		if err != nil {
 			return err
 		}
