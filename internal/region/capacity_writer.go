@@ -318,8 +318,7 @@ func (w *CapacityJournalWriter) CompareAndSwap(ctx context.Context, record Found
 func capacityJournalCell(cell string) bool { return cell == "GRU" || cell == "SFO" || cell == "FRA" }
 
 func capacityWriterDigest(record FoundationWriterRecord) (string, error) {
-	record.CapacityJournal = nil
-	wire, err := json.Marshal(record, json.Deterministic(true))
+	wire, err := json.Marshal(foundationWriterOriginal(record), json.Deterministic(true))
 	return digestSource(wire), err
 }
 
