@@ -116,7 +116,7 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	}
 	codec := delivery.Ed25519Codec{Cell: identity.Cell, Actor: "release", PrivateKey: signer.leaf, Lifetime: time.Minute, MaxLifetime: time.Minute,
 		Trusted: map[string]delivery.TrustedSigner{keyID: {Actor: "release", PublicKey: signer.leaf.Public().(ed25519.PublicKey)}}}
-	history := retainGenericRuntimeNativeRelease(t, ctx, broker.JetStream(), specs, fencer, codec, profile, policy.Role, identity.Environment)
+	history := retainGenericRuntimeNativeRelease(t, ctx, broker.JetStream(), specs, fencer, codec, profile, policy.Role, identity.Environment, session.registration.Node)
 	legacyFloor, err := history.retainedContainerFloor(ctx, policy.Role, identity.Environment)
 	if err != nil {
 		t.Fatal(err)
@@ -711,7 +711,7 @@ func (session *genericRuntimeHostSession) verify(ctx context.Context) error {
 type genericRuntimeLegacyWriter struct{ writes atomic.Int64 }
 
 func retainGenericRuntimeNativeRelease(t *testing.T, ctx context.Context, js jetstream.JetStream, specs *specRegistry,
-	fencer *authority.Runtime, codec delivery.Ed25519Codec, profile WorkloadProfile, role, environment string,
+	fencer *authority.Runtime, codec delivery.Ed25519Codec, profile WorkloadProfile, role, environment, retainedNode string,
 ) *nativeHistory {
 	t.Helper()
 	deliveries, err := delivery.Open(ctx, delivery.Config{Conn: js.Conn(), JS: js, Cell: specs.cell, Replicas: 1, ArtifactSigner: codec, ArtifactVerifier: codec,
@@ -754,7 +754,7 @@ func retainGenericRuntimeNativeRelease(t *testing.T, ctx context.Context, js jet
 		t.Fatal(err)
 	}
 	history := &nativeHistory{kv: kv, js: js, services: specs, deliveries: deliveries, fencer: fencer}
-	if err := history.save(ctx, fencer.Current().Epoch, role, nativeReleaseHistory{Schema: 1, Good: []nativeGoodRelease{{Binding: binding, GoodAt: time.Now().UTC()}}}, 0); err != nil {
+	if err := history.save(ctx, fencer.Current().Epoch, role, nativeReleaseHistory{Schema: 1, Good: []nativeGoodRelease{{Binding: binding, GoodAt: time.Now().UTC(), Nodes: []string{retainedNode}}}}, 0); err != nil {
 		t.Fatal(err)
 	}
 	return history
