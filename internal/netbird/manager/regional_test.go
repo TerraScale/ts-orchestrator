@@ -26,6 +26,13 @@ func TestRegionalIntentKeepsEnrollmentAndAccessWithinItsRegion(t *testing.T) {
 			}) {
 				t.Fatal("regional operator access is missing")
 			}
+			if !slices.ContainsFunc(desired.Policies, func(policy PolicySpec) bool {
+				return policy.Name == "netbird-managers-to-"+scenario.servers+"-control" && policy.Protocol == "tcp" &&
+					slices.Equal(policy.Ports, []string{"4222"}) && slices.Equal(policy.Sources, []string{"netbird-managers"}) &&
+					slices.Equal(policy.Destinations, []string{scenario.servers})
+			}) {
+				t.Fatal("dedicated manager cannot read its regional control source")
+			}
 			if _, err := Regional(scenario.cell, "10.250.0.0/25", nil); err == nil {
 				t.Fatal("foreign private subnet was accepted")
 			}

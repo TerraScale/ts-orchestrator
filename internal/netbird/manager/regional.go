@@ -20,7 +20,7 @@ func Regional(cell, subnet string, slots []Slot) (Desired, error) {
 	servers := name + "-servers"
 	d := Desired{
 		Cell: name + "-1", Region: region.OCIRegion,
-		Groups:       []GroupSpec{{Name: "operators"}, {Name: servers}, {Name: "ops-automation"}},
+		Groups:       []GroupSpec{{Name: "operators"}, {Name: servers}, {Name: "ops-automation"}, {Name: "netbird-managers"}},
 		ServersGroup: servers,
 		Network: NetworkSpec{Name: name + "-cell", Description: "TerraScale " + cell + " private cell",
 			Resource: ResourceSpec{Name: name + "-cell-private-subnet", Description: cell + " cell private address plan", Address: subnet}},
@@ -54,6 +54,9 @@ func Regional(cell, subnet string, slots []Slot) (Desired, error) {
 		d.Policies = regionPolicies([]string{servers})
 	}
 	d.Policies = slices.Concat(d.Policies, serverAccessPolicies([]string{servers}))
+	d.Policies = append(d.Policies, PolicySpec{Name: "netbird-managers-to-" + servers + "-control",
+		Description: "Dedicated NetBird manager → " + cell + " regional control reads",
+		Protocol:    "tcp", Ports: []string{"4222"}, Sources: []string{"netbird-managers"}, Destinations: []string{servers}})
 	slices.SortFunc(d.Slots, func(a, b Slot) int { return strings.Compare(a.Name, b.Name) })
 	if err := d.Validate(); err != nil {
 		return Desired{}, err
