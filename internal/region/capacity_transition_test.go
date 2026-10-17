@@ -125,3 +125,45 @@ func TestProtectedWireTransitionRetainsAttemptsAndPositiveResults(t *testing.T) 
 		t.Fatal("replaced positive original work request")
 	}
 }
+
+func TestCapacityTransitionRetainsConditionalConfigurationPoint(t *testing.T) {
+	child, _, _ := protectedChildFixture()
+	operation := entityid.New()
+	wire := *child.Attach
+	wire.IfMatch = "original-etag"
+	pool := PoolResourceRecord{PoolID: child.PoolID, PoolName: "original-pool", ConfigurationUpdates: map[string]PoolConfigurationUpdateRecord{
+		operation: {ConfigurationID: child.ConfigurationID, Request: wire},
+	}}
+	previous := FoundationRecord{CapacityPools: map[string]PoolResourceRecord{pool.PoolID: pool}}
+	for _, mutation := range []struct {
+		name   string
+		change func(*FoundationRecord)
+	}{
+		{"prune point", func(r *FoundationRecord) { delete(r.CapacityPools[pool.PoolID].ConfigurationUpdates, operation) }},
+		{"replace configuration", func(r *FoundationRecord) {
+			point := r.CapacityPools[pool.PoolID].ConfigurationUpdates[operation]
+			point.ConfigurationID += "replacement"
+			r.CapacityPools[pool.PoolID].ConfigurationUpdates[operation] = point
+		}},
+		{"replace conditional request", func(r *FoundationRecord) {
+			point := r.CapacityPools[pool.PoolID].ConfigurationUpdates[operation]
+			point.Request.IfMatch = "replacement-etag"
+			r.CapacityPools[pool.PoolID].ConfigurationUpdates[operation] = point
+		}},
+	} {
+		t.Run(mutation.name, func(t *testing.T) {
+			next := previous
+			next.cloneCapacity()
+			mutation.change(&next)
+			if err := next.retainCapacity(previous); err == nil {
+				t.Fatal("accepted lost or replaced original pool configuration point")
+			}
+		})
+	}
+	next := previous
+	next.cloneCapacity()
+	next.CapacityPools[pool.PoolID].ConfigurationUpdates[entityid.New()] = PoolConfigurationUpdateRecord{ConfigurationID: child.ConfigurationID, Request: wire}
+	if err := next.retainCapacity(previous); err != nil {
+		t.Fatal(err)
+	}
+}
