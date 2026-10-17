@@ -6,19 +6,35 @@ import (
 	"crypto/ecdsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"strconv"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/executionwire"
 	"github.com/moby/swarmkit/v2/api"
 )
 
-func (s *EffectSessions) verifyRuntimeStop(ctx context.Context, epoch uint64, effect authority.RuntimeEffect, challenge runtimeStopChallenge, proof executionwire.SignedRuntimeStop) error {
+func (s *EffectSessions) verifyRuntimeStop(ctx context.Context, epoch uint64, effect authority.RuntimeEffect, challenge runtimeStopChallenge, proof executionwire.SignedRuntimeStop, settlementDeadline time.Time) error {
+	deadline, err := runtimeStopDeadline(challenge, proof)
+	if err != nil {
+		return err
+	}
+	if settlementDeadline.IsZero() || settlementDeadline.After(deadline) {
+		return errors.New("runtime stopped proof settlement exceeds its original lifetime")
+	}
+	ctx, cancel := context.WithDeadline(ctx, settlementDeadline)
+	defer cancel()
+	if err := checkRuntimeStopContext(ctx); err != nil {
+		return err
+	}
 	now := time.Now().UTC()
 	payload := proof.Payload
 	retained, err := json.Marshal(challenge.effect, json.Deterministic(true))
@@ -42,6 +58,9 @@ func (s *EffectSessions) verifyRuntimeStop(ctx context.Context, epoch uint64, ef
 		len(proof.CertificateChain) == 0 || len(proof.CertificateChain) > 8 || len(proof.Signature) == 0 || len(proof.Signature) > 1024 {
 		return errors.New("runtime stopped proof differs from fresh exact closing challenge")
 	}
+	if err := verifyRuntimeStopGrant(effect, challenge, proof); err != nil {
+		return err
+	}
 	material, err := runtimeMaterial(effect)
 	if err != nil {
 		return err
@@ -52,6 +71,9 @@ func (s *EffectSessions) verifyRuntimeStop(ctx context.Context, epoch uint64, ef
 	}
 	node, err := s.admittedNode(ctx, registration, effect.NodeID)
 	if err != nil {
+		return err
+	}
+	if err := checkRuntimeStopContext(ctx); err != nil {
 		return err
 	}
 	block, _ := pem.Decode(node.Certificate.Certificate)
@@ -67,6 +89,9 @@ func (s *EffectSessions) verifyRuntimeStop(ctx context.Context, epoch uint64, ef
 	}
 	clusters, err := s.control.ListClusters(ctx, &api.ListClustersRequest{})
 	if err != nil {
+		return err
+	}
+	if err := checkRuntimeStopContext(ctx); err != nil {
 		return err
 	}
 	if clusters == nil || len(clusters.Clusters) != 1 || clusters.Clusters[0] == nil || leaf.Subject.Organization[0] != clusters.Clusters[0].ID {
@@ -89,8 +114,26 @@ func (s *EffectSessions) verifyRuntimeStop(ctx context.Context, epoch uint64, ef
 		}
 		intermediates.AddCert(certificate)
 	}
-	if _, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, CurrentTime: now, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
+	chains, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, CurrentTime: time.Now().UTC(), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
+	if err != nil {
 		return err
+	}
+	chainCoversSettlement := false
+	for _, chain := range chains {
+		covers := true
+		for _, certificate := range chain {
+			if certificate.NotAfter.Before(settlementDeadline) {
+				covers = false
+				break
+			}
+		}
+		if covers {
+			chainCoversSettlement = true
+			break
+		}
+	}
+	if !chainCoversSettlement {
+		return errors.New("runtime stopped proof verified certificate chain expires before its outer settlement deadline")
 	}
 	key, ok := leaf.PublicKey.(*ecdsa.PublicKey)
 	if !ok {
@@ -100,9 +143,94 @@ func (s *EffectSessions) verifyRuntimeStop(ctx context.Context, epoch uint64, ef
 	if err != nil {
 		return err
 	}
-	digest := sha256.Sum256(append([]byte("TS-RUNTIME-STOP-V1\x00"), wire...))
+	digest := sha256.Sum256(append([]byte("TS-RUNTIME-STOP-V2\x00"), wire...))
 	if !ecdsa.VerifyASN1(key, digest[:], proof.Signature) {
 		return errors.New("runtime stopped proof worker signature is invalid")
 	}
-	return s.authority.Guard(ctx, epoch)
+	if err := s.authority.Guard(ctx, epoch); err != nil {
+		return err
+	}
+	return checkRuntimeStopContext(ctx)
+}
+
+func runtimeStopDeadline(challenge runtimeStopChallenge, proof executionwire.SignedRuntimeStop) (time.Time, error) {
+	if len(proof.CertificateChain) == 0 {
+		return time.Time{}, errors.New("runtime stopped proof worker certificate unavailable")
+	}
+	leaf, err := x509.ParseCertificate(proof.CertificateChain[0])
+	if err != nil {
+		return time.Time{}, err
+	}
+	deadline := challenge.issued.Add(10 * time.Second)
+	for _, limit := range []time.Time{proof.ClosingGrant.ExpiresAt, leaf.NotAfter} {
+		if limit.Before(deadline) {
+			deadline = limit
+		}
+	}
+	return deadline, nil
+}
+
+func checkRuntimeStopContext(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if deadline, ok := ctx.Deadline(); !ok || !time.Now().Before(deadline) {
+		return context.DeadlineExceeded
+	}
+	return nil
+}
+
+// The worker verified this original envelope before observing the stop. Its
+// signed digest binds those bytes; root consumers must verify the manager key.
+func verifyRuntimeStopGrant(effect authority.RuntimeEffect, challenge runtimeStopChallenge, proof executionwire.SignedRuntimeStop) error {
+	wire, err := json.Marshal(proof.ClosingGrant, json.Deterministic(true))
+	if err != nil {
+		return err
+	}
+	if proof.Payload.ClosingGrantSHA256 != fmt.Sprintf("%x", sha256.Sum256(wire)) {
+		return errors.New("runtime stopped proof differs from its original closing grant digest")
+	}
+	var response struct {
+		Nonce     string         `json:"nonce"`
+		Node      string         `json:"node"`
+		SessionID string         `json:"session_id"`
+		Epoch     uint64         `json:"epoch"`
+		Operation string         `json:"operation"`
+		Error     string         `json:"error,omitempty"`
+		Retryable bool           `json:"retryable,omitzero"`
+		Payload   jsontext.Value `json:"payload,omitempty"`
+	}
+	if err := protocol.DecodeStrict(proof.ClosingGrant.Payload, &response, 512<<10); err != nil {
+		return err
+	}
+	var grant executionwire.WorkerGrantPayload
+	if err := protocol.DecodeStrict(response.Payload, &grant, 512<<10); err != nil {
+		return err
+	}
+	expected, err := runtimePayload(effect, grant.Nonce, effect.IssuedAt)
+	if err != nil {
+		return err
+	}
+	expected.LeaderEpoch, expected.StopChallenge = challenge.epoch, challenge.nonce
+	want, err := json.Marshal(expected, json.Deterministic(true))
+	if err != nil {
+		return err
+	}
+	got, err := json.Marshal(grant, json.Deterministic(true))
+	if err != nil {
+		return err
+	}
+	region, err := protocol.CanonicalRegion(expected.Identity.Cell)
+	envelope := proof.ClosingGrant
+	if err != nil || !bytes.Equal(want, got) || response.Operation != "runtime-effect" || response.Error != "" || response.Retryable ||
+		response.Node != expected.Identity.HostNode || !entityid.Valid(response.SessionID) || response.Epoch == 0 || len(response.Nonce) != 32 ||
+		envelope.SchemaVersion != protocol.EnvelopeSchemaVersion || envelope.Region != region || envelope.Kind != "host.response.runtime-effect" ||
+		envelope.Actor != "controller" || envelope.Generation != 0 || envelope.Epoch != response.Epoch ||
+		envelope.OperationID != entityid.Derive("host-request", response.Nonce) || envelope.KeyID == "" || envelope.Signature == "" ||
+		envelope.IssuedAt.Before(challenge.issued) || envelope.IssuedAt.After(proof.Payload.ObservedAt) ||
+		!envelope.ExpiresAt.After(envelope.IssuedAt) || envelope.ExpiresAt.Sub(envelope.IssuedAt) > 10*time.Second ||
+		!time.Now().Before(envelope.ExpiresAt) {
+		return errors.New("runtime stopped proof closing grant differs from its exact retained challenge and material")
+	}
+	return nil
 }

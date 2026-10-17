@@ -139,6 +139,18 @@ func (s *EffectSessions) current(ctx context.Context) (uint64, error) {
 
 func (s *EffectSessions) HandleRuntimeEffect(ctx context.Context, caller host.RuntimeEffectCaller, query executionwire.RuntimeEffectQuery) (executionwire.WorkerGrantPayload, error) {
 	var empty executionwire.WorkerGrantPayload
+	if query.Action == "close" && query.StopProof != nil {
+		deadline := caller.RequestExpiresAt()
+		if caller.ExpiresAt().Before(deadline) {
+			deadline = caller.ExpiresAt()
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, deadline)
+		defer cancel()
+		if err := checkRuntimeStopContext(ctx); err != nil {
+			return empty, err
+		}
+	}
 	epoch, err := s.current(ctx)
 	if err != nil || caller.Epoch() != epoch {
 		return empty, errors.Join(authority.ErrFenced, err)
@@ -391,6 +403,7 @@ func (s *EffectSessions) readback(ctx context.Context, epoch uint64, expected au
 
 func (s *EffectSessions) close(ctx context.Context, epoch uint64, held *runtimeEffectScope, effect authority.RuntimeEffect, query executionwire.RuntimeEffectQuery) (executionwire.WorkerGrantPayload, error) {
 	var empty executionwire.WorkerGrantPayload
+	settlingStop := false
 	if effect.Phase != authority.RuntimeEffectSettled {
 		sequence, err := s.authority.CloseRuntimeEffect(ctx, epoch, effect.Scope, effect.EffectID, effect.Sequence)
 		if err != nil {
@@ -404,13 +417,39 @@ func (s *EffectSessions) close(ctx context.Context, epoch uint64, held *runtimeE
 			if !exists {
 				return empty, errors.New("runtime stop challenge unavailable; request a fresh challenge")
 			}
-			sequence, err := s.authority.SettleRuntimeEffect(ctx, epoch, effect.Scope, effect.EffectID, effect.Sequence, func(check context.Context, latest authority.RuntimeEffect) error {
-				return s.verifyRuntimeStop(check, epoch, latest, challenge, *query.StopProof)
+			wire, err := json.Marshal(*query.StopProof, json.Deterministic(true))
+			if err != nil {
+				return empty, err
+			}
+			var proof executionwire.SignedRuntimeStop
+			if err := json.Unmarshal(wire, &proof, json.RejectUnknownMembers(true)); err != nil {
+				return empty, err
+			}
+			deadline, err := runtimeStopDeadline(challenge, proof)
+			if err != nil {
+				return empty, err
+			}
+			// The original proof caps bound the outer CAS and readback, not only its verifier.
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithDeadline(ctx, deadline)
+			defer cancel()
+			settlingStop = true
+			if err := checkRuntimeStopContext(ctx); err != nil {
+				return empty, err
+			}
+			settlementDeadline, _ := ctx.Deadline()
+			stop := authority.RuntimeStopRecord{SignedProof: wire, ClosingSequence: effect.Sequence, ChallengeEpoch: challenge.epoch, ChallengeIssuedAt: challenge.issued}
+			sequence, err := s.authority.SettleRuntimeEffectWithStop(ctx, epoch, effect.Scope, effect.EffectID, effect.Sequence, stop, func(check context.Context, latest authority.RuntimeEffect) error {
+				return s.verifyRuntimeStop(check, epoch, latest, challenge, proof, settlementDeadline)
 			})
 			if err != nil {
 				return empty, err
 			}
+			if err := checkRuntimeStopContext(ctx); err != nil {
+				return empty, err
+			}
 			effect.Phase, effect.Sequence = authority.RuntimeEffectSettled, sequence
+			effect.Stop = new(stop)
 			delete(held.challenges, effect.EffectID)
 		} else {
 			challenge, exists := held.challenges[effect.EffectID]
@@ -427,11 +466,21 @@ func (s *EffectSessions) close(ctx context.Context, epoch uint64, held *runtimeE
 	if err != nil {
 		return empty, err
 	}
+	if settlingStop {
+		if err := checkRuntimeStopContext(ctx); err != nil {
+			return empty, err
+		}
+	}
 	if effect.Phase == authority.RuntimeEffectClosing && !time.Now().Before(effect.ExpiresAt) {
 		payload.StopChallenge = held.challenges[effect.EffectID].nonce
 	}
 	if effect.Phase == authority.RuntimeEffectSettled {
 		if err := s.releaseSettled(ctx, effect.Scope, held); err != nil {
+			return empty, err
+		}
+	}
+	if settlingStop {
+		if err := checkRuntimeStopContext(ctx); err != nil {
 			return empty, err
 		}
 	}
