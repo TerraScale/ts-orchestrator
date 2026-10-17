@@ -107,6 +107,11 @@ func runRootCredentialBoundary(ctx context.Context, preparationWire, delegationW
 	if err != nil {
 		return result, err
 	}
+	issuer, err = producer.CleanupObserver(ctx, v, paths.PrincipalDirectory)
+	if err != nil {
+		return result, err
+	}
+	producer = principal.New(issuer)
 	if wire, readErr := os.ReadFile(paths.Approval); readErr == nil {
 		p, err = Prepare(wire, delegationWire, roots, prep.Candidate, prep.RunID, paths.Disk, paths.CIQualification, time.Now().UTC())
 		if err == nil {

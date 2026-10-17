@@ -44,6 +44,11 @@ func recoverRootCredentialBoundary(ctx context.Context, v principal.VerifiedPrep
 	cleanup, cancel := context.WithDeadline(context.Background(), p.approval.CleanupUntil)
 	defer cancel()
 	producer := principal.New(issuer)
+	issuer, err = producer.CleanupObserver(cleanup, v, paths.PrincipalDirectory)
+	if err != nil {
+		return true, err
+	}
+	producer = principal.New(issuer)
 	if err := producer.CleanupReaders(cleanup, v, paths.PrincipalDirectory); err != nil {
 		return true, err
 	}

@@ -32,6 +32,7 @@ type attempt struct {
 	store    *store
 	journal  *journal
 	client   identity.IdentityClient
+	issuer   *ociclient.Factory
 }
 
 type createIntent struct {
@@ -93,6 +94,10 @@ func (p *Producer) attempt(ctx context.Context, v VerifiedPreparation, workdir s
 		return nil, errors.New("issuer private key differs from signed API fingerprint")
 	}
 	frozen := common.NewRawConfigurationProvider(prep.Tenancy, prep.IssuerPrincipal, prep.IAMRegion, prep.IssuerFingerprint, string(keyPEM), nil)
+	frozenIssuer, err := ociclient.New(frozen, ociclient.Options{Region: prep.IAMRegion})
+	if err != nil {
+		return nil, err
+	}
 	s, err := openStore(workdir)
 	if err != nil {
 		return nil, err
@@ -110,7 +115,7 @@ func (p *Producer) attempt(ctx context.Context, v VerifiedPreparation, workdir s
 	client.SetRegion(prep.IAMRegion)
 	p.issuer.Configure(&client.BaseClient, ociclient.ServiceIdentity)
 	ociclient.PinHost(&client.BaseClient, p.endpoint)
-	a := &attempt{producer: p, verified: v, store: s, journal: j, client: client}
+	a := &attempt{producer: p, verified: v, store: s, journal: j, client: client, issuer: frozenIssuer}
 	previous := a.client.Interceptor
 	a.client.Interceptor = func(request *http.Request) error {
 		if previous != nil {
@@ -346,6 +351,17 @@ func (p *Producer) ResumeForCleanup(ctx context.Context, v VerifiedPreparation, 
 	}
 	result.prepared = true
 	return result, nil
+}
+
+// CleanupObserver freezes and authenticates the original issuer for readonly
+// confinement and cleanup observations, including after the candidate is gone.
+func (p *Producer) CleanupObserver(ctx context.Context, v VerifiedPreparation, workdir string) (*ociclient.Factory, error) {
+	a, err := p.attempt(ctx, v, workdir, true)
+	if err != nil {
+		return nil, err
+	}
+	defer a.store.close()
+	return a.issuer, nil
 }
 
 // recoverOnly replays only already journaled creates during cleanup; it never

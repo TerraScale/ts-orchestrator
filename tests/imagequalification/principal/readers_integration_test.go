@@ -10,11 +10,51 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/identity"
 
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/qualification"
 	"github.com/TerraScale/ts-orchestrator/internal/qualification/hostadmission"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
+
+func TestSDKCleanupObserverFreezesOriginalIssuer(t *testing.T) {
+	f, _ := readerFixture(t)
+	if _, err := f.producer.Prepare(t.Context(), f.verified, f.dir); err != nil {
+		t.Fatal(err)
+	}
+	rotating := &rotatingIssuer{ConfigurationProvider: f.producer.issuer.Provider()}
+	factory, err := ociclient.New(rotating, ociclient.Options{Region: f.prep.IAMRegion})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.producer.issuer = factory
+	observer, err := f.producer.CleanupObserver(t.Context(), f.verified, f.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := observer.Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ociclient.PinHost(&client.BaseClient, f.server.URL)
+	if _, err := client.GetTenancy(t.Context(), identity.GetTenancyRequest{TenancyId: new(f.prep.Tenancy)}); err != nil {
+		t.Fatal("frozen observer changed original authenticated issuer", err)
+	}
+	if rotating.calls.Load() != 1 {
+		t.Fatal("observer reread refreshable issuer after exact freeze")
+	}
+	f.mu.Lock()
+	requests := f.requests
+	f.mu.Unlock()
+	if _, err := f.producer.CleanupObserver(t.Context(), f.verified, f.dir); err == nil {
+		t.Fatal("mismatched refreshed issuer admitted for cleanup observations")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.requests != requests {
+		t.Fatal("mismatched refreshed issuer reached SDK")
+	}
+}
 
 func readerFixture(t *testing.T) (*sdkFixture, []byte) {
 	t.Helper()

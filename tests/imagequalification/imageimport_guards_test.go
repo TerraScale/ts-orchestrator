@@ -10,6 +10,13 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
 )
 
+type forbiddenImageImportDispatch struct{ calls *int }
+
+func (d forbiddenImageImportDispatch) Do(*http.Request) (*http.Response, error) {
+	*d.calls += 1
+	return nil, errors.New("SDK fixture forbids network dispatch")
+}
+
 func TestImageUploaderPreservesExistingSDKRequestGuards(t *testing.T) {
 	f := fixture(t)
 	factory := sdkFactory(t, f.prepared.Approval())
@@ -26,7 +33,9 @@ func TestImageUploaderPreservesExistingSDKRequestGuards(t *testing.T) {
 		t.Fatal(err)
 	}
 	blocked, calls := errors.New("original SDK request guard blocked dispatch"), 0
+	wireCalls := 0
 	for _, base := range []*common.BaseClient{&compute.BaseClient, &objects.BaseClient, &work.BaseClient} {
+		base.HTTPClient = forbiddenImageImportDispatch{calls: &wireCalls}
 		base.Interceptor = func(*http.Request) error {
 			calls++
 			return blocked
@@ -42,7 +51,7 @@ func TestImageUploaderPreservesExistingSDKRequestGuards(t *testing.T) {
 	if _, err := client.GetWorkRequest(t.Context(), "ocid1.workrequest.oc1..tested"); !errors.Is(err, blocked) {
 		t.Fatalf("work request bypassed original guard: %v", err)
 	}
-	if calls != 3 {
-		t.Fatalf("guard calls=%d, want three SDK requests", calls)
+	if calls != 3 || wireCalls != 0 {
+		t.Fatalf("guard calls=%d, wire calls=%d; want three guarded requests and no dispatch", calls, wireCalls)
 	}
 }

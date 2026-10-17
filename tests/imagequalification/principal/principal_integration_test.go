@@ -55,6 +55,7 @@ type sdkFixture struct {
 	tokens           map[string]string
 	creates          map[string]int
 	writes           []string
+	requests         int
 	failCreate       string
 	failDelete       string
 	wrongObservation bool
@@ -160,6 +161,7 @@ func (f *sdkFixture) verify(p Preparation) VerifiedPreparation {
 func (f *sdkFixture) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.requests++
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("etag", "exact-etag")
 	write := func(status int, value any) {
