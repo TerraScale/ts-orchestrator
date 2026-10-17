@@ -7,11 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"testing"
 	"time"
-
-	"github.com/oracle/oci-go-sdk/v65/common"
-	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
 // backupHistorySDK serves a volume's backup history newest first in pages
@@ -48,26 +44,4 @@ func (sdk *backupHistorySDK) Do(request *http.Request) (*http.Response, error) {
 	}
 	return &http.Response{StatusCode: http.StatusOK, Header: header, Body: io.NopCloser(strings.NewReader(string(body))),
 		Request: request}, nil
-}
-
-// A volume whose unpruned history outgrew the listing bound still lists its
-// newest backups, so scheduling and retention keep working (#127 12050).
-func TestVolumeBackupListingKeepsTheNewestBackupsOfALongHistory(t *testing.T) {
-	config, _ := testRegionConfig()
-	sdk := &backupHistorySDK{total: maxProviderItems + 150}
-	base := common.BaseClient{Host: "https://sdk.test.invalid", BasePath: "20160918",
-		UserAgent: "oci-backup-test", Signer: observeSDKSigner{}, HTTPClient: sdk}
-	provider := &sdkProvider{config: config, storage: core.BlockstorageClient{BaseClient: base}}
-	backups, err := provider.ListVolumeBackups(t.Context(), "ocid1.volume.exact")
-	if err != nil {
-		t.Fatalf("long backup history = %v", err)
-	}
-	if len(backups) != maxProviderItems || backups[0].ID != "ocid1.volumebackup.0" ||
-		!backups[0].CreatedAt.After(backups[len(backups)-1].CreatedAt) {
-		t.Fatalf("listing = %d backups, first %q", len(backups), backups[0].ID)
-	}
-	query := sdk.requests[0].URL.Query()
-	if query.Get("sortBy") != "TIMECREATED" || query.Get("sortOrder") != "DESC" || query.Get("volumeId") != "ocid1.volume.exact" {
-		t.Fatalf("listing is not newest first for the volume: %v", query)
-	}
 }

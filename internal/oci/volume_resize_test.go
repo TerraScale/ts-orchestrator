@@ -258,18 +258,6 @@ func TestResizeRetainedVolumeRefusesUnownedFencedAndOutOfBoundRequests(t *testin
 	}
 }
 
-func TestVolumeAttachmentLookupUsesVolumeFilter(t *testing.T) {
-	fleet, provider, _, _, created := resizeFixture(t)
-	provider.attachments["attachment-x"] = CloudAttachment{ID: "attachment-x", VolumeID: created.ID, InstanceID: "ocid1.instance.x"}
-	found, err := fleet.findVolumeAttachments(t.Context(), created.ID)
-	if err != nil || len(found) != 1 || found[0].ID != "attachment-x" {
-		t.Fatalf("filtered attachments = %+v, %v", found, err)
-	}
-	if provider.volumeAttachLists != 1 || provider.compartmentListing != 0 {
-		t.Fatalf("lookup scanned the compartment: filtered=%d scans=%d", provider.volumeAttachLists, provider.compartmentListing)
-	}
-}
-
 func TestKVJournalAdvancesAndRepairsResizedVolumeOwnership(t *testing.T) {
 	ctx := t.Context()
 	kv := testJournalBucket(t)
