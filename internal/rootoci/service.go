@@ -2,6 +2,7 @@ package rootoci
 
 import (
 	"context"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"os"
 	"reflect"
 	"time"
@@ -16,6 +17,7 @@ type Backends struct {
 	Credentials Credentials
 	Capacity    Pool
 	NetBird     NetBird
+	Releases    Releases
 }
 
 type Service struct{ backends Backends }
@@ -31,7 +33,7 @@ func NewService(backends Backends) (*Service, error) {
 }
 
 func validBackends(backends Backends) bool {
-	for _, backend := range []any{backends.Readers, backends.Foundations, backends.Credentials, backends.Capacity, backends.NetBird} {
+	for _, backend := range []any{backends.Readers, backends.Foundations, backends.Credentials, backends.Capacity, backends.NetBird, backends.Releases} {
 		if !validDependency(backend) {
 			return false
 		}
@@ -102,6 +104,9 @@ func (service *Service) validRequest(request wireRequest) bool {
 		return decodePayload(request.Payload, &input) == nil && validSelector(input.Cell) && validSelector(input.OperationID) &&
 			validSelector(input.RuntimeID) && validSelector(input.OwnerID) && input.IntentRevision > 0 && input.Epoch > 0 &&
 			input.LeaseRevision > 0 && !input.ExpiresAt.IsZero() && time.Now().Before(input.ExpiresAt)
+	case OperationReconcileContainerStatus:
+		var input ContainerStatusRequest
+		return decodePayload(request.Payload, &input) == nil && entityid.Valid(input.OperationID) && validDigest(input.ExpectedFingerprint)
 	default:
 		return false
 	}
@@ -174,6 +179,12 @@ func (service *Service) dispatch(ctx context.Context, call Call, request wireReq
 			return nil, err
 		}
 		return service.backends.NetBird.AuthorizeNetBirdIntent(ctx, call, input)
+	case OperationReconcileContainerStatus:
+		var input ContainerStatusRequest
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		return service.backends.Releases.ReconcileContainerStatus(ctx, call, input)
 	default:
 		return nil, ErrInvalid
 	}
