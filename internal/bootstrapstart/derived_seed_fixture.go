@@ -41,9 +41,12 @@ import (
 // against temporary paths, retaining the source's real SDK clients and seal.
 // The source fixture binds config marker bytes; the app scenario owns rendering.
 func ExerciseDerivedSeedAdmission(t *testing.T, seed bootstrap.DerivedStartupAuthority,
-	founder VerifiedSourceFounder, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, sourceDirectory string,
+	founder VerifiedSourceFounder, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, sourceDirectory string, afterSeed func(),
 ) {
 	installation := exerciseDerivedInstallation(t, seed, founder, anchor, roots, sourceDirectory, founder.imds, founder.observer, nil)
+	if afterSeed != nil {
+		afterSeed()
+	}
 	exerciseDerivedFounderPeers(t, installation, seed, founder, anchor, roots, sourceDirectory)
 }
 
