@@ -1,0 +1,311 @@
+{
+  "schema": "independent-source-classification-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_180_200",
+  "author": "/root/classification_100_dispatch/batch_200_220",
+  "decision": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "reviewed_packet": {
+    "path": "/tmp/ts-source-classification-200-220-peer-final-cztag34v/classification.json",
+    "sha256": "da68319e34ab2c5f9edda5a22893dd7c10ad0b66d30d0a326bb2cfa590bd936a",
+    "checksum_path": "/tmp/ts-source-classification-200-220-peer-final-cztag34v/SHA256SUMS",
+    "checksum_sha256": "7ee741ee2065bf82bbe23c3d6c8ed05f55b03a8b5092e23c994b554f0839dcf0"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root200-expansion-dispatch-kseJiOvj/allocation-and-exclusions.json",
+    "sha256": "7e7a69a7a625013deab54117e1a32875f5756e4f1ea67008815614bd0cec3e6f",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[200:220]"
+  },
+  "counts": {
+    "integration": 3,
+    "mixed": 7,
+    "unit": 10,
+    "unresolved": 0
+  },
+  "root_ids": [
+    "internal/app/host_setup_netbird_recovery_test.go::TestHostSetupSeedsNetBirdWhenFirstInstalledResponseIsRenewal",
+    "internal/app/host_setup_netbird_test.go::TestHostEnrollmentOnlySeedsUnmanagedFirstBootstrapNetBirdConfig",
+    "internal/app/host_setup_test.go::TestPersistedHostRequestRecoveryAcrossReplayWindow",
+    "internal/app/host_telemetry_test.go::TestHostTelemetryCollectsWithoutAutoscaling",
+    "internal/app/host_telemetry_test.go::TestHostTelemetryDiscardsPreviousAuthorityTerms",
+    "internal/app/host_telemetry_test.go::TestHostTelemetryRestoresReleaseResourceNormalization",
+    "internal/app/identity_rekey_cli_test.go::TestIdentityRekeyCLIRejectsUnreviewedArguments",
+    "internal/app/identity_rekey_cli_test.go::TestIdentityRekeyFinalInputsRecoverAfterInterruptedPublication",
+    "internal/app/identity_rekey_cli_test.go::TestIdentityRekeyInputReaderRefusesIndirectFilesAndChangedReset",
+    "internal/app/identity_rekey_cli_test.go::TestIdentityRekeyRecoveryChecksClockBeforeSigningAndPublication",
+    "internal/app/identity_rekey_install_test.go::TestIdentityRekeyGlobalScopeMustMatchTopologyHome",
+    "internal/app/identity_rekey_install_test.go::TestIdentityRekeyInstallerCleanupKeepsCurrentRootsLaunchPinsAndData",
+    "internal/app/identity_rekey_install_test.go::TestIdentityRekeyInstallerCleanupRequiresCurrentProofAndSharedCompletion",
+    "internal/app/identity_rekey_install_test.go::TestIdentityRekeyInstallerMeasuresOnlyTrustedActiveInvocationNode",
+    "internal/app/identity_rekey_install_test.go::TestIdentityRekeyInstallerProvesStoppedServiceAndNoRemainingProcesses",
+    "internal/app/identity_rekey_install_test.go::TestIdentityRekeyInstallerReplacesOnlyRegularFilesAndRecoversExactBytes",
+    "internal/app/identity_rekey_install_test.go::TestIdentityRekeyInstallerRequiresExactV1RoleAndAllPinnedFiles",
+    "internal/app/identity_rekey_install_test.go::TestIdentityRekeyMaterialCleanupErasesAliasedPrivateBuffers",
+    "internal/app/identity_rekey_install_test.go::TestIdentityRekeyResponseSignerMatchesHandoffBundleAndVaultPin",
+    "internal/app/insight_providers_test.go::TestControllerSlotServerNameMatchesTheBroker"
+  ],
+  "per_root_review": [
+    {
+      "root_id": "internal/app/host_setup_netbird_recovery_test.go::TestHostSetupSeedsNetBirdWhenFirstInstalledResponseIsRenewal",
+      "category": "integration",
+      "current_declaration_sha256": "7660ab1c223a97ea8b34ac6acd08ee3767365eac31003a5117c1d5ecf9fd9322",
+      "original_declaration_sha256": "7660ab1c223a97ea8b34ac6acd08ee3767365eac31003a5117c1d5ecf9fd9322",
+      "decision": "accepted",
+      "production_evidence_groups": [
+        "enrollment",
+        "hostsetup",
+        "broker"
+      ]
+    },
+    {
+      "root_id": "internal/app/host_setup_netbird_test.go::TestHostEnrollmentOnlySeedsUnmanagedFirstBootstrapNetBirdConfig",
+      "category": "integration",
+      "current_declaration_sha256": "1ee1bccbe0a12015fdd8b5dbf18e7290c53f512e8610484c6e5c747b4c8c99db",
+      "original_declaration_sha256": "a84d70c4f9ab296cbd7b0429c63dbb6e6dee3575d45124d667c1e258c7b1b1c0",
+      "decision": "accepted",
+      "production_evidence_groups": [
+        "hostsetup"
+      ]
+    },
+    {
+      "root_id": "internal/app/host_setup_test.go::TestPersistedHostRequestRecoveryAcrossReplayWindow",
+      "category": "mixed",
+      "current_declaration_sha256": "36d48a8f8a6e97ae66bed644b8e4ae86269db072bf9ed24457911e43690f1d9e",
+      "original_declaration_sha256": "36d48a8f8a6e97ae66bed644b8e4ae86269db072bf9ed24457911e43690f1d9e",
+      "decision": "accepted",
+      "production_evidence_groups": [
+        "hostsetup",
+        "requestparse"
+      ]
+    },
+    {
+      "root_id": "internal/app/host_telemetry_test.go::TestHostTelemetryCollectsWithoutAutoscaling",
+      "category": "unit",
+      "current_declaration_sha256": "4a1184490feeb3e9baa5cfd1306e06af125e459250cd028491e3c57524c48624",
+      "original_declaration_sha256": "c9eb2a8baae02e081abfafc4d86f6e538cc4ff56f74923cd9410f5330f30215f",
+      "decision": "accepted",
+      "production_evidence_groups": [
+        "telemetry"
+      ]
+    },
+    {
+      "root_id": "internal/app/host_telemetry_test.go::TestHostTelemetryDiscardsPreviousAuthorityTerms",
+      "category": "unit",
+      "current_declaration_sha256": "20c81ede562bfb8a957a97103cf0c0e139aa08be18d3dfac3042df7d9a173d0f",
+      "original_declaration_sha256": "20c81ede562bfb8a957a97103cf0c0e139aa08be18d3dfac3042df7d9a173d0f",
+      "decision": "accepted",
+      "production_evidence_groups": [
+        "telemetry"
+      ]
+    },
+    {
+      "root_id": "internal/app/host_telemetry_test.go::TestHostTelemetryRestoresReleaseResourceNormalization",
+      "category": "unit",
+      "current_declaration_sha256": "764cc024a325ad1d9e98739ffb60204eccebef2d5d53c57f2e86f8d635a0d24f",
+      "original_declaration_sha256": "764cc024a325ad1d9e98739ffb60204eccebef2d5d53c57f2e86f8d635a0d24f",
+      "decision": "accepted",
+      "production_evidence_groups": [
+        "telemetry"
+      ]
+    },
+    {
+      "root_id": "internal/app/identity_rekey_cli_test.go::TestIdentityRekeyCLIRejectsUnreviewedArguments",
+      "category": "mixed",
+      "current_declaration_sha256": "1762b7e0621d2d59ead7a92d4a364c582445c13fa34331236fb8e6b311f22990",
+      "original_declaration_sha256": "1762b7e0621d2d59ead7a92d4a364c582445c13fa34331236fb8e6b311f22990",
+      "decision": "accepted",
+      "production_evidence_groups": [
+        "cli",
+        "inputread"
+      ]
+    },
+    {
+      "root_id": "internal/app/identity_rekey_cli_test.go::TestIdentityRekeyFinalInputsRecoverAfterInterruptedPublication",
+      "category": "mixed",
+      "current_declaration_sha256": "f28fd611e3a79622e60caee4bddd98a180d439b868aec592a2e2d263e9ef68f8",
+      "original_declaration_sha256": "f28fd611e3a79622e60caee4bddd98a180d439b868aec592a2e2d263e9ef68f8",
+      "decision": "accepted",
+      "production_evidence_groups": [
+        "finalinput",
+        "inputread"
+      ]
+    },
+    {
+      "root_id": "internal/app/identity_rekey_cli_test.go::TestIdentityRekeyInputReaderRefusesIndirectFilesAndChangedReset",
+      "category": "mixed",
+      "current_declaration_sha256": "021f48151f918e30350302e557f5ede9c57820bd3ebc4c258bca11e10450c061",
+      "original_declaration_sha256": "021f48151f918e30350302e557f5ede9c57820bd3ebc4c258bca11e10450c061",
+      "decision": "accepted",
+      "production_evidence_groups": [
+        "inputread"
+      ]
+    },
+    {
+      "root_id": "internal/app/identity_rekey_cli_test.go::TestIdentityRekeyRecoveryChecksClockBeforeSigningAndPublication",
+      "category": "integration",
+      "current_declaration_sha256": "a3b8b01e120a628c9e9e93ca00355fa49760b3942f6f8fafd1ce3a5dd43b7ca3",
+      "original_declaration_sha256": "a3b8b01e120a628c9e9e93ca00355fa49760b3942f6f8fafd1ce3a5dd43b7ca3",
+      "decision": "accepted",
+      "production_evidence_groups": [
+        "recovery",
+        "broker"
+      ]
+    },
+    {
+      "root_id": "internal/app/identity_rekey_install_test.go::TestIdentityRekeyGlobalScopeMustMatchTopologyHome",
+      "category": "unit",
+      "current_declaration_sha256": "2f5dfa4937ff8b5d078cbd1bbed5ce8e4dfdd71e72d0b8b3440c723d85cddf5d",
+      "original_declaration_sha256": "2f5dfa4937ff8b5d078cbd1bbed5ce8e4dfdd71e72d0b8b3440c723d85cddf5d",
+      "decision": "accepted",
+      "production_evidence_groups": [
+        "configfixture",
+        "globalscope"
+      ]
+    },
+    {
+      "root_id": "internal/app/identity_rekey_install_test.go::TestIdentityRekeyInstallerCleanupKeepsCurrentRootsLaunchPinsAndData",
+      "category": "mixed",
+      "current_declaration_sha256": "e09bc7e53221eca78f66d3760b32c5892d5c2fa641c8c6902001a6fdd36dc6f3",
+      "original_declaration_sha256": "e09bc7e53221eca78f66d3760b32c5892d5c2fa641c8c6902001a6fdd36dc6f3",
+      "decision": "accepted",
+      "production_evidence_groups": [
+        "cleanup"
+      ]
+    },
+    {
+      "root_id": "internal/app/identity_rekey_install_test.go::TestIdentityRekeyInstallerCleanupRequiresCurrentProofAndSharedCompletion",
+      "category": "mixed",
+      "current_declaration_sha256": "ddc9a7e6dcdd6d7593e78c91711322de89471d893d6490c547f26a70213a82bd",
+      "original_declaration_sha256": "ddc9a7e6dcdd6d7593e78c91711322de89471d893d6490c547f26a70213a82bd",
+      "decision": "accepted",
+      "production_evidence_groups": [
+        "cleanup"
+      ]
+    },
+    {
+      "root_id": "internal/app/identity_rekey_install_test.go::TestIdentityRekeyInstallerMeasuresOnlyTrustedActiveInvocationNode",
+      "category": "unit",
+      "current_declaration_sha256": "5e60c69190f8fd22b6a301ceefed923a28149b06f73333caa523fc17b7150916",
+      "original_declaration_sha256": "5e60c69190f8fd22b6a301ceefed923a28149b06f73333caa523fc17b7150916",
+      "decision": "accepted",
+      "production_evidence_groups": [
+        "journalnode"
+      ]
+    },
+    {
+      "root_id": "internal/app/identity_rekey_install_test.go::TestIdentityRekeyInstallerProvesStoppedServiceAndNoRemainingProcesses",
+      "category": "unit",
+      "current_declaration_sha256": "7d4fb7dee9b69652580c239e63dd25e8d17ac7a7ad9e56f214720ce7bf38df97",
+      "original_declaration_sha256": "7d4fb7dee9b69652580c239e63dd25e8d17ac7a7ad9e56f214720ce7bf38df97",
+      "decision": "accepted",
+      "production_evidence_groups": [
+        "stopped"
+      ]
+    },
+    {
+      "root_id": "internal/app/identity_rekey_install_test.go::TestIdentityRekeyInstallerReplacesOnlyRegularFilesAndRecoversExactBytes",
+      "category": "mixed",
+      "current_declaration_sha256": "8b672eb0e3a1c58662f511cc5bf4a55767467353968e7e17112482065eb90c3a",
+      "original_declaration_sha256": "9260e21a82e37b67b978606f5e98d4bc6f4103494b18994fa8f1b40fab57096e",
+      "decision": "accepted",
+      "production_evidence_groups": [
+        "replace",
+        "inputread"
+      ]
+    },
+    {
+      "root_id": "internal/app/identity_rekey_install_test.go::TestIdentityRekeyInstallerRequiresExactV1RoleAndAllPinnedFiles",
+      "category": "unit",
+      "current_declaration_sha256": "349f4aff7925f792eae76111a20f7d94a954d14ecef475711d9dd119218f3575",
+      "original_declaration_sha256": "349f4aff7925f792eae76111a20f7d94a954d14ecef475711d9dd119218f3575",
+      "decision": "accepted",
+      "production_evidence_groups": [
+        "configfixture",
+        "validatefiles"
+      ]
+    },
+    {
+      "root_id": "internal/app/identity_rekey_install_test.go::TestIdentityRekeyMaterialCleanupErasesAliasedPrivateBuffers",
+      "category": "unit",
+      "current_declaration_sha256": "ef26157f18f27b61f165a60b0afc474c4c5dc335053d6b29bc21821ef0ba6247",
+      "original_declaration_sha256": "ef26157f18f27b61f165a60b0afc474c4c5dc335053d6b29bc21821ef0ba6247",
+      "decision": "accepted",
+      "production_evidence_groups": [
+        "clearmaterial"
+      ]
+    },
+    {
+      "root_id": "internal/app/identity_rekey_install_test.go::TestIdentityRekeyResponseSignerMatchesHandoffBundleAndVaultPin",
+      "category": "unit",
+      "current_declaration_sha256": "5228e1d2acd7108dbe8db215fdfd4b0072d16e8e354c4a40ead4c54573f64cf6",
+      "original_declaration_sha256": "5228e1d2acd7108dbe8db215fdfd4b0072d16e8e354c4a40ead4c54573f64cf6",
+      "decision": "accepted",
+      "production_evidence_groups": [
+        "responsekey"
+      ]
+    },
+    {
+      "root_id": "internal/app/insight_providers_test.go::TestControllerSlotServerNameMatchesTheBroker",
+      "category": "unit",
+      "current_declaration_sha256": "70d54832c06f1ce39944cd3e7dc37902c306e2d6d9141b4833f774aaca6a3da5",
+      "original_declaration_sha256": "70d54832c06f1ce39944cd3e7dc37902c306e2d6d9141b4833f774aaca6a3da5",
+      "decision": "accepted",
+      "production_evidence_groups": [
+        "servernames"
+      ]
+    }
+  ],
+  "review_method": "Independently read all20 full canonical root declarations and relevant actual production/fixture paths; compared baseline/current diff for all three changed roots and shared fixture. Metadata-only hash/span verification against canonical git blobs, no source parser/scanner/runtime execution.",
+  "verified": {
+    "source_file_pins": 45,
+    "connected_spans": 81,
+    "assertion_spans": 23,
+    "literal_allocation_and_original_identity": true,
+    "all_original_obligations_preserved": true,
+    "file_modes": "files0444_directory0555",
+    "errors": []
+  },
+  "resolved_findings": [
+    {
+      "kind": "category_correction",
+      "detail": {
+        "root_id": "internal/app/identity_rekey_cli_test.go::TestIdentityRekeyInputReaderRefusesIndirectFilesAndChangedReset",
+        "before": "integration",
+        "after": "mixed",
+        "reason": "Integration: positive complete input read and symlink/hardlink/FIFO/mode/missing-file cases exercise production readIdentityRekeyInputs/readExactControllerFile on actual on-disk inputs, inode/link/mode/type checks and protected reads. Independent old-version/noncanonical/unknown-field rows target DecodeStrict/version/canonical byte predicates after an incidental journal read; the different-chain row compares synthetic byte contents locally after reads. These local validation rows retain unit obligations alongside real filesystem trust behavior; no candidate cryptographic admission is exercised."
+      }
+    },
+    {
+      "kind": "category_correction",
+      "detail": {
+        "root_id": "internal/app/identity_rekey_install_test.go::TestIdentityRekeyInstallerProvesStoppedServiceAndNoRemainingProcesses",
+        "before": "mixed",
+        "after": "unit",
+        "reason": "Both assertion blocks consume synthetic process/service observations. The stopped-state table directly parses systemctl text. The temporary numeric directory/status files feed UID/missing-UID predicates through actual ReadDir/ReadFile, but that I/O is incidental delivery of synthetic process records: no real /proc process, service state, inode trust, persistent mutation/recovery or directory topology behavior is asserted. This is a local validation path, not live process/service qualification."
+      }
+    },
+    {
+      "kind": "static_source_discrepancy_retained",
+      "root_id": "internal/app/identity_rekey_install_test.go::TestIdentityRekeyInstallerRequiresExactV1RoleAndAllPinnedFiles",
+      "detail": "Canonical fixture initializes ConfigVersion=roleconfig.Version=2; negative schema row assigns2 again and preserves accepted bytes/digest. Negative schema mutation does not change the accepted version. Source discrepancy retained in candidate; no runtime failure result claimed."
+    }
+  ],
+  "unresolved_source_blockers": [],
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE; runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION throughout. No build/test/runtime receipts reviewed.",
+    "No Go, test/helper, scanner, probe, process execution, cloud, signing, crypto qualification, download or TerraBase execution performed. Reading signing code gives no runtime result.",
+    "Embedded authenticated single-node NATS/JetStream is a real store/protocol boundary in source; no regional R3 failover qualification is claimed.",
+    "Enrollment post calls ServeHTTP using httptest request/recorder, not a network HTTP connection; OCI fleet is synthetic and NetBird installer is injected.",
+    "Filesystem integration refers only to the exact production read/write/unlink paths and fixture outcomes cited. No power-loss durability, live /proc/service state, live Vault or NetBird acceptance follows.",
+    "Current canonical drift from historical survival hashes remains explicit and original assertions stay retained. No mapping guessed or root retired.",
+    "No ledger/count promotion, source/repository mutation, deletion, retirement or global completion authorization. Distinct peer review remains required."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "repository_mutated": false,
+  "ledger_mutated": false,
+  "count_promotion_authorized": false,
+  "runtime_qualification_authorized": false
+}

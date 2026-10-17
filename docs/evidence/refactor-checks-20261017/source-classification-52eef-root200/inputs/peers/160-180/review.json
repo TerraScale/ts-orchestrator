@@ -1,0 +1,232 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_140_160",
+  "reviewed_owner": "/root/classification_100_dispatch/batch_160_180",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root200-expansion-dispatch-kseJiOvj/allocation-and-exclusions.json",
+    "sha256": "7e7a69a7a625013deab54117e1a32875f5756e4f1ea67008815614bd0cec3e6f",
+    "range": [
+      160,
+      180
+    ]
+  },
+  "reviewed_packet": {
+    "path": "/tmp/ts-source-classification-160-180-ax99gyj0/classification.json",
+    "sha256": "3ccae077441f5b737767485f35b2d5cb0a364b5509ccb51c365976f036c10cfd",
+    "checksum_file": "/tmp/ts-source-classification-160-180-ax99gyj0/SHA256SUMS",
+    "checksum_file_sha256": "edd386691cbbd6f15df9d634103ee2f89ab76feea310a9cfea06aeecaa2282c9"
+  },
+  "verdict": "ACCEPT_EXACT_FROZEN_SOURCE_ONLY_CANDIDATE_WITH_EIGHT_UNRESOLVED",
+  "counts": {
+    "integration": 3,
+    "unit": 7,
+    "mixed": 2,
+    "unresolved": 8
+  },
+  "method": [
+    "Independently read all twenty whole current root declarations and their connected actual fixtures/production call paths from canonical Git source.",
+    "Verified literal allocation root IDs/order; all twenty baseline/current raw declarations, hashes and explicit bounds; all forty canonical file blob/mode/SHA256/byte pins; all eighty-two assertion/connected text spans and connected span hashes matched. No source parser/scanner.",
+    "Manually traced shared static enrollment fixture return initializer against prepareRuntimeWorker, AcceptedIdentity.Validate and ReadCurrentGrant. Missing js/runtimeIdentity makes eight successful setup prerequisites source-blocked; no runtime result inferred.",
+    "Distinguished pure schema/config/log/session-snapshot assertions, material filesystem reload/marker/symlink observations, real terminal-fence KV writes/readbacks, and mixed negative-table plus real residual-state checks.",
+    "Verified packet checksum manifest and files0444/directory0555."
+  ],
+  "root_reviews": [
+    {
+      "root_id": "internal/app/global_controller_test.go::TestGlobalControlHomeComesFromTopology",
+      "category": "unit",
+      "accepted": true,
+      "current_declaration_sha256": "c699dc98a5ba3bd4868aa21a93c18efe7b3d4507c592eb5af141aa80abf1f510",
+      "original_declaration_sha256": "c699dc98a5ba3bd4868aa21a93c18efe7b3d4507c592eb5af141aa80abf1f510",
+      "review_note": "Entire root table is pure topology derivation and slice inspection; canonical GlobalControlHome delegates only local config checks."
+    },
+    {
+      "root_id": "internal/app/global_planning_test.go::TestRolloutKnownBadFailsClosedUntilTheStoreOpens",
+      "category": "unit",
+      "accepted": true,
+      "current_declaration_sha256": "dd91feaba161611517e5dae80e609938273bfe208fe684815ba02a97bd8e6e34",
+      "original_declaration_sha256": "dd91feaba161611517e5dae80e609938273bfe208fe684815ba02a97bd8e6e34",
+      "review_note": "Atomic store pointer is nil; IsKnownBad error and withKnownBad pointer/nil assertions do not open a store."
+    },
+    {
+      "root_id": "internal/app/global_view_test.go::TestLogErrorsMapsEveryField",
+      "category": "unit",
+      "accepted": true,
+      "current_declaration_sha256": "e4d866edfedcf154916014d91de7d61f63798d112a9b1716284c7a857b5f06fc",
+      "original_declaration_sha256": "e4d866edfedcf154916014d91de7d61f63798d112a9b1716284c7a857b5f06fc",
+      "review_note": "Every mapped view field is compared against synthetic logs.ReplyClass values; local mapper only."
+    },
+    {
+      "root_id": "internal/app/global_view_test.go::TestLogErrorsNilIsNil",
+      "category": "unit",
+      "accepted": true,
+      "current_declaration_sha256": "0d53bf733edbbee953d01fbffd4853bda4a8a2ae955a5e4ece11ec183b030780",
+      "original_declaration_sha256": "0d53bf733edbbee953d01fbffd4853bda4a8a2ae955a5e4ece11ec183b030780",
+      "review_note": "Nil mapper result directly asserted; no log backend."
+    },
+    {
+      "root_id": "internal/app/host_credential_reload_test.go::TestHostCredentialReloaderAcceptsOnlyRenewedCredentialPaths",
+      "category": "integration",
+      "accepted": true,
+      "current_declaration_sha256": "fbd22082562a78ff45dcd332a111437fba087acd454975c5d687ecb995a245e2",
+      "original_declaration_sha256": "fbd22082562a78ff45dcd332a111437fba087acd454975c5d687ecb995a245e2",
+      "review_note": "Installed config and private-key file are actually re-read by production reloader; rewritten config/identity files materially affect returned credential paths/refusals."
+    },
+    {
+      "root_id": "internal/app/host_enrollment_static_test.go::TestGrantedControllerHostColocatesATerraBaseMember",
+      "category": "unresolved",
+      "accepted": true,
+      "current_declaration_sha256": "ea4e983380c3eb622045ce9c76cd73e4139efe973ef781749a6c9d3fdcc2c580",
+      "original_declaration_sha256": "ea4e983380c3eb622045ce9c76cd73e4139efe973ef781749a6c9d3fdcc2c580",
+      "review_note": "Preserve unresolved: controller-host success path lacks enrollment.js, and runtimeIdentity remains zero. Direct grant validation subblocks remain explicitly retained."
+    },
+    {
+      "root_id": "internal/app/host_enrollment_static_test.go::TestGrantedControllerHostEnrollsWithItsGrantRoles",
+      "category": "unresolved",
+      "accepted": true,
+      "current_declaration_sha256": "d29e67e27dd1027b76e0add4b3aacf6be067d40e3d0f61c8151bc37a8dba0956",
+      "original_declaration_sha256": "d29e67e27dd1027b76e0add4b3aacf6be067d40e3d0f61c8151bc37a8dba0956",
+      "review_note": "Preserve unresolved: both controller grant and listed-member success setup preconditions lack mandatory worker identity/current-grant reader."
+    },
+    {
+      "root_id": "internal/app/host_enrollment_static_test.go::TestHostGrantEnrollmentRefusesOtherAddressesNamesAndUngrantedHosts",
+      "category": "mixed",
+      "accepted": true,
+      "current_declaration_sha256": "d768adb43a989fd89b5a850463f17b588f11a894bd77d163bbd64eb4b2b6fd1e",
+      "original_declaration_sha256": "d768adb43a989fd89b5a850463f17b588f11a894bd77d163bbd64eb4b2b6fd1e",
+      "review_note": "Mixed preserved: local fake-address/name rejection assertions plus independent real KV grant-absence reads and actual host stream discovery."
+    },
+    {
+      "root_id": "internal/app/host_enrollment_static_test.go::TestStaticEnrollmentReleasesCredentialsOnlyUnderCurrentAuthority",
+      "category": "unresolved",
+      "accepted": true,
+      "current_declaration_sha256": "9a6b6558926cededc651e7b867e0fb2a19f29c93080009fe13dd362786bed7da",
+      "original_declaration_sha256": "9a6b6558926cededc651e7b867e0fb2a19f29c93080009fe13dd362786bed7da",
+      "review_note": "Preserve unresolved: worker identity rejection precedes grant Finish; committed Response and successful replay cannot be established by fixture."
+    },
+    {
+      "root_id": "internal/app/host_enrollment_static_test.go::TestStaticHostSetupRenewsResetGrantUnderRotatedResponseAuthority",
+      "category": "unresolved",
+      "accepted": true,
+      "current_declaration_sha256": "c540868e1727cc3e0972bc32b1c6da7a2145f6869cfe54e2f3f0b18155d79e35",
+      "original_declaration_sha256": "c540868e1727cc3e0972bc32b1c6da7a2145f6869cfe54e2f3f0b18155d79e35",
+      "review_note": "Preserve unresolved: initial member setup cannot reach installed credentials under zero accepted identity, blocking reset/renewal sequence."
+    },
+    {
+      "root_id": "internal/app/host_enrollment_static_test.go::TestStaticRegistrationReplacesKeysOnlyAfterTheSessionEnds",
+      "category": "unit",
+      "accepted": true,
+      "current_declaration_sha256": "9f8231c9ce227fa8cdc995b7d5a1cfbeaed80950f04103b48620a4f2b8d1c923",
+      "original_declaration_sha256": "9f8231c9ce227fa8cdc995b7d5a1cfbeaed80950f04103b48620a4f2b8d1c923",
+      "review_note": "Local nextStaticRegistration generation/key/session-snapshot predicate; no current server session is acquired."
+    },
+    {
+      "root_id": "internal/app/host_enrollment_static_test.go::TestStaticTerraBaseHostEnrollmentRefusesUnlistedOrMismatchedHosts",
+      "category": "mixed",
+      "accepted": true,
+      "current_declaration_sha256": "a1751cd950a2ee14eec63b6cc42b5093c5b58ab2ac9c47fc84cc0c2e36e33e66",
+      "original_declaration_sha256": "a1751cd950a2ee14eec63b6cc42b5093c5b58ab2ac9c47fc84cc0c2e36e33e66",
+      "review_note": "Mixed preserved: synthetic mismatched member/address/descriptor guards plus actual GrantStore.Read and ListHosts residual-state assertions."
+    },
+    {
+      "root_id": "internal/app/host_enrollment_static_test.go::TestStaticTerraBaseHostEnrollmentRequiresASignedProfile",
+      "category": "unit",
+      "accepted": true,
+      "current_declaration_sha256": "1b8c69f5349d2deeace328e43b323291cc3ad8a78ec63d8dcf7aad72cc631a41",
+      "original_declaration_sha256": "1b8c69f5349d2deeace328e43b323291cc3ad8a78ec63d8dcf7aad72cc631a41",
+      "review_note": "Missing profile rejected before grant Claim; direct malformed profile call is local validation. Setup files and broker are incidental to this result."
+    },
+    {
+      "root_id": "internal/app/host_enrollment_static_test.go::TestStaticTerraBaseHostEnrollsAsAListedMemberWithoutManagedBindings",
+      "category": "unresolved",
+      "accepted": true,
+      "current_declaration_sha256": "224e6d7770eb7af012de2df825ec64aa94c3fda3fdea6c43b8cda1bced8f2150",
+      "original_declaration_sha256": "224e6d7770eb7af012de2df825ec64aa94c3fda3fdea6c43b8cda1bced8f2150",
+      "review_note": "Preserve unresolved: initial setup stops at runtimeIdentity validation before credential install; renewal/replacement and independent unsorted-role validation obligations remain."
+    },
+    {
+      "root_id": "internal/app/host_enrollment_static_test.go::TestStaticTerraBaseHostRevocationStopsRenewalAndReenrollment",
+      "category": "unresolved",
+      "accepted": true,
+      "current_declaration_sha256": "2206981b9ef0ecc5c2e6247702daf704081998b23399159c27a8e7ecc11eaacf",
+      "original_declaration_sha256": "2206981b9ef0ecc5c2e6247702daf704081998b23399159c27a8e7ecc11eaacf",
+      "review_note": "Preserve unresolved: initial setup precondition blocks intended Disable/replay/re-enrollment sequence."
+    },
+    {
+      "root_id": "internal/app/host_enrollment_static_test.go::TestStaticTerraBaseMembershipFollowsTheCellSpec",
+      "category": "unresolved",
+      "accepted": true,
+      "current_declaration_sha256": "102195a0481667abf434bba058b2bfa316e675565700aac8062a90c84ad66255",
+      "original_declaration_sha256": "102195a0481667abf434bba058b2bfa316e675565700aac8062a90c84ad66255",
+      "review_note": "Preserve unresolved: signed membership adoption success setup is blocked; later flapping and overlap-validation blocks are retained without completed boundary credit."
+    },
+    {
+      "root_id": "internal/app/host_enrollment_terminal_fence_test.go::TestFenceTerminalGrantsRetriesAfterPartialPreMarkerFailure",
+      "category": "integration",
+      "accepted": true,
+      "current_declaration_sha256": "1ea253426924ab4d23ce9a8df2d7834b00d68008a154fbded66d9437f0e9488d",
+      "original_declaration_sha256": "1ea253426924ab4d23ce9a8df2d7834b00d68008a154fbded66d9437f0e9488d",
+      "review_note": "Actual terminal tombstones Create/Read/revision-preserving retry in JetStream KV support the core safety assertion; second-target failure and member/ledger/marker inputs are explicit stubs."
+    },
+    {
+      "root_id": "internal/app/host_identity_vault_test.go::TestHostEnrollmentIdentityMovesToVaultAndMemory",
+      "category": "unresolved",
+      "accepted": true,
+      "current_declaration_sha256": "88989e20046483dccf4a32df304e521535f8df802c1d51ef5dc667dd2aeab3ae",
+      "original_declaration_sha256": "88989e20046483dccf4a32df304e521535f8df802c1d51ef5dc667dd2aeab3ae",
+      "review_note": "Preserve unresolved: fake Vault hooks and intended real local migration/rebuild/removal sit behind initial failed setup precondition; no Vault/tmpfs qualification."
+    },
+    {
+      "root_id": "internal/app/host_identity_vault_test.go::TestHostMemoryRuntimeWaitsForItsOwnPrepare",
+      "category": "integration",
+      "accepted": true,
+      "current_declaration_sha256": "32d95724c1333250100c233349a1671c5658023cb138cb5782452a297d941c19",
+      "original_declaration_sha256": "32d95724c1333250100c233349a1671c5658023cb138cb5782452a297d941c19",
+      "review_note": "Production marker Lstat, layout Readlink and filesystem inspection materially drive enforced-memory/restart decision; test has an explicit tmpfs skip and launches no update process."
+    },
+    {
+      "root_id": "internal/app/host_load_telemetry_test.go::TestHostTelemetryControlsAreRejectedOnLoadAndRenewal",
+      "category": "unit",
+      "accepted": true,
+      "current_declaration_sha256": "1c0498628b8c9301b85c2d8b4eb36265ea4ec09c19bc13f8c11e595b23a5e523",
+      "original_declaration_sha256": "1c0498628b8c9301b85c2d8b4eb36265ea4ec09c19bc13f8c11e595b23a5e523",
+      "review_note": "Literal retired member/version table feeds strict JSON decoding through file readers; only schema rejection is asserted, with no file transaction or renewal effect."
+    }
+  ],
+  "findings": [],
+  "retained_source_blockers": [
+    {
+      "id": "static_fixture_missing_js_and_runtimeIdentity",
+      "kind": "source_blocker",
+      "detail": "startStaticEnrollmentLab returns enrollment without js/runtimeIdentity (static test190-194). Current member enrollment calls prepareRuntimeWorker atstatic153, which rejects zero AcceptedIdentity atworker28-29/Validate94. Controller enrollment first ReadCurrentGrant(enrollment.js) atstatic172 rejects nil js. This blocks success setup in eight allocated roots; tests themselves retain baseline-exact bodies, so production drift is explicit.",
+      "affected_root_ids": [
+        "internal/app/host_enrollment_static_test.go::TestGrantedControllerHostColocatesATerraBaseMember",
+        "internal/app/host_enrollment_static_test.go::TestGrantedControllerHostEnrollsWithItsGrantRoles",
+        "internal/app/host_enrollment_static_test.go::TestStaticEnrollmentReleasesCredentialsOnlyUnderCurrentAuthority",
+        "internal/app/host_enrollment_static_test.go::TestStaticHostSetupRenewsResetGrantUnderRotatedResponseAuthority",
+        "internal/app/host_enrollment_static_test.go::TestStaticTerraBaseHostEnrollsAsAListedMemberWithoutManagedBindings",
+        "internal/app/host_enrollment_static_test.go::TestStaticTerraBaseHostRevocationStopsRenewalAndReenrollment",
+        "internal/app/host_enrollment_static_test.go::TestStaticTerraBaseMembershipFollowsTheCellSpec",
+        "internal/app/host_identity_vault_test.go::TestHostEnrollmentIdentityMovesToVaultAndMemory"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "qualification_limits": [
+    "Acceptance binds only the exact reviewed frozen packet bytes and candidate source classifications. Eight roots remain unresolved.",
+    "No Go/build/test/helper/runtime/crypto/cloud/TerraBase execution; no process/resource probe, repository/source/ledger mutation, count promotion, deletion or retirement.",
+    "No live Vault/OCI/NetBird, host execution, update restart or HA qualification is inferred from test source or local fixtures."
+  ],
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  }
+}

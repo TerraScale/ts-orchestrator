@@ -1,0 +1,149 @@
+{
+  "schema": "central-qa-root200-independent-acceptance-v1",
+  "state": "ACCEPT_SOURCE_CLASSIFICATION_ONLY_PENDING_ROOT_PUBLICATION",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "manifest_path": "/tmp/ts-root200-expansion-dispatch-kseJiOvj/manifest.json",
+  "manifest_sha256": "fc036cddde5f9c3236cba7659a1b92f983ed3e2931bcf1271b445590729f3f19",
+  "results_sha256": "5b51edc8df16ce45eaaa06b2e7eb8c75e3788019ee967159fed75acfb79bfa1f",
+  "literal_roots": 200,
+  "unique_roots": 200,
+  "allocation_exact_other_unadjudicated_slice": [
+    100,
+    300
+  ],
+  "counts": {
+    "unit": 103,
+    "mixed": 36,
+    "integration": 52,
+    "unresolved": 9
+  },
+  "distinct_peer_reviews": [
+    {
+      "range": [
+        100,
+        120
+      ],
+      "reviewer": "/root/classification_100_dispatch/batch_280_300",
+      "verdict": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+      "packet_sha256": "a2a852e897a85995594b3fa32751aca51bf3268220f29d42c2ada1875bebb269",
+      "peer_sha256": "eb12ec202f60d80a3888920aa5806b1ab16eb8f31c9be04f313e7e0f6312dc7b"
+    },
+    {
+      "range": [
+        120,
+        140
+      ],
+      "reviewer": "/root/classification_100_dispatch/batch_00_20",
+      "verdict": "ACCEPT",
+      "packet_sha256": "684652c18f455a21eef5331d8ddd5d54886dc1fe0bd44866baad8d4f4a06f9cb",
+      "peer_sha256": "a9caf4dbf7ce0e1bd19a0c52262c933a2c71eac8fb38d9135d95fce3db715e8e"
+    },
+    {
+      "range": [
+        140,
+        160
+      ],
+      "reviewer": "/root/classification_100_dispatch/batch_60_80",
+      "verdict": "ACCEPT_FROZEN_SOURCE_CLASSIFICATION_WITH_EXPLICIT_SOURCE_BLOCKED_ASSERTION_LIMITS",
+      "packet_sha256": "9ef9f63d55e04452f5d891a7541f9344b4987f47287f5d8cb6984cafb58f4ffb",
+      "peer_sha256": "e211ab818a3e6cd0c87a054dd4278db4a4ba46a4d624d220cd28657e730b341d"
+    },
+    {
+      "range": [
+        160,
+        180
+      ],
+      "reviewer": "/root/classification_100_dispatch/batch_140_160",
+      "verdict": "ACCEPT_EXACT_FROZEN_SOURCE_ONLY_CANDIDATE_WITH_EIGHT_UNRESOLVED",
+      "packet_sha256": "3ccae077441f5b737767485f35b2d5cb0a364b5509ccb51c365976f036c10cfd",
+      "peer_sha256": "2436a4d57f0881aa5f9d24c4b1e366348d5090ffed963b90da89408e5624767f"
+    },
+    {
+      "range": [
+        180,
+        200
+      ],
+      "reviewer": "/root/classification_100_dispatch/batch_160_180",
+      "verdict": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+      "packet_sha256": "820c4182e878b9a3ef7977baef4434aa1988d6497e4f20152f526b7fa16f6839",
+      "peer_sha256": "d29d118b52e44f24fb501b96681d1689c50b1b30afee6f57f61259b9aafd27ca"
+    },
+    {
+      "range": [
+        200,
+        220
+      ],
+      "reviewer": "/root/classification_100_dispatch/batch_180_200",
+      "verdict": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+      "packet_sha256": "da68319e34ab2c5f9edda5a22893dd7c10ad0b66d30d0a326bb2cfa590bd936a",
+      "peer_sha256": "4af3a7249166af0bc8c7883e595b002e942e17059d51b1f310af038929bbcd7f"
+    },
+    {
+      "range": [
+        220,
+        240
+      ],
+      "reviewer": "/root/classification_100_dispatch/batch_200_220",
+      "verdict": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+      "packet_sha256": "3d6e828e88e55199f0605dde0d73a3603baf47bab23fc2c962c4b7a37a7c4810",
+      "peer_sha256": "8eb75ccfc304e3ec0272a72c92857f0a5ef7b5663b0a7f9cee4e7ba107669b38"
+    },
+    {
+      "range": [
+        240,
+        260
+      ],
+      "reviewer": "/root/classification_100_dispatch/batch_220_240",
+      "verdict": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+      "packet_sha256": "ca4ba80fa622b269f7758f57dd6b363e00ff13b3d3fdc276d9e730e49afda1a9",
+      "peer_sha256": "46867428a4b12e21a4801e3164bcfa78591c9e543b4872924ba40919a4e8cd50"
+    },
+    {
+      "range": [
+        260,
+        280
+      ],
+      "reviewer": "/root/classification_100_dispatch/batch_240_260",
+      "verdict": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+      "packet_sha256": "a213725e9a899e4bcb7cb3281c9a42d188ec6e4477d29e80dc1b3969730e71b5",
+      "peer_sha256": "bcd38257366328fbfe112408ab6d32efcea75bbae3b8f4d074229666cce5efee"
+    },
+    {
+      "range": [
+        280,
+        300
+      ],
+      "reviewer": "/root/classification_100_dispatch/batch_260_280",
+      "verdict": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+      "packet_sha256": "be887dd6c061f5f58ef227791ff016c69cf6642a697334446287f9e2e43c7d2a",
+      "peer_sha256": "c1b3d237e88741b89ef59088b8dfc0572fc7b1318bd670b8117c95cfe7289fd1"
+    }
+  ],
+  "independently_verified_declarations": 400,
+  "independently_verified_assertion_citations": 242,
+  "verified_checksum_entries": 89,
+  "unresolved_roots": [
+    "internal/app/host_enrollment_static_test.go::TestGrantedControllerHostColocatesATerraBaseMember",
+    "internal/app/host_enrollment_static_test.go::TestGrantedControllerHostEnrollsWithItsGrantRoles",
+    "internal/app/host_enrollment_static_test.go::TestStaticEnrollmentReleasesCredentialsOnlyUnderCurrentAuthority",
+    "internal/app/host_enrollment_static_test.go::TestStaticHostSetupRenewsResetGrantUnderRotatedResponseAuthority",
+    "internal/app/host_enrollment_static_test.go::TestStaticTerraBaseHostEnrollsAsAListedMemberWithoutManagedBindings",
+    "internal/app/host_enrollment_static_test.go::TestStaticTerraBaseHostRevocationStopsRenewalAndReenrollment",
+    "internal/app/host_enrollment_static_test.go::TestStaticTerraBaseMembershipFollowsTheCellSpec",
+    "internal/app/host_identity_vault_test.go::TestHostEnrollmentIdentityMovesToVaultAndMemory",
+    "internal/app/managed_config_test.go::TestManagedControllerConfigRequiresSignedAdmission"
+  ],
+  "runtime": "UNKNOWN_NO_EXECUTION",
+  "retirement_authorized": false,
+  "deletion_credit": false,
+  "ledger_mutation": false,
+  "count_promotion": false,
+  "completion_promotion": false,
+  "limits": [
+    "Central verification checks exact allocation, artifact hashes, raw declarations and assertion citations; source category reasoning uses 10 distinct frozen peer acceptances.",
+    "No Go, compiler, test binary, fixture, runtime or cloud operation executed.",
+    "Remote/zip provenance for cached SDK source was not reverified.",
+    "Prior nineteen retired identities and seventy-two reviewed-unresolved identities retain original accounting."
+  ]
+}

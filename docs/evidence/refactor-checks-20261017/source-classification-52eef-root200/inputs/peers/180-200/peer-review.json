@@ -1,0 +1,557 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_160_180",
+  "reviewed_owner": "/root/classification_100_dispatch/batch_180_200",
+  "allocation": {
+    "path": "/tmp/ts-root200-expansion-dispatch-kseJiOvj/allocation-and-exclusions.json",
+    "sha256": "7e7a69a7a625013deab54117e1a32875f5756e4f1ea67008815614bd0cec3e6f",
+    "range": [
+      180,
+      200
+    ],
+    "qualification": "SOURCE_ONLY_CANDIDATE"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "decision": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "reviewed_packet": {
+    "path": "/tmp/ts-classification-180-200-corrected-hmt2tdp1/classification.json",
+    "sha256": "820c4182e878b9a3ef7977baef4434aa1988d6497e4f20152f526b7fa16f6839",
+    "checksum_path": "/tmp/ts-classification-180-200-corrected-hmt2tdp1/SHA256SUMS",
+    "checksum_sha256": "d113c40f4c8233de0b73e80da92357c29b6383c35943fbe7a39fef1baaef75ab",
+    "directory_mode": "0555",
+    "file_modes": "0444"
+  },
+  "superseded_packet": {
+    "path": "/tmp/ts-classification-180-200-g3uojgf1/classification.json",
+    "sha256": "b242bf556a5e365cb93bbfc4efaf3f22e6d5dd6845e0aaedf2f1457e7cd6a94d",
+    "preserved": true,
+    "decision": "CORRECTION_REQUIRED_ONE_CATEGORY"
+  },
+  "method": "Independent manual read of all20 canonical whole roots and connected assertion/helper/production paths; read-only Git inspection. Metadata-only comparisons verify explicit packet spans, hashes, modes, bytes and allocation, no source parser/scanner or helper/test execution. Corrected packet differs only in root198 category/reason, counts and revision metadata.",
+  "checks": {
+    "allocated_roots_exact": 20,
+    "whole_roots_independently_read": 20,
+    "baseline_and_current_raw_declaration_text_hash_and_bounds_verified": 20,
+    "source_file_pins_mode_blob_sha256_bytes_verified": 28,
+    "connected_source_spans_text_and_bounds_verified": 55,
+    "assertion_spans_text_and_bounds_verified": "all",
+    "counts_exhaust_exact_allocation": true,
+    "source_mapping_drift": false,
+    "evidence_text_mismatches": 0,
+    "checksum_files_verified": true,
+    "immutable_modes_verified": true
+  },
+  "counts": {
+    "integration": 6,
+    "unit": 8,
+    "mixed": 6,
+    "unresolved": 0
+  },
+  "root_reviews": [
+    {
+      "root_id": "internal/app/host_metric_archive_loss_test.go::TestHostMetricHistoryDisclosesArchiveOmissionsAfterRestart",
+      "category": "mixed",
+      "decision": "accepted",
+      "independent_reason": "Retained overflow batches replay into fresh history readers; separate local-controller query remains unit.",
+      "baseline_declaration_sha256": "02776cccd9d5cdac074f25ebc0f1ea793c37bd80896c8bf8c5aa1f7f7923399f",
+      "current_declaration_sha256": "02776cccd9d5cdac074f25ebc0f1ea793c37bd80896c8bf8c5aa1f7f7923399f",
+      "current_source": {
+        "path": "internal/app/host_metric_archive_loss_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bec1a791e2b78c1ad2cf57ab71f09ffb2732ed9a",
+        "line": 13,
+        "end_line": 76
+      },
+      "assertion_evidence_verified": true,
+      "connected_evidence_verified": [
+        "archive",
+        "history",
+        "publisher",
+        "load"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_history_test.go::TestHostMetricArchiveOverflowRetainsSubsetAndAccountsDrops",
+      "category": "mixed",
+      "decision": "accepted",
+      "independent_reason": "Actual JS ACK materially gates overflow/drop reporting; separate fake error and producer-count blocks remain unit.",
+      "baseline_declaration_sha256": "ee980066ae62486a8a94b5a43f2999e94140d4655e3dd7b8963fbefb607bbcaf",
+      "current_declaration_sha256": "ee980066ae62486a8a94b5a43f2999e94140d4655e3dd7b8963fbefb607bbcaf",
+      "current_source": {
+        "path": "internal/app/host_metric_history_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "27c7869aaf3b6ec19de315dfc680b22db8c404ae",
+        "line": 315,
+        "end_line": 363
+      },
+      "assertion_evidence_verified": true,
+      "connected_evidence_verified": [
+        "archive",
+        "publisher",
+        "load"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_history_test.go::TestHostMetricArchiveSkipDoesNotAccountAnotherWriterBatch",
+      "category": "mixed",
+      "decision": "accepted",
+      "independent_reason": "Actual previous-leader record drives skipped publish; later callback only replays captured boolean into local counters.",
+      "baseline_declaration_sha256": "451d1af63119ffbb32aed73a152dcb048d122ceb2ab95940a3533ef785342bdc",
+      "current_declaration_sha256": "451d1af63119ffbb32aed73a152dcb048d122ceb2ab95940a3533ef785342bdc",
+      "current_source": {
+        "path": "internal/app/host_metric_history_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "27c7869aaf3b6ec19de315dfc680b22db8c404ae",
+        "line": 393,
+        "end_line": 421
+      },
+      "assertion_evidence_verified": true,
+      "connected_evidence_verified": [
+        "archive",
+        "publisher",
+        "load"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_history_test.go::TestHostMetricHistoryDisclosesRejectedReplayBatch",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_reason": "Valid and malformed records are really retained and replayed before coverage/failure assertions.",
+      "baseline_declaration_sha256": "ec749ee3d0597e396734e40bf3e3285e0fac3f00faba4500534e13bf57196b1f",
+      "current_declaration_sha256": "ec749ee3d0597e396734e40bf3e3285e0fac3f00faba4500534e13bf57196b1f",
+      "current_source": {
+        "path": "internal/app/host_metric_history_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "27c7869aaf3b6ec19de315dfc680b22db8c404ae",
+        "line": 265,
+        "end_line": 313
+      },
+      "assertion_evidence_verified": true,
+      "connected_evidence_verified": [
+        "archive",
+        "history"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_history_test.go::TestHostMetricHistoryDisclosesReplaySeriesChurn",
+      "category": "mixed",
+      "decision": "accepted",
+      "independent_reason": "Real publication/replay/stream Info underpin series-loss disclosure; independent local controller query remains unit.",
+      "baseline_declaration_sha256": "58cf773924c8c85a8a5693fffa65245840e951fae03d8a8bb1eb6e70f5275973",
+      "current_declaration_sha256": "58cf773924c8c85a8a5693fffa65245840e951fae03d8a8bb1eb6e70f5275973",
+      "current_source": {
+        "path": "internal/app/host_metric_history_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "27c7869aaf3b6ec19de315dfc680b22db8c404ae",
+        "line": 193,
+        "end_line": 263
+      },
+      "assertion_evidence_verified": true,
+      "connected_evidence_verified": [
+        "archive",
+        "history"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_history_test.go::TestHostMetricHistoryPreservesLatestConsumers",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_reason": "Append, Provider.Local and Latest operate only on in-memory history values.",
+      "baseline_declaration_sha256": "b38da14b999959024855703b8312ee6f272242809535f5b83c97cee860252935",
+      "current_declaration_sha256": "b38da14b999959024855703b8312ee6f272242809535f5b83c97cee860252935",
+      "current_source": {
+        "path": "internal/app/host_metric_history_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "27c7869aaf3b6ec19de315dfc680b22db8c404ae",
+        "line": 158,
+        "end_line": 191
+      },
+      "assertion_evidence_verified": true,
+      "connected_evidence_verified": [
+        "history",
+        "latest"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_history_test.go::TestHostMetricHistoryReplaysWithoutMemberSnapshotOverlap",
+      "category": "mixed",
+      "decision": "accepted",
+      "independent_reason": "Real retained-record replay is independently asserted beside pre-run pending and local controller-history blocks.",
+      "baseline_declaration_sha256": "89daf0594724a18375148f2ae36976b77025edc5eb14ede3f5a1600570d5e10b",
+      "current_declaration_sha256": "89daf0594724a18375148f2ae36976b77025edc5eb14ede3f5a1600570d5e10b",
+      "current_source": {
+        "path": "internal/app/host_metric_history_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "27c7869aaf3b6ec19de315dfc680b22db8c404ae",
+        "line": 81,
+        "end_line": 131
+      },
+      "assertion_evidence_verified": true,
+      "connected_evidence_verified": [
+        "archive",
+        "history"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_history_test.go::TestHostMetricPublicationFencesAuthorityChanges",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_reason": "Synthetic fencer and counting publisher never access a real publication boundary.",
+      "baseline_declaration_sha256": "4c8f04a55438e0a19dd242ddf8222afcb0a8dbfde7eee71a3846972a813c8c7d",
+      "current_declaration_sha256": "4c8f04a55438e0a19dd242ddf8222afcb0a8dbfde7eee71a3846972a813c8c7d",
+      "current_source": {
+        "path": "internal/app/host_metric_history_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "27c7869aaf3b6ec19de315dfc680b22db8c404ae",
+        "line": 39,
+        "end_line": 79
+      },
+      "assertion_evidence_verified": true,
+      "connected_evidence_verified": [
+        "publisher",
+        "load"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_history_test.go::TestJournalHistoryStartsWithoutPrivateListener",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_reason": "Only nonnil provider/history/board pointers are asserted; asynchronous streams and actual protocol responders are incidental.",
+      "baseline_declaration_sha256": "a410cfc4309a41e450ce72e4311b3b3390cd941104eb3e1576455892155cff6c",
+      "current_declaration_sha256": "a410cfc4309a41e450ce72e4311b3b3390cd941104eb3e1576455892155cff6c",
+      "current_source": {
+        "path": "internal/app/host_metric_history_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "27c7869aaf3b6ec19de315dfc680b22db8c404ae",
+        "line": 133,
+        "end_line": 156
+      },
+      "assertion_evidence_verified": true,
+      "connected_evidence_verified": [
+        "journal",
+        "archive"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_publication_gap_test.go::TestHostMetricPublicationGapEpochReplacementIsFenced",
+      "category": "mixed",
+      "decision": "accepted",
+      "independent_reason": "Local authority/failure predicates are asserted before real epoch2 gap marker publication and stored readback.",
+      "baseline_declaration_sha256": "89bf41379bd5f5fd251e5b63ed441fd62ccbce7dc0ffbdd2250da7e80b86f91e",
+      "current_declaration_sha256": "89bf41379bd5f5fd251e5b63ed441fd62ccbce7dc0ffbdd2250da7e80b86f91e",
+      "current_source": {
+        "path": "internal/app/host_metric_publication_gap_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "547847b46d2ffdcdc81413ae88a48d880b50a501",
+        "line": 354,
+        "end_line": 393
+      },
+      "assertion_evidence_verified": true,
+      "connected_evidence_verified": [
+        "gap",
+        "archive",
+        "publisher",
+        "load"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_publication_gap_test.go::TestHostMetricPublicationGapLostAck",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_reason": "Lost ACK wrapper first publishes real bytes; actual retained record, immutable retry and later marker are asserted.",
+      "baseline_declaration_sha256": "cf28f952f23162e7f112fc509f56bcced5a310c016ee2fe870530d7afc60afc6",
+      "current_declaration_sha256": "cf28f952f23162e7f112fc509f56bcced5a310c016ee2fe870530d7afc60afc6",
+      "current_source": {
+        "path": "internal/app/host_metric_publication_gap_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "547847b46d2ffdcdc81413ae88a48d880b50a501",
+        "line": 277,
+        "end_line": 338
+      },
+      "assertion_evidence_verified": true,
+      "connected_evidence_verified": [
+        "gap",
+        "archive",
+        "publisher",
+        "load"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_publication_gap_test.go::TestHostMetricPublicationGapSurvivesCompetingWriterSkip",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_reason": "All competing-writer cases consult real retained batches and inspect actual original/next message payloads.",
+      "baseline_declaration_sha256": "5e99f622983278d5d3043839e9b5c4bd222365c6ea48db60cf8cac2e9525cf1d",
+      "current_declaration_sha256": "5e99f622983278d5d3043839e9b5c4bd222365c6ea48db60cf8cac2e9525cf1d",
+      "current_source": {
+        "path": "internal/app/host_metric_publication_gap_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "547847b46d2ffdcdc81413ae88a48d880b50a501",
+        "line": 211,
+        "end_line": 259
+      },
+      "assertion_evidence_verified": true,
+      "connected_evidence_verified": [
+        "gap",
+        "archive",
+        "publisher",
+        "load"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_publication_gap_test.go::TestHostMetricPublicationGapSurvivesRecoveryAndReplay",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_reason": "Real recovery publication, payload readback and fresh-reader replay support coverage results; no independent pre-I/O assertion.",
+      "baseline_declaration_sha256": "bbc3f338d5002232be3a6aef3e6518404643bc646abda2d551f7d5ce7fc09f25",
+      "current_declaration_sha256": "bbc3f338d5002232be3a6aef3e6518404643bc646abda2d551f7d5ce7fc09f25",
+      "current_source": {
+        "path": "internal/app/host_metric_publication_gap_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "547847b46d2ffdcdc81413ae88a48d880b50a501",
+        "line": 151,
+        "end_line": 209
+      },
+      "assertion_evidence_verified": true,
+      "connected_evidence_verified": [
+        "gap",
+        "archive",
+        "history",
+        "publisher",
+        "load"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_publication_gap_test.go::TestHostMetricPublicationRequiresRestartAfterArchiveRecreation",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_reason": "Actual legacy record, delete/recreate, old-handle failure, fresh record and replay support recreation fencing.",
+      "baseline_declaration_sha256": "854dc7a44295e4198cfe2591691bfd828e3bcc55b0d9f5f4efa329816f28fda1",
+      "current_declaration_sha256": "854dc7a44295e4198cfe2591691bfd828e3bcc55b0d9f5f4efa329816f28fda1",
+      "current_source": {
+        "path": "internal/app/host_metric_publication_gap_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "547847b46d2ffdcdc81413ae88a48d880b50a501",
+        "line": 61,
+        "end_line": 149
+      },
+      "assertion_evidence_verified": true,
+      "connected_evidence_verified": [
+        "gap",
+        "archive",
+        "history",
+        "publisher",
+        "load"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_run_test.go::TestHostCommandRejectsUnhealthyClockBeforeNativeProbeAndNATS",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_reason": "Synthetic clock error gates public host command before native/NATS; file setup only supplies config.",
+      "baseline_declaration_sha256": "bd29e6a95b73f9fd76e325d9f2f00b6ace469fcc0b43dadcbcf7c8a2b98f2917",
+      "current_declaration_sha256": "bd29e6a95b73f9fd76e325d9f2f00b6ace469fcc0b43dadcbcf7c8a2b98f2917",
+      "current_source": {
+        "path": "internal/app/host_run_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2b472addfc26cc2ed5a0d834322380ee77977e30",
+        "line": 85,
+        "end_line": 117
+      },
+      "assertion_evidence_verified": true,
+      "connected_evidence_verified": [
+        "hostguards",
+        "config",
+        "fixtures"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_run_test.go::TestHostRejectsUnsafeManagedRuntimeRootBeforeNativeProbe",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_reason": "Relative runtime-root rejection is a local pre-native guard despite credential file setup.",
+      "baseline_declaration_sha256": "bd37602cbf0fde1a26eab4585eb3e141abe03cb940278c5d63b2bcbe1291cdfe",
+      "current_declaration_sha256": "bd37602cbf0fde1a26eab4585eb3e141abe03cb940278c5d63b2bcbe1291cdfe",
+      "current_source": {
+        "path": "internal/app/host_run_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2b472addfc26cc2ed5a0d834322380ee77977e30",
+        "line": 46,
+        "end_line": 67
+      },
+      "assertion_evidence_verified": true,
+      "connected_evidence_verified": [
+        "hostguards",
+        "fixtures"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_run_test.go::TestHostRejectsZeroWorkloadIdentityBeforeNativeProbe",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_reason": "Zero UID/GID validation rejects locally before native startup.",
+      "baseline_declaration_sha256": "19a0364b707476f446db1bde78f29f607eb109590895f6cba046fed9269c1f4d",
+      "current_declaration_sha256": "19a0364b707476f446db1bde78f29f607eb109590895f6cba046fed9269c1f4d",
+      "current_source": {
+        "path": "internal/app/host_run_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2b472addfc26cc2ed5a0d834322380ee77977e30",
+        "line": 69,
+        "end_line": 83
+      },
+      "assertion_evidence_verified": true,
+      "connected_evidence_verified": [
+        "hostguards",
+        "fixtures"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_run_test.go::TestHostRunResultOnlyTreatsParentCancellationAsShutdown",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_reason": "Context and error mapping calls are local.",
+      "baseline_declaration_sha256": "b6afe37d21efb8838b9e22a9d57404fb9bef9c8fb26641f20adf70bfd972240d",
+      "current_declaration_sha256": "b6afe37d21efb8838b9e22a9d57404fb9bef9c8fb26641f20adf70bfd972240d",
+      "current_source": {
+        "path": "internal/app/host_run_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2b472addfc26cc2ed5a0d834322380ee77977e30",
+        "line": 18,
+        "end_line": 33
+      },
+      "assertion_evidence_verified": true,
+      "connected_evidence_verified": [
+        "hostguards"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_run_test.go::TestHostWorkloadIdentityConfigAccepted",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_reason": "Static file input feeds decoded-value comparison only; file is incidental and corrected unit category is accepted.",
+      "baseline_declaration_sha256": "b87a566902a842f492c7b76efbc62d0f82502ddf52428c18b9f582b633521961",
+      "current_declaration_sha256": "b87a566902a842f492c7b76efbc62d0f82502ddf52428c18b9f582b633521961",
+      "current_source": {
+        "path": "internal/app/host_run_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2b472addfc26cc2ed5a0d834322380ee77977e30",
+        "line": 35,
+        "end_line": 44
+      },
+      "assertion_evidence_verified": true,
+      "connected_evidence_verified": [
+        "config",
+        "fixtures"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_setup_local_options_review_test.go::TestHostEnrollmentRenewalKeepsHostLocalOptions",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_reason": "Actual install/rewrite/readback preserves local options, changes credential directory and refuses corrupt existing file; fake credential strings limit scope.",
+      "baseline_declaration_sha256": "fc61392219af06b7c7e20ac7dc0f891114710c1570b3f8016681d6b8268b00a4",
+      "current_declaration_sha256": "fc61392219af06b7c7e20ac7dc0f891114710c1570b3f8016681d6b8268b00a4",
+      "current_source": {
+        "path": "internal/app/host_setup_local_options_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4065c77c37d40ebc124d6f1fb08fa9b700539d37",
+        "line": 22,
+        "end_line": 98
+      },
+      "assertion_evidence_verified": true,
+      "connected_evidence_verified": [
+        "enrollment",
+        "config"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    }
+  ],
+  "findings": [
+    {
+      "id": "config_decode_incidental_file",
+      "status": "resolved_in_exact_corrected_packet",
+      "root_id": "internal/app/host_run_test.go::TestHostWorkloadIdentityConfigAccepted",
+      "prior_category": "integration",
+      "accepted_category": "unit",
+      "detail": "host_run_test35-44 asserts only returned decoded fields. testJSONFile serialization and LoadConfig Stat/ReadFile setup do not establish a material persistence/transaction boundary for that predicate. Owner changed category/reason and counts in fresh immutable packet."
+    }
+  ],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No Go, build, test, lint, format, benchmark, helper or test execution; no runtime pass/fail assertion.",
+    "One embedded authenticated broker with FileStorage and in-process server connections; no real regional R3, production network/TLS traffic, OCI/Vault/NetBird or live cloud qualification.",
+    "Fresh reader/handle/state objects simulate restart; broker persistence across OS process restart, power-loss durability and production archive retention are not established.",
+    "Synthetic fencers, clocks, telemetry reports, publisher errors, JWT issuers and credential strings remain test fixtures; lost ACK hook delegates actual JS publication before changing the first response.",
+    "Config/enrollment evidence covers actual local read/rewrite paths only; no valid certificate handshake, external enrollment API, native runtime, systemd, data volume or TerraBase execution.",
+    "Every assertion and safety obligation stays retained, including unit blocks; no deletion/retirement, ledger promotion or global count/completion change.",
+    "Source-only independent acceptance authorizes no ledger/count promotion, deletion, test retirement, runtime qualification or global completion."
+  ],
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false,
+    "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+  }
+}

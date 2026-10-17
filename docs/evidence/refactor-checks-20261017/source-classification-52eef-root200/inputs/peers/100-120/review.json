@@ -1,0 +1,223 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_280_300",
+  "reviewed_owner": "/root/classification_100_dispatch/batch_00_20",
+  "decision": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+  "candidate": {
+    "path": "/tmp/ts-source-classification-100-120-ihpoc9mf/classification.json",
+    "sha256": "a2a852e897a85995594b3fa32751aca51bf3268220f29d42c2ada1875bebb269",
+    "checksum_path": "/tmp/ts-source-classification-100-120-ihpoc9mf/SHA256SUMS",
+    "checksum_sha256": "e795fa56021afb31af0688971db69fde930b57755d5f8f87b5f16d20f7e92d34"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root200-expansion-dispatch-kseJiOvj/allocation-and-exclusions.json",
+    "sha256": "7e7a69a7a625013deab54117e1a32875f5756e4f1ea67008815614bd0cec3e6f",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[100:120]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_280_300"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "counts": {
+    "integration": 5,
+    "unit": 14,
+    "mixed": 1,
+    "unresolved": 0
+  },
+  "root_ids": [
+    "internal/app/config_test.go::TestLoadConfigPreservesSignedBytesAndRejectsUnknownMembers",
+    "internal/app/config_test.go::TestSignedWireOfABuiltConfigIsCanonical",
+    "internal/app/container_allocation_integration_test.go::TestContainerAllocationSourceIntegration",
+    "internal/app/container_material_test.go::TestContainerSecretRotationUpstreamRecovery",
+    "internal/app/control_plane_watch_test.go::TestFollowerWithAValidLeaseLeavesQuorumToTheLeader",
+    "internal/app/control_plane_watch_test.go::TestMetaLeaderElectionIsJournaledOnce",
+    "internal/app/control_plane_watch_test.go::TestQuorumLossIsJournaledWithoutAValidLease",
+    "internal/app/control_plane_watch_test.go::TestQuorumLossSeenUnderAValidLeaseIsJournaledOnceTheLeaseExpires",
+    "internal/app/controller_broker_lifetime_test.go::TestBrokerLifetimeCancelsStartupOpensWhenTheBrokerStops",
+    "internal/app/controller_broker_lifetime_test.go::TestBrokerLifetimeIsNotBlamedForParentShutdown",
+    "internal/app/controller_cluster_health_test.go::TestClusterHealthIsHealthyOnEveryFormedBroker",
+    "internal/app/controller_cluster_test.go::TestControllerBootstrapRetriesOnlyTransientErrors",
+    "internal/app/controller_cluster_test.go::TestControllerThreeProcessBootstrapAndRestart",
+    "internal/app/controller_cluster_test.go::TestReserveControllerPortsDistinct",
+    "internal/app/controller_config_install_test.go::TestAutomaticStartupNeverTreatsPartialProofAsLegacy",
+    "internal/app/controller_config_install_test.go::TestControllerInstallRetriesExactBytesAndRejectsChangedFiles",
+    "internal/app/controller_formation_test.go::TestInitialControllerAdmissionStaysSynchronous",
+    "internal/app/controller_formation_test.go::TestOfflineRestartAdmissionHoldsAuthorityUntilClockIsHealthy",
+    "internal/app/controller_formation_test.go::TestOfflineRestartAdmissionHoldsAuthorityUntilFullAdmission",
+    "internal/app/controller_formation_test.go::TestOfflineRestartAdmissionRequiresLocalProofAndMarker"
+  ],
+  "reviewed_roots": [
+    {
+      "root_id": "internal/app/config_test.go::TestLoadConfigPreservesSignedBytesAndRejectsUnknownMembers",
+      "category": "unit",
+      "assessment": "Actual file loading feeds strict byte-retention and decode predicates; test has no independent installer or service observable. Unit retained.",
+      "baseline_declaration_sha256": "ab7d3fa60e6ce4e64d5d0456e02e17c1a7bf0015cf32e2c78853681e93417f4e",
+      "current_declaration_sha256": "881ae452fa3310603afa58dc0cd782b63463ae91bf56ed78abeb5f694a9976d1"
+    },
+    {
+      "root_id": "internal/app/config_test.go::TestSignedWireOfABuiltConfigIsCanonical",
+      "category": "unit",
+      "assessment": "Built Config serialization, decode and version refusal are local deterministic operations. Unit retained.",
+      "baseline_declaration_sha256": "cf4a655886c67531ad554ca9c4247928f1b8459ba8ce76fc0f7288d0676b1506",
+      "current_declaration_sha256": "3b1cc49801ec51048e6b2d0748d04b31946e76041eb282186281b11a4b044419"
+    },
+    {
+      "root_id": "internal/app/container_allocation_integration_test.go::TestContainerAllocationSourceIntegration",
+      "category": "mixed",
+      "assessment": "Actual signed OCI SDK GetObject reaches local HTTP server and reads returned winner; independent forged-location, selected-region and no-write pre-I/O checks remain local. Mixed retained.",
+      "baseline_declaration_sha256": "5db9ff5ba6d87751d12b3771cbdd9c375a4fa4799135915b70e3cca3d1ec67c9",
+      "current_declaration_sha256": "5db9ff5ba6d87751d12b3771cbdd9c375a4fa4799135915b70e3cca3d1ec67c9"
+    },
+    {
+      "root_id": "internal/app/container_material_test.go::TestContainerSecretRotationUpstreamRecovery",
+      "category": "integration",
+      "assessment": "Production snapshot helpers reach real vendored controlapi server and transactional MemoryStore; generation/replicas/config labels are read back. UpdateService failure injection and Guard are explicit. Integration retained without network/Raft/containerd/Vault claim.",
+      "baseline_declaration_sha256": "7bcfde49cb4c73baa7698a02b55162e8804f032f206e24069873394e19f0d529",
+      "current_declaration_sha256": "7bcfde49cb4c73baa7698a02b55162e8804f032f206e24069873394e19f0d529"
+    },
+    {
+      "root_id": "internal/app/control_plane_watch_test.go::TestFollowerWithAValidLeaseLeavesQuorumToTheLeader",
+      "category": "unit",
+      "assessment": "Synthetic valid follower snapshot/health suppresses local memory Journal entry. Unit retained.",
+      "baseline_declaration_sha256": "73f320088e49ce5af5253f70b71871062ffddf7f303fc0ffc3625819dc64d2f6",
+      "current_declaration_sha256": "73f320088e49ce5af5253f70b71871062ffddf7f303fc0ffc3625819dc64d2f6"
+    },
+    {
+      "root_id": "internal/app/control_plane_watch_test.go::TestMetaLeaderElectionIsJournaledOnce",
+      "category": "unit",
+      "assessment": "Synthetic metadata-leader transition is recorded once in local ring Journal. Unit retained.",
+      "baseline_declaration_sha256": "f16e99c07ba83d30a36f66929c4eadfdca27ff1a433b806dd9bebe12526b26b5",
+      "current_declaration_sha256": "f16e99c07ba83d30a36f66929c4eadfdca27ff1a433b806dd9bebe12526b26b5"
+    },
+    {
+      "root_id": "internal/app/control_plane_watch_test.go::TestQuorumLossIsJournaledWithoutAValidLease",
+      "category": "unit",
+      "assessment": "Synthetic lease invalidation and health loss feed local Journal failure entry. Unit retained.",
+      "baseline_declaration_sha256": "050da5d754e5627ea72492aa1caa7adc2b6f5a89b4ba92d688ee3dad6d5b444c",
+      "current_declaration_sha256": "050da5d754e5627ea72492aa1caa7adc2b6f5a89b4ba92d688ee3dad6d5b444c"
+    },
+    {
+      "root_id": "internal/app/control_plane_watch_test.go::TestQuorumLossSeenUnderAValidLeaseIsJournaledOnceTheLeaseExpires",
+      "category": "unit",
+      "assessment": "Synthetic expiry after suppressed health change triggers local memory Journal. Unit retained.",
+      "baseline_declaration_sha256": "4132cec4b6b83049c73318f2b9767693b3880adca348aabd6319e631aaaf28f0",
+      "current_declaration_sha256": "4132cec4b6b83049c73318f2b9767693b3880adca348aabd6319e631aaaf28f0"
+    },
+    {
+      "root_id": "internal/app/controller_broker_lifetime_test.go::TestBrokerLifetimeCancelsStartupOpensWhenTheBrokerStops",
+      "category": "unit",
+      "assessment": "Closed test channel cancels local startup/retry callback; broker never exists. Unit retained.",
+      "baseline_declaration_sha256": "819fdf8102347dad10aa56189805b93223e6724a8b139560c2b53f90ed0d9cc6",
+      "current_declaration_sha256": "819fdf8102347dad10aa56189805b93223e6724a8b139560c2b53f90ed0d9cc6"
+    },
+    {
+      "root_id": "internal/app/controller_broker_lifetime_test.go::TestBrokerLifetimeIsNotBlamedForParentShutdown",
+      "category": "unit",
+      "assessment": "Parent cancellation attribution uses contexts/channels only. Unit retained.",
+      "baseline_declaration_sha256": "d36cb27445b6c5a418898ae41ec76bf0af69eb2c9516f2f2387c96d2c6303590",
+      "current_declaration_sha256": "d36cb27445b6c5a418898ae41ec76bf0af69eb2c9516f2f2387c96d2c6303590"
+    },
+    {
+      "root_id": "internal/app/controller_cluster_health_test.go::TestClusterHealthIsHealthyOnEveryFormedBroker",
+      "category": "integration",
+      "assessment": "Three real embedded authenticated NATS servers route and form metadata group; actual Routez/Jsz observations drive health assertions. Integration retained.",
+      "baseline_declaration_sha256": "f2e96ceea5c151f62ba8ecf64dd30621e7d451aedf214dabf4b83fd3814ff0a5",
+      "current_declaration_sha256": "f2e96ceea5c151f62ba8ecf64dd30621e7d451aedf214dabf4b83fd3814ff0a5"
+    },
+    {
+      "root_id": "internal/app/controller_cluster_test.go::TestControllerBootstrapRetriesOnlyTransientErrors",
+      "category": "unit",
+      "assessment": "Error values and wrapping feed transient retry predicate directly. Unit retained.",
+      "baseline_declaration_sha256": "91f9e89806c60fd0af0f778e7d911fb60e8454cf9e1a0abd927f5dc136765cd2",
+      "current_declaration_sha256": "91f9e89806c60fd0af0f778e7d911fb60e8454cf9e1a0abd927f5dc136765cd2"
+    },
+    {
+      "root_id": "internal/app/controller_cluster_test.go::TestControllerThreeProcessBootstrapAndRestart",
+      "category": "integration",
+      "assessment": "Parent launches real test-executable children running Run(run), reads actual authenticated JetStream lease sequence/bytes, crashes leader and observes survivor epoch, then rereads captured lease after full restart. Integration retained; cloud/clock/trust/founder seams explicit.",
+      "baseline_declaration_sha256": "d2d56a0b18373d456a9f5353ef13d224dbc7173955583401838014165001b6e4",
+      "current_declaration_sha256": "d2d56a0b18373d456a9f5353ef13d224dbc7173955583401838014165001b6e4"
+    },
+    {
+      "root_id": "internal/app/controller_cluster_test.go::TestReserveControllerPortsDistinct",
+      "category": "integration",
+      "assessment": "Actual net.Listen tcp loopback zero-port allocations are held concurrently and resulting kernel-selected ports are asserted unique. Integration retained solely under dispatcher narrow test-infrastructure rule; no production-service claim.",
+      "baseline_declaration_sha256": "5e78295d5cfe15437cedcb997664b96d58bc1e99fb2111f07bcea378886b711b",
+      "current_declaration_sha256": "5e78295d5cfe15437cedcb997664b96d58bc1e99fb2111f07bcea378886b711b"
+    },
+    {
+      "root_id": "internal/app/controller_config_install_test.go::TestAutomaticStartupNeverTreatsPartialProofAsLegacy",
+      "category": "unit",
+      "assessment": "Partial-file existence is a local startup guard predicate; actual admission never starts. Unit retained.",
+      "baseline_declaration_sha256": "5d0103eb1b77968c7aa6f1e736d83eb50bbfaf7619c3d8d1c08f73f2acd1b709",
+      "current_declaration_sha256": "5d0103eb1b77968c7aa6f1e736d83eb50bbfaf7619c3d8d1c08f73f2acd1b709"
+    },
+    {
+      "root_id": "internal/app/controller_config_install_test.go::TestControllerInstallRetriesExactBytesAndRejectsChangedFiles",
+      "category": "integration",
+      "assessment": "Production installExactControllerFile writes/syncs/renames actual destination and LoadConfig/readback checks retry retention; changed-content and symlink rejection traverse actual file operations. Integration retained.",
+      "baseline_declaration_sha256": "a14caebffd4586f6246049bcecb8b19b4faf6b0d81a189251cd42e59e4f9e2b6",
+      "current_declaration_sha256": "913e2a320266c4b6c839681db52250755a5101c26a9b12942a80ff914f2e86f9"
+    },
+    {
+      "root_id": "internal/app/controller_formation_test.go::TestInitialControllerAdmissionStaysSynchronous",
+      "category": "unit",
+      "assessment": "Stubbed baked/marker/full admission callbacks support synchronous routing/call order only. Unit retained.",
+      "baseline_declaration_sha256": "03201531722336598f8b4e1000545e4d7e35a844e09d4444e81323b6d6a3cb1c",
+      "current_declaration_sha256": "03201531722336598f8b4e1000545e4d7e35a844e09d4444e81323b6d6a3cb1c"
+    },
+    {
+      "root_id": "internal/app/controller_formation_test.go::TestOfflineRestartAdmissionHoldsAuthorityUntilClockIsHealthy",
+      "category": "unit",
+      "assessment": "Stub clock and admission callbacks gate local channels and counters. Unit retained.",
+      "baseline_declaration_sha256": "14a96fda43c827312d10376f1866868563697b96c2905212d2aaf4ff88bb667c",
+      "current_declaration_sha256": "14a96fda43c827312d10376f1866868563697b96c2905212d2aaf4ff88bb667c"
+    },
+    {
+      "root_id": "internal/app/controller_formation_test.go::TestOfflineRestartAdmissionHoldsAuthorityUntilFullAdmission",
+      "category": "unit",
+      "assessment": "Stub admission failures/release channel drive local retries/authority-gate wait; no actual authority or broker. Unit retained.",
+      "baseline_declaration_sha256": "359ab2b85af140d252778b63a1ebd1fa8dc8fdb8088bbfb401ca65afdc4bc346",
+      "current_declaration_sha256": "359ab2b85af140d252778b63a1ebd1fa8dc8fdb8088bbfb401ca65afdc4bc346"
+    },
+    {
+      "root_id": "internal/app/controller_formation_test.go::TestOfflineRestartAdmissionRequiresLocalProofAndMarker",
+      "category": "unit",
+      "assessment": "Stub marker/local-proof/full callbacks exercise fail-closed routing, without credential/proof inspection. Unit retained.",
+      "baseline_declaration_sha256": "1bf0993165548c356dbf002e53498a961f7c9add9f95cd3aa463adffbe576759",
+      "current_declaration_sha256": "1bf0993165548c356dbf002e53498a961f7c9add9f95cd3aa463adffbe576759"
+    }
+  ],
+  "verification": {
+    "all_20_entire_current_roots_read": true,
+    "all_baseline_current_declarations_match_canonical_bytes": true,
+    "literal_allocation_and_survival_mapping_verified": true,
+    "source_pins_verified": 50,
+    "assertion_and_connected_spans_verified": 76,
+    "input_pins_verified": true,
+    "candidate_checksums_verified": true,
+    "candidate_permissions": "files0444 directory0555",
+    "three_historical_current_hash_drifts_verified": [
+      "internal/app/config_test.go::TestLoadConfigPreservesSignedBytesAndRejectsUnknownMembers",
+      "internal/app/config_test.go::TestSignedWireOfABuiltConfigIsCanonical",
+      "internal/app/controller_config_install_test.go::TestControllerInstallRetriesExactBytesAndRejectsChangedFiles"
+    ],
+    "connected_production_boundaries_independently_read": true
+  },
+  "findings": [],
+  "unresolved_blockers": [],
+  "qualification_limits": [
+    "Review used source reads and metadata hashing only; no Go/build/test/helper execution, runtime/resource/probe/cloud mutation, source/repository/ledger edits or child agent.",
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No compilation/passing-test/runtime qualification inferred.",
+    "Source-only candidate accepted for separate QA decision; no count/ledger/deletion/retirement/completion promotion. All safety obligations retained.",
+    "TestReserveControllerPortsDistinct integration scope is only its own actual kernel socket allocation assertion, as explicitly supplied by dispatcher; no real production-service credit.",
+    "Direct SwarmKit controlapi MemoryStore is an actual embedded component/API/store interaction with synthetic Guard and injected update failure; no gRPC/Raft/containerd/Vault claim.",
+    "NATS process/cluster integration retains all cloud/founder/marker/baked/clock seams; local memory watcher journals remain unit."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "repository_mutated": false,
+  "ledger_mutated": false,
+  "count_promotion_authorized": false
+}

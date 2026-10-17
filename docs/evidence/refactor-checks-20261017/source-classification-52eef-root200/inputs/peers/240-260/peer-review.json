@@ -1,0 +1,190 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_220_240",
+  "author": "/root/classification_100_dispatch/batch_240_260",
+  "decision": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+  "range": "other_unadjudicated[240:260)",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "packet": {
+    "path": "/tmp/ts-source-classification-240-260-corrected-rb5ihiyy/classification.json",
+    "sha256": "ca4ba80fa622b269f7758f57dd6b363e00ff13b3d3fdc276d9e730e49afda1a9",
+    "checksum_file": "/tmp/ts-source-classification-240-260-corrected-rb5ihiyy/SHA256SUMS",
+    "checksum_sha256": "3fbb735b5e7362f4ce04cb3a01b04719ceabb389fb81c35015a1c2acd5b2c1f8"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root200-expansion-dispatch-kseJiOvj/allocation-and-exclusions.json",
+    "sha256": "7e7a69a7a625013deab54117e1a32875f5756e4f1ea67008815614bd0cec3e6f",
+    "range": [
+      240,
+      260
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_220_240"
+  },
+  "counts": {
+    "unit": 8,
+    "mixed": 6,
+    "integration": 6,
+    "unresolved": 0
+  },
+  "checks": {
+    "exact_allocation_and_order": true,
+    "whole_20_baseline_current_declarations_independently_read": true,
+    "survival_original_identity_names_hashes_checked": true,
+    "all_64_file_pins_git_blob_mode_sha256_bytes_verified": true,
+    "all_68_connected_spans_exact_canonical_bytes_verified": true,
+    "all_20_assertion_spans_exact_canonical_bytes_verified": true,
+    "raw_declaration_bounds_hashes_text_checked": true,
+    "all_categories_independently_adjudicated": true,
+    "checksums_and_0444_files_0555_directory_verified": true,
+    "prior_frozen_candidate_unchanged": true
+  },
+  "root_decisions": [
+    {
+      "root_id": "internal/app/managed_material_attempt_review_test.go::TestManagedMaterialFollowsTheCurrentDurableHostAttempt",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Stub member/placement readers prove only current-attempt and zero-call supersession predicates."
+    },
+    {
+      "root_id": "internal/app/managed_material_config_test.go::TestAcceptedMaterialConfigPinsMemberCompartmentAndSubnet",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Synthetic accepted identity inputs exercise configuration pin equality without a service or marker-store read."
+    },
+    {
+      "root_id": "internal/app/managed_material_delivery_test.go::TestDesiredMaterialMatchesReceiptPinsSQLAndBackupDigests",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Synthetic desired/receipt/manifest inputs exercise material digest equality only."
+    },
+    {
+      "root_id": "internal/app/managed_placement_enrollment_integration_test.go::TestManagedPlacementEnrollmentFromRenderedSFOBundle",
+      "category": "mixed",
+      "accepted": true,
+      "independent_observation": "Rendered-bundle branch crosses real NATS/KV, TLS enrollment and installed files; separate input checks and zero-transport SFO mismatch are local. External inputs were not checked."
+    },
+    {
+      "root_id": "internal/app/managed_placement_enrollment_integration_test.go::TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession",
+      "category": "mixed",
+      "accepted": true,
+      "independent_observation": "Shared GRU/SFO scenario crosses signed NATS, TLS enrollment and authenticated Agent session; separate SFO mismatch guard remains local. OCI and workload runner are fakes."
+    },
+    {
+      "root_id": "internal/app/managed_runtime_host_test.go::TestManagedRuntimeRegistryCancelsInFlightSession",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Local resolver closure/context test suppresses a canceled result without contacting registry services."
+    },
+    {
+      "root_id": "internal/app/managed_runtime_host_test.go::TestManagedRuntimeRegistryRejectsEndedSession",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Already-ended context rejects before calling the registry stub."
+    },
+    {
+      "root_id": "internal/app/managed_runtime_startup_integration_test.go::TestManagedRuntimeReadyBeforeSingleOwnHostSession",
+      "category": "mixed",
+      "accepted": true,
+      "independent_observation": "Fixture child starts actual embedded SwarmKit manager, control client, HTTP Vault fixture, READY socket and signed NATS session. Independent unbound-provider guards remain local."
+    },
+    {
+      "root_id": "internal/app/managed_update_admission_integration_test.go::TestTrustedOperatorManagedUpdatePrepareCommitsThroughAppToR3",
+      "category": "integration",
+      "accepted": true,
+      "independent_observation": "Signed app admission crosses actual NATS and placement/authority history readback. Replicas1 cannot prove R3 availability despite test name."
+    },
+    {
+      "root_id": "internal/app/managed_update_admission_journal_test.go::TestManagedUpdateAdmissionIsJournaledOncePerOperation",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "In-memory journal ring/dedup query has no sink or archive boundary."
+    },
+    {
+      "root_id": "internal/app/managed_update_admission_test.go::TestManagedUpdatePrepareProducerRegionMatchesLowercaseCell",
+      "category": "mixed",
+      "accepted": true,
+      "independent_observation": "Actual operator request traverses NATS to a synthetic responder; independent scope/untrusted-key guards reject before store access."
+    },
+    {
+      "root_id": "internal/app/material_credentials_status_test.go::TestCredentialStatusRequiresBothCurrentNativeReports",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Synthetic host-status tables test report predicates without a native host session."
+    },
+    {
+      "root_id": "internal/app/material_generations_test.go::TestMaterialGenerationRequestsNeedTheGrant",
+      "category": "mixed",
+      "accepted": true,
+      "independent_observation": "Generation leader crosses actual JetStream KV and report readback; separate missing-grant and foreign-chain pre-I/O rejection blocks remain local."
+    },
+    {
+      "root_id": "internal/app/material_preparation_test.go::TestSignedOperatorPreparationCommitsExactMaterialAndReturnsCiphertext",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Preparation fake object map, receipt pointer, authority and validator never reach actual SDK transport or store service."
+    },
+    {
+      "root_id": "internal/app/metric_catalog_integration_test.go::TestJournalAPISharesAuthenticatedCatalogHistory",
+      "category": "integration",
+      "accepted": true,
+      "independent_observation": "HTTP socket requests cross production observability authentication/catalog/history/dashboard routes; retained history data is synthetic and in memory."
+    },
+    {
+      "root_id": "internal/app/native_history_regression_test.go::TestNativeDeadlineExemptsCertifiedHealingAndIndependentRecovery",
+      "category": "integration",
+      "accepted": true,
+      "independent_observation": "Committed JetStream native history materially supports production profile/allowDesired/prepare behavior, including healing and supersession."
+    },
+    {
+      "root_id": "internal/app/native_history_regression_test.go::TestNativeExpiredForwardSettlesDelayedAndPartialDelivery",
+      "category": "integration",
+      "accepted": true,
+      "independent_observation": "Actual delivery receipts and native history KV support expired-forward outcomes; planner and writer simulate delivery work."
+    },
+    {
+      "root_id": "internal/app/native_history_regression_test.go::TestNativeManualRecoveryDeadlineDoesNotPoisonHealthyGood",
+      "category": "mixed",
+      "accepted": true,
+      "independent_observation": "Actual KV history/readback supports healthy-good preservation; direct in-memory prepareGate deadline rejection is an independent local assertion."
+    },
+    {
+      "root_id": "internal/app/native_history_regression_test.go::TestNativeNearLimitSignedProfilesTenSuccessesAndRecovery",
+      "category": "integration",
+      "accepted": true,
+      "independent_observation": "Ten near-limit profiles and recovery traverse delivery receipts and KV/CAS/readback; verification of returned signed profiles checks persisted provenance. Size check calibrates fixture."
+    },
+    {
+      "root_id": "internal/app/native_history_regression_test.go::TestNativeObserveVerifiesSelectedAndBaselineBeforeFencing",
+      "category": "integration",
+      "accepted": true,
+      "independent_observation": "Actual persisted malformed history is reloaded before trust failure; test fence and synthetic reports do not demonstrate runtime fencing."
+    }
+  ],
+  "closed_findings": [
+    {
+      "finding": "NATS fixture stopped at delegated Start helper.",
+      "resolution": "Added canonical natscell.Start349:351 and start363:507; actual embedded NATS/JetStream boundary confirmed, with in-process controller transport explicitly limited."
+    },
+    {
+      "finding": "Catalog evidence stopped at app mounting helper.",
+      "resolution": "Added observability server authentication, mux, catalog/history and dashboard binding/rendering source spans; actual HTTP assertions are supported."
+    },
+    {
+      "finding": "Startup evidence stopped before actual SwarmKit node implementation.",
+      "resolution": "Added swarmruntime.StartNode67:255 and ControlClient275:287; actual embedded upstream node startup/control boundary confirmed."
+    }
+  ],
+  "open_findings": [],
+  "qualification_limits": [
+    "Source-only classification; runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No test, helper, build, process, privilege, cloud, signing/crypto or TerraBase execution was performed.",
+    "Replicas1 and embedded NATS in-process controller transport do not prove R3 availability or independent TCP/TLS controller transport. External host/HTTP paths are separately represented in source.",
+    "Rendered SFO external inputs and privileged namespace/tool prerequisites were not checked. Synthetic OCI, runners, fencers, reports and preparation stores do not establish real cloud/workload success.",
+    "All20 safety obligations retained; retirement_authorized false. Receipt authorizes no repository/ledger/count promotion, deletion, retirement, migration or runtime acceptance."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "NONE_SOURCE_ONLY_PEER_RECEIPT"
+}

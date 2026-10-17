@@ -1,0 +1,1601 @@
+{
+  "schema": "independent-root200-source-peer-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_00_20",
+  "verdict": "ACCEPT",
+  "acceptance_scope": "Exact frozen [120:140) source-only candidate categories and stated fixture limits. No runtime acceptance, ledger/count/retirement/deletion/qualification/completion promotion.",
+  "reviewed_packet": {
+    "path": "/tmp/ts-source-classification-120-140-a0mdrjec/classification.json",
+    "sha256": "684652c18f455a21eef5331d8ddd5d54886dc1fe0bd44866baad8d4f4a06f9cb",
+    "checksum_path": "/tmp/ts-source-classification-120-140-a0mdrjec/SHA256SUMS",
+    "checksum_sha256": "278bbcd5f8eb478e7f76b2a52c79365119b7eeb546148431ff9c86b4669a4bd9"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "owner": "/root/classification_100_dispatch/batch_60_80",
+    "range": [
+      120,
+      140
+    ],
+    "root_ids": [
+      "internal/app/controller_formation_test.go::TestOfflineRestartAdmissionStopCancelsInFlightFullGate",
+      "internal/app/controller_formation_test.go::TestOfflineRestartAdmissionStopCancelsPendingAttempt",
+      "internal/app/controller_founder_join_test.go::TestFounderJoinIsBoundedWhenTheFounderIgnoresCancellation",
+      "internal/app/controller_founder_test.go::TestClusterFailureWaitsForCanceledFounderBeforeReturn",
+      "internal/app/controller_founder_test.go::TestFounderFailureDoesNotStopClusterWaitAndIsRetried",
+      "internal/app/controller_founder_test.go::TestFounderStartsWhileRegionalClusterIsWaiting",
+      "internal/app/controller_founder_test.go::TestStopJoinsInFlightFounder",
+      "internal/app/controller_host_cluster_test.go::TestAuthenticatedOperatorToHostDeliveryWithControllerLoss",
+      "internal/app/controller_host_cluster_test.go::TestJWTMTLSHostSessionFencesAndRestartsAfterControllerLoss",
+      "internal/app/controller_host_cluster_test.go::TestJWTMTLSHostSessionRecoversAfterBlackholedController",
+      "internal/app/controller_host_cluster_test.go::TestJWTMTLSHostSessionRecoversAfterControllerLoss",
+      "internal/app/controller_host_cluster_test.go::TestR3CallerStreamQuorumRequiresEverySurvivingReplica",
+      "internal/app/controller_host_cluster_test.go::TestR3ConnectedToSurvivorNormalizesTLSURLSchemeAndExcludesFailedPeer",
+      "internal/app/controller_membership_config_integration_test.go::TestMembershipConfigurationFileNeedsNoActivationAndRejectsOverrides",
+      "internal/app/controller_membership_outage_integration_test.go::TestMembershipProviderOutageKeepsRegionalNATSServing",
+      "internal/app/controller_membership_seed_test.go::TestControllerCredentialsGrantTheSeedReplacementSubscription",
+      "internal/app/controller_membership_seed_test.go::TestControllerMembershipSurfacesASeedServiceFailureAtOnce",
+      "internal/app/controller_membership_seed_test.go::TestSeedRoutingOverNATSRunsUnderTheRealLeaderLease",
+      "internal/app/controller_membership_test.go::TestMembershipReplacesTerminatedControllerUnderSameServerName",
+      "internal/app/controller_quota_test.go::TestControllerRejectsConfigTrustOutsideAcceptedImage"
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_00_20"
+  },
+  "input_pins": [
+    {
+      "path": "/tmp/ts-root200-expansion-dispatch-kseJiOvj/allocation-and-exclusions.json",
+      "sha256": "7e7a69a7a625013deab54117e1a32875f5756e4f1ea67008815614bd0cec3e6f",
+      "bytes": 426842
+    },
+    {
+      "path": "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json",
+      "sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513",
+      "bytes": 423442
+    },
+    {
+      "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+      "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+      "bytes": 1640609
+    },
+    {
+      "path": "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md",
+      "sha256": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70",
+      "bytes": 3851
+    }
+  ],
+  "independent_verification": {
+    "exact_allocated_root_ids": 20,
+    "baseline_current_raw_declarations": 40,
+    "canonical_file_blob_mode_size_sha256_pins": 42,
+    "canonical_assertion_connected_and_declaration_spans": 166,
+    "connected_source_citations": 76,
+    "auxiliary_installed_module_spans": 3,
+    "all_passed": true,
+    "method": "Independently read all20 complete canonical roots and connected actual fixture/helper/production boundaries; same pinned shared canonical helper reads from reviewer own batch reused. Explicit reviewed spans only, no source parser/scanner. Metadata-only checks compare all original/current raw hashes (following LF excluded), full displayed declaration text (following LF included), survival TSV, literal inventory/allocation, all pins and recorded assertion/connected text. Auxiliary installed nats.go module corroboration separately pinned; no canonical or first-party status assigned."
+  },
+  "counts": {
+    "integration": 6,
+    "unit": 13,
+    "mixed": 1,
+    "unresolved": 0,
+    "total": 20
+  },
+  "roots": [
+    {
+      "root_id": "internal/app/controller_formation_test.go::TestOfflineRestartAdmissionStopCancelsInFlightFullGate",
+      "allocation_index": 120,
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "ACCEPT U: admission is an injected callback; stop cancels/joins local goroutine and canceled gate remains closed.",
+      "baseline_declaration_sha256": "2f2a148e20972238e50cb655f674a35411a5a50d13b78ee78a40cc0d52c8f746",
+      "current_declaration_sha256": "2f2a148e20972238e50cb655f674a35411a5a50d13b78ee78a40cc0d52c8f746",
+      "current_source": {
+        "path": "internal/app/controller_formation_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "9e8eaf94886d04796b40b0fb266a3174e35c6d70",
+        "start_line": 185,
+        "end_line": 216
+      }
+    },
+    {
+      "root_id": "internal/app/controller_formation_test.go::TestOfflineRestartAdmissionStopCancelsPendingAttempt",
+      "allocation_index": 121,
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "ACCEPT U: synthetic OCI error feeds local retry loop; stop/join and gate cancellation are local.",
+      "baseline_declaration_sha256": "ca29663141071d5af2806505f408c16fcca6c7c233b2c319e0927bf4cd52f995",
+      "current_declaration_sha256": "ca29663141071d5af2806505f408c16fcca6c7c233b2c319e0927bf4cd52f995",
+      "current_source": {
+        "path": "internal/app/controller_formation_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "9e8eaf94886d04796b40b0fb266a3174e35c6d70",
+        "start_line": 156,
+        "end_line": 183
+      }
+    },
+    {
+      "root_id": "internal/app/controller_founder_join_test.go::TestFounderJoinIsBoundedWhenTheFounderIgnoresCancellation",
+      "allocation_index": 122,
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "ACCEPT U: synthetic founder ignores context on a channel; bounded local join is asserted, no SDK operation.",
+      "baseline_declaration_sha256": "fa3aba2f714ac61eba0ffab71189ef2985718330c80c51a2591001d67c28b372",
+      "current_declaration_sha256": "fa3aba2f714ac61eba0ffab71189ef2985718330c80c51a2591001d67c28b372",
+      "current_source": {
+        "path": "internal/app/controller_founder_join_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "164fefda13976e33a94f89d3d419e79a260c9d05",
+        "start_line": 12,
+        "end_line": 40
+      }
+    },
+    {
+      "root_id": "internal/app/controller_founder_test.go::TestClusterFailureWaitsForCanceledFounderBeforeReturn",
+      "allocation_index": 123,
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "ACCEPT U: injected cluster error and founder channels assert cancellation, ordering and preserved error.",
+      "baseline_declaration_sha256": "993f366c26c5f14dda1a15befc0f3f51bc0ed15fb1091de3ac7faf8d9dc9a75f",
+      "current_declaration_sha256": "993f366c26c5f14dda1a15befc0f3f51bc0ed15fb1091de3ac7faf8d9dc9a75f",
+      "current_source": {
+        "path": "internal/app/controller_founder_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "abdabf550d3f55fc3eb9f19e3d446e16eb7ff578",
+        "start_line": 93,
+        "end_line": 131
+      }
+    },
+    {
+      "root_id": "internal/app/controller_founder_test.go::TestFounderFailureDoesNotStopClusterWaitAndIsRetried",
+      "allocation_index": 124,
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "ACCEPT U: three injected founder results assert retry/status while cluster callback waits; no real founder or NATS.",
+      "baseline_declaration_sha256": "43ed11655c24d54af0b3f02add5af857c4d467b86f9e7351cde575e85081af9b",
+      "current_declaration_sha256": "43ed11655c24d54af0b3f02add5af857c4d467b86f9e7351cde575e85081af9b",
+      "current_source": {
+        "path": "internal/app/controller_founder_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "abdabf550d3f55fc3eb9f19e3d446e16eb7ff578",
+        "start_line": 51,
+        "end_line": 91
+      }
+    },
+    {
+      "root_id": "internal/app/controller_founder_test.go::TestFounderStartsWhileRegionalClusterIsWaiting",
+      "allocation_index": 125,
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "ACCEPT U: callback channel exchange asserts concurrent local coordination and status.",
+      "baseline_declaration_sha256": "9f2fd4445659885810924316d3e246cce4c26871c73d90b2cce15d9504feb879",
+      "current_declaration_sha256": "9f2fd4445659885810924316d3e246cce4c26871c73d90b2cce15d9504feb879",
+      "current_source": {
+        "path": "internal/app/controller_founder_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "abdabf550d3f55fc3eb9f19e3d446e16eb7ff578",
+        "start_line": 20,
+        "end_line": 47
+      }
+    },
+    {
+      "root_id": "internal/app/controller_founder_test.go::TestStopJoinsInFlightFounder",
+      "allocation_index": 126,
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "ACCEPT U: stop joins injected canceled founder; repeated stop is local idempotence.",
+      "baseline_declaration_sha256": "5ec3b682628467fcf924420dfc3da8ebc2175114a4e0cfa83a6810184628fb64",
+      "current_declaration_sha256": "5ec3b682628467fcf924420dfc3da8ebc2175114a4e0cfa83a6810184628fb64",
+      "current_source": {
+        "path": "internal/app/controller_founder_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "abdabf550d3f55fc3eb9f19e3d446e16eb7ff578",
+        "start_line": 133,
+        "end_line": 156
+      }
+    },
+    {
+      "root_id": "internal/app/controller_host_cluster_test.go::TestAuthenticatedOperatorToHostDeliveryWithControllerLoss",
+      "allocation_index": 127,
+      "verdict": "ACCEPT",
+      "category": "integration",
+      "finding": "ACCEPT I: own unconditional wrapper invokes actual three-controller child process/JWT-mTLS NATS scenario. Signed host renewals and artifact/intent receipt/delivery traverse real network/JetStream. Native workload runner is fake.",
+      "baseline_declaration_sha256": "bd88f6b1c0dfde0f5828b66cc469e51782e38173a5847e42526ebe2fccbe2f50",
+      "current_declaration_sha256": "bd88f6b1c0dfde0f5828b66cc469e51782e38173a5847e42526ebe2fccbe2f50",
+      "current_source": {
+        "path": "internal/app/controller_host_cluster_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+        "start_line": 36,
+        "end_line": 38
+      }
+    },
+    {
+      "root_id": "internal/app/controller_host_cluster_test.go::TestJWTMTLSHostSessionFencesAndRestartsAfterControllerLoss",
+      "allocation_index": 128,
+      "verdict": "ACCEPT",
+      "category": "integration",
+      "finding": "ACCEPT I: own unconditional wrapper forces actual link blackhole, session fencing, distinct signed reacquisition and renewal on a surviving endpoint. Fake runner stop timestamp is compared against actual accepted signed expiry; workload execution not proved.",
+      "baseline_declaration_sha256": "28b1433191ea4b11a8849965c43f85280ba8a95ba9ba95839cbb1f81758140fc",
+      "current_declaration_sha256": "28b1433191ea4b11a8849965c43f85280ba8a95ba9ba95839cbb1f81758140fc",
+      "current_source": {
+        "path": "internal/app/controller_host_cluster_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+        "start_line": 49,
+        "end_line": 51
+      }
+    },
+    {
+      "root_id": "internal/app/controller_host_cluster_test.go::TestJWTMTLSHostSessionRecoversAfterBlackholedController",
+      "allocation_index": 129,
+      "verdict": "ACCEPT",
+      "category": "integration",
+      "finding": "ACCEPT I: actual TCP blackhole/controller crash produces reconnect or explicit fail-closed/restart followed by durable delivery. The conditional branch does not independently guarantee every runtime takes restart.",
+      "baseline_declaration_sha256": "2fb8527fa2b7d9a5874358bb0b7a7e43e32966eba2552398f14e00a66e093cfa",
+      "current_declaration_sha256": "2fb8527fa2b7d9a5874358bb0b7a7e43e32966eba2552398f14e00a66e093cfa",
+      "current_source": {
+        "path": "internal/app/controller_host_cluster_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+        "start_line": 45,
+        "end_line": 47
+      }
+    },
+    {
+      "root_id": "internal/app/controller_host_cluster_test.go::TestJWTMTLSHostSessionRecoversAfterControllerLoss",
+      "allocation_index": 130,
+      "verdict": "ACCEPT",
+      "category": "integration",
+      "finding": "ACCEPT I: actual child controller crash and surviving NATS/JetStream support renewed signed session/caller stream readiness and later delivery. Runner never executes native workload.",
+      "baseline_declaration_sha256": "334cf08272b14133a7c82ed90dfcaf9d59184bba62e3284531fc9c1007cafb30",
+      "current_declaration_sha256": "334cf08272b14133a7c82ed90dfcaf9d59184bba62e3284531fc9c1007cafb30",
+      "current_source": {
+        "path": "internal/app/controller_host_cluster_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+        "start_line": 41,
+        "end_line": 43
+      }
+    },
+    {
+      "root_id": "internal/app/controller_host_cluster_test.go::TestR3CallerStreamQuorumRequiresEverySurvivingReplica",
+      "allocation_index": 131,
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "ACCEPT U: constructed StreamInfo vectors feed a local quorum predicate; no broker observation.",
+      "baseline_declaration_sha256": "24a44e32bd226fad0dd302a1f916226bf7d740b3d3a252761f2e3324424d7e77",
+      "current_declaration_sha256": "24a44e32bd226fad0dd302a1f916226bf7d740b3d3a252761f2e3324424d7e77",
+      "current_source": {
+        "path": "internal/app/controller_host_cluster_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+        "start_line": 578,
+        "end_line": 611
+      }
+    },
+    {
+      "root_id": "internal/app/controller_host_cluster_test.go::TestR3ConnectedToSurvivorNormalizesTLSURLSchemeAndExcludesFailedPeer",
+      "allocation_index": 132,
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "ACCEPT U: literal URLs feed scheme/endpoint comparison and failed-peer exclusion; no network connection.",
+      "baseline_declaration_sha256": "76adae131ff027cb1ee5388880a0a7576b8687907fc3ee81bc754cf742531a99",
+      "current_declaration_sha256": "76adae131ff027cb1ee5388880a0a7576b8687907fc3ee81bc754cf742531a99",
+      "current_source": {
+        "path": "internal/app/controller_host_cluster_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+        "start_line": 808,
+        "end_line": 838
+      }
+    },
+    {
+      "root_id": "internal/app/controller_membership_config_integration_test.go::TestMembershipConfigurationFileNeedsNoActivationAndRejectsOverrides",
+      "allocation_index": 133,
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "ACCEPT U: temp files carry JSON into local strict schema validation. Membership is not started or exercised.",
+      "baseline_declaration_sha256": "92653f766dfe7e392c0c0dadf4e398bb2e78c97131751281bf04fa276af87d0a",
+      "current_declaration_sha256": "92653f766dfe7e392c0c0dadf4e398bb2e78c97131751281bf04fa276af87d0a",
+      "current_source": {
+        "path": "internal/app/controller_membership_config_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b15ece8e1103b233f6973c140bc3f2e1de37effe",
+        "start_line": 11,
+        "end_line": 34
+      }
+    },
+    {
+      "root_id": "internal/app/controller_membership_outage_integration_test.go::TestMembershipProviderOutageKeepsRegionalNATSServing",
+      "allocation_index": 134,
+      "verdict": "ACCEPT",
+      "category": "integration",
+      "finding": "ACCEPT I: actual HTTP provider outage/recovery and actual regional NATS request/reply support the assertions. The HTTP opener is test-local and provider facts synthetic; no production OCI path.",
+      "baseline_declaration_sha256": "adea9f1b7d9f70cf5d76b554014bffd94d2fc1dfc396f5b2b6785e2bb4de42a8",
+      "current_declaration_sha256": "adea9f1b7d9f70cf5d76b554014bffd94d2fc1dfc396f5b2b6785e2bb4de42a8",
+      "current_source": {
+        "path": "internal/app/controller_membership_outage_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "703eba9eff16c621cad47adbe4326e9ea7bb545d",
+        "start_line": 21,
+        "end_line": 110
+      }
+    },
+    {
+      "root_id": "internal/app/controller_membership_seed_test.go::TestControllerCredentialsGrantTheSeedReplacementSubscription",
+      "allocation_index": 135,
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "ACCEPT U: local subject suffix and grant-list membership only; no credential issuance or broker authorization.",
+      "baseline_declaration_sha256": "ef62897cc82efde93a90d9328ada0ccff4f4e8e76041e10cc87f2a605a20bdf6",
+      "current_declaration_sha256": "ef62897cc82efde93a90d9328ada0ccff4f4e8e76041e10cc87f2a605a20bdf6",
+      "current_source": {
+        "path": "internal/app/controller_membership_seed_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3cdca4e444f310cfd599e5fc4bbe7b7f59546177",
+        "start_line": 237,
+        "end_line": 248
+      }
+    },
+    {
+      "root_id": "internal/app/controller_membership_seed_test.go::TestControllerMembershipSurfacesASeedServiceFailureAtOnce",
+      "allocation_index": 136,
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "ACCEPT U: empty subject is rejected locally by nats.go before I/O. Real broker fixture is incidental; supervisor propagates local subscription failure.",
+      "baseline_declaration_sha256": "2614ba93b881fc27fde5b3e2d4012c9edd03ae7510dc2dce423f95dc6ac38323",
+      "current_declaration_sha256": "2614ba93b881fc27fde5b3e2d4012c9edd03ae7510dc2dce423f95dc6ac38323",
+      "current_source": {
+        "path": "internal/app/controller_membership_seed_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3cdca4e444f310cfd599e5fc4bbe7b7f59546177",
+        "start_line": 192,
+        "end_line": 229
+      }
+    },
+    {
+      "root_id": "internal/app/controller_membership_seed_test.go::TestSeedRoutingOverNATSRunsUnderTheRealLeaderLease",
+      "allocation_index": 137,
+      "verdict": "ACCEPT",
+      "category": "integration",
+      "finding": "ACCEPT I: actual R1 NATS seed RPC and durable leader lease Guard/foreign-holder read support execution and forged-term refusal. Lifecycle/founder are synthetic; no R3/cloud credit.",
+      "baseline_declaration_sha256": "96084415a3def5f161f0abff36faf7292186337e7b0184dabfc52cd4d8b1c870",
+      "current_declaration_sha256": "96084415a3def5f161f0abff36faf7292186337e7b0184dabfc52cd4d8b1c870",
+      "current_source": {
+        "path": "internal/app/controller_membership_seed_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3cdca4e444f310cfd599e5fc4bbe7b7f59546177",
+        "start_line": 77,
+        "end_line": 161
+      }
+    },
+    {
+      "root_id": "internal/app/controller_membership_test.go::TestMembershipReplacesTerminatedControllerUnderSameServerName",
+      "allocation_index": 138,
+      "verdict": "ACCEPT",
+      "category": "mixed",
+      "finding": "ACCEPT M: independent local membership-credential scope refusal is U. Actual R3 metadata stepdown, surviving writes, same-name empty-store replacement and 20-message/current/zero-lag catchup are I. OCI facts/replacer decision and authority are synthetic.",
+      "baseline_declaration_sha256": "4ecb855e90b13a4d89ffb92b7e7a7ba6bdf24cf34058a89999201735cd1fb478",
+      "current_declaration_sha256": "4ecb855e90b13a4d89ffb92b7e7a7ba6bdf24cf34058a89999201735cd1fb478",
+      "current_source": {
+        "path": "internal/app/controller_membership_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "969d5c0ac992c155851673996a38d8390e4aeee2",
+        "start_line": 261,
+        "end_line": 416
+      }
+    },
+    {
+      "root_id": "internal/app/controller_quota_test.go::TestControllerRejectsConfigTrustOutsideAcceptedImage",
+      "allocation_index": 139,
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "ACCEPT U: stubbed admission reaches image-trust guard before broker startup; key/file fixture is incidental.",
+      "baseline_declaration_sha256": "9484a1a749e9a37bd7be9a5b90fe83d51c122cfd8e02c8ae63737b16a46f59c0",
+      "current_declaration_sha256": "9484a1a749e9a37bd7be9a5b90fe83d51c122cfd8e02c8ae63737b16a46f59c0",
+      "current_source": {
+        "path": "internal/app/controller_quota_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "017117ca99cd094ecac48067761ab09d1f6479d1",
+        "start_line": 43,
+        "end_line": 58
+      }
+    }
+  ],
+  "source_pins_verified": {
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/controller_formation_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/controller_formation_test.go",
+      "mode": "100644",
+      "git_blob": "9e8eaf94886d04796b40b0fb266a3174e35c6d70",
+      "sha256": "e1d0796bd7b79a0650f22402545f8421c1c0467f8a4ca3ccdc3e5e020c6af096",
+      "bytes": 8174
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/controller_formation.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/controller_formation.go",
+      "mode": "100644",
+      "git_blob": "87a906949b8063ba59bfeb493a6b3825e37dfda8",
+      "sha256": "a555820c7bcac1ebf9df948c3783eb25310309f7adbb5ea8b63c6075e02c325f",
+      "bytes": 9034
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/bootstrap_controller.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/bootstrap_controller.go",
+      "mode": "100644",
+      "git_blob": "adc42636200aec8f77b1a5e379f9fdcdb6365a34",
+      "sha256": "3d88ae29c382766a2e651d06985ec300d8cf604beb42db15d6e8e3e63e592f02",
+      "bytes": 18740
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/controller_founder_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/controller_founder_test.go",
+      "mode": "100644",
+      "git_blob": "abdabf550d3f55fc3eb9f19e3d446e16eb7ff578",
+      "sha256": "6d4071e9c349a727e0f722385c8d5f20d4ef6c6b1ee81e33b9b0878fb0807b23",
+      "bytes": 4234
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/bootstrapstart/founder_supervisor.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/bootstrapstart/founder_supervisor.go",
+      "mode": "100644",
+      "git_blob": "9209f8356f7fe70f97a5d44679ac54a11b7ba04f",
+      "sha256": "5f514764d7b17cd2230698f9646b74a96fdb7ba188b5b02de50f5d07e87c2fae",
+      "bytes": 4966
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/controller_host_cluster_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/controller_host_cluster_test.go",
+      "mode": "100644",
+      "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+      "sha256": "4f4b554afefc90d6bc1cdf89246321a8f7a9c88d9477526afc6c7146bc006329",
+      "bytes": 40728
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/controller_cluster_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/controller_cluster_test.go",
+      "mode": "100644",
+      "git_blob": "a1acfa20d094c16766c2aabe9d99edcc4fd3627a",
+      "sha256": "e6f4ff83d5809745d8b90cc8c34f72769138f68a28bfd3bec57157dfc87ebbee",
+      "bytes": 20610
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/authenticated_nats_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/authenticated_nats_test.go",
+      "mode": "100644",
+      "git_blob": "5ccb7b89b0abeb8373c3e29ea0ef5da5b2ff5ca4",
+      "sha256": "46255a91d171884a762f1508c7af007e83e75d477c7a83aac63c848ea1dc53f7",
+      "bytes": 8431
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/natscell/runtime.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/natscell/runtime.go",
+      "mode": "100644",
+      "git_blob": "b7d9b16bf34c966d722a17bea21a3ccb76cc396b",
+      "sha256": "44804d1b0692d1b47fb37f4a9e1d99bfe7235d3fb317fc7c81c9090d80dc57cf",
+      "bytes": 35509
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/operator_integration_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/operator_integration_test.go",
+      "mode": "100644",
+      "git_blob": "e717f55964fea7003d6f6770f321cf00e85c6fca",
+      "sha256": "2e5169ccabb85ec8b1a50f75ff7bdfd4511c8deb980611218feb3849fe59d7ec",
+      "bytes": 19133
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/controller_host_tls_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/controller_host_tls_test.go",
+      "mode": "100644",
+      "git_blob": "697bf180ed9588eec78cf6d5aae10f6affce62e6",
+      "sha256": "0ebbecbe5a74ae45835aeefb6a44a2007155e8feb05a27b7956b8b73910c4ed2",
+      "bytes": 3972
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/host/agent.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/host/agent.go",
+      "mode": "100644",
+      "git_blob": "44dadbe320a52827f21f81efb2be637c316ebd9e",
+      "sha256": "73e0725c5e9f061dd5aca95c0cdd9650269f4e440ac3d1c60df3c9a997254edf",
+      "bytes": 42059
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/host/wire.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/host/wire.go",
+      "mode": "100644",
+      "git_blob": "6f0919e1682739cc48f416eb91b03b1f60b09a31",
+      "sha256": "757ff968ed5cc00b524b0e57d0030ffce81750c947388a2b4d2b6f4ce6d79443",
+      "bytes": 10072
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/config.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/config.go",
+      "mode": "100644",
+      "git_blob": "805f58dfc6100299673fd3a01649811d5e680c5c",
+      "sha256": "fb83bab8a9a1686b7fe61b45c98db44da2d491602e487c014eacc1b52814646f",
+      "bytes": 9658
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/controller_membership.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/controller_membership.go",
+      "mode": "100644",
+      "git_blob": "8e178534b01214093b4fef73512c581f58b4c2c8",
+      "sha256": "d051f3d55f938b160631f2e2381d6c40bd6f5837d76db31b0fb302951e5defae",
+      "bytes": 19051
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/controller_membership_seed.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/controller_membership_seed.go",
+      "mode": "100644",
+      "git_blob": "758eff9041701fc30971021b79d0e6272cfd0977",
+      "sha256": "8d71a52d8c1b73c4df360b22c075cc577c7b309c213ed4fdeef0702b1648aa1a",
+      "bytes": 2791
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/controller_membership_seed_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/controller_membership_seed_test.go",
+      "mode": "100644",
+      "git_blob": "3cdca4e444f310cfd599e5fc4bbe7b7f59546177",
+      "sha256": "8d26c43746ae8438aac6c50a464dba91438edd7143a68cb70b3b4fc42a7533d8",
+      "bytes": 9900
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/membership/seedroute.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/membership/seedroute.go",
+      "mode": "100644",
+      "git_blob": "e24bfa5aee7420ec0064f2b9cba63cf56711eb03",
+      "sha256": "d6fc18f2a90710b0e79877f6b3de04556dc003dcb32c1b6e56503106398fe404",
+      "bytes": 15194
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/authority/foreign_lease.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/authority/foreign_lease.go",
+      "mode": "100644",
+      "git_blob": "3febf94f2733fd142818026920f4e789e1e85e21",
+      "sha256": "636d75b49bc41d2b28efd031fd327deeefb4f65905c83a6c1324e20e7daa6dcc",
+      "bytes": 1959
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/authority/runtime.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/authority/runtime.go",
+      "mode": "100644",
+      "git_blob": "3ca4fa7b42e322ae9eced36f845c45ad68892296",
+      "sha256": "cecacfadaaedfe54c495c7529209b1e059a894ba98ff1831dcc55f1f1861d48c",
+      "bytes": 28474
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/natscell/accounts.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/natscell/accounts.go",
+      "mode": "100644",
+      "git_blob": "f3a8d6d028bc77fe07e3ff3bad376b9edd8756d4",
+      "sha256": "428fa212a2fe06f0e701a5c119eead1460a58769d6af4c7d999411626db8c2e7",
+      "bytes": 16586
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/protocol/families.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/protocol/families.go",
+      "mode": "100644",
+      "git_blob": "8db810e94ae0bc2185a91b58ea40cb68d0424765",
+      "sha256": "0ba7c2cb3fcba7e9dc028fe359c4aa5f2fb809b60d346d9973caf01f6d8c0938",
+      "bytes": 15013
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/controller_membership_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/controller_membership_test.go",
+      "mode": "100644",
+      "git_blob": "969d5c0ac992c155851673996a38d8390e4aeee2",
+      "sha256": "bcc53a573b90a7e34bf11c29cb4129896eacfa4846a387f5b58ea6c649af8a57",
+      "bytes": 15533
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/membership/reconciler.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/membership/reconciler.go",
+      "mode": "100644",
+      "git_blob": "c706a222d5bed90999a5bc976944928c41cfb33a",
+      "sha256": "9e97644c1630e51d3ef03a3c458a11e9f26ec51106bead609919348fbf01ca31",
+      "bytes": 13041
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/natscell/membership.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/natscell/membership.go",
+      "mode": "100644",
+      "git_blob": "fc6ac0a5f4f77bae2da1a5431bc09b4b0e742d0e",
+      "sha256": "baa345990c04b5eff28acfbacecc800c2bd4b866754d5eb926c5187f9d0cd15c",
+      "bytes": 6650
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/controller.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/controller.go",
+      "mode": "100644",
+      "git_blob": "cc89be1dbedb1ff4bce154c1380565b36d02eaa0",
+      "sha256": "cba704cb334d583661cff14bd366d1e7a614473ea7b031de1cb04ea5ddf7f48f",
+      "bytes": 62331
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/cell_spec_registry.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/cell_spec_registry.go",
+      "mode": "100644",
+      "git_blob": "80afdaef21fd15354e98657fcd8d9e6aeeabf680",
+      "sha256": "286cfd2cfb4f649a5064e17998e9b1f0525ef45382634f7c3d3a0ed2fca37253",
+      "bytes": 34181
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/controller_formation_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/app/controller_formation_test.go",
+      "mode": "100644",
+      "git_blob": "9e8eaf94886d04796b40b0fb266a3174e35c6d70",
+      "sha256": "e1d0796bd7b79a0650f22402545f8421c1c0467f8a4ca3ccdc3e5e020c6af096",
+      "bytes": 8174
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/controller_founder_join_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/controller_founder_join_test.go",
+      "mode": "100644",
+      "git_blob": "164fefda13976e33a94f89d3d419e79a260c9d05",
+      "sha256": "4876f4cef5ee32f65db02c05315aac3d3aac3a8ba3851885175f7a745d31d8cc",
+      "bytes": 1054
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/controller_founder_join_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/app/controller_founder_join_test.go",
+      "mode": "100644",
+      "git_blob": "164fefda13976e33a94f89d3d419e79a260c9d05",
+      "sha256": "4876f4cef5ee32f65db02c05315aac3d3aac3a8ba3851885175f7a745d31d8cc",
+      "bytes": 1054
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/controller_founder_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/app/controller_founder_test.go",
+      "mode": "100644",
+      "git_blob": "abdabf550d3f55fc3eb9f19e3d446e16eb7ff578",
+      "sha256": "6d4071e9c349a727e0f722385c8d5f20d4ef6c6b1ee81e33b9b0878fb0807b23",
+      "bytes": 4234
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/controller_host_cluster_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/app/controller_host_cluster_test.go",
+      "mode": "100644",
+      "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+      "sha256": "4f4b554afefc90d6bc1cdf89246321a8f7a9c88d9477526afc6c7146bc006329",
+      "bytes": 40728
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/controller_membership_config_integration_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/controller_membership_config_integration_test.go",
+      "mode": "100644",
+      "git_blob": "b15ece8e1103b233f6973c140bc3f2e1de37effe",
+      "sha256": "90d2925a1be9764941b784b25c1bc3f5c57d946f9ce04dc368729b3166acc9b4",
+      "bytes": 1005
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/controller_membership_config_integration_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/app/controller_membership_config_integration_test.go",
+      "mode": "100644",
+      "git_blob": "b15ece8e1103b233f6973c140bc3f2e1de37effe",
+      "sha256": "90d2925a1be9764941b784b25c1bc3f5c57d946f9ce04dc368729b3166acc9b4",
+      "bytes": 1005
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/controller_membership_outage_integration_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/controller_membership_outage_integration_test.go",
+      "mode": "100644",
+      "git_blob": "703eba9eff16c621cad47adbe4326e9ea7bb545d",
+      "sha256": "f105ce8ea527d52d04f9683eb1abf0a958937233403111ace8270b4387e59774",
+      "bytes": 3600
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/controller_membership_outage_integration_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/app/controller_membership_outage_integration_test.go",
+      "mode": "100644",
+      "git_blob": "703eba9eff16c621cad47adbe4326e9ea7bb545d",
+      "sha256": "f105ce8ea527d52d04f9683eb1abf0a958937233403111ace8270b4387e59774",
+      "bytes": 3600
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/controller_membership_seed_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/app/controller_membership_seed_test.go",
+      "mode": "100644",
+      "git_blob": "3cdca4e444f310cfd599e5fc4bbe7b7f59546177",
+      "sha256": "8d26c43746ae8438aac6c50a464dba91438edd7143a68cb70b3b4fc42a7533d8",
+      "bytes": 9900
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/controller_membership_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/app/controller_membership_test.go",
+      "mode": "100644",
+      "git_blob": "969d5c0ac992c155851673996a38d8390e4aeee2",
+      "sha256": "bcc53a573b90a7e34bf11c29cb4129896eacfa4846a387f5b58ea6c649af8a57",
+      "bytes": 15533
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/controller_quota_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/controller_quota_test.go",
+      "mode": "100644",
+      "git_blob": "017117ca99cd094ecac48067761ab09d1f6479d1",
+      "sha256": "fa822dfc97951be5030d241c2744f318adbe249bf0a427cabbef8ea3bfc45184",
+      "bytes": 2772
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/controller_quota_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/app/controller_quota_test.go",
+      "mode": "100644",
+      "git_blob": "017117ca99cd094ecac48067761ab09d1f6479d1",
+      "sha256": "fa822dfc97951be5030d241c2744f318adbe249bf0a427cabbef8ea3bfc45184",
+      "bytes": 2772
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:go.mod": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "go.mod",
+      "mode": "100644",
+      "git_blob": "84da8168e25f1012adc94846a5972b429a765b05",
+      "sha256": "3b9ee50d230a3083b3ed90dfc58d8af9496a61807847d2f5aeb6b4b283204d82",
+      "bytes": 6486
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:go.sum": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "go.sum",
+      "mode": "100644",
+      "git_blob": "1e14d67687d82230a709811544e3b6c4839eb960",
+      "sha256": "8b66a5397e2d3eddd6f553f081eb34365352c104503b72a813bc21a4ebf3dca3",
+      "bytes": 31887
+    }
+  },
+  "recorded_connected_spans_verified": [
+    {
+      "path": "internal/app/controller_formation_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "9e8eaf94886d04796b40b0fb266a3174e35c6d70",
+      "start_line": 17,
+      "end_line": 41,
+      "citation_id": "admission_stubs",
+      "function": "stubControllerAdmission",
+      "role": "Injects marker,baked/local/full admission and retry delay."
+    },
+    {
+      "path": "internal/app/controller_formation.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "87a906949b8063ba59bfeb493a6b3825e37dfda8",
+      "start_line": 79,
+      "end_line": 123,
+      "citation_id": "admission_start",
+      "function": "startControllerAdmission",
+      "role": "Injected callbacks and local retry loop."
+    },
+    {
+      "path": "internal/app/controller_formation.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "87a906949b8063ba59bfeb493a6b3825e37dfda8",
+      "start_line": 60,
+      "end_line": 65,
+      "citation_id": "admission_stop",
+      "function": "controllerAdmission.stop",
+      "role": "Cancel and join local goroutine."
+    },
+    {
+      "path": "internal/app/controller_formation.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "87a906949b8063ba59bfeb493a6b3825e37dfda8",
+      "start_line": 49,
+      "end_line": 56,
+      "citation_id": "admission_wait",
+      "function": "controllerAdmission.wait",
+      "role": "Local channel/context select."
+    },
+    {
+      "path": "internal/app/bootstrap_controller.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "adc42636200aec8f77b1a5e379f9fdcdb6365a34",
+      "start_line": 49,
+      "end_line": 64,
+      "citation_id": "admission_delegate",
+      "function": "admitControllerBootstrap",
+      "role": "Injected input/clock checks then controllerBootstrapProduction."
+    },
+    {
+      "path": "internal/app/controller_founder_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "abdabf550d3f55fc3eb9f19e3d446e16eb7ff578",
+      "start_line": 13,
+      "end_line": 18,
+      "citation_id": "founder_backoff",
+      "function": "shortFounderBackoff",
+      "role": "Local timing override."
+    },
+    {
+      "path": "internal/app/controller_formation.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "87a906949b8063ba59bfeb493a6b3825e37dfda8",
+      "start_line": 147,
+      "end_line": 179,
+      "citation_id": "founder_join",
+      "function": "superviseFounderAndWaitCluster",
+      "role": "Injected callbacks, goroutine and bounded join."
+    },
+    {
+      "path": "internal/bootstrapstart/founder_supervisor.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "9209f8356f7fe70f97a5d44679ac54a11b7ba04f",
+      "start_line": 69,
+      "end_line": 129,
+      "citation_id": "founder_supervise",
+      "function": "FounderSupervisor.Supervise",
+      "role": "Retries injected Found and updates local status."
+    },
+    {
+      "path": "internal/app/controller_host_cluster_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+      "start_line": 57,
+      "end_line": 378,
+      "citation_id": "scenario",
+      "function": "testAuthenticatedOperatorToHostDeliveryWithControllerLoss",
+      "role": "Whole real subprocess/NATS scenario; in-memory runner and injected cloud admission."
+    },
+    {
+      "path": "internal/app/controller_cluster_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "a1acfa20d094c16766c2aabe9d99edcc4fd3627a",
+      "start_line": 32,
+      "end_line": 56,
+      "citation_id": "controller_stub",
+      "function": "stubAuthenticatedController",
+      "role": "Stubs cloud admission/founder/clock; retains actual natscell.Start."
+    },
+    {
+      "path": "internal/app/controller_cluster_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "a1acfa20d094c16766c2aabe9d99edcc4fd3627a",
+      "start_line": 82,
+      "end_line": 96,
+      "citation_id": "child_entry",
+      "function": "TestControllerThreeProcessBootstrapAndRestart child branch",
+      "role": "Actual Run run command in test executable child; dependency only, no root credit."
+    },
+    {
+      "path": "internal/app/controller_cluster_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "a1acfa20d094c16766c2aabe9d99edcc4fd3627a",
+      "start_line": 344,
+      "end_line": 384,
+      "citation_id": "child_start",
+      "function": "startControllerChild",
+      "role": "exec.CommandContext starts same test executable and Wait reaps it."
+    },
+    {
+      "path": "internal/app/controller_cluster_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "a1acfa20d094c16766c2aabe9d99edcc4fd3627a",
+      "start_line": 483,
+      "end_line": 493,
+      "citation_id": "child_crash",
+      "function": "crashControllerChild",
+      "role": "Actual process kill and wait."
+    },
+    {
+      "path": "internal/app/authenticated_nats_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "5ccb7b89b0abeb8373c3e29ea0ef5da5b2ff5ca4",
+      "start_line": 59,
+      "end_line": 116,
+      "citation_id": "auth_fixture",
+      "function": "newAuthenticatedNATS",
+      "role": "Ephemeral JWT/TLS fixture material, no real vendor issuance."
+    },
+    {
+      "path": "internal/app/authenticated_nats_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "5ccb7b89b0abeb8373c3e29ea0ef5da5b2ff5ca4",
+      "start_line": 119,
+      "end_line": 209,
+      "citation_id": "auth_config",
+      "function": "authenticatedNATS.config",
+      "role": "Configures actual broker/client JWT/mTLS using fixture grants."
+    },
+    {
+      "path": "internal/app/authenticated_nats_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "5ccb7b89b0abeb8373c3e29ea0ef5da5b2ff5ca4",
+      "start_line": 211,
+      "end_line": 227,
+      "citation_id": "auth_start",
+      "function": "authenticatedNATS.start",
+      "role": "Actual runtime start, cell claim and bridge."
+    },
+    {
+      "path": "internal/natscell/runtime.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "b7d9b16bf34c966d722a17bea21a3ccb76cc396b",
+      "start_line": 363,
+      "end_line": 507,
+      "citation_id": "nats_runtime",
+      "function": "start",
+      "role": "Actual server.NewServer, Start, client Connect, bridge and JetStream; host ping/reconnect behavior."
+    },
+    {
+      "path": "internal/app/operator_integration_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "e717f55964fea7003d6f6770f321cf00e85c6fca",
+      "start_line": 76,
+      "end_line": 94,
+      "citation_id": "runner",
+      "function": "inMemoryRunner methods",
+      "role": "Apply stores synthetic observation with fabricatedPID1; no workload execution."
+    },
+    {
+      "path": "internal/app/controller_host_tls_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "697bf180ed9588eec78cf6d5aae10f6affce62e6",
+      "start_line": 148,
+      "end_line": 150,
+      "citation_id": "runner_close",
+      "function": "r3StopOnCloseRunner.Close",
+      "role": "Clears only fake runner state."
+    },
+    {
+      "path": "internal/app/controller_host_tls_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "697bf180ed9588eec78cf6d5aae10f6affce62e6",
+      "start_line": 86,
+      "end_line": 144,
+      "citation_id": "proxy",
+      "function": "newR3BlackholeProxy and forward",
+      "role": "Actual TCP accept/dial/forward; drops bytes under blocked flag."
+    },
+    {
+      "path": "internal/app/controller_host_cluster_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+      "start_line": 385,
+      "end_line": 391,
+      "citation_id": "timed_stop",
+      "function": "r3TimedStopRunner.Close",
+      "role": "Records actual agent-invoked fake runner Close time."
+    },
+    {
+      "path": "internal/app/controller_host_cluster_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+      "start_line": 452,
+      "end_line": 471,
+      "citation_id": "session_handler",
+      "function": "r3AcceptedSessionHandler.Handle",
+      "role": "Records actual production accepted-session log."
+    },
+    {
+      "path": "internal/app/controller_host_cluster_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+      "start_line": 481,
+      "end_line": 503,
+      "citation_id": "authority_wait",
+      "function": "waitR3Authority",
+      "role": "Reads durable authority.Observe."
+    },
+    {
+      "path": "internal/app/controller_host_cluster_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+      "start_line": 505,
+      "end_line": 546,
+      "citation_id": "quorum_wait",
+      "function": "waitR3CallerStreamQuorum",
+      "role": "Reads actual Stream.Info for every caller durable stream."
+    },
+    {
+      "path": "internal/app/controller_host_cluster_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+      "start_line": 548,
+      "end_line": 576,
+      "citation_id": "quorum_predicate",
+      "function": "r3CallerStreamQuorate",
+      "role": "Local StreamInfo predicate."
+    },
+    {
+      "path": "internal/app/controller_host_cluster_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+      "start_line": 613,
+      "end_line": 618,
+      "citation_id": "operator",
+      "function": "callR3Operator",
+      "role": "Invokes actual Run operator command."
+    },
+    {
+      "path": "internal/app/controller_host_cluster_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+      "start_line": 638,
+      "end_line": 666,
+      "citation_id": "session_observe",
+      "function": "observeR3HostSession",
+      "role": "Actual operator hosts readback and agent completion."
+    },
+    {
+      "path": "internal/app/controller_host_cluster_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+      "start_line": 668,
+      "end_line": 722,
+      "citation_id": "restart_wait",
+      "function": "waitR3RestartedSession",
+      "role": "Requires fresh acquire/renewal and survivor transport after actual fencing."
+    },
+    {
+      "path": "internal/app/controller_host_cluster_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+      "start_line": 724,
+      "end_line": 743,
+      "citation_id": "fence_assert",
+      "function": "assertR3HostFenced",
+      "role": "Reserve failure/stop timestamp vs actual accepted signed expiry; final runner state synthetic."
+    },
+    {
+      "path": "internal/app/controller_host_cluster_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+      "start_line": 745,
+      "end_line": 775,
+      "citation_id": "reconnect",
+      "function": "observeR3HostReconnect",
+      "role": "Actual connection plus signed-session advancement or explicit fencing."
+    },
+    {
+      "path": "internal/app/controller_host_cluster_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+      "start_line": 777,
+      "end_line": 796,
+      "citation_id": "survivor_predicate",
+      "function": "r3ConnectedToSurvivor",
+      "role": "Pure URL comparison."
+    },
+    {
+      "path": "internal/app/controller_host_cluster_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+      "start_line": 798,
+      "end_line": 806,
+      "citation_id": "endpoint_predicate",
+      "function": "r3NATSEndpointHostPort",
+      "role": "Pure URL validation/normalization."
+    },
+    {
+      "path": "internal/app/controller_host_cluster_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+      "start_line": 846,
+      "end_line": 964,
+      "citation_id": "deploy",
+      "function": "deployR3Workload",
+      "role": "Actual artifact push/intent/receipt and fake runner delivery; shell bytes never execute."
+    },
+    {
+      "path": "internal/host/agent.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "44dadbe320a52827f21f81efb2be637c316ebd9e",
+      "start_line": 298,
+      "end_line": 386,
+      "citation_id": "agent_run",
+      "function": "Agent.Run",
+      "role": "Production session and reconciliation loop."
+    },
+    {
+      "path": "internal/host/agent.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "44dadbe320a52827f21f81efb2be637c316ebd9e",
+      "start_line": 439,
+      "end_line": 462,
+      "citation_id": "agent_send",
+      "function": "Agent.sendToLeader",
+      "role": "Real signed request exchange with follower retry."
+    },
+    {
+      "path": "internal/host/agent.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "44dadbe320a52827f21f81efb2be637c316ebd9e",
+      "start_line": 464,
+      "end_line": 485,
+      "citation_id": "agent_acquire",
+      "function": "Agent.acquire",
+      "role": "Acquires and accepts process-bound session."
+    },
+    {
+      "path": "internal/host/wire.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "6f0919e1682739cc48f416eb91b03b1f60b09a31",
+      "start_line": 194,
+      "end_line": 268,
+      "citation_id": "exchange",
+      "function": "exchangeWithEnvelope",
+      "role": "Actual NATS RequestMsgWithContext plus signed reply verification and request binding."
+    },
+    {
+      "path": "internal/host/agent.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "44dadbe320a52827f21f81efb2be637c316ebd9e",
+      "start_line": 570,
+      "end_line": 647,
+      "citation_id": "agent_maintain",
+      "function": "Agent.maintainSessionLease",
+      "role": "Execution watchdog and real renewal exchange."
+    },
+    {
+      "path": "internal/host/agent.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "44dadbe320a52827f21f81efb2be637c316ebd9e",
+      "start_line": 697,
+      "end_line": 722,
+      "citation_id": "agent_fence",
+      "function": "Agent.stopForLostSession",
+      "role": "Marks loss, closes injected runner and reports loss."
+    },
+    {
+      "path": "internal/host/agent.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "44dadbe320a52827f21f81efb2be637c316ebd9e",
+      "start_line": 916,
+      "end_line": 1026,
+      "citation_id": "agent_apply",
+      "function": "Agent.reconcile effect tail",
+      "role": "Fragment: actual artifact fetch, desired/cycle rechecks, injected runner Apply/Observe and report."
+    },
+    {
+      "path": "internal/app/config.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "805f58dfc6100299673fd3a01649811d5e680c5c",
+      "start_line": 145,
+      "end_line": 173,
+      "citation_id": "config_load",
+      "function": "LoadConfig",
+      "role": "Fixture file read then schema decoding."
+    },
+    {
+      "path": "internal/app/config.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "805f58dfc6100299673fd3a01649811d5e680c5c",
+      "start_line": 176,
+      "end_line": 186,
+      "citation_id": "config_decode",
+      "function": "decodeConfig",
+      "role": "Strict local schema/version predicate."
+    },
+    {
+      "path": "internal/app/controller_membership.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "8e178534b01214093b4fef73512c581f58b4c2c8",
+      "start_line": 355,
+      "end_line": 396,
+      "citation_id": "membership_supervisor",
+      "function": "controllerMembership.Run",
+      "role": "Retry opener, run/cancel/join seed and reconciler."
+    },
+    {
+      "path": "internal/app/controller_membership.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "8e178534b01214093b4fef73512c581f58b4c2c8",
+      "start_line": 27,
+      "end_line": 46,
+      "citation_id": "membership_peers",
+      "function": "natsMembershipPeers.Meta and membershipMeta",
+      "role": "Actual Runtime.Meta adapted to peer observations."
+    },
+    {
+      "path": "internal/app/controller_membership_seed.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "758eff9041701fc30971021b79d0e6272cfd0977",
+      "start_line": 23,
+      "end_line": 30,
+      "citation_id": "seed_serial",
+      "function": "serializedReplacer.Replace",
+      "role": "Serializes injected replacer."
+    },
+    {
+      "path": "internal/app/controller_membership_seed.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "758eff9041701fc30971021b79d0e6272cfd0977",
+      "start_line": 37,
+      "end_line": 51,
+      "citation_id": "seed_requester",
+      "function": "natsSeedRequester",
+      "role": "Actual Conn.RequestWithContext."
+    },
+    {
+      "path": "internal/app/controller_membership_seed.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "758eff9041701fc30971021b79d0e6272cfd0977",
+      "start_line": 62,
+      "end_line": 86,
+      "citation_id": "seed_service",
+      "function": "seedReplacementService.Run",
+      "role": "Subscribes/responds actual seed RPC; invalid subject fails locally."
+    },
+    {
+      "path": "internal/app/controller_membership_seed_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "3cdca4e444f310cfd599e5fc4bbe7b7f59546177",
+      "start_line": 30,
+      "end_line": 39,
+      "citation_id": "seed_founder_fake",
+      "function": "seedFounderRecorder.Replace",
+      "role": "Runs fence then records synthetic action; no launch."
+    },
+    {
+      "path": "internal/app/controller_membership_seed_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "3cdca4e444f310cfd599e5fc4bbe7b7f59546177",
+      "start_line": 43,
+      "end_line": 48,
+      "citation_id": "seed_lifecycle_fake",
+      "function": "seedInstances.Lifecycle",
+      "role": "Synthetic lifecycle map."
+    },
+    {
+      "path": "internal/app/controller_membership_seed_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "3cdca4e444f310cfd599e5fc4bbe7b7f59546177",
+      "start_line": 169,
+      "end_line": 178,
+      "citation_id": "seed_forged_snapshot",
+      "function": "seedAuthorityAsLeader.Current and Guard",
+      "role": "Forged local snapshot/no-op Guard; receiver uses real lease verification."
+    },
+    {
+      "path": "internal/app/controller_membership_seed_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "3cdca4e444f310cfd599e5fc4bbe7b7f59546177",
+      "start_line": 182,
+      "end_line": 187,
+      "citation_id": "seed_follower",
+      "function": "followerLeadership and noPeers",
+      "role": "Local follower/no-peer dependencies isolate error propagation."
+    },
+    {
+      "path": "internal/membership/seedroute.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "e24bfa5aee7420ec0064f2b9cba63cf56711eb03",
+      "start_line": 131,
+      "end_line": 172,
+      "citation_id": "seed_route",
+      "function": "SeedRoutedReplacer.Replace",
+      "role": "Fences action, serializes term, requester and reply decode."
+    },
+    {
+      "path": "internal/membership/seedroute.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "e24bfa5aee7420ec0064f2b9cba63cf56711eb03",
+      "start_line": 208,
+      "end_line": 225,
+      "citation_id": "seed_server",
+      "function": "NewSeedServer",
+      "role": "Validates topology/dependencies."
+    },
+    {
+      "path": "internal/membership/seedroute.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "e24bfa5aee7420ec0064f2b9cba63cf56711eb03",
+      "start_line": 240,
+      "end_line": 293,
+      "citation_id": "seed_handle",
+      "function": "SeedServer.Handle",
+      "role": "Strict request/term validation and actual foreign lease fence."
+    },
+    {
+      "path": "internal/membership/seedroute.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "e24bfa5aee7420ec0064f2b9cba63cf56711eb03",
+      "start_line": 336,
+      "end_line": 355,
+      "citation_id": "seed_execute",
+      "function": "SeedServer.execute",
+      "role": "Injected lifecycle, real foreign lease check and injected founder."
+    },
+    {
+      "path": "internal/authority/foreign_lease.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "3febf94f2733fd142818026920f4e789e1e85e21",
+      "start_line": 16,
+      "end_line": 51,
+      "citation_id": "foreign_lease",
+      "function": "Runtime.VerifyLeaseHolder",
+      "role": "Real stream.Info/GetLastMsgForSubject validates exact holder/term/expiry."
+    },
+    {
+      "path": "internal/authority/runtime.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "3ca4fa7b42e322ae9eced36f845c45ad68892296",
+      "start_line": 131,
+      "end_line": 208,
+      "citation_id": "authority_start",
+      "function": "Start",
+      "role": "Actual control stream/read handle/reconciliation and renewal loop."
+    },
+    {
+      "path": "internal/authority/runtime.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "3ca4fa7b42e322ae9eced36f845c45ad68892296",
+      "start_line": 641,
+      "end_line": 686,
+      "citation_id": "authority_guard",
+      "function": "Runtime.Guard",
+      "role": "Checks term and invokes durable guard."
+    },
+    {
+      "path": "internal/authority/runtime.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "3ca4fa7b42e322ae9eced36f845c45ad68892296",
+      "start_line": 688,
+      "end_line": 716,
+      "citation_id": "authority_guard_store",
+      "function": "Runtime.guardLocked",
+      "role": "Real stream info/lease read then appendLease renewal."
+    },
+    {
+      "path": "internal/natscell/accounts.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "f3a8d6d028bc77fe07e3ff3bad376b9edd8756d4",
+      "start_line": 242,
+      "end_line": 269,
+      "citation_id": "controller_subscriptions",
+      "function": "ControllerSubscriptions",
+      "role": "Local list of subject grants."
+    },
+    {
+      "path": "internal/protocol/families.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "8db810e94ae0bc2185a91b58ea40cb68d0424765",
+      "start_line": 204,
+      "end_line": 204,
+      "citation_id": "membership_subject",
+      "function": "MembershipReplaceSubject",
+      "role": "Local subject construction."
+    },
+    {
+      "path": "internal/app/controller_membership_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "969d5c0ac992c155851673996a38d8390e4aeee2",
+      "start_line": 36,
+      "end_line": 152,
+      "citation_id": "membership_cluster",
+      "function": "startMembershipCluster",
+      "role": "Three real JWT/mTLS brokers/routes/stores."
+    },
+    {
+      "path": "internal/app/controller_membership_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "969d5c0ac992c155851673996a38d8390e4aeee2",
+      "start_line": 162,
+      "end_line": 178,
+      "citation_id": "membership_relaunch",
+      "function": "membershipCluster.relaunch",
+      "role": "Starts actual broker with fresh empty store and same name."
+    },
+    {
+      "path": "internal/app/controller_membership_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "969d5c0ac992c155851673996a38d8390e4aeee2",
+      "start_line": 193,
+      "end_line": 198,
+      "citation_id": "membership_static",
+      "function": "staticLeadership.Current and Guard",
+      "role": "Synthetic ready term/no-op guard."
+    },
+    {
+      "path": "internal/app/controller_membership_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "969d5c0ac992c155851673996a38d8390e4aeee2",
+      "start_line": 211,
+      "end_line": 242,
+      "citation_id": "membership_fake",
+      "function": "fakeSlotOCI sources",
+      "role": "Synthetic ledger/lifecycle/evidence; no OCI."
+    },
+    {
+      "path": "internal/app/controller_membership_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "969d5c0ac992c155851673996a38d8390e4aeee2",
+      "start_line": 244,
+      "end_line": 259,
+      "citation_id": "membership_replace",
+      "function": "fakeSlotOCI.Replace",
+      "role": "Records fake effect then calls actual relaunch callback and updates synthetic ledger."
+    },
+    {
+      "path": "internal/membership/reconciler.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "c706a222d5bed90999a5bc976944928c41cfb33a",
+      "start_line": 142,
+      "end_line": 167,
+      "citation_id": "membership_tick",
+      "function": "Reconciler.Tick",
+      "role": "Observes/decides/dispatches using dependencies."
+    },
+    {
+      "path": "internal/membership/reconciler.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "c706a222d5bed90999a5bc976944928c41cfb33a",
+      "start_line": 216,
+      "end_line": 248,
+      "citation_id": "membership_observe",
+      "function": "Reconciler.observe",
+      "role": "Real peers paired with synthetic provider facts."
+    },
+    {
+      "path": "internal/membership/reconciler.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "c706a222d5bed90999a5bc976944928c41cfb33a",
+      "start_line": 250,
+      "end_line": 289,
+      "citation_id": "membership_execute",
+      "function": "Reconciler.execute",
+      "role": "Injected authority and replacer; real relaunch only through callback."
+    },
+    {
+      "path": "internal/natscell/membership.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "fc6ac0a5f4f77bae2da1a5431bc09b4b0e742d0e",
+      "start_line": 59,
+      "end_line": 76,
+      "citation_id": "nats_meta",
+      "function": "Runtime.Meta",
+      "role": "Actual embedded server Jsz metadata."
+    },
+    {
+      "path": "internal/natscell/membership.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "fc6ac0a5f4f77bae2da1a5431bc09b4b0e742d0e",
+      "start_line": 82,
+      "end_line": 100,
+      "citation_id": "membership_creds",
+      "function": "ValidateMembershipCredentials",
+      "role": "Local grant scope validation before transport."
+    },
+    {
+      "path": "internal/natscell/membership.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "fc6ac0a5f4f77bae2da1a5431bc09b4b0e742d0e",
+      "start_line": 111,
+      "end_line": 130,
+      "citation_id": "membership_admin",
+      "function": "Runtime.OpenMembershipAdmin",
+      "role": "Scope check then actual system-account connection."
+    },
+    {
+      "path": "internal/natscell/membership.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "fc6ac0a5f4f77bae2da1a5431bc09b4b0e742d0e",
+      "start_line": 154,
+      "end_line": 169,
+      "citation_id": "membership_stepdown",
+      "function": "MembershipAdmin.StepDownMetaLeader and request",
+      "role": "Actual metadata leader API request."
+    },
+    {
+      "path": "internal/app/controller.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "cc89be1dbedb1ff4bce154c1380565b36d02eaa0",
+      "start_line": 106,
+      "end_line": 161,
+      "citation_id": "controller_preflight",
+      "function": "runController preflight",
+      "role": "Local guard before NATS runtime start."
+    },
+    {
+      "path": "internal/app/cell_spec_registry.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "80afdaef21fd15354e98657fcd8d9e6aeeabf680",
+      "start_line": 117,
+      "end_line": 138,
+      "citation_id": "spec_constructor",
+      "function": "newSpecRegistry trust call",
+      "role": "Local construction/loadTrust."
+    },
+    {
+      "path": "internal/app/cell_spec_registry.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "80afdaef21fd15354e98657fcd8d9e6aeeabf680",
+      "start_line": 164,
+      "end_line": 182,
+      "citation_id": "spec_trust",
+      "function": "specRegistry.loadTrust",
+      "role": "SpecTrust nonnil refused before accepted trust lookup."
+    }
+  ],
+  "additional_independent_source_evidence": [
+    {
+      "path": "internal/app/controller_host_cluster_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+      "start_line": 393,
+      "end_line": 451,
+      "text": "type r3AcceptedSessionHandler struct {\n\tnext     slog.Handler\n\tsessions *r3AcceptedSessionTrace\n}\n\ntype r3AcceptedSessionTrace struct {\n\tmu           sync.Mutex\n\texpiry       int64\n\tadvancements uint64\n\tevents       []r3AcceptedSessionEvent\n}\n\ntype r3AcceptedSessionEvent struct {\n\tsequence      uint64\n\tphase         string\n\tsessionIDHash string\n\texpiresAt     time.Time\n}\n\nfunc (trace *r3AcceptedSessionTrace) record(event r3AcceptedSessionEvent) {\n\ttrace.mu.Lock()\n\tdefer trace.mu.Unlock()\n\tevent.sequence = uint64(len(trace.events) + 1)\n\ttrace.events = append(trace.events, event)\n\texpiry := event.expiresAt.UnixNano()\n\tif expiry > trace.expiry {\n\t\ttrace.expiry = expiry\n\t\ttrace.advancements++\n\t}\n}\n\nfunc (trace *r3AcceptedSessionTrace) snapshot() (expiry int64, advancements uint64) {\n\ttrace.mu.Lock()\n\tdefer trace.mu.Unlock()\n\treturn trace.expiry, trace.advancements\n}\n\nfunc (trace *r3AcceptedSessionTrace) latest() (r3AcceptedSessionEvent, bool) {\n\ttrace.mu.Lock()\n\tdefer trace.mu.Unlock()\n\tif len(trace.events) == 0 {\n\t\treturn r3AcceptedSessionEvent{}, false\n\t}\n\treturn trace.events[len(trace.events)-1], true\n}\n\nfunc (trace *r3AcceptedSessionTrace) eventsAfter(sequence uint64) []r3AcceptedSessionEvent {\n\ttrace.mu.Lock()\n\tdefer trace.mu.Unlock()\n\tif sequence >= uint64(len(trace.events)) {\n\t\treturn nil\n\t}\n\treturn slices.Clone(trace.events[sequence:])\n}\n\nfunc (h r3AcceptedSessionHandler) Enabled(ctx context.Context, level slog.Level) bool {\n\treturn h.next.Enabled(ctx, level)\n}\n\n",
+      "role": "Independent extra inspection: session trace backing actual signed-expiry comparisons or full waitR3HostSession failure assertions."
+    },
+    {
+      "path": "internal/app/controller_host_cluster_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "bff09ccccbf6e9667e84376408422136fcfbf66d",
+      "start_line": 620,
+      "end_line": 637,
+      "text": "func waitR3HostSession(t *testing.T, ctx context.Context, config string, agentDone <-chan error, after time.Time, probe ...*natscell.Runtime) host.HostStatus {\n\tt.Helper()\n\tstatus, err, stopped := observeR3HostSession(ctx, config, agentDone, after)\n\tif stopped {\n\t\tif len(probe) != 0 {\n\t\t\tattempt, stop := context.WithTimeout(ctx, 2*time.Second)\n\t\t\tsnapshot, observeErr := authority.Observe(attempt, probe[0].JetStream(), \"lab\")\n\t\t\tstop()\n\t\t\tt.Logf(\"authority on host session failure: %+v, observe error: %v, probe_url=%s\", snapshot, observeErr, probe[0].Conn().ConnectedUrl())\n\t\t}\n\t\tt.Fatalf(\"host agent exited before session renewal: %v\", err)\n\t}\n\tif err != nil {\n\t\tt.Fatalf(\"host session did not renew after controller loss: %v\", err)\n\t}\n\treturn status\n}\n\n",
+      "role": "Independent extra inspection: session trace backing actual signed-expiry comparisons or full waitR3HostSession failure assertions."
+    }
+  ],
+  "auxiliary_source_verified": {
+    "path": "/home/mariogk/go/pkg/mod/github.com/nats-io/nats.go@v1.54.0/nats.go",
+    "module": "github.com/nats-io/nats.go",
+    "version": "v1.54.0",
+    "sha256": "3fa31aeca40837bba2e5ecc88355e64c9ddb0c562bc6829a49d96338d453643a",
+    "bytes": 193414,
+    "mode": "0o444",
+    "canonical_git_blob": null,
+    "scope": "Auxiliary installed module source corroborates root136 pre-wire invalid-subject guard; not canonical first-party source or root credit.",
+    "spans": [
+      {
+        "start_line": 5006,
+        "end_line": 5008,
+        "text": "func (nc *Conn) Subscribe(subj string, cb MsgHandler) (*Subscription, error) {\n\treturn nc.subscribe(subj, _EMPTY_, cb, nil, nil, false, nil)\n}\n",
+        "role": "Subscribe delegation"
+      },
+      {
+        "start_line": 5074,
+        "end_line": 5085,
+        "text": "func badSubject(subj string) bool {\n\tif strings.ContainsAny(subj, \" \\t\\r\\n\") {\n\t\treturn true\n\t}\n\ttokens := strings.Split(subj, \".\")\n\tfor _, t := range tokens {\n\t\tif len(t) == 0 {\n\t\t\treturn true\n\t\t}\n\t}\n\treturn false\n}\n",
+        "role": "badSubject rejects empty token"
+      },
+      {
+        "start_line": 5093,
+        "end_line": 5110,
+        "text": "func (nc *Conn) subscribe(subj, queue string, cb MsgHandler, ch chan *Msg, errCh chan (error), isSync bool, js *jsSub) (*Subscription, error) {\n\tif nc == nil {\n\t\treturn nil, ErrInvalidConnection\n\t}\n\tnc.mu.Lock()\n\tdefer nc.mu.Unlock()\n\treturn nc.subscribeLocked(subj, queue, cb, ch, errCh, isSync, js)\n}\n\nfunc (nc *Conn) subscribeLocked(subj, queue string, cb MsgHandler, ch chan *Msg, errCh chan (error), isSync bool, js *jsSub) (*Subscription, error) {\n\tif nc == nil {\n\t\treturn nil, ErrInvalidConnection\n\t}\n\tif badSubject(subj) {\n\t\treturn nil, ErrBadSubject\n\t}\n\tif queue != _EMPTY_ && badQueue(queue) {\n\t\treturn nil, ErrBadQueueName\n",
+        "role": "subscribeLocked returns ErrBadSubject before I/O"
+      }
+    ]
+  },
+  "findings": [],
+  "retained_fixture_limits": [
+    {
+      "root_indices": [
+        127,
+        128,
+        129,
+        130
+      ],
+      "detail": "Actual controller processes/NATS/signed sessions/JetStream; synthetic runner, admission, founder and clock. Fake PID/workload state is not native workload or TerraBase execution."
+    },
+    {
+      "root_indices": [
+        134
+      ],
+      "detail": "HTTP outage opener is test-local; real local HTTP and regional NATS only. No production OCI client/ledger path."
+    },
+    {
+      "root_indices": [
+        136
+      ],
+      "detail": "Installed nats.go v1.54.0 Subscribe/badSubject/subscribeLocked confirms empty-subject local rejection before wire; auxiliary source is explicitly outside canonical first-party Git."
+    },
+    {
+      "root_indices": [
+        137
+      ],
+      "detail": "Replicas=1 fixture: actual lease and seed RPC, no R3 guarantee; founder and lifecycle are fake."
+    },
+    {
+      "root_indices": [
+        138
+      ],
+      "detail": "Independent credential-scope guard is U; actual R3 broker metadata/write/replacement/catchup is I. OCI ledger/lifecycle/evidence and authority are synthetic."
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "repository_or_ledger_mutation": false,
+  "qualification_limits": [
+    "Source classification does not establish compilation, passing tests or runtime behavior.",
+    "No test/build/formatter/lint/benchmark/helper execution, process/resource probe, cloud, signing/crypto or TerraBase operation occurred.",
+    "All original safety and negative assertions retained. No count, retirement, deletion, qualification or completion promotion."
+  ]
+}

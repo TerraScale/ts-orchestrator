@@ -1,0 +1,181 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_260_280",
+  "author": "/root/classification_100_dispatch/batch_280_300",
+  "decision": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+  "reviewed_packet": "/tmp/ts-source-classification-280-300-transport-4am291ph/classification.json",
+  "reviewed_packet_sha256": "be887dd6c061f5f58ef227791ff016c69cf6642a697334446287f9e2e43c7d2a",
+  "reviewed_checksums": "/tmp/ts-source-classification-280-300-transport-4am291ph/SHA256SUMS",
+  "reviewed_checksums_sha256": "74974bbaf7f1d0548b1799dccc179ba8331ae05df8ad9a8962b56f1ff887ff5d",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root200-expansion-dispatch-kseJiOvj/allocation-and-exclusions.json",
+    "sha256": "7e7a69a7a625013deab54117e1a32875f5756e4f1ea67008815614bd0cec3e6f",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[280:300)"
+  },
+  "counts": {
+    "integration": 8,
+    "unit": 10,
+    "mixed": 2,
+    "unresolved": 0
+  },
+  "root_ids": [
+    "internal/app/netbird_agent_test.go::TestNetBirdAgentSupportProbeNeedsNoHostConfiguration",
+    "internal/app/netbird_artifact_admission_test.go::TestNetBirdArtifactAdmissionFencesAlreadySelectedCollection",
+    "internal/app/netbird_artifact_admission_test.go::TestNetBirdArtifactAdmissionRespectsCanceledContext",
+    "internal/app/netbird_artifact_admission_test.go::TestNetBirdArtifactAdmissionReusesOnlyUnchangedMetadata",
+    "internal/app/netbird_artifact_admission_test.go::TestNetBirdArtifactReceiptIsBoundToArchitectureAndPin",
+    "internal/app/netbird_artifact_admission_test.go::TestNetBirdArtifactTouchFailureStopsAdmissionAndDrain",
+    "internal/app/netbird_artifact_admission_test.go::TestNetBirdArtifactVerificationStopsAdmissionAndDrain",
+    "internal/app/netbird_bootstrap_test.go::TestNetBirdBootstrapCannotReplaceMissingControllerManagedBinary",
+    "internal/app/netbird_bootstrap_test.go::TestNetBirdBootstrapDoesNotConfirmControllerTransaction",
+    "internal/app/netbird_bootstrap_test.go::TestNetBirdBootstrapIncompletePublicationHoldsEveryEnrollment",
+    "internal/app/netbird_bootstrap_test.go::TestNetBirdBootstrapLoadsConfigAfterRecoveryRestoresIt",
+    "internal/app/netbird_bootstrap_test.go::TestNetBirdBootstrapRetryResumesPersistedTransactionBeforeAndAfterReplacement",
+    "internal/app/netbird_bootstrap_test.go::TestNetBirdExistingClientEnrollmentDoesNotRequireBootstrapPin",
+    "internal/app/netbird_bootstrap_test.go::TestNetBirdPendingBootstrapRequiresVerifiedFallback",
+    "internal/app/netbird_inventory_test.go::TestNetBirdAdmittedInventoryKeepsLivePeersThroughDrainAndLeaderFailover",
+    "internal/app/netbird_inventory_test.go::TestNetBirdAdmittedRecoveryKeepsPeersAndProgressWhenInventoryFails",
+    "internal/app/netbird_inventory_test.go::TestNetBirdGrantedRecoveryUsesOnlyTheAdoptedPrivateAddress",
+    "internal/app/netbird_inventory_test.go::TestNetBirdManagedInventoryAdmitsOnlyLiveOwnedRunningCandidates",
+    "internal/app/netbird_inventory_test.go::TestNetBirdRecordedNodeRecoveryIgnoresUnrelatedRetiredInventory",
+    "internal/app/netbird_inventory_test.go::TestNetBirdRecoveryRejectsUnverifiedOrUnsafeManagedIdentity"
+  ],
+  "reviewed_roots": [
+    {
+      "root_id": "internal/app/netbird_agent_test.go::TestNetBirdAgentSupportProbeNeedsNoHostConfiguration",
+      "category": "unit",
+      "decision": "accept"
+    },
+    {
+      "root_id": "internal/app/netbird_artifact_admission_test.go::TestNetBirdArtifactAdmissionFencesAlreadySelectedCollection",
+      "category": "integration",
+      "decision": "accept"
+    },
+    {
+      "root_id": "internal/app/netbird_artifact_admission_test.go::TestNetBirdArtifactAdmissionRespectsCanceledContext",
+      "category": "unit",
+      "decision": "accept"
+    },
+    {
+      "root_id": "internal/app/netbird_artifact_admission_test.go::TestNetBirdArtifactAdmissionReusesOnlyUnchangedMetadata",
+      "category": "integration",
+      "decision": "accept"
+    },
+    {
+      "root_id": "internal/app/netbird_artifact_admission_test.go::TestNetBirdArtifactReceiptIsBoundToArchitectureAndPin",
+      "category": "integration",
+      "decision": "accept"
+    },
+    {
+      "root_id": "internal/app/netbird_artifact_admission_test.go::TestNetBirdArtifactTouchFailureStopsAdmissionAndDrain",
+      "category": "integration",
+      "decision": "accept"
+    },
+    {
+      "root_id": "internal/app/netbird_artifact_admission_test.go::TestNetBirdArtifactVerificationStopsAdmissionAndDrain",
+      "category": "integration",
+      "decision": "accept"
+    },
+    {
+      "root_id": "internal/app/netbird_bootstrap_test.go::TestNetBirdBootstrapCannotReplaceMissingControllerManagedBinary",
+      "category": "unit",
+      "decision": "accept"
+    },
+    {
+      "root_id": "internal/app/netbird_bootstrap_test.go::TestNetBirdBootstrapDoesNotConfirmControllerTransaction",
+      "category": "unit",
+      "decision": "accept"
+    },
+    {
+      "root_id": "internal/app/netbird_bootstrap_test.go::TestNetBirdBootstrapIncompletePublicationHoldsEveryEnrollment",
+      "category": "unit",
+      "decision": "accept"
+    },
+    {
+      "root_id": "internal/app/netbird_bootstrap_test.go::TestNetBirdBootstrapLoadsConfigAfterRecoveryRestoresIt",
+      "category": "integration",
+      "decision": "accept"
+    },
+    {
+      "root_id": "internal/app/netbird_bootstrap_test.go::TestNetBirdBootstrapRetryResumesPersistedTransactionBeforeAndAfterReplacement",
+      "category": "unit",
+      "decision": "accept"
+    },
+    {
+      "root_id": "internal/app/netbird_bootstrap_test.go::TestNetBirdExistingClientEnrollmentDoesNotRequireBootstrapPin",
+      "category": "integration",
+      "decision": "accept"
+    },
+    {
+      "root_id": "internal/app/netbird_bootstrap_test.go::TestNetBirdPendingBootstrapRequiresVerifiedFallback",
+      "category": "integration",
+      "decision": "accept"
+    },
+    {
+      "root_id": "internal/app/netbird_inventory_test.go::TestNetBirdAdmittedInventoryKeepsLivePeersThroughDrainAndLeaderFailover",
+      "category": "mixed",
+      "decision": "accept"
+    },
+    {
+      "root_id": "internal/app/netbird_inventory_test.go::TestNetBirdAdmittedRecoveryKeepsPeersAndProgressWhenInventoryFails",
+      "category": "unit",
+      "decision": "accept"
+    },
+    {
+      "root_id": "internal/app/netbird_inventory_test.go::TestNetBirdGrantedRecoveryUsesOnlyTheAdoptedPrivateAddress",
+      "category": "unit",
+      "decision": "accept"
+    },
+    {
+      "root_id": "internal/app/netbird_inventory_test.go::TestNetBirdManagedInventoryAdmitsOnlyLiveOwnedRunningCandidates",
+      "category": "unit",
+      "decision": "accept"
+    },
+    {
+      "root_id": "internal/app/netbird_inventory_test.go::TestNetBirdRecordedNodeRecoveryIgnoresUnrelatedRetiredInventory",
+      "category": "mixed",
+      "decision": "accept"
+    },
+    {
+      "root_id": "internal/app/netbird_inventory_test.go::TestNetBirdRecoveryRejectsUnverifiedOrUnsafeManagedIdentity",
+      "category": "unit",
+      "decision": "accept"
+    }
+  ],
+  "verification": {
+    "literal_allocation_match": true,
+    "full_original_and_current_declarations_reviewed": 20,
+    "exact_declaration_text_and_raw_hashes_match": true,
+    "source_pins_verified": 27,
+    "assertion_and_connected_evidence_spans_verified": 65,
+    "all_cited_text_matches_canonical_spans": true,
+    "mapping_and_body_drift_verified": true,
+    "checksum_and_permissions_verified": true,
+    "source_boundary_review": "Independently read all20 whole roots and actual connected fixture/client/store/production paths. Artifact cases materially read/mutate embedded JetStream metadata/chunks and CAS retention; canceled context returns pre-I/O. Bootstrap config/fallback roots assigned integration have actual config descriptor read or fallback open trace; simulated installation/history/confirmation roots stay unit. Inventory fenceLease journal is memory, not NATS; mixed roots separately assert actual status/fence KV and local address/progression logic.",
+    "successor_metadata_only_verified": true,
+    "root_declaration_assertion_source_pin_and_connected_evidence_unchanged": true,
+    "startup_transport_review": "Direct reached fixture startup rechecked in canonical netbirdArtifactTest 66\u2013108 and fenceBroker 27\u201358: server.NewServer/Start, nats.Connect(ClientURL) loopback TCP and real JetStream store. No natscell.Start or nats.InProcessServer is invoked by these fixture paths. Their pinned existing full spans support the explicit boundary_transport clarification."
+  },
+  "findings": [],
+  "qualification_limits": [
+    "Source-only peer acceptance; UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION.",
+    "No tests, builds, Go/helpers, cloud, signing/cryptography, NetBird/SSH/probes or task processes were executed.",
+    "Bootstrap runtime defaults/install/status/confirmation/enrollment use fixture hooks; config-only/fallback filesystem evidence does not qualify managed transaction durability or real daemon/Vault enrollment.",
+    "NetBird journal uses fake fenceLease and reconstructed objects share it; simulated leader failover is not process restart or durable authority recovery.",
+    "All original safety obligations retained; independent category acceptance does not authorize retirement, deletion, count/ledger promotion or global completion.",
+    "Direct fixture clients use loopback TCP without TLS; they do not use natscell.Start/InProcessServer. Source integration categories do not establish external production networking, TLS/JWT admission or multi-server formation."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "repository_mutated": false,
+  "ledger_mutated": false,
+  "supersedes": {
+    "path": "/tmp/ts-source-peer-260-280-reviews-280-300-abifdz_w/review.json",
+    "sha256": "c99f8891f79654a9c083b6dc5440542a366b6147d3d46e01f8fad8475c9ac56a",
+    "reason": "Fresh transport-clarification packet independently accepted. Prior receipt and packet retained unchanged."
+  }
+}

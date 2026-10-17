@@ -1,0 +1,1614 @@
+{
+  "schema": "root200-source-preservation-proof-v1",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "literal_root_count": 200,
+  "baseline_and_current_raw_declarations_independently_verified": 400,
+  "no_source_repo_or_ledger_mutation_by_this_work": true,
+  "original_identity_and_safety_obligations_retained": true,
+  "existing_retired19_excluded_no_credit": true,
+  "runtime": "UNKNOWN_NO_EXECUTION",
+  "roots": [
+    {
+      "root_id": "internal/app/config_test.go::TestLoadConfigPreservesSignedBytesAndRejectsUnknownMembers",
+      "original_declaration_sha256": "ab7d3fa60e6ce4e64d5d0456e02e17c1a7bf0015cf32e2c78853681e93417f4e",
+      "current_declaration_sha256": "881ae452fa3310603afa58dc0cd782b63463ae91bf56ed78abeb5f694a9976d1",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/config_test.go::TestSignedWireOfABuiltConfigIsCanonical",
+      "original_declaration_sha256": "cf4a655886c67531ad554ca9c4247928f1b8459ba8ce76fc0f7288d0676b1506",
+      "current_declaration_sha256": "3b1cc49801ec51048e6b2d0748d04b31946e76041eb282186281b11a4b044419",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/container_allocation_integration_test.go::TestContainerAllocationSourceIntegration",
+      "original_declaration_sha256": "5db9ff5ba6d87751d12b3771cbdd9c375a4fa4799135915b70e3cca3d1ec67c9",
+      "current_declaration_sha256": "5db9ff5ba6d87751d12b3771cbdd9c375a4fa4799135915b70e3cca3d1ec67c9",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/container_material_test.go::TestContainerSecretRotationUpstreamRecovery",
+      "original_declaration_sha256": "7bcfde49cb4c73baa7698a02b55162e8804f032f206e24069873394e19f0d529",
+      "current_declaration_sha256": "7bcfde49cb4c73baa7698a02b55162e8804f032f206e24069873394e19f0d529",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/control_plane_watch_test.go::TestFollowerWithAValidLeaseLeavesQuorumToTheLeader",
+      "original_declaration_sha256": "73f320088e49ce5af5253f70b71871062ffddf7f303fc0ffc3625819dc64d2f6",
+      "current_declaration_sha256": "73f320088e49ce5af5253f70b71871062ffddf7f303fc0ffc3625819dc64d2f6",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/control_plane_watch_test.go::TestMetaLeaderElectionIsJournaledOnce",
+      "original_declaration_sha256": "f16e99c07ba83d30a36f66929c4eadfdca27ff1a433b806dd9bebe12526b26b5",
+      "current_declaration_sha256": "f16e99c07ba83d30a36f66929c4eadfdca27ff1a433b806dd9bebe12526b26b5",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/control_plane_watch_test.go::TestQuorumLossIsJournaledWithoutAValidLease",
+      "original_declaration_sha256": "050da5d754e5627ea72492aa1caa7adc2b6f5a89b4ba92d688ee3dad6d5b444c",
+      "current_declaration_sha256": "050da5d754e5627ea72492aa1caa7adc2b6f5a89b4ba92d688ee3dad6d5b444c",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/control_plane_watch_test.go::TestQuorumLossSeenUnderAValidLeaseIsJournaledOnceTheLeaseExpires",
+      "original_declaration_sha256": "4132cec4b6b83049c73318f2b9767693b3880adca348aabd6319e631aaaf28f0",
+      "current_declaration_sha256": "4132cec4b6b83049c73318f2b9767693b3880adca348aabd6319e631aaaf28f0",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_broker_lifetime_test.go::TestBrokerLifetimeCancelsStartupOpensWhenTheBrokerStops",
+      "original_declaration_sha256": "819fdf8102347dad10aa56189805b93223e6724a8b139560c2b53f90ed0d9cc6",
+      "current_declaration_sha256": "819fdf8102347dad10aa56189805b93223e6724a8b139560c2b53f90ed0d9cc6",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_broker_lifetime_test.go::TestBrokerLifetimeIsNotBlamedForParentShutdown",
+      "original_declaration_sha256": "d36cb27445b6c5a418898ae41ec76bf0af69eb2c9516f2f2387c96d2c6303590",
+      "current_declaration_sha256": "d36cb27445b6c5a418898ae41ec76bf0af69eb2c9516f2f2387c96d2c6303590",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_cluster_health_test.go::TestClusterHealthIsHealthyOnEveryFormedBroker",
+      "original_declaration_sha256": "f2e96ceea5c151f62ba8ecf64dd30621e7d451aedf214dabf4b83fd3814ff0a5",
+      "current_declaration_sha256": "f2e96ceea5c151f62ba8ecf64dd30621e7d451aedf214dabf4b83fd3814ff0a5",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_cluster_test.go::TestControllerBootstrapRetriesOnlyTransientErrors",
+      "original_declaration_sha256": "91f9e89806c60fd0af0f778e7d911fb60e8454cf9e1a0abd927f5dc136765cd2",
+      "current_declaration_sha256": "91f9e89806c60fd0af0f778e7d911fb60e8454cf9e1a0abd927f5dc136765cd2",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_cluster_test.go::TestControllerThreeProcessBootstrapAndRestart",
+      "original_declaration_sha256": "d2d56a0b18373d456a9f5353ef13d224dbc7173955583401838014165001b6e4",
+      "current_declaration_sha256": "d2d56a0b18373d456a9f5353ef13d224dbc7173955583401838014165001b6e4",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_cluster_test.go::TestReserveControllerPortsDistinct",
+      "original_declaration_sha256": "5e78295d5cfe15437cedcb997664b96d58bc1e99fb2111f07bcea378886b711b",
+      "current_declaration_sha256": "5e78295d5cfe15437cedcb997664b96d58bc1e99fb2111f07bcea378886b711b",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_config_install_test.go::TestAutomaticStartupNeverTreatsPartialProofAsLegacy",
+      "original_declaration_sha256": "5d0103eb1b77968c7aa6f1e736d83eb50bbfaf7619c3d8d1c08f73f2acd1b709",
+      "current_declaration_sha256": "5d0103eb1b77968c7aa6f1e736d83eb50bbfaf7619c3d8d1c08f73f2acd1b709",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_config_install_test.go::TestControllerInstallRetriesExactBytesAndRejectsChangedFiles",
+      "original_declaration_sha256": "a14caebffd4586f6246049bcecb8b19b4faf6b0d81a189251cd42e59e4f9e2b6",
+      "current_declaration_sha256": "913e2a320266c4b6c839681db52250755a5101c26a9b12942a80ff914f2e86f9",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_formation_test.go::TestInitialControllerAdmissionStaysSynchronous",
+      "original_declaration_sha256": "03201531722336598f8b4e1000545e4d7e35a844e09d4444e81323b6d6a3cb1c",
+      "current_declaration_sha256": "03201531722336598f8b4e1000545e4d7e35a844e09d4444e81323b6d6a3cb1c",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_formation_test.go::TestOfflineRestartAdmissionHoldsAuthorityUntilClockIsHealthy",
+      "original_declaration_sha256": "14a96fda43c827312d10376f1866868563697b96c2905212d2aaf4ff88bb667c",
+      "current_declaration_sha256": "14a96fda43c827312d10376f1866868563697b96c2905212d2aaf4ff88bb667c",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_formation_test.go::TestOfflineRestartAdmissionHoldsAuthorityUntilFullAdmission",
+      "original_declaration_sha256": "359ab2b85af140d252778b63a1ebd1fa8dc8fdb8088bbfb401ca65afdc4bc346",
+      "current_declaration_sha256": "359ab2b85af140d252778b63a1ebd1fa8dc8fdb8088bbfb401ca65afdc4bc346",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_formation_test.go::TestOfflineRestartAdmissionRequiresLocalProofAndMarker",
+      "original_declaration_sha256": "1bf0993165548c356dbf002e53498a961f7c9add9f95cd3aa463adffbe576759",
+      "current_declaration_sha256": "1bf0993165548c356dbf002e53498a961f7c9add9f95cd3aa463adffbe576759",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_formation_test.go::TestOfflineRestartAdmissionStopCancelsInFlightFullGate",
+      "original_declaration_sha256": "2f2a148e20972238e50cb655f674a35411a5a50d13b78ee78a40cc0d52c8f746",
+      "current_declaration_sha256": "2f2a148e20972238e50cb655f674a35411a5a50d13b78ee78a40cc0d52c8f746",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_formation_test.go::TestOfflineRestartAdmissionStopCancelsPendingAttempt",
+      "original_declaration_sha256": "ca29663141071d5af2806505f408c16fcca6c7c233b2c319e0927bf4cd52f995",
+      "current_declaration_sha256": "ca29663141071d5af2806505f408c16fcca6c7c233b2c319e0927bf4cd52f995",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_founder_join_test.go::TestFounderJoinIsBoundedWhenTheFounderIgnoresCancellation",
+      "original_declaration_sha256": "fa3aba2f714ac61eba0ffab71189ef2985718330c80c51a2591001d67c28b372",
+      "current_declaration_sha256": "fa3aba2f714ac61eba0ffab71189ef2985718330c80c51a2591001d67c28b372",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_founder_test.go::TestClusterFailureWaitsForCanceledFounderBeforeReturn",
+      "original_declaration_sha256": "993f366c26c5f14dda1a15befc0f3f51bc0ed15fb1091de3ac7faf8d9dc9a75f",
+      "current_declaration_sha256": "993f366c26c5f14dda1a15befc0f3f51bc0ed15fb1091de3ac7faf8d9dc9a75f",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_founder_test.go::TestFounderFailureDoesNotStopClusterWaitAndIsRetried",
+      "original_declaration_sha256": "43ed11655c24d54af0b3f02add5af857c4d467b86f9e7351cde575e85081af9b",
+      "current_declaration_sha256": "43ed11655c24d54af0b3f02add5af857c4d467b86f9e7351cde575e85081af9b",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_founder_test.go::TestFounderStartsWhileRegionalClusterIsWaiting",
+      "original_declaration_sha256": "9f2fd4445659885810924316d3e246cce4c26871c73d90b2cce15d9504feb879",
+      "current_declaration_sha256": "9f2fd4445659885810924316d3e246cce4c26871c73d90b2cce15d9504feb879",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_founder_test.go::TestStopJoinsInFlightFounder",
+      "original_declaration_sha256": "5ec3b682628467fcf924420dfc3da8ebc2175114a4e0cfa83a6810184628fb64",
+      "current_declaration_sha256": "5ec3b682628467fcf924420dfc3da8ebc2175114a4e0cfa83a6810184628fb64",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_host_cluster_test.go::TestAuthenticatedOperatorToHostDeliveryWithControllerLoss",
+      "original_declaration_sha256": "bd88f6b1c0dfde0f5828b66cc469e51782e38173a5847e42526ebe2fccbe2f50",
+      "current_declaration_sha256": "bd88f6b1c0dfde0f5828b66cc469e51782e38173a5847e42526ebe2fccbe2f50",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_host_cluster_test.go::TestJWTMTLSHostSessionFencesAndRestartsAfterControllerLoss",
+      "original_declaration_sha256": "28b1433191ea4b11a8849965c43f85280ba8a95ba9ba95839cbb1f81758140fc",
+      "current_declaration_sha256": "28b1433191ea4b11a8849965c43f85280ba8a95ba9ba95839cbb1f81758140fc",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_host_cluster_test.go::TestJWTMTLSHostSessionRecoversAfterBlackholedController",
+      "original_declaration_sha256": "2fb8527fa2b7d9a5874358bb0b7a7e43e32966eba2552398f14e00a66e093cfa",
+      "current_declaration_sha256": "2fb8527fa2b7d9a5874358bb0b7a7e43e32966eba2552398f14e00a66e093cfa",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_host_cluster_test.go::TestJWTMTLSHostSessionRecoversAfterControllerLoss",
+      "original_declaration_sha256": "334cf08272b14133a7c82ed90dfcaf9d59184bba62e3284531fc9c1007cafb30",
+      "current_declaration_sha256": "334cf08272b14133a7c82ed90dfcaf9d59184bba62e3284531fc9c1007cafb30",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_host_cluster_test.go::TestR3CallerStreamQuorumRequiresEverySurvivingReplica",
+      "original_declaration_sha256": "24a44e32bd226fad0dd302a1f916226bf7d740b3d3a252761f2e3324424d7e77",
+      "current_declaration_sha256": "24a44e32bd226fad0dd302a1f916226bf7d740b3d3a252761f2e3324424d7e77",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_host_cluster_test.go::TestR3ConnectedToSurvivorNormalizesTLSURLSchemeAndExcludesFailedPeer",
+      "original_declaration_sha256": "76adae131ff027cb1ee5388880a0a7576b8687907fc3ee81bc754cf742531a99",
+      "current_declaration_sha256": "76adae131ff027cb1ee5388880a0a7576b8687907fc3ee81bc754cf742531a99",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_membership_config_integration_test.go::TestMembershipConfigurationFileNeedsNoActivationAndRejectsOverrides",
+      "original_declaration_sha256": "92653f766dfe7e392c0c0dadf4e398bb2e78c97131751281bf04fa276af87d0a",
+      "current_declaration_sha256": "92653f766dfe7e392c0c0dadf4e398bb2e78c97131751281bf04fa276af87d0a",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_membership_outage_integration_test.go::TestMembershipProviderOutageKeepsRegionalNATSServing",
+      "original_declaration_sha256": "adea9f1b7d9f70cf5d76b554014bffd94d2fc1dfc396f5b2b6785e2bb4de42a8",
+      "current_declaration_sha256": "adea9f1b7d9f70cf5d76b554014bffd94d2fc1dfc396f5b2b6785e2bb4de42a8",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_membership_seed_test.go::TestControllerCredentialsGrantTheSeedReplacementSubscription",
+      "original_declaration_sha256": "ef62897cc82efde93a90d9328ada0ccff4f4e8e76041e10cc87f2a605a20bdf6",
+      "current_declaration_sha256": "ef62897cc82efde93a90d9328ada0ccff4f4e8e76041e10cc87f2a605a20bdf6",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_membership_seed_test.go::TestControllerMembershipSurfacesASeedServiceFailureAtOnce",
+      "original_declaration_sha256": "2614ba93b881fc27fde5b3e2d4012c9edd03ae7510dc2dce423f95dc6ac38323",
+      "current_declaration_sha256": "2614ba93b881fc27fde5b3e2d4012c9edd03ae7510dc2dce423f95dc6ac38323",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_membership_seed_test.go::TestSeedRoutingOverNATSRunsUnderTheRealLeaderLease",
+      "original_declaration_sha256": "96084415a3def5f161f0abff36faf7292186337e7b0184dabfc52cd4d8b1c870",
+      "current_declaration_sha256": "96084415a3def5f161f0abff36faf7292186337e7b0184dabfc52cd4d8b1c870",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_membership_test.go::TestMembershipReplacesTerminatedControllerUnderSameServerName",
+      "original_declaration_sha256": "4ecb855e90b13a4d89ffb92b7e7a7ba6bdf24cf34058a89999201735cd1fb478",
+      "current_declaration_sha256": "4ecb855e90b13a4d89ffb92b7e7a7ba6bdf24cf34058a89999201735cd1fb478",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_quota_test.go::TestControllerRejectsConfigTrustOutsideAcceptedImage",
+      "original_declaration_sha256": "9484a1a749e9a37bd7be9a5b90fe83d51c122cfd8e02c8ae63737b16a46f59c0",
+      "current_declaration_sha256": "9484a1a749e9a37bd7be9a5b90fe83d51c122cfd8e02c8ae63737b16a46f59c0",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/controller_quota_test.go::TestControllerRejectsInvalidStoreQuotaBeforeStartup",
+      "original_declaration_sha256": "948958004994e9feb62e65483c583894c12500a78d87d7c8b310b2b9566f2064",
+      "current_declaration_sha256": "948958004994e9feb62e65483c583894c12500a78d87d7c8b310b2b9566f2064",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/credential_expiry_test.go::TestControllerCredentialFilesListOnlyPublicMaterial",
+      "original_declaration_sha256": "9114ed6b07e4c4a698a192dd63eb6bd39f29fee65df8ee29758e7b80d49abfd9",
+      "current_declaration_sha256": "9114ed6b07e4c4a698a192dd63eb6bd39f29fee65df8ee29758e7b80d49abfd9",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/dashboard_listener_test.go::TestDashboardLoopFollowsTheSpec",
+      "original_declaration_sha256": "f5ecd820e1a8d4effd2068ed616776cd6d87f43497cb188d83f5b27dec616131",
+      "current_declaration_sha256": "f5ecd820e1a8d4effd2068ed616776cd6d87f43497cb188d83f5b27dec616131",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/dashboard_listener_test.go::TestDashboardStorageFailureHasSafeCleanup",
+      "original_declaration_sha256": "79b9617cf3d94a5f735f29f9bdabe125394fc87152a95b2adca1e0aaabbb8595",
+      "current_declaration_sha256": "79b9617cf3d94a5f735f29f9bdabe125394fc87152a95b2adca1e0aaabbb8595",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/dashboard_listener_test.go::TestNetBirdDashboardServesAuthenticatedResourceAPIs",
+      "original_declaration_sha256": "436c57724243bc61b00625cf4b8b08bfa9cfbf6f207fbc557bb57a8cdc65ed96",
+      "current_declaration_sha256": "436c57724243bc61b00625cf4b8b08bfa9cfbf6f207fbc557bb57a8cdc65ed96",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/dashboard_rollout_history_test.go::TestDashboardRolloutHistoryRetainsTerminalRecords",
+      "original_declaration_sha256": "26d34f97c01f6f1bd4d1f1b3eb9e3f5076ea0e019e44d4ec814b0c73a0193d1e",
+      "current_declaration_sha256": "26d34f97c01f6f1bd4d1f1b3eb9e3f5076ea0e019e44d4ec814b0c73a0193d1e",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/dashboard_rollout_history_test.go::TestDashboardRolloutStoreFailuresStayUnavailable",
+      "original_declaration_sha256": "b46baf5d1db07c433ae92b20081bd05b9a82c45971708c34a051404f8cae3214",
+      "current_declaration_sha256": "b46baf5d1db07c433ae92b20081bd05b9a82c45971708c34a051404f8cae3214",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/decision_journal_test.go::TestHoldJournalDeduplicatesReasons",
+      "original_declaration_sha256": "4d70c540481a9ed17f5e374eb8f71b202b5a87794f58b9467148b3a348129ee9",
+      "current_declaration_sha256": "4d70c540481a9ed17f5e374eb8f71b202b5a87794f58b9467148b3a348129ee9",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/decision_journal_test.go::TestWatchControlPlaneJournalsLeadershipAndHealth",
+      "original_declaration_sha256": "c420dcd9919f1c0aa2181d98303aa6dd9c23166b6381a4ede8ac70f1d7403a00",
+      "current_declaration_sha256": "c420dcd9919f1c0aa2181d98303aa6dd9c23166b6381a4ede8ac70f1d7403a00",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/deployment_convergence_measurement_test.go::TestDeploymentConvergenceMeasurement",
+      "original_declaration_sha256": "fb503774628f8ba76279182bed208108c9fa1395bd6eb032e7f17874a4ccb64a",
+      "current_declaration_sha256": "fb503774628f8ba76279182bed208108c9fa1395bd6eb032e7f17874a4ccb64a",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/edge_test.go::TestEdgeAddsAMissingReplicaOutOfRotation",
+      "original_declaration_sha256": "a60c022550e67714a1becb9a9535252f98f83cf125e7ed1baab00b1bc4550444",
+      "current_declaration_sha256": "a60c022550e67714a1becb9a9535252f98f83cf125e7ed1baab00b1bc4550444",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/edge_test.go::TestEdgeLeavesAServingSetAlone",
+      "original_declaration_sha256": "a34db242d04f65408bc3f9398335393b2aa680cc4c21eca4e97ffbdcfd85f62c",
+      "current_declaration_sha256": "a34db242d04f65408bc3f9398335393b2aa680cc4c21eca4e97ffbdcfd85f62c",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/edge_test.go::TestEdgeRemovesUnallocatedAndReportsAmbiguous",
+      "original_declaration_sha256": "4495e93c90a017cee0df46c2048fcb155670fde7cfbb82b0ed160d3762e8570b",
+      "current_declaration_sha256": "4495e93c90a017cee0df46c2048fcb155670fde7cfbb82b0ed160d3762e8570b",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/edge_test.go::TestEdgeTakesANonServingReplicaOutAndBack",
+      "original_declaration_sha256": "0329349b5bc0954a6829361808380ca1b11291adc49ff49edaf7375bd0652738",
+      "current_declaration_sha256": "0329349b5bc0954a6829361808380ca1b11291adc49ff49edaf7375bd0652738",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/edge_test.go::TestEdgeUndoesHandEdits",
+      "original_declaration_sha256": "23f2ec5d43b87f1f249c09b788c679605ebf2f6daa3d0c432897c4f6e4f357b7",
+      "current_declaration_sha256": "23f2ec5d43b87f1f249c09b788c679605ebf2f6daa3d0c432897c4f6e4f357b7",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/function_controller_integration_test.go::TestFunctionControllerIngestsSignedChannelIntoDurableIntent",
+      "original_declaration_sha256": "6c8f560de54d4f23d6356bf3af8d863df9c6658f3fdda5fd06f7003805578c77",
+      "current_declaration_sha256": "30a0cfa8b317064ffbe3962610980b4c4cb58152ae8f3d87bb6c8d4df347349e",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/function_pending_integration_test.go::TestFunctionDemandRequiresWorkerQualifiedThroughFunctionExpiry",
+      "original_declaration_sha256": "eabecf9e58d4bef44d4ddb519dfd76f00ce57f1709fe1a20a8c08e9dd5c7aaa3",
+      "current_declaration_sha256": "b9a51088d0b5ce5de77149fb19626dad03893a81a45fd4622da87e0ed1595d56",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/function_retirement_integration_test.go::TestFunctionMaterialRetirementRequiresAuthoritativeUnusedTask",
+      "original_declaration_sha256": "3c827fffd294f50b76a08e7a0aa3f300d00e760d7df73813c211be7d196d97fc",
+      "current_declaration_sha256": "3c827fffd294f50b76a08e7a0aa3f300d00e760d7df73813c211be7d196d97fc",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/global_controller_test.go::TestGlobalAndInterRegionRejectRemovedEnabledFields",
+      "original_declaration_sha256": "448c8cf3c69e5089298bab065692110bfa25eb520c86012cabc5cabfb16bf277",
+      "current_declaration_sha256": "83e974359caefa6318e5919059e2abcc4a4a16d22b2c35b10dddfa2769d9b6cf",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/global_controller_test.go::TestGlobalControlAlwaysStartsWithHomeDeployment",
+      "original_declaration_sha256": "e2013d4941bf173eece4551b9a4c42a89cf7c37cee01393d1a2cc8c0c604c911",
+      "current_declaration_sha256": "e2013d4941bf173eece4551b9a4c42a89cf7c37cee01393d1a2cc8c0c604c911",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/global_controller_test.go::TestGlobalControlHomeComesFromTopology",
+      "original_declaration_sha256": "c699dc98a5ba3bd4868aa21a93c18efe7b3d4507c592eb5af141aa80abf1f510",
+      "current_declaration_sha256": "c699dc98a5ba3bd4868aa21a93c18efe7b3d4507c592eb5af141aa80abf1f510",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/global_planning_test.go::TestRolloutKnownBadFailsClosedUntilTheStoreOpens",
+      "original_declaration_sha256": "dd91feaba161611517e5dae80e609938273bfe208fe684815ba02a97bd8e6e34",
+      "current_declaration_sha256": "dd91feaba161611517e5dae80e609938273bfe208fe684815ba02a97bd8e6e34",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/global_view_test.go::TestLogErrorsMapsEveryField",
+      "original_declaration_sha256": "e4d866edfedcf154916014d91de7d61f63798d112a9b1716284c7a857b5f06fc",
+      "current_declaration_sha256": "e4d866edfedcf154916014d91de7d61f63798d112a9b1716284c7a857b5f06fc",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/global_view_test.go::TestLogErrorsNilIsNil",
+      "original_declaration_sha256": "0d53bf733edbbee953d01fbffd4853bda4a8a2ae955a5e4ece11ec183b030780",
+      "current_declaration_sha256": "0d53bf733edbbee953d01fbffd4853bda4a8a2ae955a5e4ece11ec183b030780",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_credential_reload_test.go::TestHostCredentialReloaderAcceptsOnlyRenewedCredentialPaths",
+      "original_declaration_sha256": "fbd22082562a78ff45dcd332a111437fba087acd454975c5d687ecb995a245e2",
+      "current_declaration_sha256": "fbd22082562a78ff45dcd332a111437fba087acd454975c5d687ecb995a245e2",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_enrollment_static_test.go::TestGrantedControllerHostColocatesATerraBaseMember",
+      "original_declaration_sha256": "ea4e983380c3eb622045ce9c76cd73e4139efe973ef781749a6c9d3fdcc2c580",
+      "current_declaration_sha256": "ea4e983380c3eb622045ce9c76cd73e4139efe973ef781749a6c9d3fdcc2c580",
+      "category": "unresolved",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_enrollment_static_test.go::TestGrantedControllerHostEnrollsWithItsGrantRoles",
+      "original_declaration_sha256": "d29e67e27dd1027b76e0add4b3aacf6be067d40e3d0f61c8151bc37a8dba0956",
+      "current_declaration_sha256": "d29e67e27dd1027b76e0add4b3aacf6be067d40e3d0f61c8151bc37a8dba0956",
+      "category": "unresolved",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_enrollment_static_test.go::TestHostGrantEnrollmentRefusesOtherAddressesNamesAndUngrantedHosts",
+      "original_declaration_sha256": "d768adb43a989fd89b5a850463f17b588f11a894bd77d163bbd64eb4b2b6fd1e",
+      "current_declaration_sha256": "d768adb43a989fd89b5a850463f17b588f11a894bd77d163bbd64eb4b2b6fd1e",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_enrollment_static_test.go::TestStaticEnrollmentReleasesCredentialsOnlyUnderCurrentAuthority",
+      "original_declaration_sha256": "9a6b6558926cededc651e7b867e0fb2a19f29c93080009fe13dd362786bed7da",
+      "current_declaration_sha256": "9a6b6558926cededc651e7b867e0fb2a19f29c93080009fe13dd362786bed7da",
+      "category": "unresolved",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_enrollment_static_test.go::TestStaticHostSetupRenewsResetGrantUnderRotatedResponseAuthority",
+      "original_declaration_sha256": "c540868e1727cc3e0972bc32b1c6da7a2145f6869cfe54e2f3f0b18155d79e35",
+      "current_declaration_sha256": "c540868e1727cc3e0972bc32b1c6da7a2145f6869cfe54e2f3f0b18155d79e35",
+      "category": "unresolved",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_enrollment_static_test.go::TestStaticRegistrationReplacesKeysOnlyAfterTheSessionEnds",
+      "original_declaration_sha256": "9f8231c9ce227fa8cdc995b7d5a1cfbeaed80950f04103b48620a4f2b8d1c923",
+      "current_declaration_sha256": "9f8231c9ce227fa8cdc995b7d5a1cfbeaed80950f04103b48620a4f2b8d1c923",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_enrollment_static_test.go::TestStaticTerraBaseHostEnrollmentRefusesUnlistedOrMismatchedHosts",
+      "original_declaration_sha256": "a1751cd950a2ee14eec63b6cc42b5093c5b58ab2ac9c47fc84cc0c2e36e33e66",
+      "current_declaration_sha256": "a1751cd950a2ee14eec63b6cc42b5093c5b58ab2ac9c47fc84cc0c2e36e33e66",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_enrollment_static_test.go::TestStaticTerraBaseHostEnrollmentRequiresASignedProfile",
+      "original_declaration_sha256": "1b8c69f5349d2deeace328e43b323291cc3ad8a78ec63d8dcf7aad72cc631a41",
+      "current_declaration_sha256": "1b8c69f5349d2deeace328e43b323291cc3ad8a78ec63d8dcf7aad72cc631a41",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_enrollment_static_test.go::TestStaticTerraBaseHostEnrollsAsAListedMemberWithoutManagedBindings",
+      "original_declaration_sha256": "224e6d7770eb7af012de2df825ec64aa94c3fda3fdea6c43b8cda1bced8f2150",
+      "current_declaration_sha256": "224e6d7770eb7af012de2df825ec64aa94c3fda3fdea6c43b8cda1bced8f2150",
+      "category": "unresolved",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_enrollment_static_test.go::TestStaticTerraBaseHostRevocationStopsRenewalAndReenrollment",
+      "original_declaration_sha256": "2206981b9ef0ecc5c2e6247702daf704081998b23399159c27a8e7ecc11eaacf",
+      "current_declaration_sha256": "2206981b9ef0ecc5c2e6247702daf704081998b23399159c27a8e7ecc11eaacf",
+      "category": "unresolved",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_enrollment_static_test.go::TestStaticTerraBaseMembershipFollowsTheCellSpec",
+      "original_declaration_sha256": "102195a0481667abf434bba058b2bfa316e675565700aac8062a90c84ad66255",
+      "current_declaration_sha256": "102195a0481667abf434bba058b2bfa316e675565700aac8062a90c84ad66255",
+      "category": "unresolved",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_enrollment_terminal_fence_test.go::TestFenceTerminalGrantsRetriesAfterPartialPreMarkerFailure",
+      "original_declaration_sha256": "1ea253426924ab4d23ce9a8df2d7834b00d68008a154fbded66d9437f0e9488d",
+      "current_declaration_sha256": "1ea253426924ab4d23ce9a8df2d7834b00d68008a154fbded66d9437f0e9488d",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_identity_vault_test.go::TestHostEnrollmentIdentityMovesToVaultAndMemory",
+      "original_declaration_sha256": "88989e20046483dccf4a32df304e521535f8df802c1d51ef5dc667dd2aeab3ae",
+      "current_declaration_sha256": "88989e20046483dccf4a32df304e521535f8df802c1d51ef5dc667dd2aeab3ae",
+      "category": "unresolved",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_identity_vault_test.go::TestHostMemoryRuntimeWaitsForItsOwnPrepare",
+      "original_declaration_sha256": "32d95724c1333250100c233349a1671c5658023cb138cb5782452a297d941c19",
+      "current_declaration_sha256": "32d95724c1333250100c233349a1671c5658023cb138cb5782452a297d941c19",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_load_telemetry_test.go::TestHostTelemetryControlsAreRejectedOnLoadAndRenewal",
+      "original_declaration_sha256": "1c0498628b8c9301b85c2d8b4eb36265ea4ec09c19bc13f8c11e595b23a5e523",
+      "current_declaration_sha256": "1c0498628b8c9301b85c2d8b4eb36265ea4ec09c19bc13f8c11e595b23a5e523",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_archive_loss_test.go::TestHostMetricHistoryDisclosesArchiveOmissionsAfterRestart",
+      "original_declaration_sha256": "02776cccd9d5cdac074f25ebc0f1ea793c37bd80896c8bf8c5aa1f7f7923399f",
+      "current_declaration_sha256": "02776cccd9d5cdac074f25ebc0f1ea793c37bd80896c8bf8c5aa1f7f7923399f",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_history_test.go::TestHostMetricArchiveOverflowRetainsSubsetAndAccountsDrops",
+      "original_declaration_sha256": "ee980066ae62486a8a94b5a43f2999e94140d4655e3dd7b8963fbefb607bbcaf",
+      "current_declaration_sha256": "ee980066ae62486a8a94b5a43f2999e94140d4655e3dd7b8963fbefb607bbcaf",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_history_test.go::TestHostMetricArchiveSkipDoesNotAccountAnotherWriterBatch",
+      "original_declaration_sha256": "451d1af63119ffbb32aed73a152dcb048d122ceb2ab95940a3533ef785342bdc",
+      "current_declaration_sha256": "451d1af63119ffbb32aed73a152dcb048d122ceb2ab95940a3533ef785342bdc",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_history_test.go::TestHostMetricHistoryDisclosesRejectedReplayBatch",
+      "original_declaration_sha256": "ec749ee3d0597e396734e40bf3e3285e0fac3f00faba4500534e13bf57196b1f",
+      "current_declaration_sha256": "ec749ee3d0597e396734e40bf3e3285e0fac3f00faba4500534e13bf57196b1f",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_history_test.go::TestHostMetricHistoryDisclosesReplaySeriesChurn",
+      "original_declaration_sha256": "58cf773924c8c85a8a5693fffa65245840e951fae03d8a8bb1eb6e70f5275973",
+      "current_declaration_sha256": "58cf773924c8c85a8a5693fffa65245840e951fae03d8a8bb1eb6e70f5275973",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_history_test.go::TestHostMetricHistoryPreservesLatestConsumers",
+      "original_declaration_sha256": "b38da14b999959024855703b8312ee6f272242809535f5b83c97cee860252935",
+      "current_declaration_sha256": "b38da14b999959024855703b8312ee6f272242809535f5b83c97cee860252935",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_history_test.go::TestHostMetricHistoryReplaysWithoutMemberSnapshotOverlap",
+      "original_declaration_sha256": "89daf0594724a18375148f2ae36976b77025edc5eb14ede3f5a1600570d5e10b",
+      "current_declaration_sha256": "89daf0594724a18375148f2ae36976b77025edc5eb14ede3f5a1600570d5e10b",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_history_test.go::TestHostMetricPublicationFencesAuthorityChanges",
+      "original_declaration_sha256": "4c8f04a55438e0a19dd242ddf8222afcb0a8dbfde7eee71a3846972a813c8c7d",
+      "current_declaration_sha256": "4c8f04a55438e0a19dd242ddf8222afcb0a8dbfde7eee71a3846972a813c8c7d",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_history_test.go::TestJournalHistoryStartsWithoutPrivateListener",
+      "original_declaration_sha256": "a410cfc4309a41e450ce72e4311b3b3390cd941104eb3e1576455892155cff6c",
+      "current_declaration_sha256": "a410cfc4309a41e450ce72e4311b3b3390cd941104eb3e1576455892155cff6c",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_publication_gap_test.go::TestHostMetricPublicationGapEpochReplacementIsFenced",
+      "original_declaration_sha256": "89bf41379bd5f5fd251e5b63ed441fd62ccbce7dc0ffbdd2250da7e80b86f91e",
+      "current_declaration_sha256": "89bf41379bd5f5fd251e5b63ed441fd62ccbce7dc0ffbdd2250da7e80b86f91e",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_publication_gap_test.go::TestHostMetricPublicationGapLostAck",
+      "original_declaration_sha256": "cf28f952f23162e7f112fc509f56bcced5a310c016ee2fe870530d7afc60afc6",
+      "current_declaration_sha256": "cf28f952f23162e7f112fc509f56bcced5a310c016ee2fe870530d7afc60afc6",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_publication_gap_test.go::TestHostMetricPublicationGapSurvivesCompetingWriterSkip",
+      "original_declaration_sha256": "5e99f622983278d5d3043839e9b5c4bd222365c6ea48db60cf8cac2e9525cf1d",
+      "current_declaration_sha256": "5e99f622983278d5d3043839e9b5c4bd222365c6ea48db60cf8cac2e9525cf1d",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_publication_gap_test.go::TestHostMetricPublicationGapSurvivesRecoveryAndReplay",
+      "original_declaration_sha256": "bbc3f338d5002232be3a6aef3e6518404643bc646abda2d551f7d5ce7fc09f25",
+      "current_declaration_sha256": "bbc3f338d5002232be3a6aef3e6518404643bc646abda2d551f7d5ce7fc09f25",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_metric_publication_gap_test.go::TestHostMetricPublicationRequiresRestartAfterArchiveRecreation",
+      "original_declaration_sha256": "854dc7a44295e4198cfe2591691bfd828e3bcc55b0d9f5f4efa329816f28fda1",
+      "current_declaration_sha256": "854dc7a44295e4198cfe2591691bfd828e3bcc55b0d9f5f4efa329816f28fda1",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_run_test.go::TestHostCommandRejectsUnhealthyClockBeforeNativeProbeAndNATS",
+      "original_declaration_sha256": "bd29e6a95b73f9fd76e325d9f2f00b6ace469fcc0b43dadcbcf7c8a2b98f2917",
+      "current_declaration_sha256": "bd29e6a95b73f9fd76e325d9f2f00b6ace469fcc0b43dadcbcf7c8a2b98f2917",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_run_test.go::TestHostRejectsUnsafeManagedRuntimeRootBeforeNativeProbe",
+      "original_declaration_sha256": "bd37602cbf0fde1a26eab4585eb3e141abe03cb940278c5d63b2bcbe1291cdfe",
+      "current_declaration_sha256": "bd37602cbf0fde1a26eab4585eb3e141abe03cb940278c5d63b2bcbe1291cdfe",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_run_test.go::TestHostRejectsZeroWorkloadIdentityBeforeNativeProbe",
+      "original_declaration_sha256": "19a0364b707476f446db1bde78f29f607eb109590895f6cba046fed9269c1f4d",
+      "current_declaration_sha256": "19a0364b707476f446db1bde78f29f607eb109590895f6cba046fed9269c1f4d",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_run_test.go::TestHostRunResultOnlyTreatsParentCancellationAsShutdown",
+      "original_declaration_sha256": "b6afe37d21efb8838b9e22a9d57404fb9bef9c8fb26641f20adf70bfd972240d",
+      "current_declaration_sha256": "b6afe37d21efb8838b9e22a9d57404fb9bef9c8fb26641f20adf70bfd972240d",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_run_test.go::TestHostWorkloadIdentityConfigAccepted",
+      "original_declaration_sha256": "b87a566902a842f492c7b76efbc62d0f82502ddf52428c18b9f582b633521961",
+      "current_declaration_sha256": "b87a566902a842f492c7b76efbc62d0f82502ddf52428c18b9f582b633521961",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_setup_local_options_review_test.go::TestHostEnrollmentRenewalKeepsHostLocalOptions",
+      "original_declaration_sha256": "fc61392219af06b7c7e20ac7dc0f891114710c1570b3f8016681d6b8268b00a4",
+      "current_declaration_sha256": "fc61392219af06b7c7e20ac7dc0f891114710c1570b3f8016681d6b8268b00a4",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_setup_netbird_recovery_test.go::TestHostSetupSeedsNetBirdWhenFirstInstalledResponseIsRenewal",
+      "original_declaration_sha256": "7660ab1c223a97ea8b34ac6acd08ee3767365eac31003a5117c1d5ecf9fd9322",
+      "current_declaration_sha256": "7660ab1c223a97ea8b34ac6acd08ee3767365eac31003a5117c1d5ecf9fd9322",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_setup_netbird_test.go::TestHostEnrollmentOnlySeedsUnmanagedFirstBootstrapNetBirdConfig",
+      "original_declaration_sha256": "a84d70c4f9ab296cbd7b0429c63dbb6e6dee3575d45124d667c1e258c7b1b1c0",
+      "current_declaration_sha256": "1ee1bccbe0a12015fdd8b5dbf18e7290c53f512e8610484c6e5c747b4c8c99db",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_setup_test.go::TestPersistedHostRequestRecoveryAcrossReplayWindow",
+      "original_declaration_sha256": "36d48a8f8a6e97ae66bed644b8e4ae86269db072bf9ed24457911e43690f1d9e",
+      "current_declaration_sha256": "36d48a8f8a6e97ae66bed644b8e4ae86269db072bf9ed24457911e43690f1d9e",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_telemetry_test.go::TestHostTelemetryCollectsWithoutAutoscaling",
+      "original_declaration_sha256": "c9eb2a8baae02e081abfafc4d86f6e538cc4ff56f74923cd9410f5330f30215f",
+      "current_declaration_sha256": "4a1184490feeb3e9baa5cfd1306e06af125e459250cd028491e3c57524c48624",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_telemetry_test.go::TestHostTelemetryDiscardsPreviousAuthorityTerms",
+      "original_declaration_sha256": "20c81ede562bfb8a957a97103cf0c0e139aa08be18d3dfac3042df7d9a173d0f",
+      "current_declaration_sha256": "20c81ede562bfb8a957a97103cf0c0e139aa08be18d3dfac3042df7d9a173d0f",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/host_telemetry_test.go::TestHostTelemetryRestoresReleaseResourceNormalization",
+      "original_declaration_sha256": "764cc024a325ad1d9e98739ffb60204eccebef2d5d53c57f2e86f8d635a0d24f",
+      "current_declaration_sha256": "764cc024a325ad1d9e98739ffb60204eccebef2d5d53c57f2e86f8d635a0d24f",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/identity_rekey_cli_test.go::TestIdentityRekeyCLIRejectsUnreviewedArguments",
+      "original_declaration_sha256": "1762b7e0621d2d59ead7a92d4a364c582445c13fa34331236fb8e6b311f22990",
+      "current_declaration_sha256": "1762b7e0621d2d59ead7a92d4a364c582445c13fa34331236fb8e6b311f22990",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/identity_rekey_cli_test.go::TestIdentityRekeyFinalInputsRecoverAfterInterruptedPublication",
+      "original_declaration_sha256": "f28fd611e3a79622e60caee4bddd98a180d439b868aec592a2e2d263e9ef68f8",
+      "current_declaration_sha256": "f28fd611e3a79622e60caee4bddd98a180d439b868aec592a2e2d263e9ef68f8",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/identity_rekey_cli_test.go::TestIdentityRekeyInputReaderRefusesIndirectFilesAndChangedReset",
+      "original_declaration_sha256": "021f48151f918e30350302e557f5ede9c57820bd3ebc4c258bca11e10450c061",
+      "current_declaration_sha256": "021f48151f918e30350302e557f5ede9c57820bd3ebc4c258bca11e10450c061",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/identity_rekey_cli_test.go::TestIdentityRekeyRecoveryChecksClockBeforeSigningAndPublication",
+      "original_declaration_sha256": "a3b8b01e120a628c9e9e93ca00355fa49760b3942f6f8fafd1ce3a5dd43b7ca3",
+      "current_declaration_sha256": "a3b8b01e120a628c9e9e93ca00355fa49760b3942f6f8fafd1ce3a5dd43b7ca3",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/identity_rekey_install_test.go::TestIdentityRekeyGlobalScopeMustMatchTopologyHome",
+      "original_declaration_sha256": "2f5dfa4937ff8b5d078cbd1bbed5ce8e4dfdd71e72d0b8b3440c723d85cddf5d",
+      "current_declaration_sha256": "2f5dfa4937ff8b5d078cbd1bbed5ce8e4dfdd71e72d0b8b3440c723d85cddf5d",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/identity_rekey_install_test.go::TestIdentityRekeyInstallerCleanupKeepsCurrentRootsLaunchPinsAndData",
+      "original_declaration_sha256": "e09bc7e53221eca78f66d3760b32c5892d5c2fa641c8c6902001a6fdd36dc6f3",
+      "current_declaration_sha256": "e09bc7e53221eca78f66d3760b32c5892d5c2fa641c8c6902001a6fdd36dc6f3",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/identity_rekey_install_test.go::TestIdentityRekeyInstallerCleanupRequiresCurrentProofAndSharedCompletion",
+      "original_declaration_sha256": "ddc9a7e6dcdd6d7593e78c91711322de89471d893d6490c547f26a70213a82bd",
+      "current_declaration_sha256": "ddc9a7e6dcdd6d7593e78c91711322de89471d893d6490c547f26a70213a82bd",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/identity_rekey_install_test.go::TestIdentityRekeyInstallerMeasuresOnlyTrustedActiveInvocationNode",
+      "original_declaration_sha256": "5e60c69190f8fd22b6a301ceefed923a28149b06f73333caa523fc17b7150916",
+      "current_declaration_sha256": "5e60c69190f8fd22b6a301ceefed923a28149b06f73333caa523fc17b7150916",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/identity_rekey_install_test.go::TestIdentityRekeyInstallerProvesStoppedServiceAndNoRemainingProcesses",
+      "original_declaration_sha256": "7d4fb7dee9b69652580c239e63dd25e8d17ac7a7ad9e56f214720ce7bf38df97",
+      "current_declaration_sha256": "7d4fb7dee9b69652580c239e63dd25e8d17ac7a7ad9e56f214720ce7bf38df97",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/identity_rekey_install_test.go::TestIdentityRekeyInstallerReplacesOnlyRegularFilesAndRecoversExactBytes",
+      "original_declaration_sha256": "9260e21a82e37b67b978606f5e98d4bc6f4103494b18994fa8f1b40fab57096e",
+      "current_declaration_sha256": "8b672eb0e3a1c58662f511cc5bf4a55767467353968e7e17112482065eb90c3a",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/identity_rekey_install_test.go::TestIdentityRekeyInstallerRequiresExactV1RoleAndAllPinnedFiles",
+      "original_declaration_sha256": "349f4aff7925f792eae76111a20f7d94a954d14ecef475711d9dd119218f3575",
+      "current_declaration_sha256": "349f4aff7925f792eae76111a20f7d94a954d14ecef475711d9dd119218f3575",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/identity_rekey_install_test.go::TestIdentityRekeyMaterialCleanupErasesAliasedPrivateBuffers",
+      "original_declaration_sha256": "ef26157f18f27b61f165a60b0afc474c4c5dc335053d6b29bc21821ef0ba6247",
+      "current_declaration_sha256": "ef26157f18f27b61f165a60b0afc474c4c5dc335053d6b29bc21821ef0ba6247",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/identity_rekey_install_test.go::TestIdentityRekeyResponseSignerMatchesHandoffBundleAndVaultPin",
+      "original_declaration_sha256": "5228e1d2acd7108dbe8db215fdfd4b0072d16e8e354c4a40ead4c54573f64cf6",
+      "current_declaration_sha256": "5228e1d2acd7108dbe8db215fdfd4b0072d16e8e354c4a40ead4c54573f64cf6",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/insight_providers_test.go::TestControllerSlotServerNameMatchesTheBroker",
+      "original_declaration_sha256": "70d54832c06f1ce39944cd3e7dc37902c306e2d6d9141b4833f774aaca6a3da5",
+      "current_declaration_sha256": "70d54832c06f1ce39944cd3e7dc37902c306e2d6d9141b4833f774aaca6a3da5",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/insight_providers_test.go::TestNilSliceProvidersStaySilent",
+      "original_declaration_sha256": "536322f36a53e0d8b9f3955eb1e4bc88de34d36e60e1c83d1218f33c876cfd80",
+      "current_declaration_sha256": "536322f36a53e0d8b9f3955eb1e4bc88de34d36e60e1c83d1218f33c876cfd80",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/insight_providers_test.go::TestVolumeAttachAgeUsesTheRequestTime",
+      "original_declaration_sha256": "75a17b2e6a5d8ed93f18bc6ce178bc8edcafe67dc3748cf990ea3ec58a8a9f36",
+      "current_declaration_sha256": "75a17b2e6a5d8ed93f18bc6ce178bc8edcafe67dc3748cf990ea3ec58a8a9f36",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/insight_providers_test.go::TestVolumeAttachmentRequiresPlacementEvidence",
+      "original_declaration_sha256": "22294624daf162d65b5478e1cc9160a3628232d1edbd84c4ce5ac4597ca12a8e",
+      "current_declaration_sha256": "22294624daf162d65b5478e1cc9160a3628232d1edbd84c4ce5ac4597ca12a8e",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/insight_providers_test.go::TestVolumeAttachmentStateFeedsTheStuckAttachRule",
+      "original_declaration_sha256": "2bb4290d3d1f008f5b0d1aa7fbde5a5e200ac76aa935d1cff3256d922b626bbb",
+      "current_declaration_sha256": "2bb4290d3d1f008f5b0d1aa7fbde5a5e200ac76aa935d1cff3256d922b626bbb",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/insight_providers_test.go::TestVolumeAttachmentTimingReachesTheStuckRule",
+      "original_declaration_sha256": "59ee44e39b347f3387b6089614a177920b7a5a61e119c14425b96f1d5290ed95",
+      "current_declaration_sha256": "59ee44e39b347f3387b6089614a177920b7a5a61e119c14425b96f1d5290ed95",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/journal_lifetime_test.go::TestClosingTheRuntimeStopsItsJournal",
+      "original_declaration_sha256": "f9433922dcda5e035cb23f0d4661bc628602d30f48554ed2f4b7bbc49a1ac132",
+      "current_declaration_sha256": "f9433922dcda5e035cb23f0d4661bc628602d30f48554ed2f4b7bbc49a1ac132",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/machines_api_test.go::TestControllerServesMachinesAPI",
+      "original_declaration_sha256": "c552c8233baf069433154ba34737d2d74f9d6a67c3746835226f2e4dff5e7b9b",
+      "current_declaration_sha256": "c552c8233baf069433154ba34737d2d74f9d6a67c3746835226f2e4dff5e7b9b",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/machines_api_test.go::TestMachinesAPIFollowsTheCellSpec",
+      "original_declaration_sha256": "1347231ef58bd684245b254fb3d5003ba51c455a5e3c2a0b151b645b0d2e0215",
+      "current_declaration_sha256": "1347231ef58bd684245b254fb3d5003ba51c455a5e3c2a0b151b645b0d2e0215",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/managed_config_test.go::TestManagedControllerConfigRejectsGenericMemberRole",
+      "original_declaration_sha256": "744b95cd6de306f99a4590e86049ff708dc9230e64a6b3da4c48dbb499dc1975",
+      "current_declaration_sha256": "744b95cd6de306f99a4590e86049ff708dc9230e64a6b3da4c48dbb499dc1975",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/managed_config_test.go::TestManagedControllerConfigRequiresSignedAdmission",
+      "original_declaration_sha256": "60348a0841f6cdcc1278c23171ca64e13a5d0915bfd09b63093e9d894a1b9150",
+      "current_declaration_sha256": "60348a0841f6cdcc1278c23171ca64e13a5d0915bfd09b63093e9d894a1b9150",
+      "category": "unresolved",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/managed_config_test.go::TestManagedPlacementRejectsRetiredSwitches",
+      "original_declaration_sha256": "815700d4bad8138d92b7f0ddd897d5debfc9ab65e858c66432be59ca1943c41e",
+      "current_declaration_sha256": "815700d4bad8138d92b7f0ddd897d5debfc9ab65e858c66432be59ca1943c41e",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/managed_config_test.go::TestPlacementFileRejectsRemovedControls",
+      "original_declaration_sha256": "4b65c7f1000f5413f72be166fa2f2a82aecb313bbe1653c0794336de3880129b",
+      "current_declaration_sha256": "4b65c7f1000f5413f72be166fa2f2a82aecb313bbe1653c0794336de3880129b",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/managed_enrollment_test.go::TestManagedRegistrationRejectsAuthorityChangesDuringOCIObservation",
+      "original_declaration_sha256": "3433474d5b54af861db5c15b3e01688107fbd280472730ab87b5d19308b72d3c",
+      "current_declaration_sha256": "3433474d5b54af861db5c15b3e01688107fbd280472730ab87b5d19308b72d3c",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/managed_enrollment_test.go::TestManagedRegistrationRetainsDrainReconciliationStages",
+      "original_declaration_sha256": "22b11e78eebe8c8e2d8da6de47cf117fc8f46896dfb18f2284bafe7a558c362b",
+      "current_declaration_sha256": "22b11e78eebe8c8e2d8da6de47cf117fc8f46896dfb18f2284bafe7a558c362b",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/managed_enrollment_test.go::TestManagedRegistrationVerifierDoesNotFallbackFromExactReaders",
+      "original_declaration_sha256": "9c47d32d500bd80829a0057cab3c97d3fb266cbca74a4e855c2b343b433e31ff",
+      "current_declaration_sha256": "9c47d32d500bd80829a0057cab3c97d3fb266cbca74a4e855c2b343b433e31ff",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/managed_enrollment_test.go::TestManagedRegistrationVerifierRejectsStaleAndMismatchedPins",
+      "original_declaration_sha256": "1d3d9984cd584ebcae35f57caa7f7f8a637e618e34f20c63653e5d95d1317c62",
+      "current_declaration_sha256": "1d3d9984cd584ebcae35f57caa7f7f8a637e618e34f20c63653e5d95d1317c62",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/managed_enrollment_test.go::TestManagedRegistrationVerifierUsesExactCurrentPins",
+      "original_declaration_sha256": "c5d3e4da47f4e352dafd52214823644826e85c12ff194a768b09d046e18bbd14",
+      "current_declaration_sha256": "c5d3e4da47f4e352dafd52214823644826e85c12ff194a768b09d046e18bbd14",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/managed_image_integration_test.go::TestManagedImageObservedArchitectureIntegration",
+      "original_declaration_sha256": "c674bd4dff0ae844d3c3dee5322ac2e6f55c58fd21cd4f560e316cdd1978fb71",
+      "current_declaration_sha256": "c674bd4dff0ae844d3c3dee5322ac2e6f55c58fd21cd4f560e316cdd1978fb71",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/managed_image_integration_test.go::TestManagedImageReleaseScopeIntegration",
+      "original_declaration_sha256": "0f46fa230483844b4c29498bf6b1582a0ddc08ced1da4024a4d6e242d6234514",
+      "current_declaration_sha256": "0f46fa230483844b4c29498bf6b1582a0ddc08ced1da4024a4d6e242d6234514",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/managed_image_integration_test.go::TestManagedImageSignedSnapshotLaunchIntegration",
+      "original_declaration_sha256": "8b71ea6e381df15f93df95eeced31db1f391809e1236f48b396468d13d15efeb",
+      "current_declaration_sha256": "8b71ea6e381df15f93df95eeced31db1f391809e1236f48b396468d13d15efeb",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/managed_material_attempt_review_test.go::TestManagedMaterialFollowsTheCurrentDurableHostAttempt",
+      "original_declaration_sha256": "83948a733d37ae387c7cdd8a5d396a3ce79ae5d98c6fbfcde4559dd02b63eb9d",
+      "current_declaration_sha256": "83948a733d37ae387c7cdd8a5d396a3ce79ae5d98c6fbfcde4559dd02b63eb9d",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/managed_material_config_test.go::TestAcceptedMaterialConfigPinsMemberCompartmentAndSubnet",
+      "original_declaration_sha256": "2a957bba19d1831150f2b070addabee0acbaa4b7ceac34dc990f6b70a0943049",
+      "current_declaration_sha256": "2a957bba19d1831150f2b070addabee0acbaa4b7ceac34dc990f6b70a0943049",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/managed_material_delivery_test.go::TestDesiredMaterialMatchesReceiptPinsSQLAndBackupDigests",
+      "original_declaration_sha256": "9d59e10fca818e825dbb13ae883a9760ce4607afeb32ba489f4382c6c6c38287",
+      "current_declaration_sha256": "9d59e10fca818e825dbb13ae883a9760ce4607afeb32ba489f4382c6c6c38287",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/managed_placement_enrollment_integration_test.go::TestManagedPlacementEnrollmentFromRenderedSFOBundle",
+      "original_declaration_sha256": "98ef46711f8f46e2cd7bf6d2039a4bc0fb13c41d03a926debc378af2d3fee1fb",
+      "current_declaration_sha256": "98ef46711f8f46e2cd7bf6d2039a4bc0fb13c41d03a926debc378af2d3fee1fb",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/managed_placement_enrollment_integration_test.go::TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession",
+      "original_declaration_sha256": "26a99c609c11656f3a5648cfce5a58230d1eef141ef3b306343143815e84f92b",
+      "current_declaration_sha256": "26a99c609c11656f3a5648cfce5a58230d1eef141ef3b306343143815e84f92b",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/managed_runtime_host_test.go::TestManagedRuntimeRegistryCancelsInFlightSession",
+      "original_declaration_sha256": "ca3c76f8ba3efdfa458d2a642c6b45b9726e1dbab03ff208c372357f817253fb",
+      "current_declaration_sha256": "ca3c76f8ba3efdfa458d2a642c6b45b9726e1dbab03ff208c372357f817253fb",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/managed_runtime_host_test.go::TestManagedRuntimeRegistryRejectsEndedSession",
+      "original_declaration_sha256": "cc9184fa3003bf7a4ac6dd08fac033d83326a6f6d12accb88d0d72e9b6c59150",
+      "current_declaration_sha256": "cc9184fa3003bf7a4ac6dd08fac033d83326a6f6d12accb88d0d72e9b6c59150",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/managed_runtime_startup_integration_test.go::TestManagedRuntimeReadyBeforeSingleOwnHostSession",
+      "original_declaration_sha256": "7854b6971846c6fae7c4c6de77558ed091d169f2c333068cd3a037c8a1202230",
+      "current_declaration_sha256": "7854b6971846c6fae7c4c6de77558ed091d169f2c333068cd3a037c8a1202230",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/managed_update_admission_integration_test.go::TestTrustedOperatorManagedUpdatePrepareCommitsThroughAppToR3",
+      "original_declaration_sha256": "2df3790086f2e360cc26ec02c993b7975d6312de19fb7fcb298e30529aa77c37",
+      "current_declaration_sha256": "2df3790086f2e360cc26ec02c993b7975d6312de19fb7fcb298e30529aa77c37",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/managed_update_admission_journal_test.go::TestManagedUpdateAdmissionIsJournaledOncePerOperation",
+      "original_declaration_sha256": "b8a30fa6fa6da6b304fde80e0e998707e618627182b612080e28bb48eade9e70",
+      "current_declaration_sha256": "b8a30fa6fa6da6b304fde80e0e998707e618627182b612080e28bb48eade9e70",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/managed_update_admission_test.go::TestManagedUpdatePrepareProducerRegionMatchesLowercaseCell",
+      "original_declaration_sha256": "f314409ff36e202ad9cf6be98cd56c230b403972a80ef70713d8e9815ce693b1",
+      "current_declaration_sha256": "f314409ff36e202ad9cf6be98cd56c230b403972a80ef70713d8e9815ce693b1",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/material_credentials_status_test.go::TestCredentialStatusRequiresBothCurrentNativeReports",
+      "original_declaration_sha256": "066f2a0b8f20759750832ed7c045a2690575df63c56dd4858aa787599a253d4e",
+      "current_declaration_sha256": "066f2a0b8f20759750832ed7c045a2690575df63c56dd4858aa787599a253d4e",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/material_generations_test.go::TestMaterialGenerationRequestsNeedTheGrant",
+      "original_declaration_sha256": "c06f9de7854767c039e8696342875835773726a0f9bb368dcca41869c44c289a",
+      "current_declaration_sha256": "c06f9de7854767c039e8696342875835773726a0f9bb368dcca41869c44c289a",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/material_preparation_test.go::TestSignedOperatorPreparationCommitsExactMaterialAndReturnsCiphertext",
+      "original_declaration_sha256": "4a920c10cfbbb2217aca00fe3acde83eebaae2ac58965f92a6ae8794d0fa2651",
+      "current_declaration_sha256": "4a920c10cfbbb2217aca00fe3acde83eebaae2ac58965f92a6ae8794d0fa2651",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/metric_catalog_integration_test.go::TestJournalAPISharesAuthenticatedCatalogHistory",
+      "original_declaration_sha256": "db4795a04964988fef23d75c36a271a588fca9aeccf258eca7c9a752a2d3d41b",
+      "current_declaration_sha256": "db4795a04964988fef23d75c36a271a588fca9aeccf258eca7c9a752a2d3d41b",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/native_history_regression_test.go::TestNativeDeadlineExemptsCertifiedHealingAndIndependentRecovery",
+      "original_declaration_sha256": "4a68e5900eb6125f6a03ff7b46369e996f5759faa5fe512a5c31fe6921bd85f2",
+      "current_declaration_sha256": "4a68e5900eb6125f6a03ff7b46369e996f5759faa5fe512a5c31fe6921bd85f2",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/native_history_regression_test.go::TestNativeExpiredForwardSettlesDelayedAndPartialDelivery",
+      "original_declaration_sha256": "9fd2ec80b580330a2bc13c89d6b13f4f244a2f80c3899040ad68e462410f9140",
+      "current_declaration_sha256": "9fd2ec80b580330a2bc13c89d6b13f4f244a2f80c3899040ad68e462410f9140",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/native_history_regression_test.go::TestNativeManualRecoveryDeadlineDoesNotPoisonHealthyGood",
+      "original_declaration_sha256": "7320356d64702df9934c6a677c72677a2a2b0ee993a86b696de4fa30c754d624",
+      "current_declaration_sha256": "7320356d64702df9934c6a677c72677a2a2b0ee993a86b696de4fa30c754d624",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/native_history_regression_test.go::TestNativeNearLimitSignedProfilesTenSuccessesAndRecovery",
+      "original_declaration_sha256": "de89ab983f9da46debdbde97e3fe664123b22c7e92acdffdf6d7d9d56408bd33",
+      "current_declaration_sha256": "de89ab983f9da46debdbde97e3fe664123b22c7e92acdffdf6d7d9d56408bd33",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/native_history_regression_test.go::TestNativeObserveVerifiesSelectedAndBaselineBeforeFencing",
+      "original_declaration_sha256": "8e11b2e05dd2fcae8a0c4a5a232c0fa9d148bece8399a8c1dd4b2c66f524f954",
+      "current_declaration_sha256": "8e11b2e05dd2fcae8a0c4a5a232c0fa9d148bece8399a8c1dd4b2c66f524f954",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/native_history_regression_test.go::TestNativeReadRetryHandlesElectionWithoutRetryingPermanentFailure",
+      "original_declaration_sha256": "28e53689b9f9b8915a0bc9c64cb7beb314b473f115a05c222812a03167eae244",
+      "current_declaration_sha256": "28e53689b9f9b8915a0bc9c64cb7beb314b473f115a05c222812a03167eae244",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/native_history_regression_test.go::TestNativeSelectionErrorClassification",
+      "original_declaration_sha256": "e2de320fa7e3bb71362c31a3468af931881e55600a65daa5c4f11d2d96654868",
+      "current_declaration_sha256": "e2de320fa7e3bb71362c31a3468af931881e55600a65daa5c4f11d2d96654868",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/native_history_regression_test.go::TestNativeWorstProvenanceIsChunkedAndCapacityCheckedBeforeReferences",
+      "original_declaration_sha256": "ea89dd7127ba9511710119c83868f17770e6e1f38cb6eddb3701244ad3a645f1",
+      "current_declaration_sha256": "ea89dd7127ba9511710119c83868f17770e6e1f38cb6eddb3701244ad3a645f1",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/native_history_test.go::TestNativeDesiredRefusesContendedAdoptionBeforeWrites",
+      "original_declaration_sha256": "84bf13a33fd955478cc351b97bc500d67347362a1b06efae76f037e7b52e51e9",
+      "current_declaration_sha256": "84bf13a33fd955478cc351b97bc500d67347362a1b06efae76f037e7b52e51e9",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/native_history_test.go::TestNativeGoodNeedsFreshReportsAcrossObservation",
+      "original_declaration_sha256": "d67da29c7662a94bd06e43d1ba897b2e48306b5434775a64109f8a85dbca0c46",
+      "current_declaration_sha256": "d67da29c7662a94bd06e43d1ba897b2e48306b5434775a64109f8a85dbca0c46",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/native_history_test.go::TestNativeGoodProofRejectsIncompleteEvidence",
+      "original_declaration_sha256": "fdaafeafb3aef6f2b822e3de04f26e8dce868eead183bfa800ac6665566dd5a8",
+      "current_declaration_sha256": "fdaafeafb3aef6f2b822e3de04f26e8dce868eead183bfa800ac6665566dd5a8",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/native_history_test.go::TestNativeGoodRetentionKeepsTenSuccessfulProfiles",
+      "original_declaration_sha256": "3f3398788b36c180428abc71dd53bceb305594c60e8aad1a6d169142697a229f",
+      "current_declaration_sha256": "3f3398788b36c180428abc71dd53bceb305594c60e8aad1a6d169142697a229f",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/native_history_test.go::TestNativePrepareReplyKeepsProvenancePrivateAndBounded",
+      "original_declaration_sha256": "890b20c3071f8e2b618d8a2fd03fdcb27e5ead732d3defc557e244188a6d1297",
+      "current_declaration_sha256": "890b20c3071f8e2b618d8a2fd03fdcb27e5ead732d3defc557e244188a6d1297",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/native_history_test.go::TestNativeRollbackTemplateKeepsRestoredFullConfig",
+      "original_declaration_sha256": "34b553f9469120d374290f47316dcba6521a02e10e57dc4b48017d74095530cf",
+      "current_declaration_sha256": "34b553f9469120d374290f47316dcba6521a02e10e57dc4b48017d74095530cf",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/native_identity_test.go::TestNativeRetainedChainPinAdmitsMatchingAcceptance",
+      "original_declaration_sha256": "a6b695e58ed3d9d9af7162dd0648f3b8be015885aa5f057cd17a995f0c3b737b",
+      "current_declaration_sha256": "a6b695e58ed3d9d9af7162dd0648f3b8be015885aa5f057cd17a995f0c3b737b",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/native_identity_test.go::TestNativeRetainedChainPinMustMatchAcceptedIdentity",
+      "original_declaration_sha256": "11507c91c9dfb56288398091e57c2926971d14288ef35eaa9bcb1b8f2080d78e",
+      "current_declaration_sha256": "11507c91c9dfb56288398091e57c2926971d14288ef35eaa9bcb1b8f2080d78e",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/native_restore_test.go::TestNativeManualRestoreCannotReuseForwardOperationID",
+      "original_declaration_sha256": "fbbc8ebe5d1131c3a4a77b17b5abce65df4caef73db4bae25d83381e9b927f9b",
+      "current_declaration_sha256": "fbbc8ebe5d1131c3a4a77b17b5abce65df4caef73db4bae25d83381e9b927f9b",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/native_restore_test.go::TestNativeManualRestoreRefusesNonretainedTargetDurably",
+      "original_declaration_sha256": "5d16de856175fa563c03c769235a7e34244c57b57fa4f4d656d36376ae6704a4",
+      "current_declaration_sha256": "5d16de856175fa563c03c769235a7e34244c57b57fa4f4d656d36376ae6704a4",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/native_restore_test.go::TestNativeManualRestoreUsesRetainedPairAfterNewSpec",
+      "original_declaration_sha256": "2f0029f3e24df3d34175d225c08dbd0f14e0eb3e807d7c85861dee45eb3412fe",
+      "current_declaration_sha256": "2f0029f3e24df3d34175d225c08dbd0f14e0eb3e807d7c85861dee45eb3412fe",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/native_restore_test.go::TestNativeRestoreTargetRefusesAmbiguousResources",
+      "original_declaration_sha256": "ef66205ff60ed439f9b93e861cb1aaf6084ce74638abf8d8e655e61646ed09f2",
+      "current_declaration_sha256": "ef66205ff60ed439f9b93e861cb1aaf6084ce74638abf8d8e655e61646ed09f2",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/native_retained_consumers_test.go::TestHostTelemetryAdoptionAndRecoveryUseCommittedResources",
+      "original_declaration_sha256": "d1df6ea761561b8daf28ed1b04aa54c18768573bc68cd7703ebc152150489de8",
+      "current_declaration_sha256": "d1df6ea761561b8daf28ed1b04aa54c18768573bc68cd7703ebc152150489de8",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/native_retained_consumers_test.go::TestNativeRetainedColocatedReleaseCapacity",
+      "original_declaration_sha256": "32d538fa4a68ed7333fe1926673f7ce2821201e1a3b77ba02ea1bc348155356b",
+      "current_declaration_sha256": "32d538fa4a68ed7333fe1926673f7ce2821201e1a3b77ba02ea1bc348155356b",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/netbird_admission_test.go::TestNetBirdAdmissionRequiresVerifiedFenceAndAddress",
+      "original_declaration_sha256": "8af802b45fd290dade965a82361f3367224b43bbe071eca1478527037e4d4674",
+      "current_declaration_sha256": "8af802b45fd290dade965a82361f3367224b43bbe071eca1478527037e4d4674",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/netbird_admission_test.go::TestNetBirdAdmissionSurvivesFenceAndGrantRemovalWithoutLosingQuorum",
+      "original_declaration_sha256": "133d526b36a2b88dfa0e7019364ba0cc639b270aa6f98997177ab677875f885b",
+      "current_declaration_sha256": "133d526b36a2b88dfa0e7019364ba0cc639b270aa6f98997177ab677875f885b",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/netbird_admission_test.go::TestNetBirdDrainPreflightKeepsAdmissionAndLiveGatesAfterFenceRemoval",
+      "original_declaration_sha256": "8eb283dabc927757d690b1a29abe92f1988a2feb5994180a731a0ee214fec4f4",
+      "current_declaration_sha256": "8eb283dabc927757d690b1a29abe92f1988a2feb5994180a731a0ee214fec4f4",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/netbird_agent_test.go::TestNetBirdAgentSupportProbeNeedsNoHostConfiguration",
+      "original_declaration_sha256": "779189b026269418a614e994a7b697e37bd887e1e5769af0a1ab0c1c41b2538d",
+      "current_declaration_sha256": "779189b026269418a614e994a7b697e37bd887e1e5769af0a1ab0c1c41b2538d",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/netbird_artifact_admission_test.go::TestNetBirdArtifactAdmissionFencesAlreadySelectedCollection",
+      "original_declaration_sha256": "06ee9db51a6f06c53ed0b4a8a76441e3b1ce2057893f5f5e53db4927efd40f83",
+      "current_declaration_sha256": "06ee9db51a6f06c53ed0b4a8a76441e3b1ce2057893f5f5e53db4927efd40f83",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/netbird_artifact_admission_test.go::TestNetBirdArtifactAdmissionRespectsCanceledContext",
+      "original_declaration_sha256": "26e9bac224efa9f747e15cb802fdd37a0e4d0f8fbd44f1b26c7296258caac946",
+      "current_declaration_sha256": "26e9bac224efa9f747e15cb802fdd37a0e4d0f8fbd44f1b26c7296258caac946",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/netbird_artifact_admission_test.go::TestNetBirdArtifactAdmissionReusesOnlyUnchangedMetadata",
+      "original_declaration_sha256": "e15313f79505f2deb0f57bc24ad365eb77fd45174b6ad0e2296033bc7db0fe23",
+      "current_declaration_sha256": "e15313f79505f2deb0f57bc24ad365eb77fd45174b6ad0e2296033bc7db0fe23",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/netbird_artifact_admission_test.go::TestNetBirdArtifactReceiptIsBoundToArchitectureAndPin",
+      "original_declaration_sha256": "5b110807f56c0d22ca0981aa49b9f2df96b57a7f267a5ba5d5996abda34908a9",
+      "current_declaration_sha256": "5b110807f56c0d22ca0981aa49b9f2df96b57a7f267a5ba5d5996abda34908a9",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/netbird_artifact_admission_test.go::TestNetBirdArtifactTouchFailureStopsAdmissionAndDrain",
+      "original_declaration_sha256": "cb9e6d264afcc6e1620250285f0ca19f4f2c3d2d3a07b9092e4e7a7e96efea4f",
+      "current_declaration_sha256": "cb9e6d264afcc6e1620250285f0ca19f4f2c3d2d3a07b9092e4e7a7e96efea4f",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/netbird_artifact_admission_test.go::TestNetBirdArtifactVerificationStopsAdmissionAndDrain",
+      "original_declaration_sha256": "8ae747ea8ec9e5dd4730259930d01dc235dc8573f1b68e26e4747b3171ecf9de",
+      "current_declaration_sha256": "8ae747ea8ec9e5dd4730259930d01dc235dc8573f1b68e26e4747b3171ecf9de",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/netbird_bootstrap_test.go::TestNetBirdBootstrapCannotReplaceMissingControllerManagedBinary",
+      "original_declaration_sha256": "6f994918ff609bafc0164c61746468a270cbbf0b4fbb5e2c23fb9280b0b057ca",
+      "current_declaration_sha256": "6f994918ff609bafc0164c61746468a270cbbf0b4fbb5e2c23fb9280b0b057ca",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/netbird_bootstrap_test.go::TestNetBirdBootstrapDoesNotConfirmControllerTransaction",
+      "original_declaration_sha256": "d59f00213226f39d70e89fad6ec8eb96e862f37132b5d40cf989681412426bd0",
+      "current_declaration_sha256": "d59f00213226f39d70e89fad6ec8eb96e862f37132b5d40cf989681412426bd0",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/netbird_bootstrap_test.go::TestNetBirdBootstrapIncompletePublicationHoldsEveryEnrollment",
+      "original_declaration_sha256": "b7ab107597215a1db226c6c2e9e7bbfb0ce98cd137b53515e14f95c9a58afac2",
+      "current_declaration_sha256": "b7ab107597215a1db226c6c2e9e7bbfb0ce98cd137b53515e14f95c9a58afac2",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/netbird_bootstrap_test.go::TestNetBirdBootstrapLoadsConfigAfterRecoveryRestoresIt",
+      "original_declaration_sha256": "657c699893891822ff48d86e2f32cab88d9cb9af9ba71c8c3aa6a8706dd3d7bc",
+      "current_declaration_sha256": "657c699893891822ff48d86e2f32cab88d9cb9af9ba71c8c3aa6a8706dd3d7bc",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/netbird_bootstrap_test.go::TestNetBirdBootstrapRetryResumesPersistedTransactionBeforeAndAfterReplacement",
+      "original_declaration_sha256": "367ec6b0a15c9475c5456628639f2a4fbc577b6000c5289ebab8878cee16385a",
+      "current_declaration_sha256": "367ec6b0a15c9475c5456628639f2a4fbc577b6000c5289ebab8878cee16385a",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/netbird_bootstrap_test.go::TestNetBirdExistingClientEnrollmentDoesNotRequireBootstrapPin",
+      "original_declaration_sha256": "436af007fd8930620e68331ed50b3871d8e0b420b2e5244a00e2822fd844ac4f",
+      "current_declaration_sha256": "436af007fd8930620e68331ed50b3871d8e0b420b2e5244a00e2822fd844ac4f",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/netbird_bootstrap_test.go::TestNetBirdPendingBootstrapRequiresVerifiedFallback",
+      "original_declaration_sha256": "04e2c4f68f3309c0987c26a58c463147940175abc3ee08ac61b6aa0c810925e8",
+      "current_declaration_sha256": "04e2c4f68f3309c0987c26a58c463147940175abc3ee08ac61b6aa0c810925e8",
+      "category": "integration",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/netbird_inventory_test.go::TestNetBirdAdmittedInventoryKeepsLivePeersThroughDrainAndLeaderFailover",
+      "original_declaration_sha256": "ef1053c0f729b7746d0685fbebbe937ca920e665728a606f6f82bdb33afaec8b",
+      "current_declaration_sha256": "ef1053c0f729b7746d0685fbebbe937ca920e665728a606f6f82bdb33afaec8b",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/netbird_inventory_test.go::TestNetBirdAdmittedRecoveryKeepsPeersAndProgressWhenInventoryFails",
+      "original_declaration_sha256": "418dc44d959d2a416a43be6b06deea5a4822cc1d67855450b6ae5c25be20d111",
+      "current_declaration_sha256": "418dc44d959d2a416a43be6b06deea5a4822cc1d67855450b6ae5c25be20d111",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/netbird_inventory_test.go::TestNetBirdGrantedRecoveryUsesOnlyTheAdoptedPrivateAddress",
+      "original_declaration_sha256": "8f68687b6cdceb0fb5d8dabac7f5e4ab8e25e5fce79d7c8df9990e705a8059d7",
+      "current_declaration_sha256": "8f68687b6cdceb0fb5d8dabac7f5e4ab8e25e5fce79d7c8df9990e705a8059d7",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/netbird_inventory_test.go::TestNetBirdManagedInventoryAdmitsOnlyLiveOwnedRunningCandidates",
+      "original_declaration_sha256": "074286e2081a1967a9cabfd8106383c5d54029b740cfffcedf654432f1f69c16",
+      "current_declaration_sha256": "074286e2081a1967a9cabfd8106383c5d54029b740cfffcedf654432f1f69c16",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/netbird_inventory_test.go::TestNetBirdRecordedNodeRecoveryIgnoresUnrelatedRetiredInventory",
+      "original_declaration_sha256": "651a2f3c2a88eabacf6cabc163e0a8a54e9e8cee8633cc1b21c1e8e36665778e",
+      "current_declaration_sha256": "651a2f3c2a88eabacf6cabc163e0a8a54e9e8cee8633cc1b21c1e8e36665778e",
+      "category": "mixed",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/app/netbird_inventory_test.go::TestNetBirdRecoveryRejectsUnverifiedOrUnsafeManagedIdentity",
+      "original_declaration_sha256": "bc7ce85fcf0434fde7714cf8d1ddc430c6efd6f5dbd97e09be2ebc997686135e",
+      "current_declaration_sha256": "bc7ce85fcf0434fde7714cf8d1ddc430c6efd6f5dbd97e09be2ebc997686135e",
+      "category": "unit",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    }
+  ],
+  "proof": "Ten independently accepted frozen owner+peer pairs in manifest.json; complete declaration/assertion/connected-source evidence remains in immutable owner packets. INPUT_SHA256SUMS checks all40 owner/peer artifact hashes. Source-only, no execution or qualification."
+}

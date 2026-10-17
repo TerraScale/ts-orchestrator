@@ -1,0 +1,243 @@
+{
+  "schema": "root200-combined-source-classification-manifest-v1",
+  "owner": "/root/classification_100_dispatch",
+  "state": "INDEPENDENTLY_PEER_ACCEPTED_SOURCE_ONLY_PENDING_CENTRAL_QA_ADOPTION",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root200-expansion-dispatch-kseJiOvj/allocation-and-exclusions.json",
+    "sha256": "7e7a69a7a625013deab54117e1a32875f5756e4f1ea67008815614bd0cec3e6f"
+  },
+  "batches": [
+    {
+      "range": [
+        100,
+        120
+      ],
+      "packet": "/tmp/ts-source-classification-100-120-ihpoc9mf/classification.json",
+      "sha256": "a2a852e897a85995594b3fa32751aca51bf3268220f29d42c2ada1875bebb269",
+      "sums_sha256": "e795fa56021afb31af0688971db69fde930b57755d5f8f87b5f16d20f7e92d34",
+      "counts": {
+        "integration": 5,
+        "unit": 14,
+        "mixed": 1,
+        "unresolved": 0
+      },
+      "peer": "/tmp/ts-source-peer-280-300-reviews-100-120-9srlrdql/review.json",
+      "peer_sha256": "eb12ec202f60d80a3888920aa5806b1ab16eb8f31c9be04f313e7e0f6312dc7b",
+      "peer_sums_sha256": "537ad7d91499be72aece67d2e35534bd1c80c4ac665477a1391332363ab4029f"
+    },
+    {
+      "range": [
+        120,
+        140
+      ],
+      "packet": "/tmp/ts-source-classification-120-140-a0mdrjec/classification.json",
+      "sha256": "684652c18f455a21eef5331d8ddd5d54886dc1fe0bd44866baad8d4f4a06f9cb",
+      "sums_sha256": "278bbcd5f8eb478e7f76b2a52c79365119b7eeb546148431ff9c86b4669a4bd9",
+      "counts": {
+        "integration": 6,
+        "unit": 13,
+        "mixed": 1,
+        "unresolved": 0
+      },
+      "peer": "/tmp/ts-source-peer-100-120-reviews-120-140-u3xle8t0/review.json",
+      "peer_sha256": "a9caf4dbf7ce0e1bd19a0c52262c933a2c71eac8fb38d9135d95fce3db715e8e",
+      "peer_sums_sha256": "7447178620fb13805172d7fae53f788fdc93cc3189b365f9f337964d2788c332"
+    },
+    {
+      "range": [
+        140,
+        160
+      ],
+      "packet": "/tmp/ts-source-classification-140-160-corrected-xv_gw7yt/classification.json",
+      "sha256": "9ef9f63d55e04452f5d891a7541f9344b4987f47287f5d8cb6984cafb58f4ffb",
+      "sums_sha256": "7f199cee6142e783d619b3319bb8b4c4523f04746e4dfdcac1ea6b4b14f12c66",
+      "counts": {
+        "integration": 8,
+        "unit": 8,
+        "mixed": 4,
+        "unresolved": 0
+      },
+      "peer": "/tmp/ts-source-peer-120-140-reviews-140-160-7lyuj0ot/review.json",
+      "peer_sha256": "e211ab818a3e6cd0c87a054dd4278db4a4ba46a4d624d220cd28657e730b341d",
+      "peer_sums_sha256": "24bdb8e0d141eb30f7efde2439639b8a399c8f3d4fb5740a21707fec7f78cc9a"
+    },
+    {
+      "range": [
+        160,
+        180
+      ],
+      "packet": "/tmp/ts-source-classification-160-180-ax99gyj0/classification.json",
+      "sha256": "3ccae077441f5b737767485f35b2d5cb0a364b5509ccb51c365976f036c10cfd",
+      "sums_sha256": "edd386691cbbd6f15df9d634103ee2f89ab76feea310a9cfea06aeecaa2282c9",
+      "counts": {
+        "integration": 3,
+        "unit": 7,
+        "mixed": 2,
+        "unresolved": 8
+      },
+      "peer": "/tmp/ts-source-classification-peer-160-180-uarr9k8c/review.json",
+      "peer_sha256": "2436a4d57f0881aa5f9d24c4b1e366348d5090ffed963b90da89408e5624767f",
+      "peer_sums_sha256": "be8390d947d0454a9f6b087cbbfa0fa0575578a2584bea97373e9cfc3e427a49"
+    },
+    {
+      "range": [
+        180,
+        200
+      ],
+      "packet": "/tmp/ts-classification-180-200-corrected-hmt2tdp1/classification.json",
+      "sha256": "820c4182e878b9a3ef7977baef4434aa1988d6497e4f20152f526b7fa16f6839",
+      "sums_sha256": "d113c40f4c8233de0b73e80da92357c29b6383c35943fbe7a39fef1baaef75ab",
+      "counts": {
+        "integration": 6,
+        "unit": 8,
+        "mixed": 6,
+        "unresolved": 0
+      },
+      "peer": "/tmp/ts-peer-180-200-accepted-h5w70c30/peer-review.json",
+      "peer_sha256": "d29d118b52e44f24fb501b96681d1689c50b1b30afee6f57f61259b9aafd27ca",
+      "peer_sums_sha256": "e244aaae07d5579630795d539f80c20b64d084b01bb1cee2c7b8d598f48cc37a"
+    },
+    {
+      "range": [
+        200,
+        220
+      ],
+      "packet": "/tmp/ts-source-classification-200-220-peer-final-cztag34v/classification.json",
+      "sha256": "da68319e34ab2c5f9edda5a22893dd7c10ad0b66d30d0a326bb2cfa590bd936a",
+      "sums_sha256": "7ee741ee2065bf82bbe23c3d6c8ed05f55b03a8b5092e23c994b554f0839dcf0",
+      "counts": {
+        "integration": 3,
+        "unit": 10,
+        "mixed": 7,
+        "unresolved": 0
+      },
+      "peer": "/tmp/ts-peer-200-220-accepted-a4znbrz3/peer-review.json",
+      "peer_sha256": "4af3a7249166af0bc8c7883e595b002e942e17059d51b1f310af038929bbcd7f",
+      "peer_sums_sha256": "59e555ad68afc6fc898fd9e4a48553366dc6ce08fa2fab9a290300547dd1be24"
+    },
+    {
+      "range": [
+        220,
+        240
+      ],
+      "packet": "/tmp/ts-source-classification-220-240-peer-corrected-u1rtfh4y/classification.json",
+      "sha256": "3d6e828e88e55199f0605dde0d73a3603baf47bab23fc2c962c4b7a37a7c4810",
+      "sums_sha256": "c5976b7872d52b458cc0e8838d3226bce823d6a76f8cc9f91c554cc33b39ede3",
+      "counts": {
+        "integration": 2,
+        "unit": 14,
+        "mixed": 3,
+        "unresolved": 1
+      },
+      "peer": "/tmp/ts-source-peer-220-240-by-200-220-us7242y1/peer-review.json",
+      "peer_sha256": "8eb75ccfc304e3ec0272a72c92857f0a5ef7b5663b0a7f9cee4e7ba107669b38",
+      "peer_sums_sha256": "df932a224205bc90608701378ec881686f5cc6d41a3e651720e55fe29f6c8c29"
+    },
+    {
+      "range": [
+        240,
+        260
+      ],
+      "packet": "/tmp/ts-source-classification-240-260-corrected-rb5ihiyy/classification.json",
+      "sha256": "ca4ba80fa622b269f7758f57dd6b363e00ff13b3d3fdc276d9e730e49afda1a9",
+      "sums_sha256": "3fbb735b5e7362f4ce04cb3a01b04719ceabb389fb81c35015a1c2acd5b2c1f8",
+      "counts": {
+        "integration": 6,
+        "unit": 8,
+        "mixed": 6,
+        "unresolved": 0
+      },
+      "peer": "/tmp/ts-source-peer-240-260-by-220-240-mf6yfrvr/peer-review.json",
+      "peer_sha256": "46867428a4b12e21a4801e3164bcfa78591c9e543b4872924ba40919a4e8cd50",
+      "peer_sums_sha256": "de0f6e92a7a6b111710074651977026f5b3ecb3cea0cfb6d1ff2733f12a5f3f8"
+    },
+    {
+      "range": [
+        260,
+        280
+      ],
+      "packet": "/tmp/ts-source-classification-260-280-startup-corrected-56103oz7/classification.json",
+      "sha256": "a213725e9a899e4bcb7cb3281c9a42d188ec6e4477d29e80dc1b3969730e71b5",
+      "sums_sha256": "9bc51932f55c4de088fcc5c18aacd4f0dedf3a2b70c8800331702b50d039b07a",
+      "counts": {
+        "integration": 5,
+        "unit": 11,
+        "mixed": 4,
+        "unresolved": 0
+      },
+      "peer_status": "accepted_final_startup_correction",
+      "peer": "/tmp/ts-source-peer-260-280-corrected-by-240-we6b_e2_/review.json",
+      "peer_sha256": "bcd38257366328fbfe112408ab6d32efcea75bbae3b8f4d074229666cce5efee",
+      "peer_sums_sha256": "412c51a53037ab49d063d42925f52c0a719b0ea7ff913c205bf482dfad85df56"
+    },
+    {
+      "range": [
+        280,
+        300
+      ],
+      "packet": "/tmp/ts-source-classification-280-300-transport-4am291ph/classification.json",
+      "sha256": "be887dd6c061f5f58ef227791ff016c69cf6642a697334446287f9e2e43c7d2a",
+      "sums_sha256": "74974bbaf7f1d0548b1799dccc179ba8331ae05df8ad9a8962b56f1ff887ff5d",
+      "counts": {
+        "integration": 8,
+        "unit": 10,
+        "mixed": 2,
+        "unresolved": 0
+      },
+      "peer_status": "accepted_final_direct_tcp_clarification",
+      "peer": "/tmp/ts-source-peer-260-280-reviews-280-300-transport-utvdm93_/review.json",
+      "peer_sha256": "c1b3d237e88741b89ef59088b8dfc0572fc7b1318bd670b8117c95cfe7289fd1",
+      "peer_sums_sha256": "1fa6d3aec7f74032e2d0d14b58c5ec23176d4c904c745e416bcb493d8a4bc96d"
+    }
+  ],
+  "counts": {
+    "integration": 52,
+    "unit": 103,
+    "mixed": 36,
+    "unresolved": 9
+  },
+  "reviewed_roots": 200,
+  "accepted_source_classifications": 191,
+  "reviewed_unresolved": 9,
+  "qualification": {
+    "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+    "retirement_authorized": false,
+    "safety_obligations_retained": true,
+    "ledger_mutation_by_this_work": false,
+    "count_promotion": false,
+    "deletion_credit": false,
+    "completion_promotion": false,
+    "canonical_scope_only": true,
+    "prior_retired19_excluded": true
+  },
+  "limits": [
+    "Eight static-enrollment/identity success fixtures lack current js/runtimeIdentity inputs and remain source-unresolved; one signed-admission test depends on uncontrolled fixed production marker state and remains unresolved.",
+    "Deployment convergence root149 retains earlier real boundary source evidence; contradicted receipt223–228 and later229–297 assertion blocks remain explicitly unresolved/uncredited.",
+    "Identity rekey negative schema case assigns the already accepted version2; static source discrepancy remains explicit with no execution outcome.",
+    "Embedded fixture transports are pinned per actual path: natscell fixtures can use InProcessServer; direct server/NewServer+ClientURL fixtures use loopbackTCP. No external networking/provider/runtime qualification follows.",
+    "Original obligation identities/hashes and actual canonical current body drifts remain retained; no successor source fixes or unrelated runtime receipts transfer."
+  ],
+  "results": {
+    "path": "/tmp/ts-root200-expansion-dispatch-kseJiOvj/classification-results.json",
+    "sha256": "5b51edc8df16ce45eaaa06b2e7eb8c75e3788019ee967159fed75acfb79bfa1f"
+  },
+  "combined_verification": {
+    "path": "/tmp/ts-root200-expansion-dispatch-kseJiOvj/combined-verification.json",
+    "sha256": "261abcd92da405196e0375e4a92b028706f5ba39879c6e09cc8e52510da38a9f"
+  },
+  "source_preservation_proof": {
+    "path": "/tmp/ts-root200-expansion-dispatch-kseJiOvj/source-preservation-proof.json",
+    "sha256": "948fb32e6ebf5eb41f0ced1c515c7a243ab6f7c663d4ece5a89fc2e464b37c43"
+  },
+  "input_hash_list": {
+    "path": "/tmp/ts-root200-expansion-dispatch-kseJiOvj/INPUT_SHA256SUMS",
+    "sha256": "263b07a18753d4ed990e8475d88873bd632d325f2245ed56a211fb281956c7f1"
+  },
+  "input_verification": {
+    "path": "/tmp/ts-root200-expansion-dispatch-kseJiOvj/input-verification.txt",
+    "sha256": "04df8bce2eea7cdf6372c938f506a287e948795c33c46a3fa4a694e8d1eea28d"
+  }
+}

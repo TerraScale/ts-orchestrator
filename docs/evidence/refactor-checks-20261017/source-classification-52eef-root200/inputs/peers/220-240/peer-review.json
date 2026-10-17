@@ -1,0 +1,196 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_200_220",
+  "author": "/root/classification_100_dispatch/batch_220_240",
+  "decision": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+  "range": "other_unadjudicated[220:240)",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "packet": {
+    "path": "/tmp/ts-source-classification-220-240-peer-corrected-u1rtfh4y/classification.json",
+    "sha256": "3d6e828e88e55199f0605dde0d73a3603baf47bab23fc2c962c4b7a37a7c4810",
+    "checksum_file": "/tmp/ts-source-classification-220-240-peer-corrected-u1rtfh4y/SHA256SUMS",
+    "checksum_sha256": "c5976b7872d52b458cc0e8838d3226bce823d6a76f8cc9f91c554cc33b39ede3"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root200-expansion-dispatch-kseJiOvj/allocation-and-exclusions.json",
+    "sha256": "7e7a69a7a625013deab54117e1a32875f5756e4f1ea67008815614bd0cec3e6f",
+    "range": [
+      220,
+      240
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_200_220"
+  },
+  "counts": {
+    "unit": 14,
+    "integration": 2,
+    "unresolved": 1,
+    "mixed": 3
+  },
+  "checks": {
+    "exact_allocation_and_order": true,
+    "whole_20_baseline_current_declarations_independently_read": true,
+    "survival_original_identity_names_hashes_checked": true,
+    "all_42_file_pins_git_blob_mode_sha256_bytes_verified": true,
+    "all_70_connected_spans_exact_canonical_bytes_verified": true,
+    "all_27_assertion_spans_exact_canonical_bytes_verified": true,
+    "raw_declaration_bounds_hashes_text_checked": true,
+    "all_categories_independently_adjudicated": true,
+    "checksums_and_0444_files_0555_directory_verified": true
+  },
+  "root_decisions": [
+    {
+      "root_id": "internal/app/insight_providers_test.go::TestNilSliceProvidersStaySilent",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Nil autoscaler and volume provider methods return locally before any dependency work."
+    },
+    {
+      "root_id": "internal/app/insight_providers_test.go::TestVolumeAttachAgeUsesTheRequestTime",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "volumeListStore supplies in-memory records; request age equality is local."
+    },
+    {
+      "root_id": "internal/app/insight_providers_test.go::TestVolumeAttachmentRequiresPlacementEvidence",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Synthetic MemberState input table only checks attachment-state mapping."
+    },
+    {
+      "root_id": "internal/app/insight_providers_test.go::TestVolumeAttachmentStateFeedsTheStuckAttachRule",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "State enum/string/vocabulary assertions are isolated mapping predicates."
+    },
+    {
+      "root_id": "internal/app/insight_providers_test.go::TestVolumeAttachmentTimingReachesTheStuckRule",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Synthetic volume rows and fixed Now feed a local insight rule and time equality checks."
+    },
+    {
+      "root_id": "internal/app/journal_lifetime_test.go::TestClosingTheRuntimeStopsItsJournal",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Default recorder pointer restoration is the asserted state. Optional observability listener is incidental."
+    },
+    {
+      "root_id": "internal/app/machines_api_test.go::TestControllerServesMachinesAPI",
+      "category": "integration",
+      "accepted": true,
+      "independent_observation": "Actual HTTP anonymous/authenticated GET traverses Machines API, fixture JWKS HTTP and the JetStream app-list watch."
+    },
+    {
+      "root_id": "internal/app/machines_api_test.go::TestMachinesAPIFollowsTheCellSpec",
+      "category": "integration",
+      "accepted": true,
+      "independent_observation": "Actual HTTP health connection observations follow production server start/cancel as the injected current spec changes."
+    },
+    {
+      "root_id": "internal/app/managed_config_test.go::TestManagedControllerConfigRejectsGenericMemberRole",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Constructor validates local configuration and fake fleet.Region; embedded interface structs are never exercised as a running service."
+    },
+    {
+      "root_id": "internal/app/managed_config_test.go::TestManagedControllerConfigRequiresSignedAdmission",
+      "category": "unresolved",
+      "accepted": true,
+      "independent_observation": "Fixed production MarkerStore is uncontrolled; broad non-nil error assertion does not establish controlled sidecar/admission rejection. Unresolved retained."
+    },
+    {
+      "root_id": "internal/app/managed_config_test.go::TestManagedPlacementRejectsRetiredSwitches",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Raw JSON retired-switch rejection is a local strict decode predicate."
+    },
+    {
+      "root_id": "internal/app/managed_config_test.go::TestPlacementFileRejectsRemovedControls",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Removed placement controls are raw JSON decode cases; no actual file boundary."
+    },
+    {
+      "root_id": "internal/app/managed_enrollment_test.go::TestManagedRegistrationRejectsAuthorityChangesDuringOCIObservation",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Fake OCI Observe callback changes fake authority/member entries, and verifier local reread detects it."
+    },
+    {
+      "root_id": "internal/app/managed_enrollment_test.go::TestManagedRegistrationRetainsDrainReconciliationStages",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Allowed/rejected stages are direct enum predicate cases."
+    },
+    {
+      "root_id": "internal/app/managed_enrollment_test.go::TestManagedRegistrationVerifierDoesNotFallbackFromExactReaders",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Fake exact readers and call counters establish no fallback; no store or fleet protocol executes."
+    },
+    {
+      "root_id": "internal/app/managed_enrollment_test.go::TestManagedRegistrationVerifierRejectsStaleAndMismatchedPins",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Synthetic registration/pin/provider-error table uses fake readers/fleet only."
+    },
+    {
+      "root_id": "internal/app/managed_enrollment_test.go::TestManagedRegistrationVerifierUsesExactCurrentPins",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Exact current pin acceptance/call arguments come from synthetic local readers and fleet."
+    },
+    {
+      "root_id": "internal/app/managed_image_integration_test.go::TestManagedImageObservedArchitectureIntegration",
+      "category": "mixed",
+      "accepted": true,
+      "independent_observation": "Real signed OCI SDK HTTP shape/image/compatibility path is material; missing placement scope is an independent pre-I/O guard."
+    },
+    {
+      "root_id": "internal/app/managed_image_integration_test.go::TestManagedImageReleaseScopeIntegration",
+      "category": "mixed",
+      "accepted": true,
+      "independent_observation": "Independent constructor callback assertion is local. Provider outage/recovery crosses real SDK HTTP and retained JetStream generation/status reads."
+    },
+    {
+      "root_id": "internal/app/managed_image_integration_test.go::TestManagedImageSignedSnapshotLaunchIntegration",
+      "category": "mixed",
+      "accepted": true,
+      "independent_observation": "Initial/snapshot qualification crosses SDK HTTP. HostImages snapshot memory/count and version/absent-image guards are separate unit obligations; no actual OCI launch."
+    }
+  ],
+  "peer_findings": [
+    {
+      "finding": "Missing citation/pin for identityRekeyConfigFixture used by signed snapshot root.",
+      "resolution": "Corrected packet adds full canonical fixture31:120 plus incidental-key-file explanation. Verified exact bytes and source pins; closed."
+    },
+    {
+      "finding": "Embedded broker trace stopped at fixture delegate without actual production server/client source citation.",
+      "resolution": "Corrected packet adds natscell.Start349:351 and start363:507. Server.NewServer/Start, InProcessServer nats client and jetstream.New now explicit; verified exact bytes. Closed."
+    }
+  ],
+  "unresolved_blockers": [
+    {
+      "root_id": "internal/app/managed_config_test.go::TestManagedControllerConfigRequiresSignedAdmission",
+      "detail": "Uncontrolled /var/lib/terrascale-orchestrator-bootstrap accepted-install marker and later shared proof state determine broad error. No host-path probe performed; root remains unresolved."
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "count_promotion_authorized": false,
+    "global_completion": false
+  },
+  "qualification_limits": [
+    "Source category acceptance only; no Go/build/test/helper or runtime execution, process/resource probing, cloud/signing/crypto/TerraBase execution, downloads or mutation.",
+    "Embedded single-node in-process NATS protocol/store and local HTTP OCI/JWKS/Machines API fixtures qualify only cited source boundaries. No live OCI, production identity/clock, R3 HA, service deployment or actual launch qualification.",
+    "Synthetic proof/signing fixtures retain their exact limits; preserved safety/negative/local assertion obligations require owning-boundary migration before any retirement."
+  ]
+}

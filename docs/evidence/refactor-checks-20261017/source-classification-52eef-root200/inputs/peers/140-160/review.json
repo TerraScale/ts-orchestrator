@@ -1,0 +1,1103 @@
+{
+  "schema": "root200-independent-source-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_60_80",
+  "decision": "ACCEPT_FROZEN_SOURCE_CLASSIFICATION_WITH_EXPLICIT_SOURCE_BLOCKED_ASSERTION_LIMITS",
+  "reviewed_packet": {
+    "path": "/tmp/ts-source-classification-140-160-corrected-xv_gw7yt/classification.json",
+    "sha256": "9ef9f63d55e04452f5d891a7541f9344b4987f47287f5d8cb6984cafb58f4ffb",
+    "checksum_manifest_path": "/tmp/ts-source-classification-140-160-corrected-xv_gw7yt/SHA256SUMS",
+    "checksum_manifest_sha256": "7f199cee6142e783d619b3319bb8b4c4523f04746e4dfdcac1ea6b4b14f12c66"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root200-expansion-dispatch-kseJiOvj/allocation-and-exclusions.json",
+    "sha256": "7e7a69a7a625013deab54117e1a32875f5756e4f1ea67008815614bd0cec3e6f",
+    "range": [
+      140,
+      160
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_60_80"
+  },
+  "input_pins": [
+    {
+      "path": "/tmp/ts-root200-expansion-dispatch-kseJiOvj/allocation-and-exclusions.json",
+      "sha256": "7e7a69a7a625013deab54117e1a32875f5756e4f1ea67008815614bd0cec3e6f"
+    },
+    {
+      "path": "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md",
+      "sha256": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70"
+    },
+    {
+      "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+      "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+    },
+    {
+      "path": "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json",
+      "sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513"
+    }
+  ],
+  "literal_root_ids": [
+    "internal/app/controller_quota_test.go::TestControllerRejectsInvalidStoreQuotaBeforeStartup",
+    "internal/app/credential_expiry_test.go::TestControllerCredentialFilesListOnlyPublicMaterial",
+    "internal/app/dashboard_listener_test.go::TestDashboardLoopFollowsTheSpec",
+    "internal/app/dashboard_listener_test.go::TestDashboardStorageFailureHasSafeCleanup",
+    "internal/app/dashboard_listener_test.go::TestNetBirdDashboardServesAuthenticatedResourceAPIs",
+    "internal/app/dashboard_rollout_history_test.go::TestDashboardRolloutHistoryRetainsTerminalRecords",
+    "internal/app/dashboard_rollout_history_test.go::TestDashboardRolloutStoreFailuresStayUnavailable",
+    "internal/app/decision_journal_test.go::TestHoldJournalDeduplicatesReasons",
+    "internal/app/decision_journal_test.go::TestWatchControlPlaneJournalsLeadershipAndHealth",
+    "internal/app/deployment_convergence_measurement_test.go::TestDeploymentConvergenceMeasurement",
+    "internal/app/edge_test.go::TestEdgeAddsAMissingReplicaOutOfRotation",
+    "internal/app/edge_test.go::TestEdgeLeavesAServingSetAlone",
+    "internal/app/edge_test.go::TestEdgeRemovesUnallocatedAndReportsAmbiguous",
+    "internal/app/edge_test.go::TestEdgeTakesANonServingReplicaOutAndBack",
+    "internal/app/edge_test.go::TestEdgeUndoesHandEdits",
+    "internal/app/function_controller_integration_test.go::TestFunctionControllerIngestsSignedChannelIntoDurableIntent",
+    "internal/app/function_pending_integration_test.go::TestFunctionDemandRequiresWorkerQualifiedThroughFunctionExpiry",
+    "internal/app/function_retirement_integration_test.go::TestFunctionMaterialRetirementRequiresAuthoritativeUnusedTask",
+    "internal/app/global_controller_test.go::TestGlobalAndInterRegionRejectRemovedEnabledFields",
+    "internal/app/global_controller_test.go::TestGlobalControlAlwaysStartsWithHomeDeployment"
+  ],
+  "counts": {
+    "integration": 8,
+    "unit": 8,
+    "mixed": 4,
+    "unresolved": 0,
+    "total": 20
+  },
+  "verification": {
+    "method": "Independent manual entire-root and connected actual fixture/production-boundary review; Git byte/hash/mode checks on explicit report spans. No source parser/scanner or helper execution.",
+    "literal_allocated_root_and_original_mapping_checks": 20,
+    "baseline_current_raw_declaration_sha256_checks": 40,
+    "pinned_file_git_blob_mode_sha256_bytes_checks": 56,
+    "original_quoted_span_checks": 90,
+    "final_quoted_span_checks": 98,
+    "input_pin_checks": 4,
+    "all_current_baseline_and_quote_blob_fields_verified": true,
+    "frozen_packet_modes_and_checksums_verified": true,
+    "final_successor_delta": "Other19 roots, all declaration/source pins, categories and quoted connected-source bytes unchanged. Root149 reason/assertion-scope plus convergence trace/limits/annotations/finding/qualification and successor provenance changed. Former51-297 quote split into9 contiguous exact-text spans without dropping bytes.",
+    "source_pins": {
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/controller_quota_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/controller_quota_test.go",
+        "mode": "100644",
+        "git_blob": "017117ca99cd094ecac48067761ab09d1f6479d1",
+        "sha256": "fa822dfc97951be5030d241c2744f318adbe249bf0a427cabbef8ea3bfc45184",
+        "bytes": 2772
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/controller_quota_test.go": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/app/controller_quota_test.go",
+        "mode": "100644",
+        "git_blob": "017117ca99cd094ecac48067761ab09d1f6479d1",
+        "sha256": "fa822dfc97951be5030d241c2744f318adbe249bf0a427cabbef8ea3bfc45184",
+        "bytes": 2772
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/credential_expiry_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/credential_expiry_test.go",
+        "mode": "100644",
+        "git_blob": "e2d846fa7eb5b96256aa2b23372a9f1717aed9af",
+        "sha256": "d356ded3077eb7293c4947260e6ab310e7662f954182ee56c0f6467f9ab6f6b6",
+        "bytes": 2236
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/credential_expiry_test.go": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/app/credential_expiry_test.go",
+        "mode": "100644",
+        "git_blob": "e2d846fa7eb5b96256aa2b23372a9f1717aed9af",
+        "sha256": "d356ded3077eb7293c4947260e6ab310e7662f954182ee56c0f6467f9ab6f6b6",
+        "bytes": 2236
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/dashboard_listener_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/dashboard_listener_test.go",
+        "mode": "100644",
+        "git_blob": "dc98ddde7180283e885758206a235750d0b20a43",
+        "sha256": "1e2bb68a2baa0077a4118e0127d7123f7a0157c5e6b826a48f2828c3f2cc3119",
+        "bytes": 10545
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/dashboard_listener_test.go": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/app/dashboard_listener_test.go",
+        "mode": "100644",
+        "git_blob": "dc98ddde7180283e885758206a235750d0b20a43",
+        "sha256": "1e2bb68a2baa0077a4118e0127d7123f7a0157c5e6b826a48f2828c3f2cc3119",
+        "bytes": 10545
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/dashboard_rollout_history_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/dashboard_rollout_history_test.go",
+        "mode": "100644",
+        "git_blob": "ab8009d442bc1c551ce0028587784972358dc455",
+        "sha256": "6020fc07677f6d17103e936910e29e3837986ce19ade4e6e544e18f6a8f8f821",
+        "bytes": 16483
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/dashboard_rollout_history_test.go": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/app/dashboard_rollout_history_test.go",
+        "mode": "100644",
+        "git_blob": "ab8009d442bc1c551ce0028587784972358dc455",
+        "sha256": "6020fc07677f6d17103e936910e29e3837986ce19ade4e6e544e18f6a8f8f821",
+        "bytes": 16483
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/decision_journal_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/decision_journal_test.go",
+        "mode": "100644",
+        "git_blob": "2a26518c3ed35d4e68949cc5286d02f102c98936",
+        "sha256": "ac90623afb617b9068f1fe56d78f3a9c0d2d5660e209c4f945ea2370fdeeedae",
+        "bytes": 4612
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/decision_journal_test.go": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/app/decision_journal_test.go",
+        "mode": "100644",
+        "git_blob": "2a26518c3ed35d4e68949cc5286d02f102c98936",
+        "sha256": "ac90623afb617b9068f1fe56d78f3a9c0d2d5660e209c4f945ea2370fdeeedae",
+        "bytes": 4612
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/deployment_convergence_measurement_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/deployment_convergence_measurement_test.go",
+        "mode": "100644",
+        "git_blob": "deb5739297cf07a809f7d99e406e62d35f3fc98a",
+        "sha256": "461a51ddb7f4dccad9217042478a331c411a66c389542df46d94e2a619572a17",
+        "bytes": 27998
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/deployment_convergence_measurement_test.go": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/app/deployment_convergence_measurement_test.go",
+        "mode": "100644",
+        "git_blob": "deb5739297cf07a809f7d99e406e62d35f3fc98a",
+        "sha256": "461a51ddb7f4dccad9217042478a331c411a66c389542df46d94e2a619572a17",
+        "bytes": 27998
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/edge_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/edge_test.go",
+        "mode": "100644",
+        "git_blob": "17d34794bae69b5a563da19046e9c0a04fb3ab68",
+        "sha256": "c7c4e56b8e1497f26d131ad8f7a939e0e2305291b3c6ff7318c7759913c5a384",
+        "bytes": 6213
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/edge_test.go": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/app/edge_test.go",
+        "mode": "100644",
+        "git_blob": "17d34794bae69b5a563da19046e9c0a04fb3ab68",
+        "sha256": "c7c4e56b8e1497f26d131ad8f7a939e0e2305291b3c6ff7318c7759913c5a384",
+        "bytes": 6213
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/function_controller_integration_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/function_controller_integration_test.go",
+        "mode": "100644",
+        "git_blob": "f21e5ea93f8084194361b237bc7218792ada6ecb",
+        "sha256": "47ba1fcf4acd38747692a724f617dcc0eed4d4d2450f1c7e9431e75e6f95ab49",
+        "bytes": 18251
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/function_controller_integration_test.go": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/app/function_controller_integration_test.go",
+        "mode": "100644",
+        "git_blob": "6f3a98d27c0e79fde7dc32ee9f921cf0cb7cfbd2",
+        "sha256": "0c7253cc7bd5248a722d90f3462e46cc394177e9a80f0910cbce88d82754481d",
+        "bytes": 18201
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/function_pending_integration_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/function_pending_integration_test.go",
+        "mode": "100644",
+        "git_blob": "9d5a359b77b6b1050437487db58fe116d7c0fffc",
+        "sha256": "6d33db5b1fe983bcbb94ed93563294e858b24ff487f4df73412f521aa7782169",
+        "bytes": 5332
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/function_pending_integration_test.go": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/app/function_pending_integration_test.go",
+        "mode": "100644",
+        "git_blob": "455d2e6d627fdffef2549047424843755073fb91",
+        "sha256": "855eac4abe1cf80c3b76478010ce0f4724cd82c8d13a143651c938abdf293617",
+        "bytes": 5282
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/function_retirement_integration_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/function_retirement_integration_test.go",
+        "mode": "100644",
+        "git_blob": "28416812d1e0a38aa226ab627305b50c8b2eb15c",
+        "sha256": "2074d362fde2f69c727663a988589e8706737510a9da12dcf10b843d059c2663",
+        "bytes": 3618
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/function_retirement_integration_test.go": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/app/function_retirement_integration_test.go",
+        "mode": "100644",
+        "git_blob": "28416812d1e0a38aa226ab627305b50c8b2eb15c",
+        "sha256": "2074d362fde2f69c727663a988589e8706737510a9da12dcf10b843d059c2663",
+        "bytes": 3618
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/global_controller_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/global_controller_test.go",
+        "mode": "100644",
+        "git_blob": "26e2cb71411b714a0e2e035c6a219c7a8fc00935",
+        "sha256": "6ff78652ecf7d86710ccf175ae8040e856efbed6e9b10e5b7e380d897f15366e",
+        "bytes": 3914
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/global_controller_test.go": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "path": "internal/app/global_controller_test.go",
+        "mode": "100644",
+        "git_blob": "be4d06270a83980bd773e1f4b4567ddbb39084ee",
+        "sha256": "55c37308056b1ab8c56b3460997cc78dba4a6e6c4df279dec64472d75c44302f",
+        "bytes": 3914
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/controller.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/controller.go",
+        "mode": "100644",
+        "git_blob": "cc89be1dbedb1ff4bce154c1380565b36d02eaa0",
+        "sha256": "cba704cb334d583661cff14bd366d1e7a614473ea7b031de1cb04ea5ddf7f48f",
+        "bytes": 62331
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/controller_cluster_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/controller_cluster_test.go",
+        "mode": "100644",
+        "git_blob": "a1acfa20d094c16766c2aabe9d99edcc4fd3627a",
+        "sha256": "e6f4ff83d5809745d8b90cc8c34f72769138f68a28bfd3bec57157dfc87ebbee",
+        "bytes": 20610
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/observability.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/observability.go",
+        "mode": "100644",
+        "git_blob": "1a15b828bf5a951f683d1139affa9453f4c91e30",
+        "sha256": "a440ff3df4e13e05fb38c46e0cec6f376952d745bc53e029d5ac828a32d41853",
+        "bytes": 19994
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/credential_expiry.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/credential_expiry.go",
+        "mode": "100644",
+        "git_blob": "80329b4a64c6a98b6f77f76891d3f59899f8ffce",
+        "sha256": "dc55487c08c9517f80a6e1941eaac31bc3f778dbee4824a315993264a1ebdc84",
+        "bytes": 2623
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/authenticated_nats_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/authenticated_nats_test.go",
+        "mode": "100644",
+        "git_blob": "5ccb7b89b0abeb8373c3e29ea0ef5da5b2ff5ca4",
+        "sha256": "46255a91d171884a762f1508c7af007e83e75d477c7a83aac63c848ea1dc53f7",
+        "bytes": 8431
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/dashboard_listener.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/dashboard_listener.go",
+        "mode": "100644",
+        "git_blob": "a6a643a2294297dc02abbf7cd9b6b9330789a4c4",
+        "sha256": "e596f32c78baf3bcebb70610488ec888263f987d95b2d1910a94e45a42b27928",
+        "bytes": 8214
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/observability/session.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/observability/session.go",
+        "mode": "100644",
+        "git_blob": "6f03733b896f0cacc2335fa972bd3581834eacad",
+        "sha256": "264fa7585e76ee7cf10f0bc7c6fb45d4c00e518db1bdb583e2f064d1f35b08da",
+        "bytes": 26923
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/observability/server.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/observability/server.go",
+        "mode": "100644",
+        "git_blob": "55e45ce5ba67237efba469d05c573e2003bd93c0",
+        "sha256": "b36922aa3ed76972e2f03bc2f23d5c56fa29fa44090525f202519cb842a9b019",
+        "bytes": 13628
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/rollout/store.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/rollout/store.go",
+        "mode": "100644",
+        "git_blob": "aec45c1b50d5f4c3a66effbf62b46bd01b9a991d",
+        "sha256": "1368cff72007370e88b9f7e759db3911eca0ea19ec137eb0e561eb1405a16296",
+        "bytes": 22323
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/dashboard_rollouts.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/dashboard_rollouts.go",
+        "mode": "100644",
+        "git_blob": "71b0e3e4fdf4fdf01cabdb850ef4ddba9b2b866e",
+        "sha256": "d26b4486a4b8b782af175dbb5d8e8414e83c1c14e55b75066abc4bf5f6ec5b53",
+        "bytes": 1140
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/decision_journal.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/decision_journal.go",
+        "mode": "100644",
+        "git_blob": "1f049b1aaf2af8274e4d77fe03cbbad20cf9befc",
+        "sha256": "e6b05e949ebf35c1ec6c30d60eeed67ae806814b234f3b5c7b884a99c7ed4202",
+        "bytes": 19620
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/decisionlog/journal.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/decisionlog/journal.go",
+        "mode": "100644",
+        "git_blob": "5aeab3061f5b1cdb410e27ec280456cdec6b821d",
+        "sha256": "33d768befbd29c136ae2863a0dd01975c2448672fb8299c66246dde646014b00",
+        "bytes": 19491
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/operator.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/operator.go",
+        "mode": "100644",
+        "git_blob": "e3253f30ad40527583c1d7bd29839292f7e7c6b9",
+        "sha256": "86ba1665d81a49de49853d387f0b58524fa561a40e0cf2c756bed689fe997b32",
+        "bytes": 31732
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/host/agent.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/host/agent.go",
+        "mode": "100644",
+        "git_blob": "44dadbe320a52827f21f81efb2be637c316ebd9e",
+        "sha256": "73e0725c5e9f061dd5aca95c0cdd9650269f4e440ac3d1c60df3c9a997254edf",
+        "bytes": 42059
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/node_ops_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/node_ops_test.go",
+        "mode": "100644",
+        "git_blob": "47607ee246716a69bca6eb487fe85ba948ef15c9",
+        "sha256": "fa48c2c1183ac2aa372bdc5b3d6248d92605828fc8dbc7298985e7ccedce5c02",
+        "bytes": 30778
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/release_fence_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/release_fence_test.go",
+        "mode": "100644",
+        "git_blob": "9f700b02fd71dac8d44a4fb7aef25d1b685e3161",
+        "sha256": "449a98dea46425233de8ff8faa3edad45027c6f22923604eeaf40c1dacbeea87",
+        "bytes": 37374
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/edge.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/edge.go",
+        "mode": "100644",
+        "git_blob": "68537d645d0c3c700d0671f107da89254d3a8c41",
+        "sha256": "467bc1c3429c139e40dcc9a3b0f5ee5acdd2663a7388974016d55d92b2818eaf",
+        "bytes": 15880
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/release_fence.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/release_fence.go",
+        "mode": "100644",
+        "git_blob": "0ca7bb5d8aa1b88f10a748b5af39d14ef8f6ac38",
+        "sha256": "c850e167554ff9c3443fc5dba60d56b70449c08f9ac12adf4ab84ed0560de400",
+        "bytes": 32074
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/rollout_control_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/rollout_control_test.go",
+        "mode": "100644",
+        "git_blob": "0a0997e916f1c2e2a7d257ebb7092dcf44dea8cf",
+        "sha256": "de2067665b876e94c3fc70d94515bfbc679a488652c6211eb7165fe3b0c1382b",
+        "bytes": 14194
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/rollout_channel_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/rollout_channel_test.go",
+        "mode": "100644",
+        "git_blob": "146622c023c004109e4a092c61a858c0ca6fa32d",
+        "sha256": "42c7ba65fdb24e0b8d2a4498a758dd43b4b4a753a1211af1fd6a27765c9ea3a6",
+        "bytes": 32306
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/function_roots_current_integration_test.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/function_roots_current_integration_test.go",
+        "mode": "100644",
+        "git_blob": "3bf5fb227c8db3518ccc938b7860a249ee165fce",
+        "sha256": "969800bc85946855097f321978e2db0b54495857a08ccea6bb069023ea76fcb3",
+        "bytes": 3103
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/function_controller.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/function_controller.go",
+        "mode": "100644",
+        "git_blob": "3d1649e18bf2f312478aab5643d1aa759c08ebda",
+        "sha256": "5e2d37bf59265cc8847adbe332176e6be0b2568b3f9accb7867b1f89f31c09f1",
+        "bytes": 21091
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/function_pending.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/function_pending.go",
+        "mode": "100644",
+        "git_blob": "bb9beb1dc0a6b722c23433f17a4486d3a7b3f2c1",
+        "sha256": "fd368c61c34ee64d031ca98281b57c3760310f25352a60ddd7d3257d95e510a1",
+        "bytes": 3572
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/container_allocation.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/container_allocation.go",
+        "mode": "100644",
+        "git_blob": "0efc70f06bd785d4a8233a7ad1c9b85915effaf4",
+        "sha256": "d00222d58e99b9396a3c1207fc6122bf2cdd90fc4bf0139c5de20b561cfcba93",
+        "bytes": 2224
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/release/container.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/release/container.go",
+        "mode": "100644",
+        "git_blob": "bd4d993e382e31db542144ed848b11560b8ac881",
+        "sha256": "b9abf1a5b2ef8230979a21124da12c2a4829c2be9faaf46dd3ad75cfbf63fff3",
+        "bytes": 14021
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/release/container_family.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/release/container_family.go",
+        "mode": "100644",
+        "git_blob": "4505121b35f771abb2c07f04df70cc52013df214",
+        "sha256": "8287b0349ca8bed9ddaddbe639102be72b28c7fd39ce67ee4b8d60e811431efe",
+        "bytes": 4230
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/authority/function.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/authority/function.go",
+        "mode": "100644",
+        "git_blob": "48d8b0f378d5167d48fa4a80e668e508098a725f",
+        "sha256": "8ca55de8330b7d458af5eb20dac175e351693c65c870b5ab3caf60a0e6dfa398",
+        "bytes": 12798
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/authority/log.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/authority/log.go",
+        "mode": "100644",
+        "git_blob": "39e8073c3302fd73785bec8b3b3e8d0d61024a03",
+        "sha256": "500b03c30e554986f79a78891a88fad0c31732b37bf4f397b57a6919d66aed8f",
+        "bytes": 47408
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/swarmruntime/function_capacity.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/swarmruntime/function_capacity.go",
+        "mode": "100644",
+        "git_blob": "4ebf1e88bb998251232461deee7b7c1a879fbc56",
+        "sha256": "94cfcb81d4e58658ec72b9f7b8c30cd7408ec56a4a38ed5e40ef73bce88dbe98",
+        "bytes": 3111
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/function_retirement.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/function_retirement.go",
+        "mode": "100644",
+        "git_blob": "bbeb0dde06770f4cff0ba046071ee7687844e674",
+        "sha256": "5dcf1671120963b660c72b9513edd005bcc2e5bad23555ad5b21d551646831e3",
+        "bytes": 2122
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/authority/runtime.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/authority/runtime.go",
+        "mode": "100644",
+        "git_blob": "3ca4fa7b42e322ae9eced36f845c45ad68892296",
+        "sha256": "cecacfadaaedfe54c495c7529209b1e059a894ba98ff1831dcc55f1f1861d48c",
+        "bytes": 28474
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/config.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/config.go",
+        "mode": "100644",
+        "git_blob": "805f58dfc6100299673fd3a01649811d5e680c5c",
+        "sha256": "fb83bab8a9a1686b7fe61b45c98db44da2d491602e487c014eacc1b52814646f",
+        "bytes": 9658
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/global_controller.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/app/global_controller.go",
+        "mode": "100644",
+        "git_blob": "18b93c8cadebc8bdec5d14a19da595035cc64ab4",
+        "sha256": "cfff7ae2f1a74ebb5d30abb305c28d59fb91e9373432c8d5c1b761cc976c40f6",
+        "bytes": 4171
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/natscell/runtime.go": {
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "path": "internal/natscell/runtime.go",
+        "mode": "100644",
+        "git_blob": "b7d9b16bf34c966d722a17bea21a3ccb76cc396b",
+        "sha256": "44804d1b0692d1b47fb37f4a9e1d99bfe7235d3fb317fc7c81c9090d80dc57cf",
+        "bytes": 35509
+      }
+    }
+  },
+  "per_root": [
+    {
+      "allocation_index": 140,
+      "root_id": "internal/app/controller_quota_test.go::TestControllerRejectsInvalidStoreQuotaBeforeStartup",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: quota/headroom and missing workload validation occur before runtime startup; injected admission and observability setup are incidental.",
+      "baseline_source": {
+        "path": "internal/app/controller_quota_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "017117ca99cd094ecac48067761ab09d1f6479d1",
+        "line": 14,
+        "end_line": 41
+      },
+      "current_source": {
+        "path": "internal/app/controller_quota_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "017117ca99cd094ecac48067761ab09d1f6479d1",
+        "line": 14,
+        "end_line": 41
+      },
+      "original_declaration_sha256": "948958004994e9feb62e65483c583894c12500a78d87d7c8b310b2b9566f2064",
+      "current_declaration_sha256": "948958004994e9feb62e65483c583894c12500a78d87d7c8b310b2b9566f2064",
+      "state": "retained_body_exact",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 141,
+      "root_id": "internal/app/credential_expiry_test.go::TestControllerCredentialFilesListOnlyPublicMaterial",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: constructed config yields string paths; no credential file scan/open is called.",
+      "baseline_source": {
+        "path": "internal/app/credential_expiry_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "e2d846fa7eb5b96256aa2b23372a9f1717aed9af",
+        "line": 13,
+        "end_line": 44
+      },
+      "current_source": {
+        "path": "internal/app/credential_expiry_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "e2d846fa7eb5b96256aa2b23372a9f1717aed9af",
+        "line": 13,
+        "end_line": 44
+      },
+      "original_declaration_sha256": "9114ed6b07e4c4a698a192dd63eb6bd39f29fee65df8ee29758e7b80d49abfd9",
+      "current_declaration_sha256": "9114ed6b07e4c4a698a192dd63eb6bd39f29fee65df8ee29758e7b80d49abfd9",
+      "state": "retained_body_exact",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 142,
+      "root_id": "internal/app/dashboard_listener_test.go::TestDashboardLoopFollowsTheSpec",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "mixed",
+      "independent_assessment": "Mixed: actual HTTP listener rotation/outage and durable shared sessions; independent final local boards-map cleanup assertion.",
+      "baseline_source": {
+        "path": "internal/app/dashboard_listener_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "dc98ddde7180283e885758206a235750d0b20a43",
+        "line": 29,
+        "end_line": 180
+      },
+      "current_source": {
+        "path": "internal/app/dashboard_listener_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "dc98ddde7180283e885758206a235750d0b20a43",
+        "line": 29,
+        "end_line": 180
+      },
+      "original_declaration_sha256": "f5ecd820e1a8d4effd2068ed616776cd6d87f43497cb188d83f5b27dec616131",
+      "current_declaration_sha256": "f5ecd820e1a8d4effd2068ed616776cd6d87f43497cb188d83f5b27dec616131",
+      "state": "retained_body_exact",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 143,
+      "root_id": "internal/app/dashboard_listener_test.go::TestDashboardStorageFailureHasSafeCleanup",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: nil JetStream/zero replicas are refused before storage I/O; safe no-op cleanup is local.",
+      "baseline_source": {
+        "path": "internal/app/dashboard_listener_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "dc98ddde7180283e885758206a235750d0b20a43",
+        "line": 182,
+        "end_line": 189
+      },
+      "current_source": {
+        "path": "internal/app/dashboard_listener_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "dc98ddde7180283e885758206a235750d0b20a43",
+        "line": 182,
+        "end_line": 189
+      },
+      "original_declaration_sha256": "79b9617cf3d94a5f735f29f9bdabe125394fc87152a95b2adca1e0aaabbb8595",
+      "current_declaration_sha256": "79b9617cf3d94a5f735f29f9bdabe125394fc87152a95b2adca1e0aaabbb8595",
+      "state": "retained_body_exact",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 144,
+      "root_id": "internal/app/dashboard_listener_test.go::TestNetBirdDashboardServesAuthenticatedResourceAPIs",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: real TCP HTTP auth/resource API responses and local collector/NATS backing; authority snapshot is synthetic and no live OCI metrics operation is implied.",
+      "baseline_source": {
+        "path": "internal/app/dashboard_listener_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "dc98ddde7180283e885758206a235750d0b20a43",
+        "line": 191,
+        "end_line": 267
+      },
+      "current_source": {
+        "path": "internal/app/dashboard_listener_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "dc98ddde7180283e885758206a235750d0b20a43",
+        "line": 191,
+        "end_line": 267
+      },
+      "original_declaration_sha256": "436c57724243bc61b00625cf4b8b08bfa9cfbf6f207fbc557bb57a8cdc65ed96",
+      "current_declaration_sha256": "436c57724243bc61b00625cf4b8b08bfa9cfbf6f207fbc557bb57a8cdc65ed96",
+      "state": "retained_body_exact",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 145,
+      "root_id": "internal/app/dashboard_rollout_history_test.go::TestDashboardRolloutHistoryRetainsTerminalRecords",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "mixed",
+      "independent_assessment": "Mixed: actual rollout KV commits/reopen/render/readback and durable journal; separate tokenless in-process ServeHTTP rejection precedes rollout storage access.",
+      "baseline_source": {
+        "path": "internal/app/dashboard_rollout_history_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "ab8009d442bc1c551ce0028587784972358dc455",
+        "line": 29,
+        "end_line": 265
+      },
+      "current_source": {
+        "path": "internal/app/dashboard_rollout_history_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "ab8009d442bc1c551ce0028587784972358dc455",
+        "line": 29,
+        "end_line": 265
+      },
+      "original_declaration_sha256": "26d34f97c01f6f1bd4d1f1b3eb9e3f5076ea0e019e44d4ec814b0c73a0193d1e",
+      "current_declaration_sha256": "26d34f97c01f6f1bd4d1f1b3eb9e3f5076ea0e019e44d4ec814b0c73a0193d1e",
+      "state": "retained_body_exact",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 146,
+      "root_id": "internal/app/dashboard_rollout_history_test.go::TestDashboardRolloutStoreFailuresStayUnavailable",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "mixed",
+      "independent_assessment": "Mixed: real KV corruption/scope/reservation/failure paths and read-only revision checks; canceled exact read and invalid-ID guard are local independent negatives.",
+      "baseline_source": {
+        "path": "internal/app/dashboard_rollout_history_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "ab8009d442bc1c551ce0028587784972358dc455",
+        "line": 267,
+        "end_line": 398
+      },
+      "current_source": {
+        "path": "internal/app/dashboard_rollout_history_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "ab8009d442bc1c551ce0028587784972358dc455",
+        "line": 267,
+        "end_line": 398
+      },
+      "original_declaration_sha256": "b46baf5d1db07c433ae92b20081bd05b9a82c45971708c34a051404f8cae3214",
+      "current_declaration_sha256": "b46baf5d1db07c433ae92b20081bd05b9a82c45971708c34a051404f8cae3214",
+      "state": "retained_body_exact",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 147,
+      "root_id": "internal/app/decision_journal_test.go::TestHoldJournalDeduplicatesReasons",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: hold reasons/timestamps and journal ring are local; sink/archive unattached and no journal Run.",
+      "baseline_source": {
+        "path": "internal/app/decision_journal_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "2a26518c3ed35d4e68949cc5286d02f102c98936",
+        "line": 95,
+        "end_line": 124
+      },
+      "current_source": {
+        "path": "internal/app/decision_journal_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2a26518c3ed35d4e68949cc5286d02f102c98936",
+        "line": 95,
+        "end_line": 124
+      },
+      "original_declaration_sha256": "4d70c540481a9ed17f5e374eb8f71b202b5a87794f58b9467148b3a348129ee9",
+      "current_declaration_sha256": "4d70c540481a9ed17f5e374eb8f71b202b5a87794f58b9467148b3a348129ee9",
+      "state": "retained_body_exact",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 148,
+      "root_id": "internal/app/decision_journal_test.go::TestWatchControlPlaneJournalsLeadershipAndHealth",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: synthetic fencer/health feed watch loop and unattached memory journal; no actual lease/quorum observation.",
+      "baseline_source": {
+        "path": "internal/app/decision_journal_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "2a26518c3ed35d4e68949cc5286d02f102c98936",
+        "line": 63,
+        "end_line": 93
+      },
+      "current_source": {
+        "path": "internal/app/decision_journal_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2a26518c3ed35d4e68949cc5286d02f102c98936",
+        "line": 63,
+        "end_line": 93
+      },
+      "original_declaration_sha256": "c420dcd9919f1c0aa2181d98303aa6dd9c23166b6381a4ede8ac70f1d7403a00",
+      "current_declaration_sha256": "c420dcd9919f1c0aa2181d98303aa6dd9c23166b6381a4ede8ac70f1d7403a00",
+      "state": "retained_body_exact",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 149,
+      "root_id": "internal/app/deployment_convergence_measurement_test.go::TestDeploymentConvergenceMeasurement",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration only for pre223 signed registration/artifact admission/first deploy submission. Generated entity ID contradicts receipt223-226; all later Apply, accepted receipt, count/sample/timing/provenance assertions remain explicitly unresolved and uncredited. Simulated runner launches nothing.",
+      "baseline_source": {
+        "path": "internal/app/deployment_convergence_measurement_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "deb5739297cf07a809f7d99e406e62d35f3fc98a",
+        "line": 50,
+        "end_line": 298
+      },
+      "current_source": {
+        "path": "internal/app/deployment_convergence_measurement_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "deb5739297cf07a809f7d99e406e62d35f3fc98a",
+        "line": 50,
+        "end_line": 298
+      },
+      "original_declaration_sha256": "fb503774628f8ba76279182bed208108c9fa1395bd6eb032e7f17874a4ccb64a",
+      "current_declaration_sha256": "fb503774628f8ba76279182bed208108c9fa1395bd6eb032e7f17874a4ccb64a",
+      "state": "retained_body_exact",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 150,
+      "root_id": "internal/app/edge_test.go::TestEdgeAddsAMissingReplicaOutOfRotation",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: actual KV fence saved during add and read/restored/deleted on serving recovery; explicit absent hold readback. OCI LB is fake.",
+      "baseline_source": {
+        "path": "internal/app/edge_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "17d34794bae69b5a563da19046e9c0a04fb3ab68",
+        "line": 55,
+        "end_line": 71
+      },
+      "current_source": {
+        "path": "internal/app/edge_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "17d34794bae69b5a563da19046e9c0a04fb3ab68",
+        "line": 55,
+        "end_line": 71
+      },
+      "original_declaration_sha256": "a60c022550e67714a1becb9a9535252f98f83cf125e7ed1baab00b1bc4550444",
+      "current_declaration_sha256": "a60c022550e67714a1becb9a9535252f98f83cf125e7ed1baab00b1bc4550444",
+      "state": "retained_body_exact",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 151,
+      "root_id": "internal/app/edge_test.go::TestEdgeLeavesAServingSetAlone",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: synthetic serving statuses yield no fake LB calls/local alerts; empty KV absence reads are incidental prerequisites, with no asserted persisted workflow.",
+      "baseline_source": {
+        "path": "internal/app/edge_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "17d34794bae69b5a563da19046e9c0a04fb3ab68",
+        "line": 45,
+        "end_line": 51
+      },
+      "current_source": {
+        "path": "internal/app/edge_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "17d34794bae69b5a563da19046e9c0a04fb3ab68",
+        "line": 45,
+        "end_line": 51
+      },
+      "original_declaration_sha256": "a34db242d04f65408bc3f9398335393b2aa680cc4c21eca4e97ffbdcfd85f62c",
+      "current_declaration_sha256": "a34db242d04f65408bc3f9398335393b2aa680cc4c21eca4e97ffbdcfd85f62c",
+      "state": "retained_body_exact",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 152,
+      "root_id": "internal/app/edge_test.go::TestEdgeRemovesUnallocatedAndReportsAmbiguous",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: synthetic backend/instance/health observations drive fake removal/preservation and local alert strings; post-delete absent KV read has no asserted durable effect.",
+      "baseline_source": {
+        "path": "internal/app/edge_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "17d34794bae69b5a563da19046e9c0a04fb3ab68",
+        "line": 128,
+        "end_line": 156
+      },
+      "current_source": {
+        "path": "internal/app/edge_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "17d34794bae69b5a563da19046e9c0a04fb3ab68",
+        "line": 128,
+        "end_line": 156
+      },
+      "original_declaration_sha256": "4495e93c90a017cee0df46c2048fcb155670fde7cfbb82b0ed160d3762e8570b",
+      "current_declaration_sha256": "4495e93c90a017cee0df46c2048fcb155670fde7cfbb82b0ed160d3762e8570b",
+      "state": "retained_body_exact",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 153,
+      "root_id": "internal/app/edge_test.go::TestEdgeTakesANonServingReplicaOutAndBack",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: real fence save/read/restore/delete governs fake LB out/back observations; other-set safety follows same store-backed workflow.",
+      "baseline_source": {
+        "path": "internal/app/edge_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "17d34794bae69b5a563da19046e9c0a04fb3ab68",
+        "line": 75,
+        "end_line": 90
+      },
+      "current_source": {
+        "path": "internal/app/edge_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "17d34794bae69b5a563da19046e9c0a04fb3ab68",
+        "line": 75,
+        "end_line": 90
+      },
+      "original_declaration_sha256": "0329349b5bc0954a6829361808380ca1b11291adc49ff49edaf7375bd0652738",
+      "current_declaration_sha256": "0329349b5bc0954a6829361808380ca1b11291adc49ff49edaf7375bd0652738",
+      "state": "retained_body_exact",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 154,
+      "root_id": "internal/app/edge_test.go::TestEdgeUndoesHandEdits",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "mixed",
+      "independent_assessment": "Mixed: real node-operation/fence persistence governs drain/restore; separate backup-shape correction mutates only fake LB via local branch.",
+      "baseline_source": {
+        "path": "internal/app/edge_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "17d34794bae69b5a563da19046e9c0a04fb3ab68",
+        "line": 95,
+        "end_line": 123
+      },
+      "current_source": {
+        "path": "internal/app/edge_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "17d34794bae69b5a563da19046e9c0a04fb3ab68",
+        "line": 95,
+        "end_line": 123
+      },
+      "original_declaration_sha256": "23f2ec5d43b87f1f249c09b788c679605ebf2f6daa3d0c432897c4f6e4f357b7",
+      "current_declaration_sha256": "23f2ec5d43b87f1f249c09b788c679605ebf2f6daa3d0c432897c4f6e4f357b7",
+      "state": "retained_body_exact",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 155,
+      "root_id": "internal/app/function_controller_integration_test.go::TestFunctionControllerIngestsSignedChannelIntoDurableIntent",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: actual JetStream object/intent CAS and readback/replay/fencing; positive worker verification reaches SDK TLS/file simulator. Channel and worker proof facts synthetic; no workload/cloud qualification.",
+      "baseline_source": {
+        "path": "internal/app/function_controller_integration_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "6f3a98d27c0e79fde7dc32ee9f921cf0cb7cfbd2",
+        "line": 40,
+        "end_line": 148
+      },
+      "current_source": {
+        "path": "internal/app/function_controller_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "f21e5ea93f8084194361b237bc7218792ada6ecb",
+        "line": 40,
+        "end_line": 149
+      },
+      "original_declaration_sha256": "6c8f560de54d4f23d6356bf3af8d863df9c6658f3fdda5fd06f7003805578c77",
+      "current_declaration_sha256": "30a0cfa8b317064ffbe3962610980b4c4cb58152ae8f3d87bb6c8d4df347349e",
+      "state": "retained_body_changed_canonical_drift",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 156,
+      "root_id": "internal/app/function_pending_integration_test.go::TestFunctionDemandRequiresWorkerQualifiedThroughFunctionExpiry",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: actual durable inventory/material/root history read, lease guards and SDK worker-family lookup. Short-lifetime negative can stop before manager capacity RPC; no capacity execution credit inferred.",
+      "baseline_source": {
+        "path": "internal/app/function_pending_integration_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "455d2e6d627fdffef2549047424843755073fb91",
+        "line": 27,
+        "end_line": 106
+      },
+      "current_source": {
+        "path": "internal/app/function_pending_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "9d5a359b77b6b1050437487db58fe116d7c0fffc",
+        "line": 27,
+        "end_line": 107
+      },
+      "original_declaration_sha256": "eabecf9e58d4bef44d4ddb519dfd76f00ce57f1709fe1a20a8c08e9dd5c7aaa3",
+      "current_declaration_sha256": "b9a51088d0b5ce5de77149fb19626dad03893a81a45fd4622da87e0ed1595d56",
+      "state": "retained_body_changed_canonical_drift",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 157,
+      "root_id": "internal/app/function_retirement_integration_test.go::TestFunctionMaterialRetirementRequiresAuthoritativeUnusedTask",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: actual gRPC ControlAPI task observations after memory-store mutation and real authority Guard; foreign recipient rejection follows RPC. No material deletion/process shutdown is performed.",
+      "baseline_source": {
+        "path": "internal/app/function_retirement_integration_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "28416812d1e0a38aa226ab627305b50c8b2eb15c",
+        "line": 20,
+        "end_line": 92
+      },
+      "current_source": {
+        "path": "internal/app/function_retirement_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "28416812d1e0a38aa226ab627305b50c8b2eb15c",
+        "line": 20,
+        "end_line": 92
+      },
+      "original_declaration_sha256": "3c827fffd294f50b76a08e7a0aa3f300d00e760d7df73813c211be7d196d97fc",
+      "current_declaration_sha256": "3c827fffd294f50b76a08e7a0aa3f300d00e760d7df73813c211be7d196d97fc",
+      "state": "retained_body_exact",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 158,
+      "root_id": "internal/app/global_controller_test.go::TestGlobalAndInterRegionRejectRemovedEnabledFields",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: literal JSON strict decoding of removed enabled fields; no file loader/controller start.",
+      "baseline_source": {
+        "path": "internal/app/global_controller_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "be4d06270a83980bd773e1f4b4567ddbb39084ee",
+        "line": 55,
+        "end_line": 66
+      },
+      "current_source": {
+        "path": "internal/app/global_controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "26e2cb71411b714a0e2e035c6a219c7a8fc00935",
+        "line": 55,
+        "end_line": 66
+      },
+      "original_declaration_sha256": "448c8cf3c69e5089298bab065692110bfa25eb520c86012cabc5cabfb16bf277",
+      "current_declaration_sha256": "83e974359caefa6318e5919059e2abcc4a4a16d22b2c35b10dddfa2769d9b6cf",
+      "state": "retained_body_changed_canonical_drift",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 159,
+      "root_id": "internal/app/global_controller_test.go::TestGlobalControlAlwaysStartsWithHomeDeployment",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: real local R1 global authority/control streams and independent lease Observe preserve home deployment. No WAN, remote region or HA claim.",
+      "baseline_source": {
+        "path": "internal/app/global_controller_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "be4d06270a83980bd773e1f4b4567ddbb39084ee",
+        "line": 68,
+        "end_line": 99
+      },
+      "current_source": {
+        "path": "internal/app/global_controller_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "26e2cb71411b714a0e2e035c6a219c7a8fc00935",
+        "line": 68,
+        "end_line": 99
+      },
+      "original_declaration_sha256": "e2013d4941bf173eece4551b9a4c42a89cf7c37cee01393d1a2cc8c0c604c911",
+      "current_declaration_sha256": "e2013d4941bf173eece4551b9a4c42a89cf7c37cee01393d1a2cc8c0c604c911",
+      "state": "retained_body_exact",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    }
+  ],
+  "findings": [
+    {
+      "allocation_index": 149,
+      "status": "CORRECTED_REPORT_ANNOTATIONS_SOURCE_BLOCKER_RETAINED",
+      "detail": "First packet acknowledged operation-ID mismatch but broadly credited post223 Apply/count/acceptance paths. Fresh successor limits category credit to earlier real boundaries, explicitly marks contradicted receipt223-228 and all229-297 assertions unresolved with intended integration/unit targets and no credit. Source defect itself remains; no code repair or runtime result."
+    }
+  ],
+  "rejected_predecessors": [
+    {
+      "path": "/tmp/ts-source-classification-140-160-clf84pkq/classification.json",
+      "sha256": "34293fb365675ecb2bd0e6b9e70f83d5f147d73f0b9991661725d0f49964055f",
+      "reason": "Root149 integration rationale/undifferentiated assertion evidence extended beyond deterministic fatal receipt mismatch; corrected successor retains late obligations explicitly uncredited."
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "ledger_mutation": false,
+    "canonical_count_promotion": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  },
+  "not_checked": [
+    "No Go/build/test/formatter/lint/benchmark/helper/runtime execution or process/resource/privilege/cloud/signing/crypto/TerraBase operations/downloads.",
+    "No runtime receipts reviewed; no pass/fail, sample completion, native process, live OCI/Vault/NetBird, HA or deployment qualification inferred."
+  ],
+  "scope": "Exactly other_unadjudicated[140:160), source-only independent peer candidate review. All original source/assertions retained; repository and ledger unchanged."
+}

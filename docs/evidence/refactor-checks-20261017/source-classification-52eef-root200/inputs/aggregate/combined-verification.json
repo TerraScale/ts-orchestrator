@@ -1,0 +1,27 @@
+{
+  "literal_results": 200,
+  "unique_results": 200,
+  "counts": {
+    "integration": 52,
+    "mixed": 36,
+    "unit": 103,
+    "unresolved": 9
+  },
+  "allocation_missing": [],
+  "allocation_extra": [],
+  "unresolved_roots": [
+    "internal/app/host_enrollment_static_test.go::TestGrantedControllerHostColocatesATerraBaseMember",
+    "internal/app/host_enrollment_static_test.go::TestGrantedControllerHostEnrollsWithItsGrantRoles",
+    "internal/app/host_enrollment_static_test.go::TestStaticEnrollmentReleasesCredentialsOnlyUnderCurrentAuthority",
+    "internal/app/host_enrollment_static_test.go::TestStaticHostSetupRenewsResetGrantUnderRotatedResponseAuthority",
+    "internal/app/host_enrollment_static_test.go::TestStaticTerraBaseHostEnrollsAsAListedMemberWithoutManagedBindings",
+    "internal/app/host_enrollment_static_test.go::TestStaticTerraBaseHostRevocationStopsRenewalAndReenrollment",
+    "internal/app/host_enrollment_static_test.go::TestStaticTerraBaseMembershipFollowsTheCellSpec",
+    "internal/app/host_identity_vault_test.go::TestHostEnrollmentIdentityMovesToVaultAndMemory",
+    "internal/app/managed_config_test.go::TestManagedControllerConfigRequiresSignedAdmission"
+  ],
+  "runtime": "UNKNOWN_NO_EXECUTION",
+  "ledger_mutation_by_this_work": false,
+  "retirement_credit": false,
+  "completion_promotion": false
+}

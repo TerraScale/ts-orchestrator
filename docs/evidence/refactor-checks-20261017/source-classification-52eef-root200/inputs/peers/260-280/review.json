@@ -1,0 +1,219 @@
+{
+  "schema": "independent-source-only-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_240_260",
+  "author": "/root/classification_100_dispatch/batch_260_280",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "target": {
+    "path": "/tmp/ts-source-classification-260-280-startup-corrected-56103oz7/classification.json",
+    "sha256": "a213725e9a899e4bcb7cb3281c9a42d188ec6e4477d29e80dc1b3969730e71b5",
+    "checksum_path": "/tmp/ts-source-classification-260-280-startup-corrected-56103oz7/SHA256SUMS",
+    "checksum_sha256": "9bc51932f55c4de088fcc5c18aacd4f0dedf3a2b70c8800331702b50d039b07a"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root200-expansion-dispatch-kseJiOvj/allocation-and-exclusions.json",
+    "sha256": "7e7a69a7a625013deab54117e1a32875f5756e4f1ea67008815614bd0cec3e6f",
+    "range": "other_unadjudicated[260:280)"
+  },
+  "verdict": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+  "counts": {
+    "integration": 5,
+    "unit": 11,
+    "mixed": 4,
+    "unresolved": 0
+  },
+  "checked": {
+    "literal_root_ids": 20,
+    "full_root_declarations": 20,
+    "baseline_and_current_declaration_spans": 40,
+    "source_pins_reconfirmed_against_git": 39,
+    "all_reported_connected_spans_reconfirmed": true,
+    "checksum_members_verified": true,
+    "file_modes": "files0444/directory0555",
+    "declaration_hash_and_canonical_pin_discrepancies": 0
+  },
+  "review_method": "Independently read full20 declarations and connected assertion-to-production boundary text. Reconfirmed pinned source blob/mode/SHA256/bytes and all explicit cited spans against canonical Git objects; metadata-only inline serialization. Re-evaluated incidental setup, early guards, fake journals, distinct mixed blocks and actual persistent I/O. No source parser/scanner/helper or runtime execution.",
+  "roots": [
+    {
+      "root_id": "internal/app/native_history_regression_test.go::TestNativeReadRetryHandlesElectionWithoutRetryingPermanentFailure",
+      "author_category": "unit",
+      "peer_category": "unit",
+      "verdict": "agree",
+      "reason": "Injected read callback only; local retry/error/timing assertions."
+    },
+    {
+      "root_id": "internal/app/native_history_regression_test.go::TestNativeSelectionErrorClassification",
+      "author_category": "mixed",
+      "peer_category": "mixed",
+      "verdict": "agree",
+      "reason": "Positive missing/mismatch state requires genuine leader store reads; separately canceled/expired input contexts cannot complete exchange."
+    },
+    {
+      "root_id": "internal/app/native_history_regression_test.go::TestNativeWorstProvenanceIsChunkedAndCapacityCheckedBeforeReferences",
+      "author_category": "mixed",
+      "peer_category": "mixed",
+      "verdict": "agree",
+      "reason": "Chunk hydration and unchanged CAS revision use genuine KV; standalone small-payload encoder assertion is local."
+    },
+    {
+      "root_id": "internal/app/native_history_test.go::TestNativeDesiredRefusesContendedAdoptionBeforeWrites",
+      "author_category": "unit",
+      "peer_category": "unit",
+      "verdict": "agree",
+      "reason": "Both mutex guards exit before history or host I/O."
+    },
+    {
+      "root_id": "internal/app/native_history_test.go::TestNativeGoodNeedsFreshReportsAcrossObservation",
+      "author_category": "unit",
+      "peer_category": "unit",
+      "verdict": "agree",
+      "reason": "Synthetic maps and timestamps only."
+    },
+    {
+      "root_id": "internal/app/native_history_test.go::TestNativeGoodProofRejectsIncompleteEvidence",
+      "author_category": "unit",
+      "peer_category": "unit",
+      "verdict": "agree",
+      "reason": "Synthetic status and desired tables feed local nativeReady."
+    },
+    {
+      "root_id": "internal/app/native_history_test.go::TestNativeGoodRetentionKeepsTenSuccessfulProfiles",
+      "author_category": "unit",
+      "peer_category": "unit",
+      "verdict": "agree",
+      "reason": "Local retention slice and in-memory JSON round trip."
+    },
+    {
+      "root_id": "internal/app/native_history_test.go::TestNativePrepareReplyKeepsProvenancePrivateAndBounded",
+      "author_category": "unit",
+      "peer_category": "unit",
+      "verdict": "agree",
+      "reason": "Local encoder checks private-data omission and reply bounds."
+    },
+    {
+      "root_id": "internal/app/native_history_test.go::TestNativeRollbackTemplateKeepsRestoredFullConfig",
+      "author_category": "unit",
+      "peer_category": "unit",
+      "verdict": "agree",
+      "reason": "CurrentRelease inspects local observations; JSON fixture reads are setup."
+    },
+    {
+      "root_id": "internal/app/native_identity_test.go::TestNativeRetainedChainPinAdmitsMatchingAcceptance",
+      "author_category": "unit",
+      "peer_category": "unit",
+      "verdict": "agree",
+      "reason": "Direct local verifier on supplied manifest/identity/chain, expects config-shape refusal."
+    },
+    {
+      "root_id": "internal/app/native_identity_test.go::TestNativeRetainedChainPinMustMatchAcceptedIdentity",
+      "author_category": "unit",
+      "peer_category": "unit",
+      "verdict": "agree",
+      "reason": "Direct local verifier on supplied acceptance mismatch."
+    },
+    {
+      "root_id": "internal/app/native_restore_test.go::TestNativeManualRestoreCannotReuseForwardOperationID",
+      "author_category": "integration",
+      "peer_category": "integration",
+      "verdict": "agree",
+      "reason": "Reused ID refusal depends on real saved selection and unchanged revision readback."
+    },
+    {
+      "root_id": "internal/app/native_restore_test.go::TestNativeManualRestoreRefusesNonretainedTargetDurably",
+      "author_category": "integration",
+      "peer_category": "integration",
+      "verdict": "agree",
+      "reason": "Unretained refusal produces a real delivery operation receipt and unchanged history."
+    },
+    {
+      "root_id": "internal/app/native_restore_test.go::TestNativeManualRestoreUsesRetainedPairAfterNewSpec",
+      "author_category": "integration",
+      "peer_category": "integration",
+      "verdict": "agree",
+      "reason": "Retained restore commits/reloads recovery and delivery desired state through NATS."
+    },
+    {
+      "root_id": "internal/app/native_restore_test.go::TestNativeRestoreTargetRefusesAmbiguousResources",
+      "author_category": "unit",
+      "peer_category": "unit",
+      "verdict": "agree",
+      "reason": "Local ambiguity selector over explicitly constructed state."
+    },
+    {
+      "root_id": "internal/app/native_retained_consumers_test.go::TestHostTelemetryAdoptionAndRecoveryUseCommittedResources",
+      "author_category": "integration",
+      "peer_category": "integration",
+      "verdict": "agree",
+      "reason": "Telemetry normalization derives resources from actual ordered desired/history store reads."
+    },
+    {
+      "root_id": "internal/app/native_retained_consumers_test.go::TestNativeRetainedColocatedReleaseCapacity",
+      "author_category": "integration",
+      "peer_category": "integration",
+      "verdict": "agree",
+      "reason": "Placement decisions materially depend on committed host/session/desired/history reads."
+    },
+    {
+      "root_id": "internal/app/netbird_admission_test.go::TestNetBirdAdmissionRequiresVerifiedFenceAndAddress",
+      "author_category": "unit",
+      "peer_category": "unit",
+      "verdict": "agree",
+      "reason": "Fake journal and precommit admission guard; incidental broker does not qualify."
+    },
+    {
+      "root_id": "internal/app/netbird_admission_test.go::TestNetBirdAdmissionSurvivesFenceAndGrantRemovalWithoutLosingQuorum",
+      "author_category": "mixed",
+      "peer_category": "mixed",
+      "verdict": "agree",
+      "reason": "Fake admitted-scope/inventory assertions coexist with real fence hold KV save/read/delete."
+    },
+    {
+      "root_id": "internal/app/netbird_admission_test.go::TestNetBirdDrainPreflightKeepsAdmissionAndLiveGatesAfterFenceRemoval",
+      "author_category": "mixed",
+      "peer_category": "mixed",
+      "verdict": "agree",
+      "reason": "Fake address-scope checks coexist with genuine staged object reads and status KV writes/readbacks; cluster hook is synthetic."
+    }
+  ],
+  "findings": [],
+  "limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no build/test/lint/benchmark/cloud/helper/native/TerraBase execution or receipts reviewed.",
+    "Source categories do not authorize test retirement, deletion, count/ledger promotion or qualification. All original assertions/safety obligations remain retained.",
+    "Synthetic signed history/session data, fixed fencers, fake LB/OCI/NetBird journal and cluster callbacks do not establish live infrastructure or host process acceptance.",
+    "This review covers exactly20 allocated roots and their connected source citations; no whole-repository or runtime success claim."
+  ],
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  },
+  "supersedes": {
+    "path": "/tmp/ts-source-peer-260-280-by-240-5jve8b4q/review.json",
+    "sha256": "84104910a626f23e111d82054b30f4719636c9ff2c4a7b03c997411b23735d09",
+    "reason": "Supplemental peer evidence correction required concrete natscell server/client/JetStream startup citation and in-process transport limit; old acceptance receipt retained, this receipt applies only to exact corrected target."
+  },
+  "closed_findings": [
+    {
+      "issue": "Missing pinned concrete NATS server/client/JetStream startup endpoint",
+      "resolution": "Corrected retained_fixture adds canonical internal/natscell/runtime.go Start349:351/start363:507 and exact39th file pin; verified against Git. Server.NewServer/Start, nats.Connect and JetStream are concrete; embedded controller/system use nats.InProcessServer explicitly. No external TCP/TLS/cluster qualification inferred."
+    }
+  ],
+  "correction_review": {
+    "root_payloads_unchanged_from_previously_reviewed_packet": true,
+    "changed_target_fields": [
+      "connected_source_evidence",
+      "source_pins",
+      "qualification_limits",
+      "supersedes"
+    ],
+    "categories_unchanged": true,
+    "supplemental_startup_source_read": true,
+    "all_39_file_pins_rechecked": true,
+    "checksums_and_0444_0555_rechecked": true
+  }
+}
