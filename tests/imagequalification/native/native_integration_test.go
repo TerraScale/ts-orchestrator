@@ -179,3 +179,15 @@ func TestObservedServiceRequiresExactSignedProfile(t *testing.T) {
 		t.Fatal("unsigned arguments accepted")
 	}
 }
+
+func TestCredentialObserverCannotControlRuntime(t *testing.T) {
+	w := worker{root: t.TempDir(), credentialOnly: true}
+	for _, operation := range []string{"start", "stop", "partition", "heal", "inventory", "cluster", "observe"} {
+		t.Run(operation, func(t *testing.T) {
+			_, err := w.execute(t.Context(), command{Operation: operation})
+			if err == nil || !strings.Contains(err.Error(), "credential observer cannot operate the managed runtime") {
+				t.Fatalf("credential observer invoked %s: %v", operation, err)
+			}
+		})
+	}
+}

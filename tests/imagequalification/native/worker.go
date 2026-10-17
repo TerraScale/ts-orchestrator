@@ -69,39 +69,22 @@ type worker struct {
 	runtime                        *containerd.Client
 	partition                      []string
 	stopped                        bool
+	credentialOnly                 bool
 }
 
 func (w *worker) execute(ctx context.Context, c command) (response, error) {
-	if c.Operation == "identity" {
+	if c.Operation == "identity" || c.Operation == "credential-identity" {
 		if w.root != "" {
 			return response{}, errors.New("worker already initialized")
 		}
-		if err := validateRunID(c.RunID); err != nil {
-			return response{}, err
-		}
-		if os.Geteuid() != 0 {
-			return response{}, errors.New("disposable native worker requires root")
-		}
-		marker, err := os.ReadFile("/run/ts-native-disposable")
-		if err != nil || strings.TrimSpace(string(marker)) != c.RunID {
-			return response{}, errors.New("disposable launch marker absent or wrong run")
-		}
-		workerHash, source, err := workerIdentity()
+		observed, err := observeDisposableIdentity(ctx, c)
 		if err != nil {
 			return response{}, err
 		}
-		if source != c.SourceRevision {
-			return response{}, errors.New("native worker source revision differs from candidate")
-		}
-		identity, err := MeasureIdentity(ctx, c.ContainerdPath, c.RuncPath)
-		if err != nil {
-			return response{}, err
-		}
-		if identity != c.Host.ExpectedIdentity || identity.InstanceID != c.Host.OCID {
-			return response{}, errors.New("native host identity mismatch")
-		}
-		if c.Mode != "manager" && c.Mode != "container" {
-			return response{}, errors.New("invalid installed runtime role")
+		if c.Operation == "credential-identity" {
+			w.root = "/run/ts-native-" + c.RunID
+			w.role, w.binaryHash, w.credentialOnly = c.Mode, observed.Identity.BinarySHA256, true
+			return observed, nil
 		}
 		root := "/var/lib/terrascale-orchestrator-host/swarm"
 		if c.Mode == "container" {
@@ -126,7 +109,7 @@ func (w *worker) execute(ctx context.Context, c command) (response, error) {
 		if leaf.Subject.CommonName == "" || len(leaf.Subject.OrganizationalUnit) != 1 || leaf.Subject.OrganizationalUnit[0] != expectedRole {
 			return response{}, errors.New("installed runtime certificate role mismatch")
 		}
-		w.root, w.nodeID, w.role, w.binaryHash = root, leaf.Subject.CommonName, c.Mode, identity.BinarySHA256
+		w.root, w.nodeID, w.role, w.binaryHash = root, leaf.Subject.CommonName, c.Mode, observed.Identity.BinarySHA256
 		if err := w.installedProcess(ctx); err != nil {
 			w.root = ""
 			return response{}, err
@@ -135,10 +118,14 @@ func (w *worker) execute(ctx context.Context, c command) (response, error) {
 		if err != nil {
 			return response{}, err
 		}
-		return response{Role: c.Mode, NodeID: w.nodeID, Identity: identity, WorkerSHA256: workerHash, WorkerSourceRevision: source}, nil
+		observed.NodeID = w.nodeID
+		return observed, nil
 	}
 	if w.root == "" {
 		return response{}, errors.New("identity must be verified before runtime operations")
+	}
+	if w.credentialOnly {
+		return response{}, errors.New("credential observer cannot operate the managed runtime")
 	}
 	switch c.Operation {
 	case "stop":
@@ -300,6 +287,37 @@ func (w *worker) execute(ctx context.Context, c command) (response, error) {
 	default:
 		return response{}, errors.New("unknown native observation or fault operation")
 	}
+}
+
+func observeDisposableIdentity(ctx context.Context, c command) (response, error) {
+	if err := validateRunID(c.RunID); err != nil {
+		return response{}, err
+	}
+	if os.Geteuid() != 0 {
+		return response{}, errors.New("disposable native worker requires root")
+	}
+	marker, err := os.ReadFile("/run/ts-native-disposable")
+	if err != nil || strings.TrimSpace(string(marker)) != c.RunID {
+		return response{}, errors.New("disposable launch marker absent or wrong run")
+	}
+	workerHash, source, err := workerIdentity()
+	if err != nil {
+		return response{}, err
+	}
+	if source != c.SourceRevision {
+		return response{}, errors.New("native worker source revision differs from candidate")
+	}
+	identity, err := MeasureIdentity(ctx, c.ContainerdPath, c.RuncPath)
+	if err != nil {
+		return response{}, err
+	}
+	if identity != c.Host.ExpectedIdentity || identity.InstanceID != c.Host.OCID {
+		return response{}, errors.New("native host identity mismatch")
+	}
+	if c.Mode != "manager" && c.Mode != "container" {
+		return response{}, errors.New("invalid installed runtime role")
+	}
+	return response{Role: c.Mode, Identity: identity, WorkerSHA256: workerHash, WorkerSourceRevision: source}, nil
 }
 
 func verifyObservedService(service *api.Service, expected swarmruntime.ServiceIntent) error {
