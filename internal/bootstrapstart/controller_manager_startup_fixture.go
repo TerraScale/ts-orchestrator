@@ -484,8 +484,12 @@ func newControllerManagerStartupFixture(t *testing.T, enrollment []byte, broker 
 		markers = gate.Markers
 		floor = &FounderSelectionFloorStore{directory: FounderSelectionFloorDirectory, ownerUID: installed.ServiceUID}
 		trustStore = *gate.trustStore
-		gate.InitialFounderFloor = func(context.Context, AcceptedInstall, time.Time) error {
-			return floor.InitializeForService(1, digestWire(selectionWire), installed.ServiceGID)
+		gate.InitialFounderFloor = func(ctx context.Context, accepted AcceptedInstall, now time.Time) error {
+			reader, err := NewCurrentFounderAuthorityReader(baked, accepted, storage, floor)
+			if err != nil {
+				return err
+			}
+			return reader.provisionInitial(ctx, now, installed.ServiceUID, installed.ServiceGID, gate.ClockCheck)
 		}
 	}
 	marker, err := gate.AdmitInitial(t.Context())
