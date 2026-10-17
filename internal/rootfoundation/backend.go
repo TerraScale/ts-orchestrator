@@ -121,9 +121,8 @@ func (b *Backend) guard(ctx context.Context, call rootoci.Call) error {
 	if err := call.Guard(ctx); err != nil {
 		return err
 	}
-	if err := b.home.Guard(ctx, 0); err != nil {
-		return err
-	}
+	// Each domain checks its own HomeIAM lease; source uses a separate sealed
+	// founder authority whose lease must not be checked against b.home.
 	return b.home.VerifyFoundationWriter(ctx)
 }
 
