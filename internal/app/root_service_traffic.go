@@ -74,6 +74,8 @@ func (b *rootOCIResources) ReconcileTaskTraffic(ctx context.Context, call rootoc
 	if err != nil {
 		return fail(err)
 	}
+	ctx, stopSpec := context.WithDeadline(ctx, snapshot.specExpiresAt)
+	defer stopSpec()
 	cell := string(snapshot.managed.region.Region)
 	if foundation.Cell != cell || len(snapshot.specWire) == 0 || snapshot.specRevision != controller.config.Specs.revision || snapshot.services.roots.reply("").Head != controller.config.Specs.roots.reply("").Head {
 		return fail(rootoci.ErrUnauthorized)
@@ -95,6 +97,8 @@ func (b *rootOCIResources) ReconcileTaskTraffic(ctx context.Context, call rootoc
 	if err != nil {
 		return fail(err)
 	}
+	ctx, stopLease := context.WithDeadline(ctx, lease.Deadline())
+	defer stopLease()
 	controller.config.ReadLease = lease
 	controller.config.WorkerMembership = node.ReadWorkerMembership
 	observed, err := authority.Observe(ctx, controller.config.JS, b.cfg.NATS.Cell)
@@ -123,7 +127,9 @@ func (b *rootOCIResources) ReconcileTaskTraffic(ctx context.Context, call rootoc
 	var probeAuthorityErr error
 	addresses := map[string]string{}
 	guardSource := func(ctx context.Context) error {
-		if !time.Now().Before(deadline) || session.Err() != nil {
+		ctx, stop := context.WithDeadline(ctx, deadline)
+		defer stop()
+		if captureContext.Err() != nil || !time.Now().Before(deadline) || session.Err() != nil {
 			return ociresource.ErrFenced
 		}
 		if err := call.Guard(ctx); err != nil {
