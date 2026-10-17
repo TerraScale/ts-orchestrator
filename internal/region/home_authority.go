@@ -165,8 +165,24 @@ func (authority *HomeIAMAuthority) guardScope(ctx context.Context) error {
 }
 
 func (authority *HomeIAMAuthority) scopeDeadline(ctx context.Context) (time.Time, error) {
-	if ctx == nil || authority == nil || authority.objects == nil || authority.resolver.Footprint == nil || authority.resolver.Store == nil {
+	return authority.scopeDeadlineForOperation(ctx, ctx)
+}
+
+func (authority *HomeIAMAuthority) scopeDeadlineForOperation(ctx, original context.Context) (time.Time, error) {
+	if ctx == nil || original == nil || authority == nil || authority.objects == nil || authority.resolver.Footprint == nil || authority.resolver.Store == nil {
 		return time.Time{}, bootstrapstart.ErrSourceFounder
+	}
+	if err := original.Err(); err != nil {
+		return time.Time{}, err
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stopOriginal := context.AfterFunc(original, cancel)
+	defer stopOriginal()
+	if deadline, ok := original.Deadline(); ok {
+		var cancelDeadline context.CancelFunc
+		ctx, cancelDeadline = context.WithDeadline(ctx, deadline)
+		defer cancelDeadline()
 	}
 	if authority.operator != nil {
 		ctx, cancel := context.WithDeadline(ctx, authority.operator.deadline)
@@ -188,6 +204,9 @@ func (authority *HomeIAMAuthority) scopeDeadline(ctx context.Context) (time.Time
 	} else {
 		return time.Time{}, bootstrapstart.ErrSourceFounder
 	}
+	if deadline, ok := original.Deadline(); ok && deadline.Before(expires) {
+		expires = deadline
+	}
 	ctx, cancelOriginal := context.WithDeadline(ctx, expires)
 	defer cancelOriginal()
 	if authority.proof.IsVerified() {
@@ -195,11 +214,14 @@ func (authority *HomeIAMAuthority) scopeDeadline(ctx context.Context) (time.Time
 			return time.Time{}, err
 		}
 	} else {
-		deadline, err := authority.runtime.CurrentDeadline(ctx)
+		deadline, err := authority.runtime.CurrentDeadlineForOperation(ctx, original)
 		if err != nil {
 			return time.Time{}, err
 		}
-		bounded, cancelCurrent := context.WithDeadline(ctx, deadline)
+		if deadline.Before(expires) {
+			expires = deadline
+		}
+		bounded, cancelCurrent := context.WithDeadline(ctx, expires)
 		defer cancelCurrent()
 		ctx = bounded
 	}
@@ -213,25 +235,30 @@ func (authority *HomeIAMAuthority) scopeDeadline(ctx context.Context) (time.Time
 	if err != nil {
 		return time.Time{}, err
 	}
-	grant, err := current.BootstrapMaterial(ctx, entry.Cell)
+	grant, err := current.BootstrapMaterialForOperation(ctx, original, entry.Cell)
 	if err != nil {
 		return time.Time{}, err
 	}
-	ctx, cancelGrant := context.WithDeadline(ctx, grant.ExpiresAt())
+	if grant.ExpiresAt().Before(expires) {
+		expires = grant.ExpiresAt()
+	}
+	ctx, cancelGrant := context.WithDeadline(ctx, expires)
 	defer cancelGrant()
 	digest := sha256.Sum256(grant.FoundationGrantWire())
 	if !grant.IsVerified() || hex.EncodeToString(digest[:]) != authority.grantDigest || grant.Generation() != authority.grantGeneration ||
 		grant.InstallationID() != authority.installationID || grant.PlanDigest() != authority.planDigest || grant.StorageDomain() != authority.domain {
 		return time.Time{}, errors.New("source founder differs from the current signed foundation grant")
 	}
-	deadline, _ := ctx.Deadline()
-	if err := ociclient.LimitAdmission(ctx, deadline); err != nil {
+	if err := ociclient.LimitAdmission(ctx, expires); err != nil {
+		return time.Time{}, err
+	}
+	if err := original.Err(); err != nil {
 		return time.Time{}, err
 	}
 	if err := ctx.Err(); err != nil {
 		return time.Time{}, err
 	}
-	return deadline, nil
+	return expires, nil
 }
 
 type homeIAMLeaseKey struct{}
@@ -243,8 +270,12 @@ func (authority *HomeIAMAuthority) Guard(ctx context.Context, epoch uint64) erro
 	return err
 }
 
-func (authority *HomeIAMAuthority) guardDeadline(ctx context.Context, _ uint64) (time.Time, error) {
-	deadline, err := authority.scopeDeadline(ctx)
+func (authority *HomeIAMAuthority) guardDeadline(ctx context.Context, epoch uint64) (time.Time, error) {
+	return authority.guardDeadlineForOperation(ctx, ctx, epoch)
+}
+
+func (authority *HomeIAMAuthority) guardDeadlineForOperation(ctx, original context.Context, _ uint64) (time.Time, error) {
+	deadline, err := authority.scopeDeadlineForOperation(ctx, original)
 	if err != nil {
 		if ctx != nil {
 			if lease, ok := ctx.Value(homeIAMLeaseKey{}).(*homeIAMLease); ok && lease.authority == authority {
