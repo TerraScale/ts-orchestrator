@@ -91,7 +91,7 @@ func prepareNetBirdUnderlayRequest(ctx context.Context, client core.VirtualNetwo
 		if err != nil {
 			return q, err
 		}
-		if value(response.Id) != e.RouteTableID || value(response.VcnId) != e.NetworkID || value(response.CompartmentId) != e.NetworkCompartmentID || response.LifecycleState != core.RouteTableLifecycleStateAvailable || value(response.ETag) == "" {
+		if value(response.Id) != e.RouteTableID || value(response.VcnId) != e.NetworkID || value(response.CompartmentId) != e.NetworkCompartmentID || response.LifecycleState != core.RouteTableLifecycleStateAvailable || value(response.Etag) == "" {
 			return q, errors.New("NetBird underlay route preparation lacks its exact current VCN table and ETag")
 		}
 		rules, err := netBirdUnderlayWritableRoutes(response.RouteRules)
@@ -104,13 +104,13 @@ func prepareNetBirdUnderlayRequest(ctx context.Context, client core.VirtualNetwo
 			}
 		}
 		rules = append(rules, core.RouteRule{Destination: new(destination), DestinationType: core.RouteRuleDestinationTypeCidrBlock, NetworkEntityId: new(gateway)})
-		q.ResourceID, q.IfMatch, q.Route = e.RouteTableID, value(response.ETag), &core.UpdateRouteTableDetails{RouteRules: rules}
+		q.ResourceID, q.IfMatch, q.Route = e.RouteTableID, value(response.Etag), &core.UpdateRouteTableDetails{RouteRules: rules}
 	case "writer_security":
 		response, err := client.GetSecurityList(ociclient.RequestContext(ctx), core.GetSecurityListRequest{SecurityListId: new(r.Writer.SecurityID)})
 		if err != nil {
 			return q, err
 		}
-		if value(response.Id) != r.Writer.SecurityID || value(response.VcnId) != r.Writer.NetworkID || value(response.CompartmentId) != r.Writer.NetworkCompartmentID || response.LifecycleState != core.SecurityListLifecycleStateAvailable || value(response.ETag) == "" {
+		if value(response.Id) != r.Writer.SecurityID || value(response.VcnId) != r.Writer.NetworkID || value(response.CompartmentId) != r.Writer.NetworkCompartmentID || response.LifecycleState != core.SecurityListLifecycleStateAvailable || value(response.Etag) == "" {
 			return q, errors.New("NetBird underlay security preparation lacks its exact current writer list and ETag")
 		}
 		ingress := slices.Clone(response.IngressSecurityRules)
@@ -120,7 +120,7 @@ func prepareNetBirdUnderlayRequest(ctx context.Context, client core.VirtualNetwo
 			return q, errors.New("NetBird underlay cannot adopt an unjournaled manager ingress rule")
 		}
 		ingress = append(ingress, netBirdUnderlayIngress(r.Recipe.ManagerPrivateIP))
-		q.ResourceID, q.IfMatch, q.Security = r.Writer.SecurityID, value(response.ETag), &core.UpdateSecurityListDetails{IngressSecurityRules: ingress, EgressSecurityRules: slices.Clone(response.EgressSecurityRules)}
+		q.ResourceID, q.IfMatch, q.Security = r.Writer.SecurityID, value(response.Etag), &core.UpdateSecurityListDetails{IngressSecurityRules: ingress, EgressSecurityRules: slices.Clone(response.EgressSecurityRules)}
 	default:
 		return q, errors.New("unknown NetBird underlay request step")
 	}
