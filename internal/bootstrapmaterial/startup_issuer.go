@@ -48,6 +48,7 @@ func LoadStartupControllerIssuer(ctx context.Context, authority bootstrap.Derive
 		issuer.Wipe()
 		return nil, err
 	}
+	issuer.startup = authority
 	return issuer, nil
 }
 

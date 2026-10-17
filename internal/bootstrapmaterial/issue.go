@@ -56,6 +56,7 @@ type ControllerIssuer struct {
 	cert     *x509.Certificate
 	key      *ecdsa.PrivateKey
 	signer   nkeys.KeyPair
+	startup  bootstrap.DerivedStartupAuthority
 }
 
 type issuerIdentity struct {
