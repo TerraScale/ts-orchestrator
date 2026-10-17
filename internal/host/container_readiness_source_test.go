@@ -10,9 +10,100 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
+
+type readinessDeadlineMutations struct {
+	authority.HostMutationStore
+	read func(context.Context, authority.HostMutationKind, string) error
+}
+
+func (m readinessDeadlineMutations) ReadHostMutation(ctx context.Context, kind authority.HostMutationKind, key string) (authority.LogEntry, error) {
+	if err := m.read(ctx, kind, key); err != nil {
+		return authority.LogEntry{}, err
+	}
+	return m.HostMutationStore.ReadHostMutation(ctx, kind, key)
+}
+
+func TestRootContainerReadinessCapsFirstSourceWait(t *testing.T) {
+	for _, bound := range []string{"effect", "lease"} {
+		t.Run(bound, func(t *testing.T) {
+			c, _, _, _, _, effect, _, _ := readinessTransportFixture(t)
+			deadline := time.Now().Add(100 * time.Millisecond)
+			until := effect.ExpiresAt
+			if bound == "effect" {
+				effect.ExpiresAt = deadline
+			} else {
+				until = deadline
+			}
+			reads := 0
+			c.mutations = readinessDeadlineMutations{HostMutationStore: c.mutations, read: func(ctx context.Context, _ authority.HostMutationKind, _ string) error {
+				reads++
+				actual, ok := ctx.Deadline()
+				if !ok || actual.After(deadline) {
+					t.Fatal("first source read exceeded known original deadline")
+				}
+				<-ctx.Done()
+				return ctx.Err()
+			}}
+			if _, err := (&Reader{controller: c}).AdmitRuntimeReadinessSource(t.Context(), effect, until); err == nil || reads != 1 {
+				t.Fatal("expired source wait accepted", err, reads)
+			}
+		})
+	}
+}
+
+func TestRootContainerReadinessBoundsEntireEvidenceRead(t *testing.T) {
+	for _, bound := range []string{"source deadline", "original cancellation"} {
+		t.Run(bound, func(t *testing.T) {
+			c, _, _, key, _, effect, report, current := readinessTransportFixture(t)
+			c.credentialFloor = func(context.Context, Registration) (uint64, error) { return 1, nil }
+			original, cancelOriginal := context.WithCancel(t.Context())
+			defer cancelOriginal()
+			until := effect.ExpiresAt
+			if bound == "source deadline" {
+				until = time.Now().Add(100 * time.Millisecond)
+			}
+			source, err := (&Reader{controller: c}).AdmitRuntimeReadinessSource(original, effect, until)
+			if err != nil {
+				t.Fatal(err)
+			}
+			challenge := ContainerReadinessChallenge{Nonce: strings.Repeat("d", 32), TaskID: effect.TaskID, TaskSHA256: effect.TaskSHA256, AdmissionSHA256: effect.AdmissionSHA256, EffectID: effect.EffectID, Deadline: source.Deadline()}
+			query := containerReadinessQuery{TaskID: effect.TaskID, TaskSHA256: effect.TaskSHA256, AdmissionSHA256: effect.AdmissionSHA256, EffectID: effect.EffectID, Challenge: &challenge, Report: &report}
+			req := signedHostRequest(t, key, "runtime-readiness", current.SessionID, current.Epoch, query)
+			reads := 0
+			c.mutations = readinessDeadlineMutations{HostMutationStore: c.mutations, read: func(ctx context.Context, kind authority.HostMutationKind, _ string) error {
+				if kind != authority.MutationRegistration {
+					return nil
+				}
+				reads++
+				if reads != 2 {
+					return nil
+				}
+				actual, ok := ctx.Deadline()
+				if !ok || actual.After(source.Deadline()) {
+					t.Fatal("signed evidence source read lost original deadline")
+				}
+				if bound == "original cancellation" {
+					cancelOriginal()
+				}
+				<-ctx.Done()
+				return ctx.Err()
+			}}
+			check, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+			started := time.Now()
+			if _, err := source.Verify(check, challenge, req.Envelope); err == nil || reads != 2 {
+				t.Fatal("independent evidence read lost original lifetime", err, reads)
+			}
+			if bound == "original cancellation" && time.Since(started) > 500*time.Millisecond {
+				t.Fatal("independent evidence read waited beyond original cancellation")
+			}
+		})
+	}
+}
 
 func TestRootContainerReadinessRequiresOriginalWorkerEvidence(t *testing.T) {
 	c, _, _, key, wrongKey, effect, report, current := readinessTransportFixture(t)
@@ -22,7 +113,7 @@ func TestRootContainerReadinessRequiresOriginalWorkerEvidence(t *testing.T) {
 		}
 		return 1, nil
 	}
-	source, err := (&Reader{controller: c}).AdmitRuntimeReadinessSource(t.Context(), effect)
+	source, err := (&Reader{controller: c}).AdmitRuntimeReadinessSource(t.Context(), effect, effect.ExpiresAt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +206,7 @@ func TestRootContainerReadinessRequiresOriginalWorkerEvidence(t *testing.T) {
 func TestRootContainerReadinessRelayRetainsWorkerSignature(t *testing.T) {
 	c, conn, registration, key, controllerKey, effect, report, current := readinessTransportFixture(t)
 	c.credentialFloor = func(context.Context, Registration) (uint64, error) { return 1, nil }
-	source, err := (&Reader{controller: c}).AdmitRuntimeReadinessSource(t.Context(), effect)
+	source, err := (&Reader{controller: c}).AdmitRuntimeReadinessSource(t.Context(), effect, effect.ExpiresAt)
 	if err != nil {
 		t.Fatal(err)
 	}

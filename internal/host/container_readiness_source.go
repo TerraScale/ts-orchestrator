@@ -25,10 +25,20 @@ type RuntimeReadinessSource struct {
 func (s *RuntimeReadinessSource) Caller() RuntimeEffectCaller { return s.caller }
 func (s *RuntimeReadinessSource) Deadline() time.Time         { return s.caller.ExpiresAt() }
 
-func (r *Reader) AdmitRuntimeReadinessSource(ctx context.Context, effect authority.RuntimeEffect) (*RuntimeReadinessSource, error) {
+func (r *Reader) AdmitRuntimeReadinessSource(ctx context.Context, effect authority.RuntimeEffect, until time.Time) (*RuntimeReadinessSource, error) {
 	if r == nil || r.controller == nil || ctx == nil || ctx.Err() != nil || effect.Phase != authority.RuntimeEffectHeld || !time.Now().Before(effect.ExpiresAt) {
 		return nil, authority.ErrFenced
 	}
+	originalContext := ctx
+	deadline := minReadinessDeadline(effect.ExpiresAt, until)
+	if callerDeadline, ok := ctx.Deadline(); ok {
+		deadline = minReadinessDeadline(deadline, callerDeadline)
+	}
+	if !time.Now().Before(deadline) {
+		return nil, authority.ErrFenced
+	}
+	ctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
 	var material executionwire.WorkerGrantMaterial
 	var registration Registration
 	var desired Desired
@@ -41,11 +51,8 @@ func (r *Reader) AdmitRuntimeReadinessSource(ctx context.Context, effect authori
 		current.ManagedOCI.InstanceID != effect.InstanceID || session.SessionID != effect.HostSessionID || session.Epoch != effect.Epoch {
 		return nil, errors.Join(authority.ErrFenced, err)
 	}
-	deadline := minReadinessDeadline(session.ExpiresAt, effect.ExpiresAt)
-	if callerDeadline, ok := ctx.Deadline(); ok {
-		deadline = minReadinessDeadline(deadline, callerDeadline)
-	}
-	source := &RuntimeReadinessSource{reader: r, original: ctx, effect: effect, desired: desired,
+	deadline = minReadinessDeadline(deadline, session.ExpiresAt)
+	source := &RuntimeReadinessSource{reader: r, original: originalContext, effect: effect, desired: desired,
 		caller: RuntimeEffectCaller{registration: current, sessionID: session.SessionID, epoch: effect.Epoch, expiresAt: deadline}}
 	if err := source.Guard(ctx); err != nil {
 		return nil, err
@@ -78,6 +85,13 @@ func (s *RuntimeReadinessSource) Guard(ctx context.Context) error {
 // Verify accepts only the original worker's signature over this root nonce and
 // exact held identity, surrounded by reads of the current original source.
 func (s *RuntimeReadinessSource) Verify(ctx context.Context, challenge ContainerReadinessChallenge, envelope protocol.Envelope) (ManagedRuntimeReport, error) {
+	if s == nil || s.original == nil || ctx == nil || ctx.Err() != nil {
+		return ManagedRuntimeReport{}, authority.ErrFenced
+	}
+	ctx, cancel := context.WithDeadline(ctx, minReadinessDeadline(s.Deadline(), challenge.Deadline))
+	stop := context.AfterFunc(s.original, cancel)
+	defer cancel()
+	defer stop()
 	if err := s.Guard(ctx); err != nil {
 		return ManagedRuntimeReport{}, err
 	}

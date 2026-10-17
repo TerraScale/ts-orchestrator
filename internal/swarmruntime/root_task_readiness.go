@@ -36,9 +36,12 @@ func NewRootTaskReadiness(control api.ControlReader, mutations *authority.Reader
 }
 
 func (s *RootTaskReadiness) CaptureTaskReadiness(ctx context.Context, task *api.Task) (*TaskReadinessWitness, error) {
-	if s == nil || ctx == nil || ctx.Err() != nil || task == nil || task.Status.State != api.TaskStateRunning {
+	if s == nil || s.lease == nil || ctx == nil || ctx.Err() != nil || task == nil || task.Status.State != api.TaskStateRunning {
 		return nil, authority.ErrFenced
 	}
+	originalContext := ctx
+	ctx, cancel := context.WithDeadline(ctx, s.lease.Deadline())
+	defer cancel()
 	if err := s.lease.Guard(ctx); err != nil {
 		return nil, err
 	}
@@ -65,11 +68,13 @@ func (s *RootTaskReadiness) CaptureTaskReadiness(ctx context.Context, task *api.
 		original.TaskSHA256 != hash || original.ServiceID != task.ServiceID || original.NodeID != task.NodeID || !time.Now().Before(original.ExpiresAt) {
 		return nil, authority.ErrFenced
 	}
+	ctx, finishEffect := context.WithDeadline(ctx, original.ExpiresAt)
+	defer finishEffect()
 	material, err := runtimeMaterial(*original)
 	if err != nil {
 		return nil, err
 	}
-	source, err := s.hosts.AdmitRuntimeReadinessSource(ctx, *original)
+	source, err := s.hosts.AdmitRuntimeReadinessSource(originalContext, *original, s.lease.Deadline())
 	if err != nil {
 		return nil, err
 	}
