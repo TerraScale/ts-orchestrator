@@ -8,7 +8,6 @@ import (
 	"errors"
 	"io"
 
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/moby/swarmkit/v2/api"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
@@ -24,47 +23,14 @@ func (n *Node) LocalManagementObservation(ctx context.Context, environment strin
 	if n == nil || environment == "" {
 		return ManagementObservationClient{}, errors.New("local observation requires a manager and environment")
 	}
-	client, err := n.ControlClient(ctx)
+	client, err := n.ReadOnlyControlClient(ctx)
 	if err != nil {
 		return ManagementObservationClient{}, err
 	}
-	self, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: n.ID()})
-	if err != nil {
-		return ManagementObservationClient{}, err
-	}
-	if self.Node == nil {
-		return ManagementObservationClient{}, errors.New("local manager identity unavailable")
-	}
-	name := n.admission.HostID
 	region := n.admission.Region
-	instance := n.admission.InstanceID
-	valid := func(node *api.Node) bool {
-		return n.admission.Role == "manager" && node != nil && node.ID == n.ID() && node.Role == api.NodeRoleManager &&
-			node.Spec.DesiredRole == api.NodeRoleManager && node.Spec.Membership == api.NodeMembershipAccepted &&
-			name != "" && instance != "" && catalog.IsOCIRegion(region) && node.Spec.Annotations.Name == name &&
-			node.Spec.Annotations.Labels[LabelRegion] == region && node.Spec.Annotations.Labels[LabelInstanceID] == instance &&
-			node.Spec.Annotations.Labels[LabelHostRole] == "manager" && node.Spec.Annotations.Labels[LabelExecutionScope] == "platform"
-	}
-	if !valid(self.Node) {
-		return ManagementObservationClient{}, errors.New("local observation requires current accepted manager identity")
-	}
 	validate := func(ctx context.Context) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		select {
-		case <-n.done:
-			return errors.New("local observation manager stopped")
-		default:
-		}
-		current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: n.ID()})
-		if err != nil {
-			return err
-		}
-		if !valid(current.Node) {
-			return errors.New("local observation manager identity changed")
-		}
-		return nil
+		_, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: n.ID()})
+		return err
 	}
 	return ManagementObservationClient{local: &localManagementObservationSource{
 		server:   &managementObservationServer{node: n, scope: &managementServer{region: region, environment: environment}, epoch: rand.Text()},

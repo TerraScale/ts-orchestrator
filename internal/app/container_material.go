@@ -39,7 +39,8 @@ type containerMaterialConfig struct {
 	Hosts             seatrollout.Hosts
 	Authority         authority.Fencer
 	ReadLease         *authority.LeaseAdmission
-	Client            api.ControlClient
+	Client            api.ControlReader
+	SnapshotMutations api.ControlClient
 	Specs             *specRegistry
 	Delivery          *delivery.Service
 	Evidence          func(context.Context, string, string) (io.ReadCloser, error)
@@ -231,7 +232,7 @@ func (controller *containerMaterialController) taskLoadRoles(ctx context.Context
 }
 
 func startContainerMaterial(ctx context.Context, config containerMaterialConfig) (*containerMaterialController, func(), error) {
-	if config.Root == nil || config.Factory == nil || config.Hosts == nil || config.Authority == nil || config.Client == nil || config.Specs == nil || config.Specs.kv == nil || config.Specs.roots == nil || config.Delivery == nil || config.Evidence == nil ||
+	if config.Root == nil || config.Factory == nil || config.Hosts == nil || config.Authority == nil || config.Client == nil || config.SnapshotMutations == nil || config.Specs == nil || config.Specs.kv == nil || config.Specs.roots == nil || config.Delivery == nil || config.Evidence == nil ||
 		config.Founders == nil || config.Accepted.Validate() != nil || config.JS == nil || config.Mutations == nil || config.Registrations == nil || len(config.ResponsePublic) != ed25519.PublicKeySize {
 		return nil, nil, errors.New("container material requires current authority, signed profiles, delivery and manager")
 	}
@@ -541,7 +542,7 @@ func containerSnapshot(task rootoci.ContainerTaskMaterial, values map[string]roo
 }
 
 func (controller *containerMaterialController) syncMaterialSnapshot(ctx context.Context, material rootoci.ContainerTaskMaterial, values map[string]rootoci.ContainerSecretMetadata) error {
-	if !time.Now().Before(material.ExpiresAt) {
+	if controller.config.SnapshotMutations == nil || !time.Now().Before(material.ExpiresAt) {
 		return containermaterial.ErrPending
 	}
 	ctx, cancel := context.WithDeadline(ctx, material.ExpiresAt)
@@ -560,7 +561,7 @@ func (controller *containerMaterialController) syncMaterialSnapshot(ctx context.
 		!proto.Equal(&service.Service.Spec.Annotations, &task.Task.ServiceAnnotations) {
 		return containermaterial.ErrPending
 	}
-	return syncContainerSnapshot(ctx, controller.config.Client, controller.config.Authority, service.Service, containerSnapshot(material, values))
+	return syncContainerSnapshot(ctx, controller.config.SnapshotMutations, controller.config.Authority, service.Service, containerSnapshot(material, values))
 }
 
 func (controller *containerMaterialController) run(ctx context.Context) error {

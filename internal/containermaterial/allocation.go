@@ -17,7 +17,7 @@ import (
 
 // VerifyTaskAllocation authenticates a nonterminal resource reservation against
 // its signed profile and current recipient. It grants no execution or material.
-func VerifyTaskAllocation(ctx context.Context, client api.ControlClient, task *api.Task, expected swarmruntime.ServiceIntent,
+func VerifyTaskAllocation(ctx context.Context, client api.ControlReader, task *api.Task, expected swarmruntime.ServiceIntent,
 	verified release.VerifiedContainer, roots trust.Keyring, proof Profile, registration host.Registration, binding host.ContainerMaterialBinding,
 	controller *bootstrapstart.ControllerHostRecipient, worker swarmruntime.VerifiedWorkerMembership,
 ) error {
@@ -52,7 +52,7 @@ func VerifyTaskAllocation(ctx context.Context, client api.ControlClient, task *a
 
 // VerifyCurrentTaskAllocation repeats exact assignment, certificate and finite
 // recipient checks without repeating OCI observation or authorizing credentials.
-func VerifyCurrentTaskAllocation(ctx context.Context, client api.ControlClient, task *api.Task, expected swarmruntime.ServiceIntent,
+func VerifyCurrentTaskAllocation(ctx context.Context, client api.ControlReader, task *api.Task, expected swarmruntime.ServiceIntent,
 	verified release.VerifiedContainer, roots trust.Keyring, proof Profile, registration host.Registration, binding host.ContainerMaterialBinding,
 	controller *bootstrapstart.ControllerHostRecipient, worker swarmruntime.VerifiedWorkerMembership,
 ) error {
@@ -92,7 +92,7 @@ func VerifyCurrentTaskAllocation(ctx context.Context, client api.ControlClient, 
 	return ctx.Err()
 }
 
-func verifyAllocationAuthority(ctx context.Context, client api.ControlClient, task *api.Task, expected swarmruntime.ServiceIntent,
+func verifyAllocationAuthority(ctx context.Context, client api.ControlReader, task *api.Task, expected swarmruntime.ServiceIntent,
 	verified release.VerifiedContainer, roots trust.Keyring, proof Profile, registration host.Registration, binding host.ContainerMaterialBinding,
 ) error {
 	if client == nil || verifyAllocationProfile(task, expected, verified, proof, registration, binding) != nil {

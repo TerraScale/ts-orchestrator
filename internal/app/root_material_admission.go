@@ -166,7 +166,7 @@ func (producer *rootMaterialAdmission) readers(ctx context.Context, call rootoci
 	if node == nil || reader == nil {
 		return fail(containermaterial.ErrPending)
 	}
-	client, err := node.ControlClient(ctx)
+	client, err := node.ReadOnlyControlClient(ctx)
 	if err != nil {
 		return fail(err)
 	}

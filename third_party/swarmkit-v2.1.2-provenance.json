@@ -133,6 +133,19 @@
   "go_mod_sum": "h1:GQ6T0ij2oBbWX10OHwpvK449xfXkQMZ8J+B+eQ4mgp4=",
   "module": "github.com/moby/swarmkit/v2",
   "module_sum": "h1:1WDZAI6HVYNKdCG4zlXnTAPyLsLwuhRGWlHoOUf5Z6I=",
+  "local_readonly_control_patch": {
+    "purpose": "Privileged local read-only applied-store projection; original upstream file hashes remain unchanged. No mutation or secret methods are exposed.",
+    "files": [
+      {
+        "path": "api/control_reader.go",
+        "sha256": "cb517ab2f70a1409e0413091111c52a04c21631d2af9ebb4ad156319a90e1ab8"
+      },
+      {
+        "path": "manager/control_reader.go",
+        "sha256": "48bcafceb999f1a8b153b2c97ccb5e977cb78d929cfa4a75214163aa9b19e014"
+      }
+    ]
+  },
   "test_policy": "Nested module tests are archived upstream source; none are implicitly qualified or invoked by root-module ./... checks. Any execution requires explicit QA inventory and grant.",
   "upstream_files": [
     {

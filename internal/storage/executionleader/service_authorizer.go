@@ -26,7 +26,7 @@ import (
 // ServiceAuthorizerConfig belongs to the root manager. Every reader opens its
 // actual durable source there; the ordinary producer supplies no reader or seal.
 type ServiceAuthorizerConfig struct {
-	Client            api.ControlClient
+	Client            api.ControlReader
 	Authority         *authority.Reader
 	Members           placement.MemberPinReader
 	Delivery          *delivery.Service
