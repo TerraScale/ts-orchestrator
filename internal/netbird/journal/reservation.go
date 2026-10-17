@@ -15,34 +15,38 @@ import (
 
 // Binding contains public identities authenticated elsewhere; it grants no rights.
 type Binding struct {
-	PurposeSHA256          string `json:"purposeSha256"`
-	SourceSHA256           string `json:"sourceSha256"`
-	GrantSHA256            string `json:"grantSha256"`
-	TemplateSHA256         string `json:"templateSha256"`
-	CredentialID           string `json:"credentialId"`
-	CredentialSubject      string `json:"credentialSubject"`
-	CredentialSHA256       string `json:"credentialSha256"`
-	CurrentID              string `json:"currentId"`
-	CurrentVersion         int64  `json:"currentVersion"`
-	CurrentSHA256          string `json:"currentSha256"`
-	ManagerInstanceID      string `json:"managerInstanceId"`
-	ManagerVNICID          string `json:"managerVnicId"`
-	WriterInstanceID       string `json:"writerInstanceId"`
-	WriterVNICID           string `json:"writerVnicId"`
-	UnderlaySHA256         string `json:"underlaySha256"`
-	ManagerAdmissionSHA256 string `json:"managerAdmissionSha256"`
-	ManagerProcessSHA256   string `json:"managerProcessSha256"`
-	ManagerIntentSHA256    string `json:"managerIntentSha256"`
-	ManagerBinarySHA256    string `json:"managerBinarySha256"`
+	PurposeSHA256              string `json:"purposeSha256"`
+	SourceSHA256               string `json:"sourceSha256"`
+	GrantSHA256                string `json:"grantSha256"`
+	TemplateSHA256             string `json:"templateSha256"`
+	CredentialID               string `json:"credentialId"`
+	CredentialSubject          string `json:"credentialSubject"`
+	CredentialSHA256           string `json:"credentialSha256"`
+	CurrentID                  string `json:"currentId"`
+	CurrentVersion             int64  `json:"currentVersion"`
+	CurrentSHA256              string `json:"currentSha256"`
+	ManagerInstanceID          string `json:"managerInstanceId"`
+	ManagerVNICID              string `json:"managerVnicId"`
+	WriterInstanceID           string `json:"writerInstanceId"`
+	WriterVNICID               string `json:"writerVnicId"`
+	UnderlaySHA256             string `json:"underlaySha256"`
+	ManagerAdmissionSHA256     string `json:"managerAdmissionSha256"`
+	ManagerProcessSHA256       string `json:"managerProcessSha256"`
+	ManagerLaunchRecipeSHA256  string `json:"managerLaunchRecipeSha256"`
+	ManagerAccountIntentSHA256 string `json:"managerAccountIntentSha256,omitempty"`
+	ManagerBinarySHA256        string `json:"managerBinarySha256"`
 }
 
 func (binding Binding) Validate() error {
 	for _, value := range []string{binding.PurposeSHA256, binding.SourceSHA256, binding.GrantSHA256, binding.TemplateSHA256,
 		binding.CredentialSHA256, binding.CurrentSHA256, binding.UnderlaySHA256, binding.ManagerAdmissionSHA256,
-		binding.ManagerProcessSHA256, binding.ManagerIntentSHA256, binding.ManagerBinarySHA256} {
+		binding.ManagerProcessSHA256, binding.ManagerLaunchRecipeSHA256, binding.ManagerBinarySHA256} {
 		if !digest(value) {
 			return ErrReservation
 		}
+	}
+	if binding.ManagerAccountIntentSHA256 != "" && !digest(binding.ManagerAccountIntentSHA256) {
+		return ErrReservation
 	}
 	if !publicID(binding.CredentialID) || !nkeys.IsValidPublicUserKey(binding.CredentialSubject) || binding.CurrentVersion <= 0 ||
 		!nativeID(binding.CurrentID, "vaultsecret") || !nativeID(binding.ManagerInstanceID, "instance") ||
