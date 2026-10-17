@@ -31,10 +31,7 @@ func connect(ctx context.Context, req Request, host Host) (peer, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := session.UploadFile(ctx, "workload.oci", req.WorkloadArchivePath, req.WorkloadArchiveSHA256); err != nil {
-		session.Close()
-		return nil, err
-	}
+
 	return &sshPeer{session}, nil
 }
 
@@ -48,8 +45,10 @@ func (p *sshPeer) call(ctx context.Context, c command) (response, error) {
 	}
 	return result, ctx.Err()
 }
-func (p *sshPeer) close() error                        { return p.Close() }
-func (p *sshPeer) probeHTTP(ctx context.Context) error { return p.ProbeHTTP(ctx) }
+func (p *sshPeer) close() error { return p.Close() }
+func (p *sshPeer) probeHTTP(ctx context.Context) error {
+	return p.ProbeManagedHTTP(ctx)
+}
 
 func digest(wire []byte) string { return fmt.Sprintf("%x", sha256.Sum256(wire)) }
 func fileDigest(path string) (string, error) {

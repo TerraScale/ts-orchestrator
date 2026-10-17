@@ -4,16 +4,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
-	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/native"
 	"os"
+
+	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/native"
 )
 
 func main() {
-	if len(os.Args) == 3 && os.Args[1] == "--runtime-logger" {
-		swarmruntime.RunRuntimeLogger(os.Args[2])
-		return
-	}
 	if len(os.Args) != 2 || os.Args[1] != "serve" {
 		fmt.Fprintln(os.Stderr, "native-worker requires serve")
 		os.Exit(2)

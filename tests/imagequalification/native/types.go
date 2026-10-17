@@ -4,10 +4,10 @@ package native
 
 import (
 	"context"
-	"errors"
 
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	qualificationhost "github.com/TerraScale/ts-orchestrator/tests/imagequalification/host"
 )
@@ -40,14 +40,11 @@ func RequiredMaterialScenarios() [5]string {
 // ValidateProfileIdentity binds existing root authority to the image candidate;
 // it neither verifies signed bytes nor creates a deployment identity.
 func ValidateProfileIdentity(candidate release.ProductionExpectation, identity cellspec.Identity) error {
-	if identity.Validate() != nil || !release.ValidRegion(candidate.Cell) || !release.ValidEnvironment(candidate.Environment) ||
-		identity.Cell != candidate.Cell || identity.Environment != candidate.Environment {
-		return errors.New("native profile identity must name the approved deployment and candidate cell/environment")
-	}
-	return nil
+	return qualificationhost.ValidateProfileIdentity(candidate, identity)
 }
 
 type Request struct {
+	Delivery              Delivery
 	MaterialFixtures      []MaterialFixture
 	TrustedRoots          trust.Keyring
 	ProfileIdentity       cellspec.Identity
@@ -59,32 +56,30 @@ type Request struct {
 	PrivateKeyPath        string // Ephemeral local key, owner-only permissions; never retained.
 	WorkerPath            string // Same-architecture test-only native-worker executable.
 	WorkerSHA256          string
-	WorkloadArchivePath   string // Local OCI archive, securely copied before runtime execution.
+	WorkloadArchivePath   string // Local archive identity; delivery uses the authenticated artifact producer.
 	WorkloadArchiveSHA256 string
 	WorkloadImage         string // Architecture-specific immutable child manifest, providing /bin/sh and nc.
 	ContainerdPath        string
 	RuncPath              string
 }
 
+// Delivery uses the parent's authenticated controller client; SSH never supplies authority.
+type Delivery interface {
+	Apply(context.Context, MaterialFixture) error
+}
+
 type command struct {
-	Operation      string            `json:"operation"`
-	SourceRevision string            `json:"source_revision,omitempty"`
-	RunID          string            `json:"run_id,omitempty"`
-	Host           Host              `json:"host,omitzero"`
-	Region         string            `json:"region,omitempty"`
-	Founder        string            `json:"founder,omitempty"`
-	JoinAddress    string            `json:"join_address,omitempty"`
-	Token          string            `json:"token,omitempty"`
-	NodeID         string            `json:"node_id,omitempty"`
-	ServiceID      string            `json:"service_id,omitempty"`
-	Image          string            `json:"image,omitempty"`
-	ArchiveSHA256  string            `json:"archive_sha256,omitempty"`
-	Port           uint32            `json:"port,omitzero"`
-	Mode           string            `json:"mode,omitempty"`
-	Peers          []string          `json:"peers,omitempty"`
-	Addresses      map[string]string `json:"addresses,omitempty"`
-	ContainerdPath string            `json:"containerd_path,omitempty"`
-	RuncPath       string            `json:"runc_path,omitempty"`
+	Expected       []swarmruntime.ServiceIntent `json:"expected,omitempty"`
+	Operation      string                       `json:"operation"`
+	SourceRevision string                       `json:"source_revision,omitempty"`
+	RunID          string                       `json:"run_id,omitempty"`
+	Host           Host                         `json:"host,omitzero"`
+	ServiceID      string                       `json:"service_id,omitempty"`
+	Mode           string                       `json:"mode,omitempty"`
+	Peers          []string                     `json:"peers,omitempty"`
+	Addresses      map[string]string            `json:"addresses,omitempty"`
+	ContainerdPath string                       `json:"containerd_path,omitempty"`
+	RuncPath       string                       `json:"runc_path,omitempty"`
 }
 
 type taskState struct {
@@ -97,15 +92,14 @@ type taskState struct {
 
 type response struct {
 	Role                 string      `json:"role,omitempty"`
-	WorkerToken          string      `json:"worker_token,omitempty"`
 	WorkerSHA256         string      `json:"worker_sha256,omitempty"`
 	WorkerSourceRevision string      `json:"worker_source_revision,omitempty"`
 	Error                string      `json:"error,omitempty"`
 	Identity             Identity    `json:"identity,omitzero"`
 	NodeID               string      `json:"node_id,omitempty"`
-	Token                string      `json:"token,omitempty"`
 	Leader               string      `json:"leader,omitempty"`
 	Managers             int         `json:"managers,omitzero"`
+	OperationID          string      `json:"operation_id,omitempty"`
 	ServiceID            string      `json:"service_id,omitempty"`
 	Tasks                []taskState `json:"tasks,omitempty"`
 	Running              uint64      `json:"running,omitzero"`

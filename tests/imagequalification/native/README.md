@@ -1,63 +1,11 @@
-This directory is **test infrastructure**, not an admission authority or a live
-execution authorization. `Run` requires four different disposable OCI
-Compute instances (three managers and a separate container agent), one exact imported image, private IPv4 addresses, trusted SSH
-host-key pins, and an owner-only ephemeral SSH key. The parent must authenticate
-actual OCI confinement and host ownership before calling it. A `/run` marker is
-an additional accident guard, not cloud authorization.
+# Installed runtime image qualification
 
-`tests/imagequalification/host` owns shared host observations, report DTOs and
-`OpenSession(SessionConfig)` without a CORE/runtime dependency. Native retains
-public type aliases and protocol adapters. The transport always uses root SSH on port 22,
-checks the local/remote worker digest and starts only `worker serve`.
-`Session.UploadFile` requires an explicit basename and SHA256, checks both ends,
-and rejects overwrites. `Session.Exchange` uses strict JSON with a 1 MiB frame
-limit; cancellation closes SSH. Credentials remain on the driver.
+The parent launches three real controllers and one lineage-backed managed container worker on disposable Compute instances using the candidate image. Its finite bootstrap/artifact producer supplies authentic enrollment, adopted root-signed profiles, pinned OCI artifacts, Vault credentials, and signed controller delivery. Native execution requires that producer; the runner creates no substitute authority.
 
-The material request requires the exact ordered `RequiredMaterialScenarios()`:
-`ready`, `after-loss`, `after-partition`, `unready`, `failed-update`.
-`ValidateProfileIdentity` binds the existing deployment identity and candidate
-cell/environment. Root-signed no-secret profile and authenticated delivery proof
-consumption are still being integrated; the runner has not qualified execution
-with CORE's mandatory material provider and must not be advertised as native
-acceptance until that integration and real-host checks pass.
+`Request.Delivery.Apply` must adopt the approved profile and submit the exact signed intent through the authenticated regional delivery service, then verify its accepted receipt. The runner checks approved fixture digests, root profile authority, stable service identity, signed args/resources, and the observed operation label. All five phases use the same stable `ts-auth` service and port 8080. After-loss and after-partition update retained signed operations while preserving the task specification and endpoint. Execution order is ready, after-loss, after-partition, failed-update, unready: rollback must start from a ready baseline, so fixture generations must follow that order.
 
-Build `./tests/imagequalification/native/cmd/native-worker` from the exact source
-candidate for the target architecture. The parent supplies its SHA256, the image
-component hashes, the immutable architecture-specific smoke image child manifest,
-and a pinned OCI archive of that workload. The runner transfers only the worker
-and archive over pinned SSH. Driver continuity probes use direct-tcpip forwarding through
-the same pinned SSH connection to host loopback port 18080; the runner needs
-SSH ingress only. Manager-to-worker readiness probes use the exact peer-only
-ports 18080, 18081, 18082 and 18083. The archive is imported and unpacked locally; CORE's
-cached exact-image execution path requires no registry access. NetBird and
-production units must be inactive. No production secrets or NetBird membership
-are installed. The launch bootstrap must create `/run/ts-native-disposable` with
-the exact run ID. All test state lives under `/run/ts-native-<run-id>`.
+SSH is limited to pinned identity/process/task observations and fixed process/network faults. The helper verifies the running installed binary digest and exact `managed-runtime-start` command, reads its persistent certificate and upstream control socket, and never creates nodes, extracts join tokens, admits membership, writes service specifications, installs credentials, or preloads workload archives. Workload delivery uses the parent's real artifact path. Runtime faults target the installed managed-runtime unit; TCP partitions target 2377. Cleanup heals partitions and restores processes stopped by the run; guarded OCI destruction remains the parent’s responsibility.
 
-The scenarios use real CORE managers/agents and containerd tasks on distinct
-hosts, real HTTP, actual iptables manager-IP-only partitions that preserve the separate worker Dispatcher connection, durable node restart,
-cross-host container identity/PID checks, real readiness failure and upstream
-rollback. Evidence includes exact component and IMDS instance/boot-image identity,
-per-scenario transcripts and hashes. IMDSv2 is a host observation over link-local
-HTTP, not cryptographic instance/boot attestation; the SDK producer independently
-authenticates instance/image mapping. SSH host-key pin provenance must come from
-a trusted launch/console producer before live execution. The parent independently maps the observed
-image ID to its QCOW2 digest and retains CI/source qualification and policy proof.
-Join tokens and SSH private keys are excluded from reports.
+The scenarios observe three-manager formation, surviving task/PID and continuous independent HTTP readiness during manager loss/partition and agent restart, majority signed writes, unavailable-agent replacement with stale cleanup, actual non-root/seccomp/readonly isolation, failed-update rollback, and HTTP 503 readiness rejection. A manager carrying the serving task is preserved during manager disruption; no leader-loss claim is inferred when that requires choosing another manager.
 
-Required scenario names are `manager-loss`, `manager-partition`, `agent-restart`
-(`runtime-ha`), `unavailable-agent-replacement` (also `runtime-ha`), and `readiness-rejection`, `rollback`, `container-isolation`
-(`workload-safety`). Formation and cleanup have their own additional transcripts.
-`container-isolation` measures the actual platform container process contract:
-non-root identity, readonly root filesystem, no privileges/capabilities and
-seccomp. CORE currently uses host networking. This does not establish hostile
-customer/tenant network isolation, signed production workload admission, database
-fencing, production release qualification, or regional availability. The fixture
-integration tests exercise local filesystem/process/SSH/HTTP boundaries only.
-Their success never establishes native image acceptance.
-
-Cleanup heals partitions and removes services across the available quorum, then
-verifies no matching runtime containers remain on any host. Cleanup errors fail
-the run. The parent's independently authorized cleanup still owns terminating
-the disposable hosts and deleting their cloud resources. A failed process or
-unreachable host must never be considered cleaned up by a successful local call.
+File hashes and kernel/IMDS observations do not attest a running containerd or runc process. Native execution and OCI/Vault/SSH mutations require the separately authorized live qualification run. This source change has not run native qualification.
