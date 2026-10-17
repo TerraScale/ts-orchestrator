@@ -13,6 +13,8 @@ import (
 
 const (
 	SequenceMigrationSchema      = "terrascale.release.sequence-migration.v1"
+	SequenceFreshRoleSchema      = "terrascale.release.sequence-migration.v2"
+	SequenceFreshRolePurpose     = "fresh-role-baseline"
 	SequenceMigrationDomain      = "terrascale.release.sequence-migration"
 	MaxSequenceMigrationLifetime = 24 * time.Hour
 )
@@ -35,17 +37,38 @@ type SequenceMigration struct {
 	Bucket          string          `json:"bucket"`
 	Region          string          `json:"region"`
 	Schema          string          `json:"schema"`
+	Purpose         string          `json:"purpose,omitempty"`
 	SignerKeyID     string          `json:"signer_key_id"`
 	SignerPublicKey string          `json:"signer_public_key"`
 	Role            string          `json:"role"`
 	Environment     string          `json:"environment"`
 	SequenceFloor   uint64          `json:"sequence_floor"`
-	Regions         []SequenceFloor `json:"regions"`
+	Regions         []SequenceFloor `json:"regions,omitempty"`
+	FreshCells      []string        `json:"fresh_cells,omitempty"`
 }
 
 func (migration SequenceMigration) Validate() error {
-	if migration.Schema != SequenceMigrationSchema || migration.Namespace == "" || len(migration.Namespace) > 128 || migration.Bucket != "gru-1-head" || migration.Region != "GRU" || !sequenceRole.MatchString(migration.Role) || validateEnvironment(migration.Environment) != nil || migration.SequenceFloor == 0 || len(migration.Regions) != 3 {
+	if migration.Namespace == "" || len(migration.Namespace) > 128 || migration.Bucket != "gru-1-head" || migration.Region != "GRU" || !sequenceRole.MatchString(migration.Role) || validateEnvironment(migration.Environment) != nil || migration.SequenceFloor == 0 {
 		return fmt.Errorf("%w: sequence migration scope or regional floors", ErrInvalidReceipt)
+	}
+	switch migration.Schema {
+	case SequenceMigrationSchema:
+		if migration.Purpose != "" || len(migration.FreshCells) != 0 || len(migration.Regions) != 3 {
+			return fmt.Errorf("%w: legacy sequence migration purpose or floors", ErrInvalidReceipt)
+		}
+	case SequenceFreshRoleSchema:
+		if migration.Purpose != SequenceFreshRolePurpose || len(migration.Regions) != 0 || len(migration.FreshCells) != 3 {
+			return fmt.Errorf("%w: fresh role migration purpose or cells", ErrInvalidReceipt)
+		}
+		seen := make(map[string]bool, 3)
+		for _, cell := range migration.FreshCells {
+			if !ValidRegion(cell) || seen[cell] {
+				return fmt.Errorf("%w: fresh role migration cell", ErrInvalidReceipt)
+			}
+			seen[cell] = true
+		}
+	default:
+		return fmt.Errorf("%w: sequence migration schema", ErrInvalidReceipt)
 	}
 	public, err := base64.RawURLEncoding.Strict().DecodeString(migration.SignerPublicKey)
 	if err != nil || len(public) != ed25519.PublicKeySize {
@@ -69,6 +92,14 @@ func SequenceMigrationScope(role, environment string) trust.Scope {
 	return trust.Scope{Domain: SequenceMigrationDomain, DeploymentID: entityid.Derive("release-sequence", role, environment), Cell: "global", Environment: environment, Role: role, Slot: "migration"}
 }
 
+func (migration SequenceMigration) signingScope() trust.Scope {
+	scope := SequenceMigrationScope(migration.Role, migration.Environment)
+	if migration.Schema == SequenceFreshRoleSchema {
+		scope.Slot = SequenceFreshRolePurpose
+	}
+	return scope
+}
+
 func SignSequenceMigration(migration SequenceMigration, now time.Time, root ed25519.PrivateKey) (trust.Envelope, error) {
 	if err := migration.Validate(); err != nil {
 		return trust.Envelope{}, err
@@ -87,7 +118,7 @@ func SignSequenceMigration(migration SequenceMigration, now time.Time, root ed25
 	if err != nil {
 		return trust.Envelope{}, err
 	}
-	return trust.Sign(payload, SequenceMigrationScope(migration.Role, migration.Environment), now, now.Add(MaxSequenceMigrationLifetime), root)
+	return trust.Sign(payload, migration.signingScope(), now, now.Add(MaxSequenceMigrationLifetime), root)
 }
 
 // VerifySequenceMigrationHistorical checks a durable authorization already
@@ -105,6 +136,9 @@ func VerifySequenceMigrationCurrent(envelope trust.Envelope, roots trust.Keyring
 
 func verifySequenceMigration(envelope trust.Envelope, roots trust.Keyring, role, environment string, now time.Time) (SequenceMigration, error) {
 	scope := SequenceMigrationScope(role, environment)
+	if envelope.Scope.Slot == SequenceFreshRolePurpose {
+		scope.Slot = SequenceFreshRolePurpose
+	}
 	policy := trust.Policy{MaxLifetime: MaxSequenceMigrationLifetime}
 	var payload []byte
 	var err error
@@ -126,7 +160,7 @@ func verifySequenceMigration(envelope trust.Envelope, roots trust.Keyring, role,
 	if roots[migration.SignerKeyID] != nil {
 		return SequenceMigration{}, fmt.Errorf("%w: sequence signer is an offline root", ErrInvalidReceipt)
 	}
-	if migration.Role != role || migration.Environment != environment {
+	if migration.Role != role || migration.Environment != environment || migration.signingScope() != scope {
 		return SequenceMigration{}, trust.ErrScopeMismatch
 	}
 	return migration, nil
@@ -135,6 +169,9 @@ func verifySequenceMigration(envelope trust.Envelope, roots trust.Keyring, role,
 // AdmitsLegacyFloor ensures a migration cannot erase the consumer's retained
 // ordering floor, even if its current channel object has been replaced.
 func (migration SequenceMigration) AdmitsLegacyFloor(cell string, run int64, issued time.Time) bool {
+	if migration.Schema != SequenceMigrationSchema {
+		return false
+	}
 	for _, floor := range migration.Regions {
 		if floor.Cell == cell {
 			return run <= floor.RunNumber && (issued.IsZero() || !floor.IssuedAt.IsZero() && !issued.After(floor.IssuedAt))

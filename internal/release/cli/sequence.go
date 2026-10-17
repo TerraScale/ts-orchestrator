@@ -11,11 +11,11 @@ import (
 )
 
 // signSequenceMigration is the offline-root review of the signer identity,
-// canonical store and every retained regional admission floor.
+// canonical store and retained regional floors or explicit fresh-role purpose.
 func (c command) signSequenceMigration(args []string) error {
 	flags := flag.NewFlagSet("sign-sequence-migration", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	candidate := flags.String("candidate", "", "canonical migration JSON with reviewed signed regional floors")
+	candidate := flags.String("candidate", "", "canonical migration JSON with reviewed regional floors or explicit fresh-role baseline")
 	keyPath := flags.String("signing-key", "", "offline root Ed25519 private key")
 	output := flags.String("out", "", "new signed migration envelope")
 	if err := flags.Parse(args); err != nil {
