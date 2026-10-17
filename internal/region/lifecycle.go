@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
@@ -86,6 +87,7 @@ type Foundations interface {
 // FoundationProgress connects provider effects to the same durable scoped
 // attempt. The snapshot IDs are authenticated journal values, never discovery.
 type FoundationProgress struct {
+	homeStorageDomain   bootstrap.StorageDomain
 	OperationID         string
 	BeforeWrite         func(context.Context, bool) (context.Context, func(), error)
 	Checkpoint          func(context.Context, string, string) error
@@ -380,6 +382,9 @@ func (c *FoundationController) reconcile(ctx context.Context, epoch uint64, foot
 	}()
 	progress := FoundationProgress{OperationID: current.OperationID, BeforeWrite: attempt.beforeWrite, Checkpoint: attempt.checkpoint,
 		AuxiliaryIDs: maps.Clone(current.AuxiliaryIDs), CheckpointAuxiliary: attempt.checkpointAuxiliary, PrepareCreate: attempt.prepareCreate}
+	if reader, ok := c.Footprint.(*SignedFootprint); ok && cell == "GRU" {
+		progress.homeStorageDomain = reader.storage
+	}
 	if intent.NetBirdManager != nil {
 		reader, ok := c.Footprint.(*SignedFootprint)
 		if !ok || cell != "GRU" {

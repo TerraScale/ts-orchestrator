@@ -24,6 +24,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
 )
 
@@ -32,13 +33,15 @@ type Object = map[string]any
 // Dependency permits tests to supply cloud and verification responses without starting processes.
 type Dependency func(name string, args []any, kwargs Object) (any, error)
 type Engine struct {
-	Context    context.Context
-	PlanPath   string
-	Clock      func() time.Time
-	Dependency Dependency
-	Overrides  map[string]bool
-	Stdout     io.Writer
-	Argv       []string
+	// HomeStorageDomain comes from the verified root-pinned GRU footprint.
+	HomeStorageDomain bootstrap.StorageDomain
+	Context           context.Context
+	PlanPath          string
+	Clock             func() time.Time
+	Dependency        Dependency
+	Overrides         map[string]bool
+	Stdout            io.Writer
+	Argv              []string
 }
 type Failure struct {
 	Message string
