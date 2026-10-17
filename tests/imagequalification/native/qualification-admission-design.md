@@ -1,0 +1,37 @@
+# Finite admission for the four-host runtime qualification
+
+Status: source proposal for SEC, CORE, NODE and OCI review. It authorizes no signing, provisioning or live execution. The installed runtime still refuses this topology until the reviewed admission extension exists.
+
+## Signed purpose and scope
+
+Keep the existing `terrascale.test.image-qualification` trust domain, original trust roots, `entityid.Derive("qualification", runID)` deployment, `qualification` environment and `disposable-host` role. Add a mandatory signed purpose with separate fixed values for `native-runtime-ha` and `root-credential-boundary`. Qualify the existing slot with that purpose, for example `native-runtime-ha/swarmkit-containerd/linux-arm64`. A root credential approval cannot start a runtime, and a runtime approval cannot perform foundation publication. A historical approval with no purpose grants neither new operation.
+
+The original root-approved envelope must bind the final candidate bytes and source revision, qualification digest, exact region/tenancy/compartment, imported image and disk digest, controller/host instance IDs and private addresses, current OCI SDK launch observations, exact subnet/NSG, and the original confinement evidence. A per-host attenuation retains the original envelope digest, purpose-qualified slot and namespace digest. It narrows the proof to one approved topology member and expires no later than the original approval. The verifier reads current IMDS and SDK state before sealing the result. Exported structs, a signed-looking DTO, caller-supplied identity strings, and metadata alone cannot construct the sealed admission.
+
+## Fixed topology and budget
+
+Exactly three controller/manager instances and one lineage-backed managed container worker participate. Each member has a distinct instance ID, address and signed topology slot. The signer approves the existing HostSpec placement, architecture-specific shape, OCPUs, memory and boot storage, aggregate spend ceiling and cleanup deadline. The producer checks the aggregate before each create and retains idempotency keys and returned cloud object IDs. Replacements consume the same finite four-member ledger; there is no autoscaling authority or unbounded retry-created capacity.
+
+Admission lasts at most one hour from the root-approved run start and always ends earlier when the original approval expires. The existing 15-minute native scenario deadline stays fixed. Enrollment projections keep the production ten-minute maximum and can renew only within the remaining run admission. Renewal cannot increase host count, spend, roles, image version, namespace or expiry. A separate original cleanup deadline permits only deletion of recorded run-owned objects after admission expires. Timeouts and partial failures retain the ledger for that cleanup.
+
+## Installed runtime and enrollment
+
+Extend the installed runtime's existing admission verifier with the reviewed sealed qualification purpose. It must consume a dedicated qualification admission type; do not convert it into a production FoundationGrant, AcceptedIdentity, retained deployment, founder grant, host registration or fabricated managed placement/member record. Production launch admission remains required outside the exact disposable namespace and purpose-qualified slot.
+
+After that verification, run the actual installed `managed-runtime-start` state machine, including the existing manager Vault material, TLS NATS cluster, current root controller authority, host enrollment, signed worker projection, dual-key worker binding and task-bound material delivery. Reuse those mechanisms with real run-scoped records. The qualification producer must create and observe the worker's actual managed OCI, placement and member lineage through the same authenticated controller operations that normally establish them. A scope field set by the harness does not replace any missing record. Every required controller, host and release credential is created or delivered through the reviewed finite Vault path, never copied into place over SSH.
+
+Three signed controller/NATS endpoints use the actual launch addresses and existing CA/response-key verification. The worker receives only the worker-token Vault projection and cannot obtain manager authority. The admission extension must explicitly verify each controller's signed requested-controller grant and current ownhost session, and the worker's current completed enrollment/registration and lineage, before placement. Privileged startup stops when current authority expires or changes; an old accepted envelope alone cannot keep granting new credential or placement actions.
+
+## Signed workload delivery and evidence
+
+The finite artifact producer supplies immutable OCI child manifests, archive digests, real signed release claims, winning immutable sequence allocations, root-signed profiles and authenticated retained delivery operations. It adopts profiles and submits exact envelopes through the real controller delivery client. The existing native runner observes stable service IDs, exact signed args/resources/endpoints, operation receipts, upstream assignments, container inventory, independent HTTP readiness and confinement. SSH provides observation and fixed process/network fault injection only.
+
+The metadata-only majority-write phases preserve Task.Spec and endpoint while advancing the signed operation. CORE must confirm task-material renewal semantics for an unchanged task whose retained ServiceAnnotations name the previous operation before this design is executable. Failed-update runs before unready; signed generations must follow actual execution order. The root credential boundary is a separate gate using the same final disk and its own purpose. Neither gate substitutes for the other.
+
+## Review and implementation prerequisites
+
+1. SEC reviews purpose separation, sealed-constructor boundaries, replay/renewal limits and expiry behavior.
+2. CORE and NODE define the qualification admission extension without constructing production identities, and resolve unchanged-task material renewal.
+3. OCI reviews the four-member ledger, real worker lineage, original IAM confinement and cleanup-only authority.
+4. APP connects the reviewed seal to installed startup and the real enrollment/Vault/controller path.
+5. QA verifies rejected cross-purpose/expired/foreign-host proofs in source tests before any separately authorized live run.
