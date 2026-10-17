@@ -95,7 +95,7 @@ func (store RootStore) retireExpired(ctx context.Context, lifecycle RetirementCl
 		}
 		if response.OpcNextPage == nil || *response.OpcNextPage == "" {
 			if err := store.guard(ctx); err != nil {
-				return nil, err
+				return retired, err
 			}
 			return retired, errors.Join(failures...)
 		}
