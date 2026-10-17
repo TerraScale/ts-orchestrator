@@ -24,91 +24,12 @@ type managedUpdatePlacementReader interface {
 }
 
 func (controller *Controller) managedUpdatePrepareIsCurrent(ctx context.Context, state MemberState) (bool, error) {
-	target := state.ManagedRuntimeTarget
 	reader, ok := controller.fencer.(authority.ManagedUpdateReader)
 	if !ok {
 		return false, errors.New("placement authority lacks managed update history")
 	}
-	entries, err := reader.ReadManagedUpdateOperation(ctx, state.DatabaseID, state.PartitionID, target.OperationID)
-	if err != nil {
-		if errors.Is(err, authority.ErrNotFound) {
-			return false, nil
-		}
-		return false, err
-	}
-	if len(entries) == 0 {
-		return false, nil
-	}
-	var preparedEntry authority.LogEntry
-	for _, entry := range entries {
-		if managedUpdatePhaseFromSubject(entry.SubjectKey) == authority.ManagedUpdatePrepared {
-			preparedEntry = entry
-			break
-		}
-	}
-	if preparedEntry.Kind != authority.MutationManagedUpdate || preparedEntry.Sequence != target.AuthoritySequence ||
-		preparedEntry.OperationID != target.OperationID {
-		return false, nil
-	}
-	record, intent, envelope, err := decodeManagedUpdateRequest(preparedEntry, controller.config.Cell)
-	if err != nil {
-		return false, err
-	}
-	if record.PlacementGeneration != target.PlacementGeneration ||
-		record.PlacementPayloadDigest != target.PlacementPayloadDigest ||
-		record.CanarySeatID != target.CanarySeatID ||
-		record.CanaryDesiredGeneration != target.DesiredGeneration ||
-		record.CandidateArtifactDigest != target.ArtifactDigest ||
-		record.CandidateManifestDigest != target.ManifestDigest ||
-		record.CandidateSourceDigest != target.SourceDigest ||
-		record.SignedRequestSHA256 != target.RequestSHA256 ||
-		intent.DatabaseID != state.DatabaseID || intent.PartitionID != state.PartitionID ||
-		intent.CanarySeatID != state.MemberID || envelope.Epoch != preparedEntry.Epoch {
-		return false, nil
-	}
-	latest, err := reader.ReadManagedUpdate(ctx, state.DatabaseID, state.PartitionID)
-	if err != nil {
-		return false, err
-	}
-	if latest.Kind != authority.MutationManagedUpdate {
-		return false, nil
-	}
-	if latest.OperationID != preparedEntry.OperationID || latest.Sequence != preparedEntry.Sequence {
-		// The operation is no longer the latest prepared request, so it stays
-		// current only through its own retained canary-serving outcome. Once a
-		// later operation follows, the seat must already record that outcome.
-		served := false
-		for _, entry := range entries {
-			if managedUpdatePhaseFromSubject(entry.SubjectKey) != authority.ManagedUpdateCanaryServing {
-				continue
-			}
-			terminal, err := decodeManagedUpdatePhaseRecord(entry, record, authority.ManagedUpdateCanaryServing)
-			served = err == nil && terminal.Phase == authority.ManagedUpdateCanaryServing
-		}
-		if !served || target.Phase != ManagedUpdateSeatPrepared && target.Phase != ManagedUpdateSeatCanaryServing ||
-			latest.OperationID != preparedEntry.OperationID && target.Phase != ManagedUpdateSeatCanaryServing {
-			return false, nil
-		}
-	}
-	placementReader, ok := controller.fencer.(managedUpdatePlacementReader)
-	if !ok {
-		return false, errors.New("placement authority lacks exact placement history")
-	}
-	placementEntry, err := placementReader.ReadPlacementIntent(ctx, state.DatabaseID, state.PartitionID)
-	if err != nil {
-		return false, err
-	}
-	if placementEntry.Sequence != record.PlacementSequence {
-		return false, nil
-	}
-	currentIntent, err := DecodeCommittedIntent(placementEntry.Payload)
-	if err != nil {
-		return false, err
-	}
-	return currentIntent.Generation == record.PlacementGeneration &&
-		currentIntent.PayloadDigest() == record.PlacementPayloadDigest &&
-		currentIntent.Generation == intent.PlacementGeneration &&
-		currentIntent.PayloadDigest() == intent.PlacementPayloadDigest, nil
+	placementReader, _ := controller.fencer.(managedUpdatePlacementReader)
+	return managedUpdatePrepareIsCurrent(ctx, controller.config.Cell, reader, placementReader, state)
 }
 
 func (controller *Controller) reconcileManagedUpdate(ctx context.Context, epoch uint64,
@@ -931,86 +852,25 @@ func (controller *Controller) VerifyManagedDesired(
 func (controller *Controller) VerifyManagedRuntimeTarget(ctx context.Context, desired host.Desired,
 	registration host.Registration,
 ) (bool, error) {
-	if desired.ManagedMember == nil || desired.Withdrawn || registration.ManagedPlacement == nil ||
-		registration.ManagedMember == nil || registration.ManagedOCI == nil {
-		return false, errors.New("managed runtime target is missing its host registration")
-	}
-	placementBinding := *registration.ManagedPlacement
-	if _, err := controller.store.ReadTerminalIntent(ctx, placementBinding.DatabaseID, placementBinding.PartitionID); err == nil {
-		return false, authority.ErrFenced
-	} else if !errors.Is(err, authority.ErrNotFound) {
-		return false, err
-	}
 	reader, ok := controller.fencer.(managedUpdatePlacementReader)
 	if !ok {
 		return false, errors.New("managed runtime verifier lacks exact placement history")
 	}
-	entry, err := reader.ReadPlacementIntent(ctx, placementBinding.DatabaseID, placementBinding.PartitionID)
-	if err != nil {
+	updates, _ := controller.fencer.(authority.ManagedUpdateReader)
+	snapshot, updated, err := readManagedRuntimeTarget(ctx, controller.config, controller.store, controller.store,
+		reader, updates, controller.fencer.Current().Epoch, desired, registration)
+	if err != nil || !updated {
 		return false, err
 	}
-	intent, err := DecodeCommittedIntent(entry.Payload)
-	if err != nil || intent.Generation != placementBinding.IntentGeneration ||
-		intent.PayloadDigest() != placementBinding.IntentPayloadDigest ||
-		intent.DatabaseID != placementBinding.DatabaseID || intent.PartitionID != placementBinding.PartitionID {
-		return false, errors.New("managed runtime placement differs from its exact authority record")
-	}
-	stateVersion, err := controller.store.ReadMember(ctx, intent.DatabaseID, intent.PartitionID, placementBinding.SeatID)
-	if err != nil {
-		return false, err
-	}
-	state := stateVersion.State
-	if state.CanonicalRosterRow.MemberID != desired.ManagedMember.Member.Scope.MemberID {
-		return false, errors.New("managed runtime target member differs from its durable placement seat")
-	}
-	target := state.ManagedRuntimeTarget
-	if target.OperationID == "" {
-		return false, nil
-	}
-	if stateVersion.Revision == 0 || state.Validate() != nil || state.SchemaVersion != managedUpdateMemberStateSchemaVersion ||
-		state.HostNode != desired.Node || state.HostGeneration != registration.Generation ||
-		state.MemberID != placementBinding.SeatID || target.Phase == ManagedUpdateSeatHeld ||
-		state.Stage != StagePreparedDesired && state.Stage != StageAwaitingHealthy && state.Stage != StageServing ||
-		registration.ManagedOCI.InstanceID != state.InstanceID || registration.ManagedOCI.CreateKey != state.CreateKey ||
-		registration.ManagedOCI.Owner != controller.config.ManagedOwner ||
-		registration.ManagedOCI.FleetGeneration != controller.config.FleetGeneration {
-		return false, errors.New("managed runtime target differs from the exact durable canary seat")
-	}
-	current, err := controller.managedUpdatePrepareIsCurrent(ctx, state)
-	if err != nil {
-		return false, err
-	}
-	if !current {
-		return false, errors.New("managed runtime update authority is no longer current")
-	}
-	artifact, err := controller.admittedRuntimeArtifact(ctx, state)
-	if err != nil || artifact.Digest != target.ArtifactDigest || artifact.ManifestDigest != target.ManifestDigest ||
-		artifact.SourceDigest != target.SourceDigest || desired.Digest != target.ArtifactDigest ||
-		desired.Generation != target.DesiredGeneration || desired.ManagedMember.SourceDigest != target.SourceDigest {
+	artifact, err := controller.admittedRuntimeArtifact(ctx, snapshot.member.State)
+	if err != nil || artifact != snapshot.artifact {
 		return false, errors.New("managed runtime target artifact or source is not the exact admitted canary")
-	}
-	seat, ok := controller.seatForMember(intent, state.Region, state.MemberID)
-	if !ok {
-		return false, errors.New("managed runtime target seat is not in the immutable placement")
-	}
-	want, err := controller.memberDesired(controller.fencer.Current().Epoch, intent, state, seat)
-	if err != nil || !sameManagedDesired(desired, want) {
-		return false, errors.New("managed runtime target desired differs from its durable canary pins")
 	}
 	return true, nil
 }
 
 func (controller *Controller) seatForMember(intent Intent, region oci.Region, memberID string) (Seat, bool) {
-	seats, err := controller.localSeats(intent)
-	if err != nil {
-		return Seat{}, false
-	}
-	for _, seat := range seats {
-		if seat.Region == region && seat.MemberID == memberID {
-			return seat, true
-		}
-	}
-	return Seat{}, false
+	return managedSeatForMember(controller.config, intent, region, memberID)
 }
 
 func sameManagedDesired(left, right host.Desired) bool {

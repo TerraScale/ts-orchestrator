@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -146,6 +147,103 @@ func TestManagedUpdateR3PrepareHeldRestartReconciliation(t *testing.T) {
 		t.Fatalf("durable canary preparation time is not an absolute UTC deadline: %v", preparedAt)
 	}
 
+	// The read-only root path uses the same genuine R3 records and a real
+	// member-state bucket, without constructing a Controller or authority writer.
+	authorityReader, err := authority.OpenReader(ctx, broker.JetStream(), controller.config.Cell)
+	if err != nil {
+		t.Fatalf("open read-only managed runtime authority: %v", err)
+	}
+	lease, err := authorityReader.AdmitCurrentLease(ctx, snapshot.DeploymentID, snapshot.CandidateID, snapshot.Epoch)
+	if err != nil {
+		t.Fatalf("admit actual managed runtime lease: %v", err)
+	}
+	intents, err := NewAuthorityIntentReader(authorityReader, controller.config.Cell, controller.config.Region)
+	if err != nil {
+		t.Fatalf("open actual runtime placement source: %v", err)
+	}
+	durableMembers, err := NewJetStreamStore(ctx, broker.JetStream(), controller.config.Cell, 1, intents)
+	if err != nil {
+		t.Fatalf("open genuine member state: %v", err)
+	}
+	memberRevision, err := durableMembers.CompareAndSwap(ctx, 0, preparedSeat.State)
+	if err != nil || memberRevision == 0 {
+		t.Fatalf("persist runtime target member: revision=%d err=%v", memberRevision, err)
+	}
+	memberPins, err := OpenMemberPinReader(ctx, broker.JetStream(), controller.config.Cell, 1)
+	if err != nil {
+		t.Fatalf("open exact runtime member pins: %v", err)
+	}
+	targetReader, err := NewManagedRuntimeTargetReader(ctx, controller.config, authorityReader, lease, memberPins)
+	if err != nil {
+		t.Fatalf("open readonly runtime target verifier: %v", err)
+	}
+	seat, exists := controller.seatForMember(fixture.intent, preparedSeat.State.Region, preparedSeat.State.MemberID)
+	if !exists {
+		t.Fatal("prepared runtime target seat is missing")
+	}
+	desired, err := controller.memberDesired(snapshot.Epoch, fixture.intent, preparedSeat.State, seat)
+	if err != nil {
+		t.Fatalf("derive exact prepared runtime desired: %v", err)
+	}
+	statuses, err := controller.hosts.ListHosts(ctx)
+	if err != nil {
+		t.Fatalf("read original registered runtime host: %v", err)
+	}
+	var registration host.Registration
+	for _, status := range statuses {
+		if status.Registration.Node == preparedSeat.State.HostNode {
+			registration = status.Registration
+		}
+	}
+	targetAdmission, updated, err := targetReader.Admit(ctx, desired, registration)
+	if err != nil || !updated || targetAdmission == nil || targetAdmission.ArtifactPins() != (AdmittedArtifact{
+		Digest: update.CandidateArtifactDigest, ManifestDigest: update.CandidateManifestDigest, SourceDigest: update.CandidateSourceDigest,
+	}) {
+		t.Fatalf("readonly actual runtime target pins = updated=%v admission=%v err=%v", updated, targetAdmission, err)
+	}
+	if targetAdmission.Guard(ctx) != nil {
+		t.Fatal("unchanged genuine runtime target refused")
+	}
+	wrongEpoch := desired
+	wrongEpoch.AuthorityEpoch++
+	if _, _, err := targetReader.Admit(ctx, wrongEpoch, registration); err == nil {
+		t.Fatal("readonly runtime verifier accepted another lease epoch")
+	}
+	original, stopOriginal := context.WithCancel(ctx)
+	cancelledAdmission, _, err := targetReader.Admit(original, desired, registration)
+	if err != nil {
+		t.Fatalf("admit original-context runtime target: %v", err)
+	}
+	stopOriginal()
+	if cancelledAdmission.Guard(ctx) == nil {
+		t.Fatal("fresh context revived cancelled original runtime admission")
+	}
+	callerDeadline := time.Now().Add(time.Second)
+	deadlineCaller, stopDeadline := context.WithDeadline(ctx, callerDeadline)
+	defer stopDeadline()
+	deadlineAdmission, _, err := targetReader.Admit(deadlineCaller, desired, registration)
+	if err != nil || deadlineAdmission == nil || !deadlineAdmission.deadline.Equal(callerDeadline) {
+		t.Fatalf("runtime admission did not retain its shorter caller deadline: admission=%v err=%v", deadlineAdmission, err)
+	}
+	<-deadlineCaller.Done()
+	if deadlineAdmission.Guard(ctx) == nil {
+		t.Fatal("fresh context revived expired original Admit caller")
+	}
+	if err := targetAdmission.Guard(ctx); err != nil {
+		t.Fatalf("shorter independent caller changed the original live admission: %v", err)
+	}
+	// Even identical bytes at a later real member revision replace the source.
+	if _, err := durableMembers.CompareAndSwap(ctx, memberRevision, preparedSeat.State); err != nil {
+		t.Fatalf("advance actual member revision: %v", err)
+	}
+	if targetAdmission.Guard(ctx) == nil {
+		t.Fatal("runtime admission followed a replacement member revision")
+	}
+	targetAdmission, updated, err = targetReader.Admit(ctx, desired, registration)
+	if err != nil || !updated || targetAdmission == nil {
+		t.Fatalf("readmit exact current runtime revision: updated=%v err=%v", updated, err)
+	}
+
 	// Advance the controller's clock to the signed canary deadline. Inject a
 	// seat CAS failure after R3 commits Held to model the crash window.
 	timeoutAt := preparedAt.Add(managedUpdateCanaryProofTimeout)
@@ -166,6 +264,9 @@ func TestManagedUpdateR3PrepareHeldRestartReconciliation(t *testing.T) {
 	heldEntry, err := runtime.ReadManagedUpdate(ctx, update.DatabaseID, update.PartitionID)
 	if err != nil || heldEntry.Sequence == preparedSequence || heldEntry.OperationID != update.OperationID {
 		t.Fatalf("R3 Held receipt = %+v err %v", heldEntry, err)
+	}
+	if targetAdmission.Guard(ctx) == nil {
+		t.Fatal("readonly material target admitted after genuine R3 Held before member CAS repair")
 	}
 	var held authority.ManagedUpdateRecord
 	if err := json.Unmarshal(heldEntry.Payload, &held, json.RejectUnknownMembers(true)); err != nil ||

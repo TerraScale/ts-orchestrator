@@ -856,10 +856,7 @@ func (controller *Controller) verifyHostImage(ctx context.Context, instance oci.
 }
 
 func (controller *Controller) localSeats(intent Intent) ([]Seat, error) {
-	if !slices.Contains(intent.ActiveRegions, controller.config.Region) {
-		return nil, nil
-	}
-	return RegionSeats(controller.config.Region, controller.config.FaultDomains, SeatsPerRegion)
+	return managedLocalSeats(controller.config, intent)
 }
 
 func (controller *Controller) initialState(intent Intent, seat Seat, row CanonicalRosterRow, rosterDigest string, profile ManagedHostProfile, profileDigest string, manifest RuntimeManifest, manifestDigest string, attempt uint64) MemberState {
@@ -1348,60 +1345,7 @@ func (controller *Controller) runtimeArtifactReady(ctx context.Context, state Me
 }
 
 func (controller *Controller) memberDesired(epoch uint64, intent Intent, state MemberState, seat Seat) (host.Desired, error) {
-	manifest := state.EffectiveRuntimeManifest()
-	binding := controller.memberBinding(intent, state)
-	mountPath, err := host.ManagedMountPath(manifest.ManagedRuntimeRoot, binding)
-	if err != nil {
-		return host.Desired{}, err
-	}
-	return host.Desired{
-		Cell: controller.config.Cell, Node: state.HostNode, Environment: controller.config.Environment,
-		Role: controller.config.MemberRole, Digest: manifest.ArtifactDigest,
-		Generation: state.DesiredGeneration, AuthorityEpoch: epoch,
-		ManagedMember: &host.ManagedMemberLaunch{
-			OCI: host.ManagedOCIBinding{
-				Region: string(seat.Region), InstanceID: state.InstanceID, Owner: controller.config.ManagedOwner,
-				FleetGeneration: controller.config.FleetGeneration, CreateKey: state.CreateKey,
-			},
-			Member: binding,
-			Authority: host.MemberAuthority{
-				Epoch: state.AuthorityReference.Epoch, ConfigurationID: state.AuthorityReference.ConfigurationID,
-				CertificateSHA256: state.AuthorityReference.CertificateSHA256,
-				TLSLeafSHA256:     state.CanonicalRosterRow.TLSLeafSHA256,
-			},
-			SourceDigest: manifest.SourceDigest, VolumeID: state.VolumeID,
-			AttachmentID: state.AttachmentID, AttachmentETag: state.AttachmentETag,
-			ProcessMemoryBytes:   state.ManagedHostProfile.ProcessMemoryBytes,
-			MemoryHeadroomBytes:  state.ManagedHostProfile.MemoryHeadroomBytes,
-			CgroupMemoryMaxBytes: state.ManagedHostProfile.CgroupMemoryMaxBytes,
-			SystemReserveBytes:   state.ManagedHostProfile.SystemReserveBytes,
-			Runtime: &host.ManagedRuntimePins{
-				DevicePath: state.AttachmentDevice, MountPath: mountPath,
-				FileSystemUUID: manifest.FileSystemUUID, FileSystemType: manifest.FileSystemType,
-				TrustedKeySHA256:                    manifest.TrustedKeySHA256,
-				ServerCertificateSHA256:             manifest.ServerCertificateSHA256,
-				ServerPrivateKeySHA256:              manifest.ServerPrivateKeySHA256,
-				ClientCARootsSHA256:                 manifest.ClientCARootsSHA256,
-				ClientManagedMaterialManifestSHA256: manifest.ClientManagedMaterialManifestSHA256,
-				SQLSchemaBundleSHA256:               manifest.SQLSchemaBundleSHA256,
-				LiveS3ConfigSHA256:                  manifest.LiveS3ConfigSHA256,
-				LiveS3TargetSHA256:                  manifest.LiveS3TargetSHA256,
-				LiveS3Credential:                    manifest.LiveS3Credential,
-				BackupManifestSHA256:                manifest.BackupManifestSHA256,
-				BackupS3ConfigSHA256:                manifest.BackupS3ConfigSHA256,
-				BackupS3TargetSHA256:                manifest.BackupS3TargetSHA256,
-				BackupS3CredentialSHA256:            manifest.BackupS3CredentialSHA256,
-				BackupDataKeySHA256:                 manifest.BackupDataKeySHA256,
-				BackupOwner:                         manifest.BackupOwner,
-				BackupS3Credential:                  manifest.BackupS3Credential,
-				BackupDataKey:                       manifest.BackupDataKey,
-				ReplicationListenAddress:            manifest.ReplicationListenAddress,
-				ReplicationPeerMemberID:             manifest.ReplicationPeerMemberID,
-				ReplicationPeerAddress:              manifest.ReplicationPeerAddress,
-				ReplicationServerCASHA256:           manifest.ReplicationServerCASHA256,
-			},
-		},
-	}, nil
+	return managedMemberDesired(controller.config, epoch, intent, state, seat)
 }
 
 func (controller *Controller) preparedPinsMatch(intent Intent, state MemberState, seat Seat) bool {
