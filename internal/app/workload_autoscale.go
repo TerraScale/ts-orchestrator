@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 
-	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostload"
@@ -66,47 +64,7 @@ func validateAutoscaleConfig(config *AutoscaleConfig, profiles map[string]Worklo
 	return nil
 }
 
-// startWorkloadAutoscale retains the native transition observer until manager replacement is qualified.
-func startWorkloadAutoscale(cell string, config *AutoscaleConfig, profiles map[string]WorkloadProfile,
-	specs []workload.ServiceSpec, hosts *host.Controller,
-	fencer authority.Fencer,
-	nativeReleases *nativeHistory,
-) (*workload.Reconciler, *hostTelemetry, error) {
-	resources := profileResources(profiles)
-	requests := loadRequests(resources)
-	load := &hostTelemetry{fencer: fencer, requests: requests,
-		load: hostload.NewAggregator(hostload.AggregatorConfig{Requests: requests})}
-	var releaseResources func(context.Context, []host.Desired, map[string]placement.Resources) (map[string]placement.Resources, error)
-	var writer workload.DesiredWriter = hosts
-	if nativeReleases != nil {
-		releaseResources = func(ctx context.Context, desired []host.Desired, profiles map[string]placement.Resources) (map[string]placement.Resources, error) {
-			resolved, err := nativeReleases.resources(ctx, desired, profiles)
-			if err == nil {
-				load.setResources(resolved)
-			}
-			return resolved, err
-		}
-		writer = nativeReleases
-	}
-	reconciler, err := workload.New(workload.Config{Cell: cell, Specs: specs, Profiles: resources, ReleaseResources: releaseResources,
-		Hosts: hosts, Writer: writer, Fencer: fencer, Signals: load.load,
-		Logf: log.Printf})
-	if err != nil {
-		return nil, nil, fmt.Errorf("start workload reconciler: %w", err)
-	}
-	hosts.SetLoadSink(load.record)
-	return reconciler, load, nil
-}
-
-func loadRequests(resources map[string]placement.Resources) map[string]hostload.Request {
-	requests := make(map[string]hostload.Request, len(resources))
-	for role, request := range resources {
-		requests[role] = hostload.Request{CPUCores: float64(request.CPU), MemoryBytes: request.MemoryBytes}
-	}
-	return requests
-}
-
-// PlanShaped plans a release. Roles owned by the workload reconciler get a
+// PlanShaped plans a release. Roles with a signed stateless service policy get a
 // release-scoped generation and keep their current scale; every other role
 // keeps the intent's own generation and replica count.
 func (p *regionalDeliveryPlanner) PlanShaped(ctx context.Context, intent delivery.Intent) (delivery.PlanShape, []host.Desired, error) {
@@ -114,7 +72,7 @@ func (p *regionalDeliveryPlanner) PlanShaped(ctx context.Context, intent deliver
 		return delivery.PlanShape{}, nil, errors.New("stateless native release planning is retired; signed container intent required")
 	}
 	shape := delivery.PlanShape{Generation: intent.Generation, Replicas: intent.DesiredReplicas}
-	spec, owned := p.workloads.Owns(intent.Role)
+	spec, owned := p.nativeServiceSpec(intent.Role)
 	if !owned || spec.Environment != intent.Environment {
 		// A role the reconciler once owned carries release-scoped host
 		// generations (intent << ReleaseShift). Planning it at the plain
@@ -130,6 +88,18 @@ func (p *regionalDeliveryPlanner) PlanShaped(ctx context.Context, intent deliver
 		return delivery.PlanShape{Generation: generation, Replicas: replicas}, err
 	}, &shape)
 	return shape, plan, err
+}
+
+func (p *regionalDeliveryPlanner) nativeServiceSpec(role string) (workload.ServiceSpec, bool) {
+	if p.services != nil {
+		_, specs := p.services.effective()
+		for _, spec := range specs {
+			if spec.Role == role && spec.Kind == workload.KindStateless {
+				return spec, true
+			}
+		}
+	}
+	return workload.ServiceSpec{}, false
 }
 
 // unownedShape is the shape of a release for a role the reconciler does not

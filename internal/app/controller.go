@@ -318,7 +318,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	var containerProfiles atomic.Pointer[nativeHistory]
 	var genericServices atomic.Pointer[genericRuntime]
 	var statefulServices statefulRuntimeSlot
-	planner := &regionalDeliveryPlanner{profiles: services.profiles, address: services.nodeAddress, migrated: func(role string) bool { return role != terrabase.Role }}
+	planner := &regionalDeliveryPlanner{services: services, profiles: services.profiles, address: services.nodeAddress, migrated: func(role string) bool { return role != terrabase.Role }}
 	service, _, err := retryControllerOpen(ctx, "open regional delivery stores", fullClusterReady, false,
 		func(attempt context.Context) (*delivery.Service, error) {
 			return delivery.Open(attempt, delivery.Config{
@@ -722,7 +722,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return err
 	}
 	costViews := &ociCostViews{cell: cfg.NATS.Cell, store: costStore}
-	profiles, specs := services.effective()
+	profiles, _ := services.effective()
 	nativeReleases.hosts, nativeReleases.fences = hostController, fences
 	var nativeMemberCA []byte
 	if terraBaseCA != nil {
@@ -732,12 +732,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	defer workloadRoot.Close()
 	rootInventory := &rootInventoryViews{client: workloadRoot}
 	nativeReleases.canary = newSmokeGate(nativeMemberCA, workloadRoot).check
-	workloadReconciler, hostLoad, err := startWorkloadAutoscale(cfg.NATS.Cell, cfg.Controller.Autoscale,
-		profiles, specs, hostController, control, nativeReleases)
-	if err != nil {
-		return err
-	}
-	planner.workloads = workloadReconciler
+	hostLoad := startHostTelemetry(profiles, hostController, control)
 	telemetry.usage.SetExpected(managerExpectedUsage)
 	inventoryCtx, stopInventory := context.WithCancel(ctx)
 	defer stopInventory()
