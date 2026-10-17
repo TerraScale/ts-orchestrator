@@ -47,7 +47,7 @@ WantedBy=multi-user.target
 `
 
 // Runtime binaries are image inputs: hosts never install mutable distribution packages.
-func installRuntime(ctx context.Context, g *Guest, architecture, work string, out io.Writer) error {
+func installRuntimeBinaries(ctx context.Context, g *Guest, architecture, work string, out io.Writer) error {
 	pins, ok := runtimeDigests[architecture]
 	if !ok {
 		return errors.New("unsupported container runtime architecture")
@@ -157,6 +157,13 @@ func installRuntime(ctx context.Context, g *Guest, architecture, work string, ou
 		if err := g.Upload(source, AppLib+"/runtime-notices/"+notice.Name(), 0644); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func installRuntime(ctx context.Context, g *Guest, architecture, work string, out io.Writer) error {
+	if err := installRuntimeBinaries(ctx, g, architecture, work, out); err != nil {
+		return err
 	}
 	for name, contents := range map[string]string{
 		"containerd.service": containerdUnit,

@@ -54,7 +54,7 @@ func RunWith(ctx context.Context, root string, args []string, stdout, stderr io.
 	}
 	output := commandio.NewWriter(stdout)
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: ts-orch image inputs|build-offline|guestfs|promote")
+		fmt.Fprintln(stderr, "usage: ts-orch image inputs|build-offline|build-netbird-manager|guestfs|promote")
 		return 2
 	}
 	var e error
@@ -66,10 +66,12 @@ func RunWith(ctx context.Context, root string, args []string, stdout, stderr io.
 		e, code = runGuestfs(ctx, root, args[1:], output, stderr)
 	case "build-offline":
 		e, code = runOffline(ctx, root, args[1:], output, stderr)
+	case "build-netbird-manager":
+		e, code = runNetBirdManagerImage(ctx, root, args[1:], output, stderr)
 	case "promote":
 		e, code = runPromotion(ctx, root, args[1:], output, stderr, services)
 	case "help", "--help", "-h":
-		fmt.Fprintln(output, "usage: ts-orch image inputs|build-offline|guestfs|promote")
+		fmt.Fprintln(output, "usage: ts-orch image inputs|build-offline|build-netbird-manager|guestfs|promote")
 	default:
 		fmt.Fprintln(stderr, "unknown image command:", args[0])
 		return 2
@@ -82,6 +84,28 @@ func RunWith(ctx context.Context, root string, args []string, stdout, stderr io.
 		}
 	}
 	return code
+}
+
+func runNetBirdManagerImage(ctx context.Context, root string, args []string, out, stderr io.Writer) (error, int) {
+	fs := flag.NewFlagSet("build-netbird-manager", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	o := NetBirdManagerImageOptions{}
+	for _, field := range []struct {
+		name  string
+		value *string
+	}{{"base", &o.Base}, {"binary", &o.Binary}, {"qualification", &o.Qualification}, {"source", &o.SourceRevision}, {"netbird-binary", &o.NetBirdBinary}, {"out", &o.Out}} {
+		fs.StringVar(field.value, field.name, "", field.name)
+	}
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil, 0
+		}
+		return err, 2
+	}
+	if fs.NArg() != 0 {
+		return errors.New("unexpected manager image argument"), 2
+	}
+	return NetBirdManagerImage(ctx, root, o, out), 0
 }
 func runInputs(root string, args []string, out, stderr io.Writer) (error, int) {
 	fs := flag.NewFlagSet("image-inputs", flag.ContinueOnError)

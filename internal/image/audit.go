@@ -590,6 +590,11 @@ func installLinks(g *Guest, work, repo string, out io.Writer) error {
 			}
 		}
 	}
+	return enableImageUnits(g, stage, names, out)
+}
+
+func enableImageUnits(g *Guest, stage string, names []string, out io.Writer) error {
+	etc := filepath.Join(stage, "etc/systemd/system")
 	expected, e := expectedInstallLinks(stage, names)
 	if e != nil {
 		return e
