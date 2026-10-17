@@ -14,23 +14,49 @@ import (
 	"testing"
 	"time"
 
+	natsserver "github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/oracle/oci-go-sdk/v65/common"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 )
 
 func TestAccountingReadsRestartedJournalAndPositiveSDKTerminalResources(t *testing.T) {
-	config := natscell.Config{Cell: "lab", Instance: "accounting", Replicas: 1, Lab: true,
-		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "jetstream")}}
-	runtime, err := natscell.Start(t.Context(), config)
-	if err != nil {
-		t.Fatal(err)
+	storeDir, token := filepath.Join(t.TempDir(), "jetstream"), rand.Text()
+	start := func() (jetstream.JetStream, func() error) {
+		t.Helper()
+		broker, err := natsserver.NewServer(new(natsserver.Options{Host: "127.0.0.1", Port: -1, JetStream: true,
+			StoreDir: storeDir, Authorization: token}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		broker.Start()
+		t.Cleanup(func() { broker.Shutdown(); broker.WaitForShutdown() })
+		if !broker.ReadyForConnections(5 * time.Second) {
+			t.Fatal("accounting journal broker did not become ready")
+		}
+		connection, err := nats.Connect(broker.ClientURL(), nats.Token(token))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(connection.Close)
+		js, err := jetstream.New(connection)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return js, func() error {
+			err := connection.FlushTimeout(5 * time.Second)
+			connection.Close()
+			broker.Shutdown()
+			broker.WaitForShutdown()
+			return err
+		}
 	}
-	t.Cleanup(func() { runtime.Close() })
-	journal, err := oci.OpenJournal(t.Context(), runtime.JetStream(), 1)
+	js, stop := start()
+	journal, err := oci.OpenJournal(t.Context(), js, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,14 +77,11 @@ func TestAccountingReadsRestartedJournalAndPositiveSDKTerminalResources(t *testi
 			t.Fatal(err)
 		}
 	}
-	if err := runtime.Close(); err != nil {
+	if err := stop(); err != nil {
 		t.Fatal(err)
 	}
-	runtime, err = natscell.Start(t.Context(), config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	journal, err = oci.OpenJournal(t.Context(), runtime.JetStream(), 1)
+	js, _ = start()
+	journal, err = oci.OpenJournal(t.Context(), js, 1)
 	if err != nil {
 		t.Fatal(err)
 	}

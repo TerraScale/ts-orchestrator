@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -148,6 +149,33 @@ func TestHandlersServeCLIShapedData(t *testing.T) {
 			t.Fatalf("accepted the vault endpoint %q", endpoint)
 		}
 	}
+	for _, body := range []string{`{"prefixes":[]}`, `[]`} {
+		t.Run("vcn list "+body, func(t *testing.T) {
+			var requests atomic.Int64
+			client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				if r.Method != http.MethodGet || r.URL.Path != "/20160918/vcns" ||
+					r.URL.RawQuery != "compartmentId=ocid1.compartment.oc1..test" || r.Header.Get("Authorization") == "" {
+					t.Errorf("unexpected VCN request: %s %s, authorization present=%v", r.Method, r.URL, r.Header.Get("Authorization") != "")
+					http.Error(w, "unexpected request", http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, body)
+			})
+			wire, handled, err := client.Call(t.Context(), []string{"network", "vcn", "list", "--compartment-id", "ocid1.compartment.oc1..test", "--all"})
+			if requests.Load() != 1 || !handled {
+				t.Fatalf("VCN list: requests=%d handled=%v err=%v", requests.Load(), handled, err)
+			}
+			if body == "[]" {
+				if err != nil || string(wire) != "[]" {
+					t.Fatalf("empty VCN list = %s, %v", wire, err)
+				}
+			} else if err == nil {
+				t.Fatalf("accepted malformed VCN list: %s", body)
+			}
+		})
+	}
 }
 
 func TestObjectVersionListSendsTheCLIFieldList(t *testing.T) {
@@ -239,5 +267,32 @@ func TestSDKObjectInventoryRejectsMalformedResponses(t *testing.T) {
 	wire, _, err := client.Call(t.Context(), []string{"os", "object", "list", "--namespace-name", "n", "--bucket-name", "b", "--all"})
 	if err != nil || string(wire) != "[]" {
 		t.Fatalf("empty inventory = %s, %v", wire, err)
+	}
+	for _, body := range []string{"", `{"items":[]}`} {
+		t.Run("object versions "+body, func(t *testing.T) {
+			var requests atomic.Int64
+			client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				if r.Method != http.MethodGet || r.URL.Path != "/n/n/b/b/objectversions" ||
+					r.URL.RawQuery != "" || r.Header.Get("Authorization") == "" {
+					t.Errorf("unexpected object version request: %s %s, authorization present=%v", r.Method, r.URL, r.Header.Get("Authorization") != "")
+					http.Error(w, "unexpected request", http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, body)
+			})
+			wire, handled, err := client.Call(t.Context(), []string{"os", "object", "list-object-versions", "--namespace-name", "n", "--bucket-name", "b", "--all"})
+			if requests.Load() != 1 || !handled {
+				t.Fatalf("object versions: requests=%d handled=%v err=%v", requests.Load(), handled, err)
+			}
+			if body == "" {
+				if err == nil {
+					t.Fatal("accepted a blank object version response")
+				}
+			} else if err != nil || string(wire) != "[]" {
+				t.Fatalf("empty object versions = %s, %v", wire, err)
+			}
+		})
 	}
 }

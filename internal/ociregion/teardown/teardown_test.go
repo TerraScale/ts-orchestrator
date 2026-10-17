@@ -1,4 +1,4 @@
-package teardown
+package teardown_test
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/teardown"
 )
 
 const (
@@ -18,22 +20,22 @@ const (
 // PENDING_DELETION and a compartment DELETING; purge then turns a compartment
 // DELETED and makes everything else answer 404.
 type fakeOCI struct {
-	state    map[string]Observed
-	contents map[string][]Resource
+	state    map[string]teardown.Observed
+	contents map[string][]teardown.Resource
 	deleted  []string
 	out      *strings.Builder
-	onDelete func(Resource)
+	onDelete func(teardown.Resource)
 }
 
-func (f *fakeOCI) Get(_ context.Context, r Resource) (Observed, error) {
+func (f *fakeOCI) Get(_ context.Context, r teardown.Resource) (teardown.Observed, error) {
 	o, ok := f.state[r.ID]
 	if !ok {
-		return Observed{State: NotFound}, nil
+		return teardown.Observed{State: teardown.NotFound}, nil
 	}
 	return o, nil
 }
 
-func (f *fakeOCI) Delete(_ context.Context, r Resource) error {
+func (f *fakeOCI) Delete(_ context.Context, r teardown.Resource) error {
 	if !strings.Contains(f.out.String(), "complete: ") {
 		return fmt.Errorf("deleted %s before the diff was printed", r.ID)
 	}
@@ -50,7 +52,7 @@ func (f *fakeOCI) Delete(_ context.Context, r Resource) error {
 	return nil
 }
 
-func (f *fakeOCI) VaultContents(_ context.Context, r Resource) ([]Resource, error) {
+func (f *fakeOCI) VaultContents(_ context.Context, r teardown.Resource) ([]teardown.Resource, error) {
 	return f.contents[r.ID], nil
 }
 
@@ -66,35 +68,35 @@ func (f *fakeOCI) purge() {
 	}
 }
 
-func gruPlan() Plan {
-	return Plan{Cell: "GRU", Region: "sa-saopaulo-1",
+func gruPlan() teardown.Plan {
+	return teardown.Plan{Cell: "GRU", Region: "sa-saopaulo-1",
 		// Listed out of dependency order on purpose.
-		Delete: []Resource{
+		Delete: []teardown.Resource{
 			{Kind: "compartment", ID: cellCompartment, Name: "terrascale-control", Compartment: parentCompartment},
 			{Kind: "kms-vault", ID: "vault", Name: "terrascale-control-vault-gru", Compartment: cellCompartment},
 			{Kind: "kms-key", ID: "key", Name: "terrascale-control-key-gru", Compartment: cellCompartment, VaultID: "vault"},
 			{Kind: "vault-secret", ID: "secret", Name: "terrascale-gru-netbird-setup-key", Compartment: cellCompartment},
 		},
-		Keep: []Resource{{Kind: "instance", ID: "ts-ops", Name: "ts-ops", Reason: "operations host and NetBird manager"}},
+		Keep: []teardown.Resource{{Kind: "instance", ID: "ts-ops", Name: "ts-ops", Reason: "operations host and NetBird manager"}},
 	}
 }
 
 func liveCell() *fakeOCI {
-	return &fakeOCI{state: map[string]Observed{
+	return &fakeOCI{state: map[string]teardown.Observed{
 		cellCompartment: {Name: "terrascale-control", Compartment: parentCompartment, State: "ACTIVE"},
 		"vault":         {Name: "terrascale-control-vault-gru", Compartment: cellCompartment, State: "ACTIVE"},
 		"key":           {Name: "terrascale-control-key-gru", Compartment: cellCompartment, State: "ENABLED"},
 		"secret":        {Name: "terrascale-gru-netbird-setup-key", Compartment: cellCompartment, State: "ACTIVE"},
-	}, contents: map[string][]Resource{"vault": {
+	}, contents: map[string][]teardown.Resource{"vault": {
 		{Kind: "kms-key", ID: "key", Name: "terrascale-control-key-gru", Compartment: cellCompartment, VaultID: "vault"},
 		{Kind: "vault-secret", ID: "secret", Name: "terrascale-gru-netbird-setup-key", Compartment: cellCompartment, VaultID: "vault"},
 	}}}
 }
 
-func run(t *testing.T, plan Plan, oci *fakeOCI, apply bool) string {
+func run(t *testing.T, plan teardown.Plan, oci *fakeOCI, apply bool) string {
 	t.Helper()
 	oci.out = &strings.Builder{}
-	if err := Teardown(t.Context(), plan, oci, apply, oci.out); err != nil {
+	if err := teardown.Teardown(t.Context(), plan, oci, apply, oci.out); err != nil {
 		t.Fatal(err)
 	}
 	return oci.out.String()
@@ -125,7 +127,7 @@ func TestApplyFollowsDeletionUntilProvenComplete(t *testing.T) {
 	if got := strings.Join(oci.deleted, ","); got != "secret,key,vault" {
 		t.Fatalf("first apply deleted %s, want secret,key,vault and the compartment held", got)
 	}
-	oci.state["secret"] = Observed{Name: "terrascale-gru-netbird-setup-key", Compartment: cellCompartment,
+	oci.state["secret"] = teardown.Observed{Name: "terrascale-gru-netbird-setup-key", Compartment: cellCompartment,
 		State: "PENDING_DELETION", DeleteAt: new(time.Date(2026, 10, 5, 1, 45, 58, 0, time.UTC))}
 	out := run(t, gruPlan(), oci, true)
 	if len(oci.deleted) != 3 || !strings.Contains(out, "pending  vault-secret terrascale-gru-netbird-setup-key secret purge 2026-10-05T01:45:58Z") {
@@ -146,11 +148,11 @@ func TestApplyFollowsDeletionUntilProvenComplete(t *testing.T) {
 }
 
 func TestChildCompartmentHoldsItsParent(t *testing.T) {
-	plan := Plan{Cell: "GRU", Region: "sa-saopaulo-1", Delete: []Resource{
+	plan := teardown.Plan{Cell: "GRU", Region: "sa-saopaulo-1", Delete: []teardown.Resource{
 		{Kind: "compartment", ID: cellCompartment, Name: "parent", Compartment: parentCompartment},
 		{Kind: "compartment", ID: "child", Name: "child", Compartment: cellCompartment},
 	}}
-	oci := &fakeOCI{state: map[string]Observed{
+	oci := &fakeOCI{state: map[string]teardown.Observed{
 		cellCompartment: {Name: "parent", Compartment: parentCompartment, State: "ACTIVE"},
 		"child":         {Name: "child", Compartment: cellCompartment, State: "ACTIVE"},
 	}}
@@ -172,23 +174,23 @@ func TestChildCompartmentHoldsItsParent(t *testing.T) {
 func TestRefusesResourcesOutsideThePlan(t *testing.T) {
 	for name, mutate := range map[string]func(*fakeOCI){
 		"renamed": func(f *fakeOCI) {
-			f.state["secret"] = Observed{Name: "ts-forgejo", Compartment: cellCompartment, State: "ACTIVE"}
+			f.state["secret"] = teardown.Observed{Name: "ts-forgejo", Compartment: cellCompartment, State: "ACTIVE"}
 		},
 		"other compartment": func(f *fakeOCI) {
-			f.state["vault"] = Observed{Name: "terrascale-control-vault-gru", Compartment: "ocid1.compartment.oc1..ts-ops", State: "ACTIVE"}
+			f.state["vault"] = teardown.Observed{Name: "terrascale-control-vault-gru", Compartment: "ocid1.compartment.oc1..ts-ops", State: "ACTIVE"}
 		},
 		"vault holds an unlisted key": func(f *fakeOCI) {
-			f.contents["vault"] = append(f.contents["vault"], Resource{Kind: "kms-key", ID: "ts-ops-key", Name: "shared key", Compartment: "ts-ops", VaultID: "vault"})
+			f.contents["vault"] = append(f.contents["vault"], teardown.Resource{Kind: "kms-key", ID: "ts-ops-key", Name: "shared key", Compartment: "ts-ops", VaultID: "vault"})
 		},
 		"vault holds an unlisted secret": func(f *fakeOCI) {
-			f.contents["vault"] = append(f.contents["vault"], Resource{Kind: "vault-secret", ID: "ts-ops-secret", Name: "shared secret", Compartment: "ts-ops", VaultID: "vault"})
+			f.contents["vault"] = append(f.contents["vault"], teardown.Resource{Kind: "vault-secret", ID: "ts-ops-secret", Name: "shared secret", Compartment: "ts-ops", VaultID: "vault"})
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			oci := liveCell()
 			mutate(oci)
 			oci.out = &strings.Builder{}
-			if err := Teardown(t.Context(), gruPlan(), oci, true, oci.out); err == nil || len(oci.deleted) != 0 {
+			if err := teardown.Teardown(t.Context(), gruPlan(), oci, true, oci.out); err == nil || len(oci.deleted) != 0 {
 				t.Fatalf("err %v, deleted %v", err, oci.deleted)
 			}
 		})
@@ -196,22 +198,22 @@ func TestRefusesResourcesOutsideThePlan(t *testing.T) {
 }
 
 func TestVaultDeletionRequiresVerifiedContents(t *testing.T) {
-	for name, mutate := range map[string]func(*Plan, *fakeOCI){
-		"key not found": func(_ *Plan, f *fakeOCI) { delete(f.state, "key") },
-		"key gone": func(_ *Plan, f *fakeOCI) {
-			f.state["key"] = Observed{State: "DELETED"}
+	for name, mutate := range map[string]func(*teardown.Plan, *fakeOCI){
+		"key not found": func(_ *teardown.Plan, f *fakeOCI) { delete(f.state, "key") },
+		"key gone": func(_ *teardown.Plan, f *fakeOCI) {
+			f.state["key"] = teardown.Observed{State: "DELETED"}
 		},
-		"secret not found": func(_ *Plan, f *fakeOCI) { delete(f.state, "secret") },
-		"secret gone": func(_ *Plan, f *fakeOCI) {
-			f.state["secret"] = Observed{State: "DELETED"}
+		"secret not found": func(_ *teardown.Plan, f *fakeOCI) { delete(f.state, "secret") },
+		"secret gone": func(_ *teardown.Plan, f *fakeOCI) {
+			f.state["secret"] = teardown.Observed{State: "DELETED"}
 		},
-		"key belongs to a different vault": func(p *Plan, _ *fakeOCI) {
+		"key belongs to a different vault": func(p *teardown.Plan, _ *fakeOCI) {
 			p.Delete[2].VaultID = "other-vault"
 		},
-		"listed key moved to a shared compartment": func(_ *Plan, f *fakeOCI) {
+		"listed key moved to a shared compartment": func(_ *teardown.Plan, f *fakeOCI) {
 			f.contents["vault"][0].Compartment = "ts-ops"
 		},
-		"listed secret renamed in the live list": func(_ *Plan, f *fakeOCI) {
+		"listed secret renamed in the live list": func(_ *teardown.Plan, f *fakeOCI) {
 			f.contents["vault"][1].Name = "shared secret"
 		},
 	} {
@@ -220,7 +222,7 @@ func TestVaultDeletionRequiresVerifiedContents(t *testing.T) {
 				plan, oci := gruPlan(), liveCell()
 				mutate(&plan, oci)
 				oci.out = &strings.Builder{}
-				err := Teardown(t.Context(), plan, oci, apply, oci.out)
+				err := teardown.Teardown(t.Context(), plan, oci, apply, oci.out)
 				if err == nil || len(oci.deleted) != 0 || !strings.Contains(oci.out.String(), "blocked  kms-vault") ||
 					!strings.Contains(oci.out.String(), "not verified as cell-owned by the inventory") {
 					t.Fatalf("apply %v: err %v, deleted %v, output %s", apply, err, oci.deleted, oci.out)
@@ -239,10 +241,10 @@ func TestDryRunReportsEveryUnexpectedVaultContent(t *testing.T) {
 			oci.state["vault"] = observed
 		}
 		oci.contents["vault"] = append(oci.contents["vault"],
-			Resource{Kind: "kms-key", ID: "unknown-key", Name: "shared key", Compartment: "ts-ops", VaultID: "vault"},
-			Resource{Kind: "vault-secret", ID: "unknown-secret", Name: "shared secret", Compartment: "ts-ops", VaultID: "vault"})
+			teardown.Resource{Kind: "kms-key", ID: "unknown-key", Name: "shared key", Compartment: "ts-ops", VaultID: "vault"},
+			teardown.Resource{Kind: "vault-secret", ID: "unknown-secret", Name: "shared secret", Compartment: "ts-ops", VaultID: "vault"})
 		oci.out = &strings.Builder{}
-		err := Teardown(t.Context(), gruPlan(), oci, false, oci.out)
+		err := teardown.Teardown(t.Context(), gruPlan(), oci, false, oci.out)
 		for _, want := range []string{"unknown-key", "shared key", "unknown-secret", "shared secret", "keep     instance"} {
 			if !strings.Contains(oci.out.String(), want) {
 				t.Fatalf("pending %v: output lacks %q: %s", pending, want, oci.out)
@@ -256,33 +258,33 @@ func TestDryRunReportsEveryUnexpectedVaultContent(t *testing.T) {
 
 func TestVaultContentsRecheckedBeforeScheduling(t *testing.T) {
 	oci := liveCell()
-	oci.onDelete = func(r Resource) {
+	oci.onDelete = func(r teardown.Resource) {
 		if r.Kind == "kms-key" {
-			oci.contents["vault"] = append(oci.contents["vault"], Resource{Kind: "kms-key", ID: "late-key", Name: "shared key", Compartment: "ts-ops", VaultID: "vault"})
+			oci.contents["vault"] = append(oci.contents["vault"], teardown.Resource{Kind: "kms-key", ID: "late-key", Name: "shared key", Compartment: "ts-ops", VaultID: "vault"})
 		}
 	}
 	oci.out = &strings.Builder{}
-	err := Teardown(t.Context(), gruPlan(), oci, true, oci.out)
+	err := teardown.Teardown(t.Context(), gruPlan(), oci, true, oci.out)
 	if err == nil || strings.Join(oci.deleted, ",") != "secret,key" || !strings.Contains(oci.out.String(), "late-key") {
 		t.Fatalf("err %v, deleted %v, output %s", err, oci.deleted, oci.out)
 	}
 }
 
 func TestValidateRejectsAmbiguousPlans(t *testing.T) {
-	for name, mutate := range map[string]func(*Plan){
-		"keep overlaps delete": func(p *Plan) { p.Keep = append(p.Keep, p.Delete[0]) },
-		"keeps a key of a deleted vault": func(p *Plan) {
-			p.Keep = append(p.Keep, Resource{Kind: "kms-key", ID: "kept", Name: "kept", VaultID: "vault"})
+	for name, mutate := range map[string]func(*teardown.Plan){
+		"keep overlaps delete": func(p *teardown.Plan) { p.Keep = append(p.Keep, p.Delete[0]) },
+		"keeps a key of a deleted vault": func(p *teardown.Plan) {
+			p.Keep = append(p.Keep, teardown.Resource{Kind: "kms-key", ID: "kept", Name: "kept", VaultID: "vault"})
 		},
-		"keeps a resource of a deleted compartment": func(p *Plan) {
+		"keeps a resource of a deleted compartment": func(p *teardown.Plan) {
 			p.Keep[0].Compartment = cellCompartment
 		},
-		"duplicate":                     func(p *Plan) { p.Delete = append(p.Delete, p.Delete[1]) },
-		"unknown kind":                  func(p *Plan) { p.Delete[0].Kind = "instance" },
-		"key without vault":             func(p *Plan) { p.Delete[2].VaultID = "" },
-		"no compartment":                func(p *Plan) { p.Delete[3].Compartment = "" },
-		"outside a deleted compartment": func(p *Plan) { p.Delete[3].Compartment = parentCompartment },
-		"unknown region":                func(p *Plan) { p.Region = "gru" },
+		"duplicate":                     func(p *teardown.Plan) { p.Delete = append(p.Delete, p.Delete[1]) },
+		"unknown kind":                  func(p *teardown.Plan) { p.Delete[0].Kind = "instance" },
+		"key without vault":             func(p *teardown.Plan) { p.Delete[2].VaultID = "" },
+		"no compartment":                func(p *teardown.Plan) { p.Delete[3].Compartment = "" },
+		"outside a deleted compartment": func(p *teardown.Plan) { p.Delete[3].Compartment = parentCompartment },
+		"unknown region":                func(p *teardown.Plan) { p.Region = "gru" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			p := gruPlan()
@@ -299,7 +301,7 @@ func TestValidateRejectsAmbiguousPlans(t *testing.T) {
 
 func TestUnverified404CannotComplete(t *testing.T) {
 	oci := liveCell()
-	oci.state = map[string]Observed{}
+	oci.state = map[string]teardown.Observed{}
 	out := run(t, gruPlan(), oci, true)
 	if !strings.Contains(out, "incomplete: gone 0, absent 4") || len(oci.deleted) != 0 {
 		t.Fatalf("404s reported complete or deleted resources: %s; deleted %v", out, oci.deleted)
@@ -326,7 +328,7 @@ func TestCompleteDiffMustBeWrittenBeforeDeleting(t *testing.T) {
 		oci := liveCell()
 		oci.out = &strings.Builder{}
 		want := errors.New("output unavailable")
-		err := Teardown(t.Context(), gruPlan(), oci, true, &failWriter{remaining: remaining, err: want})
+		err := teardown.Teardown(t.Context(), gruPlan(), oci, true, &failWriter{remaining: remaining, err: want})
 		if !errors.Is(err, want) || len(oci.deleted) != 0 {
 			t.Fatalf("writer failed after %d bytes: err %v, deleted %v", remaining, err, oci.deleted)
 		}

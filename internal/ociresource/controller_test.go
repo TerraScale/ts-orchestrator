@@ -2,6 +2,7 @@ package ociresource
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json/v2"
 	"errors"
 	"path/filepath"
@@ -10,24 +11,44 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 func integrationStore(t *testing.T) *KVStore {
 	t.Helper()
-	runtime, err := natscell.Start(t.Context(), natscell.Config{
-		Cell: "lab", Instance: "oci-resource-test", Replicas: 1, Lab: true,
-		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "jetstream")},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = runtime.Close() })
-	store, err := OpenKVStore(t.Context(), runtime.JetStream(), 1)
+	store, err := OpenKVStore(t.Context(), integrationJetStream(t), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return store
+}
+
+// Keep this fixture local: ociresourcetest imports ociresource.
+func integrationJetStream(t *testing.T) jetstream.JetStream {
+	t.Helper()
+	token := rand.Text()
+	broker, err := server.NewServer(new(server.Options{Host: "127.0.0.1", Port: -1, JetStream: true,
+		StoreDir: filepath.Join(t.TempDir(), "jetstream"), Authorization: token}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker.Start()
+	t.Cleanup(func() { broker.Shutdown(); broker.WaitForShutdown() })
+	if !broker.ReadyForConnections(5 * time.Second) {
+		t.Fatal("OCI integration broker did not become ready")
+	}
+	connection, err := nats.Connect(broker.ClientURL(), nats.Token(token))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(connection.Close)
+	js, err := jetstream.New(connection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return js
 }
 
 type widgetSpec struct {
@@ -307,19 +328,12 @@ func TestDesiredRecordsAreValidatedAndGenerationsMonotonic(t *testing.T) {
 func TestKVStoreRoundTripAndCompareAndSet(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	runtime, err := natscell.Start(ctx, natscell.Config{
-		Cell: "lab", Instance: "oci-resource-test", Replicas: 1, Lab: true,
-		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "jetstream")},
-	})
+	js := integrationJetStream(t)
+	store, err := OpenKVStore(ctx, js, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = runtime.Close() })
-	store, err := OpenKVStore(ctx, runtime.JetStream(), 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := OpenKVStore(ctx, runtime.JetStream(), 1); err != nil {
+	if _, err := OpenKVStore(ctx, js, 1); err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
 	first := put(t, store, "a", 1, PolicyEnforce, 1)

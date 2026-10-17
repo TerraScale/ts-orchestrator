@@ -2,6 +2,7 @@ package nlb
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -13,11 +14,13 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/ociresourcetest"
+	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 )
 
@@ -540,24 +543,42 @@ func confirm(t *testing.T, api *providerState, store ociresource.Store) {
 func TestDurableWorkRequestRecoversAfterNATSAndControllerRestart(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	config := natscell.Config{Cell: "lab", Instance: "oci-restart", Replicas: 1, Lab: true,
-		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: t.TempDir()}}
-	runtime, err := natscell.Start(ctx, config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = runtime.Close() })
-	openAuthority := func() *authority.Runtime {
-		leader, err := authority.Start(ctx, runtime.JetStream(), authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000C66H81REBS854264", Replicas: 1})
+	token, storeDir := rand.Text(), t.TempDir()
+	openJetStream := func() (jetstream.JetStream, func()) {
+		broker, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1,
+			JetStream: true, StoreDir: storeDir, Authorization: token})
 		if err != nil {
 			t.Fatal(err)
 		}
+		broker.Start()
+		shutdown := func() { broker.Shutdown(); broker.WaitForShutdown() }
+		t.Cleanup(shutdown)
+		if !broker.ReadyForConnections(5 * time.Second) {
+			t.Fatal("OCI restart broker did not become ready")
+		}
+		connection, err := nats.Connect(broker.ClientURL(), nats.Token(token))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(connection.Close)
+		js, err := jetstream.New(connection)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return js, func() { connection.Close(); shutdown() }
+	}
+	js, closeNATS := openJetStream()
+	openAuthority := func() *authority.Runtime {
+		leader, err := authority.Start(ctx, js, authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000C66H81REBS854264", Replicas: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = leader.Close() })
 		return leader
 	}
 	leader := openAuthority()
-	t.Cleanup(func() { _ = leader.Close() })
 	firstEpoch := leader.Current().Epoch
-	store, err := ociresource.OpenKVStore(ctx, runtime.JetStream(), 1)
+	store, err := ociresource.OpenKVStore(ctx, js, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -584,18 +605,13 @@ func TestDurableWorkRequestRecoversAfterNATSAndControllerRestart(t *testing.T) {
 	if err := leader.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := runtime.Close(); err != nil {
-		t.Fatal(err)
-	}
-	runtime, err = natscell.Start(ctx, config)
-	if err != nil {
-		t.Fatal(err)
-	}
+	closeNATS()
+	js, _ = openJetStream()
 	leader = openAuthority()
 	if leader.Current().Epoch <= firstEpoch {
 		t.Fatal("restart reused authority epoch")
 	}
-	store, err = ociresource.OpenKVStore(ctx, runtime.JetStream(), 1)
+	store, err = ociresource.OpenKVStore(ctx, js, 1)
 	if err != nil {
 		t.Fatal(err)
 	}

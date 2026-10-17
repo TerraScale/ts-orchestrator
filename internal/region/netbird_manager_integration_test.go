@@ -1,6 +1,7 @@
 package region
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -18,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -139,6 +141,7 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	tokens := map[string]string{}
 	creates, launches, launchPosts := 0, 0, 0
 	lost := true
+	cpuTariff := .01
 	observedImage := manager.ImageOCID
 	idFor := func(kind string) string { return "ocid1." + kind + ".oc1.sa-saopaulo-1.manager" }
 	kinds := map[string]string{"vcns": "vcn", "internetGateways": "internetgateway", "routeTables": "routetable", "securityLists": "securitylist", "networkSecurityGroups": "networksecuritygroup", "subnets": "subnet"}
@@ -150,7 +153,7 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 			metric, price := "", 0.0
 			switch r.URL.Query().Get("partNumber") {
 			case "B93297":
-				metric, price = "OCPU Per Hour", .01
+				metric, price = "OCPU Per Hour", cpuTariff
 			case "B93298":
 				metric, price = "Gigabyte Per Hour", .0015
 			case "B91961":
@@ -176,6 +179,13 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 			saved, _, err := store.Load(r.Context(), "GRU")
 			if err != nil || saved.NetBirdManager == nil || saved.NetBirdManager.RetryToken != r.Header.Get("opc-retry-token") {
 				t.Error("compute launch preceded durable exact request reservation")
+				w.WriteHeader(400)
+				return
+			}
+			quote := saved.NetBirdManager.OriginalQuote
+			if quote == nil || quote.Validate() != nil || quote.ScopeSHA256 != saved.NetBirdManager.PhysicalScopeSHA256 || quote.CompartmentID != control || quote.Cell != "GRU" ||
+				quote.Shape != manager.Profile.Shape || quote.OCPUs != 2 || quote.MemoryGB != 4 || quote.BootGB != 50 || quote.IssuedAt.After(saved.NetBirdManager.StartedAt) || !saved.NetBirdManager.StartedAt.Before(quote.ExpiresAt) {
+				t.Error("compute launch preceded durable original payable tariffs and exact billing geometry")
 				w.WriteHeader(400)
 				return
 			}
@@ -343,6 +353,57 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 		t.Fatalf("unknown launch failed to preserve exact reservation: %+v err=%v creates=%d launches=%d", saved.NetBirdManager, err, creates, launches)
 	}
 	originalLaunch := *saved.NetBirdManager
+	if originalLaunch.OriginalQuote == nil {
+		t.Fatal("lost compute response discarded original quote")
+	}
+	originalQuote := originalLaunch.OriginalQuote.Clone()
+	reopened, err := NewObjectFoundationStore(objects, "ns", "heads")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for fault, mutate := range map[string]func(*FoundationRecord){
+		"remove reservation": func(r *FoundationRecord) { r.NetBirdManager = nil },
+		"remove quote":       func(r *FoundationRecord) { r.NetBirdManager.OriginalQuote = nil },
+		"replace quote identity": func(r *FoundationRecord) {
+			r.NetBirdManager.OriginalQuote.IssuedAt = r.NetBirdManager.OriginalQuote.IssuedAt.Add(time.Nanosecond)
+		},
+		"reorder original tariffs": func(r *FoundationRecord) { slices.Reverse(r.NetBirdManager.OriginalQuote.Prices) },
+		"transplant launch identity": func(r *FoundationRecord) {
+			r.NetBirdManager.OriginGrantSHA256 = strings.Repeat("f", 64)
+		},
+		"transplant physical scope": func(r *FoundationRecord) {
+			r.NetBirdManager.PhysicalScopeSHA256 = strings.Repeat("e", 64)
+			r.NetBirdManager.OriginalQuote.ScopeSHA256 = r.NetBirdManager.PhysicalScopeSHA256
+		},
+	} {
+		current, etag, err := reopened.Load(t.Context(), "GRU")
+		if err != nil {
+			t.Fatal(err)
+		}
+		mutate(&current)
+		if _, err := reopened.CompareAndSwap(t.Context(), current, etag); err == nil {
+			t.Fatalf("original manager quote custody accepted %s", fault)
+		}
+		retained, actual, err := reopened.Load(t.Context(), "GRU")
+		if err != nil || actual != etag || !sameCapacityValue(retained.NetBirdManager, &originalLaunch) {
+			t.Fatalf("refused %s changed protected manager reservation: %v", fault, err)
+		}
+	}
+	mu.Lock()
+	cpuTariff = .0101
+	beforeRetry := launchPosts
+	mu.Unlock()
+	_, progress = resume()
+	if err := reconcileNetBirdManager(t.Context(), factory, plan, progress); err == nil || !strings.Contains(err.Error(), "original quoted financial terms") {
+		t.Fatalf("changed current manager tariff did not refuse launch replay: %v", err)
+	}
+	saved, _, err = reopened.Load(t.Context(), "GRU")
+	if err != nil || launchPosts != beforeRetry || creates != 6 || !sameCapacityValue(saved.NetBirdManager, &originalLaunch) {
+		t.Fatalf("changed manager tariff replay dispatched or replaced original evidence: %v", err)
+	}
+	mu.Lock()
+	cpuTariff = .01
+	mu.Unlock()
 	attempt, progress := resume()
 	if err := reconcileNetBirdManager(t.Context(), factory, plan, progress); err != nil {
 		t.Fatal(err)
@@ -353,6 +414,9 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	saved, _, err = store.Load(t.Context(), "GRU")
 	if err != nil || saved.NetBirdManager.StartedAt != originalLaunch.StartedAt || saved.NetBirdManager.RetryToken != originalLaunch.RetryToken || saved.NetBirdManager.RequestDigest != originalLaunch.RequestDigest {
 		t.Fatalf("recovery changed original bounded launch request: %+v %v", saved.NetBirdManager, err)
+	}
+	if saved.NetBirdManager.InstanceID != idFor("instance") || saved.NetBirdManager.BootVolumeID != idFor("bootvolume") || !sameCapacityValue(saved.NetBirdManager.OriginalQuote, &originalQuote) {
+		t.Fatal("equal-price recovery replaced original quote identity, validity or exact resource binding")
 	}
 	if _, err := attempt.finish(t.Context(), nil); err != nil {
 		t.Fatal(err)
@@ -412,6 +476,60 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	restarted, err = admit()
 	if err != nil || !restarted.RecoveryRequired() || restarted.StoreGeneration() != claim.StoreGeneration() {
 		t.Fatalf("ready store identity was reset: %+v %v", restarted, err)
+	}
+	saved, _, err = reopened.Load(t.Context(), "GRU")
+	if err != nil || !sameCapacityValue(saved.NetBirdManager.OriginalQuote, &originalQuote) {
+		t.Fatalf("manager admission or store recovery changed original financial evidence: %v", err)
+	}
+	for fault, mutate := range map[string]func(*NetBirdManagerLaunch){
+		"replace instance": func(l *NetBirdManagerLaunch) { l.InstanceID += "replacement" },
+		"replace boot":     func(l *NetBirdManagerLaunch) { l.BootVolumeID += "replacement" },
+		"reset store":      func(l *NetBirdManagerLaunch) { l.StoreState = "empty" },
+	} {
+		current, etag, err := reopened.Load(t.Context(), "GRU")
+		if err != nil {
+			t.Fatal(err)
+		}
+		mutate(current.NetBirdManager)
+		if _, err := reopened.CompareAndSwap(t.Context(), current, etag); err == nil {
+			t.Fatalf("bound original manager accepted %s", fault)
+		}
+		retained, actual, err := reopened.Load(t.Context(), "GRU")
+		if err != nil || actual != etag || !sameCapacityValue(retained.NetBirdManager, saved.NetBirdManager) {
+			t.Fatalf("refused %s changed protected manager binding: %v", fault, err)
+		}
+	}
+	// Historical absence remains unknown; today's tariffs cannot reconstruct it.
+	saved.NetBirdManager.OriginalQuote = nil
+	legacyWire, err := json.Marshal(saved, json.Deterministic(true))
+	if err != nil || bytes.Contains(legacyWire, []byte(`"originalQuote"`)) {
+		t.Fatalf("absent historical manager quote changed legacy wire schema: %v", err)
+	}
+	write(foundationObjectPrefix+"GRU.json", legacyWire)
+	legacy, etag, err := reopened.Load(t.Context(), "GRU")
+	if err != nil {
+		t.Fatal(err)
+	}
+	removed := legacy
+	removed.NetBirdManager = nil
+	if _, err := reopened.CompareAndSwap(t.Context(), removed, etag); err == nil {
+		t.Fatal("historical manager could be erased before reconstructing quote evidence")
+	}
+	legacy.NetBirdManager.OriginalQuote = new(originalQuote.Clone())
+	if _, err := reopened.CompareAndSwap(t.Context(), legacy, etag); err == nil {
+		t.Fatal("historical manager acquired reconstructed original tariff evidence")
+	}
+	beforeLegacy := launchPosts
+	restarted, err = admit()
+	if err != nil || !restarted.RecoveryRequired() {
+		t.Fatalf("legacy manager could not reopen its existing durable store: %v", err)
+	}
+	if err := restarted.MarkStoreReady(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	legacy, _, err = reopened.Load(t.Context(), "GRU")
+	if err != nil || legacy.NetBirdManager.OriginalQuote != nil || launchPosts != beforeLegacy || creates != 6 {
+		t.Fatalf("legacy manager reopen invented quote evidence or purchased resources: %v", err)
 	}
 	grant.Regions[0].NetBirdManager = nil
 	publish()

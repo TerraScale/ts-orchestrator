@@ -34,30 +34,31 @@ type OriginalFoundationWriter struct {
 // FoundationWriterRecord permanently reserves the initial home controller.
 // Grant renewal cannot transfer this launch or its exact protected objects.
 type FoundationWriterRecord struct {
-	OriginalQuote       *capacityledger.Quote      `json:"originalQuote,omitempty"`
-	Cell                string                     `json:"cell"`
-	Slot                string                     `json:"slot"`
-	InstallationID      string                     `json:"installationId"`
-	GrantSHA256         string                     `json:"grantSha256"`
-	Generation          uint64                     `json:"generation"`
-	SlotID              string                     `json:"slotId"`
-	OperationID         string                     `json:"operationId"`
-	ProfileSHA256       string                     `json:"profileSha256"`
-	RecipeSHA256        string                     `json:"recipeSha256"`
-	BindingSHA256       string                     `json:"bindingSha256"`
-	ScopeSHA256         string                     `json:"scopeSha256"`
-	PhysicalScopeSHA256 string                     `json:"physicalScopeSha256"`
-	Namespace           string                     `json:"namespace"`
-	Bucket              string                     `json:"bucket"`
-	BucketCompartment   string                     `json:"bucketCompartment"`
-	KMSKeyID            string                     `json:"kmsKeyId"`
-	Request             core.LaunchInstanceDetails `json:"request"`
-	RequestDigest       string                     `json:"requestDigest"`
-	RetryToken          string                     `json:"retryToken"`
-	FirstAttemptAt      time.Time                  `json:"firstAttemptAt"`
-	InstanceID          string                     `json:"instanceId,omitempty"`
-	Policy              *FoundationWriterPolicy    `json:"policy,omitempty"`
-	CapacityJournal     *CapacityJournalPolicy     `json:"capacityJournal,omitempty"`
+	OriginalQuote         *capacityledger.Quote            `json:"originalQuote,omitempty"`
+	Cell                  string                           `json:"cell"`
+	Slot                  string                           `json:"slot"`
+	InstallationID        string                           `json:"installationId"`
+	GrantSHA256           string                           `json:"grantSha256"`
+	Generation            uint64                           `json:"generation"`
+	SlotID                string                           `json:"slotId"`
+	OperationID           string                           `json:"operationId"`
+	ProfileSHA256         string                           `json:"profileSha256"`
+	RecipeSHA256          string                           `json:"recipeSha256"`
+	BindingSHA256         string                           `json:"bindingSha256"`
+	ScopeSHA256           string                           `json:"scopeSha256"`
+	PhysicalScopeSHA256   string                           `json:"physicalScopeSha256"`
+	Namespace             string                           `json:"namespace"`
+	Bucket                string                           `json:"bucket"`
+	BucketCompartment     string                           `json:"bucketCompartment"`
+	KMSKeyID              string                           `json:"kmsKeyId"`
+	Request               core.LaunchInstanceDetails       `json:"request"`
+	RequestDigest         string                           `json:"requestDigest"`
+	RetryToken            string                           `json:"retryToken"`
+	FirstAttemptAt        time.Time                        `json:"firstAttemptAt"`
+	InstanceID            string                           `json:"instanceId,omitempty"`
+	Policy                *FoundationWriterPolicy          `json:"policy,omitempty"`
+	CapacityJournal       *CapacityJournalPolicy           `json:"capacityJournal,omitempty"`
+	CapacityJournalScopes map[string]CapacityJournalPolicy `json:"capacityJournalScopes,omitempty"`
 }
 
 type FoundationWriterPolicy struct {
@@ -624,7 +625,7 @@ func (record FoundationWriterRecord) validate() error {
 		}
 	}
 	if record.Policy == nil {
-		if record.CapacityJournal != nil {
+		if record.CapacityJournal != nil || len(record.CapacityJournalScopes) != 0 {
 			return errors.New("capacity journal lacks the original foundation writer policy")
 		}
 		return nil
@@ -666,6 +667,7 @@ func (next FoundationRecord) retainFoundationWriterQuote(previous FoundationReco
 	current.InstanceID = old.InstanceID
 	current.Policy, old.Policy = nil, nil
 	current.CapacityJournal, old.CapacityJournal = nil, nil
+	current.CapacityJournalScopes, old.CapacityJournalScopes = nil, nil
 	if !sameCapacityValue(old, current) {
 		return errors.New("home writer cannot replace its original quote or launch identity")
 	}

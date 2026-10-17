@@ -20,7 +20,7 @@ type WorkerPoolMembership struct {
 }
 
 // WorkerCapacityJournal authorizes only the original HOME foundation writer to
-// conditionally update capacity history in the three fixed regional records.
+// conditionally update capacity history in the exact signed worker-profile regional records.
 // The signed clause conveys no general foundation, source or IAM write access.
 // Actual identity, storage scope and current operation must be proven separately.
 type WorkerCapacityJournal struct {

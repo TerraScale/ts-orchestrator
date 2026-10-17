@@ -555,7 +555,7 @@ func (a *foundationAttempt) checkpointManager(ctx context.Context, next NetBirdM
 			return errors.New("dedicated manager singleton identity cannot be replaced")
 		}
 		previous.InstanceID, previous.BootVolumeID = next.InstanceID, next.BootVolumeID
-		if previous != next {
+		if !sameCapacityValue(previous, next) {
 			return errors.New("dedicated manager immutable reservation changed")
 		}
 	}
