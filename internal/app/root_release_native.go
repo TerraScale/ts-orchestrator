@@ -55,7 +55,7 @@ func (o *rootReleaseObservation) nativeRelease(ctx context.Context, role string)
 			if err := policy.setReleaseDelegation(delegation, key, expires); err != nil {
 				return result, delivery.ArtifactRecord{}, err
 			}
-			o.deadline = earlierRootRelease(o.deadline, expires)
+			o.capDeadline(expires)
 		}
 	}
 	record, actor, err := policy.codec.VerifyArchivedArtifact(ctx, claim)
@@ -165,7 +165,11 @@ func (b *rootReleaseChannels) ReconcileNativeServiceStatus(ctx context.Context, 
 		if err != nil || !sameRootArtifact(admitted, binding.Artifact) {
 			return rootoci.NativeServiceStatusReceipt{}, errors.Join(rootrelease.ErrPending, err)
 		}
-		if _, err := b.sources.Intents.StatusFor(ctx, binding.Intent); err != nil && !errors.Is(err, delivery.ErrPending) {
+		receipt, err := b.sources.Intents.StatusFor(ctx, binding.Intent)
+		if err != nil || receipt.Status != "accepted" {
+			return rootoci.NativeServiceStatusReceipt{}, errors.Join(rootrelease.ErrPending, err)
+		}
+		if err := o.pinValue("intent/"+binding.Fingerprint, receipt); err != nil {
 			return rootoci.NativeServiceStatusReceipt{}, err
 		}
 		status.Pins.Rollback = append(status.Pins.Rollback, binding.Artifact.Digest)
@@ -190,7 +194,7 @@ func (b *rootReleaseChannels) ReconcileNativeServiceStatus(ctx context.Context, 
 	if selected == nil {
 		return rootoci.NativeServiceStatusReceipt{}, rootrelease.ErrPending
 	}
-	proofs, proofErr := observeNativeProofs(ctx, b.sources.Intents, b.sources.Hosts, selected.Intent)
+	proofs, proofErr := o.nativeProofs(ctx, selected.Intent)
 	if proofErr != nil && !errors.Is(proofErr, errBadRelease) {
 		return rootoci.NativeServiceStatusReceipt{}, proofErr
 	}
@@ -211,7 +215,7 @@ func (b *rootReleaseChannels) ReconcileNativeServiceStatus(ctx context.Context, 
 		if err != nil || fp != retained.Recovery.Fingerprint {
 			return rootoci.NativeServiceStatusReceipt{}, errors.Join(rootrelease.ErrPending, err)
 		}
-		rollback, err := observeNativeProofs(ctx, b.sources.Intents, b.sources.Hosts, retained.Recovery.Intent)
+		rollback, err := o.nativeProofs(ctx, retained.Recovery.Intent)
 		if err != nil {
 			return rootoci.NativeServiceStatusReceipt{}, err
 		}
@@ -223,16 +227,16 @@ func (b *rootReleaseChannels) ReconcileNativeServiceStatus(ctx context.Context, 
 		status.State, status.Reason = releasechannel.StateComplete, ""
 	}
 	if len(proofs) > 0 {
-		hosts, err := b.sources.Hosts.ListHosts(ctx)
+		hosts, err := o.ListHosts(ctx)
 		if err != nil {
 			return rootoci.NativeServiceStatusReceipt{}, err
 		}
 		for _, report := range proofs {
-			o.deadline = earlierRootRelease(o.deadline, report.ObservedAt.Add(host.ReportMaxAge))
+			o.capDeadline(report.ObservedAt.Add(host.ReportMaxAge))
 		}
 		for _, host := range hosts {
 			if _, ok := proofs[host.Registration.Node]; ok {
-				o.deadline = earlierRootRelease(o.deadline, host.SessionExpiresAt)
+				o.capDeadline(host.SessionExpiresAt)
 			}
 		}
 	}
@@ -241,6 +245,7 @@ func (b *rootReleaseChannels) ReconcileNativeServiceStatus(ctx context.Context, 
 	if err != nil {
 		return rootoci.NativeServiceStatusReceipt{}, err
 	}
+	slices.Sort(keys)
 	for _, key := range keys {
 		digest, ok := strings.CutPrefix(key, prefix)
 		if !ok || len(digest) != 64 || !lowerHexString(digest) {
@@ -273,7 +278,25 @@ func (b *rootReleaseChannels) ReconcileNativeServiceStatus(ctx context.Context, 
 		if err != nil || currentRevision != revision {
 			return errors.Join(rootrelease.ErrPending, err)
 		}
-		return o.guard(ctx)
+		for _, binding := range bindings {
+			admitted, err := b.sources.Intents.ResolveAdmittedArtifact(ctx, binding.Artifact.Digest, request.Role, binding.Intent.Environment)
+			if err != nil || !sameRootArtifact(admitted, binding.Artifact) {
+				return errors.Join(rootrelease.ErrPending, err)
+			}
+			receipt, err := b.sources.Intents.StatusFor(ctx, binding.Intent)
+			if err != nil || receipt.Status != "accepted" {
+				return errors.Join(rootrelease.ErrPending, err)
+			}
+			if err := o.pinValue("intent/"+binding.Fingerprint, receipt); err != nil {
+				return err
+			}
+		}
+		currentKeys, err := releasechannel.PinKeys(ctx, o.channelKV, prefix+">")
+		slices.Sort(currentKeys)
+		if err != nil || !slices.Equal(keys, currentKeys) {
+			return errors.Join(rootrelease.ErrPending, err)
+		}
+		return o.validateWitnesses(ctx)
 	}
 	if err := o.publishStatus(ctx, location, releasechannel.ServiceStatusObject(request.Role), status, guard); err != nil {
 		return rootoci.NativeServiceStatusReceipt{}, err
@@ -288,4 +311,31 @@ func sameRootArtifact(a, b delivery.ArtifactRecord) bool {
 	}
 	right, err := json.Marshal(b, json.Deterministic(true))
 	return err == nil && bytes.Equal(left, right)
+}
+
+// A failed observation returns no proof map, but its original report still expires.
+func (o *rootReleaseObservation) nativeProofs(ctx context.Context, intent delivery.Intent) (map[string]host.Report, error) {
+	proofs, proofErr := observeNativeProofs(ctx, o.b.sources.Intents, o, intent)
+	if !errors.Is(proofErr, errBadRelease) {
+		return proofs, proofErr
+	}
+	desired, err := o.ListDesired(ctx, intent.Role)
+	if err != nil {
+		return nil, err
+	}
+	hosts, err := o.ListHosts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, status := range hosts {
+		if !slices.ContainsFunc(desired, func(d host.Desired) bool { return d.Node == status.Registration.Node && !d.Withdrawn }) {
+			continue
+		}
+		for _, report := range status.Reports {
+			if report.Role == intent.Role && report.State == "failed" && report.Digest == intent.ArtifactDigest {
+				o.capDeadline(status.SessionExpiresAt, report.ObservedAt.Add(host.ReportMaxAge))
+			}
+		}
+	}
+	return nil, proofErr
 }

@@ -153,7 +153,9 @@ func TestHostRolloutExchangeVerifiesTheProofAndRelaysTheStep(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = subscription.Unsubscribe() })
-	if err := f.js.Conn().FlushWithContext(ctx); err != nil {
+	flushCtx, flushCancel := context.WithTimeout(ctx, 2*time.Second)
+	defer flushCancel()
+	if err := f.js.Conn().FlushWithContext(flushCtx); err != nil {
 		t.Fatal(err)
 	}
 	_, other, err := ed25519.GenerateKey(rand.Reader)
