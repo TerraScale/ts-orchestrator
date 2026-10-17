@@ -78,7 +78,10 @@ func RunRootOCIQualification(ctx context.Context, args []string, input io.Reader
 	authorize := func(request context.Context, peer nativerootoci.Peer, operation rootoci.Operation) (rootoci.Lease, error) {
 		mu.Lock()
 		defer mu.Unlock()
-		if child == nil || peer != child.Peer() || peer.UID != uid || peer.GID != gid || !operation.ReadOnly() || ctx.Err() != nil ||
+		if operation != rootoci.OperationObserveLocalInstance && operation != rootoci.OperationObserveImage {
+			return rootoci.Lease{}, rootoci.ErrUnauthorized
+		}
+		if child == nil || peer != child.Peer() || peer.UID != uid || peer.GID != gid || ctx.Err() != nil ||
 			child.ParentPID() != os.Getpid() || child.Cgroup() != parent.Cgroup() || parent.Verify() != nil || child.Verify() != nil {
 			return rootoci.Lease{}, rootoci.ErrUnauthorized
 		}
@@ -162,7 +165,7 @@ func RunRootOCIQualification(ctx context.Context, args []string, input io.Reader
 		!result.Negative.ProtectedWriteDenied || !result.Negative.RawSignDenied {
 		return errors.New("ordinary root OCI qualification probes did not refuse access")
 	}
-	result.SchemaVersion, result.RootUID, result.PeerUID = 1, uint32(os.Geteuid()), uid
+	result.SchemaVersion, result.RootUID, result.PeerUID = 2, uint32(os.Geteuid()), uid
 	result.InstanceID, result.ImageID = admission.InstanceID(), admission.ImageID()
 	result.BinarySHA256, result.NamespaceSHA256 = admission.BinarySHA256(), admission.NamespaceSHA256()
 	proofDigest := sha256.Sum256(wire)
@@ -277,12 +280,8 @@ func RunRootOCIQualificationReader(ctx context.Context, command string, args []s
 			read func() (any, error)
 			into *RootOCIQualificationObservation
 		}{
-			{func() (any, error) { return client.Inventory(ctx) }, &observed.Readers.Inventory},
 			{func() (any, error) { return client.ObserveLocalInstance(ctx) }, &observed.Readers.LocalInstance},
-			{func() (any, error) { return client.ObserveFleet(ctx) }, &observed.Readers.Fleet},
-			{func() (any, error) { return client.Costs(ctx) }, &observed.Readers.Costs},
 			{func() (any, error) { return client.ObserveImage(ctx, rootoci.ImageRequest{ImageID: request.ImageID}) }, &observed.Readers.Image},
-			{func() (any, error) { return client.ReleaseChannel(ctx) }, &observed.Readers.ReleaseChannel},
 		}
 		for _, reader := range readers {
 			value, err := reader.read()
@@ -307,7 +306,7 @@ func RunRootOCIQualificationReader(ctx context.Context, command string, args []s
 		}
 		result = observed
 	case "root-oci-qualification-probe":
-		_, err := client.Inventory(ctx)
+		_, err := client.ObserveLocalInstance(ctx)
 		denials := RootOCIQualificationDenials{SameUIDProcessDenied: errors.Is(err, rootoci.ErrUnauthorized), IMDSDenied: rootOCIQualificationIMDSRefused(ctx)}
 		denials.PrincipalSigningDenied = rootOCIQualificationPrincipalRefused(ctx, request.Region)
 		if !denials.SameUIDProcessDenied || !denials.IMDSDenied || !denials.PrincipalSigningDenied {
