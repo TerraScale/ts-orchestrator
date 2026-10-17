@@ -223,7 +223,15 @@ func reconcileNetBirdFoundationAccount(ctx context.Context, local automaticFound
 		if !ok {
 			return errors.New("NetBird enrollment footprint has no canonical cell")
 		}
-		if err := reconcileNetBirdRegionEnrollment(ctx, local, admission, cell, quiesce, api); err != nil {
+		subnet, ok := intent.Plan["subnet_cidr"].(string)
+		if !ok {
+			return errors.New("NetBird enrollment footprint has no authenticated subnet")
+		}
+		desired, err := manager.Regional(cell, subnet, nil)
+		if err != nil {
+			return err
+		}
+		if err := reconcileNetBirdRegionEnrollment(ctx, local, admission, cell, desired, quiesce, api); err != nil {
 			pending = append(pending, fmt.Errorf("NetBird %s enrollment pending: %w", cell, err))
 		}
 	}
@@ -244,7 +252,7 @@ func reconcileNetBirdFoundationAccount(ctx context.Context, local automaticFound
 	return nil
 }
 
-func reconcileNetBirdRegionEnrollment(ctx context.Context, local automaticFoundation, admission region.VerifiedNetBirdManager, cell string, quiesce func(context.Context) error, api *manager.API) error {
+func reconcileNetBirdRegionEnrollment(ctx context.Context, local automaticFoundation, admission region.VerifiedNetBirdManager, cell string, desired manager.Desired, quiesce func(context.Context) error, api *manager.API) error {
 	record, err := local.foundations.Resolve(ctx, cell)
 	if err != nil {
 		return err
@@ -269,7 +277,7 @@ func reconcileNetBirdRegionEnrollment(ctx context.Context, local automaticFounda
 			return err
 		}
 		currentTarget, err := current.VaultTarget()
-		if err != nil || current.OperationID != record.OperationID || current.Generation != record.Generation || currentTarget != target {
+		if err != nil || current.OperationID != record.OperationID || current.Generation != record.Generation || current.GrantSHA256 != record.GrantSHA256 || current.IntentDigest != record.IntentDigest || currentTarget != target {
 			return errors.New("NetBird enrollment regional foundation changed")
 		}
 		return nil
@@ -288,9 +296,6 @@ func reconcileNetBirdRegionEnrollment(ctx context.Context, local automaticFounda
 	if err != nil {
 		return err
 	}
-	desired := manager.GRU()
-	desired.ServersGroup = strings.ToLower(cell) + "-servers"
-	desired.SetupKeyName = desired.ServersGroup
 	_, err = manager.ReconcileServerEnrollment(ctx, api, desired, foundation.DataDirectory+"/data/terrascale-enrollment/"+strings.ToLower(cell), manager.EnrollmentVault{
 		Target: target, Management: &management, Bundles: bundles, Name: strings.ToLower(cell) + "-1-netbird-setup-key",
 	}, manager.EnrollmentAuthority{Check: check, Quiesce: quiesce})
