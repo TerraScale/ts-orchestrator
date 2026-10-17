@@ -286,7 +286,7 @@ func (b *Backend) containerEvidence(ctx context.Context, call rootoci.Call, oper
 		return result, rootoci.ErrInvalid
 	}
 	count := min(int64(rootoci.ContainerEvidenceChunkBytes), evidence.Bytes-request.Offset)
-	location, err := b.location(ctx, scope.intent.Cell)
+	location, err := b.location(ctx, scope.retained.Claim().Cell)
 	if err != nil {
 		return result, err
 	}
