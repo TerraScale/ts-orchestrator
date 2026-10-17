@@ -129,7 +129,7 @@ func (b *Backend) verifyPoolProviderFences(ctx context.Context, call rootoci.Cal
 	for _, scope := range compartments {
 		page, complete = nil, false
 		for range 20 {
-			listed, err := lb.ListLoadBalancers(ociclient.RequestContext(ctx), loadbalancer.ListLoadBalancersRequest{CompartmentId: new(scope), Page: page, Limit: new(100)})
+			listed, err := lb.ListLoadBalancers(ociclient.RequestContext(ctx), loadbalancer.ListLoadBalancersRequest{CompartmentId: new(scope), Page: page, Limit: new(int64(100))})
 			if err != nil {
 				return err
 			}
