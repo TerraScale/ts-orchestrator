@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -69,7 +70,7 @@ func TestSignedPlacementUsesBusinessKeyInRealAuthorityLog(t *testing.T) {
 		t.Fatalf("signed placement did not commit through real authority: receipt=%+v err=%v", receipt, err)
 	}
 	entry, err := control.ReadPlacementIntent(ctx, intent.DatabaseID, intent.PartitionID)
-	if err != nil || entry.SubjectKey != intent.DatabaseID+"."+intent.PartitionID || entry.Sequence != receipt.Sequence {
+	if err != nil || entry.SubjectKey != intent.DatabaseID+"."+intent.PartitionID || entry.Sequence != receipt.Sequence || !bytes.Equal(entry.OriginalWire, wire) {
 		t.Fatalf("runtime read did not return the business-key record: entry=%+v err=%v", entry, err)
 	}
 	reader, err := authority.OpenReader(ctx, broker.JetStream(), "gru")
@@ -77,8 +78,28 @@ func TestSignedPlacementUsesBusinessKeyInRealAuthorityLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	persisted, err := reader.ReadPlacementIntent(ctx, intent.DatabaseID, intent.PartitionID)
-	if err != nil || persisted.Sequence != entry.Sequence || !bytes.Equal(persisted.Payload, entry.Payload) {
+	if err != nil || persisted.Sequence != entry.Sequence || !bytes.Equal(persisted.Payload, entry.Payload) || !bytes.Equal(persisted.OriginalWire, wire) {
 		t.Fatalf("independent authority reader lost the ordered-log record: entry=%+v err=%v", persisted, err)
+	}
+	var original protocol.Envelope
+	if err := protocol.DecodeStrict(persisted.OriginalWire, &original, maxPlacementWireBytes); err != nil {
+		t.Fatal(err)
+	}
+	trusted, ok := policy.trusted(original.KeyID)
+	if !ok {
+		t.Fatal("retained ingress lost its actual admission signing key")
+	}
+	if err := protocol.VerifyEnvelope(original, protocol.EnvelopeScope{
+		Region: "gru", Kind: "placement.intent", Actor: "ops", OperationID: intent.OperationID(),
+		Generation: intent.Generation, Epoch: epoch,
+	}, trusted.PublicKey, time.Now().UTC(), protocol.VerifyPolicy{MaxLifetime: 5 * time.Minute, ClockSkew: 30 * time.Second}); err != nil {
+		t.Fatalf("retained original ingress no longer authenticates: %v", err)
+	}
+	entry.OriginalWire[0] ^= 1
+	persisted.OriginalWire[0] ^= 1
+	retained, err := reader.ReadPlacementIntent(ctx, intent.DatabaseID, intent.PartitionID)
+	if err != nil || !bytes.Equal(retained.OriginalWire, wire) {
+		t.Fatalf("caller mutation changed durable original ingress: err=%v", err)
 	}
 	decoded, err := placement.DecodeCommittedIntent(persisted.Payload)
 	if err != nil || decoded.DatabaseID != intent.DatabaseID ||
@@ -98,6 +119,21 @@ func TestSignedPlacementUsesBusinessKeyInRealAuthorityLog(t *testing.T) {
 	if err != nil || repeated.Sequence != receipt.Sequence {
 		t.Fatalf("idempotent signed admission changed the log sequence: receipt=%+v err=%v", repeated, err)
 	}
+	reissued := sign(intent)
+	if bytes.Equal(reissued, wire) {
+		t.Fatal("reissued fixture did not change signed ingress")
+	}
+	if _, err := verifyAndApplyPlacement(ctx, reissued, "gru", policy, control); !errors.Is(err, authority.ErrConflict) {
+		t.Fatalf("fresh signed envelope replaced original provenance: %v", err)
+	}
+	if _, err := control.CommitSignedPlacementIntent(ctx, epoch, intent.DatabaseID, intent.PartitionID,
+		intent.OperationID(), receipt.Sequence, retained.Payload, reissued); !errors.Is(err, authority.ErrOperationConflict) {
+		t.Fatalf("same-operation append replaced original provenance: %v", err)
+	}
+	if _, err := control.CommitPlacementIntent(ctx, epoch, intent.DatabaseID, intent.PartitionID,
+		intent.OperationID(), receipt.Sequence, retained.Payload); !errors.Is(err, authority.ErrOperationConflict) {
+		t.Fatalf("payload-only replay discarded original provenance: %v", err)
+	}
 
 	wrong := intent
 	wrong.DatabaseID = strings.ToLower(intent.CanonicalRoster.DatabaseID)
@@ -108,7 +144,29 @@ func TestSignedPlacementUsesBusinessKeyInRealAuthorityLog(t *testing.T) {
 		t.Fatal("authority accepted the uppercase UUID as a placement subject key")
 	}
 	entries, err := reader.ListPlacementIntents(ctx)
-	if err != nil || len(entries) != 1 || entries[0].SubjectKey != entry.SubjectKey || entries[0].Sequence != receipt.Sequence {
+	if err != nil || len(entries) != 1 || entries[0].SubjectKey != entry.SubjectKey || entries[0].Sequence != receipt.Sequence || !bytes.Equal(entries[0].OriginalWire, wire) {
 		t.Fatalf("rejected business key changed the ordered log: entries=%+v err=%v", entries, err)
+	}
+	entries[0].OriginalWire[0] ^= 1
+	retained, err = reader.ReadPlacementIntent(ctx, intent.DatabaseID, intent.PartitionID)
+	if err != nil || !bytes.Equal(retained.OriginalWire, wire) {
+		t.Fatalf("listed ingress aliases durable original bytes: err=%v", err)
+	}
+	legacy := intent
+	legacy.PartitionID = "0000000000RSVEVH5A778HC7A2"
+	legacyPayload, err := protocol.EncodeJSON(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := control.CommitPlacementIntent(ctx, epoch, legacy.DatabaseID, legacy.PartitionID,
+		legacy.OperationID(), 0, legacyPayload); err != nil {
+		t.Fatalf("retain historical payload-only placement: %v", err)
+	}
+	if _, err := verifyAndApplyPlacement(ctx, sign(legacy), "gru", policy, control); !errors.Is(err, authority.ErrConflict) {
+		t.Fatalf("historical payload acquired fresh original ingress: %v", err)
+	}
+	historical, err := reader.ReadPlacementIntent(ctx, legacy.DatabaseID, legacy.PartitionID)
+	if err != nil || len(historical.OriginalWire) != 0 || !bytes.Equal(historical.Payload, legacyPayload) {
+		t.Fatalf("historical evidence was rewritten: err=%v", err)
 	}
 }

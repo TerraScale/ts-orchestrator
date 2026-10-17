@@ -209,6 +209,8 @@ type LogEntry struct {
 	Sequence    uint64
 	CreatedAt   time.Time
 	Payload     []byte
+	// OriginalWire preserves signed ingress evidence; readers must independently authenticate it.
+	OriginalWire []byte
 }
 
 // HostMutationStore exposes the fenced host record log to the host feature.

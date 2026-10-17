@@ -129,7 +129,7 @@ type placementAdmissionControl interface {
 	ReadPlacementIntent(context.Context, string, string) (authority.LogEntry, error)
 	ReadTerminalIntent(context.Context, string, string) (authority.LogEntry, error)
 	ConfirmActivePlacementIntent(context.Context, uint64, string, string, []byte) (uint64, error)
-	CommitPlacementIntent(context.Context, uint64, string, string, string, uint64, []byte) (uint64, error)
+	CommitSignedPlacementIntent(context.Context, uint64, string, string, string, uint64, []byte, []byte) (uint64, error)
 }
 
 type placementMaterialAdmission func(context.Context, placement.Intent) error
@@ -156,6 +156,7 @@ func servePlacementAdmission(ctx context.Context, conn *nats.Conn, cell string, 
 }
 
 func verifyAndApplyPlacement(ctx context.Context, wire []byte, cell string, policy signerPolicy, control placementAdmissionControl, material ...placementMaterialAdmission) (placementApplyResponse, error) {
+	wire = bytes.Clone(wire)
 	var envelope protocol.Envelope
 	if err := protocol.DecodeStrict(wire, &envelope, maxPlacementWireBytes); err != nil {
 		return placementApplyResponse{}, err
@@ -187,6 +188,8 @@ func verifyAndApplyPlacement(ctx context.Context, wire []byte, cell string, poli
 	if envelope.Epoch == 0 || control.Current().Epoch != envelope.Epoch {
 		return placementApplyResponse{}, authority.ErrFenced
 	}
+	ctx, cancel := context.WithDeadline(ctx, envelope.ExpiresAt)
+	defer cancel()
 	payload, err := protocol.EncodeJSON(intent)
 	if err != nil {
 		return placementApplyResponse{}, err
@@ -217,7 +220,7 @@ func verifyAndApplyPlacement(ctx context.Context, wire []byte, cell string, poli
 			if err != nil || old.DatabaseID != intent.DatabaseID || old.PartitionID != intent.PartitionID {
 				return placementApplyResponse{}, errors.New("durable placement intent is corrupt")
 			}
-			if old.Generation != intent.Generation || !bytes.Equal(current.Payload, payload) {
+			if old.Generation != intent.Generation || !bytes.Equal(current.Payload, payload) || !bytes.Equal(current.OriginalWire, wire) {
 				return placementApplyResponse{}, authority.ErrConflict
 			}
 			sequence, err := control.ConfirmActivePlacementIntent(ctx, envelope.Epoch, intent.DatabaseID, intent.PartitionID, payload)
@@ -228,7 +231,7 @@ func verifyAndApplyPlacement(ctx context.Context, wire []byte, cell string, poli
 		} else if !errors.Is(err, authority.ErrNotFound) {
 			return placementApplyResponse{}, err
 		}
-		sequence, err := control.CommitPlacementIntent(ctx, envelope.Epoch, intent.DatabaseID, intent.PartitionID, placementOperationID(intent), 0, payload)
+		sequence, err := control.CommitSignedPlacementIntent(ctx, envelope.Epoch, intent.DatabaseID, intent.PartitionID, placementOperationID(intent), 0, payload, wire)
 		if err == nil {
 			return placementApplyResponse{DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID, Generation: intent.Generation, Sequence: sequence}, nil
 		}

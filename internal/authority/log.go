@@ -29,13 +29,14 @@ const (
 var controlStreamSubject = protocol.ControlStreamSubject()
 
 type controlRecord struct {
-	Version     int              `json:"version"`
-	Kind        HostMutationKind `json:"kind"`
-	Scope       string           `json:"scope"`
-	SubjectKey  string           `json:"subject_key"`
-	OperationID string           `json:"operation_id"`
-	Epoch       uint64           `json:"epoch"`
-	Payload     []byte           `json:"payload"`
+	Version      int              `json:"version"`
+	Kind         HostMutationKind `json:"kind"`
+	Scope        string           `json:"scope"`
+	SubjectKey   string           `json:"subject_key"`
+	OperationID  string           `json:"operation_id"`
+	Epoch        uint64           `json:"epoch"`
+	Payload      []byte           `json:"payload"`
+	OriginalWire []byte           `json:"original_wire,omitempty"`
 }
 
 const (
@@ -214,13 +215,31 @@ func (r *Runtime) commitMutationVerified(
 	payload []byte,
 	verify func(context.Context) error,
 ) (uint64, error) {
+	return r.commitMutationSourceVerified(ctx, expectedEpoch, kind, subjectKey, operationID, expectedSubjectSequence, payload, nil, verify)
+}
+
+func (r *Runtime) commitMutationSourceVerified(
+	ctx context.Context,
+	expectedEpoch uint64,
+	kind HostMutationKind,
+	subjectKey string,
+	operationID string,
+	expectedSubjectSequence uint64,
+	payload, originalWire []byte,
+	verify func(context.Context) error,
+) (uint64, error) {
 	if r == nil {
 		return 0, ErrNotLeader
 	}
+	payload = bytes.Clone(payload)
+	originalWire = bytes.Clone(originalWire)
 	if r.checkClock() != nil {
 		return 0, ErrClockUnhealthy
 	}
 	if err := validateMutation(kind, subjectKey, operationID, payload); err != nil {
+		return 0, err
+	}
+	if err := validatePlacementSource(kind, r.config.Scope, operationID, expectedEpoch, payload, originalWire); err != nil {
 		return 0, err
 	}
 	r.mu.Lock()
@@ -276,7 +295,7 @@ func (r *Runtime) commitMutationVerified(
 				return 0, fmt.Errorf("decode prior host mutation: %w", decodeErr)
 			}
 			if prior.OperationID == operationID {
-				if prior.Kind == kind && prior.SubjectKey == subjectKey && prior.Epoch == expectedEpoch && bytes.Equal(prior.Payload, payload) {
+				if prior.Kind == kind && prior.SubjectKey == subjectKey && prior.Epoch == expectedEpoch && bytes.Equal(prior.Payload, payload) && bytes.Equal(prior.OriginalWire, originalWire) {
 					return existing.Sequence, nil
 				}
 				return 0, ErrOperationConflict
@@ -299,7 +318,7 @@ func (r *Runtime) commitMutationVerified(
 
 		record := controlRecord{
 			Version: 1, Kind: kind, Scope: r.config.Scope, SubjectKey: subjectKey,
-			OperationID: operationID, Epoch: expectedEpoch, Payload: bytes.Clone(payload),
+			OperationID: operationID, Epoch: expectedEpoch, Payload: bytes.Clone(payload), OriginalWire: bytes.Clone(originalWire),
 		}
 		data, err := json.Marshal(record)
 		if err != nil {
@@ -318,7 +337,7 @@ func (r *Runtime) commitMutationVerified(
 			if readErr == nil {
 				prior, decodeErr := decodeControlRecord(latest.Data)
 				if decodeErr == nil && prior.OperationID == operationID {
-					if prior.Kind == kind && prior.SubjectKey == subjectKey && prior.Epoch == expectedEpoch && bytes.Equal(prior.Payload, payload) {
+					if prior.Kind == kind && prior.SubjectKey == subjectKey && prior.Epoch == expectedEpoch && bytes.Equal(prior.Payload, payload) && bytes.Equal(prior.OriginalWire, originalWire) {
 						return latest.Sequence, nil
 					}
 					return 0, ErrOperationConflict
@@ -329,7 +348,7 @@ func (r *Runtime) commitMutationVerified(
 			}
 			continue
 		}
-		return r.resolveUnknownMutation(ctx, subject, kind, subjectKey, operationID, expectedEpoch, payload, err)
+		return r.resolveUnknownMutation(ctx, subject, kind, subjectKey, operationID, expectedEpoch, payload, originalWire, err)
 	}
 	return 0, ErrConflict
 }
@@ -362,7 +381,7 @@ func readMutation(ctx context.Context, stream jetstream.Stream, scope string, ki
 	}
 	return LogEntry{
 		Kind: record.Kind, SubjectKey: record.SubjectKey, OperationID: record.OperationID,
-		Epoch: record.Epoch, Sequence: entry.Sequence, CreatedAt: entry.Time, Payload: bytes.Clone(record.Payload),
+		Epoch: record.Epoch, Sequence: entry.Sequence, CreatedAt: entry.Time, Payload: bytes.Clone(record.Payload), OriginalWire: bytes.Clone(record.OriginalWire),
 	}, nil
 }
 
@@ -1122,7 +1141,7 @@ func listPlacementIntents(ctx context.Context, stream jetstream.Stream, scope st
 		}
 		result = append(result, LogEntry{
 			Kind: record.Kind, SubjectKey: record.SubjectKey, OperationID: record.OperationID,
-			Epoch: record.Epoch, Sequence: entry.Sequence, CreatedAt: entry.Time, Payload: bytes.Clone(record.Payload),
+			Epoch: record.Epoch, Sequence: entry.Sequence, CreatedAt: entry.Time, Payload: bytes.Clone(record.Payload), OriginalWire: bytes.Clone(record.OriginalWire),
 		})
 	}
 	return result, nil
@@ -1135,7 +1154,7 @@ func (r *Runtime) resolveUnknownMutation(
 	subjectKey string,
 	operationID string,
 	epoch uint64,
-	payload []byte,
+	payload, originalWire []byte,
 	original error,
 ) (uint64, error) {
 	probeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
@@ -1144,7 +1163,7 @@ func (r *Runtime) resolveUnknownMutation(
 	if err == nil {
 		record, decodeErr := decodeControlRecord(entry.Data)
 		if decodeErr == nil && record.OperationID == operationID {
-			if record.Kind == kind && record.SubjectKey == subjectKey && record.Epoch == epoch && bytes.Equal(record.Payload, payload) {
+			if record.Kind == kind && record.SubjectKey == subjectKey && record.Epoch == epoch && bytes.Equal(record.Payload, payload) && bytes.Equal(record.OriginalWire, originalWire) {
 				return entry.Sequence, nil
 			}
 			return 0, ErrOperationConflict
@@ -1168,7 +1187,7 @@ func jsonMarshal(value any) ([]byte, error) {
 
 func decodeControlRecord(data []byte) (controlRecord, error) {
 	var record controlRecord
-	if len(data) == 0 || len(data) > maxControlPayload+4096 {
+	if len(data) == 0 || len(data) > maxControlPayload+4096+2*maxPlacementSourceWire {
 		return record, errors.New("control log record size is invalid")
 	}
 	if err := json.Unmarshal(data, &record, json.RejectUnknownMembers(true)); err != nil {
@@ -1176,6 +1195,9 @@ func decodeControlRecord(data []byte) (controlRecord, error) {
 	}
 	if record.Version != 1 || record.Scope == "" || record.OperationID == "" || record.Epoch == 0 || len(record.Payload) > maxControlPayload {
 		return record, errors.New("control log record fields are invalid")
+	}
+	if err := validatePlacementSource(record.Kind, record.Scope, record.OperationID, record.Epoch, record.Payload, record.OriginalWire); err != nil {
+		return record, err
 	}
 	return record, nil
 }

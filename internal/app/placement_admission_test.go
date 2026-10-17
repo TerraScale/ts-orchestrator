@@ -405,6 +405,7 @@ func (control *placementAdmissionTestControl) ReadPlacementIntent(_ context.Cont
 		return authority.LogEntry{}, authority.ErrNotFound
 	}
 	entry.Payload = bytes.Clone(entry.Payload)
+	entry.OriginalWire = bytes.Clone(entry.OriginalWire)
 	return entry, nil
 }
 
@@ -451,13 +452,25 @@ func (control *placementAdmissionTestControl) ConfirmActivePlacementIntent(ctx c
 }
 
 func (control *placementAdmissionTestControl) CommitPlacementIntent(
-	_ context.Context,
+	ctx context.Context,
 	expectedEpoch uint64,
 	databaseID string,
 	partitionID string,
 	operationID string,
 	expectedSequence uint64,
 	payload []byte,
+) (uint64, error) {
+	return control.CommitSignedPlacementIntent(ctx, expectedEpoch, databaseID, partitionID, operationID, expectedSequence, payload, nil)
+}
+
+func (control *placementAdmissionTestControl) CommitSignedPlacementIntent(
+	_ context.Context,
+	expectedEpoch uint64,
+	databaseID string,
+	partitionID string,
+	operationID string,
+	expectedSequence uint64,
+	payload, originalWire []byte,
 ) (uint64, error) {
 	if expectedEpoch != control.snapshot.Epoch {
 		return 0, authority.ErrFenced
@@ -470,7 +483,7 @@ func (control *placementAdmissionTestControl) CommitPlacementIntent(
 	control.nextSeq++
 	control.entries[key] = authority.LogEntry{
 		Kind: authority.MutationPlacementIntent, SubjectKey: key, OperationID: operationID,
-		Epoch: expectedEpoch, Sequence: control.nextSeq, CreatedAt: time.Now().UTC(), Payload: bytes.Clone(payload),
+		Epoch: expectedEpoch, Sequence: control.nextSeq, CreatedAt: time.Now().UTC(), Payload: bytes.Clone(payload), OriginalWire: bytes.Clone(originalWire),
 	}
 	return control.nextSeq, nil
 }
@@ -479,6 +492,7 @@ func (control *placementAdmissionTestControl) ListPlacementIntents(context.Conte
 	entries := make([]authority.LogEntry, 0, len(control.entries))
 	for _, entry := range control.entries {
 		entry.Payload = bytes.Clone(entry.Payload)
+		entry.OriginalWire = bytes.Clone(entry.OriginalWire)
 		entries = append(entries, entry)
 	}
 	return entries, nil
