@@ -437,9 +437,10 @@ func (s *EffectSessions) close(ctx context.Context, epoch uint64, held *runtimeE
 			if err := checkRuntimeStopContext(ctx); err != nil {
 				return empty, err
 			}
+			settlementDeadline, _ := ctx.Deadline()
 			stop := authority.RuntimeStopRecord{SignedProof: wire, ClosingSequence: effect.Sequence, ChallengeEpoch: challenge.epoch, ChallengeIssuedAt: challenge.issued}
 			sequence, err := s.authority.SettleRuntimeEffectWithStop(ctx, epoch, effect.Scope, effect.EffectID, effect.Sequence, stop, func(check context.Context, latest authority.RuntimeEffect) error {
-				return s.verifyRuntimeStop(check, epoch, latest, challenge, proof)
+				return s.verifyRuntimeStop(check, epoch, latest, challenge, proof, settlementDeadline)
 			})
 			if err != nil {
 				return empty, err

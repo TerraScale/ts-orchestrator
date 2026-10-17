@@ -324,6 +324,9 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 	if err != nil || !grantDeadline.Equal(closingEnvelope.ExpiresAt) {
 		t.Fatalf("original signed closing grant lifetime was extended: %v", err)
 	}
+	if err := sessions.verifyRuntimeStop(ctx, current.Current().Epoch, effect, challenge, proof, deadline.Add(time.Nanosecond)); err == nil || !strings.Contains(err.Error(), "exceeds its original lifetime") {
+		t.Fatalf("outer settlement deadline extended the original proof cap: %v", err)
+	}
 	expiredContext, cancelExpired := context.WithDeadline(ctx, requestStarted.Add(-time.Second))
 	if err := checkRuntimeStopContext(expiredContext); !errors.Is(err, context.DeadlineExceeded) {
 		cancelExpired()
@@ -335,7 +338,7 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 		bounded, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
 		observed := make(chan time.Time, 1)
 		slow := &EffectSessions{control: effectStopDelayedControl{ControlClient: control, boundary: boundary, observed: observed}, authority: current}
-		if err := slow.verifyRuntimeStop(bounded, current.Current().Epoch, effect, challenge, proof); !errors.Is(err, context.DeadlineExceeded) {
+		if err := slow.verifyRuntimeStop(bounded, current.Current().Epoch, effect, challenge, proof, deadline); !errors.Is(err, context.DeadlineExceeded) {
 			cancel()
 			t.Fatalf("%s manager await extended original caller context: %v", boundary, err)
 		}
@@ -352,7 +355,7 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 	}
 	cancelled, cancelStop := context.WithCancel(ctx)
 	cancelStop()
-	if err := sessions.verifyRuntimeStop(cancelled, current.Current().Epoch, effect, challenge, proof); !errors.Is(err, context.Canceled) {
+	if err := sessions.verifyRuntimeStop(cancelled, current.Current().Epoch, effect, challenge, proof, deadline); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled original caller context was replaced: %v", err)
 	}
 	substituted := proof
@@ -365,7 +368,7 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 	if err := verifyRuntimeStopGrant(wrongMaterial, challenge, proof); err == nil {
 		t.Fatal("closing envelope accepted against another immutable runtime admission")
 	}
-	if err := sessions.verifyRuntimeStop(ctx, current.Current().Epoch, effect, challenge, proof); err == nil || !strings.Contains(err.Error(), "signature is invalid") {
+	if err := sessions.verifyRuntimeStop(ctx, current.Current().Epoch, effect, challenge, proof, deadline); err == nil || !strings.Contains(err.Error(), "signature is invalid") {
 		t.Fatalf("actual worker certificate did not reach independent signature rejection: %v", err)
 	}
 	query.StopProof = &proof
@@ -390,7 +393,7 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 		t.Fatal("forged stop proof retained signed evidence before genuine verification")
 	}
 	challenge.epoch--
-	if err := sessions.verifyRuntimeStop(ctx, current.Current().Epoch, effect, challenge, proof); err == nil {
+	if err := sessions.verifyRuntimeStop(ctx, current.Current().Epoch, effect, challenge, proof, deadline); err == nil {
 		t.Fatal("prior leader challenge remained current")
 	}
 	terminal := authority.TerminalIntent{Cell: "gru", DatabaseID: scope.DatabaseID, PartitionID: scope.PartitionID, Region: "GRU", Owner: "orchestrator", CompartmentID: "ocid1.compartment.integration.held",

@@ -22,12 +22,15 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 )
 
-func (s *EffectSessions) verifyRuntimeStop(ctx context.Context, epoch uint64, effect authority.RuntimeEffect, challenge runtimeStopChallenge, proof executionwire.SignedRuntimeStop) error {
+func (s *EffectSessions) verifyRuntimeStop(ctx context.Context, epoch uint64, effect authority.RuntimeEffect, challenge runtimeStopChallenge, proof executionwire.SignedRuntimeStop, settlementDeadline time.Time) error {
 	deadline, err := runtimeStopDeadline(challenge, proof)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithDeadline(ctx, deadline)
+	if settlementDeadline.IsZero() || settlementDeadline.After(deadline) {
+		return errors.New("runtime stopped proof settlement exceeds its original lifetime")
+	}
+	ctx, cancel := context.WithDeadline(ctx, settlementDeadline)
 	defer cancel()
 	if err := checkRuntimeStopContext(ctx); err != nil {
 		return err
@@ -111,8 +114,26 @@ func (s *EffectSessions) verifyRuntimeStop(ctx context.Context, epoch uint64, ef
 		}
 		intermediates.AddCert(certificate)
 	}
-	if _, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, CurrentTime: now, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
+	chains, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, CurrentTime: time.Now().UTC(), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
+	if err != nil {
 		return err
+	}
+	chainCoversSettlement := false
+	for _, chain := range chains {
+		covers := true
+		for _, certificate := range chain {
+			if certificate.NotAfter.Before(settlementDeadline) {
+				covers = false
+				break
+			}
+		}
+		if covers {
+			chainCoversSettlement = true
+			break
+		}
+	}
+	if !chainCoversSettlement {
+		return errors.New("runtime stopped proof verified certificate chain expires before its outer settlement deadline")
 	}
 	key, ok := leaf.PublicKey.(*ecdsa.PublicKey)
 	if !ok {
