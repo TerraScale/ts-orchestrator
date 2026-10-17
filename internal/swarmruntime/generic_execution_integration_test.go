@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -88,6 +89,69 @@ func (f *genericDrainFixture) StoreStop(ctx context.Context, p drainwire.SignedS
 // A native runner cannot supply the evidence exercised by this scenario.
 type genericSessionOnlyRunner struct{ host.Runner }
 
+// This fixture has genuine read-only host and lease sources; only its protected
+// drain backend is substituted. It does not qualify the actual ROOT transport.
+type genericExecutionSignerFixture struct {
+	node                      *Node
+	hosts                     *host.Reader
+	journal                   *authority.Reader
+	drains                    *genericDrainFixture
+	deploymentID, candidateID string
+	guards                    atomic.Int64
+}
+
+func (f *genericExecutionSignerFixture) SignGenericExecution(ctx context.Context, h drainwire.ExecutionHold) (drainwire.SignedHold, error) {
+	var empty drainwire.SignedHold
+	ctx, cancel := context.WithDeadline(ctx, h.ExpiresAt)
+	defer cancel()
+	lease, err := f.journal.AdmitRuntimeLease(ctx, f.deploymentID, f.candidateID)
+	if err != nil {
+		return empty, err
+	}
+	source, err := f.hosts.CurrentGenericExecutionSession(ctx, h.HostNode)
+	if err != nil {
+		return empty, err
+	}
+	if h.Validate() != nil || h.OriginalEpoch != lease.Epoch() || !source.SameIdentity(h.HostSession) ||
+		h.ExpiresAt.After(lease.Deadline()) || h.ExpiresAt.After(source.ExpiresAt) {
+		return empty, ErrGenericExecutionPending
+	}
+	control, err := f.node.ReadOnlyControlClient(ctx)
+	if err != nil {
+		return empty, err
+	}
+	guard := func(check context.Context) error {
+		if err := lease.Guard(check); err != nil {
+			return err
+		}
+		current, err := f.hosts.CurrentGenericExecutionSession(check, source.HostNode)
+		if err != nil {
+			return err
+		}
+		if !current.SameIdentity(source) || current.ExpiresAt.Before(h.ExpiresAt) || !time.Now().Before(source.ExpiresAt) {
+			return ErrGenericExecutionPending
+		}
+		if err := VerifyGenericExecutionAssignment(check, control, h); err != nil {
+			return err
+		}
+		holds, err := f.journal.ListGenericExecutions(check)
+		if err != nil {
+			return err
+		}
+		for _, prior := range holds {
+			if prior.Hold.TaskID == h.TaskID {
+				return errors.New("fixture ROOT source already retains this original task")
+			}
+		}
+		if err := f.drains.GuardStart(check, h); err != nil {
+			return err
+		}
+		f.guards.Add(1)
+		return check.Err()
+	}
+	return f.node.SignGenericExecution(ctx, h, guard)
+}
+
 func TestContainerdGenericExecutionRetainsOriginalProcessAcrossReopen(t *testing.T) {
 	if *integrationSocket == "" {
 		t.Fatal("provide -containerd-socket for a disposable real runtime")
@@ -95,15 +159,20 @@ func TestContainerdGenericExecutionRetainsOriginalProcessAcrossReopen(t *testing
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer cancel()
 	js, connection := effectSessionR3(t)
-	journal, err := authority.Start(ctx, js, authority.Config{Scope: "gru", DeploymentID: entityid.New(), CandidateID: entityid.New(), Replicas: 3})
+	journalConfig := authority.Config{Scope: "gru", DeploymentID: entityid.New(), CandidateID: entityid.New(), Replicas: 3}
+	journal, err := authority.Start(ctx, js, journalConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = journal.Close() })
 	founderCfg := nodeFixtureConfig(t, "founder", "manager")
+	founderCfg.Admission.Region = "sa-saopaulo-1"
 	founder := nodeFixtureStart(t, ctx, founderCfg)
 	control, err := founder.ControlClient(ctx)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AdmitNode(ctx, control, founder.ID(), founderCfg.Admission); err != nil {
 		t.Fatal(err)
 	}
 	clusters, err := control.ListClusters(ctx, &api.ListClustersRequest{})
@@ -140,11 +209,21 @@ func TestContainerdGenericExecutionRetainsOriginalProcessAcrossReopen(t *testing
 		t.Fatal(err)
 	}
 	drain := &genericDrainFixture{control: control}
-	sessions, err := NewGenericExecutionSessions(control, journal, founder, drain)
+	stateKV, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: "TS_HOST_STATE", History: 2, Replicas: 3, Storage: jetstream.FileStorage})
 	if err != nil {
 		t.Fatal(err)
 	}
-	stateKV, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: "TS_HOST_STATE", History: 2, Replicas: 3, Storage: jetstream.FileStorage})
+	journalReader, err := authority.OpenReader(ctx, js, "gru")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostReader, err := host.NewReader(ctx, host.ReaderConfig{Cell: "gru", Conn: connection, JS: js, State: stateKV, StateReplicas: 3, HostMutations: journalReader})
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer := &genericExecutionSignerFixture{node: founder, hosts: hostReader, journal: journalReader, drains: drain,
+		deploymentID: journalConfig.DeploymentID, candidateID: journalConfig.CandidateID}
+	sessions, err := NewGenericExecutionSessions(control, journal, signer, drain)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,6 +352,9 @@ func TestContainerdGenericExecutionRetainsOriginalProcessAcrossReopen(t *testing
 	if original.Hold.Hold.TaskID != actual.ID || original.Process.HostPID < 2 {
 		t.Fatal("actual prestart process witness absent")
 	}
+	if signer.guards.Load() < 2 {
+		t.Fatal("genuine ROOT fixture source was not checked at signing and delivery")
+	}
 	t.Cleanup(func() {
 		cleanup, stop := context.WithTimeout(context.Background(), 20*time.Second)
 		defer stop()
@@ -308,7 +390,12 @@ func TestContainerdGenericExecutionRetainsOriginalProcessAcrossReopen(t *testing
 	if err := VerifyGenericExecutionAssignment(ctx, control, changedAssignment); err == nil {
 		t.Fatal("independent ROOT assignment check accepted another instance")
 	}
-	if _, err := worker.SignGenericExecution(ctx, original.Hold.Hold); err == nil {
+	if _, err := founder.SignGenericExecution(ctx, original.Hold.Hold, nil); err == nil {
+		t.Fatal("manager key signed without mandatory retained-source guard")
+	}
+	if _, err := worker.SignGenericExecution(ctx, original.Hold.Hold, func(check context.Context) error {
+		return VerifyGenericExecutionAssignment(check, control, original.Hold.Hold)
+	}); err == nil {
 		t.Fatal("worker key signed a manager execution hold")
 	}
 	retained, err := journal.ListGenericExecutions(ctx)
@@ -363,10 +450,6 @@ func TestContainerdGenericExecutionRetainsOriginalProcessAcrossReopen(t *testing
 	}
 	if err := VerifyGenericExecutionAssignment(ctx, control, original.Hold.Hold); err == nil || !strings.Contains(err.Error(), "ACTIVE") {
 		t.Fatal("independent ROOT assignment check admitted paused worker", err)
-	}
-	hostReader, err := host.NewReader(ctx, host.ReaderConfig{Cell: "gru", Conn: connection, JS: js, State: stateKV, StateReplicas: 3, HostMutations: journal})
-	if err != nil {
-		t.Fatal(err)
 	}
 	source, err := hostReader.CurrentGenericExecutionSession(ctx, registration.Node)
 	if err != nil || !source.SameIdentity(original.Hold.Hold.HostSession) {

@@ -136,7 +136,12 @@ func (s *GenericExecutionSessions) HandleGenericExecution(ctx context.Context, c
 		}
 		commitCtx, finish := context.WithDeadline(ctx, signed.Hold.ExpiresAt)
 		defer finish()
-		if err := verifyGenericExecutionManager(commitCtx, s.control, signed); err != nil {
+		clusters, err := s.control.ListClusters(commitCtx, &api.ListClustersRequest{})
+		if err != nil || clusters == nil || len(clusters.Clusters) != 1 || clusters.Clusters[0] == nil {
+			return empty, errors.Join(ErrGenericExecutionPending, err)
+		}
+		cluster := clusters.Clusters[0]
+		if err := verifyGenericExecutionManager(commitCtx, s.control, signed, cluster.ID, cluster.RootCA.CACert); err != nil {
 			return empty, err
 		}
 		if err := s.authority.BeginGenericExecution(commitCtx, epoch, signed, func(check context.Context) error {

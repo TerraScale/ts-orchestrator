@@ -17,19 +17,25 @@ import (
 
 // SignGenericExecution is used only beside the actual root-owned manager.
 // The ROOT operation independently derives host, lease and protected pool source;
+// beforeSign rechecks those retained sources at key use and before delivery;
 // this helper never exposes the private key or replaces those admission checks.
-func (n *Node) SignGenericExecution(ctx context.Context, h drainwire.ExecutionHold) (drainwire.SignedHold, error) {
+func (n *Node) SignGenericExecution(ctx context.Context, h drainwire.ExecutionHold, beforeSign func(context.Context) error) (drainwire.SignedHold, error) {
 	var empty drainwire.SignedHold
-	if os.Geteuid() != 0 || n == nil || n.upstream == nil || n.role != "manager" || ctx == nil || h.Validate() != nil || h.IssuedAt.After(time.Now().UTC()) {
+	if os.Geteuid() != 0 || n == nil || n.upstream == nil || n.role != "manager" || ctx == nil || beforeSign == nil || h.Validate() != nil || h.IssuedAt.After(time.Now().UTC()) {
 		return empty, ErrGenericExecutionPending
 	}
 	ctx, cancel := context.WithDeadline(ctx, h.ExpiresAt)
 	defer cancel()
-	control, err := n.ControlClient(ctx)
+	deadline, _ := ctx.Deadline()
+	control, err := n.ReadOnlyControlClient(ctx)
 	if err != nil {
 		return empty, err
 	}
 	if err := VerifyGenericExecutionAssignment(ctx, control, h); err != nil {
+		return empty, err
+	}
+	cluster, err := control.ClusterIdentity(ctx)
+	if err != nil {
 		return empty, err
 	}
 	key, chain, err := n.nodeSigningKey()
@@ -40,31 +46,43 @@ func (n *Node) SignGenericExecution(ctx context.Context, h drainwire.ExecutionHo
 	if err != nil {
 		return empty, err
 	}
+	digest := sha256.Sum256(wire)
+	if err := beforeSign(ctx); err != nil {
+		return empty, err
+	}
 	if err := ctx.Err(); err != nil {
 		return empty, err
 	}
-	digest := sha256.Sum256(wire)
+	if !time.Now().Before(deadline) {
+		return empty, context.DeadlineExceeded
+	}
 	signature, err := key.Sign(rand.Reader, digest[:], crypto.SHA256)
 	if err != nil {
 		return empty, err
 	}
 	signed := drainwire.SignedHold{Hold: h, CertificateChain: chain, Signature: signature}
-	if err := verifyGenericExecutionManager(ctx, control, signed); err != nil {
+	if err := verifyGenericExecutionManager(ctx, control, signed, cluster.ID, cluster.RootCACert); err != nil {
 		return empty, err
+	}
+	if err := beforeSign(ctx); err != nil {
+		return empty, err
+	}
+	if !time.Now().Before(deadline) {
+		return empty, context.DeadlineExceeded
 	}
 	return signed, ctx.Err()
 }
 
 // VerifyGenericExecutionAssignment independently reads the actual manager task
 // and accepted worker. It does not authenticate a host session or grant a hold.
-func VerifyGenericExecutionAssignment(ctx context.Context, control api.ControlClient, h drainwire.ExecutionHold) error {
+func VerifyGenericExecutionAssignment(ctx context.Context, control api.ControlReader, h drainwire.ExecutionHold) error {
 	if ctx == nil || control == nil || h.Validate() != nil {
 		return ErrGenericExecutionPending
 	}
 	return verifyGenericExecutionAssignment(ctx, control, h)
 }
 
-func verifyGenericExecutionAssignment(ctx context.Context, control api.ControlClient, h drainwire.ExecutionHold) error {
+func verifyGenericExecutionAssignment(ctx context.Context, control api.ControlReader, h drainwire.ExecutionHold) error {
 	got, err := control.GetTask(ctx, &api.GetTaskRequest{TaskID: h.TaskID})
 	if err != nil || got == nil || got.Task == nil {
 		return errors.Join(errors.New("generic execution actual task unavailable"), err)
@@ -98,7 +116,7 @@ func verifyGenericExecutionAssignment(ctx context.Context, control api.ControlCl
 	return ctx.Err()
 }
 
-func verifyGenericExecutionManager(ctx context.Context, control api.ControlClient, signed drainwire.SignedHold) error {
+func verifyGenericExecutionManager(ctx context.Context, control api.ControlReader, signed drainwire.SignedHold, clusterID string, clusterCA []byte) error {
 	if len(signed.CertificateChain) == 0 {
 		return ErrGenericExecutionPending
 	}
@@ -115,12 +133,7 @@ func verifyGenericExecutionManager(ctx context.Context, control api.ControlClien
 		n.Spec.Membership != api.NodeMembershipAccepted || n.Certificate.CN != n.ID || n.Certificate.Role != api.NodeRoleManager {
 		return errors.New("generic execution signer is not the actual accepted manager")
 	}
-	clusters, err := control.ListClusters(ctx, &api.ListClustersRequest{})
-	if err != nil || clusters == nil || len(clusters.Clusters) != 1 || clusters.Clusters[0] == nil {
-		return errors.Join(ErrGenericExecutionPending, err)
-	}
-	cluster := clusters.Clusters[0]
-	if err := drainwire.VerifySignedHold(signed, n.Certificate.Certificate, cluster.RootCA.CACert, cluster.ID, time.Now().UTC()); err != nil {
+	if err := drainwire.VerifySignedHold(signed, n.Certificate.Certificate, clusterCA, clusterID, time.Now().UTC()); err != nil {
 		return err
 	}
 	return ctx.Err()
