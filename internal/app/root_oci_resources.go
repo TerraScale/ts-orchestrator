@@ -41,7 +41,7 @@ type rootOCIResources struct {
 	trafficMu  sync.Mutex
 }
 
-func newRootOCIResources(cfg Config, foundation *rootfoundation.Backend, traffic *rootMaterialAdmission) (rootoci.Foundation, error) {
+func newRootOCIResources(cfg Config, foundation *rootfoundation.Backend, traffic *rootMaterialAdmission) (*rootOCIResources, error) {
 	if os.Geteuid() != 0 || foundation == nil || traffic == nil {
 		return nil, errors.New("OCI resource reconciliation requires the concrete root foundation backend")
 	}
