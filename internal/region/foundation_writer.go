@@ -190,6 +190,9 @@ func launchFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, re
 		if err := allocation.Revalidate(ctx); err != nil {
 			return err
 		}
+		if err := material.Revalidate(ctx); err != nil {
+			return err
+		}
 		if !time.Now().Before(startup.FounderResources.LaunchDeadline) {
 			return errors.New("home writer founder launch deadline expired")
 		}
@@ -197,7 +200,15 @@ func launchFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, re
 		if err != nil || actual != digest {
 			return errors.Join(ErrFoundationFenced, err)
 		}
-		return allocation.Validate(request, quote, time.Now())
+		if err := allocation.Validate(request, quote, time.Now()); err != nil {
+			return err
+		}
+		for _, deadline := range []time.Time{material.ExpiresAt(), allocation.ExpiresAt(), quote.ExpiresAt(), pending.FirstAttemptAt.Add(bootstrapRetryLifetime), startup.FounderResources.LaunchDeadline} {
+			if err := ociclient.LimitAdmission(ctx, deadline); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	if err := allocation.Validate(request, quote, time.Now()); err != nil {
 		return OriginalFoundationWriter{}, err
@@ -224,7 +235,13 @@ func launchFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, re
 		return OriginalFoundationWriter{}, err
 	}
 	noRetry := common.NoRetryPolicy()
-	response, err := compute.LaunchInstance(ociclient.RequestContext(ociclient.WithAuthority(ctx, guard)), core.LaunchInstanceRequest{LaunchInstanceDetails: details, OpcRetryToken: new(pending.RetryToken), RequestMetadata: common.RequestMetadata{RetryPolicy: &noRetry}})
+	launchCtx := ociclient.WithAdmission(ociclient.WithAuthority(ctx, guard), func(ctx context.Context) (func(), error) {
+		if err := guard(ctx); err != nil {
+			return nil, err
+		}
+		return func() {}, nil
+	})
+	response, err := compute.LaunchInstance(ociclient.RequestContext(launchCtx), core.LaunchInstanceRequest{LaunchInstanceDetails: details, OpcRetryToken: new(pending.RetryToken), RequestMetadata: common.RequestMetadata{RetryPolicy: &noRetry}})
 	if err != nil {
 		return OriginalFoundationWriter{}, err
 	}
@@ -310,6 +327,10 @@ func installFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, r
 	if err != nil {
 		return err
 	}
+	material, err := resolver.BootstrapMaterial(ctx, cell)
+	if err != nil {
+		return err
+	}
 	record, etag, err := resolver.Store.Load(ctx, cell)
 	if err != nil {
 		return err
@@ -354,9 +375,18 @@ func installFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, r
 		if saved.FoundationWriter == nil || saved.FoundationWriter.InstanceID != receipt.instance || saved.FoundationWriter.GrantSHA256 != receipt.grant || saved.FoundationWriter.RequestDigest != receipt.request {
 			return ErrFoundationFenced
 		}
-		return nil
+		if err := material.Revalidate(ctx); err != nil {
+			return err
+		}
+		return ociclient.LimitAdmission(ctx, material.ExpiresAt())
 	}
 	ctx = ociclient.WithAuthority(ctx, guard)
+	ctx = ociclient.WithAdmission(ctx, func(ctx context.Context) (func(), error) {
+		if err := guard(ctx); err != nil {
+			return nil, err
+		}
+		return func() {}, nil
+	})
 	found, err := actor.findPolicy(ctx, details)
 	if err != nil {
 		return err
@@ -390,7 +420,16 @@ func installFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, r
 			return err
 		}
 		noRetry := common.NoRetryPolicy()
-		response, err := iam.CreatePolicy(ociclient.RequestContext(ctx), identity.CreatePolicyRequest{CreatePolicyDetails: policy.Request, OpcRetryToken: new(policy.RetryToken), RequestMetadata: common.RequestMetadata{RetryPolicy: &noRetry}})
+		createCtx := ociclient.WithAdmission(ctx, func(ctx context.Context) (func(), error) {
+			if err := guard(ctx); err != nil {
+				return nil, err
+			}
+			if err := ociclient.LimitAdmission(ctx, policy.FirstAttemptAt.Add(bootstrapRetryLifetime)); err != nil {
+				return nil, err
+			}
+			return func() {}, nil
+		})
+		response, err := iam.CreatePolicy(ociclient.RequestContext(createCtx), identity.CreatePolicyRequest{CreatePolicyDetails: policy.Request, OpcRetryToken: new(policy.RetryToken), RequestMetadata: common.RequestMetadata{RetryPolicy: &noRetry}})
 		if err != nil {
 			return err
 		}
