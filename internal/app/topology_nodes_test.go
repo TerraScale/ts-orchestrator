@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
-	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/regionview"
 )
 
@@ -13,13 +12,6 @@ func TestTopologyNodes(t *testing.T) {
 	grants := []cellspec.HostGrant{
 		{Node: "ts-sfo-2", PrivateIP: "10.0.0.2", Roles: []string{"terrabase"}},
 		{Node: "ts-sfo-1", PrivateIP: "10.0.0.1", Roles: []string{"terrabase", "ts-auth"}, Controller: "controller-a"},
-	}
-	hosts := []host.HostStatus{
-		{Registration: host.Registration{Node: "ts-sfo-1"}, Verified: true, Reports: []host.Report{
-			{Role: "ts-auth", Digest: "sha256:auth", State: "running"}}},
-		// An unverified host's reports are not shown.
-		{Registration: host.Registration{Node: "ts-sfo-2"}, Reports: []host.Report{
-			{Role: "terrabase", Digest: "sha256:base", State: "running"}}},
 	}
 	status := nodeOpReply{
 		Operations: []nodeOp{
@@ -33,19 +25,19 @@ func TestTopologyNodes(t *testing.T) {
 		{Name: "manual"}}
 	members := map[string]string{"ts-sfo-1": "controller-a"}
 
-	got := topologyNodes(grants, members, hosts, status, sets)
+	got := topologyNodes(grants, members, status, sets)
 	want := []regionview.Node{
 		{Name: "ts-sfo-1", Address: "10.0.0.1", Member: "controller-a",
-			Services: []regionview.Service{{Role: "terrabase"}, {Role: "ts-auth", Digest: "sha256:auth", State: "running"}},
+			Services: []regionview.Service{{Role: "terrabase", State: "unknown", StateReason: "current manager task readiness is unavailable in node topology"}, {Role: "ts-auth", State: "unknown", StateReason: "current manager task readiness is unavailable in node topology"}},
 			Backends: []regionview.Backend{{Set: "terrabase-https"}, {Set: "auth-https"}}},
-		{Name: "ts-sfo-2", Address: "10.0.0.2", Services: []regionview.Service{{Role: "terrabase"}},
+		{Name: "ts-sfo-2", Address: "10.0.0.2", Services: []regionview.Service{{Role: "terrabase", State: "unknown", StateReason: "current manager task readiness is unavailable in node topology"}},
 			Fence: []string{"drain"}, Operation: "drain: fence",
 			Backends: []regionview.Backend{{Set: "terrabase-https", Offline: true}}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("topologyNodes =\n%+v\nwant\n%+v", got, want)
 	}
-	if nodes := topologyNodes(nil, nil, nil, nodeOpReply{}, nil); len(nodes) != 0 {
+	if nodes := topologyNodes(nil, nil, nodeOpReply{}, nil); len(nodes) != 0 {
 		t.Fatalf("no grants listed %d nodes", len(nodes))
 	}
 }

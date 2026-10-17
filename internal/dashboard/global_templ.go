@@ -603,9 +603,9 @@ func regionCard(current view, summary regionview.Summary) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var38 string
-		templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(itoa(summary.TerraBase.ServingSeats))
+		templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs("unknown: live native task readiness unavailable")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/global.templ`, Line: 91, Col: 96}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/global.templ`, Line: 91, Col: 109}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 		if templ_7745c5c3_Err != nil {
@@ -618,7 +618,7 @@ func regionCard(current view, summary regionview.Summary) templ.Component {
 		var templ_7745c5c3_Var39 string
 		templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinStringErrs(itoa(summary.TerraBase.DesiredSeats))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/global.templ`, Line: 91, Col: 137}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/global.templ`, Line: 91, Col: 150}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 		if templ_7745c5c3_Err != nil {

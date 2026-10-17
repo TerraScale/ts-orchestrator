@@ -12,14 +12,14 @@ import (
 func TestDrillManagedServicesHTTP(t *testing.T) {
 	global := globalview.NewView("gru", nil, func() time.Time { return testNow })
 	rollup := globalview.Rollup{Version: globalview.Version, Cell: "gru", ObservedAt: testNow, ServicesObservedAt: testNow,
-		Services: []swarmruntime.ServiceObservation{{ServiceID: "unplaced", IntentID: "intent-a", Role: "web", RequestedReplicas: 3, Readiness: "unknown", RequestedDigest: "sha256:requested", ObservedAt: testNow,
+		Services: []swarmruntime.ServiceObservation{{ServiceID: "unplaced", IntentID: "intent-a", Role: "web", RequestedReplicas: 3, Readiness: "unknown", ReadinessReason: "current authenticated task readiness unavailable", RequestedDigest: "sha256:requested", ObservedAt: testNow,
 			Tasks: []swarmruntime.TaskObservation{{TaskID: "task-a", State: "PENDING"}}}}}
 	if !global.Accept(rollup) {
 		t.Fatal("source observation rejected")
 	}
 	handler := drillDashboard(t, global)
 	for path, wants := range map[string][]string{
-		"/regions/gru":                   {"Managed services", "unplaced", "/regions/gru/services/unplaced", "unknown", "sha256:requested"},
+		"/regions/gru":                   {"Managed services", "unplaced", "/regions/gru/services/unplaced", "unknown", "current authenticated task readiness unavailable", "sha256:requested"},
 		"/regions/gru/services/unplaced": {"Requested replicas", "Ready replicas", "unknown", "task-a", "PENDING", "sha256:requested"},
 		"/regions/gru/services/absent":   {"not_found", "absent only"},
 	} {

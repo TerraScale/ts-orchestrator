@@ -33,6 +33,17 @@ func TestTruncatedViewsAreVisibleOnMetrics(t *testing.T) {
 	}
 }
 
+func TestMetricsOmitCurrentServingWithoutLiveNativeReadiness(t *testing.T) {
+	t.Parallel()
+	collector, _ := testCollector(t, "durable-only", nil)
+	out := metricsOverHTTP(t, collector)
+	if strings.Contains(out, `ts_orch_terrabase_replicas{database="db",partition="p0",state="serving"}`) ||
+		!strings.Contains(out, `ts_orch_terrabase_members{stage="serving"} 2`) ||
+		!strings.Contains(out, `ts_orch_terrabase_replicas{database="db",partition="p0",state="desired"} 3`) {
+		t.Fatalf("metrics confused durable progress with current serving:\n%s", out)
+	}
+}
+
 func TestParseProcStatAcceptsLongInterruptLine(t *testing.T) {
 	t.Parallel()
 	intr := "intr" + strings.Repeat(" 12345678", 20000)

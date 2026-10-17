@@ -393,7 +393,7 @@ func serviceTable(current view, region, node string, services []globalview.Servi
 		Headers: []string{"Role", "State", "Digest"}}
 	for _, service := range services {
 		roles.Rows = append(roles.Rows, []cell{{Text: service.Role, Href: current.State.serviceLink(region, node, service.Role)},
-			textCell(orDash(service.State)), textCell(short(orDash(service.Digest), 12))})
+			textCell(joinDetail(orDash(service.State), service.StateReason)), textCell(short(orDash(service.Digest), 12))})
 	}
 	return roles
 }

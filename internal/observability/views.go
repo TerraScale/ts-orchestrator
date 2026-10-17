@@ -149,14 +149,16 @@ type PlacementView struct {
 
 // DatabaseView is one database partition's roster progress.
 type DatabaseView struct {
-	DatabaseID   string         `json:"database_id"`
-	PartitionID  string         `json:"partition_id"`
-	Generation   uint64         `json:"generation"`
-	Terminal     bool           `json:"terminal,omitzero"`
-	DesiredSeats int            `json:"desired_seats"`
-	Serving      int            `json:"serving"`
-	Stages       map[string]int `json:"stages,omitempty"`
-	Members      []MemberView   `json:"members,omitempty"`
+	DatabaseID      string         `json:"database_id"`
+	PartitionID     string         `json:"partition_id"`
+	Generation      uint64         `json:"generation"`
+	Terminal        bool           `json:"terminal,omitzero"`
+	DesiredSeats    int            `json:"desired_seats"`
+	Serving         int            `json:"serving"`
+	Readiness       string         `json:"readiness"`
+	ReadinessReason string         `json:"readiness_reason"`
+	Stages          map[string]int `json:"stages,omitempty"`
+	Members         []MemberView   `json:"members,omitempty"`
 	// Rollout is present while any seat carries a managed runtime target.
 	Rollout *RolloutView `json:"rollout,omitempty"`
 }
