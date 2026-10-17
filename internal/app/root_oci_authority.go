@@ -173,6 +173,9 @@ func (authority *rootOCIAuthority) authorizeProcess(request context.Context, pee
 	if original, ok := request.Deadline(); ok && original.Before(deadline) {
 		deadline = original
 	}
+	if authority.sources != nil {
+		deadline = earlier(deadline, authority.sources.deadline)
+	}
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	stopRequest := context.AfterFunc(request, cancel)
 	stopAuthority := context.AfterFunc(authority.ctx, cancel)
@@ -195,6 +198,8 @@ func (authority *rootOCIAuthority) authorizeProcess(request context.Context, pee
 	if err != nil {
 		return deny()
 	}
+	ctx, stopCurrent := context.WithDeadline(ctx, currentAuthority.ExpiresAt())
+	defer stopCurrent()
 	if source.generation != process.generation || source.session != nil {
 		process.runtime = true
 	}
@@ -238,7 +243,7 @@ func (authority *rootOCIAuthority) authorizeProcess(request context.Context, pee
 		authority.verifyMarker() != nil || authority.verifyProcess(ctx, process) != nil || ctx.Err() != nil || source.session.Err() != nil {
 		return rootoci.Lease{}, rootoci.ErrUnauthorized
 	}
-	if err := authority.publishManagerRuntimeBinding(ctx, process, binding, identity, currentAuthority); err != nil {
+	if err := authority.verifyManagerRuntimeBinding(ctx, process, binding, identity, currentAuthority); err != nil {
 		return rootoci.Lease{}, err
 	}
 	if process.session != source.session {
@@ -252,10 +257,10 @@ func (authority *rootOCIAuthority) authorizeProcess(request context.Context, pee
 		process.stopLease = func() { stop(); stopSources(); cancelLease() }
 	}
 	worker := identity.Identity()
-	return rootoci.Lease{Context: process.lease, Deadline: earlier(earlier(identity.ExpiresAt(), currentAuthority.ExpiresAt()), authority.sources.deadline),
+	return rootoci.Lease{Context: process.lease, Deadline: earlier(earlier(earlier(identity.ExpiresAt(), currentAuthority.ExpiresAt()), authority.sources.deadline), process.managerBinding.signed.Binding.ExpiresAt),
 		RuntimeID: entityid.Derive("controller-runtime", process.witness.Binding()),
-		Binding: fmt.Sprintf("%s:runtime:%s:%d:%s", process.witness.Binding(), worker.HostSessionID,
-			worker.RegistrationGeneration, currentAuthority.Anchor().Digest())}, nil
+		Binding: fmt.Sprintf("%s:runtime:%s:%d:%s:%s", process.witness.Binding(), worker.HostSessionID,
+			worker.RegistrationGeneration, currentAuthority.Anchor().Digest(), process.managerBinding.digest)}, nil
 }
 
 func controllerRuntimeID() (string, error) {
