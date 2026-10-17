@@ -667,7 +667,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 					return gate.Check(ctx, rollout.Record{Kind: rollout.KindHost}, "")
 				}
 				return gate.Check(ctx, rollout.Record{Kind: rollout.KindController}, node)
-			})
+			}, cfg, runtime.JetStream())
 		policy.nodes.controllers = func(node string) bool {
 			_, controller := serverOf(node)
 			return controller
