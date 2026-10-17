@@ -494,21 +494,16 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	// TerraBase seat rollouts hold a static member's restart until its seat
 	// is permitted, so the host controller needs the seat records first.
-	var seatStore *seatrollout.Store
-	var restartGate func(context.Context, string, host.Desired) (bool, error)
-	if seats := cfg.Controller.TerraBaseSeats; seats != nil && seats.Enabled {
-		if _, _, err := seats.durations(); err != nil {
-			return err
-		}
-		if seatStore, _, err = retryControllerOpen(ctx, "open TerraBase seat records", fullClusterReady, false,
-			func(attempt context.Context) (*seatrollout.Store, error) {
-				return seatrollout.Open(attempt, runtime.JetStream(), cfg.NATS.Replicas, control)
-			}, nil); err != nil {
-			return err
-		}
-		restartGate = seatStore.Granted
-		policy.rollouts.drainedSeats = seatStore.Drained
+	seatStore, _, err := retryControllerOpen(ctx, "open TerraBase seat records", fullClusterReady, false,
+		func(attempt context.Context) (*seatrollout.Store, error) {
+			return seatrollout.Open(attempt, runtime.JetStream(), cfg.NATS.Replicas, control)
+		}, nil)
+	if err != nil {
+		return err
 	}
+	seats := newSeatController(cfg, seatStore, control, nil, services.profiles, ociReconcile)
+	restartGate := seatRestartGate(seats)
+	policy.rollouts.drainedSeats = seatStore.Drained
 	// Service releases sequenced by a release fence (TS-610) hold a host's
 	// restart until the leader permits its node, on every controller.
 	var releaseChannel jetstream.KeyValue
@@ -517,15 +512,12 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			return err
 		}
 		release := releaseGate(releaseChannel)
-		if seats := restartGate; seats != nil {
-			restartGate = func(ctx context.Context, node string, desired host.Desired) (bool, error) {
-				if granted, err := seats(ctx, node, desired); err != nil || !granted {
-					return granted, err
-				}
-				return release(ctx, node, desired)
+		seatGate := restartGate
+		restartGate = func(ctx context.Context, node string, desired host.Desired) (bool, error) {
+			if granted, err := seatGate(ctx, node, desired); err != nil || !granted {
+				return granted, err
 			}
-		} else {
-			restartGate = release
+			return release(ctx, node, desired)
 		}
 	}
 	// A cell that enrolls hosts issues its placed roles' NATS identities with
@@ -597,6 +589,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return err
 	}
 	planner.hosts = hostController
+	seats.Hosts = hostController
 	// One release fence takes nodes out of rotation for service releases,
 	// controller rollouts and node operations (TS-632).
 	var fences *releaseFence
@@ -606,7 +599,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if releaseChannel != nil {
 		fences = &releaseFence{kv: releaseChannel, hosts: hostController, fencer: control,
 			spec:  withPoolAddresses(services.releaseFence, &poolScaler),
-			seats: seatStore != nil,
+			seats: true,
 			open: func(context.Context) (lb.API, error) {
 				factory, err := ociclient.InstancePrincipal(region)
 				if err != nil {
@@ -1138,11 +1131,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if ociReconcile != nil {
 		workers.Go(func() { workerErrors <- ociReconcile.runner.Run(runCtx) })
 	}
-	if seatStore != nil {
-		seats := newSeatController(cfg, seatStore, control, hostController, services.profiles, ociReconcile)
-		seats.Hold = policy.rollouts.hostRolloutActive
-		workers.Go(func() { workerErrors <- seats.Run(runCtx) })
-	}
+	seats.Hold = policy.rollouts.hostRolloutActive
+	workers.Go(func() { workerErrors <- seats.Run(runCtx) })
 	if membershipSupervisor != nil {
 		workers.Go(func() { workerErrors <- membershipSupervisor.Run(runCtx) })
 	}

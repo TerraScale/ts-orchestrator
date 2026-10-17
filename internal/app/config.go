@@ -59,10 +59,6 @@ type ControllerConfig struct {
 	// OciReconcile enables the declarative OCI resource reconcilers; nil or
 	// disabled keeps them off.
 	OciReconcile *OciReconcileConfig `json:"oci_reconcile,omitempty"`
-	// TerraBaseSeats restarts static TerraBase members one seat at a time,
-	// drained on the public load balancer first (TS-571). Off when nil or
-	// not enabled.
-	TerraBaseSeats *TerraBaseSeatsConfig `json:"terrabase_seats,omitempty"`
 	// SelfUpdateProofFile is where a ready controller writes the version
 	// proof for a pending self-update activation, signed with its response
 	// key; empty means selfupdate.DefaultProofFile, which the image's

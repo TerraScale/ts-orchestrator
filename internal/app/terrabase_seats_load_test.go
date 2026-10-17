@@ -127,7 +127,10 @@ func releaseUnderLoad(t *testing.T, seated bool) (failures, served int64) {
 		}
 	}()
 
-	hosts := &loadHosts{desired: map[string]uint64{}, reports: map[string]host.Report{}}
+	// Advance the test clock instead of exposing production timing overrides.
+	started := time.Now()
+	now := func() time.Time { return started.Add(50 * time.Since(started)) }
+	hosts := &loadHosts{desired: map[string]uint64{}, reports: map[string]host.Report{}, now: now}
 	if !seated {
 		hosts.stopped = make(chan struct{}, len(seats))
 		hosts.restart = make(chan struct{})
@@ -147,8 +150,21 @@ func releaseUnderLoad(t *testing.T, seated bool) (failures, served int64) {
 				default:
 				}
 			},
-			DrainGrace: 200 * time.Millisecond, Settle: 200 * time.Millisecond, Interval: 30 * time.Millisecond}
-		go func() { _ = controller.Run(ctx) }()
+			Now: now}
+		go func() {
+			ticker := time.NewTicker(30 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if err := controller.Tick(ctx); err != nil && ctx.Err() == nil {
+						t.Errorf("seat rollout: %v", err)
+					}
+				}
+			}
+		}()
 	}
 
 	await := func(what string, done func() bool) {
@@ -296,6 +312,7 @@ type loadHosts struct {
 	reports map[string]host.Report
 	stopped chan struct{}
 	restart chan struct{}
+	now     func() time.Time
 }
 
 func (h *loadHosts) ListDesired(_ context.Context, role string) ([]host.Desired, error) {
@@ -321,8 +338,12 @@ func (h *loadHosts) ListHosts(context.Context) ([]host.HostStatus, error) {
 func (h *loadHosts) report(node string, generation uint64, state string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	observedAt := time.Now()
+	if h.now != nil {
+		observedAt = h.now()
+	}
 	h.reports[node] = host.Report{Node: node, Role: terrabase.Role, Digest: "d" + strconv.FormatUint(generation, 10),
-		Generation: generation, State: state, ObservedAt: time.Now()}
+		Generation: generation, State: state, ObservedAt: observedAt}
 }
 
 func (h *loadHosts) release(generation uint64) {

@@ -193,6 +193,21 @@ func TestSeatsOutOfRotationGoFirstAndTheLastHealthySeatStays(t *testing.T) {
 	c.expect(store, []string{"gru-1-db-1"}, []string{"gru-1-db-2"})
 }
 
+func TestMissingExpectedBackendHoldsEverySeat(t *testing.T) {
+	store, _, fence := testStore(t)
+	c := newCell(t)
+	controller := c.controller(store, fence)
+	c.release(2)
+	delete(c.backends, "10.251.0.22:9465")
+	if err := controller.Tick(t.Context()); err == nil {
+		t.Fatal("missing expected backend permitted a restart")
+	}
+	c.expect(store, nil, nil)
+	c.backends["10.251.0.22:9465"] = Backend{Healthy: true}
+	c.tick(controller)
+	c.expect(store, []string{"gru-1-db-1"}, nil)
+}
+
 // A restarted seat that never serves holds its group, and the release's
 // rollback (a newer generation) restarts it first.
 func TestAFailedSeatHoldsTheGroupUntilTheRollback(t *testing.T) {
