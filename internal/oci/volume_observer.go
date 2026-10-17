@@ -11,20 +11,42 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/rootvolumeclient"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
 // VolumeMountObserver exposes reads only. The manager keeps its delegated
 // workload-effect lease held and guards it before and after each observation.
-type VolumeMountObserver struct{ reader *fleet }
+type VolumeMountObserver struct {
+	reader *fleet
+	remote *rootvolumeclient.Client
+}
+
+// NewRemoteVolumeMountObserver accepts only the concrete finite authenticated
+// root client. Callers cannot supply SDK results or a proof-producing callback.
+func NewRemoteVolumeMountObserver(client *rootvolumeclient.Client) (*VolumeMountObserver, error) {
+	if client == nil {
+		return nil, rootvolumeclient.ErrUnverified
+	}
+	return &VolumeMountObserver{remote: client}, nil
+}
 
 func NewVolumeMountObserver(factory *ociclient.Factory, config RegionConfig, intent RegionIntent, journal Journal) (*VolumeMountObserver, error) {
+	store, ok := journal.(*KVJournal)
+	if !ok || store == nil {
+		return nil, errors.New("volume observation requires the exact regional OCI factory and durable ownership journal")
+	}
+	return NewVolumeMountObserverWithReader(factory, config, intent, JournalReader{journal: store})
+}
+
+// NewVolumeMountObserverWithReader belongs to the root backend and cannot
+// create or repair durable ownership projections.
+func NewVolumeMountObserverWithReader(factory *ociclient.Factory, config RegionConfig, intent RegionIntent, journal JournalReader) (*VolumeMountObserver, error) {
 	if err := config.Validate(intent); err != nil {
 		return nil, err
 	}
 	region, err := config.Region.OCIRegion()
-	store, ok := journal.(*KVJournal)
-	if err != nil || factory == nil || factory.Region() != region || !ok || store == nil {
+	if err != nil || factory == nil || factory.Region() != region || journal.journal == nil {
 		return nil, errors.New("volume observation requires the exact regional OCI factory and durable ownership journal")
 	}
 	config.FaultDomains = slices.Clone(config.FaultDomains)
@@ -33,7 +55,7 @@ func NewVolumeMountObserver(factory *ociclient.Factory, config RegionConfig, int
 	if err != nil {
 		return nil, err
 	}
-	return &VolumeMountObserver{reader: &fleet{config: config, provider: volumeObservationProvider{Provider: provider}, journal: volumeObservationJournal{store}, now: time.Now}}, nil
+	return &VolumeMountObserver{reader: &fleet{config: config, provider: volumeObservationProvider{Provider: provider}, journal: volumeObservationJournal{journal.journal}, now: time.Now}}, nil
 }
 
 // VerifiedVolumeObservation is evidence of the exact existing attachment. It
@@ -43,13 +65,34 @@ type VerifiedVolumeObservation struct {
 	descriptor  string
 	predecessor string
 	observedAt  time.Time
+	observer    *VolumeMountObserver
+	remote      *rootvolumeclient.VerifiedMount
 }
 
 func (v VerifiedVolumeObservation) Pins() VolumeInitializationPins { return v.pins }
 func (v VerifiedVolumeObservation) BootDescriptorSHA256() string   { return v.descriptor }
 func (v VerifiedVolumeObservation) PredecessorID() string          { return v.predecessor }
 func (v VerifiedVolumeObservation) ObservedAt() time.Time          { return v.observedAt }
-func (v VerifiedVolumeObservation) IsVerified() bool               { return !v.observedAt.IsZero() }
+func (v VerifiedVolumeObservation) IsVerified() bool {
+	return !v.observedAt.IsZero() && (v.remote != nil && v.remote.IsVerified() || v.remote == nil && v.observer != nil)
+}
+
+func (v VerifiedVolumeObservation) Revalidate(ctx context.Context) error {
+	if !v.IsVerified() {
+		return rootvolumeclient.ErrUnverified
+	}
+	if v.remote != nil {
+		return v.remote.Revalidate(ctx)
+	}
+	current, err := v.observer.InspectVolumeMount(ctx, v.pins, v.predecessor)
+	if err != nil {
+		return err
+	}
+	if current.descriptor != v.descriptor {
+		return rootvolumeclient.ErrUnverified
+	}
+	return nil
+}
 
 type VerifiedTerminatedInstance struct {
 	instance   string
@@ -57,6 +100,8 @@ type VerifiedTerminatedInstance struct {
 	generation uint64
 	owner      string
 	observedAt time.Time
+	observer   *VolumeMountObserver
+	remote     *rootvolumeclient.VerifiedTerminated
 }
 
 func (v VerifiedTerminatedInstance) InstanceID() string    { return v.instance }
@@ -64,7 +109,26 @@ func (v VerifiedTerminatedInstance) Region() Region        { return v.region }
 func (v VerifiedTerminatedInstance) Generation() uint64    { return v.generation }
 func (v VerifiedTerminatedInstance) Owner() string         { return v.owner }
 func (v VerifiedTerminatedInstance) ObservedAt() time.Time { return v.observedAt }
-func (v VerifiedTerminatedInstance) IsVerified() bool      { return !v.observedAt.IsZero() }
+func (v VerifiedTerminatedInstance) IsVerified() bool {
+	return !v.observedAt.IsZero() && (v.remote != nil && v.remote.IsVerified() || v.remote == nil && v.observer != nil)
+}
+
+func (v VerifiedTerminatedInstance) Revalidate(ctx context.Context) error {
+	if !v.IsVerified() {
+		return rootvolumeclient.ErrUnverified
+	}
+	if v.remote != nil {
+		return v.remote.Revalidate(ctx)
+	}
+	current, err := v.observer.ObserveTerminatedInstance(ctx, v.instance)
+	if err != nil {
+		return err
+	}
+	if current.region != v.region || current.generation != v.generation || current.owner != v.owner {
+		return rootvolumeclient.ErrUnverified
+	}
+	return nil
+}
 
 func (o *VolumeMountObserver) regionalID(id, kind string) bool {
 	if o == nil || o.reader == nil {
@@ -77,6 +141,15 @@ func (o *VolumeMountObserver) regionalID(id, kind string) bool {
 // ObserveTerminatedInstance never treats absence, STOPPED or TERMINATING as
 // fencing. Revoking a launch image does not invalidate a terminal observation.
 func (o *VolumeMountObserver) ObserveTerminatedInstance(ctx context.Context, instanceID string) (VerifiedTerminatedInstance, error) {
+	if o != nil && o.remote != nil {
+		proof, err := o.remote.ObserveTerminatedInstance(ctx, rootvolumeclient.TerminatedRequest{InstanceID: instanceID})
+		if err != nil {
+			return VerifiedTerminatedInstance{}, err
+		}
+		view := proof.View()
+		return VerifiedTerminatedInstance{instance: view.InstanceID, region: Region(view.Region), generation: view.Generation,
+			owner: view.Owner, observedAt: view.ObservedAt, remote: &proof}, nil
+	}
 	if !o.regionalID(instanceID, "instance") {
 		return VerifiedTerminatedInstance{}, ErrForeignResource
 	}
@@ -106,10 +179,19 @@ func (o *VolumeMountObserver) ObserveTerminatedInstance(ctx context.Context, ins
 	if err := ctx.Err(); err != nil {
 		return VerifiedTerminatedInstance{}, err
 	}
-	return VerifiedTerminatedInstance{instance: instanceID, region: c.Region, generation: c.Generation, owner: c.Owner, observedAt: time.Now().UTC()}, nil
+	return VerifiedTerminatedInstance{instance: instanceID, region: c.Region, generation: c.Generation, owner: c.Owner, observedAt: time.Now().UTC(), observer: o}, nil
 }
 
 func (o *VolumeMountObserver) InspectVolumeMount(ctx context.Context, pins VolumeInitializationPins, predecessorInstanceID string) (VerifiedVolumeObservation, error) {
+	if o != nil && o.remote != nil {
+		proof, err := o.remote.InspectVolumeMount(ctx, rootvolumeclient.InspectRequest{Pins: rootvolumeclient.Pins(pins), PredecessorID: predecessorInstanceID})
+		if err != nil {
+			return VerifiedVolumeObservation{}, err
+		}
+		view := proof.View()
+		return VerifiedVolumeObservation{pins: VolumeInitializationPins(view.Pins), descriptor: view.BootDescriptorSHA256,
+			predecessor: view.PredecessorID, observedAt: view.ObservedAt, remote: &proof}, nil
+	}
 	if !o.regionalID(pins.InstanceID, "instance") || !o.regionalID(pins.VolumeID, "volume") || !o.regionalID(pins.AttachmentID, "volumeattachment") ||
 		!entityid.Valid(pins.DatabaseID) || !entityid.Valid(pins.PartitionID) || !entityid.Valid(pins.HostCreateKey) ||
 		pins.AttachmentETag == "" || !validDevicePath(pins.Device) || pins.FileSystemUUID == "" ||
@@ -189,7 +271,7 @@ func (o *VolumeMountObserver) InspectVolumeMount(ctx context.Context, pins Volum
 	if err := ctx.Err(); err != nil {
 		return VerifiedVolumeObservation{}, err
 	}
-	return VerifiedVolumeObservation{pins: pins, descriptor: instance.BootDescriptorSHA256, predecessor: predecessorInstanceID, observedAt: time.Now().UTC()}, nil
+	return VerifiedVolumeObservation{pins: pins, descriptor: instance.BootDescriptorSHA256, predecessor: predecessorInstanceID, observedAt: time.Now().UTC(), observer: o}, nil
 }
 
 // The SDK boundary preserves cancellation; provider and journal work share the
