@@ -23,7 +23,7 @@ import (
 
 // This shares the real source actor, signed recipe, SDK HTTP endpoints and
 // durable object directory of the source-publication integration scenario.
-func assertDerivedSeedAdmission(t *testing.T, source *ColdStartMaterial, seed bootstrap.DerivedStartupAuthority, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, protocol *materialProtocol, now time.Time) {
+func assertDerivedSeedAdmission(t *testing.T, source *ColdStartMaterial, seed bootstrap.DerivedStartupAuthority, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, protocol *materialProtocol, now time.Time, afterSeed func()) {
 	t.Helper()
 	before, err := bootstrap.NewDerivedFounderPlan(t.Context(), seed, now)
 	if err != nil {
@@ -154,7 +154,7 @@ func assertDerivedSeedAdmission(t *testing.T, source *ColdStartMaterial, seed bo
 		}
 	}
 	protocol.logProgress(t, "seed ledger recovery and replay complete; entering actual Gate")
-	bootstrapstart.ExerciseDerivedSeedAdmission(t, seed, source.actor.Founder(), anchor, roots, source.directory)
+	bootstrapstart.ExerciseDerivedSeedAdmission(t, seed, source.actor.Founder(), anchor, roots, source.directory, afterSeed)
 }
 
 // The credential verifier reexecutes this same integration binary as the
