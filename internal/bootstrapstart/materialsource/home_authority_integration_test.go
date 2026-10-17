@@ -1,3 +1,5 @@
+//go:build fixturetest
+
 package materialsource
 
 import (
@@ -5,6 +7,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json/v2"
@@ -20,6 +23,8 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/functionmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
@@ -31,16 +36,24 @@ import (
 // This extends the real generation/publication fixture across a signed SFO
 // anchor and a public-only SDK endpoint. Config markers exercise proof binding;
 // house-rendered controller startup remains the app/CLI scenario's contract.
-func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, material VerifiedColdStartMaterial, home bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, root ed25519.PrivateKey, server *materialProtocol, now time.Time) bootstrap.VerifiedBootstrapAnchor {
+func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, material VerifiedColdStartMaterial, link *LinkSource, home bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, root ed25519.PrivateKey, server *materialProtocol, now time.Time) bootstrap.VerifiedBootstrapAnchor {
 	t.Helper()
 	grantWire := material.Grant().FoundationGrantWire()
 	template, err := bootstrap.VerifyStartupTemplate(grantWire, roots, home, now)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("home startup template: %v", err)
 	}
 	projection, err := NewStartupProjection(template, material, template.Template().SeedSlot)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("home startup projection: %v", err)
+	}
+	linkProof, err := link.StartupLink(t.Context(), template, now)
+	if err != nil {
+		t.Fatalf("home startup Link proof: %v", err)
+	}
+	projection, err = projection.WithStartupLink(t.Context(), linkProof, now)
+	if err != nil {
+		t.Fatalf("home startup Link attachment: %v", err)
 	}
 	configs := make(map[string][]byte)
 	for _, slot := range home.Anchor().ControllerSlots {
@@ -51,8 +64,13 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 	}
 	bound, err := projection.BindConfigs(t.Context(), configs)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("home startup config binding: %v", err)
 	}
+	t.Log("home startup configs bound; checking derived founder authority")
+	assertDerivedFounderAuthority(t, source, bound, roots, now)
+	t.Log("derived founder authority verified; publishing genuine seed ledger")
+	assertDerivedSeedAdmission(t, source, bound, home, roots, server, now)
+	t.Log("genuine seed ledger, Gate admission, durable floor and restart verified")
 	var grant region.FoundationGrant
 	grantEnvelope, err := trust.DecodeEnvelope(grantWire)
 	if err != nil || json.Unmarshal(grantEnvelope.Payload, &grant) != nil {
@@ -119,6 +137,96 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 	if err != nil || authority.Manifest().Cell != oci.RegionGRU || authority.Digest() != bound.Digest() {
 		t.Fatalf("public SFO to GRU startup proof: %v", err)
 	}
+	read := func(name string) ([]byte, error) { return os.ReadFile(filepath.Join(source.directory, name)) }
+	issuer, err := bootstrapmaterial.LoadStartupControllerIssuer(t.Context(), authority, read, now)
+	if err != nil {
+		t.Fatalf("genuine sealed startup controller issuer: %v", err)
+	}
+	t.Cleanup(issuer.Wipe)
+	operatorJWT, err := read("operator.jwt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	brokerCA, err := read("ca.pem")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const brokerURL = "tls://controller-a:4222"
+	if _, err := functionmaterial.NewStartupPublicTrust(t.Context(), authority, operatorJWT, brokerCA, brokerURL); err != nil {
+		t.Fatalf("genuine sealed startup function trust: %v", err)
+	}
+	t.Log("genuine sealed startup issuer and function public trust loaded")
+	certPEM, keyPEM, err := issuer.RenewTLS(bootstrapmaterial.ControllerLeafIdentity("gru", template.Template().SeedSlot, "10.251.0.11"), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clear(keyPEM)
+	leaf, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil || leaf.Leaf.NotAfter.After(authority.ExpiresAt()) {
+		t.Fatalf("startup-issued leaf outlives its sealed authority: %v", err)
+	}
+	for _, name := range []string{"controller-tls-issuer-cert.pem", "controller-tls-issuer-key.pem", "controller-account-signer.seed"} {
+		t.Run("sealed issuer rejects altered "+name, func(t *testing.T) {
+			altered := func(requested string) ([]byte, error) {
+				body, err := read(requested)
+				if requested == name && len(body) != 0 {
+					body[0] ^= 1
+				}
+				return body, err
+			}
+			if changed, err := bootstrapmaterial.LoadStartupControllerIssuer(t.Context(), authority, altered, now); err == nil {
+				changed.Wipe()
+				t.Fatal("altered source issuer loaded under the genuine sealed proof")
+			}
+		})
+	}
+	t.Run("sealed public trust rejects altered pins", func(t *testing.T) {
+		for _, name := range []string{"operator.jwt", "ca.pem"} {
+			operator, ca := bytes.Clone(operatorJWT), bytes.Clone(brokerCA)
+			if name == "operator.jwt" {
+				operator[0] ^= 1
+			} else {
+				ca[0] ^= 1
+			}
+			if _, err := functionmaterial.NewStartupPublicTrust(t.Context(), authority, operator, ca, brokerURL); err == nil {
+				t.Fatalf("altered %s admitted under the genuine sealed proof", name)
+			}
+		}
+	})
+	t.Run("sealed issuer rejects expired authority before secret reads", func(t *testing.T) {
+		reads := 0
+		counted := func(name string) ([]byte, error) { reads++; return read(name) }
+		if expired, err := bootstrapmaterial.LoadStartupControllerIssuer(t.Context(), authority, counted, authority.ExpiresAt().Add(time.Second)); err == nil {
+			expired.Wipe()
+			t.Fatal("expired sealed startup proof admitted an issuer")
+		}
+		if reads != 0 {
+			t.Fatal("expired startup proof reached private source material")
+		}
+	})
+	t.Run("live source CAS fences both startup consumers", func(t *testing.T) {
+		domain := home.StorageDomain()
+		path := "/n/" + domain.Namespace + "/b/" + domain.HeadBucket + "/o/" + source.key
+		original, err := os.ReadFile(server.objectPath(path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := server.put(path, []byte("{}")); err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if err := server.put(path, original); err != nil {
+				t.Errorf("restore actual source CAS: %v", err)
+			}
+		}()
+		if stale, err := bootstrapmaterial.LoadStartupControllerIssuer(t.Context(), authority, read, now); err == nil {
+			stale.Wipe()
+			t.Fatal("cached sealed proof bypassed replaced source CAS when loading issuer")
+		}
+		if _, err := functionmaterial.NewStartupPublicTrust(t.Context(), authority, operatorJWT, brokerCA, brokerURL); err == nil {
+			t.Fatal("cached sealed proof bypassed replaced source CAS when loading public trust")
+		}
+	})
 	public, err := authority.ControllerResponsePublicKey()
 	if err != nil || base64.StdEncoding.EncodeToString(public) != material.Record().Public.ControllerResponsePublicKey {
 		t.Fatalf("home response key: %v", err)
