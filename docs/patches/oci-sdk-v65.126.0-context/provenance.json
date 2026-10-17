@@ -1,0 +1,75 @@
+{
+  "artifacts": [
+    {
+      "bytes": 26226,
+      "path": "runtime.patch",
+      "sha256": "0e362f567dea06186c9ce394395908ab3005b53fad0464dac1071b22b61ab364"
+    },
+    {
+      "bytes": 2538,
+      "path": "upstream-protocol-fixture.patch",
+      "sha256": "8bbe1d6e0d095927b26b68d898cdbfe98f5a42383c270f6585369cb94c6ea25a"
+    }
+  ],
+  "changed_files": [
+    {
+      "patched_sha256": "2186670ba897d4418d53c257f0ed26951c635c07b8b8dbd70e96a71e3846485e",
+      "path": "common/auth/certificate_retriever.go",
+      "runtime": true,
+      "upstream_sha256": "45db2b98fd0847aee6dce981282a34078388a2c21eae0703da12ec214e6ff282"
+    },
+    {
+      "patched_sha256": "d456b4c7fd0fd55690afe275ec70881f45cf7e04243abaed4b7b7ac46235efac",
+      "path": "common/auth/certificate_retriever_test.go",
+      "runtime": false,
+      "upstream_sha256": "b2a5ef31e915e3351d8eb925e3e624565723a1a3d3715a61055795779e4394f5"
+    },
+    {
+      "patched_sha256": "22ecf79a60642880a1afa3238091377e0fcba53424ec688472abfa54329930e0",
+      "path": "common/auth/configuration.go",
+      "runtime": true,
+      "upstream_sha256": "e14b2cd3482c74b5fdd9df28b347984518dc7a1ec847375871ac0bf16bdf2b67"
+    },
+    {
+      "patched_sha256": "3e36dc5118e8d29fbcc4a99ff57972ca951f15fe89f77f00731f59d540d6a6e7",
+      "path": "common/auth/federation_client.go",
+      "runtime": true,
+      "upstream_sha256": "9e18dd358b3bf90e2d34d2aeb0c10b1fe7c11612ec40955201b9f0bb03c0bfb7"
+    },
+    {
+      "patched_sha256": "f72404ab7c510cc2f2710a103883dbbfeafe0162aaf567e24f7ce514ee699b94",
+      "path": "common/auth/instance_principal_key_provider.go",
+      "runtime": true,
+      "upstream_sha256": "1657fac880661b49bca9b906f45e97dc1516604245948c58a3b0c19c0d91541b"
+    },
+    {
+      "patched_sha256": "c0919b42bd850f3e17e811d3a4f557c7b8dc4302d3c84d51b284aed8c3e24c36",
+      "path": "common/auth/utils.go",
+      "runtime": true,
+      "upstream_sha256": "07f9b11c8e25a867f06c2e7edf8e78c76f762589875f8b168b939a0aac6bf126"
+    },
+    {
+      "patched_sha256": "542fac102a3fa6b81553bbc1fa82a8590eaff43854ced6b08557f1ed669506a3",
+      "path": "common/client.go",
+      "runtime": true,
+      "upstream_sha256": "45d01d03e11a40a6d1c2dd743fd6717551340be19cba5d0ee33b96dea219855e"
+    },
+    {
+      "patched_sha256": "aaf634c92d388e7164c4776c8776dbbbe76f009cc5fa3a6a494aa2a540056b79",
+      "path": "common/http_signer.go",
+      "runtime": true,
+      "upstream_sha256": "8325e923dc96f1c0230e5cd5c255fc539fd9c9367fd6cb379fe37712909daef5"
+    }
+  ],
+  "local_review_baseline_commit": "07a079640aa8c6a331fed3fe0f0135dae8014f5f",
+  "local_review_patch_commit": "726460c80f8d87795530c938a656b21764df8275",
+  "local_review_patch_tree": "ea7d2b2741ee7e3df40d13619c0ebf646772c640",
+  "module": "github.com/oracle/oci-go-sdk/v65",
+  "project_api_base": "a0c201f344a6f0e7a92ae84b864a1698aa2f26bf",
+  "schema": 1,
+  "scope": "source-only; SDK dependency not adopted; no compiler or runtime qualification",
+  "upstream_git_commit": "d48ee53a6d31d110dbe1316cf8762a191b916747",
+  "upstream_go_mod_h1": "h1:Pzy+BpgkDesvGZXEHgslwhIYobHCPHg6wRta1mWnlqQ=",
+  "upstream_module_h1": "h1:RuV0MEcLOOgNOBadYbbkUQriCK4Gm5348F/GdWvYPcI=",
+  "version": "v65.126.0"
+}
