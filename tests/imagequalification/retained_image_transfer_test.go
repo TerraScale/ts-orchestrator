@@ -35,7 +35,7 @@ import (
 
 func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 	f := fixture(t)
-	f.now = f.now.Add(-2 * time.Second)
+	f.now = f.now.Add(-90 * time.Minute)
 	a := f.prepared.Approval()
 	a.Candidate.Role, a.Purpose = release.FoundationWriterRole, qualification.RootCredentialBoundaryPurpose
 	a.ArtifactDisposition, a.ReaderIAMAuthority = qualification.RetainTestedImage, qualification.ExactHostReaders
