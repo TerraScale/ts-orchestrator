@@ -302,8 +302,11 @@ func (verified DerivedFounderPlan) InitialManagedPeerIntent(slot string, created
 	if !verified.IsVerified() || !validFounderNow(createdAt) {
 		return Intent{}, ErrFounderPeerAuthorization
 	}
-	if err := verified.seed.VerifyCurrent(context.Background(), createdAt); err != nil {
-		return Intent{}, err
+	if !createdAt.Before(verified.snapshotValue.expiresAt) || !time.Now().Before(verified.snapshotValue.expiresAt) {
+		return Intent{}, ErrFounderPeerAuthorization
+	}
+	if bindings := verified.seed.template.bindings; bindings != nil && (bindings.original == nil || bindings.original.Err() != nil) {
+		return Intent{}, ErrFounderPeerAuthorization
 	}
 	return initialManagedPeerIntent(verified.snapshotValue, slot, createdAt)
 }
