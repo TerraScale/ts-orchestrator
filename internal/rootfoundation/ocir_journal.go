@@ -90,7 +90,7 @@ func (s *ocirJournal) CompareAndSwap(ctx context.Context, key string, state regi
 	if !exists {
 		origin = region.OCIRIssuanceOrigin{GrantSHA256: state.GrantDigest, Generation: state.Generation, FoundationOperation: s.original.OperationID, Epoch: s.original.Epoch, LeaseID: state.LeaseID, ExpiresAt: s.deadline}
 	}
-	entry := region.OCIRIssuanceEntry{Origin: origin, Revision: revision + 1, State: state, Requests: maps.Clone(previous.Requests), Attempts: maps.Clone(previous.Attempts)}
+	entry := region.OCIRIssuanceEntry{Origin: origin, Revision: revision + 1, State: state, Repository: previous.Repository, Requests: maps.Clone(previous.Requests), Attempts: maps.Clone(previous.Attempts)}
 	if entry.Revision == 0 {
 		return 0, ErrScope
 	}

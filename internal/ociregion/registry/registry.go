@@ -33,6 +33,7 @@ var (
 type Repository struct {
 	CompartmentID string `json:"compartment_id"`
 	Name          string `json:"name"`
+	Namespace     string `json:"namespace"`
 	PrincipalID   string `json:"principal_id"`
 	Owner         string `json:"owner"`
 }
@@ -41,23 +42,35 @@ type Repository struct {
 // Guard checks the current authority before every OCI and journal write.
 type Controller struct {
 	client  artifacts.ArtifactsClient
-	journal jetstream.KeyValue
+	journal Journal
 	guard   func(context.Context) error
 	region  string
 }
 
-// New builds the registry metadata client through the shared OCI factory.
+// Journal supplies guarded durable compare-and-swap storage without claiming
+// that a protected foundation object is a JetStream bucket.
+type Journal interface {
+	Load(context.Context, string) (Record, error)
+	CompareAndSwap(context.Context, string, Record) error
+}
+
+// New builds the registry metadata client with the persistent regional bucket.
 func New(factory *ociclient.Factory, journal jetstream.KeyValue, guard func(context.Context) error) (*Controller, error) {
+	if journal == nil {
+		return nil, errors.New("OCIR requires a durable journal")
+	}
+	return NewWithJournal(factory, kvJournal{journal}, guard)
+}
+
+// NewWithJournal accepts the same lifecycle over a protected root journal.
+func NewWithJournal(factory *ociclient.Factory, journal Journal, guard func(context.Context) error) (*Controller, error) {
 	if factory == nil || journal == nil || guard == nil {
 		return nil, errors.New("OCIR requires the OCI factory, durable journal and authority guard")
 	}
-	client, err := artifacts.NewArtifactsClientWithConfigurationProvider(factory.Provider())
+	client, err := factory.Artifacts()
 	if err != nil {
 		return nil, err
 	}
-	client.SetRegion(factory.Region())
-	factory.Configure(&client.BaseClient, ociclient.Service("artifacts"))
-	client.HTTPClient = ociclient.Instrument(client.HTTPClient, "artifacts")
 	previous := client.Interceptor
 	client.Interceptor = func(request *http.Request) error {
 		if previous != nil {
@@ -73,24 +86,27 @@ func New(factory *ociclient.Factory, journal jetstream.KeyValue, guard func(cont
 	return &Controller{client: client, journal: journal, guard: guard, region: factory.Region()}, nil
 }
 
-type imageRecord struct {
+// ImageRecord retains an admitted image and any irreversible retirement claim.
+type ImageRecord struct {
 	ID         string    `json:"id"`
 	RecordedAt time.Time `json:"recorded_at"`
 	Retiring   string    `json:"retiring,omitempty"`
 }
 
-type record struct {
-	Repository   Repository             `json:"repository"`
-	OperationID  string                 `json:"operation_id"`
-	RepositoryID string                 `json:"repository_id,omitempty"`
-	Pins         Pins                   `json:"pins"`
-	Images       map[string]imageRecord `json:"images"`
-	Revision     uint64                 `json:"-"`
+// Record is the public operation metadata stored by the durable journal.
+type Record struct {
+	Repository      Repository             `json:"repository"`
+	OperationID     string                 `json:"operation_id"`
+	RepositoryID    string                 `json:"repository_id,omitempty"`
+	CreateExpiresAt time.Time              `json:"create_expires_at"`
+	Pins            Pins                   `json:"pins"`
+	Images          map[string]ImageRecord `json:"images"`
+	Revision        uint64                 `json:"-"`
 }
 
 func (c *Controller) key(repository Repository) (string, error) {
 	if c == nil || c.journal == nil || c.guard == nil || repository.CompartmentID == "" || repository.PrincipalID == "" ||
-		repository.Name == "" || len(repository.Name) > 256 || strings.TrimSpace(repository.Name) != repository.Name ||
+		repository.Namespace == "" || repository.Name == "" || len(repository.Name) > 256 || strings.TrimSpace(repository.Name) != repository.Name ||
 		strings.ContainsAny(repository.Name, "@:\\ \t\r\n") || c.region == "" {
 		return "", errors.New("invalid OCIR repository identity or controller")
 	}
@@ -101,43 +117,61 @@ func (c *Controller) key(repository Repository) (string, error) {
 	return "ocir." + hex.EncodeToString(sum[:]), nil
 }
 
-func (c *Controller) load(ctx context.Context, repository Repository) (record, error) {
+func (c *Controller) load(ctx context.Context, repository Repository) (Record, error) {
 	key, err := c.key(repository)
 	if err != nil {
-		return record{}, err
+		return Record{}, err
 	}
-	status, err := c.journal.Status(ctx)
+	state, err := c.journal.Load(ctx, key)
 	if err != nil {
-		return record{}, err
+		return Record{}, err
+	}
+	if state.Repository.CompartmentID != repository.CompartmentID || state.Repository.Name != repository.Name || state.Repository.Namespace != repository.Namespace || state.Repository.Owner != repository.Owner ||
+		state.Repository.PrincipalID == "" || state.OperationID == "" || state.CreateExpiresAt.IsZero() || state.Images == nil {
+		return Record{}, ErrOwnership
+	}
+	return state, nil
+}
+
+func (c *Controller) save(ctx context.Context, state Record) error {
+	key, err := c.key(state.Repository)
+	if err != nil {
+		return err
+	}
+	if err := c.guard(ctx); err != nil {
+		return err
+	}
+	return c.journal.CompareAndSwap(ctx, key, state)
+}
+
+// The native adapter verifies the actual bucket on each read.
+type kvJournal struct{ bucket jetstream.KeyValue }
+
+func (s kvJournal) Load(ctx context.Context, key string) (Record, error) {
+	status, err := s.bucket.Status(ctx)
+	if err != nil {
+		return Record{}, err
 	}
 	config := status.Config()
 	if config.Storage != jetstream.FileStorage || config.TTL != 0 {
-		return record{}, errors.New("OCIR journal requires persistent non-expiring storage")
+		return Record{}, errors.New("OCIR journal requires persistent non-expiring storage")
 	}
-	entry, err := c.journal.Get(ctx, key)
+	entry, err := s.bucket.Get(ctx, key)
 	if err != nil {
-		return record{}, err
+		return Record{}, err
 	}
-	var state record
+	var state Record
 	if len(entry.Value()) > 1<<20 {
-		return record{}, errors.New("OCIR journal exceeds its size bound")
+		return Record{}, errors.New("OCIR journal exceeds its size bound")
 	}
 	if err := json.Unmarshal(entry.Value(), &state, json.RejectUnknownMembers(true)); err != nil {
-		return record{}, err
-	}
-	if state.Repository.CompartmentID != repository.CompartmentID || state.Repository.Name != repository.Name || state.Repository.Owner != repository.Owner ||
-		state.Repository.PrincipalID == "" || state.OperationID == "" || state.Images == nil {
-		return record{}, ErrOwnership
+		return Record{}, err
 	}
 	state.Revision = entry.Revision()
 	return state, nil
 }
 
-func (c *Controller) save(ctx context.Context, state record) error {
-	key, err := c.key(state.Repository)
-	if err != nil {
-		return err
-	}
+func (s kvJournal) CompareAndSwap(ctx context.Context, key string, state Record) error {
 	wire, err := json.Marshal(state)
 	if err != nil {
 		return err
@@ -145,25 +179,22 @@ func (c *Controller) save(ctx context.Context, state record) error {
 	if len(wire) > 1<<20 {
 		return errors.New("OCIR journal exceeds its size bound")
 	}
-	if err := c.guard(ctx); err != nil {
-		return err
-	}
 	if state.Revision == 0 {
-		_, err = c.journal.Create(ctx, key, wire)
+		_, err = s.bucket.Create(ctx, key, wire)
 	} else {
-		_, err = c.journal.Update(ctx, key, wire, state.Revision)
+		_, err = s.bucket.Update(ctx, key, wire, state.Revision)
 	}
 	return err
 }
 
-func (c *Controller) tags(state record) map[string]string {
+func (c *Controller) tags(state Record) map[string]string {
 	return map[string]string{"terrascale-managed-by": "ts-orchestrator", "terrascale-owner": state.Repository.Owner,
 		"terrascale-ocir-operation": state.OperationID}
 }
 
-func (c *Controller) validate(state record, repo artifacts.ContainerRepository) error {
+func (c *Controller) validate(state Record, repo artifacts.ContainerRepository) error {
 	if repo.Id == nil || *repo.Id == "" || text(repo.CompartmentId) != state.Repository.CompartmentID ||
-		text(repo.DisplayName) != state.Repository.Name || text(repo.CreatedBy) != state.Repository.PrincipalID ||
+		text(repo.DisplayName) != state.Repository.Name || text(repo.Namespace) != state.Repository.Namespace || text(repo.CreatedBy) != state.Repository.PrincipalID ||
 		state.RepositoryID != "" && *repo.Id != state.RepositoryID {
 		return ErrOwnership
 	}
@@ -183,7 +214,11 @@ func (c *Controller) validate(state record, repo artifacts.ContainerRepository) 
 func (c *Controller) Ensure(ctx context.Context, repository Repository) (artifacts.ContainerRepository, error) {
 	state, err := c.load(ctx, repository)
 	if errors.Is(err, jetstream.ErrKeyNotFound) {
-		state = record{Repository: repository, OperationID: common.RetryToken(), Images: map[string]imageRecord{}}
+		deadline, ok := ctx.Deadline()
+		if !ok || !time.Now().Before(deadline) {
+			return artifacts.ContainerRepository{}, errors.New("OCIR creation requires the original deadline")
+		}
+		state = Record{Repository: repository, OperationID: common.RetryToken(), CreateExpiresAt: deadline.UTC(), Images: map[string]ImageRecord{}}
 		if err := c.save(ctx, state); err != nil {
 			return artifacts.ContainerRepository{}, err
 		}
@@ -193,11 +228,16 @@ func (c *Controller) Ensure(ctx context.Context, repository Repository) (artifac
 		return artifacts.ContainerRepository{}, err
 	}
 	if state.RepositoryID == "" {
+		if !time.Now().Before(state.CreateExpiresAt) {
+			return artifacts.ContainerRepository{}, errors.New("OCIR original create operation expired")
+		}
+		create, cancel := context.WithDeadline(ctx, state.CreateExpiresAt)
+		defer cancel()
 		// A name match never grants adoption. Only this durable create operation may bind an OCID.
 		if err := c.guard(ctx); err != nil {
 			return artifacts.ContainerRepository{}, err
 		}
-		response, err := c.client.CreateContainerRepository(ctx, artifacts.CreateContainerRepositoryRequest{
+		response, err := c.client.CreateContainerRepository(ociclient.RequestContext(create), artifacts.CreateContainerRepositoryRequest{
 			CompartmentId: new(repository.CompartmentID), DisplayName: new(repository.Name), IsPublic: new(false), IsImmutable: new(true), FreeformTags: c.tags(state),
 			OpcRetryToken: new(state.OperationID)})
 		if err != nil {
@@ -211,7 +251,7 @@ func (c *Controller) Ensure(ctx context.Context, repository Repository) (artifac
 			return artifacts.ContainerRepository{}, err
 		}
 	}
-	response, err := c.client.GetContainerRepository(ctx, artifacts.GetContainerRepositoryRequest{RepositoryId: new(state.RepositoryID)})
+	response, err := c.client.GetContainerRepository(ociclient.RequestContext(ctx), artifacts.GetContainerRepositoryRequest{RepositoryId: new(state.RepositoryID)})
 	if err != nil {
 		return artifacts.ContainerRepository{}, err
 	}
@@ -228,13 +268,13 @@ func (c *Controller) Ensure(ctx context.Context, repository Repository) (artifac
 		if err := c.guard(ctx); err != nil {
 			return artifacts.ContainerRepository{}, err
 		}
-		_, err := c.client.UpdateContainerRepository(ctx, artifacts.UpdateContainerRepositoryRequest{RepositoryId: new(state.RepositoryID), IfMatch: response.Etag, OpcRequestId: new(state.OperationID),
+		_, err := c.client.UpdateContainerRepository(ociclient.RequestContext(ctx), artifacts.UpdateContainerRepositoryRequest{RepositoryId: new(state.RepositoryID), IfMatch: response.Etag, OpcRequestId: new(state.OperationID),
 			IsPublic: new(false), IsImmutable: new(true)})
 		if err != nil {
 			return artifacts.ContainerRepository{}, err
 		}
 		// Re-observe before dependents receive the repository.
-		observed, err := c.client.GetContainerRepository(ctx, artifacts.GetContainerRepositoryRequest{RepositoryId: new(state.RepositoryID)})
+		observed, err := c.client.GetContainerRepository(ociclient.RequestContext(ctx), artifacts.GetContainerRepositoryRequest{RepositoryId: new(state.RepositoryID)})
 		if err != nil {
 			return artifacts.ContainerRepository{}, err
 		}

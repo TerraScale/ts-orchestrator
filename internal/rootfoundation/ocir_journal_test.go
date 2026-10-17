@@ -324,7 +324,7 @@ func journalIssuerScope(t *testing.T, remote *ocirJournalProtocol, factory *ocic
 	grant := region.FoundationGrant{InstallationID: installation, SchemaVersion: 1, Generation: 1, TenancyID: "ocid1.tenancy.oc1..t", ParentCompartmentID: "ocid1.compartment.oc1..parent", SharedCompartmentID: "ocid1.compartment.oc1..shared", Currency: "USD", MonthlyLimitMinor: 10000, CleanupOwner: "fixture",
 		Regions:            []region.FoundationIntent{{Generation: 1, Plan: map[string]any{"cell": "GRU", "region": "sa-saopaulo-1", "tenancy_id": "ocid1.tenancy.oc1..t", "parent_compartment_id": "ocid1.compartment.oc1..parent", "shared_compartment_id": "ocid1.compartment.oc1..shared", "resource_ids": map[string]any{"control_compartment": target.CompartmentID, "vault": target.VaultID, "key": target.KeyID}}}},
 		ReleaseAuthorities: []region.ContainerReleaseAuthorityIntent{{ImageRepository: "sa-saopaulo-1.ocir.io/ns/terrascale/terrabase"}},
-		OCIRIssuances:      []region.OCIRIssuerIntent{{RegistryHost: "sa-saopaulo-1.ocir.io", OCIRegion: "sa-saopaulo-1", RepositoryCompartmentID: target.CompartmentID, RepositoryName: "terrascale/terrabase", RegistryNamespace: "ns", PrincipalName: "terrascale-pull", PrincipalEmail: "terrascale-pull@terrascale.tech", VaultTarget: target, SecretName: "gru-orch-ocir-pull"}}}
+		OCIRIssuances:      []region.OCIRIssuerIntent{{RepositoryLifecycle: "private-immutable", RegistryHost: "sa-saopaulo-1.ocir.io", OCIRegion: "sa-saopaulo-1", RepositoryCompartmentID: target.CompartmentID, RepositoryName: "terrascale/terrabase", RegistryNamespace: "ns", PrincipalName: "terrascale-pull", PrincipalEmail: "terrascale-pull@terrascale.tech", VaultTarget: target, SecretName: "gru-orch-ocir-pull"}}}
 	for _, repository := range []string{"ts-auth", "function-worker"} {
 		image := "gru.ocir.io/ns/terrascale/" + repository
 		principal, email, secret, err := region.OCIRServiceIdentity(installation, image)
@@ -332,7 +332,7 @@ func journalIssuerScope(t *testing.T, remote *ocirJournalProtocol, factory *ocic
 			t.Fatal(err)
 		}
 		grant.ReleaseAuthorities = append(grant.ReleaseAuthorities, region.ContainerReleaseAuthorityIntent{ImageRepository: image})
-		grant.OCIRIssuances = append(grant.OCIRIssuances, region.OCIRIssuerIntent{OCIRegion: "sa-saopaulo-1", RegistryHost: "gru.ocir.io", RepositoryCompartmentID: target.CompartmentID, RepositoryName: "terrascale/" + repository, RegistryNamespace: "ns", PrincipalName: principal, PrincipalEmail: email, VaultTarget: target, SecretName: secret})
+		grant.OCIRIssuances = append(grant.OCIRIssuances, region.OCIRIssuerIntent{RepositoryLifecycle: "private-immutable", OCIRegion: "sa-saopaulo-1", RegistryHost: "gru.ocir.io", RepositoryCompartmentID: target.CompartmentID, RepositoryName: "terrascale/" + repository, RegistryNamespace: "ns", PrincipalName: principal, PrincipalEmail: email, VaultTarget: target, SecretName: secret})
 	}
 	payload, err := trust.EncodePayload(grant)
 	if err != nil {

@@ -102,8 +102,18 @@ must be active, before the old token is revoked. Rotation is fixed at thirty
 days. Unknown identity, token or Vault values are not adopted.
 
 `rootfoundation.Backend.ReconcileOCIR` owns startup, recovery and periodic
-rotation through that backend's existing home IAM authority. Root's caller must
-retain its original deadline and source guard, complete initial reconciliation
+rotation through that backend's existing home IAM authority. Every signed issuer
+intent requires `repositoryLifecycle: "private-immutable"`; old intents without
+this clause reject. The existing repository controller runs before credential
+issuance, using the actual accepted HomeIAM instance identity. Its typed create
+checkpoint is nested in the same protected `ocirIssuances` entry and retains
+exact namespace, compartment, name, original creator, operation, deadline and
+positive repository receipt. Recovery reuses that operation's retry token and
+SDK request history. A foreign same-name repository or an expired uncertain
+create blocks progress; no matching name grants adoption. The root adapter
+accepts repository lifecycle only, and rejects image pins and retirement data.
+
+Root's caller must retain its original deadline and source guard, complete initial reconciliation
 before private task admission, and join subsequent reconciliation on shutdown.
 Every scope is rediscovered from the current trusted lineage and compared by
 exact grant digest, generation, intent and protected foundation operation/epoch.
@@ -114,7 +124,8 @@ hashes, retry tokens, first deadlines and every dispatch outcome survive restart
 and rotation. History is never pruned: 64 scope keys, 64 token operations per key,
 256 distinct requests and 16 dispatches per request are ceilings; the 32 KiB
 entry and unchanged 128 KiB whole-record limits can be reached sooner and fail
-closed. A later runtime cannot extend an original token/request deadline.
+closed. A later runtime cannot extend an original repository, token or request
+deadline.
 
 Runtime pulls need only map the sealed scope
 to `PullSecret` and use `Describe`/`Resolve`; workers gain no IAM write authority.

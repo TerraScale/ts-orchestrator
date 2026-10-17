@@ -96,6 +96,23 @@ func (b *Backend) ReconcileOCIR(ctx context.Context, sourceGuard func(context.Co
 			return live(ctx)
 		}
 		journal := &ocirJournal{store: resolver.Store, cell: b.cell, original: record, scope: scope, deadline: expires, guard: guard}
+		principal, err := b.home.InstancePrincipal(attempt)
+		if err != nil {
+			cancel()
+			return err
+		}
+		repositoryJournal := &ocirRepositoryJournal{ocirJournal: journal, principal: principal}
+		controller, err := ocir.NewWithJournal(b.factory, repositoryJournal, guard)
+		if err == nil {
+			repositoryContext := ociclient.WithAuthority(attempt, guard)
+			repositoryContext = ociclient.WithWireAttempt(repositoryContext, journal.BeginEffect)
+			intent := scope.Intent()
+			_, err = controller.Ensure(repositoryContext, ocir.Repository{CompartmentID: intent.RepositoryCompartmentID, Namespace: intent.RegistryNamespace, Name: intent.RepositoryName, PrincipalID: principal, Owner: scope.InstallationID()})
+		}
+		if err != nil {
+			cancel()
+			return err
+		}
 		issuer, err := ocir.NewIssuer(attempt, b.factory, journal, scope, guard, func(ctx context.Context) (context.Context, func(), error) {
 			if err := guard(ctx); err != nil {
 				return ctx, nil, err

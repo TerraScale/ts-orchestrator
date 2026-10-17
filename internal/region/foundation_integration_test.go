@@ -309,7 +309,7 @@ func TestSignedFoundationScopeRequiresExplicitBootstrapAuthority(t *testing.T) {
 		t.Fatal("foundation-only scope authorized OCIR IAM and token issuance")
 	}
 	grant.ReleaseAuthorities = []ContainerReleaseAuthorityIntent{{ImageRepository: "gru.ocir.io/ns/terrabase"}}
-	grant.OCIRIssuances = []OCIRIssuerIntent{{RegistryHost: "gru.ocir.io", OCIRegion: "sa-saopaulo-1", RepositoryCompartmentID: target.CompartmentOCID, RepositoryName: "terrabase", RegistryNamespace: "ns", PrincipalName: "ts-pull", PrincipalEmail: "ocir-pull@terrascale.tech", VaultTarget: vaultsecret.Target{CompartmentID: target.CompartmentOCID, VaultID: target.VaultOCID, KeyID: target.KMSKeyOCID}, SecretName: "ts-pull-credential"}}
+	grant.OCIRIssuances = []OCIRIssuerIntent{{RepositoryLifecycle: "private-immutable", RegistryHost: "gru.ocir.io", OCIRegion: "sa-saopaulo-1", RepositoryCompartmentID: target.CompartmentOCID, RepositoryName: "terrabase", RegistryNamespace: "ns", PrincipalName: "ts-pull", PrincipalEmail: "ocir-pull@terrascale.tech", VaultTarget: vaultsecret.Target{CompartmentID: target.CompartmentOCID, VaultID: target.VaultOCID, KeyID: target.KMSKeyOCID}, SecretName: "ts-pull-credential"}}
 	publish(scope, now.Add(time.Hour))
 	issuer, err := reader.OCIRIssuer(t.Context(), "gru.ocir.io/ns/terrabase")
 	if err != nil || !issuer.IsVerified() || issuer.InstallationID() != reader.home.InstallationID || issuer.GrantDigest() != reader.home.GrantSHA256 || issuer.Intent() != grant.OCIRIssuances[0] {
@@ -345,6 +345,8 @@ func TestSignedFoundationScopeRequiresExplicitBootstrapAuthority(t *testing.T) {
 		name   string
 		mutate func(*FoundationGrant)
 	}{
+		{"repository lifecycle missing", func(g *FoundationGrant) { g.OCIRIssuances[0].RepositoryLifecycle = "" }},
+		{"repository lifecycle broadened", func(g *FoundationGrant) { g.OCIRIssuances[0].RepositoryLifecycle = "public" }},
 		{"missing", func(g *FoundationGrant) { g.OCIRIssuances = g.OCIRIssuances[:2] }},
 		{"no issuers", func(g *FoundationGrant) { g.OCIRIssuances = nil }},
 		{"unbound", func(g *FoundationGrant) { g.OCIRIssuances[0].RepositoryName = "other" }},

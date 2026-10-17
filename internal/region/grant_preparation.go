@@ -318,7 +318,7 @@ func prepareFoundationOCIRIssuers(grant FoundationGrant) ([]OCIRIssuerIntent, er
 			if err != nil {
 				return nil, err
 			}
-			issuers = append(issuers, OCIRIssuerIntent{OCIRegion: region, RegistryHost: host, RepositoryCompartmentID: control, RepositoryName: repository, RegistryNamespace: namespace,
+			issuers = append(issuers, OCIRIssuerIntent{RepositoryLifecycle: "private-immutable", OCIRegion: region, RegistryHost: host, RepositoryCompartmentID: control, RepositoryName: repository, RegistryNamespace: namespace,
 				PrincipalName: principal, PrincipalEmail: email, SecretName: secret, VaultTarget: vaultsecret.Target{CompartmentID: control, VaultID: vault, KeyID: key}})
 			owned = true
 			break

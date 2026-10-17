@@ -438,3 +438,15 @@ func (authority *HomeIAMAuthority) StorageDomain() bootstrap.StorageDomain {
 	}
 	return authority.domain
 }
+
+// InstancePrincipal returns the independently accepted principal after a fresh
+// scope check; an operator authority cannot create regional repositories.
+func (authority *HomeIAMAuthority) InstancePrincipal(ctx context.Context) (string, error) {
+	if err := authority.Guard(ctx, 0); err != nil {
+		return "", err
+	}
+	if authority.operator != nil || !strings.HasPrefix(authority.instanceID, "ocid1.instance.oc1.") || len(authority.instanceID) > 512 {
+		return "", ErrFoundationFenced
+	}
+	return authority.instanceID, nil
+}

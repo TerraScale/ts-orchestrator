@@ -20,14 +20,15 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
-// OCIRIssuerIntent explicitly authorizes one first-party pull principal. Its
-// group and policy names are PrincipalName+"-pull" and permit only this repo.
+// OCIRIssuerIntent authorizes one private immutable repository and its pull
+// principal. Group and policy names are PrincipalName+"-pull", for this repo only.
 // It conveys no IAM authority outside that exact derived identity and policy.
 type OCIRIssuerIntent struct {
 	OCIRegion               string             `json:"ociRegion"`
 	RegistryHost            string             `json:"registryHost"`
 	RepositoryCompartmentID string             `json:"repositoryCompartmentId"`
 	RepositoryName          string             `json:"repositoryName"`
+	RepositoryLifecycle     string             `json:"repositoryLifecycle"`
 	RegistryNamespace       string             `json:"registryNamespace"`
 	PrincipalName           string             `json:"principalName"`
 	PrincipalEmail          string             `json:"principalEmail"`
@@ -94,9 +95,9 @@ func parseOCIRRepository(imageRepository string) (ociRegion, namespace, reposito
 func validateOCIRIssuerIdentity(intent OCIRIssuerIntent) error {
 	ociRegion, namespace, repository, repositoryErr := parseOCIRRepository(intent.RegistryHost + "/" + intent.RegistryNamespace + "/" + intent.RepositoryName)
 	address, err := mail.ParseAddress(intent.PrincipalEmail)
-	if repositoryErr != nil || ociRegion != intent.OCIRegion || namespace != intent.RegistryNamespace || repository != intent.RepositoryName || !ocirIssuerPrincipal.MatchString(intent.PrincipalName) || !readAccessSecretName.MatchString(intent.SecretName) || len(intent.SecretName) > 255 ||
+	if intent.RepositoryLifecycle != "private-immutable" || repositoryErr != nil || ociRegion != intent.OCIRegion || namespace != intent.RegistryNamespace || repository != intent.RepositoryName || !ocirIssuerPrincipal.MatchString(intent.PrincipalName) || !readAccessSecretName.MatchString(intent.SecretName) || len(intent.SecretName) > 255 ||
 		!ocirIssuerNamespace.MatchString(intent.RegistryNamespace) || !ocirIssuerRepository.MatchString(intent.RepositoryName) || len(intent.RepositoryName) > 255 || err != nil || address.Address != intent.PrincipalEmail || len(intent.PrincipalEmail) > 254 || strings.ContainsAny(intent.PrincipalEmail, "\r\n\t ") {
-		return errors.New("signed OCIR issuer lacks exact bounded principal, email, repository or secret identity")
+		return errors.New("signed OCIR issuer lacks private immutable lifecycle or exact principal, email, repository or secret identity")
 	}
 	return nil
 }

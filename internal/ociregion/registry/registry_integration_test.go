@@ -175,40 +175,40 @@ func setup(t *testing.T) (*Controller, *ocirServer, Repository, *atomic.Bool) {
 	}
 	ociclient.PinHost(&controller.client.BaseClient, endpoint)
 	controller.client.Configuration.RetryPolicy = new(common.NoRetryPolicy())
-	repository := Repository{CompartmentID: "ocid1.compartment.oc1..c", Name: "terrascale/terrabase", PrincipalID: "ocid1.user.oc1..u", Owner: "platform"}
+	repository := Repository{CompartmentID: "ocid1.compartment.oc1..c", Name: "terrascale/terrabase", Namespace: "namespace", PrincipalID: "ocid1.user.oc1..u", Owner: "platform"}
 	return controller, remote, repository, fenced
 }
 
 func TestSDKRepositoryLostCreateResponsePrivateRepairAndOwnership(t *testing.T) {
 	c, remote, repository, _ := setup(t)
 	remote.loseCreate = true
-	if _, err := c.Ensure(t.Context(), repository); err == nil {
+	if _, err := c.Ensure(repositoryContext(t), repository); err == nil {
 		t.Fatal("lost response reported success")
 	}
 	operation := remote.token
 	// A fresh controller recovers from the real JetStream checkpoint, not process memory.
 	restarted := *c
 	repository.PrincipalID = "ocid1.instance.oc1..replacement-leader"
-	if _, err := restarted.Ensure(t.Context(), repository); err != nil {
+	if _, err := restarted.Ensure(repositoryContext(t), repository); err != nil {
 		t.Fatal(err)
 	}
 	if remote.token != operation {
 		t.Fatal("create retry identity changed across restart")
 	}
 	remote.repo.IsPublic, remote.repo.IsImmutable = new(true), new(false)
-	got, err := restarted.Ensure(t.Context(), repository)
+	got, err := restarted.Ensure(repositoryContext(t), repository)
 	if err != nil || *got.IsPublic || !*got.IsImmutable {
 		t.Fatalf("private immutable repair: %v %+v", err, got)
 	}
 	remote.repo.FreeformTags["terrascale-owner"] = "someone-else"
-	if _, err := c.Ensure(t.Context(), repository); !errors.Is(err, ErrOwnership) {
+	if _, err := c.Ensure(repositoryContext(t), repository); !errors.Is(err, ErrOwnership) {
 		t.Fatalf("foreign repository accepted: %v", err)
 	}
 }
 
 func seedImages(t *testing.T, c *Controller, remote *ocirServer, repo Repository, labels ...string) map[string]string {
 	t.Helper()
-	if _, err := c.Ensure(t.Context(), repo); err != nil {
+	if _, err := c.Ensure(repositoryContext(t), repo); err != nil {
 		t.Fatal(err)
 	}
 	digests := map[string]string{}
@@ -243,7 +243,7 @@ func TestSDKRetentionKeepsCurrentRollbackTasksAndIndexChildren(t *testing.T) {
 	if err := c.SetPins(t.Context(), repo, pins); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Collect(t.Context(), repo); err != nil {
+	if _, err := c.Collect(repositoryContext(t), repo); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(remote.deleted, []string{d["garbage"]}) {
@@ -269,14 +269,14 @@ func TestSDKRetentionPinDuringDeleteAndLostResponseRecovery(t *testing.T) {
 		pinErr = c.SetPins(t.Context(), repo, Pins{Generation: 2, ObservedAt: time.Now(), Tasks: []string{d["garbage"]}, Children: map[string][]string{d["garbage"]: {}}})
 	}
 	remote.loseDelete = true
-	if _, err := c.Collect(t.Context(), repo); err == nil {
+	if _, err := c.Collect(repositoryContext(t), repo); err == nil {
 		t.Fatal("lost delete response reported success")
 	}
 	if !errors.Is(pinErr, ErrRetiring) {
 		t.Fatalf("concurrent pin accepted: %v", pinErr)
 	}
 	restarted := *c
-	if _, err := restarted.Collect(t.Context(), repo); err != nil {
+	if _, err := restarted.Collect(repositoryContext(t), repo); err != nil {
 		t.Fatal(err)
 	}
 	if len(remote.deleted) != 1 {
@@ -287,14 +287,14 @@ func TestSDKRetentionPinDuringDeleteAndLostResponseRecovery(t *testing.T) {
 func TestSDKMissingPinsAndConditionalConflictPreventDeletion(t *testing.T) {
 	c, remote, repo, fenced := setup(t)
 	seedImages(t, c, remote, repo, "garbage")
-	if _, err := c.Collect(t.Context(), repo); !errors.Is(err, ErrPins) {
+	if _, err := c.Collect(repositoryContext(t), repo); !errors.Is(err, ErrPins) {
 		t.Fatalf("missing pins: %v", err)
 	}
 	if err := c.SetPins(t.Context(), repo, Pins{Generation: 1, ObservedAt: time.Now(), Children: map[string][]string{}}); err != nil {
 		t.Fatal(err)
 	}
 	remote.conflict = true
-	if _, err := c.Collect(t.Context(), repo); err == nil {
+	if _, err := c.Collect(repositoryContext(t), repo); err == nil {
 		t.Fatal("conditional conflict accepted")
 	}
 	if len(remote.deleted) != 0 {
@@ -302,7 +302,7 @@ func TestSDKMissingPinsAndConditionalConflictPreventDeletion(t *testing.T) {
 	}
 	remote.conflict = false
 	fenced.Store(true)
-	if _, err := c.Collect(t.Context(), repo); err == nil {
+	if _, err := c.Collect(repositoryContext(t), repo); err == nil {
 		t.Fatal("fenced authority deleted image")
 	}
 	if len(remote.deleted) != 0 {
@@ -318,12 +318,12 @@ func TestSDKRetryRechecksAuthorityAndIncompletePinsStay(t *testing.T) {
 		return true
 	}, func(common.OCIOperationResponse) time.Duration { return 0 })
 	c.client.Configuration.RetryPolicy = &policy
-	if _, err := c.Ensure(t.Context(), repo); err == nil {
+	if _, err := c.Ensure(repositoryContext(t), repo); err == nil {
 		t.Fatal("retry ignored authority loss")
 	}
 	fenced.Store(false)
 	c.client.Configuration.RetryPolicy = new(common.NoRetryPolicy())
-	if _, err := c.Ensure(t.Context(), repo); err != nil {
+	if _, err := c.Ensure(repositoryContext(t), repo); err != nil {
 		t.Fatal(err)
 	}
 	d := "sha256:" + strings.Repeat("a", 64)
@@ -340,7 +340,33 @@ func TestSDKRetryRechecksAuthorityAndIncompletePinsStay(t *testing.T) {
 func TestSDKExistingForeignRepositoryCannotBeAdopted(t *testing.T) {
 	c, remote, repo, _ := setup(t)
 	remote.repo = artifacts.ContainerRepository{Id: new("ocid1.containerrepo.oc1..foreign"), CreatedBy: new(repo.PrincipalID), CompartmentId: new(repo.CompartmentID), DisplayName: new(repo.Name), LifecycleState: artifacts.ContainerRepositoryLifecycleStateAvailable}
-	if _, err := c.Ensure(t.Context(), repo); !errors.Is(err, ErrOwnership) {
+	if _, err := c.Ensure(repositoryContext(t), repo); !errors.Is(err, ErrOwnership) {
 		t.Fatalf("existing name was adopted: %v", err)
+	}
+}
+
+func repositoryContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	t.Cleanup(cancel)
+	return ctx
+}
+
+func TestRepositoryExpiredCreateDoesNotRefreshDeadline(t *testing.T) {
+	c, remote, repository, _ := setup(t)
+	expires := time.Now().UTC().Add(-time.Second)
+	state := Record{Repository: repository, OperationID: common.RetryToken(), CreateExpiresAt: expires, Images: map[string]ImageRecord{}}
+	if err := c.save(t.Context(), state); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Ensure(repositoryContext(t), repository); err == nil {
+		t.Fatal("fresh context extended original expired create")
+	}
+	if remote.repo.Id != nil || remote.token != "" {
+		t.Fatal("expired original create reached OCI")
+	}
+	loaded, err := c.load(t.Context(), repository)
+	if err != nil || !loaded.CreateExpiresAt.Equal(expires) || loaded.OperationID != state.OperationID {
+		t.Fatal("expired original operation changed")
 	}
 }

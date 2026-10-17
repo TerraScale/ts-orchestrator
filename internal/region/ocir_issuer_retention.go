@@ -15,6 +15,12 @@ func (r FoundationRecord) retainOCIRIssuances(next FoundationRecord) error {
 		if !ok || actual.Revision < old.Revision || actual.Origin != old.Origin || actual.State.ScopeHash != old.State.ScopeHash || actual.State.OperationID != old.State.OperationID || actual.State.Generation < old.State.Generation || actual.State.Generation == old.State.Generation && actual.State.GrantDigest != old.State.GrantDigest || actual.Revision == old.Revision && !reflect.DeepEqual(actual.State, old.State) {
 			return denied
 		}
+		if original := old.Repository; original != nil {
+			current := actual.Repository
+			if current == nil || current.Revision < original.Revision || current.Origin != original.Origin || current.Namespace != original.Namespace || current.CompartmentID != original.CompartmentID || current.Name != original.Name || current.PrincipalID != original.PrincipalID || current.Owner != original.Owner || current.OperationID != original.OperationID || original.RepositoryID != "" && current.RepositoryID != original.RepositoryID || current.Revision == original.Revision && *current != *original {
+				return denied
+			}
+		}
 		for _, pair := range [][2]string{{old.State.UserID, actual.State.UserID}, {old.State.RepositoryID, actual.State.RepositoryID}, {old.State.GroupID, actual.State.GroupID}, {old.State.PolicyID, actual.State.PolicyID}, {old.State.MembershipID, actual.State.MembershipID}, {old.State.SecretID, actual.State.SecretID}} {
 			if pair[0] != "" && pair[0] != pair[1] {
 				return denied

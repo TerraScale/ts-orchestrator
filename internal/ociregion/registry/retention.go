@@ -10,6 +10,8 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/artifacts"
 	"github.com/oracle/oci-go-sdk/v65/common"
+
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 )
 
 // Pins is the complete admitted current/rollback/live-task inventory for this
@@ -90,7 +92,7 @@ func (c *Controller) RememberImage(ctx context.Context, repository Repository, i
 	if err != nil {
 		return err
 	}
-	response, err := c.client.GetContainerImage(ctx, artifacts.GetContainerImageRequest{ImageId: new(id)})
+	response, err := c.client.GetContainerImage(ociclient.RequestContext(ctx), artifacts.GetContainerImageRequest{ImageId: new(id)})
 	if err != nil {
 		return err
 	}
@@ -108,7 +110,7 @@ func (c *Controller) RememberImage(ctx context.Context, repository Repository, i
 		}
 		return nil
 	}
-	state.Images[digest] = imageRecord{ID: id, RecordedAt: time.Now().UTC()}
+	state.Images[digest] = ImageRecord{ID: id, RecordedAt: time.Now().UTC()}
 	return c.save(ctx, state)
 }
 
@@ -167,7 +169,7 @@ func (c *Controller) retire(ctx context.Context, repository Repository, digest s
 			return false, err
 		}
 	}
-	response, err := c.client.GetContainerImage(ctx, artifacts.GetContainerImageRequest{ImageId: new(image.ID)})
+	response, err := c.client.GetContainerImage(ociclient.RequestContext(ctx), artifacts.GetContainerImageRequest{ImageId: new(image.ID)})
 	if serviceErr, ok := common.IsServiceError(err); ok && serviceErr.GetHTTPStatusCode() == 404 {
 		// Absence is ambiguous in OCI (also permission loss); retain the journal tombstone.
 		return false, nil
@@ -188,7 +190,7 @@ func (c *Controller) retire(ctx context.Context, repository Repository, digest s
 	if err := c.guard(ctx); err != nil {
 		return false, err
 	}
-	_, err = c.client.DeleteContainerImage(ctx, artifacts.DeleteContainerImageRequest{ImageId: new(image.ID), IfMatch: response.Etag,
+	_, err = c.client.DeleteContainerImage(ociclient.RequestContext(ctx), artifacts.DeleteContainerImageRequest{ImageId: new(image.ID), IfMatch: response.Etag,
 		OpcRequestId: new(image.Retiring)})
 	return err == nil, err
 }

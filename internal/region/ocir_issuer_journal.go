@@ -96,12 +96,27 @@ type OCIRIssuerRequest struct {
 	LeaseID        string               `json:"leaseId,omitempty"`
 }
 
+// OCIRRepositoryCheckpoint retains the original create authority and receipt.
+// Repository discovery never creates or replaces this ownership evidence.
+type OCIRRepositoryCheckpoint struct {
+	Origin        OCIRIssuanceOrigin `json:"origin"`
+	Namespace     string             `json:"namespace"`
+	CompartmentID string             `json:"compartmentId"`
+	Name          string             `json:"name"`
+	PrincipalID   string             `json:"principalId"`
+	Owner         string             `json:"owner"`
+	OperationID   string             `json:"operationId"`
+	RepositoryID  string             `json:"repositoryId,omitempty"`
+	Revision      uint64             `json:"revision"`
+}
+
 type OCIRIssuanceEntry struct {
-	Requests map[string]OCIRIssuerRequest     `json:"requests,omitempty"`
-	Origin   OCIRIssuanceOrigin               `json:"origin"`
-	Revision uint64                           `json:"revision"`
-	State    OCIRIssuanceState                `json:"state"`
-	Attempts map[string]OCIRCredentialAttempt `json:"attempts,omitempty"`
+	Repository *OCIRRepositoryCheckpoint        `json:"repository,omitempty"`
+	Requests   map[string]OCIRIssuerRequest     `json:"requests,omitempty"`
+	Origin     OCIRIssuanceOrigin               `json:"origin"`
+	Revision   uint64                           `json:"revision"`
+	State      OCIRIssuanceState                `json:"state"`
+	Attempts   map[string]OCIRCredentialAttempt `json:"attempts,omitempty"`
 }
 
 func (s OCIRIssuanceState) Validate(key string) error {
@@ -138,6 +153,34 @@ func (r FoundationRecord) validateOCIRIssuances() error {
 	for key, entry := range r.OCIRIssuances {
 		if !validFoundationDigest(entry.Origin.GrantSHA256) || entry.Origin.Generation == 0 || entry.Origin.Generation > r.Generation || !entityid.Valid(entry.Origin.FoundationOperation) || entry.Origin.Epoch == 0 || entry.Origin.ExpiresAt.IsZero() || entry.Origin.LeaseID != "" && !validIssuerUUID(entry.Origin.LeaseID) {
 			return errors.New("OCIR issuance has invalid original foundation authority")
+		}
+		if repository := entry.Repository; repository != nil {
+			o := repository.Origin
+			if repository.Revision == 0 || !validFoundationDigest(o.GrantSHA256) || o.Generation == 0 || o.Generation > r.Generation || !entityid.Valid(o.FoundationOperation) || o.Epoch == 0 || o.ExpiresAt.IsZero() || o.LeaseID != "" ||
+				!ocirIssuerNamespace.MatchString(repository.Namespace) || !ocirIssuerRepository.MatchString(repository.Name) || len(repository.Name) > 255 ||
+				!strings.HasPrefix(repository.CompartmentID, "ocid1.compartment.oc1..") || !strings.HasPrefix(repository.PrincipalID, "ocid1.instance.oc1.") || len(repository.CompartmentID) > 512 || len(repository.PrincipalID) > 512 || !entityid.Valid(repository.Owner) || !validIssuerUUID(repository.OperationID) ||
+				repository.RepositoryID != "" && (!strings.HasPrefix(repository.RepositoryID, "ocid1.containerrepo.") || len(repository.RepositoryID) > 512) || entry.State.RepositoryID != "" && repository.RepositoryID != entry.State.RepositoryID {
+				return errors.New("OCIR repository checkpoint has invalid exact creation authority")
+			}
+			for _, id := range []string{repository.CompartmentID, repository.PrincipalID, repository.RepositoryID} {
+				if strings.ContainsAny(id, " \t\r\n") {
+					return errors.New("OCIR repository checkpoint contains malformed public identity")
+				}
+			}
+			if repository.RepositoryID != "" {
+				observed := false
+				for _, request := range entry.Requests {
+					if request.Method != "POST" || request.RetryToken != repository.OperationID || request.URL != "https://artifacts."+r.OCIRegion+".oci.oraclecloud.com/20160918/container/repositories" || !request.Deadline.Equal(o.ExpiresAt) {
+						continue
+					}
+					for _, dispatch := range request.Dispatches {
+						observed = observed || dispatch.Sent && !dispatch.FinishedAt.IsZero() && dispatch.Status >= 200 && dispatch.Status < 300
+					}
+				}
+				if !observed {
+					return errors.New("OCIR repository receipt lacks its original successful create dispatch")
+				}
+			}
 		}
 		if entry.Revision == 0 || len(entry.Attempts) > 64 || len(entry.Requests) > 256 || entry.State.Generation > r.Generation {
 			return errors.New("OCIR issuance revision or retained attempt bound invalid")
