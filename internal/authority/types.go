@@ -91,6 +91,7 @@ const (
 	MutationRegistration      HostMutationKind = "registration"
 	MutationRetirement        HostMutationKind = "retirement"
 	MutationDesired           HostMutationKind = "desired"
+	MutationUsageObservation  HostMutationKind = "usage-observation"
 	MutationPlacementIntent   HostMutationKind = "placement-intent"
 	MutationMaterialReceipt   HostMutationKind = "material-receipt"
 	MutationClientCredentials HostMutationKind = "client-credentials"

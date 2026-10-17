@@ -19,13 +19,16 @@ const hostHistoryLimit = 16384
 // HostHistory caches a startup baseline and one hour of incremental changes.
 // Queries never replay mutations preceding the baseline.
 type HostHistory struct {
-	once     sync.Once
-	gate     chan struct{}
-	since    time.Time
-	updated  time.Time
-	next     uint64
-	baseline map[string]LogEntry
-	changes  []LogEntry
+	once       sync.Once
+	gate       chan struct{}
+	since      time.Time
+	updated    time.Time
+	next       uint64
+	baseline   map[string]LogEntry
+	changes    []LogEntry
+	usageSince time.Time
+	usageNext  uint64
+	usage      []LogEntry
 }
 
 func (h *HostHistory) lock(ctx context.Context) error {
@@ -63,6 +66,9 @@ func (h *HostHistory) Seed(ctx context.Context, stream jetstream.Stream, scope s
 		value, err := decodeHostHistoryEntry(entry, scope)
 		if err != nil || entry.Subject != subject {
 			return errors.Join(err, errors.New("host history baseline identity is invalid"))
+		}
+		if value.Kind == MutationUsageObservation {
+			continue
 		}
 		baseline[subject] = value
 		if entry.Time.After(newest) {
@@ -162,6 +168,10 @@ func (h *HostHistory) advance(ctx context.Context, stream jetstream.Stream, scop
 		if err != nil {
 			return err
 		}
+		if value.Kind == MutationUsageObservation {
+			h.next = entry.Sequence + 1
+			continue
+		}
 		prior := h.baseline[entry.Subject]
 		// Seed reads can overlap newer commits; never replace them with older state.
 		if value.Sequence > prior.Sequence {
@@ -178,6 +188,92 @@ func (h *HostHistory) advance(ctx context.Context, stream jetstream.Stream, scop
 	}
 	h.updated = time.Now().UTC()
 	return nil
+}
+
+// UsageWindow restores only the retained hour of actual server-stamped usage
+// commits. It never reconstructs an older allocation from the current head.
+func (h *HostHistory) UsageWindow(ctx context.Context, stream jetstream.Stream, scope string,
+	watermark uint64,
+) ([]LogEntry, error) {
+	if err := h.lock(ctx); err != nil {
+		return nil, err
+	}
+	defer func() { <-h.gate }()
+	cutoff := time.Now().UTC().Add(-time.Hour)
+	if h.usageSince.IsZero() {
+		info, err := stream.Info(ctx)
+		if err != nil {
+			return nil, err
+		}
+		low, high := info.State.FirstSeq, min(info.State.LastSeq, watermark)+1
+		if info.State.Msgs == 0 {
+			low = high
+		}
+		// The control stream forbids deletion/expiry. Binary search its server
+		// timestamps so restart cost depends on retained activity, not lifetime.
+		for low < high {
+			middle := low + (high-low)/2
+			entry, err := stream.GetMsg(ctx, middle)
+			if err != nil || entry == nil || entry.Sequence != middle || entry.Time.IsZero() {
+				return nil, errors.Join(err, errors.New("retained usage timestamp index is unavailable"))
+			}
+			if entry.Time.Before(cutoff) {
+				low = middle + 1
+			} else {
+				high = middle
+			}
+		}
+		h.usageSince, h.usageNext = cutoff, low
+	}
+	kept := h.usage[:0]
+	for _, entry := range h.usage {
+		if !entry.CreatedAt.Before(cutoff) {
+			kept = append(kept, entry)
+		}
+	}
+	clear(h.usage[len(kept):])
+	h.usage = kept
+	h.usageSince = cutoff
+	filter := mutationSubject(scope, MutationUsageObservation, scope+".*")
+	for h.usageNext <= watermark {
+		entry, err := stream.GetMsg(ctx, h.usageNext, jetstream.WithGetMsgSubject(filter))
+		if errors.Is(err, jetstream.ErrMsgNotFound) || err == nil && entry != nil && entry.Sequence > watermark {
+			h.usageNext = watermark + 1
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		value, err := DecodeUsageObservationEntry(entry, scope)
+		if err != nil || value.Sequence < h.usageNext {
+			return nil, errors.Join(err, errors.New("retained usage sequence is invalid"))
+		}
+		if len(h.usage) >= hostHistoryLimit {
+			return nil, errors.New("retained usage exceeds the historical inventory bound")
+		}
+		h.usage = append(h.usage, value)
+		h.usageNext = entry.Sequence + 1
+	}
+	var result []LogEntry
+	for _, entry := range h.usage {
+		if entry.Sequence <= watermark {
+			result = append(result, entry)
+		}
+	}
+	return result, nil
+}
+
+// DecodeUsageObservationEntry verifies the exact journal envelope and server
+// timestamp before the host feature decodes its authenticated observation.
+func DecodeUsageObservationEntry(entry *jetstream.RawStreamMsg, scope string) (LogEntry, error) {
+	if entry == nil {
+		return LogEntry{}, errors.New("usage observation journal entry is missing")
+	}
+	value, err := decodeHostHistoryEntry(entry, scope)
+	if err != nil || value.Kind != MutationUsageObservation {
+		return LogEntry{}, errors.Join(err, errors.New("usage observation journal kind is invalid"))
+	}
+	return value, nil
 }
 
 func decodeHostHistoryEntry(entry *jetstream.RawStreamMsg, scope string) (LogEntry, error) {

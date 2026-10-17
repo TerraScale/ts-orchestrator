@@ -162,6 +162,9 @@ func (r *Runtime) CommitHostMutation(
 	expectedSubjectSequence uint64,
 	payload []byte,
 ) (uint64, error) {
+	if kind == MutationUsageObservation {
+		return 0, errors.New("usage observations require verified host authority")
+	}
 	if err := validateHostMutation(kind, subjectKey, operationID, payload); err != nil {
 		return 0, err
 	}
@@ -285,7 +288,8 @@ func (r *Runtime) commitMutationVerified(
 			return 0, ErrConflict
 		}
 		if verify != nil {
-			if err := verify(ctx); err != nil {
+			if err := r.verify(ctx, expectedEpoch, leaseEntry.Sequence, info.State.LastSeq,
+				subject, operationID, leaseEntry.Time.Add(time.Duration(lease.LeaseDuration)), verify); err != nil {
 				return 0, err
 			}
 			if !time.Now().Before(leaseEntry.Time.Add(time.Duration(lease.LeaseDuration))) {
@@ -1177,7 +1181,7 @@ func decodeControlRecord(data []byte) (controlRecord, error) {
 }
 
 func validateHostMutation(kind HostMutationKind, subjectKey, operationID string, payload []byte) error {
-	if kind != MutationRegistration && kind != MutationDesired && kind != MutationRetirement {
+	if kind != MutationRegistration && kind != MutationDesired && kind != MutationRetirement && kind != MutationUsageObservation {
 		return errors.New("host mutation kind is not allowed")
 	}
 	return validateMutation(kind, subjectKey, operationID, payload)
@@ -1200,7 +1204,7 @@ func validateMutationKey(kind HostMutationKind, subjectKey string) error {
 	parts := strings.Split(subjectKey, ".")
 	want := 0
 	switch kind {
-	case MutationRegistration, MutationRetirement:
+	case MutationRegistration, MutationRetirement, MutationUsageObservation:
 		want = 2
 	case MutationDesired:
 		want = 3

@@ -55,7 +55,7 @@ func (c *Controller) ExpectedUsage(ctx context.Context, from, to time.Time) ([]h
 	}
 	ends := map[string]time.Time{}
 	for _, entry := range slices.Backward(entries) {
-		if entry.Kind == authority.MutationRetirement {
+		if entry.Kind == authority.MutationRetirement || entry.Kind == authority.MutationUsageObservation {
 			continue
 		}
 		key := string(entry.Kind) + "/" + entry.SubjectKey

@@ -77,7 +77,8 @@ type Controller struct {
 	authorityGuard  func(context.Context, uint64) error
 	authorityLeader func() bool
 	// loadSink, when set, accepts "load" host telemetry; see SetLoadSink.
-	loadSink atomic.Pointer[LoadSink]
+	loadSink            atomic.Pointer[LoadSink]
+	loadObservationSink atomic.Pointer[LoadObservationSink]
 	// rolloutSink, when set, serves host self-updates; see SetRolloutSink.
 	rolloutSink atomic.Pointer[RolloutSink]
 	netbirdSink atomic.Pointer[NetBirdSink]
