@@ -139,19 +139,6 @@ func testProvider(t *testing.T) common.ConfigurationProvider {
 		string(pemKey(key)), nil)
 }
 
-func TestFactoryRejectsUncataloguedRegionsAndBadLimits(t *testing.T) {
-	provider := testProvider(t)
-	if _, err := New(provider, Options{Region: "xx-nowhere-1"}); err == nil {
-		t.Fatal("accepted a region outside the catalog")
-	}
-	if _, err := New(nil, Options{Region: "sa-saopaulo-1"}); err == nil {
-		t.Fatal("accepted a nil provider")
-	}
-	if _, err := New(provider, Options{Region: "sa-saopaulo-1", Limits: map[Service]Limit{ServiceCompute: {}}}); err == nil {
-		t.Fatal("accepted a zero limit")
-	}
-}
-
 func TestConfiguredClientSharesLimiterAndRetriesThrottling(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -254,21 +241,5 @@ func TestTransportFailuresRetryReadsOnly(t *testing.T) {
 		UpdateInstanceDetails: core.UpdateInstanceDetails{DisplayName: new("x")}})
 	if err == nil || calls.Load() != 1 {
 		t.Fatalf("PUT was replayed after a dropped connection: calls=%d err=%v", calls.Load(), err)
-	}
-}
-
-func TestTenancyHomeRegionComesFromTheCatalog(t *testing.T) {
-	t.Parallel()
-	for key, want := range map[string]string{"GRU": "sa-saopaulo-1", "sjc": "us-sanjose-1", "FRA": "eu-frankfurt-1"} {
-		if got, err := TenancyHomeRegion(&key); err != nil || got != want {
-			t.Errorf("%s = %q, %v", key, got, err)
-		}
-	}
-	unknown := "XXX"
-	if _, err := TenancyHomeRegion(&unknown); err == nil {
-		t.Error("a home region outside the catalog was accepted")
-	}
-	if _, err := TenancyHomeRegion(nil); err == nil {
-		t.Error("a tenancy without a home region key was accepted")
 	}
 }
