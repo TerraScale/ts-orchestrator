@@ -80,8 +80,8 @@ func TestRegistryTaskAssignmentIntegration(t *testing.T) {
 		}
 	})
 	var releaseShutdown sync.Once
-	release := func() { releaseShutdown.Do(func() { close(shutdown) }) }
-	t.Cleanup(release)
+	unblockShutdown := func() { releaseShutdown.Do(func() { close(shutdown) }) }
+	t.Cleanup(unblockShutdown)
 	client, err := node.ControlClient(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -273,7 +273,7 @@ func TestRegistryTaskAssignmentIntegration(t *testing.T) {
 	if err := VerifyTaskAllocation(ctx, client, changedTask, intent, proof, roots); err == nil {
 		t.Fatal("forged allocation resources accepted")
 	}
-	release()
+	unblockShutdown()
 	serviceEventually(t, ctx, func() bool {
 		current, err := client.GetTask(ctx, &api.GetTaskRequest{TaskID: task.ID})
 		if err != nil || current == nil || current.Task == nil || current.Task.Status.State < api.TaskStateCompleted {
