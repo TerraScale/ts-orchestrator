@@ -2,8 +2,6 @@ package release
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -95,7 +93,7 @@ func VerifyRetainedProductionCurrent(ctx context.Context, proof ProductionProof,
 		return time.Time{}, err
 	}
 	for _, evidence := range qualification.Evidence {
-		if err := verifyImageEvidence(ctx, openEvidence, evidence); err != nil {
+		if err := verifyImageEvidence(ctx, openEvidence, evidence, expected); err != nil {
 			return time.Time{}, err
 		}
 	}
@@ -125,7 +123,7 @@ func currentImageProofDeadline(now time.Time, wires ...[]byte) (time.Time, error
 	return expires, nil
 }
 
-func verifyImageEvidence(ctx context.Context, open func(context.Context, string) (io.ReadCloser, error), evidence ProductionGateEvidence) error {
+func verifyImageEvidence(ctx context.Context, open func(context.Context, string) (io.ReadCloser, error), evidence ProductionGateEvidence, expected ProductionExpectation) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -136,13 +134,8 @@ func verifyImageEvidence(ctx context.Context, open func(context.Context, string)
 	if reader == nil {
 		return fmt.Errorf("retained %s evidence reader is missing", evidence.Gate)
 	}
-	digest := sha256.New()
-	count, readErr := io.Copy(digest, io.LimitReader(reader, evidence.Bytes+1))
-	if err := errors.Join(readErr, reader.Close()); err != nil {
+	if err := errors.Join(VerifyProductionEvidence(ctx, reader, evidence, expected), reader.Close()); err != nil {
 		return fmt.Errorf("read retained %s evidence: %w", evidence.Gate, err)
-	}
-	if count != evidence.Bytes || hex.EncodeToString(digest.Sum(nil)) != evidence.SHA256 {
-		return fmt.Errorf("retained %s evidence differs from the signed size or SHA-256", evidence.Gate)
 	}
 	return nil
 }

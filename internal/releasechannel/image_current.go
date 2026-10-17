@@ -29,6 +29,7 @@ type CurrentImageExpectation struct {
 // A later locator update must never replace these wires in an existing recipe.
 type CurrentImage struct {
 	Image                                          release.VerifiedImage
+	FoundationWriter                               release.VerifiedFoundationWriterImage
 	ExpiresAt                                      time.Time
 	ReceiptWire, DelegationWire                    []byte
 	QualificationWire, QualificationDelegationWire []byte
@@ -68,7 +69,7 @@ func (expected CurrentImageExpectation) validate() error {
 		return fmt.Errorf("%w: current image target", ErrInvalid)
 	}
 	switch imageCurrentRole(expected.Role) {
-	case "orchestrator", "container", "wasm":
+	case "orchestrator", "container", "wasm", release.FoundationWriterRole:
 	case "netbird-manager":
 		if expected.Cell != "GRU" || expected.Architecture != "arm64" {
 			return fmt.Errorf("%w: NetBird image target", ErrInvalid)
@@ -162,6 +163,20 @@ func verifyCurrentImageManifest(ctx context.Context, location Location, manifest
 	imageExpected := release.ImageExpectation{Environment: expected.Environment, LogicalRegion: expected.Cell, Architecture: expected.Architecture, OCIImageOCID: selectors.OCIImageOCID}
 	var image release.VerifiedImage
 	role := imageCurrentRole(expected.Role)
+	if role == release.FoundationWriterRole {
+		proof, err := release.VerifyFoundationWriterImageCurrent(ctx, release.HostImageQualification{
+			Receipt: manifest.Receipt, Delegation: manifest.Delegation, Expected: imageExpected, Role: "manager",
+		}, roots, func(ctx context.Context, digest string) (io.ReadCloser, error) {
+			return OpenImageProductionEvidence(ctx, location, digest)
+		}, now)
+		if err != nil {
+			return CurrentImage{}, false, err
+		}
+		production := proof.Image().Receipt().HostProduction[release.FoundationWriterRole]
+		return CurrentImage{Image: proof.Image(), FoundationWriter: proof, ExpiresAt: proof.ExpiresAt(),
+			ReceiptWire: bytes.Clone(manifest.Receipt), DelegationWire: bytes.Clone(manifest.Delegation),
+			QualificationWire: bytes.Clone(production.Qualification), QualificationDelegationWire: bytes.Clone(production.Delegation)}, true, nil
+	}
 	if role == "netbird-manager" {
 		image, err = release.VerifyNetBirdImageCurrent(manifest.Receipt, manifest.Delegation, roots, imageExpected, now)
 	} else {
