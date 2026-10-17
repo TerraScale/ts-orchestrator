@@ -64,6 +64,9 @@ func (v VerifiedNetBirdJournalUnderlay) CurrentDeadline(ctx context.Context) (ti
 	if err := ctx.Err(); err != nil {
 		return time.Time{}, err
 	}
+	if err := v.original.Err(); err != nil {
+		return time.Time{}, err
+	}
 	return deadline, ociclient.LimitAdmission(ctx, deadline)
 }
 
@@ -103,12 +106,18 @@ func VerifyNetBirdJournalUnderlayForOperation(ctx, originalCtx context.Context, 
 	if deadline, ok := originalCtx.Deadline(); ok && deadline.Before(expires) {
 		expires = deadline
 	}
+	if err := ctx.Err(); err != nil {
+		return VerifiedNetBirdJournalUnderlay{}, err
+	}
+	if err := originalCtx.Err(); err != nil {
+		return VerifiedNetBirdJournalUnderlay{}, err
+	}
 	return VerifiedNetBirdJournalUnderlay{purpose: purpose, journal: journal, factory: factory, resolver: resolver, original: originalCtx, expires: expires}, nil
 }
 
 func verifyNetBirdUnderlaySnapshot(ctx, originalCtx context.Context, factory *ociclient.Factory, resolver FoundationResolver, purpose VerifiedNetBirdJournalPurpose) (NetBirdUnderlayRecord, time.Time, error) {
 	var zero NetBirdUnderlayRecord
-	if ctx == nil || resolver.Store == nil {
+	if ctx == nil || originalCtx == nil || resolver.Store == nil {
 		return zero, time.Time{}, errors.New("NetBird private underlay verification requires the protected original foundation store")
 	}
 	if err := validateNetBirdUnderlayStore(resolver, purpose); err != nil {
@@ -156,6 +165,9 @@ func verifyNetBirdUnderlaySnapshot(ctx, originalCtx context.Context, factory *oc
 	expires := journal.ExpiresAt
 	if expected.ExpiresAt.Before(expires) {
 		expires = expected.ExpiresAt
+	}
+	if err := originalCtx.Err(); err != nil {
+		return zero, time.Time{}, err
 	}
 	return journal, expires, nil
 }
