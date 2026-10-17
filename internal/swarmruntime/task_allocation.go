@@ -14,6 +14,11 @@ import (
 // VerifyTaskAllocation verifies a current nonterminal resource reservation.
 // It grants no registry, material or execution authority.
 func VerifyTaskAllocation(ctx context.Context, client api.ControlClient, task *api.Task, intent ServiceIntent, verified release.VerifiedContainer, roots trust.Keyring) error {
+	ctx, cancel := context.WithDeadline(ctx, verified.ExpiresAt())
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	allocated := func(current *api.Task) bool {
 		if current == nil || current.NodeID == "" || current.Status.State >= api.TaskStateCompleted {
 			return false
