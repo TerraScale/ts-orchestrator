@@ -41,6 +41,7 @@ func newProofFixture(t *testing.T) proofFixture {
 	digest := strings.Repeat("a", 64)
 	c := release.ProductionExpectation{Role: release.FoundationWriterRole, Runtime: release.ProductionRuntime, Architecture: "arm64", Cell: "GRU", Environment: "production", SourceRevision: strings.Repeat("b", 40), ArtifactSHA256: digest, QualificationSHA256: digest}
 	a := qualification.Approval{Schema: "terrascale.test.image-qualification.v1", Purpose: qualification.RootCredentialBoundaryPurpose, RunID: "reader1", Candidate: c,
+		ArtifactDisposition: qualification.RetainTestedImage, ReaderIAMAuthority: qualification.ExactHostReaders, ImagePublicationBucket: "gru-1-head", ImageRetainUntil: now.Add(55 * time.Minute), ImageTransferUntil: now.Add(50 * time.Minute),
 		Tenancy: "ocid1.tenancy.oc1..test", Compartment: "ocid1.compartment.oc1..test", Subnet: "ocid1.subnet.oc1.sa-saopaulo-1.test", Namespace: "namespace", Bucket: "bucket", OCIRegion: "sa-saopaulo-1", IAMRegion: "sa-saopaulo-1",
 		PeerCIDR: "10.70.1.0/24", RunnerCIDR: "10.70.2.0/24", VCNCIDR: "10.70.0.0/16", BinarySHA256: digest, KernelSHA256: digest, ContainerdSHA256: digest, RuncSHA256: digest, RunnerSHA256: digest, KernelRelease: "kernel", MaxSpendMicros: 10, ImageBytes: 8, CleanupUntil: now.Add(2 * time.Hour)}
 	b := Binding{Schema: BindingSchema, Purpose: a.Purpose, RunID: a.RunID, HostName: "host0"}
@@ -54,6 +55,8 @@ func newProofFixture(t *testing.T) proofFixture {
 		b.Hosts = append(b.Hosts, BoundHost{Name: name, InstanceID: fmt.Sprintf("ocid1.instance.oc1.sa-saopaulo-1.host%d", i), ImageID: "ocid1.image.oc1.sa-saopaulo-1.candidate", PrivateIP: fmt.Sprintf("10.70.1.%d", i+2)})
 	}
 	p := qualification.Preparation{Schema: "terrascale.test.image-qualification.principal.v1", Purpose: a.Purpose, RunID: a.RunID, Candidate: c, Tenancy: a.Tenancy, Compartment: a.Compartment, Subnet: a.Subnet, Namespace: a.Namespace, Bucket: a.Bucket, OCIRegion: a.OCIRegion, IAMRegion: a.IAMRegion, PeerCIDR: a.PeerCIDR, RunnerCIDR: a.RunnerCIDR, VCNCIDR: a.VCNCIDR, BinarySHA256: digest, KernelSHA256: digest, ContainerdSHA256: digest, RuncSHA256: digest, RunnerSHA256: digest, KernelRelease: a.KernelRelease, MaxSpendMicros: a.MaxSpendMicros, ImageBytes: a.ImageBytes, Hosts: a.Hosts, ExpiresAt: now.Add(time.Hour), CleanupUntil: a.CleanupUntil}
+	p.ArtifactDisposition, p.ReaderIAMAuthority, p.ImageRetainUntil, p.ImageTransferUntil = a.ArtifactDisposition, a.ReaderIAMAuthority, a.ImageRetainUntil, a.ImageTransferUntil
+	p.ImagePublicationBucket = a.ImagePublicationBucket
 	return proofFixture{now: now, roots: roots, root: root, leaf: leaf, a: a, p: p, b: b}
 }
 func (f proofFixture) wire(t *testing.T, slot string, changeBinding func(*Binding), differentSigner bool) []byte {
@@ -101,6 +104,11 @@ func (f proofFixture) wire(t *testing.T, slot string, changeBinding func(*Bindin
 	b := f.b
 	b.PreparationSHA256 = fingerprint(preparation)
 	b.ApprovalSHA256 = fingerprint(approval)
+	statements, err := json.Marshal(qualification.ReaderStatements("ocid1.dynamicgroup.oc1..readers", f.a.Compartment, f.a.ImageRetainUntil), json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.ReaderIAM = ReaderIAM{DynamicGroupID: "ocid1.dynamicgroup.oc1..readers", PolicyID: "ocid1.policy.oc1..readers", PolicySHA256: fingerprint(statements), PlanSHA256: (ReaderPlan{value: verified{binding: b, host: b.Hosts[0]}}).SHA256()}
 	if changeBinding != nil {
 		changeBinding(&b)
 	}
@@ -128,7 +136,7 @@ func TestFiniteReaderRequiresExplicitPurposeAndOriginalAttenuation(t *testing.T)
 	if _, err := verifyProof(f.wire(t, oldSlot, nil, false), f.roots, f.now.Add(time.Minute)); err == nil {
 		t.Fatal("generic original delegation admitted privileged reader")
 	}
-	for name, change := range map[string]func(*Binding){"wrong purpose": func(b *Binding) { b.Purpose = "native-runtime-ha" }, "foreign host": func(b *Binding) { b.HostName = "other" }, "other approval": func(b *Binding) { b.ApprovalSHA256 = strings.Repeat("d", 64) }, "mixed image": func(b *Binding) {
+	for name, change := range map[string]func(*Binding){"missing IAM": func(b *Binding) { b.ReaderIAM = ReaderIAM{} }, "expanded policy": func(b *Binding) { b.ReaderIAM.PolicySHA256 = strings.Repeat("c", 64) }, "wrong purpose": func(b *Binding) { b.Purpose = "native-runtime-ha" }, "foreign host": func(b *Binding) { b.HostName = "other" }, "other approval": func(b *Binding) { b.ApprovalSHA256 = strings.Repeat("d", 64) }, "mixed image": func(b *Binding) {
 		b.Hosts = append([]BoundHost(nil), b.Hosts...)
 		b.Hosts[1].ImageID = "ocid1.image.oc1.sa-saopaulo-1.other"
 	}} {

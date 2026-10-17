@@ -51,11 +51,11 @@ func TestRootCredentialCollectorRefusesMissingOrForeignResult(t *testing.T) {
 	}
 }
 
-func TestRootCredentialResultRequiresSixReadersAndLiveRefusals(t *testing.T) {
+func TestRootCredentialResultRequiresFixedReadersAndLiveRefusals(t *testing.T) {
 	hash := strings.Repeat("a", 64)
 	w := &worker{binaryHash: hash, identity: Identity{InstanceID: "instance", ImageOCID: "image"}}
 	observation := app.RootOCIQualificationObservation{SHA256: hash, Bytes: 2}
-	valid := app.RootOCIQualificationResult{SchemaVersion: 1, InstanceID: "instance", ImageID: "image", BinarySHA256: hash, NamespaceSHA256: hash, SourceSHA256: hash, PeerUID: 999, Socket: rootCredentialSocket, Readers: app.RootOCIQualificationReaders{Inventory: observation, LocalInstance: observation, Fleet: observation, Costs: observation, Image: observation, ReleaseChannel: observation}, Negative: app.RootOCIQualificationDenials{SameUIDProcessDenied: true, ProtectedWriteDenied: true, RawSignDenied: true, IMDSDenied: true}}
+	valid := app.RootOCIQualificationResult{SchemaVersion: 2, InstanceID: "instance", ImageID: "image", BinarySHA256: hash, NamespaceSHA256: hash, SourceSHA256: hash, PeerUID: 999, Socket: rootCredentialSocket, Readers: app.RootOCIQualificationReaders{LocalInstance: observation, Image: observation}, Negative: app.RootOCIQualificationDenials{SameUIDProcessDenied: true, ProtectedWriteDenied: true, RawSignDenied: true, PrincipalSigningDenied: true, IMDSDenied: true}}
 	localWire, err := json.Marshal(bootstrapstart.InstanceObservation{InstanceOCID: "instance", ImageOCID: "image"})
 	if err != nil {
 		t.Fatal(err)
@@ -70,14 +70,12 @@ func TestRootCredentialResultRequiresSixReadersAndLiveRefusals(t *testing.T) {
 	}{
 		{"retained-local-response", func(r *app.RootOCIQualificationResult) { r.Readers.LocalInstance.Response = []byte("{}") }},
 		{"workload-uid", func(r *app.RootOCIQualificationResult) { r.PeerUID = 65532 }},
-		{"inventory", func(r *app.RootOCIQualificationResult) { r.Readers.Inventory.Bytes = 0 }},
 		{"local-instance", func(r *app.RootOCIQualificationResult) { r.Readers.LocalInstance.SHA256 = "" }},
-		{"fleet", func(r *app.RootOCIQualificationResult) { r.Readers.Fleet.Bytes = 0 }},
-		{"costs", func(r *app.RootOCIQualificationResult) { r.Readers.Costs.Bytes = 0 }},
 		{"image", func(r *app.RootOCIQualificationResult) { r.Readers.Image.Bytes = 0 }},
-		{"release", func(r *app.RootOCIQualificationResult) { r.Readers.ReleaseChannel.Bytes = 0 }},
 		{"imds", func(r *app.RootOCIQualificationResult) { r.Negative.IMDSDenied = false }},
 		{"signing", func(r *app.RootOCIQualificationResult) { r.Negative.RawSignDenied = false }},
+		{"principal-signing", func(r *app.RootOCIQualificationResult) { r.Negative.PrincipalSigningDenied = false }},
+		{"old-schema", func(r *app.RootOCIQualificationResult) { r.SchemaVersion = 1 }},
 		{"same-uid-ipc", func(r *app.RootOCIQualificationResult) { r.Negative.SameUIDProcessDenied = false }},
 		{"protected-write", func(r *app.RootOCIQualificationResult) { r.Negative.ProtectedWriteDenied = false }},
 		{"foreign-binary", func(r *app.RootOCIQualificationResult) { r.BinarySHA256 = strings.Repeat("b", 64) }},

@@ -160,6 +160,9 @@ func (p Preparation) validate(e trust.Envelope, now time.Time) error {
 	if err := qualification.ValidateDisposition(p.Purpose, p.ArtifactDisposition, p.ReaderIAMAuthority, p.ImageRetainUntil, p.ImageTransferUntil, p.CleanupUntil); err != nil {
 		return err
 	}
+	if err := qualification.ValidatePublicationBucket(p.Purpose, c.Cell, p.ImagePublicationBucket); err != nil {
+		return err
+	}
 	if p.Purpose == qualification.RootCredentialBoundaryPurpose && (!p.ImageTransferUntil.After(e.IssuedAt) || p.ImageRetainUntil.After(p.ExpiresAt) || p.ImageRetainUntil.After(e.IssuedAt.Add(time.Hour))) {
 		return errors.New("image retention and transfer exceed original one-hour purpose authority")
 	}
@@ -377,6 +380,9 @@ func (p *Producer) check(ctx context.Context, v VerifiedPreparation, cleanup boo
 	}
 	if !cleanup && !p.now().Before(v.preparation.ExpiresAt) {
 		return errors.New("principal creation authority expired")
+	}
+	if !cleanup && v.preparation.Purpose == qualification.RootCredentialBoundaryPurpose && !p.now().Before(v.preparation.ImageRetainUntil) {
+		return errors.New("original root purpose creation interval expired")
 	}
 	for _, name := range ociclient.SecretUnsafeEnv {
 		if value, ok := os.LookupEnv(name); ok && value != "" {

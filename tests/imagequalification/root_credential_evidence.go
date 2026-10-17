@@ -55,9 +55,9 @@ func retainRootCredentialEvidence(p Prepared, report host.Report, evidence relea
 			return empty, errors.New("root credential evidence differs from approved native SDK host observations")
 		}
 		var result app.RootOCIQualificationResult
-		if protocol.DecodeStrict(e.Transcript, &result, 64<<10) != nil || result.SourceSHA256 != hashBytes(proofs[h.OCID]) ||
+		if protocol.DecodeStrict(e.Transcript, &result, 64<<10) != nil || result.SchemaVersion != 2 || result.SourceSHA256 != hashBytes(proofs[h.OCID]) ||
 			result.InstanceID != h.OCID || result.ImageID != j.ImageID || result.BinarySHA256 != a.BinarySHA256 || result.NamespaceSHA256 != e.NamespaceSHA256 ||
-			result.RootUID != 0 || result.PeerUID != e.OrdinaryUID || !result.Negative.SameUIDProcessDenied || !result.Negative.ProtectedWriteDenied || !result.Negative.RawSignDenied || !result.Negative.IMDSDenied {
+			result.RootUID != 0 || result.PeerUID != e.OrdinaryUID || !result.Negative.SameUIDProcessDenied || !result.Negative.ProtectedWriteDenied || !result.Negative.RawSignDenied || !result.Negative.PrincipalSigningDenied || !result.Negative.IMDSDenied {
 			return empty, errors.New("root credential typed transcript differs from exact signed host admission")
 		}
 		local := result.Readers.LocalInstance

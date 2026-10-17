@@ -164,6 +164,9 @@ func (a Approval) validate() error {
 	if err := qualification.ValidateDisposition(a.Purpose, a.ArtifactDisposition, a.ReaderIAMAuthority, a.ImageRetainUntil, a.ImageTransferUntil, a.CleanupUntil); err != nil {
 		return err
 	}
+	if err := qualification.ValidatePublicationBucket(a.Purpose, c.Cell, a.ImagePublicationBucket); err != nil {
+		return err
+	}
 	if a.Schema != ApprovalSchema || !runPattern.MatchString(a.RunID) || !release.ValidSourceRevision(c.SourceRevision) ||
 		!validHash(c.ArtifactSHA256) || !validHash(c.QualificationSHA256) || !release.ValidEnvironment(c.Environment) ||
 		c.Architecture != "arm64" && c.Architecture != "amd64" ||

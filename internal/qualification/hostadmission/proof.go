@@ -156,7 +156,7 @@ func verifyPlan(wire []byte, roots trust.Keyring, now time.Time, requireIAM bool
 		return v, ErrAdmission
 	}
 	a := v.approval
-	if qualification.ValidateDisposition(a.Purpose, a.ArtifactDisposition, a.ReaderIAMAuthority, a.ImageRetainUntil, a.ImageTransferUntil, a.CleanupUntil) != nil {
+	if qualification.ValidateDisposition(a.Purpose, a.ArtifactDisposition, a.ReaderIAMAuthority, a.ImageRetainUntil, a.ImageTransferUntil, a.CleanupUntil) != nil || qualification.ValidatePublicationBucket(a.Purpose, a.Candidate.Cell, a.ImagePublicationBucket) != nil {
 		return v, ErrAdmission
 	}
 	if !runIDPattern.MatchString(a.RunID) || a.Purpose != qualification.RootCredentialBoundaryPurpose ||
@@ -182,7 +182,7 @@ func verifyPlan(wire []byte, roots trust.Keyring, now time.Time, requireIAM bool
 	}
 	var p qualification.Preparation
 	if protocol.DecodeStrict(pe.Payload, &p, trust.MaxPayloadBytes) != nil || p.Schema != "terrascale.test.image-qualification.principal.v1" ||
-		p.ArtifactDisposition != a.ArtifactDisposition || p.ReaderIAMAuthority != a.ReaderIAMAuthority || !p.ImageRetainUntil.Equal(a.ImageRetainUntil) || !p.ImageTransferUntil.Equal(a.ImageTransferUntil) || !p.ImageTransferUntil.After(pe.IssuedAt) || p.ImageRetainUntil.After(minTime(p.ExpiresAt, pe.IssuedAt.Add(maxAdmission))) ||
+		p.ArtifactDisposition != a.ArtifactDisposition || p.ImagePublicationBucket != a.ImagePublicationBucket || p.ReaderIAMAuthority != a.ReaderIAMAuthority || !p.ImageRetainUntil.Equal(a.ImageRetainUntil) || !p.ImageTransferUntil.Equal(a.ImageTransferUntil) || !p.ImageTransferUntil.After(pe.IssuedAt) || p.ImageRetainUntil.After(minTime(p.ExpiresAt, pe.IssuedAt.Add(maxAdmission))) ||
 		p.Purpose != a.Purpose || p.Candidate != a.Candidate || p.RunID != a.RunID || pe.KeyID != ae.KeyID ||
 		p.Tenancy != a.Tenancy || p.Compartment != a.Compartment || p.Subnet != a.Subnet || p.Namespace != a.Namespace || p.Bucket != a.Bucket ||
 		p.OCIRegion != a.OCIRegion || p.IAMRegion != a.IAMRegion || p.PeerCIDR != a.PeerCIDR || p.RunnerCIDR != a.RunnerCIDR || p.VCNCIDR != a.VCNCIDR ||

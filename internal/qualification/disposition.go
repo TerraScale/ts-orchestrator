@@ -3,7 +3,26 @@ package qualification
 import (
 	"errors"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/naming"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
 )
+
+// The QCOW2 source bucket stays separate from the exact signed publication
+// destination; neither a current locator nor a caller can choose a destination.
+func ValidatePublicationBucket(purpose, cell, bucket string) error {
+	if purpose != RootCredentialBoundaryPurpose {
+		if bucket != "" {
+			return errors.New("publication destination requires explicit root boundary purpose")
+		}
+		return nil
+	}
+	name, err := naming.RegionCell(cell).Name()
+	if err != nil || !release.ValidRegion(cell) || bucket != name+"-head" {
+		return errors.New("signed image publication destination differs from fixed regional head bucket")
+	}
+	return nil
+}
 
 const (
 	RetainTestedImage = "retain-tested-image"

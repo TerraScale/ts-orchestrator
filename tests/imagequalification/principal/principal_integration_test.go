@@ -261,6 +261,12 @@ func (f *sdkFixture) serve(w http.ResponseWriter, r *http.Request) {
 			name = "group"
 		case path == "/policies":
 			name = "policy"
+			var details identity.CreatePolicyDetails
+			if json.Unmarshal(body, &details) == nil && value(details.Name) == f.prep.PolicyName+"-readers" {
+				name = "reader-policy"
+			}
+		case path == "/dynamicGroups":
+			name = "reader-group"
 		case path == "/userGroupMemberships":
 			name = "membership"
 		case strings.HasSuffix(path, "/apiKeys"):
@@ -296,6 +302,12 @@ func (f *sdkFixture) serve(w http.ResponseWriter, r *http.Request) {
 		if name == "key" {
 			id = f.prep.PublicKeyFingerprint
 		}
+		if name == "reader-group" {
+			id = "ocid1.dynamicgroup.oc1..readers"
+		}
+		if name == "reader-policy" {
+			id = "ocid1.policy.oc1..readers"
+		}
 		description := "Disposable image qualification " + f.verified.digest
 		var resource any
 		switch name {
@@ -303,12 +315,18 @@ func (f *sdkFixture) serve(w http.ResponseWriter, r *http.Request) {
 			resource = identity.User{Id: new(id), CompartmentId: new(f.prep.Tenancy), Name: new(f.prep.PrincipalName), Description: new(description), LifecycleState: identity.UserLifecycleStateActive}
 		case "group":
 			resource = identity.Group{Id: new(id), CompartmentId: new(f.prep.Tenancy), Name: new(f.prep.GroupName), Description: new(description), LifecycleState: identity.GroupLifecycleStateActive}
-		case "policy":
+		case "policy", "reader-policy":
 			var details identity.CreatePolicyDetails
 			if err := json.Unmarshal(body, &details); err != nil {
 				f.t.Error(err)
 			}
-			resource = identity.Policy{Id: new(id), CompartmentId: new(f.prep.Tenancy), Name: new(f.prep.PolicyName), Description: new(description), Statements: details.Statements, LifecycleState: identity.PolicyLifecycleStateActive}
+			resource = identity.Policy{Id: new(id), CompartmentId: new(f.prep.Tenancy), Name: details.Name, Description: new(description), Statements: details.Statements, LifecycleState: identity.PolicyLifecycleStateActive}
+		case "reader-group":
+			var details identity.CreateDynamicGroupDetails
+			if err := json.Unmarshal(body, &details); err != nil {
+				f.t.Error(err)
+			}
+			resource = identity.DynamicGroup{Id: new(id), CompartmentId: new(f.prep.Tenancy), Name: details.Name, Description: new(description), MatchingRule: details.MatchingRule, LifecycleState: identity.DynamicGroupLifecycleStateActive}
 		case "key":
 			resource = identity.ApiKey{UserId: new("ocid1.user.oc1..created"), Fingerprint: new(id), KeyValue: new(f.prep.PublicKeyPEM), LifecycleState: identity.ApiKeyLifecycleStateActive}
 		case "membership":

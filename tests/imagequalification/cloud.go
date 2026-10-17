@@ -19,6 +19,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/qualification"
 )
 
 const (
@@ -121,6 +122,9 @@ func (c *cloud) check(ctx context.Context, cleanup bool) error {
 		return err
 	}
 	expires := c.prepared.expires
+	if c.prepared.approval.Purpose == qualification.RootCredentialBoundaryPurpose && c.prepared.approval.ImageRetainUntil.Before(expires) {
+		expires = c.prepared.approval.ImageRetainUntil
+	}
 	if cleanup {
 		expires = c.prepared.approval.CleanupUntil
 	}

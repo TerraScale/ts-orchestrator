@@ -49,6 +49,7 @@ type Approval struct {
 	ArtifactDisposition     string                        `json:"artifact_disposition,omitempty"`
 	ImageRetainUntil        time.Time                     `json:"image_retain_until,omitzero"`
 	ImageTransferUntil      time.Time                     `json:"image_transfer_until,omitzero"`
+	ImagePublicationBucket  string                        `json:"image_publication_bucket,omitempty"`
 	ReaderIAMAuthority      string                        `json:"reader_iam_authority,omitempty"`
 	Schema                  string                        `json:"schema"`
 	RunID                   string                        `json:"run_id"`
@@ -93,6 +94,7 @@ type Preparation struct {
 	ArtifactDisposition     string                        `json:"artifact_disposition,omitempty"`
 	ImageRetainUntil        time.Time                     `json:"image_retain_until,omitzero"`
 	ImageTransferUntil      time.Time                     `json:"image_transfer_until,omitzero"`
+	ImagePublicationBucket  string                        `json:"image_publication_bucket,omitempty"`
 	ReaderIAMAuthority      string                        `json:"reader_iam_authority,omitempty"`
 	Schema                  string                        `json:"schema"`
 	RunID                   string                        `json:"run_id"`

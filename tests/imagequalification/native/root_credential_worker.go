@@ -72,10 +72,10 @@ func (w *worker) rootCredentialBoundary(ctx context.Context, proof []byte) (resp
 }
 
 func verifyRootCredentialResult(result app.RootOCIQualificationResult, w *worker, ordinaryUID uint32) error {
-	if ordinaryUID == 0 || ordinaryUID == 65532 || result.SchemaVersion != 1 || result.InstanceID != w.identity.InstanceID || result.ImageID != w.identity.ImageOCID || result.BinarySHA256 != w.binaryHash || !shaPattern.MatchString(result.NamespaceSHA256) || !shaPattern.MatchString(result.SourceSHA256) || result.RootUID != 0 || result.PeerUID != ordinaryUID || result.Socket != rootCredentialSocket {
+	if ordinaryUID == 0 || ordinaryUID == 65532 || result.SchemaVersion != 2 || result.InstanceID != w.identity.InstanceID || result.ImageID != w.identity.ImageOCID || result.BinarySHA256 != w.binaryHash || !shaPattern.MatchString(result.NamespaceSHA256) || !shaPattern.MatchString(result.SourceSHA256) || result.RootUID != 0 || result.PeerUID != ordinaryUID || result.Socket != rootCredentialSocket {
 		return errors.New("installed root credential result identity or supervised peer mismatch")
 	}
-	for _, reader := range []app.RootOCIQualificationObservation{result.Readers.Inventory, result.Readers.LocalInstance, result.Readers.Fleet, result.Readers.Costs, result.Readers.Image, result.Readers.ReleaseChannel} {
+	for _, reader := range []app.RootOCIQualificationObservation{result.Readers.LocalInstance, result.Readers.Image} {
 		if !shaPattern.MatchString(reader.SHA256) || reader.Bytes <= 0 || reader.Bytes > 8<<20 {
 			return errors.New("installed root credential result omitted an actual authenticated reader response")
 		}
@@ -89,7 +89,7 @@ func verifyRootCredentialResult(result app.RootOCIQualificationResult, w *worker
 		return errors.New("installed root credential retained local instance differs")
 	}
 	negative := result.Negative
-	if !negative.SameUIDProcessDenied || !negative.ProtectedWriteDenied || !negative.RawSignDenied || !negative.IMDSDenied {
+	if !negative.SameUIDProcessDenied || !negative.ProtectedWriteDenied || !negative.RawSignDenied || !negative.PrincipalSigningDenied || !negative.IMDSDenied {
 		return errors.New("installed root credential result omitted an actual ordinary-user refusal")
 	}
 	return nil
