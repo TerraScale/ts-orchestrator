@@ -186,6 +186,18 @@ func serveConnection(parent context.Context, connection *net.UnixConn, service d
 	if err != nil {
 		return
 	}
+	// One connection carries one request. Peer loss or any further byte revokes it.
+	peerDone := make(chan struct{})
+	go func() {
+		defer close(peerDone)
+		var extra [1]byte
+		_, _ = connection.Read(extra[:])
+		cancel()
+	}()
+	defer func() {
+		_ = connection.Close()
+		<-peerDone
+	}()
 	var request wireRequest
 	if json.Unmarshal(frame, &request, json.RejectUnknownMembers(true)) != nil || request.Version != 1 || !validExpectations(request.Expected) {
 		writeResponse(connection, wireResponse{Version: 1, Status: "invalid"})
