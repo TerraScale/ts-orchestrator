@@ -324,6 +324,32 @@ func (a *currentTaskAdmission) currentProfile(ctx context.Context) (trust.Keyrin
 	if err := a.originalProfileCurrent(ctx, roots, current); err != nil {
 		return nil, 0, err
 	}
+	if err := a.sources.Lease.Guard(ctx); err != nil {
+		return nil, 0, err
+	}
+	confirmed, err := a.sources.Delivery.ContainerIntent(ctx, intent.OperationID)
+	if err != nil {
+		return nil, 0, err
+	}
+	confirmedFingerprint, err := confirmed.Fingerprint()
+	if err != nil || confirmedFingerprint != a.profile.fingerprint {
+		return nil, 0, ErrPending
+	}
+	rootNow, rootErr := reader.GetLastMsg("KV_TS_TRUST_ROOTS", "$KV.TS_TRUST_ROOTS.chain", nats.Context(ctx))
+	if rootEntry == nil {
+		if !errors.Is(rootErr, nats.ErrMsgNotFound) {
+			return nil, 0, ErrPending
+		}
+	} else if rootErr != nil || rootNow == nil || rootNow.Subject != rootEntry.Subject || rootNow.Sequence != rootEntry.Sequence ||
+		rootNow.Header.Get("KV-Operation") != "" || rootNow.Header.Get(jetstream.MarkerReasonHeader) != "" || !bytes.Equal(rootNow.Data, rootEntry.Data) {
+		return nil, 0, ErrPending
+	}
+	specNow, err := reader.GetLastMsg("KV_TS_SERVICE_SET", "$KV.TS_SERVICE_SET.current", nats.Context(ctx))
+	if err != nil || specNow == nil || specNow.Subject != entry.Subject || specNow.Sequence != entry.Sequence ||
+		specNow.Header.Get("KV-Operation") != "" || specNow.Header.Get(jetstream.MarkerReasonHeader) != "" || !bytes.Equal(specNow.Data, entry.Data) ||
+		ctx.Err() != nil || !time.Now().Before(a.deadline) {
+		return nil, 0, ErrPending
+	}
 	return roots.Current, entry.Sequence, nil
 }
 
