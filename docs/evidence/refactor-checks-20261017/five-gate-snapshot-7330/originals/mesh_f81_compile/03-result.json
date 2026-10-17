@@ -1,0 +1,80 @@
+{
+  "state": "PASS",
+  "head": "f81aa359ed95c7efb9521e05b46bf0e78e968215",
+  "tree": "264932eda7e32cacaebac43bae7792784a5785cb",
+  "request_sha256": "0549c68359e409290ba05184a33cb6c85b84e5fe0df75674bdcc7cbe50d6b56c",
+  "wrapper_sha256": "965a1569f7bb499fa954f6a3a4ff823c1390e6fdcd499b0dfe2061829070a347",
+  "runs": [
+    {
+      "kind": "compile",
+      "name": "natscell-nativef81-default",
+      "tags": [],
+      "package": "./internal/natscell",
+      "command": [
+        "/run/current-system/sw/bin/nice",
+        "-n",
+        "19",
+        "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+        "test",
+        "-c",
+        "-p=1",
+        "-mod=readonly",
+        "-o",
+        "/tmp/ts-mesh-nativef81-capacity-compile-20261017T143312844927Z/natscell-nativef81-default.test",
+        "./internal/natscell"
+      ],
+      "env": {
+        "HOME": "/home/mariogk",
+        "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+        "LANG": "C.UTF-8",
+        "GOMAXPROCS": "2",
+        "GOFLAGS": "-p=2",
+        "GOTOOLCHAIN": "local"
+      },
+      "resources": {
+        "available_bytes": 27764510720,
+        "load1": 3.310546875,
+        "go_compilers": 1,
+        "time": "2026-10-17T14:34:01.453074+00:00"
+      },
+      "identity": {
+        "head": "f81aa359ed95c7efb9521e05b46bf0e78e968215",
+        "tree": "264932eda7e32cacaebac43bae7792784a5785cb",
+        "status": ""
+      },
+      "timeout_seconds": 240,
+      "started": "2026-10-17T14:34:02.388779+00:00",
+      "pid": 1241061,
+      "process_group": 1241061,
+      "exit_code": 0,
+      "finished": "2026-10-17T14:35:26.477566+00:00",
+      "log": "/tmp/ts-mesh-nativef81-capacity-compile-20261017T143312844927Z/compile-natscell-nativef81-default.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "binary": {
+        "path": "/tmp/ts-mesh-nativef81-capacity-compile-20261017T143312844927Z/natscell-nativef81-default.test",
+        "mode": "0o600",
+        "sha256": "78832505947e617d9c6a28f2ddf51c888ce0a9afd0845c6c70795aac34519a57",
+        "executed": false
+      },
+      "process_group_after_terminal": "ABSENT"
+    }
+  ],
+  "execution_scope": "NATSCELL_NATIVEF81_CORRECTED_TRUE_COMPILE_ONLY_NO_TESTMAIN_NO_RUNTIME",
+  "pre_identity": {
+    "head": "f81aa359ed95c7efb9521e05b46bf0e78e968215",
+    "tree": "264932eda7e32cacaebac43bae7792784a5785cb",
+    "status": ""
+  },
+  "pre_resources": {
+    "available_bytes": 27771564032,
+    "load1": 2.9892578125,
+    "go_compilers": 1,
+    "time": "2026-10-17T14:34:01.403151+00:00"
+  },
+  "post_identity": {
+    "head": "f81aa359ed95c7efb9521e05b46bf0e78e968215",
+    "tree": "264932eda7e32cacaebac43bae7792784a5785cb",
+    "status": ""
+  },
+  "lock_released": true
+}

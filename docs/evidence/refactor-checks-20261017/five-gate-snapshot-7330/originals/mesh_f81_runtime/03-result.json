@@ -1,0 +1,120 @@
+{
+  "state": "PASS",
+  "head": "f81aa359ed95c7efb9521e05b46bf0e78e968215",
+  "tree": "264932eda7e32cacaebac43bae7792784a5785cb",
+  "request_sha256": "3315d8937ad605dd4cb5a456d1ec4660c74e4990786cdc391c0017729dfa15f4",
+  "wrapper_sha256": "863967dd9d23ab1087695c40a010e610e74183fb8ad6698785745fd638cfa0da",
+  "runs": [
+    {
+      "kind": "runtime",
+      "name": "natscell-nativef81-default",
+      "tags": [],
+      "package": "./internal/natscell",
+      "command": [
+        "/run/current-system/sw/bin/nice",
+        "-n",
+        "19",
+        "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+        "test",
+        "-json",
+        "-count=1",
+        "-p=1",
+        "-parallel=1",
+        "-mod=readonly",
+        "-timeout=90s",
+        "-run",
+        "^(TestStartupControllerPrivateTLSAndInProcessAuthentication|TestStartupControllerDeadlineClosesAuthenticatedConnection|TestStartupControllerSendsNoNATSBeforeTLSAndKeepsEarlierContextDeadline|TestStartupControllerReconnectUsesExistingPublicGate|TestReadControllerAccountCopiesInstalledOperatorAndCurrentNativeJWT|TestReadControllerAccountRejectsTransportOnlyRuntime)$",
+        "./internal/natscell"
+      ],
+      "env": {
+        "HOME": "/home/mariogk",
+        "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+        "LANG": "C.UTF-8",
+        "GOMAXPROCS": "2",
+        "GOFLAGS": "-p=2",
+        "GOTOOLCHAIN": "local"
+      },
+      "resources": {
+        "available_bytes": 28306542592,
+        "load1": 1.31005859375,
+        "go_compilers": 0,
+        "time": "2026-10-17T14:45:06.617260+00:00"
+      },
+      "identity": {
+        "head": "f81aa359ed95c7efb9521e05b46bf0e78e968215",
+        "tree": "264932eda7e32cacaebac43bae7792784a5785cb",
+        "status": ""
+      },
+      "timeout_seconds": 180,
+      "started": "2026-10-17T14:45:07.530268+00:00",
+      "pid": 1268729,
+      "process_group": 1268729,
+      "exit_code": 0,
+      "remaining_group_processes": [],
+      "finished": "2026-10-17T14:45:20.713951+00:00",
+      "log": "/tmp/ts-mesh-nativef81-runtime-strict-20261017T143928330260Z/runtime-natscell-nativef81-default.log",
+      "log_sha256": "0e45ca6da718369498cecd3e938b02477983c50ac166a487fb580e695a2a5e5a",
+      "process_group_after_terminal": "ABSENT",
+      "outcomes": {
+        "expected": [
+          "TestReadControllerAccountCopiesInstalledOperatorAndCurrentNativeJWT",
+          "TestReadControllerAccountRejectsTransportOnlyRuntime",
+          "TestStartupControllerDeadlineClosesAuthenticatedConnection",
+          "TestStartupControllerPrivateTLSAndInProcessAuthentication",
+          "TestStartupControllerPrivateTLSAndInProcessAuthentication/valid",
+          "TestStartupControllerPrivateTLSAndInProcessAuthentication/wrong-account",
+          "TestStartupControllerPrivateTLSAndInProcessAuthentication/wrong-connection-type",
+          "TestStartupControllerPrivateTLSAndInProcessAuthentication/wrong-tls",
+          "TestStartupControllerReconnectUsesExistingPublicGate",
+          "TestStartupControllerSendsNoNATSBeforeTLSAndKeepsEarlierContextDeadline"
+        ],
+        "test_runs": {
+          "TestReadControllerAccountCopiesInstalledOperatorAndCurrentNativeJWT": 1,
+          "TestReadControllerAccountRejectsTransportOnlyRuntime": 1,
+          "TestStartupControllerPrivateTLSAndInProcessAuthentication": 1,
+          "TestStartupControllerPrivateTLSAndInProcessAuthentication/valid": 1,
+          "TestStartupControllerPrivateTLSAndInProcessAuthentication/wrong-account": 1,
+          "TestStartupControllerPrivateTLSAndInProcessAuthentication/wrong-connection-type": 1,
+          "TestStartupControllerPrivateTLSAndInProcessAuthentication/wrong-tls": 1,
+          "TestStartupControllerDeadlineClosesAuthenticatedConnection": 1,
+          "TestStartupControllerSendsNoNATSBeforeTLSAndKeepsEarlierContextDeadline": 1,
+          "TestStartupControllerReconnectUsesExistingPublicGate": 1
+        },
+        "test_pass": {
+          "TestReadControllerAccountCopiesInstalledOperatorAndCurrentNativeJWT": 1,
+          "TestReadControllerAccountRejectsTransportOnlyRuntime": 1,
+          "TestStartupControllerPrivateTLSAndInProcessAuthentication/valid": 1,
+          "TestStartupControllerPrivateTLSAndInProcessAuthentication/wrong-account": 1,
+          "TestStartupControllerPrivateTLSAndInProcessAuthentication/wrong-connection-type": 1,
+          "TestStartupControllerPrivateTLSAndInProcessAuthentication/wrong-tls": 1,
+          "TestStartupControllerPrivateTLSAndInProcessAuthentication": 1,
+          "TestStartupControllerDeadlineClosesAuthenticatedConnection": 1,
+          "TestStartupControllerSendsNoNATSBeforeTLSAndKeepsEarlierContextDeadline": 1,
+          "TestStartupControllerReconnectUsesExistingPublicGate": 1
+        },
+        "package_pass": 1,
+        "package_start": 1,
+        "forbidden": [],
+        "malformed_lines": []
+      }
+    }
+  ],
+  "execution_scope": "NATSCELL_NATIVEF81_FOCUSED_TRANSPORT_ACCOUNT_RUNTIME_ONLY",
+  "pre_identity": {
+    "head": "f81aa359ed95c7efb9521e05b46bf0e78e968215",
+    "tree": "264932eda7e32cacaebac43bae7792784a5785cb",
+    "status": ""
+  },
+  "pre_resources": {
+    "available_bytes": 28306542592,
+    "load1": 1.31005859375,
+    "go_compilers": 0,
+    "time": "2026-10-17T14:45:06.562971+00:00"
+  },
+  "post_identity": {
+    "head": "f81aa359ed95c7efb9521e05b46bf0e78e968215",
+    "tree": "264932eda7e32cacaebac43bae7792784a5785cb",
+    "status": ""
+  },
+  "lock_released": true
+}

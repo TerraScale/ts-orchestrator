@@ -1,0 +1,275 @@
+{
+  "accepted_compile": {
+    "argv": [
+      "/run/current-system/sw/bin/nice",
+      "-n",
+      "19",
+      "/run/current-system/sw/bin/timeout",
+      "--signal=TERM",
+      "--kill-after=5s",
+      "240s",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "test",
+      "-c",
+      "-p=1",
+      "-mod=readonly",
+      "-o",
+      "/tmp/ts-member-volume-default-compile-strict-io-7693-jzx6a8ys/oci.test",
+      "./internal/oci"
+    ],
+    "artifact": {
+      "bytes": 34928831,
+      "elf": true,
+      "executed": false,
+      "mode": "0o600",
+      "path": "/tmp/ts-member-volume-default-compile-strict-io-7693-jzx6a8ys/oci.test",
+      "sha256": "30939ab02b219a341e7840d21bc78438ea5fdeecead72c278414a3403a3f1288"
+    },
+    "artifact_actual_sha_bytes_mode_and_elf_match": true,
+    "artifact_external_to_source": true,
+    "default_build_tags": true,
+    "default_vet": true,
+    "environment": {
+      "GOFLAGS": "-p=2",
+      "GOMAXPROCS": "2",
+      "GOTOOLCHAIN": "local",
+      "HOME": "/home/mariogk",
+      "LANG": "C.UTF-8",
+      "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin"
+    },
+    "exit_code": 0,
+    "kill_after_seconds": 5,
+    "module_mode": "readonly",
+    "nice": 19,
+    "package": "./internal/oci",
+    "package_parallelism": 1,
+    "resources_start_passed": true,
+    "runner_wait_deadline_seconds": 250,
+    "state": "COMPILE_PASS_NO_EXECUTION",
+    "stdout_and_stderr_empty": true,
+    "test_binary_execution_path_absent": true,
+    "timeout_seconds": 240,
+    "timeout_signal": "TERM",
+    "wall_seconds": 48.9287239430123
+  },
+  "cleanup_and_capacity": {
+    "current_readonly_proc_scan_owned_pid_group_absent": true,
+    "lock": "/tmp/ts-orch-refactor-capacity-check.lock",
+    "native_terminal_reports_locks_released": true,
+    "nonblocking_acquisition": true,
+    "pending_cleanup_receipt_and_status_IO_guarded": true,
+    "receipt_lock_acquired_and_released": true,
+    "receipt_process_group_empty_and_cleanup_absent": true,
+    "reviewer_lock_acquisition_or_probe": false,
+    "source_and_tool_postpins_after_absence_before_unlock": true,
+    "static_control_flow_CAPACITY_held_until_actual_group_absence": true
+  },
+  "created_utc": "2026-10-17T15:03:14.996204+00:00",
+  "credit": {
+    "TestMain": false,
+    "exact_compile_link_only": true,
+    "execution_grant_issued": false,
+    "main_binary": false,
+    "member_volume_behavior": false,
+    "package_init": false,
+    "runtime": false,
+    "successor_or_other_source_equivalence": false,
+    "test_assertion_execution": false
+  },
+  "findings": [],
+  "full_source_and_tools_verification": {
+    "actual_bytes_symlink_targets_modes_and_git_blob_ids_match_index_freeze_and_both_snapshots": true,
+    "all_resolved_paths_hashes_freeze_and_both_snapshots_match": true,
+    "clean_exact_HEAD_tree": true,
+    "source_aggregate_sha256": "ee6283b228a2b651f9b38a34af02988d80ad1da7780464aa4196cead51c5ee36",
+    "source_entries": 5063,
+    "source_pre_post_bytes_equal": true,
+    "tool_count": 10
+  },
+  "identity": {
+    "grant_sha256": "6296c2f25bd727100942e006550108c4dd3bd3c5828c22ecf0e22b6b7ce70766",
+    "head": "7693f7132ec389a672f9306c9203ccf9b7315f05",
+    "readiness": {
+      "independently_verified": true,
+      "path": "/tmp/ts-qa-member-volume-strictio7693-artifact-tests-l_7i1myg/review.json",
+      "sha256": "463b7c5f090ee7f0cfaf199cfe4d38126025d0a4b42a4fe44edf9c82b023ee82"
+    },
+    "request_sha256": "275ab64bff2a29ca7d7e1f76470f41a09b20b59285ef895a639982fe6399578e",
+    "runner_sha256": "964d12ad0dfc38714e9f418356b502e768fb112956dd72cfcc059420921cd3fa",
+    "tree": "74e5a32aafbec93ce1f119fce60f16877ce74781",
+    "worktree": "/tmp/ts-oci-member-volume-sdk-formatted"
+  },
+  "native_terminal_provenance": {
+    "calls": [
+      {
+        "arguments": {
+          "cmd": "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15 -I -B /tmp/ts-member-volume-default-compile-strict-io-7693-jzx6a8ys/run.py 275ab64bff2a29ca7d7e1f76470f41a09b20b59285ef895a639982fe6399578e 964d12ad0dfc38714e9f418356b502e768fb112956dd72cfcc059420921cd3fa",
+          "login": false,
+          "max_output_tokens": 2000,
+          "yield_time_ms": 1000
+        },
+        "result": {
+          "chunk_id": "d2c77a",
+          "original_token_count": 0,
+          "output": "",
+          "session_id": 85608,
+          "wall_time_seconds": 1.001974253
+        },
+        "tool": "exec_command"
+      },
+      {
+        "arguments": {
+          "chars": "",
+          "max_output_tokens": 2000,
+          "session_id": 85608,
+          "yield_time_ms": 1000
+        },
+        "result": {
+          "chunk_id": "e5bd83",
+          "original_token_count": 71,
+          "output": "{\"event\": \"launched\", \"pid\": 1302933, \"packet\": \"/tmp/ts-member-volume-default-compile-strict-io-7693-jzx6a8ys\", \"request_sha256\": \"275ab64bff2a29ca7d7e1f76470f41a09b20b59285ef895a639982fe6399578e\", \"runner_sha256\": \"964d12ad0dfc38714e9f418356b502e768fb112956dd72cfcc059420921cd3fa\"}\n",
+          "session_id": 85608,
+          "wall_time_seconds": 5.00113947
+        },
+        "tool": "write_stdin"
+      },
+      {
+        "arguments": {
+          "chars": "",
+          "max_output_tokens": 2500,
+          "session_id": 85608,
+          "yield_time_ms": 1000
+        },
+        "result": {
+          "chunk_id": "b265a6",
+          "exit_code": 0,
+          "original_token_count": 97,
+          "output": "{\"event\": \"terminal\", \"state\": \"COMPILE_PASS_NO_EXECUTION\", \"exit_code\": 0, \"wall_seconds\": 48.9287239430123, \"receipt_sha256\": \"c8ca347ced72e2a69fba5996aa33f047ff4628770e79079933f2d6bc2dcfc9e4\", \"final_seal_sha256\": \"cc2390588c32eff8118f31ad2cf864d43728018f858a704db510da1510d388f2\", \"packet\": \"/tmp/ts-member-volume-default-compile-strict-io-7693-jzx6a8ys\", \"locks_released\": true}\n\n",
+          "wall_time_seconds": 1.6969e-05
+        },
+        "tool": "write_stdin"
+      }
+    ],
+    "child_pid_pgrp": 1302933,
+    "every_call_has_actual_tool_arguments_result": true,
+    "launch_count": 1,
+    "native_terminal_matches_receipt_and_inner_seal": true,
+    "poll_count": 2,
+    "session_id": 85608,
+    "transcript_sha256": "828ffb2e76dd42eb5803f0494147abe4a06618a09d4c355047b79ce5f932f877"
+  },
+  "outer_terminal_provenance_seal": {
+    "all_other_inner_seal_entries_match_current_bytes": true,
+    "append_after_seal_limitation": "Inner FINAL-SEAL was emitted before the terminal native tool result returned. Its transcript entry covers the launch and first poll only. The complete three-call transcript includes the subsequently returned terminal call, whose result names the unchanged receipt and inner seal. This immutable outer review binds the complete current transcript separately; no claim is made that the inner seal covers it. Original packet bytes remain unchanged by reviewer.",
+    "complete_three_call_transcript_sha256": "828ffb2e76dd42eb5803f0494147abe4a06618a09d4c355047b79ce5f932f877",
+    "files_at_review": {
+      "FINAL-SEAL.json": {
+        "bytes": 1490,
+        "mode": "0o600",
+        "sha256": "cc2390588c32eff8118f31ad2cf864d43728018f858a704db510da1510d388f2"
+      },
+      "PREPARED-SEAL.json": {
+        "bytes": 440,
+        "mode": "0o444",
+        "sha256": "a5d3cfcac4c43e8e12583caac50a06272d2e0234300e9b74420d5acd0c90b6c5"
+      },
+      "grant.json": {
+        "bytes": 1033,
+        "mode": "0o644",
+        "sha256": "6296c2f25bd727100942e006550108c4dd3bd3c5828c22ecf0e22b6b7ce70766"
+      },
+      "native-transcript.json": {
+        "bytes": 1996,
+        "mode": "0o644",
+        "sha256": "828ffb2e76dd42eb5803f0494147abe4a06618a09d4c355047b79ce5f932f877"
+      },
+      "oci.test": {
+        "bytes": 34928831,
+        "mode": "0o600",
+        "sha256": "30939ab02b219a341e7840d21bc78438ea5fdeecead72c278414a3403a3f1288"
+      },
+      "readiness.json": {
+        "bytes": 3536,
+        "mode": "0o444",
+        "sha256": "21189d40127ccdfeb905004c7588fe3804387c056576f02ec6ec3accc39056aa"
+      },
+      "receipt.json": {
+        "bytes": 2926,
+        "mode": "0o600",
+        "sha256": "c8ca347ced72e2a69fba5996aa33f047ff4628770e79079933f2d6bc2dcfc9e4"
+      },
+      "request.json": {
+        "bytes": 3628,
+        "mode": "0o444",
+        "sha256": "275ab64bff2a29ca7d7e1f76470f41a09b20b59285ef895a639982fe6399578e"
+      },
+      "run.py": {
+        "bytes": 9320,
+        "mode": "0o444",
+        "sha256": "964d12ad0dfc38714e9f418356b502e768fb112956dd72cfcc059420921cd3fa"
+      },
+      "running.json": {
+        "bytes": 1644,
+        "mode": "0o600",
+        "sha256": "44ad57d0d7779c37256dbde5021f998b770070814ba0e35fe4ff1d9520401b05"
+      },
+      "source-freeze.json": {
+        "bytes": 1828751,
+        "mode": "0o444",
+        "sha256": "4e2def3a0c64f2eda6f28905ae1af629065846222957f953b8a183ad7f91f3e2"
+      },
+      "source-post.json": {
+        "bytes": 1357688,
+        "mode": "0o600",
+        "sha256": "bea2eca432a48c4f596bc75878c4a6cefdf6f606608770b5e8f617aa06f901c2"
+      },
+      "source-pre.json": {
+        "bytes": 1357688,
+        "mode": "0o600",
+        "sha256": "bea2eca432a48c4f596bc75878c4a6cefdf6f606608770b5e8f617aa06f901c2"
+      },
+      "stderr.log": {
+        "bytes": 0,
+        "mode": "0o600",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout.log": {
+        "bytes": 0,
+        "mode": "0o600",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "tools-freeze.json": {
+        "bytes": 2253,
+        "mode": "0o444",
+        "sha256": "113a55ecf4a4cc94ca7ce09d9f382a03fcd0da674a124ef8223e5342a42343be"
+      },
+      "tools-post.json": {
+        "bytes": 2444,
+        "mode": "0o600",
+        "sha256": "da260ddd276e13ad7a216d42886123c32362fc7cb0b0e5b2d690ad79dc219647"
+      },
+      "tools-pre.json": {
+        "bytes": 2444,
+        "mode": "0o600",
+        "sha256": "da260ddd276e13ad7a216d42886123c32362fc7cb0b0e5b2d690ad79dc219647"
+      }
+    },
+    "inner_final_seal_sha256": "cc2390588c32eff8118f31ad2cf864d43728018f858a704db510da1510d388f2",
+    "inner_seal_native_transcript_sha256": "f91b481f008168bedd3a75a77db55d0a97ac68c7df1c0800b3d3c0a501b6efc4",
+    "inner_seal_transcript_entry_exactly_matches_first_two_calls_serialized_indent2_newline": true,
+    "receipt_sha256": "c8ca347ced72e2a69fba5996aa33f047ff4628770e79079933f2d6bc2dcfc9e4"
+  },
+  "packet": "/tmp/ts-member-volume-default-compile-strict-io-7693-jzx6a8ys",
+  "reviewer_actions": {
+    "elf_executed": false,
+    "go_compiler_formatter_or_tests_executed": false,
+    "lock_operations": false,
+    "native_session_resumed": false,
+    "only_writes": "Fresh external review JSON mode0444 and containing directory mode0555.",
+    "read_only_files_git_and_proc": true,
+    "runner_executed": false,
+    "source_or_ledger_or_original_packet_mutated": false
+  },
+  "schema": "independent-exact-compile-acceptance-with-outer-terminal-provenance-v1",
+  "verdict": "ACCEPTED_EXACT_7693_DEFAULT_OCI_TEST_C_COMPILATION_ONLY"
+}

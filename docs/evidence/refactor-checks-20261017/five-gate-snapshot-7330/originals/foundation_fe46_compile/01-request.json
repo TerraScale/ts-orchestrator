@@ -1,0 +1,58 @@
+{
+  "execution_scope": "MATERIALSOURCE_FIXTURETEST_TRUE_COMPILE_ONLY_NO_RUNTIME",
+  "workspace": "/tmp/ts-oci-domains-monotonic-founder-current",
+  "head": "fe46fc0fa361bdf21be31b1298ded63be965fe87",
+  "tree": "6a617375b4fb5e2723b60e60d77f807a0d0eb1c1",
+  "freeze": "/tmp/ts-oci-domains-manifest-fe46fc0fa.json",
+  "freeze_sha256": "e73a68df80e45e4b8aedf25b04ae779f44f2a748c56f79c34c30988d518461ac",
+  "lock": "/tmp/ts-orch-refactor-general-check.lock",
+  "go": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+  "output": "/tmp/ts-foundation-fe46-fixturetest-compile-20261017T140702385401Z",
+  "compile_timeout": 240,
+  "env": {
+    "HOME": "/home/mariogk",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "LANG": "C.UTF-8",
+    "GOMAXPROCS": "2",
+    "GOFLAGS": "-p=2",
+    "GOTOOLCHAIN": "local"
+  },
+  "packages": [
+    {
+      "name": "materialsource-fixturetest",
+      "package": "./internal/bootstrapstart/materialsource",
+      "tags": [
+        "fixturetest"
+      ]
+    }
+  ],
+  "launcher": [
+    "/run/current-system/sw/bin/nice",
+    "-n",
+    "19",
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+    "-I",
+    "-B",
+    "/tmp/ts-foundation-fe46-fixturetest-compile-20261017T140702385401Z/run.py"
+  ],
+  "source_ack_state": "OCI_AND_SEC_EXACT_FE46_SOURCE_ACK_PENDING_EXACT_QA_EXECUTION_GRANT",
+  "source_packet": "/tmp/ts-materialsource-founder-fe46fc0fa-source.json",
+  "source_packet_sha256": "ecff86e57317763fb4e9e04d74668b828f1646dac8f8876360ad30ae4c1d9d9c",
+  "oci_source_ack": "/tmp/ts-oci-materialsource-fe46fc0fa-source-review.json",
+  "oci_source_ack_sha256": "0e889dd6e00a28e051e31921d130a3c7307cba7dcb2713e277a250f21b12f2c4",
+  "assertion_retention_ledger": "/tmp/ts-materialsource-original-assertion-retention.json",
+  "assertion_retention_sha256": "e43425affaa125ab971b83ce7931c66f7d1d658dcdcc68ce8759c2b81ba61bbd",
+  "prior_failure_terminal": "/tmp/ts-foundation-oci48cc6c9cf-qa-20261017T133629072810Z/terminal-failure.json",
+  "prior_failure_terminal_sha256": "f8e33506c5bd0399b3c1c4d2c65e30d80ea21a8a4e1d90f71610c3a672f8c759",
+  "retained_earlier_compilation": {
+    "default_materialsource": "/tmp/ts-foundation-d617-materialsource-compile-20261017T135941272879Z/result.json",
+    "default_materialsource_result_sha256": "f8a835fe5ee169a141efa9d43e5bf08c1847ad273026303d58f9045fc7a7b3e5",
+    "closure_identity": "Only source_integration_test.go changed from d617, guarded fixturetest; all actual default-tag source/imports/production bytes unchanged. Request QA acceptance of default compile carry-forward; no new default compile requested.",
+    "foundationbinding_region": "previous0a8/48cc unchanged closure; QA acceptance remains separate"
+  },
+  "runtime_state": "all original3 runtime sets plus original materialsource recovery root NOT_RUN; no executable artifact will be run",
+  "tool_sha256": {
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f"
+  }
+}

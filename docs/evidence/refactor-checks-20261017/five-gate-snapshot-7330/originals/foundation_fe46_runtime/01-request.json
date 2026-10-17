@@ -1,0 +1,266 @@
+{
+  "workspace": "/tmp/ts-oci-domains-monotonic-founder-current",
+  "head": "fe46fc0fa361bdf21be31b1298ded63be965fe87",
+  "tree": "6a617375b4fb5e2723b60e60d77f807a0d0eb1c1",
+  "freeze": "/tmp/ts-oci-domains-manifest-fe46fc0fa.json",
+  "freeze_sha256": "e73a68df80e45e4b8aedf25b04ae779f44f2a748c56f79c34c30988d518461ac",
+  "lock": "/tmp/ts-orch-refactor-general-check.lock",
+  "go": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+  "output": "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z",
+  "runtime_outer_timeout": 180,
+  "env": {
+    "HOME": "/home/mariogk",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "LANG": "C.UTF-8",
+    "GOMAXPROCS": "2",
+    "GOFLAGS": "-p=2",
+    "GOTOOLCHAIN": "local"
+  },
+  "packages": [
+    {
+      "name": "foundationbinding",
+      "package": "./internal/foundationbinding",
+      "run": "^Test(StartupVault|LogicalBindings)",
+      "expected_tests": [
+        "TestLogicalBindingsBootstrapPublicationIncludesUnboundTargetRoles",
+        "TestLogicalBindingsForCellReauthenticatesOriginalGrant",
+        "TestLogicalBindingsNarrowActiveFoundationToCompletedBirths",
+        "TestLogicalBindingsReadSignedGrantPersistedBirthAndFreshOCI",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/birth_different_resource",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/birth_different_signed_intent",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/birth_from_another_operation",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/birth_invalid_digest",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/birth_wrong_region",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/birth_wrong_request_role",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/missing_ETag",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/missing_birth",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/provider_NSG_wrong_compartment",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/provider_compartment_moved",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/provider_key_missing",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/provider_subnet_CIDR",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/provider_subnet_wrong_VCN",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/provider_vault_malicious_endpoint",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/revoked_active_grant",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/schema_one",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/unfinished_record",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/wrong_generation",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/wrong_installation",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/wrong_intent",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/wrong_operation",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/wrong_record_grant",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/wrong_role_kind",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/wrong_signed_pin",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/wrong_signer",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/wrong_tenancy",
+        "TestLogicalBindingsRejectUnownedStaleAndWrongRoleState/wrong_wire_pin",
+        "TestLogicalBindingsRetainOriginalBirthAndExactDependencies",
+        "TestLogicalBindingsRevalidationRejectsRevokedActiveGrant",
+        "TestLogicalBindingsSpendIncludesUnboundCompartmentRoles",
+        "TestStartupVaultConsumedExactPinRequiresAndRetainsBirth",
+        "TestStartupVaultDoesNotSealAuthorityRotatedDuringSDKRead",
+        "TestStartupVaultDoesNotSealAuthorityRotatedDuringSDKRead/epoch_replacement",
+        "TestStartupVaultDoesNotSealAuthorityRotatedDuringSDKRead/grant_replacement",
+        "TestStartupVaultDoesNotSealAuthorityRotatedDuringSDKRead/request_canceled",
+        "TestStartupVaultDynamicTargetStillRequiresOriginalBirth",
+        "TestStartupVaultObservesExactPinsWithoutCreatingLogicalBirth",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/compartment_deleted",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/compartment_moved",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/cross-cell_logical_target",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/foreign_generation",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/foreign_installation",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/foreign_intent",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/foreign_operation",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/foreign_tenancy",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/key_disabled",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/key_moved",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/key_shape_changed",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/logical_target_lacks_birth",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/missing_protected_ETag",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/noncanonical_logical_target",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/pending_exact_pin",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/protected_grant_replacement",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/root_removal",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/software_key",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/untrusted_management_endpoint",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/vault_inactive",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/vault_moved",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/vault_type_changed",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/wrong_exact_wire",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/wrong_logical_target_role",
+        "TestStartupVaultRefusesAuthorityRecordAndLiveDrift/wrong_signed_pin",
+        "TestStartupVaultRetainsOriginalLeaseEpochAndDeadline",
+        "TestStartupVaultRetainsOriginalLeaseEpochAndDeadline/epoch",
+        "TestStartupVaultRetainsOriginalLeaseEpochAndDeadline/expired_lease",
+        "TestStartupVaultRetainsOriginalLeaseEpochAndDeadline/grant",
+        "TestStartupVaultRetainsOriginalLeaseEpochAndDeadline/lease",
+        "TestStartupVaultRetainsOriginalLeaseEpochAndDeadline/lease_deadline",
+        "TestStartupVaultRetainsOriginalLeaseEpochAndDeadline/live_key",
+        "TestStartupVaultRetainsOriginalLeaseEpochAndDeadline/operation"
+      ],
+      "tags": []
+    },
+    {
+      "name": "materialsource",
+      "package": "./internal/bootstrapstart/materialsource",
+      "run": "^TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS$",
+      "expected_tests": [
+        "TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS",
+        "TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS/exact_publication_pins",
+        "TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS/sole_founder_compartment_reference",
+        "TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS/unbound_publication_key",
+        "TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS/logical_publication_key",
+        "TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS/consumed_dynamic_control_compartment",
+        "TestBoundStartupSelectsFiniteVaultAndSiblingScopeSDKCAS/mixed_dynamic_control_and_consumed_pinned_key"
+      ],
+      "tags": []
+    },
+    {
+      "name": "region",
+      "package": "./internal/region",
+      "run": "^Test(FoundationRecordsPersistAndFenceConcurrentWriters|RetainedFoundationHTTPFilesystemOffline)$",
+      "expected_tests": [
+        "TestFoundationRecordsPersistAndFenceConcurrentWriters",
+        "TestFoundationRecordsPersistAndFenceConcurrentWriters/provision_originals",
+        "TestRetainedFoundationHTTPFilesystemOffline"
+      ],
+      "tags": []
+    },
+    {
+      "name": "materialsource-recovery",
+      "package": "./internal/bootstrapstart/materialsource",
+      "tags": [
+        "fixturetest"
+      ],
+      "run": "^TestColdMaterialHTTPConcurrentBootAndHostLossRecovery$",
+      "expected_tests": [
+        "TestColdMaterialHTTPConcurrentBootAndHostLossRecovery"
+      ]
+    }
+  ],
+  "launcher": [
+    "/run/current-system/sw/bin/nice",
+    "-n",
+    "19",
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+    "-I",
+    "-B",
+    "/tmp/ts-foundation-fe46-runtime-strict-20261017T142141574082Z/run.py"
+  ],
+  "expected_inventory_source_comparison": {
+    "internal/foundationbinding/startup_vault_integration_test.go": {
+      "exact_a52_bytes": true,
+      "sha256": "c0f56d52cc5b4b78a3379d12f89fe88f675d8b326f724ee4574ee18a28bf8b65"
+    },
+    "internal/foundationbinding/verify_integration_test.go": {
+      "exact_a52_bytes": true,
+      "sha256": "6bed324f6fccf9b53cd4eb98f0a990eae8a1a8f3f845a94b1bad594d35565761"
+    },
+    "internal/bootstrapstart/materialsource/startup_scope_integration_test.go": {
+      "exact_a52_bytes": true,
+      "sha256": "11545cc9806b9ba2c1fc0b107dd0ec0f21f696f1c748723676a634f36cf2aadc"
+    },
+    "internal/region/foundation_provision_integration_test.go": {
+      "exact_a52_bytes": true,
+      "sha256": "4bfd4b8cb6645cb35cfc41304e4ba0b041e8f9483d638c3c1e939015ba11551b"
+    },
+    "internal/region/foundation_integration_test.go#TestFoundationRecordsPersistAndFenceConcurrentWriters": {
+      "exact_a52_function": false,
+      "sha256": "8e1ceef796b860242746942f220edb7735f49194448a2543bd122523ca95bfd3",
+      "tRun_inventory_unchanged": true,
+      "delta_sha256": "94c45bc5eb64ec6886836c938f55397d854216ba14a97b60eb982f6426a6a687",
+      "change": "Existing union7c adds exact original writer anchor/root-chain OBJECT_READ predicates and exactly2 discovery read assertions; no original assertions removed, no extra t.Run outcomes."
+    },
+    "internal/region/retained_integration_test.go#TestRetainedFoundationHTTPFilesystemOffline": {
+      "exact_a52_function": true,
+      "sha256": "0c7a6019dac9a67b3047f851e9ad20d77553d6da844c4765db2ebc6caed3e57d",
+      "tRun_inventory_unchanged": true
+    },
+    "generation_successor": {
+      "only_changed_path_from_d617": "internal/bootstrapstart/materialsource/source_integration_test.go",
+      "fixturetest_only": true,
+      "original83_assertions_unchanged": true,
+      "all_original3_runtime_selector_functions_byte_identical48cc": true,
+      "runtime_passes_before_request": 0
+    }
+  },
+  "source_ack_state": "EXACT_OCI_SEC_FE46_SOURCE_AND_COMPOSITION_ACK_PENDING_EXACT_QA_RUNTIME_GRANT",
+  "execution_scope": "ORIGINAL_FOUNDATION76_STARTUP7_REGION3_AND_GENUINE_RECOVERY1_RUNTIME_ONLY",
+  "source_packet": "/tmp/ts-materialsource-founder-fe46fc0fa-source.json",
+  "source_packet_sha256": "ecff86e57317763fb4e9e04d74668b828f1646dac8f8876360ad30ae4c1d9d9c",
+  "oci_source_ack": "/tmp/ts-oci-materialsource-fe46fc0fa-source-review.json",
+  "oci_source_ack_sha256": "0e889dd6e00a28e051e31921d130a3c7307cba7dcb2713e277a250f21b12f2c4",
+  "sec_composition_ack": "/tmp/ts-oci-union-fe46fc0fa-security-source-ack.json",
+  "sec_composition_ack_sha256": "5d8ceefa8363fbacaf3f12f04f8fa5ce2e36f4c951390220df747bf0dafa7546",
+  "tool_sha256": {
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f"
+  },
+  "retained_compilations": [
+    {
+      "result": "/tmp/ts-foundation-oci0a8c8efdd-qa-20261017T133046218482Z/result.json",
+      "sha256": "7816fc4f3c0e7fdd81f39ff23064571d124d7bc6f568dd1ad9784fd30eb3c043",
+      "package": "./internal/foundationbinding",
+      "tags": [],
+      "closure_identity_reason": "e900 bootstrap method and d617/fe46 materialsource test changes cannot enter foundationbinding closure; no other production delta in frozen155 union.",
+      "acceptance": "QA_INDEPENDENT_EXACT_TAG_CLOSURE_REVIEW_REQUESTED"
+    },
+    {
+      "result": "/tmp/ts-foundation-d617-materialsource-compile-20261017T135941272879Z/result.json",
+      "sha256": "f8a835fe5ee169a141efa9d43e5bf08c1847ad273026303d58f9045fc7a7b3e5",
+      "package": "./internal/bootstrapstart/materialsource",
+      "tags": [],
+      "closure_identity_reason": "Sole fe46 source delta is fixturetest-guarded source_integration_test.go; actual default-tag production/test source and imports byte-exact d617.",
+      "acceptance": "QA_INDEPENDENT_EXACT_TAG_CLOSURE_REVIEW_REQUESTED"
+    },
+    {
+      "result": "/tmp/ts-foundation-oci48cc6c9cf-region-compile-20261017T134430110151Z/result.json",
+      "sha256": "9f19ed2343ef388e4dd739365f1af10e85e0419688898cbddd2590cf55075ab0",
+      "package": "./internal/region",
+      "tags": [],
+      "closure_identity_reason": "d617/fe46 only materialsource *_test.go changes; those cannot enter dependency closure of region, which materialsource itself imports; region tests do not import materialsource.",
+      "acceptance": "QA_INDEPENDENT_EXACT_TAG_CLOSURE_REVIEW_REQUESTED"
+    },
+    {
+      "result": "/tmp/ts-foundation-fe46-fixturetest-compile-20261017T140702385401Z/result.json",
+      "sha256": "71d74aebb3e584e7838a0967df6ff760982b23640270ee17cdcc13e7257fbc22",
+      "package": "./internal/bootstrapstart/materialsource",
+      "tags": [
+        "fixturetest"
+      ],
+      "closure_identity_reason": "Exact same fe46 head/tree/source/tag closure.",
+      "acceptance": "QA_INDEPENDENT_EXACT_TAG_CLOSURE_REVIEW_REQUESTED"
+    }
+  ],
+  "runtime_inventory_contract": {
+    "original_counts": [
+      76,
+      7,
+      3
+    ],
+    "added_original_recovery_root_count": 1,
+    "pruned_original_outcomes": 0,
+    "all_expected_once_each": true,
+    "exact_package_pass_per_command": 1,
+    "skip_fail_extra_test_outcomes_permitted": false,
+    "retained_0600_compile_binaries": "NEVER_EXECUTED; runtime commands use go test -json only"
+  },
+  "manifest_validation_contract": {
+    "entries": 237,
+    "every_pin": "strict manifest JSON, source SHA256, regular-file lstat modes against exact pinned HEAD Git tree mode100644, no symlinks/absolute/traversal paths",
+    "pre_post_and_before_every_command": true
+  },
+  "json_contract": {
+    "duplicate_object_keys": "reject",
+    "nonfinite_constants": "reject NaN/Infinity/-Infinity",
+    "runtime_events": "must be JSON objects; malformed lines fail exact outcome qualification"
+  },
+  "preserved_unexecuted_packet": {
+    "request": "/tmp/ts-foundation-fe46-runtime-20261017T141112791301Z/request.json",
+    "request_sha256": "0c1c29d4a641fe99215b85d977e0cfe803048520deea9b4a794870995b835243",
+    "wrapper": "/tmp/ts-foundation-fe46-runtime-20261017T141112791301Z/run.py",
+    "wrapper_sha256": "1cc2eb3c95d2377bd17b1b54644d97829958d94f39fe00d1637dbb9316b43bf7",
+    "execution_state": "NEVER_LAUNCHED"
+  }
+}

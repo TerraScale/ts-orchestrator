@@ -1,0 +1,52 @@
+[
+  {
+    "type": "launch",
+    "result": {
+      "chunk_id": "ef9084",
+      "wall_time_seconds": 1.000936951,
+      "session_id": 42600,
+      "original_token_count": 25,
+      "output": "{\"state\": \"STARTED\", \"pid\": 1253846, \"packet\": \"/tmp/ts-data-root-ac0-swarm22-retained-udmifaro\"}\n"
+    }
+  },
+  {
+    "type": "poll",
+    "result": {
+      "chunk_id": "07860f",
+      "wall_time_seconds": 5.001043822,
+      "session_id": 42600,
+      "original_token_count": 0,
+      "output": ""
+    }
+  },
+  {
+    "type": "poll",
+    "result": {
+      "chunk_id": "700dec",
+      "wall_time_seconds": 5.000707319,
+      "session_id": 42600,
+      "original_token_count": 0,
+      "output": ""
+    }
+  },
+  {
+    "type": "poll",
+    "result": {
+      "chunk_id": "d65c26",
+      "wall_time_seconds": 5.001403893,
+      "session_id": 42600,
+      "original_token_count": 0,
+      "output": ""
+    }
+  },
+  {
+    "type": "poll",
+    "result": {
+      "chunk_id": "2deb2c",
+      "wall_time_seconds": 0.000015337,
+      "exit_code": 0,
+      "original_token_count": 248,
+      "output": "{\"state\": \"PASS\", \"exit_code\": 0, \"errors\": [], \"wall_seconds\": 138.25397670001257, \"source_pre\": {\"commit\": \"ac0e8749c7d75b803aa1b4e311dba86333870999\", \"tree\": \"e7cd5e9b51144f838d961cb765cd0bd78ec602bf\", \"clean\": true, \"source_files\": 4478, \"tool_count\": 9}, \"source_post\": {\"commit\": \"ac0e8749c7d75b803aa1b4e311dba86333870999\", \"tree\": \"e7cd5e9b51144f838d961cb765cd0bd78ec602bf\", \"clean\": true, \"source_files\": 4478, \"tool_count\": 9}, \"expected_outcomes\": 22, \"run_count\": 22, \"pass_count\": 22, \"package_passes\": {\"github.com/TerraScale/ts-orchestrator/internal/swarmruntime\": 1}, \"package_starts\": {\"github.com/TerraScale/ts-orchestrator/internal/swarmruntime\": 1}, \"bad\": [], \"malformed\": [], \"remaining_group_processes\": [], \"cleanup_actions\": [], \"gate_held_at_receipt\": true, \"logs\": {\"stdout.jsonl\": \"82a6d7b0c0fdcb9041a264a13932bad8a057f4d37b5962e7df42d0a56639994c\", \"stderr.log\": \"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}, \"max_child_rss_kib\": 1068552}\n"
+    }
+  }
+]

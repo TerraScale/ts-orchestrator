@@ -1,0 +1,5 @@
+# github.com/TerraScale/ts-orchestrator/internal/placement [github.com/TerraScale/ts-orchestrator/internal/placement.test]
+internal/placement/managed_update_r3_integration_test.go:27:60: unknown field Lab in struct literal of type natscell.Config
+internal/placement/managed_update_rolling_test.go:48:3: unknown field Lab in struct literal of type natscell.Config
+internal/placement/read_store_test.go:15:116: unknown field Lab in struct literal of type natscell.Config
+internal/placement/store_test.go:22:115: unknown field Lab in struct literal of type natscell.Config

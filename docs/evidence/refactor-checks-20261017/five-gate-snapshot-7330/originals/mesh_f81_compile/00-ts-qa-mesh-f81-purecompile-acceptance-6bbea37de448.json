@@ -1,0 +1,123 @@
+{
+  "verdict": "ACCEPT_EXACT_MESH_F81_NATSCELL_DEFAULT_PURECOMPILE_NO_RUNTIME_CREDIT",
+  "findings": [],
+  "packet": "/tmp/ts-mesh-nativef81-capacity-compile-20261017T143312844927Z",
+  "source_commit": "f81aa359ed95c7efb9521e05b46bf0e78e968215",
+  "source_tree": "264932eda7e32cacaebac43bae7792784a5785cb",
+  "pins": {
+    "/tmp/ts-mesh-nativef81-capacity-compile-20261017T143312844927Z/terminal.json": "371e0f9b7a7c3844ca4a03d9bc458f4e23bce24d948d39d712046c0cddaf6512",
+    "/tmp/ts-mesh-nativef81-capacity-compile-20261017T143312844927Z/result.json": "3fbeec3f77d4f13728ffa269fe657b5f929e64260cb601737bf588c8c510b7b8",
+    "/tmp/ts-mesh-nativef81-capacity-compile-20261017T143312844927Z/native-tool-transcript.jsonl": "e0e7a60e2768e4d02ce3992a1704932d42585c5d4d6b1918be9b5b1eb9a2a635"
+  },
+  "artifact_pins_verified": {
+    "run.py": "965a1569f7bb499fa954f6a3a4ff823c1390e6fdcd499b0dfe2061829070a347",
+    "freeze.json": "7ca2ec0284382c1cd9e4ef9102d496df13535854d9588dec9f7a1ce286ef06cc",
+    "request.json": "0549c68359e409290ba05184a33cb6c85b84e5fe0df75674bdcc7cbe50d6b56c",
+    "native-tool-transcript.jsonl": "e0e7a60e2768e4d02ce3992a1704932d42585c5d4d6b1918be9b5b1eb9a2a635",
+    "result.json": "3fbeec3f77d4f13728ffa269fe657b5f929e64260cb601737bf588c8c510b7b8",
+    "compile-natscell-nativef81-default.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "natscell-nativef81-default.test": "78832505947e617d9c6a28f2ddf51c888ce0a9afd0845c6c70795aac34519a57"
+  },
+  "full_tracked_source_pins_rehashed": 4472,
+  "regular_git_blobs_and_modes_verified": 4471,
+  "symlinks": [
+    {
+      "path": "CLAUDE.md",
+      "target": "AGENTS.md",
+      "git_symlink_blob_verified": true,
+      "resolved_content_sha256_matches_manifest": true
+    }
+  ],
+  "pinned_tools_rehashed": {
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f",
+    "/run/current-system/sw/bin/git": "f97ba8863b93a05b4193c5c436d95c62bb3879c96024753d764cf74d1594e027",
+    "/run/current-system/sw/bin/nice": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/asm": "4720bbf4ea8c95da4bef7d716b89c914ce678b57e7833f327f3ea2c2f51d16a6",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/cgo": "a4d0ca3e67972d33fc28016a82b4e3a4fa551d9449a550f3cc68b0a7787281fd",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/compile": "3780fc07130d6d45096373acf062cc316940d253e2a1d892ece03a3bdd0d21d4",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/cover": "7ee54cc95f7f179cb8352834b0756349f8b6672c175b1204bd60b007d74b9824",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/fix": "da08f00a50483a08118af99fb54471847567f14d5bf0902b18a0a550bbddc0fd",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/link": "a29ac5e8f64111b0b5c5d31e452f18abf7ee79f44b421081b5509c8939d92ba9",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/preprofile": "4f4e30080736b81938c53865b7561347cc5b92d01f7f64745efa668da724d839",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/vet": "46e5add9e558ca24000deadf2fa072f3f374f42120907ab087119ec544498cb1"
+  },
+  "pre_post_and_run_source_identity_equal": true,
+  "compile": {
+    "kind": "compile",
+    "name": "natscell-nativef81-default",
+    "tags": [],
+    "package": "./internal/natscell",
+    "command": [
+      "/run/current-system/sw/bin/nice",
+      "-n",
+      "19",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "test",
+      "-c",
+      "-p=1",
+      "-mod=readonly",
+      "-o",
+      "/tmp/ts-mesh-nativef81-capacity-compile-20261017T143312844927Z/natscell-nativef81-default.test",
+      "./internal/natscell"
+    ],
+    "env": {
+      "HOME": "/home/mariogk",
+      "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "LANG": "C.UTF-8",
+      "GOMAXPROCS": "2",
+      "GOFLAGS": "-p=2",
+      "GOTOOLCHAIN": "local"
+    },
+    "resources": {
+      "available_bytes": 27764510720,
+      "load1": 3.310546875,
+      "go_compilers": 1,
+      "time": "2026-10-17T14:34:01.453074+00:00"
+    },
+    "identity": {
+      "head": "f81aa359ed95c7efb9521e05b46bf0e78e968215",
+      "tree": "264932eda7e32cacaebac43bae7792784a5785cb",
+      "status": ""
+    },
+    "timeout_seconds": 240,
+    "started": "2026-10-17T14:34:02.388779+00:00",
+    "pid": 1241061,
+    "process_group": 1241061,
+    "exit_code": 0,
+    "finished": "2026-10-17T14:35:26.477566+00:00",
+    "log": "/tmp/ts-mesh-nativef81-capacity-compile-20261017T143312844927Z/compile-natscell-nativef81-default.log",
+    "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "binary": {
+      "path": "/tmp/ts-mesh-nativef81-capacity-compile-20261017T143312844927Z/natscell-nativef81-default.test",
+      "mode": "0o600",
+      "sha256": "78832505947e617d9c6a28f2ddf51c888ce0a9afd0845c6c70795aac34519a57",
+      "executed": false
+    },
+    "process_group_after_terminal": "ABSENT"
+  },
+  "default_tags_and_vet": true,
+  "elapsed_seconds": 84.088787,
+  "elf_bytes": 50187773,
+  "native_handle": 61082,
+  "native_exit_code": 0,
+  "native_transcript_records": 4,
+  "cleanup": {
+    "recorded_owned_process_group": 1241061,
+    "recorded_group_absence": "ABSENT",
+    "recorded_capacity_lock_released": true,
+    "evidence_limit": "No fresh process/listener/lock probes; absence/release accepted from pinned results and terminal receipt."
+  },
+  "prior_failed_compile_preserved": {
+    "path": "/tmp/ts-mesh-startup5a46-compile-20261017T141904701189Z/terminal.json",
+    "sha256": "74658782951aacbfa0ed7f883dfbc94407f765ca00cc5d5bcbe7d188e8b4b9b8"
+  },
+  "runtime_credit": 0,
+  "retirement_delta": 0,
+  "limits": [
+    "Exactf81 source, default tags/default vet, only internal/natscell true test-binary compile success.",
+    "Emitted0600 ELF was not executed; no init, TestMain, test or runtime qualification. Future native transport selectors remain unexecuted/unqualified.",
+    "No production/native/cloud/main/global/financial qualification or retirement; prior failure remains source-bound historical evidence.",
+    "No Go, build, runner or ELF execution during review; read-only source/Git/tool/artifact inspection only. No source or ledger mutation; sole write is this exclusive immutable report."
+  ]
+}

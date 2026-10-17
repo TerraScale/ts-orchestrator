@@ -1,0 +1,31 @@
+{
+  "all_five_categories": "OPEN",
+  "classification_source": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+  "complete": false,
+  "files": [
+    {
+      "after_sha256": "fde357ecbc4cd877a3c71baad94d3dd701ce351b3da6ff139858b9c4c4a64064",
+      "before_sha256": "2844cc0dd959d7511be7e1b48eebae1569ccdb5f3308e9822dad66637dba4e72",
+      "bytes": 1149251,
+      "mode": "0o600",
+      "path": "/tmp/ts-qa-refactor-completion-open-20261016.json"
+    },
+    {
+      "after_sha256": "6a5500adb0ddde566224ac7a6ca1ebf99b797bccaefd4546968539aec32dbe93",
+      "before_sha256": "b080e4391e845404b246f857c1eb510c458834d0b15595f5d47c4c247d17c644",
+      "bytes": 105488,
+      "mode": "0o644",
+      "path": "/tmp/ts-qa-main-union-progress-20261016.json"
+    }
+  ],
+  "new_execution": false,
+  "proposal": "/tmp/ts-qa-five-gate-7330-proposal-_t66165q",
+  "publication_commit_created": false,
+  "retired": 19,
+  "review": "/tmp/ts-qa-five-gate7330-independent-proposal-jtwhxgub/review.json",
+  "review_sha256": "f8834a910de2f1d437c7fb0ad5f7bd3bea78eceabee4f8b1bd32e81eddd7f74c",
+  "schema": "actual-exact-reviewed-ledger-promotion-v1",
+  "source_classified": 102,
+  "unadjudicated": 4198,
+  "utc": "2026-10-17T15:10:52.876680+00:00"
+}

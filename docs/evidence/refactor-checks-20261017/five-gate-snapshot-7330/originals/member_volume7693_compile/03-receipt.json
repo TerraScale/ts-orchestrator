@@ -1,0 +1,96 @@
+{
+  "argv": [
+    "/run/current-system/sw/bin/nice",
+    "-n",
+    "19",
+    "/run/current-system/sw/bin/timeout",
+    "--signal=TERM",
+    "--kill-after=5s",
+    "240s",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+    "test",
+    "-c",
+    "-p=1",
+    "-mod=readonly",
+    "-o",
+    "/tmp/ts-member-volume-default-compile-strict-io-7693-jzx6a8ys/oci.test",
+    "./internal/oci"
+  ],
+  "artifact": {
+    "bytes": 34928831,
+    "elf": true,
+    "executed": false,
+    "mode": "0o600",
+    "path": "/tmp/ts-member-volume-default-compile-strict-io-7693-jzx6a8ys/oci.test",
+    "sha256": "30939ab02b219a341e7840d21bc78438ea5fdeecead72c278414a3403a3f1288"
+  },
+  "artifact_executed": false,
+  "cleanup": [],
+  "cleanup_owned_group_after": "ABSENT",
+  "env": {
+    "GOFLAGS": "-p=2",
+    "GOMAXPROCS": "2",
+    "GOTOOLCHAIN": "local",
+    "HOME": "/home/mariogk",
+    "LANG": "C.UTF-8",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin"
+  },
+  "executed": true,
+  "exit_code": 0,
+  "head": "7693f7132ec389a672f9306c9203ccf9b7315f05",
+  "lock_acquired": true,
+  "locks_released": true,
+  "logs": {
+    "stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "process_group": 1302933,
+  "process_group_empty": true,
+  "request_sha256": "275ab64bff2a29ca7d7e1f76470f41a09b20b59285ef895a639982fe6399578e",
+  "resources_end": {
+    "compilers": [
+      {
+        "exe": "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/compile",
+        "pid": 1305540
+      }
+    ],
+    "load": [
+      3.1611328125,
+      1.9677734375,
+      1.98046875
+    ],
+    "memory": {
+      "MemAvailable": 27651903488,
+      "MemTotal": 33614655488
+    }
+  },
+  "resources_start": {
+    "compilers": [
+      {
+        "exe": "/home/mariogk/.local/share/mise/installs/go/1.27.1/pkg/tool/linux_amd64/compile",
+        "pid": 1302417
+      }
+    ],
+    "load": [
+      1.876953125,
+      1.58984375,
+      1.86572265625
+    ],
+    "memory": {
+      "MemAvailable": 27219460096,
+      "MemTotal": 33614655488
+    }
+  },
+  "runner_sha256": "964d12ad0dfc38714e9f418356b502e768fb112956dd72cfcc059420921cd3fa",
+  "source_post_sha256": "bea2eca432a48c4f596bc75878c4a6cefdf6f606608770b5e8f617aa06f901c2",
+  "source_pre_sha256": "bea2eca432a48c4f596bc75878c4a6cefdf6f606608770b5e8f617aa06f901c2",
+  "source_unchanged": true,
+  "state": "COMPILE_PASS_NO_EXECUTION",
+  "tool_post_sha256": "da260ddd276e13ad7a216d42886123c32362fc7cb0b0e5b2d690ad79dc219647",
+  "tool_pre_sha256": "da260ddd276e13ad7a216d42886123c32362fc7cb0b0e5b2d690ad79dc219647",
+  "tools_unchanged": true,
+  "tree": "74e5a32aafbec93ce1f119fce60f16877ce74781",
+  "utc_end": "2026-10-17T15:00:22.900920+00:00",
+  "utc_start": "2026-10-17T14:59:33.972150+00:00",
+  "wall_seconds": 48.9287239430123
+}

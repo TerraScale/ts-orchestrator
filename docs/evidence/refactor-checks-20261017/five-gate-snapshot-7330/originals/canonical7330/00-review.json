@@ -1,0 +1,279 @@
+{
+  "actual_checkout": {
+    "all_bytes_sizes_hashes_and_modes_match": true,
+    "bytes": 175368955,
+    "executable_regular_files": 31,
+    "method": "Read every isolated checkout regular file; lstat every mode; read symlink target bytes with os.readlink. Independently compute size, SHA-256 and Git SHA-1 blob object ID; compare all5851 entries to final Git tree and frozen manifest.",
+    "result": "PASS",
+    "symlinks": [
+      "CLAUDE.md"
+    ],
+    "tracked_objects": 5851
+  },
+  "decision": "ACCEPT_EXACT_SOURCE_UNION_ONLY",
+  "exact_union": {
+    "actions": {
+      "add": 687,
+      "delete": 1,
+      "modify": 248
+    },
+    "actual_parent_to_final_actions_exactly_equal_donor_actions": true,
+    "all_936_parent_inputs_equal_base": true,
+    "all_objects_modes_and_absences_compared": true,
+    "base_to_parent_exactly_45_evidence_additions": true,
+    "derived_donor_actions": 936,
+    "final_to_donor_difference_exactly_45_preserved_evidence_additions": true,
+    "final_tree_equals_constructed_union_and_manifest": true,
+    "method": "Independently enumerate recursive Git trees for d4ac base, evidence parent568, donor69b and final7330; derive all path actions; replace only d4ac-to69b actions in parent568. Compare constructed complete map with final Git tree and frozen manifest.",
+    "result": "PASS"
+  },
+  "findings": [],
+  "frozen_input": {
+    "bytes": 3076192,
+    "path": "/tmp/ts-qa-app69b-canonical-adoption-2uvn_09h/final-manifest.json",
+    "sha256": "c5527231b9fb76c17469066109b8e0b4efde4203d2f2c7d7f7407dcba747ab6c"
+  },
+  "historical_test_obligations": {
+    "accepted_retired_original_roots": [
+      {
+        "original_name": "TestAttemptRejectsRetiredContinuityPhase",
+        "path": "internal/attempt/cloud_test.go"
+      },
+      {
+        "original_name": "TestOCIObserverRejectsNetworkOwnershipAndRegionMismatch",
+        "path": "internal/bootstrapstart/oci_observer_test.go"
+      },
+      {
+        "original_name": "TestOCIObserverRequiresExactAttachedPrimaryVNIC",
+        "path": "internal/bootstrapstart/oci_observer_test.go"
+      },
+      {
+        "original_name": "TestOCIObserverRejectsMissingPrimaryAndCandidateMismatch",
+        "path": "internal/bootstrapstart/oci_observer_test.go"
+      },
+      {
+        "original_name": "TestOpenCustomerEnvelopeUsesProducerWireAndRecipient",
+        "path": "internal/managedmaterial/customer_open_test.go"
+      },
+      {
+        "original_name": "TestAPIRefusesRedirectsAndHidesBodies",
+        "path": "internal/netbird/manager/manager_test.go"
+      },
+      {
+        "original_name": "TestTerminalSDKDeletesUseExactIfMatchAndPreserveBoot",
+        "path": "internal/oci/sdk_test.go"
+      },
+      {
+        "original_name": "TestLaunchInstanceMapsSignedProfileIntoOCIRequest",
+        "path": "internal/oci/sdk_test.go"
+      },
+      {
+        "original_name": "TestLaunchInstanceRejectsSizingThatCannotRoundTripThroughSDK",
+        "path": "internal/oci/sdk_test.go"
+      },
+      {
+        "original_name": "TestManagedInstanceReadbackRequiresExactBootAndPrivateVNIC",
+        "path": "internal/oci/sdk_test.go"
+      },
+      {
+        "original_name": "TestNamedHostObservationRequiresTheNamedRunningPrivateInstance",
+        "path": "internal/oci/sdk_test.go"
+      },
+      {
+        "original_name": "TestVolumeBackupListingKeepsTheNewestBackupsOfALongHistory",
+        "path": "internal/oci/volume_backup_history_review_test.go"
+      },
+      {
+        "original_name": "TestVolumeAttachmentLookupUsesVolumeFilter",
+        "path": "internal/oci/volume_resize_test.go"
+      },
+      {
+        "original_name": "TestOperationTemplateRemovesIdentifiers",
+        "path": "internal/ociclient/factory_test.go"
+      },
+      {
+        "original_name": "TestInstrumentedDispatcherRecordsCallsErrorsAndThrottling",
+        "path": "internal/ociclient/factory_test.go"
+      },
+      {
+        "original_name": "TestOperationCardinalityIsBounded",
+        "path": "internal/ociclient/factory_test.go"
+      },
+      {
+        "original_name": "TestFactoryRejectsUncataloguedRegionsAndBadLimits",
+        "path": "internal/ociclient/ociclient_test.go"
+      },
+      {
+        "original_name": "TestTenancyHomeRegionComesFromTheCatalog",
+        "path": "internal/ociclient/ociclient_test.go"
+      },
+      {
+        "original_name": "TestPeerPortOpen",
+        "path": "internal/terrabase/oci_live_test.go"
+      }
+    ],
+    "all19_original_declarations_absent_from_corresponding_final_source_paths": true,
+    "all_five_completion_categories": "OPEN",
+    "arithmetic": "19 + 102 + 4198 = 4319; 102 + 4198 = 4300",
+    "baseline_original_tests": 4319,
+    "classified_retained": 102,
+    "complete": false,
+    "completion_sha256": "2844cc0dd959d7511be7e1b48eebae1569ccdb5f3308e9822dad66637dba4e72",
+    "globally_unadjudicated": 4198,
+    "integration": 78,
+    "inventory_sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+    "inventory_tsv": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+    "mixed": 1,
+    "progress_completion_crosshash_verified": true,
+    "qualified_retired": 19,
+    "result": "PASS",
+    "retained_originals": 4300,
+    "retirement_delta": 0,
+    "runtime_qualified_by_classification": 0,
+    "source_classification_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "source_classification_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+    "three_adjudication_objects_identical": true,
+    "unit": 23
+  },
+  "identity": {
+    "base_source": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "commit": "7330ca87c377d2cbe5f8c269282039039df550ad",
+    "donor": "69b81b1823f9a2894dcd8303e2a2cf1376086a7e",
+    "parent": "568b72d133c75f6d6ced794005639acad1a9ce95",
+    "tree": "1824f64d1b77aae3c7e3b2736d29426af5892e88",
+    "working_tree_clean": true,
+    "worktree": "/tmp/ts-refactor-main-union-3d9a933e"
+  },
+  "preservation": {
+    "all45_evidence_objects_equal_parent": true,
+    "all_exclusions_canonical_objects_unchanged_across_base_parent_3e_221_69b_final": true,
+    "all_seven_canonical_objects_or_absences_preserved": true,
+    "excluded_evidence": 1326,
+    "excluded_objects": 1362,
+    "excluded_source_ci_vendor": 36,
+    "human_shared_worktree_bytes_not_read": true,
+    "nested_checksum_entries_verified": 109,
+    "nested_checksum_files_verified": {
+      "SHA256SUMS": 44,
+      "packet/SHA256SUMS": 41,
+      "packet/classification/authority/independent-peer/SHA256SUMS": 2,
+      "packet/classification/ociclient/SHA256SUMS": 2,
+      "packet/promotion/authority93/independent-audit/SHA256SUMS": 2,
+      "packet/reconciliation/d4ac/SHA256SUMS": 18
+    },
+    "preserved_evidence_paths": [
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/README.md",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/SHA256SUMS",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/README.md",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/SHA256SUMS",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/classification/authority/corrected/review.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/classification/authority/independent-peer/SHA256SUMS",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/classification/authority/independent-peer/review.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/classification/authority/independent-peer/verify.py",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/classification/ociclient/README.md",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/classification/ociclient/SHA256SUMS",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/classification/ociclient/classification.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/classification/ociclient/independent-review.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/ledgers/before-authority93/completion.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/ledgers/before-authority93/progress.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/ledgers/completion.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/ledgers/progress.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/manifest.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/promotion/authority93/independent-audit/SHA256SUMS",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/promotion/authority93/independent-audit/review.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/promotion/authority93/independent-audit/verify.py",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/promotion/authority93/promote.py",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/promotion/authority93/receipt.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/promotion/canonical19-audit.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/promotion/ociclient9-audit.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/reconciliation/d4ac/SHA256SUMS",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/reconciliation/d4ac/accepted-ca1226-SHA256SUMS.txt",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/reconciliation/d4ac/accepted-ca1226-summary.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/reconciliation/d4ac/accepted-d4ac-actual-publication-review.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/reconciliation/d4ac/accepted66c74-source-adoption-review.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/reconciliation/d4ac/changes-since-accepted-ca1226.tsv",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/reconciliation/d4ac/command-tools-source-pins.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/reconciliation/d4ac/current-test-source-files.tsv",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/reconciliation/d4ac/firstparty-survival.tsv",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/reconciliation/d4ac/independent-reconciliation-review.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/reconciliation/d4ac/new-firstparty-declarations.tsv",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/reconciliation/d4ac/nineteen-source-retirement-dispositions.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/reconciliation/d4ac/reconcile.py.txt",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/reconciliation/d4ac/source-adoption-and-publication-proof.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/reconciliation/d4ac/source-scan-SHA256SUMS.txt",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/reconciliation/d4ac/source-scan-summary.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/reconciliation/d4ac/summary.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/reconciliation/d4ac/vendor-original-source-file-checks.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/reconciliation/d4ac/vendor-original-survival.tsv",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/packet/reconciliation/independent-review.json",
+      "docs/evidence/refactor-checks-20261017/source-classification-d4ac-102/publication-review.json"
+    ],
+    "protected_human_paths": [
+      "REFACTOR.md",
+      "docs/apps-machines.md",
+      "docs/evidence/shared-goal-acceptance-20260926.md",
+      "docs/generic-workloads.md",
+      "internal/machines/schedule.go",
+      "internal/machines/schedule_test.go",
+      "terrascale-orchestrator"
+    ],
+    "result": "PASS"
+  },
+  "prior_accepted_source_chain": {
+    "221368_changes_exactly": [
+      "internal/cli/cli.go",
+      "internal/cli/function_worker_integration_test.go"
+    ],
+    "3e769_actions_from_d4ac": 935,
+    "69b81_changes_from_221_exactly": [
+      "third_party/swarmkit-v2.1.2-provenance.json"
+    ],
+    "accepted_report_hashes_rechecked": true,
+    "cli_blob": "2ead05d9d95cfe1fbb2cfda16e8e3eb4b0c91ba0",
+    "cli_integration_test_blob": "6d2ae31e1f3545324db6ef4c7a43fe68a2e2ec85",
+    "journal_merge_blob": "6c66fa9b88812d653e3a499c4d932e601d910e4a",
+    "journal_merge_removed_four_line_validity_assertion_equals_entire_original_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+    "manifest_full_object_trees_independently_equal_git": true,
+    "provenance_blob": "ef0d5e3861b4387f44b0eb7689b55b7b430ddda6",
+    "provenance_review": {
+      "path": "/tmp/ts-app-69b81-provenance-independent-storage-review-w9vzo35_/review.json",
+      "sha256": "59c2cb0dd468a4889aec38501d559050919b4a744b4a78f2dccbad8560ca1b7e"
+    },
+    "result": "PASS",
+    "source_review": {
+      "path": "/tmp/ts-app-canonical-source-independent-storage-review-s6zxorch/review.json",
+      "sha256": "4542b13de23b7a965c26d59f05cfa964735827c5d89f6993c22cb8196e789ed7"
+    }
+  },
+  "qualification_limits": [
+    "Acceptance covers exact final committed source/evidence union and immutable provenance preservation only.",
+    "Historical d4ac classifications remain historical d4ac; no current-source classification or runtime credit transfers.",
+    "Exact221 build/default test compilation receipts remain exact221; metadata-only69b source equivalence is not a fresh execution receipt.",
+    "No main, runtime, native, cloud, production, global or financial qualification; no retirement delta; all five completion categories remain OPEN.",
+    "No Go/build/test/lint/formatter/benchmark/scanner/native/cloud/runtime/GATE execution. Read-only Git and Python file/object comparisons only.",
+    "No source, Git, ledger or human-worktree mutations. Only this fresh external immutable review artifact was written.",
+    "Parent owns authorized publication; this reviewer performed no commit or push."
+  ],
+  "reviewed_at": "2026-10-17T14:58:11.261533+00:00",
+  "reviewer": "storage_compare",
+  "schema": "ts-independent-canonical-source-adoption-review/v1",
+  "whitespace": {
+    "all_diagnostic_files_independently_byte_equal_original_pinned_upstream_zip": true,
+    "diagnostic_files": [
+      "third_party/swarmkit/.golangci.yml",
+      "third_party/swarmkit/CONTRIBUTING.md",
+      "third_party/swarmkit/README.md",
+      "third_party/swarmkit/api/control.proto",
+      "third_party/swarmkit/api/raft.proto",
+      "third_party/swarmkit/design/nomenclature.md",
+      "third_party/swarmkit/design/scheduler.md",
+      "third_party/swarmkit/protobuf/plugin/deepcopy/test/deepcopy.proto"
+    ],
+    "diagnostics": 16,
+    "git_diff_check_not_rerun": true,
+    "receipt_path": "/tmp/ts-qa-app69b-canonical-adoption-2uvn_09h/precommit-whitespace.txt",
+    "receipt_sha256": "6183d9d35fe313ec7d8eaf9ea0336ea6fe112082c3fa17f541523e32c23186ba",
+    "reported_full_diff_exit": 2,
+    "reported_non_swarmkit_exit": 0
+  }
+}
