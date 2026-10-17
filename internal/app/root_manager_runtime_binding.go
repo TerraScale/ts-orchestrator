@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
+	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
@@ -71,7 +72,8 @@ func (authority *rootOCIAuthority) publishManagerRuntimeBinding(ctx context.Cont
 	ctx, cancelSnapshot := context.WithDeadline(ctx, deadline)
 	defer cancelSnapshot()
 	registration := snapshot.Registration()
-	if registration.ID != binding.HostID() || registration.Node != worker.HostNode || registration.PublicKey != worker.HostPublicKey ||
+	if registration.ID != binding.HostID() || registration.Cell != worker.Cell || !strings.EqualFold(worker.Cell, current.Identity().Cell) ||
+		registration.Node != worker.HostNode || registration.PublicKey != worker.HostPublicKey ||
 		registration.NATSUserPublicKey != worker.NATSUserPublicKey || registration.Generation != worker.RegistrationGeneration ||
 		snapshot.SessionID() != worker.HostSessionID || snapshot.SessionEpoch() != identity.SessionEpoch() ||
 		snapshot.RegistrationRevision() == 0 || snapshot.SourceRevision() == 0 {
@@ -80,6 +82,7 @@ func (authority *rootOCIAuthority) publishManagerRuntimeBinding(ctx context.Cont
 	candidate := entityid.Derive("controller-runtime", process.witness.Binding())
 	acceptance := sha256.Sum256(authority.encoded)
 	certificateDigest := sha256.Sum256(block.Bytes)
+	clusterDigest := sha256.Sum256(cluster.RootCACert)
 	payload := host.ManagerRuntimeBinding{Version: 1,
 		DeploymentID: current.Identity().DeploymentID, ClusterID: current.Identity().ClusterID, SwarmClusterID: cluster.ID,
 		Environment: current.Identity().Environment, Cell: worker.Cell, OCIRegion: current.Identity().OCIRegion,
@@ -88,7 +91,7 @@ func (authority *rootOCIAuthority) publishManagerRuntimeBinding(ctx context.Cont
 		RegistrationRevision: snapshot.RegistrationRevision(), SourceRevision: snapshot.SourceRevision(),
 		HostPublicKey: worker.HostPublicKey, NATSUserPublicKey: worker.NATSUserPublicKey, RuntimeCandidateID: candidate,
 		AcceptanceSHA256: hex.EncodeToString(acceptance[:]), AnchorSHA256: current.Anchor().Digest(), SourceSHA256: current.ManagerSourceSHA256(),
-		CertificateSHA256: hex.EncodeToString(certificateDigest[:]), IssuedAt: time.Now().UTC(), ExpiresAt: deadline}
+		CertificateSHA256: hex.EncodeToString(certificateDigest[:]), ClusterCASHA256: hex.EncodeToString(clusterDigest[:]), IssuedAt: time.Now().UTC(), ExpiresAt: deadline}
 	guard := func(effect context.Context) error {
 		if effect == nil || effect.Err() != nil || !time.Now().Before(deadline) || source.session.Err() != nil || authority.ctx.Err() != nil ||
 			authority.verifyMarker() != nil || authority.verifyBinary(process.witness) != nil || authority.verifyProcess(effect, process) != nil {
@@ -140,9 +143,9 @@ func (authority *rootOCIAuthority) publishManagerRuntimeBinding(ctx context.Cont
 	}
 	if retained := process.managerBinding; retained != nil && retained.session == source.session {
 		old := retained.signed.Binding
-		if old.RuntimeCandidateID == candidate && old.HostSessionID == worker.HostSessionID && old.HostSessionEpoch == payload.HostSessionEpoch &&
-			old.RegistrationRevision == payload.RegistrationRevision && old.SourceSHA256 == payload.SourceSHA256 &&
-			old.CertificateSHA256 == payload.CertificateSHA256 && time.Now().Before(old.ExpiresAt) {
+		expected := payload
+		expected.SourceRevision, expected.IssuedAt, expected.ExpiresAt = old.SourceRevision, old.IssuedAt, old.ExpiresAt
+		if old == expected && old.SourceRevision <= payload.SourceRevision && !old.ExpiresAt.After(deadline) && time.Now().Before(old.ExpiresAt) {
 			if err := source.agent.SetManagerRuntimeBinding(retained.signed); err != nil {
 				return err
 			}
