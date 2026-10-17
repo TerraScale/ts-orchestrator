@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"golang.org/x/sys/unix"
 )
@@ -163,6 +164,24 @@ func (install *generationInstall) stage(files map[string][]byte) {
 	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(staging, name), content, 0o600); err != nil {
 			install.t.Fatal(err)
+		}
+		if name == MaterialGenerationsFile && os.Geteuid() == 0 {
+			chain, err := bootstrap.DecodeMaterialGenerationChain(content)
+			if err != nil {
+				install.t.Fatal(err)
+			}
+			fingerprint, err := trust.Fingerprint(chain[len(chain)-1])
+			if err != nil {
+				install.t.Fatal(err)
+			}
+			metadata, err := protocol.EncodeJSON(GenerationDeliveryLifetime{AcceptanceSHA256: install.acceptance(),
+				ChainSHA256: digest(content), GenerationSHA256: fingerprint, ExpiresAt: chain[len(chain)-1].ExpiresAt})
+			if err != nil {
+				install.t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(staging, GenerationDeliveryFile), metadata, 0o600); err != nil {
+				install.t.Fatal(err)
+			}
 		}
 	}
 }

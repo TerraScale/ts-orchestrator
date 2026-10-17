@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"golang.org/x/sys/unix"
 )
@@ -415,8 +416,8 @@ func TestRestoreArmedStageCannotRollBackDurableChainAfterMemoryLoss(t *testing.T
 	}
 	staged.spool(MaterialGenerationsFile, firstWire)
 	staged.spool(GenerationArmedFile, []byte(firstFingerprint))
-	if err := staged.installer.restoreArmedGeneration(time.Now()); err != nil {
-		t.Fatal(err)
+	if err := staged.installer.restoreArmedGeneration(time.Now()); err == nil {
+		t.Fatal("restore admitted a stale armed chain")
 	}
 	durable, err := os.ReadFile(staged.installer.store.chainCopy)
 	if err != nil || !bytes.Equal(durable, staged.wire) {
@@ -429,6 +430,9 @@ func TestRestoreArmedStageCannotRollBackDurableChainAfterMemoryLoss(t *testing.T
 
 func newSpooledInstall(t *testing.T) *spooledInstall {
 	t.Helper()
+	if os.Geteuid() != 0 {
+		t.Skip("private generation custody requires root")
+	}
 	install := newGenerationInstall(t)
 	now := time.Now()
 	material := install.material.WithoutIssuers(t).InterRegion(t, now, install.expected.ControllerSlots).
@@ -452,7 +456,8 @@ func newSpooledInstall(t *testing.T) *spooledInstall {
 	}
 	base := t.TempDir()
 	spool, etc := filepath.Join(base, "spool"), filepath.Join(base, "etc")
-	for _, dir := range []string{spool, etc} {
+	privateSpool := filepath.Join(base, "private")
+	for _, dir := range []string{spool, etc, privateSpool} {
 		if err := os.Mkdir(dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -464,7 +469,7 @@ func newSpooledInstall(t *testing.T) *spooledInstall {
 			staged.files[secret.TargetFile] = material.Files[secret.TargetFile]
 		}
 	}
-	staged.installer = generationInstaller{store: install.store(), roots: install.roots, historicalRoots: install.roots, spool: spool,
+	staged.installer = generationInstaller{store: install.store(), roots: install.roots, historicalRoots: install.roots, spool: spool, privateSpool: privateSpool,
 		config: filepath.Join(etc, "controller.json"), target: install.target()}
 	staged.spool(MaterialGenerationsFile, wire)
 	staged.spool(GenerationConfigFile("controller-a"), staged.config)
@@ -479,8 +484,30 @@ func newSpooledInstall(t *testing.T) *spooledInstall {
 
 func (staged *spooledInstall) spool(name string, data []byte) {
 	staged.t.Helper()
-	if err := os.WriteFile(filepath.Join(staged.installer.spool, name), data, 0o600); err != nil {
+	directory := staged.installer.privateSpool
+	if name == MaterialGenerationsFile || name == GenerationArmedFile || name == GenerationConfigFile(staged.installer.target.Slot) {
+		directory = staged.installer.spool
+	}
+	if err := os.WriteFile(filepath.Join(directory, name), data, 0o600); err != nil {
 		staged.t.Fatal(err)
+	}
+	if name == MaterialGenerationsFile {
+		chain, err := bootstrap.DecodeMaterialGenerationChain(data)
+		if err != nil {
+			staged.t.Fatal(err)
+		}
+		fingerprint, err := trust.Fingerprint(chain[len(chain)-1])
+		if err != nil {
+			staged.t.Fatal(err)
+		}
+		metadata, err := protocol.EncodeJSON(GenerationDeliveryLifetime{AcceptanceSHA256: staged.installer.target.AcceptanceSHA256,
+			ChainSHA256: digest(data), GenerationSHA256: fingerprint, ExpiresAt: chain[len(chain)-1].ExpiresAt})
+		if err != nil {
+			staged.t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(staged.installer.privateSpool, GenerationDeliveryFile), metadata, 0o600); err != nil {
+			staged.t.Fatal(err)
+		}
 	}
 }
 
@@ -591,7 +618,7 @@ func TestInstallGenerationRefusesATamperedSpool(t *testing.T) {
 			if err := os.WriteFile(outside, staged.files["ca.pem"], 0o600); err != nil {
 				t.Fatal(err)
 			}
-			path := filepath.Join(staged.installer.spool, "ca.pem")
+			path := filepath.Join(staged.installer.privateSpool, "ca.pem")
 			if err := os.Remove(path); err != nil {
 				t.Fatal(err)
 			}
@@ -689,4 +716,200 @@ func TestRestoreConvergesThePendingControllerConfig(t *testing.T) {
 	if err := convergeRestoredConfig(staged.installer.store, staged.installer.target, staged.roots, staged.wire, staged.installer.config, time.Now(), staged.files); err == nil {
 		t.Fatal("restored a chain whose config is not in place")
 	}
+}
+
+func TestGenerationActivationNeverReadsOrdinaryRawSecretCopies(t *testing.T) {
+	staged := newSpooledInstall(t)
+	staged.arm()
+	if err := os.WriteFile(filepath.Join(staged.installer.spool, "system.creds"), []byte("ordinary replacement"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if outcome := staged.install(); outcome != "installed generation 1" || !staged.installed() {
+		t.Fatal(outcome)
+	}
+	if !bytes.Equal(staged.read("system.creds"), staged.files["system.creds"]) {
+		t.Fatal("installed ordinary SYSTEM copy")
+	}
+}
+
+func TestGenerationActivationAndRestoreRejectPrivateInventoryDrift(t *testing.T) {
+	for _, fault := range []string{"missing", "expired", "wrong owner", "foreign acceptance", "changed bytes"} {
+		t.Run(fault, func(t *testing.T) {
+			staged := newSpooledInstall(t)
+			staged.arm()
+			// A valid ordinary copy must never recover a refused private source.
+			if err := os.WriteFile(filepath.Join(staged.installer.spool, "system.creds"), staged.files["system.creds"], 0o600); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(staged.installer.privateSpool, "system.creds")
+			switch fault {
+			case "missing":
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+			case "wrong owner":
+				if err := os.Chown(path, 65534, 65534); err != nil {
+					t.Fatal(err)
+				}
+			case "changed bytes":
+				if err := os.WriteFile(path, []byte("changed"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			default:
+				metadata, err := os.ReadFile(filepath.Join(staged.installer.privateSpool, GenerationDeliveryFile))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var lifetime GenerationDeliveryLifetime
+				if err := protocol.DecodeStrict(metadata, &lifetime, maxGenerationDeliveryBytes); err != nil {
+					t.Fatal(err)
+				}
+				if fault == "expired" {
+					lifetime.ExpiresAt = time.Now().Add(-time.Second)
+				} else {
+					lifetime.AcceptanceSHA256 = digest([]byte("foreign"))
+				}
+				metadata, err = protocol.EncodeJSON(lifetime)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(staged.installer.privateSpool, GenerationDeliveryFile), metadata, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if outcome := staged.install(); !strings.HasPrefix(outcome, "refused: ") || staged.installed() {
+				t.Fatalf("activation admitted %s: %s", fault, outcome)
+			}
+			if err := staged.installer.restoreArmedGeneration(time.Now()); err == nil {
+				t.Fatalf("restore admitted %s", fault)
+			}
+		})
+	}
+}
+
+func TestInterruptedGenerationAdoptionCannotRenewDeliveryLifetime(t *testing.T) {
+	staged := newSpooledInstall(t)
+	staged.arm()
+	staged.stage(staged.files)
+	staged.stage(map[string][]byte{MaterialGenerationsFile: staged.wire})
+	if err := writeSynced(staged.pending(), staged.config); err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := os.ReadFile(filepath.Join(staged.dir, generationStaging, GenerationDeliveryFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lifetime GenerationDeliveryLifetime
+	if err := protocol.DecodeStrict(metadata, &lifetime, maxGenerationDeliveryBytes); err != nil {
+		t.Fatal(err)
+	}
+	lifetime.ExpiresAt = time.Now().Add(-time.Second)
+	metadata, err = protocol.EncodeJSON(lifetime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(staged.dir, generationStaging, GenerationDeliveryFile), metadata, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := staged.read("system.creds")
+	if err := staged.installer.finishAdoption(time.Now()); err == nil {
+		t.Fatal("restart renewed expired delivery lifetime")
+	}
+	if !bytes.Equal(before, staged.read("system.creds")) {
+		t.Fatal("expired interrupted stage changed installed credentials")
+	}
+}
+
+func TestGenerationActivationAndResumeRecheckCurrentRootAdmission(t *testing.T) {
+	staged := newSpooledInstall(t)
+	staged.arm()
+	before := staged.read("system.creds")
+	staged.installer.store.admitGeneration = func(GenerationTarget, []trust.Envelope) error { return ErrMaterial }
+	if outcome := staged.install(); !strings.HasPrefix(outcome, "refused: ") {
+		t.Fatal("activation ignored current root admission", outcome)
+	}
+	if err := staged.installer.restoreArmedGeneration(time.Now()); err == nil {
+		t.Fatal("restore ignored current root admission")
+	}
+	staged.stage(staged.files)
+	staged.stage(map[string][]byte{MaterialGenerationsFile: staged.wire})
+	if err := writeSynced(staged.pending(), staged.config); err != nil {
+		t.Fatal(err)
+	}
+	if err := staged.installer.finishAdoption(time.Now()); err == nil {
+		t.Fatal("interrupted adoption ignored current root admission")
+	}
+	if !bytes.Equal(before, staged.read("system.creds")) {
+		t.Fatal("refused current admission changed installed credentials")
+	}
+	t.Run("expiry after current admission", func(t *testing.T) {
+		staged := newSpooledInstall(t)
+		staged.arm()
+		held, err := staged.installer.heldGenerations()
+		if err != nil {
+			t.Fatal(err)
+		}
+		wire, chain, files, config, delivery, err := staged.installer.armedStage(held, time.Now())
+		if err != nil || delivery == nil {
+			t.Fatal("read admitted private stage", err)
+		}
+		defer clearContents(files)
+		before := staged.read("system.creds")
+		delivery.admit = func() error {
+			delivery.ExpiresAt = time.Now().Add(-time.Second)
+			return nil
+		}
+		if _, err := staged.installer.installArmed(held, wire, chain, files, config, delivery, time.Now()); err == nil {
+			t.Fatal("activation published after the original delivery expired during admission")
+		}
+		if !bytes.Equal(before, staged.read("system.creds")) {
+			t.Fatal("expired current admission changed installed credentials")
+		}
+	})
+
+	for _, failure := range []string{"context cancellation", "source expiry"} {
+		t.Run("restore original seal after final admission/"+failure, func(t *testing.T) {
+			staged := newSpooledInstall(t)
+			staged.arm()
+			held, err := staged.installer.heldGenerations()
+			if err != nil {
+				t.Fatal(err)
+			}
+			wire, chain, files, config, delivery, err := staged.installer.armedStage(held, time.Now())
+			if err != nil || delivery == nil {
+				t.Fatal("read admitted private stage", err)
+			}
+			defer clearContents(files)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			expired := false
+			staged.installer.store.restoreCurrent = func([]trust.Envelope) error { return nil }
+			staged.installer.store.restoreSeal = func() error {
+				if expired {
+					return ErrMaterial
+				}
+				return ctx.Err()
+			}
+			admissions := 0
+			delivery.admit = func() error {
+				admissions++
+				if admissions == 2 {
+					if failure == "context cancellation" {
+						cancel()
+					} else {
+						expired = true
+					}
+				}
+				return nil
+			}
+			before := staged.read("system.creds")
+			if _, err := staged.installer.installArmed(held, wire, chain, files, config, delivery, time.Now()); err == nil {
+				t.Fatal("activation published after restore original became invalid during final admission")
+			}
+			if admissions != 2 || !bytes.Equal(before, staged.read("system.creds")) {
+				t.Fatal("restore original seal did not precede publication", admissions)
+			}
+		})
+	}
+
 }

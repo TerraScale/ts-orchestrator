@@ -28,6 +28,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -280,20 +281,16 @@ func configPin(chainWire []byte, slot string) (bootstrap.GenerationControllerCon
 	return bootstrap.GenerationControllerConfig{}, fmt.Errorf("the newest generation pins no config for %q", slot)
 }
 
-// Stager runs in every controller, unprivileged. It stages the published
-// chain when it extends the installed one: the files its slot may hold (the
-// unbound ones and its own, never another slot's) from Vault, its config,
-// and the chain last, all checked by CheckGenerationFiles. While the record
-// arms the slot it writes the armed marker prepare installs from.
+// Stager runs unprivileged and stages only the signed public chain, config,
+// authenticated delivery receipt and arm marker. Root retains every raw file
+// and independently verifies the full inventory before activation.
 type Stager struct {
 	KV     jetstream.KeyValue
 	Target bootstrapstart.GenerationTarget
 	Roots  func() trust.Keyring
 	// Deliver asks the root OCI service to install this signed generation's
-	// own-slot secrets in Spool without giving this process OCI credentials.
-	Deliver func(context.Context, []byte) error
-	// Read is used by root-owned callers and existing boundary fixtures.
-	Read func(context.Context, bootstrap.SecretReference) ([]byte, error)
+	// own-slot secrets in its fixed private stage, returning only public metadata.
+	Deliver func(context.Context, []byte) (rootoci.SecretDeliveryReceipt, error)
 	// Installed is the credential directory's adopted chain.
 	Installed string
 	Spool     string
@@ -428,80 +425,52 @@ func (s *Stager) stage(ctx context.Context, spool *os.Root, status *Status) erro
 // write replaces the spool with the slot's stage, the chain last.
 func (s *Stager) write(ctx context.Context, spool *os.Root, generation bootstrap.MaterialGeneration, record Record) error {
 	slot := s.Target.Slot
-	for _, pin := range generation.ControllerConfigs {
-		if pin.Slot == slot && (pin.AcceptanceSHA256 != s.Target.AcceptanceSHA256 || digest(record.Configs[slot]) != pin.SHA256) {
-			return errors.New("stored controller config differs from its signed acceptance or bytes")
-		}
-	}
 	files := map[string][]byte{}
-	defer func() {
-		for _, data := range files {
-			clear(data)
-		}
-	}()
-	if staged, err := readSpooled(spool, bootstrapstart.MaterialGenerationsFile, trust.MaxRootChainBytes); err == nil && bytes.Equal(staged, record.Chain) {
-		if err := s.Target.VerifyFiles(generation, func(name string) ([]byte, error) {
-			if data, ok := files[name]; ok {
-				return data, nil
-			}
-			data, err := readSpooled(spool, name, bootstrap.MaxSecretBytes)
-			files[name] = data
-			return data, err
-		}, now(s.Now)); err == nil {
-			return ctx.Err()
-		}
-	}
-	for _, data := range files {
-		clear(data)
-	}
-	clear(files)
 	for _, pin := range generation.ControllerConfigs {
 		if pin.Slot != slot {
 			continue
 		}
-		if pin.AcceptanceSHA256 != s.Target.AcceptanceSHA256 {
-			return errors.New("the newest generation's config is for another acceptance of this slot")
-		}
-		if record.Configs[slot] == nil {
-			return errors.New("this slot's config is not stored yet")
+		if pin.AcceptanceSHA256 != s.Target.AcceptanceSHA256 || digest(record.Configs[slot]) != pin.SHA256 || int64(len(record.Configs[slot])) != pin.Size {
+			return errors.New("stored controller config differs from its signed acceptance or bytes")
 		}
 		files[bootstrapstart.GenerationConfigFile(slot)] = record.Configs[slot]
 	}
-	if s.Deliver != nil {
-		if err := s.Deliver(ctx, record.Chain); err != nil {
-			return errors.New("root delivery of material generation failed")
+	if staged, err := readSpooled(spool, bootstrapstart.MaterialGenerationsFile, trust.MaxRootChainBytes); err == nil && bytes.Equal(staged, record.Chain) {
+		metadata, err := readSpooled(spool, bootstrapstart.GenerationDeliveryFile, 64<<10)
+		var receipt rootoci.SecretDeliveryReceipt
+		if err == nil && protocol.DecodeStrict(metadata, &receipt, 64<<10) == nil && s.verifyReceipt(receipt, generation, record.Chain) == nil {
+			matches := true
+			for name, expected := range files {
+				current, err := readSpooled(spool, name, bootstrap.MaxControllerConfigBytes)
+				if err != nil || !bytes.Equal(current, expected) {
+					matches = false
+					break
+				}
+			}
+			if matches {
+				return ctx.Err()
+			}
 		}
 	}
-	for _, secret := range generation.Secrets {
-		if secret.Slot != "" && secret.Slot != slot {
-			continue
-		}
-		var data []byte
-		var err error
-		if s.Deliver != nil {
-			data, err = readSpooled(spool, secret.TargetFile, secret.MaxBytes)
-		} else if s.Read != nil {
-			data, err = s.Read(ctx, secret)
-		} else {
-			return errors.New("material generation requires root credential delivery")
-		}
-		if err != nil {
-			return fmt.Errorf("read %s from Vault: %w", secret.TargetFile, err)
-		}
-		files[secret.TargetFile] = data
+	if s.Deliver == nil {
+		return errors.New("material generation requires root credential delivery")
 	}
-	if err := s.Target.VerifyFiles(generation, func(name string) ([]byte, error) {
-		if data, ok := files[name]; ok {
-			return data, nil
-		}
-		return nil, fs.ErrNotExist
-	}, now(s.Now)); err != nil {
+	receipt, err := s.Deliver(ctx, record.Chain)
+	if err != nil {
+		return errors.New("root delivery of material generation failed")
+	}
+	if err := s.verifyReceipt(receipt, generation, record.Chain); err != nil {
 		return err
 	}
+	metadata, err := protocol.EncodeJSON(receipt)
+	if err != nil {
+		return err
+	}
+	files[bootstrapstart.GenerationDeliveryFile] = metadata
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := clearSpool(spool, s.Target.Slot); err != nil {
+	if err := clearSpool(spool, slot); err != nil {
 		return err
 	}
 	for name, data := range files {
@@ -510,6 +479,34 @@ func (s *Stager) write(ctx context.Context, spool *os.Root, generation bootstrap
 		}
 	}
 	return writeSpooled(spool, bootstrapstart.MaterialGenerationsFile, record.Chain)
+}
+
+func (s *Stager) verifyReceipt(receipt rootoci.SecretDeliveryReceipt, generation bootstrap.MaterialGeneration, chainWire []byte) error {
+	chain, err := bootstrap.DecodeMaterialGenerationChain(chainWire)
+	if err != nil {
+		return err
+	}
+	fingerprint, err := trust.Fingerprint(chain[len(chain)-1])
+	if err != nil || receipt.Slot != s.Target.Slot || receipt.AcceptanceSHA256 != s.Target.AcceptanceSHA256 || receipt.GenerationSHA256 != fingerprint || receipt.ExpiresAt.IsZero() || !now(s.Now).Before(receipt.ExpiresAt) || !time.Now().Before(receipt.ExpiresAt) || receipt.ExpiresAt.After(chain[len(chain)-1].ExpiresAt) {
+		return errors.New("root delivery receipt differs from the signed generation or expired")
+	}
+	refs := map[string]bootstrap.SecretReference{}
+	for _, ref := range generation.Secrets {
+		if ref.Slot == "" || ref.Slot == s.Target.Slot {
+			refs[ref.TargetFile] = ref
+		}
+	}
+	if len(refs) != len(receipt.Files) {
+		return errors.New("root delivery receipt omits generation files")
+	}
+	for _, file := range receipt.Files {
+		ref, ok := refs[file.Name]
+		if !ok || file.SHA256 != ref.SHA256 || file.Bytes <= 0 || file.Bytes > ref.MaxBytes {
+			return errors.New("root delivery receipt differs from exact material pins")
+		}
+		delete(refs, file.Name)
+	}
+	return nil
 }
 
 func readSpooled(spool *os.Root, name string, maximum int64) ([]byte, error) {
@@ -586,7 +583,7 @@ func clearSpool(spool *os.Root, slot string) error {
 		known = known || candidate == bootstrapstart.GenerationConfigFile(slot) || candidate == slot+".creds" ||
 			candidate == cert || candidate == key || candidate == "interregion.jwt" || candidate == "interregion-ca.pem" ||
 			candidate == bootstrap.LinkCredentialsFile ||
-			candidate == bootstrapstart.GenerationArmedFile || candidate == bootstrapstart.MaterialGenerationsFile
+			candidate == bootstrapstart.GenerationArmedFile || candidate == bootstrapstart.MaterialGenerationsFile || candidate == bootstrapstart.GenerationDeliveryFile
 		if strings.HasPrefix(candidate, "leaf-") && strings.HasSuffix(candidate, ".creds") {
 			peer := strings.TrimSuffix(strings.TrimPrefix(candidate, "leaf-"), ".creds")
 			known = catalog.IsCell(strings.ToUpper(peer)) && peer == strings.ToLower(peer)

@@ -34,6 +34,8 @@ type SecretBundle struct {
 	VersionNumber int64
 	ContentType   string
 	ContentBase64 string
+	ExpiresAt     *time.Time
+	DeletesAt     *time.Time
 }
 
 // SecretBundleReader fetches one explicitly named secret version. It must not
@@ -162,6 +164,38 @@ func (vault *Vault) ReadGenerationSecret(ctx context.Context, reference SecretRe
 	return decodeSecretBundle(bundle, reference)
 }
 
+// ReadGenerationSecretWithExpiry retains the original provider expiry/deletion
+// cap for a caller that rechecks it before publishing the exact returned bytes.
+func (vault *Vault) ReadGenerationSecretWithExpiry(ctx context.Context, reference SecretReference) ([]byte, time.Time, error) {
+	if vault == nil || vault.reader == nil {
+		return nil, time.Time{}, ErrVaultSecretMismatch
+	}
+	bundle, err := vault.reader.GetSecretBundle(ctx, reference.SecretOCID, reference.VersionNumber)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	var expires time.Time
+	for _, deadline := range []*time.Time{bundle.ExpiresAt, bundle.DeletesAt} {
+		if deadline == nil {
+			continue
+		}
+		if !time.Now().Before(*deadline) {
+			return nil, time.Time{}, ErrVaultSecretMismatch
+		}
+		if expires.IsZero() || deadline.Before(expires) {
+			expires = *deadline
+		}
+	}
+	if !expires.IsZero() && !time.Now().Before(expires) {
+		return nil, time.Time{}, ErrVaultSecretMismatch
+	}
+	content, err := decodeSecretBundle(bundle, reference)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	return content, expires, nil
+}
+
 func (reader ociSecretBundleReader) GetSecretBundle(ctx context.Context, secretOCID string, version int64) (SecretBundle, error) {
 	response, err := reader.client.GetSecretBundle(ctx, secrets.GetSecretBundleRequest{
 		SecretId: new(secretOCID), VersionNumber: new(version),
@@ -183,10 +217,17 @@ func (reader ociSecretBundleReader) GetSecretBundle(ctx context.Context, secretO
 	if !ok || content.Content == nil {
 		return SecretBundle{}, ErrVaultSecretMismatch
 	}
-	return SecretBundle{
+	result := SecretBundle{
 		SecretOCID: *bundle.SecretId, VersionNumber: *bundle.VersionNumber,
 		ContentType: "BASE64", ContentBase64: *content.Content,
-	}, nil
+	}
+	if bundle.TimeOfExpiry != nil {
+		result.ExpiresAt = new(bundle.TimeOfExpiry.Time)
+	}
+	if bundle.TimeOfDeletion != nil {
+		result.DeletesAt = new(bundle.TimeOfDeletion.Time)
+	}
+	return result, nil
 }
 
 func authorizeSecretMaterialization(manifest StartupAuthority, receipt VerifiedReceipt, reference SecretReference, now time.Time) error {
