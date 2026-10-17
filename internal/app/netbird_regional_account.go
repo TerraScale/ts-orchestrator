@@ -84,7 +84,7 @@ func openNetBirdRegionalAccount(ctx context.Context, local automaticFoundation, 
 	if err != nil {
 		return fail(err)
 	}
-	s.material, err = reader.Source().Resolver().BootstrapMaterial(ctx, cell)
+	s.material, err = reader.Source().Resolver().BootstrapMaterialForOperation(ctx, reader.Context(), cell)
 	if err != nil {
 		return fail(err)
 	}
