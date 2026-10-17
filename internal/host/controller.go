@@ -48,6 +48,7 @@ type Controller struct {
 	runtimeEffects         RuntimeEffectHandler
 	containerMaterial      ContainerMaterialProvider
 	registryAdmission      RegistryAdmissionProvider
+	taskLoadRoles          func(context.Context, Registration) ([]string, error)
 	terraBaseCA            *terrabase.CA
 	roleIdentity           RoleIdentityIssuer
 	nodeAddress            func(string) string
@@ -144,6 +145,7 @@ func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, erro
 		managedEffectGate: managedEffectGate, materialProvider: cfg.ManagedMaterialProvider,
 		credentialFloor: cfg.ManagedCredentialFloor, volumeInspector: cfg.ManagedVolumeInspector, runtimeEffects: cfg.RuntimeEffects,
 		containerMaterial: cfg.ContainerMaterialProvider, registryAdmission: cfg.RegistryAdmissionProvider,
+		taskLoadRoles:    cfg.TaskLoadRoles,
 		functionMaterial: cfg.FunctionMaterialProvider,
 		terraBaseCA:      cfg.TerraBaseCA, roleIdentity: cfg.RoleIdentity, nodeAddress: cfg.NodeAddress, restartGate: cfg.RestartGate, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}),
 		authorityEpoch: cfg.AuthorityEpoch, authorityGuard: cfg.AuthorityGuard, authorityLeader: cfg.AuthorityLeader,

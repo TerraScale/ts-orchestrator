@@ -80,7 +80,9 @@ while :; do sleep 1; done
 	if err != nil {
 		t.Fatal(err)
 	}
-	task := &api.Task{ID: fmt.Sprintf("secrets%d", time.Now().UnixNano()), ServiceID: "containersecretsintegration", NodeID: "secretsnode", Spec: api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 250_000_000, MemoryBytes: 64 << 20}}}}
+	task := &api.Task{ID: fmt.Sprintf("secrets%d", time.Now().UnixNano()), ServiceID: "containersecretsintegration", NodeID: "secretsnode",
+		ServiceAnnotations: api.Annotations{Labels: map[string]string{LabelRole: "ts-auth"}},
+		Spec:               api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 250_000_000, MemoryBytes: 64 << 20}}}}
 	controllerFor := func(executor *Executor, task *api.Task) *controller {
 		t.Helper()
 		c, err := executor.Controller(task)
@@ -174,6 +176,7 @@ while :; do sleep 1; done
 	if err != nil || first.PID == 0 {
 		t.Fatalf("secret consumer did not start: %v", err)
 	}
+	checkExecutorTaskLoad(t, ctx, e, c)
 	for deadline := time.Now().Add(10 * time.Second); ; {
 		var logs bytes.Buffer
 		err := c.Logs(ctx, swarmexec.LogPublisherFunc(func(_ context.Context, message api.LogMessage) error { _, err := logs.Write(message.Data); return err }), api.LogSubscriptionOptions{})
@@ -211,6 +214,7 @@ while :; do sleep 1; done
 	if err != nil || first.PID != second.PID {
 		t.Fatalf("recovery duplicated process: %v", err)
 	}
+	checkExecutorTaskLoad(t, ctx, e, c)
 	file := filepath.Join(c.containerMaterialPath(), "database_password_file")
 	if err := os.Chmod(file, 0640); err != nil {
 		t.Fatal(err)
