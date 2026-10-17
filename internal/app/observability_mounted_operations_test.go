@@ -92,7 +92,7 @@ func TestRuntimeMountedOperationObservations(t *testing.T) {
 	if body := request(ordinary, "/readyz", token, http.StatusServiceUnavailable); !strings.Contains(string(body), "startup failing") {
 		t.Fatalf("startup readiness did not report startup failure: %s", body)
 	}
-	if err := runtime.attachController(ctx, controllerObservation{nats: broker, replicas: 1,
+	if err := runtime.attachController(ctx, controllerObservation{nats: broker, native: fixtureBrokerNative{broker}, replicas: 1,
 		brokerIDs: []string{"mounted-observations"}, authority: control}, nil); err != nil {
 		t.Fatal(err)
 	}

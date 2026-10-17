@@ -15,23 +15,66 @@ import (
 )
 
 // loadHostIssuer loads the controller's host NATS and TLS issuer.
-func loadHostIssuer(cfg Config, runtime *natscell.Runtime) (*hostenroll.Issuer, error) {
+func loadHostIssuer(ctx context.Context, cfg Config, native controllerBrokerNative) (*hostenroll.Issuer, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if native == nil || cfg.NATS.Embedded == nil {
+		return nil, errors.New("regional host enrollment requires the native controller account")
+	}
+	account, err := native.ReadControllerAccount(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rootPEM, err := os.ReadFile(cfg.NATS.Embedded.TLS.CAFile)
 	if err != nil || len(rootPEM) == 0 || len(rootPEM) > 8192 {
 		return nil, errors.New("regional host enrollment CA is unavailable")
 	}
-	return hostenroll.LoadIssuer(cfg.NATS.Cell, runtime.CellAccount(),
+	issuer, err := hostenroll.LoadIssuer(cfg.NATS.Cell, account.Account,
 		cfg.Controller.HostNATSIssuerSeedFile, cfg.Controller.HostTLSIssuerKeyFile,
 		cfg.Controller.HostTLSIssuerCertFile, rootPEM)
+	if err != nil {
+		return nil, err
+	}
+	current, err := native.ReadControllerAccount(ctx)
+	if err == nil && current.Account != issuer.CellAccount {
+		err = errors.New("host issuer account changed while loading its keys")
+	}
+	if err == nil {
+		err = issuer.ValidateAccountScope(current.JWT)
+	}
+	if err != nil {
+		issuer.NATSKey.Wipe()
+		return nil, err
+	}
+	return issuer, nil
 }
 
 // roleIdentityIssuer issues a granted role's NATS identity (TS-651) once the
 // broker's current cell account carries the role signer, after it creates
 // the role's buckets: a role may read and write them but not create them.
-func roleIdentityIssuer(issuer *hostenroll.Issuer, runtime *natscell.Runtime, replicas int) host.RoleIdentityIssuer {
+func roleIdentityIssuer(issuer *hostenroll.Issuer, transport *natscell.Runtime, native controllerBrokerNative, replicas int) host.RoleIdentityIssuer {
+	validateScope := func(ctx context.Context) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if issuer == nil || native == nil {
+			return errors.New("role identity requires the native controller account")
+		}
+		account, err := native.ReadControllerAccount(ctx)
+		if err != nil {
+			return err
+		}
+		if account.Account != issuer.CellAccount {
+			return errors.New("role issuer differs from the native controller account")
+		}
+		return issuer.ValidateRoleScope(account.JWT)
+	}
 	return func(ctx context.Context, role, node, userKey, csrPEM string) (string, []byte, error) {
-		// InitialCellJWT reads the resolver, which holds the applied claim.
-		if err := issuer.ValidateRoleScope(runtime.InitialCellJWT()); err != nil {
+		if transport == nil {
+			return "", nil, errors.New("role identity requires the controller transport")
+		}
+		if err := validateScope(ctx); err != nil {
 			return "", nil, err
 		}
 		for _, bucket := range roleidentity.Grants[role].Buckets {
@@ -39,10 +82,14 @@ func roleIdentityIssuer(issuer *hostenroll.Issuer, runtime *natscell.Runtime, re
 			if bucket.Memory {
 				storage = jetstream.MemoryStorage
 			}
-			if _, err := runtime.JetStream().CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: bucket.Name,
+			if _, err := transport.JetStream().CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: bucket.Name,
 				TTL: bucket.TTL, History: bucket.History, Storage: storage, Replicas: replicas}); err != nil {
 				return "", nil, fmt.Errorf("create %s bucket %s: %w", role, bucket.Name, err)
 			}
+		}
+		// Bucket creation may wait while the broker installs a new account claim.
+		if err := validateScope(ctx); err != nil {
+			return "", nil, err
 		}
 		raw, chain, _, err := issuer.IssueRole(role, node, userKey, csrPEM, time.Now().UTC())
 		return raw, chain, err

@@ -193,7 +193,7 @@ func rolloutControllers(cfg Config) ([]rollout.Unit, error) {
 // proofs are verified with the regional controller response key, host
 // proofs with each host's registered key. hosts reads the cell's hosts;
 // nil moves no host.
-func (c *rolloutControl) start(ctx context.Context, cfg Config, runtime *natscell.Runtime, fencer authority.Fencer,
+func (c *rolloutControl) start(ctx context.Context, cfg Config, runtime *natscell.Runtime, native controllerBrokerNative, fencer authority.Fencer,
 	responseKey ed25519.PrivateKey, hosts seatrollout.Hosts,
 ) (func(context.Context) error, error) {
 	store := c.store.Load()
@@ -234,7 +234,7 @@ func (c *rolloutControl) start(ctx context.Context, cfg Config, runtime *natscel
 	colocated := colocatedNodes(cfg.NATS.Cell, controllers, c.nodeOf)
 	sink := &rolloutHosts{collector: collector, board: board, colocated: colocated, last: map[string]time.Time{},
 		held: map[string]time.Time{}}
-	gate := rolloutGate{cluster: rolloutexec.ClusterGate{Cluster: runtime, ServerOf: func(unit string) (string, bool) {
+	gate := rolloutGate{cluster: rolloutexec.ClusterGate{Cluster: native, ServerOf: func(unit string) (string, bool) {
 		return natscell.ServerName(cfg.NATS.Cell, unit), known[unit]
 	}}, drainedSeats: c.drainedSeats, held: sink.heldBy}
 	if hosts != nil {
@@ -364,11 +364,11 @@ func (c *rolloutControl) binarySources(js jetstream.JetStream) []rolloutexec.Bin
 // publishProofs signs this controller's rollout health proof with the
 // regional response key while it is ready, until ctx ends. A controller
 // that cannot prove itself only holds rollouts; it keeps running.
-func (c *rolloutControl) publishProofs(ctx context.Context, cfg Config, runtime *natscell.Runtime,
+func (c *rolloutControl) publishProofs(ctx context.Context, cfg Config, runtime *natscell.Runtime, native controllerBrokerNative,
 	responseKey ed25519.PrivateKey,
 ) {
 	publisher := rolloutexec.Publisher{Conn: runtime.Conn(), Cell: cfg.NATS.Cell, Unit: cfg.NATS.Instance,
-		Key: responseKey, Healthy: func() bool { return c.ready.Load() && runtime.Ready() }}
+		Key: responseKey, Healthy: func() bool { return c.ready.Load() && runtime.Ready() && native.Ready() }}
 	if err := publisher.Run(ctx); ctx.Err() == nil {
 		slog.ErrorContext(ctx, "rollout health proofs stopped", observability.ComponentKey, "rollout", "error", err)
 	}

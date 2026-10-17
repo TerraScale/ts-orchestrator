@@ -33,6 +33,17 @@ type managedRuntimeHost struct {
 	nodeID     string
 	session    context.Context
 	generation uint64
+	children   *rootBrokerSourceChildren
+}
+
+func (source *managedRuntimeHost) sourceContext(ctx context.Context) context.Context {
+	source.mu.RLock()
+	children := source.children
+	source.mu.RUnlock()
+	if children == nil {
+		return ctx
+	}
+	return swarmruntime.WithSourceChildRegistrar(ctx, children)
 }
 
 func (source *managedRuntimeHost) bind(ctx context.Context, agent *host.Agent, transport hostenroll.WorkerTransport, registry swarmruntime.RegistryResolver, nodeID string) {
@@ -56,6 +67,7 @@ func (source *managedRuntimeHost) clear() {
 }
 
 func (source *managedRuntimeHost) CurrentContainerMaterial(ctx context.Context, binding swarmruntime.ContainerTaskBinding) (result swarmruntime.ContainerMaterial, resultErr error) {
+	ctx = source.sourceContext(ctx)
 	source.mu.RLock()
 	defer source.mu.RUnlock()
 	if source.agent == nil || source.session == nil || source.session.Err() != nil {
@@ -167,6 +179,7 @@ func runManagedRuntimeOwnHost(ctx context.Context, cfg Config, reader *bootstrap
 func runManagedRuntimeHostSession(ctx context.Context, controller Config, reader *bootstrapstart.CurrentFounderAuthorityReader, accepted bootstrapstart.AcceptedIdentity,
 	node *swarmruntime.Node, admitted swarmruntime.Admission, source *managedRuntimeHost,
 ) error {
+	ctx = source.sourceContext(ctx)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	if err := setupRuntimeWorker(ctx, io.Discard); err != nil {

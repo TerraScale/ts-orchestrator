@@ -10,11 +10,9 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"net"
-	"os/exec"
 	"os/user"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/moby/swarmkit/v2/api"
@@ -99,13 +97,8 @@ func readCurrentHostRegistration(ctx context.Context, query WorkerRegistrationQu
 	}
 	childCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	command := exec.CommandContext(childCtx, "/proc/self/exe", sourceCommand)
-	command.Env = []string{"PATH=/usr/bin:/bin"}
-	command.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid), Groups: []uint32{}}}
-	command.Stdin = bytes.NewReader(wire)
 	var output workerSourceOutput
-	command.Stdout = &output
-	if err := command.Run(); err != nil {
+	if err := runSourceChild(childCtx, sourceCommand, wire, uint32(uid), uint32(gid), &output); err != nil {
 		return WorkerRegistrationSnapshot{}, errors.New("current worker registration source unavailable")
 	}
 	var snapshot WorkerRegistrationSnapshot

@@ -319,6 +319,9 @@ type client struct {
 	echo  bool
 	noIcb bool
 	iproc bool // In-Process connection, set at creation and immutable.
+	// Trusted creation-time restrictions, never selected by CONNECT fields.
+	inProcessAccount string
+	inProcessJWT     string
 
 	tags    jwt.TagList
 	nameTag string

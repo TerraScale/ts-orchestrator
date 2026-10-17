@@ -68,8 +68,17 @@ func scanFile(file CredentialFile) ([]observability.CredentialView, error) {
 	if len(data) > maxCredentialBytes {
 		return nil, errors.New("file is larger than 1 MiB")
 	}
+	return CredentialExpiries(file.Name, data)
+}
+
+// CredentialExpiries parses caller-owned bytes into public expiry observations.
+// Root callers can keep private credentials out of ordinary file readers.
+func CredentialExpiries(name string, data []byte) ([]observability.CredentialView, error) {
+	if len(data) == 0 || len(data) > maxCredentialBytes {
+		return nil, errors.New("credential is missing or larger than 1 MiB")
+	}
 	if bytes.Contains(data, []byte("-----BEGIN CERTIFICATE-----")) {
-		return certificates(file.Name, data)
+		return certificates(name, data)
 	}
 	token, err := jwt.ParseDecoratedJWT(data)
 	if err != nil {
@@ -86,7 +95,7 @@ func scanFile(file CredentialFile) ([]observability.CredentialView, error) {
 	if issued.Expires == 0 {
 		return nil, nil
 	}
-	credential := observability.CredentialView{Name: file.Name, Kind: "nats-jwt", NotAfter: time.Unix(issued.Expires, 0).UTC()}
+	credential := observability.CredentialView{Name: name, Kind: "nats-jwt", NotAfter: time.Unix(issued.Expires, 0).UTC()}
 	if issued.IssuedAt != 0 {
 		credential.NotBefore = time.Unix(issued.IssuedAt, 0).UTC()
 	}

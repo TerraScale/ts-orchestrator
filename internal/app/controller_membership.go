@@ -21,11 +21,11 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
-// natsMembershipPeers adapts the embedded broker's JetStream metadata view.
-type natsMembershipPeers struct{ runtime *natscell.Runtime }
+// natsMembershipPeers adapts the root-owned broker's JetStream metadata view.
+type natsMembershipPeers struct{ native controllerBrokerNative }
 
 func (peers natsMembershipPeers) Meta(context.Context) (membership.Meta, error) {
-	view, err := peers.runtime.Meta()
+	view, err := peers.native.Meta()
 	if err != nil {
 		return membership.Meta{}, err
 	}
@@ -396,15 +396,15 @@ func (m *controllerMembership) Run(ctx context.Context) error {
 }
 
 // startControllerMembership builds the reconciler for every production controller.
-func startControllerMembership(ctx context.Context, cfg Config, runtime *natscell.Runtime,
+func startControllerMembership(ctx context.Context, cfg Config, runtime *natscell.Runtime, native controllerBrokerNative,
 	control *authority.Runtime,
 ) (*controllerMembership, error) {
 	return &controllerMembership{open: func(openCtx context.Context) (*controllerMembership, error) {
-		return openControllerMembership(openCtx, cfg, runtime, control)
+		return openControllerMembership(openCtx, cfg, runtime, native, control)
 	}}, nil
 }
 
-func openControllerMembership(ctx context.Context, cfg Config, runtime *natscell.Runtime,
+func openControllerMembership(ctx context.Context, cfg Config, runtime *natscell.Runtime, native controllerBrokerNative,
 	control *authority.Runtime,
 ) (*controllerMembership, error) {
 	opened, err := openMembershipLedger(ctx)
@@ -458,7 +458,7 @@ func openControllerMembership(ctx context.Context, cfg Config, runtime *natscell
 			dir: membership.DefaultRetirementEvidenceDir}
 	}
 	reconciler, err := membership.New(topology, membership.Dependencies{
-		Leadership: control, Peers: natsMembershipPeers{runtime: runtime},
+		Leadership: control, Peers: natsMembershipPeers{native: native},
 		Ledger:    opened.slots,
 		Instances: instances,
 		Evidence:  membership.NewFileEvidence(membership.DefaultRetirementEvidenceDir, topology.Slots, logger),

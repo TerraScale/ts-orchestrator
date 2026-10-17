@@ -9,11 +9,9 @@ import (
 	"encoding/json/v2"
 	"encoding/pem"
 	"errors"
-	"os/exec"
 	"os/user"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
@@ -157,13 +155,8 @@ func readCurrentWorkerMembership(ctx context.Context, query WorkerMembershipQuer
 	}
 	childCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	command := exec.CommandContext(childCtx, "/proc/self/exe", "runtime-worker-membership-source")
-	command.Env = []string{"PATH=/usr/bin:/bin"}
-	command.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid), Groups: []uint32{}}}
-	command.Stdin = bytes.NewReader(wire)
 	var output workerSourceOutput
-	command.Stdout = &output
-	if err := command.Run(); err != nil {
+	if err := runSourceChild(childCtx, "runtime-worker-membership-source", wire, uint32(uid), uint32(gid), &output); err != nil {
 		return WorkerMembershipSnapshot{}, errors.New("current worker membership source unavailable")
 	}
 	var snapshot WorkerMembershipSnapshot

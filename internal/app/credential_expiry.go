@@ -6,9 +6,8 @@ import (
 )
 
 // controllerCredentialFiles lists every expiring credential file a
-// controller is configured with: its NATS client and server TLS, the
-// operator, account and user JWTs, the interregion or region link, and the host and
-// TerraBase issuer certificates. Private keys and seeds are not listed.
+// controller can read directly. SYSTEM and membership expiry comes from the
+// authenticated root broker observation; their private files are never scanned.
 func controllerCredentialFiles(cfg Config) []maintenance.CredentialFile {
 	files := tlsFiles("nats client", cfg.NATS.TLS)
 	files = append(files, maintenance.CredentialFile{Name: "nats client credentials", Path: cfg.NATS.CredentialsFile})
@@ -18,9 +17,7 @@ func controllerCredentialFiles(cfg Config) []maintenance.CredentialFile {
 		files = append(files,
 			maintenance.CredentialFile{Name: "nats operator jwt", Path: embedded.OperatorJWTFile},
 			maintenance.CredentialFile{Name: "nats system account jwt", Path: embedded.SystemJWTFile},
-			maintenance.CredentialFile{Name: "nats cell account jwt", Path: embedded.CellJWTFile},
-			maintenance.CredentialFile{Name: "nats system credentials", Path: embedded.SystemCredentialsFile},
-			maintenance.CredentialFile{Name: "nats membership credentials", Path: embedded.MembershipCredentialsFile})
+			maintenance.CredentialFile{Name: "nats cell account jwt", Path: embedded.CellJWTFile})
 		if link := embedded.InterRegion; link != nil {
 			files = append(files, maintenance.CredentialFile{Name: "interregion account jwt", Path: link.AccountJWTFile})
 			if link.Listen != nil {
