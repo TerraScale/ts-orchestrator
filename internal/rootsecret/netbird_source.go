@@ -220,12 +220,24 @@ func loadNetBirdPublicSourceForOperation(ctx, originalCtx context.Context, facto
 // ForStartupSlot authenticates another original slot under this same frozen
 // snapshot, template and source. The slot string conveys no authority.
 func (s NetBirdBrokerSource) ForStartupSlot(ctx context.Context, slot string) (NetBirdBrokerSource, error) {
+	if s.Guard(ctx) != nil {
+		return NetBirdBrokerSource{}, ErrDelivery
+	}
+	result, err := s.forPublicStartupSlot(ctx, slot)
+	if err != nil || result.Guard(ctx) != nil {
+		return NetBirdBrokerSource{}, ErrDelivery
+	}
+	return result, nil
+}
+
+// forPublicStartupSlot retains the frozen source before overlay routes exist.
+func (s NetBirdBrokerSource) forPublicStartupSlot(ctx context.Context, slot string) (NetBirdBrokerSource, error) {
 	if ctx == nil || s.snapshot == nil || s.objects == nil {
 		return NetBirdBrokerSource{}, ErrDelivery
 	}
 	ctx, cancel := s.readContext(ctx)
 	defer cancel()
-	if s.Guard(ctx) != nil {
+	if s.guardPublicSource(ctx) != nil {
 		return NetBirdBrokerSource{}, ErrDelivery
 	}
 	startup, err := bootstrap.LoadDerivedStartupAuthority(ctx, s.source.Template(), s.objects, slot, time.Now().UTC())
@@ -236,12 +248,12 @@ func (s NetBirdBrokerSource) ForStartupSlot(ctx context.Context, slot string) (N
 	defer cancelStartup()
 	if startup.TemplateDigest() != s.startup.TemplateDigest() || startup.AnchorDigest() != s.startup.AnchorDigest() ||
 		startup.SourceSHA256() != s.startup.SourceSHA256() || startup.MaterialSHA256() != s.startup.MaterialSHA256() ||
-		!bytes.Equal(startup.MaterialRecord(), s.source.MaterialRecord()) || s.Guard(ctx) != nil {
+		!bytes.Equal(startup.MaterialRecord(), s.source.MaterialRecord()) || s.guardPublicSource(ctx) != nil {
 		return NetBirdBrokerSource{}, ErrDelivery
 	}
 	s.expires = minDeadline(s.ExpiresAt(), startup.ExpiresAt())
 	s.startup = startup
-	if s.Guard(ctx) != nil {
+	if s.guardPublicSource(ctx) != nil {
 		return NetBirdBrokerSource{}, ErrDelivery
 	}
 	return s, nil

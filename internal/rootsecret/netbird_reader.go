@@ -413,16 +413,6 @@ func OpenNetBirdReader(ctx context.Context, local region.VerifiedNetBirdManager,
 	readerCtx, cancelReader := context.WithDeadline(originalCtx, deadline)
 	cancel := func() { cancelReader(); cancelOriginal() }
 	r := &NetBirdReader{ctx: readerCtx, cancel: cancel, material: material, source: source}
-	fail := func() (*NetBirdReader, error) {
-		cancel()
-		if r.conn != nil {
-			r.conn.Close()
-		}
-		if r.signer != nil {
-			r.signer.Wipe()
-		}
-		return nil, ErrDelivery
-	}
 	secretID, secretVersion, secretExpiry := original.ID, original.Version, original.ExpiresAt
 	contentDigest := netBirdDigest([]byte(original.Value()))
 	r.guard = func(check context.Context) error {
@@ -448,22 +438,44 @@ func OpenNetBirdReader(ctx context.Context, local region.VerifiedNetBirdManager,
 		}
 		return readerCtx.Err()
 	}
+	connected, err := connectNetBirdReader(ctx, r, tlsConfig)
+	if err != nil {
+		return nil, err
+	}
+	retained = true
+	return connected, nil
+}
+
+// Both strict-v1 and same-CURRENT journal readers use the same single session.
+func connectNetBirdReader(ctx context.Context, r *NetBirdReader, tlsConfig *tls.Config) (*NetBirdReader, error) {
+	readerCtx := r.ctx
+	fail := func() (*NetBirdReader, error) {
+		r.cancel()
+		if r.conn != nil {
+			r.conn.Close()
+		}
+		if r.signer != nil {
+			r.signer.Wipe()
+		}
+		return nil, ErrDelivery
+	}
 	if r.guard(ctx) != nil {
 		return fail()
 	}
-	r.signer, err = nkeys.ParseDecoratedUserNKey(material.Credentials)
+	var err error
+	r.signer, err = nkeys.ParseDecoratedUserNKey(r.material.Credentials)
 	if err != nil {
 		return fail()
 	}
 	// The first authenticated connection is the sole session; never reconnect.
 	var connectionCtx context.Context
-	for _, endpoint := range material.Endpoints {
+	for _, endpoint := range r.material.Endpoints {
 		if r.guard(ctx) != nil {
 			return fail()
 		}
 		config := tlsConfig.Clone()
 		config.ServerName = endpoint.ServerName
-		r.conn, connectionCtx, err = natscell.ConnectMemorySingleLeaseForOperation(ctx, readerCtx, strings.ToLower(cell), endpoint.Address, material.Credentials, config)
+		r.conn, connectionCtx, err = natscell.ConnectMemorySingleLeaseForOperation(ctx, readerCtx, strings.ToLower(r.material.Cell), endpoint.Address, r.material.Credentials, config)
 		if errors.Is(err, natscell.ErrMemorySessionLost) {
 			return fail()
 		}
@@ -476,7 +488,7 @@ func OpenNetBirdReader(ctx context.Context, local region.VerifiedNetBirdManager,
 		return fail()
 	}
 	r.ctx = connectionCtx
-	context.AfterFunc(connectionCtx, cancel)
+	context.AfterFunc(connectionCtx, r.cancel)
 	if r.Guard(ctx) != nil {
 		return fail()
 	}
@@ -495,6 +507,5 @@ func OpenNetBirdReader(ctx context.Context, local region.VerifiedNetBirdManager,
 			}
 		}
 	}()
-	retained = true
 	return r, nil
 }

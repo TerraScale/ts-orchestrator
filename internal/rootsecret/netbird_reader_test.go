@@ -41,9 +41,23 @@ func TestNetBirdReadContextKeepsOriginalCancellationAndShortestDeadline(t *testi
 }
 
 func TestNetBirdBrokerMaterialBoundsAndRedaction(t *testing.T) {
+	if _, err := (NetBirdJournalSource{}).ForBrokerMaterial(t.Context(), NetBirdBrokerMaterial{Schema: 1, StartupSlot: "controller-b"}); err == nil {
+		t.Fatal("unverified writer source authenticated a readonly slot")
+	}
+	if _, err := OpenNetBirdReaderFromJournal(t.Context(), nil); err == nil {
+		t.Fatal("late broker reader opened without the retained journal client")
+	}
+	if _, _, err := openNetBirdJournalWriterTLS(t.Context(), NetBirdJournalSource{}); err == nil {
+		t.Fatal("writer server TLS opened without genuine root startup custody")
+	}
+	if _, err := readNetBirdJournalWriterTLSFile("../controller-a-tls-key.pem", 0, 0); err == nil {
+		t.Fatal("writer server TLS accepted a caller-selected path")
+	}
 	secret := []byte("private-manager-key-never-format")
 	material := NetBirdBrokerMaterial{Schema: 1, Credentials: secret, Key: secret}
-	for _, value := range []any{material, &NetBirdReader{material: material}} {
+	journal := NetBirdJournalMaterial{NetBirdBrokerMaterial: material, JournalCredentials: secret}
+	journal.Schema = 2
+	for _, value := range []any{material, &NetBirdReader{material: material}, journal} {
 		for _, format := range []string{"%v", "%+v", "%#v", "%s"} {
 			if text := fmt.Sprintf(format, value); strings.Contains(text, string(secret)) || strings.Contains(text, fmt.Sprint([]byte(secret))) {
 				t.Fatal("formatting exposed broker material")
@@ -64,6 +78,28 @@ func TestNetBirdBrokerMaterialBoundsAndRedaction(t *testing.T) {
 		} else if strings.Contains(err.Error(), string(secret)) {
 			t.Fatal("decode error exposed material")
 		}
+	}
+	wire, err = journal.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	journalReadback, err := DecodeNetBirdJournalMaterial(wire)
+	if err != nil || !bytes.Equal(journalReadback.JournalCredentials, secret) || !bytes.Equal(journalReadback.Credentials, secret) {
+		t.Fatal("combined bounded CURRENT did not preserve both credential byte strings")
+	}
+	for _, invalid := range [][]byte{wire, []byte(`{"schema":1,"journal_credentials":null}`)} {
+		if _, err := DecodeNetBirdBrokerMaterial(invalid); err == nil {
+			t.Fatal("schema1 accepted a journal field")
+		}
+	}
+	journal.Endpoints = []NetBirdBrokerEndpoint{{Address: "tls://127.0.0.1:4222", ServerName: "controller-a"}}
+	if _, err := journal.Encode(); err == nil {
+		t.Fatal("schema2 retained a dynamic broker locator")
+	}
+	journal.Endpoints = nil
+	journal.JournalCredentials = bytes.Repeat([]byte("k"), NetBirdBrokerMaterialLimit)
+	if _, err := journal.Encode(); err == nil {
+		t.Fatal("journal credentials exceeded the same fixed Vault payload bound")
 	}
 	material.Key = bytes.Repeat([]byte("k"), NetBirdBrokerMaterialLimit)
 	if _, err := material.Encode(); err == nil {
