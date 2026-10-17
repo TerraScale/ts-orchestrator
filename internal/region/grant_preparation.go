@@ -304,6 +304,14 @@ func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInpu
 		}
 		grant.Regions[index].BootstrapMaterial.AdmissionAttestor = &authorization
 	}
+	// Purpose is downstream of the unchanged config/profile/recipe/slot/source/genesis/attestor projections.
+	for index := range grant.Regions {
+		purpose, err := originalSourceProducerIntent(grant, input.HomeStorageDomain, grant.Regions[index])
+		if err != nil {
+			return FoundationPreparation{}, err
+		}
+		grant.Regions[index].BootstrapMaterial.OriginalSourceProducer = &purpose
+	}
 	if err := ValidatePreparedFoundation(grant); err != nil {
 		return FoundationPreparation{}, err
 	}
@@ -522,6 +530,11 @@ func controllerBootstrapSlot(installation, cell string, startup bootstrap.Startu
 // ValidatePreparedFoundation prevents the ceremony from signing spending
 // hashes unrelated to the recipes its launch consumers actually enforce.
 func ValidatePreparedFoundation(grant FoundationGrant) error {
+	if grant.SchemaVersion == 3 {
+		if err := requireOriginalSourceProducerPurposes(grant); err != nil {
+			return err
+		}
+	}
 	if err := validateFoundationNetBirdMaterial(grant); err != nil {
 		return err
 	}

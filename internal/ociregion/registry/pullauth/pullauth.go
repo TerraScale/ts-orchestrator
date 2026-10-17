@@ -108,7 +108,7 @@ func (p *PullSecrets) Describe(ctx context.Context, scope PullScope, owned PullS
 	if err != nil {
 		return PullClaim{}, err
 	}
-	if _, err := decodePull(value.Value(), scope); err != nil {
+	if _, err := DecodePull(value.Value(), scope); err != nil {
 		return PullClaim{}, err
 	}
 	sum := sha256.Sum256([]byte(value.Value()))
@@ -123,7 +123,9 @@ type PullCredentials struct {
 	password string
 }
 
-func decodePull(value string, scope PullScope) (PullCredentials, error) {
+// DecodePull validates Vault credential JSON for an independently authenticated scope.
+// Credential bytes stay in memory and retain ForHost's registry-origin check.
+func DecodePull(value string, scope PullScope) (PullCredentials, error) {
 	var decoded struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -168,7 +170,7 @@ func (p *PullSecrets) Resolve(ctx context.Context, claim PullClaim, expected Pul
 	if value.ID != claim.SecretID || value.Version != claim.Version || hex.EncodeToString(sum[:]) != claim.SHA256 {
 		return PullCredentials{}, ErrPullAuth
 	}
-	return decodePull(value.Value(), expected)
+	return DecodePull(value.Value(), expected)
 }
 
 func validDigest(digest string) bool {

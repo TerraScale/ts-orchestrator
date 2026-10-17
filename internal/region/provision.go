@@ -26,6 +26,9 @@ func ProvisionFoundationBundle(ctx context.Context, factory *ociclient.Factory, 
 	if err := authority.reserveNetBirdMaterialBirth(ctx); err != nil {
 		return fmt.Errorf("reserve original material birth before origins: %w", err)
 	}
+	if err := authority.checkOriginalSourceProducerBirth(ctx); err != nil {
+		return fmt.Errorf("verify complete original producer birth before origins: %w", err)
+	}
 	if err := authority.reserveFoundationWorkloadOrigin(ctx); err != nil {
 		return fmt.Errorf("reserve original workload lineage before foundation effects: %w", err)
 	}

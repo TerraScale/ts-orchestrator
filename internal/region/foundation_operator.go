@@ -323,6 +323,13 @@ func newOperatorHomeIAMAuthority(ctx context.Context, factory *ociclient.Factory
 		}
 		operator.buckets[bucket.role] = deref(response.Id)
 	}
+	if grant.SchemaVersion == 3 {
+		birth, err := operator.originalSourceProducerBirth(grant)
+		if err != nil {
+			return nil, FoundationResolver{}, err
+		}
+		store.originalSourceBirth = &birth
+	}
 	if err := operator.guard(ctx); err != nil {
 		return nil, FoundationResolver{}, err
 	}

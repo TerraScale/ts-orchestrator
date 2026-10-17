@@ -30,8 +30,9 @@ type FoundationObjects interface {
 // ObjectFoundationStore uses a pre-existing protected home-region bucket. IAM
 // access to the bucket alone does not authorize a regional footprint.
 type ObjectFoundationStore struct {
-	client            FoundationObjects
-	namespace, bucket string
+	originalSourceBirth *[3]OriginalSourceProducerBirth
+	client              FoundationObjects
+	namespace, bucket   string
 }
 
 func NewObjectFoundationStore(client FoundationObjects, namespace, bucket string) (*ObjectFoundationStore, error) {
@@ -83,6 +84,27 @@ func (s *ObjectFoundationStore) Load(ctx context.Context, cell string) (Foundati
 }
 
 func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record FoundationRecord, etag string) (string, error) {
+	// Attach the complete purpose array to the SAME original NetBird birth CAS.
+	// Only the verified original operator binds this private initial scope.
+	if etag == "" && record.NetBirdMaterial != nil && record.OriginalSourceProducers == nil && s.originalSourceBirth != nil {
+		birth := *s.originalSourceBirth
+		for index := range birth {
+			birth[index].BornAt = record.NetBirdMaterial.BornAt
+		}
+		record.OriginalSourceProducers = &birth
+	}
+	if etag == "" && record.NetBirdMaterial != nil {
+		if s.originalSourceBirth == nil || record.OriginalSourceProducers == nil {
+			return "", ErrOriginalSourceProducerHold
+		}
+		expected := *s.originalSourceBirth
+		for index := range expected {
+			expected[index].BornAt = record.NetBirdMaterial.BornAt
+		}
+		if !sameOriginalSourceValue(expected, record.OriginalSourceProducers) {
+			return "", ErrOriginalSourceProducerHold
+		}
+	}
 	if err := record.validate(); err != nil {
 		return "", err
 	}
@@ -101,6 +123,9 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 			return "", err
 		}
 		if err := record.retainNetBirdMaterial(previous); err != nil {
+			return "", err
+		}
+		if err := record.retainOriginalSourceProducers(previous); err != nil {
 			return "", err
 		}
 		if err := previous.retainOCIRIssuances(record); err != nil {
@@ -151,6 +176,9 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 }
 
 func (r FoundationRecord) validate() error {
+	if err := r.validateOriginalSourceProducers(); err != nil {
+		return err
+	}
 	if err := r.validateNetBirdMaterial(); err != nil {
 		return err
 	}

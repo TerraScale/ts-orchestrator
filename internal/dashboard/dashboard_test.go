@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/json/v2"
-	"errors"
 	"html"
 	"io"
 	"net/http"
@@ -153,37 +152,6 @@ func TestEveryPageRendersProviderData(t *testing.T) {
 		if response.Header().Get("X-Frame-Options") != "DENY" || response.Header().Get("Cache-Control") != "no-store" {
 			t.Errorf("GET %s lacks hardening headers", path)
 		}
-	}
-}
-
-func TestPagesRenderWithoutProviders(t *testing.T) {
-	t.Parallel()
-	handler := newTestDashboard(Options{}).Handler()
-	for _, page := range pages {
-		response := get(t, handler, page.href())
-		if response.Code != http.StatusOK {
-			t.Fatalf("GET %s = %d", page.href(), response.Code)
-		}
-		if body := response.Body.String(); !strings.Contains(body, "still starting") {
-			t.Errorf("GET %s does not explain the missing providers", page.href())
-		}
-	}
-}
-
-func TestPagesExplainFailingProviders(t *testing.T) {
-	t.Parallel()
-	dashboard := newTestDashboard(Options{Health: readyHealth(false),
-		Snapshots: fixedSnapshots{err: errors.New("boom")},
-		Cluster:   fixedCluster{err: errors.New("no responders")}})
-	body := get(t, dashboard.Handler(), "/").Body.String()
-	for _, want := range []string{"snapshot is unavailable", "cell-wide view is unavailable",
-		"nats: regional broker is not connected", "not ready"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("overview lacks %q", want)
-		}
-	}
-	if strings.Contains(body, "boom") || strings.Contains(body, "no responders") {
-		t.Error("overview leaked raw provider error text")
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -177,6 +178,43 @@ func TestMetricDashboardMissingProviderHTTP(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	if err != nil || response.StatusCode != http.StatusOK || !strings.Contains(string(body), "metric catalog provider is not attached") {
 		t.Fatalf("missing provider: status=%d err=%v body=%s", response.StatusCode, err, body)
+	}
+	read := func(server *httptest.Server, path string) string {
+		t.Helper()
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := server.Client().Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		body, err := io.ReadAll(response.Body)
+		if err != nil || response.StatusCode != http.StatusOK {
+			t.Fatalf("GET %s: status=%d err=%v body=%s", path, response.StatusCode, err, body)
+		}
+		return string(body)
+	}
+	for _, page := range pages {
+		if body := read(server, page.href()); !strings.Contains(body, "still starting") {
+			t.Errorf("GET %s does not explain the missing providers", page.href())
+		}
+	}
+	failing := newTestDashboard(Options{Health: readyHealth(false),
+		Snapshots: fixedSnapshots{err: errors.New("boom")},
+		Cluster:   fixedCluster{err: errors.New("no responders")}})
+	failedServer := httptest.NewServer(failing.Handler())
+	t.Cleanup(failedServer.Close)
+	failedBody := read(failedServer, "/")
+	for _, want := range []string{"snapshot is unavailable", "cell-wide view is unavailable",
+		"nats: regional broker is not connected", "not ready"} {
+		if !strings.Contains(failedBody, want) {
+			t.Errorf("overview lacks %q", want)
+		}
+	}
+	if strings.Contains(failedBody, "boom") || strings.Contains(failedBody, "no responders") {
+		t.Error("overview leaked raw provider error text")
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/identity"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/registry/pullauth"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
@@ -90,8 +91,12 @@ func (a *issuerAttempt) ensureCredential(ctx context.Context, user identity.User
 			return ErrIssuer
 		}
 		scope := PullScope{RegistryHost: a.issuer.host, Repository: a.issuer.scope.Intent().RegistryNamespace + "/" + a.issuer.scope.Intent().RepositoryName}
-		credential, err := decodePull(current.Value(), scope)
-		if err != nil || credential.username != a.issuer.scope.Intent().RegistryNamespace+"/"+text(user.Name) {
+		credential, err := pullauth.DecodePull(current.Value(), scope)
+		if err != nil {
+			return ErrIssuer
+		}
+		username, _, err := credential.ForHost(scope.RegistryHost)
+		if err != nil || username != a.issuer.scope.Intent().RegistryNamespace+"/"+text(user.Name) {
 			return ErrIssuer
 		}
 		tokens, err := a.tokens(ctx)

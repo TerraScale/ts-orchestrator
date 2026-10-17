@@ -171,6 +171,7 @@ func newFoundationProvisionFixture(t *testing.T) foundationProvisionFixture {
 	for index := range prepared.Grant.Regions {
 		material := *prepared.Grant.Regions[index].BootstrapMaterial
 		material.AdmissionAttestor = nil
+		material.OriginalSourceProducer = nil
 		prepared.Grant.Regions[index].BootstrapMaterial = &material
 		if manager := prepared.Grant.Regions[index].NetBirdManager; manager != nil {
 			legacy := *manager
@@ -471,10 +472,101 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 			t.Fatalf("prepared region lacks exact dedicated attestor authorization: %v", err)
 		}
 	}
+	user, err := fixture.provider.UserOCID()
+	tenancy, tenancyErr := fixture.provider.TenancyOCID()
+	if err != nil || tenancyErr != nil || tenancy != prepared.Grant.TenancyID {
+		t.Fatal("producer preparation lost the genuine original provider user/tenancy")
+	}
+	for _, regional := range prepared.Grant.Regions {
+		purpose := regional.BootstrapMaterial.OriginalSourceProducer
+		if purpose == nil || purpose.OriginalUserID != user || purpose.TenancyID != tenancy || purpose.OriginalUserID != prepared.Grant.Regions[0].NetBirdManager.Material.Context.ProducerUserID {
+			t.Fatal("producer purpose did not bind the same authenticated original NetBird user")
+		}
+	}
+	t.Run("producer digest graph", func(t *testing.T) {
+		for _, regional := range prepared.Grant.Regions {
+			withPurpose, err := FoundationIntentDigest(regional)
+			if err != nil {
+				t.Fatal(err)
+			}
+			material := *regional.BootstrapMaterial
+			withoutPurpose := regional
+			withoutPurpose.BootstrapMaterial = &material
+			material.OriginalSourceProducer = nil
+			upstream := func(intent FoundationIntent) []byte {
+				m := intent.BootstrapMaterial
+				wire, err := json.Marshal(map[string]any{
+					"C": m.Config, "P": m.Startup.Profiles, "R": m.Startup,
+					"B": prepared.Grant.InfrastructureSpend.Bootstrap, "L": m.SourceRegistration,
+					"G": prepared.Grant.WorkloadGenesis, "A": m.AdmissionAttestor,
+				}, json.Deterministic(true))
+				if err != nil {
+					t.Fatal(err)
+				}
+				return wire
+			}
+			without, err := FoundationIntentDigest(withoutPurpose)
+			if err != nil || without == withPurpose || !bytes.Equal(upstream(withoutPurpose), upstream(regional)) {
+				t.Fatal("attaching sibling Q changed an upstream C/P/R/B/L/G/A byte or failed to change the parent")
+			}
+			recomputed, err := originalSourceProducerIntent(prepared.Grant, fixture.approval.HomeStorageDomain, withoutPurpose)
+			if err != nil || !sameOriginalSourceValue(recomputed, regional.BootstrapMaterial.OriginalSourceProducer) {
+				t.Fatalf("Q derivation consumed its own parent or sibling purpose: %v", err)
+			}
+			p, err := ControllerBootstrapProfileDigest(recomputed.Profile)
+			r, recipeErr := ControllerBootstrapRecipeDigest(*material.Startup)
+			config, configErr := json.Marshal(material.Config, json.Deterministic(true))
+			registration, registrationErr := json.Marshal(material.SourceRegistration, json.Deterministic(true))
+			attestor, attestorErr := json.Marshal(material.AdmissionAttestor, json.Deterministic(true))
+			if err != nil || recipeErr != nil || configErr != nil || registrationErr != nil || attestorErr != nil || p != recomputed.Allocation.ProfileSHA256 || r != recomputed.Allocation.RecipeSHA256 || preparationDigest(config) != recomputed.PlanSHA256 || preparationDigest(registration) != recomputed.SourceRegistrationSHA256 || preparationDigest(attestor) != recomputed.AdmissionAuthorizationSHA256 {
+				t.Fatal("Q did not preserve the actual typed upstream projection digests")
+			}
+			wire, err := json.Marshal(regional.BootstrapMaterial.OriginalSourceProducer, json.Deterministic(true))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, field := range []string{"bootstrapMaterialSha256", "foundationIntentSha256", "foundationGrantSha256", "retainedBundleSha256"} {
+				var object map[string]any
+				if err := json.Unmarshal(wire, &object); err != nil {
+					t.Fatal(err)
+				}
+				object[field] = withPurpose
+				backedge, err := json.Marshal(object, json.Deterministic(true))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var actual OriginalSourceProducerIntent
+				if json.Unmarshal(backedge, &actual, json.RejectUnknownMembers(true)) == nil {
+					t.Fatalf("actual typed producer parser accepted forbidden parent backedge %s", field)
+				}
+			}
+		}
+	})
 	bundle := signProvisionFoundation(t, prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
 	if err := VerifyFoundationProvisionBundle(t.Context(), fixture.roots, bundle); err != nil {
 		t.Fatalf("original root-signed prospective founding grant: %v", err)
 	}
+	t.Run("signed document without prospective purpose", func(t *testing.T) {
+		var old FoundationPreparation
+		wire, err := json.Marshal(prepared)
+		if err != nil || json.Unmarshal(wire, &old) != nil {
+			t.Fatal("clone original document")
+		}
+		for index := range old.Grant.Regions {
+			old.Grant.Regions[index].BootstrapMaterial.OriginalSourceProducer = nil
+		}
+		previous := signProvisionFoundation(t, old, bundle.RootChainWire, fixture.root, fixture.now)
+		resolver, err := verifyRetainedFoundation(t.Context(), previous, fixture.roots)
+		if err != nil {
+			t.Fatalf("historical schema3 document validation changed: %v", err)
+		}
+		for _, cell := range []string{"GRU", "SFO", "FRA"} {
+			proof, err := resolver.Footprint.(*SignedFootprint).OriginalSourceProducer(t.Context(), cell)
+			if err == nil || proof.IsVerified() {
+				t.Fatal("already signed schema3 gained retrofitted producer purpose")
+			}
+		}
+	})
 	_, foreignRoot, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -494,6 +586,49 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 		"different home store": func(grant *FoundationGrant) { grant.WorkloadGenesis[0].Namespace = "other" },
 		"mixed historical migration": func(grant *FoundationGrant) {
 			grant.ReleaseAuthorities[0].SequenceMigrationWire = []byte("test-only conflicting migration input")
+		},
+		"signed schema3 without producer purpose": func(grant *FoundationGrant) {
+			for index := range grant.Regions {
+				grant.Regions[index].BootstrapMaterial.OriginalSourceProducer = nil
+			}
+		},
+		"producer digest in config": func(grant *FoundationGrant) {
+			wire, err := json.Marshal(grant.Regions[0].BootstrapMaterial.OriginalSourceProducer, json.Deterministic(true))
+			if err != nil {
+				t.Fatal(err)
+			}
+			grant.Regions[0].BootstrapMaterial.PlanSHA256 = preparationDigest(wire)
+		},
+		"producer digest in source registration": func(grant *FoundationGrant) {
+			wire, err := json.Marshal(grant.Regions[0].BootstrapMaterial.OriginalSourceProducer, json.Deterministic(true))
+			if err != nil {
+				t.Fatal(err)
+			}
+			grant.Regions[0].BootstrapMaterial.SourceRegistration.PlanSHA256 = preparationDigest(wire)
+		},
+		"producer digest in attestor": func(grant *FoundationGrant) {
+			wire, err := json.Marshal(grant.Regions[0].BootstrapMaterial.OriginalSourceProducer, json.Deterministic(true))
+			if err != nil {
+				t.Fatal(err)
+			}
+			grant.Regions[0].BootstrapMaterial.AdmissionAttestor.SourceRegistrationSHA256 = preparationDigest(wire)
+		},
+		"missing producer purpose": func(grant *FoundationGrant) { grant.Regions[0].BootstrapMaterial.OriginalSourceProducer = nil },
+		"foreign producer user": func(grant *FoundationGrant) {
+			grant.Regions[0].BootstrapMaterial.OriginalSourceProducer.OriginalUserID = "ocid1.user.oc1..foreign"
+		},
+		"foreign producer selection": func(grant *FoundationGrant) {
+			grant.Regions[0].BootstrapMaterial.OriginalSourceProducer.Profile.SubnetOCID = "ocid1.subnet.oc1.sa-saopaulo-1.unproven"
+		},
+		"foreign producer source": func(grant *FoundationGrant) {
+			grant.Regions[0].BootstrapMaterial.OriginalSourceProducer.SourceObject += ".foreign"
+		},
+		"parent recipe backedge": func(grant *FoundationGrant) {
+			parent, err := FoundationIntentDigest(grant.Regions[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			grant.Regions[0].BootstrapMaterial.OriginalSourceProducer.Allocation.RecipeSHA256 = parent
 		},
 		"missing material purpose": func(grant *FoundationGrant) { grant.Regions[0].NetBirdManager.Material = nil },
 		"foreign material producer": func(grant *FoundationGrant) {
@@ -581,6 +716,145 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 		t.Fatalf("identical origin replay initialized a runtime or changed the startup refusal: %v", err)
 	}
 	fixture.assertMaterial(t)
+	t.Run("original producer birth retention", func(t *testing.T) {
+		client, err := fixture.factoryFor().ObjectStorage()
+		if err != nil {
+			t.Fatal(err)
+		}
+		store, err := NewObjectFoundationStore(&client, fixture.approval.HomeStorageDomain.Namespace, fixture.approval.HomeStorageDomain.HeadBucket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := fixture.cloud.objectPath("gru-1-head/" + foundationObjectPrefix + "GRU.json")
+		original, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, mutate := range map[string]func(*FoundationRecord){
+			"remove array": func(r *FoundationRecord) { r.OriginalSourceProducers = nil },
+			"remove GRU":   func(r *FoundationRecord) { r.OriginalSourceProducers[0] = OriginalSourceProducerBirth{} },
+			"remove SFO":   func(r *FoundationRecord) { r.OriginalSourceProducers[1] = OriginalSourceProducerBirth{} },
+			"remove FRA":   func(r *FoundationRecord) { r.OriginalSourceProducers[2] = OriginalSourceProducerBirth{} },
+			"replace user": func(r *FoundationRecord) {
+				r.OriginalSourceProducers[0].Intent.OriginalUserID = "ocid1.user.oc1..foreign"
+			},
+			"replace original grant":      func(r *FoundationRecord) { r.OriginalSourceProducers[0].OriginalGrantSHA256 = strings.Repeat("a", 64) },
+			"replace original bundle":     func(r *FoundationRecord) { r.OriginalSourceProducers[0].OriginalBundleSHA256 = strings.Repeat("a", 64) },
+			"replace original generation": func(r *FoundationRecord) { r.OriginalSourceProducers[0].OriginalGeneration++ },
+			"replace original operation": func(r *FoundationRecord) {
+				r.OriginalSourceProducers[0].OriginalOperationID = r.OriginalSourceProducers[0].Intent.OperationID
+			},
+			"replace original time": func(r *FoundationRecord) {
+				r.OriginalSourceProducers[0].BornAt = r.OriginalSourceProducers[0].BornAt.Add(time.Second)
+			},
+			"replace slot": func(r *FoundationRecord) {
+				r.OriginalSourceProducers[0].Intent.Allocation.SlotID = r.OriginalSourceProducers[1].Intent.Allocation.SlotID
+			},
+			"replace signed selection": func(r *FoundationRecord) {
+				r.OriginalSourceProducers[0].Intent.Profile.SubnetOCID = "ocid1.subnet.oc1.sa-saopaulo-1.unproven"
+			},
+			"replace selection digest": func(r *FoundationRecord) {
+				r.OriginalSourceProducers[0].Intent.ResourceSelectionsSHA256 = strings.Repeat("a", 64)
+			},
+			"replace finite budget":        func(r *FoundationRecord) { r.OriginalSourceProducers[0].Intent.Allocation.MonthlyLimitMinor++ },
+			"replace source":               func(r *FoundationRecord) { r.OriginalSourceProducers[0].Intent.SourceObject += ".foreign" },
+			"replace escrow":               func(r *FoundationRecord) { r.OriginalSourceProducers[0].Intent.Escrow.KMSKeyOCID += ".foreign" },
+			"replace original head bucket": func(r *FoundationRecord) { r.OriginalSourceProducers[0].HeadBucketID += ".foreign" },
+			"replace original origin":      func(r *FoundationRecord) { r.OriginalSourceProducers[0].OriginObjects[0] += ".foreign" },
+			"erase both purposes": func(r *FoundationRecord) {
+				r.OriginalSourceProducers = nil
+				r.NetBirdMaterial = nil
+				r.Stage = "blocked"
+				r.BlockedReason = "foundation-unavailable"
+			},
+		} {
+			record, etag, err := store.Load(t.Context(), "GRU")
+			if err != nil {
+				t.Fatal(err)
+			}
+			mutate(&record)
+			// Rehashing a modified scope cannot replace its immutable original.
+			if record.OriginalSourceProducers != nil {
+				for index := range record.OriginalSourceProducers {
+					wire, err := json.Marshal(record.OriginalSourceProducers[index].Intent, json.Deterministic(true))
+					if err != nil {
+						t.Fatal(err)
+					}
+					record.OriginalSourceProducers[index].IntentSHA256 = preparationDigest(wire)
+				}
+			}
+			if _, err := store.CompareAndSwap(t.Context(), record, etag); err == nil {
+				t.Fatalf("protected CAS accepted producer birth reset: %s", name)
+			}
+			retained, err := os.ReadFile(path)
+			if err != nil || !bytes.Equal(retained, original) {
+				t.Fatal("refused producer reset changed protected bytes")
+			}
+		}
+		for _, failure := range []string{"NetBird-only birth", "partial birth", "foreign birth", "erased birth"} {
+			t.Run(failure, func(t *testing.T) {
+				defer fixture.cloud.writeObject("gru-1-head/"+foundationObjectPrefix+"GRU.json", original)
+				var record FoundationRecord
+				if err := json.Unmarshal(original, &record); err != nil {
+					t.Fatal(err)
+				}
+				switch failure {
+				case "NetBird-only birth":
+					record.OriginalSourceProducers = nil
+				case "partial birth":
+					record.OriginalSourceProducers[1] = OriginalSourceProducerBirth{}
+				case "foreign birth":
+					record.OriginalSourceProducers[0].Intent.OriginalUserID = "ocid1.user.oc1..foreign"
+				}
+				wire, err := json.Marshal(record, json.Deterministic(true))
+				if err != nil {
+					t.Fatal(err)
+				}
+				fixture.cloud.writeObject("gru-1-head/"+foundationObjectPrefix+"GRU.json", wire)
+				if failure == "erased birth" {
+					if err := os.Remove(path); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					var complete FoundationRecord
+					if err := json.Unmarshal(original, &complete); err != nil {
+						t.Fatal(err)
+					}
+					if _, err := store.CompareAndSwap(t.Context(), complete, digestSource(wire)); err == nil {
+						t.Fatal("existing missing/foreign scope accepted a post-origin retrofit")
+					}
+				}
+				posts := fixture.cloud.materialPosts
+				if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); err == nil || fixture.cloud.materialPosts != posts || fixture.cloud.creates != before || fixture.cloud.launchPosts != 0 || fixture.cloud.hasAnchor() {
+					t.Fatalf("missing/partial/foreign/erased original producer birth regenerated or progressed: %v", err)
+				}
+				retained, readErr := os.ReadFile(path)
+				if failure == "erased birth" {
+					if !errors.Is(readErr, os.ErrNotExist) {
+						t.Fatal("retained origins permitted recreation of erased birth")
+					}
+				} else if readErr != nil || !bytes.Equal(retained, wire) {
+					t.Fatal("HOLD rewrote established incomplete birth")
+				}
+			})
+		}
+	})
+	t.Run("uncertain original producer birth", func(t *testing.T) {
+		fixture := newFoundationProvisionFixture(t)
+		bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
+		fixture.cloud.bundle, fixture.cloud.lostProducerBirth = bundle, true
+		if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); err == nil || fixture.cloud.materialPosts != 0 || fixture.cloud.launchPosts != 0 {
+			t.Fatalf("unknown original birth outcome progressed: %v", err)
+		}
+		original := fixture.cloud.journal("GRU").OriginalSourceProducers
+		if original == nil {
+			t.Fatal("accepted unknown CAS lost complete original array")
+		}
+		if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) || !sameOriginalSourceValue(original, fixture.cloud.journal("GRU").OriginalSourceProducers) {
+			t.Fatalf("unknown original birth was recreated or startup opened: %v", err)
+		}
+		fixture.assertMaterial(t)
+	})
 	t.Run("original material recovery and refusal", foundationNetBirdMaterialSDKScenario)
 	t.Run("independent historical operator", func(t *testing.T) {
 		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -613,6 +887,15 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 		proof, err := resolver.Footprint.(*SignedFootprint).AdmissionAttestor(t.Context(), cell)
 		if err != nil || !proof.IsVerified() || proof.Authorization() != *regional.BootstrapMaterial.AdmissionAttestor {
 			t.Fatalf("original root document did not produce its exact %s authorization: %v", cell, err)
+		}
+		producer, err := resolver.Footprint.(*SignedFootprint).OriginalSourceProducer(t.Context(), cell)
+		if err != nil || !producer.IsVerified() || !sameOriginalSourceValue(producer.Intent(), regional.BootstrapMaterial.OriginalSourceProducer) {
+			t.Fatalf("original document lost exact prospective producer purpose for %s: %v", cell, err)
+		}
+		// Signed logical subnet references remain unresolved: document permission
+		// cannot manufacture physical bindings, actors or current material.
+		if !strings.HasPrefix(producer.Intent().Profile.SubnetOCID, "foundation:") {
+			t.Fatal("metadata fixture unexpectedly substituted a physical subnet identity")
 		}
 		if selected, err := proof.OriginalBinding(t.Context(), nil); err == nil || selected.IsVerified() {
 			t.Fatal("document-only proof inferred a protected original actor/source binding")
@@ -692,6 +975,7 @@ type provisionCloud struct {
 	launches                       map[string]string
 	tariff                         float64
 	lostLaunch, lostPolicy         bool
+	lostProducerBirth              bool
 	lostOrigin                     bool
 	requests, creates, launchPosts int
 }
@@ -888,6 +1172,9 @@ func foundationNetBirdMaterialSDKScenario(t *testing.T) {
 		record := fixture.cloud.journal("GRU")
 		record.StartedAt = time.Now().Add(-25 * time.Hour).UTC()
 		record.NetBirdMaterial.BornAt = record.StartedAt
+		for index := range record.OriginalSourceProducers {
+			record.OriginalSourceProducers[index].BornAt = record.StartedAt
+		}
 		record.NetBirdMaterial.Creates[0].FirstDispatchedAt = time.Now().Add(-24 * time.Hour).UTC()
 		wire, err := json.Marshal(record, json.Deterministic(true))
 		if err != nil {
@@ -912,6 +1199,9 @@ func foundationNetBirdMaterialSDKScenario(t *testing.T) {
 		record := fixture.cloud.journal("GRU")
 		record.StartedAt = time.Now().Add(-25 * time.Hour).UTC()
 		record.NetBirdMaterial.BornAt = record.StartedAt
+		for index := range record.OriginalSourceProducers {
+			record.OriginalSourceProducers[index].BornAt = record.StartedAt
+		}
 		for index := range record.NetBirdMaterial.Creates {
 			record.NetBirdMaterial.Creates[index].FirstDispatchedAt = time.Now().Add(-24 * time.Hour).UTC()
 		}
@@ -1586,8 +1876,33 @@ func (c *provisionCloud) serveStorage(w http.ResponseWriter, r *http.Request) {
 			if birth.Stage != "material" || birth.NetBirdMaterial == nil || birth.NetBirdMaterial.BornAt.IsZero() || c.materialPosts != 0 {
 				c.test.Fatal("first immutable origin effect preceded protected material birth or followed Vault generation")
 			}
+			if birth.OriginalSourceProducers == nil || birth.validateOriginalSourceProducers() != nil {
+				c.test.Fatal("first origin preceded the complete same-CAS original producer birth")
+			}
+			grant, err := decodeOriginalMaterialGrant(c.bundle)
+			retained, marshalErr := json.Marshal(c.bundle, json.Deterministic(true))
+			if err != nil || marshalErr != nil {
+				c.test.Fatal("origin fixture lost exact signed original producer lineage")
+			}
+			for _, original := range birth.OriginalSourceProducers {
+				matched := false
+				for _, regional := range grant.Regions {
+					if regional.Plan["cell"] == original.Intent.Cell {
+						matched = sameOriginalSourceValue(original.Intent, regional.BootstrapMaterial.OriginalSourceProducer)
+					}
+				}
+				if !matched || original.OriginalGrantSHA256 != preparationDigest(c.bundle.GrantWire) || original.OriginalBundleSHA256 != preparationDigest(retained) {
+					c.test.Fatal("pre-origin producer birth differs from original signed purpose or retained bytes")
+				}
+			}
 		}
 		c.writeObject(bucket+"/"+object, wire)
+		if object == foundationObjectPrefix+"GRU.json" && readErr != nil && c.lostProducerBirth {
+			c.lostProducerBirth = false
+			w.WriteHeader(http.StatusServiceUnavailable)
+			io.WriteString(w, `{"code":"InternalError","message":"accepted original birth response lost"}`)
+			return
+		}
 		if strings.HasPrefix(object, "orchestrator/workload-genesis/v1/") && c.lostOrigin {
 			c.lostOrigin = false
 			w.WriteHeader(http.StatusServiceUnavailable)
