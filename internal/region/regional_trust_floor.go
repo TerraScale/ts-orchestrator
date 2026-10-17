@@ -33,19 +33,24 @@ type VerifiedRegionalTrustFloor struct {
 // OpenRegionalTrustFloor authenticates the signed regional scope and existing
 // protected original source without inventing a manager AcceptedIdentity.
 func OpenRegionalTrustFloor(ctx context.Context, factory *ociclient.Factory, genesis trust.Keyring, cell string) (VerifiedRegionalTrustFloor, error) {
-	if ctx == nil || factory == nil || len(genesis) == 0 || !catalog.IsCell(cell) {
+	return OpenRegionalTrustFloorForOperation(ctx, ctx, time.Now().UTC().Add(30*time.Second), factory, genesis, cell)
+}
+
+// OpenRegionalTrustFloorForOperation bounds acquisition separately from the
+// original reader and material lifetime retained by the read-only proof.
+func OpenRegionalTrustFloorForOperation(ctx, original context.Context, retainedUntil time.Time, factory *ociclient.Factory, genesis trust.Keyring, cell string) (VerifiedRegionalTrustFloor, error) {
+	if factory == nil || len(genesis) == 0 || !catalog.IsCell(cell) {
 		return VerifiedRegionalTrustFloor{}, errors.New("regional trust floor requires authenticated OCI and independent roots")
 	}
+	operation, cancel, expires, err := regionalTrustFloorReadContext(ctx, original, retainedUntil)
+	if err != nil {
+		return VerifiedRegionalTrustFloor{}, err
+	}
+	defer cancel()
 	genesis = maps.Clone(genesis)
 	for id, key := range genesis {
 		genesis[id] = bytes.Clone(key)
 	}
-	expires := time.Now().UTC().Add(30 * time.Second)
-	if deadline, ok := ctx.Deadline(); ok && deadline.Before(expires) {
-		expires = deadline
-	}
-	operation, cancel := context.WithDeadline(ctx, expires)
-	defer cancel()
 	info, sourceExpiry, err := readRegionalTrustFloor(operation, factory, genesis, cell)
 	if err != nil {
 		return VerifiedRegionalTrustFloor{}, err
@@ -53,11 +58,32 @@ func OpenRegionalTrustFloor(ctx context.Context, factory *ociclient.Factory, gen
 	if sourceExpiry.Before(expires) {
 		expires = sourceExpiry
 	}
-	proof := VerifiedRegionalTrustFloor{ctx: ctx, factory: factory, genesis: genesis, info: info, expires: expires}
+	operation, stopSource := context.WithDeadline(operation, expires)
+	defer stopSource()
+	proof := VerifiedRegionalTrustFloor{ctx: original, factory: factory, genesis: genesis, info: info, expires: expires}
 	if err := proof.Guard(operation); err != nil {
 		return VerifiedRegionalTrustFloor{}, err
 	}
 	return proof, nil
+}
+
+func regionalTrustFloorReadContext(ctx, original context.Context, retainedUntil time.Time) (context.Context, context.CancelFunc, time.Time, error) {
+	if ctx == nil || original == nil || retainedUntil.IsZero() || !time.Now().Before(retainedUntil) {
+		return nil, nil, time.Time{}, errors.New("regional trust floor requires its original current reader and material lifetime")
+	}
+	if err := errors.Join(ctx.Err(), original.Err()); err != nil {
+		return nil, nil, time.Time{}, err
+	}
+	expires := time.Now().UTC().Add(30 * time.Second)
+	if retainedUntil.Before(expires) {
+		expires = retainedUntil
+	}
+	if deadline, ok := original.Deadline(); ok && deadline.Before(expires) {
+		expires = deadline
+	}
+	operation, cancel := context.WithDeadline(ctx, expires)
+	stop := context.AfterFunc(original, cancel)
+	return operation, func() { stop(); cancel() }, expires, nil
 }
 
 func (proof VerifiedRegionalTrustFloor) Info() RegionalTrustFloorInfo {
