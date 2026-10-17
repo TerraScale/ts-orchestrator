@@ -33,6 +33,7 @@ type sourceState struct {
 	factory  *ociclient.Factory
 	objects  objectstorage.ObjectStorageClient
 	ctx      context.Context
+	guard    func(context.Context) error
 }
 
 func (b *Backend) source(ctx context.Context, call rootoci.Call) (sourceState, error) {
@@ -117,7 +118,7 @@ func (b *Backend) source(ctx context.Context, call rootoci.Call) (sourceState, e
 	if err != nil {
 		return sourceState{}, err
 	}
-	state := sourceState{source: source, founder: founder, grant: grant, resolver: resolver, factory: factory, objects: objects, ctx: guarded}
+	state := sourceState{source: source, founder: founder, grant: grant, resolver: resolver, factory: factory, objects: objects, ctx: guarded, guard: guard}
 	target, err := b.target(guarded, resolver)
 	if err != nil {
 		return sourceState{}, err
@@ -127,6 +128,9 @@ func (b *Backend) source(ctx context.Context, call rootoci.Call) (sourceState, e
 		return sourceState{}, err
 	}
 	if _, err := source.Provision(guarded, target, management, bundles, time.Now().UTC()); err != nil {
+		return sourceState{}, err
+	}
+	if err := guard(guarded); err != nil {
 		return sourceState{}, err
 	}
 	state.material, err = source.InstallMaterial(guarded)
@@ -165,7 +169,7 @@ func (b *Backend) EnsureSource(ctx context.Context, call rootoci.Call, request r
 			}
 		}
 	}
-	if err := b.guard(state.ctx, call); err != nil {
+	if err := state.guard(state.ctx); err != nil {
 		return rootoci.SourceReceipt{}, err
 	}
 	return rootoci.SourceReceipt{Cell: b.cell, Kind: request.Kind, RecipientCell: request.RecipientCell,
@@ -326,7 +330,7 @@ func (b *Backend) InitialMaterial(ctx context.Context, call rootoci.Call) (mater
 	if err != nil {
 		return materialsource.VerifiedColdStartMaterial{}, bootstrap.VerifiedStartupLink{}, bootstrapstart.VerifiedSourceFounder{}, err
 	}
-	if err := b.guard(state.ctx, call); err != nil {
+	if err := state.guard(state.ctx); err != nil {
 		return materialsource.VerifiedColdStartMaterial{}, bootstrap.VerifiedStartupLink{}, bootstrapstart.VerifiedSourceFounder{}, err
 	}
 	return state.material, proof, state.founder, nil
@@ -344,5 +348,5 @@ func (b *Backend) PrepareSeedLedger(ctx context.Context, call rootoci.Call, auth
 	if _, err := state.source.InstallMaterial(state.ctx); err != nil {
 		return err
 	}
-	return b.guard(state.ctx, call)
+	return state.guard(state.ctx)
 }
