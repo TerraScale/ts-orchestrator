@@ -547,6 +547,9 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	if _, err := restoredHosts.ApplyDesired(ctx, reopened); err == nil {
 		t.Fatal("controller replacement reopened permanently fenced native ownership")
 	}
+	// Native ownership is complete; the container phase uses the production session-only lifecycle.
+	session.stop(t)
+	session.start(t, ctx, (*host.Agent).RunSession)
 	serviceID := listed.Services[0].ID
 	altered := intent.Clone()
 	altered.Container.Sequence = nil
@@ -799,7 +802,7 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	if err := controller.refresh(ctx); err == nil || len(controller.scaler.Last()) != 0 {
 		t.Fatalf("ended authenticated session retained scaling authority: %+v %v", controller.scaler.Last(), err)
 	}
-	session.start(t, ctx)
+	session.start(t, ctx, (*host.Agent).RunSession)
 	ready(2)
 	if err := controller.refresh(ctx); err != nil {
 		t.Fatal(err)
@@ -1372,12 +1375,12 @@ func startGenericRuntimeHostSession(t *testing.T, ctx context.Context, auth *aut
 		Environment: environment, Roles: registration.Roles, Conn: transport.Conn(), Identity: private, NATSUserPublicKey: nkey, ControllerPublicKey: responsePublic,
 		Runner: nativeRunner, TaskLoad: taskLoad, PollInterval: 100 * time.Millisecond, InstallRoot: testHostInstallRoot(t), StateRoot: testHostStateRoot(t), WorkloadIdentity: testHostWorkloadIdentity(),
 		ClockCheck: func() error { return nil }}}
-	session.start(t, ctx)
+	session.start(t, ctx, (*host.Agent).Run)
 	t.Cleanup(func() { session.stop(t) })
 	return session
 }
 
-func (session *genericRuntimeHostSession) start(t *testing.T, ctx context.Context) {
+func (session *genericRuntimeHostSession) start(t *testing.T, ctx context.Context, run func(*host.Agent, context.Context) error) {
 	t.Helper()
 	ready := make(chan struct{})
 	config := session.config
@@ -1391,15 +1394,13 @@ func (session *genericRuntimeHostSession) start(t *testing.T, ctx context.Contex
 	session.mu.Lock()
 	session.agent, session.ctx, session.cancel, session.done = agent, runCtx, cancel, done
 	session.mu.Unlock()
-	go func() { done <- agent.RunSession(runCtx) }()
+	go func() { done <- run(agent, runCtx) }()
 	select {
 	case <-ready:
 	case <-ctx.Done():
 		t.Fatal("signed host session did not initialize: ", ctx.Err())
 	}
-	if err := session.verify(ctx); err != nil {
-		t.Fatal(err)
-	}
+	genericRuntimeEventually(t, ctx, func() bool { return session.verify(ctx) == nil })
 }
 
 func (session *genericRuntimeHostSession) stop(t *testing.T) {
