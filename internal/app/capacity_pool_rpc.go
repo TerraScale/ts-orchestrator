@@ -99,15 +99,15 @@ type rootPoolBackend struct {
 
 // newRootCapacityBackend always constructs the real regional observer. Home
 // alone mutates the protected capacity ledger; spokes use the existing home RPC.
-func newRootCapacityBackend(ctx context.Context, factory *ociclient.Factory, resolver region.FoundationResolver) (*rootPoolBackend, error) {
-	if factory == nil {
+func newRootCapacityBackend(ctx context.Context, factory *ociclient.Factory, resolver region.FoundationResolver, homeAuthority *region.HomeIAMAuthority) (*rootPoolBackend, error) {
+	if factory == nil || homeAuthority == nil {
 		return nil, rootoci.ErrInvalid
 	}
 	cell, found := catalog.CellForOCIRegion(factory.Region())
 	if !found {
 		return nil, rootoci.ErrInvalid
 	}
-	local, err := rootcapacity.New(ctx, factory, resolver)
+	local, err := rootcapacity.New(ctx, factory, resolver, homeAuthority)
 	if err != nil {
 		return nil, err
 	}
