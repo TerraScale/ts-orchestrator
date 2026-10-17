@@ -21,10 +21,12 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/capacityledger"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/globalcontrol"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/capacityinventory"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
@@ -423,6 +425,11 @@ func TestReservationLedgerSurvivesPeriodicWritesThroughHomeCAS(t *testing.T) {
 	second.OperationID = entityid.New()
 	second.GrantGeneration, second.ResolvedScopeSHA256, second.BindingSHA256, second.QuoteSHA256 = 1, strings.Repeat("d", 64), strings.Repeat("e", 64), strings.Repeat("f", 64)
 	second.Currency, second.TenancyID = "USD", "ocid1.tenancy.oc1..integration"
+	original := capacityledger.Quote{ScopeSHA256: second.ResolvedScopeSHA256, Cell: second.Cell, CompartmentID: second.CompartmentID,
+		Shape: second.Shape, Currency: second.Currency, OCPUs: second.OCPUs, MemoryGB: second.MemoryGB, BootGB: second.BootGB,
+		MonthlyCents: second.MonthlyCents, IssuedAt: second.IssuedAt, ExpiresAt: second.IssuedAt.Add(2 * time.Minute),
+		Prices: []ocicost.Price{{SKU: "B91961", PerUnit: 0}, {SKU: "B91962", PerUnit: 0}, {SKU: "B93297", PerUnit: 3.0 / (2 * 744)}, {SKU: "B93298", PerUnit: 0}}}
+	second.OriginalQuote, second.QuoteSHA256 = new(original), original.SHA256()
 	go func() {
 		<-start
 		results <- appendCommitment(second)
@@ -461,6 +468,12 @@ func TestReservationLedgerSurvivesPeriodicWritesThroughHomeCAS(t *testing.T) {
 		for _, receipt := range stored.Reservations {
 			if receipt.OperationID == second.OperationID && (receipt.GrantGeneration != second.GrantGeneration || receipt.ResolvedScopeSHA256 != second.ResolvedScopeSHA256 || receipt.BindingSHA256 != second.BindingSHA256 || receipt.QuoteSHA256 != second.QuoteSHA256 || receipt.Currency != second.Currency || receipt.TenancyID != second.TenancyID) {
 				t.Fatalf("periodic write replaced original authority or quote receipt metadata: %+v", receipt)
+			}
+			if receipt.OperationID == second.OperationID {
+				financial, err := receipt.FinancialReceipt()
+				if err != nil || financial.QuoteSHA256 != original.SHA256() || financial.Quote.Prices[2].PerUnit != original.Prices[2].PerUnit {
+					t.Fatalf("periodic write lost original expired tariffs: %+v err=%v", financial, err)
+				}
 			}
 			if receipt.MonthlyCents != 300 || !receipt.RetiredAt.IsZero() || len(receipt.ResourceIDs) != 0 {
 				t.Fatalf("unknown outcome was changed or retired: %+v", receipt)
