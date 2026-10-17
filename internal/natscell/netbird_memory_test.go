@@ -1,6 +1,7 @@
 package natscell
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -88,6 +89,31 @@ func TestNetBirdSingleMemoryLeaseUsesActualTLSBridgeAndEndsOnFence(t *testing.T)
 		t.Fatal(err)
 	}
 	defer clear(creds)
+	if conn, _, err := ConnectMemorySingleLease(t.Context(), "gru", "tls://first:4222,tls://second:4222", creds, clientTLS); err == nil {
+		conn.Close()
+		t.Fatal("finite reader accepted an internal endpoint fallback list")
+	}
+	// A rejected issuer still consumes the one nonce-signing attempt.
+	otherSigner, err := nkeys.CreateAccount()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer otherSigner.Wipe()
+	rejectedJWT, err := claim.Encode(otherSigner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejected, err := jwt.FormatUserConfig(rejectedJWT, seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clear(rejected)
+	if conn, _, err := ConnectMemorySingleLease(t.Context(), "gru", "tls://"+bridge.Addr().String(), rejected, clientTLS); !errors.Is(err, ErrMemorySessionLost) {
+		if conn != nil {
+			conn.Close()
+		}
+		t.Fatal("signed authentication attempt allowed endpoint fallback", err)
+	}
 	conn, lease, err := ConnectMemorySingleLease(t.Context(), "gru", "tls://"+bridge.Addr().String(), creds, clientTLS)
 	if err != nil {
 		t.Fatal(err)

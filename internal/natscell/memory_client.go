@@ -5,7 +5,9 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nats-io/jwt/v2"
@@ -13,8 +15,8 @@ import (
 	"github.com/nats-io/nkeys"
 )
 
-// ErrMemorySessionLost distinguishes an authenticated session that died while
-// opening from a dial/authentication failure that never established a session.
+// ErrMemorySessionLost ends an original session or authentication attempt.
+// A signed nonce may have reached the broker even when Connect returns an error.
 var ErrMemorySessionLost = errors.New("original authenticated in-memory NATS session was lost")
 
 // ConnectMemory authenticates without opening credential files. The caller
@@ -34,13 +36,13 @@ func ConnectMemoryLease(ctx context.Context, cell, endpoint string, credentials 
 	if err != nil {
 		return nil, nil, err
 	}
-	return connectMemoryLease(ctx, cell, endpoint, credentials, config, claim, public)
+	return connectMemoryLease(ctx, cell, endpoint, credentials, config, claim, public, false)
 }
 
 // ConnectMemorySingleLease opens the fixed dedicated-manager read role. Its
 // first disconnect ends the original session permanently.
 func ConnectMemorySingleLease(ctx context.Context, cell, endpoint string, credentials []byte, config *tls.Config) (*nats.Conn, context.Context, error) {
-	if ctx == nil || ctx.Err() != nil || len(credentials) == 0 || len(credentials) > 64<<10 {
+	if ctx == nil || ctx.Err() != nil || strings.Contains(endpoint, ",") || len(credentials) == 0 || len(credentials) > 64<<10 {
 		return nil, nil, errors.New("in-memory NATS credentials are unavailable")
 	}
 	if err := ValidateNetBirdReaderCredentialBytes(credentials, cell); err != nil {
@@ -54,7 +56,7 @@ func ConnectMemorySingleLease(ctx context.Context, cell, endpoint string, creden
 	if err != nil {
 		return nil, nil, err
 	}
-	conn, lease, err := connectMemoryLease(ctx, cell, endpoint, credentials, config, claim, claim.Subject, nats.NoReconnect(), nats.IgnoreDiscoveredServers())
+	conn, lease, err := connectMemoryLease(ctx, cell, endpoint, credentials, config, claim, claim.Subject, true, nats.NoReconnect(), nats.IgnoreDiscoveredServers())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -81,7 +83,7 @@ func ConnectMemorySingleLease(ctx context.Context, cell, endpoint string, creden
 	return conn, single, nil
 }
 
-func connectMemoryLease(ctx context.Context, cell, endpoint string, credentials []byte, config *tls.Config, claim *jwt.UserClaims, public string, options ...nats.Option) (*nats.Conn, context.Context, error) {
+func connectMemoryLease(ctx context.Context, cell, endpoint string, credentials []byte, config *tls.Config, claim *jwt.UserClaims, public string, terminalAuth bool, options ...nats.Option) (*nats.Conn, context.Context, error) {
 	if ctx == nil || ctx.Err() != nil || !cellName.MatchString(cell) || endpoint == "" || len(credentials) == 0 || len(credentials) > 64<<10 ||
 		config == nil || config.InsecureSkipVerify || config.RootCAs == nil || len(config.Certificates) != 1 || len(config.Certificates[0].Certificate) == 0 {
 		return nil, nil, errors.New("in-memory NATS credentials are unavailable")
@@ -122,6 +124,7 @@ func connectMemoryLease(ctx context.Context, cell, endpoint string, credentials 
 		return nil, nil, err
 	}
 	var mu sync.Mutex
+	var authAttempt atomic.Bool
 	cleanup := sync.OnceFunc(func() {
 		cancel()
 		mu.Lock()
@@ -158,6 +161,7 @@ func connectMemoryLease(ctx context.Context, cell, endpoint string, credentials 
 			if err := valid(); err != nil {
 				return nil, err
 			}
+			authAttempt.Store(true)
 			return pair.Sign(nonce)
 		}), nats.DisconnectErrHandler(func(conn *nats.Conn, _ error) {
 			if !conn.Opts.AllowReconnect {
@@ -167,6 +171,9 @@ func connectMemoryLease(ctx context.Context, cell, endpoint string, credentials 
 	conn, err := nats.Connect(bridgeClientURLs(endpoint), options...)
 	if err != nil {
 		cleanup()
+		if terminalAuth && authAttempt.Load() {
+			return nil, nil, errors.Join(ErrMemorySessionLost, err)
+		}
 		return nil, nil, err
 	}
 	stop := context.AfterFunc(ctx, conn.Close)
