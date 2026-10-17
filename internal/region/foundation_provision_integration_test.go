@@ -602,7 +602,7 @@ func provisionEnvelope(t *testing.T, envelope trust.Envelope) []byte {
 
 func provisionWriterProof(t *testing.T, root ed25519.PrivateKey, image release.ImageReceipt, now time.Time, objects map[string][]byte) release.ProductionProof {
 	t.Helper()
-	candidate := release.ProductionExpectation{SourceRevision: image.SourceRevision, ArtifactSHA256: image.ImageSHA256, QualificationSHA256: image.QualificationSHA256, Cell: image.OCIRegion, Environment: "production", Architecture: image.Architecture, Role: release.FoundationWriterRole, Runtime: release.ProductionRuntime}
+	candidate := release.ProductionExpectation{ImageOCID: image.OCIImageOCID, SourceRevision: image.SourceRevision, ArtifactSHA256: image.ImageSHA256, QualificationSHA256: image.QualificationSHA256, Cell: image.OCIRegion, Environment: "production", Architecture: image.Architecture, Role: release.FoundationWriterRole, Runtime: release.ProductionRuntime}
 	qualification := release.ProductionQualification{Schema: release.FoundationWriterQualificationSchema, Candidate: candidate}
 	completed := now.Add(-time.Minute)
 	for _, gate := range []string{"runtime-ha", "workload-safety", release.RootCredentialBoundaryGate} {
