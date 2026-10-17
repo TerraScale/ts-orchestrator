@@ -1,0 +1,19 @@
+{
+  "state": "SCOPED_CUSTOMER_RUNTIME_ACCEPTED",
+  "source": "67bc9eea1b118c7beff0c62914f20a53c3d3483d",
+  "tree": "e5d3f47d33441ff8b3e54a97fc98614151cd7f79",
+  "raw_event_count": 24,
+  "exact_run_and_pass_names": [
+    "TestCustomerEnvelopeFilesystemBoundary",
+    "TestCustomerEnvelopeFilesystemBoundary/Success",
+    "TestCustomerEnvelopeFilesystemBoundary/WrongRecipient",
+    "TestCustomerEnvelopeFilesystemBoundary/FlippedCiphertext",
+    "TestCustomerEnvelopeFilesystemBoundary/AlternatePartition"
+  ],
+  "source_pre_equals_post": true,
+  "manifest_checks": "Both runtime and native SHA256SUMS entries independently verified",
+  "runtime_receipt_sha256": "3c2861104770be7c406797fd91aaeaac531979d3de9e433a2b346aa7dfd020d4",
+  "producer_review_sha256": "630fe5051d6a7efe8c710f8816c2864607a7aa2387c98dd511216f75fed21bfa",
+  "native_terminal": "Owner-retained actual surfaced tool-result object present; parse inspected separately",
+  "scope": "One local customer filesystem-envelope root plus four leaves. No original retirement, canonical adoption, live or global closure."
+}

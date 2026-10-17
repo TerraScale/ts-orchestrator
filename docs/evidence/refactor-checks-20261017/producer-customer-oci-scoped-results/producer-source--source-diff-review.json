@@ -1,0 +1,41 @@
+{
+  "state": "STATIC_ONLY_NO_GO_RUN",
+  "head": "8f3e9ec45991b63e713c807cf0e0d0764dc915a3",
+  "tree": "6ec6d2d06799ab93c6fc3e2386dfe4def2749d8f",
+  "source_predecessor": "3e5036a77cfc32199ba14de01130bd2abe0de7f8",
+  "prerequisite_original": "55a64f57126fd7f4dc8f8336cf147c6af635157b",
+  "prerequisite_applied": "c5d6a0f43",
+  "owned_fix": "8f3e9ec45",
+  "changes": {
+    "deploy/oci-region/plan.json": {
+      "before_sha256": "fe222ce1b85a3eaff4c967cce7e28ef0fec57dbfa5e01d57eea8b866e214e71c",
+      "after_sha256": "b5eda8c0c08504924429bf020c467ba679db1da20dac8c14c0d0526a7fe7fa71"
+    },
+    "deploy/oci-region/sfo-1-plan.json": {
+      "before_sha256": "7965e39e40307d543fc39f0749505434f1cce949cf33d41da27f80e2f4173203",
+      "after_sha256": "c4a805840a192e0bdf0bd9d03b9ef354095b733ad95d88fc4d5a7bd4e7c953cd"
+    },
+    "internal/bootstrap/cli/foundation_preparation_integration_test.go": {
+      "before_sha256": "4f5209175bf5de25f0600df40fe8de97abf28e53f19a19c02ae185803b4fd472",
+      "after_sha256": "199036480081d3e98726ae083068cc0febe1b58a57518cd149977cea1dba6aca"
+    },
+    "internal/region/grant_preparation.go": {
+      "before_sha256": "f45bb8eb6b69462b21dc2bb3fe697421adeed2029989db3d86222667d280ac41",
+      "after_sha256": "3729e4f44621853148c7aee3f9eea27ff0ebcd33423331e214625643a030e631"
+    },
+    "scripts/oci-preview/plan.json": {
+      "before_sha256": "656f21852ba8173c19c03ce7a5ce37231bccea2a99c82c89f64c888279fb7415",
+      "after_sha256": "c1e527b68c66b9bc5cea59ff6deca7d5eaee13b00eab56fbf41a98426d0e1126"
+    }
+  },
+  "checks": [
+    "exact five paths changed",
+    "three JSON donor files byte-identical to55a",
+    "all donor architectures explicitARM64",
+    "original root and literal subcase names preserved",
+    "cleanworktree",
+    "pinnednice19gofmt",
+    "gitdiffcheck"
+  ],
+  "scope": "Complete ValidatePlan/helper static audit in linked proposal; no production validation/auth relaxation, no Go execution, no17pass claim."
+}

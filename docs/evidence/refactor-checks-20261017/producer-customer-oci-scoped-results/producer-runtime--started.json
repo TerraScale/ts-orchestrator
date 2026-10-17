@@ -1,0 +1,32 @@
+{
+  "pid": 601840,
+  "epoch": 1792210410.6745431,
+  "argv": [
+    "/run/current-system/sw/bin/nice",
+    "-n",
+    "19",
+    "/run/current-system/sw/bin/timeout",
+    "--signal=TERM",
+    "--kill-after=5s",
+    "180s",
+    "/run/current-system/sw/bin/env",
+    "-i",
+    "HOME=/home/mariogk",
+    "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "LANG=C.UTF-8",
+    "GOMAXPROCS=2",
+    "GOFLAGS=-p=2",
+    "GOTOOLCHAIN=local",
+    "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+    "test",
+    "-json",
+    "-p=1",
+    "-parallel=1",
+    "-mod=readonly",
+    "./internal/bootstrap/cli",
+    "-run",
+    "^(TestFoundationPreparationSDKToOfflineCeremony|TestFoundationCeremonyCLIRejectsUnsafeFilesWithoutOutput|TestFoundationPublicationCLIRejectsInputBeforeOCI)$",
+    "-count=1",
+    "-timeout=120s"
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "chunk_id": "fe062a",
+  "wall_time_seconds": 0.077891796,
+  "exit_code": 0,
+  "original_token_count": 234,
+  "output": "{\"native_directory\": \"/tmp/ts-customer-67bc-shortb-native-results-eahwwmpb\", \"resource_check\": {\"epoch\": 1792210611.9849682, \"available_memory_kib\": 26965980, \"available_memory_gib\": 25.71676254272461, \"load1\": 1.80908203125, \"existing_go_compiler_flows\": [], \"existing_compile_link_processes\": [], \"new_flow_count_if_started\": 1, \"new_output_absent\": true, \"old_packet_outputs_absent\": true, \"request_sha256\": \"d565a24210e89e026c474167ab8e0ae320b4f3ae149ed3d25378fd4719061dca\", \"runner_sha256\": \"1a4d19e1a02763c2bd0245a2fe40138dd741e1488307b9c0747b9b64bb8d5e8c\", \"seal_sha256\": \"0989ca8765d088f4f4e8a338ef84640f96b6a7682653cb5384b1075f520cb910\", \"manifest_sha256\": \"eb9905aac6a48f78e6b9095fc1a80a43315925406f2aa38ec4952f1ffb221c6e\", \"all_sealed_assets_match\": true, \"grant\": \"QA customer67bc treee5d3 requestd565 runner1a4d seal0989 ShortB one attempt no retries exact env-i6 nice19 timeouts pinned isolated Python\", \"pass\": true}}\n"
+}

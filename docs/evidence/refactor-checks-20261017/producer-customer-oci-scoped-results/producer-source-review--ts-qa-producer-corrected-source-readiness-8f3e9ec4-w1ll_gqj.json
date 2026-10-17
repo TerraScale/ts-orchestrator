@@ -1,0 +1,221 @@
+{
+  "kind": "independent_read_only_corrected_successor_source_and_wrapper_review",
+  "created_utc": "2026-10-17T04:09:04.851965+00:00",
+  "state": "NO_CONCRETE_STATIC_BLOCKER_BOUNDED_READINESS_ONLY_NO_EXECUTION_GRANT",
+  "candidate": {
+    "worktree": "/tmp/ts-foundation-producer-plan",
+    "base": "dd22a8d05276cf24d050384145b1c4e546a01ef0",
+    "commit": "8f3e9ec45991b63e713c807cf0e0d0764dc915a3",
+    "tree": "6ec6d2d06799ab93c6fc3e2386dfe4def2749d8f"
+  },
+  "assets_sha256": {
+    "/tmp/ts-foundation-producer-8f3-clean-source-t755eark/request.json": "c9bbb1e119927330391b0443573428d5578a4d976e5281cc1b2363052e02a5e2",
+    "/tmp/ts-foundation-producer-8f3-clean-runner-mt5kay87/run.py": "8c508c07c347c0ac68de8778b911d2ba510120451bf79f0fc41ed02df4144923",
+    "/tmp/ts-foundation-producer-8f3-clean-source-t755eark/tracked-source-manifest.json": "44a2601bfd537cfd6183873285757e00e3d5cbae946418f29ac6a0c0f48e7750",
+    "/tmp/ts-foundation-producer-8f3-clean-source-t755eark/static-closure-audit-index.json": "c598b09e7edca63d6a2a5cc4897e5c761259f76ac8a8a49708ca05ac8d68d51a",
+    "/tmp/ts-foundation-producer-8f3-clean-source-t755eark/static-side-effects.md": "0e044045563b93ba22d83ddb83c180ab77916f4110533b4b5e957ececfda26d0",
+    "/tmp/ts-foundation-producer-8f3-clean-source-t755eark/plan-invariant-proposal.md": "255e83be6a3cf2f6a5fb31173c93dfebf10fea8c7f781e37b20c557845ae26b9",
+    "/tmp/ts-foundation-producer-8f3-clean-source-t755eark/source-diff-review.json": "d49e549220160043ed79df62cdb4ae54745ead477373d029fa468ef42b697675"
+  },
+  "identity_checks": {
+    "clean_HEAD_tree": true,
+    "tracked_count": 3789,
+    "tracked_manifest_sha256": "44a2601bfd537cfd6183873285757e00e3d5cbae946418f29ac6a0c0f48e7750",
+    "tracked_manifest_byte_equal": true,
+    "owned_source_hashes_verified": 17,
+    "executable_identities_verified": 6,
+    "audit_files_verified": 4,
+    "runner_directory_entries": [
+      "run.py"
+    ],
+    "runner_ast_parsed_only": true
+  },
+  "minimal_diff": {
+    "predecessor": "3e5036a77cfc32199ba14de01130bd2abe0de7f8",
+    "files": [
+      "deploy/oci-region/plan.json",
+      "deploy/oci-region/sfo-1-plan.json",
+      "internal/bootstrap/cli/foundation_preparation_integration_test.go",
+      "internal/region/grant_preparation.go",
+      "scripts/oci-preview/plan.json"
+    ],
+    "stat": "5 files changed,67 insertions,17 deletions",
+    "json_donor": "55a64f57126fd7f4dc8f8336cf147c6af635157b",
+    "three_json_files_byte_equal_to_donor": true,
+    "production_Go_change": "One existing naming import plus canonical funded first-controller public backend derivation and existing-style error return in shared PrepareFoundationGrant.",
+    "test_change": "Regional service OCID derived from original SDK Host with catalog check; focused in-root funded ARM/controller/backend and three-slot material assertions.",
+    "unchanged": "Production ValidatePlan/helpers, signing/trust/budget authorization and publication consumers remain byte-identical to3e50. No selected root/subcase identity changed; no authentication/transport guard removed."
+  },
+  "caller_graph": [
+    "CLI prepareFoundationWith strict public approval/filesystem boundary -> PrepareFoundationGrantSDK -> shared PrepareFoundationGrant -> embedded sfo-1 platform template -> deriveFoundation -> prepare three-slot startup material -> retain funded controller-a -> canonical public backend -> full ociregion.ValidatePlan -> four-slot spending digest -> ValidatePreparedFoundation.",
+    "SDK preparation then validates application release authorities and derives twelve worker tuples through actual SDK shapes. Shared backend fix applies to every PrepareFoundationGrant caller; direct public Derive shares deriveFoundation but retains its existing non-home scope and topology.",
+    "Offline CLI signing -> SignFoundationDiscovery -> root lineage/key identity, complete prepared grant/OCIR/application/worker authorities, exact image/qualification verification, expiry clamp, infrastructure digest, signed anchor/grant and verification. Positive publication uses production PublishFoundationBundle SDK directly; public Run only provides refusal/cancellation coverage."
+  ],
+  "full_ValidatePlan_invariants": [
+    {
+      "consumer": "ValidatePlan copy and schema/catalog",
+      "source": "internal/ociregion/plan.go:334,555",
+      "assessment": "Independent JSON copy is validated; schema2 and exact GRU/SFO/FRA cell-to-OCI-region binding remain mandatory. Producer uses catalog-derived cells and regions."
+    },
+    {
+      "consumer": "preview names and roster",
+      "source": "internal/ociregion/plan.go:338",
+      "assessment": "Exact distinct safe compartment names survive renaming. Producer retains only controller-a and sets controller_replicas1, database_members0; instance and boot maps each contain only controller-a; data map remains empty."
+    },
+    {
+      "consumer": "architecture and host geometry",
+      "source": "internal/ociregion/plan.go:320,379",
+      "assessment": "Explicit arm64 or amd64 remains mandatory; exact donor55a sets arm64 on all A1 hosts. Fixed funded geometry1 OCPU/6GiB/50GB and controller data0 satisfy unchanged bounds. No inference/default or validator relaxation."
+    },
+    {
+      "consumer": "private addressing",
+      "source": "internal/ociregion/plan.go:386",
+      "assessment": "Nested canonical private prefixes and catalog reservations remain required. Producer renames network prefixes to10.251/252/253.0.0/24; private subnet/25, funded host .11 and separate public .128/26 survive."
+    },
+    {
+      "consumer": "resource IDs and bound seed",
+      "source": "internal/ociregion/plan.go:404,534",
+      "assessment": "Exact resource-kind maps, typed regional OCIDs, exact per-slot instance/boot/data maps and uniqueness remain required. New IDs are null except approved GRU control/Vault/key. Null controller-a instance permits null create identity; safe seed/create checks remain."
+    },
+    {
+      "consumer": "budget and optional operations baseline",
+      "source": "internal/ociregion/plan.go:445",
+      "assessment": "USD/BRL positive limit, replacement1, overlap<=72h and storage bounds remain. Approval USD120.00 is applied; template snapshot350GB/object10GB/staging10GB retained. Producer deletes the operations baseline before validation; public Derive retains donor55a exact expected shape/architecture fields. These bounds alone do not establish financial history or usage coverage."
+    },
+    {
+      "consumer": "gateway and NetBird",
+      "source": "internal/ociregion/plan.go:116,288,470",
+      "assessment": "Platform template declares both null. Existing exact private gateway and scoped NetBird validations remain unchanged for other callers. Dedicated signed GRU manager is prepared separately."
+    },
+    {
+      "consumer": "public API and funded backend",
+      "source": "internal/ociregion/plan.go:149;internal/region/grant_preparation.go:238",
+      "assessment": "Exact public fields,443/9465 ports,10/10Mbps, customer origin CA/ID and distinct planned-member checks remain. Producer derives the sole backend through naming.RegionCell(cell).ControllerSlot from the funded host slot: gru-1-ctl-1,ts-sfo-1,ts-fra-1. It does not truncate or accept unfunded template names."
+    },
+    {
+      "consumer": "normalized ingress/egress",
+      "source": "internal/ociregion/plan.go:75,222,279",
+      "assessment": "Exact rule fields, supported protocols, stateful private ingress, public subnet restrictions and scoped TSAuth8080/client9465/Orch8444 rules remain. Egress remains limited to cell, exact Oracle service CIDR, NTP and optional scoped gateway; no rule is loosened."
+    },
+    {
+      "consumer": "service route and regional service OCID",
+      "source": "internal/ociregion/plan.go:28,490;internal/bootstrap/cli/foundation_preparation_integration_test.go:90",
+      "assessment": "Full exact service destination/type/target route remains required and service OCID must contain the exact OCI region. Fixture uses original SDK request Host iaas.<region>.oraclecloud.com, validates catalog membership and emits ocid1.service.oc1.<region>.services. Existing TLS dial target remains the fixture literal loopback listener."
+    },
+    {
+      "consumer": "IAM names, credentials and retention",
+      "source": "internal/ociregion/plan.go:519",
+      "assessment": "Exact safe IAM field map and names, exact host-secret compartment/ID map with paired null placeholders, and whole retention1..3650 remain. Renamer/unbinder retains required shape;35-day retention survives."
+    }
+  ],
+  "selected_tests": {
+    "roots": [
+      "TestFoundationPreparationSDKToOfflineCeremony",
+      "TestFoundationCeremonyCLIRejectsUnsafeFilesWithoutOutput",
+      "TestFoundationPublicationCLIRejectsInputBeforeOCI"
+    ],
+    "expected_outcomes": [
+      "TestFoundationPreparationSDKToOfflineCeremony",
+      "TestFoundationPreparationSDKToOfflineCeremony/missing_OCIR_issuance",
+      "TestFoundationPreparationSDKToOfflineCeremony/reused_OCIR_principal",
+      "TestFoundationPreparationSDKToOfflineCeremony/reused_OCIR_email",
+      "TestFoundationPreparationSDKToOfflineCeremony/reused_OCIR_secret",
+      "TestFoundationPreparationSDKToOfflineCeremony/extra_unapproved_OCIR_repository",
+      "TestFoundationPreparationSDKToOfflineCeremony/substituted_OCIR_host",
+      "TestFoundationPreparationSDKToOfflineCeremony/substituted_OCIR_namespace",
+      "TestFoundationPreparationSDKToOfflineCeremony/substituted_OCIR_repository",
+      "TestFoundationPreparationSDKToOfflineCeremony/missing_service_authority_cannot_be_signed",
+      "TestFoundationPreparationSDKToOfflineCeremony/allocation_cannot_replace_the_startup_recipe",
+      "TestFoundationPreparationSDKToOfflineCeremony/corrupt_retained_evidence_cannot_prepare_a_candidate",
+      "TestFoundationCeremonyCLIRejectsUnsafeFilesWithoutOutput",
+      "TestFoundationCeremonyCLIRejectsUnsafeFilesWithoutOutput/unknown_approval_field",
+      "TestFoundationCeremonyCLIRejectsUnsafeFilesWithoutOutput/candidate_symlink",
+      "TestFoundationCeremonyCLIRejectsUnsafeFilesWithoutOutput/root_key_permissions",
+      "TestFoundationPublicationCLIRejectsInputBeforeOCI"
+    ],
+    "total": 17,
+    "assessment": "Three roots and fourteen leaves unchanged. New assertions remain in existing preparation root; no parallel execution added. Existing zero-preparation-write, exact repository identity/Vault, shortest30min delegation expiry, three exact retained publication objects with412 replay, absent-output refusals and corrupt retained evidence checks remain.",
+    "compilation_limit": "3e50 compiled under same default-vet selector. Current fixes are statically consistent with inspected naming API and existing field types; no compilation has occurred and no compilation-success claim is made."
+  },
+  "wrapper_review": {
+    "argv": [
+      "/run/current-system/sw/bin/nice",
+      "-n",
+      "19",
+      "/run/current-system/sw/bin/timeout",
+      "--signal=TERM",
+      "--kill-after=5s",
+      "180s",
+      "/run/current-system/sw/bin/env",
+      "-i",
+      "HOME=/home/mariogk",
+      "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "LANG=C.UTF-8",
+      "GOMAXPROCS=2",
+      "GOFLAGS=-p=2",
+      "GOTOOLCHAIN=local",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "test",
+      "-json",
+      "-p=1",
+      "-parallel=1",
+      "-mod=readonly",
+      "./internal/bootstrap/cli",
+      "-run",
+      "^(TestFoundationPreparationSDKToOfflineCeremony|TestFoundationCeremonyCLIRejectsUnsafeFilesWithoutOutput|TestFoundationPublicationCLIRejectsInputBeforeOCI)$",
+      "-count=1",
+      "-timeout=120s"
+    ],
+    "environment": {
+      "HOME": "/home/mariogk",
+      "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "LANG": "C.UTF-8",
+      "GOMAXPROCS": "2",
+      "GOFLAGS": "-p=2",
+      "GOTOOLCHAIN": "local"
+    },
+    "controls": [
+      "Pinned wrapper asserts its own environment equals exactly six requested keys; all Git and Go children receive that same six-key environment. Go argv additionally uses env-i; GOROOT is absent.",
+      "nice19; Go1.27.1; default vet and default tags; readonly modules; count1; GOMAXPROCS2/GOFLAGS-p2/package-p1/parallel1; test120s, outer180s TERM then KILL5s.",
+      "Full clean tracked-source/mode/kind/hash manifest, commit/tree, request, executable realpath/hash and audit identities are checked before and again while holding nonblocking Short-B exclusive flock. Receipt compares pre/post snapshots.",
+      "Exclusive preflight/stdout/stderr/receipt writes prevent reusing the same completed packet for another launch; lock-busy returns75 without launch. Raw stdout/stderr and tracked pre/post manifests are retained and sealed.",
+      "Successful receipt requires zero exit, unchanged pre/post, zero malformed lines, exactly seventeen all-pass named outcomes in expected package and exactly one package PASS; skips/fails/extras are rejected."
+    ],
+    "limits": [
+      "Parent must independently retain exact native launch and every poll/terminal result and include them in final artifact seal. Wrapper does not establish authorization or acquire a QA lease.",
+      "Wrapper hash is recorded in snapshots and externally pinned by this review/parent launch validation; validation does not compare it to a separate embedded constant.",
+      "180-second outer bound covers launched Go tool subtree; static hash/Git pre/post bookkeeping lies outside that bound. A timeout or incomplete output yields no qualified PASS.",
+      "Previous3e50 wall153.198s and childmaxRSS1072184KiB are historical resource observations, not a measurement or pass prediction for8f3."
+    ]
+  },
+  "runtime_effect_scope": {
+    "pinned_audit_index": "106 first-party directories,1001 source files,5 init declarations; conservative regex/import source index, not Go build discovery or global initializer proof.",
+    "delta_assessment": "No extra listener, subprocess, credential read, cloud endpoint or native launch is introduced by these corrections. Naming is already in the closure. Existing selected TLS transport still dials only the literal loopback test listener using its trust; proxy/plaintext/CONNECT/redirect fallback guards remain.",
+    "known_first_party_limits": "Diagnostics init starts a blocked bounded-channel goroutine; native/probe helper init requires absent special argv; registration/embedded asset/MIME behavior remains as disclosed. This review does not certify every third-party initializer or an OS network sandbox.",
+    "Go_tool_effect_limit": "Compiler/vet/test children and normal cache/module/scratch/toolchain reads and writes are expected when parent authorizes execution. Default module-proxy behavior is retained; no new Go discovery or cache inventory was performed.",
+    "claimed_runtime": "None. Test estimates are packet statements only; no selected test or runner was executed."
+  },
+  "prior_failures_preserved": [
+    {
+      "path": "/tmp/ts-foundation-producer-96960-runner-zgjkv4qw/receipt.json",
+      "sha256": "d318eb18b1f68de67e921b985f7ad31dd717e09f1a5aff89369b6e15230b7a10"
+    },
+    {
+      "path": "/tmp/ts-foundation-producer-11a5-runner-p5ehhq94/receipt.json",
+      "sha256": "d0f039a04bf547e965164d32f9dd1672738a487cf076c8a788d01d3554cd6857"
+    },
+    {
+      "path": "/tmp/ts-foundation-producer-3e50-shortb-runner-o5gpatg8/receipt.json",
+      "sha256": "1b6bee62973c99b57dc90011c7b3abb6d41a7125d54246f565758797490e9c03"
+    }
+  ],
+  "unused_older_draft": "81d2 request remains unused; current review is pinned only to c9bbb1 request and8c508 runner.",
+  "findings": [],
+  "qualification_limits": [
+    "Source and wrapper bounded readiness only; this report supplies no lease or execution grant. Current source has no concrete static blocker identified in the requested plan-boundary/caller/wrapper review.",
+    "No17pass, successful compilation, live provisioning, production OperatorConfig loading, protected-writer nonoverwrite, production image qualification, native runtime, global regression or retirement credit.",
+    "Original96960/11a5/3e50 failures remain distinct evidence; no results are combined or replaced."
+  ],
+  "review_actions": "Read-only source/Git/hash/JSON/AST inspection and this fresh exclusive standalone /tmp report only. No Go discovery/build/test/vet/lint, runner execution, source/index edit, push, cloud action, lease/grant or new agents.",
+  "verdict": "No concrete static blocker found. Corrected8f3 source and exact current wrapper are ready for parent bounded scheduling consideration; execution still requires the parent QA grant and preserved native evidence. Runtime outcome remains unmeasured."
+}

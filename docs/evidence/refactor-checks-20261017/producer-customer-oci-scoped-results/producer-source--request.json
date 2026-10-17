@@ -1,0 +1,195 @@
+{
+  "state": "SEALED_REQUEST_PREPARATION_ONLY_NO_EXECUTION_GRANT",
+  "worktree": "/tmp/ts-foundation-producer-plan",
+  "base": "dd22a8d05276cf24d050384145b1c4e546a01ef0",
+  "commit": "8f3e9ec45991b63e713c807cf0e0d0764dc915a3",
+  "tree": "6ec6d2d06799ab93c6fc3e2386dfe4def2749d8f",
+  "owned_changed_paths": [
+    "deploy/oci-region/template.go",
+    "internal/bootstrap/cli/foundation.go",
+    "internal/bootstrap/cli/foundation_preparation.go",
+    "internal/bootstrap/cli/foundation_integration_test.go",
+    "internal/bootstrap/cli/foundation_preparation_integration_test.go",
+    "internal/region/grant_preparation.go",
+    "internal/region/grant_signing.go",
+    "internal/region/grant_signing_integration_test.go",
+    "internal/bootstrap/cli/commands.go",
+    "internal/bootstrap/cli/run.go",
+    "internal/region/plan.go",
+    "internal/region/discovery.go",
+    "internal/release/netbird_image.go",
+    "internal/bootstrap/cli/identity_rekey_test.go",
+    "deploy/oci-region/plan.json",
+    "deploy/oci-region/sfo-1-plan.json",
+    "scripts/oci-preview/plan.json"
+  ],
+  "owned_source_sha256": {
+    "deploy/oci-region/template.go": "f245c0e67ee84185948e23c7ee167dfbc522a63c2094c0d5cd249e7e8c38d659",
+    "internal/bootstrap/cli/foundation.go": "918ff5e47b871c93287bee5d4f7a8f2c8bb6927f62f6b86b37a38c2c2d938c73",
+    "internal/bootstrap/cli/foundation_preparation.go": "04955221aede7e8005fbd178c170332e1700e5c6d7c3a82c3128f942b6723b1a",
+    "internal/bootstrap/cli/foundation_integration_test.go": "98bbac906b91056d90138daca1f9571de795e66d7aba9bbafa85f7e91c299e71",
+    "internal/bootstrap/cli/foundation_preparation_integration_test.go": "199036480081d3e98726ae083068cc0febe1b58a57518cd149977cea1dba6aca",
+    "internal/region/grant_preparation.go": "3729e4f44621853148c7aee3f9eea27ff0ebcd33423331e214625643a030e631",
+    "internal/region/grant_signing.go": "bdde15538f738ce6e5cbd16831b94027183b479e12032c6c91e8713346b26836",
+    "internal/region/grant_signing_integration_test.go": "99c09877e0f1efa42c0e7f9c1ec3ca0628da8aaff03221ddf41cf3fdc7dac6fa",
+    "internal/bootstrap/cli/commands.go": "886f5371b3676b2527483e3c387dfb96ee9e53e9203311ccf23c53b624a5039d",
+    "internal/bootstrap/cli/run.go": "2a4462e55d9ba51147c79cbe5df663ca33a749fdfce51d9cf510d9e2f582edf6",
+    "internal/region/plan.go": "098d326e9a98179d236a1a6c863d6d31cac4ee742ba10689d846a85751973bb8",
+    "internal/region/discovery.go": "90945f7320a7c6f3e8642b77e53f50409693dd6b023d9f24df54e46d35e85575",
+    "internal/release/netbird_image.go": "a5226c8c08cf78268f5cf9930cd1e4de3240bebf0230f756b726f9232334ef6f",
+    "internal/bootstrap/cli/identity_rekey_test.go": "1f46d832fd901a6549c3dba569f08b8eafa721e335b3747e586a57c5303cc0b0",
+    "deploy/oci-region/plan.json": "b5eda8c0c08504924429bf020c467ba679db1da20dac8c14c0d0526a7fe7fa71",
+    "deploy/oci-region/sfo-1-plan.json": "c4a805840a192e0bdf0bd9d03b9ef354095b733ad95d88fc4d5a7bd4e7c953cd",
+    "scripts/oci-preview/plan.json": "c1e527b68c66b9bc5cea59ff6deca7d5eaee13b00eab56fbf41a98426d0e1126"
+  },
+  "tracked_source_manifest": "/tmp/ts-foundation-producer-8f3-clean-source-t755eark/tracked-source-manifest.json",
+  "tracked_source_manifest_sha256": "44a2601bfd537cfd6183873285757e00e3d5cbae946418f29ac6a0c0f48e7750",
+  "tracked_count": 3789,
+  "audit_files": {
+    "/tmp/ts-foundation-producer-8f3-clean-source-t755eark/static-closure-audit-index.json": "c598b09e7edca63d6a2a5cc4897e5c761259f76ac8a8a49708ca05ac8d68d51a",
+    "/tmp/ts-foundation-producer-8f3-clean-source-t755eark/static-side-effects.md": "0e044045563b93ba22d83ddb83c180ab77916f4110533b4b5e957ececfda26d0",
+    "/tmp/ts-foundation-producer-8f3-clean-source-t755eark/plan-invariant-proposal.md": "255e83be6a3cf2f6a5fb31173c93dfebf10fea8c7f781e37b20c557845ae26b9",
+    "/tmp/ts-foundation-producer-8f3-clean-source-t755eark/source-diff-review.json": "d49e549220160043ed79df62cdb4ae54745ead477373d029fa468ef42b697675"
+  },
+  "tools": {
+    "go": {
+      "path": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "realpath": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "sha256": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624"
+    },
+    "python": {
+      "path": "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+      "realpath": "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+      "sha256": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f"
+    },
+    "git": {
+      "path": "/run/current-system/sw/bin/git",
+      "realpath": "/nix/store/b1wn5clix1mz4vpfih7x9cnj9qfh7c6h-git-2.54.0/bin/git",
+      "sha256": "f97ba8863b93a05b4193c5c436d95c62bb3879c96024753d764cf74d1594e027"
+    },
+    "nice": {
+      "path": "/run/current-system/sw/bin/nice",
+      "realpath": "/nix/store/srbdnkcx65g12nac539778lkmpp31066-uutils-coreutils-0.12.0/bin/coreutils",
+      "sha256": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+    },
+    "timeout": {
+      "path": "/run/current-system/sw/bin/timeout",
+      "realpath": "/nix/store/srbdnkcx65g12nac539778lkmpp31066-uutils-coreutils-0.12.0/bin/coreutils",
+      "sha256": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+    },
+    "env": {
+      "path": "/run/current-system/sw/bin/env",
+      "realpath": "/nix/store/srbdnkcx65g12nac539778lkmpp31066-uutils-coreutils-0.12.0/bin/coreutils",
+      "sha256": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+    }
+  },
+  "expected_root_tests": [
+    "TestFoundationPreparationSDKToOfflineCeremony",
+    "TestFoundationCeremonyCLIRejectsUnsafeFilesWithoutOutput",
+    "TestFoundationPublicationCLIRejectsInputBeforeOCI"
+  ],
+  "expected_pass_tests": [
+    "TestFoundationPreparationSDKToOfflineCeremony",
+    "TestFoundationPreparationSDKToOfflineCeremony/missing_OCIR_issuance",
+    "TestFoundationPreparationSDKToOfflineCeremony/reused_OCIR_principal",
+    "TestFoundationPreparationSDKToOfflineCeremony/reused_OCIR_email",
+    "TestFoundationPreparationSDKToOfflineCeremony/reused_OCIR_secret",
+    "TestFoundationPreparationSDKToOfflineCeremony/extra_unapproved_OCIR_repository",
+    "TestFoundationPreparationSDKToOfflineCeremony/substituted_OCIR_host",
+    "TestFoundationPreparationSDKToOfflineCeremony/substituted_OCIR_namespace",
+    "TestFoundationPreparationSDKToOfflineCeremony/substituted_OCIR_repository",
+    "TestFoundationPreparationSDKToOfflineCeremony/missing_service_authority_cannot_be_signed",
+    "TestFoundationPreparationSDKToOfflineCeremony/allocation_cannot_replace_the_startup_recipe",
+    "TestFoundationPreparationSDKToOfflineCeremony/corrupt_retained_evidence_cannot_prepare_a_candidate",
+    "TestFoundationCeremonyCLIRejectsUnsafeFilesWithoutOutput",
+    "TestFoundationCeremonyCLIRejectsUnsafeFilesWithoutOutput/unknown_approval_field",
+    "TestFoundationCeremonyCLIRejectsUnsafeFilesWithoutOutput/candidate_symlink",
+    "TestFoundationCeremonyCLIRejectsUnsafeFilesWithoutOutput/root_key_permissions",
+    "TestFoundationPublicationCLIRejectsInputBeforeOCI"
+  ],
+  "expected_root_count": 3,
+  "expected_subcase_count": 14,
+  "expected_total_test_passes": 17,
+  "expected_package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+  "request": {
+    "argv": [
+      "/run/current-system/sw/bin/nice",
+      "-n",
+      "19",
+      "/run/current-system/sw/bin/timeout",
+      "--signal=TERM",
+      "--kill-after=5s",
+      "180s",
+      "/run/current-system/sw/bin/env",
+      "-i",
+      "HOME=/home/mariogk",
+      "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "LANG=C.UTF-8",
+      "GOMAXPROCS=2",
+      "GOFLAGS=-p=2",
+      "GOTOOLCHAIN=local",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "test",
+      "-json",
+      "-p=1",
+      "-parallel=1",
+      "-mod=readonly",
+      "./internal/bootstrap/cli",
+      "-run",
+      "^(TestFoundationPreparationSDKToOfflineCeremony|TestFoundationCeremonyCLIRejectsUnsafeFilesWithoutOutput|TestFoundationPublicationCLIRejectsInputBeforeOCI)$",
+      "-count=1",
+      "-timeout=120s"
+    ],
+    "cwd": "/tmp/ts-foundation-producer-plan",
+    "environment": {
+      "HOME": "/home/mariogk",
+      "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "LANG": "C.UTF-8",
+      "GOMAXPROCS": "2",
+      "GOFLAGS": "-p=2",
+      "GOTOOLCHAIN": "local"
+    },
+    "lease_required": true,
+    "shared_lock": "/tmp/ts-orch-refactor-short-check-b.lock",
+    "lock_mode": "nonblocking-exclusive",
+    "attempts": 1,
+    "default_vet": true,
+    "default_tags": true,
+    "timeouts": "test120s;outerTERM180s/KILL5s",
+    "parallelism": "GOMAXPROCS2;GOFLAGS-p2;package-p1;testparallel1;serial leaves",
+    "compile_resources": "Prior exactenv6 defaultvet attempt153.198s total and1072184KiB childmaxRSS; requestouter180s unchanged. Next attempt remains unmeasured; GOMAXPROCS2/GOFLAGS-p2/package-p1.",
+    "runtime_resources": "Estimated under15s, at most256MiB RSS, one TLS loopback listener plus SDK TLS connections; fixture temporary files; one first-party blocked diagnostics goroutine plus SDK/runtime goroutines; zero selected-path subprocesses, brokers, real cloud or native launches. Go compiler/vet/test children are expected.",
+    "qualification": "Exactly three roots+14subcases=17passes, one package pass, zero skips/failures/extras; unchanged clean full tracked source before/after."
+  },
+  "runner": "/tmp/ts-foundation-producer-8f3-clean-runner-mt5kay87/run.py",
+  "output_dir": "/tmp/ts-foundation-producer-8f3-clean-runner-mt5kay87",
+  "native_tool_receipts": "Parent must preserve exact tool launch and every poll/terminal result as native-tool-result-*.json in output directory immediately after each call; wrapper cannot observe harness results. Include them in final artifact seal.",
+  "limits": [
+    "Actual SDK preparation uses raw test provider through private CLI helper; signing uses real CLI filesystem/parser; positive publication uses production SDK API directly.",
+    "Public CLI malformed-input/cancellation refusal only; no OperatorConfig credential loading success claim.",
+    "No protected-writer nonoverwrite/live provisioning/production qualification/native runtime/global regression or test retirement credit."
+  ],
+  "predecessor": {
+    "commit": "3e5036a77cfc32199ba14de01130bd2abe0de7f8",
+    "outcome": "ONE_ATTEMPT_RUNTIME_FAILED_FIVE_PASSES_ONE_FAILURE",
+    "receipt": "/tmp/ts-foundation-producer-3e50-shortb-runner-o5gpatg8/receipt.json",
+    "receipt_sha256": "1b6bee62973c99b57dc90011c7b3abb6d41a7125d54246f565758797490e9c03",
+    "repair_commits": [
+      "c5d6a0f43",
+      "8f3e9ec45"
+    ],
+    "original_prerequisite": "55a64f57126fd7f4dc8f8336cf147c6af635157b",
+    "root_cause": "Missing source template architecture; audit also found unfunded/misnamed public backends and regionless fixture serviceID."
+  },
+  "unused_gate_packet": {
+    "request": "/tmp/ts-foundation-producer-3e50-source-876385y_/request.json",
+    "request_sha256": "2777f4078a2559e890bb3814b43adf7463bad58e6933fbfba6b983ee27ca02b1",
+    "state": "SEALED_UNUSED_NO_EXECUTION"
+  },
+  "unused_initial_plan_packet": {
+    "request": "/tmp/ts-foundation-producer-8f3-source-ephevkxz/request.json",
+    "request_sha256": "81d2d74faaaeab15f997c88d1ec31a6304cbe83538c4a719bb92c76718edf24b",
+    "state": "SEALED_UNUSED_NO_EXECUTION",
+    "reason": "Standalone audit text replaces inherited predecessor repair narrative; same exact source/request selector/lane."
+  }
+}

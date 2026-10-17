@@ -1,0 +1,19 @@
+{
+  "state": "SOURCE_ONLY_NOT_COMPILED_OR_RUN_NO_LEASE",
+  "packet": "/tmp/ts-customer-envelope-7a69bd63-sealed-d9e_ntoy",
+  "request_sha256": "89ff9af1474bd0357a978e9163b7f4cecb2ddb43b598037e786266035a323340",
+  "runner_sha256": "23bf1664f43e1cd4e8d4fb865dcfb0114c730c8e28e3292b277c88246bf2879a",
+  "sourceproof_sha256": "502fac5637be0dac1a792cbc2e63d6a592b96e93cb55f77cc6353cf7076e1c07",
+  "validation": "Source-only hashes and preservation assertions; runner syntax ast.parse only. Runner not imported, executed or compiled; no Go invocation or lease.",
+  "execution_by_parent_only_after_lease": [
+    "/run/current-system/sw/bin/nice",
+    "-n",
+    "19",
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+    "-I",
+    "-B",
+    "/tmp/ts-customer-envelope-7a69bd63-sealed-d9e_ntoy/run.py"
+  ],
+  "outputs_created_only_at_execution": "/tmp/ts-customer-envelope-7a69bd63-sealed-d9e_ntoy/qa-output",
+  "source_copy_rule": "All copied Go source assets end .go.txt; no executable Go source file in packet."
+}

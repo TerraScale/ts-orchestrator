@@ -1,0 +1,166 @@
+{
+  "state": "NOT_QUALIFIED",
+  "exit_code": 1,
+  "attempts": 1,
+  "wall_seconds": 153.19788199901814,
+  "max_child_rss_kib": 1072184,
+  "source_pre": {
+    "head": "3e5036a77cfc32199ba14de01130bd2abe0de7f8",
+    "tree": "cc5e0ebf5db249a8a760db39c11dc22c3c708981",
+    "status": "",
+    "tracked_count": 3789,
+    "tracked_source_manifest_sha256": "1c356bf0b792aa7fa4a42e9c24916b41f078ae2a24e5bbb038a15f40595914be",
+    "request_sha256": "9b8545991e8ca9a41222ad4ced9292271772fe20d0521881d8225463c91d7aa5",
+    "wrapper_sha256": "d2f5ee47005b61e14416f1893163c5927f80d843543c4e3a8f5059b1c4da4d3a",
+    "tools": {
+      "go": {
+        "path": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+        "realpath": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+        "sha256": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624"
+      },
+      "python": {
+        "path": "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+        "realpath": "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+        "sha256": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f"
+      },
+      "git": {
+        "path": "/run/current-system/sw/bin/git",
+        "realpath": "/nix/store/b1wn5clix1mz4vpfih7x9cnj9qfh7c6h-git-2.54.0/bin/git",
+        "sha256": "f97ba8863b93a05b4193c5c436d95c62bb3879c96024753d764cf74d1594e027"
+      },
+      "nice": {
+        "path": "/run/current-system/sw/bin/nice",
+        "realpath": "/nix/store/srbdnkcx65g12nac539778lkmpp31066-uutils-coreutils-0.12.0/bin/coreutils",
+        "sha256": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+      },
+      "timeout": {
+        "path": "/run/current-system/sw/bin/timeout",
+        "realpath": "/nix/store/srbdnkcx65g12nac539778lkmpp31066-uutils-coreutils-0.12.0/bin/coreutils",
+        "sha256": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+      },
+      "env": {
+        "path": "/run/current-system/sw/bin/env",
+        "realpath": "/nix/store/srbdnkcx65g12nac539778lkmpp31066-uutils-coreutils-0.12.0/bin/coreutils",
+        "sha256": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+      }
+    },
+    "audit_sha256": {
+      "/tmp/ts-foundation-producer-3e50-shortb-source-1ty2w86u/static-closure-audit-index.json": "03b083d11d65794f3582d1445aa0d055aa187804cde3ce9ffe6e1758d7898260",
+      "/tmp/ts-foundation-producer-3e50-shortb-source-1ty2w86u/static-side-effects.md": "6fed6cf6a30aa4ce234180a0a93b843feab4fd9de5dfac4ff80bd156703f2131"
+    }
+  },
+  "source_post": {
+    "head": "3e5036a77cfc32199ba14de01130bd2abe0de7f8",
+    "tree": "cc5e0ebf5db249a8a760db39c11dc22c3c708981",
+    "status": "",
+    "tracked_count": 3789,
+    "tracked_source_manifest_sha256": "1c356bf0b792aa7fa4a42e9c24916b41f078ae2a24e5bbb038a15f40595914be",
+    "request_sha256": "9b8545991e8ca9a41222ad4ced9292271772fe20d0521881d8225463c91d7aa5",
+    "wrapper_sha256": "d2f5ee47005b61e14416f1893163c5927f80d843543c4e3a8f5059b1c4da4d3a",
+    "tools": {
+      "go": {
+        "path": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+        "realpath": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+        "sha256": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624"
+      },
+      "python": {
+        "path": "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+        "realpath": "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+        "sha256": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f"
+      },
+      "git": {
+        "path": "/run/current-system/sw/bin/git",
+        "realpath": "/nix/store/b1wn5clix1mz4vpfih7x9cnj9qfh7c6h-git-2.54.0/bin/git",
+        "sha256": "f97ba8863b93a05b4193c5c436d95c62bb3879c96024753d764cf74d1594e027"
+      },
+      "nice": {
+        "path": "/run/current-system/sw/bin/nice",
+        "realpath": "/nix/store/srbdnkcx65g12nac539778lkmpp31066-uutils-coreutils-0.12.0/bin/coreutils",
+        "sha256": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+      },
+      "timeout": {
+        "path": "/run/current-system/sw/bin/timeout",
+        "realpath": "/nix/store/srbdnkcx65g12nac539778lkmpp31066-uutils-coreutils-0.12.0/bin/coreutils",
+        "sha256": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+      },
+      "env": {
+        "path": "/run/current-system/sw/bin/env",
+        "realpath": "/nix/store/srbdnkcx65g12nac539778lkmpp31066-uutils-coreutils-0.12.0/bin/coreutils",
+        "sha256": "4b585650344635f42afd65cece1350d6e218634e36068cd0a19b659197cb43f5"
+      }
+    },
+    "audit_sha256": {
+      "/tmp/ts-foundation-producer-3e50-shortb-source-1ty2w86u/static-closure-audit-index.json": "03b083d11d65794f3582d1445aa0d055aa187804cde3ce9ffe6e1758d7898260",
+      "/tmp/ts-foundation-producer-3e50-shortb-source-1ty2w86u/static-side-effects.md": "6fed6cf6a30aa4ce234180a0a93b843feab4fd9de5dfac4ff80bd156703f2131"
+    }
+  },
+  "expected_tests": [
+    "TestFoundationPreparationSDKToOfflineCeremony",
+    "TestFoundationPreparationSDKToOfflineCeremony/missing_OCIR_issuance",
+    "TestFoundationPreparationSDKToOfflineCeremony/reused_OCIR_principal",
+    "TestFoundationPreparationSDKToOfflineCeremony/reused_OCIR_email",
+    "TestFoundationPreparationSDKToOfflineCeremony/reused_OCIR_secret",
+    "TestFoundationPreparationSDKToOfflineCeremony/extra_unapproved_OCIR_repository",
+    "TestFoundationPreparationSDKToOfflineCeremony/substituted_OCIR_host",
+    "TestFoundationPreparationSDKToOfflineCeremony/substituted_OCIR_namespace",
+    "TestFoundationPreparationSDKToOfflineCeremony/substituted_OCIR_repository",
+    "TestFoundationPreparationSDKToOfflineCeremony/missing_service_authority_cannot_be_signed",
+    "TestFoundationPreparationSDKToOfflineCeremony/allocation_cannot_replace_the_startup_recipe",
+    "TestFoundationPreparationSDKToOfflineCeremony/corrupt_retained_evidence_cannot_prepare_a_candidate",
+    "TestFoundationCeremonyCLIRejectsUnsafeFilesWithoutOutput",
+    "TestFoundationCeremonyCLIRejectsUnsafeFilesWithoutOutput/unknown_approval_field",
+    "TestFoundationCeremonyCLIRejectsUnsafeFilesWithoutOutput/candidate_symlink",
+    "TestFoundationCeremonyCLIRejectsUnsafeFilesWithoutOutput/root_key_permissions",
+    "TestFoundationPublicationCLIRejectsInputBeforeOCI"
+  ],
+  "test_outcomes": [
+    {
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestFoundationCeremonyCLIRejectsUnsafeFilesWithoutOutput/unknown_approval_field",
+      "Action": "pass",
+      "Elapsed": 0
+    },
+    {
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestFoundationCeremonyCLIRejectsUnsafeFilesWithoutOutput/candidate_symlink",
+      "Action": "pass",
+      "Elapsed": 0
+    },
+    {
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestFoundationCeremonyCLIRejectsUnsafeFilesWithoutOutput/root_key_permissions",
+      "Action": "pass",
+      "Elapsed": 0
+    },
+    {
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestFoundationCeremonyCLIRejectsUnsafeFilesWithoutOutput",
+      "Action": "pass",
+      "Elapsed": 0.01
+    },
+    {
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestFoundationPublicationCLIRejectsInputBeforeOCI",
+      "Action": "pass",
+      "Elapsed": 0
+    },
+    {
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Test": "TestFoundationPreparationSDKToOfflineCeremony",
+      "Action": "fail",
+      "Elapsed": 0.39
+    }
+  ],
+  "package_outcomes": [
+    {
+      "Time": "2026-10-17T01:00:04.464313975-03:00",
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli",
+      "Elapsed": 0.481
+    }
+  ],
+  "malformed_output": [],
+  "stdout_sha256": "8588f86b326f3b199c17c53577cd01203ea25c2a869d5b1fccc3fab4c7a8ba73",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "scope": "One default-vet/default-tag three-root attempt; no retirement/global/live provisioning credit."
+}
