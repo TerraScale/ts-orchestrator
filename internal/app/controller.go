@@ -694,6 +694,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	workloadRoot := rootoci.NewClient(rootoci.Expectations{Cell: cfg.NATS.Cell})
 	defer workloadRoot.Close()
+	rootInventory := &rootInventoryViews{client: workloadRoot}
 	nativeReleases.canary = newSmokeGate(nativeMemberCA).check
 	workloadReconciler, hostLoad, err := startWorkloadAutoscale(cfg.NATS.Cell, cfg.Controller.Autoscale,
 		profiles, specs, hostController, control, nativeReleases)
@@ -770,6 +771,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		}
 	}
 	runCtx, stop := context.WithCancel(ctx)
+	rootInventoryCtx, stopRootInventory := context.WithCancel(runCtx)
+	rootInventoryDone := make(chan struct{})
+	go func() {
+		defer close(rootInventoryDone)
+		rootInventory.run(rootInventoryCtx)
+	}()
+	defer func() { stopRootInventory(); <-rootInventoryDone }()
 	defer stop()
 	if networkControl != nil {
 		go networkControl.meshListener(runCtx)
@@ -1094,7 +1102,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		linkProbes:            linkSupervisor.snapshot,
 		nativeTerraBaseRegion: func() string { return services.profiles()[terrabase.Role].Env[terrabase.EnvRegion] },
 		cost:                  costViews.view, costRollup: costViews.rollup,
-		rollouts: rollouts, budgets: capacityBudgets{global: global, allocator: allocator}, ociResources: ociReconcile.resources(),
+		inventory: dashboardInventory{source: rootInventory},
+		rollouts:  rollouts, budgets: capacityBudgets{global: global, allocator: allocator}, ociResources: ociReconcile.resources(),
 		credentials: controllerCredentialFiles(cfg),
 		kvSnapshots: kvSnapshots,
 		nodes:       topologySource(cfg.NATS.Cell, cfg.NATS.Embedded.BrokerIDs, services, hostController, policy.nodes),

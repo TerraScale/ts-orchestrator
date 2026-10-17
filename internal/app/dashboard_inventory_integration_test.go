@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -17,16 +16,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 )
 
-type dashboardRootInventoryFixture struct {
-	observation rootoci.InventoryObservation
-	err         error
-}
-
-func (source dashboardRootInventoryFixture) Inventory(context.Context) (rootoci.InventoryObservation, error) {
-	return source.observation, source.err
-}
-
-// The root reader is controlled; the production projection, router and HTML run over HTTP.
+// Retained source results drive the production supplier, projection and HTTP view.
 func TestRootInventoryProjectionThroughDashboardHTTP(t *testing.T) {
 	for _, scenario := range []string{"pending", "expired", "empty", "partial_error", "unavailable"} {
 		t.Run(scenario, func(t *testing.T) {
@@ -72,7 +62,16 @@ func TestRootInventoryProjectionThroughDashboardHTTP(t *testing.T) {
 			default:
 				wants = append(wants, "ocid1.instance.oc1.fixture", "live-operation", ">unknown<")
 			}
-			source := dashboardInventory{source: dashboardRootInventoryFixture{observation, sourceErr}}
+			retained := &rootInventoryViews{}
+			retained.record(observation, nil)
+			if sourceErr != nil {
+				retained.record(rootoci.InventoryObservation{}, sourceErr)
+			}
+			copy, _ := retained.Inventory(t.Context())
+			if len(copy.Resources) != 0 {
+				copy.Resources[0].ID = "mutated-consumer-view"
+			}
+			source := dashboardInventory{source: retained}
 			server := httptest.NewServer(dashboard.New(dashboard.Options{Now: func() time.Time { return now },
 				Journal: &dashboard.Journal{Inventory: source}}).Handler())
 			defer server.Close()

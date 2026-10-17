@@ -160,7 +160,7 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 		runtime.boardJournal = &dashboard.Journal{Decisions: providers.Decisions, Live: providers.Live,
 			History: providers.History, Insights: providers.Insights, Summaries: providers.Summarizer,
 			Local: regions.Local, Volumes: volumes, Rollouts: rolloutSource,
-			Global: globalView, Capacity: observed.capacity}
+			Global: globalView, Capacity: observed.capacity, Inventory: observed.inventory}
 	})
 }
 

@@ -196,6 +196,7 @@ type controllerObservation struct {
 	cost func(context.Context) *ocicost.View
 	// costRollup is the region's cost for the dashboard rollup, cached.
 	costRollup func() *globalview.Cost
+	inventory  dashboard.InventorySource
 	// rollouts is the rollout store, when the controller runs one. budgets is
 	// the monthly budget insight's source.
 	rollouts *rollout.Store
