@@ -106,6 +106,9 @@ func (Service) DeliverControllerGeneration(ctx context.Context, call rootoci.Cal
 		if err != nil || !bytes.Equal(installed, currentInstalled) {
 			return ErrDelivery
 		}
+		if deadline, ok := ctx.Deadline(); !ok || !time.Now().Before(deadline) {
+			return ErrDelivery
+		}
 		return ctx.Err()
 	}
 	account, err := user.Lookup("terrascale-orchestrator")
