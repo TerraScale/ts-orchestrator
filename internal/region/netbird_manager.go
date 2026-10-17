@@ -386,6 +386,8 @@ func admitNetBirdManager(ctx context.Context, resolver FoundationResolver, reade
 	if err != nil {
 		return VerifiedNetBirdManager{}, err
 	}
+	ctx, cancelConstructor := context.WithDeadline(ctx, original.expires)
+	defer cancelConstructor()
 	check := func(ctx context.Context) error {
 		ctx, cancel := context.WithDeadline(ctx, original.expires)
 		defer cancel()
