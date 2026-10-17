@@ -216,6 +216,11 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	}
 	for _, cell := range []string{"GRU", "SFO", "FRA"} {
 		saved := cloud.journal(cell)
+		for _, key := range []string{"instances", "boot_volumes", "data_volumes"} {
+			if _, exists := saved.ResourceIDs[key]; exists {
+				t.Fatalf("%s host slot map entered scalar foundation journal: %s", cell, key)
+			}
+		}
 		if saved.FoundationWriter == nil || saved.FoundationWriter.InstanceID == "" || saved.FoundationWriter.Policy == nil || saved.FoundationWriter.Policy.PolicyID == "" || saved.FoundationWriter.Policy.VerifiedAt.IsZero() {
 			t.Fatalf("%s lacks original birth and policy readback", cell)
 		}
