@@ -126,7 +126,8 @@ func (a *attempt) claimPool(ctx context.Context, poolID string) error {
 	if !exists {
 		return errors.New("capacity pool has no protected original create")
 	}
-	if pool.ActiveOperationID != "" && pool.ActiveOperationID != a.operation {
+	if pool.ActiveOperationID != "" && pool.ActiveOperationID != a.operation &&
+		!completedPoolOperation(a.record, poolID, pool.ActiveOperationID) {
 		return fmt.Errorf("%w: another original operation owns this pool lifecycle", ErrPending)
 	}
 	if pool.LeaseID != "" && time.Now().Before(pool.LeaseExpiresAt) {
