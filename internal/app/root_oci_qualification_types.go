@@ -1,7 +1,7 @@
 package app
 
 // RootOCIQualificationResult records actual fixed-socket observations. A result
-// is emitted only after all six readers and the separate process probes finish.
+// is emitted only after both fixed readers and the separate process probes finish.
 type RootOCIQualificationResult struct {
 	SchemaVersion   uint64                      `json:"schema_version"`
 	InstanceID      string                      `json:"instance_id"`
@@ -23,12 +23,8 @@ type RootOCIQualificationObservation struct {
 }
 
 type RootOCIQualificationReaders struct {
-	Inventory      RootOCIQualificationObservation `json:"inventory"`
-	LocalInstance  RootOCIQualificationObservation `json:"local_instance"`
-	Fleet          RootOCIQualificationObservation `json:"fleet"`
-	Costs          RootOCIQualificationObservation `json:"costs"`
-	Image          RootOCIQualificationObservation `json:"image"`
-	ReleaseChannel RootOCIQualificationObservation `json:"release_channel"`
+	LocalInstance RootOCIQualificationObservation `json:"local_instance"`
+	Image         RootOCIQualificationObservation `json:"image"`
 }
 
 type RootOCIQualificationDenials struct {
