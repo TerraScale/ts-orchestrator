@@ -21,6 +21,16 @@ type LeaseAdmission struct {
 func (a *LeaseAdmission) Epoch() uint64       { return a.lease.Epoch }
 func (a *LeaseAdmission) Deadline() time.Time { return a.deadline }
 
+// Original returns provenance pinned by this read admission, never a write
+// lease or a successor's renewed deadline.
+func (a *LeaseAdmission) Original() Snapshot {
+	if a == nil {
+		return Snapshot{}
+	}
+	return Snapshot{Scope: a.lease.Scope, DeploymentID: a.lease.DeploymentID, CandidateID: a.lease.CandidateID,
+		OwnerID: a.lease.OwnerID, Epoch: a.lease.Epoch, Revision: a.revision, ExpiresAt: a.deadline}
+}
+
 // AdmitRuntimeLease derives the epoch from the protected current lease. The
 // deployment and candidate must come from root's current accepted installation.
 func (r *Reader) AdmitRuntimeLease(ctx context.Context, deploymentID, candidateID string) (*LeaseAdmission, error) {
