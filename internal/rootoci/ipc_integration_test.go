@@ -340,3 +340,7 @@ func (*transportFoundation) EnsureSource(context.Context, Call, SourceRequest) (
 func (*transportFoundation) ReconcileTaskTraffic(context.Context, Call, TaskTrafficRequest) (TaskTrafficReceipt, error) {
 	return TaskTrafficReceipt{}, ErrUnauthorized
 }
+
+func (*transportFoundation) RetireControllerManager(context.Context, Call, RetireControllerManagerRequest) (ControllerManagerRetirementReceipt, error) {
+	return ControllerManagerRetirementReceipt{}, ErrUnauthorized
+}

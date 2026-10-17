@@ -68,10 +68,14 @@ func (service *Service) validRequest(request wireRequest) bool {
 	if request.Operation.ReadOnly() {
 		return validReadRequest(request)
 	}
-	if len(request.Payload) > 16<<10 && request.Operation != OperationDeliverControllerGeneration && request.Operation != OperationMaterializeContainer {
+	if len(request.Payload) > 16<<10 && request.Operation != OperationDeliverControllerGeneration && request.Operation != OperationMaterializeContainer && request.Operation != OperationRetireControllerManager {
 		return false
 	}
 	switch request.Operation {
+	case OperationRetireControllerManager:
+		var input RetireControllerManagerRequest
+		return len(request.Payload) <= (MaxControllerRetirementBytes*4+2)/3+1024 &&
+			decodePayload(request.Payload, &input) == nil && validControllerManagerRetirement(input)
 	case OperationReconcileTaskTraffic:
 		var input TaskTrafficRequest
 		return decodePayload(request.Payload, &input) == nil && validSelector(input.Role)
@@ -217,6 +221,19 @@ func (service *Service) dispatch(ctx context.Context, call Call, request wireReq
 		return dispatchRead(ctx, service.backends.Readers, call, request)
 	}
 	switch request.Operation {
+	case OperationRetireControllerManager:
+		var input RetireControllerManagerRequest
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		receipt, err := service.backends.Foundations.RetireControllerManager(ctx, call, input)
+		if err != nil {
+			return nil, err
+		}
+		if !validControllerManagerRetirementReceipt(receipt, input, call) {
+			return nil, ErrOutcomeUnknown
+		}
+		return receipt, nil
 	case OperationReconcileTaskTraffic:
 		var input TaskTrafficRequest
 		if err := decodePayload(request.Payload, &input); err != nil {

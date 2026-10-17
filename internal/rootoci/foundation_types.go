@@ -59,4 +59,5 @@ type FoundationInstallation interface {
 type Foundation interface {
 	FoundationInstallation
 	ReconcileTaskTraffic(context.Context, Call, TaskTrafficRequest) (TaskTrafficReceipt, error)
+	RetireControllerManager(context.Context, Call, RetireControllerManagerRequest) (ControllerManagerRetirementReceipt, error)
 }
