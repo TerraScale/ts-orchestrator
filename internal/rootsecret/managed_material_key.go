@@ -32,6 +32,7 @@ type ManagedMaterialControllerKey struct {
 	mu       sync.Mutex
 	key      ed25519.PrivateKey
 	snapshot managedMaterialKeySnapshot
+	original context.Context
 	ctx      context.Context
 	cancel   context.CancelFunc
 	deadline time.Time
@@ -98,7 +99,7 @@ func OpenManagedMaterialControllerKey(ctx context.Context) (*ManagedMaterialCont
 		return nil, ErrDelivery
 	}
 	lease, cancel := context.WithDeadline(ctx, deadline)
-	source := &ManagedMaterialControllerKey{key: key, snapshot: snapshot, ctx: lease, cancel: cancel, deadline: deadline}
+	source := &ManagedMaterialControllerKey{key: key, snapshot: snapshot, original: ctx, ctx: lease, cancel: cancel, deadline: deadline}
 	if err := source.Guard(ctx); err != nil {
 		source.Close()
 		return nil, ErrDelivery
@@ -117,7 +118,12 @@ func (source *ManagedMaterialControllerKey) Key() (ed25519.PrivateKey, error) {
 	if source.guard(source.ctx) != nil {
 		return nil, ErrDelivery
 	}
-	return bytes.Clone(source.key), nil
+	key := bytes.Clone(source.key)
+	if source.original.Err() != nil || source.ctx.Err() != nil || !time.Now().Before(source.deadline) {
+		clear(key)
+		return nil, ErrDelivery
+	}
+	return key, nil
 }
 
 // Guard synchronously rejects expiry, closure or accepted source drift.
@@ -131,10 +137,15 @@ func (source *ManagedMaterialControllerKey) Guard(ctx context.Context) error {
 }
 
 func (source *ManagedMaterialControllerKey) guard(ctx context.Context) error {
-	if source.ctx == nil || source.ctx.Err() != nil || len(source.key) != ed25519.PrivateKeySize {
+	if source.original == nil || source.original.Err() != nil || source.ctx == nil || source.ctx.Err() != nil ||
+		ctx == nil || len(source.key) != ed25519.PrivateKeySize {
 		return ErrDelivery
 	}
-	if guardManagedMaterialKeySnapshot(ctx, source.snapshot, source.deadline) != nil || source.ctx.Err() != nil {
+	deadline := source.deadline
+	if callerDeadline, ok := ctx.Deadline(); ok && callerDeadline.Before(deadline) {
+		deadline = callerDeadline
+	}
+	if guardManagedMaterialKeySnapshot(ctx, source.snapshot, deadline) != nil || source.original.Err() != nil || source.ctx.Err() != nil {
 		return ErrDelivery
 	}
 	return nil
