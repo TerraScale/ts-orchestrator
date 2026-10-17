@@ -152,7 +152,7 @@ func TestVolumeAttachingWithoutTimestampIsNotOverdue(t *testing.T) {
 func TestHostsAndRolloutsExcludeTerminalPartitions(t *testing.T) {
 	t.Parallel()
 	current := view{Local: &observability.MemberSnapshot{Placement: &observability.PlacementView{Databases: []observability.DatabaseView{
-		{DatabaseID: "active", Members: []observability.MemberView{{HostNode: "host", Stage: "serving"}}, Rollout: &observability.RolloutView{}},
+		{DatabaseID: "active", Readiness: "unknown", ReadinessReason: "current native root task and member readiness source is unavailable", Members: []observability.MemberView{{HostNode: "host", Stage: "serving"}}, Rollout: &observability.RolloutView{}},
 		{DatabaseID: "terminal", Terminal: true, Members: []observability.MemberView{{HostNode: "removed-host", Stage: "serving"}}, Rollout: &observability.RolloutView{}},
 	}}}}
 	for _, path := range []string{"/members", "/rollouts"} {
@@ -160,6 +160,28 @@ func TestHostsAndRolloutsExcludeTerminalPartitions(t *testing.T) {
 		if strings.Contains(body, "removed-host") || strings.Contains(body, ">terminal<") {
 			t.Fatalf("terminal partition leaked into %s", path)
 		}
+	}
+}
+
+func TestServingChartsIgnoreDurableHistoryWithoutLiveNativeReadiness(t *testing.T) {
+	t.Parallel()
+	snapshot := memberSnapshot()
+	now := testNow
+	current := view{Local: &snapshot, Now: now, State: parseState(url.Values{}),
+		Path: map[string]string{"db": snapshot.Placement.Databases[0].DatabaseID, "partition": snapshot.Placement.Databases[0].PartitionID},
+		Journal: historyJournal(now, func(time.Time, int) []observability.Sample {
+			return []observability.Sample{
+				{Metric: observability.HistSeatsServing, Value: 2},
+				{Metric: observability.HistPartitionServing, Labels: observability.L("database", snapshot.Placement.Databases[0].DatabaseID, "partition", snapshot.Placement.Databases[0].PartitionID), Value: 2},
+			}
+		})}
+	for _, chart := range []chartSpec{current.seatsChart(), current.partitionChart()} {
+		if len(chart.Series) != 0 {
+			t.Fatalf("durable historical StageServing became live serving chart: %+v", chart)
+		}
+	}
+	if got := placementServingText(snapshot.Placement.Databases[0]); !strings.Contains(got, "unknown") {
+		t.Fatalf("durable placement count was displayed as current serving: %s", got)
 	}
 }
 

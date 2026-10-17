@@ -123,7 +123,8 @@ func TestLocalSummaryTopology(t *testing.T) {
 	if !slices.Equal(summary.Members, want) {
 		t.Fatalf("members = %+v", summary.Members)
 	}
-	hosts := []Host{{Name: "h0", Seats: 1, Serving: 1}, {Name: "h1", Seats: 2, Serving: 1}}
+	hosts := []Host{{Name: "h0", Seats: 1, Readiness: "unknown", ReadinessReason: "current native root task and member readiness source is unavailable"},
+		{Name: "h1", Seats: 2, Readiness: "unknown", ReadinessReason: "current native root task and member readiness source is unavailable"}}
 	if !slices.Equal(summary.Hosts, hosts) {
 		t.Fatalf("hosts = %+v", summary.Hosts)
 	}

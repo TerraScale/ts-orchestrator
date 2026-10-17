@@ -195,7 +195,7 @@ templ partitionDetailBody(current view) {
 						<dt>Generation</dt>
 						<dd>{ itoa(database.Generation) }</dd>
 						<dt>Serving</dt>
-						<dd class={ templ.KV("warn", !database.Terminal && database.Serving < database.DesiredSeats) }>{ itoa(database.Serving) } of { itoa(database.DesiredSeats) } desired</dd>
+						<dd class={ templ.KV("warn", !database.Terminal && (database.Readiness != "observed" || database.Serving < database.DesiredSeats)) }>{ placementServingText(*database) } of { itoa(database.DesiredSeats) } desired</dd>
 						<dt>Stages</dt>
 						<dd>{ counts(database.Stages) }</dd>
 						if database.Terminal {

@@ -66,15 +66,19 @@ func TestSnapshotSamplerExcludesTerminalPartitionsFromActiveGauges(t *testing.T)
 		samples := sampler.Samples(cluster)
 		values := historySampleValues(t, samples)
 		for key, want := range map[string]float64{
-			HistDatabases: 2, HistSeatsDesired: 5, HistSeatsServing: 3,
+			HistDatabases: 2, HistSeatsDesired: 5,
 			Series(HistStageMembers, "stage", "serving"):                            3,
 			Series(HistStageMembers, "stage", "retired"):                            0,
 			Series(HistRolloutProgress, "operation", "active-update"):               0.5,
 			Series(HistPartitionDesired, "database", "archived", "partition", "p0"): 7,
-			Series(HistPartitionServing, "database", "archived", "partition", "p0"): 7,
 		} {
 			if got, present := values[key]; !present || got != want {
 				t.Errorf("%s = %v (present %v), want %v", key, got, present, want)
+			}
+		}
+		for _, metric := range []string{HistSeatsServing, Series(HistPartitionServing, "database", "orders", "partition", "p0"), Series(HistPartitionServing, "database", "archived", "partition", "p0")} {
+			if _, present := values[metric]; present {
+				t.Errorf("durable placement stages asserted current serving metric %s", metric)
 			}
 		}
 		if _, present := values[Series(HistRolloutProgress, "operation", "retired-update")]; present {

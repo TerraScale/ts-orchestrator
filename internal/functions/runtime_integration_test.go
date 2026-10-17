@@ -176,7 +176,8 @@ func TestWorkerResourceAndImportBoundaries(t *testing.T) {
 
 func integrationWorker(t *testing.T, artifact Artifact) *Worker {
 	t.Helper()
-	w, err := newWorker(t.Context(), artifact)
+	admitted, _, _ := signedFunctionFixture(t, artifact)
+	w, err := NewWorker(t.Context(), admitted)
 	if err != nil {
 		t.Fatal(err)
 	}

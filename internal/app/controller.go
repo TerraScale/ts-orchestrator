@@ -1195,10 +1195,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		rollouts:   rollouts, budgets: capacityBudgets{global: global, allocator: allocator}, ociResources: ociReconcile.resources(),
 		credentials: controllerCredentialFiles(cfg),
 		kvSnapshots: kvSnapshots,
-		nodes:       topologySource(cfg.NATS.Cell, cfg.NATS.Embedded.BrokerIDs, services, hostController, policy.nodes),
+		nodes:       topologySource(cfg.NATS.Cell, cfg.NATS.Embedded.BrokerIDs, services, policy.nodes),
 		scale:       scaleStatus,
 		services: func(ctx context.Context) ([]swarmruntime.ServiceObservation, error) {
-			return managedServiceObservations(ctx, region, services.identity.Environment)
+			return managedServiceObservations(ctx, region, services.identity.Environment, containers)
 		},
 		functions: func(ctx context.Context) ([]globalview.FunctionObservation, error) {
 			functionCalls.RLock()

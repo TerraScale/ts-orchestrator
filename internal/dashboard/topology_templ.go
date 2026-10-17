@@ -86,7 +86,7 @@ func topologyBody(current view) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<article class=\"topology\"><p class=\"muted\"><small>Each region is a column of its nodes with the services their host grants place, each service's release digest and verified report, fences, active node operations and load balancer backends (from the fence records). Arcs on the left join nodes that replicate a TerraBase partition. The NATS layer adds each controller's server, the route mesh, the other nodes' client sessions, JetStream health and the links between regions. Click a node or service to open its page.</small></p>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<article class=\"topology\"><p class=\"muted\"><small>Each region is a column of its nodes with the services their host grants place, each service's current task readiness or its unavailable source reason, fences, active node operations and load balancer backends (from the fence records). Arcs on the left join nodes in the durable roster of a TerraBase partition; current replication readiness is shown separately. The NATS layer adds each controller's server, the route mesh, the other nodes' client sessions, JetStream health and the links between regions. Click a node or service to open its page.</small></p>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

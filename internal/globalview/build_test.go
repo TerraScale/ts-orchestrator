@@ -142,6 +142,18 @@ func TestBuildNodeHealthPerNode(t *testing.T) {
 	}
 }
 
+func TestBuildKeepsUnknownServiceReasonAndPhysicalHostMetrics(t *testing.T) {
+	in := healthyRegion()
+	in.Grants[0].Services = []regionview.Service{{Role: "terrabase", State: "unknown",
+		StateReason: "current manager task readiness is unavailable in node topology"}}
+	rollup := observedRollup(t, in)
+	node := rollup.Nodes[0]
+	if len(node.Services) != 1 || node.Services[0].State != "unknown" || node.Services[0].StateReason != in.Grants[0].Services[0].StateReason ||
+		node.CPUCores != 8 || node.MemoryUsedBytes != 16<<30 || node.Health == NodeDown {
+		t.Fatalf("unknown runtime readiness lost its reason or physical host metrics: %+v", node)
+	}
+}
+
 func TestBuildNodeMissingReportIsDown(t *testing.T) {
 	in := healthyRegion()
 	in.Reports = in.Reports[1:]

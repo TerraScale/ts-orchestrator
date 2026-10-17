@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
-	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -23,11 +22,7 @@ func TestManagedUpdateR3PrepareHeldRestartReconciliation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
 
-	broker, err := natscell.Start(ctx, natscell.Config{
-		Cell: "gru", Instance: "managed-update-r3", Replicas: 1, Lab: true,
-		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1,
-			StoreDir: filepath.Join(t.TempDir(), "nats")},
-	})
+	broker, err := natscell.Start(ctx, placementTestBrokerConfig(t, "managed-update-r3"))
 	if err != nil {
 		t.Fatalf("start embedded R3 NATS cell: %v", err)
 	}

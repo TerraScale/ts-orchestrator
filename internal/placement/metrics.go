@@ -93,15 +93,13 @@ func Summarize(ctx context.Context, store Store) (observability.PlacementView, e
 
 func summarizePartition(intent Intent, members []VersionedMemberState) observability.DatabaseView {
 	database := observability.DatabaseView{DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
-		Generation: intent.Generation, DesiredSeats: len(intent.CanonicalRoster.Rows), Stages: map[string]int{}}
+		Generation: intent.Generation, DesiredSeats: len(intent.CanonicalRoster.Rows), Stages: map[string]int{},
+		Readiness: "unknown", ReadinessReason: "current native root task and member readiness source is unavailable"}
 	var latest *ManagedRuntimeTarget
 	for index := range members {
 		state := members[index].State
 		stage := string(state.Stage)
 		database.Stages[stage]++
-		if state.Stage == StageServing {
-			database.Serving++
-		}
 		database.Members = append(database.Members, observability.MemberView{SeatID: state.MemberID,
 			Stage: stage, HostNode: state.HostNode, FailureDomain: state.FailureDomain,
 			UpdatePhase: string(state.ManagedRuntimeTarget.Phase), UpdatedAt: state.UpdatedAt})

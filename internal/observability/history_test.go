@@ -194,7 +194,9 @@ func TestSnapshotSamplerDerivesSeries(t *testing.T) {
 		Series(HistRolloutProgress, "operation", "op"):                        0.5,
 		Series(HistStageMembers, "stage", "serving"):                          1,
 		Series(HistPartitionDesired, "database", "orders", "partition", "p0"): 2,
-		Series(HistPartitionServing, "database", "orders", "partition", "p0"): 1,
+	}
+	if _, present := values[Series(HistPartitionServing, "database", "orders", "partition", "p0")]; present {
+		t.Fatal("durable StageServing count asserted current serving history")
 	}
 	for key, want := range checks {
 		if got, ok := values[key]; !ok || got != want {

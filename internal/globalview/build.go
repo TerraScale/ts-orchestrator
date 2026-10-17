@@ -189,7 +189,7 @@ func buildNodes(in Inputs, truncated *bool) []Node {
 func buildServices(services []regionview.Service) []Service {
 	out := make([]Service, 0, len(services))
 	for _, service := range services {
-		out = append(out, Service{Role: service.Role, State: service.State, Digest: service.Digest})
+		out = append(out, Service{Role: service.Role, State: service.State, StateReason: service.StateReason, Digest: service.Digest})
 	}
 	return out
 }

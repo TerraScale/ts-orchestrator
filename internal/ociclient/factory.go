@@ -146,6 +146,16 @@ var (
 // cached region never waits for a fetch; a racing creator's factory is
 // discarded and the installed one returned.
 func InstancePrincipal(region string) (*Factory, error) {
+	return InstancePrincipalContext(context.Background(), region)
+}
+
+// InstancePrincipalContext bounds cold credential acquisition without retaining ctx in the shared factory.
+func InstancePrincipalContext(ctx context.Context, region string) (*Factory, error) {
+	ctx, release, err := credentialContext(ctx)
+	defer release()
+	if err != nil {
+		return nil, err
+	}
 	sharedMu.Lock()
 	factory := sharedPrincipal[region]
 	sharedMu.Unlock()
@@ -155,7 +165,7 @@ func InstancePrincipal(region string) (*Factory, error) {
 	if !catalog.IsOCIRegion(region) {
 		return nil, fmt.Errorf("OCI region %q is not in the region catalog", region)
 	}
-	provider, err := InstancePrincipalProvider(common.Region(region), nil)
+	provider, err := InstancePrincipalProviderContext(ctx, common.Region(region), nil)
 	if err != nil {
 		return nil, fmt.Errorf("create OCI instance-principal provider: %w", err)
 	}
@@ -163,8 +173,14 @@ func InstancePrincipal(region string) (*Factory, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := checkCredentialSource(ctx); err != nil {
+		return nil, err
+	}
 	sharedMu.Lock()
 	defer sharedMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if factory := sharedPrincipal[region]; factory != nil {
 		return factory, nil
 	}
@@ -176,19 +192,54 @@ func InstancePrincipal(region string) (*Factory, error) {
 // from the metadata service, with modifier wrapping the SDK's HTTP client (nil
 // keeps it). Every in-binary instance-principal provider must be built here:
 // the SDK writes package-level metadata URLs on every provider it builds, so
-// builds take one process-wide lock.
+// builds share one process-wide serialization token.
 func InstancePrincipalProvider(region common.Region,
 	modifier func(common.HTTPRequestDispatcher) (common.HTTPRequestDispatcher, error),
 ) (common.ConfigurationProvider, error) {
-	providerMu.Lock()
-	defer providerMu.Unlock()
-	return newInstancePrincipalProvider(region, modifier)
+	return InstancePrincipalProviderContext(context.Background(), region, modifier)
 }
 
-var providerMu sync.Mutex
+// InstancePrincipalProviderContext serializes SDK globals while allowing queued callers to cancel.
+func InstancePrincipalProviderContext(ctx context.Context, region common.Region,
+	modifier func(common.HTTPRequestDispatcher) (common.HTTPRequestDispatcher, error),
+) (common.ConfigurationProvider, error) {
+	ctx, release, err := credentialContext(ctx)
+	defer release()
+	if err != nil {
+		return nil, err
+	}
+	select {
+	case providerToken <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	defer func() { <-providerToken }()
+	if err := checkCredentialSource(ctx); err != nil {
+		return nil, err
+	}
+	provider, err := newInstancePrincipalProvider(ctx, region, func(dispatcher common.HTTPRequestDispatcher) (common.HTTPRequestDispatcher, error) {
+		if modifier != nil {
+			var err error
+			dispatcher, err = modifier(dispatcher)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return credentialDispatcher{next: dispatcher}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return contextualPrincipal{ConfigurationProvider: provider}, nil
+}
+
+var providerToken = make(chan struct{}, 1)
 
 // newInstancePrincipalProvider is the SDK's constructor; tests replace it.
-var newInstancePrincipalProvider = auth.InstancePrincipalConfigurationForRegionWithCustomClient
+var newInstancePrincipalProvider = auth.InstancePrincipalConfigurationForRegionWithCustomClientContext
 
 // OperatorConfig returns a factory over the operator's ~/.oci/config DEFAULT
 // profile, the same credentials the retired Python CLI used.

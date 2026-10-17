@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"cmp"
 	"fmt"
 	"time"
 
@@ -32,7 +33,7 @@ func managedServiceTable(current view, region globalview.Region) table {
 
 func managedServiceReady(service swarmruntime.ServiceObservation) string {
 	if service.Readiness != "observed" {
-		return "unknown"
+		return joinDetail("unknown", cmp.Or(service.ReadinessReason, "current authenticated task readiness unavailable"))
 	}
 	return fmt.Sprint(service.ReadyReplicas)
 }

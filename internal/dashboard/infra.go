@@ -191,7 +191,16 @@ func (current view) stageChart() chartSpec {
 
 func (current view) seatsChart() chartSpec {
 	desired := current.historyRange(observability.HistSeatsDesired, nil, "", false)
-	serving := current.historyRange(observability.HistSeatsServing, nil, "", false)
+	var serving []chartSeries
+	if placement := current.placement(); placement != nil && len(placement.Databases) > 0 {
+		observed := true
+		for _, database := range placement.Databases {
+			observed = observed && database.Readiness == "observed"
+		}
+		if observed {
+			serving = current.historyRange(observability.HistSeatsServing, nil, "", false)
+		}
+	}
 	var series []chartSeries
 	if len(desired) > 0 {
 		desired[0].Name, desired[0].Dashed, desired[0].Status = "desired", true, "idle"

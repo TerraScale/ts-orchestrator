@@ -226,6 +226,7 @@ type ServiceObservation struct {
 	RunningReplicas   uint64            `json:"running_replicas"`
 	ReadyReplicas     uint64            `json:"ready_replicas"`
 	Readiness         string            `json:"readiness"`
+	ReadinessReason   string            `json:"readiness_reason,omitempty"`
 	UpdateState       string            `json:"update_state,omitempty"`
 	Tasks             []TaskObservation `json:"tasks"`
 	ObservedAt        time.Time         `json:"observed_at"`
