@@ -41,10 +41,16 @@ const managementBinding = "terrascale-accepted-identity"
 const managementNodeID = "terrascale-manager-node-id"
 const controllerCgroup = "/system.slice/terrascale-orchestrator-controller.service"
 
+// StatefulServiceAuthorizer derives the exact current signed service in root.
+// The unprivileged socket caller cannot supply its readers or a cached seal.
+type StatefulServiceAuthorizer interface {
+	AuthorizeStatefulService(context.Context, *api.ServiceSpec) error
+}
+
 // StartManagementServer exposes only controller operations beside the root-owned
 // manager. The private upstream control and containerd sockets remain root-only.
-func StartManagementServer(ctx context.Context, node *Node, reader *bootstrapstart.CurrentFounderAuthorityReader, accepted bootstrapstart.AcceptedIdentity) (io.Closer, error) {
-	if os.Geteuid() != 0 || node == nil || reader == nil {
+func StartManagementServer(ctx context.Context, node *Node, reader *bootstrapstart.CurrentFounderAuthorityReader, accepted bootstrapstart.AcceptedIdentity, stateful StatefulServiceAuthorizer) (io.Closer, error) {
+	if os.Geteuid() != 0 || node == nil || reader == nil || stateful == nil {
 		return nil, errors.New("management requires the root-owned admitted manager")
 	}
 	authority, err := reader.ReadRuntimeAuthority(ctx, accepted, time.Now().UTC())
@@ -81,7 +87,7 @@ func StartManagementServer(ctx context.Context, node *Node, reader *bootstrapsta
 		}
 		return nil
 	}
-	return startManagementAt(ctx, managementSocket, uint32(uid), uint32(gid), controllerCgroup, binding, node, region, identity.Environment, client, refresh)
+	return startManagementAt(ctx, managementSocket, uint32(uid), uint32(gid), controllerCgroup, binding, node, region, identity.Environment, client, refresh, stateful)
 }
 
 // DialManagement authenticates the root manager over the fixed local socket.
@@ -172,11 +178,12 @@ type managementServer struct {
 	api.UnimplementedControlServer
 	client              api.ControlClient
 	region, environment string
+	stateful            StatefulServiceAuthorizer
 }
 type managementListener struct{ close func() }
 
 func (s *managementListener) Close() error { s.close(); return nil }
-func startManagementAt(ctx context.Context, path string, uid, gid uint32, cgroup, binding string, node *Node, region, environment string, client api.ControlClient, refresh func(context.Context) error) (io.Closer, error) {
+func startManagementAt(ctx context.Context, path string, uid, gid uint32, cgroup, binding string, node *Node, region, environment string, client api.ControlClient, refresh func(context.Context) error, stateful StatefulServiceAuthorizer) (io.Closer, error) {
 	parent, err := os.Lstat(filepath.Dir(path))
 	if err != nil {
 		return nil, err
@@ -251,7 +258,7 @@ func startManagementAt(ctx context.Context, path string, uid, gid uint32, cgroup
 		}
 		return result, nil
 	}))
-	api.RegisterControlServer(server, &managementServer{client: client, region: region, environment: environment})
+	api.RegisterControlServer(server, &managementServer{client: client, region: region, environment: environment, stateful: stateful})
 	registerWorkerManagement(server, node)
 	stop := context.AfterFunc(ctx, func() { server.Stop(); _ = listener.Close(); _ = lock.Unlock() })
 	serving := &managementListener{close: sync.OnceFunc(func() { stop(); server.Stop(); _ = listener.Close(); _ = lock.Unlock() })}
@@ -419,18 +426,32 @@ func (s *managementServer) managedService(spec *api.ServiceSpec) bool {
 }
 
 func (s *managementServer) CreateService(ctx context.Context, req *api.CreateServiceRequest) (*api.CreateServiceResponse, error) {
-	if !s.managedService(req.Spec) {
+	if !s.managedService(req.Spec) && !s.authorizedStatefulService(ctx, req.Spec) {
 		return nil, denied()
 	}
 	return s.client.CreateService(ctx, req)
 }
 func (s *managementServer) UpdateService(ctx context.Context, req *api.UpdateServiceRequest) (*api.UpdateServiceResponse, error) {
-	if !s.managedService(req.Spec) {
+	stateful := statefulService(req.Spec)
+	if !s.managedService(req.Spec) && !stateful {
 		return nil, denied()
 	}
 	current, err := s.GetService(ctx, &api.GetServiceRequest{ServiceID: req.ServiceID})
 	if err != nil {
 		return nil, err
+	}
+	if stateful != statefulService(&current.Service.Spec) {
+		return nil, denied()
+	}
+	if stateful {
+		if req.Rollback != api.UpdateServiceRequest_NONE || req.Spec.Annotations.Name != current.Service.Spec.Annotations.Name {
+			return nil, denied()
+		}
+		for _, key := range []string{"terrascale.database-id", "terrascale.partition-id", "terrascale.member-id"} {
+			if req.Spec.Annotations.Labels[key] != current.Service.Spec.Annotations.Labels[key] {
+				return nil, denied()
+			}
+		}
 	}
 	effective := req.Spec
 	switch req.Rollback {
@@ -443,7 +464,7 @@ func (s *managementServer) UpdateService(ctx context.Context, req *api.UpdateSer
 	default:
 		return nil, denied()
 	}
-	if !s.managedService(effective) {
+	if !stateful && !s.managedService(effective) {
 		return nil, denied()
 	}
 	for _, key := range []string{LabelIntentID, LabelRole, LabelRegion, LabelEnvironment} {
@@ -451,7 +472,18 @@ func (s *managementServer) UpdateService(ctx context.Context, req *api.UpdateSer
 			return nil, denied()
 		}
 	}
+	if stateful && !s.authorizedStatefulService(ctx, effective) {
+		return nil, denied()
+	}
 	return s.client.UpdateService(ctx, req)
+}
+
+func statefulService(spec *api.ServiceSpec) bool {
+	return spec != nil && spec.Annotations.Labels[LabelRole] == "terrabase" && spec.Annotations.Labels["terrascale.stateful"] == "true"
+}
+
+func (s *managementServer) authorizedStatefulService(ctx context.Context, spec *api.ServiceSpec) bool {
+	return statefulService(spec) && s.scoped(spec.Annotations) && validIntentLabels(spec.Annotations.Labels) && s.stateful != nil && s.stateful.AuthorizeStatefulService(ctx, spec) == nil
 }
 func (s *managementServer) RemoveService(ctx context.Context, req *api.RemoveServiceRequest) (*api.RemoveServiceResponse, error) {
 	current, err := s.GetService(ctx, &api.GetServiceRequest{ServiceID: req.ServiceID})
