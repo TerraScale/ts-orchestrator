@@ -207,7 +207,13 @@ func sourceFounderFixtureWithAuthority(t *testing.T, grant region.VerifiedBootst
 	protocol.mu.Unlock()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	factory, err := ociclient.New(provider, ociclient.Options{Region: manifest.OCIRegion, Retry: ociclient.RetryOptions{MaxAttempts: 1}})
+	// This loopback protocol exercises authority and recovery; OCI quota pacing has its own tests.
+	localLimit := ociclient.Limit{PerSecond: 1000, Burst: 1000}
+	factory, err := ociclient.New(provider, ociclient.Options{Region: manifest.OCIRegion,
+		Limits: map[ociclient.Service]ociclient.Limit{
+			ociclient.ServiceCompute: localLimit, ociclient.ServiceBlockstorage: localLimit,
+			ociclient.ServiceIdentity: localLimit, ociclient.ServiceObjectStorage: localLimit,
+		}, Retry: ociclient.RetryOptions{MaxAttempts: 1}})
 	if err != nil {
 		t.Fatal(err)
 	}
