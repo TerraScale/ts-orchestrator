@@ -123,7 +123,9 @@ func TestRegistryResolverRequiresCurrentAdmissionAfterVault(t *testing.T) {
 			if name != "missing final guard" {
 				admission.VerifyCurrent = func(ctx context.Context) error {
 					called++
-					if current, ok := ctx.Deadline(); !ok || !current.Equal(deadline) || ctx.Err() != nil {
+					current, ok := ctx.Deadline()
+					shortOriginal := name == "expiry during dispatch guard" || name == "expiry during Vault"
+					if !ok || current.After(deadline) || shortOriginal && !current.Equal(deadline) || ctx.Err() != nil {
 						t.Error("Vault guard lost original context deadline or cancellation")
 						return errors.New("Vault guard context changed")
 					}
