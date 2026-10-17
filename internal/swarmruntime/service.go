@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"slices"
 	"strconv"
@@ -176,6 +177,23 @@ func applyServiceGuarded(ctx context.Context, client api.ControlClient, intent S
 		return nil, errors.New("service is deleting or has unsupported mode")
 	}
 	spec.GetReplicated().Replicas = current.Spec.GetReplicated().Replicas
+	spec.Task.ForceUpdate = current.Spec.Task.ForceUpdate
+	if intent.Generation != 0 {
+		labels := current.Spec.Annotations.Labels
+		if labels[LabelIntentGeneration] == spec.Annotations.Labels[LabelIntentGeneration] && labels[labelIntentFingerprint] == intent.intentFingerprint {
+			// Existing tasks retain ServiceAnnotations when upstream sees no task change.
+			if operation, exists := labels[LabelOperationID]; exists {
+				spec.Annotations.Labels[LabelOperationID] = operation
+			} else {
+				delete(spec.Annotations.Labels, LabelOperationID)
+			}
+		} else {
+			if spec.Task.ForceUpdate == math.MaxUint64 {
+				return nil, errors.New("service rollout generation exhausted")
+			}
+			spec.Task.ForceUpdate++
+		}
+	}
 	if guard != nil {
 		if err := guard(ctx); err != nil {
 			return nil, err
@@ -339,6 +357,7 @@ func serviceIntentFingerprint(spec *api.ServiceSpec) (string, error) {
 	spec = spec.Copy()
 	// Autoscaling and an operation locator do not change the admitted workload.
 	spec.Mode = nil
+	spec.Task.ForceUpdate = 0
 	delete(spec.Annotations.Labels, LabelOperationID)
 	delete(spec.Annotations.Labels, labelIntentFingerprint)
 	wire, err := json.Marshal(spec, json.Deterministic(true))
