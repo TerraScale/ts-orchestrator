@@ -14,6 +14,7 @@ const (
 // ContainerMaterial reads only signed material named by a retained authenticated
 // operation. No caller may choose an OCI location or object name.
 type ContainerMaterial interface {
+	RetainedContainerMaterial
 	ContainerEvidence(context.Context, Call, ContainerEvidenceRequest) (ContainerEvidenceChunk, error)
 	ContainerAllocation(context.Context, Call, ContainerAllocationRequest) (ContainerAllocationObservation, error)
 }
