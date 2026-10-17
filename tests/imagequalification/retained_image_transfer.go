@@ -61,6 +61,13 @@ func (c *cloud) observeImageTransfer(ctx context.Context, observer *ociclient.Fa
 	if j.ImageManifestSHA256 != "" && current.ManifestSHA256 != j.ImageManifestSHA256 {
 		return empty, errors.New("authenticated image publication substituted the retained immutable reference")
 	}
+	if current.Image.Receipt().OCIImageOCID != j.ImageID {
+		if j.ImageManifestSHA256 != "" {
+			return empty, errors.New("recorded image publication differs from the retained image")
+		}
+		// Discovery may still name another run's fully authenticated image.
+		return empty, nil
+	}
 	publishedAt := current.ManifestLastModified
 	publicationUpper := publishedAt.Add(time.Second)
 	plan, err := hostadmission.VerifyReaderBinding(j.RetainedReaderProof, p.roots, publishedAt)

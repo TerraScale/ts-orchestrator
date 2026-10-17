@@ -200,6 +200,7 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 				_, _ = w.Write([]byte(`{"code":"ObjectNotFound","message":"local fixture"}`))
 				return
 			}
+			w.Header().Set("ETag", "fixture-etag")
 			if mode == "changed-manifest" && strings.Contains(name, "/manifests/") {
 				body = []byte("changed manifest")
 			}
@@ -274,6 +275,51 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 	if err := releasechannel.PublishCurrentImage(t.Context(), location, receiptWire, delegationWire, f.roots, releasechannel.CurrentImageExpectation{Cell: a.Candidate.Cell, Environment: a.Candidate.Environment, Architecture: a.Candidate.Architecture, Role: release.FoundationWriterRole}, f.now); err != nil {
 		t.Fatal(err)
 	}
+	t.Run("authenticated-other-current-image", func(t *testing.T) {
+		otherBoundary := boundary
+		otherBoundary.Candidate.ImageOCID = "ocid1.image.oc1.sa-saopaulo-1.other-tested"
+		otherBoundary.Hosts = append([]release.RootCredentialBoundaryHost{}, boundary.Hosts...)
+		for i := range otherBoundary.Hosts {
+			otherBoundary.Hosts[i].ImageOCID = otherBoundary.Candidate.ImageOCID
+		}
+		otherBody, err := json.Marshal(otherBoundary, json.Deterministic(true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		otherWriter := writer
+		otherWriter.Candidate = otherBoundary.Candidate
+		otherWriter.Evidence = append([]release.ProductionGateEvidence{}, writer.Evidence...)
+		otherWriter.Evidence[len(otherWriter.Evidence)-1].SHA256 = hashBytes(otherBody)
+		otherWriter.Evidence[len(otherWriter.Evidence)-1].Bytes = int64(len(otherBody))
+		otherReceipt := receipt
+		otherReceipt.OCIImageOCID = otherBoundary.Candidate.ImageOCID
+		otherReceipt.HostProduction = map[string]release.ProductionProof{release.FoundationWriterRole: {
+			Qualification: sign(otherWriter, release.ProductionQualificationScope(otherWriter.Candidate), f.private, f.now.Add(time.Hour)),
+		}}
+		mu.Lock()
+		objects[releasechannel.ImageProductionEvidenceObject(hashBytes(otherBody))] = otherBody
+		mu.Unlock()
+		otherWire := sign(otherReceipt, release.ImageScope(otherReceipt, a.Candidate.Environment), leaf, f.now.Add(time.Hour))
+		expected := releasechannel.CurrentImageExpectation{Cell: a.Candidate.Cell, Environment: a.Candidate.Environment, Architecture: a.Candidate.Architecture, Role: release.FoundationWriterRole}
+		if err := releasechannel.PublishCurrentImage(t.Context(), location, otherWire, delegationWire, f.roots, expected, f.now); err != nil {
+			t.Fatal(err)
+		}
+		otherCurrent, found, err := releasechannel.ReadPublishedImageSDK(t.Context(), observer, a.Namespace, f.roots, expected, "", now)
+		if err != nil || !found {
+			t.Fatalf("other publication fixture failed authentication: %v", err)
+		}
+		if transfer, err := c.observeImageTransfer(t.Context(), observer, j); err != nil || transfer != (imageTransfer{}) {
+			t.Fatalf("unrelated authenticated current image stalled cleanup: %+v %v", transfer, err)
+		}
+		wrongRecorded := j
+		wrongRecorded.ImageManifestSHA256 = otherCurrent.ManifestSHA256
+		if transfer, err := c.observeImageTransfer(t.Context(), observer, wrongRecorded); err == nil || transfer != (imageTransfer{}) {
+			t.Fatalf("recorded image mismatch lost cleanup duty: %+v %v", transfer, err)
+		}
+		if err := releasechannel.PublishCurrentImage(t.Context(), location, receiptWire, delegationWire, f.roots, expected, f.now); err != nil {
+			t.Fatal(err)
+		}
+	})
 	mu.Lock()
 	publicationWrites := writes
 	mu.Unlock()
