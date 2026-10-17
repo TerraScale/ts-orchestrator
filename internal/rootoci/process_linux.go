@@ -110,22 +110,10 @@ func observeProcess(pid int) (processIdentity, *os.File, error) {
 	var identity processIdentity
 	identity.peer.PID = pid
 	base := fmt.Sprintf("/proc/%d/", pid)
-	stat, err := os.ReadFile(base + "stat")
+	var err error
+	identity.start, identity.parent, identity.cgroup, err = processKernelIdentity(pid)
 	if err != nil {
 		return identity, nil, err
-	}
-	_, suffix, ok := strings.CutLast(string(stat), ") ")
-	fields := strings.Fields(suffix)
-	if !ok || len(fields) < 20 || fields[0] == "Z" || fields[0] == "X" {
-		return identity, nil, ErrUnauthorized
-	}
-	identity.parent, err = strconv.Atoi(fields[1])
-	if err != nil {
-		return identity, nil, err
-	}
-	identity.start, err = strconv.ParseUint(fields[19], 10, 64)
-	if err != nil || identity.start == 0 {
-		return identity, nil, ErrUnauthorized
 	}
 	status, err := os.ReadFile(base + "status")
 	if err != nil {
@@ -153,11 +141,6 @@ func observeProcess(pid int) (processIdentity, *os.File, error) {
 	if !uidFound || !gidFound {
 		return identity, nil, ErrUnauthorized
 	}
-	cgroup, err := os.ReadFile(base + "cgroup")
-	if err != nil || len(cgroup) == 0 || len(cgroup) > 65536 {
-		return identity, nil, ErrUnauthorized
-	}
-	identity.cgroup = string(cgroup)
 	executable, err := os.Open(base + "exe")
 	if err != nil {
 		return identity, nil, err
@@ -172,4 +155,30 @@ func observeProcess(pid int) (processIdentity, *os.File, error) {
 	// Access time changes when the verifier reads the pinned executable.
 	identity.executable.Atim = unix.Timespec{}
 	return identity, executable, nil
+}
+
+func processKernelIdentity(pid int) (uint64, int, string, error) {
+	base := fmt.Sprintf("/proc/%d/", pid)
+	stat, err := os.ReadFile(base + "stat")
+	if err != nil {
+		return 0, 0, "", ErrUnauthorized
+	}
+	_, suffix, ok := strings.CutLast(string(stat), ") ")
+	fields := strings.Fields(suffix)
+	if !ok || len(fields) < 20 || fields[0] == "Z" || fields[0] == "X" {
+		return 0, 0, "", ErrUnauthorized
+	}
+	parent, err := strconv.Atoi(fields[1])
+	if err != nil {
+		return 0, 0, "", ErrUnauthorized
+	}
+	start, err := strconv.ParseUint(fields[19], 10, 64)
+	if err != nil || start == 0 {
+		return 0, 0, "", ErrUnauthorized
+	}
+	cgroup, err := os.ReadFile(base + "cgroup")
+	if err != nil || len(cgroup) == 0 || len(cgroup) > 65536 {
+		return 0, 0, "", ErrUnauthorized
+	}
+	return start, parent, string(cgroup), nil
 }
