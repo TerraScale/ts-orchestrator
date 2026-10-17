@@ -46,6 +46,11 @@ templ globalRegionBody(current view) {
 					<p class="muted">Observed: { managedServicesObserved(region) }. Source: { region.ManagedServiceState(true, region.Rollup.ServicesObservedAt) }.</p>
 					@dataTable(managedServiceTable(current, region))
 				</article>
+				<article id="functions">
+					<h2>Functions</h2>
+					<p class="muted">Admitted tenant and function identities with observed worker placement. Counters are available only from a current worker snapshot.</p>
+					@dataTable(functionTable(region))
+				</article>
 				<article id="nodes">
 					<h2>Nodes</h2>
 					@dataTable(nodeTable(current, regionNodes(region)))
