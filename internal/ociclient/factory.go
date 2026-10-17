@@ -442,7 +442,7 @@ func (f *Factory) HomeRegion(ctx context.Context, tenancy string) (string, error
 	if err != nil {
 		return "", err
 	}
-	response, err := client.GetTenancy(ctx, identity.GetTenancyRequest{TenancyId: &tenancy})
+	response, err := client.GetTenancy(RequestContext(ctx), identity.GetTenancyRequest{TenancyId: &tenancy})
 	if err != nil {
 		return "", fmt.Errorf("read the tenancy home region: %w", err)
 	}

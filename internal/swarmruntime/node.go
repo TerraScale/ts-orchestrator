@@ -48,6 +48,7 @@ type Node struct {
 	done            chan struct{}
 	err             error
 	role            string
+	admission       admittedIdentity
 	stateDir        string
 	workerAuthority *workerAuthority
 	workerDirectory string
@@ -229,7 +230,7 @@ func StartNode(ctx context.Context, cfg NodeConfig, executor exec.Executor) (*No
 		cancel()
 		return nil, err
 	}
-	n = &Node{upstream: upstream, cancel: cancel, done: make(chan struct{}), role: a.Role, stateDir: cfg.StateDir}
+	n = &Node{upstream: upstream, cancel: cancel, done: make(chan struct{}), role: a.Role, admission: identity, stateDir: cfg.StateDir}
 	go func() {
 		n.err = errors.Join(upstream.Err(context.Background()), lock.Unlock())
 		close(n.done)

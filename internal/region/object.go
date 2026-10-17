@@ -86,6 +86,27 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 	if err := record.validate(); err != nil {
 		return "", err
 	}
+	if etag != "" {
+		previous, observedETag, err := s.Load(ociclient.CheckpointContext(ctx), record.Cell)
+		if err != nil {
+			return "", err
+		}
+		if observedETag != etag {
+			return "", ErrFoundationConflict
+		}
+		if err := previous.retainOCIRIssuances(record); err != nil {
+			return "", err
+		}
+		if err := record.retainCapacity(previous); err != nil {
+			return "", err
+		}
+		if err := record.retainPoolDrains(previous); err != nil {
+			return "", err
+		}
+		if err := record.retainCapacityJournal(previous); err != nil {
+			return "", err
+		}
+	}
 	wire, err := json.Marshal(record, json.Deterministic(true))
 	if err != nil {
 		return "", err
@@ -121,6 +142,14 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 }
 
 func (r FoundationRecord) validate() error {
+	if err := r.validateOCIRIssuances(); err != nil {
+		return err
+	}
+	if r.OCIResources != nil {
+		if err := r.OCIResources.Validate(r.Cell); err != nil {
+			return fmt.Errorf("protected OCI amendment journal: %w", err)
+		}
+	}
 	entry, ok := catalog.Lookup(r.Cell)
 	digest, digestErr := hex.DecodeString(r.IntentDigest)
 	if r.SchemaVersion != 1 || !ok || r.OCIRegion != entry.OCIRegion || !strings.HasPrefix(r.TenancyID, "ocid1.tenancy.") ||
@@ -171,6 +200,11 @@ func (r FoundationRecord) validate() error {
 			return err
 		}
 	}
+	if r.FoundationWriter != nil {
+		if r.FoundationWriter.Cell != r.Cell || r.FoundationWriter.Generation > r.Generation || r.FoundationWriter.validate() != nil {
+			return errors.New("original home writer checkpoint is invalid")
+		}
+	}
 	if r.NetBirdManager != nil {
 		if r.Cell != "GRU" || r.NetBirdManager.validate() != nil {
 			return errors.New("dedicated NetBird manager checkpoint is invalid")
@@ -206,7 +240,10 @@ func (r FoundationRecord) validate() error {
 			return errors.New("foundation record has invalid pending create")
 		}
 	}
-	return nil
+	if err := r.validateCapacity(); err != nil {
+		return err
+	}
+	return r.validatePoolDrains()
 }
 
 func validAuxiliaryID(key, id, region string) bool {

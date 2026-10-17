@@ -39,9 +39,11 @@ type RuntimeEffectHandler interface {
 type HostRuntimeIdentity struct {
 	identity   executionwire.WorkerIdentity
 	controller ed25519.PublicKey
+	deadline   time.Time
 }
 
 func (i HostRuntimeIdentity) Identity() executionwire.WorkerIdentity { return i.identity }
+func (i HostRuntimeIdentity) ExpiresAt() time.Time                   { return i.deadline }
 func (i HostRuntimeIdentity) ControllerPublicKey() ed25519.PublicKey {
 	return slices.Clone(i.controller)
 }
@@ -51,19 +53,17 @@ func (a *Agent) RuntimeWorkerIdentity(instanceID, nodeID string) (HostRuntimeIde
 	if a.sessionLost.Load() {
 		return HostRuntimeIdentity{}, errors.New("host session was lost")
 	}
-	if _, _, err := a.executionLease(); err != nil {
+	current, deadline, err := a.executionLease()
+	if err != nil {
 		return HostRuntimeIdentity{}, err
 	}
-	a.mu.RLock()
-	current := a.session
-	a.mu.RUnlock()
 	identity := executionwire.WorkerIdentity{
 		Cell: a.cfg.Cell, HostNode: a.cfg.Node, NATSUserPublicKey: a.cfg.NATSUserPublicKey,
 		HostPublicKey: base64.StdEncoding.EncodeToString(a.cfg.Identity.Public().(ed25519.PublicKey)),
 		HostSessionID: a.processID, RegistrationGeneration: current.RegistrationGeneration,
 		InstanceID: instanceID, NodeID: nodeID,
 	}
-	return HostRuntimeIdentity{identity: identity, controller: slices.Clone(a.cfg.ControllerPublicKey)}, nil
+	return HostRuntimeIdentity{identity: identity, controller: slices.Clone(a.cfg.ControllerPublicKey), deadline: deadline}, nil
 }
 
 // RuntimeEffect preserves request/reply nonce verification before exposing the

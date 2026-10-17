@@ -20,7 +20,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	ociregistry "github.com/TerraScale/ts-orchestrator/internal/ociregion/registry"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
@@ -73,7 +72,7 @@ func runRuntimeRegistrySource(ctx context.Context, args []string, input io.Reade
 	if err != nil {
 		return err
 	}
-	gate, accepted, err := acceptedControllerAdmissionGate(cfg, bootstrapstart.NewMarkerStore(), controllerClockCheck(controllerBrokerClockProbe()))
+	gate, _, err := acceptedControllerAdmissionGate(cfg, bootstrapstart.NewMarkerStore(), controllerClockCheck(controllerBrokerClockProbe()))
 	if err != nil {
 		return err
 	}
@@ -109,12 +108,7 @@ func runRuntimeRegistrySource(ctx context.Context, args []string, input io.Reade
 	if err != nil {
 		return err
 	}
-	profile := profileProof.Profile()
-	entry, ok := catalog.CellForOCIRegion(catalog.OCIRegion(strings.ToUpper(accepted.Cell)))
-	if !ok {
-		return errors.New("registry source requires an admitted canonical OCI region")
-	}
-	expected, err := platformServiceIntent(intent, profile, entry.OCIRegion, query.Architecture)
+	expected, err := containermaterial.ServiceIntent(profileProof, query.Architecture)
 	if err != nil {
 		return err
 	}

@@ -49,7 +49,7 @@ func NewReader(ctx context.Context, cfg ReaderConfig) (*Reader, error) {
 			return nil, err
 		}
 	}
-	return &Reader{controller: &Controller{cell: cfg.Cell, conn: cfg.Conn, state: state, controlLog: controlLog, mutations: cfg.HostMutations, readOnly: true}}, nil
+	return &Reader{controller: &Controller{cell: cfg.Cell, conn: cfg.Conn, state: state, controlLog: controlLog, mutations: cfg.HostMutations, credentialFloor: cfg.ManagedCredentialFloor, readOnly: true}}, nil
 }
 
 func (r *Reader) ListHosts(ctx context.Context) ([]HostStatus, error) {

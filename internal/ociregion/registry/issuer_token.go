@@ -134,6 +134,13 @@ func (a *issuerAttempt) ensureCredential(ctx context.Context, user identity.User
 		a.state.BeforeTokens = before
 		a.state.TokenOperation = uuid.New().String()
 		a.state.TokenStarted = time.Now().UTC()
+		a.state.TokenExpires = a.state.TokenStarted.Add(90 * time.Second)
+		if deadline, ok := ctx.Deadline(); ok && deadline.Before(a.state.TokenExpires) {
+			a.state.TokenExpires = deadline.UTC()
+		}
+		if expiry := a.issuer.scope.ExpiresAt(); expiry.Before(a.state.TokenExpires) {
+			a.state.TokenExpires = expiry.UTC()
+		}
 		a.state.Stage = "token-pending"
 		if err := a.save(ctx, true); err != nil {
 			return err
@@ -148,13 +155,20 @@ func (a *issuerAttempt) ensureCredential(ctx context.Context, user identity.User
 func (a *issuerAttempt) issue(ctx context.Context, user identity.User) error {
 	var token identity.AuthToken
 	// Even an explicit later replay uses the durable same-operation token.
-	err := a.call(ctx, true, func(ctx context.Context) error {
-		response, err := a.issuer.identity.CreateAuthToken(ctx, identity.CreateAuthTokenRequest{
-			UserId: new(a.state.UserID), Description: new("terrascale-ocir:" + a.state.TokenOperation), OpcRetryToken: new(a.state.TokenOperation),
-			RequestMetadata: common.RequestMetadata{RetryPolicy: new(common.NoRetryPolicy())}})
-		token = response.AuthToken
-		return err
-	})
+	var err error
+	if time.Now().Before(a.state.TokenExpires) {
+		original, cancel := context.WithDeadline(ctx, a.state.TokenExpires)
+		err = a.call(original, true, func(ctx context.Context) error {
+			response, err := a.issuer.identity.CreateAuthToken(ctx, identity.CreateAuthTokenRequest{
+				UserId: new(a.state.UserID), Description: new("terrascale-ocir:" + a.state.TokenOperation), OpcRetryToken: new(a.state.TokenOperation),
+				RequestMetadata: common.RequestMetadata{RetryPolicy: new(common.NoRetryPolicy())}})
+			token = response.AuthToken
+			return err
+		})
+		cancel()
+	} else {
+		err = ErrIssuer
+	}
 	if err != nil || text(token.Token) == "" {
 		// Exact pending operation + pre-request inventory are required before
 		// revoking an observed lost-value token. Description alone is not proof.

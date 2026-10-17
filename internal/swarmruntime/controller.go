@@ -38,6 +38,7 @@ type controller struct {
 	fingerprint         string
 	credentialExpiresAt time.Time
 	stateful            *statefulController
+	loadTerminal        bool // guarded by executor.mu
 }
 
 var _ exec.Controller = (*controller)(nil)
@@ -47,6 +48,9 @@ var _ exec.ControllerLogs = (*controller)(nil)
 func (c *controller) Update(_ context.Context, t *api.Task) error {
 	if _, err := DecodeContainer(t); err != nil || t.ID != c.task.ID || taskFingerprint(t) != c.fingerprint {
 		return exec.ErrTaskUpdateRejected
+	}
+	if taskLoadTerminalState(t.Status.State) {
+		c.finishTaskLoad()
 	}
 	return nil
 }
@@ -69,7 +73,8 @@ func (c *controller) container(ctx context.Context) (containerd.Container, error
 	return ctr, nil
 }
 
-func (c *controller) Prepare(ctx context.Context) error {
+func (c *controller) Prepare(ctx context.Context) (operationErr error) {
+	defer func() { c.finishTaskLoadOperation(api.TaskStatePreparing, operationErr) }()
 	if c.stateful != nil {
 		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
 			return execution.ErrUnsafe
@@ -77,6 +82,9 @@ func (c *controller) Prepare(ctx context.Context) error {
 	}
 	c.executor.mu.Lock()
 	defer c.executor.mu.Unlock()
+	if c.stateful == nil {
+		c.executor.trackLoadTask(c)
+	}
 	ports, unlock, err := c.reservePorts(ctx)
 	if err != nil {
 		return err
@@ -116,6 +124,13 @@ func (c *controller) Prepare(ctx context.Context) error {
 		return err
 	}
 	if errdefs.IsNotFound(err) {
+		if c.diskAccounted() {
+			budget, budgetErr := DiskBytes(c.task.Spec.Resources)
+			available, capacityErr := c.executor.diskCapacity(ctx)
+			if budgetErr != nil || capacityErr != nil || available < budget {
+				return errors.Join(ErrDiskPending, budgetErr, capacityErr)
+			}
+		}
 		image, err := c.executor.client.GetImage(ctx, c.spec.Image)
 		if errdefs.IsNotFound(err) {
 			image, err = c.executor.client.Pull(ctx, c.spec.Image, containerd.WithResolver(resolved))
@@ -179,6 +194,14 @@ func (c *controller) Prepare(ctx context.Context) error {
 			opts = append(opts, oci.WithMounts(containerMounts), oci.WithEnv(containerEnv))
 		}
 		labels := map[string]string{"terrascale.task": c.task.ID, "terrascale.service": c.task.ServiceID, "terrascale.spec": c.fingerprint, portsLabel: ports, credentialExpiryLabel: c.credentialExpiryLabel()}
+		if c.diskAccounted() {
+			witness, err := c.prepareDisk(ctx, image)
+			if err != nil {
+				return err
+			}
+			labels[diskBytesLabel] = strconv.FormatInt(witness.DiskBytes, 10)
+			labels[diskImageBytesLabel] = strconv.FormatInt(witness.ImageBytes, 10)
+		}
 		if c.stateful != nil {
 			qualified, err := c.stateful.specOption(ctx)
 			if err != nil {
@@ -237,10 +260,11 @@ func (c *controller) Prepare(ctx context.Context) error {
 			return err
 		}
 	}
-	return nil
+	return c.verifyDisk(ctx, ctr)
 }
 
-func (c *controller) Start(ctx context.Context) error {
+func (c *controller) Start(ctx context.Context) (operationErr error) {
+	defer func() { c.finishTaskLoadOperation(api.TaskStateStarting, operationErr) }()
 	if c.stateful != nil {
 		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
 			return execution.ErrUnsafe
@@ -265,6 +289,9 @@ func (c *controller) Start(ctx context.Context) error {
 		return err
 	}
 	if err := c.verifyContainerMaterial(ctx, ctr, containerMounts, containerEnv); err != nil {
+		return err
+	}
+	if err := c.verifyDisk(ctx, ctr); err != nil {
 		return err
 	}
 	t, err := ctr.Task(ctx, nil)
@@ -295,6 +322,16 @@ func (c *controller) Start(ctx context.Context) error {
 	case containerd.Running:
 		return exec.ErrTaskStarted
 	case containerd.Created:
+		if c.diskAccounted() {
+			witness, err := readDiskWitness(c.executor.logRoot, c.id)
+			if err != nil {
+				return err
+			}
+			available, err := c.executor.diskCapacity(ctx)
+			if err != nil || available < witness.LogBytes {
+				return errors.Join(ErrDiskPending, err)
+			}
+		}
 		if err := c.waitRuntimeCredentialGuard(ctx, ctr, t.Pid()); err != nil {
 			return err
 		}
@@ -334,7 +371,8 @@ func exitError(code uint32) error {
 	return taskExitError(code)
 }
 
-func (c *controller) Wait(ctx context.Context) error {
+func (c *controller) Wait(ctx context.Context) (operationErr error) {
+	defer func() { c.finishTaskLoadOperation(api.TaskStateRunning, operationErr) }()
 	ctx = runtimeContext(ctx)
 	t, err := c.runtimeTask(ctx)
 	if err != nil {
@@ -358,7 +396,8 @@ func (c *controller) Wait(ctx context.Context) error {
 	}
 }
 
-func (c *controller) Shutdown(ctx context.Context) error {
+func (c *controller) Shutdown(ctx context.Context) (operationErr error) {
+	defer func() { c.finishTaskLoadOperation(api.TaskStateShutdown, operationErr) }()
 	if c.stateful != nil {
 		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
 			return execution.ErrUnsafe
@@ -440,7 +479,7 @@ func (c *controller) Remove(ctx context.Context) error {
 	ctx = runtimeContext(ctx)
 	ctr, err := c.container(ctx)
 	if errdefs.IsNotFound(err) {
-		return errors.Join(os.RemoveAll(filepath.Join(c.executor.logRoot, c.id)), os.RemoveAll(c.functionMaterialPath()), os.RemoveAll(c.containerMaterialPath()))
+		return errors.Join(c.removeDiskLogs(), os.RemoveAll(c.functionMaterialPath()), os.RemoveAll(c.containerMaterialPath()))
 	}
 	if err != nil {
 		return err
@@ -476,10 +515,17 @@ func (c *controller) Remove(ctx context.Context) error {
 	if err := ctr.Delete(ctx, containerd.WithSnapshotCleanup); err != nil {
 		return err
 	}
-	return errors.Join(os.RemoveAll(filepath.Join(c.executor.logRoot, c.id)), os.RemoveAll(c.functionMaterialPath()), os.RemoveAll(c.containerMaterialPath()))
+	return errors.Join(c.removeDiskLogs(), os.RemoveAll(c.functionMaterialPath()), os.RemoveAll(c.containerMaterialPath()))
 }
 
-func (c *controller) Close() error { return nil }
+func (c *controller) Close() error {
+	c.executor.mu.Lock()
+	defer c.executor.mu.Unlock()
+	if c.executor.loadTasks[c.task.ID] == c {
+		delete(c.executor.loadTasks, c.task.ID)
+	}
+	return nil
+}
 
 func (c *controller) ContainerStatus(ctx context.Context) (*api.ContainerStatus, error) {
 	t, err := c.runtimeTask(ctx)

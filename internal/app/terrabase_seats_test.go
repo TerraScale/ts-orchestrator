@@ -2,44 +2,82 @@ package app
 
 import (
 	"context"
-	"encoding/json/v2"
+	"errors"
 	"slices"
 	"testing"
-	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
 	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
-func TestTerraBaseSeatsConfigDefaultsOffAndBoundsItsTimes(t *testing.T) {
-	var cfg ControllerConfig
-	if err := json.Unmarshal([]byte(`{"candidate_id":"a"}`), &cfg, json.RejectUnknownMembers(true)); err != nil || cfg.TerraBaseSeats != nil {
-		t.Fatalf("seats on by default: %+v %v", cfg.TerraBaseSeats, err)
-	}
-	wire := `{"terrabase_seats":{"enabled":true,"drain_grace_seconds":30,"settle_seconds":5}}`
-	if err := json.Unmarshal([]byte(wire), &cfg, json.RejectUnknownMembers(true)); err != nil {
+func TestTerraBaseSeatPermitsRequireCurrentBackendAuthority(t *testing.T) {
+	store := testSeatStore(t)
+	node := "gru-1-db-1"
+	if _, err := store.Put(t.Context(), seatrollout.Seat{Node: node, Epoch: 1, Permit: 2}, 0); err != nil {
 		t.Fatal(err)
 	}
-	if grace, settle, err := cfg.TerraBaseSeats.durations(); err != nil || grace != 30*time.Second || settle != 5*time.Second {
-		t.Fatalf("grace=%v settle=%v err=%v", grace, settle, err)
+	profiles := terraBaseSeats(node + "=10.251.0.21:9443")
+	public := &OciReconcileLBConfig{LoadBalancerID: publicLBID, BackendSet: "terrabase"}
+	backends := map[string]seatrollout.Backend{"10.251.0.21:9465": {Drained: true, Healthy: true}}
+	observer := &ociReconcileRuntime{seatBackends: func(context.Context) (map[string]seatrollout.Backend, error) {
+		return backends, nil
+	}}
+	desired := host.Desired{Node: node, Role: terrabase.Role, Generation: 2}
+	for _, tc := range []struct {
+		name     string
+		public   *OciReconcileLBConfig
+		observer *ociReconcileRuntime
+		want     bool
+	}{
+		{name: "no backend authority", observer: observer},
+		{name: "no actual observation", public: public},
+		{name: "signed and observed", public: public, observer: observer, want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Config{Controller: ControllerConfig{OciReconcile: &OciReconcileConfig{PublicLB: tc.public}}}
+			controller := newSeatController(cfg, store, leaderFence{}, nil,
+				func() map[string]WorkloadProfile { return profiles }, tc.observer)
+			granted, err := seatRestartGate(controller)(t.Context(), node, desired)
+			if granted != tc.want || (err == nil) != tc.want {
+				t.Fatalf("granted=%v err=%v", granted, err)
+			}
+		})
 	}
-	for _, bad := range []TerraBaseSeatsConfig{{DrainGraceSeconds: -1}, {SettleSeconds: 301}} {
-		if _, _, err := bad.durations(); err == nil {
-			t.Fatalf("accepted %+v", bad)
-		}
+	cfg := Config{Controller: ControllerConfig{OciReconcile: &OciReconcileConfig{PublicLB: public}}}
+	controller := newSeatController(cfg, store, leaderFence{}, nil,
+		func() map[string]WorkloadProfile { return profiles }, observer)
+	gate := seatRestartGate(controller)
+	delete(backends, "10.251.0.21:9465")
+	if granted, err := gate(t.Context(), node, desired); granted || err == nil {
+		t.Fatalf("prior permit survived missing backend: %v, %v", granted, err)
+	}
+	backends["10.251.0.21:9465"] = seatrollout.Backend{Drained: true, Healthy: true}
+	profiles = terraBaseSeats("gru-1-db-2=10.251.0.22:9443")
+	if granted, err := gate(t.Context(), node, desired); granted || err == nil {
+		t.Fatalf("prior permit survived changed signed membership: %v, %v", granted, err)
+	}
+	profiles = terraBaseSeats(node + "=10.251.0.21:9443")
+	observer.seatBackends = func(context.Context) (map[string]seatrollout.Backend, error) {
+		return nil, errors.New("load balancer unavailable")
+	}
+	controller = newSeatController(cfg, store, leaderFence{}, nil,
+		func() map[string]WorkloadProfile { return profiles }, observer)
+	if granted, err := seatRestartGate(controller)(t.Context(), node, desired); granted || err == nil {
+		t.Fatalf("prior permit survived observer outage: %v, %v", granted, err)
 	}
 }
 
 func TestSeatMembersAreTheSignedSeatsWithTheirBackends(t *testing.T) {
 	profiles := terraBaseSeats("gru-1-db-1=10.251.0.21:9443,gru-1-db-2=10.251.0.22:9443")
 	members, err := terraBaseSeatMembers(profiles, nil)
-	want := []seatrollout.Member{{Node: "gru-1-db-1", Group: terrabase.Role}, {Node: "gru-1-db-2", Group: terrabase.Role}}
-	if err != nil || !slices.Equal(members, want) {
-		t.Fatalf("without public_lb: %+v %v", members, err)
+	if err == nil || members != nil {
+		t.Fatalf("missing backend authority granted seats: %+v %v", members, err)
 	}
 	public := &OciReconcileLBConfig{LoadBalancerID: publicLBID, BackendSet: "terrabase"}
-	want[0].Backend, want[1].Backend = "10.251.0.21:9465", "10.251.0.22:9465"
+	want := []seatrollout.Member{{Node: "gru-1-db-1", Group: terrabase.Role, Backend: "10.251.0.21:9465"},
+		{Node: "gru-1-db-2", Group: terrabase.Role, Backend: "10.251.0.22:9465"}}
 	if members, err = terraBaseSeatMembers(profiles, public); err != nil || !slices.Equal(members, want) {
 		t.Fatalf("with public_lb: %+v %v", members, err)
 	}

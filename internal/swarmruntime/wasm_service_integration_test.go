@@ -20,6 +20,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/api/genericresource"
+	"google.golang.org/grpc"
 )
 
 type functionIntentFixture struct {
@@ -28,6 +29,23 @@ type functionIntentFixture struct {
 }
 
 type functionSlotExecutor struct{ serviceExecutor }
+
+type functionFloorRevocationClient struct {
+	api.ControlClient
+	current *functionIntentFixture
+}
+
+func (client functionFloorRevocationClient) ListConfigs(ctx context.Context, request *api.ListConfigsRequest, options ...grpc.CallOption) (*api.ListConfigsResponse, error) {
+	listed, err := client.ControlClient.ListConfigs(ctx, request, options...)
+	if err == nil && request.Filters != nil {
+		for _, name := range request.Filters.Names {
+			if strings.HasPrefix(name, "ts-release-") {
+				client.current.revoked = true
+			}
+		}
+	}
+	return listed, err
+}
 
 func (e functionSlotExecutor) Describe(ctx context.Context) (*api.NodeDescription, error) {
 	description, err := e.serviceExecutor.Describe(ctx)
@@ -56,6 +74,7 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	wasmCfg := serviceConfig(t, "ts-gru-wasm", "wasm")
+	wasmCfg.Admission.HostID = entityid.Derive("function-service-host", t.Name())
 	wasmCfg.Admission.Region = "sa-saopaulo-1"
 	wasmCfg.Admission.ManagerAddress = workerCfg.Admission.ManagerAddress
 	wasmCfg.Admission.JoinToken = clusters.Clusters[0].RootCA.JoinTokens.Worker
@@ -173,6 +192,38 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 		return nil
 	}
 	qualified := bundle(FunctionWorkerRole, 101, runtime.GOARCH)
+	requireNoWorkerEvidence := func(t *testing.T) {
+		t.Helper()
+		configs, err := client.ListConfigs(ctx, &api.ListConfigsRequest{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, config := range configs.Configs {
+			if config.Spec.Annotations.Labels[LabelFunctionWorkerBundle] != "" {
+				t.Fatal("failed floor admission retained worker bundle evidence")
+			}
+			if strings.HasPrefix(config.Spec.Annotations.Name, "ts-worker-family-") || strings.HasPrefix(config.Spec.Annotations.Name, "ts-release-") {
+				t.Fatal("failed floor admission retained worker family or release floor evidence")
+			}
+		}
+	}
+	t.Run("missing_history_does_not_retain_worker_evidence", func(t *testing.T) {
+		if _, err := ApplyFunctionService(ctx, client, intent, current, qualified, roots, release.SequenceFloor{}, readEvidence, probe, allocations); err == nil {
+			t.Fatal("function admitted without retained release history")
+		}
+		requireNoWorkerEvidence(t)
+	})
+	t.Run("revoked_during_floor_read_does_not_retain_worker_evidence", func(t *testing.T) {
+		revoked := &functionIntentFixture{proof: current.proof}
+		observed := functionFloorRevocationClient{ControlClient: client, current: revoked}
+		if _, err := ApplyFunctionService(ctx, observed, intent, revoked, qualified, roots, legacy, readEvidence, probe, allocations); err == nil {
+			t.Fatal("function admitted after current intent was revoked during floor read")
+		}
+		if !revoked.revoked {
+			t.Fatal("revocation did not follow an actual manager floor read")
+		}
+		requireNoWorkerEvidence(t)
+	})
 	created, err := ApplyFunctionService(ctx, client, intent, current, qualified, roots, legacy, readEvidence, probe, allocations)
 	if err != nil {
 		t.Fatal(err)
@@ -195,6 +246,7 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 	if err := intent.VerifyWorkerFloor(ctx, client, workerProof); err != nil {
 		t.Fatal(err)
 	}
+	testFunctionAllocationObservation(t, ctx, client, intent, current, workerProof, tasks.Tasks[0])
 	siblingIntent := intent
 	siblingIntent.Architecture = "arm64"
 	if runtime.GOARCH == "arm64" {

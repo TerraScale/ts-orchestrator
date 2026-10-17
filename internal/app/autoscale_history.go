@@ -9,14 +9,13 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/hostload"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
-	"github.com/TerraScale/ts-orchestrator/internal/workload"
 )
 
 // withAutoscaleSamples adds the workload autoscaler's per-service replica,
 // goal and signal readings, and the host load aggregator's node and service
 // resource usage and TerraBase load blocks, to every history sample. Both
 // are filled only on the authority leader, so followers record nothing extra.
-func withAutoscaleSamples(collect func(context.Context) []observability.Sample, reconciler *workload.Reconciler,
+func withAutoscaleSamples(collect func(context.Context) []observability.Sample, reconciler workloadObservation,
 	load *hostTelemetry,
 ) func(context.Context) []observability.Sample {
 	if reconciler == nil && load == nil {
@@ -35,7 +34,7 @@ func withAutoscaleSamples(collect func(context.Context) []observability.Sample, 
 }
 
 // autoscaleSamples reports every reconciled service that has a result.
-func autoscaleSamples(reconciler *workload.Reconciler) []observability.Sample {
+func autoscaleSamples(reconciler workloadObservation) []observability.Sample {
 	last := reconciler.Last()
 	roles := make([]string, 0, len(last))
 	for role := range last {

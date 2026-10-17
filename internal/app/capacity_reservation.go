@@ -38,12 +38,14 @@ type capacityReservationRequest struct {
 	Image       nodescale.ImageQualification `json:"image"`
 	Receipt     *budget.Reservation          `json:"receipt,omitempty"`
 	ResourceIDs []string                     `json:"resource_ids,omitempty"`
+	Pool        *capacityPoolRequest         `json:"pool,omitempty"`
 }
 
 type capacityReservationResponse struct {
-	Nonce   string              `json:"nonce"`
-	Receipt *budget.Reservation `json:"receipt,omitempty"`
-	Error   string              `json:"error,omitempty"`
+	Nonce   string                `json:"nonce"`
+	Receipt *budget.Reservation   `json:"receipt,omitempty"`
+	Error   string                `json:"error,omitempty"`
+	Pool    *capacityPoolResponse `json:"pool,omitempty"`
 }
 
 type capacityReservations struct {
@@ -99,32 +101,47 @@ func (r *capacityReservations) serve(ctx context.Context) {
 		}
 	}()
 	for {
-		wanted := map[string]bool{}
+		type route struct{ source, action string }
+		wanted := map[string]route{}
+		add := func(source, action string) {
+			if subject := protocol.CapacityReservationSubject(source, action); subject != "" {
+				wanted[subject] = route{source: source, action: action}
+			}
+		}
 		if r.spending != nil {
 			proof, err := r.spending.InfrastructureSpend(ctx)
 			if err == nil && proof.ValidAt(time.Now()) {
 				for _, source := range proof.Footprint().Regions {
 					for _, action := range []string{"reserve", "revalidate", "observe"} {
-						subject := protocol.CapacityReservationSubject(source.Cell, action)
-						if subject == "" {
-							continue
-						}
-						wanted[subject] = true
-						if subscriptions[subject] != nil {
-							continue
-						}
-						subscription, err := r.conn.Subscribe(subject, func(message *nats.Msg) {
-							r.answer(ctx, source.Cell, action, message)
-						})
-						if err == nil {
-							subscriptions[subject] = subscription
-						}
+						add(source.Cell, action)
 					}
 				}
 			}
 		}
+		// Known cleanup has its own signed worker purpose. Missing purchase or
+		// current-image readiness must not remove its authenticated home route.
+		if scopes, ok := r.spending.(interface {
+			CapacityPoolCells(context.Context) ([]string, error)
+		}); ok {
+			if cells, err := scopes.CapacityPoolCells(ctx); err == nil {
+				for _, cell := range cells {
+					add(cell, "observe")
+				}
+			}
+		}
+		for subject, target := range wanted {
+			if subscriptions[subject] != nil {
+				continue
+			}
+			subscription, err := r.conn.Subscribe(subject, func(message *nats.Msg) {
+				r.answer(ctx, target.source, target.action, message)
+			})
+			if err == nil {
+				subscriptions[subject] = subscription
+			}
+		}
 		for subject, subscription := range subscriptions {
-			if !wanted[subject] {
+			if _, keep := wanted[subject]; !keep {
 				_ = subscription.Unsubscribe()
 				delete(subscriptions, subject)
 			}
@@ -152,15 +169,28 @@ func (r *capacityReservations) answer(ctx context.Context, source, action string
 	}
 	ctx, cancel := context.WithTimeout(ctx, 100*time.Second)
 	defer cancel()
-	receipt, err := r.apply(ctx, source, action, request, leading.Epoch)
+	response := capacityReservationResponse{Nonce: request.Nonce}
+	var err error
+	if request.Pool != nil {
+		if action != "observe" {
+			return
+		}
+		var stopLeader context.CancelFunc
+		ctx, stopLeader = context.WithDeadline(ctx, leading.ExpiresAt)
+		defer stopLeader()
+		response.Pool, err = r.applyPool(ctx, source, *request.Pool, leading.Epoch)
+	} else {
+		var receipt budget.Reservation
+		receipt, err = r.apply(ctx, source, action, request, leading.Epoch)
+		if err == nil {
+			response.Receipt = new(receipt)
+		}
+	}
 	if errors.Is(err, authority.ErrFenced) || errors.Is(err, authority.ErrNotLeader) {
 		return
 	}
-	response := capacityReservationResponse{Nonce: request.Nonce}
 	if err != nil {
 		response.Error = err.Error()
-	} else {
-		response.Receipt = new(receipt)
 	}
 	if err := r.global.authority.Guard(ctx, leading.Epoch); err != nil {
 		return
@@ -170,12 +200,16 @@ func (r *capacityReservations) answer(ctx context.Context, source, action string
 		return
 	}
 	now := time.Now().UTC()
+	expires := now.Add(30 * time.Second)
+	if deadline, ok := ctx.Deadline(); ok && deadline.Before(expires) {
+		expires = deadline
+	}
 	envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: source, Kind: "capacity." + action + ".response",
-		Actor: "capacity-home", OperationID: request.Nonce, Epoch: leading.Epoch}, now, now.Add(30*time.Second), r.responseKey)
+		Actor: "capacity-home", OperationID: request.Nonce, Epoch: leading.Epoch}, now, expires, r.responseKey)
 	if err != nil {
 		return
 	}
-	if wire, err := protocol.EncodeJSON(envelope); err == nil {
+	if wire, err := protocol.EncodeJSON(envelope); err == nil && r.global.authority.Guard(ctx, leading.Epoch) == nil {
 		_ = message.Respond(wire)
 	}
 }
@@ -376,65 +410,78 @@ func (r *capacityReservations) verifyCandidate(ctx context.Context, reader *capa
 // request uses the dedicated protected reply namespace. Ordinary cross-region
 // inboxes are publishable by legacy links and cannot authenticate authority.
 func (r *capacityReservations) request(ctx context.Context, action string, request capacityReservationRequest) (budget.Reservation, error) {
+	response, err := r.exchange(ctx, action, request)
+	if err != nil {
+		return budget.Reservation{}, err
+	}
+	if response.Pool != nil || response.Receipt == nil || response.Receipt.OperationID != request.Request.OperationID || response.Receipt.RecipeSHA256 != request.Recipe.SHA256() {
+		return budget.Reservation{}, fmt.Errorf("%w: home response differs from the original capacity reservation", nodescale.ErrCapacityPending)
+	}
+	return *response.Receipt, nil
+}
+
+func (r *capacityReservations) exchange(ctx context.Context, action string, request capacityReservationRequest) (capacityReservationResponse, error) {
 	if r == nil || r.conn == nil {
-		return budget.Reservation{}, fmt.Errorf("%w: home capacity authority is unavailable", nodescale.ErrCapacityPending)
+		return capacityReservationResponse{}, fmt.Errorf("%w: home capacity authority is unavailable", nodescale.ErrCapacityPending)
 	}
 	if r.homeKey == nil {
-		return budget.Reservation{}, fmt.Errorf("%w: independently verified current home response key is unavailable", nodescale.ErrCapacityPending)
+		return capacityReservationResponse{}, fmt.Errorf("%w: independently verified current home response key is unavailable", nodescale.ErrCapacityPending)
 	}
 	public, err := r.homeKey(ctx)
 	if err != nil || len(public) != ed25519.PublicKeySize {
-		return budget.Reservation{}, fmt.Errorf("%w: current home response authority is unavailable: %v", nodescale.ErrCapacityPending, err)
+		return capacityReservationResponse{}, fmt.Errorf("%w: current home response authority is unavailable: %v", nodescale.ErrCapacityPending, err)
 	}
 	request.Nonce = entityid.New()
 	reply := protocol.CapacityReservationReplySubject(r.cell, r.user, request.Nonce)
 	if reply == "" {
-		return budget.Reservation{}, errors.New("capacity reply identity is invalid")
+		return capacityReservationResponse{}, errors.New("capacity reply identity is invalid")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 100*time.Second)
 	defer cancel()
 	subscription, err := r.conn.SubscribeSync(reply)
 	if err != nil {
-		return budget.Reservation{}, err
+		return capacityReservationResponse{}, err
 	}
 	defer subscription.Unsubscribe()
 	if err := r.conn.FlushWithContext(ctx); err != nil {
-		return budget.Reservation{}, err
+		return capacityReservationResponse{}, err
 	}
 	wire, err := protocol.EncodeJSON(request)
 	if err != nil {
-		return budget.Reservation{}, err
+		return capacityReservationResponse{}, err
 	}
 	if err := r.conn.PublishRequest(protocol.CapacityReservationSubject(r.cell, action), reply, wire); err != nil {
-		return budget.Reservation{}, err
+		return capacityReservationResponse{}, err
 	}
 	message, err := subscription.NextMsgWithContext(ctx)
 	if err != nil {
-		return budget.Reservation{}, err
+		return capacityReservationResponse{}, err
 	}
 	var envelope protocol.Envelope
-	if err := protocol.DecodeStrict(message.Data, &envelope, 32<<10); err != nil {
-		return budget.Reservation{}, err
+	if err := protocol.DecodeStrict(message.Data, &envelope, 128<<10); err != nil {
+		return capacityReservationResponse{}, err
 	}
-	public, err = r.homeKey(ctx)
+	currentPublic, err := r.homeKey(ctx)
 	if err != nil {
-		return budget.Reservation{}, fmt.Errorf("%w: current home response authority: %v", nodescale.ErrCapacityPending, err)
+		return capacityReservationResponse{}, fmt.Errorf("%w: current home response authority: %v", nodescale.ErrCapacityPending, err)
+	}
+	if !slices.Equal(public, currentPublic) {
+		return capacityReservationResponse{}, errors.New("home response authority changed during the original request")
 	}
 	if envelope.Epoch == 0 {
-		return budget.Reservation{}, errors.New("capacity response lacks home authority epoch")
+		return capacityReservationResponse{}, errors.New("capacity response lacks home authority epoch")
 	}
 	if err := protocol.VerifyEnvelope(envelope, protocol.EnvelopeScope{Region: r.cell, Kind: "capacity." + action + ".response",
 		Actor: "capacity-home", OperationID: request.Nonce, Epoch: envelope.Epoch}, public, time.Now().UTC(),
 		protocol.VerifyPolicy{MaxLifetime: 30 * time.Second}); err != nil {
-		return budget.Reservation{}, fmt.Errorf("verify current home capacity response: %w", err)
+		return capacityReservationResponse{}, fmt.Errorf("verify current home capacity response: %w", err)
 	}
 	var response capacityReservationResponse
-	if err := protocol.DecodeStrict(envelope.Payload, &response, 16<<10); err != nil {
-		return budget.Reservation{}, err
+	if err := protocol.DecodeStrict(envelope.Payload, &response, 112<<10); err != nil {
+		return capacityReservationResponse{}, err
 	}
-	if response.Nonce != request.Nonce || response.Error != "" || response.Receipt == nil ||
-		response.Receipt.OperationID != request.Request.OperationID || response.Receipt.RecipeSHA256 != request.Recipe.SHA256() {
-		return budget.Reservation{}, fmt.Errorf("%w: home capacity reservation: %s", nodescale.ErrCapacityPending, response.Error)
+	if response.Nonce != request.Nonce || response.Error != "" {
+		return capacityReservationResponse{}, fmt.Errorf("%w: home capacity reservation: %s", nodescale.ErrCapacityPending, response.Error)
 	}
-	return *response.Receipt, nil
+	return response, nil
 }

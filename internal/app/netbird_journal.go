@@ -65,6 +65,10 @@ func readNetBirdState(ctx context.Context, reader netbirdStateReader) (netbirdSt
 	if err != nil {
 		return netbirdState{}, err
 	}
+	return decodeNetBirdState(entry)
+}
+
+func decodeNetBirdState(entry authority.LogEntry) (netbirdState, error) {
 	var state netbirdState
 	if entry.Sequence == 0 || entry.Epoch == 0 {
 		return state, errors.New("invalid NetBird journal revision")

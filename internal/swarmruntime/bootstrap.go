@@ -18,6 +18,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
@@ -54,8 +55,11 @@ type bootstrapJoinMaterial struct {
 // concrete signed-grant reader and never a serving-health discovery fallback.
 func StartAcceptedNode(ctx context.Context, reader *bootstrapstart.CurrentFounderAuthorityReader,
 	accepted bootstrapstart.AcceptedIdentity, foundations region.FoundationResolver,
-	vault vaultsecret.VaultClient, bundles vaultsecret.BundleClient, executor exec.Executor,
+	vault vaultsecret.VaultClient, bundles vaultsecret.BundleClient, executor exec.Executor, root *rootoci.Service,
 ) (*Node, error) {
+	if root == nil {
+		return nil, errors.New("SwarmKit manager requires its guarded root capacity service")
+	}
 	authority, err := reader.ReadRuntimeAuthority(ctx, accepted, time.Now().UTC())
 	if err != nil {
 		return nil, err
@@ -120,7 +124,7 @@ func StartAcceptedNode(ctx context.Context, reader *bootstrapstart.CurrentFounde
 	if err != nil {
 		return nil, err
 	}
-	n.workerAuthority = &workerAuthority{identity: identity, public: public, target: target, vault: vault, bundles: bundles, observer: observer, refresh: refresh, homeIAM: homeIAM, foundations: foundations}
+	n.workerAuthority = &workerAuthority{identity: identity, public: public, target: target, vault: vault, bundles: bundles, observer: observer, refresh: refresh, homeIAM: homeIAM, foundations: foundations, root: root}
 	return n, nil
 }
 

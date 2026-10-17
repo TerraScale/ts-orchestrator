@@ -541,6 +541,44 @@ func TestRevokedArtifactSignerCanBeReplacedByAuthorizedSignerConcurrently(t *tes
 	if _, err := service.readAdmission(ctx, original.Digest, original.Cell, original.Role, original.Environment); err == nil {
 		t.Fatal("revoked signer admission remained readable")
 	}
+	if _, err := service.ResolveAdmittedArtifact(ctx, original.Digest, original.Role, original.Environment); err == nil {
+		t.Fatal("retired actor retained current artifact admission")
+	}
+	historical, historicalEnvelope, err := service.HistoricalArtifactClaim(ctx, original.Digest, original.Role, original.Environment)
+	if err != nil || historical != original || !bytes.Equal(historicalEnvelope, oldEnvelope) {
+		t.Fatal("retired actor lost exact protected artifact provenance", err)
+	}
+	verified, actor, err := oldCodec.VerifyArchivedArtifact(ctx, historicalEnvelope)
+	if err != nil || verified != original || actor != "old-operator" {
+		t.Fatal("historical artifact signature differs from protected record", err)
+	}
+	historicalEnvelope[0] = '!'
+	_, historicalEnvelope, err = service.HistoricalArtifactClaim(ctx, original.Digest, original.Role, original.Environment)
+	if err != nil || !bytes.Equal(historicalEnvelope, oldEnvelope) {
+		t.Fatal("historical artifact reader mutated retained claim", err)
+	}
+	if _, _, err := service.HistoricalArtifactClaim(ctx, original.Digest, "missing", original.Environment); !errors.Is(err, jetstream.ErrKeyNotFound) {
+		t.Fatal("historical artifact reader escaped exact role", err)
+	}
+	key := admissionKey(original.Digest, original.Cell, original.Role, original.Environment)
+	before, err := service.getAdmission(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedActor, err := json.Marshal(signedAdmission{Record: original, Envelope: oldEnvelope, Actor: "new-operator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedRevision, err := service.admissions.Update(ctx, key, changedActor, before.Revision())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.HistoricalArtifactClaim(ctx, original.Digest, original.Role, original.Environment); !errors.Is(err, ErrInvalid) {
+		t.Fatal("historical artifact reader accepted protected actor drift", err)
+	}
+	if _, err := service.admissions.Update(ctx, key, before.Value(), changedRevision); err != nil {
+		t.Fatal(err)
+	}
 
 	refreshed, newEnvelope, err := service.PrepareArtifact(ctx, bytes.NewReader(content), request)
 	if err != nil {

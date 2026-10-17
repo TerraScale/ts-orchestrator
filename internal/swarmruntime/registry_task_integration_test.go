@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,7 +23,10 @@ import (
 
 // The new revision remains in Prepare while the real upstream manager retains
 // its old assignment during the start-first update.
-type registryAssignmentExecutor struct{ serviceExecutor }
+type registryAssignmentExecutor struct {
+	serviceExecutor
+	shutdown <-chan struct{}
+}
 
 func (e registryAssignmentExecutor) Controller(task *api.Task) (exec.Controller, error) {
 	spec, err := DecodeContainer(task)
@@ -32,8 +36,28 @@ func (e registryAssignmentExecutor) Controller(task *api.Task) (exec.Controller,
 	if len(spec.Args) > 0 && spec.Args[0] == "pending" {
 		return &registryPendingController{serviceController: serviceController{done: make(chan struct{})}}, nil
 	}
-	return e.serviceExecutor.Controller(task)
+	controller, err := e.serviceExecutor.Controller(task)
+	if err != nil || e.shutdown == nil {
+		return controller, err
+	}
+	return &registryStoppingController{serviceController: controller.(*serviceController), shutdown: e.shutdown}, nil
 }
+
+type registryStoppingController struct {
+	*serviceController
+	shutdown <-chan struct{}
+}
+
+func (c *registryStoppingController) Shutdown(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.shutdown:
+		return c.serviceController.Shutdown(ctx)
+	}
+}
+
+func (c *registryStoppingController) Terminate(ctx context.Context) error { return c.Shutdown(ctx) }
 
 type registryPendingController struct{ serviceController }
 
@@ -43,7 +67,8 @@ func TestRegistryTaskAssignmentIntegration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 	cfg := serviceConfig(t, "ts-gru-1", "manager")
-	node, err := StartNode(ctx, cfg, registryAssignmentExecutor{})
+	shutdown := make(chan struct{})
+	node, err := StartNode(ctx, cfg, registryAssignmentExecutor{shutdown: shutdown})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,6 +79,9 @@ func TestRegistryTaskAssignmentIntegration(t *testing.T) {
 			t.Error(err)
 		}
 	})
+	var releaseShutdown sync.Once
+	release := func() { releaseShutdown.Do(func() { close(shutdown) }) }
+	t.Cleanup(release)
 	client, err := node.ControlClient(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +101,7 @@ func TestRegistryTaskAssignmentIntegration(t *testing.T) {
 	rootID, _ := trust.KeyID(rootPublic)
 	roots := trust.Keyring{rootID: rootPublic}
 	now := time.Now().UTC().Truncate(time.Second)
-	migration := release.SequenceMigration{Schema: release.SequenceMigrationSchema, Namespace: "test", Bucket: "gru-1-head", Region: "GRU", SignerKeyID: keyID, SignerPublicKey: base64.RawURLEncoding.EncodeToString(public), Role: "ts-auth", Environment: "production", SequenceFloor: 100}
+	migration := release.SequenceMigration{Schema: release.SequenceMigrationSchema, Namespace: "test", Bucket: "gru-1-head", Region: "GRU", SignerKeyID: keyID, SignerPublicKey: base64.RawURLEncoding.EncodeToString(public), Role: "api", Environment: "production", SequenceFloor: 100}
 	for _, cell := range []string{"GRU", "SFO", "FRA"} {
 		migration.Regions = append(migration.Regions, release.SequenceFloor{Cell: cell, RunNumber: 100, EvidenceSHA256: strings.Repeat("1", 64)})
 	}
@@ -86,6 +114,7 @@ func TestRegistryTaskAssignmentIntegration(t *testing.T) {
 	allocations := serviceAllocationStore(t, migration.Namespace, migration.Bucket)
 	reservations := map[uint64][]byte{}
 	intent := serviceIntent()
+	intent.Generation = 1
 	intent.OperationID = entityid.Derive("registry-operation", "first")
 	evidence := []byte("retained exact candidate integration evidence")
 	evidenceSHA := fmt.Sprintf("%x", sha256.Sum256(evidence))
@@ -179,17 +208,22 @@ func TestRegistryTaskAssignmentIntegration(t *testing.T) {
 	}
 	next := bundle(102, strings.Repeat("d", 40))
 	nextProof := verify(next)
-	floor, err := reserveReleaseFloor(ctx, client, intent, nextProof, roots, legacy, created.Meta.Version.Index)
+	changed := intent
+	changed.Generation++
+	changed.Container = intent.Container.Copy()
+	changed.Container.Args = []string{"pending"}
+	changed.OperationID = entityid.Derive("registry-operation", "next")
+	prepared, err := changed.withVerifiedRelease(nextProof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	floor, err := reserveReleaseFloor(ctx, client, prepared, nextProof, roots, legacy, created.Meta.Version.Index)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := VerifyRegistryTask(ctx, client, task, intent, proof, roots); err != nil {
 		t.Fatal("highwater revoked current task: ", err)
 	}
-	changed := intent
-	changed.Container = intent.Container.Copy()
-	changed.Container.Args = []string{"pending"}
-	changed.OperationID = entityid.Derive("registry-operation", "next")
 	if _, err := applySignedService(ctx, client, changed, next, roots, legacy, readEvidence, allocations); err != nil {
 		t.Fatal(err)
 	}
@@ -198,10 +232,57 @@ func TestRegistryTaskAssignmentIntegration(t *testing.T) {
 	}
 	floorSpec := floor.Spec.Copy()
 	floorSpec.Annotations.Labels[LabelIntentID] = entityid.Derive("foreign-service")
-	if _, err := client.UpdateConfig(ctx, &api.UpdateConfigRequest{ConfigID: floor.ID, ConfigVersion: &floor.Meta.Version, Spec: floorSpec}); err != nil {
+	foreignFloor, err := client.UpdateConfig(ctx, &api.UpdateConfigRequest{ConfigID: floor.ID, ConfigVersion: &floor.Meta.Version, Spec: floorSpec})
+	if err != nil {
 		t.Fatal(err)
 	}
 	if err := VerifyRegistryTask(ctx, client, task, intent, proof, roots); err == nil {
 		t.Fatal("foreign release floor accepted")
+	}
+	if err := VerifyTaskAllocation(ctx, client, task, intent, proof, roots); err == nil {
+		t.Fatal("allocation accepted foreign release floor")
+	}
+	if _, err := client.UpdateConfig(ctx, &api.UpdateConfigRequest{ConfigID: floor.ID, ConfigVersion: &foreignFloor.Config.Meta.Version, Spec: &floor.Spec}); err != nil {
+		t.Fatal(err)
+	}
+	assignedNode, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: task.NodeID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	drained := assignedNode.Node.Spec.Copy()
+	drained.Availability = api.NodeAvailabilityDrain
+	if _, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: task.NodeID, NodeVersion: &assignedNode.Node.Meta.Version, Spec: drained}); err != nil {
+		t.Fatal(err)
+	}
+	serviceEventually(t, ctx, func() bool {
+		current, err := client.GetTask(ctx, &api.GetTaskRequest{TaskID: task.ID})
+		if err != nil || current == nil || current.Task == nil || current.Task.DesiredState <= api.TaskStateRunning || current.Task.Status.State >= api.TaskStateCompleted {
+			return false
+		}
+		task = current.Task
+		return true
+	})
+	if err := VerifyTaskAllocation(ctx, client, task, intent, proof, roots); err != nil {
+		t.Fatal("blocked shutdown lost signed previous reservation: ", err)
+	}
+	if err := VerifyRegistryTask(ctx, client, task, intent, proof, roots); err == nil {
+		t.Fatal("read-only reservation widened registry authority")
+	}
+	changedTask := task.Copy()
+	changedTask.Spec.Resources.Reservations.MemoryBytes++
+	if err := VerifyTaskAllocation(ctx, client, changedTask, intent, proof, roots); err == nil {
+		t.Fatal("forged allocation resources accepted")
+	}
+	release()
+	serviceEventually(t, ctx, func() bool {
+		current, err := client.GetTask(ctx, &api.GetTaskRequest{TaskID: task.ID})
+		if err != nil || current == nil || current.Task == nil || current.Task.Status.State < api.TaskStateCompleted {
+			return false
+		}
+		task = current.Task
+		return true
+	})
+	if err := VerifyTaskAllocation(ctx, client, task, intent, proof, roots); err == nil {
+		t.Fatal("terminal task retained a live allocation")
 	}
 }

@@ -25,24 +25,26 @@ const maxBackupCompleteRelayBytes = 30 << 10
 // ManagedBackupCommand is a host relay of an already committed R3 envelope.
 // It has no signing key, backup credentials or data key.
 type ManagedBackupCommand struct {
-	OperationID       string               `json:"operation_id"`
-	DatabaseID        string               `json:"database_id"`
-	PartitionID       string               `json:"partition_id"`
-	MemberID          string               `json:"member_id"`
-	Node              string               `json:"node"`
-	Role              string               `json:"role"`
-	Kind              string               `json:"kind"`
-	ProofMemberID     string               `json:"proof_member_id,omitempty"`
-	RefreshAtMS       uint64               `json:"refresh_at_ms,omitzero"`
-	Epoch             uint64               `json:"epoch"`
-	DesiredGeneration uint64               `json:"desired_generation"`
-	DesiredDigest     string               `json:"desired_digest"`
-	Member            ManagedMemberBinding `json:"member"`
-	Authority         MemberAuthority      `json:"authority"`
-	OCI               ManagedOCIBinding    `json:"oci"`
-	ExpectedProcess   memberstatus.Process `json:"expected_process"`
-	Envelope          []byte               `json:"envelope"`
-	EnvelopeSHA256    string               `json:"envelope_sha256"`
+	OperationID       string                   `json:"operation_id"`
+	DatabaseID        string                   `json:"database_id"`
+	PartitionID       string                   `json:"partition_id"`
+	MemberID          string                   `json:"member_id"`
+	Node              string                   `json:"node"`
+	Role              string                   `json:"role"`
+	Kind              string                   `json:"kind"`
+	ProofMemberID     string                   `json:"proof_member_id,omitempty"`
+	RefreshAtMS       uint64                   `json:"refresh_at_ms,omitzero"`
+	Epoch             uint64                   `json:"epoch"`
+	DesiredGeneration uint64                   `json:"desired_generation"`
+	DesiredDigest     string                   `json:"desired_digest"`
+	Member            ManagedMemberBinding     `json:"member"`
+	Authority         MemberAuthority          `json:"authority"`
+	OCI               ManagedOCIBinding        `json:"oci"`
+	SessionID         string                   `json:"session_id,omitempty"`
+	Container         *ManagedContainerRuntime `json:"container,omitempty"`
+	ExpectedProcess   memberstatus.Process     `json:"expected_process"`
+	Envelope          []byte                   `json:"envelope"`
+	EnvelopeSHA256    string                   `json:"envelope_sha256"`
 }
 
 type ManagedBackupResult struct {
@@ -85,7 +87,9 @@ func (command ManagedBackupCommand) matchesDesired(desired Desired, registration
 		registration.ManagedPlacement != nil &&
 		registration.ManagedPlacement.DatabaseID == command.DatabaseID &&
 		registration.ManagedPlacement.PartitionID == command.PartitionID &&
-		command.ExpectedProcess.PID >= 2 && lowerHex(command.ExpectedProcess.StartNonce, 32)
+		((command.Container == nil && command.ExpectedProcess.PID >= 2) ||
+			(command.Container != nil && command.Container.valid() && command.ExpectedProcess.PID == command.Container.MemberPID)) &&
+		lowerHex(command.ExpectedProcess.StartNonce, 32)
 }
 
 func (command ManagedBackupCommand) matchesRecord(record authority.BackupOperationRecord) bool {
@@ -215,7 +219,7 @@ func (c *Controller) RequestManagedBackupOperation(ctx context.Context, epoch ui
 		validateManagedReportForDesired(report, desired) != nil ||
 		report.Managed == nil || report.Managed.ProcessPID < 2 ||
 		!lowerHex(report.Managed.ProcessBootID, 32) {
-		return errors.Join(errors.New("backup relay lacks a current native process report"), err)
+		return errors.Join(errors.New("backup relay lacks a current process report"), err)
 	}
 	envelope, err := backupRelayEnvelope(record, memberID, kind, proofMemberID)
 	if err != nil {
@@ -241,8 +245,9 @@ func (c *Controller) RequestManagedBackupOperation(ctx context.Context, epoch ui
 		Kind: kind, ProofMemberID: proofMemberID, RefreshAtMS: refreshAtMS,
 		Epoch: epoch, DesiredGeneration: desired.Generation, DesiredDigest: desired.Digest,
 		Member: desired.ManagedMember.Member, Authority: desired.ManagedMember.Authority,
-		OCI: desired.ManagedMember.OCI,
-		ExpectedProcess: memberstatus.Process{PID: report.Managed.ProcessPID,
+		OCI:       desired.ManagedMember.OCI,
+		SessionID: session.SessionID, Container: report.Managed.Container,
+		ExpectedProcess: memberstatus.Process{PID: managedReportMemberPID(report.Managed),
 			StartNonce: report.Managed.ProcessBootID}, Envelope: bytes.Clone(envelope),
 		EnvelopeSHA256: hex.EncodeToString(sum[:])}
 	if !command.matchesDesired(desired, registration) || !command.matchesRecord(record) {
@@ -354,7 +359,7 @@ func (c *Controller) storeManagedBackupResult(ctx context.Context, req request,
 		return nil, err
 	}
 	command := result.Command
-	if req.Node != command.Node || !slices.Contains(registration.Roles, command.Role) {
+	if req.Node != command.Node || command.SessionID != req.SessionID || !slices.Contains(registration.Roles, command.Role) {
 		return nil, errors.New("backup result host identity differs")
 	}
 	var current ManagedBackupCommand
@@ -383,6 +388,15 @@ func (c *Controller) storeManagedBackupResult(ctx context.Context, req request,
 		command.Kind == "complete" && (result.Status.State != "complete" ||
 			len(result.CutEnvelope) != 0 || len(result.ReceiptEnvelope) != 0) {
 		return nil, errors.Join(errors.New("backup result is not a matching durable member observation"), err)
+	}
+	report, _, reportFound, reportErr := c.reportSnapshot(ctx, reportKey(c.cell, command.Node, command.Role))
+	if reportErr != nil || !reportFound || report.SessionID != req.SessionID ||
+		report.Generation != desired.Generation || report.Digest != desired.Digest ||
+		report.State != "running" || time.Since(report.ObservedAt) >= ReportMaxAge ||
+		report.ObservedAt.After(time.Now().Add(maxClockSkew)) || validateManagedReportForDesired(report, desired) != nil ||
+		report.Managed == nil || managedReportMemberPID(report.Managed) != command.ExpectedProcess.PID ||
+		report.Managed.ProcessBootID != command.ExpectedProcess.StartNonce || !sameJSON(report.Managed.Container, command.Container) {
+		return nil, errors.Join(errors.New("backup result process report changed"), reportErr)
 	}
 	reader, ok := c.mutations.(backupOperationReader)
 	if !ok {

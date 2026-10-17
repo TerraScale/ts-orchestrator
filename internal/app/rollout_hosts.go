@@ -105,6 +105,12 @@ func (c *rolloutControl) Exchange(ctx context.Context, registration host.Registr
 	if err := putChanged(ctx, hosts.board, rollout.HostMembershipKey(node), membership); err != nil {
 		return host.RolloutStep{}, err
 	}
+	// Root independently verifies the original signature and current membership.
+	if c.conn != nil {
+		if err := c.conn.Publish(protocol.RolloutProofSubject(c.cell, node), exchange.Proof); err != nil {
+			return host.RolloutStep{}, err
+		}
+	}
 	if len(exchange.Reply) > 0 {
 		var reply rolloutexec.StepReply
 		if err := json.Unmarshal(exchange.Reply, &reply); err != nil || reply.Unit != node {

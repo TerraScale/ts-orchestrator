@@ -49,7 +49,7 @@ type ContainerMaterialFiles struct {
 	CredentialExpiresAt time.Time         `json:"credential_expires_at,omitzero"`
 }
 
-type ContainerMaterialProvider func(context.Context, Registration, ContainerMaterialBinding) (ContainerMaterialFiles, error)
+type ContainerMaterialProvider func(context.Context, Registration, ContainerMaterialBinding, ContainerMaterialEvidence) (ContainerMaterialFiles, error)
 
 type containerMaterialQuery struct {
 	Binding                ContainerMaterialBinding `json:"binding"`
@@ -57,6 +57,20 @@ type containerMaterialQuery struct {
 	Offset                 int                      `json:"offset"`
 	Length                 int                      `json:"length"`
 	EphemeralPublicKey     []byte                   `json:"ephemeral_public_key"`
+	InventoryExpiresAt     time.Time                `json:"inventory_expires_at,omitzero"`
+	InventorySHA256        string                   `json:"inventory_sha256,omitempty"`
+}
+
+type containerMaterialReply struct {
+	materialReply
+	InventoryExpiresAt time.Time `json:"inventory_expires_at"`
+}
+
+func validContainerInventoryQuery(query containerMaterialQuery) bool {
+	if query.Offset == 0 {
+		return query.InventoryExpiresAt.IsZero() && query.InventorySHA256 == ""
+	}
+	return time.Now().Before(query.InventoryExpiresAt) && lowerHex(query.InventorySHA256, 64)
 }
 
 func validateContainerMaterialBinding(binding ContainerMaterialBinding) error {
@@ -103,6 +117,8 @@ func clearContainerMaterial(files ContainerMaterialFiles) {
 }
 
 func (c *Controller) serveContainerMaterial(ctx context.Context, req request, registration Registration, current session) (any, error) {
+	ctx, cancel := context.WithDeadline(ctx, (ContainerMaterialEvidence{Request: req.Envelope}).Deadline())
+	defer cancel()
 	if c.containerMaterial == nil || c.authorityEpoch == nil || registration.Generation != current.RegistrationGeneration || registration.Node != req.Node {
 		return nil, errors.New("container material authority is pending for this host")
 	}
@@ -113,20 +129,25 @@ func (c *Controller) serveContainerMaterial(ctx context.Context, req request, re
 	region, known := catalog.CellForOCIRegion(query.Binding.Region)
 	if validateContainerMaterialBinding(query.Binding) != nil || !known || region.Name() != c.cell ||
 		query.RegistrationGeneration != registration.Generation || query.Offset < 0 || query.Offset >= maxContainerMaterialBytes ||
-		query.Length < 1 || query.Length > materialChunkBytes || len(query.EphemeralPublicKey) != 32 {
+		query.Length < 1 || query.Length > materialChunkBytes || len(query.EphemeralPublicKey) != 32 || !validContainerInventoryQuery(query) {
 		return nil, errors.New("container material request differs from the current host or bounds")
 	}
 	epoch := c.authorityEpoch()
 	if err := c.guard(ctx, epoch); err != nil {
 		return nil, err
 	}
-	files, err := c.containerMaterial(ctx, registration, query.Binding)
+	files, err := c.containerMaterial(ctx, registration, query.Binding, ContainerMaterialEvidence{Request: req.Envelope})
 	if err != nil {
 		return nil, err
 	}
 	defer clearContainerMaterial(files)
+	ctx, materialCancel := context.WithDeadline(ctx, files.ExpiresAt)
+	defer materialCancel()
 	if err := validateContainerMaterial(files); err != nil {
 		return nil, err
+	}
+	if query.Offset > 0 && !files.ExpiresAt.Equal(query.InventoryExpiresAt) {
+		return nil, errors.New("container material inventory deadline changed; restart inventory")
 	}
 	wire, err := protocol.EncodeJSON(files)
 	if err != nil {
@@ -135,6 +156,9 @@ func (c *Controller) serveContainerMaterial(ctx context.Context, req request, re
 	defer clear(wire)
 	if len(wire) > maxContainerMaterialBytes || query.Offset >= len(wire) {
 		return nil, errors.New("container material inventory is oversized or chunk is out of bounds")
+	}
+	if sum := sha256.Sum256(wire); query.Offset > 0 && hex.EncodeToString(sum[:]) != query.InventorySHA256 {
+		return nil, errors.New("container material inventory changed; restart inventory")
 	}
 	latest, err := c.registration(ctx, req.Node)
 	if err != nil || !sameJSON(registration, latest) {
@@ -155,7 +179,11 @@ func (c *Controller) serveContainerMaterial(ctx context.Context, req request, re
 		return nil, err
 	}
 	end := min(len(wire), query.Offset+query.Length)
-	return encryptHostMaterialChunk(aad, query.EphemeralPublicKey, containerMaterialDocument, query.Offset, wire[query.Offset:end], len(wire), wire)
+	reply, err := encryptHostMaterialChunk(aad, query.EphemeralPublicKey, containerMaterialDocument, query.Offset, wire[query.Offset:end], len(wire), wire)
+	if ctx.Err() != nil || !time.Now().Before(files.ExpiresAt) {
+		return nil, errors.New("container material deadline expired before encryption completed")
+	}
+	return containerMaterialReply{materialReply: reply, InventoryExpiresAt: files.ExpiresAt}, err
 }
 
 // CurrentContainerFiles uses the existing authenticated ownhost session; neither
@@ -180,6 +208,7 @@ func (a *Agent) CurrentContainerFiles(ctx context.Context, binding ContainerMate
 		}
 	}()
 	total, digest := 0, ""
+	var inventoryExpiresAt time.Time
 	for total == 0 || len(wire) < total {
 		if _, _, err := a.executionLease(); err != nil {
 			return result, err
@@ -189,15 +218,16 @@ func (a *Agent) CurrentContainerFiles(ctx context.Context, binding ContainerMate
 			return result, err
 		}
 		query := containerMaterialQuery{Binding: binding, RegistrationGeneration: current.RegistrationGeneration,
-			Offset: len(wire), Length: materialChunkBytes, EphemeralPublicKey: private.PublicKey().Bytes()}
-		var reply materialReply
+			Offset: len(wire), Length: materialChunkBytes, EphemeralPublicKey: private.PublicKey().Bytes(),
+			InventoryExpiresAt: inventoryExpiresAt, InventorySHA256: digest}
+		var reply containerMaterialReply
 		req, err := a.sendToLeader(ctx, "container-material", query, &reply, nil, nil)
 		if err != nil {
 			return result, err
 		}
 		if reply.File != containerMaterialDocument || reply.Offset != query.Offset || reply.Total < 1 || reply.Total > maxContainerMaterialBytes ||
 			!lowerHex(reply.SHA256, 64) || len(reply.EphemeralPublicKey) != 32 || len(reply.Nonce) != 12 ||
-			total != 0 && (reply.Total != total || reply.SHA256 != digest) {
+			!time.Now().Before(reply.InventoryExpiresAt) || total != 0 && (reply.Total != total || reply.SHA256 != digest || !reply.InventoryExpiresAt.Equal(inventoryExpiresAt)) {
 			return result, errors.New("container material encrypted inventory changed")
 		}
 		public, err := ecdh.X25519().NewPublicKey(reply.EphemeralPublicKey)
@@ -226,6 +256,7 @@ func (a *Agent) CurrentContainerFiles(ctx context.Context, binding ContainerMate
 		wire = append(wire, chunk...)
 		clear(chunk)
 		total, digest = reply.Total, reply.SHA256
+		inventoryExpiresAt = reply.InventoryExpiresAt
 	}
 	sum := sha256.Sum256(wire)
 	if hex.EncodeToString(sum[:]) != digest {
@@ -236,6 +267,9 @@ func (a *Agent) CurrentContainerFiles(ctx context.Context, binding ContainerMate
 	}
 	if err := validateContainerMaterial(result); err != nil {
 		return result, err
+	}
+	if !result.ExpiresAt.Equal(inventoryExpiresAt) {
+		return result, errors.New("container material inventory deadline cannot be authenticated")
 	}
 	if _, _, err := a.executionLease(); err != nil {
 		return result, err

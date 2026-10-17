@@ -9,6 +9,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/globalview"
 	"github.com/TerraScale/ts-orchestrator/internal/insights"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/capacityinventory"
 	"github.com/TerraScale/ts-orchestrator/internal/regionview"
 )
 
@@ -104,18 +105,32 @@ type QualificationStep struct {
 	Detail   string        `json:"detail,omitempty"`
 }
 
-// InventorySource lists the OCI resources a region owns and their drift.
+// InventorySource retains the source scope and incomplete observations with its rows.
 type InventorySource interface {
-	Inventory(ctx context.Context) ([]InventoryItem, error)
+	Inventory(ctx context.Context) (InventoryObservation, error)
+}
+
+// InventoryObservation is descriptive data, never authority to spend.
+type InventoryObservation struct {
+	ScopeSHA256, Currency string
+	ObservedAt, ExpiresAt time.Time
+	MonthlyCents          uint64
+	Items                 []InventoryItem
+	CoveredCompartments   []string
+	Pending               []string
+	// KnownLiabilities overlaps the live subtotal and must never be added to it.
+	KnownLiabilities capacityinventory.KnownLiabilities
 }
 
 // InventoryItem is one OCI resource.
 type InventoryItem struct {
-	Kind   string `json:"kind"`
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Region string `json:"region"`
-	State  string `json:"state"`
-	// Drift is in_sync, drifted, missing or unmanaged.
+	Kind          string `json:"kind"`
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Region        string `json:"region"`
+	State         string `json:"state"`
+	CompartmentID string `json:"compartment_id,omitempty"`
+	OperationID   string `json:"operation_id,omitempty"`
+	// Drift is unknown unless an independent drift comparison established it.
 	Drift string `json:"drift"`
 }

@@ -19,7 +19,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/workload"
 )
 
-func TestAutoscaleConfigDefaultsOffAndValidates(t *testing.T) {
+func TestAutoscaleConfigUsesSignedDeclarations(t *testing.T) {
 	resources := placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
 	profiles := map[string]WorkloadProfile{"api": {Resources: resources}, "terrabase": {Resources: resources}}
 	fencer := &switchingFencer{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: true, Epoch: 1, Revision: 1,
@@ -27,8 +27,8 @@ func TestAutoscaleConfigDefaultsOffAndValidates(t *testing.T) {
 	// The reconciler always runs, for the roles a cell spec adds later;
 	// without a service it owns nothing.
 	reconciler, load, err := startWorkloadAutoscale("gru", nil, profiles, nil, &host.Controller{}, fencer, nil)
-	if err != nil || load == nil || reconciler.Signals() != nil {
-		t.Fatalf("absent autoscale config must collect without scaling: %v %v", load, err)
+	if err != nil || load == nil || reconciler.Signals() == nil {
+		t.Fatalf("absent autoscale declaration must still collect telemetry: %v %v", load, err)
 	}
 	if _, owned := reconciler.Owns("api"); owned {
 		t.Fatal("a reconciler without services owns a role")
@@ -38,9 +38,8 @@ func TestAutoscaleConfigDefaultsOffAndValidates(t *testing.T) {
 	if err := validateAutoscaleConfig(disabled, profiles); err != nil {
 		t.Fatal(err)
 	}
-	disabled.HostTelemetry = true
-	if reconciler, load, err := startWorkloadAutoscale("gru", disabled, profiles, nil, &host.Controller{}, fencer, nil); err != nil || load == nil || reconciler.Signals() != nil {
-		t.Fatal("disabled autoscale config must collect without scaling")
+	if reconciler, load, err := startWorkloadAutoscale("gru", disabled, profiles, nil, &host.Controller{}, fencer, nil); err != nil || load == nil || reconciler.Signals() == nil {
+		t.Fatal("empty desired service set must collect telemetry")
 	}
 	var planner regionalDeliveryPlanner
 	if _, owned := planner.workloads.Owns("api"); owned {
@@ -48,7 +47,6 @@ func TestAutoscaleConfigDefaultsOffAndValidates(t *testing.T) {
 	}
 
 	invalid := map[string]*AutoscaleConfig{
-		"interval": {IntervalSeconds: -1},
 		"no profile": {Services: []workload.ServiceSpec{{Role: "web", Environment: "prod", Kind: workload.KindStateless,
 			Replicas: workload.ReplicaBounds{Max: 1}}}},
 		"resource mismatch": {Services: []workload.ServiceSpec{{Role: "api", Environment: "prod", Kind: workload.KindStateless,
@@ -88,12 +86,6 @@ func TestAutoscaleConfigRefusesInertEntries(t *testing.T) {
 	scaling := &AutoscaleConfig{Services: []workload.ServiceSpec{{Role: "api", Environment: "prod",
 		Kind: workload.KindStateless, Replicas: workload.ReplicaBounds{Min: 1, Max: 3},
 		Scaling: &autoscale.Policy{Signals: []autoscale.Signal{{Name: autoscale.SignalCPUUtilization, Target: 0.6}}}}}}
-	if err := validateAutoscaleConfig(scaling, profiles); err == nil {
-		t.Fatal("a scaling policy was accepted although no signal source feeds it")
-	}
-	// Host telemetry is the signal source: with it the policy is accepted,
-	// but only for signals it produces for stateless roles.
-	scaling.HostTelemetry = true
 	if err := validateAutoscaleConfig(scaling, profiles); err != nil {
 		t.Fatalf("a cpu_util policy with host telemetry was refused: %v", err)
 	}
@@ -110,7 +102,7 @@ func TestAutoscaleConfigRefusesInertEntries(t *testing.T) {
 // reconciler's results reach the metric history.
 func TestHostTelemetryFeedsAutoscaleHistory(t *testing.T) {
 	resources := placement.Resources{CPU: 2, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
-	config := &AutoscaleConfig{Enabled: true, HostTelemetry: true, Services: []workload.ServiceSpec{{Role: "api",
+	config := &AutoscaleConfig{Services: []workload.ServiceSpec{{Role: "api",
 		Environment: "prod", Kind: workload.KindStateless, Replicas: workload.ReplicaBounds{Min: 1, Max: 3},
 		Scaling: &autoscale.Policy{Signals: []autoscale.Signal{{Name: autoscale.SignalCPUUtilization, Target: 0.6}}}}}}
 	fencer := &switchingFencer{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: true, Epoch: 1, Revision: 1,

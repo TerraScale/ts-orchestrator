@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
@@ -24,20 +23,21 @@ func VerifyRegionalStartupTemplate(wire []byte, roots trust.Keyring, anchor Veri
 // VerifyBoundRegionalStartupTemplate independently resolves the selected cell's
 // schema-2 resources from the same original protected foundation grant.
 func VerifyBoundRegionalStartupTemplate(ctx context.Context, factory *ociclient.Factory, wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, requestedCell oci.Region, now time.Time) (VerifiedStartupTemplate, error) {
-	bindings, err := verifyStartupBindings(ctx, factory, wire, roots, anchor, now)
+	bindings, err := verifyStartupBindings(ctx, factory, wire, roots, anchor, string(requestedCell), now)
 	if err != nil {
 		return VerifiedStartupTemplate{}, err
 	}
-	if bindings.Cell() != string(requestedCell) {
-		bindings, err = bindings.ForCell(ctx, string(requestedCell))
-		if err != nil {
-			return VerifiedStartupTemplate{}, err
-		}
+	verified, err := verifyRegionalStartupTemplateBindings(wire, roots, anchor, requestedCell, bindings, now)
+	if err != nil {
+		return VerifiedStartupTemplate{}, err
 	}
-	return verifyRegionalStartupTemplateBindings(wire, roots, anchor, requestedCell, &bindings, now)
+	if err := ctx.Err(); err != nil {
+		return VerifiedStartupTemplate{}, err
+	}
+	return verified, nil
 }
 
-func verifyRegionalStartupTemplateBindings(wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, requestedCell oci.Region, bindings *foundationbinding.VerifiedBindings, now time.Time) (VerifiedStartupTemplate, error) {
+func verifyRegionalStartupTemplateBindings(wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, requestedCell oci.Region, bindings *startupBindings, now time.Time) (VerifiedStartupTemplate, error) {
 	ociRegion, regionErr := requestedCell.OCIRegion()
 	if !anchor.IsVerified() || regionErr != nil || now.IsZero() || len(wire) == 0 || len(wire) > 1<<20 {
 		return VerifiedStartupTemplate{}, ErrManifestInvalid

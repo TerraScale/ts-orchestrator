@@ -176,7 +176,7 @@ func (qualifications) Qualifications(context.Context) ([]dashboard.Qualification
 
 type inventory struct{}
 
-func (inventory) Inventory(context.Context) ([]dashboard.InventoryItem, error) {
+func (inventory) Inventory(context.Context) (dashboard.InventoryObservation, error) {
 	items := []dashboard.InventoryItem{}
 	for index, name := range []string{"gru-ctl-1", "gru-ctl-2", "gru-ctl-3", "gru-host-a", "gru-host-b", "gru-host-c", "gru-host-d", "gru-host-e"} {
 		drift := "in_sync"
@@ -192,5 +192,5 @@ func (inventory) Inventory(context.Context) ([]dashboard.InventoryItem, error) {
 		dashboard.InventoryItem{Kind: "bucket", ID: "terrascale-gru-backups", Name: "terrascale-gru-backups", Region: "gru", State: "ACTIVE", Drift: "in_sync"},
 		dashboard.InventoryItem{Kind: "instance", ID: "ocid1.instance.oc1.sa-saopaulo-1.0000dead", Name: "gru-host-old", Region: "gru", State: "STOPPED", Drift: "unmanaged"},
 	)
-	return items, nil
+	return dashboard.InventoryObservation{Items: items}, nil
 }

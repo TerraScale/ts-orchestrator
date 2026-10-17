@@ -7,6 +7,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 func TestControllerHostSpecRequiresExactLeaderRevision(t *testing.T) {
@@ -20,6 +21,16 @@ func TestControllerHostSpecRequiresExactLeaderRevision(t *testing.T) {
 	}
 	js, observer := testRolloutJetStreamWithObserver(t, cellSpecBucket)
 	if err := services.open(ctx, js, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := services.roots.open(ctx, js, 1); err != nil {
+		t.Fatal(err)
+	}
+	rootWire, err := trust.EncodeRootChain(services.roots.reply("").Chain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := services.roots.kv.Put(ctx, rootChainKey, rootWire); err != nil {
 		t.Fatal(err)
 	}
 	wire, err := cellspec.Sign(cellspec.Spec{Schema: cellspec.Schema, Identity: keys.identity, Generation: 1, RequiresBinary: 1},

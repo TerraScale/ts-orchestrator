@@ -2,12 +2,10 @@ package registry
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 	"uuid"
 
@@ -36,7 +34,7 @@ type Issuer struct {
 	vault     ocivault.VaultsClient
 	secrets   ocisecrets.SecretsClient
 	artifacts artifacts.ArtifactsClient
-	journal   jetstream.KeyValue
+	journal   IssuerJournal
 	scope     region.VerifiedOCIRIssuer
 	guard     func(context.Context) error
 	homeWrite func(context.Context) (context.Context, func(), error)
@@ -46,7 +44,7 @@ type Issuer struct {
 // NewIssuer requires a guard that freshly verifies this exact grant digest,
 // generation and expiry together with the current regional authority epoch.
 // homeWrite is the existing tenancy-wide foundation IAM serialization lease.
-func NewIssuer(ctx context.Context, factory *ociclient.Factory, journal jetstream.KeyValue,
+func NewIssuer(ctx context.Context, factory *ociclient.Factory, journal IssuerJournal,
 	scope region.VerifiedOCIRIssuer, guard func(context.Context) error,
 	homeWrite func(context.Context) (context.Context, func(), error)) (*Issuer, error) {
 	if factory == nil || journal == nil || guard == nil || homeWrite == nil || !scope.IsVerified() ||
@@ -111,35 +109,17 @@ func NewIssuer(ctx context.Context, factory *ociclient.Factory, journal jetstrea
 			return nil
 		}
 	}
+	if err := i.authorized(ctx); err != nil {
+		return nil, err
+	}
 	return i, nil
 }
 
 // issuerRecord contains only operation and OCI/Vault metadata. Lease ownership
 // fences concurrent callers before a once-returned token can be requested.
 type issuerRecord struct {
-	ScopeHash      string    `json:"scope_hash"`
-	Generation     uint64    `json:"generation"`
-	GrantDigest    string    `json:"grant_digest"`
-	OperationID    string    `json:"operation_id"`
-	LeaseID        string    `json:"lease_id"`
-	LeaseUntil     time.Time `json:"lease_until,omitzero"`
-	UserID         string    `json:"user_id,omitempty"`
-	RepositoryID   string    `json:"repository_id,omitempty"`
-	GroupID        string    `json:"group_id,omitempty"`
-	PolicyID       string    `json:"policy_id,omitempty"`
-	MembershipID   string    `json:"membership_id,omitempty"`
-	TokenID        string    `json:"token_id,omitempty"`
-	PriorTokenID   string    `json:"prior_token_id,omitempty"`
-	TokenOperation string    `json:"token_operation,omitempty"`
-	TokenStarted   time.Time `json:"token_started,omitzero"`
-	BeforeTokens   []string  `json:"before_tokens,omitempty"`
-	PendingHash    string    `json:"pending_hash,omitempty"`
-	SecretID       string    `json:"secret_id,omitempty"`
-	Version        int64     `json:"version,omitzero"`
-	Hash           string    `json:"hash,omitempty"`
-	PublishedAt    time.Time `json:"published_at,omitzero"`
-	Stage          string    `json:"stage"`
-	revision       uint64
+	region.OCIRIssuanceState
+	revision uint64
 }
 
 type issuerAttempt struct {
@@ -164,6 +144,9 @@ func (i *Issuer) authorized(ctx context.Context) error {
 	if err := i.guard(ctx); err != nil {
 		return ErrIssuer
 	}
+	if ctx.Err() != nil || !time.Now().Before(i.scope.ExpiresAt()) {
+		return ErrIssuer
+	}
 	return nil
 }
 
@@ -171,39 +154,35 @@ func (i *Issuer) begin(ctx context.Context) (*issuerAttempt, error) {
 	if err := i.authorized(ctx); err != nil {
 		return nil, err
 	}
-	status, err := i.journal.Status(ctx)
-	if err != nil || status.Config().Storage != jetstream.FileStorage || status.Config().TTL != 0 {
-		return nil, ErrIssuer
-	}
-	wire, err := json.Marshal(struct {
-		Tenancy, Installation string
-		Intent                region.OCIRIssuerIntent
-	}{i.scope.TenancyID(), i.scope.InstallationID(), i.scope.Intent()}, json.Deterministic(true))
+	key, err := i.scope.JournalKey()
 	if err != nil {
 		return nil, ErrIssuer
 	}
-	sum := sha256.Sum256(wire)
-	hash := hex.EncodeToString(sum[:])
-	key := "ocir-issuer." + hash
-	entry, err := i.journal.Get(ctx, key)
-	state := issuerRecord{ScopeHash: hash, Generation: i.scope.Generation(), GrantDigest: i.scope.GrantDigest(), OperationID: uuid.New().String(), Stage: "identity"}
+	hash := strings.TrimPrefix(key, "ocir-issuer.")
+	state, revision, err := i.journal.Load(ctx, key)
+	record := issuerRecord{ScopeHash: hash, Generation: i.scope.Generation(), GrantDigest: i.scope.GrantDigest(), OperationID: uuid.New().String(), Stage: "identity"}
 	if err == nil {
-		if len(entry.Value()) > 32<<10 || json.Unmarshal(entry.Value(), &state, json.RejectUnknownMembers(true)) != nil ||
-			state.ScopeHash != hash || state.OperationID == "" || state.Generation > i.scope.Generation() ||
+		if state.Validate(key) != nil || state.ScopeHash != hash || state.OperationID == "" || state.Generation > i.scope.Generation() ||
 			state.Generation == i.scope.Generation() && state.GrantDigest != i.scope.GrantDigest() {
 			return nil, ErrIssuer
 		}
 		if state.LeaseID != "" && time.Now().Before(state.LeaseUntil) {
 			return nil, ErrIssuer
 		}
-		state.revision = entry.Revision()
+		record.OCIRIssuanceState, record.revision = state, revision
 	} else if !errors.Is(err, jetstream.ErrKeyNotFound) {
 		return nil, ErrIssuer
 	}
-	state.Generation, state.GrantDigest = i.scope.Generation(), i.scope.GrantDigest()
+	record.Generation, record.GrantDigest = i.scope.Generation(), i.scope.GrantDigest()
 	lease := uuid.New().String()
-	state.LeaseID, state.LeaseUntil = lease, time.Now().Add(issuerLease)
-	a := &issuerAttempt{issuer: i, state: state, key: key, lease: lease}
+	record.LeaseID, record.LeaseUntil = lease, time.Now().Add(issuerLease)
+	if expiry := i.scope.ExpiresAt(); expiry.Before(record.LeaseUntil) {
+		record.LeaseUntil = expiry
+	}
+	if deadline, ok := ctx.Deadline(); ok && deadline.Before(record.LeaseUntil) {
+		record.LeaseUntil = deadline
+	}
+	a := &issuerAttempt{issuer: i, state: record, key: key, lease: lease}
 	if err := a.save(ctx, false); err != nil {
 		return nil, err
 	}
@@ -214,8 +193,8 @@ func (a *issuerAttempt) check(ctx context.Context) error {
 	if err := a.issuer.authorized(ctx); err != nil {
 		return err
 	}
-	entry, err := a.issuer.journal.Get(ctx, a.key)
-	if err != nil || entry.Revision() != a.state.revision || !time.Now().Before(a.state.LeaseUntil) || a.state.LeaseID != a.lease {
+	_, revision, err := a.issuer.journal.Load(ctx, a.key)
+	if err != nil || revision != a.state.revision || !time.Now().Before(a.state.LeaseUntil) || a.state.LeaseID != a.lease {
 		return ErrIssuer
 	}
 	return nil
@@ -229,18 +208,9 @@ func (a *issuerAttempt) save(ctx context.Context, check bool) error {
 	} else if err := a.issuer.authorized(ctx); err != nil {
 		return err
 	}
-	wire, err := json.Marshal(a.state)
+	revision, err := a.issuer.journal.CompareAndSwap(ctx, a.key, a.state.OCIRIssuanceState, a.state.revision)
 	if err != nil {
-		return ErrIssuer
-	}
-	var revision uint64
-	if a.state.revision == 0 {
-		revision, err = a.issuer.journal.Create(ctx, a.key, wire)
-	} else {
-		revision, err = a.issuer.journal.Update(ctx, a.key, wire, a.state.revision)
-	}
-	if err != nil {
-		return ErrIssuer
+		return errors.Join(ErrIssuer, err)
 	}
 	a.state.revision = revision
 	return nil
@@ -265,6 +235,7 @@ func (a *issuerAttempt) call(ctx context.Context, iam bool, run func(context.Con
 		return err
 	}
 	ctx = ociclient.WithAuthority(ctx, a.check)
+	ctx = ociclient.WithWireAttempt(ctx, a.issuer.journal.BeginEffect)
 	if err := run(ociclient.RequestContext(ctx)); err != nil {
 		return errors.Join(ErrIssuer, ctx.Err())
 	}
@@ -297,6 +268,9 @@ func (i *Issuer) Ensure(ctx context.Context) (PullSecret, error) {
 		return PullSecret{}, err
 	}
 	if err := a.ensureCredential(ctx, user); err != nil {
+		return PullSecret{}, err
+	}
+	if err := a.check(ctx); err != nil {
 		return PullSecret{}, err
 	}
 	intent := i.scope.Intent()

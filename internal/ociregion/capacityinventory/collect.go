@@ -123,7 +123,7 @@ func (r *Reader) ReadOwned(ctx context.Context, scope Scope) (Snapshot, error) {
 			complete := false
 			for range 64 {
 				query := "query all resources where compartmentId = '" + compartment + "'"
-				response, err := search.SearchResources(ctx, resourcesearch.SearchResourcesRequest{SearchDetails: resourcesearch.StructuredSearchDetails{Query: new(query)}, Page: page})
+				response, err := search.SearchResources(ociclient.RequestContext(ctx), resourcesearch.SearchResourcesRequest{SearchDetails: resourcesearch.StructuredSearchDetails{Query: new(query)}, Page: page})
 				if err != nil {
 					result.Pending = append(result.Pending, region.Cell+"/"+compartment+": "+err.Error())
 					break
@@ -171,7 +171,7 @@ func observedCost(ctx context.Context, compute core.ComputeClient, block core.Bl
 	var evidenceErr error
 	switch *item.ResourceType {
 	case "Instance":
-		response, err := compute.GetInstance(ctx, core.GetInstanceRequest{InstanceId: item.Identifier})
+		response, err := compute.GetInstance(ociclient.RequestContext(ctx), core.GetInstanceRequest{InstanceId: item.Identifier})
 		if err != nil {
 			return 0, err
 		}
@@ -186,6 +186,10 @@ func observedCost(ctx context.Context, compute core.ComputeClient, block core.Bl
 		}
 		if response.Shape == nil || response.ShapeConfig == nil || response.ShapeConfig.Ocpus == nil || response.ShapeConfig.MemoryInGBs == nil || resource.LifecycleState == "" {
 			return 0, errors.New("instance dimensions or lifecycle state missing")
+		}
+		resource.Shape, resource.OCPUs, resource.MemoryGB = *response.Shape, float64(*response.ShapeConfig.Ocpus), float64(*response.ShapeConfig.MemoryInGBs)
+		if prices == nil {
+			return 0, nil
 		}
 		cpuSKU, memorySKU, known := ocicost.ComputeSKUs(*response.Shape)
 		if !known {
@@ -206,7 +210,7 @@ func observedCost(ctx context.Context, compute core.ComputeClient, block core.Bl
 	case "BootVolume", "Volume":
 		var size, vpus *int64
 		if *item.ResourceType == "BootVolume" {
-			response, err := block.GetBootVolume(ctx, core.GetBootVolumeRequest{BootVolumeId: item.Identifier})
+			response, err := block.GetBootVolume(ociclient.RequestContext(ctx), core.GetBootVolumeRequest{BootVolumeId: item.Identifier})
 			if err != nil {
 				return 0, err
 			}
@@ -222,10 +226,12 @@ func observedCost(ctx context.Context, compute core.ComputeClient, block core.Bl
 			if response.IsAutoTuneEnabled != nil && *response.IsAutoTuneEnabled || len(response.AutotunePolicies) > 0 {
 				return 0, errors.New("autotuned disk requires a bounded performance charge ledger")
 			}
-			evidenceErr = bootAttribution(ctx, compute, response.BootVolume, resource)
+			if prices != nil {
+				evidenceErr = bootAttribution(ctx, compute, response.BootVolume, resource)
+			}
 			size, vpus = response.SizeInGBs, response.VpusPerGB
 		} else {
-			response, err := block.GetVolume(ctx, core.GetVolumeRequest{VolumeId: item.Identifier})
+			response, err := block.GetVolume(ociclient.RequestContext(ctx), core.GetVolumeRequest{VolumeId: item.Identifier})
 			if err != nil {
 				return 0, err
 			}
@@ -245,6 +251,10 @@ func observedCost(ctx context.Context, compute core.ComputeClient, block core.Bl
 		}
 		if size == nil || vpus == nil || *size <= 0 || *vpus < 0 || resource.LifecycleState == "" {
 			return 0, errors.New("retained disk size or performance missing")
+		}
+		resource.SizeGB, resource.VPUs = float64(*size), *vpus
+		if prices == nil {
+			return 0, nil
 		}
 		storage, err := prices.price(ctx, "B91961", "Gigabyte Storage Capacity Per Month")
 		if err != nil {

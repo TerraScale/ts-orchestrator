@@ -7,16 +7,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"maps"
 	"net/http"
 	"slices"
-	"strings"
-	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 
-	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
@@ -42,21 +38,15 @@ const (
 type computeManagementAPI interface {
 	ListInstancePools(ctx context.Context, request core.ListInstancePoolsRequest) (core.ListInstancePoolsResponse, error)
 	GetInstancePool(ctx context.Context, request core.GetInstancePoolRequest) (core.GetInstancePoolResponse, error)
-	CreateInstancePool(ctx context.Context, request core.CreateInstancePoolRequest) (core.CreateInstancePoolResponse, error)
-	UpdateInstancePool(ctx context.Context, request core.UpdateInstancePoolRequest) (core.UpdateInstancePoolResponse, error)
 	ListInstancePoolInstances(ctx context.Context, request core.ListInstancePoolInstancesRequest) (core.ListInstancePoolInstancesResponse, error)
-	DetachInstancePoolInstance(ctx context.Context, request core.DetachInstancePoolInstanceRequest) (core.DetachInstancePoolInstanceResponse, error)
 	ListInstanceConfigurations(ctx context.Context, request core.ListInstanceConfigurationsRequest) (core.ListInstanceConfigurationsResponse, error)
 	GetInstanceConfiguration(ctx context.Context, request core.GetInstanceConfigurationRequest) (core.GetInstanceConfigurationResponse, error)
-	CreateInstanceConfiguration(ctx context.Context, request core.CreateInstanceConfigurationRequest) (core.CreateInstanceConfigurationResponse, error)
-	DeleteInstanceConfiguration(ctx context.Context, request core.DeleteInstanceConfigurationRequest) (core.DeleteInstanceConfigurationResponse, error)
 }
 
 // computeAPI is the instance surface. core.ComputeClient implements it.
 type computeAPI interface {
 	ListShapes(ctx context.Context, request core.ListShapesRequest) (core.ListShapesResponse, error)
 	GetInstance(ctx context.Context, request core.GetInstanceRequest) (core.GetInstanceResponse, error)
-	UpdateInstance(ctx context.Context, request core.UpdateInstanceRequest) (core.UpdateInstanceResponse, error)
 	ListVnicAttachments(ctx context.Context, request core.ListVnicAttachmentsRequest) (core.ListVnicAttachmentsResponse, error)
 }
 
@@ -65,7 +55,7 @@ type networkAPI interface {
 	GetVnic(ctx context.Context, request core.GetVnicRequest) (core.GetVnicResponse, error)
 }
 
-// OCIPool is one capacity pool in OCI. It finds and owns the pool by name and tags.
+// OCIPool observes regional OCI pools. Root lifecycle operations own every mutation.
 type OCIPool struct {
 	management    computeManagementAPI
 	compute       computeAPI
@@ -73,18 +63,6 @@ type OCIPool struct {
 	cell          string
 	capacity      Capacity
 	compartmentID string
-	// Admit rechecks current signed image/runtime qualification, price and
-	// spending authority for this exact recipe; release fences them through a write.
-	// A missing producer leaves observations available and mutations pending.
-	Admit            func(context.Context, Recipe) (release func(), err error)
-	Journal          *oci.KVJournal
-	CheckpointCreate func(context.Context, Recipe, oci.PoolCreateRequest) (oci.PoolCreateRequest, error)
-	CheckpointPoint  func(context.Context, Recipe, core.UpdateInstancePoolRequest) (core.UpdateInstancePoolRequest, error)
-	CheckpointGrowth func(context.Context, Recipe, core.UpdateInstancePoolRequest) (core.UpdateInstancePoolRequest, error)
-	recipe           *Recipe
-	configurationID  string
-	directPoolID     string
-	operationID      string // durable scaler action; separates otherwise identical launches
 }
 
 // NewOCIPool binds one cell's capacity pool to the factory's OCI clients.
@@ -128,9 +106,6 @@ func (o *OCIPool) Observe(ctx context.Context) (PoolState, error) {
 		return PoolState{}, fmt.Errorf("list observed node pools: %w", err)
 	}
 	var state PoolState
-	if o.Admit == nil {
-		state.Pending = "current signed runtime/image, price and spending admission is unavailable"
-	}
 	seen := map[string]bool{}
 	for _, summary := range pools {
 		name := deref(summary.DisplayName)
@@ -157,12 +132,6 @@ func (o *OCIPool) Observe(ctx context.Context) (PoolState, error) {
 		}
 		if legacy {
 			state.Pending = fmt.Sprintf("legacy pool %s (%s, size %d) requires verified migration; capacity is pending", name, deref(pool.Id), deref(pool.Size))
-		} else {
-			observed := *o
-			observed.capacity = capacity
-			if err := observed.requireCreateResource(ctx, oci.PoolCreatePool, deref(pool.Id)); err != nil {
-				state.Pending = err.Error()
-			}
 		}
 		if len(seen) > 1 {
 			state.PoolID, state.ConfigurationID, state.LifecycleState = "", "", ""
@@ -192,7 +161,8 @@ func (o *OCIPool) Observe(ctx context.Context) (PoolState, error) {
 			}
 			state.Instances = append(state.Instances, PoolInstance{ID: deref(member.Id), Name: deref(member.DisplayName),
 				State: deref(member.State), PrivateIP: ip, AvailabilityDomain: deref(member.AvailabilityDomain),
-				FaultDomain: deref(member.FaultDomain), Created: deref(member.TimeCreated).Time, Capacity: capacity})
+				FaultDomain: deref(member.FaultDomain), Created: deref(member.TimeCreated).Time, Capacity: capacity,
+				PoolID: deref(pool.Id), ConfigurationID: deref(pool.InstanceConfigurationId)})
 		}
 	}
 	slices.SortFunc(state.Instances, func(a, b PoolInstance) int {
@@ -211,234 +181,6 @@ func (o *OCIPool) TargetSize(ctx context.Context, recipe Recipe) (int, error) {
 		return 0, err
 	}
 	return deref(pool.Size), nil
-}
-
-// owner routes an instance only after its own tags and its pool membership agree.
-func (o *OCIPool) owner(ctx context.Context, instanceID string) (*OCIPool, error) {
-	instance, _, err := o.instance(ctx, instanceID)
-	if err != nil {
-		return nil, err
-	}
-	capacity := Capacity{Role: instance.FreeformTags[tagCapacityRole], Architecture: instance.FreeformTags[tagArchitecture], Shape: instance.FreeformTags[tagShape]}
-	if capacity.Validate() != nil || deref(instance.Id) != instanceID || deref(instance.CompartmentId) != o.compartmentID ||
-		instance.FreeformTags[tagCell] != o.cell || instance.FreeformTags[tagRole] != roleNode || instance.FreeformTags[tagPool] != PoolName(o.cell, capacity) {
-		return nil, fmt.Errorf("%w: instance %s lacks exact regional capacity ownership", ErrNotPoolInstance, instanceID)
-	}
-	owned, err := newOCIPool(o.management, o.compute, o.network, o.cell, o.compartmentID, capacity)
-	if err != nil {
-		return nil, err
-	}
-	owned.Journal = o.Journal
-	return owned, nil
-}
-
-func (o *OCIPool) admit(ctx context.Context, recipe Recipe) (func(), error) {
-	if o.Admit == nil {
-		return nil, fmt.Errorf("%w: current signed runtime/image, price and spending admission is unavailable", ErrCapacityPending)
-	}
-	release, err := o.Admit(ctx, recipe)
-	if err != nil {
-		return nil, err
-	}
-	if release == nil {
-		return nil, fmt.Errorf("%w: admission did not fence current facts", ErrCapacityPending)
-	}
-	return release, nil
-}
-
-func (o *OCIPool) writeContext(ctx context.Context, recipe Recipe) context.Context {
-	return ociclient.RequestContext(ociclient.WithAdmission(ctx, func(ctx context.Context) (func(), error) {
-		return o.admit(ctx, recipe)
-	}))
-}
-
-// Ensure makes this capacity's configuration and pool exist, and points the pool at the recipe.
-// It never changes the pool's size.
-func (o *OCIPool) Ensure(ctx context.Context, recipe Recipe) (PoolState, error) {
-	o.recipe, o.configurationID, o.directPoolID = nil, "", ""
-	if err := recipe.Validate(); err != nil {
-		return PoolState{}, err
-	}
-	if recipe.Cell != o.cell || recipe.Capacity != o.capacity {
-		return PoolState{}, fmt.Errorf("recipe for pool %s given to pool %s", PoolName(recipe.Cell, recipe.Capacity), PoolName(o.cell, o.capacity))
-	}
-	release, err := o.admit(ctx, recipe)
-	if err != nil {
-		return PoolState{}, err
-	}
-	release()
-	if err := o.validateImage(ctx, recipe); err != nil {
-		return PoolState{}, err
-	}
-	pool, etag, err := o.pool(ctx)
-	if err != nil {
-		return PoolState{}, err
-	}
-	if pool != nil {
-		if err := o.requireCreateResource(ctx, oci.PoolCreatePool, deref(pool.Id)); err != nil {
-			_, prepared, readErr := o.Journal.GetPoolCreateRequest(ctx, o.operationID, oci.PoolCreatePool)
-			result, completed, resultErr := o.Journal.GetPoolCreateResult(ctx, o.operationID, oci.PoolCreatePool)
-			if readErr != nil || resultErr != nil || !prepared {
-				return PoolState{}, err
-			}
-			if completed {
-				if result.ResourceID != deref(pool.Id) {
-					return PoolState{}, err
-				}
-				if err := o.Journal.RecordPoolCreateResult(ctx, result.OperationID, result.Kind, result.ResourceID, result.OpcRequestID); err != nil {
-					return PoolState{}, err
-				}
-			}
-			// Stored receipts do not authorize adoption; obtain a fresh SDK response to the original token.
-			pool, etag = nil, ""
-		}
-	}
-	configID, err := o.ensureConfiguration(ctx, recipe)
-	if err != nil {
-		return PoolState{}, err
-	}
-	// OCI applies a re-point later, so the configuration the pool references now must survive this cycle.
-	keep := []string{configID}
-	switch {
-	case pool == nil:
-		err = o.createPool(ctx, recipe, configID)
-	case deref(pool.InstanceConfigurationId) != configID || !placementsMatch(pool, recipe):
-		keep = append(keep, deref(pool.InstanceConfigurationId))
-		err = o.point(ctx, pool, etag, configID, recipe)
-	}
-	if err != nil {
-		return PoolState{}, err
-	}
-	if err := o.pruneConfigurations(ctx, recipe, keep...); err != nil {
-		return PoolState{}, err
-	}
-	observed, err := o.Observe(ctx)
-	if err == nil {
-		current, _, readErr := o.pool(ctx)
-		if readErr != nil {
-			return PoolState{}, readErr
-		}
-		if current == nil || deref(current.Id) != o.directPoolID || deref(current.InstanceConfigurationId) != configID || !placementsMatch(current, recipe) {
-			return PoolState{}, fmt.Errorf("%w: pool is still applying qualified configuration or placements", ErrCapacityPending)
-		}
-		if observed.Pending != "" {
-			return observed, fmt.Errorf("%w: %s", ErrCapacityPending, observed.Pending)
-		}
-		o.recipe = &recipe
-		o.configurationID = configID
-	}
-	return observed, err
-}
-
-// Grow raises the pool from size from to from+1. A replay that already reached from+1 is done.
-func (o *OCIPool) Grow(ctx context.Context, from int) error {
-	if o.recipe == nil {
-		return fmt.Errorf("%w: pool recipe has not been admitted", ErrCapacityPending)
-	}
-	if from < 0 || from >= MaxPoolNodes {
-		return fmt.Errorf("pool of cell %s cannot grow from %d; it holds 0 to %d nodes", o.cell, from, MaxPoolNodes)
-	}
-	pool, etag, err := o.pool(ctx)
-	if err != nil {
-		return err
-	}
-	if pool == nil {
-		return fmt.Errorf("instance pool of cell %s does not exist; ensure it first", o.cell)
-	}
-	if err := o.requireCreateResource(ctx, oci.PoolCreatePool, deref(pool.Id)); err != nil {
-		return err
-	}
-	if deref(pool.InstanceConfigurationId) != o.configurationID || !placementsMatch(pool, *o.recipe) {
-		return fmt.Errorf("%w: pool launch configuration or placement changed", ErrCapacityPending)
-	}
-	if err := o.verifyConfiguration(ctx, o.configurationID, *o.recipe); err != nil {
-		return err
-	}
-	switch size := deref(pool.Size); size {
-	case from + 1:
-		result, found, err := o.Journal.GetCapacityResult(ctx, o.operationID)
-		if err != nil || found && (result.PoolID != deref(pool.Id) || result.ConfigurationID != o.configurationID || result.TargetSize != uint32(from+1)) {
-			return fmt.Errorf("%w: observed growth has no original positive SDK result: %v", ErrCapacityPending, err)
-		}
-		if found {
-			return nil
-		}
-		// Unknown outcomes may replay their exact saved request, never infer success from size.
-	case from:
-	default:
-		return fmt.Errorf("%w: pool of cell %s is %d, expected %d", ErrPoolChanged, o.cell, size, from)
-	}
-	request := core.UpdateInstancePoolRequest{
-		InstancePoolId: pool.Id, IfMatch: common.String(etag),
-		OpcRetryToken:             retryToken(fmt.Sprintf("%s:%s:%s:%d", o.operationID, o.recipe.SHA256(), deref(pool.Id), from+1)),
-		UpdateInstancePoolDetails: core.UpdateInstancePoolDetails{Size: common.Int(from + 1)}}
-	if o.CheckpointGrowth == nil {
-		return fmt.Errorf("%w: durable exact OCI growth request checkpoint is unavailable", ErrCapacityPending)
-	}
-	request, err = o.CheckpointGrowth(ctx, *o.recipe, request)
-	if err != nil {
-		return fmt.Errorf("%w: checkpoint exact OCI growth request: %v", ErrCapacityPending, err)
-	}
-	response, err := o.management.UpdateInstancePool(o.poolWireContext(ctx, *o.recipe, oci.PoolWireGrowth), request)
-	if err != nil {
-		return fmt.Errorf("grow instance pool %s to %d: %w", deref(pool.DisplayName), from+1, err)
-	}
-	return o.Journal.RecordCapacityResult(ctx, o.operationID, response)
-}
-
-// Name gives a pool instance its node name and keeps its other tags. A named instance is done.
-func (o *OCIPool) Name(ctx context.Context, instanceID, node string) error {
-	_, member, err := o.memberOf(ctx, instanceID)
-	if err != nil {
-		return err
-	}
-	if !member {
-		return fmt.Errorf("%w: %s", ErrNotPoolInstance, instanceID)
-	}
-	instance, etag, err := o.instance(ctx, instanceID)
-	if err != nil {
-		return err
-	}
-	if deref(instance.DisplayName) == node && instance.FreeformTags[tagNode] == node {
-		return nil
-	}
-	tags := map[string]string{}
-	maps.Copy(tags, instance.FreeformTags)
-	tags[tagNode] = node
-	_, err = o.compute.UpdateInstance(ctx, core.UpdateInstanceRequest{
-		InstanceId: common.String(instanceID), IfMatch: common.String(etag),
-		UpdateInstanceDetails: core.UpdateInstanceDetails{DisplayName: common.String(node), FreeformTags: tags}})
-	if err != nil {
-		return fmt.Errorf("name instance %s %s: %w", instanceID, node, err)
-	}
-	return nil
-}
-
-// Remove takes a pool instance out by detaching it with a size decrement and termination, so OCI never
-// picks the victim. An instance already terminated is done.
-func (o *OCIPool) Remove(ctx context.Context, instanceID string) error {
-	pool, member, err := o.memberOf(ctx, instanceID)
-	if err != nil {
-		return err
-	}
-	if member {
-		_, err := o.management.DetachInstancePoolInstance(ctx, core.DetachInstancePoolInstanceRequest{
-			InstancePoolId: pool.Id,
-			DetachInstancePoolInstanceDetails: core.DetachInstancePoolInstanceDetails{InstanceId: common.String(instanceID),
-				IsDecrementSize: common.Bool(true), IsAutoTerminate: common.Bool(true)}})
-		if err != nil {
-			return fmt.Errorf("detach instance %s from pool %s: %w", instanceID, deref(pool.DisplayName), err)
-		}
-		return nil
-	}
-	instance, _, err := o.instance(ctx, instanceID)
-	if err != nil {
-		return err
-	}
-	if absent(string(instance.LifecycleState)) {
-		return nil
-	}
-	return fmt.Errorf("%w: instance %s is %s", ErrNotPoolInstance, instanceID, instance.LifecycleState)
 }
 
 // pool returns the cell's pool and its ETag, or nil when there is none.
@@ -500,29 +242,6 @@ func (o *OCIPool) members(ctx context.Context, poolID string) ([]core.InstanceSu
 	return slices.DeleteFunc(items, func(item core.InstanceSummary) bool { return absent(deref(item.State)) }), nil
 }
 
-// memberOf returns the cell's pool, and whether instanceID is one of its live members.
-func (o *OCIPool) memberOf(ctx context.Context, instanceID string) (*core.InstancePool, bool, error) {
-	pool, _, err := o.pool(ctx)
-	if err != nil || pool == nil {
-		return nil, false, err
-	}
-	if err := o.requireCreateResource(ctx, oci.PoolCreatePool, deref(pool.Id)); err != nil {
-		return nil, false, err
-	}
-	members, err := o.members(ctx, deref(pool.Id))
-	if err != nil {
-		return nil, false, err
-	}
-	member := slices.ContainsFunc(members, func(member core.InstanceSummary) bool {
-		return deref(member.Id) == instanceID
-	})
-	if member {
-		// Pool membership cannot distinguish an authorized launch from an externally attached instance.
-		return pool, false, fmt.Errorf("%w: provider-authenticated launch lineage is required for instance %s", ErrCapacityPending, instanceID)
-	}
-	return pool, false, nil
-}
-
 // privateIP is the primary VNIC's address. It is empty while the instance has no primary VNIC yet.
 func (o *OCIPool) privateIP(ctx context.Context, instanceID string) (string, error) {
 	attachments, err := listAll(func(page *string) ([]core.VnicAttachment, *string, error) {
@@ -555,260 +274,6 @@ func (o *OCIPool) instance(ctx context.Context, instanceID string) (core.Instanc
 		return core.Instance{}, "", fmt.Errorf("get instance %s: %w", instanceID, err)
 	}
 	return response.Instance, deref(response.Etag), nil
-}
-
-// configurations lists only this capacity pool's configurations by name and ownership tags.
-func (o *OCIPool) configurations(ctx context.Context) ([]core.InstanceConfigurationSummary, error) {
-	items, err := listAll(func(page *string) ([]core.InstanceConfigurationSummary, *string, error) {
-		response, err := o.management.ListInstanceConfigurations(ctx, core.ListInstanceConfigurationsRequest{
-			CompartmentId: common.String(o.compartmentID), Page: page})
-		return response.Items, response.OpcNextPage, err
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list instance configurations: %w", err)
-	}
-	return slices.DeleteFunc(items, func(config core.InstanceConfigurationSummary) bool {
-		return !strings.HasPrefix(deref(config.DisplayName), configPrefix(o.cell, o.capacity)) || !o.owns(config.FreeformTags, roleNodeConfig)
-	}), nil
-}
-
-// ensureConfiguration creates the recipe's configuration unless the cell already has it, and returns its OCID.
-func (o *OCIPool) ensureConfiguration(ctx context.Context, recipe Recipe) (string, error) {
-	name := ConfigurationName(recipe) + "-" + o.operationID
-	details := core.ComputeInstanceDetails{LaunchDetails: launchDetails(recipe, o.compartmentID, o.operationID)}
-	request := core.CreateInstanceConfigurationRequest{
-		CreateInstanceConfiguration: core.CreateInstanceConfigurationDetails{
-			CompartmentId: new(o.compartmentID), DisplayName: new(name),
-			FreeformTags:    launchTags(recipe, roleNodeConfig, o.operationID),
-			InstanceDetails: details,
-		},
-		OpcRetryToken: retryToken(name),
-	}
-	if o.Journal == nil || o.CheckpointCreate == nil {
-		return "", fmt.Errorf("%w: original OCI configuration create authority is unavailable", ErrCapacityPending)
-	}
-	_, prior, err := o.Journal.GetPoolCreateRequest(ctx, o.operationID, oci.PoolCreateConfiguration)
-	if err != nil {
-		return "", err
-	}
-	configs, err := o.configurations(ctx)
-	if err != nil {
-		return "", err
-	}
-	if !prior && slices.ContainsFunc(configs, func(config core.InstanceConfigurationSummary) bool { return deref(config.DisplayName) == name }) {
-		return "", fmt.Errorf("%w: existing configuration %s has no original create request", ErrCapacityPending, name)
-	}
-	configurationSHA256, err := oci.PoolConfigurationSHA256(details)
-	if err != nil {
-		return "", err
-	}
-	raw, err := request.HTTPRequest(http.MethodPost, "/instanceConfigurations", nil, nil)
-	if err != nil {
-		return "", err
-	}
-	requestSHA256, err := poolCreateRequestSHA256(&raw)
-	if err != nil {
-		return "", err
-	}
-	prepared, err := o.CheckpointCreate(ctx, recipe, oci.PoolCreateRequest{
-		Kind: oci.PoolCreateConfiguration, ConfigurationSHA256: configurationSHA256,
-		RequestSHA256: requestSHA256, RetryToken: deref(request.OpcRetryToken)})
-	if err != nil {
-		return "", err
-	}
-	result, found, err := o.Journal.GetPoolCreateResult(ctx, prepared.OperationID, prepared.Kind)
-	if err != nil {
-		return "", err
-	}
-	if found {
-		if err := o.Journal.RecordPoolCreateResult(ctx, result.OperationID, result.Kind, result.ResourceID, result.OpcRequestID); err != nil {
-			return "", err
-		}
-	}
-	if time.Since(prepared.StartedAt) >= 23*time.Hour {
-		return "", fmt.Errorf("%w: original configuration create retry window expired", ErrCapacityPending)
-	}
-	request.OpcRetryToken = new(prepared.RetryToken)
-	response, err := o.management.CreateInstanceConfiguration(o.poolWireContext(ctx, recipe, oci.PoolCreateConfiguration), request)
-	if err != nil {
-		return "", fmt.Errorf("create instance configuration %s: %w", name, err)
-	}
-	if err := o.Journal.RecordPoolCreateResult(ctx, prepared.OperationID, prepared.Kind, deref(response.Id), deref(response.OpcRequestId)); err != nil {
-		return "", err
-	}
-	return deref(response.Id), o.verifyConfiguration(ctx, deref(response.Id), recipe)
-}
-
-func (o *OCIPool) verifyConfiguration(ctx context.Context, id string, recipe Recipe) error {
-	response, err := o.management.GetInstanceConfiguration(ctx, core.GetInstanceConfigurationRequest{InstanceConfigurationId: new(id)})
-	if err != nil {
-		return fmt.Errorf("read exact launch configuration %s: %w", id, err)
-	}
-	config := response.InstanceConfiguration
-	if id == "" || deref(config.Id) != id || deref(config.CompartmentId) != o.compartmentID || !o.owns(config.FreeformTags, roleNodeConfig) ||
-		config.FreeformTags[tagOperationID] != o.operationID || config.FreeformTags[tagRecipeSHA256] != recipe.SHA256() {
-		return fmt.Errorf("%w: configuration readback differs from exact operation, recipe or compartment", ErrCapacityPending)
-	}
-	actual, err := oci.PoolConfigurationSHA256(config.InstanceDetails)
-	if err != nil {
-		return err
-	}
-	expected, err := oci.PoolConfigurationSHA256(core.ComputeInstanceDetails{LaunchDetails: launchDetails(recipe, o.compartmentID, o.operationID)})
-	if err != nil {
-		return err
-	}
-	if actual != expected {
-		return fmt.Errorf("%w: actual OCI launch body differs from its exact qualified recipe", ErrCapacityPending)
-	}
-	return nil
-}
-
-// pruneConfigurations deletes only this capacity pool's configurations that are not in keep.
-func (o *OCIPool) pruneConfigurations(ctx context.Context, recipe Recipe, keep ...string) error {
-	configs, err := o.configurations(ctx)
-	if err != nil {
-		return err
-	}
-	for _, config := range configs {
-		if slices.Contains(keep, deref(config.Id)) {
-			continue
-		}
-		return fmt.Errorf("%w: deleting configuration %s requires authenticated creation provenance and fresh attachment checks", ErrCapacityPending, deref(config.Id))
-	}
-	return nil
-}
-
-// createPool makes the cell's pool at size 0, with one placement per availability domain on the recipe's subnet.
-func (o *OCIPool) createPool(ctx context.Context, recipe Recipe, configID string) error {
-	name := PoolName(o.cell, o.capacity)
-	placements := make([]core.CreateInstancePoolPlacementConfigurationDetails, 0, len(recipe.AvailabilityDomains))
-	for _, domain := range recipe.AvailabilityDomains {
-		placements = append(placements, core.CreateInstancePoolPlacementConfigurationDetails{
-			AvailabilityDomain: new(domain),
-			PrimaryVnicSubnets: &core.InstancePoolPlacementPrimarySubnet{SubnetId: new(recipe.SubnetID)},
-		})
-	}
-	request := core.CreateInstancePoolRequest{
-		CreateInstancePoolDetails: core.CreateInstancePoolDetails{
-			CompartmentId: new(o.compartmentID), InstanceConfigurationId: new(configID),
-			PlacementConfigurations: placements, Size: new(0), DisplayName: new(name),
-			FreeformTags: poolTags(o.cell, o.capacity, roleNodePool),
-		},
-		OpcRetryToken: retryToken(name + ":" + o.operationID),
-	}
-	if o.Journal == nil || o.CheckpointCreate == nil {
-		return fmt.Errorf("%w: original OCI pool create authority is unavailable", ErrCapacityPending)
-	}
-	configurationSHA256, err := oci.PoolConfigurationSHA256(core.ComputeInstanceDetails{LaunchDetails: launchDetails(recipe, o.compartmentID, o.operationID)})
-	if err != nil {
-		return err
-	}
-	placementSHA256, err := oci.PoolPlacementSHA256(placements)
-	if err != nil {
-		return err
-	}
-	raw, err := request.HTTPRequest(http.MethodPost, "/instancePools", nil, nil)
-	if err != nil {
-		return err
-	}
-	requestSHA256, err := poolCreateRequestSHA256(&raw)
-	if err != nil {
-		return err
-	}
-	prepared, err := o.CheckpointCreate(ctx, recipe, oci.PoolCreateRequest{
-		Kind: oci.PoolCreatePool, ConfigurationID: configID, ConfigurationSHA256: configurationSHA256,
-		PlacementSHA256: placementSHA256, RequestSHA256: requestSHA256, RetryToken: deref(request.OpcRetryToken)})
-	if err != nil {
-		return err
-	}
-	result, found, err := o.Journal.GetPoolCreateResult(ctx, prepared.OperationID, prepared.Kind)
-	if err != nil {
-		return err
-	}
-	if found {
-		if err := o.Journal.RecordPoolCreateResult(ctx, result.OperationID, result.Kind, result.ResourceID, result.OpcRequestID); err != nil {
-			return err
-		}
-	}
-	if time.Since(prepared.StartedAt) >= 23*time.Hour {
-		return fmt.Errorf("%w: original pool create retry window expired", ErrCapacityPending)
-	}
-	request.OpcRetryToken = new(prepared.RetryToken)
-	response, err := o.management.CreateInstancePool(o.poolWireContext(ctx, recipe, oci.PoolCreatePool), request)
-	if err != nil {
-		return fmt.Errorf("create instance pool %s: %w", name, err)
-	}
-	if err := o.Journal.RecordPoolCreateResult(ctx, prepared.OperationID, prepared.Kind, deref(response.Id), deref(response.OpcRequestId)); err != nil {
-		return err
-	}
-	o.directPoolID = deref(response.Id)
-	return nil
-}
-
-func poolCreateRequestSHA256(request *http.Request) (string, error) {
-	defer request.Body.Close()
-	body, err := io.ReadAll(request.Body)
-	if err != nil {
-		return "", err
-	}
-	digest := sha256.New()
-	_, _ = fmt.Fprintf(digest, "%s\n%s\n%s\n%s\n%s\n", request.Method, request.URL.EscapedPath(), request.Header.Get("Content-Type"), request.Header.Get("if-match"), request.Header.Get("opc-retry-token"))
-	_, _ = digest.Write(body)
-	return hex.EncodeToString(digest.Sum(nil)), nil
-}
-
-func (o *OCIPool) requireCreateResource(ctx context.Context, kind, id string) error {
-	if kind == oci.PoolCreatePool && id != "" && id == o.directPoolID {
-		return nil
-	}
-	request, result, found, err := o.Journal.GetPoolCreateResource(ctx, id)
-	if err != nil {
-		return fmt.Errorf("%w: original OCI create evidence: %v", ErrCapacityPending, err)
-	}
-	if !found || request.Kind != kind || result.ResourceID != id || request.CompartmentID != o.compartmentID ||
-		!strings.EqualFold(string(request.Region), o.cell) || request.Role != o.capacity.Role ||
-		request.Architecture != o.capacity.Architecture || request.Shape != o.capacity.Shape {
-		return fmt.Errorf("%w: resource %s has no matching original OCI create receipt", ErrCapacityPending, id)
-	}
-	return fmt.Errorf("%w: local journal consistency does not authenticate original dispatch for resource %s", ErrCapacityPending, id)
-}
-
-// point moves the pool to the recipe's configuration and placements. Its size is left alone.
-func (o *OCIPool) point(ctx context.Context, pool *core.InstancePool, etag, configID string, recipe Recipe) error {
-	if err := o.requireCreateResource(ctx, oci.PoolCreatePool, deref(pool.Id)); err != nil {
-		return err
-	}
-	if o.Journal == nil || o.CheckpointPoint == nil {
-		return fmt.Errorf("%w: original pool reconfiguration checkpoint is unavailable", ErrCapacityPending)
-	}
-	details := core.UpdateInstancePoolDetails{InstanceConfigurationId: new(configID)}
-	for _, domain := range recipe.AvailabilityDomains {
-		details.PlacementConfigurations = append(details.PlacementConfigurations, core.UpdateInstancePoolPlacementConfigurationDetails{
-			AvailabilityDomain: new(domain), PrimaryVnicSubnets: &core.InstancePoolPlacementPrimarySubnet{SubnetId: new(recipe.SubnetID)}})
-	}
-	request, err := o.CheckpointPoint(ctx, recipe, core.UpdateInstancePoolRequest{
-		InstancePoolId: pool.Id, IfMatch: new(etag), UpdateInstancePoolDetails: details,
-		OpcRetryToken: retryToken(o.operationID + ":point:" + recipe.SHA256() + ":" + deref(pool.Id))})
-	if err != nil {
-		return err
-	}
-	prepared, found, err := o.Journal.GetPoolPointRequest(ctx, o.operationID)
-	if err != nil || !found {
-		return fmt.Errorf("%w: original reconfiguration receipt is unavailable: %v", ErrCapacityPending, err)
-	}
-	if deref(pool.Size) < 0 || uint32(deref(pool.Size)) != prepared.Request.TargetSize {
-		return fmt.Errorf("%w: reconfiguration must preserve the original pool size", ErrCapacityPending)
-	}
-	if _, accepted, err := o.Journal.GetPoolPointResult(ctx, o.operationID); err != nil {
-		return err
-	} else if accepted {
-		return nil
-	}
-	response, err := o.management.UpdateInstancePool(o.poolWireContext(ctx, recipe, oci.PoolWirePoint), request)
-	if err != nil {
-		return fmt.Errorf("point instance pool %s at %s: %w", deref(pool.DisplayName), configID, err)
-	}
-	return o.Journal.RecordPoolPointResult(ctx, o.operationID, response)
 }
 
 // placementsMatch reports whether the pool places nodes in the recipe's availability domains, in order, each on its subnet.
@@ -932,4 +397,16 @@ func deref[T any](value *T) T {
 		return zero
 	}
 	return *value
+}
+
+func poolCreateRequestSHA256(request *http.Request) (string, error) {
+	defer request.Body.Close()
+	body, err := io.ReadAll(request.Body)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.New()
+	_, _ = fmt.Fprintf(digest, "%s\n%s\n%s\n%s\n%s\n", request.Method, request.URL.EscapedPath(), request.Header.Get("Content-Type"), request.Header.Get("if-match"), request.Header.Get("opc-retry-token"))
+	_, _ = digest.Write(body)
+	return hex.EncodeToString(digest.Sum(nil)), nil
 }

@@ -27,7 +27,7 @@ func summarizeReplica(points []observability.Point, active []hostload.UsageInter
 	var measured []observability.Point
 	complete := true
 	for _, interval := range active {
-		part := windowPoints(points, interval.From, interval.To)
+		part := windowPoints(points, interval.From.Truncate(time.Millisecond), interval.To.Truncate(time.Millisecond))
 		stat := summarize(part, interval.From, interval.To)
 		complete = complete && stat != nil && stat.Complete
 		measured = append(measured, part...)
@@ -56,7 +56,7 @@ func aggregateMetric(replicas []*replicaSeries, metric string, from, to time.Tim
 	for _, replica := range replicas {
 		replicaMax := 0.0
 		for _, interval := range replica.active {
-			points := windowPoints(replica.metrics[metric], interval.From, interval.To)
+			points := windowPoints(replica.metrics[metric], interval.From.Truncate(time.Millisecond), interval.To.Truncate(time.Millisecond))
 			if len(points) == 0 {
 				return nil
 			}

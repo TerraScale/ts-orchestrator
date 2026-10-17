@@ -12,9 +12,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/capacityledger"
+	"github.com/TerraScale/ts-orchestrator/internal/drainwire"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 )
 
 const foundationLease = 45 * time.Second
@@ -86,6 +90,7 @@ type Foundations interface {
 // FoundationProgress connects provider effects to the same durable scoped
 // attempt. The snapshot IDs are authenticated journal values, never discovery.
 type FoundationProgress struct {
+	homeStorageDomain   bootstrap.StorageDomain
 	OperationID         string
 	BeforeWrite         func(context.Context, bool) (context.Context, func(), error)
 	Checkpoint          func(context.Context, string, string) error
@@ -117,6 +122,7 @@ type FoundationResourceProvenance struct {
 // FoundationRecord is bootstrap inventory, never serving or membership truth.
 // ResourceIDs contain verified OCIDs, never credential payloads.
 type FoundationRecord struct {
+	FoundationWriter    *FoundationWriterRecord                 `json:"foundationWriter,omitempty"`
 	GrantSHA256         string                                  `json:"grantSha256,omitempty"`
 	ResourceProvenance  map[string]FoundationResourceProvenance `json:"resourceProvenance,omitempty"`
 	SchemaVersion       int                                     `json:"schemaVersion"`
@@ -142,6 +148,14 @@ type FoundationRecord struct {
 	SourcePolicyIDs     map[string]SourcePolicyRecord           `json:"sourcePolicyIds,omitempty"`
 	NetBirdManager      *NetBirdManagerLaunch                   `json:"netbirdManager,omitempty"`
 	WorkerPolicyIDs     map[string]WorkerPolicyRecord           `json:"workerPolicyIds,omitempty"`
+	OCIRIssuances       map[string]OCIRIssuanceEntry            `json:"ocirIssuances,omitempty"`
+	OCIResources        *ociresource.ProtectedJournal           `json:"ociResources,omitempty"`
+	CapacityLedger      *capacityledger.Ledger                  `json:"capacityLedger,omitempty"`
+	CapacityCreates     map[string]PoolCreateRecord             `json:"capacityCreates,omitempty"`
+	CapacityPools       map[string]PoolResourceRecord           `json:"capacityPools,omitempty"`
+	PoolChildren        map[string]PoolChildRecord              `json:"poolChildren,omitempty"`
+	PoolDrains          map[string]drainwire.PoolReceipt        `json:"poolDrains,omitempty"`
+	PoolQuarantines     map[string]PoolQuarantineRecord         `json:"poolQuarantines,omitempty"`
 }
 
 // FoundationStore uses conditional writes in an already-authorized durable home
@@ -164,6 +178,32 @@ type FoundationController struct {
 	Authority   FoundationAuthority
 	Store       FoundationStore
 	Foundations Foundations
+	// Only the private initial operator path supplies authenticated home buckets.
+	initialGRUAuxiliary map[string]string
+}
+
+// ReconcileCell selects one authenticated intent without accepting a caller's
+// plan, resource identifiers or provider checkpoints.
+func (c *FoundationController) ReconcileCell(ctx context.Context, cell string, epoch uint64) (FoundationRecord, error) {
+	if c == nil || c.Footprint == nil || c.Authority == nil || c.Store == nil || c.Foundations == nil || epoch == 0 {
+		return FoundationRecord{}, errors.New("regional foundation requires authenticated footprint, authority, durable store and OCI provider")
+	}
+	if err := c.Authority.Guard(ctx, epoch); err != nil {
+		return FoundationRecord{}, err
+	}
+	footprint, err := c.Footprint.AuthorizedRegions(ctx)
+	if err != nil {
+		return FoundationRecord{}, err
+	}
+	if err := validateFootprint(footprint); err != nil {
+		return FoundationRecord{}, err
+	}
+	for _, intent := range footprint.Regions {
+		if intent.Plan["cell"] == cell {
+			return c.reconcile(ctx, epoch, footprint, intent)
+		}
+	}
+	return FoundationRecord{}, errors.New("region is outside authenticated foundation footprint")
 }
 
 func (c *FoundationController) Reconcile(ctx context.Context, epoch uint64) ([]FoundationResult, error) {
@@ -266,7 +306,17 @@ func (c *FoundationController) reconcile(ctx context.Context, epoch uint64, foot
 			ParentCompartmentID: footprint.ParentCompartmentID, SharedCompartmentID: footprint.SharedCompartmentID,
 			Generation: intent.Generation, IntentDigest: digest, GrantSHA256: footprint.GrantSHA256, OperationID: entityid.Derive("regional-foundation", footprint.TenancyID, cell, fmt.Sprint(intent.Generation)),
 			StartedAt: now, ResourceIDs: map[string]string{}}
+		if cell == "GRU" {
+			current.AuxiliaryIDs = maps.Clone(c.initialGRUAuxiliary)
+		}
 	} else {
+		if cell == "GRU" {
+			for key, id := range c.initialGRUAuxiliary {
+				if current.AuxiliaryIDs[key] != id {
+					return current, errors.New("existing home journal differs from authenticated initial bucket prerequisites")
+				}
+			}
+		}
 		if current.TenancyID != footprint.TenancyID || current.ParentCompartmentID != footprint.ParentCompartmentID || current.SharedCompartmentID != footprint.SharedCompartmentID {
 			return current, errors.New("foundation record belongs to another authorized scope")
 		}
@@ -343,6 +393,9 @@ func (c *FoundationController) reconcile(ctx context.Context, epoch uint64, foot
 	}()
 	progress := FoundationProgress{OperationID: current.OperationID, BeforeWrite: attempt.beforeWrite, Checkpoint: attempt.checkpoint,
 		AuxiliaryIDs: maps.Clone(current.AuxiliaryIDs), CheckpointAuxiliary: attempt.checkpointAuxiliary, PrepareCreate: attempt.prepareCreate}
+	if reader, ok := c.Footprint.(*SignedFootprint); ok && cell == "GRU" {
+		progress.homeStorageDomain = reader.storage
+	}
 	if intent.NetBirdManager != nil {
 		reader, ok := c.Footprint.(*SignedFootprint)
 		if !ok || cell != "GRU" {
@@ -366,6 +419,15 @@ func (c *FoundationController) reconcile(ctx context.Context, epoch uint64, foot
 			providerErr = errors.New("foundation returned no resource identities")
 		} else {
 			for key, raw := range boundIDs {
+				if key == "instances" || key == "boot_volumes" || key == "data_volumes" {
+					expected, valid := ids[key].(map[string]any)
+					observed, ok := raw.(map[string]any)
+					if !valid || !ok || !maps.Equal(expected, observed) {
+						providerErr = errors.New("foundation changed signed host resource bindings")
+						break
+					}
+					continue
+				}
 				if raw == nil {
 					continue
 				}
@@ -578,5 +640,7 @@ func (a *foundationAttempt) finish(ctx context.Context, providerErr error) (Foun
 	result.SourcePolicyIDs = cloneSourcePolicies(result.SourcePolicyIDs)
 	result.WorkerPolicyIDs = maps.Clone(result.WorkerPolicyIDs)
 	result.ResourceProvenance = maps.Clone(result.ResourceProvenance)
+	result.cloneCapacity()
+	result.clonePoolDrains()
 	return result, errors.Join(providerErr, err)
 }

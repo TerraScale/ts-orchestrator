@@ -97,26 +97,49 @@ func (s *Service) processContainer(ctx context.Context, wire []byte, intent Inte
 // mutation. The manager must independently bind its actual service/task to this
 // operation and verify the release and registry authority before pulling.
 func (s *Service) ContainerIntent(ctx context.Context, operationID string) (Intent, error) {
-	if s == nil || !entityid.Valid(operationID) || s.config.Authorize == nil {
+	if s == nil || s.config.Authorize == nil {
 		return Intent{}, ErrInvalid
 	}
-	entry, err := s.getOperation(ctx, operationKey(operationID))
+	op, err := s.containerIntentRecord(ctx, operationID)
 	if err != nil {
 		return Intent{}, err
-	}
-	var op operation
-	if err := json.Unmarshal(entry.Value(), &op); err != nil {
-		return Intent{}, err
-	}
-	fingerprint, err := op.Intent.Fingerprint()
-	if err != nil || op.Intent.Container == nil || op.Intent.OperationID != operationID || fingerprint != op.Fingerprint || op.Actor == "" || op.Intent.Cell != s.config.Cell {
-		return Intent{}, ErrConflict
-	}
-	if op.Receipt != nil && op.Receipt.Status != "accepted" {
-		return Intent{}, fmt.Errorf("%w: container operation is %s", ErrUnauthorized, op.Receipt.Status)
 	}
 	if err := s.config.Authorize(ctx, op.Actor, op.Intent.Clone()); err != nil {
 		return Intent{}, err
 	}
 	return op.Intent.Clone(), nil
+}
+
+// RetainedContainerIntent reads public provenance from an exact protected record.
+// It does not prove original actor admission, execution, or existence before root
+// retirement. Consumers must verify the signed bundle and actual prior writer
+// independently; this read grants no current execution authority.
+func (s *Service) RetainedContainerIntent(ctx context.Context, operationID string) (Intent, error) {
+	op, err := s.containerIntentRecord(ctx, operationID)
+	if err != nil {
+		return Intent{}, err
+	}
+	return op.Intent.Clone(), nil
+}
+
+func (s *Service) containerIntentRecord(ctx context.Context, operationID string) (operation, error) {
+	if s == nil || !entityid.Valid(operationID) {
+		return operation{}, ErrInvalid
+	}
+	entry, err := s.getOperation(ctx, operationKey(operationID))
+	if err != nil {
+		return operation{}, err
+	}
+	var op operation
+	if err := json.Unmarshal(entry.Value(), &op); err != nil {
+		return operation{}, err
+	}
+	fingerprint, err := op.Intent.Fingerprint()
+	if err != nil || op.Intent.Container == nil || op.Intent.OperationID != operationID || fingerprint != op.Fingerprint || op.Actor == "" || op.Intent.Cell != s.config.Cell {
+		return operation{}, ErrConflict
+	}
+	if op.Receipt != nil && op.Receipt.Status != "accepted" {
+		return operation{}, fmt.Errorf("%w: container operation is %s", ErrUnauthorized, op.Receipt.Status)
+	}
+	return op, nil
 }

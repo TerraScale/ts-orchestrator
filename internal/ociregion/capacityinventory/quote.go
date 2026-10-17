@@ -6,6 +6,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/capacityledger"
 	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
 )
 
@@ -24,6 +25,14 @@ func (q Quote) Currency() string        { return q.currency }
 func (q Quote) MonthlyCents() uint64    { return q.monthlyCents }
 func (q Quote) IssuedAt() time.Time     { return q.issuedAt }
 func (q Quote) ExpiresAt() time.Time    { return q.expiresAt }
+
+// Original retains the exact quote for a protected financial receipt. The
+// returned data does not carry the SDK producer's spending authority.
+func (q Quote) Original() capacityledger.Quote {
+	return capacityledger.Quote{ScopeSHA256: q.scopeSHA256, Cell: q.cell, CompartmentID: q.compartment,
+		Shape: q.shape, Currency: q.currency, OCPUs: q.ocpus, MemoryGB: q.memoryGB, BootGB: q.bootGB,
+		MonthlyCents: q.monthlyCents, IssuedAt: q.issuedAt, ExpiresAt: q.expiresAt, Prices: slices.Clone(q.prices)}
+}
 
 func (q Quote) Validate(scope Scope, cell, compartment, shape string, ocpus, memoryGB, bootGB float64, now time.Time) error {
 	if err := scope.validate(now); err != nil {

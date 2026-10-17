@@ -24,6 +24,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -39,6 +40,7 @@ const (
 // is retried on the next use.
 type channelSource struct {
 	mu       sync.Mutex
+	client   *rootoci.Client
 	location *releasechannel.Location
 	open     func(context.Context) (releasechannel.Location, error)
 }
@@ -58,7 +60,7 @@ func (s *channelSource) get(ctx context.Context) (releasechannel.Location, error
 }
 
 func instancePrincipalChannel(region, cell string) *channelSource {
-	return &channelSource{open: func(ctx context.Context) (releasechannel.Location, error) {
+	return &channelSource{client: rootoci.NewClient(rootoci.Expectations{Cell: cell}), open: func(ctx context.Context) (releasechannel.Location, error) {
 		bucket, err := releasechannel.BucketName(cell)
 		if err != nil {
 			return releasechannel.Location{}, err
@@ -329,12 +331,8 @@ func (c *rolloutControl) bridgeChannel(ctx context.Context, fencer authority.Fen
 }
 
 func (c *rolloutControl) bridgePass(ctx context.Context, kv jetstream.KeyValue) error {
-	location, err := c.channel.get(ctx)
-	if err != nil {
-		return err
-	}
 	cell := strings.ToUpper(c.cell)
-	channel, found, err := releasechannel.ReadChannel(ctx, location)
+	channel, found, err := c.channel.readChannel(ctx)
 	if err != nil {
 		return err
 	}
@@ -354,6 +352,28 @@ func (c *rolloutControl) bridgePass(ctx context.Context, kv jetstream.KeyValue) 
 		} else if err != nil {
 			return err
 		}
+	}
+	if c.channel.client != nil {
+		if !found {
+			return nil
+		}
+		wire, err := json.Marshal(channel, json.Deterministic(true))
+		if err != nil {
+			return err
+		}
+		receipt, err := c.channel.client.ReconcileOrchestratorStatus(ctx, rootoci.OrchestratorStatusRequest{ExpectedChannelSHA256: controllerSHA256(wire)})
+		if err != nil {
+			return err
+		}
+		if !time.Now().Before(receipt.ExpiresAt) || receipt.Status.Cell != cell {
+			return rootoci.ErrUnauthorized
+		}
+		c.reported.Store(&receipt.Status)
+		return nil
+	}
+	location, err := c.channel.get(ctx)
+	if err != nil {
+		return err
 	}
 	entry, err := kv.Get(ctx, releasechannel.StatusKey(cell))
 	if errors.Is(err, jetstream.ErrKeyNotFound) {
@@ -455,7 +475,13 @@ func channelGeneration(ctx context.Context, store *rollout.Store, epoch uint64, 
 // generationState is the progress of one generation's rollouts: the
 // controllers', then the hosts'. Completion requires every current unit to
 // freshly prove the target, even after its recorded rollout completed.
-func (c *rolloutControl) generationState(ctx context.Context, store *rollout.Store, generation rollout.Release,
+type rolloutStatusReader interface {
+	Load(context.Context, string) (rollout.Record, uint64, error)
+	Desired(context.Context) (rollout.Desired, uint64, error)
+	IsKnownBad(context.Context, string) (bool, error)
+}
+
+func (c *rolloutControl) generationState(ctx context.Context, store rolloutStatusReader, generation rollout.Release,
 ) (releasechannel.State, string, error) {
 	parts := []struct {
 		domain string

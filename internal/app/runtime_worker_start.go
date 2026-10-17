@@ -148,11 +148,16 @@ func runRuntimeWorker(ctx context.Context, output io.Writer) error {
 		return err
 	}
 	defer broker.Close()
+	executor, err := swarmruntime.NewExecutor("/run/containerd/containerd.sock", runtimeWorkerDirectory)
+	if err != nil {
+		return err
+	}
+	defer executor.Close()
 	ready := make(chan struct{})
 	agent, err := host.NewAgent(host.AgentConfig{Cell: cfg.NATS.Cell, Node: cfg.Host.Node,
 		Environment: cfg.Host.Environment, Roles: cfg.Host.Roles, Conn: broker.Conn(), Identity: key,
 		NATSUserPublicKey: natsUser, ControllerPublicKey: public,
-		InstallRoot: cfg.Host.InstallRoot, StateRoot: cfg.Host.StateRoot,
+		InstallRoot: cfg.Host.InstallRoot, StateRoot: cfg.Host.StateRoot, TaskLoad: executor,
 		WorkloadIdentity: host.WorkloadIdentity{UID: cfg.Host.WorkloadUID, GID: cfg.Host.WorkloadGID},
 		ClockCheck:       controllerClockCheck(hostClockProbe()),
 		FollowRollouts:   hostRollouts(cfg, key, public), FollowNetBird: hostNetBird(cfg, public),
@@ -181,11 +186,6 @@ func runRuntimeWorker(ctx context.Context, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	executor, err := swarmruntime.NewExecutor("/run/containerd/containerd.sock", runtimeWorkerDirectory)
-	if err != nil {
-		return err
-	}
-	defer executor.Close()
 	admission := swarmruntime.Admission{Region: signed.Region, HostID: signed.RegistrationID,
 		InstanceID: signed.InstanceID, FounderID: signed.FounderID, Role: signed.Role, ManagerAddress: signed.ManagerAddress}
 	switch signed.Role {

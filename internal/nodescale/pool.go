@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"encoding/json/v2"
+
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 )
 
 // Recipe is everything a pool node is launched from. Its digest names the instance configuration.
@@ -123,6 +125,8 @@ type PoolInstance struct {
 	ID, Name, State, PrivateIP, AvailabilityDomain, FaultDomain string
 	Created                                                     time.Time
 	Capacity                                                    Capacity
+	PoolID, ConfigurationID                                     string
+	Birth                                                       *rootoci.PoolChildView
 }
 
 // PoolState is what the pool holds now. Instances exclude terminated ones.
@@ -144,8 +148,9 @@ var ErrNotPoolInstance = errors.New("instance is not in this node pool")
 type Pool interface {
 	Observe(ctx context.Context) (PoolState, error)
 	TargetSize(ctx context.Context, recipe Recipe) (int, error)
-	Ensure(ctx context.Context, recipe Recipe) (PoolState, error)
 	Grow(ctx context.Context, from int) error
-	Name(ctx context.Context, instanceID, node string) error
 	Remove(ctx context.Context, instanceID string) error
+	PrepareGrowth(ctx context.Context, record Record) (rootoci.PoolChildExpectation, error)
+	PrepareRetirement(ctx context.Context, instanceID, removalOperationID string) (rootoci.PoolRetirementExpectation, error)
+	Recover(ctx context.Context) error
 }

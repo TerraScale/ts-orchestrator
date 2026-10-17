@@ -3,8 +3,11 @@ package swarmruntime
 import (
 	"context"
 	"crypto/sha256"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"slices"
 	"strconv"
@@ -21,6 +24,8 @@ import (
 const (
 	LabelIntentID           = "terrascale.intent-id"
 	LabelOperationID        = "terrascale.operation-id"
+	LabelIntentGeneration   = "terrascale.intent-generation"
+	labelIntentFingerprint  = "terrascale.intent-fingerprint"
 	LabelRole               = "terrascale.role"
 	LabelRegion             = "terrascale.region"
 	LabelEnvironment        = "terrascale.environment"
@@ -37,12 +42,13 @@ var intentName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 // Replicas initializes a new service; subsequent releases preserve autoscaling.
 type ServiceIntent struct {
 	ID, OperationID, Role, Region, Environment, Architecture string
-	Replicas                                                 uint64
+	Replicas, Generation                                     uint64
 	Container                                                *api.ContainerSpec
 	Resources                                                *api.ResourceRequirements
 	Ports                                                    []*api.PortConfig
 	releaseSequence                                          uint64
 	releaseFingerprint                                       string
+	intentFingerprint                                        string
 }
 
 func (i ServiceIntent) serviceSpec() (*api.ServiceSpec, error) {
@@ -51,6 +57,9 @@ func (i ServiceIntent) serviceSpec() (*api.ServiceSpec, error) {
 	}
 	if i.Replicas > autoscale.MaxReplicas {
 		return nil, errors.New("service replicas exceed the platform limit")
+	}
+	if i.Role == "ts-auth" && i.Replicas > 3 {
+		return nil, errors.New("TSAuth replicas exceed its three controller failure domains")
 	}
 	for _, value := range []string{i.Role, i.Region, i.Environment} {
 		if !intentName.MatchString(value) {
@@ -79,13 +88,8 @@ func (i ServiceIntent) serviceSpec() (*api.ServiceSpec, error) {
 		return nil, err
 	}
 	task := api.TaskSpec{Runtime: runtime, Resources: i.Resources.Copy()}
-	if _, err := DecodeContainer(&api.Task{ID: "validation", ServiceID: "validation", Spec: task}); err != nil {
+	if _, err := DecodeContainer(&api.Task{ID: "validation", ServiceID: "validation", Spec: task, ServiceAnnotations: api.Annotations{Labels: map[string]string{LabelRole: i.Role}}}); err != nil {
 		return nil, err
-	}
-	if task.Resources.Reservations == nil {
-		task.Resources.Reservations = task.Resources.Limits.Copy()
-	} else if !proto.Equal(task.Resources.Reservations, task.Resources.Limits) {
-		return nil, errors.New("service resource reservations must equal CPU and memory limits")
 	}
 	task.Restart = &api.RestartPolicy{Condition: api.RestartOnAny, Delay: types.DurationProto(5 * time.Second)}
 	task.Placement = &api.Placement{
@@ -105,6 +109,10 @@ func (i ServiceIntent) serviceSpec() (*api.ServiceSpec, error) {
 	if i.OperationID != "" {
 		spec.Annotations.Labels[LabelOperationID] = i.OperationID
 	}
+	if i.Generation != 0 {
+		spec.Annotations.Labels[LabelIntentGeneration] = strconv.FormatUint(i.Generation, 10)
+		spec.Annotations.Labels[labelIntentFingerprint] = i.intentFingerprint
+	}
 	if i.releaseSequence != 0 {
 		spec.Annotations.Labels[labelReleaseSequence] = strconv.FormatUint(i.releaseSequence, 10)
 		spec.Annotations.Labels[labelReleaseFingerprint] = i.releaseFingerprint
@@ -115,6 +123,12 @@ func (i ServiceIntent) serviceSpec() (*api.ServiceSpec, error) {
 		for _, port := range i.Ports {
 			spec.Endpoint.Ports = append(spec.Endpoint.Ports, port.Copy())
 		}
+	}
+	if i.Role == "ts-auth" {
+		spec.Task.Placement.Constraints = append(spec.Task.Placement.Constraints, "node.role==manager")
+		spec.Task.Placement.MaxReplicas = 1
+		// Three occupied controller domains leave no slot for start-first updates.
+		spec.Update.Order = api.UpdateConfig_STOP_FIRST
 	}
 	return spec, nil
 }
@@ -150,6 +164,9 @@ func applyServiceGuarded(ctx context.Context, client api.ControlClient, intent S
 		return nil, errors.New("ambiguous service identity")
 	}
 	current := listed.Services[0]
+	if err := checkIntentGeneration(current.Spec.Annotations.Labels, intent); err != nil {
+		return nil, err
+	}
 	if seq := current.Spec.Annotations.Labels[labelReleaseSequence]; seq != "" {
 		floor, err := strconv.ParseUint(seq, 10, 64)
 		if err != nil || floor > intent.releaseSequence || floor == intent.releaseSequence && current.Spec.Annotations.Labels[labelReleaseFingerprint] != intent.releaseFingerprint {
@@ -165,6 +182,23 @@ func applyServiceGuarded(ctx context.Context, client api.ControlClient, intent S
 		return nil, errors.New("service is deleting or has unsupported mode")
 	}
 	spec.GetReplicated().Replicas = current.Spec.GetReplicated().Replicas
+	spec.Task.ForceUpdate = current.Spec.Task.ForceUpdate
+	if intent.Generation != 0 {
+		labels := current.Spec.Annotations.Labels
+		if labels[LabelIntentGeneration] == spec.Annotations.Labels[LabelIntentGeneration] && labels[labelIntentFingerprint] == intent.intentFingerprint {
+			// Existing tasks retain ServiceAnnotations when upstream sees no task change.
+			if operation, exists := labels[LabelOperationID]; exists {
+				spec.Annotations.Labels[LabelOperationID] = operation
+			} else {
+				delete(spec.Annotations.Labels, LabelOperationID)
+			}
+		} else {
+			if spec.Task.ForceUpdate == math.MaxUint64 {
+				return nil, errors.New("service rollout generation exhausted")
+			}
+			spec.Task.ForceUpdate++
+		}
+	}
 	if guard != nil {
 		if err := guard(ctx); err != nil {
 			return nil, err
@@ -309,4 +343,31 @@ func runtimeDigest(spec api.ServiceSpec) string {
 	}
 	_, digest, _ := strings.Cut(c.Image, "@")
 	return digest
+}
+
+// The retained floor also uses this check, so rollback cannot erase delivery order.
+func checkIntentGeneration(labels map[string]string, intent ServiceIntent) error {
+	stored := labels[LabelIntentGeneration]
+	if stored == "" {
+		return nil
+	}
+	generation, err := strconv.ParseUint(stored, 10, 64)
+	if err != nil || generation == 0 || strconv.FormatUint(generation, 10) != stored || generation > intent.Generation || generation == intent.Generation && labels[labelIntentFingerprint] != intent.intentFingerprint {
+		return errors.New("service intent generation cannot move backward or equivocate")
+	}
+	return nil
+}
+
+func serviceIntentFingerprint(spec *api.ServiceSpec) (string, error) {
+	spec = spec.Copy()
+	// Autoscaling and an operation locator do not change the admitted workload.
+	spec.Mode = nil
+	spec.Task.ForceUpdate = 0
+	delete(spec.Annotations.Labels, LabelOperationID)
+	delete(spec.Annotations.Labels, labelIntentFingerprint)
+	wire, err := json.Marshal(spec, json.Deterministic(true), jsonv1.FormatDurationAsNano(true))
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(wire)), nil
 }

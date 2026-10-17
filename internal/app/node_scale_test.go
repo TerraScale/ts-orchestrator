@@ -13,6 +13,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/manager/controlapi"
 	"github.com/moby/swarmkit/v2/manager/state/store"
@@ -35,6 +36,16 @@ func (fakeScalePool) Ensure(context.Context, nodescale.Recipe) (nodescale.PoolSt
 func (fakeScalePool) Grow(context.Context, int) error            { return nil }
 func (fakeScalePool) Name(context.Context, string, string) error { return nil }
 func (fakeScalePool) Remove(context.Context, string) error       { return nil }
+
+func (fakeScalePool) PrepareGrowth(context.Context, nodescale.Record) (rootoci.PoolChildExpectation, error) {
+	return rootoci.PoolChildExpectation{}, nodescale.ErrCapacityPending
+}
+
+func (fakeScalePool) PrepareRetirement(context.Context, string, string) (rootoci.PoolRetirementExpectation, error) {
+	return rootoci.PoolRetirementExpectation{}, nodescale.ErrCapacityPending
+}
+
+func (fakeScalePool) Recover(context.Context) error { return nodescale.ErrCapacityPending }
 
 // fakeScaleRecords keeps the scaler record in memory.
 type fakeScaleRecords struct{ record nodescale.Record }

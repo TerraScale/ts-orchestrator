@@ -16,7 +16,13 @@ import (
 
 // VerifyRegistryTask binds current signed release authority to the manager's
 // actual assignment and ordering floor. Operation labels are locators only.
-func VerifyRegistryTask(ctx context.Context, client api.ControlClient, task *api.Task, intent ServiceIntent, verified release.VerifiedContainer, roots trust.Keyring) error {
+func VerifyRegistryTask(ctx context.Context, client api.ControlReader, task *api.Task, intent ServiceIntent, verified release.VerifiedContainer, roots trust.Keyring) error {
+	return verifyServiceTask(ctx, client, task, intent, verified, roots, func(assignment *api.Task) bool {
+		return assignment.DesiredState <= api.TaskStateRunning
+	})
+}
+
+func verifyServiceTask(ctx context.Context, client api.ControlReader, task *api.Task, intent ServiceIntent, verified release.VerifiedContainer, roots trust.Keyring, assignmentAllowed func(*api.Task) bool) error {
 	if client == nil || task == nil || task.ID == "" || task.ServiceID == "" || task.NodeID == "" || !verified.Valid(time.Now().UTC()) {
 		return errors.New("registry requires current release and assigned task")
 	}
@@ -28,8 +34,10 @@ func VerifyRegistryTask(ctx context.Context, client api.ControlClient, task *api
 	if err != nil {
 		return err
 	}
-	intent.releaseSequence = claim.ReleaseSequence
-	intent.releaseFingerprint = verified.ReleaseIdentity()
+	intent, err = intent.withVerifiedRelease(verified)
+	if err != nil {
+		return err
+	}
 	wanted, err := intent.serviceSpec()
 	if err != nil {
 		return err
@@ -38,8 +46,8 @@ func VerifyRegistryTask(ctx context.Context, client api.ControlClient, task *api
 	if err != nil {
 		return err
 	}
-	if assignment.Task == nil || assignment.Task.ID != task.ID || assignment.Task.ServiceID != task.ServiceID || assignment.Task.NodeID != task.NodeID ||
-		assignment.Task.DesiredState > api.TaskStateRunning || !proto.Equal(&assignment.Task.Spec, &task.Spec) ||
+	if assignment == nil || assignment.Task == nil || assignment.Task.ID != task.ID || assignment.Task.ServiceID != task.ServiceID || assignment.Task.NodeID != task.NodeID ||
+		!assignmentAllowed(assignment.Task) || !proto.Equal(&assignment.Task.Spec, &task.Spec) ||
 		!proto.Equal(&assignment.Task.ServiceAnnotations, &task.ServiceAnnotations) {
 		return errors.New("registry task is not the current manager assignment")
 	}
@@ -50,7 +58,7 @@ func VerifyRegistryTask(ctx context.Context, client api.ControlClient, task *api
 	if err != nil {
 		return err
 	}
-	if node.Node == nil || node.Node.ID != task.NodeID || node.Node.Spec.Membership != api.NodeMembershipAccepted ||
+	if node == nil || node.Node == nil || node.Node.ID != task.NodeID || node.Node.Spec.Membership != api.NodeMembershipAccepted ||
 		node.Node.Spec.Annotations.Labels[LabelRegion] != intent.Region || node.Node.Spec.Annotations.Labels[LabelExecutionScope] != "platform" ||
 		node.Node.Spec.Annotations.Labels[LabelInstanceID] == "" || node.Node.Description == nil || node.Node.Description.Platform == nil ||
 		node.Node.Description.Platform.OS != "linux" || node.Node.Description.Platform.Architecture != intent.Architecture {
@@ -64,7 +72,7 @@ func VerifyRegistryTask(ctx context.Context, client api.ControlClient, task *api
 	if err != nil {
 		return err
 	}
-	if service.Service == nil || service.Service.ID != task.ServiceID || service.Service.PendingDelete {
+	if service == nil || service.Service == nil || service.Service.ID != task.ServiceID || service.Service.PendingDelete {
 		return errors.New("registry task service is unavailable")
 	}
 	matches := func(spec *api.ServiceSpec) bool {
@@ -80,7 +88,7 @@ func VerifyRegistryTask(ctx context.Context, client api.ControlClient, task *api
 	if err != nil {
 		return err
 	}
-	if len(floors.Configs) != 1 || floors.Configs[0] == nil {
+	if floors == nil || len(floors.Configs) != 1 || floors.Configs[0] == nil {
 		return errors.New("registry requires one durable release floor")
 	}
 	floor := floors.Configs[0]

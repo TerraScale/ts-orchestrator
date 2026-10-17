@@ -55,6 +55,15 @@ type Usage struct {
 	Services  []Row     `json:"services"`
 	Replicas  []Row     `json:"replicas"`
 	Missing   []string  `json:"missing"`
+	Gaps      []Gap     `json:"gaps,omitempty"`
+}
+
+type Gap struct {
+	Node        string    `json:"node,omitempty"`
+	Environment string    `json:"environment,omitempty"`
+	From        time.Time `json:"from"`
+	To          time.Time `json:"to"`
+	Reason      string    `json:"reason"`
 }
 
 type Store struct {
@@ -87,24 +96,43 @@ func NewStore(region string) *Store {
 // Record uses controller receive time and adopted requests for every allocated
 // role, including placeholders supplied by the controller when usage is unknown.
 func (s *Store) Record(origin hostload.Origin, report hostload.Report, requests map[string]hostload.Request) error {
+	return s.recordAt(time.Now().UTC(), origin, report, requests, false)
+}
+
+// RecordCommitted replays genuine journal receive times. Callers supply entries
+// once in control-log order, before accepting later live points.
+func (s *Store) RecordCommitted(at time.Time, origin hostload.Origin, report hostload.Report, requests map[string]hostload.Request) error {
+	if at.IsZero() || at.After(time.Now().Add(5*time.Second)) {
+		return errors.New("committed capacity timestamp is invalid")
+	}
+	return s.recordAt(at, origin, report, requests, true)
+}
+
+func (s *Store) recordAt(now time.Time, origin hostload.Origin, report hostload.Report, requests map[string]hostload.Request, committed bool) error {
 	if origin.Cell != s.Region || origin.Node == "" {
 		return errors.New("capacity report origin mismatch")
 	}
 	if err := report.Validate(); err != nil {
 		return err
 	}
-	now := time.Now().UTC()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if now.Sub(s.last[origin.Node]) < hostload.DefaultMinInterval {
+	if !committed && now.Sub(s.last[origin.Node]) < hostload.DefaultMinInterval {
 		return hostload.ErrTooFrequent
+	}
+	if committed && !s.last[origin.Node].IsZero() && !now.After(s.last[origin.Node]) {
+		return errors.New("committed capacity history is out of order")
 	}
 	for node, at := range s.last {
 		if now.Sub(at) > Retention {
 			delete(s.last, node)
 		}
 	}
-	if _, ok := s.last[origin.Node]; !ok && len(s.last) >= 256 {
+	nodeLimit := 256
+	if committed {
+		nodeLimit = 4096
+	}
+	if _, ok := s.last[origin.Node]; !ok && len(s.last) >= nodeLimit {
 		return errors.New("capacity node limit reached")
 	}
 	s.last[origin.Node] = now
@@ -218,6 +246,12 @@ func (s *Store) Query(from, to time.Time, expected []hostload.UsageInterval) (Us
 	rows := map[string]*replicaSeries{}
 	keyFor := func(node, environment, service string) string { return node + "/" + environment + "/" + service }
 	for _, interval := range expected {
+		if interval.Unknown != "" {
+			result.Gaps = append(result.Gaps, Gap{Node: interval.Node, Environment: interval.Environment, From: interval.From, To: interval.To, Reason: interval.Unknown})
+			result.Complete = false
+			result.Truncated = result.Truncated || interval.Truncated
+			continue
+		}
 		key := keyFor(interval.Node, interval.Environment, interval.Role)
 		if rows[key] == nil {
 			rows[key] = &replicaSeries{Row: Row{Node: interval.Node, Environment: interval.Environment, Service: interval.Role}, metrics: map[string][]observability.Point{}}
@@ -237,7 +271,9 @@ func (s *Store) Query(from, to time.Time, expected []hostload.UsageInterval) (Us
 			key := keyFor(node, environment, service)
 			row := rows[key]
 			if row == nil {
-				if expected != nil {
+				if expected != nil && !slices.ContainsFunc(result.Gaps, func(gap Gap) bool {
+					return (gap.Node == "" || gap.Node == node) && (gap.Environment == "" || gap.Environment == environment)
+				}) {
 					continue // Authoritative inventory says this identity was inactive.
 				}
 				row = &replicaSeries{Row: Row{Node: node, Service: service, Environment: environment}, active: []hostload.UsageInterval{{From: from, To: to}}, metrics: map[string][]observability.Point{}}
@@ -249,10 +285,25 @@ func (s *Store) Query(from, to time.Time, expected []hostload.UsageInterval) (Us
 	services := map[string][]*replicaSeries{}
 	for _, key := range slices.Sorted(maps.Keys(rows)) {
 		series := rows[key]
+		uncertain := slices.ContainsFunc(result.Gaps, func(gap Gap) bool {
+			return (gap.Node == "" || gap.Node == series.Node) && (gap.Environment == "" || gap.Environment == series.Environment)
+		})
+		if uncertain {
+			series.active = []hostload.UsageInterval{{From: from, To: to}}
+		}
 		for _, metric := range resourceMetrics {
 			setStats(&series.Row, metric, summarizeReplica(series.metrics[metric], series.active))
 		}
 		row := series.Row
+		if uncertain {
+			for _, resource := range []*Resource{&row.CPU, &row.Memory} {
+				for _, stat := range []*Stats{resource.Usage, resource.Request, resource.Limit, resource.Headroom} {
+					if stat != nil {
+						stat.Complete = false
+					}
+				}
+			}
+		}
 		if !rowComplete(row) {
 			result.Complete = false
 		}
@@ -273,8 +324,10 @@ func (s *Store) Query(from, to time.Time, expected []hostload.UsageInterval) (Us
 	for _, key := range slices.Sorted(maps.Keys(services)) {
 		replicas := services[key]
 		row := Row{Service: replicas[0].Service, Environment: replicas[0].Environment}
-		for _, metric := range resourceMetrics {
-			setStats(&row, metric, aggregateMetric(replicas, metric, from, to))
+		if len(result.Gaps) == 0 {
+			for _, metric := range resourceMetrics {
+				setStats(&row, metric, aggregateMetric(replicas, metric, from, to))
+			}
 		}
 		if !rowComplete(row) {
 			result.Complete = false

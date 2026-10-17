@@ -54,6 +54,21 @@ func TestRuntimeEffectR3Integration(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = old.Close() })
+	leaseReader, err := OpenReader(ctx, js, config.Scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaseAdmission, err := leaseReader.AdmitRuntimeLease(ctx, config.DeploymentID, config.CandidateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaseDeadline := leaseAdmission.Deadline()
+	if _, err := leaseReader.AdmitRuntimeLease(ctx, entityid.New(), config.CandidateID); err == nil {
+		t.Fatal("runtime read admission accepted another deployment")
+	}
+	if _, err := leaseReader.AdmitRuntimeLease(ctx, config.DeploymentID, entityid.New()); err == nil {
+		t.Fatal("runtime read admission accepted another candidate")
+	}
 	scope := WorkloadScope{DatabaseID: entityid.New(), PartitionID: entityid.New()}
 	public, _, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -105,6 +120,12 @@ func TestRuntimeEffectR3Integration(t *testing.T) {
 		t.Fatalf("distinct replica sharing a service: %v", err)
 	}
 	effect.ExpiresAt = now.Add(3 * time.Second)
+	if err := old.Guard(ctx, leaseAdmission.Epoch()); err != nil {
+		t.Fatal(err)
+	}
+	if err := leaseAdmission.Guard(ctx); err != nil || !leaseAdmission.Deadline().Equal(leaseDeadline) {
+		t.Fatal("lease renewal changed the pinned read admission", err)
+	}
 	renewed, err := old.RenewRuntimeEffect(ctx, effect.Epoch, effect, initial)
 	if err != nil || renewed <= initial {
 		t.Fatalf("renew=%d,%v", renewed, err)
@@ -163,6 +184,9 @@ func TestRuntimeEffectR3Integration(t *testing.T) {
 	}
 	if _, err := current.RenewRuntimeEffect(ctx, epoch, effect, renewed); err == nil {
 		t.Fatal("new leader renewed an earlier epoch")
+	}
+	if err := leaseAdmission.Guard(ctx); err == nil {
+		t.Fatal("runtime read admission followed the successor leader")
 	}
 	all, err := current.ListAllUnresolvedRuntimeEffects(ctx)
 	if err != nil || len(all) != 2 {

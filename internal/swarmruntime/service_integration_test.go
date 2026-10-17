@@ -17,6 +17,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/moby/swarmkit/v2/agent/exec"
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/moby/swarmkit/v2/api/genericresource"
 )
 
 // The fixture executes only lifecycle transitions. The assertions cross the
@@ -24,7 +25,7 @@ import (
 type serviceExecutor struct{}
 
 func (serviceExecutor) Describe(context.Context) (*api.NodeDescription, error) {
-	return &api.NodeDescription{Platform: &api.Platform{OS: "linux", Architecture: runtime.GOARCH}, Resources: &api.Resources{NanoCPUs: 8_000_000_000, MemoryBytes: 8 << 30}}, nil
+	return &api.NodeDescription{Platform: &api.Platform{OS: "linux", Architecture: runtime.GOARCH}, Resources: &api.Resources{NanoCPUs: 8_000_000_000, MemoryBytes: 8 << 30, Generic: []*api.GenericResource{genericresource.NewDiscrete(DiskResource, 8<<30)}}}, nil
 }
 func (serviceExecutor) Configure(context.Context, *api.Node) error         { return nil }
 func (serviceExecutor) SetNetworkBootstrapKeys([]*api.EncryptionKey) error { return nil }
@@ -119,7 +120,7 @@ func serviceCluster(t *testing.T, ctx context.Context) (api.ControlClient, NodeC
 	return client, workerCfg, worker
 }
 func serviceIntent() ServiceIntent {
-	return ServiceIntent{ID: entityid.Derive("service", "production", "sa-saopaulo-1", "ts-auth"), OperationID: entityid.Derive("operation", "service-integration"), Role: "ts-auth", Region: "sa-saopaulo-1", Environment: "production", Architecture: runtime.GOARCH, Replicas: 1, Container: &api.ContainerSpec{Image: "example.invalid/fixture@sha256:" + strings.Repeat("a", 64), User: "65532:65532"}, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 100_000_000, MemoryBytes: 64 << 20}}}
+	return ServiceIntent{ID: entityid.Derive("service", "production", "sa-saopaulo-1", "api"), OperationID: entityid.Derive("operation", "service-integration"), Role: "api", Region: "sa-saopaulo-1", Environment: "production", Architecture: runtime.GOARCH, Replicas: 1, Container: &api.ContainerSpec{Image: "example.invalid/fixture@sha256:" + strings.Repeat("a", 64), User: "65532:65532"}, Resources: containerTestResources(100_000_000, 64<<20)}
 }
 func serviceEventually(t *testing.T, ctx context.Context, check func() bool) {
 	t.Helper()

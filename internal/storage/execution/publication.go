@@ -137,6 +137,9 @@ func (s *Source) WithdrawTask(ctx context.Context, task *api.Task, grant Verifie
 		return ErrUnsafe
 	}
 	entry.revoked = true
+	if entry.backupCancel != nil {
+		entry.backupCancel()
+	}
 	current := entry.publication
 	entry.publication = nil
 	s.mu.Unlock()

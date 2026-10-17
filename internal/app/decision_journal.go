@@ -17,6 +17,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/insights"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/regionlink"
 	"github.com/TerraScale/ts-orchestrator/internal/regionview"
 )
@@ -49,6 +50,7 @@ type journalProviders struct {
 	Insights   insights.Source
 	Summarizer insights.Summarizer
 	Global     *globalview.View
+	Foundation region.FoundationResolver
 	// Probes is the link probe source of the region link supervisor.
 	Probes *regionview.Provider
 }
@@ -149,7 +151,7 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	providers := journalProviders{Decisions: federation, Live: journal, History: sharedHistory, Insights: engine,
 		Summarizer: insights.Summarizer{Decisions: federation, Insights: engine, Scope: "all regions",
 			AttentionScope: strings.ToUpper(runtime.cell)},
-		Global: globalView, Probes: regions}
+		Global: globalView, Probes: regions, Foundation: observed.foundation}
 	runtime.providers.Store(&providers)
 	if runtime.server != nil {
 		mountJournalAPI(runtime.server, providers)
@@ -160,7 +162,7 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 		runtime.boardJournal = &dashboard.Journal{Decisions: providers.Decisions, Live: providers.Live,
 			History: providers.History, Insights: providers.Insights, Summaries: providers.Summarizer,
 			Local: regions.Local, Volumes: volumes, Rollouts: rolloutSource,
-			Global: globalView, Capacity: observed.capacity}
+			Global: globalView, Capacity: observed.capacity, Inventory: observed.inventory}
 	})
 }
 

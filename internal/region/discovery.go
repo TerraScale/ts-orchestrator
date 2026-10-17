@@ -152,7 +152,53 @@ func PublishFoundationDiscovery(ctx context.Context, factory *ociclient.Factory,
 	return publishFoundationDiscovery(ctx, client, tenancy, roots, anchorWire, grantWire)
 }
 
+// PublishFoundationBundle preserves the explicit canonical root lineage from
+// the offline ceremony. It never substitutes an empty chain after a rotation.
+func PublishFoundationBundle(ctx context.Context, factory *ociclient.Factory, genesis trust.Keyring, bundle RetainedFoundation) error {
+	client, tenancy, err := foundationHomeClient(factory)
+	if err != nil {
+		return err
+	}
+	if bundle.TenancyID != tenancy {
+		return errors.New("foundation publication differs from authenticated tenancy")
+	}
+	return publishFoundationBundle(ctx, client, tenancy, genesis, bundle)
+}
+
+func publishFoundationBundle(ctx context.Context, client foundationDiscoveryObjects, tenancy string, genesis trust.Keyring, bundle RetainedFoundation) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	envelope, err := trust.DecodeEnvelope(bundle.AnchorWire)
+	if err != nil {
+		return err
+	}
+	chain, err := trust.DecodeRootChain(bundle.RootChainWire)
+	if err != nil {
+		return err
+	}
+	verified, err := trust.VerifyRootChain(genesis, foundationChainIdentity(envelope.Scope.DeploymentID), chain)
+	if err != nil {
+		return err
+	}
+	if bundle.TenancyID != tenancy {
+		return errors.New("foundation bundle differs from authenticated tenancy")
+	}
+	if _, err := verifyDiscoveryAnchor(bundle.AnchorWire, verified.Current, tenancy, bundle.Namespace); err != nil {
+		return err
+	}
+	return publishFoundationDiscoveryChain(ctx, client, tenancy, verified.Current, bundle.AnchorWire, bundle.GrantWire, bundle.RootChainWire)
+}
+
 func publishFoundationDiscovery(ctx context.Context, client foundationDiscoveryObjects, tenancy string, roots trust.Keyring, anchorWire, grantWire []byte) error {
+	chainWire, err := trust.EncodeRootChain(trust.RootChain{Version: 1})
+	if err != nil {
+		return err
+	}
+	return publishFoundationDiscoveryChain(ctx, client, tenancy, roots, anchorWire, grantWire, chainWire)
+}
+
+func publishFoundationDiscoveryChain(ctx context.Context, client foundationDiscoveryObjects, tenancy string, roots trust.Keyring, anchorWire, grantWire, chainWire []byte) error {
 	if len(roots) == 0 {
 		return errors.New("initial publication requires independent trusted roots")
 	}
@@ -171,27 +217,30 @@ func publishFoundationDiscovery(ctx context.Context, client foundationDiscoveryO
 	if _, _, err := reader.verifyGrant(grantWire); err != nil {
 		return err
 	}
-	chainWire, err := trust.EncodeRootChain(trust.RootChain{Version: 1})
-	if err != nil {
-		return err
-	}
 	grantName := strings.TrimSuffix(reader.storage.Prefix, "/") + "/" + foundationGrantObject
 	for _, object := range []struct {
 		name string
 		wire []byte
 	}{{foundationRootChainObject, chainWire}, {grantName, grantWire}, {foundationDiscoveryObject, anchorWire}} {
-		policy := common.NoRetryPolicy()
-		request := objectstorage.PutObjectRequest{NamespaceName: new(namespace), BucketName: new(foundationDiscoveryBucket), ObjectName: new(object.name), IfNoneMatch: new("*"), ContentType: new("application/json"), ContentLength: new(int64(len(object.wire))), PutObjectBody: io.NopCloser(bytes.NewReader(object.wire)), RequestMetadata: common.RequestMetadata{RetryPolicy: &policy}}
-		writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		_, writeErr := client.PutObject(ociclient.RequestContext(writeCtx), request)
-		cancel()
-		if writeErr == nil {
-			continue
+		if err := publishFoundationObject(ctx, client, namespace, object.name, object.wire); err != nil {
+			return err
 		}
-		observed, readErr := readDiscoveryObject(ctx, client, namespace, object.name, foundationRecordLimit)
-		if readErr != nil || !bytes.Equal(observed, object.wire) {
-			return fmt.Errorf("initial foundation publication did not establish the exact immutable object: %w", writeErr)
-		}
+	}
+	return nil
+}
+
+func publishFoundationObject(ctx context.Context, client FoundationObjects, namespace, name string, wire []byte) error {
+	policy := common.NoRetryPolicy()
+	request := objectstorage.PutObjectRequest{NamespaceName: new(namespace), BucketName: new(foundationDiscoveryBucket), ObjectName: new(name), IfNoneMatch: new("*"), ContentType: new("application/json"), ContentLength: new(int64(len(wire))), PutObjectBody: io.NopCloser(bytes.NewReader(wire)), RequestMetadata: common.RequestMetadata{RetryPolicy: &policy}}
+	writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	_, writeErr := client.PutObject(ociclient.RequestContext(writeCtx), request)
+	cancel()
+	if writeErr == nil {
+		return nil
+	}
+	observed, readErr := readDiscoveryObject(ctx, client, namespace, name, foundationRecordLimit)
+	if readErr != nil || !bytes.Equal(observed, wire) {
+		return fmt.Errorf("initial foundation publication did not establish the exact immutable object: %w", writeErr)
 	}
 	return nil
 }

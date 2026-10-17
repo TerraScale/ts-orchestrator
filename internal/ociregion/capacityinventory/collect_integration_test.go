@@ -188,6 +188,14 @@ func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
 				if len(digest) != 64 || (Quote{}).SHA256() != "" {
 					t.Fatalf("quote identity is absent or unminted identity exists: %q", digest)
 				}
+				original := quote.Original()
+				if original.Validate() != nil || original.SHA256() != digest {
+					t.Fatal("retained original tariffs differ from the actual public catalog quote")
+				}
+				original.Prices[0].PerUnit++
+				if quote.SHA256() != digest || original.Validate() == nil {
+					t.Fatal("returned original tariff data mutated the sealed quote or accepted changed cost")
+				}
 				if quote.Validate(scope, "GRU", "ocid1.compartment.oc1..gru", "VM.Standard.A1.Flex", 2, 4, 50, quote.ExpiresAt()) == nil || quote.SHA256() != digest {
 					t.Fatal("expiry renewed or erased the original sealed quote identity")
 				}

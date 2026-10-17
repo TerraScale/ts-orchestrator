@@ -2,11 +2,50 @@ package bootstrap
 
 import (
 	"encoding/json/v2"
+	"slices"
 	"strings"
 
 	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 )
+
+// FoundationReferenceKeys returns only logical roles consumed by startup projection.
+func (template StartupTemplate) FoundationReferenceKeys(cell string) ([]string, error) {
+	if err := template.ValidateFoundation(cell); err != nil {
+		return nil, err
+	}
+	var values []string
+	for _, profile := range template.Profiles {
+		values = append(values, profile.CompartmentOCID, profile.SubnetOCID)
+		values = append(values, profile.NetworkSecurityGroupOCIDs...)
+	}
+	if domain := template.ManagedMaterial; domain != nil {
+		values = append(values, domain.KMSKeyOCID, domain.MemberCompartmentOCID, domain.MemberSubnetOCID)
+	}
+	if resources := template.FounderResources; resources != nil {
+		for _, slot := range resources.Slots {
+			values = append(values, slot.ImageCompartmentOCID)
+		}
+	}
+	var config oci.RegionConfig
+	if err := json.Unmarshal(template.ControllerFiles[1].Bytes, &config, json.RejectUnknownMembers(true)); err != nil {
+		return nil, err
+	}
+	values = append(values, config.CompartmentID, config.ImageCompartmentID, config.SubnetID)
+	values = append(values, config.NetworkSecurityGroupIDs...)
+	var keys []string
+	for _, value := range values {
+		if strings.HasPrefix(value, "foundation:") {
+			actualCell, key, err := foundationbinding.Parse(value)
+			if err != nil || actualCell != cell {
+				return nil, ErrManifestInvalid
+			}
+			keys = append(keys, key)
+		}
+	}
+	slices.Sort(keys)
+	return slices.Compact(keys), nil
+}
 
 func foundationResource(value, kind, cell, role string) bool {
 	if isOCID(value, kind) {
@@ -44,7 +83,11 @@ func (template StartupTemplate) ValidateFoundation(cell string) error {
 // by the independently verified bindings. Callers retain the original signed
 // template and its digest beside this concrete installation projection.
 func ProjectFoundationStartup(template StartupTemplate, bindings foundationbinding.VerifiedBindings) (StartupTemplate, error) {
-	if err := template.ValidateFoundation(bindings.Cell()); err != nil {
+	return projectFoundationStartup(template, bindings.Cell(), bindings.Resolve)
+}
+
+func projectFoundationStartup(template StartupTemplate, cell string, lookup func(string) (string, error)) (StartupTemplate, error) {
+	if err := template.ValidateFoundation(cell); err != nil {
 		return StartupTemplate{}, err
 	}
 	projected := template.Clone()
@@ -52,7 +95,7 @@ func ProjectFoundationStartup(template StartupTemplate, bindings foundationbindi
 		if !strings.HasPrefix(*value, "foundation:") {
 			return nil
 		}
-		resolved, err := bindings.Resolve(*value)
+		resolved, err := lookup(*value)
 		if err != nil {
 			return err
 		}

@@ -3,7 +3,6 @@ package nativerootoci
 import (
 	"context"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/json/v2"
 	"errors"
 	"io"
@@ -12,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/sys/unix"
+	"github.com/TerraScale/ts-orchestrator/internal/rootociwire"
 )
 
 const MaxFrameBytes = 128 << 10
@@ -56,11 +55,7 @@ func validEncodedRoot(value string) bool {
 }
 
 // Peer is the kernel's SO_PEERCRED identity for one connected Unix socket.
-type Peer struct {
-	PID int
-	UID uint32
-	GID uint32
-}
+type Peer = rootociwire.Peer
 
 // Authorize must require the current signed desired, exact live process and
 // unexpired host session on every call. It returns the current execution lease
@@ -168,59 +163,24 @@ func serveConnection(parent context.Context, connection *net.UnixConn, service *
 }
 
 func peerCredential(connection *net.UnixConn) (Peer, error) {
-	raw, err := connection.SyscallConn()
-	if err != nil {
-		return Peer{}, err
-	}
-	var credentials *unix.Ucred
-	var socketErr error
-	if err := raw.Control(func(fd uintptr) {
-		credentials, socketErr = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED)
-	}); err != nil {
-		return Peer{}, err
-	}
-	if socketErr != nil || credentials == nil || credentials.Pid <= 0 {
-		return Peer{}, errors.New("native OCI root peer credentials are unavailable")
-	}
-	return Peer{PID: int(credentials.Pid), UID: credentials.Uid, GID: credentials.Gid}, nil
+	return rootociwire.PeerCredential(connection)
 }
 
-func readFrame(reader io.Reader) ([]byte, error) {
-	var prefix [4]byte
-	if _, err := io.ReadFull(reader, prefix[:]); err != nil {
-		return nil, err
-	}
-	length := binary.BigEndian.Uint32(prefix[:])
-	if length == 0 || length > MaxFrameBytes {
-		return nil, errors.New("native OCI root IPC frame exceeds its bound")
-	}
-	frame := make([]byte, length)
-	_, err := io.ReadFull(reader, frame)
-	return frame, err
+// PeerCredential reads the connected socket's authenticated kernel identity.
+func PeerCredential(connection *net.UnixConn) (Peer, error) { return peerCredential(connection) }
+
+func readFrame(reader io.Reader) ([]byte, error) { return ReadBoundedFrame(reader, MaxFrameBytes) }
+
+// ReadBoundedFrame reads one fixed-limit length-prefixed message.
+func ReadBoundedFrame(reader io.Reader, maximum uint32) ([]byte, error) {
+	return rootociwire.ReadBoundedFrame(reader, maximum)
 }
 
 func writeFrame(writer io.Writer, frame []byte) error {
-	if len(frame) == 0 || len(frame) > MaxFrameBytes {
-		return errors.New("native OCI root IPC response exceeds its bound")
-	}
-	var prefix [4]byte
-	binary.BigEndian.PutUint32(prefix[:], uint32(len(frame)))
-	if err := writeAll(writer, prefix[:]); err != nil {
-		return err
-	}
-	return writeAll(writer, frame)
+	return WriteBoundedFrame(writer, frame, MaxFrameBytes)
 }
 
-func writeAll(writer io.Writer, bytes []byte) error {
-	for len(bytes) > 0 {
-		written, err := writer.Write(bytes)
-		if err != nil {
-			return err
-		}
-		if written <= 0 || written > len(bytes) {
-			return io.ErrShortWrite
-		}
-		bytes = bytes[written:]
-	}
-	return nil
+// WriteBoundedFrame writes one fixed-limit length-prefixed message.
+func WriteBoundedFrame(writer io.Writer, frame []byte, maximum uint32) error {
+	return rootociwire.WriteBoundedFrame(writer, frame, maximum)
 }

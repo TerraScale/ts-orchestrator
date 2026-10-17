@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -30,18 +31,19 @@ import (
 // All observations cross signed OCI SDK HTTP requests. The remote protocol
 // fixture serves persisted records separately from the provider resource APIs.
 type bindingScenario struct {
-	t          *testing.T
-	factory    *ociclient.Factory
-	authority  Authority
-	root       ed25519.PrivateKey
-	grant      grant
-	intent     intent
-	record     record
-	wire       []byte
-	live       map[string]map[string]any
-	reads      map[string]int
-	etag       string
-	activeWire []byte
+	t            *testing.T
+	factory      *ociclient.Factory
+	authority    Authority
+	root         ed25519.PrivateKey
+	grant        grant
+	intent       intent
+	record       record
+	wire         []byte
+	live         map[string]map[string]any
+	reads        map[string]int
+	etag         string
+	activeWire   []byte
+	resourceRead func(string)
 }
 
 func newBindingScenario(t *testing.T) *bindingScenario {
@@ -124,6 +126,9 @@ func newBindingScenario(t *testing.T) *bindingScenario {
 			if !strings.Contains(request.Host, region) {
 				t.Errorf("resource read escaped signed region: %s", request.Host)
 			}
+			if s.resourceRead != nil {
+				s.resourceRead(request.URL.Path)
+			}
 			if err := json.MarshalWrite(w, row); err != nil {
 				t.Error(err)
 			}
@@ -133,10 +138,26 @@ func newBindingScenario(t *testing.T) *bindingScenario {
 		io.WriteString(w, `{"code":"NotFound","message":"missing exact resource"}`)
 	}))
 	t.Cleanup(server.Close)
+	listener, ok := server.Listener.Addr().(*net.TCPAddr)
+	if !ok || !listener.IP.IsLoopback() || listener.Port == 0 {
+		t.Fatal("binding fixture requires literal loopback listener")
+	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	original := http.DefaultTransport
+	transport.Proxy = func(request *http.Request) (*url.URL, error) {
+		if request.URL == nil || request.URL.Scheme != "https" || request.URL.User != nil || request.URL.Opaque != "" || request.Response != nil || request.Method == http.MethodConnect {
+			return nil, fmt.Errorf("fixture refuses noninitial HTTPS request")
+		}
+		return nil, nil
+	}
+	transport.DialContext = func(context.Context, string, string) (net.Conn, error) {
+		return nil, fmt.Errorf("fixture refuses plaintext dialing")
+	}
 	transport.DialTLSContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
-		return (&tls.Dialer{Config: server.Client().Transport.(*http.Transport).TLSClientConfig}).DialContext(ctx, network, strings.TrimPrefix(server.URL, "https://"))
+		if network != "tcp" && network != "tcp4" && network != "tcp6" {
+			return nil, fmt.Errorf("fixture refuses network %q", network)
+		}
+		return (&tls.Dialer{Config: server.Client().Transport.(*http.Transport).TLSClientConfig}).DialContext(ctx, "tcp", listener.String())
 	}
 	http.DefaultTransport = transport
 	t.Cleanup(func() { http.DefaultTransport = original; transport.CloseIdleConnections() })
@@ -199,6 +220,7 @@ func TestLogicalBindingsReadSignedGrantPersistedBirthAndFreshOCI(t *testing.T) {
 	s.grant.WorkerProfiles = jsontext.Value(`[{"cell":"SFO","compartmentOcid":"foundation:SFO:control_compartment"}]`)
 	s.record.SourcePolicyIDs = jsontext.Value(`{"retained":{"policyId":"ocid1.policy.oc1..retained"}}`)
 	s.record.NetBirdManager = jsontext.Value(`{"slotId":"owned-by-netbird"}`)
+	s.record.FoundationWriter = jsontext.Value(`{"instanceId":"ocid1.instance.oc1.us-sanjose-1.original"}`)
 	s.publish()
 	verified, err := Verify(t.Context(), s.factory, s.authority, s.wire)
 	if err != nil {

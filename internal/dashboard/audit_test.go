@@ -14,8 +14,8 @@ import (
 
 type failedDashboardInventory struct{}
 
-func (failedDashboardInventory) Inventory(context.Context) ([]InventoryItem, error) {
-	return nil, errors.New("inventory unavailable")
+func (failedDashboardInventory) Inventory(context.Context) (InventoryObservation, error) {
+	return InventoryObservation{}, errors.New("inventory unavailable")
 }
 
 func (failedDashboardInventory) Qualifications(context.Context) ([]Qualification, error) {

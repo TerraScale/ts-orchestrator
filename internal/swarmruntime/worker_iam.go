@@ -29,7 +29,7 @@ import (
 
 // The root manager derives the expected bytes from its actual upstream cluster.
 // An enrollment signature or a caller-selected secret reference is insufficient.
-func (n *Node) currentWorkerVaultGrant(ctx context.Context, accepted hostenroll.VerifiedSwarmWorker, query WorkerRegistrationQuery, phase workerRegistrationPhase) error {
+func (n *Node) currentWorkerVaultGrant(ctx context.Context, operation *workerOperation, accepted hostenroll.VerifiedSwarmWorker, query WorkerRegistrationQuery, phase workerRegistrationPhase) error {
 	authority := n.workerAuthority
 	if authority == nil || authority.homeIAM == nil || authority.foundations.Store == nil {
 		return errors.New("worker Vault IAM requires current root and shared home authority")
@@ -37,7 +37,7 @@ func (n *Node) currentWorkerVaultGrant(ctx context.Context, accepted hostenroll.
 	if err := authority.homeIAM.Guard(ctx, 0); err != nil {
 		return err
 	}
-	request, response, registration, observed, execution, err := authority.currentInPhase(ctx, query, phase)
+	request, response, registration, observed, execution, err := operation.currentInPhase(ctx, query, phase)
 	if err != nil {
 		return err
 	}
@@ -140,11 +140,11 @@ func (n *Node) currentWorkerVaultGrant(ctx context.Context, accepted hostenroll.
 	if !bytes.Equal(value, expected) {
 		return errors.New("actual Vault bytes differ from root-derived worker-only material")
 	}
-	return nil
+	return operation.revalidate(ctx)
 }
 
-func (n *Node) authorizeWorkerVaultRead(ctx context.Context, accepted hostenroll.VerifiedSwarmWorker, query WorkerRegistrationQuery, phase workerRegistrationPhase) error {
-	if err := n.currentWorkerVaultGrant(ctx, accepted, query, phase); err != nil {
+func (n *Node) authorizeWorkerVaultRead(ctx context.Context, operation *workerOperation, accepted hostenroll.VerifiedSwarmWorker, query WorkerRegistrationQuery, phase workerRegistrationPhase) error {
+	if err := n.currentWorkerVaultGrant(ctx, operation, accepted, query, phase); err != nil {
 		return err
 	}
 	authority := n.workerAuthority
@@ -153,7 +153,9 @@ func (n *Node) authorizeWorkerVaultRead(ctx context.Context, accepted hostenroll
 		return err
 	}
 	defer release()
-	guard := func(ctx context.Context) error { return n.currentWorkerVaultGrant(ctx, accepted, query, phase) }
+	guard := func(ctx context.Context) error {
+		return n.currentWorkerVaultGrant(ctx, operation, accepted, query, phase)
+	}
 	ctx = ociclient.WithAuthority(ctx, guard)
 	if err := guard(ctx); err != nil {
 		return err

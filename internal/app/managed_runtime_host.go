@@ -22,19 +22,25 @@ import (
 // Providers are bound before node startup and stay closed until its one real
 // ownhost session has independently completed enrollment.
 type managedRuntimeHost struct {
-	mu        sync.RWMutex
-	reader    *bootstrapstart.CurrentFounderAuthorityReader
-	accepted  bootstrapstart.AcceptedIdentity
-	agent     *host.Agent
-	transport hostenroll.WorkerTransport
-	registry  swarmruntime.RegistryResolver
-	nodeID    string
-	session   context.Context
+	taskLoad   host.TaskLoadSource
+	mu         sync.RWMutex
+	reader     *bootstrapstart.CurrentFounderAuthorityReader
+	accepted   bootstrapstart.AcceptedIdentity
+	node       *swarmruntime.Node
+	agent      *host.Agent
+	transport  hostenroll.WorkerTransport
+	registry   swarmruntime.RegistryResolver
+	nodeID     string
+	session    context.Context
+	generation uint64
 }
 
 func (source *managedRuntimeHost) bind(ctx context.Context, agent *host.Agent, transport hostenroll.WorkerTransport, registry swarmruntime.RegistryResolver, nodeID string) {
 	source.mu.Lock()
 	defer source.mu.Unlock()
+	if source.session != ctx {
+		source.generation++
+	}
 	source.agent, source.transport, source.registry = agent, transport, registry
 	source.nodeID = nodeID
 	source.session = ctx
@@ -204,7 +210,7 @@ func runManagedRuntimeHostSession(ctx context.Context, controller Config, reader
 	ready := make(chan struct{})
 	agent, err := host.NewAgent(host.AgentConfig{Cell: cfg.NATS.Cell, Node: cfg.Host.Node, Environment: cfg.Host.Environment,
 		Roles: cfg.Host.Roles, Conn: broker.Conn(), Identity: key, NATSUserPublicKey: natsUser, ControllerPublicKey: public,
-		InstallRoot: cfg.Host.InstallRoot, StateRoot: cfg.Host.StateRoot,
+		InstallRoot: cfg.Host.InstallRoot, StateRoot: cfg.Host.StateRoot, TaskLoad: source.taskLoad,
 		WorkloadIdentity: host.WorkloadIdentity{UID: cfg.Host.WorkloadUID, GID: cfg.Host.WorkloadGID},
 		ClockCheck:       controllerClockCheck(hostClockProbe()),
 		FollowRollouts:   hostRollouts(cfg, key, public), FollowNetBird: hostNetBird(cfg, public), Initialized: func() { close(ready) },

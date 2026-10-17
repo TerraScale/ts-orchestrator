@@ -45,6 +45,7 @@ const (
 // it uses it.
 type specRegistry struct {
 	nativeHistory *nativeHistory
+	removalReady  func(context.Context, string) error
 	cell          string
 	identity      cellspec.Identity
 	// roots is the cell's accepted root chain.
@@ -57,9 +58,8 @@ type specRegistry struct {
 	fixed    map[string]WorkloadProfile
 	// signers are the signed config's trusted signers, sorted by actor; a
 	// spec's signers section replaces them.
-	signers       []TrustedSignerConfig
-	hostTelemetry bool
-	kv            jetstream.KeyValue
+	signers []TrustedSignerConfig
+	kv      jetstream.KeyValue
 	// changed receives every newly adopted spec's profiles and reconciled
 	// specs, under the registry lock so updates arrive in order.
 	changed func(map[string]WorkloadProfile, []workload.ServiceSpec)
@@ -71,10 +71,8 @@ type specRegistry struct {
 	// needs it. A signed TerraBase profile implies it, since signing
 	// refuses one without the CA.
 	terraBaseCA bool
-	// signedDesired is the signed config's desired OCI resources when OCI
-	// reconcile is on; ociRegion, set once the signed region config is
-	// loaded, admits an oci_desired section's entries.
-	ociReconcile  bool
+	// signedDesired is the signed config's resource amendments. ociRegion,
+	// set once the signed region config is loaded, admits desired entries.
 	signedDesired *cellspec.OCIDesired
 	// publicLB is the backend set oci_reconcile.public_lb owns; a release
 	// fence may not name it.
@@ -128,16 +126,13 @@ func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 	if _, signed := cfg.Controller.Workloads[terrabase.Role]; signed {
 		r.terraBaseCA = true
 	}
-	if reconcile := cfg.Controller.OciReconcile; reconcile != nil && reconcile.Enabled {
-		r.ociReconcile, r.signedDesired, r.publicLB = true, reconcile.Desired, reconcile.PublicLB
+	if reconcile := cfg.Controller.OciReconcile; reconcile != nil {
+		r.signedDesired, r.publicLB = reconcile.Desired, reconcile.PublicLB
 	}
 	if memberRole != "" {
 		r.reserved = append(r.reserved, memberRole)
 	}
 	autoscaleConfig := cfg.Controller.Autoscale
-	if autoscaleConfig != nil {
-		r.hostTelemetry = autoscaleConfig.HostTelemetry
-	}
 	if err := r.loadTrust(cfg); err != nil {
 		return nil, err
 	}
@@ -152,7 +147,7 @@ func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 		service := cellspec.Service{Role: role, Profile: profile}
 		// Generation 0 reconciles exactly what the signed config already
 		// reconciled.
-		if autoscaleConfig != nil && autoscaleConfig.Enabled {
+		if autoscaleConfig != nil {
 			for _, spec := range autoscaleConfig.Services {
 				if spec.Role == role {
 					service.Spec = &spec
@@ -426,8 +421,8 @@ func (r *specRegistry) validate(spec cellspec.Spec) error {
 		return err
 	}
 	if desired := spec.OCIDesired; desired != nil {
-		if !r.ociReconcile || r.ociRegion == nil {
-			return errors.New("desired OCI resources need OCI reconcile and the signed region config (controller.oci_reconcile)")
+		if r.ociRegion == nil {
+			return errors.New("desired OCI resources need the signed region config")
 		}
 		if _, _, err := desiredSets(*desired, string(r.ociRegion.Region), *r.ociRegion); err != nil {
 			return err
@@ -449,7 +444,7 @@ func (r *specRegistry) validate(spec cellspec.Spec) error {
 		return fmt.Errorf("artifact_store max_bytes %d exceeds this controller's %d: its embedded NATS store_max_bytes less %d bytes for control state",
 			store.MaxBytes, max(limit, 0), headroom)
 	}
-	return validateAutoscaleConfig(&AutoscaleConfig{HostTelemetry: r.hostTelemetry, Services: specs}, profiles)
+	return validateAutoscaleConfig(&AutoscaleConfig{Services: specs}, profiles)
 }
 
 // validateHostGrants admits a grant only for roles the cell delivers and
@@ -799,6 +794,11 @@ func (r *specRegistry) apply(ctx context.Context, wire []byte, keyID string, epo
 		_, kept := spec.Find(service.Role)
 		if _, signed := r.fixed[service.Role]; kept || signed {
 			continue
+		}
+		if r.removalReady != nil {
+			if err := r.removalReady(ctx, service.Role); err != nil {
+				return specReply{}, err
+			}
 		}
 		desired, err := hosts.ListDesired(ctx, service.Role)
 		if err != nil {

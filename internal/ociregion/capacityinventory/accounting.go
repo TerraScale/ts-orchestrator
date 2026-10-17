@@ -2,9 +2,6 @@ package capacityinventory
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -16,7 +13,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
-	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
 )
 
 // SHA256 identifies the original quote, including its observed prices and
@@ -25,18 +21,7 @@ func (q Quote) SHA256() string {
 	if q.scopeSHA256 == "" || q.issuedAt.IsZero() || q.expiresAt.IsZero() || len(q.prices) != 4 {
 		return ""
 	}
-	wire, err := json.Marshal(struct {
-		ScopeSHA256, Cell, CompartmentID, Shape, Currency string
-		OCPUs, MemoryGB, BootGB                           float64
-		MonthlyCents                                      uint64
-		IssuedAt, ExpiresAt                               time.Time
-		Prices                                            []ocicost.Price
-	}{q.scopeSHA256, q.cell, q.compartment, q.shape, q.currency, q.ocpus, q.memoryGB, q.bootGB, q.monthlyCents, q.issuedAt, q.expiresAt, q.prices}, json.Deterministic(true))
-	if err != nil {
-		return ""
-	}
-	digest := sha256.Sum256(wire)
-	return hex.EncodeToString(digest[:])
+	return q.Original().SHA256()
 }
 
 // ReadJournal adds retained lifecycle evidence, including resources which have
@@ -162,19 +147,19 @@ func (r *Reader) observeJournalResource(ctx context.Context, region RegionScope,
 	var actualID, compartment *string
 	switch kind {
 	case "Instance":
-		response, err := compute.GetInstance(ctx, core.GetInstanceRequest{InstanceId: new(id)})
+		response, err := compute.GetInstance(ociclient.RequestContext(ctx), core.GetInstanceRequest{InstanceId: new(id)})
 		if err != nil {
 			return fmt.Errorf("read retained instance: %w", err)
 		}
 		actualID, compartment = response.Id, response.CompartmentId
 	case "Volume":
-		response, err := block.GetVolume(ctx, core.GetVolumeRequest{VolumeId: new(id)})
+		response, err := block.GetVolume(ociclient.RequestContext(ctx), core.GetVolumeRequest{VolumeId: new(id)})
 		if err != nil {
 			return fmt.Errorf("read retained volume: %w", err)
 		}
 		actualID, compartment = response.Id, response.CompartmentId
 	case "BootVolume":
-		response, err := block.GetBootVolume(ctx, core.GetBootVolumeRequest{BootVolumeId: new(id)})
+		response, err := block.GetBootVolume(ociclient.RequestContext(ctx), core.GetBootVolumeRequest{BootVolumeId: new(id)})
 		if err != nil {
 			return fmt.Errorf("read retained boot volume: %w", err)
 		}

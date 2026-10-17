@@ -22,6 +22,7 @@ import (
 )
 
 type peerBinding struct {
+	Backup    bool `json:"backup,omitzero"`
 	Scope     memberstatus.Scope
 	Authority memberstatus.Authority
 	Survivor  memberstatus.Survivor
@@ -41,6 +42,10 @@ func TestDrainProtocolPeer(t *testing.T) {
 	var binding peerBinding
 	if err := json.Unmarshal(raw, &binding); err != nil {
 		t.Fatal(err)
+	}
+	if binding.Backup {
+		serveBackupPeer(t, directory)
+		return
 	}
 	listener, err := net.Listen("unix", filepath.Join(directory, "control", "member.sock"))
 	if err != nil {

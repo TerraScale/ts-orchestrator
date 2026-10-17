@@ -642,6 +642,9 @@ func (r *Runtime) Guard(ctx context.Context, expectedEpoch uint64) error {
 	if r == nil {
 		return ErrNotLeader
 	}
+	if guard, ok := ctx.Value(verificationGuardKey{}).(*verificationGuard); ok {
+		return r.guardVerification(ctx, expectedEpoch, guard)
+	}
 	if r.checkClock() != nil {
 		return ErrClockUnhealthy
 	}

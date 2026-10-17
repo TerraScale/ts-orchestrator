@@ -128,6 +128,33 @@ func (s *Scaler) Tick(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("load node scaler record: %w", err)
 	}
+	// Replay retained root operations before discovery or fresh purchase gates.
+	var recoveryErr error
+	var expired *InFlight
+	if record.Action != nil {
+		switch {
+		case record.Action.Kind == Up && record.Action.Step == stepGrow && record.Child != nil:
+			if err := s.Leader.Guard(ctx, snapshot.Epoch); err != nil {
+				return err
+			}
+			recoveryErr = s.Pool.Grow(ctx, record.From)
+			if recoveryErr == nil {
+				record.Action.Step = stepEnroll
+			}
+		case record.Retirement != nil && (record.Action.Step == stepRemove || record.Action.Step == stepEnroll):
+			if err := s.Leader.Guard(ctx, snapshot.Epoch); err != nil {
+				return err
+			}
+			recoveryErr = s.Pool.Remove(ctx, record.Retirement.InstanceID)
+			if recoveryErr == nil {
+				if record.Action.Kind == Up {
+					expired, record.Action = record.Action, nil
+				} else {
+					record.Action.Step = stepGone
+				}
+			}
+		}
+	}
 	pool, err := s.Pool.Observe(ctx)
 	if err != nil {
 		return fmt.Errorf("observe node pool: %w", err)
@@ -140,10 +167,12 @@ func (s *Scaler) Tick(ctx context.Context) error {
 		return fmt.Errorf("list SwarmKit nodes: %w", err)
 	}
 	t := &tick{epoch: snapshot.Epoch, now: s.Now(), record: record, pool: pool, hosts: hosts.Nodes}
-	if t.pool.Pending == "" {
-		if err := s.nameUnnamed(ctx, t, hosts.Nodes); err != nil {
-			return err
-		}
+	if recoveryErr != nil {
+		t.pool.Pending = recoveryErr.Error()
+	}
+	if expired != nil {
+		s.queue(t, decisionlog.Decision{Kind: decisionlog.KindHeld, Rule: "nodescale.launch-expired", Subject: s.regionSubject(),
+			Summary: fmt.Sprintf("retired original unenrolled child of %s", expired.ID), Reason: fmt.Sprintf("no SwarmKit ready node within %s", LaunchTimeout)})
 	}
 	t.obs = s.observe(t.pool, hosts.Nodes)
 	t.loads = countedLoads(s.Loads(), t.obs)
@@ -153,9 +182,17 @@ func (s *Scaler) Tick(ctx context.Context) error {
 	s.history.Add(Measure(t.obs.nodes, t.loads, t.now))
 	container, _ := containerSample(t)
 	s.containerHistory.Add(container)
-	if t.record.Action != nil && t.pool.Pending == "" {
+	if t.record.Action != nil && recoveryErr == nil {
 		if err := s.advance(ctx, t); err != nil {
 			return err
+		}
+	}
+	if t.record.Action == nil && t.pool.Pending != "" {
+		if err := s.Leader.Guard(ctx, t.epoch); err != nil {
+			return err
+		}
+		if err := s.Pool.Recover(ctx); err != nil {
+			t.pool.Pending = err.Error()
 		}
 	}
 	allowance, fresh := s.Allowance(t.now)
@@ -211,50 +248,6 @@ func (s *Scaler) named(name string) bool {
 	return naming.IsNode(name, strings.ToUpper(s.Cell))
 }
 
-// nameUnnamed gives each live pool instance without a node name the lowest free one, and updates t to match.
-func (s *Scaler) nameUnnamed(ctx context.Context, t *tick, hosts []*api.Node) error {
-	used := map[string]bool{}
-	for _, h := range hosts {
-		used[h.Spec.Annotations.Name] = true
-	}
-	for _, in := range t.pool.Instances {
-		used[in.Name] = true
-	}
-	cell := naming.RegionCell(strings.ToUpper(s.Cell))
-	for i := range t.pool.Instances {
-		in := &t.pool.Instances[i]
-		if s.named(in.Name) || absent(in.State) {
-			continue
-		}
-		node, err := freeNode(cell, used)
-		if err != nil {
-			return err
-		}
-		used[node] = true
-		if err := s.Leader.Guard(ctx, t.epoch); err != nil {
-			return err
-		}
-		if err := s.Pool.Name(ctx, in.ID, node); err != nil {
-			return fmt.Errorf("name pool instance %s %s: %w", in.ID, node, err)
-		}
-		in.Name = node
-	}
-	return nil
-}
-
-// freeNode returns the lowest node name from FirstPoolNode up that no host or pool instance holds.
-func freeNode(cell naming.Cell, used map[string]bool) (string, error) {
-	for n := FirstPoolNode; ; n++ {
-		node, err := cell.Node(n)
-		if err != nil {
-			return "", err
-		}
-		if !used[node] {
-			return node, nil
-		}
-	}
-}
-
 // observe binds worker identities to the current OCI pool and counts admitted regional managers.
 func (s *Scaler) observe(pool PoolState, hosts []*api.Node) observation {
 	obs := observation{live: map[string]bool{}, counted: map[string]bool{}, addresses: map[string]string{}}
@@ -267,14 +260,14 @@ func (s *Scaler) observe(pool PoolState, hosts []*api.Node) observation {
 		}
 	}
 	for _, in := range pool.Instances {
-		if s.named(in.Name) {
+		if in.Birth != nil && s.named(in.Name) {
 			obs.addresses[in.Name] = in.PrivateIP
 		}
 		if absent(in.State) {
 			continue
 		}
 		obs.pool++
-		if node := byInstance[in.ID]; s.admitted(node, api.NodeRoleWorker) && node.Status.State == api.NodeStatus_READY {
+		if node := byInstance[in.ID]; in.Birth != nil && s.admitted(node, api.NodeRoleWorker) && node.Spec.Annotations.Name == in.Birth.Node && node.Status.State == api.NodeStatus_READY {
 			obs.live[in.Name] = true
 			obs.counted[in.Name] = true
 		}
@@ -337,22 +330,20 @@ func (s *Scaler) advance(ctx context.Context, t *tick) error {
 	return fmt.Errorf("node scale action %s is at unknown step %q", t.record.Action.ID, t.record.Action.Step)
 }
 
-// grow raises the pool by one node. A size someone else set fails the action.
+// grow prepares and durably retains one original root birth before any provider effect.
 func (s *Scaler) grow(ctx context.Context, t *tick) error {
-	if t.pool.Size == t.record.From+1 {
-		if t.record.Recipe == nil || t.record.TargetFrom == nil {
-			t.pool.Pending = "selected capacity pool lacks a durable starting size"
-			return nil
+	if t.record.Child != nil {
+		if err := s.Leader.Guard(ctx, t.epoch); err != nil {
+			return err
 		}
-		size, err := s.Pool.TargetSize(ctx, *t.record.Recipe)
-		if err != nil {
-			return fmt.Errorf("observe selected capacity growth: %w", err)
-		}
-		if size != *t.record.TargetFrom+1 {
-			s.fail(t, "another capacity pool changed during the chosen launch")
+		if err := s.Pool.Grow(ctx, t.record.From); err != nil {
+			t.pool.Pending = err.Error()
 			return nil
 		}
 		t.record.Action.Step = stepEnroll
+		return nil
+	}
+	if t.pool.Pending != "" {
 		return nil
 	}
 	allowance, fresh := s.Allowance(t.now)
@@ -382,7 +373,6 @@ func (s *Scaler) grow(ctx context.Context, t *tick) error {
 		return fmt.Errorf("validate node recipe: %w", err)
 	}
 	if t.record.Recipe == nil {
-		// Historical actions acquire a durable choice before any provider write.
 		t.record.Recipe = new(freshRecipe)
 		return nil
 	}
@@ -399,7 +389,11 @@ func (s *Scaler) grow(ctx context.Context, t *tick) error {
 		t.record.TargetFrom = new(size)
 		return nil
 	}
-	if s.Reserve != nil && t.record.Reservation == nil {
+	if t.record.Reservation == nil {
+		if s.Reserve == nil {
+			t.pool.Pending = "home capacity reservation authority is unavailable"
+			return nil
+		}
 		receipt, err := s.Reserve(ctx, t.record.Action.ID, recipe)
 		if err != nil {
 			t.pool.Pending = fmt.Sprintf("home capacity reservation is pending: %v", err)
@@ -408,32 +402,12 @@ func (s *Scaler) grow(ctx context.Context, t *tick) error {
 		t.record.Reservation = new(receipt)
 		return nil
 	}
-	if err := s.Leader.Guard(ctx, t.epoch); err != nil {
-		return err
-	}
-	if _, err := s.Pool.Ensure(ctx, recipe); err != nil {
-		if errors.Is(err, ErrCapacityPending) {
-			t.pool.Pending = err.Error()
-			return nil
-		}
-		return fmt.Errorf("ensure node pool: %w", err)
-	}
-	if err := s.Leader.Guard(ctx, t.epoch); err != nil {
-		return err
-	}
-	err = s.Pool.Grow(ctx, t.record.From)
-	if errors.Is(err, ErrCapacityPending) {
+	child, err := s.Pool.PrepareGrowth(ctx, t.record)
+	if err != nil {
 		t.pool.Pending = err.Error()
 		return nil
 	}
-	if errors.Is(err, ErrPoolChanged) {
-		s.fail(t, err.Error())
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("grow node pool: %w", err)
-	}
-	t.record.Action.Step = stepEnroll
+	t.record.Child = new(child)
 	return nil
 }
 
@@ -453,7 +427,7 @@ func (s *Scaler) enroll(ctx context.Context, t *tick) error {
 		return nil
 	}
 	for _, in := range t.pool.Instances {
-		if absent(in.State) || in.Created.Before(action.Started) || t.obs.live[in.Name] {
+		if absent(in.State) || in.Birth == nil || in.Birth.OperationID != action.ID || t.obs.live[in.Name] {
 			continue
 		}
 		if err := s.expiredSafe(ctx, t, in); err != nil {
@@ -463,14 +437,15 @@ func (s *Scaler) enroll(ctx context.Context, t *tick) error {
 		if err := s.Leader.Guard(ctx, t.epoch); err != nil {
 			return err
 		}
-		if err := s.Pool.Remove(ctx, in.ID); err != nil {
-			return fmt.Errorf("remove unenrolled instance %s: %w", in.ID, err)
+		retirement, err := s.Pool.PrepareRetirement(ctx, in.ID, removalOperation(t.record, in.ID))
+		if err != nil {
+			t.pool.Pending = err.Error()
+			return nil
 		}
+		t.record.Retirement = new(retirement)
+		return nil
 	}
-	t.record.Action = nil
-	s.queue(t, decisionlog.Decision{Kind: decisionlog.KindHeld, Rule: "nodescale.launch-expired",
-		Subject: s.regionSubject(), Summary: fmt.Sprintf("stop launching a node in %s", s.Cell),
-		Reason: fmt.Sprintf("no SwarmKit ready node within %s", LaunchTimeout)})
+	t.pool.Pending = "the original unenrolled child has not been positively reobserved"
 	return nil
 }
 
@@ -513,27 +488,20 @@ func (s *Scaler) expiredSafe(ctx context.Context, t *tick, instance PoolInstance
 	return nil
 }
 
-// launched reports whether the pool holds From+1 live instances, each named, admitted and ready in SwarmKit.
+// launched requires the exact root-observed birth; size and creation time confer no lineage.
 func (s *Scaler) launched(t *tick) bool {
-	live := 0
-	for _, in := range t.pool.Instances {
-		if absent(in.State) {
-			continue
-		}
-		if !s.named(in.Name) || !t.obs.live[in.Name] {
-			return false
-		}
-		live++
-	}
-	return live >= t.record.From+1
+	joined := joined(t)
+	return len(joined) == 1 && t.obs.live[joined[0]]
 }
 
-// joined names the live pool instances created since the action started.
 func joined(t *tick) []string {
 	var nodes []string
+	if t.record.Action == nil || t.record.Child == nil {
+		return nil
+	}
 	for _, in := range t.pool.Instances {
-		if !absent(in.State) && !in.Created.Before(t.record.Action.Started) {
-			nodes = append(nodes, in.Name)
+		if !absent(in.State) && in.Birth != nil && in.Birth.OperationID == t.record.Child.OperationID && in.Birth.RecipeSHA256 == t.record.Child.RecipeSHA256 {
+			nodes = append(nodes, in.Birth.Node)
 		}
 	}
 	return nodes
@@ -644,10 +612,12 @@ func (s *Scaler) remove(ctx context.Context, t *tick) error {
 	if err := s.Leader.Guard(ctx, t.epoch); err != nil {
 		return err
 	}
-	if err := s.Pool.Remove(ctx, action.InstanceID); err != nil {
-		return fmt.Errorf("remove instance %s: %w", action.InstanceID, err)
+	retirement, err := s.Pool.PrepareRetirement(ctx, action.InstanceID, action.ID)
+	if err != nil {
+		t.pool.Pending = err.Error()
+		return nil
 	}
-	action.Step = stepGone
+	t.record.Retirement = new(retirement)
 	return nil
 }
 
@@ -745,6 +715,7 @@ func (s *Scaler) decide(ctx context.Context, t *tick, state State) (Decision, er
 		t.record.Recipe = new(recipe)
 		t.record.TargetFrom = new(size)
 		t.record.Reservation = nil
+		t.record.Child, t.record.Retirement = nil, nil
 		t.record.Action = &InFlight{ID: entityid.New(), Kind: Up, Step: stepGrow, Started: t.now}
 		t.record.From = t.pool.Size
 		t.record.LastChange = t.now
@@ -761,6 +732,7 @@ func (s *Scaler) decide(ctx context.Context, t *tick, state State) (Decision, er
 			decision.Reason = cmp.Or(t.blocked, "no pool node is free to drain: protected tasks, manager, or missing load")
 			break
 		}
+		t.record.Retirement = nil
 		t.record.Action = &InFlight{ID: entityid.New(), Kind: Down, Step: stepCordon, Node: target.Name,
 			InstanceID: target.ID, Started: t.now}
 		t.record.LastChange = t.now

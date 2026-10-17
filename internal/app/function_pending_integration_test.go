@@ -45,9 +45,10 @@ func TestFunctionDemandRequiresWorkerQualifiedThroughFunctionExpiry(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	publishFunctionRootHistory(t, js, roots)
 	target := release.ContainerTarget{Cell: "GRU", Environment: "canary", Role: swarmruntime.FunctionWorkerRole, Architecture: "amd64"}
 	bundle, evidence := signer.worker(t, target)
-	config := functionControllerConfig{Authority: runtime, Client: client, Roots: roots, Factory: signer.factory, Cell: "gru", Environment: "canary",
+	config := functionControllerConfig{Authority: runtime, JS: js, Client: client, Roots: roots, Factory: signer.factory, Cell: "gru", Environment: "canary",
 		Material: functionmaterial.Controller{Reader: functionmaterial.Reader{Artifacts: artifacts, Roots: roots.current}},
 		Worker: func(context.Context, release.VerifiedFunction) (functionWorkerRelease, error) {
 			return functionWorkerRelease{Architecture: "amd64", Bundle: bundle}, nil

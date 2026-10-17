@@ -19,6 +19,7 @@ import (
 
 const ContainerKind = "terrascale.container.v1"
 const FunctionWorkerSlot = "terrascale.function-worker-slot"
+const DiskResource = "terrascale.disk-bytes"
 const containerTypeURL = "terrascale.tech/runtime/container/v1"
 
 // ContainerRuntime encodes the supported, stateless container contract.
@@ -37,6 +38,19 @@ func ContainerRuntime(spec *api.ContainerSpec) (*api.TaskSpec_Generic, error) {
 
 // DecodeContainer refuses unsupported runtime fields rather than silently ignoring them.
 func DecodeContainer(task *api.Task) (*api.ContainerSpec, error) {
+	spec, err := decodeContainer(task)
+	if err != nil {
+		return nil, err
+	}
+	if task.ServiceAnnotations.Labels[LabelRole] != FunctionWorkerRole {
+		if _, err := DiskBytes(task.Spec.Resources); err != nil {
+			return nil, err
+		}
+	}
+	return spec, nil
+}
+
+func decodeContainer(task *api.Task) (*api.ContainerSpec, error) {
 	if task == nil || task.ID == "" || task.ServiceID == "" || len(task.ID) > 64 || strings.IndexFunc(task.ID, func(r rune) bool {
 		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
 	}) >= 0 {
@@ -66,15 +80,32 @@ func DecodeContainer(task *api.Task) (*api.ContainerSpec, error) {
 	if r == nil || r.Limits == nil || r.Limits.NanoCPUs < 10_000_000 || r.Limits.NanoCPUs > 1_000_000_000_000 || r.Limits.MemoryBytes < 16<<20 {
 		return nil, fmt.Errorf("container requires positive CPU and memory limits")
 	}
-	function := task.ServiceAnnotations.Labels[LabelRole] == "function-worker"
-	if function && (!hasFunctionWorkerSlot(r.Limits.Generic) || r.Reservations == nil || !proto.Equal(r.Limits, r.Reservations)) {
+	disk, slot, err := containerGenericResources(r.Limits.Generic)
+	if err != nil {
+		return nil, err
+	}
+	function := task.ServiceAnnotations.Labels[LabelRole] == FunctionWorkerRole
+	if function && (!slot || r.Reservations == nil || !proto.Equal(r.Limits, r.Reservations)) {
 		return nil, fmt.Errorf("function worker requires one dedicated host slot and fully reserved resources")
 	}
-	if !function && len(r.Limits.Generic) != 0 || r.SwapBytes != nil || r.MemorySwappiness != nil {
+	if !function && slot || r.SwapBytes != nil || r.MemorySwappiness != nil {
 		return nil, fmt.Errorf("unsupported container resource controls")
 	}
-	if rr := r.Reservations; rr != nil && (rr.NanoCPUs < 0 || rr.MemoryBytes < 0 || rr.NanoCPUs > r.Limits.NanoCPUs || rr.MemoryBytes > r.Limits.MemoryBytes || !function && len(rr.Generic) != 0) {
+	if rr := r.Reservations; rr != nil && (rr.NanoCPUs < 0 || rr.MemoryBytes < 0 || rr.NanoCPUs > r.Limits.NanoCPUs || rr.MemoryBytes > r.Limits.MemoryBytes) {
 		return nil, fmt.Errorf("invalid container resource reservations")
+	}
+	if r.Reservations != nil {
+		reservedDisk, reservedSlot, err := containerGenericResources(r.Reservations.Generic)
+		if err != nil || !function && reservedSlot {
+			return nil, fmt.Errorf("unsupported container resource reservations")
+		}
+		if disk != 0 || reservedDisk != 0 {
+			if _, err := DiskBytes(r); err != nil {
+				return nil, err
+			}
+		}
+	} else if disk != 0 {
+		return nil, fmt.Errorf("disk requires equal limits and reservations")
 	}
 	if len(task.Spec.Networks) != 0 || task.Spec.LogDriver != nil || len(task.Spec.ResourceReferences) != 0 || len(task.Networks) != 0 || len(task.Volumes) != 0 {
 		return nil, fmt.Errorf("network, volume, secret and custom log attachments are unsupported")
@@ -98,12 +129,48 @@ func DecodeContainer(task *api.Task) (*api.ContainerSpec, error) {
 	return spec, nil
 }
 
-func hasFunctionWorkerSlot(resources []*api.GenericResource) bool {
-	if len(resources) != 1 {
-		return false
+// DiskBytes returns the exact, fully reserved discrete disk budget.
+func DiskBytes(resources *api.ResourceRequirements) (int64, error) {
+	if resources == nil || resources.Limits == nil || resources.Reservations == nil || !proto.Equal(resources.Limits, resources.Reservations) {
+		return 0, fmt.Errorf("disk requires equal resource limits and reservations")
 	}
-	discrete := resources[0].GetDiscreteResourceSpec()
-	return discrete != nil && discrete.Kind == FunctionWorkerSlot && discrete.Value == 1
+	disk, _, err := containerGenericResources(resources.Limits.Generic)
+	if err != nil {
+		return 0, err
+	}
+	if disk == 0 {
+		return 0, fmt.Errorf("container requires one positive discrete disk budget")
+	}
+	return disk, nil
+}
+
+func containerGenericResources(resources []*api.GenericResource) (disk int64, slot bool, err error) {
+	for _, resource := range resources {
+		discrete := resource.GetDiscreteResourceSpec()
+		if discrete == nil {
+			return 0, false, fmt.Errorf("container resources must be discrete")
+		}
+		switch discrete.Kind {
+		case DiskResource:
+			if disk != 0 || discrete.Value <= 0 {
+				return 0, false, fmt.Errorf("container requires one positive discrete disk budget")
+			}
+			disk = discrete.Value
+		case FunctionWorkerSlot:
+			if slot || discrete.Value != 1 {
+				return 0, false, fmt.Errorf("function worker requires one dedicated host slot")
+			}
+			slot = true
+		default:
+			return 0, false, fmt.Errorf("unsupported container generic resource")
+		}
+	}
+	return disk, slot, nil
+}
+
+func hasFunctionWorkerSlot(resources []*api.GenericResource) bool {
+	_, slot, err := containerGenericResources(resources)
+	return err == nil && slot
 }
 
 func validateContainer(s *api.ContainerSpec) error {
