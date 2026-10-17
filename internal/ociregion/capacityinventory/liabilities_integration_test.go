@@ -240,6 +240,19 @@ func TestKnownLiabilitiesUseProtectedOriginalTariffsAndExactIDsThroughSDK(t *tes
 	if !slices.Equal(view.UnboundResources, []string{foreignBoot, foreignInstance}) || len(view.UnboundedCompartments) != 5 {
 		t.Fatalf("tags adopted a foreign resource or protected child history certified full accounting: %+v", view)
 	}
+	for _, resource := range view.Resources {
+		if resource.ID == liveInstance && (resource.MonthlyCents != oneHost || resource.OperationID != ledger.Hosts[1].Receipt.OperationID) ||
+			resource.ID == liveBoot && resource.MonthlyCents != 0 ||
+			slices.Contains(view.UnboundResources, resource.ID) && (resource.OperationID != "" || resource.RecipeSHA256 != "" || resource.MonthlyCents != 0) {
+			t.Fatalf("original bundle was duplicated or tags changed its exact binding: %+v", resource)
+		}
+	}
+	if _, err := reader.ReadKnownLiabilities(t.Context(), scope, history, history); err == nil {
+		t.Fatal("repeated protected history counted the same original obligations twice")
+	}
+	if _, err := reader.ReadKnownLiabilities(t.Context(), scope, foundationbinding.VerifiedCapacityLedger{}); err == nil {
+		t.Fatal("caller-created history became a financial subtotal")
+	}
 	drift.Store(true)
 	view, err = reader.ReadKnownLiabilities(t.Context(), scope, history)
 	want, monthlyErr := ledger.Monthly(view.ObservedAt)
