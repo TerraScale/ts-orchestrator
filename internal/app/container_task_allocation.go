@@ -105,6 +105,9 @@ func (controller *containerMaterialController) verifyAllocation(ctx context.Cont
 	if err := containermaterial.VerifyCurrentTaskAllocation(ctx, config.Client, selected.Task, selected.Expected, selected.Verified, evidence.roots, selected.proof, registration, evidence.binding, selected.controllerProof, worker); err != nil {
 		return err
 	}
+	if err := controllerHostSpecCurrent(ctx, config.JS, config.Specs, evidence.entry, selected.rootHead); err != nil {
+		return err
+	}
 	config.Specs.mu.Lock()
 	revision := config.Specs.revision
 	config.Specs.mu.Unlock()
@@ -115,5 +118,13 @@ func (controller *containerMaterialController) verifyAllocation(ctx context.Cont
 		registration.ManagedOCI != nil && worker.Validate() != nil {
 		return containermaterial.ErrPending
 	}
-	return config.Authority.Guard(ctx, selected.epoch)
+	if err := config.Authority.Guard(ctx, selected.epoch); err != nil {
+		return err
+	}
+	now = time.Now().UTC()
+	if !selected.Verified.Valid(now) || selected.controllerProof != nil && (!selected.controllerProof.Valid(now) || !now.Before(selected.enrollmentExpiresAt)) ||
+		registration.ManagedOCI != nil && worker.Validate() != nil {
+		return containermaterial.ErrPending
+	}
+	return ctx.Err()
 }
