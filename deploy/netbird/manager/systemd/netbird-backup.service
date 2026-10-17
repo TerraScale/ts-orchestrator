@@ -1,8 +1,12 @@
 [Unit]
-Description=Snapshot the NetBird server store (ts-ops)
+Description=Archive the dedicated NetBird foundation identity and store
+After=netbird-foundation.service
+Requires=netbird-foundation.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/libexec/homelab/netbird/netbird-backup
-Nice=10
+ExecStart=/usr/local/bin/ts-orch netbird foundation backup
+# Recover shim-owned tasks if the backup process exits before its deferred resume.
+ExecStopPost=/usr/local/bin/ts-orch netbird foundation reconcile
+TimeoutStartSec=15min
 IOSchedulingClass=idle

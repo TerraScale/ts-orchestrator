@@ -1203,9 +1203,6 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	// NetBird address beside the signed observability listener.
 	workers.Go(func() { telemetry.dashboardLoop(runCtx, services.dashboard, localNetBirdAddresses, readDashboardToken) })
 
-	workers.Go(func() {
-		runNetBirdManagement(runCtx, control)
-	})
 	workers.Go(func() { workerErrors <- newOCICostCollector(cfg.NATS.Cell, costStore, control).Run(runCtx) })
 	workers.Go(func() { workerErrors <- newOCICostTagger(cfg.NATS.Cell, control).Run(runCtx) })
 

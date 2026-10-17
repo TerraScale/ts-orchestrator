@@ -4,58 +4,57 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/secrets"
 )
 
-type contextProviderDispatcher func(*http.Request) (*http.Response, error)
-
-func (d contextProviderDispatcher) Do(request *http.Request) (*http.Response, error) {
-	return d(request)
-}
-
-func TestInstancePrincipalInitializationRespectsEnrollmentDeadline(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+func TestVaultIntegrationProviderInitializationCancelsHTTP(t *testing.T) {
+	started := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { close(started); <-r.Context().Done() }))
+	t.Cleanup(server.Close)
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	deadline, _ := ctx.Deadline()
-	dispatcher := instancePrincipalContextDispatcher{ctx: ctx, dispatcher: contextProviderDispatcher(func(request *http.Request) (*http.Response, error) {
-		got, ok := request.Context().Deadline()
-		if !ok || !got.Equal(deadline) {
-			return nil, errors.New("provider initialization did not inherit enrollment deadline")
-		}
-		<-request.Context().Done()
-		return nil, request.Context().Err()
-	})}
-	// The OCI provider creates initialization requests without our context.
-	request, err := http.NewRequest(http.MethodGet, "http://169.254.169.254/opc/v2/identity/", nil)
+	go func() { <-started; cancel() }()
+	dispatcher := instancePrincipalContextDispatcher{ctx: ctx, dispatcher: server.Client()}
+	request, err := http.NewRequest(http.MethodGet, server.URL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := dispatcher.Do(request); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("provider initialization escaped the enrollment deadline: %v", err)
+	if _, err := initializeSecretsClient(ctx, func() (secrets.SecretsClient, error) {
+		_, err := dispatcher.Do(request)
+		return secrets.SecretsClient{}, err
+	}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("initialization escaped cancellation: %v", err)
 	}
 }
 
-func TestSecretsInitializationReleasesCallerDuringSDKBackoff(t *testing.T) {
+func TestVaultIntegrationInitializationReleasesCallerDuringHTTPBackoff(t *testing.T) {
+	started, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-release
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(server.Close)
+	t.Cleanup(func() { close(release); <-finished })
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	started, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	t.Cleanup(func() { close(release); <-finished })
 	go func() { <-started; cancel() }()
+	startedAt := time.Now()
 	if _, err := initializeSecretsClient(ctx, func() (secrets.SecretsClient, error) {
 		defer close(finished)
-		close(started)
-		// The SDK's retry sleep does not observe the request context.
-		<-release
-		return secrets.SecretsClient{}, errors.New("credential initialization ended")
+		response, err := server.Client().Get(server.URL)
+		if err == nil {
+			response.Body.Close()
+		}
+		return secrets.SecretsClient{}, err
 	}); !errors.Is(err, context.Canceled) {
-		t.Fatalf("SDK credential backoff held the caller past its deadline: %v", err)
+		t.Fatalf("initialization held caller: %v", err)
 	}
-	select {
-	case <-finished:
-		t.Fatal("test initializer unexpectedly ended before its simulated SDK backoff")
-	default:
+	if time.Since(startedAt) > time.Second {
+		t.Fatal("initialization cancellation exceeded one second")
 	}
 }

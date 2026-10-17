@@ -19,17 +19,17 @@ func TestSyncDiscoversRegionalGroupsWithoutNATSOrPeerHealth(t *testing.T) {
 	if _, err := Sync(t.Context(), api, GRU(), true); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.groups) != len(GRU().Groups) || len(f.policies) != len(GRU().Policies) {
+	if len(f.groups) != len(GRU().Groups)+1 || len(f.policies) != len(GRU().Policies)+3 {
 		t.Fatal("peer names or the compiled catalog created regional access")
 	}
 	sfo := f.addGroup("sfo-servers")
 	f.group(sfo).Resources = []resourceRef{{ID: "retained-resource", Type: "host"}}
 	offline := f.addPeer("ts-sfo-2", "203.0.113.10", false, time.Now().Add(-48*time.Hour), sfo)
 	t.Setenv("NB_PAT", testPAT)
-	if err := Run(t.Context(), []string{"sync", "--apply", "--management-url", f.server.URL}, io.Discard); err != nil {
+	if err := runManualManagerCLI(t.Context(), []string{"sync", "--apply", "--management-url", f.server.URL}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.policies) != len(GRU().Policies)+8 {
+	if len(f.policies) != len(GRU().Policies)+3+8 {
 		t.Fatalf("SFO access policies: %d", len(f.policies))
 	}
 	// A new empty region is seen on the next controller cycle, before its
@@ -41,7 +41,7 @@ func TestSyncDiscoversRegionalGroupsWithoutNATSOrPeerHealth(t *testing.T) {
 	if err := loop.cycle(t.Context(), map[string]bool{}); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.policies) != len(GRU().Policies)+16 {
+	if len(f.policies) != len(GRU().Policies)+3+16 {
 		t.Fatalf("new region access policies: %d", len(f.policies))
 	}
 	for group, groupID := range map[string]string{"sfo-servers": sfo, "fra-servers": fra} {

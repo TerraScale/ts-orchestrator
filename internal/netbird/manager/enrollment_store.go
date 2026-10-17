@@ -15,7 +15,8 @@ import (
 type enrollmentState struct {
 	Origin, Group, Name, Operation           string
 	Vault, VaultName, Compartment, MasterKey string
-	Attempted                                bool
+	Attempted, GroupAttempted                bool
+	GroupID                                  string
 	KeyID, Key, SecretID                     string
 }
 

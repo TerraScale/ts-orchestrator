@@ -30,14 +30,12 @@ func TestHostSetupSeedsNetBirdWhenFirstInstalledResponseIsRenewal(t *testing.T) 
 	metadata := lab.launch(t, "ocid1.instance.oc1.sa-saopaulo-1.lost-response", "gru-1-db-1", "10.251.0.21")
 	root := t.TempDir()
 	image := cellspec.NetBird{Pin: netbirdArtifactTestPin(t), Enrollment: netbird.Config{
-		ManagementURL: netbird.DefaultManagementURL, ManagementIP: "10.250.10.154", Region: "sa-saopaulo-1",
-		SetupKeySecretID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.image"}}
+		ManagementURL: netbird.DefaultManagementURL, Region: "us-sanjose-1"}}
 	desired := image
 	desired.Pin.Version = "0.80.1"
 	desired.Pin.Archives.Arm64.URL = strings.ReplaceAll(desired.Pin.Archives.Arm64.URL, "0.80.0", "0.80.1")
 	desired.Pin.Archives.AMD64.URL = strings.ReplaceAll(desired.Pin.Archives.AMD64.URL, "0.80.0", "0.80.1")
-	desired.Enrollment.ManagementIP = "10.250.10.155"
-	desired.Enrollment.SetupKeySecretID = "ocid1.vaultsecret.oc1.sa-saopaulo-1.signed"
+	desired.Enrollment.Region = "sa-saopaulo-1"
 	lab.enrollment.services.current.NetBird = &desired
 	for name, value := range map[string]any{"netbird-pin.json": image.Pin, "netbird.json": image.Enrollment} {
 		wire, err := protocol.EncodeJSON(value)
@@ -152,7 +150,7 @@ func TestHostSetupSeedsNetBirdWhenFirstInstalledResponseIsRenewal(t *testing.T) 
 		t.Fatalf("first renewal kept the image pin instead of its signed pin: %v", err)
 	}
 	config, err := netbird.LoadConfig(filepath.Join(root, "netbird.json"))
-	if err != nil || config.ManagementIP != desired.Enrollment.ManagementIP || config.SetupKeySecretID != desired.Enrollment.SetupKeySecretID {
+	if err != nil || config != desired.Enrollment {
 		t.Fatalf("first renewal kept the image enrollment settings: %v", err)
 	}
 	before := map[string][]byte{}
@@ -163,7 +161,7 @@ func TestHostSetupSeedsNetBirdWhenFirstInstalledResponseIsRenewal(t *testing.T) 
 		}
 	}
 	amended := desired
-	amended.Enrollment.ManagementIP = "10.250.10.156"
+	amended.Enrollment.Region = "us-sanjose-1"
 	lab.enrollment.services.mu.Lock()
 	lab.enrollment.services.current.NetBird = &amended
 	lab.enrollment.services.mu.Unlock()

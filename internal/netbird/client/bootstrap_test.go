@@ -79,7 +79,7 @@ func TestManagedBootstrapEnrollmentLoadsCurrentConfigAndRetainsLock(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			f.cfg.SetupKeySecretID += ".current"
+			f.cfg.Region = "us-sanjose-1"
 			if written, err := f.m.installBootstrapConfig(t.Context(), root, f.pin, f.cfg); !written || err != nil {
 				t.Fatalf("current publication failed: written=%t error=%v", written, err)
 			}
@@ -92,7 +92,7 @@ func TestManagedBootstrapEnrollmentLoadsCurrentConfigAndRetainsLock(t *testing.T
 				enrollmentErr = errors.New("enrollment failed")
 			}
 			f.m.enroll = func(_ context.Context, cfg netbird.Config) error {
-				if cfg.SetupKeySecretID != f.cfg.SetupKeySecretID || cfg.SetupKeySecretID == prior.SetupKeySecretID {
+				if cfg.Region != f.cfg.Region || cfg.Region == prior.Region {
 					t.Fatal("final enrollment used superseded bootstrap configuration")
 				}
 				if lock, err := f.m.lock(); err == nil {
@@ -129,7 +129,7 @@ func TestManagedBootstrapPublicationCancellationHoldsReadersAndFreshSnapshots(t 
 			f.pin.Version = "0.80.1"
 			f.pin.Archives.Arm64.URL = strings.ReplaceAll(f.pin.Archives.Arm64.URL, "0.80.0", "0.80.1")
 			f.pin.Archives.AMD64.URL = strings.ReplaceAll(f.pin.Archives.AMD64.URL, "0.80.0", "0.80.1")
-			f.cfg.SetupKeySecretID += ".next"
+			f.cfg.Region = "us-sanjose-1"
 			ctx := &canceledBootstrapPublication{Context: t.Context(), cancelAt: cancelAt}
 			if written, err := f.m.installBootstrapConfig(ctx, root, f.pin, f.cfg); written || !errors.Is(err, context.Canceled) {
 				t.Fatalf("interrupted publication completed: written=%t error=%v", written, err)
@@ -158,7 +158,7 @@ func TestManagedBootstrapPublicationCancellationHoldsReadersAndFreshSnapshots(t 
 				t.Fatalf("publication retry did not repair mirrors: written=%t error=%v", written, err)
 			}
 			pin, cfg, err := f.m.readBootstrapConfig(t.Context(), filepath.Join(root, "netbird.json"), true)
-			if err != nil || pin != f.pin || cfg.SetupKeySecretID != f.cfg.SetupKeySecretID {
+			if err != nil || pin != f.pin || cfg.Region != f.cfg.Region {
 				t.Fatalf("repaired publication differs: pin=%+v config=%+v error=%v", pin, cfg, err)
 			}
 			if _, err := os.Lstat(filepath.Join(root, bootstrapPendingFile)); !errors.Is(err, os.ErrNotExist) {
@@ -244,7 +244,7 @@ func TestManagedBootstrapReaderRejectsUntrustedPins(t *testing.T) {
 			if _, _, err := f.m.readBootstrapConfig(t.Context(), filepath.Join(root, "netbird.json"), true); err == nil {
 				t.Fatal("bootstrap reader accepted untrusted pin")
 			}
-			if _, cfg, err := f.m.readBootstrapConfig(t.Context(), filepath.Join(root, "netbird.json"), false); err != nil || cfg.SetupKeySecretID != f.cfg.SetupKeySecretID {
+			if _, cfg, err := f.m.readBootstrapConfig(t.Context(), filepath.Join(root, "netbird.json"), false); err != nil || cfg.Region != f.cfg.Region {
 				t.Fatalf("existing-client enrollment unnecessarily required pin: %+v %v", cfg, err)
 			}
 		})
@@ -317,7 +317,7 @@ func TestManagedBootstrapConfigReplacesImageDefaultsBeforeAdmission(t *testing.T
 		t.Fatalf("initial pin differs: %v", err)
 	}
 	cfg, err := netbird.LoadConfig(filepath.Join(root, "netbird.json"))
-	if err != nil || cfg.SetupKeySecretID != f.cfg.SetupKeySecretID {
+	if err != nil || cfg.Region != f.cfg.Region {
 		t.Fatalf("initial enrollment differs: %v", err)
 	}
 	if transaction, err := f.m.readTransaction(); err != nil || transaction.TransactionID != "" || len(f.calls) != 0 {
@@ -363,7 +363,7 @@ func TestManagedBootstrapConfigCannotChangeConcurrentInstallationSnapshot(t *tes
 	f := newManagedFixture(t)
 	root := managedBootstrapDefaults(t, f)
 	prior := f.cfg
-	prior.SetupKeySecretID += "-image"
+	prior.Region = "us-sanjose-1"
 	body, err := json.Marshal(prior)
 	if err != nil {
 		t.Fatal(err)
@@ -405,7 +405,7 @@ func TestManagedBootstrapConfigRejectsInvalidInputsBeforeWrites(t *testing.T) {
 			case "pin":
 				f.pin.Archives.AMD64.BinarySHA256 = "invalid"
 			case "configuration":
-				f.cfg.SetupKeySecretID = "invalid"
+				f.cfg.Region = "invalid"
 			case "context":
 				var cancel context.CancelFunc
 				ctx, cancel = context.WithCancel(ctx)

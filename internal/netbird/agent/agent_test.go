@@ -32,7 +32,7 @@ func signedCommand(t *testing.T, action string) (Config, []byte) {
 	}
 	cfg := Config{Cell: "gru", Node: "node-a", Directory: t.TempDir(), Controller: public}
 	command := network.Command{ID: network.CommandID("1XSA1KQFHZFFN74D9VXYVJGJE6", action), Transaction: "1XSA1KQFHZFFN74D9VXYVJGJE6", Generation: 1, Action: action, Target: network.Target{Pin: pin,
-		Enrollment: netbird.Config{ManagementURL: netbird.DefaultManagementURL, Region: "sa-saopaulo-1", SetupKeySecretID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.example.valid"}}}
+		Enrollment: netbird.Config{ManagementURL: netbird.DefaultManagementURL, Region: "sa-saopaulo-1"}}}
 	return cfg, signCommand(t, cfg, key, command, 3)
 }
 
@@ -76,14 +76,14 @@ func workerFixture(t *testing.T) (Config, network.Command, ed25519.PrivateKey) {
 	return cfg, command, key
 }
 
-func TestSignedNetBirdStepRejectsRetargetingAndTampering(t *testing.T) {
+func TestRelayRetainsSignedStepAndRejectsRetargetingAndTampering(t *testing.T) {
 	cfg, wire := signedCommand(t, "confirm")
-	if _, _, err := Verify(cfg, wire); err != nil {
+	if err := Relay(t.Context(), cfg, wire, nil); err != nil {
 		t.Fatal(err)
 	}
 	other := cfg
 	other.Node = "node-b"
-	if _, _, err := Verify(other, wire); err == nil {
+	if err := Relay(t.Context(), other, wire, nil); err == nil {
 		t.Fatal("accepted command signed for another node")
 	}
 	var step protocol.Envelope
@@ -95,8 +95,12 @@ func TestSignedNetBirdStepRejectsRetargetingAndTampering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := Verify(cfg, tampered); err == nil {
+	if err := Relay(t.Context(), cfg, tampered, nil); err == nil {
 		t.Fatal("accepted modified transaction generation")
+	}
+	stored, err := os.ReadFile(filepath.Join(cfg.Directory, "step.json"))
+	if err != nil || string(stored) != string(wire) {
+		t.Fatalf("rejected commands changed the retained signed step: %v", err)
 	}
 }
 
@@ -275,7 +279,7 @@ func TestWorkerPrivateLedgerSurvivesForgedDeletedRelayResultAndRestart(t *testin
 func TestWorkerAppliedTargetRequiresSuccessfulInstallAndConfirmation(t *testing.T) {
 	cfg, command, key := workerFixture(t)
 	previous := command.Target
-	previous.Enrollment.ManagementIP = "10.250.10.155"
+	previous.Enrollment.Region = "us-sanjose-1"
 	previousHash := network.Hash(previous)
 	targetHash := network.Hash(command.Target)
 	last := ledger{AppliedTargetHash: previousHash}
@@ -320,7 +324,7 @@ func TestWorkerRejectsConfirmationForAnUninstalledTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	command.Action, command.ID = "confirm", network.CommandID(command.Transaction, "confirm")
-	command.Target.Enrollment.ManagementIP = "10.250.10.155"
+	command.Target.Enrollment.Region = "us-sanjose-1"
 	if err := applyStep(t.Context(), cfg, &last, signCommand(t, cfg, key, command, 3), func(context.Context, network.Command) error {
 		t.Fatal("confirmation acknowledged a different enrollment target")
 		return nil
@@ -422,11 +426,14 @@ func TestWorkerMissingRequiresExecutableAbsence(t *testing.T) {
 	}
 }
 
-func TestVerifyRejectsSignedOldTransactionID(t *testing.T) {
+func TestRelayRejectsSignedOldTransactionIDBeforeSpooling(t *testing.T) {
 	cfg, command, key := workerFixture(t)
 	command.Transaction = "old-transaction"
 	command.ID = network.CommandID(command.Transaction, command.Action)
-	if _, _, err := Verify(cfg, signCommand(t, cfg, key, command, 3)); err == nil {
+	if err := Relay(t.Context(), cfg, signCommand(t, cfg, key, command, 3), nil); err == nil {
 		t.Fatal("signed command accepted an old transaction ID")
+	}
+	if _, err := os.Stat(filepath.Join(cfg.Directory, "step.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("rejected old transaction became visible: %v", err)
 	}
 }

@@ -261,7 +261,10 @@ func Relay(ctx context.Context, cfg Config, wire []byte, fetch func(context.Cont
 	return spool.write("step.json", wire)
 }
 
-func Run(ctx context.Context, cfg Config) error {
+func Run(ctx context.Context, cfg Config, reader netbird.SetupKeyReader) error {
+	if reader == nil {
+		return errors.New("NetBird agent requires an authenticated setup-key reader")
+	}
 	if os.Geteuid() != 0 {
 		return errors.New("NetBird agent must run as root")
 	}
@@ -292,7 +295,7 @@ func Run(ctx context.Context, cfg Config) error {
 						BinaryPath: cfg.spool.path("binary-" + pin.BinarySHA256), TransactionID: command.Transaction,
 						Prepare: func(previous client.ManagedResult) error {
 							return prepareInstall(cfg, &last, command.Transaction, previous)
-						}})
+						}}, reader)
 					if result.TransactionID == command.Transaction {
 						last.InstallProgress = "journaled"
 					}

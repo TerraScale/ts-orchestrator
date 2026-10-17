@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
@@ -28,7 +27,6 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/commandio"
-	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 )
 
 const MaxBinaryBytes = 128 << 20
@@ -96,12 +94,8 @@ func ValidatePin(p Pin) error {
 }
 
 type Config struct {
-	ManagementURL    string            `json:"management_url"`
-	ManagementIP     string            `json:"management_ip,omitempty"`
-	Region           string            `json:"region"`
-	SetupKeySecretID string            `json:"setup_key_secret_id"`
-	PeerNames        map[string]string `json:"peer_names,omitempty"`
-	AdminPATSecretID string            `json:"admin_pat_secret_id,omitempty"`
+	ManagementURL string `json:"management_url"`
+	Region        string `json:"region"`
 }
 
 func ValidateConfig(path string) (Config, error) {
@@ -124,7 +118,7 @@ func ValidateConfig(path string) (Config, error) {
 	}
 	// RejectUnknownMembers below bounds the field set; only required fields
 	// are checked here.
-	if fields["management_url"] == nil || fields["region"] == nil || fields["setup_key_secret_id"] == nil {
+	if fields["management_url"] == nil || fields["region"] == nil {
 		return c, errors.New("NetBird enrollment configuration has unexpected or missing fields")
 	}
 	if e = json.Unmarshal(b, &c, json.RejectUnknownMembers(true)); e != nil {
@@ -136,23 +130,6 @@ func ValidateConfig(path string) (Config, error) {
 	}
 	if !regexp.MustCompile(`^[a-z]{2}-[a-z]+-[1-9][0-9]*$`).MatchString(c.Region) {
 		return c, errors.New("NetBird region must be an OCI region name")
-	}
-	if !netbird.ValidSecretID(c.Region, c.SetupKeySecretID) {
-		return c, errors.New("NetBird setup_key_secret_id must identify an OCI Vault secret in the configured region")
-	}
-	// An empty or null admin_pat_secret_id means absent, as in the
-	// controller's netbird.Config.
-	if c.AdminPATSecretID != "" && !netbird.ValidSecretID(c.Region, c.AdminPATSecretID) {
-		return c, errors.New("NetBird admin_pat_secret_id must identify an OCI Vault secret in the configured region")
-	}
-	if _, ok := fields["management_ip"]; ok {
-		ip, e := netip.ParseAddr(c.ManagementIP)
-		if e != nil || !ip.IsPrivate() || ip.Is4In6() || ip.Zone() != "" {
-			return c, errors.New("NetBird management_ip must be a private IPv4 or IPv6 address")
-		}
-	}
-	if e = netbird.ValidatePeerNames(c.PeerNames); e != nil {
-		return c, e
 	}
 	return c, nil
 }

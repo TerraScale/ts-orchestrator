@@ -149,11 +149,29 @@ func TestDeviceLoginRefusesMFAAndOtherOrigins(t *testing.T) {
 // instructions on standard error unless its token is cached, waits for the
 // fake Dex to approve the device, then runs the session.
 func TestHelperNetBird(t *testing.T) {
+	args := os.Args[slices.Index(os.Args, "--")+1:]
+	if status, ok := os.LookupEnv("SSHLOGIN_HELPER_STATUS"); ok {
+		if len(args) > 0 && args[0] == "status" {
+			fmt.Print(status)
+		} else {
+			fmt.Print(strings.Join(args[2:], " "))
+		}
+		os.Exit(0)
+	}
+	if output, ok := os.LookupEnv("SSHLOGIN_HELPER_OUTPUT"); ok {
+		fmt.Print(output)
+		fmt.Fprint(os.Stderr, os.Getenv("SSHLOGIN_HELPER_STDERR"))
+		if dex := os.Getenv("SSHLOGIN_HELPER_APPROVAL"); dex != "" {
+			for !approved(dex) {
+				time.Sleep(5 * time.Millisecond)
+			}
+		}
+		os.Exit(0)
+	}
 	dex := os.Getenv("SSHLOGIN_HELPER_DEX")
 	if dex == "" {
 		return
 	}
-	args := os.Args[slices.Index(os.Args, "--")+1:]
 	if os.Getenv("SSHLOGIN_HELPER_CACHED") == "" {
 		fmt.Fprintf(os.Stderr, "SSH authentication required.\n%s/oauth2/device?user_code=%s\nOr visit: %s/oauth2/device and enter code: %s\nWaiting for authentication...\n", dex, testCode, dex, testCode)
 		for !approved(dex) {
@@ -228,7 +246,7 @@ func TestRunStopsTheClientWhenLoginFailsAndKeepsItsExitStatus(t *testing.T) {
 	}
 }
 
-func TestCopyOutputDropsOnlyTheLeadingLoginLine(t *testing.T) {
+func TestSSHProcessOutputDropsOnlyTheLeadingLoginLine(t *testing.T) {
 	for input, want := range map[string]string{
 		authenticated + "secret\n":         "secret\n",
 		"secret\n" + authenticated:         "secret\n" + authenticated,
@@ -237,22 +255,37 @@ func TestCopyOutputDropsOnlyTheLeadingLoginLine(t *testing.T) {
 		authenticated:                      "",
 		"Authentication successful!" + "x": "Authentication successful!x",
 	} {
+		t.Setenv("SSHLOGIN_HELPER_OUTPUT", input)
 		var output bytes.Buffer
-		if err := copyOutput(&output, strings.NewReader(input)); err != nil || output.String() != want {
-			t.Errorf("copyOutput(%q) = %q, %v; want %q", input, output.String(), err, want)
+		argv := []string{os.Args[0], "-test.run=^TestHelperNetBird$", "--"}
+		if err := run(t.Context(), argv, nil, &output, io.Discard, "http://127.0.0.1:1", func(context.Context) (string, string, error) {
+			t.Fatal("output consumed a credential")
+			return "", "", nil
+		}); err != nil || output.String() != want {
+			t.Errorf("process output %q = %q, %v; want %q", input, output.String(), err, want)
 		}
 	}
 }
 
-func TestVerificationURL(t *testing.T) {
-	for line, want := range map[string]string{
-		"https://netbird.terrascale.tech/oauth2/device?user_code=ABCD-EFGH\n":                 "https://netbird.terrascale.tech/oauth2/device?user_code=ABCD-EFGH",
-		"Or visit: https://netbird.terrascale.tech/oauth2/device and enter code: ABCD-EFGH\n": "",
-		"https://netbird.terrascale.tech/oauth2/device\n":                                     "",
-		"Waiting for authentication...\n":                                                     "",
-	} {
-		if got := verificationURL(line); got != want {
-			t.Errorf("verificationURL(%q) = %q, want %q", line, got, want)
+func TestSSHProcessAcceptsOnlyCompleteDeviceVerificationURL(t *testing.T) {
+	for _, recognized := range []bool{true, false} {
+		dex := newFakeDex(t)
+		line := dex.verification() + "\n"
+		if !recognized {
+			line = "Or visit: " + dex.URL + "/oauth2/device and enter code: " + testCode + "\n" + dex.URL + "/oauth2/device\nWaiting for authentication...\n"
+		}
+		t.Setenv("SSHLOGIN_HELPER_OUTPUT", "")
+		approval := ""
+		if recognized {
+			approval = dex.URL
+		}
+		t.Setenv("SSHLOGIN_HELPER_APPROVAL", approval)
+		t.Setenv("SSHLOGIN_HELPER_STDERR", line)
+		var reads atomic.Int32
+		argv := []string{os.Args[0], "-test.run=^TestHelperNetBird$", "--"}
+		err := run(t.Context(), argv, nil, io.Discard, io.Discard, dex.URL, func(context.Context) (string, string, error) { reads.Add(1); return testEmail, testPassword, nil })
+		if err != nil || dex.approved.Load() != recognized || reads.Load() != map[bool]int32{true: 1, false: 0}[recognized] {
+			t.Fatalf("device process recognized=%t approved=%t reads=%d error=%v", recognized, dex.approved.Load(), reads.Load(), err)
 		}
 	}
 }
@@ -282,8 +315,12 @@ func TestDestinationNamingAPeerUsesItsNetBirdIP(t *testing.T) {
 		{"fqdn":"gru-1-ctl-1.nb.ts.internal","netbirdIp":"10.200.87.215","status":"Connected"},
 		{"fqdn":"ts-sfo-1.nb.ts.internal","netbirdIp":"10.200.112.213","netbirdIpv6":"fd9c:200::1","status":"Idle"},
 		{"fqdn":"broken.nb.ts.internal","netbirdIp":"not-an-ip"}]}}`)
-	addresses := peerAddresses(status)
-	dualStack := allPeerAddresses(status)
+	t.Setenv("SSHLOGIN_HELPER_STATUS", string(status))
+	command := os.Args[0] + " -test.run=^TestHelperNetBird$ --"
+	dualStack, err := Addresses(t.Context(), command)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if dualStack["ts-sfo-1"].IPv6 != "fd9c:200::1" || dualStack["ts-sfo-1.nb.ts.internal"].IPv6 != "fd9c:200::1" || dualStack["gru-1-ctl-1"].IPv6 != "" {
 		t.Fatalf("peer address families = %#v", dualStack)
 	}
@@ -297,11 +334,14 @@ func TestDestinationNamingAPeerUsesItsNetBirdIP(t *testing.T) {
 		"remote cmd": {[]string{"root@ts-sfo-1", "getent", "hosts", "gru-1-ctl-1"}, []string{"root@10.200.112.213", "getent", "hosts", "gru-1-ctl-1"}},
 	} {
 		args := slices.Clone(tc.args)
-		if got := withPeerAddress(args, addresses); !slices.Equal(got, tc.want) || !slices.Equal(args, tc.args) {
-			t.Errorf("%s: withPeerAddress(%q) = %q, input now %q; want %q", name, tc.args, got, args, tc.want)
+		var output bytes.Buffer
+		if err := Session(t.Context(), "ocid1.vault.oc1.sa-saopaulo-1.integration", command, args, nil, &output, io.Discard); err != nil || output.String() != strings.Join(tc.want, " ") || !slices.Equal(args, tc.args) {
+			t.Errorf("%s: process destination=%q error=%v input=%q; want %q", name, output.String(), err, args, tc.want)
 		}
 	}
-	if got := withPeerAddress([]string{"root@ts-sfo-1"}, peerAddresses([]byte("not json"))); !slices.Equal(got, []string{"root@ts-sfo-1"}) {
-		t.Errorf("unparsable status changed the destination: %q", got)
+	t.Setenv("SSHLOGIN_HELPER_STATUS", "not json")
+	var output bytes.Buffer
+	if err := Session(t.Context(), "ocid1.vault.oc1.sa-saopaulo-1.integration", command, []string{"root@ts-sfo-1"}, nil, &output, io.Discard); err != nil || output.String() != "root@ts-sfo-1" {
+		t.Fatalf("unparsable process status changed destination: %q %v", output.String(), err)
 	}
 }
