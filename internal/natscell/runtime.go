@@ -168,6 +168,8 @@ type Runtime struct {
 	serverName      string
 	brokerNames     []string
 	once            sync.Once
+	storeLock       *os.File
+	genesis         *brokerGenesis
 }
 
 func (r *Runtime) Conn() *nats.Conn { return r.conn }
@@ -324,6 +326,9 @@ func (r *Runtime) Close() error {
 		if r.server != nil {
 			r.stopServer()
 		}
+		if r.storeLock != nil {
+			_ = r.storeLock.Close()
+		}
 	})
 	return nil
 }
@@ -360,7 +365,11 @@ func StartIdentityRekey(ctx context.Context, cfg Config) (*Runtime, error) {
 	return start(ctx, cfg, true)
 }
 
-func start(ctx context.Context, cfg Config, identityRekey bool) (_ *Runtime, err error) {
+func start(ctx context.Context, cfg Config, identityRekey bool) (*Runtime, error) {
+	return startBroker(ctx, cfg, identityRekey, false)
+}
+
+func startBroker(ctx context.Context, cfg Config, identityRekey, original bool) (_ *Runtime, err error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
@@ -371,6 +380,9 @@ func start(ctx context.Context, cfg Config, identityRekey bool) (_ *Runtime, err
 		}
 	}()
 	if cfg.Embedded != nil {
+		if err := r.lockBrokerStore(ctx, cfg, original); err != nil {
+			return nil, err
+		}
 		options, optionsErr := serverOptionsForStart(cfg, identityRekey)
 		if optionsErr != nil {
 			return nil, optionsErr
@@ -501,6 +513,13 @@ func start(ctx context.Context, cfg Config, identityRekey bool) (_ *Runtime, err
 		defer infoCancel()
 		if _, err := r.js.AccountInfo(infoCtx); err != nil {
 			return nil, unavailable{fmt.Errorf("regional JetStream unavailable: %w", err)}
+		}
+	}
+	if r.genesis != nil {
+		r.genesis.info.ServerID = r.server.ID()
+		r.genesis.info.RaftNodeID = r.server.NodeName()
+		if err := (VerifiedBrokerGenesis{r}).Revalidate(ctx); err != nil {
+			return nil, err
 		}
 	}
 	return r, nil
