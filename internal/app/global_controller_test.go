@@ -58,7 +58,7 @@ func TestGlobalAndInterRegionRejectRemovedEnabledFields(t *testing.T) {
 			`"controller":{"global":{"enabled":` + value + `}}`,
 			`"nats":{"embedded":{"interregion":{"enabled":` + value + `}}}`,
 		} {
-			if _, err := decodeConfig([]byte(`{"version":1,` + block + `}`)); err == nil {
+			if _, err := decodeConfig([]byte(`{"version":2,` + block + `}`)); err == nil {
 				t.Fatalf("removed field accepted: %s", block)
 			}
 		}

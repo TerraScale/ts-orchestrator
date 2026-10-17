@@ -1,10 +1,7 @@
-version 1
+version 2
 .Controller struct json:"controller"
 .Controller.ArtifactStoreMaxBytes int64 json:"artifact_store_max_bytes,omitzero"
 .Controller.Autoscale *struct json:"autoscale,omitempty"
-.Controller.Autoscale.Enabled bool json:"enabled"
-.Controller.Autoscale.HostTelemetry bool json:"host_telemetry,omitzero"
-.Controller.Autoscale.IntervalSeconds int json:"interval_seconds,omitzero"
 .Controller.Autoscale.Services []struct json:"services,omitempty"
 .Controller.Autoscale.Services.Environment string json:"environment"
 .Controller.Autoscale.Services.Kind string json:"kind"

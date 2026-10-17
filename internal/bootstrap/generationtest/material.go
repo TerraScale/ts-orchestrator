@@ -26,6 +26,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/roleconfig"
 	"github.com/TerraScale/ts-orchestrator/internal/roleidentity"
 )
 
@@ -354,7 +355,7 @@ func (material Material) InterRegion(t testing.TB, now time.Time, slots []string
 			ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}}, &ca)
 		leafTLS := natscell.TLSFiles{CAFile: directory + "interregion-ca.pem", CertFile: directory + certName,
 			KeyFile: directory + keyName}
-		config, err := json.Marshal(map[string]any{"version": 1, "controller": map[string]any{"candidate_id": slot},
+		config, err := json.Marshal(map[string]any{"version": roleconfig.Version, "controller": map[string]any{"candidate_id": slot},
 			"nats": natscell.Config{Cell: "gru", Instance: slot, Embedded: &natscell.Embedded{
 				CellJWTFile: directory + "cell.jwt", SystemJWTFile: directory + "system.jwt",
 				InterRegion: &natscell.InterRegion{Peers: contract.Peers, GlobalHome: "sfo",
@@ -400,7 +401,7 @@ func (material Material) Link(t testing.TB, now time.Time, slots []string) Mater
 			DNSNames: []string{"leaf." + material.Region + ".interregion.terrascale.internal"}, NotBefore: now.Add(-time.Hour),
 			NotAfter: year, KeyUsage: x509.KeyUsageDigitalSignature,
 			ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}}, &ca)
-		config, err := json.Marshal(map[string]any{"version": 1, "controller": map[string]any{"candidate_id": slot},
+		config, err := json.Marshal(map[string]any{"version": roleconfig.Version, "controller": map[string]any{"candidate_id": slot},
 			"nats": natscell.Config{Cell: material.Region, Instance: slot, Embedded: &natscell.Embedded{
 				CellJWTFile: directory + "cell.jwt", SystemJWTFile: directory + "system.jwt",
 				Link: &natscell.Link{CredentialsFile: credentials, TLS: natscell.TLSFiles{CAFile: directory + "interregion-ca.pem",

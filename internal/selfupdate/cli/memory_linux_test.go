@@ -18,11 +18,11 @@ func TestReadHostRuntimeRoots(t *testing.T) {
 		config string
 		ok     bool
 	}{
-		{`{"version":1,"host":{"managed_runtime_root":"/srv/ts-managed","terrabase_root":"/srv/ts-managed/terrabase","workload_gid":2000,"node":"ts-gru-1"}}`, true},
-		{`{"version":1,"host":{"node":"lab"}}`, true},
-		{`{"version":1,"host":{"managed_runtime_root":"srv/ts-managed","workload_gid":2000}}`, false},
-		{`{"version":1,"host":{"terrabase_root":"/srv/../etc","workload_gid":2000}}`, false},
-		{`{"version":1,"host":{"managed_runtime_root":"/srv/ts-managed"}}`, false},
+		{`{"version":2,"host":{"managed_runtime_root":"/srv/ts-managed","terrabase_root":"/srv/ts-managed/terrabase","workload_gid":2000,"node":"ts-gru-1"}}`, true},
+		{`{"version":2,"host":{"node":"lab"}}`, true},
+		{`{"version":2,"host":{"managed_runtime_root":"srv/ts-managed","workload_gid":2000}}`, false},
+		{`{"version":2,"host":{"terrabase_root":"/srv/../etc","workload_gid":2000}}`, false},
+		{`{"version":2,"host":{"managed_runtime_root":"/srv/ts-managed"}}`, false},
 	} {
 		if err := os.WriteFile(path, []byte(tc.config), 0o600); err != nil {
 			t.Fatal(err)

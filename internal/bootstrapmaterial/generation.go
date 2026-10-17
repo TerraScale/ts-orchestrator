@@ -25,6 +25,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/roleconfig"
 	"github.com/TerraScale/ts-orchestrator/internal/roleidentity"
 )
 
@@ -345,7 +346,7 @@ func (check *generationCheck) controllerConfig(generation bootstrap.MaterialGene
 	var version int
 	var nats natscell.Config
 	if protocol.DecodeStrict(data, &top, bootstrap.MaxControllerConfigBytes) != nil ||
-		protocol.DecodeStrict(top["version"], &version, bootstrap.MaxControllerConfigBytes) != nil || version != 1 || top["controller"] == nil ||
+		protocol.DecodeStrict(top["version"], &version, bootstrap.MaxControllerConfigBytes) != nil || version != roleconfig.Version || top["controller"] == nil ||
 		top["nats"] == nil || protocol.DecodeStrict(top["nats"], &nats, bootstrap.MaxControllerConfigBytes) != nil {
 		check.fail(name + " is not a controller config")
 		return false
