@@ -58,19 +58,9 @@ func (c *Controller) ObservePoolChild(ctx context.Context, call rootoci.Call, re
 		authorized.SharedCompartmentID != record.SharedCompartmentID || record.Stage != "reconciled" {
 		return rootoci.PoolChildView{}, errors.Join(err, rootoci.ErrPoolChildUnverified)
 	}
-	var original capacityledger.Receipt
-	for _, host := range record.CapacityLedger.Hosts {
-		if host.Receipt.OperationID == selected.OperationID {
-			if original.OperationID != "" || host.InstanceID != selected.InstanceID || host.BootVolumeID != selected.BootVolumeID ||
-				!host.BornAt.Equal(selected.BornAt) || !host.InstanceRetiredAt.IsZero() || !host.BootRetiredAt.IsZero() {
-				return rootoci.PoolChildView{}, rootoci.ErrPoolChildUnverified
-			}
-			original = host.Receipt
-		}
-	}
-	if err := original.Validate(); err != nil || original.RecipeSHA256 != selected.RecipeSHA256 || original.TenancyID != record.TenancyID ||
-		original.Quote.Cell != record.Cell || original.Quote.CompartmentID != record.CapacityPools[selected.PoolID].CompartmentID {
-		return rootoci.PoolChildView{}, errors.Join(err, rootoci.ErrPoolChildUnverified)
+	original, err := originalPoolChildReceipt(record, selected)
+	if err != nil {
+		return rootoci.PoolChildView{}, err
 	}
 	if err := a.resolveWorker(ctx, rootoci.PoolChildExpectation{Cell: record.Cell, OperationID: selected.OperationID, ReservationID: selected.OperationID,
 		RecipeSHA256: selected.RecipeSHA256, PublicCAPEM: selected.PublicCAPEM, AvailabilityDomains: selected.AvailabilityDomains,
@@ -105,6 +95,10 @@ func (a *attempt) childView(ctx context.Context, management core.ComputeManageme
 	if err != nil || latestSHA != previousSHA || protectedChildFenced(latest, child.InstanceID) {
 		return rootoci.PoolChildView{}, errors.Join(err, rootoci.ErrPoolChildUnverified)
 	}
+	original, err := originalPoolChildReceipt(latest, child)
+	if err != nil {
+		return rootoci.PoolChildView{}, err
+	}
 	profile := a.worker.Profile()
 	profileSHA, err := digestValue(profile.Profile())
 	if err != nil {
@@ -136,6 +130,7 @@ func (a *attempt) childView(ctx context.Context, management core.ComputeManageme
 	return rootoci.PoolChildView{Cell: a.record.Cell, Stage: "attached", OperationID: child.OperationID, ReservationID: child.OperationID,
 		InstanceID: child.InstanceID, PoolID: child.PoolID, ConfigurationID: child.ConfigurationID, BootVolumeIDs: []string{child.BootVolumeID},
 		RecipeSHA256: child.RecipeSHA256, GrantSHA256: profile.GrantDigest(), ProfileSHA256: profileSHA, SourceSHA256: a.worker.SourceSHA256(),
+		OriginalBirthGrantSHA256: original.GrantSHA256, OriginalBirthGeneration: original.GrantGeneration,
 		SlotID: entityid.Derive("protected-pool-child", a.record.TenancyID, a.record.Cell, child.OperationID), BirthSHA256: birthSHA, AttachSHA256: attachSHA,
 		SessionBindingSHA256: a.call.SessionBindingSHA256(), Generation: profile.Generation(), Epoch: child.BirthEpoch, Node: child.Node,
 		PrivateIP: facts.PrivateIP, CompartmentID: a.record.CapacityPools[child.PoolID].CompartmentID, AvailabilityDomain: child.AvailabilityDomain, FaultDomain: facts.FaultDomain,
@@ -143,6 +138,29 @@ func (a *attempt) childView(ctx context.Context, management core.ComputeManageme
 		Role: facts.Recipe.Role, Architecture: facts.Recipe.Architecture, Descriptor: child.Descriptor, ObservedAt: now, ExpiresAt: expires, OriginalDeadline: a.deadline,
 		Registration: rootoci.PoolChildRegistration{Kind: rootoci.PoolChildRegistrationStatic, Environment: "production", Cell: a.record.Cell, Node: child.Node,
 			Role: facts.Recipe.Role, Architecture: facts.Recipe.Architecture, DescriptorSHA256: hex.EncodeToString(descriptorSHA[:])}}, nil
+}
+
+// Original purchase selectors come only from the unique protected receipt;
+// today's signed worker authority remains separate in the admission view.
+func originalPoolChildReceipt(record region.FoundationRecord, child region.PoolChildRecord) (capacityledger.Receipt, error) {
+	if record.CapacityLedger == nil {
+		return capacityledger.Receipt{}, rootoci.ErrPoolChildUnverified
+	}
+	var original capacityledger.Receipt
+	for _, host := range record.CapacityLedger.Hosts {
+		if host.Receipt.OperationID == child.OperationID {
+			if original.OperationID != "" || host.InstanceID != child.InstanceID || host.BootVolumeID != child.BootVolumeID ||
+				!host.BornAt.Equal(child.BornAt) || !host.InstanceRetiredAt.IsZero() || !host.BootRetiredAt.IsZero() {
+				return capacityledger.Receipt{}, rootoci.ErrPoolChildUnverified
+			}
+			original = host.Receipt
+		}
+	}
+	if err := original.Validate(); err != nil || original.RecipeSHA256 != child.RecipeSHA256 || original.TenancyID != record.TenancyID ||
+		original.Quote.Cell != record.Cell || original.Quote.CompartmentID != record.CapacityPools[child.PoolID].CompartmentID {
+		return capacityledger.Receipt{}, errors.Join(err, rootoci.ErrPoolChildUnverified)
+	}
+	return original, nil
 }
 
 // A capture fences admission forever, including after its authority expires.

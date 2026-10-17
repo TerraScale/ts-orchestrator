@@ -112,6 +112,10 @@ type PoolChildView struct {
 	ExpiresAt            time.Time `json:"expires_at"`
 	OriginalDeadline     time.Time `json:"original_deadline"`
 
+	// These purchase pins remain distinct from the current admission grant.
+	OriginalBirthGrantSHA256 string `json:"original_birth_grant_sha256"`
+	OriginalBirthGeneration  uint64 `json:"original_birth_generation"`
+
 	Registration PoolChildRegistration `json:"registration"`
 }
 
