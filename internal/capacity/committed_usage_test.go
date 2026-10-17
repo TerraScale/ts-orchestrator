@@ -12,7 +12,7 @@ func TestCommittedUsageReplayPreservesHistoricalResourcesAndUnknownGaps(t *testi
 	first := end.Add(-40 * time.Second).Add(500 * time.Microsecond)
 	second := first.Add(10 * time.Second)
 	origin := hostload.Origin{Cell: "gru", Node: "host-a", Environment: "production"}
-	cpu, memory := 0.5, int64(512)
+	cpu, memory := 0.5, uint64(512)
 	report := hostload.Report{SchemaVersion: hostload.SchemaVersion, Host: hostload.HostUsage{CPUCores: 4, MemoryBytes: 8192},
 		Roles: []hostload.RoleUsage{{Role: "api", CPUCores: &cpu, MemoryBytes: &memory}}}
 	for restart := range 2 {
