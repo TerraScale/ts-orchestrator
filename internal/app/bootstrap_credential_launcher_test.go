@@ -32,6 +32,13 @@ import (
 // TestMain gives the test executable the same hidden-command dispatch as the
 // production binary. Both callers below use the real /proc/self/exe path.
 func TestMain(m *testing.M) {
+	if len(os.Args) == 2 && os.Args[1] == installedManagerProcessCommand {
+		if err := runInstalledManagerProcessChild(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 	if len(os.Args) == 2 && (os.Args[1] == "bootstrap-credential-check" || os.Args[1] == "bootstrap-admit-restart" || os.Args[1] == runtimeControllerHostSourceCommand) {
 		command := os.Args[1]
 		var output io.Writer = io.Discard
@@ -48,7 +55,14 @@ func TestMain(m *testing.M) {
 			clock := &fixedControllerClock{bound: brokerauth.ClockBound{SampledAt: time.Now(), MaxError: time.Millisecond}}
 			controllerBrokerClockProbe = func() brokerauth.ClockProbe { return clock }
 		}
-		err := Run(context.Background(), os.Args[1:], output)
+		var err error
+		handled := false
+		if command == runtimeControllerHostSourceCommand {
+			handled, err = runSDKFixtureControllerHostSource(context.Background(), os.Args[2:], os.Stdin, output)
+		}
+		if !handled {
+			err = Run(context.Background(), os.Args[1:], output)
+		}
 		if command == "bootstrap-admit-restart" {
 			_ = os.WriteFile(hiddenAdmissionPath(os.Getppid()), []byte(fmt.Sprint(err)), 0o600)
 		}

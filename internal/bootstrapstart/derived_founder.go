@@ -34,7 +34,7 @@ func NewDerivedCurrentFounderAuthorityReader(baked BakedInputs, accepted Accepte
 	}
 	return &CurrentFounderAuthorityReader{baked: baked, accepted: accepted,
 		acceptedClusterID: anchor.Anchor().ClusterID, acceptedSlots: anchor.Anchor().ControllerSlots,
-		domain: authority.StorageDomain(), floor: floor, derived: new(authority)}, nil
+		domain: authority.StorageDomain(), floor: floor, derived: new(authority), runtimeSDK: instancePrincipalControllerSDK{}}, nil
 }
 
 func (reader *CurrentFounderAuthorityReader) readDerivedCurrent(ctx context.Context, now time.Time, useFloor bool) (CurrentFounderAuthority, error) {

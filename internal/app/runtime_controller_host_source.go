@@ -26,6 +26,16 @@ import (
 
 const runtimeControllerHostSourceCommand = "runtime-controller-host-admission-source"
 
+type controllerHostSourceAcquisition interface {
+	founders(context.Context) (*bootstrapstart.CurrentFounderAuthorityReader, error)
+}
+
+type instancePrincipalControllerHostSource struct{}
+
+func (instancePrincipalControllerHostSource) founders(ctx context.Context) (*bootstrapstart.CurrentFounderAuthorityReader, error) {
+	return currentControllerHostReader(ctx)
+}
+
 func currentControllerHostReader(ctx context.Context) (*bootstrapstart.CurrentFounderAuthorityReader, error) {
 	initial, err := bootstrapstart.NewMarkerStore().ReadInitialFormation()
 	if err != nil {
@@ -194,6 +204,15 @@ func runRuntimeControllerHostAdmissionSource(ctx context.Context, args []string,
 	if _, err := gate.AdmitRestartLocal(ctx); err != nil {
 		return err
 	}
+	return readRuntimeControllerHostAdmissionSource(ctx, cfg, accepted, query, output, instancePrincipalControllerHostSource{})
+}
+
+func readRuntimeControllerHostAdmissionSource(ctx context.Context, cfg Config, accepted bootstrapstart.AcceptedIdentity,
+	query swarmruntime.WorkerRegistrationQuery, output io.Writer, acquisition controllerHostSourceAcquisition,
+) error {
+	if ctx == nil || ctx.Err() != nil || acquisition == nil || output == nil {
+		return errors.New("controller host source requires original live acquired sources")
+	}
 	key, err := readPrivateKey(cfg.Controller.ResponseKeyFile)
 	if err != nil {
 		return err
@@ -244,7 +263,7 @@ func runRuntimeControllerHostAdmissionSource(ctx context.Context, args []string,
 	if !ok || grant.Controller == "" {
 		return errors.New("controller host source has no signed controller slot association")
 	}
-	founders, err := currentControllerHostReader(ctx)
+	founders, err := acquisition.founders(ctx)
 	if err != nil {
 		return err
 	}
@@ -267,7 +286,7 @@ func runRuntimeControllerHostAdmissionSource(ctx context.Context, args []string,
 	if !proof.Valid(time.Now()) || !time.Now().Before(response.ExpiresAt) || ctx.Err() != nil {
 		return errors.New("controller host source observation expired")
 	}
-	wire, err = protocol.EncodeJSON(snapshot)
+	wire, err := protocol.EncodeJSON(snapshot)
 	if err != nil || len(wire) > 128<<10 {
 		return errors.New("controller host source result is oversized")
 	}

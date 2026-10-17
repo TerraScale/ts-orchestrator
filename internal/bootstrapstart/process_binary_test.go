@@ -1,8 +1,10 @@
 package bootstrapstart
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -27,6 +29,17 @@ func TestVerifyRestartProcessBinaryUsesCurrentSignedRelease(t *testing.T) {
 	accepted.Binary = identityrekey.BinaryPin{SHA256: digest(running), Size: int64(len(running)), Architecture: runtime.GOARCH}
 	if err := VerifyRestartProcessBinary(os.Getpid(), accepted, selfupdate.Layout{}, nil); err != nil {
 		t.Fatalf("accepted executable baseline: %v", err)
+	}
+	want := RunningBinary{SHA256: digest(running), Bytes: int64(len(running)), Architecture: runtime.GOARCH}
+	measured, err := ReadVerifiedRestartProcessBinary(t.Context(), os.Getpid(), accepted, selfupdate.Layout{}, nil)
+	if err != nil || measured != want {
+		t.Fatalf("accepted executable measurement = %+v, %v; want %+v", measured, err, want)
+	}
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	measured, err = ReadVerifiedRestartProcessBinary(canceled, os.Getpid(), accepted, selfupdate.Layout{}, nil)
+	if !errors.Is(err, context.Canceled) || measured != (RunningBinary{}) {
+		t.Fatalf("canceled executable observation = %+v, %v", measured, err)
 	}
 	if err := VerifyRestartProcessBinary(0, accepted, selfupdate.Layout{}, nil); err == nil {
 		t.Fatal("invalid process ID admitted")
@@ -54,6 +67,10 @@ func TestVerifyRestartProcessBinaryUsesCurrentSignedRelease(t *testing.T) {
 	previous := f.activate(running, receipt, delegation)
 	if err := VerifyRestartProcessBinary(os.Getpid(), accepted, f.layout, roots); err != nil {
 		t.Fatalf("current update with historically verified receipt: %v", err)
+	}
+	measured, err = ReadVerifiedRestartProcessBinary(t.Context(), os.Getpid(), accepted, f.layout, roots)
+	if err != nil || measured != want {
+		t.Fatalf("signed current executable measurement = %+v, %v; want %+v", measured, err, want)
 	}
 	wrongScope := accepted.Clone()
 	wrongScope.Environment = "canary"

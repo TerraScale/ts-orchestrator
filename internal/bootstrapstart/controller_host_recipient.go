@@ -171,7 +171,10 @@ func (proof *ControllerHostRecipient) current(ctx context.Context) (cellspec.Hos
 		if configErr != nil {
 			return fail(configErr)
 		}
-		ledger, err = openInstancePrincipalLedger(ctx, config, nil)
+		if reader.runtimeSDK == nil {
+			return fail(ErrAdmission)
+		}
+		ledger, err = reader.runtimeSDK.ledger(ctx, config)
 	}
 	if err != nil {
 		return fail(err)

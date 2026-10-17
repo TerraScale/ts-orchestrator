@@ -30,6 +30,27 @@ type rootOCIProcess struct {
 	session    context.Context
 	lease      context.Context
 	stopLease  func()
+	supervisor rootOCIProcessSupervisor
+}
+
+type rootOCIProcessSupervisor interface {
+	verify(context.Context, *rootoci.ProcessWitness) error
+}
+
+type rootOCISystemdSupervisor struct {
+	invocation, cgroup string
+}
+
+func (supervisor rootOCISystemdSupervisor) verify(ctx context.Context, witness *rootoci.ProcessWitness) error {
+	if witness == nil || witness.Verify() != nil {
+		return rootoci.ErrUnauthorized
+	}
+	service, err := observeRootOCIController(ctx)
+	if err != nil || service.pid != witness.Peer().PID || service.invocation != supervisor.invocation ||
+		service.cgroup != supervisor.cgroup || !rootOCIProcessCgroup(witness.Cgroup(), service.cgroup) || witness.Verify() != nil {
+		return rootoci.ErrUnauthorized
+	}
+	return nil
 }
 
 func (process *rootOCIProcess) close() {
@@ -142,14 +163,23 @@ func (authority *rootOCIAuthority) registerAdmissionChild(pid int) (func(), erro
 }
 
 func (authority *rootOCIAuthority) verifyBinary(witness *rootoci.ProcessWitness) error {
+	_, err := authority.readVerifiedBinary(authority.ctx, witness)
+	return err
+}
+
+func (authority *rootOCIAuthority) readVerifiedBinary(ctx context.Context, witness *rootoci.ProcessWitness) (bootstrapstart.RunningBinary, error) {
+	if ctx == nil || ctx.Err() != nil || witness == nil {
+		return bootstrapstart.RunningBinary{}, rootoci.ErrUnauthorized
+	}
 	inputs, err := bootstrapstart.LoadTrustInputs(authority.accepted)
 	if err != nil || witness.Verify() != nil {
-		return rootoci.ErrUnauthorized
+		return bootstrapstart.RunningBinary{}, rootoci.ErrUnauthorized
 	}
-	if err := bootstrapstart.VerifyRestartProcessBinary(witness.Peer().PID, authority.accepted, authority.layout, inputs.Roots.Historical); err != nil {
-		return rootoci.ErrUnauthorized
+	binary, err := bootstrapstart.ReadVerifiedRestartProcessBinary(ctx, witness.Peer().PID, authority.accepted, authority.layout, inputs.Roots.Historical)
+	if err != nil || witness.Verify() != nil || ctx.Err() != nil {
+		return bootstrapstart.RunningBinary{}, rootoci.ErrUnauthorized
 	}
-	return witness.Verify()
+	return binary, nil
 }
 
 func (authority *rootOCIAuthority) authorize(request context.Context, peer nativerootoci.Peer, operation rootoci.Operation) (rootoci.Lease, error) {
@@ -286,12 +316,10 @@ func (authority *rootOCIAuthority) verifyProcess(ctx context.Context, process *r
 		}
 		return nil
 	}
-	service, err := observeRootOCIController(ctx)
-	if err != nil || service.pid != process.witness.Peer().PID || service.invocation != process.invocation ||
-		!rootOCIProcessCgroup(process.witness.Cgroup(), service.cgroup) || process.witness.Verify() != nil {
+	if process.supervisor == nil {
 		return rootoci.ErrUnauthorized
 	}
-	return nil
+	return process.supervisor.verify(ctx, process.witness)
 }
 
 func earlier(left, right time.Time) time.Time {
@@ -309,19 +337,19 @@ func (authority *rootOCIAuthority) currentProcess(ctx context.Context, peer nati
 		}
 		return authority.child, nil
 	}
-	service, err := observeRootOCIController(ctx)
-	if err != nil || service.pid != peer.PID {
-		return nil, rootoci.ErrUnauthorized
-	}
 	if authority.main != nil && authority.main.witness.Peer() == peer {
 		if authority.main.witness.Verify() == nil {
-			if authority.main.invocation != service.invocation || !rootOCIProcessCgroup(authority.main.witness.Cgroup(), service.cgroup) {
+			if err := authority.verifyProcess(ctx, authority.main); err != nil {
 				authority.main.cancel()
 				return nil, rootoci.ErrUnauthorized
 			}
 			return authority.main, nil
 		}
 		authority.main.cancel()
+	}
+	service, err := observeRootOCIController(ctx)
+	if err != nil || service.pid != peer.PID {
+		return nil, rootoci.ErrUnauthorized
 	}
 	witness, err := rootoci.CaptureProcess(peer.PID)
 	if err != nil {
@@ -337,6 +365,7 @@ func (authority *rootOCIAuthority) currentProcess(ctx context.Context, peer nati
 		authority.main.close()
 	}
 	authority.main = authority.process(witness, service.invocation)
+	authority.main.supervisor = rootOCISystemdSupervisor{invocation: service.invocation, cgroup: service.cgroup}
 	return authority.main, nil
 }
 
