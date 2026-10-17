@@ -34,7 +34,7 @@ func TestServiceReleaseInventoryAbsentInitialClaim(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				if err := r.pass(t.Context(), kv, role); err != nil {
+				if err := r.nativePass(t.Context(), kv, role); err != nil {
 					t.Fatal(err)
 				}
 				status := serviceInventoryStatus(t, location, role)
@@ -92,7 +92,7 @@ func TestServiceReleaseInventoryRemovedClaimPreservesState(t *testing.T) {
 			if err := markKnownBad(ctx, kv, role, bad, errors.New("withdrawn after removing the claim")); err != nil {
 				t.Fatal(err)
 			}
-			if err := r.pass(ctx, kv, role); err != nil {
+			if err := r.nativePass(ctx, kv, role); err != nil {
 				t.Fatal(err)
 			}
 			status := serviceInventoryStatus(t, location, role)
@@ -136,7 +136,7 @@ func TestServiceReleaseInventoryUnchangedRefresh(t *testing.T) {
 				t.Fatal(err)
 			}
 			before := time.Now().UTC()
-			if err := r.pass(ctx, kv, role); err != nil {
+			if err := r.nativePass(ctx, kv, role); err != nil {
 				t.Fatal(err)
 			}
 			refreshed := serviceInventoryStatus(t, location, role)
@@ -152,7 +152,7 @@ func TestServiceReleaseInventoryUnchangedRefresh(t *testing.T) {
 			} else if !refreshed.UpdatedAt.Equal(at) {
 				t.Fatalf("fresh timestamp changed from %s to %s", at, refreshed.UpdatedAt)
 			}
-			if err := r.pass(ctx, kv, role); err != nil {
+			if err := r.nativePass(ctx, kv, role); err != nil {
 				t.Fatal(err)
 			}
 			if got := bucket.puts[releasechannel.ServiceStatusObject(role)]; got != wantWrites {
@@ -206,7 +206,7 @@ func TestServiceReleaseInventoryRepairsInvalidStatus(t *testing.T) {
 					t.Fatalf("malformed status must leave a fully populated dedupe candidate: %+v, found %v: %v", stored, found, err)
 				}
 				before := time.Now().UTC()
-				if err := r.pass(ctx, kv, role); err != nil {
+				if err := r.nativePass(ctx, kv, role); err != nil {
 					t.Fatal(err)
 				}
 				repaired := serviceInventoryStatus(t, location, role)
@@ -217,7 +217,7 @@ func TestServiceReleaseInventoryRepairsInvalidStatus(t *testing.T) {
 				if !reflect.DeepEqual(repaired, want) || bucket.puts[object] != 1 {
 					t.Fatalf("repair status = %+v, pins %+v, writes %d", repaired, repaired.Pins, bucket.puts[object])
 				}
-				if err := r.pass(ctx, kv, role); err != nil {
+				if err := r.nativePass(ctx, kv, role); err != nil {
 					t.Fatal(err)
 				}
 				if got := serviceInventoryStatus(t, location, role); !reflect.DeepEqual(got, repaired) || bucket.puts[object] != 1 {
@@ -342,7 +342,7 @@ func TestServiceReleaseInventoryReadErrorsDoNotPublish(t *testing.T) {
 			case "status":
 				client.readObject = releasechannel.ServiceStatusObject(role)
 			}
-			if err := r.pass(ctx, kv, role); !errors.Is(err, want) {
+			if err := r.nativePass(ctx, kv, role); !errors.Is(err, want) {
 				t.Fatalf("read failure = %v, want %v", err, want)
 			}
 			if got := serviceInventoryStatus(t, location, role); !reflect.DeepEqual(got, old) || client.writes != 0 {
@@ -378,7 +378,7 @@ func TestServiceReleaseInventoryFailedRefreshPreservesTimestamp(t *testing.T) {
 				client.writeErr = want
 			}
 			for range 2 {
-				if err := r.pass(ctx, watch, role); err == nil || (failure == "watcher" || failure == "object write") && !errors.Is(err, want) {
+				if err := r.nativePass(ctx, watch, role); err == nil || (failure == "watcher" || failure == "object write") && !errors.Is(err, want) {
 					t.Fatalf("failed refresh = %v", err)
 				}
 				if got := serviceInventoryStatus(t, location, role); !reflect.DeepEqual(got, old) || bucket.puts[releasechannel.ServiceStatusObject(role)] != 1 {

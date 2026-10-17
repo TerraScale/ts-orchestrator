@@ -4,6 +4,7 @@ import (
 	"encoding/json/v2"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
@@ -23,6 +24,24 @@ type ContainerReleaseObservation struct {
 	BundleSHA256 string
 	Fingerprint  string
 	ExpiresAt    time.Time
+	Floor        *ContainerReleaseFloor
+}
+
+// ContainerReleaseFloor only locates retained provenance; it grants no execution authority.
+type ContainerReleaseFloor struct {
+	Found           bool
+	OperationID     string
+	Generation      uint64
+	ReleaseSequence uint64
+	ReleaseIdentity string
+	IntentSHA256    string
+}
+
+func (f ContainerReleaseFloor) valid() bool {
+	if !f.Found {
+		return f.OperationID == "" && f.Generation == 0 && f.ReleaseSequence == 0 && f.ReleaseIdentity == "" && f.IntentSHA256 == ""
+	}
+	return entityid.Valid(f.OperationID) && f.Generation != 0 && f.ReleaseSequence != 0 && validDigest(f.ReleaseIdentity) && validDigest(f.IntentSHA256)
 }
 
 // Valid checks transport coherence; only root's current verifier grants admission.
@@ -35,7 +54,10 @@ func (o ContainerReleaseObservation) Valid(request ContainerReleaseRequest, now 
 		return false
 	}
 	if !o.Found {
-		return len(o.Bundle.Claim) == 0 && len(o.Bundle.Index) == 0 && len(o.Bundle.Sequence) == 0 && len(o.Bundle.Delegation) == 0 && len(o.Bundle.Migration) == 0 && o.BundleSHA256 == "" && o.Fingerprint == ""
+		return len(o.Bundle.Claim) == 0 && len(o.Bundle.Index) == 0 && len(o.Bundle.Sequence) == 0 && len(o.Bundle.Delegation) == 0 && len(o.Bundle.Migration) == 0 && o.BundleSHA256 == "" && o.Fingerprint == "" && o.Floor == nil
+	}
+	if o.Floor == nil || !o.Floor.valid() {
+		return false
 	}
 	digest, err := release.ContainerBundleSHA256(o.Bundle)
 	if err != nil || digest != o.BundleSHA256 {

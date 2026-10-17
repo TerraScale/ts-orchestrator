@@ -6,10 +6,12 @@ import (
 	"io"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/rootrelease"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -67,6 +69,20 @@ func (b *rootReleaseChannels) ContainerRelease(ctx context.Context, call rootoci
 	if err != nil {
 		return rootoci.ContainerReleaseObservation{}, err
 	}
+	manager, err := b.sources.Node.ControlClient(ctx)
+	if err != nil {
+		return rootoci.ContainerReleaseObservation{}, err
+	}
+	identity := o.source.Identity()
+	floor, floorFound, err := swarmruntime.ReadServiceReleaseFloor(ctx, manager, swarmruntime.ServiceIntent{
+		ID:   entityid.Derive("platform-service", request.Role, identity.Environment, identity.OCIRegion),
+		Role: request.Role, Region: identity.OCIRegion, Environment: identity.Environment, Architecture: request.Architecture,
+	}, verified, roots)
+	if err != nil {
+		return rootoci.ContainerReleaseObservation{}, err
+	}
+	result.Floor = &rootoci.ContainerReleaseFloor{Found: floorFound, OperationID: floor.OperationID, Generation: floor.Generation,
+		ReleaseSequence: floor.ReleaseSequence, ReleaseIdentity: floor.ReleaseIdentity, IntentSHA256: floor.IntentSHA256}
 	// A channel replacement during verification must be observed on the next read.
 	current, stillFound, err := releasechannel.ReadContainerBundle(ctx, location, request.Role, request.Architecture)
 	if err != nil || !stillFound {
