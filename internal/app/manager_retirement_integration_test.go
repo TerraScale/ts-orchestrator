@@ -136,8 +136,10 @@ func TestControllerManagerRetirementNativeRecovery(t *testing.T) {
 		return node
 	}
 	var old *swarmruntime.Node
+	var retirementPeers []*swarmruntime.Node
 	for index, row := range selected.Plan.Plan().Peers {
 		peer := join(row.Slot, observations[index+1])
+		retirementPeers = append(retirementPeers, peer)
 		if row.Slot == "controller-a" {
 			old = peer
 		}
@@ -165,7 +167,6 @@ func TestControllerManagerRetirementNativeRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	originalVersion := oldRow.Node.Meta.Version.Index
 	oldInstance := oldRow.Node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID]
 	stopManagerRetirementFixture(t, old)
 	wire := fixture.SignControllerRetirement(t, "controller-a")
@@ -190,7 +191,7 @@ func TestControllerManagerRetirementNativeRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	originalVersion = oldRow.Node.Meta.Version.Index
+	originalVersion := oldRow.Node.Meta.Version.Index
 	readProof := func(call context.Context) *bootstrapstart.ManagerRetirement {
 		t.Helper()
 		proof, err := fixture.ReadControllerManagerRetirement(call, "controller-a", nil)
@@ -247,26 +248,92 @@ func TestControllerManagerRetirementNativeRecovery(t *testing.T) {
 	}
 	proof = readProof(ctx)
 	result, err := seed.RetireControllerManager(ctx, proof, oldID, originalVersion, 8)
-	if err != nil || result == nil || result.Stage != "removed" {
-		t.Fatalf("fresh authority failed to reconcile original pinned retirement: %+v %v", result, err)
+	if err != nil || result == nil || result.Stage != "demoted" {
+		t.Fatalf("fresh authority failed to observe exact pinned demotion: %+v %v", result, err)
 	}
-	if _, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: oldID}); status.Code(err) != codes.NotFound {
-		t.Fatalf("actual old native row remains after non-force removal: %v", err)
+	retained, err = client.GetNode(ctx, &api.GetNodeRequest{NodeID: oldID})
+	if err != nil || retained.Node.Spec.Annotations.Labels["terrascale.manager-retirement"] != pin || retained.Node.Spec.Annotations.Labels["terrascale.manager-removal"] != "" {
+		t.Fatal("fresh proof renewed the canceled original operation into removal", err)
+	}
+	var first struct {
+		SourceSHA256, ObservationSHA256, OperationSHA256 string
+		FirstExpiresAt                                   time.Time
+	}
+	if err := json.Unmarshal([]byte(pin), &first); err != nil || first.SourceSHA256 == "" || first.ObservationSHA256 == "" || first.OperationSHA256 == "" ||
+		first.FirstExpiresAt.IsZero() || proof.ObservationSHA256() == first.ObservationSHA256 {
+		t.Fatal("durable first admission/source/operation/deadline missing", err)
 	}
 	successorObservation := fixture.CompleteReplacementManagedController(t, "controller-a")
 	successor := join("controller-a", successorObservation)
+	waitManagerRetirementFixture(t, ctx, func() bool {
+		current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: successor.ID()})
+		return err == nil && current.Node.Role == api.NodeRoleManager && current.Node.Status.State == api.NodeStatus_READY && current.Node.ManagerStatus != nil &&
+			current.Node.ManagerStatus.Reachability == api.RaftMemberStatus_REACHABLE
+	})
 	proof = readProof(ctx)
 	if _, err := seed.RetireControllerManager(ctx, proof, successor.ID(), originalVersion, 9); err == nil {
 		t.Fatal("old retirement selected the active successor sharing its slot")
 	}
-	if _, err := seed.RetireControllerManager(ctx, proof, oldID, originalVersion, 9); err == nil {
-		t.Fatal("missing exact old NodeID invented a completed-removal receipt")
+	if result, err := seed.RetireControllerManager(ctx, proof, oldID, originalVersion, 9); err == nil && result.Stage == "removed" {
+		t.Fatal("new signed successor authority renewed the old removal action")
 	}
 	currentSuccessor, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: successor.ID()})
 	if err != nil || currentSuccessor.Node.Spec.DesiredRole != api.NodeRoleManager ||
 		currentSuccessor.Node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] != successorObservation.InstanceOCID ||
 		currentSuccessor.Node.Spec.Annotations.Labels["terrascale.manager-retirement"] != "" {
 		t.Fatal("old retirement mutated the exact active successor", err)
+	}
+	// A separate original call may complete both distinct native phases while
+	// that exact sealed proof is still live. A new observation cannot replace it.
+	response, err := client.ListNodes(ctx, &api.ListNodesRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var next *api.Node
+	for _, node := range response.Nodes {
+		if node.Spec.Annotations.Name == "controller-b" {
+			next = node
+		}
+	}
+	if next == nil {
+		t.Fatal("second actual managed controller unavailable")
+	}
+	for _, peer := range retirementPeers {
+		if peer.ID() == next.ID {
+			stopManagerRetirementFixture(t, peer)
+		}
+	}
+	if err := fixture.SetControllerLifecycle(next.Spec.Annotations.Labels[swarmruntime.LabelInstanceID], "TERMINATED"); err != nil {
+		t.Fatal(err)
+	}
+	fixture.AdvanceRetiredController(t, "controller-b", fixture.SignControllerRetirement(t, "controller-b"))
+	waitManagerRetirementFixture(t, ctx, func() bool {
+		current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: next.ID})
+		if err != nil || current.Node.Status.State == api.NodeStatus_READY {
+			return false
+		}
+		next = current.Node
+		return true
+	})
+	nextVersion := next.Meta.Version.Index
+	proof, err = fixture.ReadControllerManagerRetirement(ctx, "controller-b", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result, err := seed.RetireControllerManager(ctx, proof, next.ID, nextVersion, 10); err != nil || result.Stage != "demoted" {
+		t.Fatal("original call could not admit its first demotion", err)
+	}
+	firstCall, stopFirstCall := context.WithDeadline(ctx, proof.ExpiresAt())
+	defer stopFirstCall()
+	waitManagerRetirementFixture(t, firstCall, func() bool {
+		current, err := client.GetNode(firstCall, &api.GetNodeRequest{NodeID: next.ID})
+		return err == nil && current.Node.Role == api.NodeRoleWorker && current.Node.ManagerStatus == nil
+	})
+	if result, err := seed.RetireControllerManager(firstCall, proof, next.ID, nextVersion, 10); err != nil || result.Stage != "removed" {
+		t.Fatal("same original proof could not reserve and remove within its first deadline", err)
+	}
+	if _, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: next.ID}); status.Code(err) != codes.NotFound {
+		t.Fatal("original call did not remove the exact native row", err)
 	}
 }
 

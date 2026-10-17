@@ -11,6 +11,22 @@ import (
 	"github.com/moby/swarmkit/v2/manager/state/store"
 )
 
+// updateObservedNativeNodeFixture injects an actual store change for read-side
+// drift tests after the ordinary Control API correctly refuses identity edits.
+func updateObservedNativeNodeFixture(ctx context.Context, node *Node, request *api.UpdateNodeRequest) (*api.UpdateNodeResponse, error) {
+	m := node.upstream.Manager()
+	var expected *api.Node
+	observed, err := m.Observe(nil, func(tx store.ReadTx) error {
+		expected = store.GetNode(tx, request.NodeID)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer observed.Cancel()
+	return m.UpdateNodeAtObservation(ctx, observed, expected, request, func(store.ReadTx) error { return nil })
+}
+
 // This uses the real manager transaction and Raft path, without its cached
 // control connection. It does not qualify Unix socket authentication.
 func testObservedNativeNodeMutation(t *testing.T, ctx context.Context, node *Node) {
