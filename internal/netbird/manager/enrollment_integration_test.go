@@ -22,6 +22,58 @@ import (
 
 // Actual clients cross NetBird/OCI HTTP and protected escrow/filesystem boundaries.
 func TestEnrollmentRecoversCommittedResponsesAndDelivery(t *testing.T) {
+	testEnrollmentRecovery(t, false)
+}
+
+func TestManagerEnrollmentRecoversDedicatedGroupAndDelivery(t *testing.T) {
+	testEnrollmentRecovery(t, true)
+}
+
+func TestManagerBrokerBootstrapFencesControlAccess(t *testing.T) {
+	for _, withdrawn := range []bool{false, true} {
+		t.Run(fmt.Sprintf("withdrawn-%t", withdrawn), func(t *testing.T) {
+			f := newFakeManager(t)
+			managerID, serversID := f.addGroup(ManagerGroup), f.addGroup("gru-servers")
+			api, err := NewFencedAPI(f.server.URL, testPAT, func() error { return nil })
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer api.Close()
+			checks := 0
+			check := func() error {
+				checks++
+				if withdrawn && checks > 1 {
+					return context.Canceled
+				}
+				return nil
+			}
+			err = BootstrapManagerBrokerAccess(t.Context(), api, "gru", check)
+			if withdrawn {
+				if !errors.Is(err, context.Canceled) || len(f.mutations) != 0 {
+					t.Fatalf("withdrawn footprint escaped dispatch fence: %v mutations=%v", err, f.mutations)
+				}
+				return
+			}
+			if err != nil || len(f.policies) != 1 || len(f.policies[0].Rules) != 1 {
+				t.Fatalf("missing dedicated broker access: %v policies=%v", err, f.policies)
+			}
+			rule := f.policies[0].Rules[0]
+			if rule.Protocol != "tcp" || len(rule.Ports) != 1 || rule.Ports[0] != "4222" || rule.Bidirectional || len(rule.Sources) != 1 || rule.Sources[0].ID != managerID || len(rule.Destinations) != 1 || rule.Destinations[0].ID != serversID {
+				t.Fatalf("bootstrap granted more than dedicated broker reads: %+v", rule)
+			}
+			mutations := len(f.mutations)
+			if err := BootstrapManagerBrokerAccess(t.Context(), api, "gru", check); err != nil || len(f.mutations) != mutations {
+				t.Fatalf("broker bootstrap replay mutated: %v mutations=%v", err, f.mutations)
+			}
+		})
+	}
+}
+
+func testEnrollmentRecovery(t *testing.T, dedicated bool) {
+	groupName, vaultName := "gru-servers", "gru-1-netbird-setup-key"
+	if dedicated {
+		groupName, vaultName = ManagerGroup, ManagerSetupKeySecret
+	}
 	for _, interruption := range []string{"group-response", "key-response", "vault-response", "before-key-dispatch", "vault-epoch-loss"} {
 		t.Run(interruption, func(t *testing.T) {
 			root := t.TempDir()
@@ -49,7 +101,7 @@ func TestEnrollmentRecoversCommittedResponsesAndDelivery(t *testing.T) {
 					writeEnrollmentJSON(t, w, groups)
 				case r.Method == http.MethodPost && r.URL.Path == "/api/groups":
 					var request groupRequest
-					if err := json.UnmarshalRead(r.Body, &request); err != nil || request.Name != "gru-servers" || len(request.Peers) != 0 || len(request.Resources) != 0 {
+					if err := json.UnmarshalRead(r.Body, &request); err != nil || request.Name != groupName || len(request.Peers) != 0 || len(request.Resources) != 0 {
 						t.Error("invalid genesis server group")
 						w.WriteHeader(400)
 						return
@@ -70,6 +122,11 @@ func TestEnrollmentRecoversCommittedResponsesAndDelivery(t *testing.T) {
 					var request setupKeyRequest
 					if err := json.UnmarshalRead(r.Body, &request); err != nil {
 						t.Error(err)
+						w.WriteHeader(http.StatusBadRequest)
+						return
+					}
+					if request.Type != "reusable" || request.Ephemeral || len(request.AutoGroups) != 1 || request.AutoGroups[0] != "servers" {
+						t.Error("enrollment key grants membership outside its sole dedicated group")
 						w.WriteHeader(http.StatusBadRequest)
 						return
 					}
@@ -172,7 +229,7 @@ func TestEnrollmentRecoversCommittedResponsesAndDelivery(t *testing.T) {
 				t.Fatal(err)
 			}
 			bundles.Host = endpoint
-			vault := EnrollmentVault{Target: vaultsecret.Target{CompartmentID: "ocid1.compartment.oc1..control", VaultID: "ocid1.vault.oc1.sa-saopaulo-1.enrollment", KeyID: "ocid1.key.oc1.sa-saopaulo-1.enrollment"}, Management: management, Bundles: bundles, Name: "gru-1-netbird-setup-key"}
+			vault := EnrollmentVault{Target: vaultsecret.Target{CompartmentID: "ocid1.compartment.oc1..control", VaultID: "ocid1.vault.oc1.sa-saopaulo-1.enrollment", KeyID: "ocid1.key.oc1.sa-saopaulo-1.enrollment"}, Management: management, Bundles: bundles, Name: vaultName}
 			stateDir := filepath.Join(root, "protected", "enrollment")
 			reconcile := func() (EnrollmentResult, error) {
 				api, err := NewAPI(managerServer.URL, testPAT)
@@ -190,12 +247,16 @@ func TestEnrollmentRecoversCommittedResponsesAndDelivery(t *testing.T) {
 					}
 					return nil
 				}
-				return ReconcileServerEnrollment(t.Context(), api, GRU(), stateDir, vault, EnrollmentAuthority{Check: func() error {
+				authority := EnrollmentAuthority{Check: func() error {
 					if term.Load() != expected {
 						return errAuthorityLost
 					}
 					return nil
-				}, Quiesce: func(context.Context) error { return nil }})
+				}, Quiesce: func(context.Context) error { return nil }}
+				if dedicated {
+					return ReconcileManagerEnrollment(t.Context(), api, stateDir, vault, authority)
+				}
+				return ReconcileServerEnrollment(t.Context(), api, GRU(), stateDir, vault, authority)
 			}
 			first, firstErr := reconcile()
 			if interruption != "vault-response" && firstErr == nil {

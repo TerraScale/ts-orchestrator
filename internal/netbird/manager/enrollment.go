@@ -17,6 +17,9 @@ import (
 
 var ErrEnrollmentUncertain = errors.New("NetBird setup-key request is unresolved; quiesce the dedicated manager before retrying")
 
+const ManagerGroup = "netbird-managers"
+const ManagerSetupKeySecret = "gru-netbird-manager-setup-key"
+
 // EnrollmentAuthority fences writes and drains earlier management requests after
 // a lost POST. Quiesce must stop/wait/restart the same persistent manager store.
 type EnrollmentAuthority struct {
@@ -43,20 +46,91 @@ type EnrollmentResult struct {
 // before delivery, and resumes interrupted OCI writes without replacing keys.
 // The directory belongs on the dedicated manager's protected persistent volume.
 func ReconcileServerEnrollment(ctx context.Context, api *API, d Desired, directory string, vault EnrollmentVault, authority EnrollmentAuthority) (EnrollmentResult, error) {
+	d, err := d.withServerGroups([]string{d.ServersGroup})
+	if err != nil {
+		return EnrollmentResult{}, err
+	}
+	return reconcileEnrollment(ctx, api, d, strings.TrimSuffix(d.ServersGroup, "-servers"), directory, vault, authority)
+}
+
+// ReconcileManagerEnrollment shares crash recovery without granting regional server membership.
+func ReconcileManagerEnrollment(ctx context.Context, api *API, directory string, vault EnrollmentVault, authority EnrollmentAuthority) (EnrollmentResult, error) {
+	if vault.Name != ManagerSetupKeySecret {
+		return EnrollmentResult{}, errors.New("NetBird manager enrollment requires its dedicated Vault recipient")
+	}
+	d := GRU()
+	d.Groups = append(d.Groups, GroupSpec{Name: ManagerGroup})
+	d.ServersGroup, d.SetupKeyName = ManagerGroup, "netbird-manager"
+	return reconcileEnrollment(ctx, api, d, "gru", directory, vault, authority)
+}
+
+// BootstrapManagerAccount establishes local address settings before its own peer can join.
+func BootstrapManagerAccount(ctx context.Context, api *API) error {
+	if api == nil || api.beforeWrite == nil {
+		return errors.New("NetBird manager account bootstrap requires dedicated manager authority")
+	}
+	p := &plan{}
+	if err := p.planAccount(ctx, api, GRU()); err != nil {
+		return err
+	}
+	_, err := p.run(ctx, true, nil)
+	return err
+}
+
+// BootstrapManagerBrokerAccess opens only control reads, before regional intents can arrive.
+func BootstrapManagerBrokerAccess(ctx context.Context, api *API, cell string, check func() error) error {
+	group := cell + "-servers"
+	if api == nil || api.beforeWrite == nil || check == nil || !regionServerGroup(group) {
+		return errors.New("NetBird manager broker access requires current signed regional authority")
+	}
+	fenced := *api
+	fenced.beforeWrite = func() error {
+		if err := api.beforeWrite(); err != nil {
+			return err
+		}
+		return check()
+	}
+	if err := fenced.beforeWrite(); err != nil {
+		return err
+	}
+	var groups []apiGroup
+	if err := fenced.do(ctx, "GET", "/groups", nil, &groups); err != nil {
+		return err
+	}
+	p := &plan{refs: refs{groups: map[string]string{}}}
+	for _, existing := range groups {
+		if existing.Name != ManagerGroup && existing.Name != group {
+			continue
+		}
+		if existing.ID == "" || existing.Issued != "api" || p.refs.groups[existing.Name] != "" {
+			return errors.New("NetBird manager broker access group is ambiguous or not API owned")
+		}
+		p.refs.groups[existing.Name] = existing.ID
+	}
+	if p.refs.groups[ManagerGroup] == "" || p.refs.groups[group] == "" {
+		return errors.New("NetBird manager broker access awaits both enrollment groups")
+	}
+	d := GRU()
+	d.Policies = []PolicySpec{{Name: "netbird-managers-to-" + group + "-control",
+		Description: "Dedicated NetBird manager → " + strings.ToUpper(cell) + " regional control reads",
+		Protocol:    "tcp", Ports: []string{"4222"}, Sources: []string{ManagerGroup}, Destinations: []string{group}}}
+	if err := p.planPolicies(ctx, &fenced, d); err != nil {
+		return err
+	}
+	_, err := p.run(ctx, true, nil)
+	return err
+}
+
+func reconcileEnrollment(ctx context.Context, api *API, d Desired, cell, directory string, vault EnrollmentVault, authority EnrollmentAuthority) (EnrollmentResult, error) {
 	if api == nil || authority.Check == nil || vault.Management == nil || vault.Bundles == nil {
 		return EnrollmentResult{}, errors.New("NetBird enrollment requires GRU authority and OCI Vault clients")
 	}
 	if err := authority.Check(); err != nil {
 		return EnrollmentResult{}, err
 	}
-	d, err := d.withServerGroups([]string{d.ServersGroup})
-	if err != nil {
-		return EnrollmentResult{}, err
-	}
 	if err := d.Validate(); err != nil {
 		return EnrollmentResult{}, err
 	}
-	cell := strings.TrimSuffix(d.ServersGroup, "-servers")
 	if err := vaultsecret.ValidateDeliveryRefs(cell, "netbird", map[string]vaultsecret.Ref{
 		"SETUP_KEY": {Vault: vault.Target.VaultID, Name: vault.Name},
 	}, nil); err != nil {
