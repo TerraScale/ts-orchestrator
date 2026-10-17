@@ -25,14 +25,16 @@ const (
 
 // Supervisor owns upstream foundation processes independently of SwarmKit and the overlay.
 type Supervisor struct {
-	Vault        BootstrapVault
-	PrepareStore func(context.Context) error
-	StoreReady   func(context.Context) error
-	Account      func(context.Context, func(context.Context) error) error
+	Vault            BootstrapVault
+	PrepareStore     func(context.Context) error
+	StoreReady       func(context.Context) error
+	BootstrapAccount func(context.Context, func(context.Context) error) error
+	Mesh             func(context.Context) error
+	Account          func(context.Context, func(context.Context) error) error
 }
 
 func (s Supervisor) validate() error {
-	if s.PrepareStore == nil || s.StoreReady == nil || s.Account == nil {
+	if s.PrepareStore == nil || s.StoreReady == nil || s.BootstrapAccount == nil || s.Mesh == nil || s.Account == nil {
 		return errors.New("NetBird supervisor requires authenticated store lifecycle and serialized account owner")
 	}
 	return s.Vault.validate()
@@ -170,13 +172,19 @@ func (s Supervisor) Reconcile(ctx context.Context) (BootstrapResult, error) {
 	if err != nil {
 		return result, err
 	}
-	if err = s.Account(ctx, s.quiesceStoreLocked); err != nil {
+	if err = s.BootstrapAccount(ctx, s.quiesceStoreLocked); err != nil {
 		return result, err
 	}
 	if err = s.StoreReady(ctx); err != nil {
 		return result, err
 	}
 	if err = runtime.ensure(ctx, components[2], s.Vault.Check); err != nil {
+		return result, err
+	}
+	if err = s.Mesh(ctx); err != nil {
+		return result, err
+	}
+	if err = s.Account(ctx, s.quiesceLocked); err != nil {
 		return result, err
 	}
 	if err = systemctl(ctx, "enable", "--now", "netbird-backup.timer"); err != nil {
@@ -195,6 +203,12 @@ func (s Supervisor) maintain(ctx context.Context) error {
 		return err
 	}
 	defer unlock()
+	if err := s.BootstrapAccount(ctx, s.quiesceLocked); err != nil {
+		return err
+	}
+	if err := s.Mesh(ctx); err != nil {
+		return err
+	}
 	return s.Account(ctx, s.quiesceLocked)
 }
 

@@ -99,6 +99,10 @@ func netBirdFoundationSupervisor(ctx context.Context, local automaticFoundation,
 	return foundation.Supervisor{
 		PrepareStore: func(ctx context.Context) error { return prepareNetBirdFoundationStore(ctx, local, admission) },
 		StoreReady:   admission.MarkStoreReady,
+		BootstrapAccount: func(ctx context.Context, quiesce func(context.Context) error) error {
+			return bootstrapNetBirdManagerAccount(ctx, local, admission, quiesce)
+		},
+		Mesh: func(ctx context.Context) error { return connectNetBirdManagerMesh(ctx, local, admission) },
 		Account: func(ctx context.Context, quiesce func(context.Context) error) error {
 			return reconcileNetBirdFoundationAccount(ctx, local, admission, quiesce)
 		},
@@ -213,20 +217,6 @@ func reconcileNetBirdFoundationAccount(ctx context.Context, local automaticFound
 	if err := manager.RestrictBaseline(ctx, api); err != nil {
 		return err
 	}
-	footprint, err := local.foundations.Footprint.AuthorizedRegions(ctx)
-	if err != nil {
-		return err
-	}
-	var pending []error
-	for _, intent := range footprint.Regions {
-		cell, ok := intent.Plan["cell"].(string)
-		if !ok {
-			return errors.New("NetBird enrollment footprint has no canonical cell")
-		}
-		if err := reconcileNetBirdRegionEnrollment(ctx, local, admission, cell, quiesce, api); err != nil {
-			pending = append(pending, fmt.Errorf("NetBird %s enrollment pending: %w", cell, err))
-		}
-	}
 	report, syncErr := manager.Sync(ctx, api, manager.GRU(), true)
 	for _, change := range report.Changes {
 		log.Printf("NetBird account applied: %s", change)
@@ -236,7 +226,7 @@ func reconcileNetBirdFoundationAccount(ctx context.Context, local automaticFound
 	for _, change := range report.Changes {
 		log.Printf("NetBird peer hygiene applied: %s", change)
 	}
-	for _, failure := range append(pending, syncErr, pruneErr) {
+	for _, failure := range []error{syncErr, pruneErr} {
 		if failure != nil {
 			log.Printf("NetBird account reconciliation deferred: %v", failure)
 		}
