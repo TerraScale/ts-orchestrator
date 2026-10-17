@@ -18,7 +18,8 @@
     "ack": "exclusive existing TestColdRestartWithTwoOfThreeBrokers and new handoff manifest; originals retained; no runtime/count credit",
     "files": [
       "internal/natscell/cluster_formation_test.go",
-      "docs/evidence/refactor-checks-20261017/nats-health-replicas-source-52eef25/handoff.json"
+      "docs/evidence/refactor-checks-20261017/nats-health-replicas-source-52eef25/handoff.json",
+      "docs/evidence/refactor-checks-20261017/nats-health-replicas-source-52eef25/peer-review-receipt.json"
     ]
   },
   "source": {
@@ -98,7 +99,9 @@
         "Stopped fixture slots restart before full iteration; Runtime.Close supports nil and repeated cleanup.",
         "Coverage remains partial: online-but-not-current snapshot catchup, nil replica and unconfigured metrics fallback are not deterministically exercised. Originals must remain."
       ],
-      "execution": "Static reads and Python diff hashing only; no Go, compiler, test, probe, cloud or privileged command."
+      "execution": "Static reads and Python diff hashing only; no Go, compiler, test, probe, cloud or privileged command.",
+      "receipt_path": "docs/evidence/refactor-checks-20261017/nats-health-replicas-source-52eef25/peer-review-receipt.json",
+      "receipt_sha256": "210b530dd1e8d6058d7f11d594f7d8ee760a052d30c5b65094cd0ccae93d535b"
     },
     "compile": {
       "status": "not-run; requires exact QA grant"
@@ -109,12 +112,25 @@
     "handoff_consistency": {
       "status": "passed",
       "method": "Python source/diff hash checks, identical existing root list, original byte checks and zero-credit assertions"
+    },
+    "metadata_correction_review": {
+      "status": "passed; no blocking findings",
+      "owner": "/root/nats_next_conversion/nats_health_source_review",
+      "reviewed_handoff_sha256": "c43fa649e171d2984b15d335c3aba15d7ab2e436529811cecc469798dd802e2a",
+      "reviewed_receipt_sha256": "210b530dd1e8d6058d7f11d594f7d8ee760a052d30c5b65094cd0ccae93d535b",
+      "reviewed_metadata_patch_sha256": "88a173c83262660b50b513fe8f88be3d214399ecd45adcd7c025a9dfbedd2050",
+      "findings": [
+        "Go source and both original matrices unchanged from628e; true compile-only proposal executes no init/TestMain/tests; all proposed execution still requires QA grant; zero credits.",
+        "Receipt matches original peer assignment, task name, final review and reviewed source hashes. Caller-side spawn arguments are coordinator transcript provenance; the child cannot inspect the caller transcript."
+      ],
+      "finalization": "This result entry is appended after the independent metadata review; other reviewed metadata and source stay unchanged.",
+      "execution": "Static reads/hash checks only; no Go/compiler/test/probe or reviewer edits."
     }
   },
   "proposed_qa_commands_not_executed": [
     {
-      "purpose": "compile the owning package test binary without running tests",
-      "command": "nice -n 19 env GOMAXPROCS=2 go test -p=1 -run '^$' -count=1 ./internal/natscell"
+      "purpose": "compile the owning package test binary without executing init, TestMain or tests; discard the linked artifact",
+      "command": "nice -n 19 env GOMAXPROCS=2 go test -p=1 -c -o /dev/null ./internal/natscell"
     },
     {
       "purpose": "run the extended existing integration root",
@@ -131,5 +147,7 @@
   ],
   "qualification_credit": 0,
   "retirement_credit": 0,
-  "classification_credit": 0
+  "classification_credit": 0,
+  "supersedes_handoff_commit": "628e2867fcebc6a1992314ca5ac89197460d7402",
+  "correction": "The previous proposed go test -run ^$ command could execute init and TestMain. It was never run. Replace it with true compile-only go test -c -o /dev/null; exact QA fixed environment and grant still required."
 }

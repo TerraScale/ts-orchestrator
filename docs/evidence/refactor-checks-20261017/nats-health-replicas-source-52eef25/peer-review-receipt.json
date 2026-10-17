@@ -1,0 +1,25 @@
+{
+  "schema": "independent-peer-source-review-receipt/v1",
+  "scope": "NATS source slice; independently reviewed diff retained unchanged in source commit628e2867fcebc6a1992314ca5ac89197460d7402",
+  "original_spawn_tool_call": {
+    "tool": "collaboration.spawn_agent",
+    "arguments": {
+      "task_name": "nats_health_source_review",
+      "fork_turns": "none",
+      "model": "gpt-6.1-sol",
+      "reasoning_effort": "high",
+      "message": "Independent SOURCE-ONLY review explicitly required by REFACTOR.md/parent task. Review /tmp/ts-nats-health-replicas-source-52eef25 (branch test/nats-health-replicas-source-52eef25) uncommitted diff to base52eef25bad09736d8f0806ecaccaef1a7c86b49e, only internal/natscell/cluster_formation_test.go existing TestColdRestartWithTwoOfThreeBrokers extended. Assess real boundary crossing, correct offline/leaderless/current assertions, source safety, nils/lifecycle, no guards weakened. Candidates originals retained: health_review_test.go::TestStreamLaggingJudgesEveryReplicaAsItsLeaderReports and metrics_replicas_review_test.go::TestStreamViewReportsTheConfiguredReplicationFactor. Read connected production health.go/metrics.go and fixture as needed. DO NOT edit, run Go/toolchain/test/compiler/probe, cloud/privileged commands. Static reads/diff only. QA granted only owner cached modern-Go CLI and nice gofmt; no runtime or qualification/retirement credit. Report findings and exact diff SHA by Python hash, ETA 5\u20138m. Mandatory GPT6.1Sol/high confirmed. Read AGENTS/REFACTOR plus ponytail skill as needed. Parent root coordinating; contact /root/nats_next_conversion."
+    },
+    "returned_result": {
+      "task_name": "/root/nats_next_conversion/nats_health_source_review"
+    },
+    "provenance": "Actual spawn request arguments and returned task name copied from the coordinating worker tool-call transcript; model/effort are tool arguments, not inferred from the task prompt."
+  },
+  "reviewed_base_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "reviewed_file": "internal/natscell/cluster_formation_test.go",
+  "reviewed_file_sha256": "1646299b70c43445cdb4a0d48a5160f53b05dda31e5cdeca461ec29476c580c3",
+  "reviewed_patch_sha256": "89ce147284c7f697b870bd7812aca692dda87444e5005d492d6df314a4462c34",
+  "actual_final_review": "Keep both original tests. **No blocking source findings** in the reviewed diff.\n\n1. Real boundary: signed JWT/mTLS NATS brokers, network requests, persisted R3 storage, cold restart and recovery.\n2. Assertions correctly require R3, three peers, healthy recovery, one offline replica, and leaderless replication reporting. Leaderless health accepts either lagging state or an error; both hold the production rollout gate.\n3. Lifecycle is safe: stopped slots are restarted before iteration; `Runtime.Close` handles nil and repeated cleanup. Existing assertions and production guards remain intact.\n4. Coverage remains partial: no deterministic online-but-not-current snapshot case, nil replica case, or unconfigured metrics fallback. Neither original candidate qualifies for retirement.\n\nBase and HEAD: `52eef25bad09736d8f0806ecaccaef1a7c86b49e`  \nPython SHA-256 of the 3,374-byte diff: `89ce147284c7f697b870bd7812aca692dda87444e5005d492d6df314a4462c34`\n\nNot run: Go, compiler, tests, probes, cloud or privileged commands. Static review grants no runtime qualification or retirement credit.",
+  "qualification_credit": 0,
+  "retirement_credit": 0
+}
