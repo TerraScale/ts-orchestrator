@@ -28,12 +28,21 @@ func (b *Backend) TaskTrafficFoundation(ctx context.Context, call rootoci.Call) 
 }
 
 func (b *Backend) operationFoundation(ctx context.Context, call rootoci.Call, operation rootoci.Operation) (TaskTrafficScope, error) {
-	if ctx == nil || b == nil || call.Operation() != operation || !time.Now().Before(call.Deadline()) {
+	if ctx == nil || b == nil || b.home == nil || call.Operation() != operation || !time.Now().Before(call.Deadline()) {
 		return TaskTrafficScope{}, ErrScope
 	}
 	ctx, cancel := context.WithDeadline(ctx, call.Deadline())
 	defer cancel()
 	ctx = ociclient.WithRequestGuard(ctx, call.Guard)
+	if err := call.Guard(ctx); err != nil {
+		return TaskTrafficScope{}, err
+	}
+	writerExpires, err := b.home.FoundationWriterDeadline(ctx)
+	if err != nil || !time.Now().Before(writerExpires) {
+		return TaskTrafficScope{}, errors.Join(ErrScope, err)
+	}
+	ctx, stopWriter := context.WithDeadline(ctx, writerExpires)
+	defer stopWriter()
 	resolver, err := b.current(ctx, call)
 	if err != nil {
 		return TaskTrafficScope{}, err
@@ -81,6 +90,22 @@ func (b *Backend) operationFoundation(ctx context.Context, call rootoci.Call, op
 		return TaskTrafficScope{}, errors.Join(ErrScope, err)
 	}
 	if err := b.guard(ctx, call); err != nil {
+		return TaskTrafficScope{}, err
+	}
+	currentWriterExpires, err := b.home.FoundationWriterDeadline(ctx)
+	if err != nil || !time.Now().Before(currentWriterExpires) {
+		return TaskTrafficScope{}, errors.Join(ErrScope, err)
+	}
+	ctx, stopCurrentWriter := context.WithDeadline(ctx, currentWriterExpires)
+	defer stopCurrentWriter()
+	// The writer verifier includes the original caller and sealed source caps.
+	if writerExpires.Before(expires) {
+		expires = writerExpires
+	}
+	if currentWriterExpires.Before(expires) {
+		expires = currentWriterExpires
+	}
+	if err := call.Guard(ctx); err != nil {
 		return TaskTrafficScope{}, err
 	}
 	return TaskTrafficScope{Foundation: receipt, OCIRegion: record.OCIRegion, CompartmentID: record.ResourceIDs["network_compartment"], ExpiresAt: expires}, nil
@@ -180,6 +205,15 @@ func (b *Backend) NodeOperationFoundation(ctx context.Context, call rootoci.Call
 	}
 	ctx, stopBindings := context.WithDeadline(ctx, expires)
 	defer stopBindings()
+	writerExpires, err := b.home.FoundationWriterDeadline(ctx)
+	if err != nil || !time.Now().Before(writerExpires) {
+		return NodeOperationScope{}, errors.Join(ErrScope, err)
+	}
+	if writerExpires.Before(expires) {
+		expires = writerExpires
+	}
+	ctx, stopWriter := context.WithDeadline(ctx, expires)
+	defer stopWriter()
 	if err := b.guard(ctx, call); err != nil {
 		return NodeOperationScope{}, err
 	}
