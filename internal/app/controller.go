@@ -811,7 +811,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return err
 	}
-	functionClient, managerID, functionConnection, err := swarmruntime.DialManagement(runCtx, acceptedRuntime)
+	functionClient, observationClient, managerID, functionConnection, err := swarmruntime.DialManagementClients(runCtx, acceptedRuntime)
 	if err != nil {
 		return fmt.Errorf("connect function runtime manager: %w", err)
 	}
@@ -873,6 +873,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return err
 	}
+	telemetry.usage.SetExpected(hostLoad.managedExpectedUsage(nativeReleases, telemetry, generic.owns))
 	genericServices.Store(generic)
 	defer genericServices.Store(nil)
 	services.removalReady = generic.removalReady
@@ -880,8 +881,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return err
 	}
-	hostController.SetLoadSink(func(origin hostload.Origin, report hostload.Report) error {
-		return hostLoad.recordManaged(runCtx, nativeReleases, telemetry, functionClient, generic.owns, containers.verifyTask, origin, report)
+	hostController.SetLoadObservationSink(func(requestCtx context.Context, origin hostload.Origin, report hostload.Report) error {
+		return hostLoad.recordManaged(requestCtx, nativeReleases, telemetry, functionClient, observationClient, generic.owns, containers.verifyTask, origin, report)
 	})
 	homeKey := func(ctx context.Context) (ed25519.PublicKey, error) {
 		local, derived, present, err := installedAutomaticStartup(ctx)
