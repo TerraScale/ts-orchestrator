@@ -81,9 +81,17 @@ func (r FoundationRecord) retainCapacity(previous FoundationRecord) error {
 			old.DrainSource != nil && !sameCapacityValue(old.DrainSource, next.DrainSource) ||
 			old.InstanceTerminal != nil && !sameCapacityValue(old.InstanceTerminal, next.InstanceTerminal) ||
 			old.BootTerminal != nil && !sameCapacityValue(old.BootTerminal, next.BootTerminal) ||
+			old.BootCleanupAuthority != nil && !sameCapacityValue(old.BootCleanupAuthority, next.BootCleanupAuthority) ||
+			old.DeleteBoot != nil && old.BootCleanupAuthority == nil && next.BootCleanupAuthority != nil ||
+			old.DeleteBoot == nil && next.DeleteBoot != nil && next.BootCleanupAuthority == nil ||
+			old.InstanceTerminal == nil && next.BootCleanupAuthority != nil ||
 			!retainPoolWire(old.Launch, next.Launch) || !retainPoolWire(old.Attach, next.Attach) || !retainPoolWire(old.Detach, next.Detach) ||
 			!retainPoolWire(old.Terminate, next.Terminate) || !retainPoolWire(old.DeleteBoot, next.DeleteBoot) {
 			return errors.New("protected pool child lost or rebound original lifecycle evidence")
+		}
+		if old.BootCleanupAuthority == nil && next.BootCleanupAuthority != nil &&
+			(next.BootCleanupAuthority.Lifecycle.GrantSHA256 != r.GrantSHA256 || next.BootCleanupAuthority.Lifecycle.Generation != r.Generation) {
+			return errors.New("first boot cleanup authority differs from the actual current protected grant")
 		}
 		next.Stage, next.Launch, next.Attach, next.Detach, next.Terminate, next.DeleteBoot = old.Stage, old.Launch, old.Attach, old.Detach, old.Terminate, old.DeleteBoot
 		next.InstanceID, next.BornAt, next.BootVolumeID, next.BootAttachmentID = old.InstanceID, old.BornAt, old.BootVolumeID, old.BootAttachmentID
@@ -92,6 +100,7 @@ func (r FoundationRecord) retainCapacity(previous FoundationRecord) error {
 		next.RetirementDrain = old.RetirementDrain
 		next.DrainSource = old.DrainSource
 		next.InstanceTerminal, next.BootTerminal = old.InstanceTerminal, old.BootTerminal
+		next.BootCleanupAuthority = old.BootCleanupAuthority
 		next.InstanceRetiredAt, next.BootRetiredAt = old.InstanceRetiredAt, old.BootRetiredAt
 		if !sameCapacityValue(old, next) {
 			return errors.New("protected pool child changed original recipe, placement or boot identity")

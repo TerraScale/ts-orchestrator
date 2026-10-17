@@ -113,3 +113,45 @@ func TestTerminalRequestsPreserveBootAndDataAndNeverInventDeleteTokens(t *testin
 		}
 	}
 }
+
+func TestBootCleanupPinsFirstCurrentGrantWithoutRenewingExistingWire(t *testing.T) {
+	now := time.Now().UTC()
+	current := region.PoolLifecycleBinding{GrantSHA256: "current-grant", Generation: 2, ProfileSHA256: "original-profile",
+		CurrentProfileSHA256: "current-preferred-profile", BirthSHA256: "original-birth"}
+	child := region.PoolChildRecord{DrainAuthoritySHA256: "original-consumed-drain", InstanceTerminal: &region.PoolTerminalObservation{},
+		DeleteBoot: &region.PoolWireRecord{ExpiresAt: now.Add(time.Minute)}, BootCleanupAuthority: &region.PoolBootCleanupAuthority{
+			Lifecycle: current, DrainSHA256: "original-consumed-drain", AuthorizedAt: now.Add(-time.Second), ExpiresAt: now.Add(time.Minute)}}
+	if err := bootCleanupLive(child, current, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []struct {
+		name  string
+		apply func(*region.PoolChildRecord, *region.PoolLifecycleBinding)
+	}{
+		{"successor grant", func(_ *region.PoolChildRecord, b *region.PoolLifecycleBinding) {
+			b.GrantSHA256 = "next-grant"
+			b.Generation++
+		}},
+		{"successor preferred profile", func(_ *region.PoolChildRecord, b *region.PoolLifecycleBinding) {
+			b.CurrentProfileSHA256 = "next-preferred-profile"
+		}},
+		{"another original birth", func(_ *region.PoolChildRecord, b *region.PoolLifecycleBinding) { b.BirthSHA256 = "another-birth" }},
+		{"expired original wire", func(c *region.PoolChildRecord, _ *region.PoolLifecycleBinding) {
+			c.DeleteBoot.ExpiresAt = now.Add(-time.Second)
+		}},
+		{"no positive instance terminal", func(c *region.PoolChildRecord, _ *region.PoolLifecycleBinding) { c.InstanceTerminal = nil }},
+		{"unbound legacy pending wire", func(c *region.PoolChildRecord, _ *region.PoolLifecycleBinding) { c.BootCleanupAuthority = nil }},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			candidate, binding := child, current
+			candidate.DeleteBoot = new(*child.DeleteBoot)
+			change.apply(&candidate, &binding)
+			if bootCleanupLive(candidate, binding, now) == nil {
+				t.Fatal("existing boot DELETE acquired replacement current authority or dispatch deadline")
+			}
+		})
+	}
+	if bootCleanupLive(child, current, now.Add(2*time.Minute)) == nil {
+		t.Fatal("expired original boot authority was renewed by a later observation")
+	}
+}

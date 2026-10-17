@@ -12,26 +12,29 @@ import (
 
 // PoolLifecycleBinding identifies one original managed worker. It is unrelated
 // to the permission to remove an unknown member and grants no new purchase.
+// Shape and ProfileSHA256 remain original; CurrentProfileSHA256 pins the
+// smallest actual canonical compatible signed cleanup witness in this grant.
 type PoolLifecycleBinding struct {
-	InstallationID      string `json:"installationId"`
-	Cell                string `json:"cell"`
-	Role                string `json:"role"`
-	Architecture        string `json:"architecture"`
-	Shape               string `json:"shape"`
-	BirthOperationID    string `json:"birthOperationId"`
-	InstanceID          string `json:"instanceId"`
-	BootVolumeID        string `json:"bootVolumeId"`
-	BootAttachmentID    string `json:"bootAttachmentId"`
-	PoolID              string `json:"poolId"`
-	ConfigurationID     string `json:"configurationId"`
-	CompartmentID       string `json:"compartmentId"`
-	RecipeSHA256        string `json:"recipeSha256"`
-	ProfileSHA256       string `json:"profileSha256"`
-	PoolBirthSHA256     string `json:"poolBirthSha256"`
-	ConfigurationSHA256 string `json:"configurationSha256"`
-	BirthSHA256         string `json:"birthSha256"`
-	GrantSHA256         string `json:"grantSha256"`
-	Generation          uint64 `json:"generation"`
+	InstallationID       string `json:"installationId"`
+	Cell                 string `json:"cell"`
+	Role                 string `json:"role"`
+	Architecture         string `json:"architecture"`
+	Shape                string `json:"shape"`
+	BirthOperationID     string `json:"birthOperationId"`
+	InstanceID           string `json:"instanceId"`
+	BootVolumeID         string `json:"bootVolumeId"`
+	BootAttachmentID     string `json:"bootAttachmentId"`
+	PoolID               string `json:"poolId"`
+	ConfigurationID      string `json:"configurationId"`
+	CompartmentID        string `json:"compartmentId"`
+	RecipeSHA256         string `json:"recipeSha256"`
+	ProfileSHA256        string `json:"profileSha256"`
+	CurrentProfileSHA256 string `json:"currentProfileSha256"`
+	PoolBirthSHA256      string `json:"poolBirthSha256"`
+	ConfigurationSHA256  string `json:"configurationSha256"`
+	BirthSHA256          string `json:"birthSha256"`
+	GrantSHA256          string `json:"grantSha256"`
+	Generation           uint64 `json:"generation"`
 }
 
 // VerifiedPoolLifecycle retains the current signed profile and exact original
@@ -126,29 +129,24 @@ func (r FoundationResolver) PoolLifecycle(ctx context.Context, cell, birthOperat
 	if err != nil || configuration.RecipeSHA256 != child.RecipeSHA256 {
 		return fail(errors.Join(err, errors.New("known worker differs from its original protected recipe and configuration")))
 	}
-	var selected WorkerProfile
-	matches := 0
-	seen := map[string]bool{}
+	var currentProfileSHA string
 	for _, profile := range grant.WorkerProfiles {
-		if err := ValidateWorkerProfile(grant, profile); err != nil {
-			return fail(err)
+		if profile.Cell != cell || profile.Role != pool.Role || profile.Architecture != pool.Architecture || ValidateWorkerProfile(grant, profile) != nil {
+			continue
 		}
-		identity := profile.Cell + "/" + profile.Role + "/" + profile.Architecture + "/" + profile.Shape
-		if seen[identity] {
-			return fail(errors.New("ambiguous current signed known-worker lifecycle profile"))
-		}
-		seen[identity] = true
 		profileWire, err := json.Marshal(profile, json.Deterministic(true))
 		if err != nil {
 			return fail(err)
 		}
-		if profile.Cell == cell && profile.Role == pool.Role && profile.Architecture == pool.Architecture && profile.Shape == pool.Shape &&
-			workerSHA256(profileWire) == configuration.ProfileSHA256 {
-			selected, matches = profile, matches+1
+		// Preferred shapes, placements and images are launch alternatives.
+		// Each valid candidate independently covers this same cleanup scope.
+		digest := workerSHA256(profileWire)
+		if currentProfileSHA == "" || digest < currentProfileSHA {
+			currentProfileSHA = digest
 		}
 	}
-	if matches != 1 {
-		return fail(errors.New("known worker lacks its exact current signed original profile"))
+	if currentProfileSHA == "" {
+		return fail(errors.New("known worker lacks a compatible current signed cleanup profile"))
 	}
 	hash := func(value any) (string, error) {
 		wire, err := json.Marshal(value, json.Deterministic(true))
@@ -172,10 +170,10 @@ func (r FoundationResolver) PoolLifecycle(ctx context.Context, cell, birthOperat
 	if err != nil {
 		return fail(err)
 	}
-	binding := PoolLifecycleBinding{InstallationID: grant.InstallationID, Cell: cell, Role: selected.Role, Architecture: selected.Architecture,
-		Shape: selected.Shape, BirthOperationID: child.OperationID, InstanceID: child.InstanceID, BootVolumeID: child.BootVolumeID,
+	binding := PoolLifecycleBinding{InstallationID: grant.InstallationID, Cell: cell, Role: pool.Role, Architecture: pool.Architecture,
+		Shape: pool.Shape, BirthOperationID: child.OperationID, InstanceID: child.InstanceID, BootVolumeID: child.BootVolumeID,
 		BootAttachmentID: child.BootAttachmentID, PoolID: child.PoolID, ConfigurationID: child.ConfigurationID, CompartmentID: pool.CompartmentID,
-		RecipeSHA256: child.RecipeSHA256, ProfileSHA256: configuration.ProfileSHA256, PoolBirthSHA256: poolBirth,
+		RecipeSHA256: child.RecipeSHA256, ProfileSHA256: configuration.ProfileSHA256, CurrentProfileSHA256: currentProfileSHA, PoolBirthSHA256: poolBirth,
 		ConfigurationSHA256: configurationBirth, BirthSHA256: birth, GrantSHA256: reader.home.GrantSHA256, Generation: grant.Generation}
 	if deadline, ok := ctx.Deadline(); ok && deadline.Before(expires) {
 		expires = deadline

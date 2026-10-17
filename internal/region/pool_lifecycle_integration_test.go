@@ -17,6 +17,7 @@ import (
 // while the separate runtime drain and destructive SDK admission remain required.
 func testKnownPoolLifecycle(t *testing.T, resolver FoundationResolver, original FoundationRecord, poolID, configurationID string,
 	publish func(string, []byte), now time.Time,
+	grant *FoundationGrant, sign func(),
 ) {
 	t.Helper()
 	record := original
@@ -91,6 +92,114 @@ func testKnownPoolLifecycle(t *testing.T, resolver FoundationResolver, original 
 	if retained.IsVerified() || retained.Revalidate(ctx) == nil {
 		t.Fatal("fresh context replaced original cancelled known-child authority")
 	}
+	t.Run("compatible preferred successor keeps original birth", func(t *testing.T) {
+		reader := resolver.Footprint.(*SignedFootprint)
+		originalGrant, generation := *grant, reader.home.GrantGeneration
+		defer func() {
+			*grant, reader.home.GrantGeneration = originalGrant, generation
+			sign()
+			wire, err := json.Marshal(record, json.Deterministic(true))
+			if err != nil {
+				t.Fatal(err)
+			}
+			publish(foundationObjectPrefix+record.Cell+".json", wire)
+		}()
+		wire, err := json.Marshal(grant)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var successor FoundationGrant
+		if err := json.Unmarshal(wire, &successor); err != nil {
+			t.Fatal(err)
+		}
+		successor.Generation++
+		successor.Regions[0].Generation = successor.Generation
+		successor.Regions[0].BootstrapMaterial.PlanSHA256 = strings.Repeat("9", 64)
+		successor.WorkerProfiles[0].Bootstrap.MaterialPlanSHA256 = successor.Regions[0].BootstrapMaterial.PlanSHA256
+		successor.WorkerProfiles[0].RuntimeSHA256 = strings.Repeat("8", 64)
+		successor.WorkerProfiles[0].Shape = "VM.Standard.A2.Flex"
+		successor.WorkerProfiles[0].AvailabilityDomains = []string{"fixture:AD-2"}
+		successor.WorkerProfiles[0].ImageSource.Namespace = "preferred-images"
+		successor.Regions[0].BootstrapMaterial.SourceRegistration.StorageDomain.Namespace = "preferred-images"
+		alternative := successor.WorkerProfiles[0]
+		alternative.Shape, alternative.AvailabilityDomains = "VM.Standard.A3.Flex", []string{"fixture:AD-3"}
+		successor.WorkerProfiles = append(successor.WorkerProfiles, alternative)
+		unauthorized := alternative
+		unauthorized.CapacityJournal = WorkerCapacityJournal{}
+		successor.WorkerProfiles = append(successor.WorkerProfiles, unauthorized)
+		*grant, reader.home.GrantGeneration = successor, successor.Generation
+		sign()
+		current := record
+		current.Generation, current.GrantSHA256 = successor.Generation, reader.home.GrantSHA256
+		current.ResourceIDs = map[string]string{"workload_compartment": pool.CompartmentID, "subnet": "ocid1.subnet.oc1..preferred"}
+		current.IntentDigest, err = FoundationIntentDigest(successor.Regions[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		wire, err = json.Marshal(current, json.Deterministic(true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		publish(foundationObjectPrefix+record.Cell+".json", wire)
+		next, err := resolver.PoolLifecycle(ctx, current.Cell, child.OperationID, child.InstanceID)
+		if err != nil || !next.IsVerified() {
+			t.Fatalf("current signed preferred runtime/source-plan change blocked known original cleanup: %v", err)
+		}
+		before, after := proof.Binding(), next.Binding()
+		if after.ProfileSHA256 != before.ProfileSHA256 || after.RecipeSHA256 != before.RecipeSHA256 || after.BirthSHA256 != before.BirthSHA256 ||
+			after.ConfigurationSHA256 != before.ConfigurationSHA256 || after.PoolBirthSHA256 != before.PoolBirthSHA256 ||
+			after.Shape != pool.Shape || after.CurrentProfileSHA256 == before.CurrentProfileSHA256 || after.GrantSHA256 == before.GrantSHA256 || after.Generation != successor.Generation {
+			t.Fatal("compatible cleanup rebound original birth or failed to pin distinct current authority")
+		}
+		preferredWire, err := json.Marshal(successor.WorkerProfiles[0], json.Deterministic(true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		alternativeWire, err := json.Marshal(alternative, json.Deterministic(true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if after.CurrentProfileSHA256 != min(workerSHA256(preferredWire), workerSHA256(alternativeWire)) {
+			t.Fatal("multi-shape cleanup did not pin the smallest actual canonical signed witness")
+		}
+		if err := next.Revalidate(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if proof.Revalidate(ctx) == nil {
+			t.Fatal("an operation replaced its original current grant/profile with a compatible successor")
+		}
+		for _, test := range []struct {
+			name   string
+			change func(*FoundationGrant, *FoundationRecord)
+		}{
+			{"original workload scope removed", func(_ *FoundationGrant, r *FoundationRecord) {
+				r.ResourceIDs = map[string]string{"workload_compartment": "ocid1.compartment.oc1..foreign"}
+			}},
+			{"original role removed", func(g *FoundationGrant, _ *FoundationRecord) { g.WorkerProfiles = nil }},
+			{"cleanup clause revoked", func(g *FoundationGrant, _ *FoundationRecord) {
+				for i := range g.WorkerProfiles {
+					g.WorkerProfiles[i].CapacityJournal = WorkerCapacityJournal{}
+				}
+			}},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				candidate, changed := successor, current
+				candidate.WorkerProfiles = append([]WorkerProfile(nil), successor.WorkerProfiles...)
+				test.change(&candidate, &changed)
+				*grant = candidate
+				sign()
+				changed.GrantSHA256 = reader.home.GrantSHA256
+				wire, err := json.Marshal(changed, json.Deterministic(true))
+				if err != nil {
+					t.Fatal(err)
+				}
+				publish(foundationObjectPrefix+record.Cell+".json", wire)
+				if _, err := resolver.PoolLifecycle(ctx, current.Cell, child.OperationID, child.InstanceID); err == nil {
+					t.Fatal("current signed grant no longer independently authorizes this exact original cleanup scope")
+				}
+			})
+		}
+	})
 	changed := record
 	changed.cloneCapacity()
 	configuration := changed.CapacityPools[poolID].Configurations[configurationID]

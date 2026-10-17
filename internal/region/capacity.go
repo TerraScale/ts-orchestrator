@@ -126,39 +126,40 @@ const (
 // PoolChildRecord binds exactly one original launch response to its lifecycle.
 // Serialized data alone is never an enrollment or termination capability.
 type PoolChildRecord struct {
-	RetirementDrain      *drainwire.PoolReceipt   `json:"retirementDrain,omitempty"`
-	OperationID          string                   `json:"operationId"`
-	RecipeSHA256         string                   `json:"recipeSha256"`
-	PublicCAPEM          []byte                   `json:"publicCaPem"`
-	AvailabilityDomains  []string                 `json:"availabilityDomains"`
-	PoolID               string                   `json:"poolId"`
-	ConfigurationID      string                   `json:"configurationId"`
-	TargetFrom           int                      `json:"targetFrom"`
-	BirthEpoch           uint64                   `json:"birthEpoch"`
-	AvailabilityDomain   string                   `json:"availabilityDomain"`
-	SubnetID             string                   `json:"subnetId"`
-	Stage                PoolChildStage           `json:"stage"`
-	Node                 string                   `json:"node"`
-	Descriptor           string                   `json:"descriptor"`
-	Launch               *PoolWireRecord          `json:"launch,omitempty"`
-	InstanceID           string                   `json:"instanceId,omitempty"`
-	BornAt               time.Time                `json:"bornAt,omitzero"`
-	BootVolumeID         string                   `json:"bootVolumeId,omitempty"`
-	BootAttachmentID     string                   `json:"bootAttachmentId,omitempty"`
-	Attach               *PoolWireRecord          `json:"attach,omitempty"`
-	ReadyAt              time.Time                `json:"readyAt,omitzero"`
-	RemovalOperationID   string                   `json:"removalOperationId,omitempty"`
-	DrainAuthoritySHA256 string                   `json:"drainAuthoritySha256,omitempty"`
-	DrainSource          *PoolDrainSourcePin      `json:"drainSource,omitempty"`
-	DetachTargetFrom     int                      `json:"detachTargetFrom,omitzero"`
-	Detach               *PoolWireRecord          `json:"detach,omitempty"`
-	DetachedAt           time.Time                `json:"detachedAt,omitzero"`
-	Terminate            *PoolWireRecord          `json:"terminate,omitempty"`
-	DeleteBoot           *PoolWireRecord          `json:"deleteBoot,omitempty"`
-	InstanceTerminal     *PoolTerminalObservation `json:"instanceTerminal,omitempty"`
-	BootTerminal         *PoolTerminalObservation `json:"bootTerminal,omitempty"`
-	InstanceRetiredAt    time.Time                `json:"instanceRetiredAt,omitzero"`
-	BootRetiredAt        time.Time                `json:"bootRetiredAt,omitzero"`
+	RetirementDrain      *drainwire.PoolReceipt    `json:"retirementDrain,omitempty"`
+	OperationID          string                    `json:"operationId"`
+	RecipeSHA256         string                    `json:"recipeSha256"`
+	PublicCAPEM          []byte                    `json:"publicCaPem"`
+	AvailabilityDomains  []string                  `json:"availabilityDomains"`
+	PoolID               string                    `json:"poolId"`
+	ConfigurationID      string                    `json:"configurationId"`
+	TargetFrom           int                       `json:"targetFrom"`
+	BirthEpoch           uint64                    `json:"birthEpoch"`
+	AvailabilityDomain   string                    `json:"availabilityDomain"`
+	SubnetID             string                    `json:"subnetId"`
+	Stage                PoolChildStage            `json:"stage"`
+	Node                 string                    `json:"node"`
+	Descriptor           string                    `json:"descriptor"`
+	Launch               *PoolWireRecord           `json:"launch,omitempty"`
+	InstanceID           string                    `json:"instanceId,omitempty"`
+	BornAt               time.Time                 `json:"bornAt,omitzero"`
+	BootVolumeID         string                    `json:"bootVolumeId,omitempty"`
+	BootAttachmentID     string                    `json:"bootAttachmentId,omitempty"`
+	Attach               *PoolWireRecord           `json:"attach,omitempty"`
+	ReadyAt              time.Time                 `json:"readyAt,omitzero"`
+	RemovalOperationID   string                    `json:"removalOperationId,omitempty"`
+	DrainAuthoritySHA256 string                    `json:"drainAuthoritySha256,omitempty"`
+	DrainSource          *PoolDrainSourcePin       `json:"drainSource,omitempty"`
+	DetachTargetFrom     int                       `json:"detachTargetFrom,omitzero"`
+	Detach               *PoolWireRecord           `json:"detach,omitempty"`
+	DetachedAt           time.Time                 `json:"detachedAt,omitzero"`
+	Terminate            *PoolWireRecord           `json:"terminate,omitempty"`
+	DeleteBoot           *PoolWireRecord           `json:"deleteBoot,omitempty"`
+	BootCleanupAuthority *PoolBootCleanupAuthority `json:"bootCleanupAuthority,omitempty"`
+	InstanceTerminal     *PoolTerminalObservation  `json:"instanceTerminal,omitempty"`
+	BootTerminal         *PoolTerminalObservation  `json:"bootTerminal,omitempty"`
+	InstanceRetiredAt    time.Time                 `json:"instanceRetiredAt,omitzero"`
+	BootRetiredAt        time.Time                 `json:"bootRetiredAt,omitzero"`
 }
 
 // PoolQuarantineRecord removes only membership; it grants no birth or deletion.
@@ -303,6 +304,13 @@ func (r FoundationRecord) validateCapacity() error {
 		if err := child.validate(host, r.UpdatedAt); err != nil {
 			return err
 		}
+		if pin := child.BootCleanupAuthority; pin != nil {
+			b := pin.Lifecycle
+			if b.Cell != r.Cell || b.CompartmentID != pool.CompartmentID || b.Role != pool.Role || b.Architecture != pool.Architecture ||
+				b.Shape != pool.Shape || b.ProfileSHA256 != config.ProfileSHA256 || b.Generation > r.Generation {
+				return errors.New("boot cleanup current authority differs from original protected worker scope")
+			}
+		}
 		if child.InstanceID != "" {
 			if instances[child.InstanceID] {
 				return errors.New("protected pool children repeat an original instance identity")
@@ -361,6 +369,11 @@ func (c PoolChildRecord) validate(host capacityledger.Host, updated time.Time) e
 	}
 	if err := validatePoolTerminal(c.BootTerminal, c.BootVolumeID, c.DeleteBoot, updated); err != nil {
 		return err
+	}
+	if pin := c.BootCleanupAuthority; pin != nil {
+		if err := pin.validate(c, updated); err != nil {
+			return err
+		}
 	}
 	if c.BootTerminal != nil && c.InstanceTerminal == nil || c.DeleteBoot != nil && c.InstanceTerminal == nil ||
 		c.InstanceTerminal != nil && c.InstanceTerminal.TerminalObservedAt.Before(c.DetachedAt) ||
@@ -514,6 +527,9 @@ func (r *FoundationRecord) cloneCapacity() {
 		child.PublicCAPEM, child.AvailabilityDomains = bytes.Clone(child.PublicCAPEM), slices.Clone(child.AvailabilityDomains)
 		child.Launch, child.Attach, child.Detach = clonePoolWire(child.Launch), clonePoolWire(child.Attach), clonePoolWire(child.Detach)
 		child.Terminate, child.DeleteBoot = clonePoolWire(child.Terminate), clonePoolWire(child.DeleteBoot)
+		if child.BootCleanupAuthority != nil {
+			child.BootCleanupAuthority = new(*child.BootCleanupAuthority)
+		}
 		if child.DrainSource != nil {
 			child.DrainSource = new(*child.DrainSource)
 		}

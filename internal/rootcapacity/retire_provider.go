@@ -144,24 +144,43 @@ func (a *attempt) deleteOriginalBoot(ctx context.Context, child region.PoolChild
 		return a.retainTerminal(ctx, child, "boot", value(boot.Etag), value(boot.OpcRequestId), boot.BootVolume)
 	}
 	if child.DeleteBoot == nil {
-		if err := a.verifyRetirementDrain(ctx, child, true, true); err != nil {
+		unprepared := child
+		if err := a.verifyRetirementDrain(ctx, child, true, false); err != nil {
 			return false, err
 		}
-		if boot.LifecycleState != core.BootVolumeLifecycleStateAvailable {
+		if child.InstanceTerminal == nil || child.BootCleanupAuthority != nil || boot.LifecycleState != core.BootVolumeLifecycleStateAvailable {
 			return false, fmt.Errorf("%w: preserved original boot is not available for exact deletion", ErrPending)
 		}
+		if a.writer == nil || !a.lifecycle.IsVerified() {
+			return false, errors.New("new original boot deletion requires actual current lifecycle and journal writer")
+		}
+		if err := a.writer.Guard(a.proofContext(ctx)); err != nil {
+			return false, err
+		}
+		child.BootCleanupAuthority = &region.PoolBootCleanupAuthority{Lifecycle: a.lifecycle.Binding(), DrainSHA256: child.DrainAuthoritySHA256,
+			AuthorizedAt: time.Now().UTC(), ExpiresAt: a.deadline}
 		child.DeleteBoot, err = prepareWire(deleteBootRequest(child, value(boot.Etag)), http.MethodDelete, "/bootVolumes/{bootVolumeId}")
 		if err != nil {
 			return false, err
 		}
-		child.DeleteBoot.ExpiresAt = a.retirementDeadline()
+		child.DeleteBoot.ExpiresAt = child.BootCleanupAuthority.ExpiresAt
 		a.record.PoolChildren[child.OperationID] = child
+		// Check exact detached pool, idle boot and complete attachments before
+		// reserving the first wire, then repeat these checks at final dispatch.
+		if err := a.authorizeRetirement(ctx, "delete-boot"); err != nil {
+			a.record.PoolChildren[child.OperationID] = unprepared
+			return false, err
+		}
 		if err := a.save(ctx); err != nil {
+			a.record.PoolChildren[child.OperationID] = unprepared
 			return false, err
 		}
 	}
 	if child.DeleteBoot.AcceptedAt.IsZero() {
 		if err := retirementWireLive(child.DeleteBoot); err != nil {
+			return false, err
+		}
+		if err := bootCleanupLive(child, a.lifecycle.Binding(), time.Now().UTC()); err != nil {
 			return false, err
 		}
 		storage, err := a.factory.Blockstorage()
@@ -241,7 +260,13 @@ func (a *attempt) authorizeRetirement(ctx context.Context, kind string) error {
 	if !exists || child.Stage == region.PoolChildRetired || child.RemovalOperationID != a.operation {
 		return errors.New("retirement has no consumed exact original child and drain")
 	}
-	if err := a.verifyRetirementDrain(ctx, child, true, true); err != nil {
+	bootCleanup := kind == "delete-boot"
+	if bootCleanup {
+		if err := bootCleanupLive(child, a.lifecycle.Binding(), time.Now().UTC()); err != nil {
+			return err
+		}
+	}
+	if err := a.verifyRetirementDrain(ctx, child, true, !bootCleanup); err != nil {
 		return err
 	}
 	wire := a.wire(kind)
@@ -345,8 +370,18 @@ func (a *attempt) authorizeRetirement(ctx context.Context, kind string) error {
 	if err := a.guard(ctx); err != nil {
 		return err
 	}
-	if !time.Now().Before(a.lifecycle.ExpiresAt()) || a.drain == nil || !time.Now().Before(a.drain.ExpiresAt) || !time.Now().Before(wire.ExpiresAt) {
+	if !time.Now().Before(a.lifecycle.ExpiresAt()) || a.drain == nil || !bootCleanup && !time.Now().Before(a.drain.ExpiresAt) || !time.Now().Before(wire.ExpiresAt) {
 		return errors.New("original known retirement authority expired before destructive dispatch")
 	}
 	return ociclient.LimitAdmission(ctx, wire.ExpiresAt)
+}
+
+func bootCleanupLive(child region.PoolChildRecord, current region.PoolLifecycleBinding, now time.Time) error {
+	pin := child.BootCleanupAuthority
+	if pin == nil || child.InstanceTerminal == nil || child.BootTerminal != nil || child.DeleteBoot == nil ||
+		pin.Lifecycle != current || pin.DrainSHA256 != child.DrainAuthoritySHA256 ||
+		pin.AuthorizedAt.After(now) || !now.Before(pin.ExpiresAt) || !child.DeleteBoot.ExpiresAt.Equal(pin.ExpiresAt) {
+		return errors.New("original boot deletion cannot renew or replace its saved current cleanup authority")
+	}
+	return retirementWireLive(child.DeleteBoot)
 }
