@@ -20,6 +20,7 @@ import (
 // VerifiedRuntimeIAM binds an installed controller to current signed scope and
 // its own authenticated OCI identity. It carries no founder launch authority.
 type VerifiedRuntimeIAM struct {
+	original context.Context
 	reader   *CurrentFounderAuthorityReader
 	accepted AcceptedIdentity
 	factory  *ociclient.Factory
@@ -31,6 +32,10 @@ type VerifiedRuntimeIAM struct {
 }
 
 func VerifyRuntimeIAM(ctx context.Context, reader *CurrentFounderAuthorityReader, accepted AcceptedIdentity) (VerifiedRuntimeIAM, error) {
+	if ctx == nil {
+		return VerifiedRuntimeIAM{}, ErrSourceFounder
+	}
+	original := ctx
 	current, err := reader.ReadRuntimeAuthority(ctx, accepted, time.Now().UTC())
 	if err != nil {
 		return VerifiedRuntimeIAM{}, err
@@ -57,7 +62,7 @@ func VerifyRuntimeIAM(ctx context.Context, reader *CurrentFounderAuthorityReader
 	if err != nil {
 		return VerifiedRuntimeIAM{}, err
 	}
-	proof := VerifiedRuntimeIAM{reader: reader, accepted: accepted.Clone(), factory: factory,
+	proof := VerifiedRuntimeIAM{original: original, reader: reader, accepted: accepted.Clone(), factory: factory,
 		observer: observer, imds: NewIMDSClient(), scope: scope, anchor: current.Anchor().Digest(), expires: current.ExpiresAt()}
 	deadline, err := proof.CurrentDeadline(ctx)
 	if err != nil {
@@ -68,7 +73,7 @@ func VerifyRuntimeIAM(ctx context.Context, reader *CurrentFounderAuthorityReader
 }
 
 func (proof VerifiedRuntimeIAM) IsVerified() bool {
-	return proof.reader != nil && proof.factory != nil && proof.observer != nil && proof.anchor != "" && !proof.expires.IsZero()
+	return proof.original != nil && proof.reader != nil && proof.factory != nil && proof.observer != nil && proof.anchor != "" && !proof.expires.IsZero()
 }
 func (proof VerifiedRuntimeIAM) InstanceID() string                         { return proof.accepted.InstanceOCID }
 func (proof VerifiedRuntimeIAM) FoundationScope() bootstrap.FoundationScope { return proof.scope }
@@ -86,14 +91,22 @@ func (proof VerifiedRuntimeIAM) VerifyCurrent(ctx context.Context) error {
 	return err
 }
 
-// CurrentDeadline retains the original purpose deadline and any shorter current
-// signed selection through the caller's remaining authority-dependent waits.
+// CurrentDeadline retains the original acquisition cancellation and purpose
+// deadline plus any shorter current signed selection through verification.
 func (proof VerifiedRuntimeIAM) CurrentDeadline(ctx context.Context) (time.Time, error) {
 	if ctx == nil || !proof.IsVerified() {
 		return time.Time{}, ErrSourceFounder
 	}
+	if err := proof.original.Err(); err != nil {
+		return time.Time{}, err
+	}
 	ctx, cancelOriginal := context.WithDeadline(ctx, proof.expires)
 	defer cancelOriginal()
+	stopOriginal := context.AfterFunc(proof.original, cancelOriginal)
+	defer stopOriginal()
+	if err := proof.original.Err(); err != nil {
+		return time.Time{}, err
+	}
 	if err := ctx.Err(); err != nil {
 		return time.Time{}, err
 	}
@@ -151,6 +164,9 @@ func (proof VerifiedRuntimeIAM) CurrentDeadline(ctx context.Context) (time.Time,
 			return time.Time{}, err
 		}
 		if err := ociclient.LimitAdmission(ctx, proof.expires); err != nil {
+			return time.Time{}, err
+		}
+		if err := proof.original.Err(); err != nil {
 			return time.Time{}, err
 		}
 		if err := ctx.Err(); err != nil {
