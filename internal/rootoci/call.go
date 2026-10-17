@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/TerraScale/ts-orchestrator/internal/nativerootoci"
 )
@@ -149,19 +150,8 @@ func authorityBootID() (string, error) {
 }
 
 func validAuthorityBootID(value string) bool {
-	if len(value) != 36 {
-		return false
-	}
-	for i, char := range value {
-		if i == 8 || i == 13 || i == 18 || i == 23 {
-			if char != '-' {
-				return false
-			}
-		} else if !(char >= '0' && char <= '9' || char >= 'a' && char <= 'f') {
-			return false
-		}
-	}
-	return true
+	parsed, err := uuid.Parse(value)
+	return err == nil && parsed != uuid.Nil() && parsed.String() == value
 }
 
 // RuntimeID is the candidate identity privately bound by the root supervisor.
