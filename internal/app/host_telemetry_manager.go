@@ -88,6 +88,7 @@ func (t *hostTelemetry) recordManaged(ctx context.Context, history *nativeHistor
 	if err != nil {
 		return err
 	}
+	slices.SortFunc(tasks, func(a, b *api.Task) int { return strings.Compare(a.ID, b.ID) })
 	managed := make(map[string]hostload.Request)
 	pins := make(map[string][]hostload.TaskPin)
 	var accepted []*api.Task
