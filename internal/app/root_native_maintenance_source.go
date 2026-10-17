@@ -219,7 +219,7 @@ func (b *rootReleaseChannels) captureNativeMaintenance(ctx context.Context, call
 
 func (p *rootNativeMaintenanceSource) localCurrent(ctx context.Context) error {
 	if p == nil || ctx == nil || ctx.Err() != nil || p.ctx == nil || p.ctx.Err() != nil || p.ownhost == nil ||
-		p.observation == nil || p.observation.b == nil || p.config.credentialSource == nil ||
+		p.observation == nil || p.observation.b == nil || p.observation.b.ctx == nil || p.config.credentialSource == nil ||
 		p.session == nil || p.session.Err() != nil || p.local == nil || p.origin == nil || p.identity == nil || p.target == nil ||
 		p.recipient == nil || !p.binary.IsVerified() || !time.Now().Before(p.deadline) || !time.Now().Before(p.workflowDeadline) {
 		return rootoci.ErrUnauthorized
@@ -230,7 +230,7 @@ func (p *rootNativeMaintenanceSource) localCurrent(ctx context.Context) error {
 	p.ownhost.mu.RLock()
 	current, err := bootstrapstart.EncodeAcceptedIdentity(p.ownhost.accepted)
 	changed := err != nil || !p.matchesOwnhostLocked() || !bytes.Equal(current, p.accepted) ||
-		ctx.Err() != nil || p.ctx.Err() != nil || p.session.Err() != nil ||
+		ctx.Err() != nil || p.ctx.Err() != nil || p.observation.b.ctx.Err() != nil || p.session.Err() != nil ||
 		!time.Now().Before(p.deadline) || !time.Now().Before(p.workflowDeadline)
 	p.ownhost.mu.RUnlock()
 	if changed {
