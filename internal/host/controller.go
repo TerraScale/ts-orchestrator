@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -930,18 +932,19 @@ func (c *Controller) handleSession(ctx context.Context, req request) (payload an
 			c.logSessionFailure(stage, resultErr)
 		}
 	}()
-	var operation struct {
-		Kind string `json:"kind"`
-	}
+	var operation sessionOperation
 	if err := decodeStrict(req.Payload, &operation); err != nil {
 		return nil, err
 	}
 	stateKey := sessionKey(c.cell, req.Node)
 	for attempt := range 8 {
 		stage = "registration"
-		r, err := c.registration(ctx, req.Node)
+		r, registrationRevision, registered, err := c.readRegistration(ctx, req.Node)
 		if err != nil {
 			return nil, err
+		}
+		if !registered {
+			return nil, errors.New("host is not registered")
 		}
 		key, err := decodePublicKey(r.PublicKey)
 		if err != nil {
@@ -1000,6 +1003,10 @@ func (c *Controller) handleSession(ctx context.Context, req request) (payload an
 			next.LastIssuedAt = req.IssuedAt
 		default:
 			return nil, errors.New("unknown session operation")
+		}
+		next.LastPayloadSHA256 = sessionPayloadSHA256(req)
+		if err := applyManagerRuntimeCarrier(&next, old, r, req, operation, revision, registrationRevision, now); err != nil {
+			return nil, err
 		}
 		stage = "session_write"
 		written, err := c.cas(ctx, stateKey, next, revision)
@@ -1077,9 +1084,14 @@ func (c *Controller) logSessionFailure(stage string, err error) {
 	slog.Warn("host session request deferred", "stage", stage, "cause_class", class)
 }
 
+func sessionPayloadSHA256(req request) string {
+	digest := sha256.Sum256(req.Payload)
+	return hex.EncodeToString(digest[:])
+}
+
 func exactSessionReplay(old session, r Registration, req request, kind string, now time.Time) bool {
 	replayEpoch := kind == "acquire" && req.Epoch == 0 || kind == "renew" && req.Epoch == old.Epoch
-	return replayEpoch && old.RegistrationGeneration == r.Generation && old.SessionID == req.SessionID &&
+	return replayEpoch && old.LastPayloadSHA256 != "" && old.LastPayloadSHA256 == sessionPayloadSHA256(req) && old.RegistrationGeneration == r.Generation && old.SessionID == req.SessionID &&
 		old.LastNonce == req.Nonce && old.LastIssuedAt.Equal(req.IssuedAt) && now.Before(old.ExpiresAt)
 }
 
