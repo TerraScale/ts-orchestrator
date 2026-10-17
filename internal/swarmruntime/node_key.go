@@ -50,6 +50,19 @@ func parseNodeSigningKey(nodeID string, wire, certificateWire, rootWire []byte) 
 	if key == nil {
 		return nil, nil, time.Time{}, errors.New("unsupported upstream node private key")
 	}
+	chain, leaf, deadline, err := verifyNodeCertificateChain(nodeID, certificateWire, rootWire)
+	if err != nil {
+		return nil, nil, time.Time{}, err
+	}
+	public, err := x509.MarshalPKIXPublicKey(key.Public())
+	if err != nil || !bytes.Equal(public, leaf.RawSubjectPublicKeyInfo) {
+		return nil, nil, time.Time{}, errors.New("upstream node signing key differs from certificate")
+	}
+	return key, chain, deadline, nil
+}
+
+// Verify the actual native member's bytes before retaining any later read cap.
+func verifyNodeCertificateChain(nodeID string, certificateWire, rootWire []byte) ([][]byte, *x509.Certificate, time.Time, error) {
 	var chain [][]byte
 	var certificates []*x509.Certificate
 	for len(bytes.TrimSpace(certificateWire)) != 0 {
@@ -67,10 +80,6 @@ func parseNodeSigningKey(nodeID string, wire, certificateWire, rootWire []byte) 
 	}
 	if len(certificates) == 0 || certificates[0].Subject.CommonName != nodeID {
 		return nil, nil, time.Time{}, errors.New("upstream node certificate differs from live identity")
-	}
-	public, err := x509.MarshalPKIXPublicKey(key.Public())
-	if err != nil || !bytes.Equal(public, certificates[0].RawSubjectPublicKeyInfo) {
-		return nil, nil, time.Time{}, errors.New("upstream node signing key differs from certificate")
 	}
 	roots, intermediates := x509.NewCertPool(), x509.NewCertPool()
 	if !roots.AppendCertsFromPEM(rootWire) {
@@ -91,5 +100,5 @@ func parseNodeSigningKey(nodeID string, wire, certificateWire, rootWire []byte) 
 			}
 		}
 	}
-	return key, chain, deadline, nil
+	return chain, certificates[0], deadline, nil
 }

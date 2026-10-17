@@ -3,8 +3,6 @@ package swarmruntime
 import (
 	"bytes"
 	"context"
-	"crypto/x509"
-	"encoding/pem"
 	"errors"
 	"slices"
 	"strings"
@@ -84,15 +82,11 @@ func (n *Node) ReadManagerRuntimeCandidate(ctx context.Context, hosts *host.Read
 	if err != nil || got == nil || got.Node == nil {
 		return nil, errors.New("authenticated manager runtime native origin unavailable")
 	}
-	block, _ := pem.Decode(got.Node.Certificate.Certificate)
-	if block == nil || block.Type != "CERTIFICATE" {
-		return nil, errors.New("manager runtime native certificate unavailable")
-	}
-	certificate, err := x509.ParseCertificate(block.Bytes)
+	_, _, certificateExpiry, err := verifyNodeCertificateChain(authenticatedOriginNodeID, got.Node.Certificate.Certificate, cluster.RootCACert)
 	if err != nil {
 		return nil, err
 	}
-	if err := limit(certificate.NotAfter); err != nil {
+	if err := limit(certificateExpiry); err != nil {
 		return nil, err
 	}
 	session, err := hosts.FindManagerRuntimeSession(ctx, authenticatedOriginNodeID)
