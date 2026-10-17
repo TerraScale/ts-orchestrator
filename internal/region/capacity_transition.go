@@ -77,6 +77,7 @@ func (r FoundationRecord) retainCapacity(previous FoundationRecord) error {
 			old.DetachTargetFrom != 0 && old.DetachTargetFrom != next.DetachTargetFrom ||
 			!retainedString(old.DrainAuthoritySHA256, next.DrainAuthoritySHA256) || !retainedTime(old.DetachedAt, next.DetachedAt) ||
 			!retainedTime(old.InstanceRetiredAt, next.InstanceRetiredAt) || !retainedTime(old.BootRetiredAt, next.BootRetiredAt) ||
+			old.RetirementDrain != nil && !sameCapacityValue(old.RetirementDrain, next.RetirementDrain) ||
 			!retainPoolWire(old.Launch, next.Launch) || !retainPoolWire(old.Attach, next.Attach) || !retainPoolWire(old.Detach, next.Detach) ||
 			!retainPoolWire(old.Terminate, next.Terminate) || !retainPoolWire(old.DeleteBoot, next.DeleteBoot) {
 			return errors.New("protected pool child lost or rebound original lifecycle evidence")
@@ -85,6 +86,7 @@ func (r FoundationRecord) retainCapacity(previous FoundationRecord) error {
 		next.InstanceID, next.BornAt, next.BootVolumeID, next.BootAttachmentID = old.InstanceID, old.BornAt, old.BootVolumeID, old.BootAttachmentID
 		next.ReadyAt, next.RemovalOperationID, next.DrainAuthoritySHA256, next.DetachedAt = old.ReadyAt, old.RemovalOperationID, old.DrainAuthoritySHA256, old.DetachedAt
 		next.DetachTargetFrom = old.DetachTargetFrom
+		next.RetirementDrain = old.RetirementDrain
 		next.InstanceRetiredAt, next.BootRetiredAt = old.InstanceRetiredAt, old.BootRetiredAt
 		if !sameCapacityValue(old, next) {
 			return errors.New("protected pool child changed original recipe, placement or boot identity")
