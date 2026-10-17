@@ -92,17 +92,22 @@ func TestManagementObservationGRPCBlockedSend(t *testing.T) {
 			if err := stream.RecvMsg(new(wrapperspb.BytesValue)); err != nil {
 				return err
 			}
+			// gRPC queues the first oversized write against its soft quota.
+			payload := &wrapperspb.BytesValue{Value: make([]byte, 1<<20)}
+			if err := stream.SendMsg(payload); err != nil {
+				return err
+			}
 			err := sendManagementObservation(stream.Context(), closed, func() error { return nil }, func() error {
 				defer close(finished)
 				close(started)
-				return stream.SendMsg(&wrapperspb.BytesValue{Value: make([]byte, 1<<20)})
+				return stream.SendMsg(payload)
 			})
 			returned <- err
 			return err
 		}}},
 	}, new(struct{}))
 	go func() { _ = server.Serve(listener) }()
-	conn, err := grpc.NewClient("passthrough:///observation-send-fixture", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return listener.DialContext(ctx) }))
+	conn, err := grpc.NewClient("passthrough:///observation-send-fixture", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithStaticStreamWindowSize(64<<10), grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return listener.DialContext(ctx) }))
 	if err != nil {
 		t.Fatal(err)
 	}

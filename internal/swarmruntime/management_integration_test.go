@@ -38,6 +38,9 @@ func TestManagementIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := AdmitNode(ctx, upstream, node.ID(), cfg.Admission); err != nil {
+		t.Fatal(err)
+	}
 	wire, err := os.ReadFile("/proc/self/cgroup")
 	if err != nil {
 		t.Fatal(err)

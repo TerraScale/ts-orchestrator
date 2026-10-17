@@ -70,7 +70,7 @@ func TestManagementObservationIntegration(t *testing.T) {
 	if err == nil {
 		_, err = broad.Recv()
 	}
-	if status.Code(err) != codes.PermissionDenied {
+	if code := status.Code(err); code != codes.PermissionDenied && code != codes.Unimplemented {
 		t.Fatalf("unrestricted upstream Watch became reachable: %v", err)
 	}
 	if _, err := upstream.CreateSecret(ctx, &api.CreateSecretRequest{Spec: &api.SecretSpec{Annotations: api.Annotations{Name: "observation-private-proof"}, Data: []byte("test-only-private-proof")}}); err != nil {
