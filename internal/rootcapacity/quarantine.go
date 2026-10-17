@@ -117,7 +117,7 @@ func (c *Controller) QuarantinePoolChild(ctx context.Context, call rootoci.Call,
 		return rootoci.PoolQuarantineView{}, err
 	}
 	return rootoci.PoolQuarantineView{Cell: a.record.Cell, PoolID: quarantine.PoolID, InstanceID: quarantine.InstanceID,
-		OperationID: quarantine.OperationID, Stage: "detached", RecordSHA256: digest}, a.guard(ctx)
+		OperationID: quarantine.OperationID, Stage: "quarantined", RecordSHA256: digest}, a.guard(ctx)
 }
 
 func (a *attempt) authorizeQuarantine(ctx context.Context) error {
