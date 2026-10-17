@@ -13,8 +13,14 @@ import (
 	"github.com/nats-io/nkeys"
 )
 
+const (
+	BootstrapAccountDomain = "terrascale.netbird.bootstrap-account.v1"
+	RegionalAccountDomain  = "terrascale.netbird.regional-account.v1"
+)
+
 // Binding contains public identities authenticated elsewhere; it grants no rights.
 type Binding struct {
+	AccountOperationDomain     string `json:"accountOperationDomain"`
 	PurposeSHA256              string `json:"purposeSha256"`
 	SourceSHA256               string `json:"sourceSha256"`
 	GrantSHA256                string `json:"grantSha256"`
@@ -45,7 +51,16 @@ func (binding Binding) Validate() error {
 			return ErrReservation
 		}
 	}
-	if binding.ManagerAccountIntentSHA256 != "" && !digest(binding.ManagerAccountIntentSHA256) {
+	switch binding.AccountOperationDomain {
+	case BootstrapAccountDomain:
+		if binding.ManagerAccountIntentSHA256 != "" {
+			return ErrReservation
+		}
+	case RegionalAccountDomain:
+		if !digest(binding.ManagerAccountIntentSHA256) {
+			return ErrReservation
+		}
+	default:
 		return ErrReservation
 	}
 	if !publicID(binding.CredentialID) || !nkeys.IsValidPublicUserKey(binding.CredentialSubject) || binding.CurrentVersion <= 0 ||
