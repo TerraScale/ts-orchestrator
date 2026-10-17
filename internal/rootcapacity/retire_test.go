@@ -15,8 +15,8 @@ import (
 
 func TestRetirementUsesProtectedSelectorsWithoutCallerAuthorityBytes(t *testing.T) {
 	child := region.PoolChildRecord{OperationID: "original-birth", RecipeSHA256: "original-recipe", PoolID: "original-pool", ConfigurationID: "original-configuration",
-		InstanceID: "original-instance", BootVolumeID: "original-boot", PublicCAPEM: []byte("original-ca"), AvailabilityDomains: []string{"original-ad"}}
-	request := rootoci.PoolRetirementExpectation{Child: rootoci.PoolChildExpectation{OperationID: child.OperationID, RecipeSHA256: child.RecipeSHA256},
+		InstanceID: "original-instance", BootVolumeID: "original-boot", PublicCAPEM: []byte("original-ca"), AvailabilityDomains: []string{"original-ad"}, BirthEpoch: 7}
+	request := rootoci.PoolRetirementExpectation{Child: rootoci.PoolChildExpectation{OperationID: child.OperationID, RecipeSHA256: child.RecipeSHA256, Epoch: child.BirthEpoch},
 		InstanceID: child.InstanceID, RemovalOperationID: "original-removal"}
 	if !retirementSelectors(request, child) {
 		t.Fatal("retirement required caller CA, placement or drain authority instead of independent protected selection")
@@ -26,6 +26,7 @@ func TestRetirementUsesProtectedSelectorsWithoutCallerAuthorityBytes(t *testing.
 		apply func(*rootoci.PoolRetirementExpectation)
 	}{
 		{"another original instance", func(r *rootoci.PoolRetirementExpectation) { r.InstanceID = "another-instance" }},
+		{"home epoch substituted for original birth", func(r *rootoci.PoolRetirementExpectation) { r.Child.Epoch++ }},
 		{"another configuration", func(r *rootoci.PoolRetirementExpectation) { r.Child.ConfigurationID = "another-configuration" }},
 		{"another public source", func(r *rootoci.PoolRetirementExpectation) { r.Child.PublicCAPEM = []byte("another-ca") }},
 		{"another placement", func(r *rootoci.PoolRetirementExpectation) { r.Child.AvailabilityDomains = []string{"another-ad"} }},

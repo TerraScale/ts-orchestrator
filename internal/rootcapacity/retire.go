@@ -186,6 +186,7 @@ func (c *Controller) RetirePoolChild(ctx context.Context, call rootoci.Call, req
 
 func retirementSelectors(request rootoci.PoolRetirementExpectation, child region.PoolChildRecord) bool {
 	return request.InstanceID == child.InstanceID && request.Child.OperationID == child.OperationID && request.Child.RecipeSHA256 == child.RecipeSHA256 &&
+		request.Child.Epoch == child.BirthEpoch &&
 		(request.Child.PoolID == "" || request.Child.PoolID == child.PoolID) &&
 		(request.Child.ConfigurationID == "" || request.Child.ConfigurationID == child.ConfigurationID) &&
 		(len(request.Child.PublicCAPEM) == 0 || bytes.Equal(request.Child.PublicCAPEM, child.PublicCAPEM)) &&
