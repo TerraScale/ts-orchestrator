@@ -167,6 +167,7 @@ func (s *SignedFootprint) openNetBirdEvidence(ctx context.Context, digest string
 // VerifiedNetBirdManager is held only by the independently observed dedicated
 // instance. No caller-supplied role or resource name can construct this proof.
 type VerifiedNetBirdManager struct {
+	observation     NetBirdManagerAdmissionObservation
 	target          vaultsecret.Target
 	storeGeneration string
 	expires         time.Time
@@ -174,6 +175,28 @@ type VerifiedNetBirdManager struct {
 	check           func(context.Context) error
 	recovery        bool
 	transition      func(context.Context, bool) error
+}
+
+// NetBirdManagerAdmissionObservation describes the original authenticated
+// launch admission; these public values grant no account effect authority.
+type NetBirdManagerAdmissionObservation struct {
+	AdmissionSHA256    string
+	LaunchRecipeSHA256 string
+	Binary             bootstrapstart.RunningBinary
+}
+
+// AdmissionObservation revalidates the retained admission before returning its
+// original snapshot, signed launch recipe and actual executable measurement.
+func (v VerifiedNetBirdManager) AdmissionObservation(ctx context.Context) (NetBirdManagerAdmissionObservation, error) {
+	if ctx == nil || !bootstrapSHA256.MatchString(v.observation.AdmissionSHA256) ||
+		!bootstrapSHA256.MatchString(v.observation.LaunchRecipeSHA256) || !bootstrapSHA256.MatchString(v.observation.Binary.SHA256) ||
+		v.observation.Binary.Bytes <= 0 || v.observation.Binary.Architecture != "arm64" {
+		return NetBirdManagerAdmissionObservation{}, errors.New("dedicated manager original admission observation is absent")
+	}
+	if err := v.Check(ctx); err != nil {
+		return NetBirdManagerAdmissionObservation{}, err
+	}
+	return v.observation, nil
 }
 
 func (v VerifiedNetBirdManager) VaultTarget() vaultsecret.Target { return v.target }
@@ -226,10 +249,12 @@ func checkNetBirdManagerDeadline(ctx context.Context, expiry time.Time) error {
 }
 
 type netBirdManagerAdmissionState struct {
-	target   vaultsecret.Target
-	store    string
-	expires  time.Time
-	snapshot [sha256.Size]byte
+	target       vaultsecret.Target
+	store        string
+	expires      time.Time
+	snapshot     [sha256.Size]byte
+	recipeDigest string
+	binary       bootstrapstart.RunningBinary
 }
 
 // AdmitNetBirdManager works before the overlay, NATS and SwarmKit. OCI instance
@@ -308,8 +333,13 @@ func admitNetBirdManager(ctx context.Context, resolver FoundationResolver, reade
 			!observed.PrimaryVNIC || observed.PrimaryPrivateIP != intent.intent.Profile.PrivateIP || observed.LifecycleState != "RUNNING" {
 			return netBirdManagerAdmissionState{}, errors.New("observed NetBird manager differs from its exact signed profile and image")
 		}
-		if _, err := verifyBinary(intent.image); err != nil {
+		binary, err := verifyBinary(intent.image)
+		if err != nil {
 			return netBirdManagerAdmissionState{}, err
+		}
+		receipt := intent.image.Receipt()
+		if binary != (bootstrapstart.RunningBinary{SHA256: receipt.BinarySHA256, Bytes: receipt.BinaryBytes, Architecture: receipt.Architecture}) {
+			return netBirdManagerAdmissionState{}, errors.New("measured dedicated manager binary differs from authenticated image receipt")
 		}
 		target, err := record.VaultTarget()
 		if err != nil {
@@ -381,7 +411,7 @@ func admitNetBirdManager(ctx context.Context, resolver FoundationResolver, reade
 		if err := checkNetBirdManagerDeadline(ctx, expiry); err != nil {
 			return netBirdManagerAdmissionState{}, err
 		}
-		return netBirdManagerAdmissionState{target: target, store: store, expires: expiry, snapshot: snapshot}, nil
+		return netBirdManagerAdmissionState{target: target, store: store, expires: expiry, snapshot: snapshot, recipeDigest: intent.recipeDigest, binary: binary}, nil
 	}
 	original, err := current(ctx)
 	if err != nil {
@@ -401,7 +431,7 @@ func admitNetBirdManager(ctx context.Context, resolver FoundationResolver, reade
 		if err != nil {
 			return err
 		}
-		if next.snapshot != original.snapshot {
+		if next.snapshot != original.snapshot || next.recipeDigest != original.recipeDigest || next.binary != original.binary {
 			return errors.New("dedicated manager immutable admission changed")
 		}
 		return checkNetBirdManagerDeadline(ctx, original.expires)
@@ -452,7 +482,7 @@ func admitNetBirdManager(ctx context.Context, resolver FoundationResolver, reade
 	if err := check(ctx); err != nil {
 		return VerifiedNetBirdManager{}, err
 	}
-	return VerifiedNetBirdManager{target: original.target, storeGeneration: original.store, expires: original.expires, original: originalContext, check: check, transition: transition,
+	return VerifiedNetBirdManager{observation: NetBirdManagerAdmissionObservation{AdmissionSHA256: hex.EncodeToString(original.snapshot[:]), LaunchRecipeSHA256: original.recipeDigest, Binary: original.binary}, target: original.target, storeGeneration: original.store, expires: original.expires, original: originalContext, check: check, transition: transition,
 		recovery: intent.intent.StoreOrigin == "restore" || record.NetBirdManager.StoreState != "empty"}, nil
 }
 

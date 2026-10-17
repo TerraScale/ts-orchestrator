@@ -367,12 +367,18 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 			if !image.IsVerified() {
 				return bootstrapstart.RunningBinary{}, errors.New("unverified image")
 			}
-			return bootstrapstart.RunningBinary{}, nil
+			receipt := image.Receipt()
+			return bootstrapstart.RunningBinary{SHA256: receipt.BinarySHA256, Bytes: receipt.BinaryBytes, Architecture: receipt.Architecture}, nil
 		})
 	}
 	claim, err := admit()
 	if err != nil {
 		t.Fatal(err)
+	}
+	observation, err := claim.AdmissionObservation(t.Context())
+	wantBinary := bootstrapstart.RunningBinary{SHA256: receipt.BinarySHA256, Bytes: receipt.BinaryBytes, Architecture: receipt.Architecture}
+	if err != nil || !bootstrapSHA256.MatchString(observation.AdmissionSHA256) || observation.LaunchRecipeSHA256 != recipeSHA || observation.Binary != wantBinary {
+		t.Fatalf("original SDK-backed manager observation = %+v, %v", observation, err)
 	}
 	if claim.RecoveryRequired() {
 		t.Fatal("new explicitly funded store required restore")
@@ -382,6 +388,9 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	mu.Unlock()
 	if err := claim.Check(t.Context()); err == nil {
 		t.Fatal("actual instance image drift retained manager authority")
+	}
+	if observed, err := claim.AdmissionObservation(t.Context()); err == nil || observed != (NetBirdManagerAdmissionObservation{}) {
+		t.Fatalf("native image drift returned original metadata: %+v, %v", observed, err)
 	}
 	mu.Lock()
 	observedImage = manager.ImageOCID
@@ -412,6 +421,9 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	restarted, err = admit()
 	if err != nil || !restarted.RecoveryRequired() || restarted.StoreGeneration() != claim.StoreGeneration() {
 		t.Fatalf("ready store identity was reset: %+v %v", restarted, err)
+	}
+	if current, err := claim.AdmissionObservation(t.Context()); err != nil || current != observation {
+		t.Fatalf("store transitions changed original admission observation: %+v, %v", current, err)
 	}
 	grant.Regions[0].NetBirdManager = nil
 	publish()
