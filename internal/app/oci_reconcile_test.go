@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -15,43 +16,28 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/bucket"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/nsg"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/routetable"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 )
 
-func TestOciReconcileConfigDefaultsOffAndValidates(t *testing.T) {
+func TestOciReconcileConfigCarriesOnlySignedAmendments(t *testing.T) {
 	var cfg ControllerConfig
-	if err := json.Unmarshal([]byte(`{"candidate_id":"a"}`), &cfg, json.RejectUnknownMembers(true)); err != nil {
-		t.Fatal(err)
-	}
-	if cfg.OciReconcile != nil {
-		t.Fatal("OCI reconcile is on by default")
-	}
-	wire := `{"oci_reconcile":{"enabled":true,"interval_seconds":120,"tag_mode":"freeform",` +
-		`"public_nlb":{"name":"public-api","nlb_id":"ocid1.networkloadbalancer.oc1..n","backend_set":"terrabase-https","port":9465}}}`
+	wire := `{"oci_reconcile":{"public_nlb":{"name":"public-api","nlb_id":"ocid1.networkloadbalancer.oc1..n","backend_set":"terrabase-https","port":9465}}}`
 	if err := json.Unmarshal([]byte(wire), &cfg, json.RejectUnknownMembers(true)); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.OciReconcile.Desired != nil {
-		t.Fatal("desired specs are published by default")
+	if cfg.OciReconcile == nil || cfg.OciReconcile.PublicNLB == nil || cfg.OciReconcile.Desired != nil {
+		t.Fatalf("amendments=%+v", cfg.OciReconcile)
 	}
-	if interval, err := cfg.OciReconcile.interval(); err != nil || interval != 2*time.Minute {
-		t.Fatalf("interval=%v err=%v", interval, err)
-	}
-	ownership, err := cfg.OciReconcile.ownership("cell-gru")
-	if err != nil || ownership.Mode != ociresource.TagModeFreeform || ownership.Namespace != "" {
-		t.Fatalf("ownership=%+v err=%v", ownership, err)
-	}
-	for _, seconds := range []int{1, 29, 3601} {
-		if _, err := (OciReconcileConfig{IntervalSeconds: seconds}).interval(); err == nil {
-			t.Fatalf("accepted interval %d", seconds)
+	for _, retired := range []string{`"enabled":true`, `"enabled":false`, `"interval_seconds":120`, `"tag_mode":"freeform"`, `"tag_namespace":"production"`} {
+		if err := json.Unmarshal([]byte(`{"oci_reconcile":{`+retired+`}}`), &cfg, json.RejectUnknownMembers(true)); err == nil {
+			t.Fatalf("accepted retired setting %s", retired)
 		}
 	}
-	if _, err := (OciReconcileConfig{TagMode: "adopt-anything"}).ownership("cell-gru"); err == nil {
-		t.Fatal("accepted an unknown tag mode")
-	}
-	if _, err := (OciReconcileConfig{}).ownership("Cell_GRU"); err == nil {
-		t.Fatal("accepted an owner that is not a token")
+	if err := (ociresource.Ownership{Owner: "Cell_GRU"}).Validate(); err == nil {
+		t.Fatal("accepted an invalid owner")
 	}
 }
 
@@ -73,7 +59,7 @@ const reconcileTestNSG = "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.members"
 func desiredTestConfig(t *testing.T, wire string) OciDesiredConfig {
 	t.Helper()
 	var cfg ControllerConfig
-	if err := json.Unmarshal([]byte(`{"oci_reconcile":{"enabled":true,"desired":`+wire+`}}`), &cfg,
+	if err := json.Unmarshal([]byte(`{"oci_reconcile":{"desired":`+wire+`}}`), &cfg,
 		json.RejectUnknownMembers(true)); err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +135,7 @@ func TestOciDesiredPassPublishesFencedAndFeedsInsights(t *testing.T) {
 	}
 	var off *ociReconcileRuntime
 	if off.resources() != nil {
-		t.Fatal("a disabled reconcile exposes a provider")
+		t.Fatal("an unopened reconcile exposes a provider")
 	}
 }
 
@@ -162,7 +148,7 @@ func TestOciDesiredFollowsTheCellSpec(t *testing.T) {
 	signed := desiredTestConfig(t, `{"prune":true,"buckets":{"backups":{"spec":`+
 		`{"namespace":"tenancy","bucket":"backups","versioning":"Enabled"}},"logs":{"spec":{"namespace":"tenancy","bucket":"logs"}}}}`)
 	cfg := Config{NATS: natscell.Config{Cell: "gru"},
-		Controller: ControllerConfig{OciReconcile: &OciReconcileConfig{Enabled: true, Desired: &signed}}}
+		Controller: ControllerConfig{OciReconcile: &OciReconcileConfig{Desired: &signed}}}
 	newAcceptedSpecTrust(t, &cfg)
 	registry, err := newSpecRegistry(cfg, "")
 	if err != nil {
@@ -189,8 +175,8 @@ func TestOciDesiredFollowsTheCellSpec(t *testing.T) {
 		t.Fatal(err)
 	}
 	off.ociRegion = &region
-	if err := off.validate(spec); err == nil || !strings.Contains(err.Error(), "OCI reconcile") {
-		t.Fatalf("section without OCI reconcile: %v", err)
+	if err := off.validate(spec); err != nil {
+		t.Fatalf("signed resource amendment with discovered regional authority: %v", err)
 	}
 
 	// The signed list is what a section amends: restating it is ordinary,
@@ -237,4 +223,85 @@ func testOCIResourceStore(t *testing.T) *ociresource.KVStore {
 		t.Fatal(err)
 	}
 	return store
+}
+
+func TestRegionalFoundationPassRefusesAbsentRootAndStaleAuthority(t *testing.T) {
+	var client *rootoci.Client
+	if err := regionalReconcilePass("GRU", reconcileTestFencer{}, client).Run(t.Context(), 1); !errors.Is(err, rootoci.ErrInvalid) {
+		t.Fatalf("missing root client = %v", err)
+	}
+	if err := regionalReconcilePass("GRU", reconcileTestFencer{fenced: true}, client).Run(t.Context(), 1); !errors.Is(err, ociresource.ErrFenced) {
+		t.Fatalf("stale authority = %v", err)
+	}
+}
+
+func TestRegionalFoundationReceiptRequiresExactCompleteScope(t *testing.T) {
+	receipt := rootoci.FoundationReceipt{Cell: "GRU", GrantDigest: strings.Repeat("a", 64), OperationID: "foundation-original-operation", Generation: 1, Epoch: 7, Stage: "reconciled"}
+	if err := regionalReceipt("GRU", receipt); err != nil {
+		t.Fatal(err)
+	}
+	for _, scenario := range []string{"cell", "grant", "operation", "generation", "epoch", "stage"} {
+		t.Run(scenario, func(t *testing.T) {
+			current := receipt
+			switch scenario {
+			case "cell":
+				current.Cell = "SFO"
+			case "grant":
+				current.GrantDigest = ""
+			case "operation":
+				current.OperationID = ""
+			case "generation":
+				current.Generation = 0
+			case "epoch":
+				current.Epoch = 0
+			case "stage":
+				current.Stage = "foundation"
+			}
+			if err := regionalReceipt("GRU", current); err == nil {
+				t.Fatal("accepted incomplete root scope")
+			}
+		})
+	}
+}
+
+// currentDesiredPass publishes the desired resources in force at each leader
+// pass: the cell spec's oci_desired section, else the signed config's.
+func currentDesiredPass(cell string, region oci.RegionConfig, store ociresource.Store, fencer authority.Fencer,
+	desired func() *OciDesiredConfig,
+) ociresource.Pass {
+	return ociresource.Pass{Name: "publish-desired", Run: func(ctx context.Context, epoch uint64) error {
+		config := desired()
+		if config == nil {
+			return nil
+		}
+		sets, delay, err := desiredSets(*config, cell, region)
+		if err != nil {
+			return err
+		}
+		return desiredPass(cell, store, fencer, sets, config.Prune, delay).Run(ctx, epoch)
+	}}
+}
+
+// publicLBPass publishes the TerraBase seats as the public load balancer's
+// backend set, draining the seats the seat rollout holds drained. A profile
+// that yields no serving seat, or seat records it cannot read, is an error,
+// and the previous set stays in force.
+func publicLBPass(store ociresource.Store, fencer authority.Fencer, key ociresource.Key, public OciReconcileLBConfig,
+	profiles func() map[string]WorkloadProfile, drained func(context.Context) (map[string]bool, error),
+) ociresource.Pass {
+	return ociresource.Pass{Name: "publish-" + lb.Kind, Run: func(ctx context.Context, epoch uint64) error {
+		if err := fencer.Guard(ctx, epoch); err != nil {
+			return fmt.Errorf("%w: %w", ociresource.ErrFenced, err)
+		}
+		seats, err := drained(ctx)
+		if err != nil {
+			return fmt.Errorf("public load balancer: %w", err)
+		}
+		spec, err := public.spec(profiles(), seats)
+		if err != nil {
+			return err
+		}
+		_, err = lb.Publish(ctx, store, key, ociresource.PolicyEnforce, spec)
+		return err
+	}}
 }

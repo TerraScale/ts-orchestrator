@@ -121,6 +121,11 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 }
 
 func (r FoundationRecord) validate() error {
+	if r.OCIResources != nil {
+		if err := r.OCIResources.Validate(r.Cell); err != nil {
+			return fmt.Errorf("protected OCI amendment journal: %w", err)
+		}
+	}
 	entry, ok := catalog.Lookup(r.Cell)
 	digest, digestErr := hex.DecodeString(r.IntentDigest)
 	if r.SchemaVersion != 1 || !ok || r.OCIRegion != entry.OCIRegion || !strings.HasPrefix(r.TenancyID, "ocid1.tenancy.") ||

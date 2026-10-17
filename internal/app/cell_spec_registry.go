@@ -71,10 +71,8 @@ type specRegistry struct {
 	// needs it. A signed TerraBase profile implies it, since signing
 	// refuses one without the CA.
 	terraBaseCA bool
-	// signedDesired is the signed config's desired OCI resources when OCI
-	// reconcile is on; ociRegion, set once the signed region config is
-	// loaded, admits an oci_desired section's entries.
-	ociReconcile  bool
+	// signedDesired is the signed config's resource amendments. ociRegion,
+	// set once the signed region config is loaded, admits desired entries.
 	signedDesired *cellspec.OCIDesired
 	// publicLB is the backend set oci_reconcile.public_lb owns; a release
 	// fence may not name it.
@@ -128,8 +126,8 @@ func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 	if _, signed := cfg.Controller.Workloads[terrabase.Role]; signed {
 		r.terraBaseCA = true
 	}
-	if reconcile := cfg.Controller.OciReconcile; reconcile != nil && reconcile.Enabled {
-		r.ociReconcile, r.signedDesired, r.publicLB = true, reconcile.Desired, reconcile.PublicLB
+	if reconcile := cfg.Controller.OciReconcile; reconcile != nil {
+		r.signedDesired, r.publicLB = reconcile.Desired, reconcile.PublicLB
 	}
 	if memberRole != "" {
 		r.reserved = append(r.reserved, memberRole)
@@ -423,8 +421,8 @@ func (r *specRegistry) validate(spec cellspec.Spec) error {
 		return err
 	}
 	if desired := spec.OCIDesired; desired != nil {
-		if !r.ociReconcile || r.ociRegion == nil {
-			return errors.New("desired OCI resources need OCI reconcile and the signed region config (controller.oci_reconcile)")
+		if r.ociRegion == nil {
+			return errors.New("desired OCI resources need the signed region config")
 		}
 		if _, _, err := desiredSets(*desired, string(r.ociRegion.Region), *r.ociRegion); err != nil {
 			return err

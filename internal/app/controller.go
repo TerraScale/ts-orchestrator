@@ -464,15 +464,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			return fmt.Errorf("start volume backup policy: %w", err)
 		}
 		defer stopBackups()
-		if reconcile := cfg.Controller.OciReconcile; reconcile != nil && reconcile.Enabled {
-			ociReconcile, _, err = retryControllerOpen(ctx, "open OCI resource reconcile state", fullClusterReady, false,
-				func(attempt context.Context) (*ociReconcileRuntime, error) {
-					return newOCIReconcileRunner(attempt, *reconcile, managed.region, runtime.JetStream(),
-						cfg.NATS.Replicas, control, fleet, services.profiles, services.ociDesired)
-				}, nil)
-			if err != nil {
-				return err
-			}
+		ociReconcile, _, err = retryControllerOpen(ctx, "open OCI resource reconcile state", fullClusterReady, false,
+			func(attempt context.Context) (*ociReconcileRuntime, error) {
+				return newOCIReconcileRunner(attempt, cfg.Controller.OciReconcile, managed.region, runtime.JetStream(),
+					cfg.NATS.Replicas, control)
+			}, nil)
+		if err != nil {
+			return err
 		}
 		registrationVerifier, err = newManagedRegistrationVerifier(
 			cfg.NATS.Cell, managed.region.Region, managed.region.Owner, managed.region.Generation,

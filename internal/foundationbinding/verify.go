@@ -159,6 +159,7 @@ type record struct {
 	CapacityCreates     jsontext.Value           `json:"capacityCreates,omitempty"`
 	PoolQuarantines     jsontext.Value           `json:"poolQuarantines,omitempty"`
 	WorkerPolicyIDs     jsontext.Value           `json:"workerPolicyIds,omitempty"`
+	OCIResources        jsontext.Value           `json:"ociResources,omitempty"`
 	SourcePolicyIDs     jsontext.Value           `json:"sourcePolicyIds,omitempty"`
 	NetBirdManager      jsontext.Value           `json:"netbirdManager,omitempty"`
 	SchemaVersion       int                      `json:"schemaVersion"`

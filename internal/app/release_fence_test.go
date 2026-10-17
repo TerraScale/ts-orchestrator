@@ -504,7 +504,7 @@ func TestReleaseFenceRollsBackTheFencedNodeFirst(t *testing.T) {
 // owns, which would return a fenced backend to rotation.
 func TestReleaseFenceRefusesThePublicLBSet(t *testing.T) {
 	cfg := Config{NATS: natscell.Config{Cell: "gru"},
-		Controller: ControllerConfig{OciReconcile: &OciReconcileConfig{Enabled: true,
+		Controller: ControllerConfig{OciReconcile: &OciReconcileConfig{
 			PublicLB: &OciReconcileLBConfig{LoadBalancerID: "ocid1.loadbalancer.oc1..x", BackendSet: "terrabase"}}}}
 	newAcceptedSpecTrust(t, &cfg)
 	registry, err := newSpecRegistry(cfg, "")
