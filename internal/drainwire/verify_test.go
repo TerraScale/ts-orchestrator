@@ -95,6 +95,15 @@ func TestGenericExecutionHoldAndStoppedProofBindOriginalAuthority(t *testing.T) 
 	if err := VerifySignedStop(proof, c, workerPEM, caPEM, "cluster", now); err != nil {
 		t.Fatal(err)
 	}
+	if err := VerifySignedStop(proof, c, workerPEM, caPEM, "cluster", now.Add(10*time.Second)); err != nil {
+		t.Fatal("original stopped observation expired before its fixed freshness limit", err)
+	}
+	if err := VerifySignedStop(proof, c, workerPEM, caPEM, "cluster", now.Add(10*time.Second+time.Nanosecond)); err == nil {
+		t.Fatal("later polling extended original stopped-observation freshness")
+	}
+	if err := c.Validate(c.Deadline); err == nil {
+		t.Fatal("original drain challenge survived its exact authority deadline")
+	}
 	for name, mutate := range map[string]func(*SignedStop){
 		"task":               func(s *SignedStop) { s.Challenge.TaskID = "other" },
 		"host session":       func(s *SignedStop) { s.Challenge.HostSessionID = entityid.New() },

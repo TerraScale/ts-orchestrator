@@ -220,6 +220,16 @@ func (s *Scaler) Tick(ctx context.Context) error {
 	for _, entry := range t.journal {
 		s.Journal(ctx, entry)
 	}
+	// HOME must consume the stopped receipt before its original authority
+	// expires; the next scaler tick is already too late. Save precedes effects.
+	if t.record.Retirement != nil && (record.Retirement == nil || record.Retirement.RemovalOperationID != t.record.Retirement.RemovalOperationID) {
+		if err := s.Leader.Guard(ctx, t.epoch); err != nil {
+			return err
+		}
+		if err := s.Pool.Remove(ctx, t.record.Retirement.InstanceID); err != nil {
+			return fmt.Errorf("advance retained original node retirement: %w", err)
+		}
+	}
 	return nil
 }
 

@@ -153,12 +153,29 @@ func (pool *ChosenPool) PrepareRetirement(ctx context.Context, instanceID, remov
 	if capture.Child != child {
 		return rootoci.PoolRetirementExpectation{}, errors.New("root drain capture differs from the original pool child")
 	}
-	stopped, err := pool.root.RefreshPoolDrain(ctx, child)
-	if err != nil {
-		return rootoci.PoolRetirementExpectation{}, errors.Join(ErrCapacityPending, err)
-	}
-	if stopped.Child != child || stopped.Phase != drainwire.PoolStopped || len(stopped.SHA256) != 64 || !time.Now().Before(stopped.ExpiresAt) {
-		return rootoci.PoolRetirementExpectation{}, fmt.Errorf("%w: original protected pool drain has not stopped", ErrCapacityPending)
+	// The 30-second scaler interval exceeds original lease/stop authority;
+	// finish this capture within its fixed deadline instead of the next tick.
+	drainCtx, cancel := context.WithDeadline(ctx, capture.ExpiresAt)
+	defer cancel()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	var stopped rootoci.PoolDrainView
+	for {
+		stopped, err = pool.root.RefreshPoolDrain(drainCtx, child)
+		if err == nil {
+			if stopped.Child != child || !stopped.ExpiresAt.Equal(capture.ExpiresAt) || stopped.Phase != drainwire.PoolStopped || len(stopped.SHA256) != 64 || !time.Now().Before(stopped.ExpiresAt) {
+				return rootoci.PoolRetirementExpectation{}, fmt.Errorf("%w: original protected pool drain has not stopped", ErrCapacityPending)
+			}
+			break
+		}
+		if errors.Is(err, rootoci.ErrUnauthorized) || errors.Is(err, rootoci.ErrInvalid) {
+			return rootoci.PoolRetirementExpectation{}, errors.Join(ErrCapacityPending, err)
+		}
+		select {
+		case <-drainCtx.Done():
+			return rootoci.PoolRetirementExpectation{}, errors.Join(ErrCapacityPending, err, drainCtx.Err())
+		case <-ticker.C:
+		}
 	}
 	return rootoci.PoolRetirementExpectation{Child: rootoci.PoolChildExpectation{Cell: birth.Cell, OperationID: birth.OperationID, ReservationID: birth.ReservationID,
 		RecipeSHA256: birth.RecipeSHA256, PoolID: birth.PoolID, ConfigurationID: birth.ConfigurationID,
