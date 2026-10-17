@@ -25,7 +25,7 @@ var ErrPoolDrainPending = errors.New("exact pool child drain evidence is pending
 // CapturePoolDrain pauses the actual worker before retaining every possible
 // execution. The caller must commit this capture in the protected own-cell
 // record before FinishPoolDrainCapture may request DRAIN.
-func (n *Node) CapturePoolDrain(ctx context.Context, child drainwire.PoolChild, source drainwire.PoolSource,
+func (n *Node) CapturePoolDrain(ctx context.Context, child drainwire.PoolChild, source drainwire.PoolSource, specWire, rootWire []byte,
 	leases *authority.Reader, hosts *host.Reader,
 ) (drainwire.PoolReceipt, error) {
 	var empty drainwire.PoolReceipt
@@ -105,6 +105,7 @@ func (n *Node) CapturePoolDrain(ctx context.Context, child drainwire.PoolChild, 
 		deadline = original
 	}
 	receipt := drainwire.PoolReceipt{Child: child, Source: source, Host: current, NodeID: worker.ID,
+		CellSpecWire: bytes.Clone(specWire), RootChainWire: bytes.Clone(rootWire),
 		ClusterID: cluster.ID, ClusterCAPEM: bytes.Clone(cluster.RootCACert), WorkerCertificate: bytes.Clone(worker.Certificate.Certificate),
 		CapturedAt: now, ExpiresAt: deadline, Phase: drainwire.PoolCaptured}
 	for _, node := range nodes.Nodes {
