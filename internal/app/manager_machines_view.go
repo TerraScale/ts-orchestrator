@@ -175,12 +175,11 @@ func (view *managerMachinesView) Snapshot(ctx context.Context) ([]machinesapi.Ap
 					state = machines.StateStarted
 				}
 			}
-			updated, err := types.TimestampFromProto(task.Status.Timestamp)
-			if err != nil {
-				updated = time.Time{}
+			machineView := machinesapi.MachineView{Machine: machine}
+			if updated, err := types.TimestampFromProto(task.Status.Timestamp); err == nil && !updated.IsZero() {
+				machineView.Status = &machines.Status{ID: id, App: name, State: state, UpdatedAt: updated}
 			}
-			snapshot.Machines = append(snapshot.Machines, machinesapi.MachineView{Machine: machine,
-				Status: &machines.Status{ID: id, App: name, State: state, UpdatedAt: updated}})
+			snapshot.Machines = append(snapshot.Machines, machineView)
 		}
 		// A replacement or status update during probes must never become a mixed snapshot.
 		confirmed, err := m.client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{service.ID}}})
@@ -302,6 +301,9 @@ func managerMachineConfig(spec api.TaskSpec, annotations api.Annotations) (machi
 		return machines.MachineConfig{}, errors.New("machines task digest is invalid")
 	}
 	limits := spec.Resources.Limits
+	if limits.NanoCPUs < 10_000_000 || limits.NanoCPUs > 1_000_000_000_000 || limits.MemoryBytes < 16<<20 {
+		return machines.MachineConfig{}, errors.New("machines task resource limits are invalid")
+	}
 	disk := int64(0)
 	if generic.Kind == swarmruntime.ContainerKind && annotations.Labels[swarmruntime.LabelRole] != swarmruntime.FunctionWorkerRole {
 		var err error
