@@ -66,6 +66,11 @@ func (authority *HomeIAMAuthority) ReconcileNetBirdJournalUnderlay(ctx context.C
 		GrantSHA256: purpose.GrantDigest(), RootChainSHA256: digestSource(authority.operator.bundle.RootChainWire)}
 	ctx, capCancel := context.WithDeadline(ctx, expected.ExpiresAt)
 	defer capCancel()
+	firstCap := expected.ExpiresAt
+	if deadline, ok := ctx.Deadline(); ok && deadline.Before(firstCap) {
+		firstCap = deadline
+	}
+	currentCap := firstCap
 	current, etag, err := resolver.Store.Load(ctx, "GRU")
 	if err != nil {
 		return err
@@ -94,6 +99,9 @@ func (authority *HomeIAMAuthority) ReconcileNetBirdJournalUnderlay(ctx context.C
 	} else if !sameNetBirdUnderlayBirth(*current.NetBirdUnderlay, expected) {
 		return errors.New("NetBird underlay cannot replace its original purpose, launches or network")
 	}
+	if current.NetBirdUnderlay.ExpiresAt.Before(currentCap) {
+		currentCap = current.NetBirdUnderlay.ExpiresAt
+	}
 	client, err := factory.Network()
 	if err != nil {
 		return err
@@ -106,6 +114,9 @@ func (authority *HomeIAMAuthority) ReconcileNetBirdJournalUnderlay(ctx context.C
 		if current.NetBirdUnderlay == nil || !sameNetBirdUnderlayBirth(*current.NetBirdUnderlay, expected) {
 			return ErrFoundationFenced
 		}
+		if current.NetBirdUnderlay.ExpiresAt.Before(currentCap) {
+			currentCap = current.NetBirdUnderlay.ExpiresAt
+		}
 		journal := *current.NetBirdUnderlay
 		journal.Requests = maps.Clone(journal.Requests)
 		q, exists := journal.Requests[key]
@@ -116,6 +127,9 @@ func (authority *HomeIAMAuthority) ReconcileNetBirdJournalUnderlay(ctx context.C
 			actual, err := netBirdUnderlayBirth(ctx, originalCtx, factory, resolver, purpose)
 			if err != nil || !sameNetBirdUnderlayBirth(journal, actual) {
 				return errors.Join(ErrFoundationFenced, err)
+			}
+			if actual.ExpiresAt.Before(currentCap) {
+				currentCap = actual.ExpiresAt
 			}
 			q, err = prepareNetBirdUnderlayRequest(ctx, client, journal, key)
 			if err != nil {
@@ -148,10 +162,31 @@ func (authority *HomeIAMAuthority) ReconcileNetBirdJournalUnderlay(ctx context.C
 			if err != nil || !sameNetBirdUnderlayBirth(journal, actual) {
 				return errors.Join(ErrFoundationFenced, err)
 			}
+			if actual.ExpiresAt.Before(currentCap) {
+				currentCap = actual.ExpiresAt
+			}
 			if err := authority.Guard(ctx, 0); err != nil {
 				return err
 			}
-			responseID, err := dispatchNetBirdUnderlay(ctx, client, q)
+			sendCap := currentCap
+			// Run the retained local seal after every awaited SDK and source guard.
+			dispatchCtx := ociclient.WithRequestGuard(ctx, func(requestCtx context.Context) error {
+				if err := requestCtx.Err(); err != nil {
+					return err
+				}
+				if err := originalCtx.Err(); err != nil {
+					return err
+				}
+				if err := purpose.CheckOriginal(); err != nil {
+					return err
+				}
+				now := time.Now()
+				if !now.Before(firstCap) || !now.Before(sendCap) {
+					return errors.New("NetBird underlay original or current birth expired before dispatch")
+				}
+				return originalCtx.Err()
+			})
+			responseID, err := dispatchNetBirdUnderlay(dispatchCtx, client, q)
 			if err != nil {
 				return errors.Join(ErrNetBirdUnderlayPending, err)
 			}
