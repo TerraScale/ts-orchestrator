@@ -1,16 +1,19 @@
 package natscell
 
 import (
+	"bufio"
 	"context"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
+	"io"
 	"math/big"
 	"net"
 	"net/netip"
@@ -124,6 +127,111 @@ func TestProductionJWTBridgeClosedApplyOpenAndFence(t *testing.T) {
 		t.Fatalf("real TLS-first JWT client: %v", err)
 	}
 	defer client.Close()
+	credentials, err := os.ReadFile(hostCredentials)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clear(credentials)
+	clientTLS, err := loadTLS(tlsFiles, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, phase := range []string{"tls", "info", "pong"} {
+		t.Run("cancel-acquisition-"+phase, func(t *testing.T) {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			operation, cancelOperation := context.WithTimeout(t.Context(), 3*time.Second)
+			defer cancelOperation()
+			peerDone := make(chan error, 1)
+			go func() {
+				raw, err := listener.Accept()
+				if err != nil {
+					peerDone <- err
+					return
+				}
+				defer raw.Close()
+				if err := raw.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+					peerDone <- err
+					return
+				}
+				var conn net.Conn = raw
+				if phase == "tls" {
+					var hello [1]byte
+					_, err = io.ReadFull(raw, hello[:])
+				} else {
+					secure := tls.Server(raw, r.brokerTLS.ServerConfig())
+					err = secure.HandshakeContext(operation)
+					conn = secure
+					if err == nil && phase == "pong" {
+						_, err = conn.Write([]byte("INFO {\"server_id\":\"stalled\",\"version\":\"2.15.0\",\"proto\":1,\"nonce\":\"test-nonce\"}\r\n"))
+						reader := bufio.NewReader(conn)
+						for err == nil {
+							var line string
+							line, err = reader.ReadString('\n')
+							if line == "PING\r\n" {
+								break
+							}
+						}
+					}
+				}
+				cancelOperation()
+				if err == nil {
+					_, drainErr := io.Copy(io.Discard, conn)
+					if networkErr, ok := errors.AsType[net.Error](drainErr); ok && networkErr.Timeout() {
+						err = drainErr
+					}
+				}
+				peerDone <- err
+			}()
+			connection, lease, err := ConnectMemoryLeaseForOperation(t.Context(), operation, "gru", "tls://"+listener.Addr().String(), credentials, clientTLS)
+			if connection != nil {
+				connection.Close()
+			}
+			if err == nil || lease != nil || operation.Err() == nil {
+				t.Fatalf("canceled %s acquisition returned a lease: %v", phase, err)
+			}
+			select {
+			case err := <-peerDone:
+				if err != nil {
+					t.Fatalf("%s peer did not finish after socket cancellation: %v", phase, err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("acquisition returned without joining canceled socket work")
+			}
+		})
+	}
+	t.Run("acquisition-detaches-original-lifetime-remains", func(t *testing.T) {
+		original, cancelOriginal := context.WithCancel(t.Context())
+		defer cancelOriginal()
+		operation, cancelOperation := context.WithCancel(t.Context())
+		defer cancelOperation()
+		connection, lease, err := ConnectMemoryLeaseForOperation(original, operation, "gru", r.URL(), credentials, clientTLS)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer connection.Close()
+		cancelOperation()
+		if lease.Err() != nil || connection.FlushTimeout(time.Second) != nil {
+			t.Fatal("completed acquisition cancellation revoked the original lease")
+		}
+		cancelOriginal()
+		select {
+		case <-lease.Done():
+		case <-time.After(time.Second):
+			t.Fatal("original authority cancellation retained the lease")
+		}
+		deadline := time.Now().Add(time.Second)
+		for !connection.IsClosed() && time.Now().Before(deadline) {
+			time.Sleep(time.Millisecond)
+		}
+		if !connection.IsClosed() {
+			t.Fatal("original authority cancellation retained its connection")
+		}
+	})
+
 	meshClient, err := Start(ctx, meshConfig)
 	if err != nil {
 		t.Fatalf("authenticated second listener failed: %v", err)
