@@ -625,7 +625,8 @@ func managerStartupSDK(t *testing.T, observed InstanceObservation) (*objectstora
 		switch r.URL.Path {
 		case "/20160918/instances/" + observed.InstanceOCID:
 			body = core.Instance{Id: new(observed.InstanceOCID), CompartmentId: new(observed.CompartmentOCID), ImageId: new(observed.ImageOCID),
-				AvailabilityDomain: new(observed.AvailabilityDomain), FaultDomain: new(observed.FaultDomain), Shape: new(observed.Shape), LifecycleState: core.InstanceLifecycleStateEnum(observed.LifecycleState)}
+				AvailabilityDomain: new(observed.AvailabilityDomain), FaultDomain: new(observed.FaultDomain), Shape: new(observed.Shape), LifecycleState: core.InstanceLifecycleStateEnum(observed.LifecycleState),
+				FreeformTags: map[string]string{"BootstrapCreateKey": observed.BootstrapCreateKey}}
 		case "/20160918/vnicAttachments":
 			if r.URL.Query().Get("instanceId") != observed.InstanceOCID {
 				http.Error(w, "foreign instance", 404)
