@@ -27,6 +27,20 @@ func TestRuntimeGenesisRequiresOriginalProcessAndCompleteHistory(t *testing.T) {
 	if err := proof.Revalidate(ctx); err != nil {
 		t.Fatal(err)
 	}
+	original, revoke := context.WithTimeout(ctx, 20*time.Second)
+	defer revoke()
+	bound, err := node.RuntimeGenesis(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline, _ := original.Deadline()
+	if !bound.ExpiresAt().Equal(deadline) {
+		t.Fatal("runtime genesis extended the original caller deadline")
+	}
+	revoke()
+	if err := bound.Revalidate(ctx); err == nil {
+		t.Fatal("background revalidation survived original caller cancellation")
+	}
 	client, err := node.ControlClient(ctx)
 	if err != nil {
 		t.Fatal(err)
