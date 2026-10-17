@@ -53,7 +53,7 @@ func (r *statusRecorder) take() []string {
 // alertRegions reports one region whose projected spend is projected cents against a 50000-cent cap.
 func alertRegions(at time.Time, projected uint64) []globalview.Region {
 	return []globalview.Region{{Cell: "gru", Rollup: &globalview.Rollup{Cell: "gru", Scale: &nodescale.Status{
-		Schema: nodescale.StatusSchema, Cell: "gru", At: at, Nodes: 3, Want: 3, Pressure: 0.4,
+		Schema: nodescale.StatusSchema, Cell: "gru", At: at, Nodes: 3, Want: 4, Pressure: 0.4,
 		NodeMonthlyCents: 4100, ProjectedCents: projected, Currency: "BRL", CostAt: at}}}}
 }
 
@@ -88,7 +88,7 @@ func TestCapacityAlertOpensAtWarnResolvesBelowClearAndSurvivesLeaderChange(t *te
 		t.Fatalf("allocator without spending authority = %v, want capacity pending", err)
 	}
 	if capacity, found, err := budget.ReadCapacity(ctx, global.reader); err != nil || !found || capacity.State != budget.StateNone || capacity.ProjectedCents != 0 ||
-		len(capacity.Regions) != 1 || capacity.Regions[0].Allowance != capacity.Regions[0].Nodes {
+		len(capacity.Regions) != 1 || capacity.Regions[0].Nodes != 3 || capacity.Regions[0].Want != 4 || capacity.Regions[0].Allowance != 3 {
 		t.Fatalf("allocator without spending authority stored %+v, found=%v, err=%v; want held capacity without rollup spend", capacity, found, err)
 	}
 	if got := recorder.take(); len(got) != 0 {
