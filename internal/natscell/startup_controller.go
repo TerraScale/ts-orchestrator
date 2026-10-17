@@ -9,7 +9,30 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/nats-io/jwt/v2"
+	"github.com/nats-io/nats-server/v2/server"
 )
+
+// Pin the claim actually authenticated by this broker, never a later read of
+// the controller's writable credential path or a caller-supplied identity.
+func (r *Runtime) captureStartupController() error {
+	cid, err := r.conn.GetClientID()
+	if err != nil {
+		return err
+	}
+	view, err := r.server.Connz(&server.ConnzOptions{CID: cid, Username: true})
+	if err != nil || view == nil || cid == 0 || len(view.Conns) != 1 || view.Conns[0].Cid != cid || view.Conns[0].Account != r.resolver.cell {
+		return errors.New("private startup requires the original native controller account")
+	}
+	connection := view.Conns[0]
+	claim, err := jwt.DecodeUserClaims(connection.JWT)
+	if err != nil || claim.Subject != connection.AuthorizedUser || credentialAccount(claim) != r.resolver.cell {
+		return errors.New("private startup requires the original native controller JWT")
+	}
+	r.controllerJWT = connection.JWT
+	return nil
+}
 
 // StartControllerClient consumes an admitted private startup connection once.
 // The same client reconnects through only the configured production gate.
@@ -41,7 +64,7 @@ func (r *Runtime) ServeStartupController(ctx context.Context, admitted net.Conn,
 		return errors.New("private controller startup connection is missing")
 	}
 	defer admitted.Close()
-	if ctx == nil || ctx.Err() != nil || r == nil || r.server == nil || r.brokerTLS == nil ||
+	if ctx == nil || ctx.Err() != nil || r == nil || r.server == nil || r.brokerTLS == nil || r.resolver == nil || r.controllerJWT == "" ||
 		!r.server.Running() || !time.Now().Before(originalDeadline) {
 		return errors.New("private controller startup authority is unavailable")
 	}
@@ -70,7 +93,7 @@ func (r *Runtime) ServeStartupController(ctx context.Context, admitted net.Conn,
 		return ctx.Err()
 	}
 	var err error
-	internal, err = r.server.InProcessConn()
+	internal, err = r.server.InProcessConnForJWT(r.resolver.cell, r.controllerJWT)
 	mu.Unlock()
 	if err != nil {
 		return err

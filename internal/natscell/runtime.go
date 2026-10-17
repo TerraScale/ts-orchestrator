@@ -163,6 +163,7 @@ type Runtime struct {
 	systemConn      *nats.Conn
 	bridge          *Bridge
 	brokerTLS       *ReloadingTLS
+	controllerJWT   string
 	claimMu         sync.Mutex
 	appliedSequence uint64
 	serverName      string
@@ -463,6 +464,9 @@ func start(ctx context.Context, cfg Config, identityRekey bool, initial net.Conn
 		return nil, unavailable{err}
 	}
 	if cfg.Embedded != nil {
+		if err := r.captureStartupController(); err != nil {
+			return nil, err
+		}
 		systemCfg := cfg
 		systemCfg.NKeySeedFile = ""
 		systemCfg.CredentialsFile = cfg.Embedded.SystemCredentialsFile

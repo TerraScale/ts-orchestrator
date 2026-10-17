@@ -273,7 +273,7 @@ func (b *Bridge) serve(external net.Conn, listener net.Listener) {
 	if err := external.SetDeadline(time.Time{}); err != nil {
 		return
 	}
-	internal, err := b.server.InProcessConn()
+	internal, err := b.server.InProcessConnForAccount(b.account)
 	if err != nil {
 		return
 	}
