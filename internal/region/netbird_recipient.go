@@ -66,6 +66,8 @@ func VerifyNetBirdManagerRecipient(ctx context.Context, factory *ociclient.Facto
 		return VerifiedNetBirdManagerRecipient{}, errors.Join(errors.New("remote NetBird manager source differs from authenticated foundation"), err)
 	}
 	current := func(ctx context.Context) (netBirdRecipientObservation, error) {
+		ctx, cancel := context.WithDeadline(ctx, source.ExpiresAt())
+		defer cancel()
 		if err := source.VerifyCurrent(ctx, time.Now().UTC()); err != nil {
 			return netBirdRecipientObservation{}, err
 		}
@@ -126,10 +128,14 @@ func retainNetBirdRecipient(originalContext context.Context, original netBirdRec
 }
 
 func observeNetBirdRecipient(ctx context.Context, factory *ociclient.Factory, resolver FoundationResolver, reader *SignedFootprint) (netBirdRecipientObservation, error) {
+	ctx, cancelReader := context.WithDeadline(ctx, reader.expires)
+	defer cancelReader()
 	intent, err := reader.authorizedNetBirdManager(ctx)
 	if err != nil {
 		return netBirdRecipientObservation{}, err
 	}
+	ctx, cancelIntent := context.WithDeadline(ctx, intent.expires)
+	defer cancelIntent()
 	record, err := resolver.Resolve(ctx, "GRU")
 	if err != nil {
 		return netBirdRecipientObservation{}, err
@@ -139,24 +145,22 @@ func observeNetBirdRecipient(ctx context.Context, factory *ociclient.Factory, re
 	if err != nil {
 		return netBirdRecipientObservation{}, err
 	}
+	ctx, cancelAllocation := context.WithDeadline(ctx, allocation.ExpiresAt())
+	defer cancelAllocation()
 	if err := validateNetBirdAllocation(allocation, intent, record.ResourceIDs["control_compartment"]); err != nil {
 		return netBirdRecipientObservation{}, err
 	}
 	if err := allocation.Revalidate(ctx); err != nil {
 		return netBirdRecipientObservation{}, err
 	}
-	launch := record.NetBirdManager
-	if record.LeaseID != "" || launch == nil || launch.InstanceID == "" || launch.BootVolumeID == "" || launch.SlotID != slotID ||
-		launch.OperationID != allocation.OperationID() || launch.RecipeSHA256 != intent.recipeDigest || launch.ProfileSHA256 != intent.profileDigest {
-		return netBirdRecipientObservation{}, errors.New("remote NetBird manager lacks its exact reconciled launch checkpoint")
-	}
-	profile, err := managerLaunchProfile(intent.intent.Profile, record)
+	original, err := netBirdRecipientCheckpoint(intent, record, allocation)
 	if err != nil {
 		return netBirdRecipientObservation{}, err
 	}
-	bodyDigest, err := netBirdRequestDigest(netBirdLaunchDetails(intent.intent, profile.CompartmentOCID, profile.SubnetOCID, record.AuxiliaryIDs["netbird_manager_nsg"]))
-	if err != nil || bodyDigest != launch.RequestDigest {
-		return netBirdRecipientObservation{}, errors.Join(errors.New("remote NetBird manager original SDK request changed"), err)
+	launch := original.launch
+	profile, err := managerLaunchProfile(intent.intent.Profile, record)
+	if err != nil {
+		return netBirdRecipientObservation{}, err
 	}
 	home, err := factory.ForRegion(foundationHomeRegion)
 	if err != nil {
@@ -176,6 +180,46 @@ func observeNetBirdRecipient(ctx context.Context, factory *ociclient.Factory, re
 		!observed.PrimaryVNIC || observed.PrimaryPrivateIP != intent.intent.Profile.PrivateIP || observed.LifecycleState != "RUNNING" {
 		return netBirdRecipientObservation{}, errors.New("remote NetBird manager fresh OCI observation differs from its signed recipient")
 	}
+	lastAllocation, err := resolver.BootstrapAllocation(ctx, original.launch.SlotID)
+	if err != nil {
+		return netBirdRecipientObservation{}, err
+	}
+	if err := lastAllocation.Revalidate(ctx); err != nil {
+		return netBirdRecipientObservation{}, err
+	}
+	lastIntent, err := reader.authorizedNetBirdManager(ctx)
+	if err != nil {
+		return netBirdRecipientObservation{}, err
+	}
+	lastRecord, err := resolver.Resolve(ctx, "GRU")
+	if err != nil {
+		return netBirdRecipientObservation{}, err
+	}
+	if err := validateNetBirdAllocation(lastAllocation, lastIntent, lastRecord.ResourceIDs["control_compartment"]); err != nil {
+		return netBirdRecipientObservation{}, err
+	}
+	latest, err := netBirdRecipientCheckpoint(lastIntent, lastRecord, lastAllocation)
+	if err != nil || latest != original || !time.Now().Before(original.expires) {
+		return netBirdRecipientObservation{}, errors.Join(errors.New("remote NetBird manager original checkpoint changed during SDK observation"), err)
+	}
+	return original, ctx.Err()
+}
+
+func netBirdRecipientCheckpoint(intent verifiedNetBirdIntent, record FoundationRecord, allocation VerifiedBootstrapAllocation) (netBirdRecipientObservation, error) {
+	slotID := BootstrapSlotID(intent.installationID, "GRU", NetBirdManagerRole, NetBirdManagerRole)
+	launch := record.NetBirdManager
+	if record.LeaseID != "" || launch == nil || launch.InstanceID == "" || launch.BootVolumeID == "" || launch.SlotID != slotID ||
+		launch.OperationID != allocation.OperationID() || launch.RecipeSHA256 != intent.recipeDigest || launch.ProfileSHA256 != intent.profileDigest {
+		return netBirdRecipientObservation{}, errors.New("remote NetBird manager lacks its exact reconciled launch checkpoint")
+	}
+	profile, err := managerLaunchProfile(intent.intent.Profile, record)
+	if err != nil {
+		return netBirdRecipientObservation{}, err
+	}
+	bodyDigest, err := netBirdRequestDigest(netBirdLaunchDetails(intent.intent, profile.CompartmentOCID, profile.SubnetOCID, record.AuxiliaryIDs["netbird_manager_nsg"]))
+	if err != nil || bodyDigest != launch.RequestDigest {
+		return netBirdRecipientObservation{}, errors.Join(errors.New("remote NetBird manager original SDK request changed"), err)
+	}
 	target, err := record.VaultTarget()
 	if err != nil {
 		return netBirdRecipientObservation{}, err
@@ -191,5 +235,5 @@ func observeNetBirdRecipient(ctx context.Context, factory *ociclient.Factory, re
 		privateIP: intent.intent.Profile.PrivateIP, storeGeneration: entityid.Derive("netbird-foundation-store", intent.installationID) + ":1",
 		foundationOperation: record.OperationID, foundationIntent: record.IntentDigest, foundationEpoch: record.Epoch, generation: intent.generation,
 		bindingDigest: allocation.BindingDigest(), scopeDigest: allocation.ScopeDigest(), physicalScopeDigest: allocation.PhysicalScopeDigest(),
-		launch: checkpoint, target: target, expires: expires}, ctx.Err()
+		launch: checkpoint, target: target, expires: expires}, nil
 }
