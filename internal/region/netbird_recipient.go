@@ -19,7 +19,7 @@ import (
 type VerifiedNetBirdManagerRecipient struct {
 	installationID, grantDigest, instanceID, privateIP, storeGeneration string
 	target                                                              vaultsecret.Target
-	expires                                                             time.Time
+	expires, authorityExpires                                           time.Time
 	check                                                               func(context.Context) error
 }
 
@@ -33,6 +33,10 @@ func (v VerifiedNetBirdManagerRecipient) PrivateIP() string               { retu
 func (v VerifiedNetBirdManagerRecipient) StoreGeneration() string         { return v.storeGeneration }
 func (v VerifiedNetBirdManagerRecipient) VaultTarget() vaultsecret.Target { return v.target }
 func (v VerifiedNetBirdManagerRecipient) ExpiresAt() time.Time            { return v.expires }
+
+// AuthorityExpiresAt binds the shared signed snapshot; local effects must
+// still honor ExpiresAt and Check, including the original caller cancellation.
+func (v VerifiedNetBirdManagerRecipient) AuthorityExpiresAt() time.Time { return v.authorityExpires }
 func (v VerifiedNetBirdManagerRecipient) Check(ctx context.Context) error {
 	if !v.IsVerified() || !time.Now().Before(v.expires) {
 		return errors.New("remote NetBird manager recipient is absent or expired")
@@ -100,7 +104,7 @@ func retainNetBirdRecipient(originalContext context.Context, original netBirdRec
 	}
 	proof := VerifiedNetBirdManagerRecipient{installationID: original.installationID, grantDigest: original.grantDigest,
 		instanceID: original.launch.InstanceID, privateIP: original.privateIP, storeGeneration: original.storeGeneration,
-		target: original.target, expires: expires}
+		target: original.target, expires: expires, authorityExpires: original.expires}
 	proof.check = func(ctx context.Context) error {
 		if err := originalContext.Err(); err != nil {
 			return err

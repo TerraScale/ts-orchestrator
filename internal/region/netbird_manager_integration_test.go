@@ -379,7 +379,7 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	retainedRecipient, err := retainNetBirdRecipient(originalContext, remote, func(ctx context.Context) (netBirdRecipientObservation, error) {
 		return observeNetBirdRecipient(ctx, factory, resolver, reader)
 	})
-	if err != nil || !retainedRecipient.ExpiresAt().Equal(originalDeadline) {
+	if err != nil || !retainedRecipient.ExpiresAt().Equal(originalDeadline) || !retainedRecipient.AuthorityExpiresAt().Equal(remote.expires) {
 		cancelRecipient()
 		t.Fatalf("remote recipient lost its shorter original call deadline: %v", err)
 	}
