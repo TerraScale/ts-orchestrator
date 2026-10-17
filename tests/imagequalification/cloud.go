@@ -60,6 +60,7 @@ type journal struct {
 	RetainedReaderProof []byte               `json:"retained_reader_proof,omitempty"`
 	RetainedAt          time.Time            `json:"retained_at,omitzero"`
 	RootGateSHA256      string               `json:"root_gate_sha256,omitempty"`
+	ImageManifestSHA256 string               `json:"image_manifest_sha256,omitempty"`
 	RetentionEndedAt    time.Time            `json:"retention_ended_at,omitzero"`
 }
 
