@@ -136,7 +136,7 @@ func (controller functionController) observeFunctionTask(ctx context.Context, pr
 	if err != nil || !ip.Is4() || !ip.IsPrivate() {
 		return functions.Snapshot{}, errors.New("function task OCI primary address is unavailable")
 	}
-	cert, key, ca, err := controller.config.Material.Issuer.IssueFunctionClientTLS(proof)
+	cert, key, ca, err := controller.config.Material.Issuer.IssueFunctionObservationIdentity(ctx, task.ID)
 	if err != nil {
 		return functions.Snapshot{}, err
 	}

@@ -12,13 +12,11 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
-	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
-	"github.com/TerraScale/ts-orchestrator/internal/bootstrap/generationtest"
-	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/functionmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/moby/swarmkit/v2/api"
@@ -53,13 +51,6 @@ func TestFunctionObservationInventoryUsesCurrentAuthorityAndManager(t *testing.T
 	if _, err := control.CommitFunctionIntent(ctx, control.Current().Epoch, entityid.New(), 0, proof); err != nil {
 		t.Fatal(err)
 	}
-	material := generationtest.New(t, time.Now().UTC())
-	generation := material.Generation(bootstrap.MaterialGenerationExpectation{DeploymentID: entityid.New(), Environment: "canary", ClusterID: entityid.New(), Cell: "GRU", ControllerSlots: []string{"controller-a", "controller-b", "controller-c"}}, 1, "")
-	issuer, err := bootstrapmaterial.LoadControllerIssuer(generation, material.Files["controller-tls-issuer-cert.pem"], material.Files["controller-tls-issuer-key.pem"], material.Files["controller-account-signer.seed"])
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(issuer.Wipe)
 	state := store.NewMemoryStore(nil)
 	t.Cleanup(func() { _ = state.Close() })
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -76,7 +67,7 @@ func TestFunctionObservationInventoryUsesCurrentAuthorityAndManager(t *testing.T
 	}
 	t.Cleanup(func() { _ = connection.Close() })
 	controller := functionController{config: functionControllerConfig{Authority: control, Client: api.NewControlClient(connection), Cell: "gru", Environment: "canary",
-		Material: functionmaterial.Controller{Issuer: issuer, Reader: functionmaterial.Reader{Authority: control, Artifacts: artifacts, Roots: func() trust.Keyring { return signer.roots }}}}}
+		Material: functionmaterial.Controller{Issuer: functionIssuerClient{client: rootoci.NewClient(rootoci.Expectations{Cell: "gru"})}, Reader: functionmaterial.Reader{Authority: control, Artifacts: artifacts, Roots: func() trust.Keyring { return signer.roots }}}}}
 	hostController := newObservationHostController(t, ctx, js, control, artifacts)
 	hosts := hostController.ListHosts
 	membershipReads := 0

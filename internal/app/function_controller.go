@@ -35,11 +35,13 @@ type functionWorkerRelease struct {
 // Function/task labels select records; neither labels nor a requested image grant authority.
 type functionControllerConfig struct {
 	Authority         *authority.Runtime
+	ReadLease         *authority.LeaseAdmission
 	JS                jetstream.JetStream
 	Startup           bootstrap.DerivedStartupAuthority
 	Material          functionmaterial.Controller
 	Retirement        functionmaterial.RetirementClient
 	Client            api.ControlClient
+	ReadClient        api.ControlReader
 	Worker            func(context.Context, release.VerifiedFunction) (functionWorkerRelease, error)
 	Evidence          func(context.Context, string) (io.ReadCloser, error)
 	Probe             func(context.Context, *api.Task) error
@@ -55,16 +57,17 @@ type functionIntentSource struct {
 	reader    functionmaterial.Reader
 	js        jetstream.JetStream
 	authority *authority.Runtime
+	lease     *authority.LeaseAdmission
 	epoch     uint64
 	roots     *rootRegistry
 	rootHead  string
 }
 
 func (source functionIntentSource) CurrentFunction(ctx context.Context, tenant, function string) (release.VerifiedFunction, error) {
-	if source.authority == nil || source.js == nil || source.roots == nil || source.roots.reply("").Head != source.rootHead {
+	if (source.authority == nil && source.lease == nil) || source.js == nil || source.roots == nil || source.roots.reply("").Head != source.rootHead {
 		return release.VerifiedFunction{}, errors.New("function roots changed during current intent observation")
 	}
-	if err := source.authority.Guard(ctx, source.epoch); err != nil {
+	if err := source.guard(ctx); err != nil {
 		return release.VerifiedFunction{}, err
 	}
 	proof, err := source.reader.CurrentFunction(ctx, tenant, function)
@@ -73,15 +76,14 @@ func (source functionIntentSource) CurrentFunction(ctx context.Context, tenant, 
 	}
 	ctx, cancel := context.WithDeadline(ctx, proof.ExpiresAt())
 	defer cancel()
-	if err := source.authority.Guard(ctx, source.epoch); err != nil {
+	if err := source.guard(ctx); err != nil {
 		return release.VerifiedFunction{}, err
 	}
 	if err := rootTrustHeadCurrent(ctx, source.js, source.roots, source.rootHead); err != nil {
 		return release.VerifiedFunction{}, err
 	}
-	state := source.authority.Current()
-	if !state.CanMutate() || state.Epoch != source.epoch {
-		return release.VerifiedFunction{}, authority.ErrFenced
+	if err := source.guard(ctx); err != nil {
+		return release.VerifiedFunction{}, err
 	}
 	if source.roots.reply("").Head != source.rootHead || !proof.Valid() {
 		return release.VerifiedFunction{}, errors.New("function authority changed during current intent observation")
@@ -90,6 +92,37 @@ func (source functionIntentSource) CurrentFunction(ctx context.Context, tenant, 
 		return release.VerifiedFunction{}, err
 	}
 	return proof, nil
+}
+
+func (source functionIntentSource) guard(ctx context.Context) error {
+	if source.lease != nil {
+		if source.lease.Epoch() != source.epoch {
+			return authority.ErrFenced
+		}
+		return source.lease.Guard(ctx)
+	}
+	if source.authority == nil {
+		return authority.ErrFenced
+	}
+	if err := source.authority.Guard(ctx, source.epoch); err != nil {
+		return err
+	}
+	state := source.authority.Current()
+	if !state.CanMutate() || state.Epoch != source.epoch {
+		return authority.ErrFenced
+	}
+	return nil
+}
+
+func (config functionControllerConfig) functionEpoch(ctx context.Context) (uint64, error) {
+	if config.ReadLease != nil {
+		return config.ReadLease.Epoch(), config.ReadLease.Guard(ctx)
+	}
+	if config.Authority == nil {
+		return 0, authority.ErrFenced
+	}
+	epoch := config.Authority.Current().Epoch
+	return epoch, (functionIntentSource{authority: config.Authority, epoch: epoch}).guard(ctx)
 }
 
 func startFunctionController(ctx context.Context, config functionControllerConfig) (host.FunctionMaterialProvider, func(), error) {
@@ -347,6 +380,10 @@ func (controller functionController) material(ctx context.Context, registration 
 }
 
 func (controller functionController) recipient(ctx context.Context, registration host.Registration, binding functionmaterial.Binding) (release.VerifiedFunction, error) {
+	client := controller.config.ReadClient
+	if client == nil {
+		client = controller.config.Client
+	}
 	fail := func() (release.VerifiedFunction, error) {
 		return release.VerifiedFunction{}, errors.New("function material recipient is not the current assigned admitted host")
 	}
@@ -358,15 +395,15 @@ func (controller functionController) recipient(ctx context.Context, registration
 	if !entityid.Valid(registration.ID) || binding.HostID != registration.ID || registration.Cell != strings.ToLower(controller.config.Cell) || registration.Environment != controller.config.Environment {
 		return fail()
 	}
-	if controller.config.Roots == nil {
+	if controller.config.Roots == nil || client == nil {
 		return fail()
 	}
 	rootHead := controller.config.Roots.reply("").Head
-	epoch := controller.config.Authority.Current().Epoch
-	if err := controller.config.Authority.Guard(ctx, epoch); err != nil {
+	epoch, err := controller.config.functionEpoch(ctx)
+	if err != nil {
 		return release.VerifiedFunction{}, err
 	}
-	taskResponse, err := controller.config.Client.GetTask(ctx, &api.GetTaskRequest{TaskID: binding.TaskID})
+	taskResponse, err := client.GetTask(ctx, &api.GetTaskRequest{TaskID: binding.TaskID})
 	if err != nil {
 		return release.VerifiedFunction{}, err
 	}
@@ -377,7 +414,7 @@ func (controller functionController) recipient(ctx context.Context, registration
 	if task == nil || task.ID != binding.TaskID || task.ServiceID != binding.ServiceID || task.NodeID != binding.NodeID || task.DesiredState != api.TaskStateRunning {
 		return fail()
 	}
-	serviceResponse, err := controller.config.Client.GetService(ctx, &api.GetServiceRequest{ServiceID: binding.ServiceID})
+	serviceResponse, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: binding.ServiceID})
 	if err != nil {
 		return release.VerifiedFunction{}, err
 	}
@@ -389,7 +426,7 @@ func (controller functionController) recipient(ctx context.Context, registration
 		return fail()
 	}
 	labels := service.Spec.Annotations.Labels
-	source := functionIntentSource{reader: controller.config.Material.Reader, js: controller.config.JS, authority: controller.config.Authority, epoch: epoch,
+	source := functionIntentSource{reader: controller.config.Material.Reader, js: controller.config.JS, authority: controller.config.Authority, lease: controller.config.ReadLease, epoch: epoch,
 		roots: controller.config.Roots, rootHead: rootHead}
 	proof, err := source.CurrentFunction(ctx, labels[swarmruntime.LabelFunctionTenant], labels[swarmruntime.LabelFunctionID])
 	if err != nil {
@@ -401,7 +438,7 @@ func (controller functionController) recipient(ctx context.Context, registration
 	if claim.Cell != strings.ToUpper(controller.config.Cell) || claim.Environment != controller.config.Environment || catalog.OCIRegion(claim.Cell) != binding.Region {
 		return fail()
 	}
-	nodeResponse, err := controller.config.Client.GetNode(ctx, &api.GetNodeRequest{NodeID: binding.NodeID})
+	nodeResponse, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: binding.NodeID})
 	if err != nil {
 		return release.VerifiedFunction{}, err
 	}
@@ -422,7 +459,7 @@ func (controller functionController) recipient(ctx context.Context, registration
 		return fail()
 	}
 	intent := functionServiceTarget(proof, node.Description.Platform.Architecture)
-	bundle, err := intent.WorkerBundleForTask(ctx, controller.config.Client, task)
+	bundle, err := intent.WorkerBundleForTask(ctx, client, task)
 	if err != nil {
 		return release.VerifiedFunction{}, err
 	}
@@ -439,14 +476,14 @@ func (controller functionController) recipient(ctx context.Context, registration
 	}
 	ctx, cancelWorker := context.WithDeadline(ctx, verifiedWorker.ExpiresAt())
 	defer cancelWorker()
-	if err := swarmruntime.VerifyFunctionMaterialTask(ctx, controller.config.Client, task, intent, source, verifiedWorker); err != nil {
+	if err := swarmruntime.VerifyFunctionMaterialTask(ctx, client, task, intent, source, verifiedWorker); err != nil {
 		return release.VerifiedFunction{}, err
 	}
 	fingerprint, err := swarmruntime.ContainerTaskFingerprint(task)
 	if err != nil || fingerprint != binding.Fingerprint {
 		return fail()
 	}
-	nodeResponse, err = controller.config.Client.GetNode(ctx, &api.GetNodeRequest{NodeID: binding.NodeID})
+	nodeResponse, err = client.GetNode(ctx, &api.GetNodeRequest{NodeID: binding.NodeID})
 	if err != nil {
 		return release.VerifiedFunction{}, err
 	}
@@ -459,14 +496,16 @@ func (controller functionController) recipient(ctx context.Context, registration
 	if err := controller.config.Startup.VerifyCurrent(ctx, time.Now().UTC()); err != nil {
 		return release.VerifiedFunction{}, err
 	}
-	if err := controller.config.Authority.Guard(ctx, epoch); err != nil {
+	if err := source.guard(ctx); err != nil {
 		return release.VerifiedFunction{}, err
 	}
 	if err := rootTrustHeadCurrent(ctx, controller.config.JS, controller.config.Roots, rootHead); err != nil {
 		return release.VerifiedFunction{}, err
 	}
-	state := controller.config.Authority.Current()
-	if !state.CanMutate() || state.Epoch != epoch || controller.config.Roots.reply("").Head != rootHead {
+	if err := source.guard(ctx); err != nil {
+		return release.VerifiedFunction{}, err
+	}
+	if controller.config.Roots.reply("").Head != rootHead {
 		return fail()
 	}
 	if !proof.Valid() || !verifiedWorker.Valid(time.Now().UTC()) || ctx.Err() != nil {

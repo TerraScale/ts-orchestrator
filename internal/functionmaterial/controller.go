@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
-	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/brokerauth"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/functions"
@@ -25,7 +24,7 @@ type Controller struct {
 	Reader             Reader
 	Authority          *authority.Runtime
 	Conn               *nats.Conn
-	Issuer             *bootstrapmaterial.ControllerIssuer
+	Issuer             TaskIssuer
 	Vault              vaultsecret.VaultClient
 	Versions           vaultsecret.VersionClient
 	Target             vaultsecret.Target
@@ -84,7 +83,7 @@ func (controller Controller) Prepare(ctx context.Context, tenant, function strin
 		if err := guard(); err != nil {
 			return "", err
 		}
-		material, err := controller.issue(reader, proof, sequence, account, binding, nil)
+		material, err := controller.issue(ctx, reader, proof, sequence, account, binding)
 		if err != nil {
 			return "", err
 		}
@@ -111,14 +110,8 @@ func (controller Controller) Prepare(ctx context.Context, tenant, function strin
 	if material.Binding != binding || material.TenantID != tenant || material.FunctionID != function || material.EnvelopeSHA256 != proof.EnvelopeSHA256() || material.IntentSequence != sequence {
 		return VerifiedDelivery{}, ErrMaterial
 	}
-	// Issuance validates old grants and keeps the key even when renewal is needed.
-	credentials, _, err := controller.Issuer.IssueFunctionCredentials(proof, account.JWT, material.Files["broker.creds"])
-	if err != nil {
-		return VerifiedDelivery{}, err
-	}
-	defer clear(credentials)
 	if _, err := reader.verifyMaterial(material, binding, proof, sequence, account); err != nil {
-		material, err = controller.issue(reader, proof, sequence, account, binding, material.Files["broker.creds"])
+		material, err = controller.issue(ctx, reader, proof, sequence, account, binding)
 		if err != nil {
 			return VerifiedDelivery{}, err
 		}
@@ -181,25 +174,20 @@ func (controller Controller) recheck(ctx context.Context, reader Reader, proof r
 	return nil
 }
 
-func (controller Controller) issue(reader Reader, proof release.VerifiedFunction, sequence uint64, account brokerauth.Claim, binding Binding, existing []byte) (storedMaterial, error) {
-	credentials, identity, err := controller.Issuer.IssueFunctionCredentials(proof, account.JWT, existing)
+func (controller Controller) issue(ctx context.Context, reader Reader, proof release.VerifiedFunction, sequence uint64, account brokerauth.Claim, binding Binding) (storedMaterial, error) {
+	wire, err := controller.Issuer.IssueFunctionTaskMaterial(ctx, binding.TaskID)
 	if err != nil {
 		return storedMaterial{}, err
 	}
-	cert, key, issuer, err := controller.Issuer.IssueFunctionTLS(proof)
+	defer clear(wire)
+	material, err := decodeMaterial(wire)
 	if err != nil {
-		clear(credentials)
 		return storedMaterial{}, err
 	}
-	files := map[string][]byte{"broker.creds": credentials, "broker-ca.pem": bytes.Clone(reader.Trust.brokerCA), "ingress-cert.pem": cert, "ingress-key.pem": key, "ingress-ca.pem": issuer}
-	tlsExpiry, err := verifyTLS(files, proof)
-	if err != nil {
-		for _, value := range files {
-			clear(value)
-		}
+	if _, err := reader.verifyMaterial(material, binding, proof, sequence, account); err != nil {
 		return storedMaterial{}, err
 	}
-	return storedMaterial{Schema: 1, Binding: binding, TenantID: proof.Claim().TenantID, FunctionID: proof.Claim().FunctionID, EnvelopeSHA256: proof.EnvelopeSHA256(), IntentSequence: sequence, AccountSequence: account.Sequence, Generation: reader.Trust.fingerprint, ExpiresAt: minTime(proof.ExpiresAt(), identity.ExpiresAt, tlsExpiry, reader.Trust.expiresAt), Files: files}, nil
+	return material, nil
 }
 
 func encodeMaterial(material storedMaterial) ([]byte, error) {

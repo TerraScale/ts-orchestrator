@@ -156,6 +156,9 @@ func (service *Service) validRequest(request wireRequest) bool {
 	case OperationObserveContainerGeneration:
 		var input ObserveContainerGenerationRequest
 		return decodePayload(request.Payload, &input) == nil && validSelector(input.TaskID) && len(input.TaskID) <= 25
+	case OperationIssueFunctionTaskMaterial, OperationIssueFunctionObservationIdentity:
+		var input FunctionTaskRequest
+		return decodePayload(request.Payload, &input) == nil && functionTaskID(input.TaskID)
 	case OperationMaterializeNativeCanary:
 		var input NativeCanaryRequest
 		return decodePayload(request.Payload, &input) == nil && entityid.Valid(input.OperationID) && validNativeNode(input.Node)
@@ -169,6 +172,18 @@ func (service *Service) validRequest(request wireRequest) bool {
 	default:
 		return false
 	}
+}
+
+func functionTaskID(value string) bool {
+	if len(value) != 25 {
+		return false
+	}
+	for _, c := range value {
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9') {
+			return false
+		}
+	}
+	return true
 }
 
 func optionalSelector(value string) bool { return value == "" || validSelector(value) }
@@ -369,6 +384,33 @@ func (service *Service) dispatch(ctx context.Context, call Call, request wireReq
 			return nil, err
 		}
 		return service.backends.Workloads.ObserveContainerGeneration(ctx, call, input)
+	case OperationIssueFunctionTaskMaterial:
+		var input FunctionTaskRequest
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		receipt, err := service.backends.Workloads.IssueFunctionTaskMaterial(ctx, call, input)
+		if err != nil {
+			return nil, err
+		}
+		if len(receipt.Value) == 0 || len(receipt.Value) > 16<<10 || !validResponseExpiry(receipt.ExpiresAt, call) {
+			return nil, ErrUnavailable
+		}
+		return receipt, nil
+	case OperationIssueFunctionObservationIdentity:
+		var input FunctionTaskRequest
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		receipt, err := service.backends.Workloads.IssueFunctionObservationIdentity(ctx, call, input)
+		if err != nil {
+			return nil, err
+		}
+		if len(receipt.Certificate) == 0 || len(receipt.Certificate) > 16<<10 || len(receipt.Key) == 0 || len(receipt.Key) > 4096 || len(receipt.CA) == 0 || len(receipt.CA) > 16<<10 || !validResponseExpiry(receipt.ExpiresAt, call) {
+			return nil, ErrUnavailable
+		}
+		return receipt, nil
+
 	case OperationMaterializeNativeCanary:
 		var input NativeCanaryRequest
 		if err := decodePayload(request.Payload, &input); err != nil {

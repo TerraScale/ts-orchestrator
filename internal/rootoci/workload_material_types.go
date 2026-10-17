@@ -61,4 +61,6 @@ type WorkloadCredentials interface {
 	MaterializeContainer(context.Context, Call, MaterializeContainerRequest) (ContainerMaterialReceipt, error)
 	ObserveContainerGeneration(context.Context, Call, ObserveContainerGenerationRequest) (ContainerGenerationReceipt, error)
 	MaterializeNativeCanary(context.Context, Call, NativeCanaryRequest) (NativeCanaryReceipt, error)
+	IssueFunctionTaskMaterial(context.Context, Call, FunctionTaskRequest) (FunctionTaskMaterialReceipt, error)
+	IssueFunctionObservationIdentity(context.Context, Call, FunctionTaskRequest) (FunctionObservationIdentityReceipt, error)
 }

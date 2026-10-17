@@ -71,6 +71,7 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 		"session_cancel", "raw_sign", "unknown_member", "wrong_process", "expired", "effect_then_revoke", "backend_unknown",
 		"retained_negative_offset", "retained_startup", "channel_bad_role", "channel_offset_limit", "channel_startup",
 		"native_bad_node", "native_startup",
+		"function_task_startup", "function_observation_startup", "function_task_raw_proof", "function_observation_raw_key",
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -102,7 +103,7 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 					return Lease{}, ErrUnauthorized
 				}
 				expectedOperation := OperationObserveLocalInstance
-				if scenario == "retained_startup" || scenario == "channel_startup" || scenario == "native_startup" {
+				if scenario == "retained_startup" || scenario == "channel_startup" || scenario == "native_startup" || scenario == "function_task_startup" || scenario == "function_observation_startup" {
 					if !operation.ReadOnly() {
 						return Lease{}, ErrUnauthorized
 					}
@@ -112,6 +113,12 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 					}
 					if scenario == "native_startup" {
 						expectedOperation = OperationMaterializeNativeCanary
+					}
+					if scenario == "function_task_startup" {
+						expectedOperation = OperationIssueFunctionTaskMaterial
+					}
+					if scenario == "function_observation_startup" {
+						expectedOperation = OperationIssueFunctionObservationIdentity
 					}
 				}
 				if scenario == "effect_then_revoke" || scenario == "backend_unknown" {
@@ -204,6 +211,21 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			if scenario == "function_task_startup" || scenario == "function_task_raw_proof" {
+				request.Operation = OperationIssueFunctionTaskMaterial
+				request.Payload = []byte(`{"task_id":"aaaaaaaaaaaaaaaaaaaaaaaaa"}`)
+				if scenario == "function_task_raw_proof" {
+					request.Payload = []byte(`{"task_id":"aaaaaaaaaaaaaaaaaaaaaaaaa","proof":"caller-controlled"}`)
+				}
+			}
+			if scenario == "function_observation_startup" || scenario == "function_observation_raw_key" {
+				request.Operation = OperationIssueFunctionObservationIdentity
+				request.Payload = []byte(`{"task_id":"aaaaaaaaaaaaaaaaaaaaaaaaa"}`)
+				if scenario == "function_observation_raw_key" {
+					request.Payload = []byte(`{"task_id":"aaaaaaaaaaaaaaaaaaaaaaaaa","key":"caller-controlled"}`)
+				}
+			}
+
 			wire, err := json.Marshal(request)
 			if err != nil {
 				t.Fatal(err)
@@ -253,7 +275,7 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 			} else {
 				var response wireResponse
 				expected := "invalid"
-				if scenario == "wrong_process" || scenario == "expired" || scenario == "retained_startup" || scenario == "channel_startup" || scenario == "native_startup" {
+				if scenario == "wrong_process" || scenario == "expired" || scenario == "retained_startup" || scenario == "channel_startup" || scenario == "native_startup" || scenario == "function_task_startup" || scenario == "function_observation_startup" {
 					expected = "unauthorized"
 				}
 				if json.Unmarshal(output.Bytes(), &response) != nil || response.Status != expected || reader.calls.Load() != 0 ||

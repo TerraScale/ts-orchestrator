@@ -101,7 +101,7 @@ func (i FunctionServiceIntent) VerifyTask(task *api.Task, service *api.Service, 
 
 // VerifyWorkerFloor denies material for an image superseded by the durable
 // regional role floor. The caller first verifies live worker qualification.
-func (i FunctionServiceIntent) VerifyWorkerFloor(ctx context.Context, client api.ControlClient, worker release.VerifiedContainer) error {
+func (i FunctionServiceIntent) VerifyWorkerFloor(ctx context.Context, client api.ControlReader, worker release.VerifiedContainer) error {
 	claim := worker.Claim()
 	workerIntent := ServiceIntent{ID: entityid.Derive("function-worker-release", i.Environment, i.Region), Role: FunctionWorkerRole, Region: i.Region, Environment: i.Environment, Architecture: i.Architecture}
 	name, err := releaseFloorName(workerIntent, worker)

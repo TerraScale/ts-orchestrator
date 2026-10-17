@@ -18,7 +18,7 @@ import (
 // VerifyFunctionMaterialTask authorizes only an exact current manager recipe.
 // Callers independently verify the pinned worker bundle and allocation winner,
 // then recheck recipient, current roots/epoch and live grants before delivery.
-func VerifyFunctionMaterialTask(ctx context.Context, client api.ControlClient, task *api.Task, intent FunctionServiceIntent, current CurrentFunctionIntent, worker release.VerifiedContainer) error {
+func VerifyFunctionMaterialTask(ctx context.Context, client api.ControlReader, task *api.Task, intent FunctionServiceIntent, current CurrentFunctionIntent, worker release.VerifiedContainer) error {
 	if client == nil || current == nil || task == nil || task.ID == "" || task.ServiceID == "" || task.NodeID == "" || task.DesiredState != api.TaskStateRunning {
 		return errors.New("function material requires current authority and an assigned task")
 	}
@@ -95,7 +95,7 @@ func functionServiceRollback(service *api.Service) bool {
 }
 
 // The caller must first authorize the exact recipe; this comparison grants no task authority.
-func (intent FunctionServiceIntent) verifyRetainedWorkerFloor(ctx context.Context, client api.ControlClient, worker release.VerifiedContainer) error {
+func (intent FunctionServiceIntent) verifyRetainedWorkerFloor(ctx context.Context, client api.ControlReader, worker release.VerifiedContainer) error {
 	claim := worker.Claim()
 	workerIntent := ServiceIntent{ID: entityid.Derive("function-worker-release", intent.Environment, intent.Region), Role: FunctionWorkerRole, Region: intent.Region, Environment: intent.Environment, Architecture: intent.Architecture}
 	name, err := releaseFloorName(workerIntent, worker)

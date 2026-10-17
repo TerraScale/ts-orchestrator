@@ -9,7 +9,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
-	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/brokerauth"
 	"github.com/TerraScale/ts-orchestrator/internal/functionmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
@@ -18,6 +17,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go/jetstream"
@@ -95,18 +95,18 @@ func startAutomaticFunctions(ctx context.Context, cfg Config, runtime *natscell.
 		files[name] = body
 		return body, nil
 	}
-	issuer, err := bootstrapmaterial.LoadStartupControllerIssuer(ctx, startup, read, time.Now().UTC())
-	if err != nil {
-		return fail(err)
+	for _, name := range []string{"operator.jwt", "ca.pem"} {
+		if _, err := read(name); err != nil {
+			return fail(err)
+		}
 	}
 	public, err := functionmaterial.NewStartupPublicTrust(ctx, startup, files["operator.jwt"], files["ca.pem"], cfg.NATS.URL)
 	if err != nil {
-		issuer.Wipe()
 		return fail(err)
 	}
+	issuer := functionIssuerClient{client: rootoci.NewClient(rootoci.Expectations{Cell: cfg.NATS.Cell})}
 	management, bundles, err := automaticVaultClients(factory)
 	if err != nil {
-		issuer.Wipe()
 		return fail(err)
 	}
 	channel := instancePrincipalChannel(factory.Region(), strings.ToUpper(cfg.NATS.Cell))
@@ -177,8 +177,7 @@ func startAutomaticFunctions(ctx context.Context, cfg Config, runtime *natscell.
 	controller.config = config
 	_, stop, err := startFunctionController(ctx, config)
 	if err != nil {
-		issuer.Wipe()
 		return fail(err)
 	}
-	return controller, func() { stop(); issuer.Wipe() }, nil
+	return controller, stop, nil
 }

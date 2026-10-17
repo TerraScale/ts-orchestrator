@@ -121,7 +121,7 @@ func TestControllerRecoversVaultPublicationBeforeImmutableRecipientGrant(t *test
 	reader := Reader{Authority: control, Artifacts: artifacts, Roots: func() trust.Keyring { return roots }, Accounts: accounts, Bundles: bundles, VaultID: target.VaultID, Trust: public, Recipient: Recipient{NodeID: binding.NodeID, InstanceID: binding.InstanceID, Region: binding.Region, HostID: binding.HostID}}
 	checks := 0
 	interrupted := errors.New("recipient disappeared after publication")
-	controller := Controller{Reader: reader, Authority: control, Conn: conn, Issuer: issuer, Vault: vault, Versions: vault, Target: target, AuthorizeRecipient: func(_ context.Context, candidate Binding) error {
+	controller := Controller{Reader: reader, Authority: control, Conn: conn, Issuer: materialTestIssuer{reader: reader, issuer: issuer, binding: binding, proof: proof, vault: vault, target: target}, Vault: vault, Versions: vault, Target: target, AuthorizeRecipient: func(_ context.Context, candidate Binding) error {
 		if candidate != binding {
 			return ErrMaterial
 		}
@@ -217,6 +217,39 @@ func TestControllerRecoversVaultPublicationBeforeImmutableRecipientGrant(t *test
 	if _, err := reader.Current(t.Context(), binding); err == nil {
 		t.Fatal("modified Vault material passed immutable manifest")
 	}
+}
+
+// Existing publication recovery coverage keeps its real NATS and SDK sources;
+// Unix boundary negative coverage is separate from this publication fixture.
+type materialTestIssuer struct {
+	reader  Reader
+	issuer  *bootstrapmaterial.ControllerIssuer
+	binding Binding
+	proof   release.VerifiedFunction
+	vault   vaultsecret.VaultClient
+	target  vaultsecret.Target
+}
+
+func (issuer materialTestIssuer) IssueFunctionTaskMaterial(ctx context.Context, taskID string) ([]byte, error) {
+	if taskID != issuer.binding.TaskID {
+		return nil, ErrMaterial
+	}
+	reader := issuer.reader
+	reader.AuthorizeRecipient = func(_ context.Context, binding Binding) error {
+		if binding != issuer.binding {
+			return ErrMaterial
+		}
+		return nil
+	}
+	claim := issuer.proof.Claim()
+	return reader.issueTaskMaterial(ctx, issuer.issuer, issuer.binding, claim.TenantID, claim.FunctionID, issuer.vault, issuer.target)
+}
+
+func (issuer materialTestIssuer) IssueFunctionObservationIdentity(ctx context.Context, taskID string) (cert, key, ca []byte, err error) {
+	if ctx.Err() != nil || taskID != issuer.binding.TaskID {
+		return nil, nil, nil, ErrMaterial
+	}
+	return issuer.issuer.IssueFunctionClientTLS(issuer.proof)
 }
 
 func materialProof(t *testing.T, roots trust.Keyring, root ed25519.PrivateKey, sequence uint64) release.VerifiedFunction {
@@ -364,6 +397,11 @@ func (backend *vaultBackend) serve(w http.ResponseWriter, r *http.Request) {
 		backend.updates++
 		write(metadata())
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/secretbundles/actions/getByName"):
+		if backend.name == "" {
+			w.WriteHeader(http.StatusNotFound)
+			write(map[string]any{"code": "SecretNotFound", "message": "secret absent"})
+			return
+		}
 		write(map[string]any{"secretId": materialSecretID, "versionNumber": backend.version, "secretBundleContent": map[string]any{"contentType": "BASE64", "content": base64.StdEncoding.EncodeToString(backend.value)}})
 	default:
 		http.Error(w, "unknown route", 404)

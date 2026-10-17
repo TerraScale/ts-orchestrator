@@ -97,7 +97,7 @@ func (i FunctionServiceIntent) retainWorkerBundle(ctx context.Context, client ap
 
 // WorkerBundleForTask loads the exact retained bytes pinned by a task. The result
 // is untrusted: callers must VerifyContainerCurrent and VerifyFunctionRegistryTask.
-func (i FunctionServiceIntent) WorkerBundleForTask(ctx context.Context, client api.ControlClient, task *api.Task) (release.ContainerBundle, error) {
+func (i FunctionServiceIntent) WorkerBundleForTask(ctx context.Context, client api.ControlReader, task *api.Task) (release.ContainerBundle, error) {
 	if client == nil || task == nil {
 		return release.ContainerBundle{}, errors.New("function worker bundle requires a manager and task")
 	}
