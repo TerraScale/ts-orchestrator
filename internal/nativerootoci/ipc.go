@@ -185,14 +185,20 @@ func peerCredential(connection *net.UnixConn) (Peer, error) {
 	return Peer{PID: int(credentials.Pid), UID: credentials.Uid, GID: credentials.Gid}, nil
 }
 
-func readFrame(reader io.Reader) ([]byte, error) {
+// PeerCredential reads the connected socket's authenticated kernel identity.
+func PeerCredential(connection *net.UnixConn) (Peer, error) { return peerCredential(connection) }
+
+func readFrame(reader io.Reader) ([]byte, error) { return ReadBoundedFrame(reader, MaxFrameBytes) }
+
+// ReadBoundedFrame reads one fixed-limit length-prefixed message.
+func ReadBoundedFrame(reader io.Reader, maximum uint32) ([]byte, error) {
 	var prefix [4]byte
 	if _, err := io.ReadFull(reader, prefix[:]); err != nil {
 		return nil, err
 	}
 	length := binary.BigEndian.Uint32(prefix[:])
-	if length == 0 || length > MaxFrameBytes {
-		return nil, errors.New("native OCI root IPC frame exceeds its bound")
+	if length == 0 || maximum == 0 || length > maximum {
+		return nil, errors.New("root IPC frame exceeds its bound")
 	}
 	frame := make([]byte, length)
 	_, err := io.ReadFull(reader, frame)
@@ -200,8 +206,13 @@ func readFrame(reader io.Reader) ([]byte, error) {
 }
 
 func writeFrame(writer io.Writer, frame []byte) error {
-	if len(frame) == 0 || len(frame) > MaxFrameBytes {
-		return errors.New("native OCI root IPC response exceeds its bound")
+	return WriteBoundedFrame(writer, frame, MaxFrameBytes)
+}
+
+// WriteBoundedFrame writes one fixed-limit length-prefixed message.
+func WriteBoundedFrame(writer io.Writer, frame []byte, maximum uint32) error {
+	if len(frame) == 0 || maximum == 0 || uint64(len(frame)) > uint64(maximum) {
+		return errors.New("root IPC response exceeds its bound")
 	}
 	var prefix [4]byte
 	binary.BigEndian.PutUint32(prefix[:], uint32(len(frame)))
