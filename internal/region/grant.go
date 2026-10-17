@@ -460,6 +460,9 @@ func (s *SignedFootprint) verifyGrant(wire []byte) (ApprovedFootprint, time.Time
 	if err := json.Unmarshal(payload, &grant, json.RejectUnknownMembers(true)); err != nil {
 		return ApprovedFootprint{}, time.Time{}, errors.New("foundation scope schema invalid")
 	}
+	if err := validateNetBirdJournalPurpose(grant, envelope.ExpiresAt); err != nil {
+		return ApprovedFootprint{}, time.Time{}, err
+	}
 	if grant.InstallationID != s.home.InstallationID || (grant.SchemaVersion != 1 && grant.SchemaVersion != 2) || grant.Generation != s.home.GrantGeneration || grant.TenancyID != s.tenancy || grant.MonthlyLimitMinor <= 0 ||
 		(grant.Currency != "USD" && grant.Currency != "BRL") || grant.CleanupOwner == "" || len(grant.CleanupOwner) > 128 {
 		return ApprovedFootprint{}, time.Time{}, errors.New("foundation scope lacks matching tenancy, numerical spend authority or cleanup owner")
