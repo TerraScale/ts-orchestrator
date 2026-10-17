@@ -148,6 +148,7 @@ type FoundationRecord struct {
 	SourcePolicyIDs     map[string]SourcePolicyRecord           `json:"sourcePolicyIds,omitempty"`
 	NetBirdManager      *NetBirdManagerLaunch                   `json:"netbirdManager,omitempty"`
 	WorkerPolicyIDs     map[string]WorkerPolicyRecord           `json:"workerPolicyIds,omitempty"`
+	OCIRIssuances       map[string]OCIRIssuanceEntry            `json:"ocirIssuances,omitempty"`
 	OCIResources        *ociresource.ProtectedJournal           `json:"ociResources,omitempty"`
 	CapacityLedger      *capacityledger.Ledger                  `json:"capacityLedger,omitempty"`
 	CapacityCreates     map[string]PoolCreateRecord             `json:"capacityCreates,omitempty"`

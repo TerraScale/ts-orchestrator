@@ -136,6 +136,9 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 }
 
 func (r FoundationRecord) validate() error {
+	if err := r.validateOCIRIssuances(); err != nil {
+		return err
+	}
 	if r.OCIResources != nil {
 		if err := r.OCIResources.Validate(r.Cell); err != nil {
 			return fmt.Errorf("protected OCI amendment journal: %w", err)
