@@ -392,6 +392,9 @@ func (controller *containerMaterialController) registryRecipient(ctx context.Con
 	if err := containermaterial.VerifyCurrentTask(ctx, config.Client, task, expected, verified, roots, proof, registration, taskBinding, controllerProof); err != nil {
 		return containerMaterialRecipient{}, err
 	}
+	if err := rootTrustHeadCurrent(ctx, config.JS, config.Specs.roots, rootHead); err != nil {
+		return containerMaterialRecipient{}, err
+	}
 	config.Specs.mu.Lock()
 	currentRevision := config.Specs.revision
 	config.Specs.mu.Unlock()
@@ -428,6 +431,9 @@ func (controller *containerMaterialController) currentMaterialTask(ctx context.C
 		binding.HostID = selected.controllerProof.ControllerSlot()
 	}
 	if err := containermaterial.VerifyCurrentMaterialTask(ctx, config.Client, selected.Task, selected.Expected, selected.Verified, config.Specs.roots.current(), selected.proof, registration, binding, selected.controllerProof); err != nil {
+		return err
+	}
+	if err := rootTrustHeadCurrent(ctx, config.JS, config.Specs.roots, selected.rootHead); err != nil {
 		return err
 	}
 	config.Specs.mu.Lock()
