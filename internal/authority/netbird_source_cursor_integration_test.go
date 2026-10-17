@@ -15,9 +15,9 @@ import (
 func TestNetBirdPublicSourceReplicatedScanCursor(t *testing.T) {
 	for _, trailing := range []int{0, 1, 3} {
 		t.Run(fmt.Sprintf("trailing_%d", trailing), func(t *testing.T) {
-			js, managerJS, denied := newNetBirdSourceR3(t)
-			ctx, cancel := context.WithTimeout(t.Context(), 40*time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 			defer cancel()
+			js, managerJS, denied := newNetBirdSourceR3(t)
 			runtime, err := Start(ctx, js, Config{Scope: "gru", DeploymentID: entityid.New(), CandidateID: entityid.New(), Replicas: 3})
 			if err != nil {
 				t.Fatal(err)
@@ -63,8 +63,42 @@ func TestNetBirdPublicSourceReplicatedScanCursor(t *testing.T) {
 				if err != nil || info.Delivered.Consumer != 1 || info.Delivered.Stream != uint64(trailing+1) || info.AckFloor.Stream != uint64(trailing+1) {
 					t.Fatalf("persisted scan cursor = %+v %v", info, err)
 				}
+				waitCurrent := func(wantLeader string) *jetstream.ConsumerInfo {
+					t.Helper()
+					phase, stop := context.WithTimeout(ctx, 5*time.Second)
+					defer stop()
+					var last *jetstream.ConsumerInfo
+					var lastErr error
+					for {
+						snapshot, requestErr := consumer.Info(phase)
+						lastErr = requestErr
+						if requestErr == nil {
+							last = snapshot
+						}
+						if lastErr == nil && last.Cluster != nil && last.Cluster.Leader != "" &&
+							(wantLeader == "" || last.Cluster.Leader == wantLeader) && len(last.Cluster.Replicas) == 2 &&
+							last.Cluster.Replicas[0].Current && last.Cluster.Replicas[1].Current {
+							return last
+						}
+						select {
+						case <-phase.Done():
+							wire, marshalErr := json.Marshal(last)
+							t.Fatalf("consumer %s leader %q did not become current: info=%s request=%v marshal=%v deadline=%v", source.consumer, wantLeader, wire, lastErr, marshalErr, phase.Err())
+						case <-time.After(20 * time.Millisecond):
+						}
+					}
+				}
+				info = waitCurrent("")
 				leader := info.Cluster.Leader
-				response, err := js.Conn().RequestWithContext(ctx, "$JS.API.CONSUMER.LEADER.STEPDOWN."+source.stream+"."+source.consumer, nil)
+				preferred := info.Cluster.Replicas[0].Name
+				if preferred == "" || preferred == leader {
+					t.Fatalf("no distinct current follower for transfer: %+v", info.Cluster)
+				}
+				request, err := json.Marshal(map[string]map[string]string{"placement": {"preferred": preferred}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				response, err := js.Conn().RequestWithContext(ctx, "$JS.API.CONSUMER.LEADER.STEPDOWN."+source.stream+"."+source.consumer, request)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -74,17 +108,7 @@ func TestNetBirdPublicSourceReplicatedScanCursor(t *testing.T) {
 				if err := json.Unmarshal(response.Data, &result); err != nil || !result.Success {
 					t.Fatalf("consumer leader stepdown = %s %v", response.Data, err)
 				}
-				for {
-					info, err = consumer.Info(ctx)
-					if err == nil && info.Cluster != nil && info.Cluster.Leader != "" && info.Cluster.Leader != leader && len(info.Cluster.Replicas) == 2 && info.Cluster.Replicas[0].Current && info.Cluster.Replicas[1].Current {
-						break
-					}
-					select {
-					case <-ctx.Done():
-						t.Fatal("replicated cursor leader did not become current: ", ctx.Err())
-					case <-time.After(20 * time.Millisecond):
-					}
-				}
+				info = waitCurrent(preferred)
 				if info.Delivered.Consumer != 1 || info.Delivered.Stream != uint64(trailing+1) || info.AckFloor.Stream != uint64(trailing+1) {
 					t.Fatalf("new leader lost replicated scan cursor: %+v", info)
 				}
