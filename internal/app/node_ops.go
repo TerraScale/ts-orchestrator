@@ -23,6 +23,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
 )
 
@@ -149,19 +150,12 @@ type nodeInstance struct {
 	MemoryGB float32
 }
 
-// nodeCompute changes a node's instance. Find locates it by its display
-// name, the node's name; Instances lists every one the nodes may be.
+// nodeCompute observes instances and selects an original signed operation.
+// Provider effects and their permitted order are derived independently by root.
 type nodeCompute interface {
 	Find(ctx context.Context, node string) (nodeInstance, error)
 	Instances(ctx context.Context) ([]nodeInstance, error)
-	Reboot(ctx context.Context, id string) error
-	Resize(ctx context.Context, id string, ocpus, memoryGB float32) error
-	// Backup takes a FULL, available backup of the instance's boot volume;
-	// token makes a repeated request return the same one.
-	Backup(ctx context.Context, id, name string, tags map[string]string, token string) (string, error)
-	Terminate(ctx context.Context, id string) error
-	// Rename gives the instance and its boot volume the node's new name.
-	Rename(ctx context.Context, id, name string) error
+	ReconcileNodeOperation(context.Context, rootoci.NodeOperationRequest) (rootoci.NodeOperationReceipt, error)
 }
 
 // nodeDesired writes host desired state: host.Controller.
@@ -189,9 +183,6 @@ type nodeOps struct {
 	pool func(node string) bool
 	// desired moves a renamed node's roles to its new name.
 	desired nodeDesired
-	// forget deletes an instance's host enrollment grant, so a renamed host
-	// enrolls afresh under its new name.
-	forget func(ctx context.Context, instanceID string) error
 	// poll overrides nodeOpPoll in tests.
 	poll time.Duration
 	wake chan struct{}
@@ -600,6 +591,13 @@ func (o *nodeOps) pass(ctx context.Context) error {
 			// The next leader resumes it.
 			return err
 		}
+		if errors.Is(err, rootoci.ErrPending) || errors.Is(err, rootoci.ErrOutcomeUnknown) {
+			// Root retains ambiguous dispatches; local progress cannot authorize a retry.
+			if saveErr := o.save(ctx, epoch, op); saveErr != nil {
+				return saveErr
+			}
+			return err
+		}
 		op.State, op.Step = nodeOpDone, ""
 		if err != nil {
 			op.State, op.Reason = nodeOpFailed, err.Error()
@@ -632,9 +630,8 @@ func (o *nodeOps) next(ctx context.Context) (nodeOp, bool, error) {
 	return best, found, nil
 }
 
-// execute runs op from its recorded step. Each step is recorded before it
-// starts, and the instance change is recorded only after OCI accepted it,
-// so a resumed operation may repeat a reboot but never skips one.
+// execute records local scheduling progress. Root independently retains each
+// compute dispatch, so resuming an ambiguous request cannot repeat a reboot.
 func (o *nodeOps) execute(ctx context.Context, epoch uint64, op *nodeOp) error {
 	step := func(name string) error {
 		op.State, op.Step = nodeOpRunning, name
@@ -719,7 +716,6 @@ func (o *nodeOps) execute(ctx context.Context, epoch uint64, op *nodeOp) error {
 		if err := o.act(ctx, op); err != nil {
 			return err
 		}
-		op.ActedAt = o.now().UTC()
 	}
 	if err := step("check"); err != nil {
 		return err
@@ -734,36 +730,15 @@ func (o *nodeOps) execute(ctx context.Context, epoch uint64, op *nodeOp) error {
 	return err
 }
 
-// act changes the node's instance. The node's controller, if it runs one,
-// must be in a whole JetStream cluster first: a reboot must not take the
-// cluster below its quorum.
+// act mirrors root's protected compute progress. The cluster callback only
+// narrows local scheduling; root independently retains its own safety evidence.
 func (o *nodeOps) act(ctx context.Context, op *nodeOp) error {
 	if o.cluster != nil {
 		if err := o.cluster(ctx, op.Node); err != nil {
 			return err
 		}
 	}
-	api, err := o.instances(ctx)
-	if err != nil {
-		return err
-	}
-	instance, err := api.Find(ctx, op.Node)
-	if err != nil {
-		return err
-	}
-	if op.Op == nodeOpResize && instance.OCPUs == op.OCPUs && instance.MemoryGB == op.MemoryGB {
-		op.Session = ""
-		return nil
-	}
-	if op.Session, err = nodeSession(ctx, o.fence.hosts, op.Node); err != nil {
-		return err
-	}
-	slog.InfoContext(ctx, "node operation changes the instance", observability.ComponentKey, "nodes", "node", op.Node,
-		"op", op.Op, "instance", instance.ID)
-	if op.Op == nodeOpResize {
-		return api.Resize(ctx, instance.ID, op.OCPUs, op.MemoryGB)
-	}
-	return api.Reboot(ctx, instance.ID)
+	return o.reconcileCompute(ctx, op)
 }
 
 // addBackends creates node's missing backends, out of rotation and held by
@@ -847,31 +822,9 @@ func (o *nodeOps) retire(ctx context.Context, epoch uint64, api lb.API, spec cel
 		if err := o.removeBackends(ctx, api, epoch, spec, op.Node, address); err != nil {
 			return err
 		}
-		instances, err := o.instances(ctx)
-		if err != nil {
+		if err := o.reconcileCompute(ctx, op); err != nil {
 			return err
 		}
-		instance, err := instances.Find(ctx, op.Node)
-		if err != nil {
-			return err
-		}
-		now := o.now().UTC()
-		if op.Backup == "" {
-			if op.Backup, err = instances.Backup(ctx, instance.ID, op.Node+"-retired-"+now.Format("20060102"),
-				map[string]string{"terrascale-host-node": op.Node, "ts-node-operation": op.ID,
-					"delete-after": now.AddDate(0, 0, retiredBackupDays).Format(time.DateOnly)}, op.ID); err != nil {
-				return err
-			}
-			if err := o.save(ctx, epoch, *op); err != nil {
-				return err
-			}
-		}
-		slog.InfoContext(ctx, "node operation terminates an instance", observability.ComponentKey, "nodes", "node", op.Node,
-			"instance", instance.ID, "backup", op.Backup)
-		if err := instances.Terminate(ctx, instance.ID); err != nil {
-			return err
-		}
-		op.ActedAt = o.now().UTC()
 	}
 	if err := step("check"); err != nil {
 		return err
@@ -885,7 +838,7 @@ func (o *nodeOps) retire(ctx context.Context, epoch uint64, api lb.API, spec cel
 		if err != nil {
 			return err
 		}
-		if !slices.ContainsFunc(listed, func(instance nodeInstance) bool { return instance.Name == op.Node }) {
+		if !slices.ContainsFunc(listed, func(instance nodeInstance) bool { return instance.ID == op.Instance }) {
 			break
 		}
 		if err := o.wait(ctx, epoch); err != nil {
@@ -925,38 +878,12 @@ func (o *nodeOps) rename(ctx context.Context, epoch uint64, api lb.API, spec cel
 				return err
 			}
 		}
-		instances, err := o.instances(ctx)
-		if err != nil {
+		if o.desired == nil {
+			return errors.New("this leader cannot move a renamed host's roles")
+		}
+		if err := o.reconcileCompute(ctx, op); err != nil {
 			return err
 		}
-		if op.Instance == "" {
-			instance, err := instances.Find(ctx, op.From)
-			if err != nil {
-				return err
-			}
-			if op.Session, err = nodeSession(ctx, o.fence.hosts, op.From); err != nil {
-				return err
-			}
-			op.Instance = instance.ID
-			if err := o.save(ctx, epoch, *op); err != nil {
-				return err
-			}
-		}
-		if o.forget == nil || o.desired == nil {
-			return errors.New("this leader cannot re-enroll a renamed host")
-		}
-		slog.InfoContext(ctx, "node operation renames an instance", observability.ComponentKey, "nodes", "node", op.From,
-			"to", op.Node, "instance", op.Instance)
-		if err := instances.Rename(ctx, op.Instance, op.Node); err != nil {
-			return err
-		}
-		if err := o.forget(ctx, op.Instance); err != nil {
-			return err
-		}
-		if err := instances.Reboot(ctx, op.Instance); err != nil {
-			return err
-		}
-		op.ActedAt = o.now().UTC()
 	}
 	if err := step("check"); err != nil {
 		return err

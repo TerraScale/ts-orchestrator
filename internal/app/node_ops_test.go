@@ -21,6 +21,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 )
 
 // nodeHosts runs terrabase and ts-auth on every node. A node reports both
@@ -70,11 +71,13 @@ func (h *nodeHosts) ListHosts(context.Context) ([]host.HostStatus, error) {
 // new host agent session. It records every call with the node's backends'
 // state at that moment.
 type nodeInstances struct {
-	hosts *nodeHosts
-	lb    *fenceLB
-	t     *testing.T
-	shape map[string][2]float32
-	calls []string
+	ops    *nodeOps
+	forget func(context.Context, string) error
+	hosts  *nodeHosts
+	lb     *fenceLB
+	t      *testing.T
+	shape  map[string][2]float32
+	calls  []string
 	// names renames a node's instance; an empty name removes it.
 	names map[string]string
 	// rebooted, when set, runs after a node's reboot.
@@ -171,6 +174,63 @@ func (c *nodeInstances) Resize(_ context.Context, id string, ocpus, memoryGB flo
 	return nil
 }
 
+// This fake covers caller sequencing only; it does not qualify root authority.
+func (c *nodeInstances) ReconcileNodeOperation(ctx context.Context, request rootoci.NodeOperationRequest) (rootoci.NodeOperationReceipt, error) {
+	op, found, err := c.ops.next(ctx)
+	if err != nil || !found || op.ID != request.OperationID {
+		return rootoci.NodeOperationReceipt{}, errors.New("test operation unavailable")
+	}
+	original, err := c.ops.originalRequest(ctx, op)
+	if err != nil {
+		return rootoci.NodeOperationReceipt{}, err
+	}
+	node := op.Node
+	if op.Op == nodeOpRename {
+		node = op.From
+	}
+	instance, err := c.Find(ctx, node)
+	if err != nil {
+		return rootoci.NodeOperationReceipt{}, err
+	}
+	session, err := nodeSession(ctx, c.hosts, node)
+	if err != nil {
+		return rootoci.NodeOperationReceipt{}, err
+	}
+	receipt := rootoci.NodeOperationReceipt{OperationID: op.ID, RequestSHA256: op.RequestSHA256,
+		InstanceID: instance.ID, Session: session, Phase: "complete", ExpiresAt: original.ExpiresAt}
+	switch op.Op {
+	case nodeOpReboot:
+		err = c.Reboot(ctx, instance.ID)
+	case nodeOpResize:
+		if instance.OCPUs == op.OCPUs && instance.MemoryGB == op.MemoryGB {
+			receipt.Session = ""
+		} else {
+			err = c.Resize(ctx, instance.ID, op.OCPUs, op.MemoryGB)
+		}
+	case nodeOpRetire:
+		now := time.Now().UTC()
+		receipt.BackupID, err = c.Backup(ctx, instance.ID, node+"-retired-"+now.Format("20060102"),
+			map[string]string{"terrascale-host-node": node, "ts-node-operation": op.ID,
+				"delete-after": now.AddDate(0, 0, retiredBackupDays).Format(time.DateOnly)}, op.ID)
+		if err == nil {
+			err = c.Terminate(ctx, instance.ID)
+		}
+	case nodeOpRename:
+		err = c.Rename(ctx, instance.ID, op.Node)
+		if err == nil && c.forget != nil {
+			err = c.forget(ctx, instance.ID)
+		}
+		if err == nil {
+			err = c.Reboot(ctx, instance.ID)
+		}
+	default:
+		err = errors.New("test operation has no compute effect")
+	}
+	receipt.ActedAt = time.Now().UTC()
+	receipt.ObservedAt = receipt.ActedAt
+	return receipt, err
+}
+
 func newNodeOpsTest(t *testing.T) (*nodeOps, *fenceLB, *nodeInstances) {
 	t.Helper()
 	fence, _, balancer, _, _ := newFenceTest(t)
@@ -184,6 +244,7 @@ func newNodeOpsTest(t *testing.T) (*nodeOps, *fenceLB, *nodeInstances) {
 	fence.hosts = hosts
 	instances := &nodeInstances{hosts: hosts, lb: balancer, t: t, shape: map[string][2]float32{}}
 	ops := newNodeOps(fence, func(context.Context) (nodeCompute, error) { return instances, nil }, nil, Config{}, nil)
+	instances.ops = ops
 	ops.poll = time.Millisecond
 	return ops, balancer, instances
 }
@@ -627,7 +688,7 @@ func TestNodeRenameReenrollsTheHostAndMovesItsRoles(t *testing.T) {
 	ctx := t.Context()
 	hosts := newRenameHosts()
 	ops.fence.hosts, ops.desired = hosts, hosts
-	ops.forget = func(_ context.Context, id string) error {
+	instances.forget = func(_ context.Context, id string) error {
 		instances.calls = append(instances.calls, "forget "+id)
 		return nil
 	}
