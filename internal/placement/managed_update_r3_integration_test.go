@@ -15,16 +15,18 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/natstest"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 func TestManagedUpdateR3PrepareHeldRestartReconciliation(t *testing.T) {
+	auth := natstest.NATS(t, "gru")
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
 
-	broker, err := natscell.Start(ctx, natscell.Config{
-		Cell: "gru", Instance: "managed-update-r3", Replicas: 1, Lab: true,
+	broker, err := auth.Start(t, ctx, natscell.Config{
+		Cell: "gru", Instance: "managed-update-r3", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1,
 			StoreDir: filepath.Join(t.TempDir(), "nats")},
 	})

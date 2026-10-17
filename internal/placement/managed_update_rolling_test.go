@@ -12,6 +12,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell/natstest"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
@@ -42,10 +43,11 @@ func (list fakeKnownBad) IsKnownBad(_ context.Context, digest string) (bool, err
 // replaces a completed target; a candidate that never serves is held with its
 // peer still serving, and a rollback operation restores the replaced artifact.
 func TestManagedUpdateR3RollsReleasesAcrossSeatsAndRollsBackHeldCanary(t *testing.T) {
+	auth := natstest.NATS(t, "gru")
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
-	broker, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "managed-update-rolling", Replicas: 1,
-		Lab: true, Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "nats")}})
+	broker, err := auth.Start(t, ctx, natscell.Config{Cell: "gru", Instance: "managed-update-rolling", Replicas: 1,
+		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "nats")}})
 	if err != nil {
 		t.Fatal(err)
 	}
