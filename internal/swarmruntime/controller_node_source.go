@@ -92,14 +92,6 @@ func (n *Node) InstallControllerNodeSources(ctx context.Context, binding *Contro
 		}
 		source.pins = append(source.pins, pin)
 	}
-	inputs, err := bootstrapstart.LoadTrustInputs(binding.accepted)
-	if err != nil {
-		return err
-	}
-	chain, err := trust.DecodeRootChain(source.pins[0].wire)
-	if err != nil || !reflect.DeepEqual(chain, inputs.Chain) {
-		return ErrControllerActivationPending
-	}
 	if _, err := source.signedSpec(); err != nil {
 		return err
 	}
@@ -118,6 +110,9 @@ func (source *controllerNodeSource) live(ctx context.Context) error {
 		return ErrControllerActivationPending
 	}
 	if err := source.credentials.Guard(ctx); err != nil {
+		return err
+	}
+	if _, err := source.trustInputs(); err != nil {
 		return err
 	}
 	if _, err := source.binding.currentRegistration(ctx); err != nil {
@@ -152,8 +147,20 @@ func (source *controllerNodeSource) operationContext(ctx context.Context) (conte
 	return bounded, release, nil
 }
 
-func (source *controllerNodeSource) signedSpec() (cellspec.Verified, error) {
+func (source *controllerNodeSource) trustInputs() (bootstrapstart.TrustInputs, error) {
 	inputs, err := bootstrapstart.LoadTrustInputs(source.binding.accepted)
+	if err != nil {
+		return bootstrapstart.TrustInputs{}, err
+	}
+	chain, err := trust.DecodeRootChain(source.pins[0].wire)
+	if err != nil || !reflect.DeepEqual(chain, inputs.Chain) {
+		return bootstrapstart.TrustInputs{}, ErrControllerActivationPending
+	}
+	return inputs, nil
+}
+
+func (source *controllerNodeSource) signedSpec() (cellspec.Verified, error) {
+	inputs, err := source.trustInputs()
 	if err != nil {
 		return cellspec.Verified{}, err
 	}
@@ -245,7 +252,7 @@ func (source *controllerNodeSource) read(ctx context.Context, origin, nodeID str
 	} else if until.Before(deadline) {
 		deadline = until
 	}
-	admitted := &controllerActivationAdmission{original: ctx, release: release, local: control, binding: source.binding, recipient: recipient, session: session, origin: candidate,
+	admitted := &controllerActivationAdmission{original: ctx, source: source, release: release, local: control, binding: source.binding, recipient: recipient, session: session, origin: candidate,
 		credentials: source.credentials, js: source.js, stream: source.stream, mutations: source.mutations, pins: source.pins, deadline: deadline}
 	admitted.domains, err = recipient.VerifyActivationTopology(ctx)
 	if err != nil {

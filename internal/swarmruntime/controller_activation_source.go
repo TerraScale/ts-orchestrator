@@ -32,6 +32,7 @@ type controllerSourcePin struct {
 
 type controllerActivationAdmission struct {
 	original           context.Context
+	source             *controllerNodeSource
 	release            context.CancelFunc
 	local              *controllerActivationControl
 	binding            *ControllerHostBinding
@@ -53,7 +54,7 @@ type controllerActivationAdmission struct {
 
 func (admitted *controllerActivationAdmission) guard(ctx context.Context) error {
 	if admitted == nil || admitted.original == nil || ctx == nil || ctx.Err() != nil || admitted.original.Err() != nil ||
-		!time.Now().Before(admitted.deadline) || admitted.credentials == nil {
+		!time.Now().Before(admitted.deadline) || admitted.credentials == nil || admitted.source == nil {
 		return ErrControllerActivationPending
 	}
 	ctx, cancel := context.WithDeadline(ctx, admitted.deadline)
@@ -62,7 +63,7 @@ func (admitted *controllerActivationAdmission) guard(ctx context.Context) error 
 	defer cancel()
 	defer stop()
 	defer stopCredentials()
-	if err := admitted.credentials.Guard(ctx); err != nil {
+	if err := admitted.source.live(ctx); err != nil {
 		return err
 	}
 	if err := admitted.origin.Revalidate(ctx); err != nil {
@@ -84,12 +85,6 @@ func (admitted *controllerActivationAdmission) guard(ctx context.Context) error 
 	grant, revision, expires, err := admitted.currentEnrollment(ctx)
 	if err != nil || revision != admitted.grantRevision || !expires.Equal(admitted.enrollmentDeadline) || !reflect.DeepEqual(grant, admitted.grant) {
 		return ErrControllerActivationPending
-	}
-	for _, pin := range admitted.pins {
-		current, err := admitted.readPin(ctx, pin.bucket, pin.key)
-		if err != nil || current.sequence != pin.sequence || !bytes.Equal(current.wire, pin.wire) {
-			return ErrControllerActivationPending
-		}
 	}
 	for _, retired := range admitted.retirements {
 		if err := retired.Verify(ctx); err != nil {

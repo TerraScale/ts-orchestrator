@@ -103,9 +103,6 @@ func (admitted *Admission) guard(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := admitted.binding.VerifyRegistration(ctx, registration); err != nil {
-		return err
-	}
 	if err := admitted.recipient.VerifyRegistration(ctx, registration); err != nil {
 		return err
 	}
