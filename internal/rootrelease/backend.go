@@ -116,6 +116,8 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 	if err != nil {
 		return pending(err)
 	}
+	ctx, stopSource := context.WithDeadline(ctx, source.ExpiresAt())
+	defer stopSource()
 	identity := source.Identity()
 	if identity.OCIRegion != b.factory.Region() || call.Expected().Cell != "" && !strings.EqualFold(call.Expected().Cell, identity.Cell) {
 		return pending(rootoci.ErrUnauthorized)
@@ -136,6 +138,11 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 		call.Expected().OperationID != "" && call.Expected().OperationID != intent.OperationID || call.Expected().Epoch != 0 && call.Expected().Epoch != intent.AuthorityEpoch {
 		return pending(rootoci.ErrUnauthorized)
 	}
+	ctx, stopProof, err := containerProofContext(ctx, *intent.Container)
+	defer stopProof()
+	if err != nil {
+		return pending(err)
+	}
 	intentFingerprint, err := intent.Fingerprint()
 	if err != nil {
 		return pending(err)
@@ -144,6 +151,8 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 	if err != nil {
 		return pending(err)
 	}
+	ctx, stopLease := context.WithDeadline(ctx, lease.Deadline())
+	defer stopLease()
 	specEntry, err := s.current(ctx, "TS_SERVICE_SET", "current")
 	if err != nil {
 		return pending(err)

@@ -51,6 +51,8 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 	if err != nil {
 		return materialScope{}, err
 	}
+	ctx, stopSource := context.WithDeadline(ctx, source.ExpiresAt())
+	defer stopSource()
 	identity := source.Identity()
 	if identity.OCIRegion != b.factory.Region() || call.Expected().Cell != "" && !strings.EqualFold(call.Expected().Cell, identity.Cell) {
 		return materialScope{}, rootoci.ErrUnauthorized
@@ -77,6 +79,14 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 	if intent.Container == nil || intent.Cell != strings.ToLower(identity.Cell) || intent.Environment != identity.Environment ||
 		call.Expected().OperationID != "" && call.Expected().OperationID != intent.OperationID || call.Expected().Epoch != 0 && call.Expected().Epoch != intent.AuthorityEpoch {
 		return materialScope{}, rootoci.ErrUnauthorized
+	}
+	if operation != rootoci.OperationRetainedContainerEvidence && operation != rootoci.OperationRetainedContainerAllocation {
+		var stopProof context.CancelFunc
+		ctx, stopProof, err = containerProofContext(ctx, *intent.Container)
+		defer stopProof()
+		if err != nil {
+			return materialScope{}, err
+		}
 	}
 	specEntry, err := s.current(ctx, "TS_SERVICE_SET", "current")
 	if err != nil {
