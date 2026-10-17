@@ -20,6 +20,8 @@ import (
 
 type identityMaterialPredecessors struct {
 	installed, durable string
+	materials          map[string]bootstrap.SecretReference
+	responsePublic     string
 }
 
 func identityRekeyMaterialTarget(verified VerifiedIdentityRekey, inputs TrustInputs, now time.Time) (GenerationTarget, []byte, identityMaterialPredecessors, error) {
@@ -30,9 +32,28 @@ func identityRekeyMaterialTarget(verified VerifiedIdentityRekey, inputs TrustInp
 	if err := identityrekey.ValidatePreviousMaterialPins(current.journal.PreviousMaterialSHA256); err != nil {
 		return GenerationTarget{}, nil, identityMaterialPredecessors{}, err
 	}
-	target, err := GenerationTargetFromAccepted(current.Accepted())
-	return target, current.Values()[2], identityMaterialPredecessors{installed: current.journal.PreviousMaterialSHA256["installed"],
-		durable: current.journal.PreviousMaterialSHA256["durable"]}, err
+	accepted := current.Accepted()
+	target, err := GenerationTargetFromAccepted(accepted)
+	if err != nil {
+		return GenerationTarget{}, nil, identityMaterialPredecessors{}, err
+	}
+	wire := current.Values()[2]
+	chain, err := bootstrap.DecodeMaterialGenerationChain(wire)
+	if err != nil {
+		return GenerationTarget{}, nil, identityMaterialPredecessors{}, err
+	}
+	generations, err := target.VerifyChain(chain, current.InstallationRoots(inputs), current.InstallationTime(now))
+	if err != nil || generations[len(generations)-1].Fingerprint() != accepted.MaterialGenerationSHA256 {
+		return GenerationTarget{}, nil, identityMaterialPredecessors{}, errors.Join(ErrMaterial, err)
+	}
+	refs := materialReferences(accepted, nil)
+	for _, ref := range generations[len(generations)-1].Generation().Secrets {
+		if (ref.Slot == "" || ref.Slot == accepted.Slot) && refs[ref.TargetFile] != ref {
+			return GenerationTarget{}, nil, identityMaterialPredecessors{}, ErrMaterial
+		}
+	}
+	return target, wire, identityMaterialPredecessors{installed: current.journal.PreviousMaterialSHA256["installed"],
+		durable: current.journal.PreviousMaterialSHA256["durable"], materials: refs, responsePublic: current.journal.HostObservation.ResponseKey}, nil
 }
 
 func (store MaterialStore) VerifyIdentityRekeyMaterialPredecessors(verified VerifiedIdentityRekey, inputs TrustInputs, now time.Time) error {
@@ -48,11 +69,22 @@ func (store MaterialStore) VerifyIdentityRekeyMaterialPredecessors(verified Veri
 	return store.verifyIdentityMaterialPredecessors(dir, chain, previous)
 }
 
-// AdoptIdentityRekeyGeneration replaces only the two opaque local predecessors
-// pinned by this current root checkpoint. Ordinary adoption stays strict.
-func (store MaterialStore) AdoptIdentityRekeyGeneration(verified VerifiedIdentityRekey, inputs TrustInputs,
-	files map[string][]byte, config []byte, now time.Time,
+// AdoptIdentityRekeyGeneration replaces the complete baseline authorized by
+// the root checkpoint. Ordinary generation adoption stays strict.
+func (store MaterialStore) AdoptIdentityRekeyGeneration(ctx context.Context, verified VerifiedIdentityRekey, inputs TrustInputs,
+	files map[string][]byte, config []byte, beforeEffect func(context.Context) error, sourceLive func() error, now time.Time,
 ) error {
+	return store.adoptIdentityRekeyGeneration(ctx, NewMarkerStore(), verified, inputs, files, config, beforeEffect, sourceLive, now)
+}
+
+func (store MaterialStore) adoptIdentityRekeyGeneration(ctx context.Context, markers MarkerStore, verified VerifiedIdentityRekey, inputs TrustInputs,
+	files map[string][]byte, config []byte, beforeEffect func(context.Context) error, sourceLive func() error, now time.Time,
+) error {
+	var err error
+	store, err = store.identityRekeyPublication(ctx, markers, verified, inputs, beforeEffect, sourceLive)
+	if err != nil {
+		return err
+	}
 	target, chain, previous, err := identityRekeyMaterialTarget(verified, inputs, now)
 	if err != nil {
 		return err
@@ -60,12 +92,21 @@ func (store MaterialStore) AdoptIdentityRekeyGeneration(verified VerifiedIdentit
 	return store.adoptGeneration(target, verified.InstallationRoots(inputs), chain, files, config, verified.InstallationTime(now), &previous)
 }
 
-func (store MaterialStore) FinishIdentityRekeyMaterialAdoption(verified VerifiedIdentityRekey, inputs TrustInputs, configPath string, now time.Time) error {
+func (store MaterialStore) FinishIdentityRekeyMaterialAdoption(ctx context.Context, verified VerifiedIdentityRekey, inputs TrustInputs, configPath string, beforeEffect func(context.Context) error, sourceLive func() error, now time.Time) error {
+	return store.finishIdentityRekeyMaterialAdoption(ctx, NewMarkerStore(), verified, inputs, configPath, beforeEffect, sourceLive, now)
+}
+
+func (store MaterialStore) finishIdentityRekeyMaterialAdoption(ctx context.Context, markers MarkerStore, verified VerifiedIdentityRekey, inputs TrustInputs, configPath string, beforeEffect func(context.Context) error, sourceLive func() error, now time.Time) error {
+	var err error
+	store, err = store.identityRekeyPublication(ctx, markers, verified, inputs, beforeEffect, sourceLive)
+	if err != nil {
+		return err
+	}
 	target, chain, previous, err := identityRekeyMaterialTarget(verified, inputs, now)
 	if err != nil {
 		return err
 	}
-	if err := store.VerifyIdentityRekeyMaterialAdoption(target, verified.InstallationRoots(inputs), chain, verified.InstallationTime(now)); err != nil {
+	if err := store.VerifyIdentityRekeyMaterialAdoption(verified, inputs, now); err != nil {
 		return err
 	}
 	dir, err := openMaterialDirectory(store.installedDirectory, store.serviceUID, store.serviceGID, 0o700, store.allowUnsafeAncestors)
@@ -268,7 +309,15 @@ func verifyIdentityRekeyLaunchMaterial(accepted AcceptedIdentity, inputs TrustIn
 
 // VerifyIdentityRekeyMaterialAdoption restricts interrupted native adoption to
 // this operation's exact chain, including files in an uncommitted partial stage.
-func (store MaterialStore) VerifyIdentityRekeyMaterialAdoption(target GenerationTarget, roots trust.Keyring, chainWire []byte, now time.Time) error {
+func (store MaterialStore) VerifyIdentityRekeyMaterialAdoption(rekey VerifiedIdentityRekey, inputs TrustInputs, now time.Time) error {
+	target, chainWire, previous, err := identityRekeyMaterialTarget(rekey, inputs, now)
+	if err != nil {
+		return err
+	}
+	return store.verifyIdentityRekeyMaterialAdoption(target, rekey.InstallationRoots(inputs), chainWire, previous.materials, rekey.InstallationTime(now))
+}
+
+func (store MaterialStore) verifyIdentityRekeyMaterialAdoption(target GenerationTarget, roots trust.Keyring, chainWire []byte, refs map[string]bootstrap.SecretReference, now time.Time) error {
 	chain, err := bootstrap.DecodeMaterialGenerationChain(chainWire)
 	if err != nil {
 		return err
@@ -303,12 +352,6 @@ func (store MaterialStore) VerifyIdentityRekeyMaterialAdoption(target Generation
 		staged, err := store.readStaged(staging, MaterialGenerationsFile, "", maxGenerationChainBytes)
 		if err != nil || !bytes.Equal(staged, chainWire) {
 			return ErrMaterial
-		}
-	}
-	refs := map[string]bootstrap.SecretReference{}
-	for _, reference := range newest.Generation().Secrets {
-		if reference.Slot == "" || reference.Slot == target.Slot {
-			refs[reference.TargetFile] = reference
 		}
 	}
 	for _, name := range names {
@@ -389,4 +432,62 @@ func (verified VerifiedIdentityRekey) VerifyLaunchMaterial(inputs TrustInputs, r
 	}
 	inputs.Roots.Current = current.InstallationRoots(inputs)
 	return verifyIdentityRekeyLaunchMaterial(current.Accepted(), inputs, regionWire, files, current.InstallationTime(now))
+}
+
+func (store MaterialStore) identityRekeyPublication(ctx context.Context, markers MarkerStore, verified VerifiedIdentityRekey, inputs TrustInputs, beforeEffect func(context.Context) error, sourceLive func() error) (MaterialStore, error) {
+	if ctx == nil || beforeEffect == nil || sourceLive == nil {
+		return MaterialStore{}, ErrMaterial
+	}
+	store.restoreSeal = func() error {
+		if err := identityRekeyOriginalLive(verified); err != nil {
+			return err
+		}
+		if err := sourceLive(); err != nil {
+			return err
+		}
+		return ctx.Err()
+	}
+	store.restoreCurrent = func([]trust.Envelope) error {
+		if err := store.restoreSeal(); err != nil {
+			return err
+		}
+		_, chain, previous, err := identityRekeyMaterialTarget(verified, inputs, time.Now())
+		if err != nil {
+			return err
+		}
+		if err := store.verifyIdentityRekeyInstalledPredecessor(ctx, markers, verified, chain, previous); err != nil {
+			return err
+		}
+		if err := beforeEffect(ctx); err != nil {
+			return err
+		}
+		return store.restoreSeal()
+	}
+	return store, store.publicationLive(nil)
+}
+
+func identityRekeyOriginalLive(verified VerifiedIdentityRekey) error {
+	if !verified.IsVerified() {
+		return ErrIdentityRekeyJournal
+	}
+	if verified.committedJS != nil {
+		if verified.committedContext == nil {
+			return ErrIdentityRekeyJournal
+		}
+		return verified.committedContext.Err()
+	}
+	if len(verified.journal.Values) <= 2 {
+		return ErrIdentityRekeyJournal
+	}
+	for _, wire := range [][]byte{verified.journal.CheckpointWire, verified.journal.ResetWire, verified.journal.HostPlanWire} {
+		envelope, err := trust.DecodeEnvelope(wire)
+		if err != nil || !time.Now().Before(envelope.ExpiresAt) {
+			return ErrIdentityRekeyJournal
+		}
+	}
+	chain, err := bootstrap.DecodeMaterialGenerationChain(verified.journal.Values[2])
+	if err != nil || !time.Now().Before(chain[len(chain)-1].ExpiresAt) {
+		return ErrMaterial
+	}
+	return nil
 }

@@ -31,55 +31,204 @@ const GenerationChainCopy = MarkerDirectory + "/" + MaterialGenerationsFile
 // match the reference's digest and size.
 type SecretReader func(context.Context, bootstrap.SecretReference) ([]byte, error)
 
-// ReadIdentityRekeyMaterial reads the full proposed Vault inventory and refuses
-// replacement of existing baseline files outside the signed generation, except
-// the controller response key rotated by the root-signed host handoff. The
-// installer must verify generation/config semantics together before effects.
-func (store MaterialStore) ReadIdentityRekeyMaterial(ctx context.Context, accepted AcceptedIdentity, generationChain []byte, roots trust.Keyring, read SecretReader, now time.Time) (map[string][]byte, error) {
-	target, err := generationTarget(accepted)
-	if err != nil {
+// ReadIdentityRekeyMaterial binds the old installed inventory to the exact
+// signed predecessor and reads the complete checkpoint-authorized target.
+func (store MaterialStore) ReadIdentityRekeyMaterial(ctx context.Context, verified VerifiedIdentityRekey, inputs TrustInputs, read SecretReader, sourceLive func() error, now time.Time) (map[string][]byte, error) {
+	return store.readIdentityRekeyMaterial(ctx, NewMarkerStore(), verified, inputs, read, sourceLive, now)
+}
+
+func (store MaterialStore) readIdentityRekeyMaterial(ctx context.Context, markers MarkerStore, verified VerifiedIdentityRekey, inputs TrustInputs, read SecretReader, sourceLive func() error, now time.Time) (map[string][]byte, error) {
+	_, chain, previous, err := identityRekeyMaterialTarget(verified, inputs, now)
+	if err != nil || sourceLive == nil || ctx == nil {
+		return nil, errors.Join(ErrMaterial, err)
+	}
+	if err := store.VerifyIdentityRekeyMaterialAdoption(verified, inputs, now); err != nil {
 		return nil, err
 	}
-	var newest *bootstrap.VerifiedMaterialGeneration
-	if len(generationChain) != 0 {
-		chain, err := bootstrap.DecodeMaterialGenerationChain(generationChain)
-		if err != nil {
-			return nil, err
+	store.restoreCurrent = func([]trust.Envelope) error {
+		if _, err := verified.VerifyCurrent(inputs, time.Now()); err != nil {
+			return err
 		}
-		verified, err := target.VerifyChain(chain, roots, now)
-		if err != nil {
-			return nil, err
-		}
-		newest = &verified[len(verified)-1]
-		if newest.Fingerprint() != accepted.MaterialGenerationSHA256 {
-			return nil, fmt.Errorf("%w: proposed chain differs from accepted baseline", ErrMaterial)
-		}
-	} else if accepted.MaterialGenerationSHA256 != "" {
-		return nil, fmt.Errorf("%w: proposed generation chain is missing", ErrMaterial)
+		return store.verifyIdentityRekeyInstalledPredecessor(ctx, markers, verified, chain, previous)
 	}
-	refs := materialReferences(accepted, newest)
-	baseline := materialReferences(accepted, nil)
-	immutable := acceptedMaterialDigests(accepted)
-	delete(immutable, accepted.Slot+"-response.key")
-	if newest != nil {
-		for _, ref := range newest.Generation().Secrets {
-			if ref.Slot == "" || ref.Slot == accepted.Slot {
-				if baseline[ref.TargetFile] != ref {
-					return nil, fmt.Errorf("%w: proposed generation reference %s differs from accepted baseline", ErrMaterial, ref.TargetFile)
-				}
-				delete(immutable, ref.TargetFile)
+	store.restoreSeal = func() error {
+		if err := identityRekeyOriginalLive(verified); err != nil {
+			return err
+		}
+		if err := sourceLive(); err != nil {
+			return err
+		}
+		return ctx.Err()
+	}
+	contents, err := store.readGuardedReferences(ctx, previous.materials, read, nil)
+	if err == nil {
+		err = identityRekeyFilesMatch(previous, contents)
+	}
+	if err == nil {
+		err = store.publicationLive(nil)
+	}
+	if err != nil {
+		clearContents(contents)
+		return nil, err
+	}
+	return contents, nil
+}
+
+func (store MaterialStore) verifyIdentityRekeyInstalledPredecessor(ctx context.Context, markers MarkerStore, verified VerifiedIdentityRekey, chain []byte, previous identityMaterialPredecessors) error {
+	markerDir, err := markers.openDirectory()
+	if err != nil {
+		return err
+	}
+	oldWire, err := markers.readIdentityBytes(markerDir, markerName)
+	unix.Close(markerDir)
+	if err != nil {
+		return err
+	}
+	isTarget := bytes.Equal(oldWire, verified.journal.AcceptedWire)
+	if !isTarget && digest(oldWire) != verified.journal.PreviousAcceptanceSHA256 {
+		return ErrAcceptancePredecessor
+	}
+	old, oldErr := DecodeAcceptedIdentity(oldWire)
+	oldRefs := materialReferences(old, nil)
+	if oldErr != nil {
+		// Opaque recovery retains the prior immutable check; unknown old pins
+		// never authorize baseline rotation.
+		oldRefs = maps.Clone(previous.materials)
+		delete(oldRefs, verified.Accepted().Slot+"-response.key")
+		targetChain, err := bootstrap.DecodeMaterialGenerationChain(chain)
+		if err != nil {
+			return err
+		}
+		generation, err := bootstrap.MaterialGenerationPayload(targetChain[len(targetChain)-1])
+		if err != nil {
+			return err
+		}
+		for _, ref := range generation.Secrets {
+			if ref.Slot == "" || ref.Slot == verified.Accepted().Slot {
+				delete(oldRefs, ref.TargetFile)
 			}
 		}
 	}
-	installed, err := openMaterialDirectory(store.installedDirectory, store.serviceUID, store.serviceGID, 0o700, store.allowUnsafeAncestors)
+	dir, err := openMaterialDirectory(store.installedDirectory, store.serviceUID, store.serviceGID, 0o700, store.allowUnsafeAncestors)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(dir)
+	if err := store.verifyIdentityMaterialPredecessors(dir, chain, previous); err != nil {
+		return err
+	}
+	installed, err := readUnpinned(dir, MaterialGenerationsFile, store.serviceUID, store.serviceGID, maxGenerationChainBytes)
+	if err != nil {
+		return err
+	}
+	committed := bytes.Equal(installed, chain)
+	staging, stageErr := store.openStaging(dir)
+	if stageErr == nil {
+		defer unix.Close(staging)
+		stagedChain, readErr := store.readStaged(staging, MaterialGenerationsFile, "", maxGenerationChainBytes)
+		if readErr == nil {
+			if !bytes.Equal(stagedChain, chain) {
+				return ErrMaterial
+			}
+			committed = true
+		} else if !errors.Is(readErr, os.ErrNotExist) {
+			return readErr
+		}
+	} else if !errors.Is(stageErr, os.ErrNotExist) {
+		return stageErr
+	}
+	if isTarget {
+		oldRefs = previous.materials
+	} else if oldErr == nil && !bytes.Equal(installed, chain) {
+		oldRefs, err = identityRekeyPredecessorReferences(old, verified.Accepted(), installed, previous.installed)
+		if err != nil {
+			return err
+		}
+	}
+
+	for name, ref := range oldRefs {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		wire, err := store.readStaged(dir, name, ref.SHA256, ref.MaxBytes)
+		clear(wire)
+		if err != nil && committed && !isTarget {
+			if targetRef, exists := previous.materials[name]; exists {
+				wire, err = store.readStaged(dir, name, targetRef.SHA256, targetRef.MaxBytes)
+				clear(wire)
+			}
+		}
+		if err != nil {
+			return fmt.Errorf("identity rekey installed predecessor %s: %w", name, err)
+		}
+	}
+	return ctx.Err()
+}
+
+// Only the new checkpoint's exact old-chain hash authorizes this inventory
+// inspection; parsed retired-root bytes never become generation authority.
+func identityRekeyPredecessorReferences(old, target AcceptedIdentity, wire []byte, checkpointHash string) (map[string]bootstrap.SecretReference, error) {
+	if digest(wire) != checkpointHash || old.DeploymentID != target.DeploymentID || old.Environment != target.Environment ||
+		old.ClusterID != target.ClusterID || old.Cell != target.Cell || old.Slot != target.Slot ||
+		!slices.Equal(old.ControllerSlots, target.ControllerSlots) {
+		return nil, ErrMaterial
+	}
+	refs := materialReferences(old, nil)
+	chain, err := bootstrap.DecodeMaterialGenerationChain(wire)
+	if err != nil {
+		if old.MaterialGenerationSHA256 != "" {
+			return nil, err
+		}
+		return refs, nil
+	}
+	acceptance, err := old.AcceptanceSHA256()
 	if err != nil {
 		return nil, err
 	}
-	defer unix.Close(installed)
-	if err := store.verifyInstalled(ctx, installed, immutable); err != nil {
-		return nil, fmt.Errorf("identity rekey must preserve existing baseline material: %w", err)
+	baseline := old.MaterialGenerationSHA256 == ""
+	previous := ""
+	var newest bootstrap.MaterialGeneration
+	scope := trust.Scope{Domain: "terrascale.bootstrap.material-generation", DeploymentID: old.DeploymentID,
+		Cell: old.Cell, Environment: old.Environment, Role: "material", Slot: "generation"}
+	for index, envelope := range chain {
+		generation, err := bootstrap.MaterialGenerationPayload(envelope)
+		if err != nil || envelope.Scope != scope || generation.DeploymentID != old.DeploymentID ||
+			generation.Environment != old.Environment || generation.ClusterID != old.ClusterID || string(generation.Cell) != old.Cell ||
+			!slices.Equal(generation.ControllerSlots, old.ControllerSlots) || generation.Generation != uint64(index+1) ||
+			generation.Previous != previous || generation.Operator != old.Broker.Operator ||
+			generation.SystemAccount != old.Broker.SystemAccount || generation.CellAccount != old.Broker.CellAccount ||
+			generation.HostSigner != old.Broker.HostSigner || generation.RoleSigner != old.Broker.RoleSigner ||
+			index > 0 && len(newest.ControllerConfigs) != 0 && len(generation.ControllerConfigs) == 0 ||
+			index > 0 && slices.ContainsFunc(newest.Secrets, func(ref bootstrap.SecretReference) bool { return ref.Purpose == bootstrap.SecretController }) &&
+				!slices.ContainsFunc(generation.Secrets, func(ref bootstrap.SecretReference) bool { return ref.Purpose == bootstrap.SecretController }) {
+			return nil, errors.Join(ErrMaterial, err)
+		}
+		previous, err = trust.Fingerprint(envelope)
+		if err != nil {
+			return nil, err
+		}
+		if previous == old.MaterialGenerationSHA256 {
+			if generation.AccountSigner != old.Broker.AccountSigner {
+				return nil, ErrMaterial
+			}
+			baseline = true
+		}
+		newest = generation
 	}
-	return readReferences(ctx, refs, read)
+	if !baseline {
+		return nil, ErrMaterial
+	}
+	for _, config := range newest.ControllerConfigs {
+		if config.Slot == old.Slot && config.AcceptanceSHA256 != acceptance {
+			return nil, ErrMaterial
+		}
+	}
+	for _, ref := range newest.Secrets {
+		if ref.Slot == "" || ref.Slot == old.Slot {
+			refs[ref.TargetFile] = ref
+		}
+	}
+	return refs, nil
 }
 
 // RestoreMaterial mounts the controller credential directory in memory and

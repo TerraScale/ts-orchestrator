@@ -439,11 +439,10 @@ func TestIdentityRekeyResponseSignerMatchesHandoffBundleAndVaultPin(t *testing.T
 
 func TestIdentityRekeyMaterialCleanupErasesAliasedPrivateBuffers(t *testing.T) {
 	response, credential := []byte("private response key"), []byte("private NATS credential")
-	install := identityRekeyInstall{contents: map[string][]byte{"controller-a-response.key": response, "controller-a.creds": credential},
-		generationFiles: map[string][]byte{"controller-a.creds": credential}}
+	install := identityRekeyInstall{contents: map[string][]byte{"controller-a-response.key": response, "controller-a.creds": credential}}
 	install.clearMaterial()
 	if !bytes.Equal(response, make([]byte, len(response))) || !bytes.Equal(credential, make([]byte, len(credential))) ||
-		!bytes.Equal(install.generationFiles["controller-a.creds"], make([]byte, len(credential))) {
+		!bytes.Equal(install.contents["controller-a.creds"], make([]byte, len(credential))) {
 		t.Fatal("material cleanup left private bytes in retained or aliased buffers")
 	}
 }
