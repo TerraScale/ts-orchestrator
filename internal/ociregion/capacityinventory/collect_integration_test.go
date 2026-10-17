@@ -16,12 +16,14 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
 	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
 func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
-	for _, scenario := range []string{"observed", "missing currency", "unknown shape", "region unavailable", "autotuned disk", "stale tariff", "search misses node", "terminal resources", "repeated page", "boot ancestry", "ambiguous boot ancestry"} {
+	for _, scenario := range []string{"observed", "missing currency", "unknown shape", "region unavailable", "autotuned disk", "stale tariff", "search misses node", "terminal resources", "repeated page", "boot ancestry", "ambiguous boot ancestry", "live GRU", "paid A1", "one SKU unseen"} {
 		t.Run(scenario, func(t *testing.T) {
+			nodeTariffs := scenario == "live GRU" || scenario == "paid A1" || scenario == "one SKU unseen"
 			var mu sync.Mutex
 			var compartments []string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -32,7 +34,8 @@ func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
 						w.Header().Set("Date", time.Now().Add(-time.Hour).UTC().Format(http.TimeFormat))
 					}
 					metric, price := "", 0.0
-					switch r.URL.Query().Get("partNumber") {
+					sku := r.URL.Query().Get("partNumber")
+					switch sku {
 					case "B93297":
 						metric, price = "OCPU Per Hour", .01
 					case "B93298":
@@ -47,6 +50,28 @@ func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
 						metric, price = "Performance Units Per Gigabyte Per Month", .0017
 					default:
 						t.Errorf("unexpected SKU %s", r.URL.RawQuery)
+					}
+					if nodeTariffs {
+						switch sku {
+						case "B93297":
+							if scenario == "one SKU unseen" {
+								fmt.Fprintf(w, `{"lastUpdated":%q,"items":[]}`, time.Now().UTC().Format(time.RFC3339))
+								return
+							}
+							price = 0
+							if scenario == "paid A1" {
+								price = .0134
+							}
+						case "B93298":
+							price = 0
+							if scenario == "paid A1" {
+								price = .002
+							}
+						case "B91961":
+							price = .1335
+						case "B91962":
+							price = .0089
+						}
 					}
 					currency := "USD"
 					if scenario == "missing currency" {
@@ -172,6 +197,33 @@ func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
 			if count != 2 {
 				t.Fatalf("queried %d approved compartments", count)
 			}
+			if nodeTariffs {
+				quote, err := reader.Quote(t.Context(), scope, "GRU", "ocid1.compartment.oc1..gru", "VM.Standard.A1.Flex", 4, 24, 50)
+				if scenario == "one SKU unseen" {
+					if err == nil || quote.SHA256() != "" {
+						t.Fatalf("missing tariff minted a quote: %+v err=%v", quote, err)
+					}
+					prices, err := reader.Prices(t.Context(), scope, []string{"VM.Standard.A1.Flex"})
+					if err == nil || len(prices) != 3 || slices.ContainsFunc(prices, func(p ocicost.Price) bool { return p.SKU == "B93297" }) {
+						t.Fatalf("missing SKU did not retain partial fetched tariffs: %v err=%v", prices, err)
+					}
+					// Quote rejects incomplete tariffs before pricing; check the helper with the actual partial response.
+					if cents, known := ocicost.NodeMonthlyCents(prices, "VM.Standard.A1.Flex", 4, 24, 50); cents != 0 || known {
+						t.Fatalf("partial fetched tariffs priced a node: %d, %v", cents, known)
+					}
+				} else {
+					want := uint64(1113)
+					if scenario == "paid A1" {
+						want = 8672
+					}
+					if err != nil || quote.MonthlyCents() != want || quote.Currency() != "USD" {
+						t.Fatalf("4 OCPU/24 GB/50 GB quote=%+v err=%v, want %d cents", quote, err, want)
+					}
+					if err := quote.Validate(scope, "GRU", "ocid1.compartment.oc1..gru", "VM.Standard.A1.Flex", 4, 24, 50, time.Now()); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
 			if scenario == "observed" {
 				prices, err := reader.Prices(t.Context(), scope, []string{"VM.Standard.A1.Flex", "VM.Standard.E5.Flex", "VM.Unknown.Flex"})
 				if err != nil || len(prices) != 6 {
@@ -229,7 +281,7 @@ func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
 			if scenario == "terminal resources" && (len(result.Resources) != 4 || result.MonthlyCents != 0 || !slices.ContainsFunc(result.Resources, func(r Resource) bool { return r.LifecycleState == "TERMINATED" })) {
 				t.Fatalf("positive terminal observations lost: %+v", result)
 			}
-			if scenario != "observed" && scenario != "search misses node" && scenario != "terminal resources" && scenario != "boot ancestry" && len(result.Pending) <= 2 {
+			if scenario != "observed" && scenario != "search misses node" && scenario != "terminal resources" && scenario != "boot ancestry" && scenario != "live GRU" && scenario != "paid A1" && len(result.Pending) <= 2 {
 				t.Fatalf("source failure lost: %+v", result)
 			}
 			if scenario == "region unavailable" && len(result.CoveredCompartments) != 1 {

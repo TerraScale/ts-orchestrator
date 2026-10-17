@@ -1,0 +1,80 @@
+{
+  "status": "source candidate; compile and runtime qualification pending",
+  "base_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "base_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "accounting_entry": "other_unadjudicated[2534]",
+  "donor": {
+    "path": "internal/ocicost/node_test.go",
+    "root": "TestNodeMonthlyCents",
+    "blob": "37db910e613a915d2d9c62f5083224049b2449b9",
+    "sha256": "60e07a66c039d26c04616b63e38006e66435c156ef8dca53a63045c09629f4c0",
+    "disposition": "retained byte-for-byte; no retirement or classification credit"
+  },
+  "target": {
+    "path": "internal/ociregion/capacityinventory/collect_integration_test.go",
+    "root": "TestRegionalInventoryAndCurrentTariffsThroughRealProtocols",
+    "base_blob": "6530d589782f96e511a2b1508c18b55f442dba4b",
+    "candidate_blob": "67581cad64cc1be79b3af3f0d09896942d37793a",
+    "candidate_sha256": "6fed869d96299dae410e374633731b1da0aaa4a1aebdbb7967b090b5f484f7e0",
+    "proposed_selector": "^TestRegionalInventoryAndCurrentTariffsThroughRealProtocols$",
+    "proposed_named_nodes": 15,
+    "proposed_leaf_nodes": 14,
+    "count_basis": "source inspection only; one existing root and fourteen string-table scenarios"
+  },
+  "shared_geometry": {
+    "shape": "VM.Standard.A1.Flex",
+    "ocpus": 4,
+    "memory_gb": 24,
+    "boot_gb": 50,
+    "currency": "USD"
+  },
+  "obligations": [
+    {
+      "donor_case": "live GRU",
+      "target_case": "live GRU",
+      "http_tariffs": "B93297=0; B93298=0; B91961=0.1335; B91962=0.0089",
+      "path": "existing HTTP catalog -> Reader.Prices -> Reader.Quote -> ocicost.NodeMonthlyCents",
+      "expected": "quote succeeds, USD monthly cents=1113, exact geometry validates; successful Quote implies known=true"
+    },
+    {
+      "donor_case": "paid A1",
+      "target_case": "paid A1",
+      "http_tariffs": "B93297=0.0134; B93298=0.002; B91961=0.1335; B91962=0.0089",
+      "path": "existing HTTP catalog -> Reader.Prices -> Reader.Quote -> ocicost.NodeMonthlyCents",
+      "expected": "quote succeeds, USD monthly cents=8672, exact geometry validates; successful Quote implies known=true"
+    },
+    {
+      "donor_case": "one SKU unseen",
+      "target_case": "one SKU unseen",
+      "http_tariffs": "B93297 returns fresh empty items; B93298=0; B91961=0.1335; B91962=0.0089",
+      "path": "existing HTTP catalog -> Reader.Prices partial tariffs plus error; Reader.Quote refuses; direct NodeMonthlyCents consumes the actual partial Reader.Prices result without copies or constructed rates",
+      "expected": "Quote fails without minted identity; Reader.Prices returns error and exactly three prices excluding B93297; NodeMonthlyCents returns 0,false",
+      "limit": "Quote returns on the catalog error before calling NodeMonthlyCents; the helper-negative assertion is not a production Quote continuation"
+    }
+  ],
+  "preserved_scenarios": [
+    "observed",
+    "missing currency",
+    "unknown shape",
+    "region unavailable",
+    "autotuned disk",
+    "stale tariff",
+    "search misses node",
+    "terminal resources",
+    "repeated page",
+    "boot ancestry",
+    "ambiguous boot ancestry"
+  ],
+  "preserved_safety": [
+    "Existing SDK direct-list and search requests still require Authorization and both approved compartments.",
+    "Existing mixed-family pricing, sealed quote identity, mutation, expiry, refresh and geometry assertions remain unchanged.",
+    "Existing resource accounting, pagination, terminal state, boot attribution, region failure and source-failure assertions remain; only the two successful new tariff cases are excluded from the source-failure expectation.",
+    "Every case still rejects incomplete accounting and rejects forged completeness after clearing Pending."
+  ],
+  "execution_limits": [
+    "Only the existing target fixture and this new manifest change; no production edits, new test root, fake Reader, copied fixture or new dependency.",
+    "Existing fixture generates a disposable RSA key and signs SDK HTTP requests if run; source preparation executes neither and introduces no key/signing operation or live authority.",
+    "Formatting and source inspection only; no Go compiler, test runtime, helper runner, probe, lock, cloud provisioning or live acceptance executed.",
+    "Independent exact source review and separately authorized exact-candidate compile/runtime qualification remain required. No gate, integration adoption, deletion or production readiness claim."
+  ]
+}
