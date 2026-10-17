@@ -212,12 +212,12 @@ func ApplyFunctionService(ctx context.Context, client api.ControlClient, intent 
 	if err := checkIntent(); err != nil {
 		return nil, err
 	}
-	if err := intent.retainWorkerBundle(ctx, client, bundle, worker); err != nil {
-		return nil, err
-	}
 	workerIntent := ServiceIntent{ID: entityid.Derive("function-worker-release", intent.Environment, intent.Region), Role: FunctionWorkerRole, Region: intent.Region, Environment: intent.Environment, Architecture: intent.Architecture}
 	_, err = reserveReleaseFloor(ctx, client, workerIntent, worker, roots, retained, 0)
 	if err != nil {
+		return nil, err
+	}
+	if err := intent.retainWorkerBundle(ctx, client, bundle, worker); err != nil {
 		return nil, err
 	}
 	guard := func() error {

@@ -174,6 +174,23 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 		return nil
 	}
 	qualified := bundle(FunctionWorkerRole, 101, runtime.GOARCH)
+	t.Run("missing_history_does_not_retain_worker_evidence", func(t *testing.T) {
+		if _, err := ApplyFunctionService(ctx, client, intent, current, qualified, roots, release.SequenceFloor{}, readEvidence, probe, allocations); err == nil {
+			t.Fatal("function admitted without retained release history")
+		}
+		configs, err := client.ListConfigs(ctx, &api.ListConfigsRequest{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, config := range configs.Configs {
+			if config.Spec.Annotations.Labels[LabelFunctionWorkerBundle] != "" {
+				t.Fatal("failed floor admission retained worker bundle evidence")
+			}
+			if strings.HasPrefix(config.Spec.Annotations.Name, "ts-worker-family-") || strings.HasPrefix(config.Spec.Annotations.Name, "ts-release-") {
+				t.Fatal("failed floor admission retained worker family or release floor evidence")
+			}
+		}
+	})
 	created, err := ApplyFunctionService(ctx, client, intent, current, qualified, roots, legacy, readEvidence, probe, allocations)
 	if err != nil {
 		t.Fatal(err)
