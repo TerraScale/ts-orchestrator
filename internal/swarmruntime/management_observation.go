@@ -58,10 +58,13 @@ type observationWire struct {
 	ReplayThrough *uint64                     `json:"replay_through,omitempty"`
 }
 
-type ManagementObservationClient struct{ conn *grpc.ClientConn }
+type ManagementObservationClient struct {
+	conn  *grpc.ClientConn
+	local *localManagementObservationSource
+}
 
 type ManagementObservationStream struct {
-	stream   grpc.ClientStream
+	stream   interface{ RecvMsg(any) error }
 	source   ManagementObservationCursor
 	last     uint64
 	through  uint64
@@ -80,10 +83,13 @@ func DialManagementClients(ctx context.Context, accepted bootstrapstart.Accepted
 	if err != nil {
 		return nil, ManagementObservationClient{}, "", nil, err
 	}
-	return control, ManagementObservationClient{conn}, id, conn, nil
+	return control, ManagementObservationClient{conn: conn}, id, conn, nil
 }
 
 func (c ManagementObservationClient) Observe(ctx context.Context, resume *ManagementObservationCursor) (*ManagementObservationStream, error) {
+	if c.local != nil {
+		return c.observeLocal(ctx, resume)
+	}
 	if c.conn == nil {
 		return nil, errors.New("management observation connection unavailable")
 	}
@@ -269,6 +275,10 @@ func (s *managementObservationServer) observe(stream grpc.ServerStream) error {
 	if err := protocol.DecodeStrict(input.Value, &request, 64<<10); err != nil {
 		return denied()
 	}
+	return s.observeSource(stream.Context(), request, guard.validate, func(message *wrapperspb.BytesValue) error { return stream.SendMsg(message) })
+}
+
+func (s *managementObservationServer) observeSource(ctx context.Context, request observationRequest, refresh func(context.Context) error, transmit func(*wrapperspb.BytesValue) error) error {
 	manager := s.node.upstream.Manager()
 	if manager == nil {
 		return status.Error(codes.Unavailable, "manager unavailable")
@@ -329,7 +339,7 @@ func (s *managementObservationServer) observe(stream grpc.ServerStream) error {
 			return status.Error(codes.OutOfRange, "observation stream lost continuity")
 		default:
 		}
-		if err := guard.validate(stream.Context()); err != nil {
+		if err := refresh(ctx); err != nil {
 			return err
 		}
 		if s.node.upstream.Manager() != manager {
@@ -348,8 +358,8 @@ func (s *managementObservationServer) observe(stream grpc.ServerStream) error {
 		if len(wire) > observationMessageLimit {
 			return status.Error(codes.ResourceExhausted, "observation exceeds fixed message bound")
 		}
-		return sendManagementObservation(stream.Context(), observed.Closed, validate, func() error {
-			return stream.SendMsg(&wrapperspb.BytesValue{Value: wire})
+		return sendManagementObservation(ctx, observed.Closed, validate, func() error {
+			return transmit(&wrapperspb.BytesValue{Value: wire})
 		})
 	}
 	snapshotWire, err := snapshot.Marshal()
@@ -414,8 +424,8 @@ func (s *managementObservationServer) observe(stream grpc.ServerStream) error {
 	var pending []*api.WatchMessage_Event
 	for {
 		select {
-		case <-stream.Context().Done():
-			return stream.Context().Err()
+		case <-ctx.Done():
+			return ctx.Err()
 		case <-ticker.C:
 			if err := validate(); err != nil {
 				return err
