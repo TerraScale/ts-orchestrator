@@ -202,6 +202,9 @@ func launchFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, re
 		if err != nil || actual != digest {
 			return errors.Join(ErrFoundationFenced, err)
 		}
+		if err := authority.Guard(ctx, 0); err != nil {
+			return err
+		}
 		if err := allocation.Validate(request, quote, time.Now()); err != nil {
 			return err
 		}
@@ -378,6 +381,9 @@ func installFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, r
 			return ErrFoundationFenced
 		}
 		if err := material.Revalidate(ctx); err != nil {
+			return err
+		}
+		if err := authority.Guard(ctx, 0); err != nil {
 			return err
 		}
 		return ociclient.LimitAdmission(ctx, material.ExpiresAt())
