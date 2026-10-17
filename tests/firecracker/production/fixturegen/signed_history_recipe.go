@@ -59,7 +59,7 @@ func (recipe SignedHistoryRecipe) Prepare(ledger *bootstrap.Ledger) (SeedHistory
 	}
 	anchor := recipe.Anchor.Anchor()
 	if anchor.Environment != "production" || string(anchor.Cell) != "GRU" ||
-		!slices.Equal(anchor.ControllerSlots, []string{"controller-a", "controller-b", "seed-a"}) {
+		!slices.Equal(anchor.ControllerSlots, []string{"controller-a", "controller-b", "controller-c"}) {
 		return SeedHistory{}, nil, errors.New("signed history recipe requires production GRU three-slot anchor")
 	}
 	policy := trust.Policy{MaxLifetime: 24 * time.Hour, ClockSkew: bootstrap.ManifestClockSkew}
@@ -69,9 +69,9 @@ func (recipe SignedHistoryRecipe) Prepare(ledger *bootstrap.Ledger) (SeedHistory
 		return SeedHistory{}, nil, fmt.Errorf("verify root-signed founder plan: %w", err)
 	}
 	planValue := plan.Plan()
-	if planValue.SeedSlot != "seed-a" || len(planValue.Peers) != 2 ||
+	if planValue.SeedSlot != "controller-c" || len(planValue.Peers) != 2 ||
 		planValue.Peers[0].Slot != "controller-a" || planValue.Peers[1].Slot != "controller-b" {
-		return SeedHistory{}, nil, errors.New("signed founder plan does not name seed-a and both managed controller slots")
+		return SeedHistory{}, nil, errors.New("signed founder plan does not name controller-c and both managed controller slots")
 	}
 	selectedUntil, err := recipe.verifyFounderSelection(plan)
 	if err != nil {
@@ -82,7 +82,7 @@ func (recipe SignedHistoryRecipe) Prepare(ledger *bootstrap.Ledger) (SeedHistory
 		return SeedHistory{}, nil, err
 	}
 	imageOCID := planValue.Peers[0].ImageOCID
-	seed, err := recipe.signSlot(anchor, plan, imageOCID, "seed-a", nil, selectedUntil, planEnvelope.ExpiresAt, policy, ledger)
+	seed, err := recipe.signSlot(anchor, plan, imageOCID, "controller-c", nil, selectedUntil, planEnvelope.ExpiresAt, policy, ledger)
 	if err != nil {
 		return SeedHistory{}, nil, fmt.Errorf("sign seed history: %w", err)
 	}

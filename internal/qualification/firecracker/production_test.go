@@ -57,17 +57,17 @@ func TestProductionAuditAcceptsNetBirdVNICRead(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	requireEqual(t, counts, map[string]int{"controller-a": 12, "controller-b": 12, "seed-a": 12})
+	requireEqual(t, counts, map[string]int{"controller-a": 12, "controller-b": 12, "controller-c": 12})
 }
 func TestProductionAudit(t *testing.T) {
 	for _, tc := range []string{"valid", "write", "bad_status", "duplicate_metadata_compute", "unknown_imds", "unknown_source", "empty_slot", "overflow"} {
 		t.Run(tc, func(t *testing.T) {
 			audit := productionAuditFixture()
 			slots := object(audit["slots"])
-			requests := array(object(slots["seed-a"])["requests"])
+			requests := array(object(slots["controller-c"])["requests"])
 			switch tc {
 			case "write":
-				object(slots["seed-a"])["requests"] = append(requests, Object{"method": "PUT", "host": "objectstorage.sa-saopaulo-1.oraclecloud.com", "status": 405, "listed": false})
+				object(slots["controller-c"])["requests"] = append(requests, Object{"method": "PUT", "host": "objectstorage.sa-saopaulo-1.oraclecloud.com", "status": 405, "listed": false})
 			case "bad_status":
 				object(requests[0])["status"] = 404
 			case "duplicate_metadata_compute":
@@ -81,20 +81,20 @@ func TestProductionAudit(t *testing.T) {
 					}
 				}
 			case "unknown_imds":
-				object(slots["seed-a"])["requests"] = append(requests, Object{"method": "GET", "host": "169.254.169.254", "requestUri": "/opc/v2/instance/", "status": 200, "listed": true})
+				object(slots["controller-c"])["requests"] = append(requests, Object{"method": "GET", "host": "169.254.169.254", "requestUri": "/opc/v2/instance/", "status": 200, "listed": true})
 			case "unknown_source":
 				audit["unknownSources"] = 1
 			case "empty_slot":
-				object(slots["seed-a"])["requests"] = []any{}
+				object(slots["controller-c"])["requests"] = []any{}
 			case "overflow":
-				object(slots["seed-a"])["overflow"] = 1
+				object(slots["controller-c"])["overflow"] = 1
 			}
 			counts, e := CheckProductionAudit(audit)
 			if tc == "valid" {
 				if e != nil {
 					t.Fatal(e)
 				}
-				requireEqual(t, counts, map[string]int{"controller-a": 11, "controller-b": 11, "seed-a": 11})
+				requireEqual(t, counts, map[string]int{"controller-a": 11, "controller-b": 11, "controller-c": 11})
 			} else if e == nil {
 				t.Fatal("accepted", tc)
 			}

@@ -88,10 +88,10 @@ func EmitCompletedRestartPacket(ctx context.Context, destination, sourceRoot str
 	if err != nil {
 		return VerifiedPacket{}, CompletedHistories{}, fmt.Errorf("prepare signed histories: %w", err)
 	}
-	if seed.Scope.Slot != "seed-a" || len(peers) != 2 ||
+	if seed.Scope.Slot != "controller-c" || len(peers) != 2 ||
 		!slices.ContainsFunc(peers, func(peer ManagedHistory) bool { return peer.Scope.Slot == "controller-a" }) ||
 		!slices.ContainsFunc(peers, func(peer ManagedHistory) bool { return peer.Scope.Slot == "controller-b" }) {
-		return VerifiedPacket{}, CompletedHistories{}, errors.New("completed packet requires seed-a external seed and both controller slots as managed peers")
+		return VerifiedPacket{}, CompletedHistories{}, errors.New("completed packet requires controller-c external seed and both controller slots as managed peers")
 	}
 	completed, err := BuildCompletedHistories(ctx, ledger, seed, peers)
 	if err != nil {

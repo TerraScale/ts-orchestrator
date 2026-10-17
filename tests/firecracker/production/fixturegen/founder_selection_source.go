@@ -52,7 +52,7 @@ func BuildFounderSelectionSource(ctx context.Context, recipe SignedHistoryRecipe
 		return err
 	}
 	for _, wire := range [][]byte{recipe.FounderPlanWire, recipe.Anchor.Wire(),
-		recipe.ManifestWires["controller-a"], recipe.ManifestWires["controller-b"], recipe.ManifestWires["seed-a"]} {
+		recipe.ManifestWires["controller-a"], recipe.ManifestWires["controller-b"], recipe.ManifestWires["controller-c"]} {
 		name := bootstrapstart.FounderImmutableObjectName(domain, anchor.DeploymentID, string(anchor.Cell),
 			anchor.Environment, historyDigest(wire))
 		if err := put(domain.LedgerBucket, domain.LedgerKMSKeyOCID, name, wire); err != nil {

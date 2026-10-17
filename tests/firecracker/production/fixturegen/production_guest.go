@@ -142,13 +142,13 @@ func validateControllerConfig(wire []byte, slot, instanceOCID, privateIP string,
 		embedded.StoreDir != "/var/lib/terrascale-orchestrator-controller/nats" ||
 		embedded.StoreMaxBytes < 2<<30 || embedded.StoreMaxBytes > 8<<30 ||
 		cfg.NATS.URL != "" && cfg.NATS.URL != "tls://"+privateIP+":4222" ||
-		!slices.Equal(embedded.BrokerIDs, []string{"controller-a", "controller-b", "seed-a"}) ||
+		!slices.Equal(embedded.BrokerIDs, []string{"controller-a", "controller-b", "controller-c"}) ||
 		len(embedded.Users) != 0 {
 		return errors.New("embedded broker configuration differs from the fixed regional cell")
 	}
 	var routes []string
 	seenAddresses := make(map[string]bool, len(observations))
-	for _, peer := range []string{"controller-a", "controller-b", "seed-a"} {
+	for _, peer := range []string{"controller-a", "controller-b", "controller-c"} {
 		observation, ok := observations[peer]
 		if !ok || observation.PrimaryPrivateIP == "" {
 			return fmt.Errorf("peer %q lacks pinned private address", peer)

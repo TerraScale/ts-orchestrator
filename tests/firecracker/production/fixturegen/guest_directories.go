@@ -111,7 +111,7 @@ func parseGuestDirectories(wire []byte, controllers []Controller, hasFile func(s
 			return nil, fmt.Errorf("guest directory %q lacks signed operator credential", controller.Slot)
 		}
 	}
-	if !slices.ContainsFunc(plan, func(directory GuestDirectory) bool { return directory.ControllerSlot == "seed-a" }) {
+	if !slices.ContainsFunc(plan, func(directory GuestDirectory) bool { return directory.ControllerSlot == "controller-c" }) {
 		return nil, errors.New("guest directory plan lacks seed")
 	}
 	return plan, nil

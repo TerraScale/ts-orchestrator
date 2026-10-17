@@ -106,7 +106,7 @@ func BuildVerifiedGuestMaterial(ctx context.Context, recipe SignedHistoryRecipe,
 	directoryPlan := make([]GuestDirectory, 0, len(anchor.ControllerSlots)*2)
 	for _, slot := range anchor.ControllerSlots {
 		state := completed.Seed
-		if slot != "seed-a" {
+		if slot != "controller-c" {
 			var exists bool
 			state, exists = completed.Peers[slot]
 			if !exists {
@@ -119,7 +119,7 @@ func BuildVerifiedGuestMaterial(ctx context.Context, recipe SignedHistoryRecipe,
 			return nil, fmt.Errorf("controller %q lacks exact completed ledger state", slot)
 		}
 		receipt := state.PeerReceiptRecord
-		if slot == "seed-a" {
+		if slot == "controller-c" {
 			receipt = state.SeedReceiptRecord
 		}
 		if receipt == nil {
@@ -161,7 +161,7 @@ func BuildVerifiedGuestMaterial(ctx context.Context, recipe SignedHistoryRecipe,
 			AnchorSHA256: recipe.Anchor.Digest(), ManifestSHA256: state.ManifestRecord.SHA256,
 			ReceiptSHA256: receipt.SHA256, ImageReceiptSHA256: state.Manifest.ReleaseReceiptSHA256,
 			DeploymentID: anchor.DeploymentID, Cell: string(anchor.Cell), Slot: slot,
-			SeedSlot: "seed-a", ImageOCID: state.Manifest.ImageOCID,
+			SeedSlot: "controller-c", ImageOCID: state.Manifest.ImageOCID,
 			InstanceOCID: state.Result.InstanceOCID, PrimaryVNICOCID: vnic.PrimaryVNICOCID,
 			PrimaryPrivateIP: vnic.PrimaryPrivateIP, HeadAttempt: state.Head.Attempt,
 			HeadGeneration: state.Head.Generation, ResultSHA256: state.ResultRecord.SHA256,
@@ -175,7 +175,7 @@ func BuildVerifiedGuestMaterial(ctx context.Context, recipe SignedHistoryRecipe,
 			SchemaVersion: 1, DeploymentID: anchor.DeploymentID, Environment: anchor.Environment, Cell: anchor.Cell,
 		}, Roots: recipe.Roots, AnchorWire: recipe.Anchor.Wire()}
 		var artifacts []bootstrapstart.FounderFloorArtifact
-		if slot == "seed-a" {
+		if slot == "controller-c" {
 			artifacts, err = bootstrapstart.BuildVerifiedSeedFloorArtifacts(ctx, baked, marker, state,
 				selectionSource, input.ServiceUID, input.ServiceGID, recipe.Now)
 		} else {

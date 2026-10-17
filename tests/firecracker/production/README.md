@@ -1,7 +1,8 @@
 # Offline production restart qualification
 
 `ts-orch qualification firecracker production` prepares three disposable ext4 images for `controller-a`,
-`controller-b`, and `seed-a`. It runs the shipped single orchestrator binary
+`controller-b`, and external seed `controller-c` (`10.44.0.10`, derived server
+name `gru-1-ctl-3`). It runs the shipped single orchestrator binary
 through the packaged bootstrap and controller systemd units. The default
 invocation stops after image staging; `--run` starts the private Firecracker
 network and VMs. The first local simulated-OCI run booted all three VMs and

@@ -3,10 +3,11 @@
 `EmitCompletedRestartPacket` is the offline integration entrypoint. Its
 `SignedHistoryRecipe.Prepare` callback verifies a schema-v3 production GRU
 anchor, founder plan, three signed manifests, and the current signed founder
-selection. It signs one external `seed-a` history and schema-v1 managed
+selection. It signs one external `controller-c` history and schema-v1 managed
 histories for `controller-a` and `controller-b` through public trust and
-bootstrap APIs. The emitter completes all three through the public ledger
-over an initially empty `CapturingObjectStorage`, then rereads both peers
+bootstrap APIs. The seed retains private IP `10.44.0.10`; production naming
+derives `gru-1-ctl-3` from its `controller-c` slot. The emitter completes all three
+through the public ledger over an initially empty `CapturingObjectStorage`, then rereads both peers
 through `NewHistoricalLedger`.
 
 The caller supplies a `MaterialPreparer` that receives the completed ledger
@@ -38,7 +39,7 @@ instance-principal requests through each isolated simulator. Under the
 `fixturetest` build tag, it repeats those reads, including `GetSubnet`, through
 `OCIInstanceObserver.ObserveInstance` using a test-only transport seam. Both
 paths check decoded identities and unlisted requests. Run the caller gate with
-`go test -tags fixturetest ./tests/firecracker/production/fixturegen -run TestCompletedPacketEmitsSignedThreeSlotCaptureAndVerifiedFloors -count=1`.
+`go test -tags fixturetest ./tests/firecracker/production/fixturegen -run TestCompletedControllerCSeedPacketEmitsSignedCaptureAndVerifiedFloors -count=1`.
 This exercises the real observer validation path, but not the packaged
 restart process or production transport constructor.
 
@@ -77,3 +78,11 @@ fixturegen verifier, SSH client key, known-hosts file, and trusted root PEM to
 images; `--run` boots and sequentially reboots all three VMs, checks time,
 bootstrap, controller UID/GID and invocation evidence, then audits isolated
 simulator requests. A production pass requires that real VM run and its report.
+
+The controller-c producer scenario is a new identity contract. Earlier seed-a
+packet, lower app startup/enrollment, and F2 observer receipts remain historical
+and retain their original source and selector identities. This scenario checks
+signed ledger/marker/JWT/wire consistency; it does not run production ownhost.
+No-task/no-pull remains unproven under always-on reconciliation and requires
+current signed service spec, allocation and DATA-hold evidence before a native
+qualification can claim that observation window.

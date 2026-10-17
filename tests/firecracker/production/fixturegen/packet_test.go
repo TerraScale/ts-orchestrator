@@ -39,7 +39,7 @@ func packetFixture(t *testing.T) (string, Manifest, ed25519.PrivateKey, trust.Ke
 	add := func(name string, body []byte) {
 		t.Helper()
 		owner, mode := expectedOwnership(name, map[string]string{
-			"controller-a": "a", "controller-b": "b", "seed-a": "0000000000SF1REEJJX6TC691V",
+			"controller-a": "a", "controller-b": "b", "controller-c": "0000000000SF1REEJJX6TC691V",
 		})
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, filepath.FromSlash(name))), 0o700); err != nil {
 			t.Fatal(err)
@@ -55,7 +55,7 @@ func packetFixture(t *testing.T) (string, Manifest, ed25519.PrivateKey, trust.Ke
 	manifest.Binary.SHA256 = manifest.Files[0].SHA256
 	manifest.Binary.Size = manifest.Files[0].Size
 	var directoryPlan []GuestDirectory
-	for _, slot := range []string{"controller-a", "controller-b", "seed-a"} {
+	for _, slot := range []string{"controller-a", "controller-b", "controller-c"} {
 		imdsRoot := "simulator/imds/" + slot + "/"
 		for _, name := range []string{"tenancy.txt", "leaf.pem", "leaf.key", "intermediate.pem"} {
 			add(imdsRoot+name, []byte(name))
@@ -95,8 +95,8 @@ func packetFixture(t *testing.T) (string, Manifest, ed25519.PrivateKey, trust.Ke
 	add("simulator/responses/instance.json", []byte(`{"id":"fixture"}`))
 	add("signing/root.key", []byte("offline private key placeholder"))
 	slices.SortFunc(manifest.Files, func(a, b FileEntry) int { return strings.Compare(a.Path, b.Path) })
-	manifest.Routes = []Route{{ControllerSlot: "seed-a", InstanceOCID: "ocid1.instance.oc1.sa-saopaulo-1.seed-a",
-		Host: "iaas.sa-saopaulo-1.oraclecloud.com", RequestURI: "/20160918/instances/ocid1.instance.oc1.sa-saopaulo-1.seed-a",
+	manifest.Routes = []Route{{ControllerSlot: "controller-c", InstanceOCID: "ocid1.instance.oc1.sa-saopaulo-1.controller-c",
+		Host: "iaas.sa-saopaulo-1.oraclecloud.com", RequestURI: "/20160918/instances/ocid1.instance.oc1.sa-saopaulo-1.controller-c",
 		Status: 200, BodyPath: "simulator/responses/instance.json", ETag: "etag", LastModified: manifest.FixtureNow}}
 	writeManifest(t, root, manifest, private)
 	return root, manifest, private, trust.Keyring{keyID: public}
@@ -131,7 +131,7 @@ func TestPacketValidationAndControllerCopyBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, slot := range []string{"controller-a", "controller-b", "seed-a"} {
+	for _, slot := range []string{"controller-a", "controller-b", "controller-c"} {
 		files, err := packet.GuestFiles(slot)
 		if err != nil || len(files) < 5 {
 			t.Fatalf("guest files for %s: %d, %v", slot, len(files), err)
@@ -155,14 +155,14 @@ func TestPacketValidationAndControllerCopyBoundary(t *testing.T) {
 	if reads, missing, err := packet.SimulatorRoutes("controller-a"); err != nil || len(reads) != 0 || len(missing) != 0 {
 		t.Fatalf("cross-instance simulator routes leaked: reads=%d missing=%d error=%v", len(reads), len(missing), err)
 	}
-	reads, missing, err := packet.SimulatorRoutes("seed-a")
+	reads, missing, err := packet.SimulatorRoutes("controller-c")
 	if err != nil || len(reads) != 1 || len(missing) != 0 || !strings.Contains(string(reads[0].Body), `"fixture"`) {
 		t.Fatalf("seed simulator route mismatch: reads=%+v missing=%+v error=%v", reads, missing, err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "simulator", "responses", "instance.json"), []byte(`{"id":"changed"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := packet.SimulatorRoutes("seed-a"); err == nil {
+	if _, _, err := packet.SimulatorRoutes("controller-c"); err == nil {
 		t.Fatal("changed simulator response accepted after packet validation")
 	}
 	if err := os.WriteFile(filepath.Join(root, "input", "orchestrator"), []byte("changed"), 0o600); err != nil {
@@ -189,16 +189,16 @@ func TestVerifiedPacketManifestCannotMutateAuthorizedViews(t *testing.T) {
 	manifest.Routes[0].BodyPath = "signing/root.key"
 	manifest.SourcePins[0].SHA256 = strings.Repeat("0", 64)
 	again := packet.Manifest()
-	if again.Controllers[2].Slot != "seed-a" || again.Files[0].Path == "signing/root.key" ||
+	if again.Controllers[2].Slot != "controller-c" || again.Files[0].Path == "signing/root.key" ||
 		again.Files[0].Mode == 0o777 || again.Routes[0].Host != "iaas.sa-saopaulo-1.oraclecloud.com" ||
-		again.Routes[0].ControllerSlot != "seed-a" || again.SourcePins[0].SHA256 == strings.Repeat("0", 64) {
+		again.Routes[0].ControllerSlot != "controller-c" || again.SourcePins[0].SHA256 == strings.Repeat("0", 64) {
 		t.Fatal("verified packet manifest exposed mutable authorization state")
 	}
 	files, err := packet.GuestFiles("controller-a")
 	if err != nil || len(files) == 0 || files[0].File.OwnerRole != "root:controller-a" {
 		t.Fatalf("manifest mutation changed guest copy list: %+v, %v", files, err)
 	}
-	reads, _, err := packet.SimulatorRoutes("seed-a")
+	reads, _, err := packet.SimulatorRoutes("controller-c")
 	if err != nil || len(reads) != 1 || reads[0].Host != "iaas.sa-saopaulo-1.oraclecloud.com" {
 		t.Fatalf("manifest mutation changed simulator inventory: %+v, %v", reads, err)
 	}
@@ -207,7 +207,7 @@ func TestVerifiedPacketManifestCannotMutateAuthorizedViews(t *testing.T) {
 func TestPacketRejectsUnlistedTamperSymlinkAndWrongRoot(t *testing.T) {
 	t.Run("unlisted guest file", func(t *testing.T) {
 		root, _, _, roots := packetFixture(t)
-		name := filepath.Join(root, "controllers", "seed-a", "guest-root", "etc", "terrascale-orchestrator", "bootstrap", "extra")
+		name := filepath.Join(root, "controllers", "controller-c", "guest-root", "etc", "terrascale-orchestrator", "bootstrap", "extra")
 		if err := os.WriteFile(name, []byte("unlisted"), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -276,7 +276,7 @@ func TestPacketRejectsEmptyOrOversizedSimulatorInventory(t *testing.T) {
 	large.Files[index].Size = 4 << 20
 	large.Routes = nil
 	for index := range 9 {
-		large.Routes = append(large.Routes, Route{ControllerSlot: "seed-a",
+		large.Routes = append(large.Routes, Route{ControllerSlot: "controller-c",
 			InstanceOCID: manifest.Controllers[2].InstanceOCID, Host: "objectstorage.sa-saopaulo-1.oraclecloud.com",
 			RequestURI: fmt.Sprintf("/n/namespace-a/b/ledger-bucket/o/item-%02d", index), Status: 200,
 			BodyPath: "simulator/responses/instance.json", ETag: "etag", LastModified: manifest.FixtureNow})
@@ -312,10 +312,10 @@ func TestPacketRejectsPathIdentityAndSignatureConfusion(t *testing.T) {
 		name   string
 		change func(*Manifest)
 	}{
-		{"traversal", func(m *Manifest) { m.Files[0].Path = "controllers/seed-a/guest-root/../signing/root.key" }},
+		{"traversal", func(m *Manifest) { m.Files[0].Path = "controllers/controller-c/guest-root/../signing/root.key" }},
 		{"duplicate", func(m *Manifest) { m.Files = append(m.Files, m.Files[0]) }},
 		{"guest signing", func(m *Manifest) {
-			m.Files[0].Path = "controllers/seed-a/guest-root/signing/root.key"
+			m.Files[0].Path = "controllers/controller-c/guest-root/signing/root.key"
 		}},
 		{"route identity", func(m *Manifest) { m.Routes[0].InstanceOCID += "-other" }},
 		{"overlapping guest root", func(m *Manifest) {
@@ -409,7 +409,7 @@ func TestEmitPacketNeverInstallsOfflineRootKey(t *testing.T) {
 		path string
 		body []byte
 	}{
-		{"guest key PEM", "controllers/seed-a/guest-root/var/lib/terrascale-orchestrator-secrets/root.pem", pemKey},
+		{"guest key PEM", "controllers/controller-c/guest-root/var/lib/terrascale-orchestrator-secrets/root.pem", pemKey},
 		{"binary embedded seed", "input/orchestrator", append([]byte("ELF"), key.Seed()...)},
 	} {
 		t.Run(bad.name, func(t *testing.T) {
@@ -439,7 +439,7 @@ func TestEmitPacketNeverInstallsOfflineRootKey(t *testing.T) {
 	for name, body := range material {
 		allowed[name] = body
 	}
-	allowed["controllers/seed-a/guest-root/var/lib/terrascale-orchestrator-secrets/controller.creds"] =
+	allowed["controllers/controller-c/guest-root/var/lib/terrascale-orchestrator-secrets/controller.creds"] =
 		pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: guestDER})
 	if _, err := EmitPacket(filepath.Join(t.TempDir(), "packet"), sourceRoot, manifest, allowed,
 		key, roots, manifest.FixtureNow.Add(time.Hour)); err != nil {

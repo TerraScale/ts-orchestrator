@@ -26,7 +26,7 @@ func BuildCapturedInventory(anchor bootstrap.VerifiedBootstrapAnchor, controller
 	}
 	anchored := anchor.Anchor()
 	if anchored.Environment != "production" || string(anchored.Cell) != "GRU" ||
-		!slices.Equal(anchored.ControllerSlots, []string{"controller-a", "controller-b", "seed-a"}) {
+		!slices.Equal(anchored.ControllerSlots, []string{"controller-a", "controller-b", "controller-c"}) {
 		return CapturedInventory{}, errors.New("capture inventory anchor is outside production GRU three-slot scope")
 	}
 	domain := anchor.StorageDomain()
