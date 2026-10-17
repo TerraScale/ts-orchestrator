@@ -2,10 +2,13 @@ package rootoci
 
 import (
 	"context"
-	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"encoding/json/v2"
 	"os"
 	"reflect"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/rootvolumeclient"
 )
 
 const OperationAuthorizeNetBirdIntent Operation = "authorize_netbird_intent"
@@ -18,6 +21,9 @@ type Backends struct {
 	Capacity    Pool
 	NetBird     NetBird
 	Releases    Releases
+	Volumes     VolumeReader
+	Workloads   WorkloadCredentials
+	Backups     VolumeBackups
 }
 
 type Service struct{ backends Backends }
@@ -33,7 +39,7 @@ func NewService(backends Backends) (*Service, error) {
 }
 
 func validBackends(backends Backends) bool {
-	for _, backend := range []any{backends.Readers, backends.Foundations, backends.Credentials, backends.Capacity, backends.NetBird, backends.Releases} {
+	for _, backend := range []any{backends.Readers, backends.Foundations, backends.Credentials, backends.Capacity, backends.NetBird, backends.Releases, backends.Volumes, backends.Workloads, backends.Backups} {
 		if !validDependency(backend) {
 			return false
 		}
@@ -57,7 +63,7 @@ func (service *Service) validRequest(request wireRequest) bool {
 	if request.Operation.ReadOnly() {
 		return validReadRequest(request)
 	}
-	if len(request.Payload) > 16<<10 && request.Operation != OperationDeliverControllerGeneration {
+	if len(request.Payload) > 16<<10 && request.Operation != OperationDeliverControllerGeneration && request.Operation != OperationMaterializeContainer {
 		return false
 	}
 	switch request.Operation {
@@ -107,6 +113,27 @@ func (service *Service) validRequest(request wireRequest) bool {
 	case OperationReconcileContainerStatus:
 		var input ContainerStatusRequest
 		return decodePayload(request.Payload, &input) == nil && entityid.Valid(input.OperationID) && validDigest(input.ExpectedFingerprint)
+	case OperationInspectVolumeMount:
+		var input rootvolumeclient.InspectRequest
+		return decodePayload(request.Payload, &input) == nil && input.Valid()
+	case OperationObserveTerminatedInstance:
+		var input rootvolumeclient.TerminatedRequest
+		return decodePayload(request.Payload, &input) == nil && input.Valid()
+	case OperationReconcileVolumeBackups:
+		return decodePayload(request.Payload, new(struct{})) == nil
+	case OperationMaterializeContainer:
+		if len(request.Payload) > (64<<10)+128 {
+			return false
+		}
+		var input MaterializeContainerRequest
+		if decodePayload(request.Payload, &input) != nil {
+			return false
+		}
+		wire, err := json.Marshal(input.Evidence.Request)
+		return err == nil && len(wire) <= 64<<10
+	case OperationObserveContainerGeneration:
+		var input ObserveContainerGenerationRequest
+		return decodePayload(request.Payload, &input) == nil && validSelector(input.TaskID) && len(input.TaskID) <= 25
 	default:
 		return false
 	}
@@ -185,6 +212,32 @@ func (service *Service) dispatch(ctx context.Context, call Call, request wireReq
 			return nil, err
 		}
 		return service.backends.Releases.ReconcileContainerStatus(ctx, call, input)
+	case OperationInspectVolumeMount:
+		var input rootvolumeclient.InspectRequest
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		return service.backends.Volumes.InspectVolumeMount(ctx, call, input)
+	case OperationObserveTerminatedInstance:
+		var input rootvolumeclient.TerminatedRequest
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		return service.backends.Volumes.ObserveTerminatedInstance(ctx, call, input)
+	case OperationReconcileVolumeBackups:
+		return service.backends.Backups.ReconcileVolumeBackups(ctx, call)
+	case OperationMaterializeContainer:
+		var input MaterializeContainerRequest
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		return service.backends.Workloads.MaterializeContainer(ctx, call, input)
+	case OperationObserveContainerGeneration:
+		var input ObserveContainerGenerationRequest
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		return service.backends.Workloads.ObserveContainerGeneration(ctx, call, input)
 	default:
 		return nil, ErrInvalid
 	}

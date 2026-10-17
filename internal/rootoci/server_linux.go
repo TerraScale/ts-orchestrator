@@ -244,10 +244,23 @@ func serveConnection(parent context.Context, connection *net.UnixConn, service d
 			}
 		}
 	}
-	writeResponse(connection, response)
+	wire := responseBytes(response)
+	// Serialization can wait past the original lease; never send its values after it.
+	if call.Guard(bounded) != nil {
+		status := "unauthorized"
+		if !request.Operation.observationOnly() {
+			status = "outcome_unknown"
+		}
+		wire = responseBytes(wireResponse{Version: 1, Operation: request.Operation, Status: status})
+	}
+	_ = nativerootoci.WriteBoundedFrame(connection, wire, maxFrameBytes)
 }
 
 func writeResponse(connection *net.UnixConn, response wireResponse) {
+	_ = nativerootoci.WriteBoundedFrame(connection, responseBytes(response), maxFrameBytes)
+}
+
+func responseBytes(response wireResponse) []byte {
 	wire, err := json.Marshal(response)
 	if err != nil || len(wire) > maxFrameBytes {
 		status := "unavailable"
@@ -256,7 +269,7 @@ func writeResponse(connection *net.UnixConn, response wireResponse) {
 		}
 		wire, _ = json.Marshal(wireResponse{Version: 1, Operation: response.Operation, Status: status})
 	}
-	_ = nativerootoci.WriteBoundedFrame(connection, wire, maxFrameBytes)
+	return wire
 }
 
 // pidfd signals process death; eventfd joins the watcher when the call finishes.
