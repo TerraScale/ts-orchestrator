@@ -70,7 +70,11 @@ func (s *ResourceStore) load(ctx context.Context) (region.FoundationRecord, stri
 	if err := s.backend.guard(ctx, s.call); err != nil {
 		return region.FoundationRecord{}, "", err
 	}
-	if err := checkCall(ctx, s.call, rootoci.OperationReconcileFoundation, rootoci.Expectations{Cell: s.receipt.Cell,
+	operation := rootoci.OperationReconcileFoundation
+	if s.call.Operation() == rootoci.OperationReconcileTaskTraffic {
+		operation = rootoci.OperationReconcileTaskTraffic
+	}
+	if err := checkCall(ctx, s.call, operation, rootoci.Expectations{Cell: s.receipt.Cell,
 		GrantSHA256: s.receipt.GrantDigest, OperationID: s.receipt.OperationID, Epoch: s.receipt.Epoch}); err != nil {
 		return region.FoundationRecord{}, "", err
 	}

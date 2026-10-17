@@ -9,6 +9,7 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
@@ -36,16 +37,18 @@ import (
 type rootOCIResources struct {
 	cfg        Config
 	foundation *rootfoundation.Backend
+	traffic    *rootMaterialAdmission
+	trafficMu  sync.Mutex
 }
 
-func newRootOCIResources(cfg Config, foundation *rootfoundation.Backend) (rootoci.Foundation, error) {
-	if os.Geteuid() != 0 || foundation == nil {
+func newRootOCIResources(cfg Config, foundation *rootfoundation.Backend, traffic *rootMaterialAdmission) (rootoci.Foundation, error) {
+	if os.Geteuid() != 0 || foundation == nil || traffic == nil {
 		return nil, errors.New("OCI resource reconciliation requires the concrete root foundation backend")
 	}
 	if _, _, _, err := loadSignedManagedControllerConfig(cfg); err != nil {
 		return nil, err
 	}
-	return &rootOCIResources{cfg: cfg, foundation: foundation}, nil
+	return &rootOCIResources{cfg: cfg, foundation: foundation, traffic: traffic}, nil
 }
 
 func (b *rootOCIResources) EnsureSource(ctx context.Context, call rootoci.Call, request rootoci.SourceRequest) (rootoci.SourceReceipt, error) {
