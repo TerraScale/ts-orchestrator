@@ -9,13 +9,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"text/tabwriter"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/controlaccess"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
@@ -129,11 +128,6 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 	fromText := flags.String("from", "", "RFC3339 window start")
 	toText := flags.String("to", "", "RFC3339 window end")
 	format := flags.String("format", "table", "table or json")
-	base := flags.String("url", "", "controller origin; default tries all three regional controllers")
-	tokenFile := flags.String("token-file", "", "0600 bearer token file")
-	vault := flags.String("token-vault", "", "regional OCI Vault OCID")
-	name := flags.String("token-name", "", "dashboard bearer token secret name")
-	configFile := flags.String("config", "", "shared benchmark.json config, default ~/.config/ts-orch/benchmark.json")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -157,61 +151,11 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 	if *format != "json" && *format != "table" {
 		return errors.New("--format must be json or table")
 	}
-	var token string
-	urls := RegionalURLs(*region)
-	if *tokenFile != "" {
-		info, err := os.Lstat(*tokenFile)
-		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() > 4096 {
-			return errors.New("token file must be a private regular file of at most 4096 bytes")
-		}
-		data, err := os.ReadFile(*tokenFile)
-		if err != nil {
-			return err
-		}
-		token = strings.TrimSpace(string(data))
-	} else {
-		if *vault == "" && *name == "" {
-			if *configFile == "" {
-				home, err := os.UserHomeDir()
-				if err != nil {
-					return err
-				}
-				*configFile = filepath.Join(home, ".config", "ts-orch", "benchmark.json")
-			}
-			data, err := os.ReadFile(*configFile)
-			if err != nil {
-				return fmt.Errorf("read usage config: %w", err)
-			}
-			if len(data) > 1<<20 {
-				return errors.New("usage config exceeds 1 MiB")
-			}
-			var config struct {
-				Regions map[string]struct {
-					URLs  []string        `json:"usage_urls"`
-					Token vaultsecret.Ref `json:"usage_token"`
-				} `json:"regions"`
-			}
-			if err := json.Unmarshal(data, &config); err != nil {
-				return err
-			}
-			settings, ok := config.Regions[*region]
-			if !ok {
-				return errors.New("usage config has no selected region")
-			}
-			*vault, *name = settings.Token.Vault, settings.Token.Name
-			if len(settings.URLs) > 0 {
-				urls = settings.URLs
-			}
-		}
-		token, err = ReadSecret(ctx, vaultsecret.Ref{Vault: *vault, Name: *name})
-		if err != nil {
-			return err
-		}
+	access, err := controlaccess.Resolve(ctx, *region)
+	if err != nil {
+		return err
 	}
-	if *base != "" {
-		urls = []string{*base}
-	}
-	result, err := (Client{URLs: urls, Token: token}).Query(ctx, *region, from, to)
+	result, err := (Client{URLs: access.URLs, Token: access.Token}).Query(ctx, *region, from, to)
 	if err != nil {
 		return err
 	}
@@ -219,14 +163,6 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 		return json.NewEncoder(out).Encode(result)
 	}
 	return WriteTable(out, result)
-}
-
-func RegionalURLs(region string) []string {
-	var urls []string
-	for i := 1; i <= 3; i++ {
-		urls = append(urls, fmt.Sprintf("http://ts-%s-%d.nb.ts.internal:9463", region, i))
-	}
-	return urls
 }
 
 func WriteTable(out io.Writer, result Usage) error {

@@ -10,9 +10,10 @@ tokenless loopback access to this API is disabled. Existing dashboard sessions
 retain their authenticated access. No public port or new controller credential
 grant is introduced.
 
-The current authority leader receives host reports. The CLI tries all three
-regional controllers and selects a complete answer; otherwise it returns the
-best partial answer with `complete: false`. It queries the configured regional
+The current authority leader receives host reports. The CLI discovers the
+signed regional read endpoints and selects a complete answer; otherwise it
+returns the best partial answer with `complete: false`. It queries the admitted
+regional
 controllers concurrently; a complete answer cancels the remaining requests.
 Each request has a fifteen-second timeout within the caller's deadline, so
 two unavailable controllers cannot consume the runner's thirty-second usage
@@ -99,12 +100,11 @@ nice -n 19 ts-orch usage --region gru --from 2026-10-08T18:00:00Z --to 2026-10-0
 nice -n 19 ts-orch usage --region sfo --from 2026-10-08T18:00:00Z --to 2026-10-08T18:10:00Z --format json
 ```
 
-The default config is `~/.config/ts-orch/benchmark.json`; `--config` selects
-another file. Only its regional `usage_urls` and `usage_token` entries are
-needed for usage. An explicit `--url` overrides regional discovery. For
-read-only automation, `--token-vault` and `--token-name` can select a Vault
-secret directly, or `--token-file` can name a private regular token file.
+Usage and benchmark reads discover endpoints from the current signed regional
+foundation and fetch its current bearer token from OCI Vault automatically.
 Vault reads use the operator's OCI profile and never print secret values.
+Usage needs no local configuration file, controller URL or token argument.
+Unavailable signed access remains pending; no fallback endpoint is inferred.
 
 The table shows mean used/request/limit and minimum headroom (memory in MiB).
 `?` means unknown, `*` means incomplete coverage. JSON includes the full
@@ -225,17 +225,17 @@ capacity. Generator saturation has not been qualified on live hardware.
 
 ## Config shape
 
-All secret entries below are **references**, not secret values. A usage-only
-config can omit generator, clients and storage fields. Configure SFO with its
-own regional generator and Vault references.
+All secret entries below are **references**, not secret values. Configure SFO
+with its own regional generator and Vault references. Controller read access is
+discovered automatically and has no configuration fields. Remove the retired
+`usage_urls` and `usage_token` fields from existing benchmark files; strict
+configuration decoding rejects them.
 
 ```json
 {
   "workloads_directory": "/path/to/ts-benchmark/workloads",
   "regions": {
     "gru": {
-      "usage_urls": ["http://ts-gru-1.nb.ts.internal:9463", "http://ts-gru-2.nb.ts.internal:9463", "http://ts-gru-3.nb.ts.internal:9463"],
-      "usage_token": {"vault": "<regional-vault-ocid>", "name": "gru-1-orch-dashboard-token"},
       "generator": {"instance_id": "<non-serving-instance-ocid>", "address": "<private-vnic-ip>", "user": "ubuntu", "worker_path": "/usr/local/bin/ts-orch"},
       "images": {"go": "<registry>/bench-go@sha256:<digest>", "dotnet": "<registry>/bench-dotnet@sha256:<digest>", "rust": "<registry>/bench-rust@sha256:<digest>"},
       "client_id": {"vault": "<regional-vault-ocid>", "name": "gru-bench-client-id"},

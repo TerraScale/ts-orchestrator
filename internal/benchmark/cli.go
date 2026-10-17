@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/capacity"
+	"github.com/TerraScale/ts-orchestrator/internal/controlaccess"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
@@ -26,8 +27,6 @@ type RegionConfig struct {
 		WorkerPath string `json:"worker_path"`
 	} `json:"generator"`
 	Images         map[string]string `json:"images"`
-	UsageURLs      []string          `json:"usage_urls"`
-	UsageToken     vaultsecret.Ref   `json:"usage_token"`
 	ClientID       vaultsecret.Ref   `json:"client_id"`
 	ClientSecret   vaultsecret.Ref   `json:"client_secret"`
 	AuthOrigin     string            `json:"auth_origin"`
@@ -135,7 +134,7 @@ func CLI(ctx context.Context, args []string, out io.Writer) error {
 	}
 	preflight, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	usageToken, err := capacity.ReadSecret(preflight, settings.UsageToken)
+	access, err := controlaccess.Resolve(preflight, *region)
 	if err != nil {
 		return err
 	}
@@ -143,10 +142,7 @@ func CLI(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if len(settings.UsageURLs) == 0 {
-		settings.UsageURLs = capacity.RegionalURLs(*region)
-	}
-	usage := capacity.Client{URLs: settings.UsageURLs, Token: usageToken}
+	usage := capacity.Client{URLs: access.URLs, Token: access.Token}
 	// Check that usage is reachable before starting any load. An empty history
 	// is allowed; the final report will explicitly say it is unqualified.
 	to := time.Now().UTC()
