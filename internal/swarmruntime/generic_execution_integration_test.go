@@ -295,6 +295,22 @@ func TestContainerdGenericExecutionRetainsOriginalProcessAcrossReopen(t *testing
 	if err := drainwire.VerifySignedHold(*original.Hold, managerRecord.Node.Certificate.Certificate, cluster.RootCA.CACert, cluster.ID, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
+	if err := VerifyGenericExecutionAssignment(ctx, control, original.Hold.Hold); err != nil {
+		t.Fatal("independent ROOT assignment check refused actual running worker", err)
+	}
+	changedAssignment := original.Hold.Hold
+	changedAssignment.TaskSHA256 = strings.Repeat("f", 64)
+	if err := VerifyGenericExecutionAssignment(ctx, control, changedAssignment); err == nil {
+		t.Fatal("independent ROOT assignment check accepted substituted full task")
+	}
+	changedAssignment = original.Hold.Hold
+	changedAssignment.InstanceID = "ocid1.instance.oc1.sa-saopaulo-1.other-worker"
+	if err := VerifyGenericExecutionAssignment(ctx, control, changedAssignment); err == nil {
+		t.Fatal("independent ROOT assignment check accepted another instance")
+	}
+	if _, err := worker.SignGenericExecution(ctx, original.Hold.Hold); err == nil {
+		t.Fatal("worker key signed a manager execution hold")
+	}
 	retained, err := journal.ListGenericExecutions(ctx)
 	if err != nil || len(retained) != 1 || !sameGenericHold(retained[0], *original.Hold) {
 		t.Fatal("original possible execution not journaled", err)
@@ -342,8 +358,11 @@ func TestContainerdGenericExecutionRetainsOriginalProcessAcrossReopen(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := agent.GenericExecution(ctx, host.GenericExecutionQuery{Action: "acquire", Task: actual.Copy(), ExecutionSessionID: original.ExecutionSessionID}); err == nil || !strings.Contains(err.Error(), "ACTIVE") {
+	if _, err := agent.GenericExecution(ctx, host.GenericExecutionQuery{Action: "acquire", Task: actual.Copy(), ExecutionSessionID: original.ExecutionSessionID}); err == nil {
 		t.Fatal("PAUSE admitted original execution for another start", err)
+	}
+	if err := VerifyGenericExecutionAssignment(ctx, control, original.Hold.Hold); err == nil || !strings.Contains(err.Error(), "ACTIVE") {
+		t.Fatal("independent ROOT assignment check admitted paused worker", err)
 	}
 	hostReader, err := host.NewReader(ctx, host.ReaderConfig{Cell: "gru", Conn: connection, JS: js, State: stateKV, StateReplicas: 3, HostMutations: journal})
 	if err != nil {
