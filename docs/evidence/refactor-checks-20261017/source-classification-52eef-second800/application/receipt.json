@@ -1,0 +1,52 @@
+{
+  "schema": "second800-actual-exact-reviewed-ledger-application-v1",
+  "state": "APPLIED_EXACT_REVIEWED_BYTES_PENDING_INDEPENDENT_ACTUAL_APPLICATION_REVIEW",
+  "actual_application": true,
+  "applied_utc": "2026-10-17T19:42:54.407796+00:00",
+  "authorization": "ROOT exact reviewed2275-count promotion grant after immutable independent prospective composition acceptance; sole QA writer.",
+  "reviewed_source_evidence_commit": "9bd6e539f7cbfb388071ac8167e82f7f0596617c",
+  "reviewed_source_evidence_tree": "c2a20cc51e15bfb0d6a39b8e950384de949c74b8",
+  "independent_composition_review": {
+    "path": "/tmp/ts-second800-independent-composition-review-27k_a31m/review.json",
+    "sha256": "eb4cc0ba1e70c3e77eb12dc1b1ab7ffb90ce702c42bcffb98cc36129fcad80a9"
+  },
+  "composition_receipt_sha256": "49f52e602e8bd2210cd485d364891c949c04c360e48f6015bdfa065b6c3e1f6f",
+  "files": [
+    {
+      "path": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+      "before_sha256": "dd7dedceec8c32e962c2097d93a9374b24f6ad28c7b5316d73e239bd5ff6543b",
+      "after_sha256": "5e8980943839bc1589cdaec11c5e4214b9ae03fea71d0df00c63b847ff5e6638",
+      "bytes": 1494887,
+      "mode": "0o600"
+    },
+    {
+      "path": "/tmp/ts-qa-main-union-progress-20261016.json",
+      "before_sha256": "afca45a494d08bff12909d44c65bd9d1934e1cdfd64b79e365fd7db39f9b7ce2",
+      "after_sha256": "a76bfb940bd750c8735595fb3fabe2fa347fa8dc11fc20f1dad1ffb5e067a239",
+      "bytes": 190696,
+      "mode": "0o644"
+    }
+  ],
+  "counts": {
+    "classified": 2275,
+    "integration": 805,
+    "mixed": 358,
+    "originals": 4319,
+    "other_unadjudicated": 1919,
+    "retained": 4300,
+    "retired": 19,
+    "reviewed_unresolved_included": 106,
+    "unadjudicated": 2025,
+    "unit": 1112
+  },
+  "all_original4319_ids_conserved": true,
+  "prior_retired19_unchanged": true,
+  "runtime_credit": 0,
+  "retirement_delta": 0,
+  "canonical_source_mutation": false,
+  "human_main_mutation": false,
+  "all_five_categories": "OPEN",
+  "complete": false,
+  "source_scope": "Onlynewsecond800source classifications boundto52eef; inherited1484 evidence scope unchanged; no runtime transfer.",
+  "next": "Independent actualapplication and isolated successor-object review beforepush; later serialize canonical evidence integration."
+}
