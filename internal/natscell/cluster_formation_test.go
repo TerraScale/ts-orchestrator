@@ -146,6 +146,35 @@ func TestColdRestartWithTwoOfThreeBrokers(t *testing.T) {
 	if _, err := cluster.runtimes[0].JetStream().Publish(ctx, "formation.cold", []byte("before")); err != nil {
 		t.Fatal(err)
 	}
+	waitForStreamState := func(runtime *Runtime, offline int) {
+		t.Helper()
+		var last string
+		defer func() {
+			if t.Failed() {
+				t.Log(last)
+			}
+		}()
+		waitUntil(t, ctx, fmt.Sprintf("%s R3 stream with %d offline replicas", runtime.serverName, offline), func() bool {
+			probe, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+			states, healthErr := runtime.StreamHealth(probe)
+			view, observeErr := runtime.Observe(probe)
+			last = fmt.Sprintf("StreamHealth = %+v, %v; Observe = %+v, %v", states, healthErr, view, observeErr)
+			if healthErr != nil || observeErr != nil || len(states) != 1 || states[0].Name != "FORMATION" ||
+				len(states[0].Peers) != 3 || states[0].Lagging != (offline > 0) {
+				return false
+			}
+			for _, stream := range view.Streams {
+				if stream.Name == "FORMATION" {
+					return stream.Replicas == 3 && stream.Leader != "" && stream.OfflinePeers == offline
+				}
+			}
+			return false
+		})
+	}
+	for _, runtime := range cluster.runtimes {
+		waitForStreamState(runtime, 0)
+	}
 	for index := range 3 {
 		cluster.stop(index)
 	}
@@ -176,6 +205,48 @@ func TestColdRestartWithTwoOfThreeBrokers(t *testing.T) {
 		_, err := cluster.runtimes[2].JetStream().Publish(publish, "formation.cold", []byte("after"))
 		return err == nil
 	})
+	for _, index := range []int{0, 2} {
+		waitForStreamState(cluster.runtimes[index], 1)
+	}
+	// Monitoring must retain the configured R3 factor when quorum and the leader disappear.
+	cluster.stop(2)
+	waitUntil(t, ctx, "leaderless stream retains configured R3", func() bool {
+		view, err := cluster.runtimes[0].Observe(ctx)
+		if err != nil {
+			return false
+		}
+		for _, stream := range view.Streams {
+			if stream.Name == "FORMATION" && stream.Leader == "" {
+				if stream.Replicas != 3 {
+					t.Fatalf("leaderless stream replication = %+v", stream)
+				}
+				return true
+			}
+		}
+		return false
+	})
+	probe, probeCancel := context.WithTimeout(ctx, 3*time.Second)
+	states, healthErr := cluster.runtimes[0].StreamHealth(probe)
+	probeCancel()
+	if healthErr == nil && (len(states) != 1 || states[0].Name != "FORMATION" || !states[0].Lagging) {
+		t.Fatalf("leaderless stream reported healthy: %+v", states)
+	}
+	t.Logf("leaderless StreamHealth = %+v, %v", states, healthErr)
+	for _, index := range []int{2, 1} {
+		cluster.start(t, ctx, index)
+	}
+	for _, runtime := range cluster.runtimes {
+		waitUntil(t, ctx, "restored full metadata group", func() bool { return runtime.FullClusterReady(3) })
+		waitForStreamState(runtime, 0)
+	}
+	recovered, err := cluster.runtimes[1].JetStream().Stream(ctx, "FORMATION")
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, err := recovered.GetMsg(ctx, 1)
+	if err != nil || string(message.Data) != "before" {
+		t.Fatalf("first message after recovery = %+v, %v", message, err)
+	}
 }
 
 func TestWaitForClusterFailsFastWhenEmbeddedServerStopped(t *testing.T) {
