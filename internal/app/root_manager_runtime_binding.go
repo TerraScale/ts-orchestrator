@@ -7,7 +7,6 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
-	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
@@ -83,7 +82,7 @@ func (authority *rootOCIAuthority) publishManagerRuntimeBinding(ctx context.Cont
 	certificateDigest := sha256.Sum256(block.Bytes)
 	payload := host.ManagerRuntimeBinding{Version: 1,
 		DeploymentID: current.Identity().DeploymentID, ClusterID: current.Identity().ClusterID, SwarmClusterID: cluster.ID,
-		Environment: current.Identity().Environment, Cell: strings.ToUpper(current.Identity().Cell), OCIRegion: current.Identity().OCIRegion,
+		Environment: current.Identity().Environment, Cell: worker.Cell, OCIRegion: current.Identity().OCIRegion,
 		NodeID: source.nodeID, InstanceID: worker.InstanceID, HostID: registration.ID, HostNode: worker.HostNode,
 		HostSessionID: worker.HostSessionID, HostSessionEpoch: snapshot.SessionEpoch(), RegistrationGeneration: registration.Generation,
 		RegistrationRevision: snapshot.RegistrationRevision(), SourceRevision: snapshot.SourceRevision(),
