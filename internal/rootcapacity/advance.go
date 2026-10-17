@@ -229,7 +229,7 @@ func (a *attempt) prepareChild(ctx context.Context, management core.ComputeManag
 	}
 	child := region.PoolChildRecord{OperationID: a.receipt.OperationID, RecipeSHA256: a.recipe.SHA256(),
 		PublicCAPEM: bytes.Clone(request.PublicCAPEM), AvailabilityDomains: slices.Clone(request.AvailabilityDomains),
-		PoolID: poolID, ConfigurationID: configurationID, TargetFrom: value(pool.Size), AvailabilityDomain: a.recipe.AvailabilityDomains[len(members)%len(a.recipe.AvailabilityDomains)],
+		PoolID: poolID, ConfigurationID: configurationID, TargetFrom: value(pool.Size), BirthEpoch: a.original.Epoch, AvailabilityDomain: a.recipe.AvailabilityDomains[len(members)%len(a.recipe.AvailabilityDomains)],
 		SubnetID: a.recipe.SubnetID, Stage: region.PoolChildReserved, Node: node, Descriptor: string(descriptor)}
 	a.record.PoolChildren[a.receipt.OperationID] = child
 	return child, a.save(ctx)

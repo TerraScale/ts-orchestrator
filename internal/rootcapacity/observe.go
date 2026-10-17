@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/capacityledger"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
@@ -15,7 +16,7 @@ import (
 )
 
 func (c *Controller) ObservePoolChild(ctx context.Context, call rootoci.Call, request rootoci.PoolChildObservation) (rootoci.PoolChildView, error) {
-	if c == nil || c.store == nil || call.Guard(ctx) != nil || !validInstanceID(request.InstanceID) ||
+	if c == nil || c.factory == nil || c.store == nil || call.Guard(ctx) != nil || !validInstanceID(request.InstanceID) ||
 		call.Operation() != "" && call.Operation() != rootoci.OperationObservePoolChild {
 		return rootoci.PoolChildView{}, rootoci.ErrUnauthorized
 	}
@@ -38,31 +39,49 @@ func (c *Controller) ObservePoolChild(ctx context.Context, call rootoci.Call, re
 		request.PoolID != "" && request.PoolID != selected.PoolID || request.ConfigurationID != "" && request.ConfigurationID != selected.ConfigurationID {
 		return rootoci.PoolChildView{}, rootoci.ErrPoolChildUnverified
 	}
-	a, close, err := c.open(ctx, call, request.Cell, selected.OperationID, call.Expected().Epoch)
+	if request.GrantSHA256 != "" && request.GrantSHA256 != record.GrantSHA256 || request.Generation != 0 && request.Generation != record.Generation ||
+		call.Expected().Cell != "" && call.Expected().Cell != request.Cell ||
+		call.Expected().OperationID != "" && call.Expected().OperationID != selected.OperationID ||
+		call.Expected().GrantSHA256 != "" && call.Expected().GrantSHA256 != record.GrantSHA256 || record.CapacityLedger == nil {
+		return rootoci.PoolChildView{}, rootoci.ErrPoolChildUnverified
+	}
+	factory, err := c.factory.ForRegion(record.OCIRegion)
 	if err != nil {
 		return rootoci.PoolChildView{}, err
 	}
-	if request.GrantSHA256 != "" && request.GrantSHA256 != a.record.GrantSHA256 || request.Generation != 0 && request.Generation != a.record.Generation {
-		close()
-		return rootoci.PoolChildView{}, rootoci.ErrPoolChildUnverified
+	a := &attempt{call: call, resolver: c.resolver, store: c.store, factory: factory, record: record,
+		deadline: call.Deadline(), operation: selected.OperationID, observation: &request}
+	authorized, err := c.resolver.Resolve(a.readContext(ctx), request.Cell)
+	if err != nil || authorized.GrantSHA256 != record.GrantSHA256 || authorized.Generation != record.Generation ||
+		authorized.IntentDigest != record.IntentDigest || authorized.OCIRegion != record.OCIRegion || authorized.TenancyID != record.TenancyID ||
+		authorized.Cell != record.Cell || authorized.ParentCompartmentID != record.ParentCompartmentID ||
+		authorized.SharedCompartmentID != record.SharedCompartmentID || record.Stage != "reconciled" {
+		return rootoci.PoolChildView{}, errors.Join(err, rootoci.ErrPoolChildUnverified)
 	}
-	current := a.record.PoolChildren[selected.OperationID]
-	if current.InstanceID != selected.InstanceID || current.Stage != region.PoolChildReady {
-		close()
-		return rootoci.PoolChildView{}, rootoci.ErrPoolChildUnverified
+	var original capacityledger.Receipt
+	for _, host := range record.CapacityLedger.Hosts {
+		if host.Receipt.OperationID == selected.OperationID {
+			if original.OperationID != "" || host.InstanceID != selected.InstanceID || host.BootVolumeID != selected.BootVolumeID ||
+				!host.BornAt.Equal(selected.BornAt) || !host.InstanceRetiredAt.IsZero() || !host.BootRetiredAt.IsZero() {
+				return rootoci.PoolChildView{}, rootoci.ErrPoolChildUnverified
+			}
+			original = host.Receipt
+		}
 	}
-	a, close, err = c.resolveChild(ctx, call, rootoci.PoolChildExpectation{Cell: request.Cell, OperationID: current.OperationID, ReservationID: current.OperationID,
-		RecipeSHA256: current.RecipeSHA256, PublicCAPEM: current.PublicCAPEM, AvailabilityDomains: current.AvailabilityDomains,
-		PoolID: current.PoolID, ConfigurationID: current.ConfigurationID, GrantSHA256: a.record.GrantSHA256, Generation: a.record.Generation, Epoch: a.original.Epoch}, a, close)
-	if err != nil {
+	if err := original.Validate(); err != nil || original.RecipeSHA256 != selected.RecipeSHA256 || original.TenancyID != record.TenancyID ||
+		original.Quote.Cell != record.Cell || original.Quote.CompartmentID != record.CapacityPools[selected.PoolID].CompartmentID {
+		return rootoci.PoolChildView{}, errors.Join(err, rootoci.ErrPoolChildUnverified)
+	}
+	if err := a.resolveWorker(ctx, rootoci.PoolChildExpectation{Cell: record.Cell, OperationID: selected.OperationID, ReservationID: selected.OperationID,
+		RecipeSHA256: selected.RecipeSHA256, PublicCAPEM: selected.PublicCAPEM, AvailabilityDomains: selected.AvailabilityDomains,
+		GrantSHA256: record.GrantSHA256, Generation: record.Generation}, original); err != nil {
 		return rootoci.PoolChildView{}, err
 	}
-	defer close()
 	management, err := a.factory.ComputeManagement()
 	if err != nil {
 		return rootoci.PoolChildView{}, err
 	}
-	return a.childView(ctx, management, current)
+	return a.childView(ctx, management, selected)
 }
 
 func (a *attempt) childView(ctx context.Context, management core.ComputeManagementClient, child region.PoolChildRecord) (rootoci.PoolChildView, error) {
@@ -107,6 +126,9 @@ func (a *attempt) childView(ctx context.Context, management core.ComputeManageme
 	if a.worker.ExpiresAt().Before(expires) {
 		expires = a.worker.ExpiresAt()
 	}
+	if err := a.worker.Revalidate(a.readContext(ctx)); err != nil {
+		return rootoci.PoolChildView{}, err
+	}
 	if err := a.guard(ctx); err != nil || !time.Now().Before(expires) {
 		return rootoci.PoolChildView{}, errors.Join(err, rootoci.ErrPoolChildUnverified)
 	}
@@ -115,8 +137,8 @@ func (a *attempt) childView(ctx context.Context, management core.ComputeManageme
 		InstanceID: child.InstanceID, PoolID: child.PoolID, ConfigurationID: child.ConfigurationID, BootVolumeIDs: []string{child.BootVolumeID},
 		RecipeSHA256: child.RecipeSHA256, GrantSHA256: profile.GrantDigest(), ProfileSHA256: profileSHA, SourceSHA256: a.worker.SourceSHA256(),
 		SlotID: entityid.Derive("protected-pool-child", a.record.TenancyID, a.record.Cell, child.OperationID), BirthSHA256: birthSHA, AttachSHA256: attachSHA,
-		SessionBindingSHA256: a.call.SessionBindingSHA256(), Generation: profile.Generation(), Epoch: a.original.Epoch, Node: child.Node,
-		PrivateIP: facts.PrivateIP, CompartmentID: a.receipt.CompartmentID, AvailabilityDomain: child.AvailabilityDomain, FaultDomain: facts.FaultDomain,
+		SessionBindingSHA256: a.call.SessionBindingSHA256(), Generation: profile.Generation(), Epoch: child.BirthEpoch, Node: child.Node,
+		PrivateIP: facts.PrivateIP, CompartmentID: a.record.CapacityPools[child.PoolID].CompartmentID, AvailabilityDomain: child.AvailabilityDomain, FaultDomain: facts.FaultDomain,
 		ImageID: facts.Recipe.ImageID, Shape: facts.Recipe.Shape, OCPUs: float32(facts.Recipe.OCPUs), MemoryGB: float32(facts.Recipe.MemoryGB), BootGB: facts.Recipe.BootGB,
 		Role: facts.Recipe.Role, Architecture: facts.Recipe.Architecture, Descriptor: child.Descriptor, ObservedAt: now, ExpiresAt: expires, OriginalDeadline: a.deadline,
 		Registration: rootoci.PoolChildRegistration{Kind: rootoci.PoolChildRegistrationStatic, Environment: "production", Cell: a.record.Cell, Node: child.Node,

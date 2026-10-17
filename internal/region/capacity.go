@@ -119,6 +119,7 @@ type PoolChildRecord struct {
 	PoolID               string          `json:"poolId"`
 	ConfigurationID      string          `json:"configurationId"`
 	TargetFrom           int             `json:"targetFrom"`
+	BirthEpoch           uint64          `json:"birthEpoch"`
 	AvailabilityDomain   string          `json:"availabilityDomain"`
 	SubnetID             string          `json:"subnetId"`
 	Stage                PoolChildStage  `json:"stage"`
@@ -174,12 +175,25 @@ func (w PoolWireRecord) validate(updated time.Time) error {
 // ProtectedCapacityStore accepts only the store built by actual signed SDK
 // discovery, in the original home region. Regional caches cannot implement it.
 func (r FoundationResolver) ProtectedCapacityStore(factory *ociclient.Factory) (*ObjectFoundationStore, error) {
+	store, err := r.ProtectedCapacityReaderStore(factory)
+	if err != nil {
+		return nil, err
+	}
+	reader := r.Footprint.(*SignedFootprint)
+	if factory.Region() != reader.home.OCIRegion || reader.local.Cell != "GRU" {
+		return nil, errors.New("capacity mutations require the original signed home SDK store")
+	}
+	return store, nil
+}
+
+// ProtectedCapacityReaderStore admits only the original concrete home SDK
+// discovery. Regional observation does not gain home mutation admission.
+func (r FoundationResolver) ProtectedCapacityReaderStore(factory *ociclient.Factory) (*ObjectFoundationStore, error) {
 	reader, signed := r.Footprint.(*SignedFootprint)
 	store, protected := r.Store.(*ObjectFoundationStore)
 	if factory == nil || !signed || !protected || reader == nil || store == nil || reader.factory != factory ||
-		factory.Region() != reader.home.OCIRegion || reader.local.Cell != "GRU" ||
 		store.namespace != reader.storage.Namespace || store.bucket != reader.storage.HeadBucket {
-		return nil, errors.New("capacity mutations require the original signed home SDK store")
+		return nil, errors.New("capacity reads require the original signed home SDK store")
 	}
 	actual, sdk := store.client.(*objectstorage.ObjectStorageClient)
 	if !sdk || actual == nil || actual != reader.client {
@@ -295,6 +309,9 @@ func (r FoundationRecord) validateCapacity() error {
 }
 
 func (c PoolChildRecord) validate(host capacityledger.Host, updated time.Time) error {
+	if c.BirthEpoch == 0 {
+		return errors.New("pool child lacks its immutable original home birth epoch")
+	}
 	step := poolChildRank(c.Stage)
 	if step < 0 || step < 2 && (c.InstanceID != "" || !c.BornAt.IsZero() || c.BootVolumeID != "" || c.BootAttachmentID != "") ||
 		step < 3 && c.Attach != nil || step < 5 && !c.ReadyAt.IsZero() ||
