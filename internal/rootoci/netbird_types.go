@@ -9,14 +9,27 @@ import (
 // verifies the exact committed proposal at its lease-CAS revision. Every field
 // is an expectation; root derives process, source and actual lease authority.
 type NetBirdIntentRequest struct {
-	Cell           string    `json:"cell"`
-	IntentRevision uint64    `json:"intent_revision"`
-	OperationID    string    `json:"operation_id"`
-	RuntimeID      string    `json:"runtime_id"`
-	OwnerID        string    `json:"owner_id"`
-	Epoch          uint64    `json:"epoch"`
-	LeaseRevision  uint64    `json:"lease_revision"`
-	ExpiresAt      time.Time `json:"expires_at"`
+	Cell           string           `json:"cell"`
+	IntentRevision uint64           `json:"intent_revision"`
+	OperationID    string           `json:"operation_id"`
+	RuntimeID      string           `json:"runtime_id"`
+	OwnerID        string           `json:"owner_id"`
+	Epoch          uint64           `json:"epoch"`
+	LeaseRevision  uint64           `json:"lease_revision"`
+	ExpiresAt      time.Time        `json:"expires_at"`
+	ReadOpen       *NetBirdReadOpen `json:"read_open,omitempty"`
+}
+
+// NetBirdReadOpen is signed with the existing finite manager user's NKey.
+// Root independently pins the original recipient, source and delivery before use.
+type NetBirdReadOpen struct {
+	Schema       int       `json:"schema"`
+	Cell         string    `json:"cell"`
+	User         string    `json:"user"`
+	SourceSHA256 string    `json:"source_sha256"`
+	Nonce        string    `json:"nonce"`
+	ExpiresAt    time.Time `json:"expires_at"`
+	Signature    []byte    `json:"signature"`
 }
 
 // NetBirdIntentHost is one adopted host, never an arbitrary policy or API path.
