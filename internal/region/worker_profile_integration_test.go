@@ -47,7 +47,8 @@ func TestWorkerProfileAuthorityRequiresIndependentCurrentSources(t *testing.T) {
 	for _, role := range []string{"container", "wasm"} {
 		for _, arch := range []string{"arm64", "amd64"} {
 			grant.WorkerProfiles = append(grant.WorkerProfiles, WorkerProfile{Cell: "GRU", Environment: "production", Role: role, Architecture: arch, Shape: "VM.Standard.A1.Flex", OCPUs: 2, MemoryGB: 12, BootGB: 50, AvailabilityDomains: []string{"test:AD-1"}, CompartmentRef: ref("workload_compartment"), SubnetRef: ref("subnet"), NSGRef: ref("workload_network_security_group"), Runtime: release.ProductionRuntime,
-				ImageSource: WorkerImageSource{OCIRegion: "sa-saopaulo-1", Namespace: "ns", Bucket: bucket, CurrentObject: releasechannel.CurrentImageObject(role, arch, "production"), ImageDomain: release.ImageDomain, QualificationDomain: release.ProductionQualificationDomain}, Bootstrap: WorkerBootstrapTemplate{Derivation: WorkerBootstrapDerivationV1, MaterialPlanSHA256: strings.Repeat("a", 64), VaultRef: ref("vault"), KMSKeyRef: ref("key"), RecipientPermission: "SECRET_BUNDLE_READ"}})
+				PoolMembership: WorkerPoolMembership{Purpose: PoolMembershipQuarantineV1, Provenance: PoolMembershipProvenanceV1},
+				ImageSource:    WorkerImageSource{OCIRegion: "sa-saopaulo-1", Namespace: "ns", Bucket: bucket, CurrentObject: releasechannel.CurrentImageObject(role, arch, "production"), ImageDomain: release.ImageDomain, QualificationDomain: release.ProductionQualificationDomain}, Bootstrap: WorkerBootstrapTemplate{Derivation: WorkerBootstrapDerivationV1, MaterialPlanSHA256: strings.Repeat("a", 64), VaultRef: ref("vault"), KMSKeyRef: ref("key"), RecipientPermission: "SECRET_BUNDLE_READ"}})
 		}
 	}
 	if err := ValidateWorkerProfiles(grant, grant.WorkerProfiles, roots, now); err != nil {
