@@ -53,10 +53,11 @@ func (i FunctionServiceIntent) serviceSpec(function release.VerifiedFunction, wo
 		ID:   entityid.Derive("function-service", i.Environment, i.Region, i.TenantID, i.FunctionID),
 		Role: FunctionWorkerRole, Region: i.Region, Environment: i.Environment, Architecture: i.Architecture, Replicas: 1,
 		Container:       &api.ContainerSpec{Image: w.Image, User: "65532:65532", Command: []string{"/usr/local/bin/terrascale-orchestrator"}, Args: []string{FunctionWorkerRole}},
-		Resources:       &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 750_000_000, MemoryBytes: 256 << 20}},
+		Resources:       &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 750_000_000, MemoryBytes: 256 << 20, Generic: []*api.GenericResource{genericresource.NewDiscrete(FunctionWorkerSlot, 1)}}},
 		Ports:           []*api.PortConfig{{Name: "function-https", Protocol: api.ProtocolTCP, PublishMode: api.PublishModeHost, TargetPort: 8080, PublishedPort: 8080}},
 		releaseSequence: w.ReleaseSequence, releaseFingerprint: worker.ReleaseIdentity(),
 	}
+	base.Resources.Reservations = base.Resources.Limits.Copy()
 	spec, err := base.serviceSpec()
 	if err != nil {
 		return nil, err
@@ -66,8 +67,6 @@ func (i FunctionServiceIntent) serviceSpec(function release.VerifiedFunction, wo
 		"node.labels." + LabelExecutionScope + "==tenant",
 		"node.labels." + LabelHostRole + "==wasm",
 	}
-	spec.Task.Resources.Limits.Generic = []*api.GenericResource{genericresource.NewDiscrete(FunctionWorkerSlot, 1)}
-	spec.Task.Resources.Reservations = spec.Task.Resources.Limits.Copy()
 	labels := spec.Annotations.Labels
 	labels[LabelFunctionTenant], labels[LabelFunctionID] = f.TenantID, f.FunctionID
 	labels[LabelFunctionRevision], labels[LabelFunctionDigest] = f.Revision, f.Digest

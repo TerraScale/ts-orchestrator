@@ -84,13 +84,8 @@ func (i ServiceIntent) serviceSpec() (*api.ServiceSpec, error) {
 		return nil, err
 	}
 	task := api.TaskSpec{Runtime: runtime, Resources: i.Resources.Copy()}
-	if _, err := DecodeContainer(&api.Task{ID: "validation", ServiceID: "validation", Spec: task}); err != nil {
+	if _, err := DecodeContainer(&api.Task{ID: "validation", ServiceID: "validation", Spec: task, ServiceAnnotations: api.Annotations{Labels: map[string]string{LabelRole: i.Role}}}); err != nil {
 		return nil, err
-	}
-	if task.Resources.Reservations == nil {
-		task.Resources.Reservations = task.Resources.Limits.Copy()
-	} else if !proto.Equal(task.Resources.Reservations, task.Resources.Limits) {
-		return nil, errors.New("service resource reservations must equal CPU and memory limits")
 	}
 	task.Restart = &api.RestartPolicy{Condition: api.RestartOnAny, Delay: types.DurationProto(5 * time.Second)}
 	task.Placement = &api.Placement{
