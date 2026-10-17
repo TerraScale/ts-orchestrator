@@ -136,11 +136,11 @@ func (service *Service) validRequest(request wireRequest) bool {
 	case OperationObserveContainerGeneration:
 		var input ObserveContainerGenerationRequest
 		return decodePayload(request.Payload, &input) == nil && validSelector(input.TaskID) && len(input.TaskID) <= 25
-	case OperationContainerEvidence:
+	case OperationContainerEvidence, OperationRetainedContainerEvidence:
 		var input ContainerEvidenceRequest
 		return decodePayload(request.Payload, &input) == nil && entityid.Valid(input.OperationID) && validDigest(input.ExpectedFingerprint) &&
 			validDigest(input.EvidenceSHA256) && input.Offset >= 0 && input.Offset < release.MaxProductionEvidenceBytes
-	case OperationContainerAllocation:
+	case OperationContainerAllocation, OperationRetainedContainerAllocation:
 		var input ContainerAllocationRequest
 		return decodePayload(request.Payload, &input) == nil && entityid.Valid(input.OperationID) && validDigest(input.ExpectedFingerprint)
 	default:
@@ -256,8 +256,8 @@ func (service *Service) dispatch(ctx context.Context, call Call, request wireReq
 		if err != nil {
 			return nil, err
 		}
-		if len(chunk.Data) > ContainerEvidenceChunkBytes || chunk.TotalBytes <= 0 || chunk.TotalBytes > release.MaxProductionEvidenceBytes ||
-			chunk.Offset != input.Offset || chunk.Offset > chunk.TotalBytes || int64(len(chunk.Data)) > chunk.TotalBytes-chunk.Offset {
+		if len(chunk.Data) == 0 || len(chunk.Data) > ContainerEvidenceChunkBytes || chunk.TotalBytes <= 0 || chunk.TotalBytes > release.MaxProductionEvidenceBytes ||
+			chunk.Offset != input.Offset || chunk.Offset >= chunk.TotalBytes || int64(len(chunk.Data)) > chunk.TotalBytes-chunk.Offset {
 			return nil, ErrUnavailable
 		}
 		return chunk, nil
@@ -267,6 +267,33 @@ func (service *Service) dispatch(ctx context.Context, call Call, request wireReq
 			return nil, err
 		}
 		observation, err := service.backends.ContainerMaterial.ContainerAllocation(ctx, call, input)
+		if err != nil {
+			return nil, err
+		}
+		if len(observation.Data) == 0 || len(observation.Data) > release.MaxWorkerFamilyEvidenceBytes {
+			return nil, ErrUnavailable
+		}
+		return observation, nil
+	case OperationRetainedContainerEvidence:
+		var input RetainedContainerEvidenceRequest
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		chunk, err := service.backends.ContainerMaterial.RetainedContainerEvidence(ctx, call, input)
+		if err != nil {
+			return nil, err
+		}
+		if len(chunk.Data) == 0 || len(chunk.Data) > ContainerEvidenceChunkBytes || chunk.TotalBytes <= 0 || chunk.TotalBytes > release.MaxProductionEvidenceBytes ||
+			chunk.Offset != input.Offset || chunk.Offset >= chunk.TotalBytes || int64(len(chunk.Data)) > chunk.TotalBytes-chunk.Offset {
+			return nil, ErrUnavailable
+		}
+		return chunk, nil
+	case OperationRetainedContainerAllocation:
+		var input RetainedContainerAllocationRequest
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		observation, err := service.backends.ContainerMaterial.RetainedContainerAllocation(ctx, call, input)
 		if err != nil {
 			return nil, err
 		}
