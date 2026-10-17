@@ -48,6 +48,7 @@ type NodeMaintenanceAdvanceRequest struct {
 type NodeMaintenanceView struct {
 	OperationID      string    `json:"operation_id"`
 	RequestSHA256    string    `json:"request_sha256"`
+	RequestRevision  uint64    `json:"request_revision"`
 	Node             string    `json:"node"`
 	From             string    `json:"from,omitempty"`
 	InstanceID       string    `json:"instance_id"`

@@ -23,6 +23,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
 )
 
@@ -150,9 +151,9 @@ type nodeInstance struct {
 	MemoryGB float32
 }
 
-// nodeCompute changes a node's instance. Find locates it by its display
-// name, the node's name; Instances lists every one the nodes may be.
+// nodeCompute reads ROOT observations and narrows a retained signed operation.
 type nodeCompute interface {
+	Prepare(ctx context.Context, request rootoci.NodeMaintenanceRequest) error
 	Find(ctx context.Context, node string) (nodeInstance, error)
 	Instances(ctx context.Context) ([]nodeInstance, error)
 	Reboot(ctx context.Context, id string) error
@@ -274,6 +275,14 @@ func (o *nodeOps) serve(ctx context.Context, wire []byte, cell string, policy si
 	}
 	ctx, cancel := context.WithDeadline(ctx, envelope.ExpiresAt)
 	defer cancel()
+	api, err := o.instances(ctx)
+	if err != nil {
+		return nodeOpReply{}, err
+	}
+	if err := api.Prepare(ctx, rootoci.NodeMaintenanceRequest{OperationID: envelope.OperationID,
+		RequestSHA256: reference.SHA256, RequestRevision: reference.Revision}); err != nil {
+		return nodeOpReply{}, err
+	}
 	op, err := o.submit(ctx, envelope.Epoch, trusted.Actor, envelope.OperationID, request, reference)
 	if err != nil {
 		return nodeOpReply{}, err

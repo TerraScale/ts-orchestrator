@@ -22,6 +22,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 )
 
 // nodeHosts runs terrabase and ts-auth on every node. A node reports both
@@ -81,6 +82,8 @@ type nodeInstances struct {
 	// rebooted, when set, runs after a node's reboot.
 	rebooted func(node string)
 }
+
+func (c *nodeInstances) Prepare(context.Context, rootoci.NodeMaintenanceRequest) error { return nil }
 
 func (c *nodeInstances) Rename(_ context.Context, id, name string) error {
 	node := strings.TrimPrefix(id, "ocid1.instance.")
