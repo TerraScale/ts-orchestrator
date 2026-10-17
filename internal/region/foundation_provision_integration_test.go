@@ -280,6 +280,8 @@ func (c *provisionCloud) seedPrerequisites(input FoundationPreparationInput) {
 	c.collections[input.SourceVaultTarget.VaultOCID] = "vaults"
 	c.rows[input.SourceVaultTarget.KMSKeyOCID] = map[string]any{"id": input.SourceVaultTarget.KMSKeyOCID, "displayName": "gru-1-key", "compartmentId": input.SourceVaultTarget.CompartmentOCID, "vaultId": input.SourceVaultTarget.VaultOCID, "protectionMode": "HSM", "keyShape": map[string]any{"algorithm": "AES", "length": 32}, "lifecycleState": "ENABLED"}
 	c.collections[input.SourceVaultTarget.KMSKeyOCID] = "keys"
+	c.rows[input.HomeStorageDomain.LedgerKMSKeyOCID] = map[string]any{"id": input.HomeStorageDomain.LedgerKMSKeyOCID, "displayName": "gru-1-ledger-key", "compartmentId": input.SourceVaultTarget.CompartmentOCID, "vaultId": input.SourceVaultTarget.VaultOCID, "protectionMode": "HSM", "keyShape": map[string]any{"algorithm": "AES", "length": 32}, "lifecycleState": "ENABLED"}
+	c.collections[input.HomeStorageDomain.LedgerKMSKeyOCID] = "keys"
 	for _, role := range []string{"head", "ledger"} {
 		name, key, versioning := "gru-1-head", input.HomeStorageDomain.HeadKMSKeyOCID, "Enabled"
 		if role == "ledger" {
