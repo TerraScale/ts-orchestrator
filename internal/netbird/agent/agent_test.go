@@ -295,13 +295,25 @@ func TestWorkerAppliedTargetRequiresSuccessfulInstallAndConfirmation(t *testing.
 	if last.AppliedTargetHash != previousHash || last.InstalledTargetHash != targetHash {
 		t.Fatal("unconfirmed install was reported as applied")
 	}
+	if _, err := completedTarget(last); err == nil {
+		t.Fatal("signed unconfirmed install produced a completed target")
+	}
 	apply("confirm", errors.New("confirmation failed"))
 	if last.AppliedTargetHash != previousHash || last.Error == "" {
 		t.Fatal("failed confirmation changed applied target")
 	}
+	if _, err := completedTarget(last); err == nil {
+		t.Fatal("signed failed confirmation produced a completed target")
+	}
 	apply("confirm", nil)
 	if last.AppliedTargetHash != targetHash || last.Error != "" {
 		t.Fatal("successful confirmation did not publish applied target")
+	}
+	view, err := completedTarget(last)
+	if err != nil || view.Generation != last.Generation || view.Epoch != last.Epoch || view.Transaction != last.Transaction ||
+		view.Action != last.Action || view.ActionID != last.ActionID || view.TargetHash != last.TargetHash ||
+		view.InstalledTargetHash != last.InstalledTargetHash || view.AppliedTargetHash != last.AppliedTargetHash {
+		t.Fatalf("signed confirmed checkpoint: %+v %v", view, err)
 	}
 	apply("rollback", errors.New("rollback failed"))
 	if last.AppliedTargetHash != targetHash || last.Error == "" {
