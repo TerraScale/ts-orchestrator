@@ -72,12 +72,13 @@ func TestRolloutExecutorUpdatesARunningCell(t *testing.T) {
 	operator := Config{NATS: natscell.Config{Cell: "lab", Replicas: 3},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")}}
+	runs := map[string]int64{"good": 9, "bad": 10, "good2": 11}
 	command := func(name string, receipt string, to uint64) rolloutReply {
 		t.Helper()
 		receiptPath := ""
 		if receipt != "" {
 			receiptPath = filepath.Join(root, "receipt-"+receipt)
-			if err := os.WriteFile(receiptPath, []byte("receipt:"+digests[receipt]), 0o600); err != nil {
+			if err := os.WriteFile(receiptPath, fmt.Appendf(nil, "receipt:%d:%s", runs[receipt], digests[receipt]), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -332,13 +333,14 @@ func startRolloutTestCell(t *testing.T, ctx context.Context, config rolloutTestC
 	return cell
 }
 
-// testReceiptDigest stands in for receipt verification: "receipt:<digest>".
+// testReceiptDigest stands in for receipt verification: "receipt:<run>:<digest>".
 func testReceiptDigest(receipt, delegation []byte, now time.Time) (rollout.Release, error) {
-	digest, ok := strings.CutPrefix(string(receipt), "receipt:")
-	if !ok {
+	var run int64
+	var digest string
+	if _, err := fmt.Sscanf(string(receipt), "receipt:%d:%s", &run, &digest); err != nil || run <= 0 {
 		return rollout.Release{}, errors.New("receipt does not verify")
 	}
-	return rollout.Release{Digest: digest, SourceRevision: strings.Repeat("e", 40), RunNumber: 9, Receipt: receipt,
+	return rollout.Release{Digest: digest, SourceRevision: strings.Repeat("e", 40), RunNumber: run, Receipt: receipt,
 		Delegation: delegation, CreatedAt: now}, nil
 }
 

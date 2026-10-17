@@ -125,16 +125,16 @@ func (r *rolloutRequester) serve(wire []byte) (rolloutReply, error) {
 func TestRolloutRequestsPublishPauseAndRollBack(t *testing.T) {
 	r := newRolloutRequester(t)
 	first, second := strings.Repeat("a", 64), strings.Repeat("b", 64)
-	reply, err := r.serve(r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: []byte("receipt:" + first)}, nil))
+	reply, err := r.serve(r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: []byte("receipt:9:" + first)}, nil))
 	if err != nil || reply.Status != "published" || reply.Desired == nil || reply.Desired.Generation != 1 ||
 		reply.Desired.Actor != "ops" || reply.Desired.Receipt != nil || reply.Desired.RunNumber != 9 ||
 		reply.Desired.SourceRevision != strings.Repeat("e", 40) {
 		t.Fatalf("publish = %+v %v", reply, err)
 	}
-	if reply, err := r.serve(r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: []byte("receipt:" + first)}, nil)); err != nil || reply.Status != "unchanged" {
+	if reply, err := r.serve(r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: []byte("receipt:9:" + first)}, nil)); err != nil || reply.Status != "unchanged" {
 		t.Fatalf("republish = %+v %v", reply, err)
 	}
-	if _, err := r.serve(r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: []byte("receipt:" + second)}, nil)); err != nil {
+	if _, err := r.serve(r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: []byte("receipt:10:" + second)}, nil)); err != nil {
 		t.Fatal(err)
 	}
 	if reply, err := r.serve(r.sign(rolloutPauseKind, struct{}{}, nil)); err != nil || reply.Status != "paused" || !reply.Paused {
@@ -196,14 +196,14 @@ func TestRolloutRequestsDeferFutureReceiptAndRefuseEarlyRollback(t *testing.T) {
 func TestRolloutRequestsRefuseUntrustedStaleAndTamperedRequests(t *testing.T) {
 	r := newRolloutRequester(t)
 	digest := strings.Repeat("a", 64)
-	publish := rolloutPublishRequest{Receipt: []byte("receipt:" + digest)}
+	publish := rolloutPublishRequest{Receipt: []byte("receipt:9:" + digest)}
 	_, stranger, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
 	tampered := r.sign(rolloutPublishKind, publish, nil)
-	tampered = []byte(strings.Replace(string(tampered), base64.StdEncoding.EncodeToString([]byte("receipt:"+digest)),
-		base64.StdEncoding.EncodeToString([]byte("receipt:"+strings.Repeat("c", 64))), 1))
+	tampered = []byte(strings.Replace(string(tampered), base64.StdEncoding.EncodeToString([]byte("receipt:9:"+digest)),
+		base64.StdEncoding.EncodeToString([]byte("receipt:9:"+strings.Repeat("c", 64))), 1))
 	foreign := *r
 	foreign.key = stranger
 	for name, test := range map[string]struct {
@@ -248,7 +248,7 @@ func TestRolloutRequestsRefuseUntrustedStaleAndTamperedRequests(t *testing.T) {
 	if _, err := r.serve(r.sign(rolloutPublishKind, publish, nil)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.serve(r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: []byte("receipt:" + strings.Repeat("b", 64))}, nil)); err != nil {
+	if _, err := r.serve(r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: []byte("receipt:10:" + strings.Repeat("b", 64))}, nil)); err != nil {
 		t.Fatal(err)
 	}
 	r.control.verify = func(receipt, _ []byte, _ time.Time) (rollout.Release, error) {
