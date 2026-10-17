@@ -60,7 +60,7 @@ func TestManagementIntegration(t *testing.T) {
 		}
 		return nil
 	}
-	server, err := startManagementAt(ctx, path, uint32(os.Getuid()), uint32(os.Getgid()), cgroup, "accepted-current", node, "sa-saopaulo-1", "test", upstream, refresh)
+	server, err := startManagementAt(ctx, path, uint32(os.Getuid()), uint32(os.Getgid()), cgroup, "accepted-current", node, "sa-saopaulo-1", "test", upstream, refresh, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,6 +207,10 @@ func TestManagementIntegration(t *testing.T) {
 	unsafe.Annotations.Labels[LabelRole] = "terrabase"
 	if _, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: unsafe}); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("stateful workload accepted: %v", err)
+	}
+	unsafe.Annotations.Labels["terrascale.stateful"] = "true"
+	if _, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: unsafe}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("stateful labels bypassed missing root signed-intent authorizer: %v", err)
 	}
 	unsafe = request.Spec.Copy()
 	unsafe.GetReplicated().Replicas = autoscale.MaxReplicas + 1
@@ -481,7 +485,7 @@ func TestManagementIntegration(t *testing.T) {
 		}
 	}
 	revoked.Store(false)
-	if _, err := startManagementAt(ctx, path, uint32(os.Getuid()), uint32(os.Getgid()), cgroup, "accepted-current", node, "sa-saopaulo-1", "test", upstream, refresh); err == nil {
+	if _, err := startManagementAt(ctx, path, uint32(os.Getuid()), uint32(os.Getgid()), cgroup, "accepted-current", node, "sa-saopaulo-1", "test", upstream, refresh, nil); err == nil {
 		t.Fatal("concurrent management server replaced active socket")
 	}
 	if err := server.Close(); err != nil {
@@ -496,7 +500,7 @@ func TestManagementIntegration(t *testing.T) {
 		{"wrong service", uint32(os.Getuid()), "/another.service"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			deniedServer, err := startManagementAt(ctx, path, test.uid, uint32(os.Getgid()), test.cgroup, "accepted-current", node, "sa-saopaulo-1", "test", upstream, refresh)
+			deniedServer, err := startManagementAt(ctx, path, test.uid, uint32(os.Getgid()), test.cgroup, "accepted-current", node, "sa-saopaulo-1", "test", upstream, refresh, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
