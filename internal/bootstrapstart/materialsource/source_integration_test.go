@@ -199,6 +199,8 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 			material.SourceRegistration.StorageDomain = bootstrap.StorageDomain{Namespace: "namespace-sfo", LedgerBucket: "sfo-ledger", HeadBucket: "sfo-1-head", LedgerKMSKeyOCID: "ocid1.key.oc1.us-sanjose-1.ledger", HeadKMSKeyOCID: "ocid1.key.oc1.us-sanjose-1.head", Prefix: "regional/sfo"}
 		}
 	}
+	// The genuine pinned founder already adopted the original generation.
+	grant.Generation = 2
 	publish()
 	verified, err := reader.AuthorizedBootstrapMaterial(t.Context(), "GRU")
 	if err != nil {
@@ -432,11 +434,11 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil || loaded.Digest() != bound.Digest() || loaded.StorageDomain() != spokeAnchor.StorageDomain() || !strings.HasPrefix(spokeSource.key, "private/bootstrap/") || strings.HasPrefix(spokeSource.key, "regional/sfo/") {
 		t.Fatalf("independent home source and regional ledger domains: %v", err)
 	}
-	grant.Generation = 2
-	grant.Regions[0].Generation = 2
-	grant.Regions[1].Generation = 2
-	intent.SourceRegistration.Generation = 2
-	spokeIntent.SourceRegistration.Generation = 2
+	grant.Generation = 3
+	grant.Regions[0].Generation = 3
+	grant.Regions[1].Generation = 3
+	intent.SourceRegistration.Generation = 3
+	spokeIntent.SourceRegistration.Generation = 3
 	publish()
 	verified, err = reader.AuthorizedBootstrapMaterial(t.Context(), "GRU")
 	if err != nil {
@@ -456,7 +458,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if _, err := restarted.Provision(t.Context(), target, &management, &bundles, verified.ExpiresAt()); err == nil {
 		t.Fatal("expired grant published material")
 	}
-	grant.Generation = 3
+	grant.Generation = 4
 	intent.Config.ValidityHours = 72
 	wire, _ = json.Marshal(intent.Config, json.Deterministic(true))
 	intent.PlanSHA256 = digestWire(wire)
@@ -470,7 +472,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if _, err := ResolveColdStartMaterial(t.Context(), changed, actor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "changed"), now); err == nil {
 		t.Fatal("same installation changed its signing source")
 	}
-	grant.Generation = 4
+	grant.Generation = 5
 	intent.Config = cfg
 	wire, _ = json.Marshal(cfg, json.Deterministic(true))
 	intent.PlanSHA256, intent.SourceRegistration = digestWire(wire), nil
@@ -483,7 +485,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if _, err := ResolveColdStartMaterial(t.Context(), wrongPin, actor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "wrong-pin"), now); err == nil || protocol.creates != 39 {
 		t.Fatal("source escrow overrode pinned ledger key")
 	}
-	grant.Generation = 5
+	grant.Generation = 6
 	pinnedLedgerWire = sourcePinnedLedger(t, private, replacement.Record(), now)
 	pinnedSlots = []string{"controller-a", "controller-b", "controller-c"}
 	publish()
