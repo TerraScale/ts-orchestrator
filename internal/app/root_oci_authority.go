@@ -137,6 +137,14 @@ func (authority *rootOCIAuthority) verifyBinary(witness *rootoci.ProcessWitness)
 }
 
 func (authority *rootOCIAuthority) authorize(request context.Context, peer nativerootoci.Peer, operation rootoci.Operation) (rootoci.Lease, error) {
+	return authority.authorizeProcess(request, peer, operation.ReadOnly())
+}
+
+func (authority *rootOCIAuthority) authorizeRuntime(request context.Context, peer nativerootoci.Peer) (rootoci.Lease, error) {
+	return authority.authorizeProcess(request, peer, false)
+}
+
+func (authority *rootOCIAuthority) authorizeProcess(request context.Context, peer nativerootoci.Peer, startupRead bool) (rootoci.Lease, error) {
 	authority.mu.Lock()
 	defer authority.mu.Unlock()
 	if authority.ctx.Err() != nil || request == nil || request.Err() != nil || peer.UID != authority.uid || peer.GID != authority.gid {
@@ -173,7 +181,7 @@ func (authority *rootOCIAuthority) authorize(request context.Context, peer nativ
 		process.runtime = true
 	}
 	if !process.runtime {
-		if !operation.ReadOnly() || !time.Now().Before(process.startupEnd) {
+		if !startupRead || !time.Now().Before(process.startupEnd) {
 			return rootoci.Lease{}, rootoci.ErrUnauthorized
 		}
 		observer, err := source.reader.RuntimeInstanceObserver(ctx, authority.accepted)
