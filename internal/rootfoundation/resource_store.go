@@ -178,8 +178,10 @@ func (s *ResourceStore) commit(ctx context.Context, record region.FoundationReco
 	}
 	journal := ociresource.ProtectedJournal{Revision: 1, Source: s.authority.Source, Resources: map[string]ociresource.ProtectedResource{}}
 	if record.OCIResources != nil {
-		journal.Revision = record.OCIResources.Revision + 1
-		journal.Resources = maps.Clone(record.OCIResources.Resources)
+		journal = *record.OCIResources
+		journal.Source = s.authority.Source
+		journal.Revision++
+		journal.Resources = maps.Clone(journal.Resources)
 		if journal.Revision == 0 {
 			return ociresource.Desired{}, errors.New("protected OCI journal revision exhausted")
 		}
