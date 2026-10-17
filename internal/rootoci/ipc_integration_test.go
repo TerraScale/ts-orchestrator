@@ -18,6 +18,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/nativerootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
+	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 )
 
 func TestRootOCIProcessExitIntegration(t *testing.T) {
@@ -66,7 +67,10 @@ func TestRootOCIProcessExitIntegration(t *testing.T) {
 // These scenarios exercise the kernel socket/process boundary. The controlled
 // reader produces no sealed domain authority and performs no provider effects.
 func TestRootOCIUnixRevocationIntegration(t *testing.T) {
-	for _, scenario := range []string{"session_cancel", "raw_sign", "unknown_member", "wrong_process", "expired", "effect_then_revoke", "backend_unknown", "retained_negative_offset", "retained_startup"} {
+	for _, scenario := range []string{
+		"session_cancel", "raw_sign", "unknown_member", "wrong_process", "expired", "effect_then_revoke", "backend_unknown",
+		"retained_negative_offset", "retained_startup", "channel_bad_role", "channel_offset_limit", "channel_startup",
+	} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
@@ -97,11 +101,14 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 					return Lease{}, ErrUnauthorized
 				}
 				expectedOperation := OperationObserveLocalInstance
-				if scenario == "retained_startup" {
+				if scenario == "retained_startup" || scenario == "channel_startup" {
 					if !operation.ReadOnly() {
 						return Lease{}, ErrUnauthorized
 					}
 					expectedOperation = OperationRetainedContainerEvidence
+					if scenario == "channel_startup" {
+						expectedOperation = OperationNativeRelease
+					}
 				}
 				if scenario == "effect_then_revoke" || scenario == "backend_unknown" {
 					expectedOperation = OperationReconcileFoundation
@@ -161,6 +168,27 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			if scenario == "channel_bad_role" || scenario == "channel_startup" {
+				input := NativeReleaseRequest{Role: "ts-auth"}
+				if scenario == "channel_bad_role" {
+					input.Role = "signer"
+				}
+				request.Operation = OperationNativeRelease
+				request.Payload, err = json.Marshal(input)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if scenario == "channel_offset_limit" {
+				request.Operation = OperationReleaseBinaryChunk
+				request.Payload, err = json.Marshal(ReleaseBinaryChunkRequest{
+					Digest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+					Offset: releasechannel.MaxServiceBinaryBytes + 1,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
 			wire, err := json.Marshal(request)
 			if err != nil {
 				t.Fatal(err)
@@ -210,7 +238,7 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 			} else {
 				var response wireResponse
 				expected := "invalid"
-				if scenario == "wrong_process" || scenario == "expired" || scenario == "retained_startup" {
+				if scenario == "wrong_process" || scenario == "expired" || scenario == "retained_startup" || scenario == "channel_startup" {
 					expected = "unauthorized"
 				}
 				if json.Unmarshal(output.Bytes(), &response) != nil || response.Status != expected || reader.calls.Load() != 0 ||
