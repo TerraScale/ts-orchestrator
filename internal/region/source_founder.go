@@ -422,7 +422,11 @@ func (actor *SourceFounder) verifyControllerExclusions(ctx context.Context) erro
 			ids[k] = v
 		}
 		prefix, _ := intent.Plan["bootstrap_object_prefix"].(string)
-		expected, err := ociregion.RequiredControllerStatements(intent.Plan, ids, prefix)
+		var homeStorage bootstrap.StorageDomain
+		if cell == "GRU" {
+			homeStorage = actor.authority.domain
+		}
+		expected, err := ociregion.RequiredStorageControllerStatements(intent.Plan, ids, prefix, homeStorage)
 		if err != nil {
 			return err
 		}

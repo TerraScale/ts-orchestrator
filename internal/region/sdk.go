@@ -37,6 +37,7 @@ func (s SDKFoundations) ReconcileFoundation(ctx context.Context, plan map[string
 	if err != nil {
 		return nil, err
 	}
+	provider.HomeStorageDomain = progress.homeStorageDomain
 	provider.OperationID, provider.BeforeWrite, provider.Checkpoint = progress.OperationID, progress.BeforeWrite, progress.Checkpoint
 	provider.AuxiliaryIDs, provider.CheckpointAuxiliary, provider.PrepareCreate = progress.AuxiliaryIDs, progress.CheckpointAuxiliary, progress.PrepareCreate
 	provider.Guard = func(ctx context.Context) error {
