@@ -33,6 +33,7 @@ type Backend struct {
 	mu      sync.RWMutex
 	journal oci.JournalReader
 	images  oci.ImageQualificationVerifier
+	bound   bool
 }
 
 var _ rootoci.Reader = (*Backend)(nil)
@@ -47,12 +48,16 @@ func New(factory *ociclient.Factory) (*Backend, error) {
 // BindFleet attaches root-owned read dependencies after the regional broker opens.
 // Its journal handle cannot create buckets or change durable ownership.
 func (b *Backend) BindFleet(journal oci.JournalReader, images oci.ImageQualificationVerifier) error {
-	if os.Geteuid() != 0 || b == nil || images == nil {
+	if os.Geteuid() != 0 || b == nil || !journal.Valid() || images == nil {
 		return ErrPending
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.bound {
+		return errors.New("root OCI fleet sources already bound")
+	}
 	b.journal, b.images = journal, images
+	b.bound = true
 	return nil
 }
 

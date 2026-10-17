@@ -11,6 +11,11 @@ import (
 // JournalReader is an opaque handle to existing durable ownership records.
 type JournalReader struct{ journal *KVJournal }
 
+// Valid reports whether the reader holds an existing durable journal.
+func (reader JournalReader) Valid() bool {
+	return reader.journal != nil && reader.journal.kv != nil
+}
+
 // OpenJournalReader never creates a bucket or repairs ownership projections.
 func OpenJournalReader(ctx context.Context, js jetstream.JetStream, replicas int) (JournalReader, error) {
 	if js == nil || replicas < 1 || replicas > 5 {
