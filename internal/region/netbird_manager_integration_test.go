@@ -358,6 +358,22 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	resolver := FoundationResolver{Footprint: reader, Store: store}
+	if _, err := VerifyNetBirdManagerRecipient(t.Context(), factory, resolver, bootstrap.VerifiedRegionalSource{}); err == nil {
+		t.Fatal("remote manager accepted an unsealed regional source")
+	}
+	remote, err := observeNetBirdRecipient(t.Context(), factory, resolver, reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remote.launch.InstanceID != idFor("instance") || remote.privateIP != manager.Profile.PrivateIP || remote.launch.OperationID != saved.NetBirdManager.OperationID ||
+		remote.storeGeneration != entityid.Derive("netbird-foundation-store", grant.InstallationID)+":1" || remote.grantDigest != reader.home.GrantSHA256 ||
+		remote.target.CompartmentID != control || !time.Now().Before(remote.expires) || remote.expires.After(now.Add(30*time.Minute)) {
+		t.Fatalf("remote SDK recipient differs from original signed authority: %+v", remote)
+	}
+	observedAgain, err := observeNetBirdRecipient(t.Context(), factory, resolver, reader)
+	if err != nil || observedAgain != remote {
+		t.Fatalf("fresh observations changed the original recipient or deadline: %v", err)
+	}
 	observer, err := bootstrapstart.NewOCIInstanceObserver(oci.RegionGRU, factory.Provider())
 	if err != nil {
 		t.Fatal(err)
@@ -382,6 +398,9 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	mu.Unlock()
 	if err := claim.Check(t.Context()); err == nil {
 		t.Fatal("actual instance image drift retained manager authority")
+	}
+	if _, err := observeNetBirdRecipient(t.Context(), factory, resolver, reader); err == nil {
+		t.Fatal("remote recipient accepted fresh SDK image drift")
 	}
 	mu.Lock()
 	observedImage = manager.ImageOCID
@@ -413,6 +432,45 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	if err != nil || !restarted.RecoveryRequired() || restarted.StoreGeneration() != claim.StoreGeneration() {
 		t.Fatalf("ready store identity was reset: %+v %v", restarted, err)
 	}
+	readyRecipient, err := observeNetBirdRecipient(t.Context(), factory, resolver, reader)
+	if err != nil || readyRecipient != remote {
+		t.Fatalf("store initialization changed the remote singleton identity or deadline: %v", err)
+	}
+	current, etag, err := store.Load(t.Context(), "GRU")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Public effect history survives the same SDK/disk CAS without authorizing
+	// a new producer or recovering an unknown policy by its mutable name.
+	pending := NetBirdBrokerPolicyRecord{Cell: "GRU", InstallationID: grant.InstallationID, GrantSHA256: remote.grantDigest,
+		SourceSHA256: digest(grant.Regions[0].NetBirdManager.ImageReceiptWire), ActorInstanceID: idFor("instance"), OperationID: current.OperationID,
+		Epoch: current.Epoch, IntentDigest: current.IntentDigest, InstanceID: remote.launch.InstanceID, PrivateIP: remote.privateIP,
+		StoreGeneration: remote.storeGeneration, ManagerVaultTarget: remote.target, VaultTarget: remote.target,
+		SecretName: "gru-1-netbird-broker", SecretID: idFor("vaultsecret"), FirstAttemptAt: now, ExpiresAt: remote.expires,
+		Dispatches: 1, LastDispatchedAt: now, Uncertain: true}
+	key := netBirdBrokerPolicyKey(pending.InstanceID, pending.SecretID)
+	pending.Request = netBirdBrokerPolicyRequest(pending)
+	wire, err := json.Marshal(pending.Request, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending.RequestDigest = digest(wire)
+	pending.RetryToken = digest([]byte(pending.OperationID + "\x00" + key + "\x00" + pending.RequestDigest))
+	current.NetBirdBrokerPolicies = map[string]NetBirdBrokerPolicyRecord{key: pending}
+	if _, err := store.CompareAndSwap(t.Context(), current, etag); err != nil {
+		t.Fatal(err)
+	}
+	current, etag, err = store.Load(t.Context(), "GRU")
+	if err != nil || !current.NetBirdBrokerPolicies[key].Uncertain || current.NetBirdBrokerPolicies[key].RetryToken != pending.RetryToken ||
+		!current.NetBirdBrokerPolicies[key].ExpiresAt.Equal(remote.expires) || current.NetBirdManager.StoreState != "ready" {
+		t.Fatalf("restart lost original unknown IAM outcome or manager sibling: %v", err)
+	}
+	widened := current.NetBirdBrokerPolicies[key]
+	widened.Request.Statements = append(widened.Request.Statements, "Allow any-user to read secret-bundles in tenancy")
+	current.NetBirdBrokerPolicies[key] = widened
+	if _, err := store.CompareAndSwap(t.Context(), current, etag); err == nil {
+		t.Fatal("widened NetBird broker read policy entered protected history")
+	}
 	grant.Regions[0].NetBirdManager = nil
 	publish()
 	if err := claim.Check(t.Context()); err == nil {
@@ -420,5 +478,8 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	}
 	if err := claim.MarkStoreReady(t.Context()); err == nil {
 		t.Fatal("revoked manager mutated store journal")
+	}
+	if _, err := observeNetBirdRecipient(t.Context(), factory, resolver, reader); err == nil {
+		t.Fatal("revoked signed role retained remote recipient authority")
 	}
 }
