@@ -219,6 +219,7 @@ func (authority *rootOCIAuthority) authorize(request context.Context, peer nativ
 	}
 	worker := identity.Identity()
 	return rootoci.Lease{Context: process.lease, Deadline: earlier(identity.ExpiresAt(), currentAuthority.ExpiresAt()),
+		RuntimeID: entityid.Derive("controller-runtime", process.witness.Binding()),
 		Binding: fmt.Sprintf("%s:runtime:%s:%d:%s", process.witness.Binding(), worker.HostSessionID,
 			worker.RegistrationGeneration, currentAuthority.Anchor().Digest())}, nil
 }
