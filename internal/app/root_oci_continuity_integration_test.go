@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -38,16 +39,7 @@ func TestRootOCICallerContinuity(t *testing.T) {
 	admission := &continuityAdmission{expires: time.Now().Add(2 * time.Minute)}
 	defer admission.close()
 	pool := &continuityPool{}
-	service, err := rootoci.NewService(rootoci.Backends{
-		Readers: &continuityReader{}, Capacity: pool,
-		Foundations: &struct{ rootoci.Foundation }{}, Credentials: &struct{ rootoci.Credentials }{},
-		NetBird: &struct{ rootoci.NetBird }{}, Releases: &struct{ rootoci.Releases }{},
-		Volumes: &struct{ rootoci.VolumeReader }{}, Workloads: &struct{ rootoci.WorkloadCredentials }{},
-		Backups: &struct{ rootoci.VolumeBackups }{}, ContainerMaterial: &struct{ rootoci.ContainerMaterial }{},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	service := newContinuityService(t, pool)
 	listener, err := rootoci.Listen(ctx, service, admission.authorize, 65534)
 	if err != nil {
 		t.Fatal(err)
@@ -108,6 +100,75 @@ func TestRootOCICallerContinuity(t *testing.T) {
 	if _, err := root.AdvancePoolChild(ctx, continuityExpectation()); err == nil || pool.count() != 2 {
 		t.Fatal("RootCall provided admitted caller authority", err)
 	}
+}
+
+func TestRootOCICallerDisconnectCancelsOriginalCall(t *testing.T) {
+	if os.Getenv("TS_ROOT_OCI_CONTINUITY_NAMESPACE") != "1" {
+		runRootOCIContinuityNamespace(t)
+		return
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 25*time.Second)
+	defer cancel()
+	admission := &continuityAdmission{expires: time.Now().Add(2 * time.Minute)}
+	defer admission.close()
+	pool := &continuityPool{entered: make(chan struct{}), release: make(chan struct{}), canceled: make(chan struct{}), finished: make(chan struct{})}
+	release := sync.OnceFunc(func() { close(pool.release) })
+	service := newContinuityService(t, pool)
+	listener, err := rootoci.Listen(ctx, service, admission.authorize, 65534)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	defer release()
+	child := startRootOCIContinuityChild(t, ctx)
+	admission.admit(t, t.Context(), child.command.Process.Pid)
+	if _, err := io.WriteString(child.input, "cancel\n"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-pool.entered:
+	case <-ctx.Done():
+		t.Fatal("request did not reach the recording boundary", ctx.Err())
+	}
+	if _, err := io.WriteString(child.input, "cancel-now\n"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-pool.canceled:
+	case <-ctx.Done():
+		t.Fatal("peer disconnect did not cancel the original backend context", ctx.Err())
+	}
+	release()
+	select {
+	case <-pool.finished:
+	case <-ctx.Done():
+		t.Fatal("canceled backend did not finish its final guard", ctx.Err())
+	}
+	if result := child.receive(t); result.Error == "" || !result.OutcomeUnknown || pool.count() != 0 {
+		t.Fatal("canceled request reached a recording effect or lost its unknown outcome", result)
+	}
+	if _, err := io.WriteString(child.input, "observe\n"); err != nil {
+		t.Fatal(err)
+	}
+	if result := child.receive(t); result.Error != "" || pool.count() != 0 {
+		t.Fatal("request cancellation revoked its still-live source or replayed an effect", result)
+	}
+	child.close(t)
+}
+
+func newContinuityService(t *testing.T, pool *continuityPool) *rootoci.Service {
+	t.Helper()
+	service, err := rootoci.NewService(rootoci.Backends{
+		Readers: &continuityReader{}, Capacity: pool,
+		Foundations: &struct{ rootoci.Foundation }{}, Credentials: &struct{ rootoci.Credentials }{},
+		NetBird: &struct{ rootoci.NetBird }{}, Releases: &struct{ rootoci.Releases }{},
+		Volumes: &struct{ rootoci.VolumeReader }{}, Workloads: &struct{ rootoci.WorkloadCredentials }{},
+		Backups: &struct{ rootoci.VolumeBackups }{}, ContainerMaterial: &struct{ rootoci.ContainerMaterial }{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return service
 }
 
 type continuityAdmission struct {
@@ -186,6 +247,8 @@ type continuityPool struct {
 	original         string
 	effects          int
 	entered, release chan struct{}
+	canceled         chan struct{}
+	finished         chan struct{}
 }
 
 func (p *continuityPool) count() int {
@@ -196,6 +259,9 @@ func (p *continuityPool) count() int {
 
 // The recording effect is test-only; no SDK, accepted birth or saved wire is minted.
 func (p *continuityPool) AdvancePoolChild(ctx context.Context, call rootoci.Call, _ rootoci.PoolChildExpectation) (rootoci.PoolChildView, error) {
+	if p.finished != nil {
+		defer close(p.finished)
+	}
 	digest, expires, err := call.AuthorityBindingSHA256(ctx)
 	if err != nil {
 		return rootoci.PoolChildView{}, err
@@ -214,6 +280,10 @@ func (p *continuityPool) AdvancePoolChild(ctx context.Context, call rootoci.Call
 		select {
 		case <-release:
 		case <-ctx.Done():
+			if p.canceled != nil {
+				close(p.canceled)
+				<-release
+			}
 		}
 	}
 	if err := call.Guard(ctx); err != nil {
@@ -238,8 +308,9 @@ func continuityExpectation() rootoci.PoolChildExpectation {
 }
 
 type continuityReply struct {
-	View  rootoci.PoolChildView
-	Error string
+	View           rootoci.PoolChildView
+	Error          string
+	OutcomeUnknown bool
 }
 
 type continuityChild struct {
@@ -306,25 +377,58 @@ func runRootOCIContinuityChild(t *testing.T) {
 	}
 	commands := bufio.NewScanner(os.Stdin)
 	for commands.Scan() {
-		if commands.Text() != "advance" {
+		operation := commands.Text()
+		client := rootoci.NewClient(rootoci.Expectations{Cell: "GRU", Epoch: 1})
+		var view rootoci.PoolChildView
+		var err error
+		switch operation {
+		case "advance":
+			view, err = client.AdvancePoolChild(t.Context(), continuityExpectation())
+		case "observe":
+			_, err = client.Inventory(t.Context())
+		case "cancel":
+			ctx, cancel := context.WithCancel(t.Context())
+			done := make(chan continuityReply, 1)
+			go func() {
+				view, err := client.AdvancePoolChild(ctx, continuityExpectation())
+				result := continuityReply{View: view, OutcomeUnknown: errors.Is(err, rootoci.ErrOutcomeUnknown)}
+				if err != nil {
+					result.Error = err.Error()
+				}
+				done <- result
+			}()
+			valid := commands.Scan() && commands.Text() == "cancel-now"
+			cancel()
+			result := <-done
+			_ = client.Close()
+			if !valid {
+				t.Fatal("cancellation command unavailable")
+			}
+			writeContinuityReply(t, result)
+			continue
+		default:
+			_ = client.Close()
 			t.Fatal("invalid fixture command")
 		}
-		client := rootoci.NewClient(rootoci.Expectations{Cell: "GRU", Epoch: 1})
-		view, err := client.AdvancePoolChild(t.Context(), continuityExpectation())
 		_ = client.Close()
 		result := continuityReply{View: view}
 		if err != nil {
 			result.Error = err.Error()
 		}
-		wire, err := json.Marshal(result)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := fmt.Fprintln(os.Stdout, string(wire)); err != nil {
-			t.Fatal(err)
-		}
+		writeContinuityReply(t, result)
 	}
 	if err := commands.Err(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeContinuityReply(t *testing.T, result continuityReply) {
+	t.Helper()
+	wire, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fmt.Fprintln(os.Stdout, string(wire)); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -339,9 +443,9 @@ func runRootOCIContinuityNamespace(t *testing.T) {
 mount --make-rprivate /
 mount -t tmpfs -o mode=0755 tmpfs /run
 install -o 0 -g 0 -m 0755 "$1" /run/continuity.test
-TS_ROOT_OCI_CONTINUITY_NAMESPACE=1 exec /run/continuity.test -test.v -test.run='^TestRootOCICallerContinuity$' -test.timeout=30s
+TS_ROOT_OCI_CONTINUITY_NAMESPACE=1 exec /run/continuity.test -test.v -test.run="^$2$" -test.timeout=30s
 `
-	args := []string{"unshare", "--mount", "--fork", "--kill-child=SIGKILL", "--", "/bin/sh", "-c", script, "ts-caller-continuity", self}
+	args := []string{"unshare", "--mount", "--fork", "--kill-child=SIGKILL", "--", "/bin/sh", "-c", script, "ts-caller-continuity", self, t.Name()}
 	if os.Geteuid() != 0 {
 		args = append([]string{"sudo", "-n"}, args...)
 	}
@@ -350,7 +454,7 @@ TS_ROOT_OCI_CONTINUITY_NAMESPACE=1 exec /run/continuity.test -test.v -test.run='
 	if err != nil {
 		t.Fatalf("isolated caller continuity fixture: %v\n%s", err, output)
 	}
-	if !bytes.Contains(output, []byte("--- PASS: TestRootOCICallerContinuity")) {
+	if !bytes.Contains(output, []byte("--- PASS: "+t.Name())) {
 		t.Fatal("isolated continuity fixture did not report its root result")
 	}
 	t.Log(string(output))
