@@ -122,13 +122,13 @@ func LoadNetBirdBrokerSourceForOperation(ctx, originalCtx context.Context, facto
 	if err != nil || home.TenancyID != documents.TenancyID || home.StorageDomain.Namespace != documents.Namespace {
 		return result, ErrDelivery
 	}
-	material, err := result.resolver.BootstrapMaterial(ctx, cell)
+	material, err := result.resolver.BootstrapMaterialForOperation(ctx, originalCtx, cell)
 	if err != nil || !bytes.Equal(material.FoundationGrantWire(), documents.GrantWire) {
 		return result, ErrDelivery
 	}
 	ctx, cancelMaterial := context.WithDeadline(ctx, material.ExpiresAt())
 	defer cancelMaterial()
-	template, err := bootstrap.VerifyBoundRegionalStartupTemplate(ctx, factory, documents.GrantWire, snapshot.Roots(), anchor, oci.Region(cell), time.Now().UTC())
+	template, err := bootstrap.VerifyBoundRegionalStartupTemplateForOperation(ctx, originalCtx, factory, documents.GrantWire, snapshot.Roots(), anchor, oci.Region(cell), time.Now().UTC())
 	if err != nil || template.Template().ControllerConfigDerivation != bootstrap.ControllerConfigDerivationV2 {
 		return result, ErrDelivery
 	}
