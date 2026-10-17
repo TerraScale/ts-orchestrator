@@ -303,7 +303,11 @@ func netBirdManagerRules() ([]core.IngressSecurityRule, []core.EgressSecurityRul
 		ingress = append(ingress, core.IngressSecurityRule{Source: new("0.0.0.0/0"), SourceType: core.IngressSecurityRuleSourceTypeCidrBlock, Protocol: new("6"), IsStateless: new(false), TcpOptions: &core.TcpOptions{DestinationPortRange: &core.PortRange{Min: new(port), Max: new(port)}}})
 	}
 	ingress = append(ingress, core.IngressSecurityRule{Source: new("0.0.0.0/0"), SourceType: core.IngressSecurityRuleSourceTypeCidrBlock, Protocol: new("17"), IsStateless: new(false), UdpOptions: &core.UdpOptions{DestinationPortRange: &core.PortRange{Min: new(3478), Max: new(3478)}}})
-	egress := []core.EgressSecurityRule{{Destination: new("0.0.0.0/0"), DestinationType: core.EgressSecurityRuleDestinationTypeCidrBlock, Protocol: new("6"), IsStateless: new(false), TcpOptions: &core.TcpOptions{DestinationPortRange: &core.PortRange{Min: new(443), Max: new(443)}}}}
+	egress := []core.EgressSecurityRule{
+		{Destination: new("0.0.0.0/0"), DestinationType: core.EgressSecurityRuleDestinationTypeCidrBlock, Protocol: new("6"), IsStateless: new(false), TcpOptions: &core.TcpOptions{DestinationPortRange: &core.PortRange{Min: new(443), Max: new(443)}}},
+		// NetBird peers advertise dynamic UDP ports; stateful egress admits replies and STUN.
+		{Destination: new("0.0.0.0/0"), DestinationType: core.EgressSecurityRuleDestinationTypeCidrBlock, Protocol: new("17"), IsStateless: new(false)},
+	}
 	for _, protocol := range []string{"6", "17"} {
 		rule := core.EgressSecurityRule{Destination: new("169.254.169.254/32"), DestinationType: core.EgressSecurityRuleDestinationTypeCidrBlock, Protocol: new(protocol), IsStateless: new(false)}
 		if protocol == "6" {
