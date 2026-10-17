@@ -16,6 +16,21 @@ type requestGuardKey struct{}
 // WithRequestGuard rechecks a root IPC session immediately before every wire
 // attempt, including read retries. It does not confer cloud mutation authority.
 func WithRequestGuard(ctx context.Context, guard func(context.Context) error) context.Context {
+	if previous, ok := ctx.Value(requestGuardKey{}).(func(context.Context) error); ok {
+		next := guard
+		guard = func(ctx context.Context) error {
+			if previous == nil || next == nil {
+				return errors.New("OCI request session is unavailable")
+			}
+			if err := previous(ctx); err != nil {
+				return err
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			return next(ctx)
+		}
+	}
 	return context.WithValue(ctx, requestGuardKey{}, guard)
 }
 

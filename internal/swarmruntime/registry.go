@@ -24,7 +24,8 @@ type RegistryAdmission struct {
 	Scope                          ociregistry.PullScope
 	Secret                         ociregistry.PullSecret
 	Claim                          ociregistry.PullClaim
-	// VerifyCurrent rechecks retained task and finite authority after Vault work.
+	Deadline                       time.Time
+	// VerifyCurrent rechecks the captured task and authority before each Vault dispatch and afterward.
 	VerifyCurrent func(context.Context) error
 }
 
@@ -61,6 +62,15 @@ func NewOCIRegistryResolver(factory *ociclient.Factory, lookup func(context.Cont
 			spec.Image != admitted.Scope.RegistryHost+"/"+admitted.Scope.Repository+"@"+admitted.Scope.Digest {
 			return nil, errors.New("registry release does not match current task and admitted node")
 		}
+		if admitted.Deadline.IsZero() || !time.Now().Before(admitted.Deadline) {
+			return nil, errors.New("registry release admission expired")
+		}
+		ctx, cancel := context.WithDeadline(ctx, admitted.Deadline)
+		defer cancel()
+		if err := admitted.VerifyCurrent(ctx); err != nil {
+			return nil, err
+		}
+		ctx = ociclient.WithRequestGuard(ctx, admitted.VerifyCurrent)
 		credentials, err := secrets.Resolve(ctx, admitted.Claim, admitted.Scope, admitted.Secret)
 		if err != nil {
 			return nil, errors.New("registry Vault credential unavailable")

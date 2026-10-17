@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
@@ -13,7 +14,7 @@ import (
 )
 
 func (s *Service) processContainer(ctx context.Context, wire []byte, intent Intent, actor, fingerprint string, entry *operationValue) (bool, error) {
-	if s.config.ContainerApply == nil {
+	if s.config.ContainerApply == nil || s.config.CaptureContainerProfile == nil {
 		if entry != nil {
 			return false, stageDeliveryError("container_apply", errors.New("container admission is unavailable"))
 		}
@@ -31,6 +32,17 @@ func (s *Service) processContainer(ctx context.Context, wire []byte, intent Inte
 	op := operation{Intent: intent.Clone(), Fingerprint: fingerprint, Actor: actor}
 	var revision uint64
 	if entry == nil {
+		reference, err := s.config.CaptureContainerProfile(ctx, intent.Clone())
+		if err != nil {
+			return false, stageDeliveryError("container_profile", err)
+		}
+		if !validContainerProfileRecord(reference) {
+			return false, stageDeliveryError("container_profile", ErrPending)
+		}
+		op.ProfileRecord = reference
+		if err := s.config.Fencer.Guard(ctx, intent.AuthorityEpoch); err != nil {
+			return false, stageDeliveryError("container_guard", err)
+		}
 		data, err := json.Marshal(op)
 		if err != nil {
 			return false, err
@@ -51,6 +63,9 @@ func (s *Service) processContainer(ctx context.Context, wire []byte, intent Inte
 	}
 	if op.Intent.OperationID != intent.OperationID || op.Fingerprint != fingerprint || op.Actor != actor {
 		return s.reject(ctx, wire, "operation ID already binds a different request")
+	}
+	if !validContainerProfileRecord(op.ProfileRecord) {
+		return false, stageDeliveryError("container_profile", ErrPending)
 	}
 	if op.Receipt != nil {
 		return true, nil
@@ -122,7 +137,36 @@ func (s *Service) RetainedContainerIntent(ctx context.Context, operationID strin
 	return op.Intent.Clone(), nil
 }
 
+// ContainerProvenance returns descriptive original bytes, including held records.
+// It proves neither execution nor current actor/release authority.
+func (s *Service) ContainerProvenance(ctx context.Context, operationID string) (Intent, string, error) {
+	op, err := s.containerProvenanceRecord(ctx, operationID)
+	if err != nil {
+		return Intent{}, "", err
+	}
+	if !validContainerProfileRecord(op.ProfileRecord) {
+		return Intent{}, "", ErrPending
+	}
+	return op.Intent.Clone(), op.ProfileRecord, nil
+}
+
+func validContainerProfileRecord(reference string) bool {
+	digest, ok := strings.CutPrefix(reference, "profile.")
+	return ok && sha256RE.MatchString(digest)
+}
+
 func (s *Service) containerIntentRecord(ctx context.Context, operationID string) (operation, error) {
+	op, err := s.containerProvenanceRecord(ctx, operationID)
+	if err != nil {
+		return operation{}, err
+	}
+	if op.Receipt != nil && op.Receipt.Status != "accepted" {
+		return operation{}, fmt.Errorf("%w: container operation is %s", ErrUnauthorized, op.Receipt.Status)
+	}
+	return op, nil
+}
+
+func (s *Service) containerProvenanceRecord(ctx context.Context, operationID string) (operation, error) {
 	if s == nil || !entityid.Valid(operationID) {
 		return operation{}, ErrInvalid
 	}
@@ -137,9 +181,6 @@ func (s *Service) containerIntentRecord(ctx context.Context, operationID string)
 	fingerprint, err := op.Intent.Fingerprint()
 	if err != nil || op.Intent.Container == nil || op.Intent.OperationID != operationID || fingerprint != op.Fingerprint || op.Actor == "" || op.Intent.Cell != s.config.Cell {
 		return operation{}, ErrConflict
-	}
-	if op.Receipt != nil && op.Receipt.Status != "accepted" {
-		return operation{}, fmt.Errorf("%w: container operation is %s", ErrUnauthorized, op.Receipt.Status)
 	}
 	return op, nil
 }

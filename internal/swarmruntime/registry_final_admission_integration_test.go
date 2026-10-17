@@ -15,7 +15,9 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	ociregistry "github.com/TerraScale/ts-orchestrator/internal/ociregion/registry"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/ociresourcetest"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
@@ -29,6 +31,7 @@ func TestRegistryResolverRequiresCurrentAdmissionAfterVault(t *testing.T) {
 	owned := ociregistry.PullSecret{RegistryHost: "gru.ocir.io", Repository: "namespace/terrascale/auth",
 		Ref: vaultsecret.Ref{Vault: "ocid1.vault.oc1.sa-saopaulo-1.owned", Name: "gru-orch-ocir-auth-pull"}}
 	var reads atomic.Int32
+	var rejectNext, waitNext atomic.Bool
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/20190301/secretbundles/actions/getByName" ||
 			r.URL.Query().Get("secretName") != owned.Ref.Name || r.URL.Query().Get("vaultId") != owned.Ref.Vault || r.URL.Query().Get("stage") != "CURRENT" ||
@@ -38,7 +41,19 @@ func TestRegistryResolverRequiresCurrentAdmissionAfterVault(t *testing.T) {
 			return
 		}
 		reads.Add(1)
+		if waitNext.Swap(false) {
+			<-r.Context().Done()
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
+		if rejectNext.Swap(false) {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			if err := json.MarshalWrite(w, map[string]string{"code": "TooManyRequests", "message": "retry admission"}); err != nil {
+				t.Error(err)
+			}
+			return
+		}
 		if err := json.MarshalWrite(w, map[string]any{"secretId": secretID, "versionNumber": 1,
 			"secretBundleContent": map[string]string{"contentType": "BASE64", "content": base64.StdEncoding.EncodeToString([]byte(credential))}}); err != nil {
 			t.Error(err)
@@ -76,23 +91,52 @@ func TestRegistryResolverRequiresCurrentAdmissionAfterVault(t *testing.T) {
 		ServiceAnnotations: api.Annotations{Labels: map[string]string{LabelEnvironment: "production", LabelRegion: "sa-saopaulo-1", LabelIntentID: scope.TaskPrincipal}}}
 	node := &api.Node{ID: task.NodeID, Spec: api.NodeSpec{Annotations: api.Annotations{Labels: map[string]string{LabelRegion: "sa-saopaulo-1"}}}}
 	stale := errors.New("task admission changed during Vault read")
-	for _, name := range []string{"missing final guard", "current admission", "stale after Vault", "cancelled after Vault"} {
+	for _, name := range []string{"missing final guard", "missing deadline", "expired deadline", "current admission", "stale before Vault", "stale at dispatch", "stale on retry", "stale after Vault", "cancelled after Vault", "expiry during dispatch guard", "expiry during Vault", "existing guard rejects", "nil existing guard"} {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			before := reads.Load()
-			called := false
-			admission := &RegistryAdmission{ServiceID: task.ServiceID, Environment: "production", Region: "sa-saopaulo-1", Scope: scope, Secret: owned, Claim: claim}
+			called := 0
+			originalCalls := 0
+			deadline := time.Now().Add(time.Minute)
+			switch name {
+			case "missing deadline":
+				deadline = time.Time{}
+			case "expired deadline":
+				deadline = time.Now().Add(-time.Second)
+			case "expiry during dispatch guard", "expiry during Vault":
+				deadline = time.Now().Add(time.Second)
+			}
+			rejectNext.Store(name == "stale on retry")
+			waitNext.Store(name == "expiry during Vault")
+			ctx = ociclient.WithRequestGuard(ctx, func(ctx context.Context) error {
+				originalCalls++
+				if name == "existing guard rejects" {
+					return stale
+				}
+				return ctx.Err()
+			})
+			if name == "nil existing guard" {
+				ctx = ociclient.WithRequestGuard(ctx, nil)
+			}
+			admission := &RegistryAdmission{ServiceID: task.ServiceID, Environment: "production", Region: "sa-saopaulo-1", Scope: scope, Secret: owned, Claim: claim, Deadline: deadline}
 			if name != "missing final guard" {
 				admission.VerifyCurrent = func(ctx context.Context) error {
-					called = true
-					if ctx.Err() != nil || reads.Load() != before+1 {
-						t.Fatal("final guard did not receive live outer context after Vault read")
+					called++
+					current, ok := ctx.Deadline()
+					shortOriginal := name == "expiry during dispatch guard" || name == "expiry during Vault"
+					if !ok || current.After(deadline) || shortOriginal && !current.Equal(deadline) || ctx.Err() != nil {
+						t.Error("Vault guard lost original context deadline or cancellation")
+						return errors.New("Vault guard context changed")
 					}
-					if name == "stale after Vault" {
+					if name == "expiry during dispatch guard" && called == 2 {
+						<-ctx.Done()
+						return nil
+					}
+					if name == "stale before Vault" || name == "stale at dispatch" && called == 2 || name == "stale on retry" && called == 3 || name == "stale after Vault" && reads.Load() == before+1 {
 						return stale
 					}
-					if name == "cancelled after Vault" {
+					if name == "cancelled after Vault" && reads.Load() == before+1 {
 						cancel()
 					}
 					return nil
@@ -106,21 +150,33 @@ func TestRegistryResolverRequiresCurrentAdmissionAfterVault(t *testing.T) {
 			}
 			result, err := resolver(ctx, task, node)
 			switch name {
-			case "missing final guard":
-				if err == nil || result != nil || reads.Load() != before || called {
-					t.Fatal("missing final guard reached Vault or published resolver")
+			case "missing final guard", "missing deadline", "expired deadline":
+				if err == nil || result != nil || reads.Load() != before || called != 0 || originalCalls != 0 {
+					t.Fatal("missing or expired original admission reached Vault or published resolver")
 				}
 			case "current admission":
-				if err != nil || result == nil || !called {
-					t.Fatalf("current post-Vault admission rejected: %v", err)
+				if err != nil || result == nil || called != 3 || originalCalls != 1 || reads.Load() != before+1 {
+					t.Fatalf("current Vault admission lost original or current guards: %v", err)
 				}
 			case "stale after Vault":
-				if !errors.Is(err, stale) || result != nil || !called {
+				if !errors.Is(err, stale) || result != nil || called != 3 || reads.Load() != before+1 {
 					t.Fatalf("stale post-Vault admission published resolver: %v", err)
 				}
 			case "cancelled after Vault":
-				if !errors.Is(err, context.Canceled) || result != nil || !called {
+				if !errors.Is(err, context.Canceled) || result != nil || called != 3 || reads.Load() != before+1 {
 					t.Fatalf("cancelled post-Vault admission published resolver: %v", err)
+				}
+			case "stale on retry":
+				if err == nil || result != nil || called != 3 || originalCalls != 2 || reads.Load() != before+1 {
+					t.Fatalf("retry lost original guards or repeated refused Vault request: %v", err)
+				}
+			case "expiry during Vault":
+				if err == nil || result != nil || called != 2 || reads.Load() != before+1 {
+					t.Fatalf("delayed Vault read outlived original admission: %v", err)
+				}
+			default:
+				if err == nil || result != nil || reads.Load() != before || called == 0 {
+					t.Fatalf("stale original admission reached actual Vault dispatch: %v", err)
 				}
 			}
 		})

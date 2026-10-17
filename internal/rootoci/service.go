@@ -121,6 +121,9 @@ func (service *Service) validRequest(request wireRequest) bool {
 	case OperationReconcileOrchestratorStatus:
 		var input OrchestratorStatusRequest
 		return decodePayload(request.Payload, &input) == nil && validDigest(input.ExpectedChannelSHA256)
+	case OperationContainerRelease:
+		var input ContainerReleaseRequest
+		return decodePayload(request.Payload, &input) == nil && input.Valid()
 	case OperationNativeRelease:
 		var input NativeReleaseRequest
 		return decodePayload(request.Payload, &input) == nil && validNativeRole(input.Role)
@@ -282,6 +285,19 @@ func (service *Service) dispatch(ctx context.Context, call Call, request wireReq
 			return nil, ErrUnavailable
 		}
 		return receipt, nil
+	case OperationContainerRelease:
+		var input ContainerReleaseRequest
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		observation, err := service.backends.Releases.ContainerRelease(ctx, call, input)
+		if err != nil {
+			return nil, err
+		}
+		if !validResponseExpiry(observation.ExpiresAt, call) || !observation.Valid(input, time.Now()) {
+			return nil, ErrUnavailable
+		}
+		return observation, nil
 	case OperationNativeRelease:
 		var input NativeReleaseRequest
 		if err := decodePayload(request.Payload, &input); err != nil {

@@ -19,6 +19,7 @@ const (
 // ChannelReleases reads finite release documents and derives telemetry from root's
 // own retained history. Requests only narrow independently observed authority.
 type ChannelReleases interface {
+	ContainerRelease(context.Context, Call, ContainerReleaseRequest) (ContainerReleaseObservation, error)
 	ReconcileOrchestratorStatus(context.Context, Call, OrchestratorStatusRequest) (OrchestratorStatusReceipt, error)
 	NativeRelease(context.Context, Call, NativeReleaseRequest) (NativeReleaseObservation, error)
 	ReleaseBinaryChunk(context.Context, Call, ReleaseBinaryChunkRequest) (ReleaseBinaryChunk, error)

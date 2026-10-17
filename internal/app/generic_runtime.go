@@ -27,16 +27,17 @@ import (
 )
 
 type genericRuntimeConfig struct {
-	Client        api.ControlClient
-	ManagerID     string
-	Authority     authority.Fencer
-	Specs         *specRegistry
-	Delivery      *delivery.Service
-	Factory       *ociclient.Factory
-	Evidence      func(context.Context, string, string) (io.ReadCloser, error)
-	Probe         func(context.Context, *api.Task) error
-	SessionGuard  func(context.Context) error
-	RetainedFloor func(context.Context, string, string) (release.SequenceFloor, error)
+	Client          api.ControlClient
+	ManagerID       string
+	Authority       authority.Fencer
+	Specs           *specRegistry
+	Delivery        *delivery.Service
+	OriginalProfile func(context.Context, delivery.Intent) ([]byte, error)
+	Factory         *ociclient.Factory
+	Evidence        func(context.Context, string, string) (io.ReadCloser, error)
+	Probe           func(context.Context, *api.Task) error
+	SessionGuard    func(context.Context) error
+	RetainedFloor   func(context.Context, string, string) (release.SequenceFloor, error)
 }
 
 type genericRuntime struct {
@@ -53,7 +54,7 @@ type genericRuntime struct {
 }
 
 func newGenericRuntime(config genericRuntimeConfig, signals autoscale.Source) (*genericRuntime, error) {
-	if config.Client == nil || config.ManagerID == "" || config.Authority == nil || config.Specs == nil || config.Specs.kv == nil || config.Specs.roots == nil || config.Delivery == nil || config.Factory == nil || config.Evidence == nil || config.Probe == nil || config.RetainedFloor == nil || config.SessionGuard == nil {
+	if config.Client == nil || config.ManagerID == "" || config.Authority == nil || config.Specs == nil || config.Specs.kv == nil || config.Specs.roots == nil || config.Delivery == nil || config.Factory == nil || config.Evidence == nil || config.Probe == nil || config.RetainedFloor == nil || config.SessionGuard == nil || config.OriginalProfile == nil {
 		return nil, errors.New("generic runtime requires current signed service, release, manager and recipient authority")
 	}
 	runtime := &genericRuntime{config: config, owned: map[string]bool{}, releases: map[string]string{}}
@@ -135,7 +136,7 @@ func (runtime *genericRuntime) apply(ctx context.Context, intent delivery.Intent
 	if err != nil {
 		return err
 	}
-	guard := func(ctx context.Context) error {
+	profileGuard := func(ctx context.Context) error {
 		latest, err := config.Specs.kv.Get(ctx, cellSpecKey)
 		if err != nil {
 			return err
@@ -146,6 +147,12 @@ func (runtime *genericRuntime) apply(ctx context.Context, intent delivery.Intent
 		if adopted != revision || latest.Revision() != revision || !bytes.Equal(latest.Value(), entry.Value()) || config.Specs.roots.reply("").Head != head {
 			return containermaterial.ErrPending
 		}
+		return nil
+	}
+	guard := func(ctx context.Context) error {
+		if err := profileGuard(ctx); err != nil {
+			return err
+		}
 		confirmed, err := config.Delivery.ContainerIntent(ctx, intent.OperationID)
 		if err != nil {
 			return err
@@ -153,6 +160,20 @@ func (runtime *genericRuntime) apply(ctx context.Context, intent delivery.Intent
 		current, err := confirmed.Fingerprint()
 		if err != nil || current != fingerprint {
 			return containermaterial.ErrPending
+		}
+		originalWire, err := config.OriginalProfile(ctx, confirmed)
+		if err != nil {
+			return err
+		}
+		original, err := containermaterial.VerifyProfile(originalWire, config.Specs.roots.historical(), config.Specs.identity, confirmed)
+		if err != nil {
+			return err
+		}
+		if err := containermaterial.VerifyRuntimePolicy(original, proof); err != nil {
+			return err
+		}
+		if err := profileGuard(ctx); err != nil {
+			return err
 		}
 		if err := config.SessionGuard(ctx); err != nil {
 			return err

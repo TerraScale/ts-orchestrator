@@ -89,6 +89,7 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	profile := WorkloadProfile{Resources: placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 1 << 30}}
 	policy := workload.ServiceSpec{Role: "api", Environment: identity.Environment, Kind: workload.KindStateless,
 		Replicas: workload.ReplicaBounds{Min: 1, Max: 4}, Scaling: &autoscale.Policy{Signals: []autoscale.Signal{{Name: autoscale.SignalCPUUtilization, Target: 0.5}}}}
+	originalPolicy := policy
 	adopt := func(generation uint64, services []cellspec.Service) {
 		t.Helper()
 		file := keys.signRoot(t, t.TempDir(), cellspec.Spec{Schema: cellspec.Schema, Identity: identity, Generation: generation,
@@ -276,7 +277,7 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	writer := new(genericRuntimeLegacyWriter)
 	var firstApplyError sync.Once
 	deliveries, err = delivery.Open(ctx, delivery.Config{Conn: broker.Conn(), JS: broker.JetStream(), Cell: identity.Cell, Replicas: 1,
-		Signer: codec, Verifier: codec, Fencer: fencer, Writer: writer,
+		Signer: codec, Verifier: codec, Fencer: fencer, Writer: writer, CaptureContainerProfile: history.CaptureContainerProfile,
 		Authorize: func(_ context.Context, actor string, proposed delivery.Intent) error {
 			if actor != "release" || proposed.Role != policy.Role || proposed.Environment != identity.Environment {
 				return delivery.ErrUnauthorized
@@ -292,9 +293,10 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	history.deliveries = deliveries
 	signals := autoscale.NewWindowStore(0, 0)
 	controller, err = newGenericRuntime(genericRuntimeConfig{Client: client, ManagerID: manager.ID(), Authority: fencer, Specs: specs,
-		Delivery: deliveries, Factory: signer.factory, Evidence: func(ctx context.Context, _ string, digest string) (io.ReadCloser, error) {
+		Delivery: deliveries, OriginalProfile: history.originalContainerProfile, Factory: signer.factory, Evidence: func(ctx context.Context, _ string, digest string) (io.ReadCloser, error) {
 			return evidence(ctx, digest)
 		}, Probe: probe, RetainedFloor: history.retainedContainerFloor, SessionGuard: session.verify}, signals)
 	if err != nil {
@@ -711,7 +713,44 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	if err != nil || len(durableFloors.Configs) == 0 {
 		t.Fatal("actual election lost durable release ordering", err)
 	}
-	adopt(4, nil)
+	adopt(4, []cellspec.Service{{Role: originalPolicy.Role, Profile: profile, Spec: &originalPolicy}})
+	beforeRefusal, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: serviceID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	readOriginal := controller.config.OriginalProfile
+	originalReads := 0
+	changedProfile := profile
+	changedProfile.Resources.CPU++
+	controller.config.OriginalProfile = func(ctx context.Context, intent delivery.Intent) ([]byte, error) {
+		originalReads++
+		wire, err := readOriginal(ctx, intent)
+		if err == nil {
+			adopt(5, []cellspec.Service{{Role: originalPolicy.Role, Profile: changedProfile, Spec: &originalPolicy}})
+		}
+		return wire, err
+	}
+	if err := controller.apply(ctx, recovery); !errors.Is(err, containermaterial.ErrPending) {
+		t.Fatalf("signed source replacement during original profile read admitted mutation: %v", err)
+	}
+	if originalReads != 1 {
+		t.Fatal("source replacement did not reach original archive read")
+	}
+	controller.config.OriginalProfile = readOriginal
+	if err := controller.apply(ctx, recovery); !errors.Is(err, containermaterial.ErrPending) {
+		t.Fatalf("changed signed resources with unchanged config admitted mutation: %v", err)
+	}
+	changedPolicy := originalPolicy
+	changedPolicy.Replicas.Max++
+	adopt(6, []cellspec.Service{{Role: changedPolicy.Role, Profile: profile, Spec: &changedPolicy}})
+	if err := controller.apply(ctx, recovery); !errors.Is(err, containermaterial.ErrPending) {
+		t.Fatalf("changed signed service policy with unchanged config admitted mutation: %v", err)
+	}
+	afterRefusal, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: serviceID})
+	if err != nil || afterRefusal.Service.Meta.Version != beforeRefusal.Service.Meta.Version {
+		t.Fatalf("refused original profile continuity changed actual service: %v", err)
+	}
+	adopt(7, nil)
 	if err := controller.refresh(ctx); err != nil {
 		t.Fatal(err)
 	}

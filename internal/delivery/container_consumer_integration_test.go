@@ -59,9 +59,22 @@ func TestContainerIntentSignedBrokerRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	intent := Intent{SchemaVersion: SchemaVersion, OperationID: entityid.Derive("container-test", "recovery"), Source: ArtifactSource{Repository: "https://github.com/TerraScale/ts-auth", Commit: claim.SourceRevision, TreeDigest: strings.Repeat("e", 64)}, Cell: "gru", Role: claim.Role, Environment: claim.Environment, Generation: 1, DesiredReplicas: 2, ConfigDigest: ConfigDigestOf(nil, nil, nil), AuthorityEpoch: 1, Container: &release.ContainerBundle{Claim: claimWire}}
+	captureReference := "profile." + strings.Repeat("a", 64)
+	captureCalls := 0
+	service.config.CaptureContainerProfile = func(ctx context.Context, admitted Intent) (string, error) {
+		captureCalls++
+		if _, _, err := service.ContainerProvenance(ctx, admitted.OperationID); !errors.Is(err, jetstream.ErrKeyNotFound) {
+			t.Fatalf("profile captured after operation Create: %v", err)
+		}
+		return captureReference, nil
+	}
 	calls := 0
 	service.config.ContainerApply = func(ctx context.Context, admitted Intent) error {
 		calls++
+		_, reference, err := service.ContainerProvenance(ctx, admitted.OperationID)
+		if err != nil || reference != "profile."+strings.Repeat("a", 64) {
+			t.Fatal("apply lost original profile association", reference, err)
+		}
 		retained, err := service.ContainerIntent(ctx, admitted.OperationID)
 		if err != nil {
 			t.Fatal(err)
@@ -104,9 +117,13 @@ func TestContainerIntentSignedBrokerRecovery(t *testing.T) {
 	if _, err := service.Status(ctx, intent.OperationID); !errors.Is(err, ErrPending) {
 		t.Fatalf("pending receipt: %v", err)
 	}
+	captureReference = "profile." + strings.Repeat("b", 64)
 	terminal, err = service.process(ctx, wire)
 	if !terminal || err != nil || calls != 2 {
 		t.Fatalf("retry: terminal=%v calls=%d err=%v", terminal, calls, err)
+	}
+	if captureCalls != 1 {
+		t.Fatal("retry recaptured a successor profile", captureCalls)
 	}
 	receipt, err := service.StatusFor(ctx, intent)
 	if err != nil || receipt.Status != "accepted" {
@@ -192,6 +209,52 @@ func TestContainerIntentSignedBrokerRecovery(t *testing.T) {
 	}
 	if _, err := recovered.RetainedContainerIntent(ctx, pending.OperationID); !errors.Is(err, ErrUnauthorized) {
 		t.Fatal("held operation supplied retained provenance", err)
+	}
+	archived, reference, err := recovered.ContainerProvenance(ctx, pending.OperationID)
+	if err != nil || archived.OperationID != pending.OperationID || reference != captureReference {
+		t.Fatal("held operation lost descriptive association", err)
+	}
+	legacy := intent.Clone()
+	legacy.OperationID = entityid.Derive("container-test", "missing-original-profile")
+	fingerprint, err := legacy.Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyRecord, err := json.Marshal(operation{Intent: legacy, Fingerprint: fingerprint, Actor: "release"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.operations.Create(ctx, operationKey(legacy.OperationID), legacyRecord); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := recovered.ContainerProvenance(ctx, legacy.OperationID); !errors.Is(err, ErrPending) {
+		t.Fatal("legacy profile inferred from matching ConfigDigest", err)
+	}
+	legacyPayload, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyWire, err := codec.Sign(ctx, legacyPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeCapture, beforeApply := captureCalls, attempts
+	if terminal, err := service.process(ctx, legacyWire); terminal || !errors.Is(err, ErrPending) || captureCalls != beforeCapture || attempts != beforeApply {
+		t.Fatal("legacy operation recaptured/applied without original association", err)
+	}
+	entry, err := service.operations.Get(ctx, operationKey(legacy.OperationID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyRecord, err = json.Marshal(operation{Intent: legacy, Fingerprint: fingerprint, Actor: "release", Receipt: &Receipt{OperationID: legacy.OperationID, Fingerprint: fingerprint, Status: "accepted"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.operations.Update(ctx, operationKey(legacy.OperationID), legacyRecord, entry.Revision()); err != nil {
+		t.Fatal(err)
+	}
+	if terminal, err := service.process(ctx, legacyWire); terminal || !errors.Is(err, ErrPending) || captureCalls != beforeCapture || attempts != beforeApply {
+		t.Fatal("legacy accepted receipt bypassed original association", err)
 	}
 }
 

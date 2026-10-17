@@ -70,6 +70,7 @@ func (producer *rootMaterialAdmission) container(ctx context.Context, call rooto
 		return containermaterial.Admission{}, err
 	}
 	sources.Lease = controller.config.ReadLease
+	sources.ContainerProfiles = rootMaterialProfiles{controller: controller, selected: selected}
 	// The outer operation context stays alive after this resolver returns.
 	admitted, err := containermaterial.AdmitMaterialTask(readCtx, sources, materialTask(selected), session)
 	if err != nil {
@@ -116,6 +117,7 @@ func (producer *rootMaterialAdmission) generation(ctx context.Context, call root
 		return containermaterial.GenerationAdmission{}, err
 	}
 	sources.Lease = controller.config.ReadLease
+	sources.ContainerProfiles = rootMaterialProfiles{controller: controller, selected: selected}
 	admitted, err := containermaterial.AdmitGenerationTask(readCtx, sources, materialTask(selected), session, binding)
 	if err != nil {
 		return containermaterial.GenerationAdmission{}, err
@@ -138,7 +140,13 @@ func (producer *rootMaterialAdmission) lease(ctx context.Context, call rootoci.C
 	if err != nil || task == nil || task.Task == nil {
 		return containermaterial.ErrPending
 	}
-	intent, err := controller.config.Delivery.ContainerIntent(ctx, task.Task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID])
+	selection, err := selectContainerIntent(ctx, controller.config.JS, controller.config.Delivery, task.Task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID])
+	if err != nil {
+		return err
+	}
+	intent := selection.intent
+	ctx, stopProof, err := currentContainerIntentContext(ctx, intent)
+	defer stopProof()
 	if err != nil {
 		return err
 	}
@@ -236,7 +244,7 @@ func (producer *rootMaterialAdmission) readers(ctx context.Context, call rootoci
 	channel := instancePrincipalChannel(producer.factory.Region(), strings.ToUpper(cfg.NATS.Cell))
 	controller := &containerMaterialController{config: containerMaterialConfig{Factory: producer.factory, Client: client,
 		credentialSource: credentials, credentialContext: ctx,
-		Specs: services, Delivery: service, Founders: reader, Accepted: accepted, JS: js, Mutations: mutations, ResponsePublic: public,
+		Specs: services, Delivery: service, ContainerProfiles: &nativeHistory{js: js}, Founders: reader, Accepted: accepted, JS: js, Mutations: mutations, ResponsePublic: public,
 		Evidence: func(ctx context.Context, role, digest string) (io.ReadCloser, error) {
 			location, err := channel.get(ctx)
 			if err != nil {
@@ -265,6 +273,36 @@ func (producer *rootMaterialAdmission) readers(ctx context.Context, call rootoci
 	closeOnFailure = false
 	context.AfterFunc(ctx, conn.Close)
 	return controller, sources, nil
+}
+
+// This reader is assembled only by the actual root recipient producer. Archive
+// I/O keeps the independently current channel and protected selector pinned.
+type rootMaterialProfiles struct {
+	controller *containerMaterialController
+	selected   containerMaterialRecipient
+}
+
+func (profiles rootMaterialProfiles) ReadContainerProfile(ctx context.Context, reference string) ([]byte, error) {
+	if profiles.controller == nil || profiles.selected.continuityGuard == nil || profiles.controller.config.ContainerProfiles == nil || profiles.controller.config.credentialSource == nil {
+		return nil, containermaterial.ErrPending
+	}
+	guard := func() error {
+		if err := profiles.controller.config.credentialSource.Guard(ctx); err != nil {
+			return err
+		}
+		return profiles.selected.continuityGuard(ctx)
+	}
+	if err := guard(); err != nil {
+		return nil, err
+	}
+	wire, err := profiles.controller.config.ContainerProfiles.ReadContainerProfile(ctx, reference)
+	if err != nil {
+		return nil, err
+	}
+	if err := guard(); err != nil {
+		return nil, err
+	}
+	return wire, nil
 }
 
 func (config containerMaterialConfig) materialEpoch(ctx context.Context) (uint64, error) {

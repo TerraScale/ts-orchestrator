@@ -39,8 +39,8 @@ import (
 // rolling, so it is retried rather than failed.
 var errFencePrepare = errors.New("the release fence mark was not written")
 
-// serviceReleaseRoles are the native roles CI releases through the service
-// release channel, in the order the leader checks them.
+// serviceReleaseRoles are the first-party roles followed by the regional
+// release controller, in the order the leader checks them.
 var serviceReleaseRoles = []string{terrabase.Role, tsauth.Role}
 
 // serviceReleaseReplicas is the replica count role's readiness gate waits
@@ -56,12 +56,9 @@ func serviceReleaseReplicas(cell, role string, profile WorkloadProfile) (int, er
 	return 0, fmt.Errorf("role %s has no release rule", role)
 }
 
-// serviceReleases follows the service release channels in the region's
-// head bucket (TS-610). CI publishes one artifact claim per role, signed by
-// a trusted signer the cell lets release that role; the authority leader
-// admits the claimed binary and rolls the role out through the same
-// readiness gate and rollback as the operator's release commands, one role
-// at a time, and reports in the role's status.json.
+// serviceReleases follows first-party release channels in the region's head
+// bucket. TSAuth uses signed OCI intents; TerraBase retains its native
+// readiness and rollback path while qualified stateful admission is pending.
 type serviceReleases struct {
 	js         jetstream.JetStream
 	cell       string // the NATS cell, e.g. gru
@@ -162,6 +159,13 @@ func (r *serviceReleases) run(ctx context.Context, js jetstream.JetStream, repli
 // pass reads role's channel and starts, resumes or reports its release. An
 // error leaves the state as it was; the next pass retries.
 func (r *serviceReleases) pass(ctx context.Context, kv jetstream.KeyValue, role string) error {
+	if role == tsauth.Role {
+		return r.containerPass(ctx, kv, role)
+	}
+	return r.nativePass(ctx, kv, role)
+}
+
+func (r *serviceReleases) nativePass(ctx context.Context, kv jetstream.KeyValue, role string) error {
 	epoch := r.fencer.Current().Epoch
 	if !r.fencer.Current().CanMutate() {
 		return errors.New("lost the authority lease before the release")

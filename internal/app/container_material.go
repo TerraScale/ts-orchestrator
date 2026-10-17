@@ -21,6 +21,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
@@ -43,6 +44,7 @@ type containerMaterialConfig struct {
 	SnapshotMutations api.ControlClient
 	Specs             *specRegistry
 	Delivery          *delivery.Service
+	ContainerProfiles containermaterial.ContainerProfiles
 	Evidence          func(context.Context, string, string) (io.ReadCloser, error)
 	Founders          *bootstrapstart.CurrentFounderAuthorityReader
 	Accepted          bootstrapstart.AcceptedIdentity
@@ -68,6 +70,7 @@ type containerMaterialRecipient struct {
 	rootHead            string
 	epoch               uint64
 	enrollmentExpiresAt time.Time
+	continuityGuard     func(context.Context) error
 }
 
 // Evidence alone does not authorize a registry pull, material, or allocation.
@@ -232,7 +235,7 @@ func (controller *containerMaterialController) taskLoadRoles(ctx context.Context
 }
 
 func startContainerMaterial(ctx context.Context, config containerMaterialConfig) (*containerMaterialController, func(), error) {
-	if config.Root == nil || config.Factory == nil || config.Hosts == nil || config.Authority == nil || config.Client == nil || config.SnapshotMutations == nil || config.Specs == nil || config.Specs.kv == nil || config.Specs.roots == nil || config.Delivery == nil || config.Evidence == nil ||
+	if config.Root == nil || config.Factory == nil || config.Hosts == nil || config.Authority == nil || config.Client == nil || config.SnapshotMutations == nil || config.Specs == nil || config.Specs.kv == nil || config.Specs.roots == nil || config.Delivery == nil || config.ContainerProfiles == nil || config.Evidence == nil ||
 		config.Founders == nil || config.Accepted.Validate() != nil || config.JS == nil || config.Mutations == nil || config.Registrations == nil || len(config.ResponsePublic) != ed25519.PublicKeySize {
 		return nil, nil, errors.New("container material requires current authority, signed profiles, delivery and manager")
 	}
@@ -246,12 +249,30 @@ func (controller *containerMaterialController) recipientEvidence(ctx context.Con
 		return containerMaterialEvidence{}, containermaterial.ErrPending
 	}
 	config := controller.config
+	var observedEpoch uint64
+	if config.ReadLease != nil {
+		var stopLease context.CancelFunc
+		ctx, stopLease = context.WithDeadline(ctx, config.ReadLease.Deadline())
+		defer stopLease()
+	} else if config.Authority != nil {
+		observed := config.Authority.Current()
+		if !observed.CanMutate() {
+			return fail()
+		}
+		observedEpoch = observed.Epoch
+		var stopLease context.CancelFunc
+		ctx, stopLease = context.WithDeadline(ctx, observed.ExpiresAt)
+		defer stopLease()
+	}
 	if binding.HostID != registration.ID {
 		return fail()
 	}
 	epoch, err := config.materialEpoch(ctx)
 	if err != nil {
 		return containerMaterialEvidence{}, err
+	}
+	if observedEpoch != 0 && epoch != observedEpoch {
+		return fail()
 	}
 	taskResponse, err := config.Client.GetTask(ctx, &api.GetTaskRequest{TaskID: binding.TaskID})
 	if err != nil {
@@ -261,9 +282,15 @@ func (controller *containerMaterialController) recipientEvidence(ctx context.Con
 		return fail()
 	}
 	task := taskResponse.Task
-	intent, err := config.Delivery.ContainerIntent(ctx, task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID])
+	selection, err := selectContainerIntent(ctx, config.JS, config.Delivery, task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID])
 	if err != nil {
 		return containerMaterialEvidence{}, err
+	}
+	intent := selection.intent
+	ctx, stopProof, err := currentContainerIntentContext(ctx, intent)
+	defer stopProof()
+	if err != nil || config.ContainerProfiles == nil {
+		return containerMaterialEvidence{}, errors.Join(containermaterial.ErrPending, err)
 	}
 	entry, err := config.Specs.kv.Get(ctx, cellSpecKey)
 	if err != nil {
@@ -276,7 +303,7 @@ func (controller *containerMaterialController) recipientEvidence(ctx context.Con
 		return fail()
 	}
 	config.Specs.roots.mu.Lock()
-	roots, rootHead := config.Specs.roots.verified.Current, config.Specs.roots.verified.Head
+	roots, historicalRoots, rootHead := config.Specs.roots.verified.Current, config.Specs.roots.verified.Historical, config.Specs.roots.verified.Head
 	config.Specs.roots.mu.Unlock()
 	proof, err := containermaterial.VerifyProfile(entry.Value(), roots, config.Specs.identity, intent)
 	if err != nil {
@@ -304,11 +331,34 @@ func (controller *containerMaterialController) recipientEvidence(ctx context.Con
 		return containerMaterialEvidence{}, err
 	}
 	target := release.ContainerTarget{Cell: strings.ToUpper(intent.Cell), Environment: intent.Environment, Role: intent.Role, Architecture: expected.Architecture}
+	channel := instancePrincipalChannel(config.Factory.Region(), target.Cell)
+	location, err := channel.get(ctx)
+	if err != nil {
+		return containerMaterialEvidence{}, err
+	}
+	channelGuard := func(ctx context.Context) error {
+		bundle, found, err := releasechannel.ReadContainerBundle(ctx, location, intent.Role, expected.Architecture)
+		if err != nil || !found {
+			return errors.Join(containermaterial.ErrPending, err)
+		}
+		actual, err := release.ContainerBundleSHA256(bundle)
+		wanted, expectedErr := release.ContainerBundleSHA256(*intent.Container)
+		if err != nil || expectedErr != nil || actual != wanted {
+			return errors.Join(containermaterial.ErrPending, err, expectedErr)
+		}
+		return ctx.Err()
+	}
+	if err := channelGuard(ctx); err != nil {
+		return containerMaterialEvidence{}, err
+	}
 	allocations, err := currentContainerAllocations(ctx, config.Factory, *intent.Container, roots, target)
 	if err != nil {
 		return containerMaterialEvidence{}, err
 	}
 	validUntil := time.Now().UTC().Add(30 * time.Second)
+	if deadline, ok := ctx.Deadline(); ok {
+		validUntil = earlier(validUntil, deadline)
+	}
 	verified, err := release.VerifyContainerCurrent(ctx, *intent.Container, roots, target, time.Now().UTC(), validUntil, func(ctx context.Context, digest string) (io.ReadCloser, error) {
 		return config.Evidence(ctx, intent.Role, digest)
 	}, allocations)
@@ -317,6 +367,48 @@ func (controller *containerMaterialController) recipientEvidence(ctx context.Con
 	}
 	ctx, cancel := context.WithDeadline(ctx, verified.ExpiresAt())
 	defer cancel()
+	originalWire, err := config.ContainerProfiles.ReadContainerProfile(ctx, selection.reference)
+	if err != nil {
+		return containerMaterialEvidence{}, err
+	}
+	originalProfile, err := containermaterial.VerifyProfile(originalWire, historicalRoots, config.Specs.identity, selection.original)
+	if err != nil {
+		return containerMaterialEvidence{}, err
+	}
+	historical, err := release.VerifyContainerHistorical(*selection.original.Container, historicalRoots, target)
+	if err != nil {
+		return containerMaterialEvidence{}, err
+	}
+	proof, err = containermaterial.ContinueProfile(originalProfile, historical, proof, verified, time.Now().UTC())
+	if err != nil {
+		return containerMaterialEvidence{}, err
+	}
+	expected, err = containermaterial.ServiceIntent(proof, expected.Architecture)
+	if err != nil {
+		return containerMaterialEvidence{}, err
+	}
+	continuityGuard := func(ctx context.Context) error {
+		if err := selection.guard(ctx); err != nil {
+			return err
+		}
+		wire, err := config.ContainerProfiles.ReadContainerProfile(ctx, selection.reference)
+		if err != nil || !bytes.Equal(wire, originalWire) {
+			return errors.Join(containermaterial.ErrPending, err)
+		}
+		if err := channelGuard(ctx); err != nil {
+			return err
+		}
+		if err := selection.guard(ctx); err != nil {
+			return err
+		}
+		if !verified.Valid(time.Now().UTC()) {
+			return containermaterial.ErrPending
+		}
+		return ctx.Err()
+	}
+	if err := continuityGuard(ctx); err != nil {
+		return containerMaterialEvidence{}, err
+	}
 	taskBinding := binding
 	var controllerProof *bootstrapstart.ControllerHostRecipient
 	if node.Node.Role == api.NodeRoleManager {
@@ -328,7 +420,7 @@ func (controller *containerMaterialController) recipientEvidence(ctx context.Con
 	}
 	return containerMaterialEvidence{
 		recipient: containerMaterialRecipient{Task: task, Intent: intent, Profile: proof.Profile(), Verified: verified, Expected: expected, SpecRevision: entry.Revision(), proof: proof,
-			controllerProof: controllerProof, rootHead: rootHead, epoch: epoch, enrollmentExpiresAt: enrollment.ExpiresAt},
+			controllerProof: controllerProof, rootHead: rootHead, epoch: epoch, enrollmentExpiresAt: enrollment.ExpiresAt, continuityGuard: continuityGuard},
 		entry: entry, roots: roots, enrollment: enrollment, binding: taskBinding,
 	}, nil
 }
@@ -391,6 +483,12 @@ func (controller *containerMaterialController) registryRecipient(ctx context.Con
 			return fail()
 		}
 	}
+	if selected.continuityGuard == nil {
+		return containerMaterialRecipient{}, containermaterial.ErrPending
+	}
+	if err := selected.continuityGuard(ctx); err != nil {
+		return containerMaterialRecipient{}, err
+	}
 	if err := controllerHostSpecCurrent(ctx, config.JS, config.Specs, entry, rootHead); err != nil {
 		return containerMaterialRecipient{}, err
 	}
@@ -409,11 +507,20 @@ func (controller *containerMaterialController) registryRecipient(ctx context.Con
 	if err := config.guardMaterialEpoch(ctx, epoch); err != nil {
 		return containerMaterialRecipient{}, err
 	}
+	if err := selected.continuityGuard(ctx); err != nil {
+		return containerMaterialRecipient{}, err
+	}
+	config.Specs.mu.Lock()
+	currentRevision = config.Specs.revision
+	config.Specs.mu.Unlock()
+	if currentRevision != entry.Revision() || config.Specs.roots.reply("").Head != rootHead {
+		return fail()
+	}
 	if ctx.Err() != nil || !verified.Valid(time.Now().UTC()) || controllerProof != nil && (!controllerProof.Valid(time.Now()) || !time.Now().Before(enrollment.ExpiresAt)) {
 		return fail()
 	}
 	return containerMaterialRecipient{Task: task, Service: service.Service, Intent: intent, Profile: proof.Profile(), Verified: verified, Expected: expected, SpecRevision: entry.Revision(), proof: proof,
-		controllerProof: controllerProof, rootHead: rootHead, epoch: epoch, enrollmentExpiresAt: enrollment.ExpiresAt}, nil
+		controllerProof: controllerProof, rootHead: rootHead, epoch: epoch, enrollmentExpiresAt: enrollment.ExpiresAt, continuityGuard: selected.continuityGuard}, nil
 }
 
 func (controller *containerMaterialController) recipient(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding) (containerMaterialRecipient, error) {
@@ -449,6 +556,12 @@ func (controller *containerMaterialController) currentMaterialTask(ctx context.C
 	if now := time.Now().UTC(); !selected.Verified.Valid(now) || selected.controllerProof != nil && (!selected.controllerProof.Valid(now) || !now.Before(selected.enrollmentExpiresAt)) {
 		return containermaterial.ErrPending
 	}
+	if selected.continuityGuard == nil {
+		return containermaterial.ErrPending
+	}
+	if err := selected.continuityGuard(ctx); err != nil {
+		return err
+	}
 	if selected.controllerProof != nil {
 		binding.HostID = selected.controllerProof.ControllerSlot()
 	}
@@ -461,13 +574,23 @@ func (controller *containerMaterialController) currentMaterialTask(ctx context.C
 	config.Specs.mu.Lock()
 	revision := config.Specs.revision
 	config.Specs.mu.Unlock()
-	now := time.Now().UTC()
-	if revision != selected.SpecRevision || config.Specs.roots.reply("").Head != selected.rootHead ||
-		!selected.Verified.Valid(now) || selected.controllerProof != nil && (!selected.controllerProof.Valid(now) || !now.Before(selected.enrollmentExpiresAt)) {
+	if revision != selected.SpecRevision || config.Specs.roots.reply("").Head != selected.rootHead {
 		return containermaterial.ErrPending
 	}
 	if err := config.guardMaterialEpoch(ctx, selected.epoch); err != nil {
 		return err
+	}
+	if err := selected.continuityGuard(ctx); err != nil {
+		return err
+	}
+	config.Specs.mu.Lock()
+	revision = config.Specs.revision
+	config.Specs.mu.Unlock()
+	if revision != selected.SpecRevision || config.Specs.roots.reply("").Head != selected.rootHead {
+		return containermaterial.ErrPending
+	}
+	if now := time.Now().UTC(); !selected.Verified.Valid(now) || selected.controllerProof != nil && (!selected.controllerProof.Valid(now) || !now.Before(selected.enrollmentExpiresAt)) {
+		return containermaterial.ErrPending
 	}
 	return ctx.Err()
 }

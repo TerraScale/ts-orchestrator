@@ -32,16 +32,22 @@ import (
 // CurrentTaskSources are root-owned concrete readers, never ordinary-process
 // callbacks. The genesis and candidate lease come from independent admission.
 type CurrentTaskSources struct {
-	Client         api.ControlReader
-	JS             jetstream.JetStream
-	Delivery       *delivery.Service
-	Mutations      *authority.Reader
-	Genesis        trust.Keyring
-	RootIdentity   trust.ChainIdentity
-	RootHead       string
-	ResponsePublic ed25519.PublicKey
-	Lease          *authority.LeaseAdmission
-	Credentials    ControllerCredentials
+	Client            api.ControlReader
+	JS                jetstream.JetStream
+	Delivery          *delivery.Service
+	Mutations         *authority.Reader
+	Genesis           trust.Keyring
+	RootIdentity      trust.ChainIdentity
+	RootHead          string
+	ResponsePublic    ed25519.PublicKey
+	Lease             *authority.LeaseAdmission
+	Credentials       ControllerCredentials
+	ContainerProfiles ContainerProfiles
+}
+
+// ContainerProfiles is the root-owned immutable archive, never a caller locator.
+type ContainerProfiles interface {
+	ReadContainerProfile(context.Context, string) ([]byte, error)
 }
 
 // ControllerCredentials is supplied only by the private root producer.
@@ -74,20 +80,21 @@ type TaskMaterial struct {
 }
 
 type currentTaskAdmission struct {
-	sources           CurrentTaskSources
-	original          context.Context
-	credentials       context.Context
-	task              *api.Task
-	profile           Profile
-	verified          release.VerifiedContainer
-	controller        *bootstrapstart.ControllerHostRecipient
-	materialSession   *host.ContainerMaterialSession
-	generationSession *host.ContainerGenerationSession
-	binding           host.ContainerMaterialBinding
-	specRevision      uint64
-	deadline          time.Time
-	sealed            bool
-	enrollmentSHA256  string
+	sources               CurrentTaskSources
+	original              context.Context
+	credentials           context.Context
+	task                  *api.Task
+	profile               Profile
+	verified              release.VerifiedContainer
+	controller            *bootstrapstart.ControllerHostRecipient
+	materialSession       *host.ContainerMaterialSession
+	generationSession     *host.ContainerGenerationSession
+	binding               host.ContainerMaterialBinding
+	specRevision          uint64
+	deadline              time.Time
+	sealed                bool
+	enrollmentSHA256      string
+	originalProfileRecord string
 }
 
 func (a Admission) Profile() Profile                          { return admittedProfile(a.state) }
@@ -107,7 +114,7 @@ func admittedTask(a *currentTaskAdmission) TaskMaterial {
 	if err != nil {
 		return TaskMaterial{}
 	}
-	return TaskMaterial{Binding: a.binding, OperationID: a.profile.intent.OperationID, ConfigDigest: a.profile.intent.ConfigDigest,
+	return TaskMaterial{Binding: a.binding, OperationID: a.profile.runtimeOperationID, ConfigDigest: a.profile.intent.ConfigDigest,
 		Generation: a.task.Spec.ForceUpdate, User: expected.Container.User, ExpiresAt: a.deadline}
 }
 
@@ -159,7 +166,7 @@ func AdmitGenerationTask(ctx context.Context, sources CurrentTaskSources, task C
 
 func newCurrentTaskAdmission(ctx context.Context, sources CurrentTaskSources, task CurrentTask, binding host.ContainerMaterialBinding, sessionDeadline time.Time) (*currentTaskAdmission, error) {
 	if ctx == nil || ctx.Err() != nil || sources.Client == nil || sources.JS == nil || sources.JS.Conn() == nil || sources.Delivery == nil ||
-		sources.Mutations == nil || sources.Lease == nil || sources.Credentials == nil || sources.RootHead == "" || task.Task == nil || task.Profile.fingerprint == "" ||
+		sources.Mutations == nil || sources.Lease == nil || sources.Credentials == nil || sources.ContainerProfiles == nil || sources.RootHead == "" || task.Task == nil || task.Profile.fingerprint == "" || task.Profile.continuation == nil ||
 		task.Profile.intent.AuthorityEpoch != sources.Lease.Epoch() || !task.Release.Valid(time.Now()) {
 		return nil, ErrPending
 	}
@@ -199,7 +206,7 @@ func (a *currentTaskAdmission) guard(ctx context.Context) error {
 	if a == nil || a.original == nil || a.credentials == nil || ctx == nil || a.original.Err() != nil || a.credentials.Err() != nil || ctx.Err() != nil || !time.Now().Before(a.deadline) {
 		return ErrPending
 	}
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithDeadline(ctx, a.deadline)
 	stop := context.AfterFunc(a.original, cancel)
 	defer cancel()
 	defer stop()
@@ -310,10 +317,87 @@ func (a *currentTaskAdmission) currentProfile(ctx context.Context) (trust.Keyrin
 	if err != nil || fingerprint != a.profile.fingerprint || intent.AuthorityEpoch != a.sources.Lease.Epoch() {
 		return nil, 0, ErrPending
 	}
-	if _, err := VerifyProfile(entry.Data, roots.Current, a.profile.identity, intent); err != nil {
+	current, err := VerifyProfile(entry.Data, roots.Current, a.profile.identity, intent)
+	if err != nil {
 		return nil, 0, err
 	}
+	if err := a.originalProfileCurrent(ctx, roots, current); err != nil {
+		return nil, 0, err
+	}
+	if err := a.sources.Lease.Guard(ctx); err != nil {
+		return nil, 0, err
+	}
+	confirmed, err := a.sources.Delivery.ContainerIntent(ctx, intent.OperationID)
+	if err != nil {
+		return nil, 0, err
+	}
+	confirmedFingerprint, err := confirmed.Fingerprint()
+	if err != nil || confirmedFingerprint != a.profile.fingerprint {
+		return nil, 0, ErrPending
+	}
+	rootNow, rootErr := reader.GetLastMsg("KV_TS_TRUST_ROOTS", "$KV.TS_TRUST_ROOTS.chain", nats.Context(ctx))
+	if rootEntry == nil {
+		if !errors.Is(rootErr, nats.ErrMsgNotFound) {
+			return nil, 0, ErrPending
+		}
+	} else if rootErr != nil || rootNow == nil || rootNow.Subject != rootEntry.Subject || rootNow.Sequence != rootEntry.Sequence ||
+		rootNow.Header.Get("KV-Operation") != "" || rootNow.Header.Get(jetstream.MarkerReasonHeader) != "" || !bytes.Equal(rootNow.Data, rootEntry.Data) {
+		return nil, 0, ErrPending
+	}
+	specNow, err := reader.GetLastMsg("KV_TS_SERVICE_SET", "$KV.TS_SERVICE_SET.current", nats.Context(ctx))
+	if err != nil || specNow == nil || specNow.Subject != entry.Subject || specNow.Sequence != entry.Sequence ||
+		specNow.Header.Get("KV-Operation") != "" || specNow.Header.Get(jetstream.MarkerReasonHeader) != "" || !bytes.Equal(specNow.Data, entry.Data) ||
+		ctx.Err() != nil || !time.Now().Before(a.deadline) {
+		return nil, 0, ErrPending
+	}
 	return roots.Current, entry.Sequence, nil
+}
+
+func (a *currentTaskAdmission) originalProfileCurrent(ctx context.Context, roots trust.VerifiedRoots, current Profile) error {
+	original := a.profile.continuation
+	if original == nil || a.sources.ContainerProfiles == nil || a.profile.runtimeOperationID != original.intent.OperationID {
+		return ErrPending
+	}
+	intent, record, err := a.sources.Delivery.ContainerProvenance(ctx, original.intent.OperationID)
+	if err != nil {
+		return err
+	}
+	fingerprint, err := intent.Fingerprint()
+	if err != nil || fingerprint != original.fingerprint || record == "" ||
+		a.originalProfileRecord != "" && a.originalProfileRecord != record || a.sealed && a.originalProfileRecord == "" {
+		return ErrPending
+	}
+	wire, err := a.sources.ContainerProfiles.ReadContainerProfile(ctx, record)
+	if err != nil || len(wire) == 0 || len(wire) > cellspec.MaxSignedBytes {
+		return ErrPending
+	}
+	digest := sha256.Sum256(wire)
+	if hex.EncodeToString(digest[:]) != original.specSHA256 {
+		return ErrPending
+	}
+	profile, err := VerifyProfile(wire, roots.Historical, original.identity, intent)
+	if err != nil {
+		return err
+	}
+	claim := a.verified.Claim()
+	historical, err := release.VerifyContainerHistorical(*intent.Container, roots.Historical, release.ContainerTarget{
+		Cell: claim.Cell, Environment: claim.Environment, Role: claim.Role, Architecture: claim.Architecture,
+	})
+	if err != nil || VerifyContinuity(profile, historical, current, a.verified, time.Now().UTC()) != nil {
+		return ErrPending
+	}
+	confirmed, confirmedRecord, err := a.sources.Delivery.ContainerProvenance(ctx, original.intent.OperationID)
+	if err != nil || confirmedRecord != record {
+		return ErrPending
+	}
+	confirmedFingerprint, err := confirmed.Fingerprint()
+	if err != nil || confirmedFingerprint != original.fingerprint || ctx.Err() != nil {
+		return ErrPending
+	}
+	if a.originalProfileRecord == "" && !a.sealed {
+		a.originalProfileRecord = record
+	}
+	return nil
 }
 
 func currentLeaderReader(js jetstream.JetStream) (nats.JetStreamContext, error) {

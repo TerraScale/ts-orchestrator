@@ -163,7 +163,7 @@ func TestServiceReleasePinsRefusedClaimsDoNotAccumulate(t *testing.T) {
 				case 3:
 					reason = "native signed profile history is unavailable"
 				}
-				if err := r.pass(ctx, kv, role); err != nil {
+				if err := r.nativePass(ctx, kv, role); err != nil {
 					t.Fatalf("claim %d: %v", i, err)
 				}
 				persisted, _, err := loadServiceRelease(ctx, kv, key)
@@ -180,7 +180,7 @@ func TestServiceReleasePinsRefusedClaimsDoNotAccumulate(t *testing.T) {
 			}
 			// A new service instance reports only the pins recovered from durable state.
 			restarted := *r
-			if err := restarted.pass(ctx, kv, role); err != nil {
+			if err := restarted.nativePass(ctx, kv, role); err != nil {
 				t.Fatal(err)
 			}
 			status, found, err := releasechannel.ReadServiceStatus(ctx, location, role)
@@ -238,7 +238,7 @@ func TestServiceReleasePinsDeposedLeaderPreservesSubmittedIntent(t *testing.T) {
 	snapshot.Leader = false
 	r.fencer = observedAuthority{snapshot: snapshot}
 	r.wait = time.Millisecond
-	if err := r.pass(ctx, kv, role); err == nil || !strings.Contains(err.Error(), "lost the authority lease") {
+	if err := r.nativePass(ctx, kv, role); err == nil || !strings.Contains(err.Error(), "lost the authority lease") {
 		t.Fatalf("deposed release = %v", err)
 	}
 	persisted, gotRevision, err := loadServiceRelease(ctx, kv, key)
