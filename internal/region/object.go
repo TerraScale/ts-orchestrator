@@ -161,7 +161,7 @@ func (r FoundationRecord) validate() error {
 		return err
 	}
 	if r.NetBirdUnderlay != nil {
-		if r.Cell != "GRU" || r.NetBirdUnderlay.validate() != nil || r.NetBirdManager == nil || r.FoundationWriter == nil ||
+		if r.Cell != "GRU" || r.NetBirdUnderlay.Validate() != nil || r.NetBirdManager == nil || r.FoundationWriter == nil ||
 			r.NetBirdUnderlay.Manager.InstanceID != r.NetBirdManager.InstanceID || r.NetBirdUnderlay.Writer.InstanceID != r.FoundationWriter.InstanceID || r.NetBirdUnderlay.StartedAt.After(r.UpdatedAt) {
 			return errors.New("NetBird underlay journal differs from the protected original GRU launches")
 		}

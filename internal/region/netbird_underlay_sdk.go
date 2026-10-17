@@ -2,72 +2,20 @@ package region
 
 import (
 	"context"
-	"encoding/json/v2"
 	"errors"
-	"io"
-	"net/http"
-	"net/netip"
 	"slices"
 
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
 func netBirdUnderlayRequestWire(q NetBirdUnderlayRequest) ([]byte, error) {
-	var request common.OCIRequest
-	switch {
-	case q.Create != nil:
-		request = core.CreateLocalPeeringGatewayRequest{CreateLocalPeeringGatewayDetails: *q.Create}
-	case q.Connect != nil:
-		request = core.ConnectLocalPeeringGatewaysRequest{LocalPeeringGatewayId: new(q.ResourceID), ConnectLocalPeeringGatewaysDetails: *q.Connect}
-	case q.Route != nil:
-		request = core.UpdateRouteTableRequest{RtId: new(q.ResourceID), UpdateRouteTableDetails: *q.Route}
-	case q.Security != nil:
-		request = core.UpdateSecurityListRequest{SecurityListId: new(q.ResourceID), UpdateSecurityListDetails: *q.Security}
-	default:
-		return nil, errors.New("NetBird underlay has no typed SDK request")
-	}
-	r, err := request.HTTPRequest(http.MethodPost, "/", nil, nil)
-	if err != nil {
-		return nil, err
-	}
-	if r.Body == nil {
-		return nil, errors.New("NetBird underlay SDK request has no body")
-	}
-	defer r.Body.Close()
-	wire, err := io.ReadAll(io.LimitReader(r.Body, 64<<10+1))
-	if err != nil || len(wire) > 64<<10 {
-		return nil, errors.Join(errors.New("NetBird underlay SDK request exceeds its fixed body bound"), err)
-	}
-	var body map[string]any
-	if err := json.Unmarshal(wire, &body); err != nil {
-		return nil, err
-	}
-	return json.Marshal(body, json.Deterministic(true))
+	return bootstrap.NetBirdUnderlayRequestWire(q)
 }
-
 func netBirdUnderlayIngress(managerIP string) core.IngressSecurityRule {
-	return core.IngressSecurityRule{Protocol: new("6"), Source: new(managerIP + "/32"), SourceType: core.IngressSecurityRuleSourceTypeCidrBlock, IsStateless: new(false),
-		TcpOptions: &core.TcpOptions{DestinationPortRange: &core.PortRange{Min: new(443), Max: new(443)}}}
-}
-
-func netBirdUnderlayHasRoute(rules []core.RouteRule, destination, gateway string) bool {
-	expected := core.RouteRule{Destination: new(destination), DestinationType: core.RouteRuleDestinationTypeCidrBlock, NetworkEntityId: new(gateway)}
-	count := 0
-	peer := netip.MustParsePrefix(destination).Addr()
-	for _, rule := range rules {
-		if value(rule.NetworkEntityId) == gateway || value(rule.Destination) == destination {
-			if !sameNetBirdRoutes([]core.RouteRule{rule}, []core.RouteRule{expected}) {
-				return false
-			}
-			count++
-		} else if prefix, err := netip.ParsePrefix(value(rule.Destination)); err == nil && prefix.Contains(peer) && prefix.Bits() != 0 {
-			// The pre-existing Internet default remains; a competing private path does not.
-			return false
-		}
-	}
-	return count == 1
+	return bootstrap.NetBirdUnderlayIngress(managerIP)
 }
 
 func prepareNetBirdUnderlayRequest(ctx context.Context, client core.VirtualNetworkClient, r NetBirdUnderlayRecord, key string) (NetBirdUnderlayRequest, error) {
