@@ -45,6 +45,8 @@ func (controller functionController) verifyAllocation(ctx context.Context, regis
 		info.PublicKey != registration.PublicKey || info.NATSUserPublicKey != registration.NATSUserPublicKey {
 		return errors.New("function allocation lacks current independent worker membership")
 	}
+	ctx, cancelMembership := context.WithDeadline(ctx, info.ExpiresAt)
+	defer cancelMembership()
 	node, err := config.Client.GetNode(ctx, &api.GetNodeRequest{NodeID: task.NodeID})
 	if err != nil {
 		return err
@@ -65,6 +67,8 @@ func (controller functionController) verifyAllocation(ctx context.Context, regis
 	if claim := proof.Claim(); claim.Cell != strings.ToUpper(config.Cell) || claim.Environment != config.Environment {
 		return release.ErrExpectationMismatch
 	}
+	ctx, cancelFunction := context.WithDeadline(ctx, proof.ExpiresAt())
+	defer cancelFunction()
 	intent := functionServiceTarget(proof, member.Architecture())
 	bundle, err := intent.WorkerBundleForTask(ctx, config.Client, task)
 	if err != nil {
@@ -83,6 +87,8 @@ func (controller functionController) verifyAllocation(ctx context.Context, regis
 	if err != nil {
 		return err
 	}
+	ctx, cancelWorker := context.WithDeadline(ctx, worker.ExpiresAt())
+	defer cancelWorker()
 	if err := swarmruntime.VerifyFunctionTaskAllocation(ctx, config.Client, task, intent, current, worker); err != nil {
 		return err
 	}
