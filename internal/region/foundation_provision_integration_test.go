@@ -243,6 +243,11 @@ func foundationProvisionSDKScenario(t *testing.T) {
 		t.Fatal("actual SDK-observed ledger description was rejected", err)
 	}
 	t.Run("root_operation_storage_is_actual_readback", func(t *testing.T) {
+		withoutJournals := prepared.Grant
+		withoutJournals.RootOperationJournals = nil
+		if err := ValidatePreparedFoundation(withoutJournals); err == nil {
+			t.Fatal("prepared foundation without root operation journal purposes became signable")
+		}
 		cloud.mu.Lock()
 		rule := cloud.retention[approval.HomeStorageDomain.LedgerBucket][0].(map[string]any)
 		lockedAt := rule["timeRuleLocked"]

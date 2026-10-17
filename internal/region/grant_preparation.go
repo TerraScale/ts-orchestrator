@@ -517,6 +517,9 @@ func controllerBootstrapSlot(installation, cell string, startup bootstrap.Startu
 // ValidatePreparedFoundation prevents the ceremony from signing spending
 // hashes unrelated to the recipes its launch consumers actually enforce.
 func ValidatePreparedFoundation(grant FoundationGrant) error {
+	if len(grant.RootOperationJournals) != 3 {
+		return errors.New("prepared foundation requires exactly three own-cell root operation journal purposes")
+	}
 	if err := validatePreparedFoundationRecipes(grant); err != nil {
 		return err
 	}
