@@ -33,7 +33,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/regionview"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
-	"github.com/TerraScale/ts-orchestrator/internal/workload"
 )
 
 // runtimeObservability is one runtime role's metrics, health, event bus and
@@ -183,7 +182,7 @@ type controllerObservation struct {
 	// holds is the placement reconciler's hold log, read by the insights.
 	holds *placementHoldLog
 	// autoscalers is the workload reconciler of the cell spec.
-	autoscalers *workload.Reconciler
+	autoscalers workloadObservation
 	// hostLoad collects resource metrics independently of autoscale policies.
 	hostLoad *hostTelemetry
 	// hosts checks which NKey a node's log windows must come from.
