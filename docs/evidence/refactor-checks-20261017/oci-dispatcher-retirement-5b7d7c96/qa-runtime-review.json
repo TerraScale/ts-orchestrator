@@ -1,0 +1,32 @@
+{
+  "state": "ACCEPTED_EXACT_D45_ONE_ROOT_RUNTIME_AND_NARROW_ASSERTION_MAPPING",
+  "source": "d45d64d2ca4f07254931258dc2b873f4adea097b",
+  "tree": "0c20ddfd5073ab15cfbd97b68aa3d4e1cf041e8d",
+  "session": 59523,
+  "exit": 0,
+  "exact_test": "TestSignedSDKDispatcherRecordsCallsErrorsAndThrottling",
+  "test_run_count": 1,
+  "test_pass_count": 1,
+  "package_pass_count": 1,
+  "skips": 0,
+  "failures": 0,
+  "extras": 0,
+  "malformed": 0,
+  "events": 8,
+  "wall_seconds": 5.033609166974202,
+  "max_child_rss_kib": 301496,
+  "source_pre_equals_post": true,
+  "source_current_clean": true,
+  "all_sealed_assets_match": true,
+  "receipt_sha256": "6ea688957cfcea1b6104bcecb6a34a83149f048acb186c2fb6069893ca7dc2f2",
+  "raw_sha256": "67781a10f9ee9575684e9363b626a02ef87e888bb32de3b60826264783fb4f8f",
+  "native_launch_sha256": "507845ceff9953818fb4a681235c9583f4ae99335b531c395e2993010fc10353",
+  "native_terminal_sha256": "cd752cc4159b56ec786ecdd4c02cb3b7b416f7718681fe6ecfa8378ba4a7ddf4",
+  "assertion_mapping_sha256": "0f39f7f2c85bc1bb67c3da132a368e321305ef3171d9498ba35f5f2b1ab32599",
+  "source_review": "Read actual replacement diff, original matching assertions and proposed1776B isolated retirement;1174B assertion block remains exact",
+  "limits": [
+    "Authorization header signature presence only; no cryptographic request signature verification",
+    "Private clock preserves bookkeeping assertions, not network latency",
+    "No race/global/production qualification; isolated retirement needs separate source+truecompile receipt"
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "state": "SOURCE_ONLY_NOT_COMPILED_NO_LEASE",
+  "worktree": "/tmp/ts-ociclient-dispatcher-retirement-d45-20261017",
+  "base": "d45d64d2ca4f07254931258dc2b873f4adea097b",
+  "commit": "5b7d7c96d3699b52a1f66e86f3f8259e2557997d",
+  "tree": "328ee68bdadc06de97a8fe58c17ca04ec65a70c3",
+  "source_path": "internal/ociclient/factory_test.go",
+  "source_sha256": "eddcee1d75d7d04a1df13663236dd0fc0caad1763ee6f0bd02bf2d7719612308",
+  "go_binary": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+  "go_binary_sha256": "30969f97169d7f43fe6a085873d75613adc21e30818a8c61d95bd27275df4624",
+  "python_binary": "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+  "python_binary_sha256": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f",
+  "python_launch_argv": [
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+    "-I",
+    "-B",
+    "/tmp/ts-ociclient-retirement-5b7d7c96-compile-sealed-dn88hob4/run.py"
+  ],
+  "sourceproof_sha256": "0168ff8f3c960aafc7336397e6b3aa052c70b7f0814b2b2e670cb36ffc7a696c",
+  "source_inputs_sha256": "71a1151e9d4fc1a3bf30c402938d8af2a8c5ab4294660d5ee28c31b9bf091786",
+  "evidence_bindings_sha256": "56a960f904a8e713bacb0cd3a227e94fd4c43a59a999541f88ea774055409d0d",
+  "runtime_receipt_sha256": "6ea688957cfcea1b6104bcecb6a34a83149f048acb186c2fb6069893ca7dc2f2",
+  "approved_proposal": "/tmp/ts-oci-d45-retirement-reviewed-proposal-ebwzdz1s",
+  "request": {
+    "argv": [
+      "/run/current-system/sw/bin/nice",
+      "-n",
+      "19",
+      "/run/current-system/sw/bin/timeout",
+      "--signal=TERM",
+      "--kill-after=5s",
+      "180s",
+      "/run/current-system/sw/bin/env",
+      "-i",
+      "HOME=/home/mariogk",
+      "PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "GOMAXPROCS=2",
+      "GOFLAGS=-p=2",
+      "GOTOOLCHAIN=local",
+      "LANG=C.UTF-8",
+      "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go",
+      "test",
+      "-c",
+      "-mod=readonly",
+      "-p=1",
+      "-o",
+      "/tmp/ts-ociclient-retirement-5b7d7c96-compile-sealed-dn88hob4/qa-output/ociclient.test",
+      "./internal/ociclient"
+    ],
+    "cwd": "/tmp/ts-ociclient-dispatcher-retirement-d45-20261017",
+    "output_binary": "/tmp/ts-ociclient-retirement-5b7d7c96-compile-sealed-dn88hob4/qa-output/ociclient.test",
+    "output_directory_mode": "0700",
+    "output_binary_final_mode": "0600",
+    "compile_only": true,
+    "vet": "default; no -vet flag",
+    "binary_execution_authorized": false,
+    "binary_execution_count": 0,
+    "lease_required": true,
+    "attempts": 1,
+    "shared_lock": "/tmp/ts-orch-refactor-short-check-a.lock",
+    "lock_mode": "nonblocking-exclusive; one attempt; no retry",
+    "effective_child_environment": {
+      "HOME": "/home/mariogk",
+      "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+      "GOMAXPROCS": "2",
+      "GOFLAGS": "-p=2",
+      "GOTOOLCHAIN": "local",
+      "LANG": "C.UTF-8"
+    },
+    "GOROOT_present": false,
+    "resource_envelope": "Unmeasured estimates: <=180s outer wall TERM then KILL after5s; approximately <=2GiB RSS and <=1GiB scratch/cache growth, not enforced memory/disk limits. GOMAXPROCS2/GOFLAGS-p2/package-p1/nice19. True go test -c compile/link with default vet; zero test runtime."
+  },
+  "reference_runner": {
+    "path": "/tmp/ts-netbird-api-retirement-9bd689bd-6d9jtowd/run.py",
+    "sha256": "f0a00ec348580fa9f5d850418d86760337bdd70577dec04ca28293212b5e2c46"
+  },
+  "limitations": [
+    "No compilation, vet or runtime result exists for this retirement packet.",
+    "Source inventory conservatively reuses initializer import closure; exact source/module hashes and full Git HEAD/tree/status are verified before/after by the proposed runner.",
+    "Prior runtime acceptance binds d45 replacement only; this request gives no new runtime/race/global credit."
+  ]
+}

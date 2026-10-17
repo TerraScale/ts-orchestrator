@@ -1,0 +1,96 @@
+{
+  "state": "SOURCE_ONLY_NOT_COMPILED_OR_RUN_NO_LEASE",
+  "worktree": "/tmp/ts-ociclient-dispatcher-boundary-f730-20261017",
+  "base": "f730f37c4767a1df577909455a5ad4565f991d7d",
+  "commit": "d45d64d2ca4f07254931258dc2b873f4adea097b",
+  "tree": "0c20ddfd5073ab15cfbd97b68aa3d4e1cf041e8d",
+  "owned_changed_paths": [
+    "internal/ociclient/factory_test.go"
+  ],
+  "diff_numstat": {
+    "added": 113,
+    "deleted": 0
+  },
+  "base_file_sha256": "e910f6694186420a8eebb286b74775abd9c4d7f37c3458f26877c914672eeb1f",
+  "candidate_file_sha256": "08441cf1a717dfcd6a06b542677d4b3527a417731bbedabb0442326b05144645",
+  "frozen_inventory": {
+    "path": "/tmp/ts-firstparty-test-inventory-bfca6036-20261016",
+    "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+    "scanner_sha256": "dbf6337c37f840891f7f6545c60417bfee3b358eaa35b13004716c2367c06880",
+    "scanner_execution": "Only AST-selected pure function definitions compiled and executed; no generator top-level code executed.",
+    "selected_functions": [
+      "sha",
+      "letter",
+      "tokens",
+      "paired",
+      "imports",
+      "entry_kind",
+      "extract"
+    ],
+    "base_file_matches_frozen_inventory": true
+  },
+  "preservation": {
+    "old_free_declaration_count": 5,
+    "candidate_free_declaration_count": 6,
+    "all_five_old_declaration_hashes_exact": true,
+    "package_prefix_exact": true,
+    "only_import_additions": [
+      "\"context\"",
+      "\"encoding/json/v2\"",
+      "\"github.com/oracle/oci-go-sdk/v65/common\"",
+      "\"github.com/oracle/oci-go-sdk/v65/core\""
+    ],
+    "old_tail_anchor": "type fakeDispatcher",
+    "base_tail_offset_bytes": 253,
+    "candidate_tail_offset_bytes": 368,
+    "preserved_tail_length_bytes": 8021,
+    "preserved_tail_sha256": "d71689144486511ee9306e1d1a22e7b3b804cfbe3d6d79055b3c38d3a10366aa",
+    "complete_old_tail_exact_including_receiver_method": true
+  },
+  "original": {
+    "name": "TestInstrumentedDispatcherRecordsCallsErrorsAndThrottling",
+    "kind": "test",
+    "line": 55,
+    "end_line": 97,
+    "declaration_sha256": "4183f3b342ec174ad79ccef2ed45c117d3eec5ea90185904afb3980c2a902eb0",
+    "signature_status": "lexically-compatible-not-typechecked",
+    "direct_tier_calls": "",
+    "classification": "unclassified",
+    "review_closure": "unknown",
+    "execution_closure": "unknown"
+  },
+  "candidate": {
+    "name": "TestSignedSDKDispatcherRecordsCallsErrorsAndThrottling",
+    "kind": "test",
+    "line": 205,
+    "end_line": 312,
+    "declaration_sha256": "22e69703e18e9ae2c812a3c6cc98f654a10620042e1d7ecce373606bb349a823",
+    "signature_status": "lexically-compatible-not-typechecked",
+    "direct_tier_calls": "",
+    "classification": "unclassified",
+    "review_closure": "unknown",
+    "execution_closure": "unknown"
+  },
+  "limits": [
+    "Controlled clock verifies exact metric accumulation, not elapsed wall-clock latency.",
+    "Authorization signature presence is not cryptographic signature verification.",
+    "Process-global counters and a stable test-name service require a fresh process with -count=1, as in the original.",
+    "No retry safety, cancellation, limiter, cardinality or full route-normalization closure is claimed.",
+    "Original test remains unchanged; no retirement, race or global qualification before QA."
+  ],
+  "static_review": "Source/API review reported no blocking issue; no compile, Go discovery, test execution or QA lease. Lexical scan is not Go parsing/typechecking.",
+  "assertion_mapping": [
+    {
+      "original": "Three fake dispatcher results: 200, 429, transport error",
+      "candidate": "Three signed real OCI SDK GETs through the configured dispatcher to one loopback server: JSON 200, JSON service error 429, fresh connection closed before response; exact handler count 3."
+    },
+    {
+      "original": "Service-isolated operation GET /instances/{id}; calls3/errors2/throttle1/max.25/total.75",
+      "candidate": "Exact original operation and numeric assertions retained, with the same controlled 250ms-per-call clock around the original configured dispatcher."
+    },
+    {
+      "original": "Four Prometheus assertions and absence of ocid1.",
+      "candidate": "All four original Prometheus assertions and whole-output OCID leakage assertion copied exactly."
+    }
+  ]
+}
