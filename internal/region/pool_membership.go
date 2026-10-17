@@ -166,7 +166,11 @@ func (r FoundationResolver) PoolMembership(ctx context.Context, cell, poolID, co
 		ProfileSHA256: configuration.ProfileSHA256, PoolProfileSHA256: pool.ProfileSHA256, PoolRecipeSHA256: pool.RecipeSHA256,
 		RecipeSHA256: configuration.RecipeSHA256, PoolBirthSHA256: poolBirth, InitialConfigSHA256: initialBirth, ConfigBirthSHA256: configBirth,
 		Permission: selected.PoolMembership}
-	digest, err := digestValue(binding)
+	// Current authorization is rechecked separately; the durable selector keeps
+	// the same finite permission and original births across compatible grants.
+	purpose := binding
+	purpose.GrantSHA256, purpose.Generation = "", 0
+	digest, err := digestValue(purpose)
 	if err != nil {
 		return fail(err)
 	}
