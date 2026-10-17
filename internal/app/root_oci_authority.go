@@ -164,14 +164,23 @@ func (authority *rootOCIAuthority) registerAdmissionChild(pid int) (func(), erro
 }
 
 func (authority *rootOCIAuthority) verifyBinary(witness *rootoci.ProcessWitness) error {
+	_, err := authority.readVerifiedBinary(authority.ctx, witness)
+	return err
+}
+
+func (authority *rootOCIAuthority) readVerifiedBinary(ctx context.Context, witness *rootoci.ProcessWitness) (bootstrapstart.RunningBinary, error) {
+	if ctx == nil || ctx.Err() != nil || witness == nil {
+		return bootstrapstart.RunningBinary{}, rootoci.ErrUnauthorized
+	}
 	inputs, err := bootstrapstart.LoadTrustInputs(authority.accepted)
 	if err != nil || witness.Verify() != nil {
-		return rootoci.ErrUnauthorized
+		return bootstrapstart.RunningBinary{}, rootoci.ErrUnauthorized
 	}
-	if err := bootstrapstart.VerifyRestartProcessBinary(witness.Peer().PID, authority.accepted, authority.layout, inputs.Roots.Historical); err != nil {
-		return rootoci.ErrUnauthorized
+	binary, err := bootstrapstart.ReadVerifiedRestartProcessBinary(ctx, witness.Peer().PID, authority.accepted, authority.layout, inputs.Roots.Historical)
+	if err != nil || witness.Verify() != nil || ctx.Err() != nil {
+		return bootstrapstart.RunningBinary{}, rootoci.ErrUnauthorized
 	}
-	return witness.Verify()
+	return binary, nil
 }
 
 func (authority *rootOCIAuthority) authorize(request context.Context, peer nativerootoci.Peer, operation rootoci.Operation) (rootoci.Lease, error) {

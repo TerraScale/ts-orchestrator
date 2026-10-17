@@ -54,6 +54,10 @@ func (authority *rootOCIAuthority) withManagerRuntimeObservation(ctx context.Con
 	}
 	ctx, cancelOriginal := context.WithDeadline(ctx, deadline)
 	defer cancelOriginal()
+	binary, err := authority.readVerifiedBinary(ctx, process.witness)
+	if err != nil {
+		return err
+	}
 	control, err := source.node.ReadOnlyControlClient(ctx)
 	if err != nil {
 		return err
@@ -104,12 +108,16 @@ func (authority *rootOCIAuthority) withManagerRuntimeObservation(ctx context.Con
 		NodeID: source.nodeID, InstanceID: worker.InstanceID, HostID: registration.ID, HostNode: worker.HostNode,
 		HostSessionID: worker.HostSessionID, HostSessionEpoch: snapshot.SessionEpoch(), RegistrationGeneration: registration.Generation,
 		RegistrationRevision: snapshot.RegistrationRevision(), SourceRevision: snapshot.SourceRevision(),
-		HostPublicKey: worker.HostPublicKey, NATSUserPublicKey: worker.NATSUserPublicKey, RuntimeCandidateID: candidate,
+		HostPublicKey: worker.HostPublicKey, NATSUserPublicKey: worker.NATSUserPublicKey, RuntimeCandidateID: candidate, BinarySHA256: binary.SHA256,
 		AcceptanceSHA256: hex.EncodeToString(acceptance[:]), AnchorSHA256: current.Anchor().Digest(), SourceSHA256: current.ManagerSourceSHA256(),
 		CertificateSHA256: hex.EncodeToString(certificateDigest[:]), ClusterCASHA256: hex.EncodeToString(clusterDigest[:]), IssuedAt: time.Now().UTC(), ExpiresAt: deadline}
 	guard := func(effect context.Context) error {
 		if effect == nil || effect.Err() != nil || !time.Now().Before(deadline) || source.session.Err() != nil || authority.ctx.Err() != nil ||
-			authority.verifyMarker() != nil || authority.verifyBinary(process.witness) != nil || authority.verifyProcess(effect, process) != nil {
+			authority.verifyMarker() != nil || authority.verifyProcess(effect, process) != nil {
+			return rootoci.ErrUnauthorized
+		}
+		measured, err := authority.readVerifiedBinary(effect, process.witness)
+		if err != nil || measured.SHA256 != payload.BinarySHA256 {
 			return rootoci.ErrUnauthorized
 		}
 		if err := sources.guard(effect); err != nil {
@@ -149,6 +157,10 @@ func (authority *rootOCIAuthority) withManagerRuntimeObservation(ctx context.Con
 			return err
 		}
 		if effect.Err() != nil || source.session.Err() != nil || !time.Now().Before(deadline) || authority.verifyProcess(effect, process) != nil {
+			return rootoci.ErrUnauthorized
+		}
+		measured, err = authority.readVerifiedBinary(effect, process.witness)
+		if err != nil || measured.SHA256 != payload.BinarySHA256 {
 			return rootoci.ErrUnauthorized
 		}
 		return nil
