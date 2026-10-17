@@ -8,6 +8,8 @@ import (
 	"github.com/moby/swarmkit/v2/agent/exec"
 	"github.com/moby/swarmkit/v2/api"
 	swarmnode "github.com/moby/swarmkit/v2/node"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type pausedManagerExecutor struct {
@@ -34,26 +36,32 @@ func pauseManagerBeforeAgent(ctx context.Context, node *swarmnode.Node) error {
 			continue
 		}
 		client := api.NewControlClient(conn)
-		current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: node.NodeID()})
-		if err != nil {
-			return fmt.Errorf("observe manager before agent registration: %w", err)
+		for {
+			current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: node.NodeID()})
+			if err != nil {
+				return fmt.Errorf("observe manager before agent registration: %w", err)
+			}
+			if current.Node == nil || current.Node.Certificate.CN != node.NodeID() || current.Node.Certificate.Role != api.NodeRoleManager {
+				return errors.New("manager startup barrier requires its persisted manager identity")
+			}
+			spec := current.Node.Spec.Copy()
+			spec.Availability = api.NodeAvailabilityPause
+			if _, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: current.Node.ID, NodeVersion: &current.Node.Meta.Version, Spec: spec}); err != nil {
+				// Upstream returns an untyped store sequence conflict across gRPC.
+				if status.Code(err) == codes.Unknown && status.Convert(err).Message() == "update out of sequence" {
+					continue
+				}
+				return fmt.Errorf("pause manager before agent registration: %w", err)
+			}
+			paused, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: current.Node.ID})
+			if err != nil {
+				return fmt.Errorf("verify manager startup pause: %w", err)
+			}
+			if paused.Node == nil || paused.Node.Spec.Availability != api.NodeAvailabilityPause {
+				return errors.New("manager availability changed before agent registration")
+			}
+			return nil
 		}
-		if current.Node == nil || current.Node.Certificate.CN != node.NodeID() || current.Node.Certificate.Role != api.NodeRoleManager {
-			return errors.New("manager startup barrier requires its persisted manager identity")
-		}
-		spec := current.Node.Spec.Copy()
-		spec.Availability = api.NodeAvailabilityPause
-		if _, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: current.Node.ID, NodeVersion: &current.Node.Meta.Version, Spec: spec}); err != nil {
-			return fmt.Errorf("pause manager before agent registration: %w", err)
-		}
-		paused, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: current.Node.ID})
-		if err != nil {
-			return fmt.Errorf("verify manager startup pause: %w", err)
-		}
-		if paused.Node == nil || paused.Node.Spec.Availability != api.NodeAvailabilityPause {
-			return errors.New("manager availability changed before agent registration")
-		}
-		return nil
 	}
 	return ctx.Err()
 }
