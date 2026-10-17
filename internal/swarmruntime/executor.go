@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/TerraScale/ts-orchestrator/internal/hostload"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
 
 	containerd "github.com/containerd/containerd/v2/client"
@@ -41,6 +42,9 @@ type Executor struct {
 	node              *api.Node
 	registry          RegistryResolver
 	stateful          *execution.Source
+	loadMu            sync.Mutex
+	loadTasks         map[string]*controller
+	loadSampler       *hostload.Sampler
 }
 
 var _ exec.Executor = (*Executor)(nil)
@@ -160,7 +164,11 @@ func (e *Executor) Controller(t *api.Task) (exec.Controller, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &controller{executor: e, task: t.Copy(), spec: s, id: "ts-" + t.ID, fingerprint: taskFingerprint(t)}, nil
+	controller := &controller{executor: e, task: t.Copy(), spec: s, id: "ts-" + t.ID, fingerprint: taskFingerprint(t)}
+	e.mu.Lock()
+	e.trackLoadTask(controller)
+	e.mu.Unlock()
+	return controller, nil
 }
 
 // Close disconnects the agent; shim-owned tasks and logging continue running.

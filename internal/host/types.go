@@ -18,6 +18,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/hostload"
 	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/roleidentity"
@@ -238,6 +239,7 @@ type AgentConfig struct {
 	NATSUserPublicKey       string
 	ControllerPublicKey     ed25519.PublicKey
 	Runner                  Runner
+	TaskLoad                TaskLoadSource
 	InstallRoot             string
 	StateRoot               string
 	ManagedRuntimeRoot      string
@@ -280,6 +282,11 @@ type AgentConfig struct {
 	NATSCAFile string
 }
 
+// TaskLoadSource observes local executor tasks; its measurements grant no authority.
+type TaskLoadSource interface {
+	ReadTaskLoad(context.Context) ([]hostload.RoleUsage, error)
+}
+
 type ControllerConfig struct {
 	Cell           string
 	Conn           *nats.Conn
@@ -304,7 +311,10 @@ type ControllerConfig struct {
 	RuntimeEffects              RuntimeEffectHandler
 	ContainerMaterialProvider   ContainerMaterialProvider
 	RegistryAdmissionProvider   RegistryAdmissionProvider
-	ControlLog                  jetstream.Stream
+	// TaskLoadRoles returns roles assigned to this exact current registration
+	// by the authenticated manager. Reported role names never select allocations.
+	TaskLoadRoles func(context.Context, Registration) ([]string, error)
+	ControlLog    jetstream.Stream
 	// TerraBaseCA signs C# TerraBase member certificates; nil refuses them.
 	TerraBaseCA *terrabase.CA
 	// RoleIdentity issues a granted role's NATS identity; nil refuses it.

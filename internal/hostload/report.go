@@ -75,9 +75,10 @@ type HostUsage struct {
 	Load1        *float64 `json:"load1,omitempty"`
 }
 
-// RoleUsage is one native role's cgroup v2 usage in absolute units, so the
+// RoleUsage is one role's cgroup v2 usage in absolute units, so the
 // controller can relate it to the role's signed resource request, plus the
 // TerraBase load block when the role is a TerraBase member that reports one.
+// Executor roles sum every current local task; partial sums remain unknown.
 type RoleUsage struct {
 	Role        string                    `json:"role"`
 	CPUCores    *float64                  `json:"cpu_cores,omitempty"`

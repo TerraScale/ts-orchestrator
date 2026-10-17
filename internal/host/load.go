@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -68,20 +69,31 @@ func (c *Controller) storeLoad(ctx context.Context, req request, r Registration)
 	if err := report.Validate(); err != nil {
 		return nil, err
 	}
+	var taskRoles []string
+	if c.taskLoadRoles != nil {
+		var err error
+		taskRoles, err = c.taskLoadRoles(ctx, r)
+		if err != nil {
+			return nil, err
+		}
+	}
 	// Only roles registered for this host with a current, non-withdrawn
 	// allocation count: a host cannot report load for a service it does
 	// not run.
 	roles := make([]hostload.RoleUsage, 0, len(r.Roles))
 	for _, name := range r.Roles {
-		desired, _, exists, err := c.readDesired(ctx, req.Node, name)
-		if err != nil {
-			return nil, err
-		}
-		if !exists || desired.Withdrawn {
-			continue
-		}
-		if err := validateDesired(desired, c.cell, r); err != nil {
-			continue
+		taskRole := name != terrabase.Role && slices.Contains(taskRoles, name)
+		var desired Desired
+		if !taskRole {
+			var exists bool
+			var err error
+			desired, _, exists, err = c.readDesired(ctx, req.Node, name)
+			if err != nil {
+				return nil, err
+			}
+			if !exists || desired.Withdrawn || validateDesired(desired, c.cell, r) != nil {
+				continue
+			}
 		}
 		// Reservations survive missing cgroup measurements or a stopped process.
 		role := hostload.RoleUsage{Role: name}
@@ -90,6 +102,9 @@ func (c *Controller) storeLoad(ctx context.Context, req request, r Registration)
 				role = measured
 				break
 			}
+		}
+		if taskRole {
+			role.TerraBase, role.WAN = nil, nil
 		}
 		if role.WAN != nil {
 			if name != terrabase.Role || desired.ManagedMember != nil || !role.WAN.Fresh(time.Now()) ||
@@ -311,7 +326,7 @@ func (a *Agent) publishLoad(ctx context.Context) {
 	}
 	sampler := hostload.NewSampler(config)
 	// The first sample only sets CPU baselines.
-	sampler.Sample(nil)
+	_, _ = a.sampleLoad(ctx, sampler)
 	wait, failing := loadInterval, false
 	for {
 		select {
@@ -324,9 +339,10 @@ func (a *Agent) publishLoad(ctx context.Context) {
 			return
 		}
 		var ack loadAck
-		report := sampler.Sample(a.currentTerraBaseLoads())
-		a.addTerraBaseWAN(ctx, &report)
-		err := a.request(ctx, "load", report, &ack)
+		report, err := a.sampleLoad(ctx, sampler)
+		if err == nil {
+			err = a.request(ctx, "load", report, &ack)
+		}
 		if ctx.Err() != nil {
 			return
 		}
@@ -343,6 +359,34 @@ func (a *Agent) publishLoad(ctx context.Context) {
 		}
 		failing, wait = false, loadInterval
 	}
+}
+
+func (a *Agent) sampleLoad(ctx context.Context, sampler *hostload.Sampler) (hostload.Report, error) {
+	report := sampler.Sample(a.currentTerraBaseLoads())
+	a.addTerraBaseWAN(ctx, &report)
+	if a.cfg.TaskLoad == nil {
+		return report, nil
+	}
+	tasks, err := a.cfg.TaskLoad.ReadTaskLoad(ctx)
+	if err != nil {
+		return hostload.Report{}, err
+	}
+	if err := (hostload.Report{SchemaVersion: hostload.SchemaVersion, Roles: tasks}).Validate(); err != nil {
+		return hostload.Report{}, err
+	}
+	for _, task := range tasks {
+		if task.Role == terrabase.Role || !slices.Contains(a.cfg.Roles, task.Role) {
+			continue
+		}
+		task.TerraBase, task.WAN = nil, nil
+		index := slices.IndexFunc(report.Roles, func(role hostload.RoleUsage) bool { return role.Role == task.Role })
+		if index < 0 {
+			report.Roles = append(report.Roles, task)
+		} else {
+			report.Roles[index] = task
+		}
+	}
+	return report, report.Validate()
 }
 
 // nextLoadWait doubles the wait after a failed publication, capped at
