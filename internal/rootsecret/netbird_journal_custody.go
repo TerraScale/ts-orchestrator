@@ -98,7 +98,7 @@ func NewNetBirdStartupCustody(ctx, original context.Context, process *rootoci.Pr
 	if err != nil || checkNetBirdStartupProcess(process, process.Binding()) != nil || checkNetBirdStartupMarker(marker) != nil {
 		return nil, ErrDelivery
 	}
-	if original.Err() != nil || ctx.Err() != nil || !time.Now().Before(expires) {
+	if underlay.CheckOriginal() != nil || original.Err() != nil || ctx.Err() != nil || !time.Now().Before(expires) {
 		return nil, ErrDelivery
 	}
 	lifetime, stop := context.WithDeadline(original, expires)
@@ -184,7 +184,7 @@ func (custody *NetBirdStartupCustody) CurrentDeadline(ctx context.Context) (time
 	if err != nil || measured != custody.binary || checkNetBirdStartupProcess(custody.process, custody.binding) != nil || checkNetBirdStartupMarker(custody.marker) != nil {
 		return time.Time{}, ErrDelivery
 	}
-	if custody.original.Err() != nil || custody.lifetime.Err() != nil || ctx.Err() != nil || !time.Now().Before(expires) {
+	if custody.underlay.CheckOriginal() != nil || custody.original.Err() != nil || custody.lifetime.Err() != nil || ctx.Err() != nil || !time.Now().Before(expires) {
 		return time.Time{}, ErrDelivery
 	}
 	return expires, nil
