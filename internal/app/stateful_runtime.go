@@ -21,16 +21,19 @@ import (
 )
 
 type statefulRuntimeConfig struct {
-	Client            api.ControlClient
-	Authority         *authority.Runtime
-	Members           placement.Store
-	Delivery          *delivery.Service
-	Volumes           *oci.VolumeMountObserver
-	Roots             trust.Keyring
-	Evidence          executionleader.EvidenceReader
-	Allocations       executionleader.AllocationResolver
-	SessionGuard      func(context.Context) error
-	Cell, Environment string
+	Client              api.ControlClient
+	Authority           *authority.Runtime
+	Members             placement.Store
+	Delivery            *delivery.Service
+	Volumes             *oci.VolumeMountObserver
+	Roots               trust.Keyring
+	HistoricalRoots     trust.Keyring
+	Evidence            executionleader.EvidenceReader
+	Allocations         executionleader.AllocationResolver
+	RetainedEvidence    executionleader.EvidenceReader
+	RetainedAllocations executionleader.AllocationResolver
+	SessionGuard        func(context.Context) error
+	Cell, Environment   string
 }
 
 type statefulRuntime struct {
@@ -44,7 +47,7 @@ func newStatefulRuntime(config statefulRuntimeConfig) (*statefulRuntime, error) 
 		return nil, errors.New("stateful runtime requires the current admitted manager session")
 	}
 	producer, err := executionleader.NewProducer(config.Client, config.Authority, config.Members, config.Delivery,
-		config.Volumes, config.Roots, config.Evidence, config.Cell, config.Environment, config.Allocations)
+		config.Volumes, config.Roots, config.Evidence, config.Cell, config.Environment, config.Allocations, config.RetainedEvidence, config.RetainedAllocations, config.HistoricalRoots)
 	if err != nil {
 		return nil, err
 	}

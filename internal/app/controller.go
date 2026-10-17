@@ -317,6 +317,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return fmt.Errorf("start broker admission gate: %w", err)
 	}
 	var genericServices atomic.Pointer[genericRuntime]
+	var statefulServices statefulRuntimeSlot
 	planner := &regionalDeliveryPlanner{profiles: services.profiles, address: services.nodeAddress, migrated: func(role string) bool { return role != terrabase.Role }}
 	service, _, err := retryControllerOpen(ctx, "open regional delivery stores", fullClusterReady, false,
 		func(attempt context.Context) (*delivery.Service, error) {
@@ -327,6 +328,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 				Authorize: policy.authorizeIntent, AuthorizeArtifact: policy.authorizeArtifact,
 				Fencer: control, Planner: planner, Writer: planner,
 				ContainerApply: func(ctx context.Context, intent delivery.Intent) error {
+					if intent.Role == terrabase.Role {
+						return statefulServices.apply(ctx, intent)
+					}
 					controller := genericServices.Load()
 					if controller == nil {
 						return containermaterial.ErrPending
@@ -506,21 +510,16 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	// TerraBase seat rollouts hold a static member's restart until its seat
 	// is permitted, so the host controller needs the seat records first.
-	var seatStore *seatrollout.Store
-	var restartGate func(context.Context, string, host.Desired) (bool, error)
-	if seats := cfg.Controller.TerraBaseSeats; seats != nil && seats.Enabled {
-		if _, _, err := seats.durations(); err != nil {
-			return err
-		}
-		if seatStore, _, err = retryControllerOpen(ctx, "open TerraBase seat records", fullClusterReady, false,
-			func(attempt context.Context) (*seatrollout.Store, error) {
-				return seatrollout.Open(attempt, runtime.JetStream(), cfg.NATS.Replicas, control)
-			}, nil); err != nil {
-			return err
-		}
-		restartGate = seatStore.Granted
-		policy.rollouts.drainedSeats = seatStore.Drained
+	seatStore, _, err := retryControllerOpen(ctx, "open TerraBase seat records", fullClusterReady, false,
+		func(attempt context.Context) (*seatrollout.Store, error) {
+			return seatrollout.Open(attempt, runtime.JetStream(), cfg.NATS.Replicas, control)
+		}, nil)
+	if err != nil {
+		return err
 	}
+	seats := newSeatController(cfg, seatStore, control, nil, services.profiles, ociReconcile)
+	restartGate := seatRestartGate(seats)
+	policy.rollouts.drainedSeats = seatStore.Drained
 	// Service releases sequenced by a release fence (TS-610) hold a host's
 	// restart until the leader permits its node, on every controller.
 	var releaseChannel jetstream.KeyValue
@@ -529,15 +528,12 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			return err
 		}
 		release := releaseGate(releaseChannel)
-		if seats := restartGate; seats != nil {
-			restartGate = func(ctx context.Context, node string, desired host.Desired) (bool, error) {
-				if granted, err := seats(ctx, node, desired); err != nil || !granted {
-					return granted, err
-				}
-				return release(ctx, node, desired)
+		seatGate := restartGate
+		restartGate = func(ctx context.Context, node string, desired host.Desired) (bool, error) {
+			if granted, err := seatGate(ctx, node, desired); err != nil || !granted {
+				return granted, err
 			}
-		} else {
-			restartGate = release
+			return release(ctx, node, desired)
 		}
 	}
 	// A cell that enrolls hosts issues its placed roles' NATS identities with
@@ -565,6 +561,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 				ManagedMaterialProvider:     materialProvider,
 				ManagedCredentialFloor:      credentialFloor,
 				ManagedVolumeInspector:      volumeInspector,
+				RuntimeEffects:              &statefulServices,
 				TaskLoadRoles: func(ctx context.Context, registration host.Registration) ([]string, error) {
 					functionCalls.RLock()
 					defer functionCalls.RUnlock()
@@ -633,6 +630,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return err
 	}
 	planner.hosts = hostController
+	seats.Hosts = hostController
 	// One release fence takes nodes out of rotation for service releases,
 	// controller rollouts and node operations (TS-632).
 	var fences *releaseFence
@@ -642,7 +640,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if releaseChannel != nil {
 		fences = &releaseFence{kv: releaseChannel, hosts: hostController, fencer: control,
 			spec:  withPoolAddresses(services.releaseFence, &poolScaler),
-			seats: seatStore != nil,
+			seats: true,
 			open: func(context.Context) (lb.API, error) {
 				factory, err := ociclient.InstancePrincipal(region)
 				if err != nil {
@@ -883,6 +881,34 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		defer functionCalls.Unlock()
 		stopContainers()
 	}()
+	statefulVolumes, err := workloadRoot.VolumeMountObserver()
+	if err != nil {
+		return fmt.Errorf("open stateful volume observations: %w", err)
+	}
+	statefulMembers := placementStore
+	if statefulMembers == nil {
+		statefulMembers, _, err = retryControllerOpen(runCtx, "open stateful member observations", fullClusterReady, false,
+			func(attempt context.Context) (placement.Store, error) {
+				return placement.NewJetStreamStore(attempt, runtime.JetStream(), cfg.NATS.Cell, cfg.NATS.Replicas,
+					admittedPlacementReader{cell: cfg.NATS.Cell, store: control, material: materialAdmission})
+			}, nil)
+		if err != nil {
+			return err
+		}
+	}
+	statefulMaterial := statefulReleaseReader{client: workloadRoot, deliveries: service}
+	stateful, err := newStatefulRuntime(statefulRuntimeConfig{
+		Client: functionClient, Authority: control, Members: statefulMembers, Delivery: service,
+		Volumes: statefulVolumes, Roots: services.roots.current(), HistoricalRoots: services.roots.historical(), Evidence: statefulMaterial.evidence, Allocations: statefulMaterial.allocations,
+		RetainedEvidence: statefulMaterial.retainedEvidence, RetainedAllocations: statefulMaterial.retainedAllocations,
+		SessionGuard: func(ctx context.Context) error { return containers.managerSession(ctx, managerID) },
+		Cell:         cfg.NATS.Cell, Environment: services.identity.Environment,
+	})
+	if err != nil {
+		return fmt.Errorf("start stateful container runtime: %w", err)
+	}
+	statefulServices.Store(stateful)
+	defer statefulServices.Store(nil)
 	generic, err := newGenericRuntime(genericRuntimeConfig{Client: functionClient, ManagerID: managerID, Authority: control, Specs: services, Delivery: service, Factory: capacityFoundation.factory,
 		Evidence: containers.config.Evidence, Probe: containers.probe, RetainedFloor: nativeReleases.retainedContainerFloor,
 		SessionGuard: func(ctx context.Context) error { return containers.managerSession(ctx, managerID) },
@@ -1218,14 +1244,12 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if ociReconcile != nil {
 		workers.Go(func() { workerErrors <- ociReconcile.runner.Run(runCtx) })
 	}
-	if seatStore != nil {
-		seats := newSeatController(cfg, seatStore, control, hostController, services.profiles, ociReconcile)
-		seats.Hold = policy.rollouts.hostRolloutActive
-		workers.Go(func() { workerErrors <- seats.Run(runCtx) })
-	}
+	seats.Hold = policy.rollouts.hostRolloutActive
+	workers.Go(func() { workerErrors <- seats.Run(runCtx) })
 	if membershipSupervisor != nil {
 		workers.Go(func() { workerErrors <- membershipSupervisor.Run(runCtx) })
 	}
+	workers.Go(func() { workerErrors <- stateful.effects.Run(runCtx) })
 	workers.Go(func() { workerErrors <- generic.Run(runCtx) })
 	atlasPublisher := &atlas.Loop{Publisher: atlas.Publisher{HTTP: &http.Client{Timeout: atlas.Interval}},
 		Config: atlasRoster(services.atlasConfig, cfg.NATS.Cell, peers), Authority: control, LoadKey: atlas.VaultKey}
