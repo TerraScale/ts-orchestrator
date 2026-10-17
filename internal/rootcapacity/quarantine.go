@@ -19,7 +19,7 @@ func (c *Controller) QuarantinePoolChild(ctx context.Context, call rootoci.Call,
 		call.Operation() != "" && call.Operation() != rootoci.OperationQuarantinePoolChild {
 		return rootoci.PoolQuarantineView{}, rootoci.ErrInvalid
 	}
-	a, close, err := c.open(ctx, call, request.Cell, request.OperationID, request.Epoch)
+	a, close, err := c.open(ctx, call, request.Cell, request.OperationID)
 	if err != nil {
 		return rootoci.PoolQuarantineView{}, err
 	}

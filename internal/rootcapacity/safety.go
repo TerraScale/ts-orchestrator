@@ -214,7 +214,7 @@ func (a *attempt) readReadyChild(ctx context.Context, management core.ComputeMan
 		return region.PoolWorkerObservation{}, err
 	}
 	if value(member.Id) != child.InstanceID || value(member.InstancePoolId) != child.PoolID || value(member.InstanceConfigurationId) != child.ConfigurationID ||
-		value(member.CompartmentId) != a.receipt.CompartmentID || value(member.AvailabilityDomain) != child.AvailabilityDomain ||
+		value(member.CompartmentId) != a.record.CapacityPools[child.PoolID].CompartmentID || value(member.AvailabilityDomain) != child.AvailabilityDomain ||
 		member.LifecycleState != core.InstancePoolInstanceLifecycleStateActive {
 		return region.PoolWorkerObservation{}, fmt.Errorf("%w: original child is not an exact active member", ErrPending)
 	}

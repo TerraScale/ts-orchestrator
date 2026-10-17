@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/TerraScale/ts-orchestrator/internal/region"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 )
 
 func TestConstructorRejectsCallerBuiltAuthorityWithoutConnecting(t *testing.T) {
@@ -53,5 +54,13 @@ func TestWireIdentityPreservesSignedBodyAndRejectsChangedReplay(t *testing.T) {
 	actual, err = wireSHA256(request)
 	if err != nil || actual == expected {
 		t.Fatalf("replacement token preserved original wire identity: %v", err)
+	}
+}
+
+func TestObservationCannotWriteProtectedHistory(t *testing.T) {
+	observation := rootoci.PoolChildObservation{Cell: "GRU"}
+	a := attempt{observation: &observation}
+	if err := a.save(context.Background()); err == nil {
+		t.Fatal("observation gained protected capacity write admission")
 	}
 }

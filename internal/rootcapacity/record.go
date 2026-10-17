@@ -29,30 +29,40 @@ var ErrPending = errors.New("protected capacity operation is pending")
 // attempt is constructed only after the home handler independently resolves
 // the original durable reservation, signed source and actual home connection.
 type attempt struct {
-	call       rootoci.Call
-	resolver   region.FoundationResolver
-	store      *region.ObjectFoundationStore
-	factory    *ociclient.Factory
-	home       *globalcontrol.Reader
-	leader     *authority.Reader
-	original   authority.Snapshot
-	deadline   time.Time
-	receipt    budget.Reservation
-	worker     region.VerifiedWorkerRecipe
-	membership region.VerifiedPoolMembership
-	recipe     nodescale.Recipe
-	record     region.FoundationRecord
-	etag       string
-	operation  string
-	poolID     string
-	leaseID    string
+	call        rootoci.Call
+	resolver    region.FoundationResolver
+	store       *region.ObjectFoundationStore
+	factory     *ociclient.Factory
+	home        *globalcontrol.Reader
+	leader      *authority.Reader
+	original    authority.Snapshot
+	deadline    time.Time
+	receipt     budget.Reservation
+	worker      region.VerifiedWorkerRecipe
+	membership  region.VerifiedPoolMembership
+	recipe      nodescale.Recipe
+	record      region.FoundationRecord
+	etag        string
+	operation   string
+	poolID      string
+	leaseID     string
+	observation *rootoci.PoolChildObservation
 }
 
 func (a *attempt) guard(ctx context.Context) error {
 	if err := a.call.Guard(ctx); err != nil {
 		return err
 	}
-	if a.deadline.IsZero() || !time.Now().Before(a.deadline) || a.home == nil || a.leader == nil {
+	if a.deadline.IsZero() || !time.Now().Before(a.deadline) {
+		return rootoci.ErrUnauthorized
+	}
+	if a.observation != nil {
+		if a.home != nil || a.leader != nil || a.leaseID != "" {
+			return rootoci.ErrUnauthorized
+		}
+		return ctx.Err()
+	}
+	if a.home == nil || a.leader == nil {
 		return rootoci.ErrUnauthorized
 	}
 	current, err := a.leader.CurrentLease(ctx)
@@ -87,6 +97,9 @@ func (a *attempt) readContext(ctx context.Context) context.Context {
 }
 
 func (a *attempt) save(ctx context.Context) error {
+	if a.observation != nil || a.home == nil || a.leader == nil {
+		return errors.New("root observation cannot mutate protected capacity history")
+	}
 	if err := a.guard(ociclient.CheckpointContext(ctx)); err != nil {
 		return err
 	}

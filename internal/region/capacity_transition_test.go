@@ -25,6 +25,11 @@ func TestCapacityTransitionRetainsChildIdentityAndUnknownHistory(t *testing.T) {
 			c.InstanceID += "replacement"
 			r.PoolChildren[child.OperationID] = c
 		}},
+		{"replace original home birth epoch", func(r *FoundationRecord) {
+			c := r.PoolChildren[child.OperationID]
+			c.BirthEpoch++
+			r.PoolChildren[child.OperationID] = c
+		}},
 		{"replace original boot", func(r *FoundationRecord) {
 			c := r.PoolChildren[child.OperationID]
 			c.BootVolumeID += "replacement"

@@ -9,6 +9,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/budget"
+	"github.com/TerraScale/ts-orchestrator/internal/capacityledger"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/globalcontrol"
 	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
@@ -32,21 +33,23 @@ func New(ctx context.Context, factory *ociclient.Factory, resolver region.Founda
 	if os.Geteuid() != 0 || ctx == nil || ctx.Err() != nil {
 		return nil, rootoci.ErrUnauthorized
 	}
-	store, err := resolver.ProtectedCapacityStore(factory)
+	store, err := resolver.ProtectedCapacityReaderStore(factory)
 	if err != nil {
 		return nil, err
 	}
 	return &Controller{factory: factory, resolver: resolver, store: store}, nil
 }
 
-func (c *Controller) open(ctx context.Context, call rootoci.Call, cell, operation string, epoch uint64) (*attempt, func(), error) {
+func (c *Controller) open(ctx context.Context, call rootoci.Call, cell, operation string) (*attempt, func(), error) {
 	if c == nil || c.factory == nil || c.store == nil || ctx == nil || call.Guard(ctx) != nil ||
 		cell != strings.ToUpper(cell) || !entityid.Valid(operation) {
 		return nil, nil, rootoci.ErrUnauthorized
 	}
+	if _, err := c.resolver.ProtectedCapacityStore(c.factory); err != nil {
+		return nil, nil, err
+	}
 	expected := call.Expected()
-	if expected.Cell != "" && !strings.EqualFold(expected.Cell, cell) || expected.OperationID != "" && expected.OperationID != operation ||
-		expected.Epoch != 0 && expected.Epoch != epoch {
+	if expected.Cell != "" && !strings.EqualFold(expected.Cell, cell) || expected.OperationID != "" && expected.OperationID != operation {
 		return nil, nil, rootoci.ErrUnauthorized
 	}
 	ctx, cancel := context.WithDeadline(ctx, call.Deadline())
@@ -74,7 +77,7 @@ func (c *Controller) open(ctx context.Context, call rootoci.Call, cell, operatio
 		return fail(err)
 	}
 	lease, err := leader.CurrentLease(ctx)
-	if err != nil || epoch != 0 && lease.Epoch != epoch || call.RuntimeID() != "" && call.RuntimeID() != lease.CandidateID {
+	if err != nil || expected.Epoch != 0 && lease.Epoch != expected.Epoch {
 		return fail(errors.Join(err, authority.ErrFenced))
 	}
 	a := &attempt{call: call, resolver: c.resolver, store: c.store, home: home, leader: leader,
@@ -110,7 +113,7 @@ func (c *Controller) beginChild(ctx context.Context, call rootoci.Call, request 
 		len(request.AvailabilityDomains) == 0 || len(request.AvailabilityDomains) > 3 {
 		return nil, nil, rootoci.ErrInvalid
 	}
-	a, close, err := c.open(ctx, call, request.Cell, request.OperationID, request.Epoch)
+	a, close, err := c.open(ctx, call, request.Cell, request.OperationID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -128,42 +131,18 @@ func (c *Controller) resolveChild(ctx context.Context, call rootoci.Call, reques
 		return fail(errors.New("pool operation has no original durable home reservation"))
 	}
 	a.receipt = capacity.Reservations[index]
-	if _, err := a.receipt.FinancialReceipt(); err != nil {
-		return fail(err)
-	}
 	if a.record.Generation != request.Generation || a.record.GrantSHA256 != request.GrantSHA256 ||
 		!strings.EqualFold(a.receipt.Cell, request.Cell) || a.receipt.RecipeSHA256 != request.RecipeSHA256 ||
 		a.receipt.GrantGeneration > request.Generation ||
 		call.Expected().GrantSHA256 != "" && call.Expected().GrantSHA256 != request.GrantSHA256 {
 		return fail(errors.New("pool expectation differs from original authenticated reservation"))
 	}
-	var selectionErrors error
-	for _, role := range []string{nodescale.RoleContainer, nodescale.RoleWasm} {
-		workers, err := c.resolver.WorkerRecipes(a.readContext(ctx), request.Cell, role, request.PublicCAPEM)
-		if err != nil {
-			selectionErrors = errors.Join(selectionErrors, err)
-			continue
-		}
-		for _, worker := range workers {
-			candidate := worker.Recipe()
-			candidate.AvailabilityDomains = slices.Clone(request.AvailabilityDomains)
-			if err := worker.Match(candidate); err != nil {
-				continue
-			}
-			recipe := scaleRecipe(candidate)
-			if recipe.Validate() != nil || recipe.SHA256() != request.RecipeSHA256 || candidate.CompartmentID != a.receipt.CompartmentID ||
-				candidate.Shape != a.receipt.Shape || float64(recipe.OCPUs) != a.receipt.OCPUs || float64(recipe.MemoryGB) != a.receipt.MemoryGB ||
-				float64(candidate.BootGB) != a.receipt.BootGB || worker.Profile().GrantDigest() != request.GrantSHA256 || worker.Profile().Generation() != request.Generation {
-				continue
-			}
-			if a.worker.IsVerified() {
-				return fail(errors.New("pool recipe matches ambiguous independently signed worker profiles"))
-			}
-			a.worker, a.recipe = worker, recipe
-		}
+	original, err := a.receipt.FinancialReceipt()
+	if err != nil {
+		return fail(err)
 	}
-	if !a.worker.IsVerified() {
-		return fail(errors.Join(selectionErrors, errors.New("original pool recipe has no exact current signed worker authority")))
+	if err := a.resolveWorker(ctx, request, original); err != nil {
+		return fail(err)
 	}
 	if child, exists := a.record.PoolChildren[request.OperationID]; exists {
 		if request.PoolID != "" && request.PoolID != child.PoolID || request.ConfigurationID != "" && request.ConfigurationID != child.ConfigurationID ||
@@ -181,4 +160,36 @@ func scaleRecipe(worker region.WorkerRecipe) nodescale.Recipe {
 	return nodescale.Recipe{Cell: strings.ToLower(worker.Cell), Capacity: nodescale.Capacity{Role: worker.Role, Architecture: worker.Architecture, Shape: worker.Shape},
 		SubnetID: worker.SubnetID, NSGIDs: worker.NSGIDs, AvailabilityDomains: worker.AvailabilityDomains, ImageID: worker.ImageID,
 		OCPUs: float32(worker.OCPUs), MemoryGB: float32(worker.MemoryGB), Metadata: worker.Metadata}
+}
+
+func (a *attempt) resolveWorker(ctx context.Context, request rootoci.PoolChildExpectation, original capacityledger.Receipt) error {
+	var selectionErrors error
+	for _, role := range []string{nodescale.RoleContainer, nodescale.RoleWasm} {
+		workers, err := a.resolver.WorkerRecipes(a.readContext(ctx), request.Cell, role, request.PublicCAPEM)
+		if err != nil {
+			selectionErrors = errors.Join(selectionErrors, err)
+			continue
+		}
+		for _, worker := range workers {
+			candidate := worker.Recipe()
+			candidate.AvailabilityDomains = slices.Clone(request.AvailabilityDomains)
+			if err := worker.Match(candidate); err != nil {
+				continue
+			}
+			recipe := scaleRecipe(candidate)
+			if recipe.Validate() != nil || recipe.SHA256() != request.RecipeSHA256 || candidate.CompartmentID != original.Quote.CompartmentID ||
+				candidate.Shape != original.Quote.Shape || float64(recipe.OCPUs) != original.Quote.OCPUs || float64(recipe.MemoryGB) != original.Quote.MemoryGB ||
+				float64(candidate.BootGB) != original.Quote.BootGB || worker.Profile().GrantDigest() != request.GrantSHA256 || worker.Profile().Generation() != request.Generation {
+				continue
+			}
+			if a.worker.IsVerified() {
+				return errors.New("pool recipe matches ambiguous independently signed worker profiles")
+			}
+			a.worker, a.recipe = worker, recipe
+		}
+	}
+	if !a.worker.IsVerified() {
+		return errors.Join(selectionErrors, errors.New("original pool recipe has no exact current signed worker authority"))
+	}
+	return a.guard(ctx)
 }

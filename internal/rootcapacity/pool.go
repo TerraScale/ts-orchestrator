@@ -263,7 +263,7 @@ func (a *attempt) createPool(ctx context.Context, management core.ComputeManagem
 }
 
 func (a *attempt) checkPool(pool core.InstancePool, id string) error {
-	if value(pool.Id) != id || value(pool.CompartmentId) != a.receipt.CompartmentID || value(pool.DisplayName) != a.record.CapacityPools[id].PoolName ||
+	if value(pool.Id) != id || value(pool.CompartmentId) != a.record.CapacityPools[id].CompartmentID || value(pool.DisplayName) != a.record.CapacityPools[id].PoolName ||
 		pool.Size == nil || *pool.Size < 0 || *pool.Size > nodescale.MaxPoolNodes || len(pool.LoadBalancers) != 0 || len(pool.PlacementConfigurations) != len(a.recipe.AvailabilityDomains) {
 		return errors.New("protected pool actual identity, size or placement changed")
 	}
