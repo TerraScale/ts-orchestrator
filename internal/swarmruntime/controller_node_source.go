@@ -204,11 +204,11 @@ func (source *controllerNodeSource) read(ctx context.Context, origin, nodeID str
 		return nil, nil, err
 	}
 	capAt(candidate.ExpiresAt())
-	control, err := source.node.ControllerActivationControl(ctx, source.binding)
+	control, err := source.node.readControllerActivationControl(ctx, source.binding)
 	if err != nil {
 		return nil, nil, err
 	}
-	nodes := control.Nodes()
+	nodes := control.nodesSnapshot()
 	index := slices.IndexFunc(nodes, func(n *api.Node) bool { return n.ID == nodeID })
 	if index < 0 {
 		return nil, nil, ErrControllerActivationPending
@@ -340,6 +340,7 @@ func (source *controllerNodeSource) UpdateControllerNode(ctx context.Context, or
 	stop := context.AfterFunc(source.original, cancel)
 	defer cancel()
 	defer stop()
+	ctx = admitted.requestContext(ctx)
 	if constraints.Operation == manager.ControllerNodeRetire {
 		proof, err := admitted.recipient.ReadManagerRetirement(ctx, target.Spec.Annotations.Name, target.Spec.Annotations.Labels[LabelInstanceID])
 		if err != nil {
@@ -384,6 +385,9 @@ func (source *controllerNodeSource) RemoveControllerNode(ctx context.Context, or
 	if err != nil || exact != constraints {
 		return nil, ErrControllerActivationPending
 	}
+	ctx, cancel := context.WithDeadline(ctx, admitted.deadline)
+	defer cancel()
+	ctx = admitted.requestContext(ctx)
 	proof, err := admitted.recipient.ReadManagerRetirement(ctx, target.Spec.Annotations.Name, target.Spec.Annotations.Labels[LabelInstanceID])
 	if err != nil {
 		return nil, err

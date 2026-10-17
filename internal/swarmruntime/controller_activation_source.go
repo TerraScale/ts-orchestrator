@@ -15,6 +15,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/controllercredential"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go"
@@ -32,7 +33,7 @@ type controllerSourcePin struct {
 type controllerActivationAdmission struct {
 	original           context.Context
 	release            context.CancelFunc
-	local              *ControllerActivationControl
+	local              *controllerActivationControl
 	binding            *ControllerHostBinding
 	recipient          *bootstrapstart.ControllerHostRecipient
 	session            *host.ContainerGenerationSession
@@ -77,7 +78,7 @@ func (admitted *controllerActivationAdmission) guard(ctx context.Context) error 
 	if err := admitted.recipient.VerifyRegistration(ctx, registration); err != nil {
 		return err
 	}
-	if err := admitted.local.Guard(ctx); err != nil {
+	if err := admitted.local.guard(ctx); err != nil {
 		return err
 	}
 	grant, revision, expires, err := admitted.currentEnrollment(ctx)
@@ -102,6 +103,17 @@ func (admitted *controllerActivationAdmission) guard(ctx context.Context) error 
 		return ErrControllerActivationPending
 	}
 	return ctx.Err()
+}
+
+// Preserve an original request guard while adding independently read sources.
+func (admitted *controllerActivationAdmission) requestContext(ctx context.Context) context.Context {
+	original := ctx
+	return ociclient.WithRequestGuard(ctx, func(check context.Context) error {
+		if err := ociclient.CheckRequestGuard(original); err != nil {
+			return err
+		}
+		return admitted.guard(check)
+	})
 }
 
 // Native task absence cannot establish inception or prove pruned execution.
@@ -145,7 +157,7 @@ func (admitted *controllerActivationAdmission) currentEnrollment(ctx context.Con
 	if err != nil || !descriptor.IsController() || request.InstanceID != admitted.recipient.InstanceID() {
 		return fail(ErrControllerActivationPending)
 	}
-	launch, err := bootstrapstart.LoadAcceptedHostLaunchMaterial(admitted.binding.AcceptedIdentity())
+	launch, err := bootstrapstart.LoadAcceptedHostLaunchMaterial(admitted.binding.accepted.Clone())
 	if err != nil {
 		return fail(err)
 	}

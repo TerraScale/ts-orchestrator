@@ -37,14 +37,14 @@ func (admitted *controllerActivationAdmission) activate(ctx context.Context, nod
 	stop := context.AfterFunc(admitted.original, cancel)
 	defer cancel()
 	defer stop()
-	nodes := admitted.local.Nodes()
-	tasks := admitted.local.Tasks()
+	nodes := admitted.local.nodesSnapshot()
+	tasks := admitted.local.tasksSnapshot()
 	index := slices.IndexFunc(nodes, func(node *api.Node) bool { return node.ID == nodeID })
 	if index < 0 || nodes[index].Meta.Version.Index != expectedVersion {
 		return nil, ErrControllerActivationPending
 	}
 	candidate := nodes[index]
-	cluster, err := admitted.local.ClusterIdentity(ctx)
+	cluster, err := admitted.local.clusterIdentity(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +88,7 @@ func (admitted *controllerActivationAdmission) activate(ctx context.Context, nod
 		if err := admitted.guard(ctx); err != nil {
 			return nil, err
 		}
-		updated, err := admitted.local.Update(ctx, current, spec, protectedNodes(nodes, conflicts), nil, nil, admitted.retirements)
+		updated, err := admitted.local.update(ctx, current, spec, protectedNodes(nodes, conflicts), nil, nil, admitted.retirements)
 		if err != nil {
 			return nil, err
 		}
@@ -107,7 +107,7 @@ func (admitted *controllerActivationAdmission) activate(ctx context.Context, nod
 			if err := admitted.guard(ctx); err != nil {
 				return nil, err
 			}
-			updated, err := admitted.local.Update(ctx, current, spec, protectedNodes(nodes, conflicts), nil, nil, admitted.retirements)
+			updated, err := admitted.local.update(ctx, current, spec, protectedNodes(nodes, conflicts), nil, nil, admitted.retirements)
 			if err != nil {
 				return nil, err
 			}
@@ -148,7 +148,7 @@ func (admitted *controllerActivationAdmission) activate(ctx context.Context, nod
 	if err := admitted.guard(ctx); err != nil {
 		return nil, err
 	}
-	updated, err := admitted.local.Update(ctx, candidate, spec, protectedNodes(nodes, conflicts), stopped, owners, admitted.retirements)
+	updated, err := admitted.local.update(ctx, candidate, spec, protectedNodes(nodes, conflicts), stopped, owners, admitted.retirements)
 	if err != nil {
 		return nil, err
 	}
