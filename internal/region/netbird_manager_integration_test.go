@@ -415,10 +415,14 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var afterBinary func()
 	admit := func() (VerifiedNetBirdManager, error) {
 		return admitNetBirdManager(t.Context(), resolver, reader, netBirdObservedInstance{factory: factory, resolver: resolver, reader: reader, observer: observer}, idFor("instance"), func(image release.VerifiedImage) (bootstrapstart.RunningBinary, error) {
 			if !image.IsVerified() {
 				return bootstrapstart.RunningBinary{}, errors.New("unverified image")
+			}
+			if afterBinary != nil {
+				afterBinary()
 			}
 			return bootstrapstart.RunningBinary{}, nil
 		})
@@ -429,6 +433,37 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	}
 	if claim.RecoveryRequired() {
 		t.Fatal("new explicitly funded store required restore")
+	}
+	if claim.ExpiresAt().IsZero() || claim.ExpiresAt().After(now.Add(30*time.Minute)) {
+		t.Fatal("manager admission did not retain the minimum signed expiry")
+	}
+	probe, cancelProbe := context.WithCancel(t.Context())
+	afterBinary = cancelProbe
+	if err := claim.Check(probe); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation during final binary observation retained authority: %v", err)
+	}
+	afterBinary = nil
+	expired := claim
+	expired.expires = time.Now().Add(-time.Second)
+	if err := expired.Check(t.Context()); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("original expired admission was renewed by current proofs: %v", err)
+	}
+	currentRecord, currentETag, err := store.Load(t.Context(), "GRU")
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalEpoch := currentRecord.Epoch
+	currentRecord.Epoch++
+	currentETag, err = store.CompareAndSwap(t.Context(), currentRecord, currentETag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := claim.Check(t.Context()); err == nil {
+		t.Fatal("same-store foundation epoch replacement retained the original admission")
+	}
+	currentRecord.Epoch = originalEpoch
+	if _, err := store.CompareAndSwap(t.Context(), currentRecord, currentETag); err != nil {
+		t.Fatal(err)
 	}
 	mu.Lock()
 	observedImage += "OTHER"

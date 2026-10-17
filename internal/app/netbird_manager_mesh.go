@@ -40,6 +40,8 @@ func netBirdManagerAPI(ctx context.Context, local automaticFoundation, admission
 }
 
 func bootstrapNetBirdManagerAccount(ctx context.Context, local automaticFoundation, admission region.VerifiedNetBirdManager, quiesce func(context.Context) error) error {
+	ctx, cancel := context.WithDeadline(ctx, admission.ExpiresAt())
+	defer cancel()
 	api, err := netBirdManagerAPI(ctx, local, admission)
 	if err != nil {
 		return err
@@ -103,7 +105,7 @@ func bootstrapNetBirdManagerAccount(ctx context.Context, local automaticFoundati
 			}
 			for _, authorized := range footprint.Regions {
 				if authorized.Plan["cell"] == cell {
-					return nil
+					return admission.Check(ctx)
 				}
 			}
 			return errors.New("NetBird manager broker access region left the current signed footprint")
@@ -116,6 +118,8 @@ func bootstrapNetBirdManagerAccount(ctx context.Context, local automaticFoundati
 }
 
 func readNetBirdManagerSetupKey(ctx context.Context, local automaticFoundation, admission region.VerifiedNetBirdManager, cfg netbird.Config) ([]byte, error) {
+	ctx, cancel := context.WithDeadline(ctx, admission.ExpiresAt())
+	defer cancel()
 	if cfg.ManagementURL != netbird.DefaultManagementURL || cfg.Region != local.factory.Region() {
 		return nil, errors.New("NetBird manager client differs from its admitted regional management endpoint")
 	}
@@ -147,6 +151,8 @@ func readNetBirdManagerSetupKey(ctx context.Context, local automaticFoundation, 
 }
 
 func connectNetBirdManagerMesh(ctx context.Context, local automaticFoundation, admission region.VerifiedNetBirdManager) error {
+	ctx, expire := context.WithDeadline(ctx, admission.ExpiresAt())
+	defer expire()
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
 	if err := admission.Check(ctx); err != nil {
