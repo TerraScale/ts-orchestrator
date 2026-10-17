@@ -43,6 +43,11 @@ func TestOwnRegistrationBindsActualSignedSessionAndKeys(t *testing.T) {
 		identity.Identity().HostSessionID == "" || identity.Identity().RegistrationGeneration != registration.Generation {
 		t.Fatal("runtime identity lost its actual signed session or safe execution deadline", err)
 	}
+	current, _, exists, err := controller.sessionSnapshot(t.Context(), sessionKey("gru", "node-a"))
+	if err != nil || !exists || identity.SessionEpoch() == 0 || identity.SessionEpoch() != current.Epoch ||
+		identity.Identity().HostSessionID != current.SessionID {
+		t.Fatal("runtime identity lost its actual committed session epoch", err)
+	}
 	for _, mutate := range []func(*Registration){
 		func(r *Registration) { r.Node = "another-host" },
 		func(r *Registration) { r.PublicKey = "another-key" },
@@ -59,5 +64,24 @@ func TestOwnRegistrationBindsActualSignedSessionAndKeys(t *testing.T) {
 	wrong[0] ^= 1
 	if err := agent.VerifyOwnRegistration(registration, wrong); err == nil {
 		t.Fatal("actual session accepted an unpinned controller signer")
+	}
+	originalEpoch, originalDeadline := identity.SessionEpoch(), identity.ExpiresAt()
+	agent.sessionRenewMu.Lock()
+	agent.sessionRequestMu.RLock()
+	err = agent.renewSessionLocked(t.Context(), t.Context())
+	agent.sessionRequestMu.RUnlock()
+	agent.sessionRenewMu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewed, _, exists, err := controller.sessionSnapshot(t.Context(), sessionKey("gru", "node-a"))
+	if err != nil || !exists || renewed.Epoch != originalEpoch || !renewed.ExpiresAt.After(current.ExpiresAt) {
+		t.Fatal("signed renewal changed the committed epoch or failed to advance its expiry", err)
+	}
+	fresh, err := agent.RuntimeWorkerIdentity("accepted-instance", "accepted-node")
+	if err != nil || identity.SessionEpoch() != originalEpoch || !identity.ExpiresAt().Equal(originalDeadline) ||
+		fresh.SessionEpoch() != renewed.Epoch || fresh.Identity().HostSessionID != renewed.SessionID ||
+		fresh.Identity().RegistrationGeneration != registration.Generation || !fresh.ExpiresAt().After(originalDeadline) {
+		t.Fatal("runtime identity changed its retained snapshot or lost the accepted renewal", err)
 	}
 }

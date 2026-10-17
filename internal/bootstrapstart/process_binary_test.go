@@ -77,6 +77,9 @@ func TestVerifyRestartProcessBinaryUsesCurrentSignedRelease(t *testing.T) {
 	if err := VerifyRestartProcessBinary(os.Getpid(), accepted, f.layout, roots); err == nil {
 		t.Fatal("known-bad current update admitted")
 	}
+	if err := VerifyIdentityRekeyCompletionRelease(t.Context(), previous, accepted, f.layout, roots); err == nil {
+		t.Fatal("known-bad completion target admitted before execution")
+	}
 	if err := os.Remove(filepath.Join(f.layout.Root, "known-bad.json")); err != nil {
 		t.Fatal(err)
 	}
@@ -95,6 +98,32 @@ func TestVerifyRestartProcessBinaryUsesCurrentSignedRelease(t *testing.T) {
 	if err := VerifyRestartProcessBinary(os.Getpid(), accepted, f.layout, roots); err == nil {
 		t.Fatal("recovery-only predecessor admitted as a controller process")
 	}
+	if err := VerifyIdentityRekeyCompletionProcessBinary(t.Context(), os.Getpid(), accepted, f.layout, roots); err != nil {
+		t.Fatalf("owned signed predecessor denied for completion only: %v", err)
+	}
+	targetDigest := digest(target)
+	if err := VerifyIdentityRekeyCompletionRelease(t.Context(), targetDigest, accepted, f.layout, roots); err != nil {
+		t.Fatalf("exact signed current completion target denied: %v", err)
+	}
+	if err := VerifyIdentityRekeyCompletionRelease(t.Context(), previous, accepted, f.layout, roots); err == nil {
+		t.Fatal("completion target authenticated a release other than captured current")
+	}
+	if err := VerifyIdentityRekeyCompletionRelease(t.Context(), targetDigest, wrongScope, f.layout, roots); err == nil {
+		t.Fatal("completion target authenticated another accepted environment")
+	}
+	receiptPath := filepath.Join(f.layout.ReleaseDir(targetDigest), "receipt.json")
+	if err := os.WriteFile(receiptPath, []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.layout.VerifyRelease(targetDigest); err != nil {
+		t.Fatalf("unsigned target fixture lost root-owned digest integrity: %v", err)
+	}
+	if err := VerifyIdentityRekeyCompletionRelease(t.Context(), targetDigest, accepted, f.layout, roots); err == nil {
+		t.Fatal("owned hash without a valid signed target receipt authorized execution")
+	}
+	if err := os.WriteFile(receiptPath, receipt, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	t.Run("canceled original observation", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
@@ -102,6 +131,12 @@ func TestVerifyRestartProcessBinaryUsesCurrentSignedRelease(t *testing.T) {
 		measured, err := ReadVerifiedRestartProcessBinary(ctx, os.Getpid(), acceptedIdentityFixture(t), selfupdate.Layout{}, nil)
 		if !errors.Is(err, context.Canceled) || measured != (RunningBinary{}) {
 			t.Fatalf("canceled executable observation = %+v, %v", measured, err)
+		}
+		if err := VerifyIdentityRekeyCompletionProcessBinary(ctx, os.Getpid(), accepted, f.layout, roots); !errors.Is(err, context.Canceled) {
+			t.Fatalf("canceled original completion parent admitted: %v", err)
+		}
+		if err := VerifyIdentityRekeyCompletionRelease(ctx, targetDigest, accepted, f.layout, roots); !errors.Is(err, context.Canceled) {
+			t.Fatalf("canceled original completion target admitted: %v", err)
 		}
 	})
 }

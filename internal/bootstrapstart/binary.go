@@ -64,6 +64,65 @@ func ReadVerifiedRestartProcessBinary(ctx context.Context, pid int, accepted Acc
 	return binary, err
 }
 
+// VerifyIdentityRekeyCompletionProcessBinary authenticates the actual cleanup
+// parent, including an owned recovery predecessor, for this read-only purpose.
+func VerifyIdentityRekeyCompletionProcessBinary(ctx context.Context, pid int, accepted AcceptedIdentity, layout selfupdate.Layout, roots trust.Keyring) error {
+	if ctx == nil {
+		return ErrAdmission
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if os.Geteuid() != 0 || os.Getegid() != 0 || pid < 2 || accepted.Validate() != nil {
+		return ErrAdmission
+	}
+	_, err := ReadVerifiedRestartProcessBinary(ctx, pid, accepted, layout, roots)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	if err != nil {
+		_, err = verifyRecoveryPredecessor("/proc/"+strconv.Itoa(pid)+"/exe", layout, roots, accepted)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	return err
+}
+
+// VerifyIdentityRekeyCompletionRelease authenticates the exact selected child
+// release before execution, independently of its cleanup parent's predecessor.
+func VerifyIdentityRekeyCompletionRelease(ctx context.Context, digest string, accepted AcceptedIdentity, layout selfupdate.Layout, roots trust.Keyring) error {
+	if ctx == nil {
+		return ErrAdmission
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if os.Geteuid() != 0 || os.Getegid() != 0 || accepted.Validate() != nil {
+		return ErrAdmission
+	}
+	current, err := layout.Current()
+	if err != nil || current != digest || digest == "" {
+		return ErrRunningBinaryMismatch
+	}
+	bad, err := layout.KnownBad()
+	if err != nil || bad[digest] {
+		return ErrRunningBinaryMismatch
+	}
+	if _, err := verifyRecoveryRelease(layout.BinaryPath(digest), layout, digest, roots, accepted); err != nil {
+		return err
+	}
+	current, err = layout.Current()
+	if err != nil || current != digest {
+		return ErrRunningBinaryMismatch
+	}
+	bad, err = layout.KnownBad()
+	if err != nil || bad[digest] {
+		return ErrRunningBinaryMismatch
+	}
+	return ctx.Err()
+}
+
 type processBinaryChecker struct {
 	executableBinaryChecker
 	pid int

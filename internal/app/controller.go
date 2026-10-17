@@ -683,7 +683,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			_, owned := running.Addresses()[node]
 			return owned
 		}
-		networkControl = &netbirdRollout{cell: cfg.NATS.Cell, fence: fences, services: services, nodes: policy.nodes, key: responseKey, cfg: cfg, fleet: fleet, artifacts: service.Artifacts(), conn: runtime.Conn(), runtime: runtime}
+		networkControl = &netbirdRollout{cell: cfg.NATS.Cell, fence: fences, services: services, nodes: policy.nodes, key: responseKey, cfg: cfg, fleet: fleet, artifacts: service.Artifacts(), conn: runtime.Conn(), runtime: runtime, broker: nativeBroker}
 		hostController.SetNetBirdSink(networkControl)
 		policy.nodes.desired = hostController
 		policy.nodes.forget = func(ctx context.Context, instanceID string) error {
@@ -1312,7 +1312,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	workers.Go(func() {
 		runNetBirdManagement(runCtx, control)
 	})
-	workers.Go(func() { workerErrors <- newOCICostCollector(cfg.NATS.Cell, costStore, control).Run(runCtx) })
+	workers.Go(func() { workerErrors <- newOCICostCollector(workloadRoot, costStore, control).Run(runCtx) })
 	workers.Go(func() { workerErrors <- newOCICostTagger(cfg.NATS.Cell, control).Run(runCtx) })
 
 	if err := runtime.Conn().FlushTimeout(2 * time.Second); err != nil {

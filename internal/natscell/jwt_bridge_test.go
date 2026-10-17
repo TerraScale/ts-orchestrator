@@ -102,7 +102,14 @@ func TestProductionJWTBridgeClosedApplyOpenAndFence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = r.Close() })
+	t.Cleanup(func() {
+		_ = r.Close()
+		r.controllerKeyMu.Lock()
+		defer r.controllerKeyMu.Unlock()
+		if r.controllerKey != nil {
+			t.Error("root runtime retained its probe key after close")
+		}
+	})
 	if r.server.Addr() != nil {
 		t.Fatal("production NATS unexpectedly opened its own client listener")
 	}
@@ -123,6 +130,9 @@ func TestProductionJWTBridgeClosedApplyOpenAndFence(t *testing.T) {
 	meshConfig.URL = "tls://" + meshListener.Addr().String()
 	if _, err := Start(ctx, meshConfig); err == nil {
 		t.Fatal("second listener bypassed the closed production bridge")
+	}
+	if _, err := r.probeNetBirdController(ctx, meshListener.Addr().String(), "127.0.0.1", r.serverName, func(ctx context.Context) error { return ctx.Err() }); err == nil {
+		t.Fatal("root remote probe bypassed the closed production bridge")
 	}
 	for _, address := range []string{"0.0.0.0", "127.0.0.1", "10.251.0.11", "8.8.8.8", "fd00::1"} {
 		if listener, err := r.ListenNetBird(netip.MustParseAddr(address)); err == nil {
@@ -211,6 +221,116 @@ func TestProductionJWTBridgeClosedApplyOpenAndFence(t *testing.T) {
 	if err := meshClient.Conn().FlushWithContext(ctx); err != nil {
 		t.Fatal(err)
 	}
+	t.Run("root remote probe retains its actual identity and finite source", func(t *testing.T) {
+		material, err := os.ReadFile(controllerCredentials)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer clear(material)
+		if err := os.WriteFile(controllerCredentials, []byte("replaced ordinary credential file"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if err := os.WriteFile(controllerCredentials, material, 0o600); err != nil {
+				t.Error(err)
+			}
+		}()
+		probeContext, stop := context.WithTimeout(ctx, 2*time.Second)
+		defer stop()
+		cap, _ := probeContext.Deadline()
+		expires, err := r.probeNetBirdController(probeContext, meshListener.Addr().String(), "127.0.0.1", r.serverName, func(ctx context.Context) error { return ctx.Err() })
+		if err != nil || expires.IsZero() || expires.After(cap) || !time.Now().Before(expires) {
+			t.Fatalf("actual root TLS/JWT/Flush probe: expiry %v, error %v", expires, err)
+		}
+		for _, target := range []struct{ privateIP, serverName string }{
+			{"10.251.0.99", r.serverName}, {"127.0.0.1", "another-native-broker"},
+		} {
+			if _, err := r.probeNetBirdController(probeContext, meshListener.Addr().String(), target.privateIP, target.serverName, func(ctx context.Context) error { return ctx.Err() }); err == nil {
+				t.Fatalf("remote probe accepted TLS/native identity %+v", target)
+			}
+		}
+		before, err := r.server.Connz(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		baseline := make(map[uint64]bool, len(before.Conns))
+		for _, connection := range before.Conns {
+			baseline[connection.Cid] = true
+		}
+		lost := errors.New("original source ended after real remote authentication")
+		observed := false
+		_, err = r.probeNetBirdController(probeContext, meshListener.Addr().String(), "127.0.0.1", r.serverName, func(ctx context.Context) error {
+			current, err := r.server.Connz(nil)
+			if err != nil {
+				return err
+			}
+			for _, connection := range current.Conns {
+				if connection.Name == "terrascale-"+r.cell+"-netbird-probe" && !baseline[connection.Cid] {
+					observed = true
+					return lost
+				}
+			}
+			return ctx.Err()
+		})
+		if !observed || !errors.Is(err, lost) {
+			t.Fatalf("source loss after actual native authentication: observed %t, error %v", observed, err)
+		}
+	})
+	t.Run("original cancellation closes and joins a real pending TLS probe", func(t *testing.T) {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer listener.Close()
+		accepted := make(chan net.Conn, 1)
+		acceptDone := make(chan struct{})
+		go func() {
+			defer close(acceptDone)
+			connection, err := listener.Accept()
+			if err == nil {
+				accepted <- connection
+			}
+		}()
+		defer func() { _ = listener.Close(); <-acceptDone }()
+		original, stop := context.WithTimeout(ctx, time.Second)
+		defer stop()
+		result := make(chan error, 1)
+		joined := false
+		go func() {
+			_, err := r.probeNetBirdController(original, listener.Addr().String(), "127.0.0.1", r.serverName, func(ctx context.Context) error { return ctx.Err() })
+			result <- err
+		}()
+		defer func() {
+			stop()
+			if !joined {
+				<-result
+			}
+		}()
+		var peer net.Conn
+		select {
+		case peer = <-accepted:
+			defer peer.Close()
+		case <-original.Done():
+			t.Fatal("probe did not reach its selected real socket")
+		}
+		stop()
+		select {
+		case err := <-result:
+			joined = true
+			if err == nil {
+				t.Fatal("canceled pending TLS probe reported healthy")
+			}
+		case <-ctx.Done():
+			t.Fatal("pending TLS probe outlived its original cancellation")
+		}
+		if err := peer.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		_, err = io.Copy(io.Discard, peer)
+		if timeout, ok := errors.AsType[net.Error](err); ok && timeout.Timeout() {
+			t.Fatal("canceled probe left its actual socket open")
+		}
+	})
 	if err := meshListener.Close(); err != nil {
 		t.Fatal(err)
 	}

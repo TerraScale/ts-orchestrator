@@ -17,16 +17,17 @@ import (
 
 // The sole embedded broker and its rekey/close lifecycle remain in root.
 type rootBrokerRuntime struct {
-	runtime   *natscell.Runtime
-	cfg       Config
-	authority *rootOCIAuthority
-	ctx       context.Context
-	cancel    context.CancelFunc
-	sockets   []*rootBrokerSocket
-	workers   sync.WaitGroup
-	once      sync.Once
-	origin    bootstrapstart.RuntimeAuthority
-	children  *rootBrokerSourceChildren
+	runtime    *natscell.Runtime
+	cfg        Config
+	authority  *rootOCIAuthority
+	ctx        context.Context
+	cancel     context.CancelFunc
+	sockets    []*rootBrokerSocket
+	workers    sync.WaitGroup
+	once       sync.Once
+	origin     bootstrapstart.RuntimeAuthority
+	children   *rootBrokerSourceChildren
+	enrollment *rootHostEnrollment
 }
 
 func startRootBrokerRuntime(ctx context.Context, cfg Config, authority *rootOCIAuthority) (*rootBrokerRuntime, error) {
@@ -59,7 +60,12 @@ func startRootBrokerRuntime(ctx context.Context, cfg Config, authority *rootOCIA
 		_ = broker.Close()
 		return nil, err
 	}
-	for _, path := range []string{rootBrokerStartupSocket, rootBrokerObservationSocket, rootBrokerReconnectSocket, rootBrokerClientSocket, rootBrokerSourceSocket} {
+	broker.enrollment, err = newRootHostEnrollment(broker)
+	if err != nil {
+		_ = broker.Close()
+		return nil, err
+	}
+	for _, path := range []string{rootBrokerStartupSocket, rootBrokerObservationSocket, rootBrokerReconnectSocket, rootBrokerClientSocket, rootBrokerSourceSocket, rootHostEnrollmentSocket} {
 		socket, err := listenRootBrokerSocket(path, authority.gid)
 		if err != nil {
 			_ = broker.Close()
@@ -77,6 +83,8 @@ func startRootBrokerRuntime(ctx context.Context, cfg Config, authority *rootOCIA
 			handler = func(ctx context.Context, conn *net.UnixConn) {
 				serveRootBrokerSourceTransport(ctx, conn, broker.children)
 			}
+		} else if path == rootHostEnrollmentSocket {
+			handler = broker.enrollment.servePrivate
 		}
 		broker.workers.Go(func() { serveRootBrokerSocket(ctx, socket, handler) })
 	}
@@ -114,6 +122,9 @@ func startRootBrokerRuntime(ctx context.Context, cfg Config, authority *rootOCIA
 func (broker *rootBrokerRuntime) Close() error {
 	broker.once.Do(func() {
 		broker.cancel()
+		if broker.enrollment != nil {
+			_ = broker.enrollment.Close()
+		}
 		if broker.children != nil {
 			_ = broker.children.Close()
 		}
@@ -241,7 +252,14 @@ func (broker *rootBrokerRuntime) serveObservations(parent context.Context, conn 
 	if guard() != nil {
 		return
 	}
-	response, err := broker.observe(ctx, request.Operation)
+	var response rootBrokerResponse
+	if request.Operation == rootBrokerNetBirdProbe && request.NetBirdProbe != nil {
+		response.NetBirdProbe, err = broker.probeNetBirdController(ctx, *request.NetBirdProbe, guard)
+	} else if request.NetBirdProbe != nil || request.Operation == rootBrokerNetBirdProbe {
+		err = rootoci.ErrInvalid
+	} else {
+		response, err = broker.observe(ctx, request.Operation)
+	}
 	if err != nil && !(request.Operation == rootBrokerCluster && response.Cluster != nil && errors.Is(err, natscell.ErrEmbeddedServerStopped)) {
 		response = rootBrokerResponse{Error: rootBrokerErrorCode(err)}
 	}

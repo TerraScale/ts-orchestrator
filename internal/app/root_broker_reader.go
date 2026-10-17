@@ -169,6 +169,10 @@ func rootBrokerReaderContext(parent, original context.Context) (context.Context,
 }
 
 func (reader *rootBrokerReader) invoke(parent context.Context, operation rootBrokerOperation, timeout time.Duration) (response rootBrokerResponse, err error) {
+	return reader.invokeRequest(parent, rootBrokerRequest{Operation: operation}, timeout)
+}
+
+func (reader *rootBrokerReader) invokeRequest(parent context.Context, request rootBrokerRequest, timeout time.Duration) (response rootBrokerResponse, err error) {
 	if reader == nil || reader.ctx == nil {
 		return rootBrokerResponse{}, rootoci.ErrUnavailable
 	}
@@ -189,7 +193,7 @@ func (reader *rootBrokerReader) invoke(parent context.Context, operation rootBro
 	if ctx.Err() != nil {
 		return rootBrokerResponse{}, context.Cause(ctx)
 	}
-	wire, err := json.Marshal(rootBrokerRequest{Operation: operation})
+	wire, err := json.Marshal(request)
 	if err != nil {
 		return rootBrokerResponse{}, rootoci.ErrUnavailable
 	}
@@ -222,7 +226,7 @@ func (reader *rootBrokerReader) invoke(parent context.Context, operation rootBro
 	if err != nil {
 		return rootBrokerResponse{}, rootoci.ErrUnavailable
 	}
-	response, err = decodeRootBrokerResponse(reply, operation)
+	response, err = decodeRootBrokerResponse(reply, request.Operation)
 	if err := reader.verify(socket); err != nil {
 		return rootBrokerResponse{}, err
 	}
@@ -252,7 +256,7 @@ type rootBrokerPeerIdentity struct {
 
 // Ordinary callers observe the kernel peer without opening or signaling root's executable.
 func rootBrokerPeerBinding(socket *net.UnixConn, path string) (rootBrokerPeerIdentity, error) {
-	if path != rootBrokerStartupSocket && path != rootBrokerObservationSocket && path != rootBrokerReconnectSocket && path != rootBrokerClientSocket && path != rootBrokerSourceSocket {
+	if path != rootBrokerStartupSocket && path != rootBrokerObservationSocket && path != rootBrokerReconnectSocket && path != rootBrokerClientSocket && path != rootBrokerSourceSocket && path != rootHostEnrollmentSocket {
 		return rootBrokerPeerIdentity{}, rootoci.ErrUnauthorized
 	}
 	peer, err := rootociwire.PeerCredential(socket)
@@ -321,6 +325,8 @@ func decodeRootBrokerResponse(wire []byte, operation rootBrokerOperation) (rootB
 		valid = response.Account != nil
 	case rootBrokerCredentials:
 		valid = response.Credentials != nil
+	case rootBrokerNetBirdProbe:
+		valid = response.NetBirdProbe != nil
 	}
 	if !valid {
 		return rootBrokerResponse{}, rootoci.ErrUnavailable

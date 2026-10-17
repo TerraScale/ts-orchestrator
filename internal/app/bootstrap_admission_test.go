@@ -320,6 +320,8 @@ run_case 1001 1001 bootstrap-admit-restart 'requires the dedicated service accou
 run_case 1000 1000 bootstrap-admit-restart 'read accepted controller identity'
 run_case 0 0 bootstrap-admit-initial 'NTP clock health' unhealthy
 run_case 1000 1000 bootstrap-admit-restart 'read accepted controller identity' unhealthy
+run_case 1000 1000 identity-rekey-completion-check 'root OCI authorization rejected'
+run_case 0 0 identity-rekey-completion-check 'root OCI authorization rejected'
 `
 	command := exec.CommandContext(t.Context(), unshare, "--mount", "--fork", "--", "/bin/sh", "-c", script,
 		"ts-admission-namespace", helper, configPath, mount, setpriv, mkdir, chmod, env)

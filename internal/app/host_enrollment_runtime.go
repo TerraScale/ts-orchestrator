@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
-	"crypto/tls"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -110,14 +109,6 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, transport *nats
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	// The listener reads the broker's installed certificate files independently.
-	// Session tickets are off so clients cannot resume under an old certificate.
-	reloading, err := natscell.NewReloadingTLS(cfg.NATS.Embedded.TLS, "listener")
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS13, SessionTicketsDisabled: true,
-		GetCertificate: reloading.Certificate}
 	listenIP, listenPort, err := net.SplitHostPort(cfg.Controller.HostEnrollmentListenAddress)
 	if err != nil || listenPort != "8443" || net.ParseIP(listenIP) == nil || listenIP != cfg.NATS.Embedded.Host {
 		return nil, nil, nil, errors.New("host enrollment listener must bind the exact private broker IP on port 8443")
@@ -130,7 +121,7 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, transport *nats
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	listener, err := net.Listen("tcp", cfg.Controller.HostEnrollmentListenAddress)
+	listener, err := openRootHostEnrollmentListener(ctx, cfg)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -150,9 +141,10 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, transport *nats
 		handler.pool = pool
 	}
 	server := &http.Server{Handler: observability.TraceHTTP(handler), ReadHeaderTimeout: 5 * time.Second,
-		MaxHeaderBytes: 4096, TLSConfig: tlsConfig}
+		MaxHeaderBytes: 4096, BaseContext: func(net.Listener) context.Context { return ctx },
+		ConnContext: rootHostEnrollmentConnContext}
 	errors := make(chan error, 1)
-	go func() { errors <- server.Serve(tls.NewListener(listener, server.TLSConfig)) }()
+	go func() { errors <- server.Serve(listener) }()
 	return server, listener, errors, nil
 }
 
@@ -165,7 +157,7 @@ func (enrollment *managedHostEnrollment) ServeHTTP(writer http.ResponseWriter, r
 		enrollment.bindRuntimeWorker(writer, request)
 		return
 	}
-	if request.Method != http.MethodPost || request.URL.Path != "/v1/host-enrollment" || request.TLS == nil ||
+	if request.Method != http.MethodPost || request.URL.Path != "/v1/host-enrollment" || !hostEnrollmentTransport(request) ||
 		request.Header.Get("Forwarded") != "" || request.Header.Get("X-Forwarded-For") != "" ||
 		request.Header.Get("X-Real-IP") != "" {
 		http.Error(writer, "invalid host enrollment request", http.StatusBadRequest)
@@ -176,7 +168,7 @@ func (enrollment *managedHostEnrollment) ServeHTTP(writer http.ResponseWriter, r
 		http.Error(writer, "regional authority is not writable", http.StatusServiceUnavailable)
 		return
 	}
-	peerIP, _, err := net.SplitHostPort(request.RemoteAddr)
+	peerIP, err := hostEnrollmentPeer(request)
 	if err != nil || net.ParseIP(peerIP) == nil {
 		http.Error(writer, "direct private peer is required", http.StatusForbidden)
 		return
@@ -208,6 +200,10 @@ func (enrollment *managedHostEnrollment) ServeHTTP(writer http.ResponseWriter, r
 			http.Error(writer, "stale host request has no exact grant", http.StatusPreconditionFailed)
 			return
 		}
+	}
+	if !enrollment.admitStartupHostEnrollment(request, enrollmentRequest, descriptor, peerIP) {
+		http.Error(writer, "startup enrollment requires this accepted controller", http.StatusForbidden)
+		return
 	}
 	response, err := enrollment.enroll(request.Context(), snapshot.Epoch, peerIP, wire, enrollmentRequest, descriptor)
 	if err != nil {

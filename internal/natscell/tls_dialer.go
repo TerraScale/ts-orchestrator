@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -20,7 +21,9 @@ type tlsFirstDialer struct {
 	forward map[string]string
 	// reload, when set, supplies the current client certificate per dial so a
 	// renewed host certificate is presented on the next reconnect.
-	reload func() (*tls.Config, error)
+	reload    func() (*tls.Config, error)
+	initialMu sync.Mutex
+	initial   net.Conn
 }
 
 func (d *tlsFirstDialer) Dial(network, address string) (net.Conn, error) {
@@ -29,6 +32,35 @@ func (d *tlsFirstDialer) Dial(network, address string) (net.Conn, error) {
 		if current, err := d.reload(); err == nil {
 			config = current
 		}
+	}
+	d.initialMu.Lock()
+	initial := d.initial
+	d.initial = nil
+	d.initialMu.Unlock()
+	if initial != nil {
+		config = config.Clone()
+		if config.ServerName == "" {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				_ = initial.Close()
+				return nil, err
+			}
+			config.ServerName = host
+		}
+		if err := initial.SetDeadline(time.Now().Add(d.timeout)); err != nil {
+			_ = initial.Close()
+			return nil, err
+		}
+		secured := tls.Client(initial, config)
+		if err := secured.Handshake(); err != nil {
+			_ = initial.Close()
+			return nil, err
+		}
+		if err := initial.SetDeadline(time.Time{}); err != nil {
+			_ = initial.Close()
+			return nil, err
+		}
+		return secured, nil
 	}
 	if len(d.forward) != 0 {
 		if network != "tcp" {

@@ -95,6 +95,7 @@ type netbirdRollout struct {
 	artifacts        jetstream.ObjectStore
 	conn             *nats.Conn
 	runtime          *natscell.Runtime
+	broker           controllerBrokerNative
 	managedAddresses map[string]string
 	observed         time.Time
 	artifactMu       sync.Mutex
@@ -501,25 +502,10 @@ func (n *netbirdRollout) healthyMesh(ctx context.Context, node string, status ne
 		return errors.New("node has no registered host session")
 	}
 	if n.nodes != nil && n.nodes.controllers != nil && n.nodes.controllers(node) {
-		options := []nats.Option{nats.Timeout(3 * time.Second), nats.NoReconnect(), nats.TLSHandshakeFirst(),
-			nats.RootCAs(n.cfg.NATS.TLS.CAFile), nats.ClientCert(n.cfg.NATS.TLS.CertFile, n.cfg.NATS.TLS.KeyFile),
-			nats.SetCustomDialer(meshDialer{ctx: ctx, address: net.JoinHostPort(status.IP, "4222")}),
-			nats.ErrorHandler(natscell.ErrorHandler)}
-		if n.cfg.NATS.CredentialsFile != "" {
-			options = append(options, nats.UserCredentials(n.cfg.NATS.CredentialsFile))
-		} else {
-			option, err := nats.NkeyOptionFromSeed(n.cfg.NATS.NKeySeedFile)
-			if err != nil {
-				return err
-			}
-			options = append(options, option)
+		if n.broker == nil {
+			return errors.New("root-owned remote NATS probe is unavailable")
 		}
-		conn, err := nats.Connect("tls://"+net.JoinHostPort(addresses[node], "4222"), options...)
-		if err != nil {
-			return errors.New("authenticated NATS over NetBird is unavailable")
-		}
-		defer conn.Close()
-		if err := conn.FlushWithContext(ctx); err != nil {
+		if err := n.broker.ProbeNetBirdController(ctx, rootBrokerNetBirdProbeRequest{Node: node, MeshIP: status.IP, DNS: status.DNS}); err != nil {
 			return err
 		}
 		probed = true
@@ -528,15 +514,6 @@ func (n *netbirdRollout) healthyMesh(ctx context.Context, node string, status ne
 		return errors.New("NetBird peer has no active service endpoint to verify mesh traffic")
 	}
 	return nil
-}
-
-type meshDialer struct {
-	ctx     context.Context
-	address string
-}
-
-func (d meshDialer) Dial(network, _ string) (net.Conn, error) {
-	return (&net.Dialer{Timeout: 3 * time.Second}).DialContext(d.ctx, network, d.address)
 }
 
 func meshReady(ctx context.Context, address string, port int, secure *tls.Config) error {
