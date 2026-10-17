@@ -258,6 +258,28 @@ func TestSignedReleaseRaftIntegration(t *testing.T) {
 	if err != nil || !found || floor.OperationID != intent.OperationID || floor.Generation != intent.Generation || floor.ReleaseSequence != 102 || floor.IntentSHA256 != configs.Configs[0].Spec.Annotations.Labels[labelIntentFingerprint] || floor.ReleaseIdentity != configs.Configs[0].Spec.Annotations.Labels[labelReleaseFingerprint] {
 		t.Fatalf("rollback lost the failed release's original delivered operation: %+v %v %v", floor, found, err)
 	}
+	historical, err := release.VerifyContainerHistorical(second, roots, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intentSHA, err := HistoricalServiceIntentSHA256(intent, historical)
+	if err != nil || intentSHA != floor.IntentSHA256 {
+		t.Fatalf("historical original profile differs from the actual retained floor: %s %+v %v", intentSHA, floor, err)
+	}
+	changedProfile := intent
+	changedProfile.Container = intent.Container.Copy()
+	changedProfile.Container.Args = nil
+	if digest, err := HistoricalServiceIntentSHA256(changedProfile, historical); err != nil || digest == floor.IntentSHA256 {
+		t.Fatalf("different workload profile matched the retained original: %s %v", digest, err)
+	}
+	wrongTarget := intent
+	wrongTarget.Region = "us-sanjose-1"
+	if _, err := HistoricalServiceIntentSHA256(wrongTarget, historical); err == nil {
+		t.Fatal("historical fingerprint admitted a different signed target")
+	}
+	if _, err := HistoricalServiceIntentSHA256(intent, release.HistoricalContainer{}); err == nil {
+		t.Fatal("historical fingerprint admitted missing signed release evidence")
+	}
 	retry := intent
 	retry.Generation++
 	retry.OperationID = entityid.Derive("operation", "service-rollback-retry")

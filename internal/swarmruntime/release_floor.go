@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/moby/swarmkit/v2/api"
@@ -19,6 +20,23 @@ type ServiceReleaseFloor struct {
 	OperationID                   string
 	Generation, ReleaseSequence   uint64
 	ReleaseIdentity, IntentSHA256 string
+}
+
+// HistoricalServiceIntentSHA256 compares an independently authenticated original
+// workload profile with retained evidence; it grants no current admission.
+func HistoricalServiceIntentSHA256(intent ServiceIntent, historical release.HistoricalContainer) (string, error) {
+	claim := historical.Claim()
+	region, known := catalog.CellForOCIRegion(intent.Region)
+	if !known || claim.Cell != region.Cell || claim.Role != intent.Role || claim.Environment != intent.Environment || claim.Architecture != intent.Architecture ||
+		intent.Container == nil || claim.Image != intent.Container.Image || intent.Generation == 0 || !entityid.Valid(intent.OperationID) || claim.ReleaseSequence == 0 || !releaseFloorDigest(historical.ReleaseIdentity()) {
+		return "", errors.New("historical intent fingerprint requires the original delivered workload and matching signed target")
+	}
+	intent.releaseSequence, intent.releaseFingerprint = claim.ReleaseSequence, historical.ReleaseIdentity()
+	spec, err := intent.serviceSpec()
+	if err != nil {
+		return "", err
+	}
+	return serviceIntentFingerprint(spec)
 }
 
 // ReadServiceReleaseFloor only locates the original delivered intent. The caller
