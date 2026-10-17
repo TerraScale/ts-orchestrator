@@ -137,9 +137,8 @@ func (a *rootStatefulAuthorizer) WithStatefulService(ctx context.Context, spec *
 		if err := lease.Guard(ctx); err != nil {
 			return err
 		}
-		rootsNow, err := rootKV.Get(ctx, rootChainKey)
-		if err != nil || rootsNow.Revision() != rootEntry.Revision() || !bytes.Equal(rootsNow.Value(), rootEntry.Value()) {
-			return rootoci.ErrUnauthorized
+		if err := rootTrustChainCurrent(ctx, sources.js, rootEntry); err != nil {
+			return err
 		}
 		return controllerHostSpecCurrent(ctx, sources.js, sources.specs, profileEntry, rootHead)
 	}
@@ -194,17 +193,13 @@ func (a *rootStatefulAuthorizer) WithStatefulService(ctx context.Context, spec *
 	if err != nil {
 		return err
 	}
-	if err := verify.AuthorizeStatefulService(ctx, spec); err != nil {
-		return err
-	}
-	if err := guard(ctx, intent.AuthorityEpoch); err != nil {
-		return err
-	}
-	if err := effect(ctx); err != nil {
-		return err
-	}
-	if err := verify.AuthorizeStatefulService(ctx, spec); err != nil {
-		return err
-	}
-	return guard(ctx, intent.AuthorityEpoch)
+	return verify.WithStatefulService(ctx, spec, func(effectCtx context.Context) error {
+		if err := guard(effectCtx, intent.AuthorityEpoch); err != nil {
+			return err
+		}
+		if err := effect(effectCtx); err != nil {
+			return err
+		}
+		return guard(effectCtx, intent.AuthorityEpoch)
+	})
 }
