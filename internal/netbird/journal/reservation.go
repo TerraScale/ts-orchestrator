@@ -19,9 +19,9 @@ type Binding struct {
 	SourceSHA256           string `json:"sourceSha256"`
 	GrantSHA256            string `json:"grantSha256"`
 	TemplateSHA256         string `json:"templateSha256"`
-	CredentialID           string `json:"credentialId"`
-	CredentialSubject      string `json:"credentialSubject"`
-	CredentialSHA256       string `json:"credentialSha256"`
+	CredentialID           string `json:"credentialId"`      // Exact JWT jti.
+	CredentialSubject      string `json:"credentialSubject"` // Public user key.
+	CredentialSHA256       string `json:"credentialSha256"`  // Exact raw user JWT bytes, never decorated credentials.
 	CurrentID              string `json:"currentId"`
 	CurrentVersion         int64  `json:"currentVersion"`
 	CurrentSHA256          string `json:"currentSha256"`
