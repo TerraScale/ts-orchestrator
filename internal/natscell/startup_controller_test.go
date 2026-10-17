@@ -20,7 +20,7 @@ func TestStartupControllerPrivateTLSAndInProcessAuthentication(t *testing.T) {
 	for _, name := range []string{"valid", "wrong-account", "wrong-connection-type", "wrong-tls"} {
 		t.Run(name, func(t *testing.T) {
 			cfg := region.cfg
-			cfg.URL = root.URL()
+			cfg.URL = "tls://unrelated.invalid:4222,tls://another.invalid:4222"
 			switch name {
 			case "wrong-account":
 				account, err := nkeys.CreateAccount()
