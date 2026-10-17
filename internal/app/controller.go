@@ -1032,7 +1032,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if pool != nil {
 		scaleStatus = pool.scaleStatus
 	}
-	apiErrors, err := startMachinesAPI(runCtx, cfg, runtime, control, fullClusterReady, newManagerMachinesView(managerView), telemetry)
+	apiErrors, err := startMachinesAPI(runCtx, cfg, runtime, control, fullClusterReady, newManagerMachinesView(managerView, statefulMembers), telemetry)
 	if err != nil {
 		return err
 	}
@@ -1297,7 +1297,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	// cell spec's machines_api section turns it on.
 	if cfg.Controller.MachinesAPI == nil && cfg.NATS.Embedded != nil {
 		workers.Go(func() {
-			workerErrors <- machinesAPILoop(runCtx, cfg, runtime, control, fullClusterReady, services.machinesAPI, newManagerMachinesView(managerView), telemetry)
+			workerErrors <- machinesAPILoop(runCtx, cfg, runtime, control, fullClusterReady, services.machinesAPI, newManagerMachinesView(managerView, statefulMembers), telemetry)
 		})
 	}
 	if apiErrors != nil {
