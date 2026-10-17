@@ -115,6 +115,9 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 		if err := retainRuntimeLineage(previous.RuntimeLineage, record.RuntimeLineage); err != nil {
 			return "", err
 		}
+		if err := previous.retainNetBirdAccountEffect(record); err != nil {
+			return "", err
+		}
 	}
 	wire, err := json.Marshal(record, json.Deterministic(true))
 	if err != nil {
@@ -151,6 +154,9 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 }
 
 func (r FoundationRecord) validate() error {
+	if err := r.validateNetBirdAccountEffect(); err != nil {
+		return err
+	}
 	if err := r.validateRuntimeLineage(); err != nil {
 		return err
 	}
