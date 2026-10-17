@@ -1,0 +1,80 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1040_1060",
+  "author": "/root/classification_100_dispatch/batch_1060_1080",
+  "accepted": true,
+  "qualification": "SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-1060-1080-corrected-zvw0syc7/classification.json",
+    "sha256": "828d708d7fbd354c92dd2f778aa5323960765a63748e752726f577ca4f992e2c",
+    "checksum_path": "/tmp/ts-source-1060-1080-corrected-zvw0syc7/SHA256SUMS",
+    "checksum_sha256": "51b736762b192bbc131e90f49e7227ac3f4b7c66326f5e80b1b1f5711221237a"
+  },
+  "canonical_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "canonical_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation_range": [
+    1060,
+    1080
+  ],
+  "literal_root_ids": [
+    "internal/bootstrapstart/identity_rekey_journal_test.go::TestIdentityRekeyJournalSeparatesHistoricalEvidenceAndMutation",
+    "internal/bootstrapstart/identity_rekey_journal_test.go::TestIdentityRekeyStagingMissingNodePinCannotAuthorizeRestart",
+    "internal/bootstrapstart/identity_rekey_journal_test.go::TestIdentityRekeyStagingRefusesUnprovenOrChangedNode",
+    "internal/bootstrapstart/identity_rekey_journal_test.go::TestIdentityRekeyVerifiedWireDistinguishesChangedReset",
+    "internal/bootstrapstart/identity_rekey_material_test.go::TestIdentityRekeyMaterialRecoversAfterDurableCopyAndPartialRename",
+    "internal/bootstrapstart/identity_rekey_material_test.go::TestIdentityRekeyMaterialReplacesOnlyExactOpaquePredecessors",
+    "internal/bootstrapstart/identity_rekey_response_test.go::TestIdentityRekeyResponseKeyPublishesServiceOwnedExactReplacementAndRetries",
+    "internal/bootstrapstart/identity_rekey_response_test.go::TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication",
+    "internal/bootstrapstart/identity_rekey_successor_test.go::TestCompletedRekeyStagesSuccessorWithoutLosingAcceptanceEvidence",
+    "internal/bootstrapstart/launch_material_test.go::TestInstallLaunchMaterialRecoversBeforeManagedImagePublication",
+    "internal/bootstrapstart/launch_material_test.go::TestInstallLaunchMaterialRejectsBundleOutsideImageLayout",
+    "internal/bootstrapstart/launch_material_test.go::TestInstallLaunchMaterialRejectsForeignAnchorAndRedirection",
+    "internal/bootstrapstart/launch_material_test.go::TestInstallLaunchMaterialRejectsMissingForeignAndExpiredManagedImage",
+    "internal/bootstrapstart/launch_material_test.go::TestInstallLaunchMaterialRejectsNonCanonicalOperatorSSHKey",
+    "internal/bootstrapstart/launch_material_test.go::TestInstallLaunchMaterialWritesVerifiedWriteOnceFiles",
+    "internal/bootstrapstart/launch_material_test.go::TestLaunchMetadataForwardsOperatorSSHKey",
+    "internal/bootstrapstart/launch_pins_test.go::TestAcceptedHostLaunchMaterialRequiresScopeLayoutAndSSH",
+    "internal/bootstrapstart/launch_pins_test.go::TestAcceptedLaunchLoadersReadOnlyPinnedPublicInputs",
+    "internal/bootstrapstart/launch_pins_test.go::TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles",
+    "internal/bootstrapstart/launch_pins_test.go::TestAcceptedLaunchMaterialRequiresRootOwnedSnapshotAndJournal"
+  ],
+  "accepted_counts": {
+    "unit": 5,
+    "integration": 9,
+    "mixed": 6,
+    "unresolved": 0,
+    "total": 20
+  },
+  "checks_performed": [
+    "Independently read all twenty entire canonical roots and actual connected MarkerStore/MaterialStore/generation/native file/launch/response/successor paths.",
+    "Verified exact activated literal mappings and survival rows, forty baseline/current raw declarations, original/current names, complete bodies, explicit bounds and hashes.",
+    "Recomputed canonical Git blob/mode/SHA256/bytes for 35 source files and exact text/blob for 65 assertion/connected spans.",
+    "Checked packet/checksum hashes, SHA256SUMS entries and immutable files0444/directory0555.",
+    "Confirmed upstream server.NewServer -> nats.Connect(srv.ClientURL()) loopback TCP/FileStorage successor fixture, not natscell.Start; no production auth/cluster/runtime qualification.",
+    "Confirmed response fixtures require root:root and tmpfs /dev/shm; stopped-state callback synthetic. No fixture execution or privileges used by review.",
+    "Confirmed fake OCI/IMDS/Vault/ledger/material/binary/clock/floor dependencies; substantive actual local files are scoped separately.",
+    "Independently checked pure/mixed guards, including unverified staging proof, expiration/cancellation/missing gate/key guards, local launch validation versus writeOnce publication, zero identity before disk, metadata map construction.",
+    "Fresh corrected packet adds exact durable-copy writeSynced/syncDirectory callee at generation_install.go628-660 and pin, linked to both material roots. All20 identity/body/category/assertion bytes unchanged from first packet."
+  ],
+  "resolved_findings": [
+    {
+      "kind": "missing_connected_durable_copy_callee",
+      "original_packet_path": "/tmp/ts-source-1060-1080-nrdjusa9/classification.json",
+      "correction": "Added actual writeSynced/syncDirectory source span628-660 and canonical file pin; linked both material roots.",
+      "status": "resolved"
+    }
+  ],
+  "remaining_findings": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "count_promotion": false,
+    "global_completion": false
+  }
+}

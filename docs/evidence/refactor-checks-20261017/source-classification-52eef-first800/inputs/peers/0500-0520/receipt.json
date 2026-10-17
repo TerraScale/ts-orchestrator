@@ -1,0 +1,207 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/peer_80_100",
+  "author": "/root/classification_100_dispatch/batch_140_160",
+  "range": [
+    500,
+    520
+  ],
+  "decision": "ACCEPT_EXACT_SOURCE_ONLY_PACKET_WITH_RETAINED_LIMITS",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-500-520-pmgnuvfr/classification.json",
+    "sha256": "67dbf5c6dfd0ac8d21ab26247676ad5e053ce64bb98f10ee60e6d666e0e0e611"
+  },
+  "accepted_packet_checksum_file": {
+    "path": "/tmp/ts-source-classification-500-520-pmgnuvfr/SHA256SUMS",
+    "sha256": "941c4ad1e284bbe7238bdeceaa178d883247513a7c1b9d1dc9ee223e6989852d"
+  },
+  "canonical_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "canonical_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/app/rollout_hosts_test.go::TestHostRolloutFollowerSpoolsTheLeadersStepAndRelaysTheReply",
+    "internal/app/rollout_hosts_test.go::TestHostUnitsAreTheJoinedHostsGroupedByTerraBaseSeats",
+    "internal/app/rollout_hosts_test.go::TestHostUnitsExcludeRetiredHistoryButKeepCurrentHostsWithoutSessions",
+    "internal/app/rollout_hosts_test.go::TestReleasePinsAfterHostJoins",
+    "internal/app/rollout_hosts_test.go::TestRolloutGateHoldsHostStepsWhileASeatIsDrained",
+    "internal/app/rollout_hosts_test.go::TestTerraBaseHostsStepOnlyWhileEveryMemberServes",
+    "internal/app/rollout_watch_test.go::TestRolloutWatcherSeesULIDRepliesAndSkipsStepPosts",
+    "internal/app/runtime_controller_host_source_test.go::TestControllerHostSpecRequiresExactLeaderRevision",
+    "internal/app/runtime_observations_integration_test.go::TestManagedServiceObservationUsesActualManagerAndUnknownReadiness",
+    "internal/app/runtime_priority_test.go::TestReadBakedRuntimePriorityProfileRejectsUnsafeAndInvalidFiles",
+    "internal/app/runtime_worker_membership_source_integration_test.go::TestWorkerMembershipSourceReadsOrderedAdmissionAndRevocation",
+    "internal/app/runtime_worker_source_integration_test.go::TestWorkerPoolAdmissionRemainsPendingWithoutCreationLineage",
+    "internal/app/runtime_worker_source_integration_test.go::TestWorkerPreparationRequiresExactLiveClaim",
+    "internal/app/runtime_worker_source_integration_test.go::TestWorkerSourceReadsCurrentRegistrationAndRevocationOverNATS",
+    "internal/app/runtime_worker_start_test.go::TestRuntimeWorkerPrivateTransportPinsCAAndRefusesRedirect",
+    "internal/app/selfupdate_proof_test.go::TestSelfUpdateProofFileDefaultsToTheWatchdogFile",
+    "internal/app/selfupdate_proof_test.go::TestSelfUpdateProofUsesTheConfiguredReleaseRoot",
+    "internal/app/service_releases_inventory_test.go::TestServiceReleaseCompleteRevisionRequiresFreshReplicaProofs",
+    "internal/app/service_releases_inventory_test.go::TestServiceReleaseInventoryAbsentInitialClaim",
+    "internal/app/service_releases_inventory_test.go::TestServiceReleaseInventoryFailedRefreshPreservesTimestamp"
+  ],
+  "counts": {
+    "integration": 8,
+    "unit": 8,
+    "mixed": 4,
+    "unresolved": 0
+  },
+  "checks_performed": {
+    "full_current_roots_independently_read": 20,
+    "baseline_current_raw_declarations_verified": 40,
+    "source_file_pins_verified": 61,
+    "assertion_spans_verified": 26,
+    "connected_spans_verified": 84,
+    "all_literal_ids_match_exact_allocation": true,
+    "all_original_hashes_match_survival": true,
+    "all_current_mappings_match_survival_names": true,
+    "all_full_files_match_git_mode_blob_sha256_bytes": true,
+    "all_evidence_text_bounds_sha256_git_blobs_verified": true,
+    "canonical_body_drift_preserved": 2,
+    "checksum_manifest_passed": true,
+    "files0444_dir0555_verified": true,
+    "runtime_fields_checked": true
+  },
+  "root_determinations": [
+    {
+      "allocation_index": 500,
+      "root_id": "internal/app/rollout_hosts_test.go::TestHostRolloutFollowerSpoolsTheLeadersStepAndRelaysTheReply",
+      "category": "mixed",
+      "independent_reason": "Mixed: actual follower spool/reply file writes/readback plus independent direct proof verification. Fake session provides bytes; actual workload process absent."
+    },
+    {
+      "allocation_index": 501,
+      "root_id": "internal/app/rollout_hosts_test.go::TestHostUnitsAreTheJoinedHostsGroupedByTerraBaseSeats",
+      "category": "mixed",
+      "independent_reason": "Mixed: actual host-membership KV reads and grouping plus independent list-error propagation before board I/O."
+    },
+    {
+      "allocation_index": 502,
+      "root_id": "internal/app/rollout_hosts_test.go::TestHostUnitsExcludeRetiredHistoryButKeepCurrentHostsWithoutSessions",
+      "category": "integration",
+      "independent_reason": "Integration: real membership absence/Create changes current-host result while retired fixture entry stays excluded."
+    },
+    {
+      "allocation_index": 503,
+      "root_id": "internal/app/rollout_hosts_test.go::TestReleasePinsAfterHostJoins",
+      "category": "integration",
+      "independent_reason": "Integration: actual rollout release+host membership commit and ReleasePins/status KV readback."
+    },
+    {
+      "allocation_index": 504,
+      "root_id": "internal/app/rollout_hosts_test.go::TestRolloutGateHoldsHostStepsWhileASeatIsDrained",
+      "category": "unit",
+      "independent_reason": "Unit: injected passGate/maps/drained/held callbacks only."
+    },
+    {
+      "allocation_index": 505,
+      "root_id": "internal/app/rollout_hosts_test.go::TestTerraBaseHostsStepOnlyWhileEveryMemberServes",
+      "category": "unit",
+      "independent_reason": "Unit: local desired/report maps with stale/generation/state predicates."
+    },
+    {
+      "allocation_index": 506,
+      "root_id": "internal/app/rollout_watch_test.go::TestRolloutWatcherSeesULIDRepliesAndSkipsStepPosts",
+      "category": "integration",
+      "independent_reason": "Integration: real JetStream WatchAll, actual step/reply/release/cell KV writes and wake/cancel observation."
+    },
+    {
+      "allocation_index": 507,
+      "root_id": "internal/app/runtime_controller_host_source_test.go::TestControllerHostSpecRequiresExactLeaderRevision",
+      "category": "integration",
+      "independent_reason": "Integration: current root-chain/profile leader reads and exact adopted revision; newer revision/deletion rejection. Canonical adds required root-chain setup."
+    },
+    {
+      "allocation_index": 508,
+      "root_id": "internal/app/runtime_observations_integration_test.go::TestManagedServiceObservationUsesActualManagerAndUnknownReadiness",
+      "category": "integration",
+      "independent_reason": "Integration: actual loopback gRPC imported manager ControlAPI and MemoryStore service/task records, mutation/reread, proof currentness/deadline and outage paths. Probes injected; no worker process."
+    },
+    {
+      "allocation_index": 509,
+      "root_id": "internal/app/runtime_priority_test.go::TestReadBakedRuntimePriorityProfileRejectsUnsafeAndInvalidFiles",
+      "category": "mixed",
+      "independent_reason": "Mixed: actual opened profile/safe readback, unsafe mode and symlink rejection; separate invalid JSON/reserve predicates after incidental fixture write."
+    },
+    {
+      "allocation_index": 510,
+      "root_id": "internal/app/runtime_worker_membership_source_integration_test.go::TestWorkerMembershipSourceReadsOrderedAdmissionAndRevocation",
+      "category": "integration",
+      "independent_reason": "Integration: actual authority registration, grant Claim/Finish/Renew and membership CAS/readback, reconstructed reader, retirement/Disable/Delete current reads. Auth signatures/certificates synthetic."
+    },
+    {
+      "allocation_index": 511,
+      "root_id": "internal/app/runtime_worker_source_integration_test.go::TestWorkerPoolAdmissionRemainsPendingWithoutCreationLineage",
+      "category": "unit",
+      "independent_reason": "Unit: naming predicate and unconditional pending pool return before any provider call."
+    },
+    {
+      "allocation_index": 512,
+      "root_id": "internal/app/runtime_worker_source_integration_test.go::TestWorkerPreparationRequiresExactLiveClaim",
+      "category": "unit",
+      "independent_reason": "Unit: direct live-claim predicate table; no grant store access."
+    },
+    {
+      "allocation_index": 513,
+      "root_id": "internal/app/runtime_worker_source_integration_test.go::TestWorkerSourceReadsCurrentRegistrationAndRevocationOverNATS",
+      "category": "integration",
+      "independent_reason": "Integration: real ordered registration and current grant leader read; changed request/Disable CAS refusal."
+    },
+    {
+      "allocation_index": 514,
+      "root_id": "internal/app/runtime_worker_start_test.go::TestRuntimeWorkerPrivateTransportPinsCAAndRefusesRedirect",
+      "category": "mixed",
+      "independent_reason": "Mixed: real local TLS signed-byte POST and redirect refusal plus separate invalid-CA PEM pre-I/O guard."
+    },
+    {
+      "allocation_index": 515,
+      "root_id": "internal/app/selfupdate_proof_test.go::TestSelfUpdateProofFileDefaultsToTheWatchdogFile",
+      "category": "unit",
+      "independent_reason": "Unit: path strings/defaults only."
+    },
+    {
+      "allocation_index": 516,
+      "root_id": "internal/app/selfupdate_proof_test.go::TestSelfUpdateProofUsesTheConfiguredReleaseRoot",
+      "category": "unit",
+      "independent_reason": "Unit: root string predicates, absent activation lookup incidental to suppressed no-output assertion; no pending activation/proof write/readback."
+    },
+    {
+      "allocation_index": 517,
+      "root_id": "internal/app/service_releases_inventory_test.go::TestServiceReleaseCompleteRevisionRequiresFreshReplicaProofs",
+      "category": "unit",
+      "independent_reason": "Unit: nil history means readiness fallback ignores injected reports; empty PinKeys is incidental and map-backed object writes do not prove fresh replica history."
+    },
+    {
+      "allocation_index": 518,
+      "root_id": "internal/app/service_releases_inventory_test.go::TestServiceReleaseInventoryAbsentInitialClaim",
+      "category": "integration",
+      "independent_reason": "Integration: actual absent durable state read and nonempty known-bad writes/enumeration determine persisted-state absence/status pins; object service remains fake."
+    },
+    {
+      "allocation_index": 519,
+      "root_id": "internal/app/service_releases_inventory_test.go::TestServiceReleaseInventoryFailedRefreshPreservesTimestamp",
+      "category": "unit",
+      "independent_reason": "Unit: overridden watcher error/incomplete/invalid entries and fake object-write failure; existing real state read only selects the unchanged-claim branch, no asserted store effect."
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "qualification_notes": [
+    "Acceptance classifies source boundaries only; every runtime remains UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No test/compiler/helper/lint/process/provider/cloud/signing/crypto/TerraBase execution performed.",
+    "Root517 has no authentic readiness history and cannot qualify fresh replica-proof behavior. Root519 is mock-only failure control after incidental real state read. These limitations are explicit in accepted packet; no category escalation.",
+    "Actual embedded server clients use InProcessServer; observer independently connects through loopback TLS. Follower session/object clients/probes/fences remain synthetic as named.",
+    "Whole baseline/current bodies and exact assertion spans retain all safety obligations; source drift in507/508 is retained and does not retire original obligations. No additional deterministic source-visible assertion blocker found in this allocated peer range."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "source_mutation": false,
+    "canonical_ledger_mutated": false,
+    "deletion_credit": 0,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false,
+    "promotion_authorized": false
+  }
+}

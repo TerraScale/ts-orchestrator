@@ -1,0 +1,8 @@
+# Source-only roots520:540
+
+Exact20 literal roots at canonical 52eef25bad09736d8f0806ecaccaef1a7c86b49e.
+Counts: integration12 / unit4 / mixed4 / unresolved0. Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION.
+
+Every root preserves complete raw baseline/current declaration, exact assertion text, actual source file pins and connected production/fixture/client/store spans. Embedded authenticated NATS uses in-process clients and real JetStream stores; OCI-shaped object clients and selected host/fence callbacks are fake.
+
+No source/repository/ledger/runtime mutation or execution; no retirement, deletion, qualification or count promotion. Every original safety obligation remains. Independent peer review pending.

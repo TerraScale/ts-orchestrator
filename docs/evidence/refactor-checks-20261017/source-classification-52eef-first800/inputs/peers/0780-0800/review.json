@@ -1,0 +1,79 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_760_780",
+  "author": "/root/classification_100_dispatch/batch_780_800",
+  "own_packet_frozen_before_peer_review": {
+    "path": "/tmp/ts-source-760-780-984v6ym7/classification.json",
+    "sha256": "5a436755d1186593de124edc977fa2f0aad86bf35de5da33ff29eea956571ec7"
+  },
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-780-800-n6ozq8ln/classification.json",
+    "sha256": "9a49ac98c4062626b465d887ecbdbb67741d93cd01b8475b62d46dcf945b501a",
+    "checksum_path": "/tmp/ts-source-classification-780-800-n6ozq8ln/SHA256SUMS",
+    "checksum_sha256": "023766410b7ac47dd75899dd8fa13bab7fc51d139c9c28732dfe2074b579d91d"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-source-dispatch-58wrSDrA/allocation-and-exclusions.json",
+    "sha256": "c9407bbf548f26e874996a930f6fafe9bf01c825bc495e4b1e2c46eb7cf5659e",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[780:800]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_760_780"
+  },
+  "root_ids": [
+    "internal/bootstrap/ledger_test.go::TestSuccessorHEADRequiresImmutableManagedPredecessorProofs",
+    "internal/bootstrap/ledger_test.go::TestSuccessorHeadCommittedAfterIntentOrEvidenceExpiryIsRejectedOnRead",
+    "internal/bootstrap/ledger_timestamp_test.go::TestHeadCASDoesNotReadExistingMatchAfterPreflightCancellation",
+    "internal/bootstrap/ledger_timestamp_test.go::TestImmutableWriteDoesNotReadExistingMatchAfterPreflightCancellation",
+    "internal/bootstrap/ledger_timestamp_test.go::TestLedgerRecordStorageBucketRequiresFullSignedSecond",
+    "internal/bootstrap/ledger_timestamp_test.go::TestManagedProgressWriteDoesNotReadExistingMatchAfterPreflightCancellation",
+    "internal/bootstrap/ledger_timestamp_test.go::TestPutObjectAfterTimestampBoundaryDoesNotAttemptPreflightFailures",
+    "internal/bootstrap/ledger_timestamp_test.go::TestPutObjectAfterTimestampBoundaryMarksClientCallAttempted",
+    "internal/bootstrap/ledger_timestamp_test.go::TestWaitForLedgerRecordStorageBoundary",
+    "internal/bootstrap/ledger_timestamp_test.go::TestWaitForLedgerRecordStorageBoundaryRejectsFrozenClock",
+    "internal/bootstrap/manifest_seed_ledger_signer_test.go::TestSeedLedgerSignerSecretRequiresExactSeedSlotAndReceipt",
+    "internal/bootstrap/manifest_test.go::TestCurrentAndHistoricalManifestRequireExactExpectedStorageDomain",
+    "internal/bootstrap/manifest_test.go::TestManifestCurrentRootKeyTypeMatchesOCICompartmentOCID",
+    "internal/bootstrap/manifest_test.go::TestManifestKeepsIssuerAndOperatorLocalFilesInTheirRoles",
+    "internal/bootstrap/manifest_test.go::TestManifestRejectsExpiredWrongRootAndOverbroadPeerDelegation",
+    "internal/bootstrap/manifest_test.go::TestManifestV1RequiresCanonicalReleaseWiresAndPinnedStorageDomain",
+    "internal/bootstrap/manifest_test.go::TestManifestValidationRejectsUnboundProfilesAndSecretOutputs",
+    "internal/bootstrap/manifest_test.go::TestManifestVerifiesExactSlotAndReturnsDefensiveCopies",
+    "internal/bootstrap/manifest_test.go::TestMaterializeSecretCreatesOwnerOnlyFile",
+    "internal/bootstrap/manifest_test.go::TestOCIDAcceptsOptionalFutureUseWithoutLosingTypeOrComponentChecks"
+  ],
+  "counts": {
+    "integration": 1,
+    "unit": 19,
+    "mixed": 0,
+    "unresolved": 0
+  },
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "checks_performed": [
+    "Independently read all twenty full canonical test roots and actual connected fixture/production paths after own packet freeze. Read immutable Git objects; no mutable human source was reviewed.",
+    "Verified exact activated literal allocation order, all twenty survival original/current mappings, original/current names/state and canonical body-drift indicators.",
+    "Verified forty baseline/current raw declaration bounds, text and SHA256 (func through column-zero brace, excluding following LF); verified full assertion text spans and all thirty-six connected evidence entries: ninety-six total explicit spans.",
+    "Verified all nineteen cited baseline/current source-file Git blobs, modes, SHA256 and byte counts against immutable Git objects; verified canonical commit tree and input file hashes.",
+    "Verified packet and SHA256SUMS handoff hashes, manifest checksums, twenty-root category count exhaustion, files0444/directory0555 and retained runtime/retirement/safety flags.",
+    "Followed injected ObjectStorageClient through newLedgerFixture/plan fixture to mutex-protected fake map; counters, synthetic Date/ETag/CAS and local cancellation/time arithmetic are unit evidence. Signed manifest/receipt, OCID and secret-reference checks are in-memory validation; authorization root does not fetch Vault secrets or invoke installer.",
+    "Followed materializeSecret -> materializeSecretWith -> actual file create/chmod/write/sync/link and test os.Stat permission readback. Its single integration category is limited to installed local-file mode0600; no independent local-only block makes that root mixed."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "unresolved_assertions": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "qualification_limits": [
+    "Source acceptance only; no compiler/build/test/helper/scanner/runtime/process/network/cloud/signing/TerraBase execution or runtime receipt review.",
+    "The integration root does not verify content, Vault delivery, crash durability, production identity/permissions or restart recovery. Unit ledger roots establish no actual OCI Object Storage transport or persistence.",
+    "No source/repository/ledger mutation; no accepted-ledger/count promotion, deletion, retirement, runtime qualification or global-completion credit. Safety and all original failure obligations remain retained."
+  ],
+  "retirement_authorized": false,
+  "accounting_effect": {
+    "ledger_mutated": false,
+    "source_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  }
+}

@@ -1,0 +1,131 @@
+{
+  "reviewer": "/root/fixture_source_review_next",
+  "decision": "HOLD_ONE_CONNECTED_CITATION_BOUND",
+  "scope": "Independent aggregate/source-accounting review only; no third independent semantic reclassification of all roots, no ledger write/adoption/execution/runtime/qualification/retirement credit",
+  "handoff": {
+    "path": "/tmp/ts-root800-final-source-handoff-vqkusi10/manifest.json",
+    "sha256": "8502aee68eb1ebddd326eef1d40f41c04a9e52527758b7805996067045516c78",
+    "sumsSHA256": "f466fabf358103974a4ffe7ef215577c4342dc825da8f2e4fad002d4b603f583"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root800-source-dispatch-58wrSDrA/allocation-and-exclusions.json",
+    "sha256": "c9407bbf548f26e874996a930f6fafe9bf01c825bc495e4b1e2c46eb7cf5659e",
+    "range": [
+      300,
+      1100
+    ]
+  },
+  "originalAccounting": {
+    "path": "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json",
+    "sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513"
+  },
+  "survival": {
+    "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+    "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+  },
+  "sourceCommit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "sourceTree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baselineCommit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "verified": {
+    "handoffChecksumEntries": 8,
+    "inputHashEntries": 165,
+    "packetAndPeerChecksumFiles": 80,
+    "packetAndPeerChecksumEntries": 152,
+    "exactUniqueOriginalIDs": 800,
+    "exactOriginalAccountingOrder": true,
+    "verbatimOwnerRecordsPreserved": 800,
+    "combinedProvenanceBindings": 800,
+    "owners": 40,
+    "distinctPeers": 40,
+    "cyclicNonSelfReviews": 40,
+    "exactFinalPacketHashAccepts": 40,
+    "peerLiteralIDListsPresent": 40,
+    "baselineDeclarationHashesAgainstSurvival": 800,
+    "canonicalCurrentDeclarationHashes": 797,
+    "rawDeclarationIdentityAndClosingBounds": 1597,
+    "explicitCitationTextMatches": 3735,
+    "claimedSourceFileHashBlobChecks": 1324,
+    "sourceFileByteChecks": 1324,
+    "explicitSourceFileModeChecks": 1133,
+    "counts": {
+      "integration": 252,
+      "unit": 392,
+      "mixed": 145,
+      "unresolved": 11
+    },
+    "classified": 789,
+    "reviewedUnresolved": 11,
+    "allRootRuntimeUnknownAndSafetyRetainedAndRetirementFalse": true,
+    "knownAllocationIntersections": 0
+  },
+  "findings": [
+    {
+      "severity": "must_fix_exact_citation_metadata",
+      "packet": "/tmp/ts-source-1020-1040-final-0zxjguyk/classification.json",
+      "packetSHA256": "a0532282f5d6c9dbf5857417a2ae9068ffa696244c99c9587255af03c8e09094",
+      "field": "connected_source_evidence.material_fixtures[4].end_line",
+      "path": "internal/bootstrap/generation.go",
+      "blob": "b0498e0bea90446015939d29fd321a0e1e50d3be",
+      "startLine": 298,
+      "claimedEndLine": 455,
+      "actualFileLastLine": 451,
+      "effect": "Text is byte-exact actual lines298:451, but the cited end455 exceeds pinned file by four lines. No source category or runtime change inferred.",
+      "requiredCorrection": "Fresh immutable owner packet end_line451, exact fresh independent peer acceptance, then fresh aggregate binding their hashes; preserve old artifacts."
+    }
+  ],
+  "unresolvedMissingMappings": [
+    "internal/app/oci_reconcile_test.go::TestOciReconcileConfigDefaultsOffAndValidates",
+    "internal/app/terrabase_seats_test.go::TestTerraBaseSeatsConfigDefaultsOffAndBoundsItsTimes",
+    "internal/app/workload_autoscale_test.go::TestAutoscaleConfigDefaultsOffAndValidates"
+  ],
+  "overlapMaps": [
+    {
+      "range": [
+        0,
+        100
+      ],
+      "path": "/tmp/ts-root100-source-dispatch-jeov3BoT/allocation-and-exclusions.json",
+      "sha256": "70e4dc811d59ef0c1ec6847fe8ed632964059169973bfe164585b9eaef2b73e5",
+      "intersection": 0
+    },
+    {
+      "range": [
+        100,
+        300
+      ],
+      "path": "/tmp/ts-root200-expansion-dispatch-kseJiOvj/allocation-and-exclusions.json",
+      "sha256": "7e7a69a7a625013deab54117e1a32875f5756e4f1ea67008815614bd0cec3e6f",
+      "intersection": 0
+    },
+    {
+      "range": [
+        1100,
+        1900
+      ],
+      "path": "/tmp/ts-root800-second-source-dispatch-r9_48ha9/allocation-and-exclusions.json",
+      "sha256": "8bd998d9cb8c3f4c710bc4eae57c3d7a1ac600c3a3cdaffa9005589fe8552b8c",
+      "intersection": 0
+    },
+    {
+      "range": [
+        1900,
+        2500
+      ],
+      "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+      "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+      "intersection": 0
+    }
+  ],
+  "overlapLimit": "All listed maps hash-match and exactly cover their original accounting slices. QA confirms these are its known/authorized original-root maps; global reservations outside QA remain ROOT-owned. No broader global registry claim.",
+  "method": "Read-only file/Git/hash inspection and metadata comparisons over owner/peer-provided explicit literal IDs and line bounds. No Go source parser/scanner or project execution. All raw owner/peer packets preserved.",
+  "qualification": {
+    "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+    "ledgerMutation": false,
+    "ledgerAdoption": false,
+    "countPromotion": false,
+    "qualificationCredit": 0,
+    "retirementCredit": 0,
+    "completionCredit": 0
+  },
+  "notChecked": "No compiler/Go/test/runtime/GENERAL/helper/probe/socket/key/signing/cloud execution or actual central composition/application. Existing live ledger504 was not mutated by this review."
+}

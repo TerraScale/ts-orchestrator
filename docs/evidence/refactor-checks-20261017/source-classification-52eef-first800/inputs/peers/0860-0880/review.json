@@ -1,0 +1,116 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_840_860",
+  "author": "/root/classification_100_dispatch/batch_860_880",
+  "decision": "ACCEPT_SOURCE_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-860-880-corrected-inkuihj0/classification.json",
+    "sha256": "24efe38704765b2a575d34672d33b1b44a17a0ecc2f31f07d6144485d6a17ec3",
+    "checksum_path": "/tmp/ts-source-classification-860-880-corrected-inkuihj0/SHA256SUMS",
+    "checksum_sha256": "4d3afb17a8133bea83a910badfe55650e7a037ec3db994274cd3ee872513c4c2"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root800-source-dispatch-58wrSDrA/allocation-and-exclusions.json",
+    "sha256": "c9407bbf548f26e874996a930f6fafe9bf01c825bc495e4b1e2c46eb7cf5659e",
+    "range": [
+      860,
+      880
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_840_860"
+  },
+  "source_repository": "/tmp/ts-refactor-main-union-3d9a933e",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/bootstrapmaterial/vault_test.go::TestProvisionExpiredRetryWindowHolds",
+    "internal/bootstrapmaterial/vault_test.go::TestProvisionRecoversUncertainCreateOnlyAfterExactReadback",
+    "internal/bootstrapmaterial/vault_test.go::TestProvisionRejectsDuplicateSecretAndWrongTarget",
+    "internal/bootstrapmaterial/vault_test.go::TestProvisionRejectsWrongSecretKindInJournal",
+    "internal/bootstrapmaterial/vault_test.go::TestProvisionRequiresVaultSecretOCIDKind",
+    "internal/bootstrapmaterial/vault_test.go::TestProvisionRetriesUnknownCreateWithSameToken",
+    "internal/bootstrapmaterial/vault_test.go::TestRegionalSecretOCIDRequiresVaultSecretKind",
+    "internal/bootstrapmaterial/vault_test.go::TestVaultTargetAcceptsActualMultisegmentOCID",
+    "internal/bootstrapstart/accepted_identity_test.go::TestAcceptedIdentityCheckpointProjectionAndProof",
+    "internal/bootstrapstart/accepted_identity_test.go::TestAcceptedIdentityConcurrentReplacementChecksExactPredecessor",
+    "internal/bootstrapstart/accepted_identity_test.go::TestAcceptedIdentityInitialUsesCurrentFreshProofs",
+    "internal/bootstrapstart/accepted_identity_test.go::TestAcceptedIdentityPublicationPredecessorAndNoReplace",
+    "internal/bootstrapstart/accepted_identity_test.go::TestAcceptedIdentityPublicationRejectsIndirectOrWritableFiles",
+    "internal/bootstrapstart/accepted_identity_test.go::TestAcceptedIdentityReaderRequiresOwnedDirectCanonicalFile",
+    "internal/bootstrapstart/accepted_identity_test.go::TestAcceptedIdentityRejectsInvalidScopeAndInventories",
+    "internal/bootstrapstart/accepted_identity_test.go::TestAcceptedIdentityRequiresObservedExistingStore",
+    "internal/bootstrapstart/accepted_identity_test.go::TestAcceptedIdentityStrictV1",
+    "internal/bootstrapstart/admission_flow_test.go::TestAdmissionRejectsLoadedConfigBeforeMaterial",
+    "internal/bootstrapstart/admission_flow_test.go::TestGateClockFailureStopsAdmissionBeforeLedgerOrMaterial",
+    "internal/bootstrapstart/admission_flow_test.go::TestGateClockLossStopsMaterialAndMarkerEffects"
+  ],
+  "counts": {
+    "integration": 7,
+    "unit": 10,
+    "mixed": 3,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Read all20 complete canonical roots independently, including all assertion blocks; traced connected actual fixture/helper/store/gate paths rather than inferring boundary from names.",
+    "Verified literal20 root order against activated allocation and accounting other_unadjudicated[860:880), exclusions, cyclic reviewer mapping and survival TSV original/current names/kinds/states/hashes.",
+    "Verified40 baseline/current raw declarations against pinned Git bytes, explicit function-through-column-zero-close bounds excluding following LF, exact stored text and SHA256.",
+    "Verified17 source file pins for Git commit/blob/mode/SHA256/byte count; canonical current working bytes match pinned blobs and HEAD/tree match canonical pins.",
+    "Verified all52 exact assertion/connected spans against pinned source text and blob; independently reviewed connected local journal, file metadata/readback, no-replace/rename/predecessor locking, projection and gate callback paths.",
+    "Verified accepted packet SHA256, SHA256SUMS contents/hash and immutable0444 files/0555 directory; checked category counts sum20."
+  ],
+  "classification_review": [
+    "Vault fakeVault is only maps/counters. Local production journal persistence and replay support integration categories for durable retry/target/journal cases; isolated OCID response predicates remain unit. Duplicate fake-response predicate plus wrong-target journal comparison is mixed.",
+    "Accepted-identity local schema, projection, signature-proof and synthetic fresh-proof checks remain unit. Actual openat/no-follow/Fstat/readback/write/sync/rename and exact predecessor concurrency materially support integration. Independent local nil-proof/observer mismatch blocks alongside real file paths support mixed categories.",
+    "Admission config and clock roots assert synthetic guard/callback ordering; launch files and absence readback are incidental, with no real NTP, ledger, OCI, material or credential writer boundary asserted. Unit categories accepted."
+  ],
+  "resolved_findings": [
+    {
+      "kind": "corrected_source_inventory_arithmetic",
+      "superseded_packet": "/tmp/ts-source-classification-860-880-gr4fa5qg/classification.json",
+      "superseded_sha256": "f70a3895fe17c0dc2bf531b8967a32d88e4d58dcba8aa083e3e8e3ecc4cc234d",
+      "resolution": "Author added always-generated memberCA certificate/key spans and corrected28 publication entries/29 retry attempts to30/31. Canonical expectedNames has35, build adds2 memberCA files, publication excludes7 owner-only files. Categories unchanged; original bytes preserved."
+    }
+  ],
+  "remaining_findings": [
+    {
+      "root_id": "internal/bootstrapmaterial/vault_test.go::TestProvisionRecoversUncertainCreateOnlyAfterExactReadback",
+      "lines": [
+        285,
+        287
+      ],
+      "status": "EXPLICITLY_UNRESOLVED_UNCREDITED",
+      "detail": "Final fake.create27 expectation conflicts with30 current publication entries; final success claim uncredited. Earlier real local journal/recovery boundary still supports integration source category."
+    },
+    {
+      "root_id": "internal/bootstrapmaterial/vault_test.go::TestProvisionRetriesUnknownCreateWithSameToken",
+      "lines": [
+        323,
+        325
+      ],
+      "status": "EXPLICITLY_UNRESOLVED_UNCREDITED",
+      "detail": "Failed-first create plus30 entries yields31 attempts, conflicting with expected28; combined OR short-circuits before token equality, so later equality success uncredited. Earlier persisted retry journal boundary supports integration source category."
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no compiler, test or runtime receipt was reviewed.",
+    "Only exact canonical Git52eef25 source was used for classification. All20 baseline/current root bodies match frozen survival bytes; original obligations retained.",
+    "Fake Vault management/bundle API is maps/counters only; local journal persistence does not qualify OCI/Vault transport or cloud eventual consistency.",
+    "Synthetic identity observers echo prepared values; actual local pin/marker files do not qualify live NATS broker or Raft observations.",
+    "Clock/config gates use fake ledger, OCI, material, credential and clock adapters; marker absence readback cannot qualify material installation or live credentials.",
+    "Filesystem boundaries are only local open/read/metadata/write/sync/rename paths; no crash, power-loss, host-loss or deployment durability was proved.",
+    "Two stale Vault count assertions stay explicitly unresolved/uncredited even where earlier boundaries establish integration source category.",
+    "No source/repository/ledger/runtime mutation, execution, deletion, retirement, qualification or global completion/count promotion authorized."
+  ],
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false,
+    "classification_count_promotion_authorized": false
+  },
+  "execution_limits": "Only read-only source/Git inspection, ordinary hashing and metadata serialization of explicitly reviewed spans. No Go/tests/helpers/scanners/runtime/cloud/crypto execution, download, source changes, ledger changes, deletion or retirement."
+}

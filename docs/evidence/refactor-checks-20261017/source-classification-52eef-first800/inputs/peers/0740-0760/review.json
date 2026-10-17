@@ -1,0 +1,61 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_720_740",
+  "author": "/root/classification_100_dispatch/batch_740_760",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-740-760-jjo7w8dr/classification.json",
+    "sha256": "e31acb8f58acaf8918b1d9ee2508323920d665517cd1dd1041ccdd43a369f365",
+    "checksum_path": "/tmp/ts-source-classification-740-760-jjo7w8dr/SHA256SUMS",
+    "checksum_sha256": "6fa28abca62925d466a727a6b8576e1c79c7dacfbf7e2995128c568c1a35ac71"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "literal_root_ids": [
+    "internal/bootstrap/ledger_managed_recovery_test.go::TestManagedPeerCandidatePinStopsLaunchAndAuthorizesObservation",
+    "internal/bootstrap/ledger_managed_recovery_test.go::TestManagedPeerCandidateWriteCrashStillStopsLaunch",
+    "internal/bootstrap/ledger_managed_recovery_test.go::TestManagedPeerCompletedStateSurvivesExpiredProgressAfterRestart",
+    "internal/bootstrap/ledger_managed_recovery_test.go::TestManagedPeerLateStagedProofIsQuarantinedAndRepairedWithFreshProofs",
+    "internal/bootstrap/ledger_managed_recovery_test.go::TestManagedPeerRecoveryClocksAndRetryBoundary",
+    "internal/bootstrap/ledger_managed_recovery_test.go::TestManagedPeerRecoveryRefreshRejectsReusedAuthorizationBeforeNextWrite",
+    "internal/bootstrap/ledger_managed_recovery_test.go::TestManagedPeerRecoveryRefreshRejectsSupersededPlanBeforeNextWrite",
+    "internal/bootstrap/ledger_managed_recovery_test.go::TestManagedPeerRecoveryResumesAfterEachCommittedWrite",
+    "internal/bootstrap/ledger_oci_test.go::TestBoundInstancePrincipalDispatcherSupportsActualOCISDKTransportWrapper",
+    "internal/bootstrap/ledger_oci_test.go::TestInstancePrincipalHTTPClientClonesNoProxyTransportAndRejectsRedirects",
+    "internal/bootstrap/ledger_oci_test.go::TestInstancePrincipalLedgerCanUseValidatedSharedProvider",
+    "internal/bootstrap/ledger_oci_test.go::TestInstancePrincipalLedgerPinsCanonicalRegionAndBoundsSDKHTTP",
+    "internal/bootstrap/ledger_oci_test.go::TestInstancePrincipalLedgerRejectsInvalidInputBeforeProvider",
+    "internal/bootstrap/ledger_oci_test.go::TestInstancePrincipalLedgerRejectsSDKOverridesBeforeProvider",
+    "internal/bootstrap/ledger_test.go::TestAdvanceSlotRequiresCurrentRetirementAndSuccessorIntent",
+    "internal/bootstrap/ledger_test.go::TestAuthorizationHeadsStayInsideOriginalRetryWindow",
+    "internal/bootstrap/ledger_test.go::TestCheckRetryWindowUsesOriginalServerTimestamp",
+    "internal/bootstrap/ledger_test.go::TestConcurrentInitialReservationAndManifestConflict",
+    "internal/bootstrap/ledger_test.go::TestCurrentAnchorExpiryGuardsImmutableAndHEADWrites",
+    "internal/bootstrap/ledger_test.go::TestExpiredHistoricalResultCannotRecreateMissingReceipt"
+  ],
+  "counts": {
+    "integration": 0,
+    "unit": 19,
+    "mixed": 1,
+    "unresolved": 0
+  },
+  "decision": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+  "checks_performed": [
+    "Verified literal twenty IDs against activated allocation740:760 and survival original/current names/hashes.",
+    "Independently read all twenty whole canonical roots; verified all40 baseline/current raw declaration bounds and hashes against Git.",
+    "Verified entire supplied assertion and callee evidence spans/text against canonical blobs; source pins11 blob/mode/SHA256/byte lengths checked.",
+    "Followed founder token/ledger/recovery fixture calls through NewLedger injected dependency to mutex-protected fake maps and byte-reader GetObject. Crash/restart hooks are panic/new Ledger value over same fake.",
+    "Read SDK provider/transport construction path and loopback HTTP redirect root. Separate local transport-cloning/timeout block and real client.Get redirect rejection justify mixed; other SDK roots issue no service request.",
+    "Verified SHA256SUMS and file0444/directory0555 freeze."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Source classification only; all runtime outcomes remain UNKNOWN.",
+    "No ledger mutation, deletion, retirement, runtime qualification or completion/count promotion authorized.",
+    "No Go/build/test/helper/scanner/process/resource/cloud/signing/crypto/TerraBase execution.",
+    "No independent production service/store/network execution performed; the loopback HTTP exchange is source-described, not run by this reviewer."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true
+}

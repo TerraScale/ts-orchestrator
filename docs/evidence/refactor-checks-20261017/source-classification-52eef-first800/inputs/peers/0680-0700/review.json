@@ -1,0 +1,112 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_660_680",
+  "author": "/root/classification_100_dispatch/batch_680_700",
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-other-680-700-corrected-aizt3d8t/classification.json",
+    "sha256": "82b75aea778e807fcb0b74630bdde0851094929b83a1cdf4fadbc9c20fcff6df",
+    "checksum_path": "/tmp/ts-source-other-680-700-corrected-aizt3d8t/SHA256SUMS",
+    "checksum_sha256": "b136711a2217305d391fdae44dc21ae139f293c6ba5d9726f4b7e11a242f5bc8"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-source-dispatch-58wrSDrA/allocation-and-exclusions.json",
+    "sha256": "c9407bbf548f26e874996a930f6fafe9bf01c825bc495e4b1e2c46eb7cf5659e",
+    "range": [
+      680,
+      700
+    ]
+  },
+  "root_ids": [
+    "internal/bootstrap/cli/main_test.go::TestSignBootstrapAnchorRejectsConflictingOrNoncanonicalIntent",
+    "internal/bootstrap/cli/main_test.go::TestSignBootstrapAnchorRejectsSlotOutsideInstanceDescriptorGrammar",
+    "internal/bootstrap/cli/main_test.go::TestSignBootstrapAnchorRejectsUntrustedLedgerGrantBeforeWriting",
+    "internal/bootstrap/cli/main_test.go::TestSignLedgerDelegationIssuesExactCurrentGrant",
+    "internal/bootstrap/cli/main_test.go::TestSignLedgerDelegationRejectsWrongScopeAndKey",
+    "internal/bootstrap/cli/main_test.go::TestSignManifestClampsToCurrentAnchorAndRejectsExpiredAnchor",
+    "internal/bootstrap/cli/main_test.go::TestSignManifestClampsToReleaseAndPeerDelegationExpiries",
+    "internal/bootstrap/cli/main_test.go::TestSignManifestRejectsFinalEnvelopeOverSizeLimit",
+    "internal/bootstrap/cli/main_test.go::TestSignManifestRejectsInvalidCandidatesAndIdentityMismatches",
+    "internal/bootstrap/cli/main_test.go::TestSignManifestRejectsShortProofWindowAndNeverOverwrites",
+    "internal/bootstrap/cli/main_test.go::TestSignManifestRejectsWrongRootKeyAndBadProofWires",
+    "internal/bootstrap/cli/main_test.go::TestSignManifestSignsEachSlotWithExactCurrentReleaseProofs",
+    "internal/bootstrap/cli/main_test.go::TestSignedControllerConfigRoundTripRejectsHostRoleFields",
+    "internal/bootstrap/cli/main_test.go::TestVerifyBootstrapAnchorMatchesBakedRootSetLimits",
+    "internal/bootstrap/cli/main_test.go::TestVerifyBootstrapAnchorUsesCurrentRootSetAndStrictIdentityFile",
+    "internal/bootstrap/cli/main_test.go::TestVerifyBootstrapManifestChecksIndependentSlotImageAndCurrentProofs",
+    "internal/bootstrap/cli/material_generation_test.go::TestSignMaterialGeneration",
+    "internal/bootstrap/cli/material_live_test.go::TestMaterialLiveTargetRequiresExactActiveOCIResources",
+    "internal/bootstrap/cli/material_live_test.go::TestMaterialVaultEndpointFollowsMappedRegion",
+    "internal/bootstrap/cli/material_test.go::TestControllerMaterialPublicPEMFeedsDelegationSigner"
+  ],
+  "counts": {
+    "unit": 11,
+    "integration": 3,
+    "mixed": 6,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all twenty complete current roots and connected actual fixture/production paths; verified classification target and reached boundary, including local rejection blocks versus production output/readback.",
+    "Verified exact ordered twenty literal allocation IDs [680,700), all survival TSV field mappings and baseline/current raw declaration identity; all40 declarations and actual explicit bounds/text/SHA256/bytes match canonical Git source.",
+    "Verified25 canonical Git file pins for commit/path/mode/blob/SHA256/byte length,121 explicit declaration/assertion/callee spans for exact text/hash/bytes, connected reference resolution, counts, checksum contents and immutable0444 files/0555 packet directory.",
+    "Verified correction688 against newManifestFixture67–204, writeCandidate245–335, fixtureFileDigest337–340, commands.go609 and controller_config.go19–21: absent reviewed inputs block all named causes except strict unknown-field decode.",
+    "Verified qualification limits: OCI/Vault SDK struct predicates do not call live clients; fixture crypto/proofs do not establish live authority; actual output file/pipe effects establish only reached local OS boundaries."
+  ],
+  "resolved_findings": [
+    {
+      "index": 688,
+      "finding": "Original packet omitted source-visible missing reviewed controller-config blocker.",
+      "resolution": "Fresh accepted packet explicitly marks all intended rejection causes other than unknown-field strict decode unresolved/uncredited; root remains unit. Original packet preserved.",
+      "prior_packet_path": "/tmp/ts-source-other-680-700-uyie3xz0/classification.json",
+      "prior_packet_sha256": "ffeb26a874ef3a786d04a5c4925d928ea0596d01022ce6ff29ec1abfa23fb085"
+    }
+  ],
+  "remaining_findings": [
+    {
+      "index": 687,
+      "root_id": "internal/bootstrap/cli/main_test.go::TestSignManifestRejectsFinalEnvelopeOverSizeLimit",
+      "uncredited_assertions": [
+        {
+          "scope": "final signed envelope exceeds MaxManifestBytes",
+          "source_visible_blocker": "main_test.go:1395-1401 embeds placeholder config/sidecars; writeCandidate at245-335 writes reviewed config/sidecars separately without replacing embedded fields. commands.go:609 calls attachReviewedControllerConfig which returns conflict at controller_config.go:35-38 before envelope-size/sign/write path. Unit fixture Validate/length checks do not prove final-envelope rejection."
+        }
+      ]
+    },
+    {
+      "index": 688,
+      "root_id": "internal/bootstrap/cli/main_test.go::TestSignManifestRejectsInvalidCandidatesAndIdentityMismatches",
+      "uncredited_assertions": [
+        {
+          "scope": "all invalid-candidate cases except unknown-field strict decoding: schema/cluster/image-wire/image/region/architecture/environment/storage/intent/digest rejection causes",
+          "source_visible_blocker": "main_test.go1173-1175 constructs newManifestFixture and writes candidate only. newManifestFixture67-204 never creates controllerConfigPath/regionConfigPath/placementConfigPath. args206-227 calls fixtureFileDigest337-340, which ignores os.ReadFile errors and hashes empty bytes. commands.go609 calls attachReviewedControllerConfig; controller_config.go19-21 fails reading the absent controller config before the intended identity/proof checks. Unknown-field case can reject at commands.go606 strict decoding. All other named rejection obligations remain unresolved/uncredited."
+        }
+      ]
+    },
+    {
+      "index": 690,
+      "root_id": "internal/bootstrap/cli/main_test.go::TestSignManifestRejectsWrongRootKeyAndBadProofWires",
+      "uncredited_assertions": [
+        {
+          "scope": "noncanonical release delegation input path",
+          "source_visible_blocker": "main_test.go:1224-1225 creates noncanonical delegation bytes but1242-1243 passes them as imageWire to writeProofs946-951; actual release-delegation file remains canonical. The intended rejection cause on release-delegation path is uncredited."
+        }
+      ]
+    }
+  ],
+  "unresolved_roots": 0,
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE. Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No compilation, tests, helpers or source/runtime execution.",
+    "All assigned original raw declarations are preserved; baseline/current bytes reconfirmed by explicit manually reviewed spans.",
+    "File outputs/pipe captures are local filesystem/OS integration only. No OCI, Vault, NATS protocol server, bootstrap guest, production signing ceremony, cloud authority, crash durability or restart recovery is established.",
+    "Test-generated release production proofs are synthetic; signature checks do not qualify live publication or actual image/workload execution.",
+    "No repository, ledger or source mutation; no retirement, deletion, qualification, global count or completion credit. Every safety obligation is retained.",
+    "Individual unresolved intended assertions in roots687(final-envelope),688(missing reviewed inputs),690(delegation path) receive no credit, independent of root categories."
+  ],
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "No source/repository/ledger mutation, execution, deletion/retirement authorization, global count/completion promotion or runtime qualification. Root categories are source-only candidates; explicitly blocked individual assertions receive no credit."
+}

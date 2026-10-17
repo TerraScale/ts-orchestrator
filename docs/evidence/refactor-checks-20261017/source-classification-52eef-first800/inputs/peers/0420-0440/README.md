@@ -1,0 +1,1 @@
+Independent source-only peer review accepted the exact 420:440 packet, with 3 integration, 15 unit, 1 mixed and 1 unresolved root. All 20 roots, 40 raw declarations, 40 current file pins and 74 citation spans checked. Native ts-auth planner conflict remains unresolved and later assertions uncredited. Runtime UNKNOWN; no ledger/count/deletion/retirement credit.

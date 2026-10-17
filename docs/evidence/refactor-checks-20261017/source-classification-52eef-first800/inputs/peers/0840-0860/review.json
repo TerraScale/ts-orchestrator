@@ -1,0 +1,81 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_820_840",
+  "author": "/root/classification_100_dispatch/batch_840_860",
+  "status": "accepted_source_only_candidate",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-840-860-0oimhlhn/classification.json",
+    "sha256": "08237c695fed12ea6a6d9b4ca290fedfbb1f45ebe30e6dfbf214376cc4cea146",
+    "checksum_path": "/tmp/ts-source-840-860-0oimhlhn/SHA256SUMS",
+    "checksum_sha256": "6d06397351ec07f728aa368a5bee56d1d40520faef2e1e9ff875945ce21d06e3"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "range": [
+    840,
+    860
+  ],
+  "root_ids": [
+    "internal/bootstrapmaterial/material_test.go::TestControllerMaterialRejectsRetiredGrantSwitches",
+    "internal/bootstrapmaterial/material_test.go::TestGenerateDistributesTerraBaseMemberCA",
+    "internal/bootstrapmaterial/material_test.go::TestGenerateHoldsIncompleteAndTamperedSource",
+    "internal/bootstrapmaterial/material_test.go::TestGenerateSharesControllerResponseKey",
+    "internal/bootstrapmaterial/material_test.go::TestGenerateStableAndProductionValid",
+    "internal/bootstrapmaterial/material_test.go::TestGeneratedCellAccountEnablesJetStream",
+    "internal/bootstrapmaterial/material_test.go::TestGeneratedTerminalCredentialGrants",
+    "internal/bootstrapmaterial/material_test.go::TestHostIssuerConstraintsAndOfflineOperatorFiles",
+    "internal/bootstrapmaterial/material_test.go::TestLegacyMaterialWithoutMemberCAStillLoads",
+    "internal/bootstrapmaterial/material_test.go::TestLoadRejectsWorldReadableOrLinkedMaterial",
+    "internal/bootstrapmaterial/material_test.go::TestMaterialConfigUsesMappedCellRegion",
+    "internal/bootstrapmaterial/material_test.go::TestMaterialLinkSignerIsOptionalAndValidated",
+    "internal/bootstrapmaterial/material_test.go::TestMaterialValidityAllowsOneYear",
+    "internal/bootstrapmaterial/observability_link_test.go::TestControllerObservabilityCredentialsAcrossMTLSLeaf",
+    "internal/bootstrapmaterial/role_claim_test.go::TestRoleClaimAddsTheControllersRoleSigner",
+    "internal/bootstrapmaterial/spoke_link_integration_test.go::TestSpokeLinkPublicRecipientAuthenticatesAndRecovers",
+    "internal/bootstrapmaterial/startup_issuer_integration_test.go::TestGeneratedStartupIssuerAuthenticatesFunctionToBroker",
+    "internal/bootstrapmaterial/vault_test.go::TestMappedRegionalVaultPublicationAndCrossRegionRejection",
+    "internal/bootstrapmaterial/vault_test.go::TestMaterialRegionsFollowTheRegionCatalog",
+    "internal/bootstrapmaterial/vault_test.go::TestProvisionExactReadbackAndStableReplay"
+  ],
+  "counts": {
+    "integration": 9,
+    "mixed": 8,
+    "unresolved": 1,
+    "unit": 2
+  },
+  "checks_performed": [
+    "Independently read every one of twenty full current root bodies from canonical Git and followed actual production fixture/client/file/store/protocol calls. Baseline declarations are byte-identical to canonical declarations and independently hash/bounds verified.",
+    "Confirmed exact literal activated allocation, twenty root exhaustiveness, survival rows/original hashes and current names; no canonical body drift; counts sum20.",
+    "Verified all38 source/baseline file Git blob/mode/SHA256/byte pins, declaration bounds/raw hashes/text, entire assertion evidence text and all cited explicit connected span text against canonical Git bytes.",
+    "Verified packet SHA256SUMS and 0444 file/0555 directory seal.",
+    "Verified source categories distinguish local predicates and in-memory doubles from generated persisted credential readback and actual protocol clients; Runtime.Conn uses InProcessServer; external bridge/leaf clients use TLS TCP. Startup issuer root directly starts upstream NATS rather than natscell.Start/public sealed constructor.",
+    "Confirmed retained source contradictions: Generate37 minus2 produces legacy35 versus expected32; publication37 minus7 owner-only produces30 versus expected27. Later blocked assertions explicitly uncredited."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [
+    {
+      "id": "legacy_count_blocks_later_assertions",
+      "effect": "Root TestLegacyMaterialWithoutMemberCAStillLoads stays unresolved; Load/resume/ValidateLive/half-pair obligations blocked by stale32 guard, not qualified."
+    },
+    {
+      "id": "vault_count_blocks_later_assertions",
+      "effect": "Mapped/replay roots retain earlier material/journal source boundary categories, but later cross-region check and replay/exclusion assertions remain uncredited after stale27 guard."
+    }
+  ],
+  "review_limitations": [
+    "Source-only review; no build, tests, helper/framework execution, runtime receipts, service/probe/lock/cloud/crypto operations or downloads.",
+    "Direct fakeVault tables are not OCI SDK/network; spoke protocol fixture is synthetic loopback HTTP, not live OCI. File and local protocol source paths do not prove crash/power-loss/fleet durability.",
+    "No source-category receipt authorizes test/source retirement, deletion, ledger/count promotion, deployment, runtime qualification or refactor completion."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  }
+}

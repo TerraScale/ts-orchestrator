@@ -1,0 +1,6 @@
+other[760:780) source-only candidate packet
+Owner: /root/classification_100_dispatch/batch_760_780
+Twenty assigned literal roots: unit20/integration0/mixed0/unresolved0.
+All storage clients reached by the assertions are test-only maps or delegating fault wrappers. NewLedger construction and panic/recover are not process restart.
+Canonical 52eef25bad09736d8f0806ecaccaef1a7c86b49e; baseline bfca60368f60d2da67f9016d1d489317ae8749c8. Explicit raw declaration bounds, all assertion text, survival mapping and canonical file pins are retained in classification.json.
+Runtime UNKNOWN; no Go, tests/helpers/scanners/probes/cloud/signing/runtime execution and no source/repository/ledger mutation. No deletion/retirement/count/completion credit. Independent peer review required.

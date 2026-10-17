@@ -1,0 +1,89 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_700_720",
+  "author": "/root/classification_100_dispatch/batch_720_740",
+  "verdict": "ACCEPTED_SOURCE_ONLY_EXACT_HASH",
+  "accepted_packet": "/tmp/ts-source-classification-720-740-corrected-hau3h066/classification.json",
+  "accepted_packet_sha256": "cc0527729ac42f97bf36902b5b9a05cd7c9e1ef575581a16e35ec75e6708abd8",
+  "accepted_checksum_file": "/tmp/ts-source-classification-720-740-corrected-hau3h066/SHA256SUMS",
+  "accepted_checksum_sha256": "75618e1e7bec6756c9bb4175e991bcaa364e24ed1d738b3e9a155ca2682bb1da",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-source-dispatch-58wrSDrA/allocation-and-exclusions.json",
+    "sha256": "c9407bbf548f26e874996a930f6fafe9bf01c825bc495e4b1e2c46eb7cf5659e",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[720:740]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_700_720"
+  },
+  "root_ids": [
+    "internal/bootstrap/founder_anti_affinity_test.go::TestCheckControllerAntiAffinity",
+    "internal/bootstrap/founder_plan_test.go::TestCompletedFounderPlanVerificationSurvivesLaunchDeadlineOnly",
+    "internal/bootstrap/founder_plan_test.go::TestFounderPeerDeadlineUsesOriginalIntentRetryTimestamp",
+    "internal/bootstrap/founder_plan_test.go::TestFounderPeerRejectsPlanAndRowDigestReplay",
+    "internal/bootstrap/founder_plan_test.go::TestFounderPeerRowUsesCompartmentAndTierWirePins",
+    "internal/bootstrap/founder_plan_test.go::TestFounderPlanAcceptsLongerLivedManifestDelegation",
+    "internal/bootstrap/founder_plan_test.go::TestFounderPlanRejectsCanonicalSignatureScopeAndCurrentAuthorityFailures",
+    "internal/bootstrap/founder_plan_test.go::TestFounderPlanRejectsManifestReplayAndUnpinnedMaterial",
+    "internal/bootstrap/founder_plan_test.go::TestFounderPlanValidatesExactPeersBudgetAndBoundedTopology",
+    "internal/bootstrap/founder_plan_test.go::TestVerifyFounderPlanAndAuthorizePeerFromExactLaunchToken",
+    "internal/bootstrap/generation_test.go::TestMaterialGenerationChain",
+    "internal/bootstrap/generation_test.go::TestMaterialGenerationChainAcrossRootRotation",
+    "internal/bootstrap/generation_test.go::TestMaterialGenerationControllerCredentialShape",
+    "internal/bootstrap/generation_test.go::TestMaterialGenerationInterRegionShape",
+    "internal/bootstrap/generation_test.go::TestMaterialGenerationLinkShape",
+    "internal/bootstrap/generation_test.go::TestMaterialGenerationPinnedConfigChain",
+    "internal/bootstrap/generation_test.go::TestMaterialGenerationShape",
+    "internal/bootstrap/history_test.go::TestHistoricalManifestVerifiesExpiredProofWithoutCurrentAuthority",
+    "internal/bootstrap/history_test.go::TestHistoricalPeerReceiptRequiresDelegationTimeBounds",
+    "internal/bootstrap/history_test.go::TestHistoricalSeedReceiptVerifiesExpiredExactFacts"
+  ],
+  "counts": {
+    "integration": 0,
+    "unit": 20,
+    "mixed": 0,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all twenty full canonical roots and actual connected fixtures/production paths, including local trust verification, founder authorization/token storage dispatch, generation byte-map construction and historical manifest/receipt verification.",
+    "Verified exact literal ordered allocation IDs and all survival mappings, original/current names, states and hashes.",
+    "Verified forty raw baseline/current declaration texts, explicit bounds and SHA256 values against pinned Git bytes; all bodies exact and no canonical drift.",
+    "Verified all22 source-file commit/blob/mode/SHA256/byte pins; all20 exact assertion spans and43 exact connected evidence spans.",
+    "Verified category rationale, root/top-level runtime and safety limits, counts and empty unresolved findings.",
+    "Verified all input pins, canonical tree, packet/README checksums, packet checksum-file hash and immutable0444 files/0555 directory."
+  ],
+  "category_evidence": [
+    {
+      "roots": "founder_anti_affinity and founder_plan roots",
+      "conclusion": "unit",
+      "reason": "Placement, topology, budget, digests, time windows, signatures, current authority and launch-token fields are local validation. Founder fixture launchAuthorization uses Ledger backed by fake map ObjectStorage; production PutObject/GetObject dispatch reaches that fake, not a network storage client."
+    },
+    {
+      "roots": "generation roots",
+      "conclusion": "unit",
+      "reason": "Generation fixtures construct supplied signed byte material and map-backed Files. Assertions validate local schemas, shapes, links and chain/digest pins; no materialization or NATS/service startup."
+    },
+    {
+      "roots": "three historical roots",
+      "conclusion": "unit",
+      "reason": "Current/historical APIs verify supplied envelope bytes, scopes, delegation intervals and exact facts locally. historyExpectation at175 explicitly pins StorageDomain; ManifestExpectation accepts omitted optional intent pins together."
+    }
+  ],
+  "resolved_findings": [
+    {
+      "prior_packet": "/tmp/ts-source-classification-720-740-u027gp5r/classification.json",
+      "prior_packet_sha256": "afc53616a81e9b249773d34421ea14ddc4f380689caf3b862e9a4d4f6740d83f",
+      "finding": "Prior author incorrectly claimed historyExpectation omitted StorageDomain and marked three historical roots unresolved.",
+      "resolution": "Corrected exact packet acknowledges StorageDomain at history_test.go175, removes false source blocker and classifies all three roots unit. Original packet preserved."
+    }
+  ],
+  "remaining_findings": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "ledger_mutation": false,
+  "deletion_authorized": false,
+  "runtime_qualification": false,
+  "count_promotion_authorized": false,
+  "limits": "Source-only acceptance qualifies only this exact immutable packet. No Go/test/build/helper/scanner/process/cloud/signing/crypto/TerraBase execution; no runtime receipts reviewed. No ledger/deletion/retirement/count credit."
+}

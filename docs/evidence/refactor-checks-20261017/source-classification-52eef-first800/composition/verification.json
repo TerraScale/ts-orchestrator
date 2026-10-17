@@ -1,0 +1,24 @@
+{
+  "state": "PASS_AUTHOR_STRUCTURE_ONLY_PENDING_INDEPENDENT_REVIEW",
+  "mirror_count": 12,
+  "counts": {
+    "classified": 1484,
+    "integration": 510,
+    "mixed": 267,
+    "originals": 4319,
+    "other_unadjudicated": 2719,
+    "retained": 4300,
+    "retired": 19,
+    "reviewed_unresolved_included": 97,
+    "unadjudicated": 2816,
+    "unit": 707
+  },
+  "all4319_original_ids_conserved": true,
+  "prior_retired19_unchanged": true,
+  "prior_reviewed_unresolved86_retained": true,
+  "new_unresolved11_retained": true,
+  "unrelated_ledger_changes": 0,
+  "history_prefixes_preserved": true,
+  "runtime_credit": 0,
+  "actual_shared_mutation": false
+}

@@ -1,0 +1,137 @@
+{
+  "schema": "ts-source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_280_300",
+  "author": "/root/classification_100_dispatch/batch_660_680",
+  "allocation_range": [
+    660,
+    680
+  ],
+  "status": "ACCEPTED_WITH_RETAINED_EVIDENCE_LIMIT",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-660-680-corrected-a560tb55/classification.json",
+    "sha256": "87c60ab445bce2619bffaa852357cc6985ac5c2ef9f4ae50714f4abaf485c6d3",
+    "checksum_path": "/tmp/ts-source-660-680-corrected-a560tb55/SHA256SUMS",
+    "checksum_sha256": "65c5765001f76eea15c32f0a7c8acb1315fabab2199d807e757ea6811a94569e"
+  },
+  "superseded_packet": {
+    "path": "/tmp/ts-source-660-680-j11xhomo/classification.json",
+    "sha256": "a326cbf1de51a2ac0d6e905467aef751564c6b46134508a172e48b64d31d0232",
+    "accepted": false
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/bootstrap/cli/customer_open_test.go::TestOpenRotatedCustomerMaterialVerifiesPendingReceiptAndCreatesOwnerOnlyOutput",
+    "internal/bootstrap/cli/first_seed_live_test.go::TestSeedSizingReadbackChecksAdmissionAndExactBootVolume",
+    "internal/bootstrap/cli/first_seed_test.go::TestExternalSeedCLIDoesNotOpenOCIWithoutValidSignedInputs",
+    "internal/bootstrap/cli/first_seed_test.go::TestExternalSeedSignerConsumesGeneratedLedgerKey",
+    "internal/bootstrap/cli/first_seed_test.go::TestExternalSeedSigningBindsReviewedCreateAndExactOCIInstance",
+    "internal/bootstrap/cli/first_seed_test.go::TestPeerReceiptDelegationSignsOnlyPlannedPeers",
+    "internal/bootstrap/cli/first_seed_test.go::TestReviewedManualSeedPlanBindsSignedLaunchAndCreateIdentity",
+    "internal/bootstrap/cli/founder_initial_test.go::TestSignInitialFounderPlanAndSelection",
+    "internal/bootstrap/cli/identity_rekey_test.go::TestBootstrapRejectsUncheckedIdentityRekeyPrecommit",
+    "internal/bootstrap/cli/identity_rekey_test.go::TestIdentityRekeyHostSigningRequiresDrainAndIndependentTarget",
+    "internal/bootstrap/cli/identity_rekey_test.go::TestIdentityRekeyPrecommitConnectionRejectsLegacyAndServerModes",
+    "internal/bootstrap/cli/identity_rekey_test.go::TestIdentityRekeyPrecommitDisconnectDoesNotDuplicateReset",
+    "internal/bootstrap/cli/identity_rekey_test.go::TestIdentityRekeyPrecommitOnlyHeldBarrierAndExactRetry",
+    "internal/bootstrap/cli/identity_rekey_test.go::TestIdentityRekeyPrecommitRejectsStaleAndUnrootedBeforeMutation",
+    "internal/bootstrap/cli/identity_rekey_test.go::TestIdentityRekeyResetSigningRejectsChangedPlanOrTarget",
+    "internal/bootstrap/cli/identity_rekey_test.go::TestIdentityRekeyRootSigningExactV1",
+    "internal/bootstrap/cli/identity_rekey_test.go::TestIdentityRekeyRootSigningRejectsBeforeOutput",
+    "internal/bootstrap/cli/identity_rekey_test.go::TestIdentityRekeyRootSigningUsesCurrentDeploymentLineage",
+    "internal/bootstrap/cli/interregion_material_test.go::TestGenerateInterRegionMaterialWritesThePublicInventory",
+    "internal/bootstrap/cli/main_test.go::TestSignBootstrapAnchorBindsExactCanonicalIntent"
+  ],
+  "counts": {
+    "integration": 4,
+    "unit": 7,
+    "mixed": 9,
+    "unresolved": 0,
+    "total": 20
+  },
+  "independence": {
+    "own_packet_frozen_before_peer_review": true,
+    "own_packet_path": "/tmp/ts-source-classification-640-660-decoder-e1g_7not/classification.json",
+    "own_packet_sha256": "564012966e95de8d0c8d570b29e5eec2d65ac251ee8521a2f4bc27e59eeafb10",
+    "children_spawned": false
+  },
+  "checks": {
+    "entire_roots_manually_read": 20,
+    "literal_allocation_order_and_survival_rows_verified": 20,
+    "baseline_and_current_raw_declarations_verified": 40,
+    "exact_assertion_and_connected_spans_verified": 63,
+    "full_source_file_git_blob_mode_sha256_bytes_verified": 33,
+    "metadata_input_hashes_verified": 5,
+    "canonical_tree_verified": true,
+    "canonical_working_source_equals_git_bytes": true,
+    "source_categories_independently_confirmed": true,
+    "checksums_verified": true,
+    "files_mode": "0444",
+    "directory_mode": "0555",
+    "declaration_rule": "Exact explicitly pinned function-start through column-zero closing brace, excluding following LF. No source parser/scanner.",
+    "method": "Independent full-root and reached-callee source reading followed by metadata-only exact-byte/hash verification over author-pinned explicit spans."
+  },
+  "baseline_current_findings": {
+    "exact_raw_bodies": 16,
+    "changed_raw_bodies": 4,
+    "all_current_raw_hashes_match_survival_mapping": true,
+    "changed_roots": [
+      "internal/bootstrap/cli/identity_rekey_test.go::TestIdentityRekeyPrecommitConnectionRejectsLegacyAndServerModes",
+      "internal/bootstrap/cli/identity_rekey_test.go::TestIdentityRekeyPrecommitDisconnectDoesNotDuplicateReset",
+      "internal/bootstrap/cli/identity_rekey_test.go::TestIdentityRekeyPrecommitOnlyHeldBarrierAndExactRetry",
+      "internal/bootstrap/cli/identity_rekey_test.go::TestIdentityRekeyPrecommitRejectsStaleAndUnrootedBeforeMutation"
+    ],
+    "all_original_obligations_retained": true
+  },
+  "resolved_findings": [
+    {
+      "root_id": "internal/bootstrap/cli/customer_open_test.go::TestOpenRotatedCustomerMaterialVerifiesPendingReceiptAndCreatesOwnerOnlyOutput",
+      "finding": "Original integration category omitted independent local-only wrong-spec/request/revoke/signature/recipient rejection blocks. Successful create-only owner-only file publication/readback remains a real filesystem boundary.",
+      "resolution": "CORRECTED_IN_EXACT_ACCEPTED_PACKET",
+      "category_before": "integration",
+      "category_after": "mixed"
+    },
+    {
+      "root_id": "internal/bootstrap/cli/identity_rekey_test.go::TestIdentityRekeyRootSigningRejectsBeforeOutput",
+      "finding": "Original unit category omitted insecure-key chmod0644 and actual readRootPrivateKey open/fstat permission rejection. Other independent validation cases remain local.",
+      "resolution": "CORRECTED_IN_EXACT_ACCEPTED_PACKET",
+      "category_before": "unit",
+      "category_after": "mixed",
+      "added_evidence": "internal/bootstrap/cli/commands.go:787-823"
+    }
+  ],
+  "remaining_findings": [
+    {
+      "root_id": "internal/bootstrap/cli/first_seed_test.go::TestExternalSeedCLIDoesNotOpenOCIWithoutValidSignedInputs",
+      "status": "RETAINED_TEST_EVIDENCE_LIMIT_NOT_CATEGORY_BLOCKER",
+      "explanation": "Expired publication checks any error with absent OCI config and no provider-init instrumentation; unrelated not-created path is never supplied as output. Source shows load-before-open ordering, but assertion alone cannot attribute rejection or prove no OCI initialization. Actual independent reservation signing output/readback supports mixed. No OCI integration is credited."
+    }
+  ],
+  "boundary_findings": [
+    "Customer and signing/material successful output blocks reach production filesystem creation/readback; independent schema, identity, signature and expectation blocks remain local and make mixed where present. Incidental input-file setup and absent-output checks alone do not establish integration.",
+    "TestSeedSizingReadbackChecksAdmissionAndExactBootVolume uses synthetic SDK structs from fixture methods; external-seed observation and reviewed-plan predicates use constructed state. No live OCI API or ledger persistence is established by those local blocks.",
+    "Identity-rekey disconnect test starts natscell.Start with FileStorage1 and a real TLS bridge client. Its wrapper delegates real PublishMsg before closing the connection/returning ErrConnectionClosed; independent runtime JetStream readback observes the durable sequence. No mock-only publish credit.",
+    "Held-barrier/retry and stale/unrooted precommit tests use nats.InProcessServer protocol clients to the real upstream embedded NATS server and JetStream store. No TCP claim is made for those clients. Before/after stream metadata materially supports negative mutation assertions.",
+    "Root-signing output and permission cases establish only their reached filesystem boundaries; no actual host drain, rekey installation, OCI cloud operation or live interregion link is established."
+  ],
+  "qualification_limits": [
+    "No runtime receipts reviewed and no project code executed. Source classification is not runtime pass/fail or operational qualification.",
+    "Root662 negative OCI evidence limit remains explicit; no cloud initialization or cloud integration credit is inferred.",
+    "Four changed baseline/current identity-rekey bodies retain their original obligations; preservation, classification and peer acceptance authorize no deletion or retirement.",
+    "Only the exact corrected packet hash is accepted. The original immutable packet is preserved as superseded."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "source_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "deletion_authorized": false,
+    "global_completion": false
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "schema": "independent-source-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_860_880",
+  "author": "/root/classification_100_dispatch/batch_880_900",
+  "decision": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-880-900-crmjgr0d/classification.json",
+    "sha256": "203a8ad19e0e43cff1bf2f523c7e4ecf756fd11b0931d9752e8c27ab68322b07",
+    "checksum_path": "/tmp/ts-source-classification-880-900-crmjgr0d/SHA256SUMS",
+    "checksum_sha256": "b2f41bbf323b80b440cc56d4b6a51e9a9421446ac027cb45f79f756c70019685"
+  },
+  "literal_root_ids": [
+    "internal/bootstrapstart/admission_flow_test.go::TestGateInitialAndRestartThroughFakeAdapters",
+    "internal/bootstrapstart/admission_flow_test.go::TestGateRechecksCurrentProofBetweenObservationAndEachMaterialEffect",
+    "internal/bootstrapstart/admission_flow_test.go::TestInitialAcceptedExportRecoversAfterCredentialMemoryLoss",
+    "internal/bootstrapstart/admission_flow_test.go::TestInitialAcceptedExportRejectsForeignMalformedOrExpiredRecoveryBeforeEffects",
+    "internal/bootstrapstart/admission_flow_test.go::TestInitialAcceptedExportRetriesExactBytesBeforeRuntimeAcceptance",
+    "internal/bootstrapstart/admission_flow_test.go::TestInitialAdmissionRechecksJournalAndProofBeforeIdentityPreparation",
+    "internal/bootstrapstart/admission_flow_test.go::TestInitialAdmissionRecoversOnlyExactCurrentFormationAfterPublicationCrash",
+    "internal/bootstrapstart/admission_flow_test.go::TestInitialAdmissionRecoveryRefusesDifferentOrExpiredCurrentProofsBeforeEffects",
+    "internal/bootstrapstart/admission_flow_test.go::TestInitialAdmissionRejectsChangedReceiptHashBeforeEffects",
+    "internal/bootstrapstart/admission_flow_test.go::TestManagedPeerInitialAdmissionWaitsForPositiveHEAD",
+    "internal/bootstrapstart/admission_flow_test.go::TestManagedPeerPendingClassifierPreservesMalformedPositiveResult",
+    "internal/bootstrapstart/admission_flow_test.go::TestMaterialStoreStopsBeforeSecondSecretWhenCurrentProofExpires",
+    "internal/bootstrapstart/admission_flow_test.go::TestRestartAdmissionFollowsTheGenerationsControllerConfig",
+    "internal/bootstrapstart/admission_local_test.go::TestAcceptedRestartDetectsSnapshotChangesAndCancellation",
+    "internal/bootstrapstart/admission_local_test.go::TestAcceptedRestartRefusesMaterialVerificationFailure",
+    "internal/bootstrapstart/admission_local_test.go::TestAcceptedRestartRejectsPendingRootedJournalBeforeAdapters",
+    "internal/bootstrapstart/admission_local_test.go::TestAcceptedRestartRequiresExactInstalledBrokerAndStore",
+    "internal/bootstrapstart/admission_local_test.go::TestAdmissionRefusesRekeyJournalBeforeInitialOrRestartEffects",
+    "internal/bootstrapstart/admission_local_test.go::TestLocalRestartAdmissionNeedsNoInitialInputsOCIOrClock",
+    "internal/bootstrapstart/admission_local_test.go::TestRestartAdmissionChecksNTPBeforeAndAfterOCI"
+  ],
+  "counts": {
+    "integration": 7,
+    "unit": 7,
+    "mixed": 6,
+    "unresolved": 0
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "checks_performed": [
+    "Read all20 complete roots from pinned canonical Git source, plus their actual fixed/counting adapters, initial/restart admission, production marker/accepted/pending-export writes and reads, journal/trust reads and material staging/install paths.",
+    "Confirmed exact activated literal20-root allocation and cyclic reviewer mapping; compared survival original/current names/state and raw original SHA256 identity.",
+    "Recomputed all20 baseline/current raw declarations from author explicit manually reviewed bounds, including column-zero closing brace and excluding followingLF; text/hash/blob identities match.",
+    "Recomputed17 canonical cited source-file blob/mode/SHA256/byte pins,38 exact connected source spans and20 entire assertion spans; no discrepancy.",
+    "Verified frozen packet/checksum hashes, SHA256SUMS entries, files0444/dir0555; counts7I/7U/6M/0unresolved exhaust exactly20roots.",
+    "Independently assessed each category: persisted formation/pending-export/accepted/journal files and real conditional tmpfs install establish scoped integration; schema/config/fake clock/adapter ordering and injected observer comparisons remain unit; independent local vectors retained as mixed."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Source-only candidate; no runtime qualification or ledger promotion.",
+    "All cloud/ledger/binary/credential/identity observations in these fixtures remain synthetic, except explicitly credited real local filesystem operations. No live OCI/Vault/NATS/NTP boundary inferred.",
+    "TestMaterialStoreStopsBeforeSecondSecretWhenCurrentProofExpires has an explicit root UID requirement and tmpfs install setup; source category is conditional on reaching that branch. No privilege or runtime execution attempted.",
+    "No process/compiler/test/helper/scanner/cloud/signing/crypto/TerraBase execution performed; only pinned read-only source inspection, metadata serialization and hashing.",
+    "No source/repository/ledger/runtime mutation, deletion, retirement, count promotion or global completion credit."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "repository_mutated": false,
+  "ledger_mutated": false,
+  "retirement_delta": 0,
+  "qualification_delta": 0,
+  "global_completion": false
+}

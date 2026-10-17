@@ -1,0 +1,79 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1020_1040",
+  "author": "/root/classification_100_dispatch/batch_1040_1060",
+  "accepted": true,
+  "qualification": "SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-1040-1060-corrected-laaxw8fs/classification.json",
+    "sha256": "6184bb3aec7d982e741e4dc3d77a335434ac860d590a2ec80d7e8a0dd65b491a",
+    "checksum_path": "/tmp/ts-source-1040-1060-corrected-laaxw8fs/SHA256SUMS",
+    "checksum_sha256": "a5c0ead0c9828e3ef3c139f1341a355071adc566f327fe916c39e6b1197d124d"
+  },
+  "canonical_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "canonical_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation_range": [
+    1040,
+    1060
+  ],
+  "literal_root_ids": [
+    "internal/bootstrapstart/generation_pins_test.go::TestRestartPinsRefuseUntrustedOrStaleMaterial",
+    "internal/bootstrapstart/identity_rekey_abort_test.go::TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles",
+    "internal/bootstrapstart/identity_rekey_completion_test.go::TestAcceptedRekeyRejectsMissingJournalBeforeAdmissionAndCompletion",
+    "internal/bootstrapstart/identity_rekey_completion_test.go::TestCompletionProbeRejectsDamagedJournalBeforeNATS",
+    "internal/bootstrapstart/identity_rekey_completion_test.go::TestCompletionProbeRequiresImmutableOutcomeUnderRootedLocalIdentity",
+    "internal/bootstrapstart/identity_rekey_completion_test.go::TestInitialAcceptanceNeedsNoRekeyJournalOrCompletion",
+    "internal/bootstrapstart/identity_rekey_install_test.go::TestCommittedInstallerRecoversExpiredProofsOnlyUnderExactDurableHold",
+    "internal/bootstrapstart/identity_rekey_install_test.go::TestRootInstallerAdoptionRequiresExactInterruptedMaterial",
+    "internal/bootstrapstart/identity_rekey_install_test.go::TestRootInstallerChangedPhysicalStoreCannotPublishJournalOrAcceptance",
+    "internal/bootstrapstart/identity_rekey_install_test.go::TestRootInstallerInstalledMaterialBindsConfigAndRecoversExactChain",
+    "internal/bootstrapstart/identity_rekey_install_test.go::TestRootInstallerInterruptedOperationResumesOnlyExactJournal",
+    "internal/bootstrapstart/identity_rekey_install_test.go::TestRootInstallerLocalObservationIsIndependent",
+    "internal/bootstrapstart/identity_rekey_install_test.go::TestRootInstallerRecomputesInstalledChainInsteadOfTrustingExportedRoots",
+    "internal/bootstrapstart/identity_rekey_install_test.go::TestRootInstallerRejectsWrongCurrentProofAndTargetBeforeEffects",
+    "internal/bootstrapstart/identity_rekey_journal_test.go::TestIdentityRekeyFinalizationPreservesReviewedPinsAndHistoricalRecovery",
+    "internal/bootstrapstart/identity_rekey_journal_test.go::TestIdentityRekeyJournalPublicationAndLocalCommit",
+    "internal/bootstrapstart/identity_rekey_journal_test.go::TestIdentityRekeyJournalRefusesIndirectAndNoncanonicalFiles",
+    "internal/bootstrapstart/identity_rekey_journal_test.go::TestIdentityRekeyJournalRejectsChangedRootedInputs",
+    "internal/bootstrapstart/identity_rekey_journal_test.go::TestIdentityRekeyJournalRejectsResetIssuedAfterAcceptanceBeforeEffects",
+    "internal/bootstrapstart/identity_rekey_journal_test.go::TestIdentityRekeyJournalRetainsIndependentRootKeys"
+  ],
+  "accepted_counts": {
+    "integration": 13,
+    "unit": 4,
+    "mixed": 3,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all twenty entire canonical roots plus actual connected fixture, production filesystem/trust/store and upstream JetStream paths; no target execution.",
+    "Confirmed twenty literal activated allocations and exact survival rows; forty raw baseline/current declarations match canonical explicit bounds, texts, hashes, mappings and survival obligation identities.",
+    "Recomputed canonical Git blob/mode/SHA256/byte pins for 37 files and exact text/hash for 74 assertion and connected-source evidence spans.",
+    "Verified frozen classification hash, checksum hash, SHA256SUMS entries, files0444 and directory0555.",
+    "Confirmed completionJetStream starts upstream server.NewServer and connects nats.Connect(srv.ClientURL()) over loopback TCP/FileStorage, without natscell.Start or production TLS/JWT/cluster qualification.",
+    "Verified synthetic acceptedObservation and current UID/GID/allowUnsafeAncestors limits; real physical-store file checks still support local boundary assertions.",
+    "Independently confirmed unit/mixed guards: pure journal finalization/field/key ownership, pre-observation historical rejection, standalone proof expiry and installed-config pre-I/O guard.",
+    "WrongCurrentProofAndTarget and LocalObservation remain integration: fixed roots/store pin reads are substantive authority inputs inside the asserted production calls, not incidental fixture setup.",
+    "Fresh corrected packet retains twenty root bytes/categories/pins; five callee-ending corrections verified through canonical closing lines480/384/137/323/495."
+  ],
+  "resolved_findings": [
+    {
+      "kind": "truncated_connected_callee_spans",
+      "original_packet_path": "/tmp/ts-source-1040-1060-6be_nvly/classification.json",
+      "correction": "Five connected callee spans extended to complete canonical closing lines; immutable original retained.",
+      "status": "resolved"
+    }
+  ],
+  "remaining_findings": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "count_promotion": false,
+    "global_completion": false
+  }
+}

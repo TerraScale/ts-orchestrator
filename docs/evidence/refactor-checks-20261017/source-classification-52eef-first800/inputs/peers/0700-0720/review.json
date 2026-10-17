@@ -1,0 +1,80 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_680_700",
+  "author": "/root/classification_100_dispatch/batch_700_720",
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-700-720-corrected-d2_bq6je/classification.json",
+    "sha256": "1b7ef74e4fb1ba13a6f21142b7602e0913061bffbe06b703d971b44bf24813ed",
+    "checksum_path": "/tmp/ts-source-700-720-corrected-d2_bq6je/SHA256SUMS",
+    "checksum_sha256": "c8cabb65a4b67feba35aceadf1e5078a36623b532394bac52f05000f4b9a430a"
+  },
+  "own_sealed_handoff_before_review": {
+    "path": "/tmp/ts-source-other-680-700-uyie3xz0/classification.json",
+    "sha256": "ffeb26a874ef3a786d04a5c4925d928ea0596d01022ce6ff29ec1abfa23fb085"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation_range": [
+    700,
+    720
+  ],
+  "literal_root_ids": [
+    "internal/bootstrap/cli/material_test.go::TestControllerPublicationGateRequiresFreshManualReadbackAndBudget",
+    "internal/bootstrap/cli/render_controller_config_test.go::TestInstalledControllerConfigRequiresCurrentSchema",
+    "internal/bootstrap/cli/render_controller_config_test.go::TestLoadedControllerConfigFromAGeneration",
+    "internal/bootstrap/cli/render_controller_config_test.go::TestRenderControllerConfigKeepsLegacyMaterialWithoutTerraBase",
+    "internal/bootstrap/cli/render_controller_config_test.go::TestRenderControllerConfigRejectsIncompleteOrInvalidTSAuthInputs",
+    "internal/bootstrap/cli/render_controller_config_test.go::TestRenderControllerConfigRejectsUnreviewedProfileAndMissingCA",
+    "internal/bootstrap/cli/render_controller_config_test.go::TestRenderControllerConfigWritesCanonicalTSAuthProfileAndService",
+    "internal/bootstrap/cli/render_controller_config_test.go::TestRenderControllerConfigWritesTSAuthAndSignsInitialManifest",
+    "internal/bootstrap/cli/render_controller_config_test.go::TestRenderControllerConfigWritesTerraBaseCAAndProfile",
+    "internal/bootstrap/cli/render_controller_config_test.go::TestSignedControllerConfigRejectsMisplacedCAAndOverlappingPlacementRole",
+    "internal/bootstrap/cli/render_host_enrollment_public_test.go::TestHostEnrollmentPublicBundleUsesRegionalMaterialAndImagePaths",
+    "internal/bootstrap/cli/render_operator_config_test.go::TestOperatorConfigUsesRegionalMaterialCell",
+    "internal/bootstrap/cli/render_trusted_signer_teardown_test.go::TestRenderedConfigsPreserveTerraBaseTeardownGrant",
+    "internal/bootstrap/cli/run_test.go::TestCanceledCustomerPublicationLeavesNoPrivateTemporaryFile",
+    "internal/bootstrap/cli/run_test.go::TestCanceledSigningDoesNotPublishArtifact",
+    "internal/bootstrap/cli/run_test.go::TestSigningReportsCommandOutputFailure",
+    "internal/bootstrap/cli/run_test.go::TestVerifiedAnchorWritesToCommandOutput",
+    "internal/bootstrap/cli/slot_retirement_test.go::TestSignSlotRetirementRequiresOperatorConfirmation",
+    "internal/bootstrap/foundation_scope_integration_test.go::TestRootSignedInitialRegistrationCannotReplacePinnedLedger",
+    "internal/bootstrap/foundation_scope_integration_test.go::TestRootSignedRegionalAnchorPersistsIndependentHomeFoundationReference"
+  ],
+  "counts": {
+    "unit": 9,
+    "mixed": 6,
+    "integration": 5,
+    "unresolved": 0,
+    "total": 20
+  },
+  "checks_performed": [
+    "Independently read all20 full canonical roots and actual connected fixture/adapter/production paths. Baseline/current diffs read for three drifted declarations; every original obligation retained.",
+    "Verified exact literal allocation IDs and order against activated allocation; survival original/current name/hash rows;40 baseline/current declaration boundaries, exact raw bytes and SHA256 through column-zero closing brace excluding LF.",
+    "Verified39 canonical/baseline source-file Git blob/mode/SHA256/byte pins; all saved exact assertion and connected source spans against immutable Git objects.",
+    "Inspected renderer->pinned input read->ControllerConfigFromRecord->signed config validation->create-only synced output->test readback, app.LoadConfig real readback, command writer faults and retirement output/O_EXCL.",
+    "Separated direct byte/predicate/SDK/config/anchor validators and already-canceled pre-I/O guards from genuine production filesystem effects; test-owned foundation envelope persistence alone gives no integration credit.",
+    "Confirmed packet SHA256SUMS, files0444/dir0555 and own20 category sum; read fresh root717 correction preserving original packet."
+  ],
+  "resolved_findings": [
+    {
+      "root_id": "internal/bootstrap/cli/slot_retirement_test.go::TestSignSlotRetirementRequiresOperatorConfirmation",
+      "prior_category": "integration",
+      "accepted_category": "mixed",
+      "detail": "Independent local mismatch table39-48 asserts confirmation guard at slot_retirement.go58-59 alongside production file publication/readback/O_EXCL53-74; author corrected category/counts in fresh packet."
+    }
+  ],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no Go/test/build/helper/formatter/signing/crypto/service/process/cloud execution.",
+    "Accepted source categories qualify only the identified local file effects/readbacks; no running TSAuth/TerraBase, Vault publication, OCI resource state, NATS traffic, actual operator retirement or crash/restart durability claimed.",
+    "Three canonical body drifts remain explicit; no original safety/assertion obligation is dropped.",
+    "No repository/source/ledger mutation, deletion, retirement, runtime qualification, global count promotion or completion credit."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "ledger_credit": false,
+  "deletion_credit": false,
+  "safety_obligations_retained": true
+}

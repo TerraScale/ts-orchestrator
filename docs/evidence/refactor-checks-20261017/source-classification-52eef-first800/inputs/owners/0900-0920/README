@@ -1,0 +1,5 @@
+Source-only candidate: other[900:920), 20 literal original roots.
+Canonical 52eef25bad09736d8f0806ecaccaef1a7c86b49e; baseline bfca60368f60d2da67f9016d1d489317ae8749c8.
+13 integration, 6 unit, 1 mixed, 0 unresolved. Independent peer required.
+Raw declaration bounds were manually reviewed; Python only serializes/hashes explicit spans and metadata.
+Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No source/repository/ledger/runtime changes or retirement authority.

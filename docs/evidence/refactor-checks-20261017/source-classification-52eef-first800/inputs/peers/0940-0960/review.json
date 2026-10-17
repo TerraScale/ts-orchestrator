@@ -1,0 +1,90 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_920_940",
+  "author": "/root/classification_100_dispatch/batch_940_960",
+  "accepted": true,
+  "accepted_packet": {
+    "path": "/tmp/ts-source-940-960-reviewed-final-b28ysg2i/classification.json",
+    "sha256": "b3fe412efd9587523bf10f40ab8b7f52a3fb0bf0dc524369aa67bbbb890e0b04",
+    "checksum_path": "/tmp/ts-source-940-960-reviewed-final-b28ysg2i/SHA256SUMS",
+    "checksum_sha256": "f017b102de2456b4483778e5233569d8ab82046d5036bec68cf8ed01b5abb3cb"
+  },
+  "allocation_range": [
+    940,
+    960
+  ],
+  "literal_root_ids": [
+    "internal/bootstrapstart/founder_formation_test.go::TestFounderRuntimeCompletedSeedRestartsWithoutOCI",
+    "internal/bootstrapstart/founder_formation_test.go::TestFounderRuntimeRefusesLaunchIntoSeedFaultDomain",
+    "internal/bootstrapstart/founder_image_proof_integration_test.go::TestFounderImageProofBeforeSDKLaunch",
+    "internal/bootstrapstart/founder_oci_test.go::TestFounderOCIAttemptRejectsChangedAuthorityTokenAndDeadline",
+    "internal/bootstrapstart/founder_oci_test.go::TestFounderOCIBootVolumeLaunchSizeBounds",
+    "internal/bootstrapstart/founder_oci_test.go::TestFounderOCILostResponseRetryKeepsOriginalTokenAndOneSDKAttempt",
+    "internal/bootstrapstart/founder_oci_test.go::TestFounderOCIObservationOnlyAttemptCannotLaunchOrChangeCandidate",
+    "internal/bootstrapstart/founder_oci_test.go::TestFounderOCIObservationRejectsEveryPinnedMismatch",
+    "internal/bootstrapstart/founder_oci_test.go::TestFounderOCIProjectionUsesPinnedFlexNetworkImageAndBootTier",
+    "internal/bootstrapstart/founder_oci_test.go::TestFounderOCIUsesModernImageSourceAndRequiresPositiveProvenance",
+    "internal/bootstrapstart/founder_oci_test.go::TestFounderVNICRequiresSubnetNetworkOwnership",
+    "internal/bootstrapstart/founder_provision_test.go::TestFreshSeedProvisionHoldsChangedPlanAndLaterGeneration",
+    "internal/bootstrapstart/founder_provision_test.go::TestFreshSeedProvisionRechecksExpiryAtPublication",
+    "internal/bootstrapstart/founder_provision_test.go::TestFreshSeedProvisionRejectsConflictingPreexistingFloor",
+    "internal/bootstrapstart/founder_provision_test.go::TestFreshSeedProvisionValidatesSelectionBeforeDurableFloor",
+    "internal/bootstrapstart/founder_provision_test.go::TestInitialSeedAdmissionFloorFailureLeavesNoAcceptedMarker",
+    "internal/bootstrapstart/founder_provision_test.go::TestInitialSeedAdmissionInvokesFloorBeforeMarkerAndRestartNeverReinitializes",
+    "internal/bootstrapstart/founder_provision_test.go::TestInitialSeedAdmissionRequiresFloorProvisioner",
+    "internal/bootstrapstart/founder_publish_initial_test.go::TestPublishInitialFounderSelectionCreatesOnlyAndReplaysExactBytes",
+    "internal/bootstrapstart/founder_publish_initial_test.go::TestPublishInitialFounderSelectionReconcilesAmbiguousCreate"
+  ],
+  "counts": {
+    "integration": 3,
+    "unit": 15,
+    "mixed": 2
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "checks_performed": [
+    "Independently read all20 entire canonical roots and actual connected fixture/production paths; distinguished in-process synthetic storage and SDK value predicates from httptest HTTP and actual file writes/readback.",
+    "Verified20literal survival mappings and40baseline/current raw declaration texts/hashes/bounds; all20assertion spans preserved exactly.",
+    "Verified29Git file mode/blob/SHA256/byte pins and45connected evidence span text/hash/bounds; fixedEOF end_line29 verified.",
+    "Checked exact allocation/root IDs, I3/U15/M2 counts, immutable0444/0555 modes and packet SHA256SUMS.",
+    "Traced per-root negative cases: freshAt signature/expiry predicate, synthetic floor callback error, and nil floor provider cause rejection before publication; real file reads are prerequisites, and absence-only readback does not establish an authentic publication effect."
+  ],
+  "resolved_findings": [
+    {
+      "kind": "qualification_narrowing",
+      "roots": [
+        "internal/bootstrapstart/founder_provision_test.go::TestFreshSeedProvisionRechecksExpiryAtPublication",
+        "internal/bootstrapstart/founder_provision_test.go::TestInitialSeedAdmissionFloorFailureLeavesNoAcceptedMarker",
+        "internal/bootstrapstart/founder_provision_test.go::TestInitialSeedAdmissionRequiresFloorProvisioner"
+      ],
+      "resolution": "Changed three earlierI candidates toU after exact-path review under dispatcher rule: no materially determining persisted read/output for target rejection; all raw readback assertions retained."
+    },
+    {
+      "kind": "span_bound",
+      "resolution": "publish_fixture ambiguousFounderPublisher cited end_line30 beyondEOF29 corrected to29; exact text/hash unchanged."
+    }
+  ],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No compilation, tests, project helpers, cryptographic operations or cloud/process/runtime execution performed.",
+    "OCI map objects and fake Compute/network/volume remain unit boundaries. The single real SDK HTTP test uses an unsigned/no-op request signer and httptest; no OCI identity, credentials, production API, IAM or cloud effects qualified.",
+    "Local filesystem paths exercise only stated publication, refusal, readback and replay paths. No real process restart, power loss, crash durability, production ownership or service deployment proven.",
+    "Assertions in each root are retained as whole exact interior spans, including their branches and conditions; setup assertions are not separate count credit.",
+    "Each cited file is pinned as canonical 52eef Git bytes; baseline full test-file pins and exact raw root declarations are retained. All 20 bodies match historical survival hashes.",
+    "No ledger, source, repository, runtime, deletion, retirement, qualification or global completion credit. Independent peer review required.",
+    "Absence reads after local guards do not establish a successful durable publication/readback; three formerly broad categories were narrowed accordingly."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "runtime_execution": false,
+    "qualification_delta": 0,
+    "retirement_delta": 0,
+    "deletion_credit": 0,
+    "global_completion": false
+  }
+}

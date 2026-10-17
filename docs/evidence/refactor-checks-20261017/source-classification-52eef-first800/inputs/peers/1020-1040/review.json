@@ -1,0 +1,97 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1000_1020",
+  "author": "/root/classification_100_dispatch/batch_1020_1040",
+  "decision": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-1020-1040-qa-corrected-oh7m7r9j/classification.json",
+    "sha256": "592eb55a6f10049cc405ddba6a3b728d14b34fbb19dd62f87bc5d243b009ba37",
+    "checksum_path": "/tmp/ts-source-1020-1040-qa-corrected-oh7m7r9j/SHA256SUMS",
+    "checksum_sha256": "38e38de56e9fb4f46855de3b6c5fbea3ca3d11e401dc70b9729c375df483035b"
+  },
+  "own_prior_frozen_packet": {
+    "path": "/tmp/ts-source-other-1000-1020-ku5561n4/classification.json",
+    "sha256": "7bda233cfdd312b495bde15900c00279865e9afa369b651102ac47ec1b3ecdf6"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-source-dispatch-58wrSDrA/allocation-and-exclusions.json",
+    "sha256": "c9407bbf548f26e874996a930f6fafe9bf01c825bc495e4b1e2c46eb7cf5659e",
+    "range": [
+      1020,
+      1040
+    ]
+  },
+  "literal_root_ids": [
+    "internal/bootstrapstart/generation_adopt_test.go::TestCommittedStageRequiresRootedAcceptedTargetBeforeAnyRename",
+    "internal/bootstrapstart/generation_adopt_test.go::TestFinishMaterialAdoptionAfterACrash",
+    "internal/bootstrapstart/generation_adopt_test.go::TestRootOwnedRollForwardTemporaryRecoversAfterCrash",
+    "internal/bootstrapstart/generation_adopt_test.go::TestServiceOwnedCommittedStageUnderBadRootHasNoPrivilegedRename",
+    "internal/bootstrapstart/generation_adopt_test.go::TestUncommittedStageLeavesUnrelatedFilesUntouched",
+    "internal/bootstrapstart/generation_install_test.go::TestArmedRenewalInstallsAfterOldGenerationExpiry",
+    "internal/bootstrapstart/generation_install_test.go::TestArmedSuccessorPreservesCommittedPendingConfigBeforeFailure",
+    "internal/bootstrapstart/generation_install_test.go::TestInstallGenerationConvergesAfterACrash",
+    "internal/bootstrapstart/generation_install_test.go::TestInstallGenerationOnlyWhenArmed",
+    "internal/bootstrapstart/generation_install_test.go::TestInstallGenerationRefusesATamperedSpool",
+    "internal/bootstrapstart/generation_install_test.go::TestInterruptedStaleAdoptionRequiresFreshArmedSuccessor",
+    "internal/bootstrapstart/generation_install_test.go::TestRestoreArmedStageCannotRollBackDurableChainAfterMemoryLoss",
+    "internal/bootstrapstart/generation_install_test.go::TestRestoreConvergesThePendingControllerConfig",
+    "internal/bootstrapstart/generation_install_test.go::TestRestoreInstallsFreshArmedSuccessorBeforeExpiredInventoryCheck",
+    "internal/bootstrapstart/generation_install_test.go::TestRestoreMatchingArmedGenerationAfterMemoryLoss",
+    "internal/bootstrapstart/generation_pins_test.go::TestAcceptedMaterialBaselineSurvivesSubsequentRenewal",
+    "internal/bootstrapstart/generation_pins_test.go::TestMaterialPinsCannotBeReusedWithChangedAcceptedBaseline",
+    "internal/bootstrapstart/generation_pins_test.go::TestRestartPinsAdoptLink",
+    "internal/bootstrapstart/generation_pins_test.go::TestRestartPinsAdoptWithRoleSignerInterRegion",
+    "internal/bootstrapstart/generation_pins_test.go::TestRestartPinsFollowTheAdoptedGeneration"
+  ],
+  "counts": {
+    "integration": 18,
+    "unit": 1,
+    "mixed": 1,
+    "unresolved": 0,
+    "total": 20
+  },
+  "checks_performed": [
+    "Read all twenty full roots independently in canonical files, including conditional branches and negative tables; followed fixture setup and actual production adoption, spool installer, floor/chain, restoration, material read and role/path validation calls.",
+    "Verified exact cyclic owner, half-open other[1020:1040) allocation, ordered literal IDs, canonical commit/tree, twenty survival mappings and forty baseline/current raw declarations with exact line bounds, texts and SHA256 excluding following LF.",
+    "Recomputed all nineteen canonical/baseline source file Git blob, mode, SHA256 and byte pins; checked twenty-six exact assertion spans, thirty-five connected source spans and forty-one callee declaration bounds against immutable Git blobs.",
+    "Verified frozen directory0555/files0444 and packet/checksum hashes, plus checksum-file entries. No packet/source mutation.",
+    "Assessed every classification against the asserted target: production filesystem read/write/rename/inode or state readback supports integration; reused-pin matchesAccepted guards remain unit before I/O; the baseline scalar assertion remains an independent unit block within mixed coverage.",
+    "QA successor narrow review: verified exact delta only material_fixtures[4].end_line455->451 plus supersedes provenance. Independently read canonical bootstrap/generation.go, verified451line EOF and unchanged298:451 evidence. Rechecked all19 source pins, all102 assertion/group/callee spans with explicit upper-bound<=file-line-count guards, all40 raw declaration bounds/text/hashes, checksum entries and immutable modes."
+  ],
+  "boundary_limits": [
+    "The root-only distinct-service-owner branch skips outside effective UID zero; source evidence gives no claim it executed.",
+    "Crash states are constructed as files/renames; no actual reboot, power-loss durability or service-user process access is qualified.",
+    "The restoration Vault callback returns bytes from an in-memory map; only actual local fill/restore/config effects are credited.",
+    "generationInstall.verify calls restartPins/verifyInstalled/verifyGeneration/verifyPaths/verifyInventory directly; it does not run full broker startup, VerifyLiveCredentials or a credential child.",
+    "Adopted chain files supply authoritative expected pins for role/path comparisons in restart tests; these reads materially support the target, unlike unrelated fixture setup. No separate mock-only block beyond the explicitly identified baseline scalar/root reused-pin guards was found."
+  ],
+  "resolved_findings": [
+    {
+      "detail": "material_fixtures[4] internal/bootstrap/generation.go span298:451 now exact; previous end_line455 exceeded EOF451 although text was298:451. Source/categories/roots/pins unchanged.",
+      "source_packet": "/tmp/ts-source-1020-1040-final-0zxjguyk/classification.json",
+      "source_sha256": "a0532282f5d6c9dbf5857417a2ae9068ffa696244c99c9587255af03c8e09094"
+    }
+  ],
+  "remaining_findings": [],
+  "unresolved_assertions": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "ledger_mutated": false,
+    "repository_mutated": false,
+    "retirement_delta": 0,
+    "deletion_delta": 0,
+    "qualification_delta": 0,
+    "count_promotion": false,
+    "global_completion": false
+  },
+  "supersedes_review": {
+    "path": "/tmp/ts-source-peer-1020-1040-by-1000-zfg3oyvs/review.json",
+    "sha256": "fad531cfc60ab4242811caba911a04bb3cb163a672afb44fd7bfd7b752e24fe1",
+    "reason": "QA found prior acceptance failed to reject an end_line beyond EOF. Corrected exact metadata checked and accepted; old bytes preserved."
+  }
+}

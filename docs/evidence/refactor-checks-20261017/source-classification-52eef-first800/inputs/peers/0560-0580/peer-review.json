@@ -1,0 +1,73 @@
+{
+  "schema": "independent-source-only-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_180_200",
+  "author": "/root/classification_100_dispatch/batch_200_220",
+  "status": "ACCEPTED_SOURCE_ONLY_WITH_EXPLICIT_UNRESOLVED_ROOT",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-560-580-jofr76j_/classification.json",
+    "sha256": "9da6649a4fcce619935d623b5e5872e1faa3f637a5f786cbd37afac9b24a7b29",
+    "checksum_path": "/tmp/ts-source-classification-560-580-jofr76j_/SHA256SUMS",
+    "checksum_sha256": "c76166355c634742ebd538467aaa0919d21e44ed15321e3f30695890ec671012"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "range": [
+    560,
+    580
+  ],
+  "literal_root_ids": [
+    "internal/app/wasm_observations_integration_test.go::TestFunctionObservationInventoryUsesCurrentAuthorityAndManager",
+    "internal/app/workload_autoscale_test.go::TestAbsentAutoscaleConfigKeepsCanonicalControllerJSON",
+    "internal/app/workload_autoscale_test.go::TestAutoscaleConfigDefaultsOffAndValidates",
+    "internal/app/workload_autoscale_test.go::TestAutoscaleConfigRefusesInertEntries",
+    "internal/app/workload_autoscale_test.go::TestHostTelemetryFeedsAutoscaleHistory",
+    "internal/app/workload_autoscale_test.go::TestTSAuthReleasePlacementCapsFailureDomains",
+    "internal/app/workload_autoscale_test.go::TestUnownedShapeKeepsReleaseScopedGenerations",
+    "internal/artifact/read_authoritative_integration_test.go::TestReadVerifiedAuthoritativeRequiresOnlyLeaderReadGrantIntegration",
+    "internal/artifact/read_integration_test.go::TestReadVerifiedObjectStoreToFileIntegration",
+    "internal/artifact/touch_integration_test.go::TestTouchAndDeleteIfUnchangedIntegration",
+    "internal/atlas/atlas_test.go::TestConfigValidate",
+    "internal/atlas/atlas_test.go::TestLoopAlertsOnceAtlasIsStaleAndRecovers",
+    "internal/atlas/atlas_test.go::TestLoopKeepsOneHungKeyReadInFlight",
+    "internal/atlas/atlas_test.go::TestPublishSignsAMonotonicTopologyWithProbedHealth",
+    "internal/atlas/cli_test.go::TestPublishValidatesTheSectionFirst",
+    "internal/atlas/discovery_test.go::TestDiscoverReadsTheListedRegions",
+    "internal/atlas/discovery_test.go::TestDiscoverRefusesRedirectsErrorsAndOversizeBodies",
+    "internal/atlas/discovery_test.go::TestServingDiscoveryIncludesUnhealthyRegionsAndNewAdmittedRegions",
+    "internal/atlas/discovery_test.go::TestServingDiscoveryRejectsEmptyStaleDuplicateAndUnsupportedMembership",
+    "internal/atlas/region_test.go::TestAddRegionListsTheCatalogRegion"
+  ],
+  "counts": {
+    "integration": 4,
+    "unit": 11,
+    "unresolved": 1,
+    "mixed": 4
+  },
+  "checks_performed": [
+    "Independently read all20 complete roots, original baseline declarations, missing-root baseline and canonical candidate replacement, plus connected actual production/fixture/client/store paths. Read additional Aggregator.Read180-217 and roleSignals301-320 to confirm in-memory telemetry semantics.",
+    "Verified exact ordered literal IDs against activated allocation; checked every survival TSV original/current mapping and historical hash. Recomputed raw baseline/current declaration text, explicit bounds and hashes, excluding following LF. Missing original name remains absent and no candidate successor is inferred.",
+    "Recomputed all51 Git source-file mode/blob/SHA256/byte pins and canonical working-tree byte equivalence. Verified all72 connected spans, all24 assertion spans, candidate-successor raw text/hash and the pinned external Atlas SDK bytes/mode/version reference.",
+    "Traced authenticated in-process natscell authority/object-store paths, upstream SwarmKit gRPC over loopback TCP, independent upstream TCP artifact brokers and actual metadata/chunk requests, artifact disk readback/CAS/deletion, signed Atlas HTTP publication and TLS discovery. Distinguished independent pre-I/O guards, synthetic membership/key loaders/fences and in-memory telemetry/catalog projections.",
+    "Verified20-root totals I4/U11/M4/R1, runtime UNKNOWN and per-root retained safety/no-retirement fields, all packet checksum entries, exact final packet/checksum hashes, files0444 and directory0555. No tests/helpers/project scanner/runtime/crypto/cloud execution, source/repo/ledger mutation, probes, count promotion or retirement."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [
+    {
+      "root_id": "internal/app/workload_autoscale_test.go::TestAutoscaleConfigDefaultsOffAndValidates",
+      "status": "UNRESOLVED_UNCREDITED",
+      "reason": "Historical exact-retention mapping names a declaration absent canonical source. Baseline22-64 is retained as original obligation. TestAutoscaleConfigUsesSignedDeclarations22-62 remains explicitly uncredited candidate with mapping_authorized false."
+    }
+  ],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; source-only category acceptance is not runtime pass/fail evidence.",
+    "Observation fixture uses real authenticated embedded JetStream and manager API, but membership deliberately fails; no successful worker snapshot, OCI allocation API, TerraBase binary or production deployment credit. Function allocation helper only constructs the OCI client in this reached proof path.",
+    "Atlas stale-loop /down URL is rejected locally by external SDK origin-path validation before POST; no HTTP outage credit. Initial/recovery publication uses real signed HTTP. The SFO readiness URL remains external in that test and has not been executed or qualified.",
+    "Artifact roots use actual upstream loopback TCP clients. Independent invalid captured metadata/cancelled-context and plain-http discovery guards remain local-only blocks, supporting mixed rather than integration-only categories. Telemetry uses in-memory aggregation/history and synthetic authority; no persistent store or running autoscaler credit.",
+    "All original obligations remain retained. No ledger/count/completion promotion, deletion, retirement, migration or production qualification authorization."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "NONE; independent source candidate acceptance only, no ledger/count/deletion/retirement/runtime/completion promotion."
+}

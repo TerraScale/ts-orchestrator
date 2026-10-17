@@ -1,0 +1,810 @@
+{
+  "schema": "independent-root800-source-peer-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_00_20",
+  "verdict": "ACCEPT",
+  "acceptance_scope": "Exact frozen [320:340) source-only categories and fixture limits; no runtime, ledger/count, retirement, deletion, qualification or completion promotion.",
+  "reviewed_packet": {
+    "path": "/tmp/ts-root800-other320-340-source-final-0_u3omfr/classification.json",
+    "sha256": "e97448d905ac0e20b9ec79e8db1365df261a10a592e02ab1b89f85f7d033fb5b",
+    "checksum_path": "/tmp/ts-root800-other320-340-source-final-0_u3omfr/SHA256SUMS",
+    "checksum_sha256": "ab87f05a612e7377590f277c140b6757d2a7b59d179facd2ff6c991d76274951"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "owner": "/root/classification_100_dispatch/batch_20_40",
+    "range": [
+      320,
+      340
+    ],
+    "root_ids": [
+      "internal/app/netbird_rollout_test.go::TestMeshReadinessDoesNotFollowRedirectsOrAcceptFailure",
+      "internal/app/netbird_rollout_test.go::TestNetBirdArtifactCollectionRetainsInFlightPin",
+      "internal/app/netbird_rollout_test.go::TestNetBirdBootstrapMissingLeaderHoldsBeforeDrain",
+      "internal/app/netbird_rollout_test.go::TestNetBirdDrainDeadlineIncludesGraceAndAllowsRecoveryRetries",
+      "internal/app/netbird_rollout_test.go::TestNetBirdLeaderCannotConfirmOnlyItsLocallyRoutedMeshIP",
+      "internal/app/netbird_rollout_test.go::TestNetBirdPartialDrainExpiresWithoutRelaxingQuorumAndCanRecover",
+      "internal/app/netbird_rollout_test.go::TestNetBirdPinRemovalFinishesExistingTransaction",
+      "internal/app/netbird_rollout_test.go::TestNetBirdPinWaitsForBothArtifactsBeforeDrain",
+      "internal/app/netbird_rollout_test.go::TestNetBirdRolloutPersistsProgressAndRejectsFencedLeader",
+      "internal/app/netbird_stage_test.go::TestNetBirdStageCompletionReverifiesChecksumAndArchitecture",
+      "internal/app/netbird_stage_test.go::TestNetBirdStageRejectsUnauthorizedRequests",
+      "internal/app/netbird_stage_test.go::TestOperatorNetBirdStageRepairsInvalidObjects",
+      "internal/app/netbird_stage_test.go::TestOperatorNetBirdStageUsesRestrictedTransportAndPreservesQuota",
+      "internal/app/netbird_stage_test.go::TestSnapshotNetBirdStageRejectsIndirectAndInvalidSources",
+      "internal/app/netbird_test.go::TestAutomaticNetBirdRetriesUnavailableFoundation",
+      "internal/app/netbird_test.go::TestNetBirdEnrollCommandDispatchRejectsPositionalArguments",
+      "internal/app/node_netbird_status_test.go::TestNodeStatusSkipsDisappearedNetBirdKeysAndReportsCorruption",
+      "internal/app/node_ops_test.go::TestFenceWaitsForTheQuorumGuard",
+      "internal/app/node_ops_test.go::TestNodeAddJoinsAMissingBackend",
+      "internal/app/node_ops_test.go::TestNodeDrainHoldsAcrossOtherFencesAndGuardsTheQuorum"
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_00_20",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "fork_turns_for_new": "none",
+    "reused_confirmed_agent": true
+  },
+  "input_pins": [
+    {
+      "path": "/tmp/ts-root800-source-dispatch-58wrSDrA/allocation-and-exclusions.json",
+      "sha256": "c9407bbf548f26e874996a930f6fafe9bf01c825bc495e4b1e2c46eb7cf5659e",
+      "bytes": 440894
+    },
+    {
+      "path": "/tmp/ts-root800-source-dispatch-58wrSDrA/PEER-PROTOCOL.md",
+      "sha256": "f0985a2f3dd927f859422148d1e89d5247a4213b8ee693475c7efb7d24d653e5",
+      "bytes": 3236
+    },
+    {
+      "path": "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md",
+      "sha256": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70",
+      "bytes": 3851
+    },
+    {
+      "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+      "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+      "bytes": 1640609
+    },
+    {
+      "path": "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json",
+      "sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513",
+      "bytes": 423442
+    }
+  ],
+  "counts": {
+    "integration": 10,
+    "unit": 8,
+    "mixed": 2,
+    "unresolved": 0,
+    "total": 20
+  },
+  "independent_verification": {
+    "exact_allocated_root_ids": 20,
+    "baseline_current_raw_declarations": 40,
+    "canonical_file_blob_mode_size_sha256_pins": 40,
+    "canonical_declaration_assertion_connected_spans": 241,
+    "additional_exact_independent_assertion_block_spans": 5,
+    "all_passed": true,
+    "method": "Read all20 full roots directly from canonical git show plus actual reached fixture/helper/production paths. Reused identical pinned helpers independently read during own300 and prior100 review. Metadata-only comparison of explicit manually reviewed spans, literal mapping/inventory, raw declarations excluding following LF, all file pins/text and safety fields. No parser/scanner/test/helper or project execution."
+  },
+  "roots": [
+    {
+      "allocation_index": 320,
+      "root_id": "internal/app/netbird_rollout_test.go::TestMeshReadinessDoesNotFollowRedirectsOrAcceptFailure",
+      "verdict": "ACCEPT",
+      "category": "integration",
+      "finding": "Actual loopback HTTP request and response status determine readiness; redirect policy is production code.",
+      "baseline_declaration_sha256": "9d7c491d642d2711310665ca399cd10e807236c86651b74c8b29bdd36dc9bf3b",
+      "current_declaration_sha256": "9d7c491d642d2711310665ca399cd10e807236c86651b74c8b29bdd36dc9bf3b",
+      "current_source": {
+        "path": "internal/app/netbird_rollout_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "527eda83aec233a1680a319fd45d2bb21e12f010",
+        "line": 139,
+        "end_line": 158,
+        "role": "Entire manually reviewed current declaration; all original assertions retained",
+        "function": "TestMeshReadinessDoesNotFollowRedirectsOrAcceptFailure"
+      }
+    },
+    {
+      "allocation_index": 321,
+      "root_id": "internal/app/netbird_rollout_test.go::TestNetBirdArtifactCollectionRetainsInFlightPin",
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "Artifact reference list reads local spec and fake authority journal; broker construction supplies no asserted collector/store behavior.",
+      "baseline_declaration_sha256": "c9dd8c7fc994450ed53463c6d0d154518bbac0f139fe3ef64e83085d553c3fac",
+      "current_declaration_sha256": "c9dd8c7fc994450ed53463c6d0d154518bbac0f139fe3ef64e83085d553c3fac",
+      "current_source": {
+        "path": "internal/app/netbird_rollout_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "527eda83aec233a1680a319fd45d2bb21e12f010",
+        "line": 104,
+        "end_line": 137,
+        "role": "Entire manually reviewed current declaration; all original assertions retained",
+        "function": "TestNetBirdArtifactCollectionRetainsInFlightPin"
+      }
+    },
+    {
+      "allocation_index": 322,
+      "root_id": "internal/app/netbird_rollout_test.go::TestNetBirdBootstrapMissingLeaderHoldsBeforeDrain",
+      "verdict": "ACCEPT",
+      "category": "integration",
+      "finding": "Authoritative artifact reads and status KV Get materially reach missing-leader preflight guard; no recovery RPC, mesh proof or drain.",
+      "baseline_declaration_sha256": "040ada45c21ec17b33c486b9ca222161e57c749fcb7847b12eb5f34b7f6a8647",
+      "current_declaration_sha256": "040ada45c21ec17b33c486b9ca222161e57c749fcb7847b12eb5f34b7f6a8647",
+      "current_source": {
+        "path": "internal/app/netbird_rollout_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "527eda83aec233a1680a319fd45d2bb21e12f010",
+        "line": 172,
+        "end_line": 232,
+        "role": "Entire manually reviewed current declaration; all original assertions retained",
+        "function": "TestNetBirdBootstrapMissingLeaderHoldsBeforeDrain"
+      }
+    },
+    {
+      "allocation_index": 323,
+      "root_id": "internal/app/netbird_rollout_test.go::TestNetBirdDrainDeadlineIncludesGraceAndAllowsRecoveryRetries",
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "Injected opener captures bounded context and returns sentinel before record KV/LB operations; journal is fake.",
+      "baseline_declaration_sha256": "bbdb141bc649228aa9c7afd42c9a03c8a374e3f81a80d5d37dcf589ed60bc82f",
+      "current_declaration_sha256": "bbdb141bc649228aa9c7afd42c9a03c8a374e3f81a80d5d37dcf589ed60bc82f",
+      "current_source": {
+        "path": "internal/app/netbird_rollout_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "527eda83aec233a1680a319fd45d2bb21e12f010",
+        "line": 234,
+        "end_line": 271,
+        "role": "Entire manually reviewed current declaration; all original assertions retained",
+        "function": "TestNetBirdDrainDeadlineIncludesGraceAndAllowsRecoveryRetries"
+      }
+    },
+    {
+      "allocation_index": 324,
+      "root_id": "internal/app/netbird_rollout_test.go::TestNetBirdLeaderCannotConfirmOnlyItsLocallyRoutedMeshIP",
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "Local missing-peer guard returns before DNS/HTTP/NATS.",
+      "baseline_declaration_sha256": "8a0657408237ee8cbacf7fa779ba4b64acff33a3d7c9488ef91bdf4651f299da",
+      "current_declaration_sha256": "8a0657408237ee8cbacf7fa779ba4b64acff33a3d7c9488ef91bdf4651f299da",
+      "current_source": {
+        "path": "internal/app/netbird_rollout_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "527eda83aec233a1680a319fd45d2bb21e12f010",
+        "line": 160,
+        "end_line": 170,
+        "role": "Entire manually reviewed current declaration; all original assertions retained",
+        "function": "TestNetBirdLeaderCannotConfirmOnlyItsLocallyRoutedMeshIP"
+      }
+    },
+    {
+      "allocation_index": 325,
+      "root_id": "internal/app/netbird_rollout_test.go::TestNetBirdPartialDrainExpiresWithoutRelaxingQuorumAndCanRecover",
+      "verdict": "ACCEPT",
+      "category": "integration",
+      "finding": "Retry reads the actual prior fence record and completes persisted backend state; fake LB and journal limit qualification.",
+      "baseline_declaration_sha256": "f778818b68cb3b628b266afdc9705b65ce826d0c14562782e77c7d4962bd8836",
+      "current_declaration_sha256": "f778818b68cb3b628b266afdc9705b65ce826d0c14562782e77c7d4962bd8836",
+      "current_source": {
+        "path": "internal/app/netbird_rollout_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "527eda83aec233a1680a319fd45d2bb21e12f010",
+        "line": 273,
+        "end_line": 316,
+        "role": "Entire manually reviewed current declaration; all original assertions retained",
+        "function": "TestNetBirdPartialDrainExpiresWithoutRelaxingQuorumAndCanRecover"
+      }
+    },
+    {
+      "allocation_index": 326,
+      "root_id": "internal/app/netbird_rollout_test.go::TestNetBirdPinRemovalFinishesExistingTransaction",
+      "verdict": "ACCEPT",
+      "category": "mixed",
+      "finding": "Independent fake-journal target assertions are unit; Exchange actual KV write/readback is integration.",
+      "baseline_declaration_sha256": "0a8def691225f24961c1c1a715ba4acf70b2e09aff3dfdc4fe859bb62a90891a",
+      "current_declaration_sha256": "0a8def691225f24961c1c1a715ba4acf70b2e09aff3dfdc4fe859bb62a90891a",
+      "current_source": {
+        "path": "internal/app/netbird_rollout_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "527eda83aec233a1680a319fd45d2bb21e12f010",
+        "line": 75,
+        "end_line": 102,
+        "role": "Entire manually reviewed current declaration; all original assertions retained",
+        "function": "TestNetBirdPinRemovalFinishesExistingTransaction"
+      }
+    },
+    {
+      "allocation_index": 327,
+      "root_id": "internal/app/netbird_rollout_test.go::TestNetBirdPinWaitsForBothArtifactsBeforeDrain",
+      "verdict": "ACCEPT",
+      "category": "integration",
+      "finding": "Real ObjectStore missing/put/read/delete state determines artifact admission.",
+      "baseline_declaration_sha256": "94b5f4b36b2eabeefbb26a14808a3e13e8c732f83bfa5545bb9962e2db7d797a",
+      "current_declaration_sha256": "94b5f4b36b2eabeefbb26a14808a3e13e8c732f83bfa5545bb9962e2db7d797a",
+      "current_source": {
+        "path": "internal/app/netbird_rollout_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "527eda83aec233a1680a319fd45d2bb21e12f010",
+        "line": 47,
+        "end_line": 73,
+        "role": "Entire manually reviewed current declaration; all original assertions retained",
+        "function": "TestNetBirdPinWaitsForBothArtifactsBeforeDrain"
+      }
+    },
+    {
+      "allocation_index": 328,
+      "root_id": "internal/app/netbird_rollout_test.go::TestNetBirdRolloutPersistsProgressAndRejectsFencedLeader",
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "Recreated struct shares fake authority journal; no durable restart proof.",
+      "baseline_declaration_sha256": "576c876cdfdf7e1e869c2a86042cb4a4d43f62c6e84eeb920a39e1b32ffcadb8",
+      "current_declaration_sha256": "576c876cdfdf7e1e869c2a86042cb4a4d43f62c6e84eeb920a39e1b32ffcadb8",
+      "current_source": {
+        "path": "internal/app/netbird_rollout_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "527eda83aec233a1680a319fd45d2bb21e12f010",
+        "line": 24,
+        "end_line": 45,
+        "role": "Entire manually reviewed current declaration; all original assertions retained",
+        "function": "TestNetBirdRolloutPersistsProgressAndRejectsFencedLeader"
+      }
+    },
+    {
+      "allocation_index": 329,
+      "root_id": "internal/app/netbird_stage_test.go::TestNetBirdStageCompletionReverifiesChecksumAndArchitecture",
+      "verdict": "ACCEPT",
+      "category": "integration",
+      "finding": "Completion reads real object bytes and rejects incorrect checksum or invalid ELF; no executable runs.",
+      "baseline_declaration_sha256": "7283bb43b170c2192963ef4b1be7b6142f31af9b4099902fcd213220acf99ecd",
+      "current_declaration_sha256": "7283bb43b170c2192963ef4b1be7b6142f31af9b4099902fcd213220acf99ecd",
+      "current_source": {
+        "path": "internal/app/netbird_stage_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "ab4ea43d29daeba7d838ccc58e414ba139af7b0e",
+        "line": 302,
+        "end_line": 327,
+        "role": "Entire manually reviewed current declaration; all original assertions retained",
+        "function": "TestNetBirdStageCompletionReverifiesChecksumAndArchitecture"
+      }
+    },
+    {
+      "allocation_index": 330,
+      "root_id": "internal/app/netbird_stage_test.go::TestNetBirdStageRejectsUnauthorizedRequests",
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "Local signed-envelope and pin guards use nil connection and Verify false; fixture files incidental.",
+      "baseline_declaration_sha256": "9149fe7b8fd397753cbcedcdc0433fa3c90a346ba8c1c551c7c6026f51870421",
+      "current_declaration_sha256": "9149fe7b8fd397753cbcedcdc0433fa3c90a346ba8c1c551c7c6026f51870421",
+      "current_source": {
+        "path": "internal/app/netbird_stage_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "ab4ea43d29daeba7d838ccc58e414ba139af7b0e",
+        "line": 87,
+        "end_line": 122,
+        "role": "Entire manually reviewed current declaration; all original assertions retained",
+        "function": "TestNetBirdStageRejectsUnauthorizedRequests"
+      }
+    },
+    {
+      "allocation_index": 331,
+      "root_id": "internal/app/netbird_stage_test.go::TestOperatorNetBirdStageRepairsInvalidObjects",
+      "verdict": "ACCEPT",
+      "category": "integration",
+      "finding": "Actual operator RPC/store repair, metadata CAS conflict and quota preservation; local broker with inert data.",
+      "baseline_declaration_sha256": "82fb6d0002c10f639f65980bea5e08679d15b871d1c31dbe659731193fc98527",
+      "current_declaration_sha256": "82fb6d0002c10f639f65980bea5e08679d15b871d1c31dbe659731193fc98527",
+      "current_source": {
+        "path": "internal/app/netbird_stage_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "ab4ea43d29daeba7d838ccc58e414ba139af7b0e",
+        "line": 329,
+        "end_line": 426,
+        "role": "Entire manually reviewed current declaration; all original assertions retained",
+        "function": "TestOperatorNetBirdStageRepairsInvalidObjects"
+      }
+    },
+    {
+      "allocation_index": 332,
+      "root_id": "internal/app/netbird_stage_test.go::TestOperatorNetBirdStageUsesRestrictedTransportAndPreservesQuota",
+      "verdict": "ACCEPT",
+      "category": "integration",
+      "finding": "Actual operator TLS bridge, upload/readback, idempotent metadata touch and quota preservation; controller client in-process.",
+      "baseline_declaration_sha256": "13b0351edec5e3536958dfbb88265ec2134d551d8155a3dec908977ccf01c28d",
+      "current_declaration_sha256": "13b0351edec5e3536958dfbb88265ec2134d551d8155a3dec908977ccf01c28d",
+      "current_source": {
+        "path": "internal/app/netbird_stage_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "ab4ea43d29daeba7d838ccc58e414ba139af7b0e",
+        "line": 232,
+        "end_line": 300,
+        "role": "Entire manually reviewed current declaration; all original assertions retained",
+        "function": "TestOperatorNetBirdStageUsesRestrictedTransportAndPreservesQuota"
+      }
+    },
+    {
+      "allocation_index": 333,
+      "root_id": "internal/app/netbird_stage_test.go::TestSnapshotNetBirdStageRejectsIndirectAndInvalidSources",
+      "verdict": "ACCEPT",
+      "category": "mixed",
+      "finding": "Filesystem snapshot/mutation/nofollow/type/ELF assertions cross OS boundary; canceled-context guard is separate unit block.",
+      "baseline_declaration_sha256": "35d3addc84b186945f08f3564784f7992bf34c18be231b2df9900094785b6203",
+      "current_declaration_sha256": "35d3addc84b186945f08f3564784f7992bf34c18be231b2df9900094785b6203",
+      "current_source": {
+        "path": "internal/app/netbird_stage_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "ab4ea43d29daeba7d838ccc58e414ba139af7b0e",
+        "line": 124,
+        "end_line": 167,
+        "role": "Entire manually reviewed current declaration; all original assertions retained",
+        "function": "TestSnapshotNetBirdStageRejectsIndirectAndInvalidSources"
+      }
+    },
+    {
+      "allocation_index": 334,
+      "root_id": "internal/app/netbird_test.go::TestAutomaticNetBirdRetriesUnavailableFoundation",
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "Canceled Token call establishes no successful IMDS/foundation/Vault exchange; canceled Run exits before cycle/retry.",
+      "baseline_declaration_sha256": "8dc4bcba8dc722057e3690500562b837b19e915f71376909b924825fa869a169",
+      "current_declaration_sha256": "8dc4bcba8dc722057e3690500562b837b19e915f71376909b924825fa869a169",
+      "current_source": {
+        "path": "internal/app/netbird_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3cd31324a5a20cd7a1ad281af2ea29ee9b5f99b3",
+        "line": 18,
+        "end_line": 30,
+        "role": "Entire manually reviewed current declaration; all original assertions retained",
+        "function": "TestAutomaticNetBirdRetriesUnavailableFoundation"
+      }
+    },
+    {
+      "allocation_index": 335,
+      "root_id": "internal/app/netbird_test.go::TestNetBirdEnrollCommandDispatchRejectsPositionalArguments",
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "Command positional guard returns before privilege/filesystem/process boundary.",
+      "baseline_declaration_sha256": "4922ba462dfd478710607f7855a3aa5af72caf5b3155e3af4d6720c83ac252c4",
+      "current_declaration_sha256": "4922ba462dfd478710607f7855a3aa5af72caf5b3155e3af4d6720c83ac252c4",
+      "current_source": {
+        "path": "internal/app/netbird_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "3cd31324a5a20cd7a1ad281af2ea29ee9b5f99b3",
+        "line": 10,
+        "end_line": 16,
+        "role": "Entire manually reviewed current declaration; all original assertions retained",
+        "function": "TestNetBirdEnrollCommandDispatchRejectsPositionalArguments"
+      }
+    },
+    {
+      "allocation_index": 336,
+      "root_id": "internal/app/node_netbird_status_test.go::TestNodeStatusSkipsDisappearedNetBirdKeysAndReportsCorruption",
+      "verdict": "ACCEPT",
+      "category": "integration",
+      "finding": "Delegating wrapper deletes actual status KV key, preserves present status and observes corrupt strict decoding; journal ID is fake.",
+      "baseline_declaration_sha256": "ffccfbf67e679e7e03838e665ffcddda721894d72eaa83d7eb3f655b3beca7c1",
+      "current_declaration_sha256": "ffccfbf67e679e7e03838e665ffcddda721894d72eaa83d7eb3f655b3beca7c1",
+      "current_source": {
+        "path": "internal/app/node_netbird_status_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "87deaec4a1aa01c0d596b8f25cd5b3ef83d13868",
+        "line": 28,
+        "end_line": 56,
+        "role": "Entire manually reviewed current declaration; all original assertions retained",
+        "function": "TestNodeStatusSkipsDisappearedNetBirdKeysAndReportsCorruption"
+      }
+    },
+    {
+      "allocation_index": 337,
+      "root_id": "internal/app/node_ops_test.go::TestFenceWaitsForTheQuorumGuard",
+      "verdict": "ACCEPT",
+      "category": "unit",
+      "finding": "Corrected to unit: quorum/cancellation/fake-LB-log assertions do not observe initial KV write or stored values.",
+      "baseline_declaration_sha256": "05d788fa69816bdbc70e0471e3c67c819f7eacfa541eb1a5453006d8ae8dc61d",
+      "current_declaration_sha256": "05d788fa69816bdbc70e0471e3c67c819f7eacfa541eb1a5453006d8ae8dc61d",
+      "current_source": {
+        "path": "internal/app/node_ops_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "47607ee246716a69bca6eb487fe85ba948ef15c9",
+        "line": 369,
+        "end_line": 388,
+        "role": "Entire manually reviewed current declaration; all original assertions retained",
+        "function": "TestFenceWaitsForTheQuorumGuard"
+      }
+    },
+    {
+      "allocation_index": 338,
+      "root_id": "internal/app/node_ops_test.go::TestNodeAddJoinsAMissingBackend",
+      "verdict": "ACCEPT",
+      "category": "integration",
+      "finding": "Queued and terminal operation KV readback plus persisted fence govern fake backend create/restore.",
+      "baseline_declaration_sha256": "8046f8d93194cc602c52f41380d2aaea1f97aaf4365491d7b4a671d54ee24870",
+      "current_declaration_sha256": "8046f8d93194cc602c52f41380d2aaea1f97aaf4365491d7b4a671d54ee24870",
+      "current_source": {
+        "path": "internal/app/node_ops_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "47607ee246716a69bca6eb487fe85ba948ef15c9",
+        "line": 505,
+        "end_line": 524,
+        "role": "Entire manually reviewed current declaration; all original assertions retained",
+        "function": "TestNodeAddJoinsAMissingBackend"
+      }
+    },
+    {
+      "allocation_index": 339,
+      "root_id": "internal/app/node_ops_test.go::TestNodeDrainHoldsAcrossOtherFencesAndGuardsTheQuorum",
+      "verdict": "ACCEPT",
+      "category": "integration",
+      "finding": "Actual operation and holder KV records drive drain/release/reboot/undrain; maintenance holder readback explicit.",
+      "baseline_declaration_sha256": "564d9e1455b7e0ea3f63e122997d0778e99e7fb200421b909126e33d9f5d117a",
+      "current_declaration_sha256": "564d9e1455b7e0ea3f63e122997d0778e99e7fb200421b909126e33d9f5d117a",
+      "current_source": {
+        "path": "internal/app/node_ops_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "47607ee246716a69bca6eb487fe85ba948ef15c9",
+        "line": 279,
+        "end_line": 323,
+        "role": "Entire manually reviewed current declaration; all original assertions retained",
+        "function": "TestNodeDrainHoldsAcrossOtherFencesAndGuardsTheQuorum"
+      }
+    }
+  ],
+  "source_pins": {
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/netbird_journal_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/netbird_journal_test.go",
+      "mode": "100644",
+      "git_blob": "f4a3187473ca0d40157a6a0f16d69d23b72e4d4d",
+      "sha256": "c330ae1f32e1095f05d845403a5908c6514993898aee0cb459c5c92ae722a37d",
+      "bytes": 8612
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/release_fence_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/release_fence_test.go",
+      "mode": "100644",
+      "git_blob": "9f700b02fd71dac8d44a4fb7aef25d1b685e3161",
+      "sha256": "449a98dea46425233de8ff8faa3edad45027c6f22923604eeaf40c1dacbeea87",
+      "bytes": 37374
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/netbird_artifact_admission_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/netbird_artifact_admission_test.go",
+      "mode": "100644",
+      "git_blob": "7ce035fae64577af34e2c0e02fdae33620ae25cb",
+      "sha256": "964f34d70aa734fe16fd79e40128b34a56693c04f6a2a74fc133c00e61d55353",
+      "bytes": 13895
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/netbird_recovery_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/netbird_recovery_test.go",
+      "mode": "100644",
+      "git_blob": "b2a45340f54f5f43d1c10cd0b239f5b5983bdfdf",
+      "sha256": "6fff1c2baf754c74e61a19b970d58f5a049e070512b778dd1508b7f24fc60fc5",
+      "bytes": 10146
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/netbird_stage_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/netbird_stage_test.go",
+      "mode": "100644",
+      "git_blob": "ab4ea43d29daeba7d838ccc58e414ba139af7b0e",
+      "sha256": "8e3c88011799f0055d7b5e91b9da6c25192c14108afaf531a2414e5cfc9a9e5c",
+      "bytes": 16019
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/authenticated_nats_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/authenticated_nats_test.go",
+      "mode": "100644",
+      "git_blob": "5ccb7b89b0abeb8373c3e29ea0ef5da5b2ff5ca4",
+      "sha256": "46255a91d171884a762f1508c7af007e83e75d477c7a83aac63c848ea1dc53f7",
+      "bytes": 8431
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/rollout_control_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/rollout_control_test.go",
+      "mode": "100644",
+      "git_blob": "0a0997e916f1c2e2a7d257ebb7092dcf44dea8cf",
+      "sha256": "de2067665b876e94c3fc70d94515bfbc679a488652c6211eb7165fe3b0c1382b",
+      "bytes": 14194
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/node_ops_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/node_ops_test.go",
+      "mode": "100644",
+      "git_blob": "47607ee246716a69bca6eb487fe85ba948ef15c9",
+      "sha256": "fa48c2c1183ac2aa372bdc5b3d6248d92605828fc8dbc7298985e7ccedce5c02",
+      "bytes": 30778
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/edge_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/edge_test.go",
+      "mode": "100644",
+      "git_blob": "17d34794bae69b5a563da19046e9c0a04fb3ab68",
+      "sha256": "c7c4e56b8e1497f26d131ad8f7a939e0e2305291b3c6ff7318c7759913c5a384",
+      "bytes": 6213
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/node_netbird_status_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/node_netbird_status_test.go",
+      "mode": "100644",
+      "git_blob": "87deaec4a1aa01c0d596b8f25cd5b3ef83d13868",
+      "sha256": "45f7a28a17c1da68f85e1b193ae7b1e7d629b3135f055c6a586ff706ec4c98e8",
+      "bytes": 1861
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/netbird_journal.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/netbird_journal.go",
+      "mode": "100644",
+      "git_blob": "6f1df9bb44133e8e5abc2823edb1c52d19d6c83a",
+      "sha256": "5add0ef368147e42a4ae87d01f52b86c6c3450b28aa41456a9c136d3878b17ef",
+      "bytes": 5585
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/netbird_rollout.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/netbird_rollout.go",
+      "mode": "100644",
+      "git_blob": "741bb5a605abe40c19bd03ac193726dc7151923f",
+      "sha256": "390e878f777539b96fe6f6da9cca2f9c72f6436c26c73b454fdae0448dc55450",
+      "bytes": 25810
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/netbird_admission.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/netbird_admission.go",
+      "mode": "100644",
+      "git_blob": "0215c3b0738ade8a152239d9d32ee90070fdab9e",
+      "sha256": "c305c805d137bdf39cc02bef21eb4f5eb34de91cff4218ea965f2eb1d7319c3c",
+      "bytes": 1378
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/cell_spec_registry.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/cell_spec_registry.go",
+      "mode": "100644",
+      "git_blob": "80afdaef21fd15354e98657fcd8d9e6aeeabf680",
+      "sha256": "286cfd2cfb4f649a5064e17998e9b1f0525ef45382634f7c3d3a0ed2fca37253",
+      "bytes": 34181
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/netbird_stage.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/netbird_stage.go",
+      "mode": "100644",
+      "git_blob": "52465f45bd7d634068a645d773f304847942b5fe",
+      "sha256": "ee97341e17555d33c5c18041ba42078d14677ba45c75f8a71dca8e4eaa420afc",
+      "bytes": 10935
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/artifact/read.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/artifact/read.go",
+      "mode": "100644",
+      "git_blob": "17363d4bd58003e2282f8ff8795bb4f899bfca16",
+      "sha256": "6cf97773681e158811494867bd7c277a65e6369849fc3b706b1cc5682f1ae7fa",
+      "bytes": 6209
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/artifact/touch.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/artifact/touch.go",
+      "mode": "100644",
+      "git_blob": "93c19ee4e0fcdd4d4f95d273d51d7579f82452d4",
+      "sha256": "9633422714a7f57dcfdfafb43eeac3fbd24058e4e541e7b9cc7f2dae4d156c3f",
+      "bytes": 3849
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/netbird/client/client.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/netbird/client/client.go",
+      "mode": "100644",
+      "git_blob": "124bee2109b563a1ad54a75b4c21f2038f8807fe",
+      "sha256": "977e5a22489ef4fa7c433d7614aeebf12e10340b13a50d5b6c03bf7c3be33157",
+      "bytes": 22932
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/host_enrollment.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/host_enrollment.go",
+      "mode": "100644",
+      "git_blob": "243fabc9ef18a48a0ca71c25dcf502c9e71eceff",
+      "sha256": "0bf0f04e7862441c561819b5f0579dbc3540590603883f6d3c08d3e604f5778e",
+      "bytes": 12397
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/operator.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/operator.go",
+      "mode": "100644",
+      "git_blob": "e3253f30ad40527583c1d7bd29839292f7e7c6b9",
+      "sha256": "86ba1665d81a49de49853d387f0b58524fa561a40e0cf2c756bed689fe997b32",
+      "bytes": 31732
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/cell_spec_operator.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/cell_spec_operator.go",
+      "mode": "100644",
+      "git_blob": "837b6841709bba67ef0abdc3932ddcd2fc50b3a7",
+      "sha256": "9466e80c2036b62e97cbcce2bfad96670c2b1841b0c4ef9af15d48a39f83c0bc",
+      "bytes": 16920
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/natscell/runtime.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/natscell/runtime.go",
+      "mode": "100644",
+      "git_blob": "b7d9b16bf34c966d722a17bea21a3ccb76cc396b",
+      "sha256": "44804d1b0692d1b47fb37f4a9e1d99bfe7235d3fb317fc7c81c9090d80dc57cf",
+      "bytes": 35509
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/node_ops.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/node_ops.go",
+      "mode": "100644",
+      "git_blob": "bea1b7fda4ffb3c84fd3bd3a3f59ceabd20285fc",
+      "sha256": "ad07d737e40a6399de6c5476814dd8660dda789c5448004a1e5f85580786cd1f",
+      "bytes": 40459
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/release_fence.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/release_fence.go",
+      "mode": "100644",
+      "git_blob": "0ca7bb5d8aa1b88f10a748b5af39d14ef8f6ac38",
+      "sha256": "c850e167554ff9c3443fc5dba60d56b70449c08f9ac12adf4ab84ed0560de400",
+      "bytes": 32074
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/netbird_management.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/netbird_management.go",
+      "mode": "100644",
+      "git_blob": "e101b69e33ef13cfba8b262512e6a2e8679dd5b4",
+      "sha256": "25f3a2633aa528d68c829df8a7fc1cb0319232b8f433bd51fe02c68bb90e90d6",
+      "bytes": 1000
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/netbird/manager/automatic.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/netbird/manager/automatic.go",
+      "mode": "100644",
+      "git_blob": "1834f64cd7d86022e8933942da48c918337efde7",
+      "sha256": "6fa484a5d0f1a117dfce26e59e947c86b3619869a781606bf77092a74ecaec5d",
+      "bytes": 1601
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/netbird/manager/loop.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/netbird/manager/loop.go",
+      "mode": "100644",
+      "git_blob": "e26f9fa35949f0e4757971686ae2b4782aeeec38",
+      "sha256": "8d613a561982715adb0ef43398d4a7cab43acec092138e12a8bb78edbba89944",
+      "bytes": 6070
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/automatic_boot.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/automatic_boot.go",
+      "mode": "100644",
+      "git_blob": "36c312ed77e2117701b2b27009bcc7577bd3e7d1",
+      "sha256": "2c1ac175ee1f610a20cb2b90e5fe378343b6b31d915cfc5d8468a4f8f9a2f0c4",
+      "bytes": 28558
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/bootstrapstart/descriptor.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/bootstrapstart/descriptor.go",
+      "mode": "100644",
+      "git_blob": "a27f536d477bebe76274b01084e5afe9db11eab5",
+      "sha256": "d84c374ad2703d5084884f56d631ae8e9cc9d1432c284fdb0348aa3b30d7cf87",
+      "bytes": 8934
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/app.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/app.go",
+      "mode": "100644",
+      "git_blob": "aa73fcefab0003cd8b288db7405a53246014a704",
+      "sha256": "97e01b38be95267a45a0efe58fbd5a473559f82d74ff3d60352a2aef91c6e6f4",
+      "bytes": 19397
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/netbird.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/netbird.go",
+      "mode": "100644",
+      "git_blob": "c8e13f8dad16f8bca854025b02226ee6fe6fda44",
+      "sha256": "f50dc00301e64d2b4af7b94d49c255c6568ed9b021ef184da87ed80bd892ecac",
+      "bytes": 3613
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/netbird/rollout/reconcile.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/netbird/rollout/reconcile.go",
+      "mode": "100644",
+      "git_blob": "cc737b7697e5397b7bc2ca52e3e5d5b378899554",
+      "sha256": "e6ab931289cbea05fa3e39f9c7d1528af941547d5192fce21077cee692908f8b",
+      "bytes": 12696
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/netbird_rollout_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/netbird_rollout_test.go",
+      "mode": "100644",
+      "git_blob": "527eda83aec233a1680a319fd45d2bb21e12f010",
+      "sha256": "de5badc5409f0d8627ab15d9502cdea9c7cf90822c2d4a17c6695973e778a669",
+      "bytes": 13094
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/netbird_rollout_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/app/netbird_rollout_test.go",
+      "mode": "100644",
+      "git_blob": "527eda83aec233a1680a319fd45d2bb21e12f010",
+      "sha256": "de5badc5409f0d8627ab15d9502cdea9c7cf90822c2d4a17c6695973e778a669",
+      "bytes": 13094
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/netbird_stage_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/app/netbird_stage_test.go",
+      "mode": "100644",
+      "git_blob": "ab4ea43d29daeba7d838ccc58e414ba139af7b0e",
+      "sha256": "8e3c88011799f0055d7b5e91b9da6c25192c14108afaf531a2414e5cfc9a9e5c",
+      "bytes": 16019
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/netbird_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/app/netbird_test.go",
+      "mode": "100644",
+      "git_blob": "3cd31324a5a20cd7a1ad281af2ea29ee9b5f99b3",
+      "sha256": "079ae30a201ddaf8da4a8312321df1f8c91764161b4c73f709ae3901f9dda64b",
+      "bytes": 880
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/netbird_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/app/netbird_test.go",
+      "mode": "100644",
+      "git_blob": "3cd31324a5a20cd7a1ad281af2ea29ee9b5f99b3",
+      "sha256": "079ae30a201ddaf8da4a8312321df1f8c91764161b4c73f709ae3901f9dda64b",
+      "bytes": 880
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/node_netbird_status_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/app/node_netbird_status_test.go",
+      "mode": "100644",
+      "git_blob": "87deaec4a1aa01c0d596b8f25cd5b3ef83d13868",
+      "sha256": "45f7a28a17c1da68f85e1b193ae7b1e7d629b3135f055c6a586ff706ec4c98e8",
+      "bytes": 1861
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/node_ops_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/app/node_ops_test.go",
+      "mode": "100644",
+      "git_blob": "47607ee246716a69bca6eb487fe85ba948ef15c9",
+      "sha256": "fa48c2c1183ac2aa372bdc5b3d6248d92605828fc8dbc7298985e7ccedce5c02",
+      "bytes": 30778
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:deploy/image/image-inputs.json": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "deploy/image/image-inputs.json",
+      "mode": "100644",
+      "git_blob": "ea02c98cc0d275315ef630986224ed22d2eebae2",
+      "sha256": "9e4200888de4592df872fb5e12c49be0a9489382b1f23d8f9968917181e205d5",
+      "bytes": 3398
+    }
+  },
+  "resolved_findings": [
+    {
+      "root_id": "internal/app/node_ops_test.go::TestFenceWaitsForTheQuorumGuard",
+      "issue": "Initial KV effect incidental to fake-LB quorum/cancellation assertions.",
+      "resolution": "Owner changed integration to unit in fresh final packet; old bytes preserved.",
+      "prior_packet_path": "/tmp/ts-root800-other320-340-source-ej30u51w/classification.json",
+      "prior_packet_sha256": "8fabac18ce69a0545e8e24e38a7075f475edde9aa2ff734865ed211a20e329e8"
+    },
+    {
+      "root_indices": [
+        338,
+        339
+      ],
+      "issue": "Connected source needed complete serving/session helper path.",
+      "resolution": "Final packet adds1105\u20131213 serving/session helpers;339 also991\u20131011 stray-fence path; independently reviewed."
+    }
+  ],
+  "remaining_findings": [],
+  "source_assertion_blockers": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "repository_or_ledger_mutation": false,
+  "accounting_effect": {
+    "accepted_count_promotion": false,
+    "qualification_delta": 0,
+    "retirement_delta": 0,
+    "global_completion": false
+  },
+  "qualification_limits": [
+    "Source-only category acceptance establishes no compilation, runtime pass/fail, production behavior or retirement eligibility.",
+    "Direct upstream loopback broker fixtures differ from authenticated production embedded NATS controller in-process clients and external operator TLS bridge. Fake authority journal, fake LB/cloud/hosts and inert ELF payload limits retained.",
+    "No Go/build/test/format/lint/benchmark/helper/scanner/parser/process/resource/cloud/signing/crypto/TerraBase execution or downloads. Only source/Git reads and metadata serialization/hashing."
+  ]
+}

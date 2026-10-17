@@ -1,0 +1,103 @@
+{
+  "schema": "independent-source-classification-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/peer_20_40",
+  "author": "/root/classification_100_dispatch/peer_40_60",
+  "status": "ACCEPTED_SOURCE_ONLY_EXACT_FROZEN_PACKET",
+  "accepted_packet": {
+    "path": "/tmp/ts-root800-440-460-source-zjo7q9fu/classification.json",
+    "sha256": "cfc2ac50778878ae2238e813304c980851f1c17f4ad363499ec5bb21e92bb225",
+    "checksum_path": "/tmp/ts-root800-440-460-source-zjo7q9fu/SHA256SUMS",
+    "checksum_sha256": "91186a480124408689e3f9c6ddaeee8d51a4e1850f27767a29aab133de386b82"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-source-dispatch-58wrSDrA/allocation-and-exclusions.json",
+    "sha256": "c9407bbf548f26e874996a930f6fafe9bf01c825bc495e4b1e2c46eb7cf5659e",
+    "range": [
+      440,
+      460
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/peer_20_40"
+  },
+  "input_pins": {
+    "survival": {
+      "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+      "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+    },
+    "worker_guide": {
+      "path": "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md",
+      "sha256": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70"
+    },
+    "peer_protocol": {
+      "path": "/tmp/ts-root800-source-dispatch-58wrSDrA/PEER-PROTOCOL.md",
+      "sha256": "f0985a2f3dd927f859422148d1e89d5247a4213b8ee693475c7efb7d24d653e5"
+    }
+  },
+  "literal_original_root_ids": [
+    "internal/app/region_link_supervisor_test.go::TestWANAheadFailuresPreserveUnknownEvidence",
+    "internal/app/region_link_supervisor_test.go::TestWANAheadFailuresRequireNewCounterEvidence",
+    "internal/app/region_link_supervisor_test.go::TestWANArchiveAgeDoesNotEstablishReplicationFailure",
+    "internal/app/region_link_supervisor_test.go::TestWANRequiresEveryReceiverAndExactSourceCoverage",
+    "internal/app/region_registry_test.go::TestAtlasRosterListsTheLiveRoster",
+    "internal/app/region_registry_test.go::TestRegionRegistryBuildsAndFollowsRoster",
+    "internal/app/release_fence_context_test.go::TestReleaseFenceContextLocksCancelWithoutEffectsAndRetry",
+    "internal/app/release_fence_context_test.go::TestReleaseFenceContextQuorumSerializesObservationAndUpdate",
+    "internal/app/release_fence_load_test.go::TestTerraBaseReleaseFenceUnderLoad",
+    "internal/app/release_fence_test.go::TestReleaseFenceChecksTheAlternativeAtEachChange",
+    "internal/app/release_fence_test.go::TestReleaseFenceCleanupStopsOnALostLease",
+    "internal/app/release_fence_test.go::TestReleaseFenceCompletesALeftRecordForTheCurrentSpec",
+    "internal/app/release_fence_test.go::TestReleaseFenceDrainsAgainAfterACutShortRestore",
+    "internal/app/release_fence_test.go::TestReleaseFenceDroppedReturnsLeftBackends",
+    "internal/app/release_fence_test.go::TestReleaseFenceDroppedReturnsWithoutWaitingAndClearsMarks",
+    "internal/app/release_fence_test.go::TestReleaseFenceFencesABackupBackend",
+    "internal/app/release_fence_test.go::TestReleaseFenceFinishesAPartWayFence",
+    "internal/app/release_fence_test.go::TestReleaseFenceFollowsReplicasTheReconcilerMoves",
+    "internal/app/release_fence_test.go::TestReleaseFenceKeepsABackendsWeight",
+    "internal/app/release_fence_test.go::TestReleaseFenceKeepsTheLastHealthyBackend"
+  ],
+  "counts": {
+    "allocated_originals": 20,
+    "integration": 12,
+    "unit": 6,
+    "mixed": 2,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all twenty complete current root declarations and whole assertions, following connected actual fixture, production, client, and store calls before metadata verification.",
+    "Verified activated exact other_unadjudicated[440:460) allocation order and literal original IDs, survival original/current names, kind, inventory states and hashes.",
+    "Verified all forty baseline/current raw declarations from explicit supplied bounds, function names, closing braces, SHA256 and current declaration text; hash excludes following LF.",
+    "Verified all twenty whole assertion body bounds, text and source blobs, and all forty-two explicit connected source excerpt bounds, exact text and blobs.",
+    "Verified all thirty commit:path source-file records against pinned Git mode/blob, SHA256 and byte length; every root and connected source has a file pin.",
+    "Metadata-only verification completed 862 checks with zero errors; source packet and checksum exact SHA256, input hashes, canonical commit/tree, counts, per-root limits and accounting restrictions passed.",
+    "sha256sum -c SHA256SUMS passed for classification.json and README.md; files0444 and source directory0555 verified."
+  ],
+  "source_judgments": [
+    "WAN roots use synthetic Static.Handler, synthetic observations/time/reconnect and an in-memory recorder; Atlas root reads local supplied data. Unit categories agree.",
+    "Registry and fence fixture paths directly start upstream NATS server and loopback TCP clients. Actual authority/globalcontrol streams, heartbeats and JetStream KV fence records materially support integration assertions.",
+    "ContextQuorum calls local takeOut directly. ContextLocks combines local lock cancellation with persisted saved/restored fence record assertions; CleanupLostLease combines pre-I/O deleteGuarded refusal with actual KV sweep/readback. Unit/mixed distinctions agree.",
+    "Load root reaches actual delivery artifact/object/admission/consumer/status stores and loopback HTTP, while readiness, lease, provider, host cell, canary and routing remain modeled. Integration does not imply live TerraBase/OCI qualification.",
+    "No source-visible later assertion blocker found in assigned roots after following the actual writer/planner and fixture paths. The production migrated regionalDeliveryPlanner conflict from another allocation is not reached by the load fixture planner."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "corrections_requested": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "runtime_receipts_reviewed": false,
+  "execution_performed": false,
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "canonical_ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false,
+    "source_candidate_only": true
+  },
+  "qualification_limits": [
+    "Acceptance applies only to the exact frozen source packet and source categories; no runtime pass/fail assertion, ledger promotion, deletion, retirement or global completion credit.",
+    "Singleton upstream broker/real local persistence does not establish distributed quorum/failover or live OCI/TerraBase/ts-auth/Vault qualification. Modeled effects remain modeled.",
+    "No repository/source edits, Go/build/test/lint/format/benchmark/helper/framework/scanner execution, resource/process probes, locks/privilege/cloud/signing/crypto/TerraBase execution or downloads."
+  ]
+}

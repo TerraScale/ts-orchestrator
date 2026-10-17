@@ -1,0 +1,98 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/peer_40_60",
+  "author": "/root/classification_100_dispatch/peer_60_80",
+  "disposition": "ACCEPTED_SOURCE_CLASSIFICATION_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-460-480-accepted-candidate-87hogm38/classification.json",
+    "sha256": "2c9c06ae6fe819cae9511ff7ca856408acefad9bb395a70ebe728415e2448241",
+    "checksum_path": "/tmp/ts-source-classification-460-480-accepted-candidate-87hogm38/SHA256SUMS",
+    "checksum_sha256": "bb7b52fa4ac839f0ca45cab6ca2868383ad752169c919f1678d5cb156aabf903"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "range": [
+      460,
+      480
+    ],
+    "path": "/tmp/ts-root800-source-dispatch-58wrSDrA/allocation-and-exclusions.json",
+    "sha256": "c9407bbf548f26e874996a930f6fafe9bf01c825bc495e4b1e2c46eb7cf5659e"
+  },
+  "root_ids": [
+    "internal/app/release_fence_test.go::TestReleaseFenceLeavesAFailedNodeFencedAndANewLeaderReturnsIt",
+    "internal/app/release_fence_test.go::TestReleaseFenceLeavesTerraBaseToSeats",
+    "internal/app/release_fence_test.go::TestReleaseFenceNeedsAnotherHealthyNode",
+    "internal/app/release_fence_test.go::TestReleaseFencePrepareFailureIsRetried",
+    "internal/app/release_fence_test.go::TestReleaseFenceRefusesThePublicLBSet",
+    "internal/app/release_fence_test.go::TestReleaseFenceRestartsOneFencedNodeAtATime",
+    "internal/app/release_fence_test.go::TestReleaseFenceRestoresTheRecordedLoadBalancer",
+    "internal/app/release_fence_test.go::TestReleaseFenceResumesADrainedBackendOnlyBesideAnAlternative",
+    "internal/app/release_fence_test.go::TestReleaseFenceReturnsANodeAFailedReleaseLeft",
+    "internal/app/release_fence_test.go::TestReleaseFenceReturnsAWithdrawnNode",
+    "internal/app/release_fence_test.go::TestReleaseFenceRollsBackTheFencedNodeFirst",
+    "internal/app/release_fence_test.go::TestReleaseFenceStopsOnALostLease",
+    "internal/app/release_fence_test.go::TestReleaseFenceSweepsOlderReleases",
+    "internal/app/release_fence_test.go::TestReleaseFenceWithoutASpecRestartsEveryNode",
+    "internal/app/rollout_channel_abandonment_test.go::TestReleaseChannelPromotesFreshSignedRunAfterAbandonedReservation",
+    "internal/app/rollout_channel_e2e_test.go::TestReleaseChannelRollsCIReleasesOutRegionByRegion",
+    "internal/app/rollout_channel_freshness_test.go::TestReleaseChannelInventoryHeartbeat",
+    "internal/app/rollout_channel_freshness_test.go::TestReleaseChannelRefreshesPinsWithoutExecutorTicks",
+    "internal/app/rollout_channel_sequence_integration_test.go::TestDirectChannelPublicationRetainsSignerOrderingAcrossRollback",
+    "internal/app/rollout_channel_test.go::TestReleaseChannelBridgeCarriesCIsChannelInAndTheReportOut"
+  ],
+  "counts": {
+    "integration": 14,
+    "unit": 3,
+    "mixed": 3,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all twenty full roots and followed actual fixture, production, protocol-client, store, signer, object-client and release-root paths. Embedded natscell clients use InProcessServer; fenceBroker uses direct upstream server plus loopback TCP.",
+    "Compared all twenty literal IDs with the activated allocation, frozen accounting slice and survival mappings; checked exclusion disjointness and canonical raw body drift.",
+    "Recomputed forty baseline/current raw declaration hashes from explicit bounds, twenty complete assertion interiors and seventy-eight connected span byte strings; verified all thirty-two file blob/mode/SHA256/byte pins and all input pins.",
+    "Verified root categories/counts, qualification limits and retained safety obligations; compared fresh correction deltas with immutable predecessor packets.",
+    "Verified final packet hash, SHA256SUMS entries/hash, 0444 file modes and 0555 directory mode."
+  ],
+  "resolved_findings": [
+    {
+      "id": "PEER460-CATEGORY",
+      "roots": [
+        "internal/app/release_fence_test.go::TestReleaseFenceLeavesAFailedNodeFencedAndANewLeaderReturnsIt",
+        "internal/app/release_fence_test.go::TestReleaseFenceRestartsOneFencedNodeAtATime",
+        "internal/app/release_fence_test.go::TestReleaseFenceReturnsANodeAFailedReleaseLeft",
+        "internal/app/release_fence_test.go::TestReleaseFenceReturnsAWithdrawnNode",
+        "internal/app/rollout_channel_abandonment_test.go::TestReleaseChannelPromotesFreshSignedRunAfterAbandonedReservation",
+        "internal/app/rollout_channel_e2e_test.go::TestReleaseChannelRollsCIReleasesOutRegionByRegion",
+        "internal/app/rollout_channel_test.go::TestReleaseChannelBridgeCarriesCIsChannelInAndTheReportOut"
+      ],
+      "resolution": "Seven mixed labels corrected to integration: synthetic observations are materially supported by the same durable production workflow; they are not independent local-only invocations."
+    },
+    {
+      "id": "PEER460-NOSPEC-PATH",
+      "root_id": "internal/app/release_fence_test.go::TestReleaseFenceWithoutASpecRestartsEveryNode",
+      "resolution": "Mixed rationale now distinguishes the independent prepare(nil-spec) local no-op from actual gate/reconcile/missing-marker reads. sequence does not reach its later spec-nil branch."
+    }
+  ],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no Go, build, tests, project helpers, scanners, runtime/process probes, cloud, privilege, crypto/signing operations or downloads executed.",
+    "Source classification only: no runtime pass/fail, production qualification, source adoption, ledger/count promotion, deletion, retirement or global completion credit.",
+    "LB/host/lease/OCI ObjectClient and process health/restarts remain modeled where named. Real NATS/JetStream and release-root filesystem boundaries support only the asserted source targets.",
+    "The named new-leader failed-node test reuses its existing fence/lease object; it does not demonstrate a new authority leader or process. The no-spec root asserts gate permission, not actual restarts of every node.",
+    "Signer fixture retains and signs synthetic gate evidence; it grants no genuine production qualification. All safety, negative, ordering, retry and trust obligations remain retained."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "source_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "count_promotion": false,
+    "global_completion": false
+  }
+}

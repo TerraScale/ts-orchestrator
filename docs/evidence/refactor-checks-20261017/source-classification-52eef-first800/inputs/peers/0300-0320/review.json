@@ -1,0 +1,244 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1080_1100",
+  "author": "/root/classification_100_dispatch/batch_00_20",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-300-320-cezutvju/classification.json",
+    "sha256": "f03f9e1435e66305ecd5ee8701b45251850060b877bfb52c18cb20f4b2fb5717",
+    "checksum_path": "/tmp/ts-source-classification-300-320-cezutvju/SHA256SUMS",
+    "checksum_sha256": "234b775c9cc5d030fd007f7e4351cb1f57567bcb74435e7133b94a0dc421f089"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "literal_range": [
+    300,
+    320
+  ],
+  "root_ids": [
+    "internal/app/netbird_journal_retry_test.go::TestNetBirdJournalRetryRejectsChangedOriginalPayload",
+    "internal/app/netbird_journal_retry_test.go::TestNetBirdJournalRetryRemainsBoundedAndFenced",
+    "internal/app/netbird_journal_retry_test.go::TestNetBirdRecoverySaveSurvivesUnchangedIssuanceDuringHealthAndReturn",
+    "internal/app/netbird_journal_test.go::TestNetBirdExchangeRejectsConcurrentRollbackBeforeCommandIssuance",
+    "internal/app/netbird_journal_test.go::TestNetBirdNewTransactionDropsPreviousNodeCommand",
+    "internal/app/netbird_journal_test.go::TestNetBirdRollbackCannotResignPreviousConfirmation",
+    "internal/app/netbird_journal_test.go::TestNetBirdStaleTickCannotOverwriteJournalOrCommand",
+    "internal/app/netbird_listener_test.go::TestNetBirdMeshListenerRetriesRebindsAndCloses",
+    "internal/app/netbird_mesh_health_test.go::TestNetBirdMeshConfirmationRequiresSelectedIPTraffic",
+    "internal/app/netbird_peers_test.go::TestNetBirdLeaderSkipsMissingPeerAndChecksAlternative",
+    "internal/app/netbird_peers_test.go::TestNetBirdRemoteControllersBootstrapBeforeLeader",
+    "internal/app/netbird_peers_test.go::TestNetBirdUnchangedLeaderAllowsFirstRemoteBootstrapWithoutSkippingMeshProbes",
+    "internal/app/netbird_recovery_test.go::TestNetBirdLeaderHoldsBeforeDrainWithoutFreshRecoveryProof",
+    "internal/app/netbird_recovery_test.go::TestNetBirdLeaderRecoveryRequiresDistinctControllerProof",
+    "internal/app/netbird_recovery_test.go::TestNetBirdOCIRecoveryProofSurvivesReleaseFenceRemoval",
+    "internal/app/netbird_recovery_test.go::TestNetBirdRecoveryRejectsUnsafeRequestsWithoutDialing",
+    "internal/app/netbird_recovery_test.go::TestNetBirdRecoveryRejectsUnsignedReplayedWrongNodeAndExpiredReplies",
+    "internal/app/netbird_removal_test.go::TestNetBirdRemovalKeepsFailedRollbackExchangeUntilFenceReturns",
+    "internal/app/netbird_removal_test.go::TestNetBirdRemovalWithoutAnOutstandingRecordStaysDisabled",
+    "internal/app/netbird_return_test.go::TestNetBirdBootstrapReturnRetainsWorkloadAndBackendHealthGates"
+  ],
+  "counts": {
+    "integration": 6,
+    "unit": 11,
+    "mixed": 3,
+    "unresolved": 0
+  },
+  "decision": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+  "checks_performed": [
+    "Independent read of all20 full canonical roots and actual connected fixture/production calls.",
+    "Exact allocation literal root identity/order/exclusion scope; all20 survival mappings independently matched.",
+    "All40 original/current raw function declarations checked from literal packet bounds against baseline/canonical Git objects, hashes and raw current text; body-exact survival state verified.",
+    "All37 file pins independently checked for commit/path/blob/mode/SHA256/bytes; all assertion and connected-span texts matched exact canonical bytes.",
+    "Semantic assertion-to-target review confirmed fake journal versus actual status/fence JetStream separation, direct upstream loopback brokers rather than natscell.Start, DNS-only narrow boundary, local-only listener callback observation, conditional and security/negative obligations.",
+    "Packet and checksum hashes matched handoff; immutable files0444/directory0555 independently checked using metadata."
+  ],
+  "per_root_independent_assessment": [
+    {
+      "root_id": "internal/app/netbird_journal_retry_test.go::TestNetBirdJournalRetryRejectsChangedOriginalPayload",
+      "category": "unit",
+      "assessment": "300: local fake journal CAS payload mutation and caller-snapshot preservation; unit."
+    },
+    {
+      "root_id": "internal/app/netbird_journal_retry_test.go::TestNetBirdJournalRetryRemainsBoundedAndFenced",
+      "category": "unit",
+      "assessment": "301: conflict/fenced injection and exact attempt bound in fake lease; unit."
+    },
+    {
+      "root_id": "internal/app/netbird_journal_retry_test.go::TestNetBirdRecoverySaveSurvivesUnchangedIssuanceDuringHealthAndReturn",
+      "category": "unit",
+      "assessment": "302: Exchange status Put is incidental to asserted fake-journal revision recovery; Status callback never reads KV; unit."
+    },
+    {
+      "root_id": "internal/app/netbird_journal_test.go::TestNetBirdExchangeRejectsConcurrentRollbackBeforeCommandIssuance",
+      "category": "unit",
+      "assessment": "303: fake synchronous beforeCommit race rejects obsolete issue; no nonzero ObservedAt status I/O; unit."
+    },
+    {
+      "root_id": "internal/app/netbird_journal_test.go::TestNetBirdNewTransactionDropsPreviousNodeCommand",
+      "category": "unit",
+      "assessment": "304: fake journal new transaction drops prior command; unit."
+    },
+    {
+      "root_id": "internal/app/netbird_journal_test.go::TestNetBirdRollbackCannotResignPreviousConfirmation",
+      "category": "unit",
+      "assessment": "305: phase/command guards and local signed step, no protocol consumer or store readback; unit."
+    },
+    {
+      "root_id": "internal/app/netbird_journal_test.go::TestNetBirdStaleTickCannotOverwriteJournalOrCommand",
+      "category": "unit",
+      "assessment": "306: fake stale-snapshot commits/readback only; unit."
+    },
+    {
+      "root_id": "internal/app/netbird_listener_test.go::TestNetBirdMeshListenerRetriesRebindsAndCloses",
+      "category": "unit",
+      "assessment": "307: loopback sockets occur inside injected callback; only callback event ordering observed, actual closure result/usability unasserted; unit."
+    },
+    {
+      "root_id": "internal/app/netbird_mesh_health_test.go::TestNetBirdMeshConfirmationRequiresSelectedIPTraffic",
+      "category": "integration",
+      "assessment": "308: successful real UDP DNS exchange is necessary to reach asserted no-active-service-endpoint error; narrow integration without service traffic."
+    },
+    {
+      "root_id": "internal/app/netbird_peers_test.go::TestNetBirdLeaderSkipsMissingPeerAndChecksAlternative",
+      "category": "integration",
+      "assessment": "309: status Put/Get round trip chooses missing skip and installed alternative; integration limited to real KV."
+    },
+    {
+      "root_id": "internal/app/netbird_peers_test.go::TestNetBirdRemoteControllersBootstrapBeforeLeader",
+      "category": "unit",
+      "assessment": "310: local orderNodes sorting with fake node predicate; shared NATS fixture incidental; unit."
+    },
+    {
+      "root_id": "internal/app/netbird_peers_test.go::TestNetBirdUnchangedLeaderAllowsFirstRemoteBootstrapWithoutSkippingMeshProbes",
+      "category": "mixed",
+      "assessment": "311: real status KV supports peer hold; separate canceled-context DNS failure asserts local guard; mixed."
+    },
+    {
+      "root_id": "internal/app/netbird_recovery_test.go::TestNetBirdLeaderHoldsBeforeDrainWithoutFreshRecoveryProof",
+      "category": "integration",
+      "assessment": "312: actual staged-object metadata/chunks and KV read reach actual NATS malformed recovery response then empty fence-key readback; integration."
+    },
+    {
+      "root_id": "internal/app/netbird_recovery_test.go::TestNetBirdLeaderRecoveryRequiresDistinctControllerProof",
+      "category": "integration",
+      "assessment": "313: actual signed recovery Request/Respond through loopback broker; peer probe injected and collector drops incompatible envelope; integration."
+    },
+    {
+      "root_id": "internal/app/netbird_recovery_test.go::TestNetBirdOCIRecoveryProofSurvivesReleaseFenceRemoval",
+      "category": "integration",
+      "assessment": "314: same actual NATS recovery exchange persists after synthetic ReleaseFence removal; integration."
+    },
+    {
+      "root_id": "internal/app/netbird_recovery_test.go::TestNetBirdRecoveryRejectsUnsafeRequestsWithoutDialing",
+      "category": "integration",
+      "assessment": "315: signed unsafe/unadopted target request traverses actual receiver and times out with zero injected probe calls; integration."
+    },
+    {
+      "root_id": "internal/app/netbird_recovery_test.go::TestNetBirdRecoveryRejectsUnsignedReplayedWrongNodeAndExpiredReplies",
+      "category": "unit",
+      "assessment": "316: direct verifyRecovery byte-vector table without requests; unit."
+    },
+    {
+      "root_id": "internal/app/netbird_removal_test.go::TestNetBirdRemovalKeepsFailedRollbackExchangeUntilFenceReturns",
+      "category": "mixed",
+      "assessment": "317: independent local envelope/fake journal blocks plus actual status/fence KV recovery/clear; mixed."
+    },
+    {
+      "root_id": "internal/app/netbird_removal_test.go::TestNetBirdRemovalWithoutAnOutstandingRecordStaysDisabled",
+      "category": "unit",
+      "assessment": "318: only fake journal target selection; allocated broker unused; unit."
+    },
+    {
+      "root_id": "internal/app/netbird_return_test.go::TestNetBirdBootstrapReturnRetainsWorkloadAndBackendHealthGates",
+      "category": "mixed",
+      "assessment": "319: failed-workload local guard plus actual fence persisted/restored/deleted by later recovery blocks; mixed."
+    }
+  ],
+  "independent_connected_evidence": [
+    {
+      "path": "internal/app/netbird_listener.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "function": "netbirdRollout.meshListenerLoop",
+      "line": 22,
+      "end_line": 64,
+      "git_blob": "97a4a711f909a7e8e44cb189ba5ae598b82fc85b",
+      "mode": "100644",
+      "file_sha256": "4ebcf04b4820345948219b065130297e7a41797a5852c889e6ef5e2c08e316ec",
+      "file_bytes": 1429,
+      "text": "func (n *netbirdRollout) meshListenerLoop(ctx context.Context, localAddress func() netip.Addr, listen func(netip.Addr) (net.Listener, error), interval time.Duration) {\n\tvar listener net.Listener\n\tvar bound netip.Addr\n\tdefer func() {\n\t\tif listener != nil {\n\t\t\t_ = listener.Close()\n\t\t}\n\t}()\n\tticker := time.NewTicker(interval)\n\tdefer ticker.Stop()\n\tlast := \"\"\n\tfor ctx.Err() == nil {\n\t\taddress := localAddress()\n\t\tvar err error\n\t\tif address != bound {\n\t\t\tif listener != nil {\n\t\t\t\t_ = listener.Close()\n\t\t\t}\n\t\t\tlistener, bound = nil, netip.Addr{}\n\t\t}\n\t\tif address.IsValid() && listener == nil {\n\t\t\tlistener, err = listen(address)\n\t\t\tif err == nil {\n\t\t\t\tbound = address\n\t\t\t}\n\t\t}\n\t\tif errors.Is(err, natscell.ErrBridgeClosed) {\n\t\t\treturn\n\t\t}\n\t\tif err != nil && err.Error() != last {\n\t\t\tslog.WarnContext(ctx, \"NetBird NATS listener held; retrying\", \"error\", err)\n\t\t}\n\t\tlast = \"\"\n\t\tif err != nil {\n\t\t\tlast = err.Error()\n\t\t}\n\t\tselect {\n\t\tcase <-ctx.Done():\n\t\t\treturn\n\t\tcase <-ticker.C:\n\t\t}\n\t}\n}\n"
+    },
+    {
+      "path": "internal/app/node_ops_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "function": "newNodeOpsTest",
+      "line": 168,
+      "end_line": 183,
+      "git_blob": "47607ee246716a69bca6eb487fe85ba948ef15c9",
+      "mode": "100644",
+      "file_sha256": "fa48c2c1183ac2aa372bdc5b3d6248d92605828fc8dbc7298985e7ccedce5c02",
+      "file_bytes": 30778,
+      "text": "func newNodeOpsTest(t *testing.T) (*nodeOps, *fenceLB, *nodeInstances) {\n\tt.Helper()\n\tfence, _, balancer, _, _ := newFenceTest(t)\n\t// Every node serves in both sets; the default quorum guard keeps two.\n\tbalancer.sets[\"ts-auth\"][0] = lb.Backend{IP: fenceAddresses[\"ctl-1\"], Port: 8080}\n\tspec := &cellspec.ReleaseFence{LoadBalancerID: \"ocid1.loadbalancer.oc1..x\",\n\t\tBackendSets: []cellspec.FencedSet{{Name: \"terrabase\", Port: 9465}, {Name: \"ts-auth\", Port: 8080}}}\n\tfence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return spec, fenceAddresses }\n\thosts := &nodeHosts{sessions: map[string]string{\"ctl-1\": \"s1\", \"ctl-2\": \"s2\", \"ctl-3\": \"s3\"}, down: map[string]bool{},\n\t\tstates: map[string]string{}, withdrawn: map[string]bool{}}\n\tfence.hosts = hosts\n\tinstances := &nodeInstances{hosts: hosts, lb: balancer, t: t, shape: map[string][2]float32{}}\n\tops := newNodeOps(fence, func(context.Context) (nodeCompute, error) { return instances, nil }, nil)\n\tops.poll = time.Millisecond\n\treturn ops, balancer, instances\n}\n"
+    },
+    {
+      "path": "internal/app/netbird_rollout.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "function": "netbirdRollout.healthyMesh",
+      "line": 422,
+      "end_line": 531,
+      "git_blob": "741bb5a605abe40c19bd03ac193726dc7151923f",
+      "mode": "100644",
+      "file_sha256": "390e878f777539b96fe6f6da9cca2f9c72f6436c26c73b454fdae0448dc55450",
+      "file_bytes": 25810,
+      "text": "func (n *netbirdRollout) healthyMesh(ctx context.Context, node string, status network.Status, since time.Time, verifyLeaderPeer bool) error {\n\taddress, err := netip.ParseAddr(status.IP)\n\tif !status.Connected || err != nil || !netbirdClientRange.Contains(address) || !strings.HasSuffix(status.DNS, \".nb.ts.internal\") || len(status.DNS) > 255 {\n\t\treturn errors.New(\"NetBird management, signal, mesh IP and peer DNS name are not ready\")\n\t}\n\tctx, cancel := context.WithTimeout(ctx, 8*time.Second)\n\tdefer cancel()\n\t// The leader's own mesh address is locally routed. Prove a remote peer\n\t// too, so an isolated leader cannot confirm itself using loopback traffic.\n\tif verifyLeaderPeer && node == n.services.controllerNode(n.cell, n.cfg.NATS.Instance) {\n\t\t_, addresses := n.addresses()\n\t\tpeers := make([]string, 0, len(addresses))\n\t\tfor peer := range addresses {\n\t\t\tif peer != node && n.nodes != nil && n.nodes.controllers != nil && n.nodes.controllers(peer) {\n\t\t\t\tpeers = append(peers, peer)\n\t\t\t}\n\t\t}\n\t\tslices.Sort(peers)\n\t\tif len(peers) == 0 {\n\t\t\treturn errors.New(\"NetBird leader has no remote controller peer to verify\")\n\t\t}\n\t\tif err := n.healthyRemotePeer(ctx, peers); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n\tanswers, err := net.DefaultResolver.LookupNetIP(ctx, \"ip4\", status.DNS)\n\tif err != nil || !slices.Contains(answers, address) {\n\t\treturn errors.New(\"NetBird DNS answer does not contain the peer's mesh IP\")\n\t}\n\tif reason, err := nodeRolesServing(ctx, n.fence.hosts, node, since); err != nil || reason != \"\" {\n\t\treturn fmt.Errorf(\"node roles are not ready: %s%v\", reason, errSuffix(err))\n\t}\n\t_, addresses := n.addresses()\n\tstatuses, err := n.fence.hosts.ListHosts(ctx)\n\tif err != nil {\n\t\treturn err\n\t}\n\tfound, probed := false, false\n\tfor _, entry := range statuses {\n\t\tif entry.Registration.Node != node {\n\t\t\tcontinue\n\t\t}\n\t\tfound = true\n\t\tfor _, role := range entry.Registration.Roles {\n\t\t\tdesired, err := n.fence.hosts.ListDesired(ctx, role)\n\t\t\tif err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tindex := slices.IndexFunc(desired, func(d host.Desired) bool { return d.Node == node && !d.Withdrawn })\n\t\t\tif index < 0 {\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\tswitch role {\n\t\t\tcase tsauth.Role:\n\t\t\t\tif err := meshReady(ctx, status.IP, tsauth.Port, nil); err != nil {\n\t\t\t\t\treturn fmt.Errorf(\"ts-auth over NetBird: %w\", err)\n\t\t\t\t}\n\t\t\t\tprobed = true\n\t\t\tcase terrabase.Role:\n\t\t\t\tprofile, err := terrabase.ParseProfile(desired[index].Env)\n\t\t\t\tif err != nil {\n\t\t\t\t\treturn err\n\t\t\t\t}\n\t\t\t\tpem, err := os.ReadFile(n.cfg.Controller.TerraBaseCACertFile)\n\t\t\t\tif err != nil {\n\t\t\t\t\treturn err\n\t\t\t\t}\n\t\t\t\troots := x509.NewCertPool()\n\t\t\t\tif !roots.AppendCertsFromPEM(pem) {\n\t\t\t\t\treturn errors.New(\"invalid TerraBase CA\")\n\t\t\t\t}\n\t\t\t\tif err := meshReady(ctx, status.IP, profile.ClientPort, &tls.Config{RootCAs: roots, ServerName: addresses[node], MinVersion: tls.VersionTLS12}); err != nil {\n\t\t\t\t\treturn fmt.Errorf(\"TerraBase over NetBird: %w\", err)\n\t\t\t\t}\n\t\t\t\tprobed = true\n\t\t\t}\n\t\t}\n\t}\n\tif !found {\n\t\treturn errors.New(\"node has no registered host session\")\n\t}\n\tif n.nodes != nil && n.nodes.controllers != nil && n.nodes.controllers(node) {\n\t\toptions := []nats.Option{nats.Timeout(3 * time.Second), nats.NoReconnect(), nats.TLSHandshakeFirst(),\n\t\t\tnats.RootCAs(n.cfg.NATS.TLS.CAFile), nats.ClientCert(n.cfg.NATS.TLS.CertFile, n.cfg.NATS.TLS.KeyFile),\n\t\t\tnats.SetCustomDialer(meshDialer{ctx: ctx, address: net.JoinHostPort(status.IP, \"4222\")}),\n\t\t\tnats.ErrorHandler(natscell.ErrorHandler)}\n\t\tif n.cfg.NATS.CredentialsFile != \"\" {\n\t\t\toptions = append(options, nats.UserCredentials(n.cfg.NATS.CredentialsFile))\n\t\t} else {\n\t\t\toption, err := nats.NkeyOptionFromSeed(n.cfg.NATS.NKeySeedFile)\n\t\t\tif err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\toptions = append(options, option)\n\t\t}\n\t\tconn, err := nats.Connect(\"tls://\"+net.JoinHostPort(addresses[node], \"4222\"), options...)\n\t\tif err != nil {\n\t\t\treturn errors.New(\"authenticated NATS over NetBird is unavailable\")\n\t\t}\n\t\tdefer conn.Close()\n\t\tif err := conn.FlushWithContext(ctx); err != nil {\n\t\t\treturn err\n\t\t}\n\t\tprobed = true\n\t}\n\tif !probed {\n\t\treturn errors.New(\"NetBird peer has no active service endpoint to verify mesh traffic\")\n\t}\n\treturn nil\n}\n"
+    },
+    {
+      "path": "internal/app/netbird_recovery.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "function": "netbirdRollout.serveRecovery",
+      "line": 107,
+      "end_line": 147,
+      "git_blob": "cd3b2e077be3fa6ba6c18cc6fe1016e43c823e52",
+      "mode": "100644",
+      "file_sha256": "8a92178ce7872ec7abb40edc4e597e8ec0330b68b868091943465f8bd2bc09e5",
+      "file_bytes": 9142,
+      "text": "func (n *netbirdRollout) serveRecovery(ctx context.Context, probe func(context.Context, string) error) (*nats.Subscription, error) {\n\tif n.conn == nil || len(n.key) != ed25519.PrivateKeySize {\n\t\treturn nil, errors.New(\"NetBird recovery responder needs its controller connection and signing key\")\n\t}\n\treturn n.conn.Subscribe(netbirdRecoverySubject(n.cell, n.cfg.NATS.Instance), func(message *nats.Msg) {\n\t\tif message.Reply == \"\" || ctx.Err() != nil {\n\t\t\treturn\n\t\t}\n\t\tvar envelope protocol.Envelope\n\t\tvar request netbirdRecoveryRequest\n\t\tif protocol.DecodeStrict(message.Data, &envelope, netbirdRecoveryMaxBytes) != nil ||\n\t\t\tprotocol.DecodeStrict(envelope.Payload, &request, netbirdRecoveryMaxBytes) != nil || request.Responder != n.cfg.NATS.Instance {\n\t\t\treturn\n\t\t}\n\t\tscope, err := n.recoveryScope(request, netbirdRecoveryRequestKind, request.Requester, envelope.OperationID, envelope.Epoch)\n\t\tif err != nil || protocol.VerifyEnvelope(envelope, scope, n.key.Public().(ed25519.PublicKey), time.Now(),\n\t\t\tprotocol.VerifyPolicy{MaxLifetime: netbirdRecoveryLifetime, ClockSkew: time.Second}) != nil {\n\t\t\treturn\n\t\t}\n\t\tprobeCtx, cancel := context.WithDeadline(ctx, envelope.ExpiresAt)\n\t\tdefer cancel()\n\t\tconnected := probe(probeCtx, request.Address) == nil\n\t\tif probeCtx.Err() != nil {\n\t\t\treturn\n\t\t}\n\t\tpayload, err := protocol.EncodeJSON(netbirdRecoveryProof{Request: request, Connected: connected})\n\t\tif err != nil {\n\t\t\treturn\n\t\t}\n\t\tscope.Kind, scope.Actor = netbirdRecoveryProofKind, n.cfg.NATS.Instance\n\t\tproof, err := protocol.SignEnvelope(payload, scope, time.Now(), envelope.ExpiresAt, n.key)\n\t\tif err != nil {\n\t\t\treturn\n\t\t}\n\t\tif wire, err := protocol.EncodeJSON(proof); err == nil {\n\t\t\t// Production credentials grant exactly one response for five\n\t\t\t// seconds after this allowed subscription receives the request.\n\t\t\t_ = message.Respond(wire)\n\t\t}\n\t})\n}\n"
+    },
+    {
+      "path": "internal/app/netbird_recovery.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "function": "netbirdRollout.recoverySSH",
+      "line": 174,
+      "end_line": 223,
+      "git_blob": "cd3b2e077be3fa6ba6c18cc6fe1016e43c823e52",
+      "mode": "100644",
+      "file_sha256": "8a92178ce7872ec7abb40edc4e597e8ec0330b68b868091943465f8bd2bc09e5",
+      "file_bytes": 9142,
+      "text": "func (n *netbirdRollout) recoverySSH(ctx context.Context, node, address string) error {\n\tif node != n.services.controllerNode(n.cell, n.cfg.NATS.Instance) {\n\t\treturn netbirdSSH(ctx, address)\n\t}\n\t// A self-dial follows the local route and proves no remote OCI ingress.\n\t// Require another actual controller to read the target's SSH banner.\n\tif n.conn == nil || len(n.key) != ed25519.PrivateKeySize || n.cfg.NATS.Embedded == nil {\n\t\treturn errors.New(\"NetBird leader requires a fresh remote controller OCI SSH recovery proof\")\n\t}\n\tctx, cancel := context.WithTimeout(ctx, 8*time.Second)\n\tdefer cancel()\n\tepoch, err := n.fence.leading(ctx)\n\tif err != nil {\n\t\treturn err\n\t}\n\tfor _, slot := range n.cfg.NATS.Embedded.BrokerIDs {\n\t\tif slot == n.cfg.NATS.Instance {\n\t\t\tcontinue\n\t\t}\n\t\trequest := netbirdRecoveryRequest{Requester: n.cfg.NATS.Instance, Responder: slot,\n\t\t\tAuthority: n.fence.fencer.Current().CandidateID, Node: node, Address: address}\n\t\tscope, err := n.recoveryScope(request, netbirdRecoveryRequestKind, request.Requester, entityid.New(), epoch)\n\t\tif err != nil {\n\t\t\tcontinue\n\t\t}\n\t\tpayload, err := protocol.EncodeJSON(request)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tnow := time.Now()\n\t\tenvelope, err := protocol.SignEnvelope(payload, scope, now, now.Add(netbirdRecoveryLifetime), n.key)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\twire, err := protocol.EncodeJSON(envelope)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tattempt, stop := context.WithTimeout(ctx, 4*time.Second)\n\t\treply, err := n.conn.RequestWithContext(attempt, netbirdRecoverySubject(n.cell, slot), wire)\n\t\tstop()\n\t\tif err == nil && n.verifyRecovery(reply.Data, request, scope) == nil {\n\t\t\treturn n.fence.fencer.Guard(ctx, epoch)\n\t\t}\n\t\tif ctx.Err() != nil {\n\t\t\tbreak\n\t\t}\n\t}\n\treturn fmt.Errorf(\"NetBird leader %s has no fresh remote controller OCI SSH recovery proof; no node will be drained\", node)\n}\n"
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "source_blockers": [],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No compilation, test pass or runtime qualification claimed.",
+    "No source/repository/ledger mutation, Go/build/test/formatter/lint/benchmark/helper execution, process/resource probes, cloud, privilege, signing/crypto, TerraBase execution or download occurred. Only canonical file/Git reads and metadata hashing/serialization.",
+    "fenceLease journal Read/Commit and authority are synthetic test memory; real fenceKV is a separate JetStream store. Status or fence records qualify only where the target assertion materially reads/writes that actual store.",
+    "Recovery fixtures directly call upstream server.NewServer and loopback nats.Connect with username/password/controller grants; they do not call natscell.Start, in-process transport, mTLS/JWT or actual production authority leases. Recovery SSH probe callback is injected; no actual OCI/SSH access or cloud action.",
+    "Mesh health fixture proves successful local UDP DNS lookup before a structural endpoint hold; it proves no service traffic on selected IP, tunnel, NetBird daemon or host health. Listener callback-order root asserts no actual socket usability/closure.",
+    "Removal/return use real local status/fence KV with fake journal authority, host reports, healthy callbacks and load-balancer effects. No real workload, backend health, OCI or failover durability inferred.",
+    "Artifact preflight uses tiny test ELF bytes staged in local object store and verified by production readers. No vendor download, real NetBird binary execution or image qualification. Pin image-input fixture is input only.",
+    "All20 original/current raw hashes match historical mapping exactly; no drift. All safety/negative/trust/signature/no-dial/fencing/order/retry/retention obligations remain. No ledger/count/deletion/retirement/qualification/completion promotion."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "ledger_mutated": false,
+    "repository_mutated": false,
+    "deletion_credit": 0,
+    "retirement_credit": 0,
+    "count_promotion": 0,
+    "runtime_qualification_credit": 0,
+    "global_completion": false
+  }
+}

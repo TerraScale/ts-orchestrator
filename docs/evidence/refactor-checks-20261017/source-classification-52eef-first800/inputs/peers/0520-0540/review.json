@@ -1,0 +1,216 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_140_160",
+  "author": "/root/classification_100_dispatch/batch_160_180",
+  "decision": "ACCEPTED_SOURCE_ONLY",
+  "reviewed_packet": {
+    "path": "/tmp/ts-source-classification-520-540-3ywbsxl7/classification.json",
+    "sha256": "6f437674f8e0fa5c626125961196e44977f1da745f95976da4530a37030759c3",
+    "readme_sha256": "4c30adedd6b4576e2089e0902bbf5cda3ccf723754ee7d725d410590f43ccf54",
+    "checksum_path": "/tmp/ts-source-classification-520-540-3ywbsxl7/SHA256SUMS",
+    "checksum_sha256": "ed1376ab57a32d58f38d19231830746fd75fb0d19c083836847f69c96f254cb9"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-source-dispatch-58wrSDrA/allocation-and-exclusions.json",
+    "sha256": "c9407bbf548f26e874996a930f6fafe9bf01c825bc495e4b1e2c46eb7cf5659e",
+    "range": [
+      520,
+      540
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_140_160"
+  },
+  "input_pins": {
+    "/tmp/ts-root800-source-dispatch-58wrSDrA/allocation-and-exclusions.json": "c9407bbf548f26e874996a930f6fafe9bf01c825bc495e4b1e2c46eb7cf5659e",
+    "/tmp/ts-root800-source-dispatch-58wrSDrA/PEER-PROTOCOL.md": "f0985a2f3dd927f859422148d1e89d5247a4213b8ee693475c7efb7d24d653e5",
+    "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+    "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70"
+  },
+  "accounting_input": {
+    "path": "docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json",
+    "sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513"
+  },
+  "root_ids": [
+    "internal/app/service_releases_inventory_test.go::TestServiceReleaseInventoryReadErrorsDoNotPublish",
+    "internal/app/service_releases_inventory_test.go::TestServiceReleaseInventoryRefreshWaitsForCompleteInventory",
+    "internal/app/service_releases_inventory_test.go::TestServiceReleaseInventoryRemovedClaimPreservesState",
+    "internal/app/service_releases_inventory_test.go::TestServiceReleaseInventoryRepairsInvalidStatus",
+    "internal/app/service_releases_inventory_test.go::TestServiceReleaseInventoryUnchangedRefresh",
+    "internal/app/service_releases_journal_test.go::TestNativeChannelFenceMarkFailureAfterSelectionRemainsRecoverable",
+    "internal/app/service_releases_journal_test.go::TestNativeChannelHandoffsSurviveNativeCASBeforeChannelCAS",
+    "internal/app/service_releases_journal_test.go::TestNativeFirstInstallExpiredSelectionSettlesWithoutPublishing",
+    "internal/app/service_releases_observation_test.go::TestServiceReleaseDefersToleratedFutureClaim",
+    "internal/app/service_releases_observation_test.go::TestServiceReleaseRefusesExpiredPendingAdmission",
+    "internal/app/service_releases_observation_test.go::TestServiceReleaseRefusesExpiredUnsubmittedClaim",
+    "internal/app/service_releases_observation_test.go::TestServiceReleaseRefusesExpiryDuringInitialAdmission",
+    "internal/app/service_releases_observation_test.go::TestServiceReleaseRejectsClaimBeyondClockSkew",
+    "internal/app/service_releases_pins_test.go::TestServiceReleasePinsCompletedPassRefresh",
+    "internal/app/service_releases_pins_test.go::TestServiceReleasePinsEmptySupportAndDeduplication",
+    "internal/app/service_releases_pins_test.go::TestServiceReleasePinsInvalidClaimPreservesState",
+    "internal/app/service_releases_pins_test.go::TestServiceReleasePinsRejectIncompleteReports",
+    "internal/app/service_releases_retained_test.go::TestServiceReleasePinsDeposedLeaderPreservesSubmittedIntent",
+    "internal/app/service_releases_retained_test.go::TestServiceReleasePinsRefusedClaimsDoNotAccumulate",
+    "internal/app/service_releases_retained_test.go::TestServiceReleasePinsUnprovenProfileRefusedBeforeSubmission"
+  ],
+  "counts": {
+    "mixed": 4,
+    "unit": 4,
+    "integration": 12,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 complete canonical root declarations and connected actual fixture/client/service/store paths; classify material assertion boundaries rather than fixture names.",
+    "Exact allocation order and literal original identities compared to activated allocation and accounting other_unadjudicated[520:540); all20 historical survival rows match.",
+    "All40 baseline/current raw declarations verified by explicit recorded bounds, full text, SHA256, Git blob and func-to-column-zero-close bounds excluding following LF. No canonical declaration drift from survival is present.",
+    "All30 canonical/baseline file pins verified for commit/path, Git blob, mode, SHA256 and byte length against Git.",
+    "All20 complete-root assertion spans and56 connected spans verified for exact inclusive line bounds/text/hash/blob. Evidence span text/hashes include following LF; declaration hashes exclude it.",
+    "All connected evidence references, category counts, source blocker arrays, per-root runtime/retirement/retained-obligation fields, input hashes, source tree and immutable packet manifest/modes checked."
+  ],
+  "verified_totals": {
+    "literal_roots": 20,
+    "historical_survival_rows": 20,
+    "file_pins": 30,
+    "baseline_current_declarations": 40,
+    "assertion_spans": 20,
+    "connected_spans": 56
+  },
+  "root_reviews": [
+    {
+      "allocation_index": 520,
+      "root_id": "internal/app/service_releases_inventory_test.go::TestServiceReleaseInventoryReadErrorsDoNotPublish",
+      "accepted_category": "mixed",
+      "independent_source_basis": "Closed actual NATS connection produces durable-read failure; independent callback/map read failures remain unit."
+    },
+    {
+      "allocation_index": 521,
+      "root_id": "internal/app/service_releases_inventory_test.go::TestServiceReleaseInventoryRefreshWaitsForCompleteInventory",
+      "accepted_category": "unit",
+      "independent_source_basis": "Synthetic WatchFiltered completion channels exercise local inventory completion handling."
+    },
+    {
+      "allocation_index": 522,
+      "root_id": "internal/app/service_releases_inventory_test.go::TestServiceReleaseInventoryRemovedClaimPreservesState",
+      "accepted_category": "integration",
+      "independent_source_basis": "Actual channel-state revision and known-bad KV inventory materially support preservation assertions; object source is fake."
+    },
+    {
+      "allocation_index": 523,
+      "root_id": "internal/app/service_releases_inventory_test.go::TestServiceReleaseInventoryRepairsInvalidStatus",
+      "accepted_category": "mixed",
+      "independent_source_basis": "Independent corrupt-JSON decode checks are local; actual durable state and known-bad inventory support report and preservation checks."
+    },
+    {
+      "allocation_index": 524,
+      "root_id": "internal/app/service_releases_inventory_test.go::TestServiceReleaseInventoryUnchangedRefresh",
+      "accepted_category": "integration",
+      "independent_source_basis": "Actual known-bad enumeration supports exact unchanged status and rollback pin equality."
+    },
+    {
+      "allocation_index": 525,
+      "root_id": "internal/app/service_releases_journal_test.go::TestNativeChannelFenceMarkFailureAfterSelectionRemainsRecoverable",
+      "accepted_category": "integration",
+      "independent_source_basis": "Actual native/channel state persists through injected fence Create fault; retry creates a real fence mark. No submitted deployment is claimed."
+    },
+    {
+      "allocation_index": 526,
+      "root_id": "internal/app/service_releases_journal_test.go::TestNativeChannelHandoffsSurviveNativeCASBeforeChannelCAS",
+      "accepted_category": "integration",
+      "independent_source_basis": "Checked KV wrapper delegates actual native-history CAS and verifies already persisted channel preparation; recovery reads both stores."
+    },
+    {
+      "allocation_index": 527,
+      "root_id": "internal/app/service_releases_journal_test.go::TestNativeFirstInstallExpiredSelectionSettlesWithoutPublishing",
+      "accepted_category": "integration",
+      "independent_source_basis": "Actual rejection receipt, empty intent-stream readback and subsequent preparation support expired-selection settlement."
+    },
+    {
+      "allocation_index": 528,
+      "root_id": "internal/app/service_releases_observation_test.go::TestServiceReleaseDefersToleratedFutureClaim",
+      "accepted_category": "integration",
+      "independent_source_basis": "Actual absence then persistence of issuance state supports deferred tolerated future claim."
+    },
+    {
+      "allocation_index": 529,
+      "root_id": "internal/app/service_releases_observation_test.go::TestServiceReleaseRefusesExpiredPendingAdmission",
+      "accepted_category": "unit",
+      "independent_source_basis": "Expired pending deadline rejects locally before profile, admission, history or KV work."
+    },
+    {
+      "allocation_index": 530,
+      "root_id": "internal/app/service_releases_observation_test.go::TestServiceReleaseRefusesExpiredUnsubmittedClaim",
+      "accepted_category": "integration",
+      "independent_source_basis": "Actual failed state, unchanged replay revision, known-bad absence and later fresh state support refusal."
+    },
+    {
+      "allocation_index": 531,
+      "root_id": "internal/app/service_releases_observation_test.go::TestServiceReleaseRefusesExpiryDuringInitialAdmission",
+      "accepted_category": "integration",
+      "independent_source_basis": "Injected binary-read delay precedes actual admission object/KV effects and readbacks before expiry refusal."
+    },
+    {
+      "allocation_index": 532,
+      "root_id": "internal/app/service_releases_observation_test.go::TestServiceReleaseRejectsClaimBeyondClockSkew",
+      "accepted_category": "mixed",
+      "independent_source_basis": "Local fake failure-status assertion is independent of actual absent KV watermark readback."
+    },
+    {
+      "allocation_index": 533,
+      "root_id": "internal/app/service_releases_pins_test.go::TestServiceReleasePinsCompletedPassRefresh",
+      "accepted_category": "integration",
+      "independent_source_basis": "Actual known-bad Put/Delete/watch plus channel-state readback support refreshed pins."
+    },
+    {
+      "allocation_index": 534,
+      "root_id": "internal/app/service_releases_pins_test.go::TestServiceReleasePinsEmptySupportAndDeduplication",
+      "accepted_category": "unit",
+      "independent_source_basis": "All watcher inputs are synthetic; follower and cancellation checks reject locally."
+    },
+    {
+      "allocation_index": 535,
+      "root_id": "internal/app/service_releases_pins_test.go::TestServiceReleasePinsInvalidClaimPreservesState",
+      "accepted_category": "integration",
+      "independent_source_basis": "Actual state/known-bad inventory and exact preservation assertions support invalid-claim pin retention. pass202-204 carries prior submitted digest into Retained."
+    },
+    {
+      "allocation_index": 536,
+      "root_id": "internal/app/service_releases_pins_test.go::TestServiceReleasePinsRejectIncompleteReports",
+      "accepted_category": "unit",
+      "independent_source_basis": "Fake watcher failures, closed channels and digest validation support local incomplete-report refusal."
+    },
+    {
+      "allocation_index": 537,
+      "root_id": "internal/app/service_releases_retained_test.go::TestServiceReleasePinsDeposedLeaderPreservesSubmittedIntent",
+      "accepted_category": "mixed",
+      "independent_source_basis": "Local CanMutate rejection before load is independent of exact actual KV preservation readback."
+    },
+    {
+      "allocation_index": 538,
+      "root_id": "internal/app/service_releases_retained_test.go::TestServiceReleasePinsRefusedClaimsDoNotAccumulate",
+      "accepted_category": "integration",
+      "independent_source_basis": "Repeated real state writes/readback, known-bad inventory and admission paths support bounded refused-claim retention; source reports/object map remain fake."
+    },
+    {
+      "allocation_index": 539,
+      "root_id": "internal/app/service_releases_retained_test.go::TestServiceReleasePinsUnprovenProfileRefusedBeforeSubmission",
+      "accepted_category": "integration",
+      "independent_source_basis": "Actual candidate admission occurs before nil-history refusal; unchanged durable state and absence of save are asserted. No native selection or deployment is claimed."
+    }
+  ],
+  "resolved_findings": [
+    "No correction was required. Rejected newer-claim pin retention is supported by pass202-204 retaining the previous submitted digest before report.",
+    "Initial metadata check used declaration LF convention for evidence spans; direct byte comparison established that evidence spans intentionally include LF, and all76 passed the corrected comparison. This is a reviewer comparison convention, not a packet defect."
+  ],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Source-only review. No test/build/helper/parser/scanner, runtime, signing/crypto, cloud, TerraBase, process/resource probe or deployment execution occurred.",
+    "Actual NATS boundary is authenticated embedded broker with in-process protocol clients and real JetStream file-backed KV/object/stream operations; no TCP/TLS transport or distributed quorum claim.",
+    "OCI-shaped object clients, host reports, leadership epochs, artifact authorization and selected planner/writer callbacks remain synthetic as described per root. Actual service admission and state readbacks do not establish deployment success.",
+    "No runtime receipts reviewed. No ledger/count promotion, repository/source mutation, deletion, retirement, qualification or overall project completion credit. All original assertions and safety obligations remain retained."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "NONE"
+}

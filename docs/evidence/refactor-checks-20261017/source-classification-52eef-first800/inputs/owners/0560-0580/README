@@ -1,0 +1,5 @@
+Source-only NEXT800 [560:580), owner batch_200_220.
+Canonical 52eef25bad09736d8f0806ecaccaef1a7c86b49e. Runtime UNKNOWN, no execution/receipts.
+Counts {'integration': 4, 'unit': 11, 'unresolved': 1, 'mixed': 4}. Missing autoscale mapped name unresolved; candidate rename uncredited.
+Exact declarations/assertions/file pins and actual reached boundary evidence in classification.json.
+No source/ledger mutation, retirement, deletion, qualification or completion credit. Independent peer pending.

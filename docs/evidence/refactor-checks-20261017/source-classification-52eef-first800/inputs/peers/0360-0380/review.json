@@ -1,0 +1,104 @@
+{
+  "schema": "independent-source-classification-peer-review-v1",
+  "created_utc": "2026-10-17T18:58:08.157626+00:00",
+  "reviewer": "/root/classification_100_dispatch/batch_40_60",
+  "author": "/root/classification_100_dispatch/batch_60_80",
+  "range": [
+    360,
+    380
+  ],
+  "status": "ACCEPTED_SOURCE_CLASSIFICATION_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-360-380-5ivpa_t5/classification.json",
+    "sha256": "87b5501ea97f3a5f567fcf177da3ff1d0daeaf01da8b63bc96db41bb628f1811",
+    "sha256sums_path": "/tmp/ts-source-classification-360-380-5ivpa_t5/SHA256SUMS",
+    "sha256sums_sha256": "2b53aea764fb00b2e6af0b8471acaecd22a97695c8eb796db2df7a74f5b04054"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "literal_root_ids": [
+    "internal/app/observability_dashboard_test.go::TestHostDashboardKeepsLocalBrowserLoginWithoutJetStream",
+    "internal/app/observability_insights_e2e_test.go::TestControllerRolloutsAndBudgetsReachInsightsAndTheDashboard",
+    "internal/app/observability_log_redaction_test.go::TestRuntimeLogRedactionWithoutListener",
+    "internal/app/observability_review_test.go::TestUnusableObservabilityTokenDoesNotStopTheRole",
+    "internal/app/observability_review_test.go::TestWatchObservabilityListenerReturnsOnTerminalResult",
+    "internal/app/observability_test.go::TestControllerObservabilityServesSnapshotAndCluster",
+    "internal/app/observability_test.go::TestLoadConfigRejectsObservabilitySwitches",
+    "internal/app/observability_test.go::TestLoadConfigRejectsPublicObservabilityListener",
+    "internal/app/observability_test.go::TestSignedObservabilityStaysOnLoopbackOrBrokerAddress",
+    "internal/app/oci_cost_test.go::TestNodeCostHoldsWithoutInfrastructureAuthority",
+    "internal/app/oci_cost_test.go::TestOCICostViewForecastsTheStoredReport",
+    "internal/app/oci_cost_test.go::TestOCICostViewWithoutReportSaysWhy",
+    "internal/app/oci_cost_test.go::TestOCICostViewsRollupReadsTheLatestView",
+    "internal/app/oci_reconcile_lb_test.go::TestPublicLBConfigDecodesAndValidates",
+    "internal/app/oci_reconcile_lb_test.go::TestPublicLBPassFollowsTheProfile",
+    "internal/app/oci_reconcile_lb_test.go::TestPublicLBSpecIsTheSignedSeats",
+    "internal/app/oci_reconcile_test.go::TestOciDesiredConfigIsBoundToTheSignedRegionAndAlwaysEnforces",
+    "internal/app/oci_reconcile_test.go::TestOciDesiredFollowsTheCellSpec",
+    "internal/app/oci_reconcile_test.go::TestOciDesiredPassPublishesFencedAndFeedsInsights",
+    "internal/app/oci_reconcile_test.go::TestOciReconcileConfigDefaultsOffAndValidates"
+  ],
+  "counts": {
+    "integration": 6,
+    "mixed": 4,
+    "unit": 8,
+    "unresolved": 2,
+    "total": 20
+  },
+  "checks_performed": [
+    "Independently read all twenty full original/current target roots, retaining missing canonical original379 as unresolved rather than transferring candidate rename.",
+    "Verified all20 exact allocated literal IDs against activated allocation/accounting and unique frozen survival rows; raw baseline/current declaration bounds, SHA256 and byte lengths are exact. Canonical drift remains explicit.",
+    "Verified all61 supplied source-file mode/blob/SHA256/byte pins using immutable Git blobs and164 exact declaration/assertion/callee spans. Every span text matches its stated source bounds; checksums and0444/0555 freeze match.",
+    "Traced actual production/fixture paths: actual host ServeHTTP/local session issue/valid/revoke; loopback dashboard HTTP and in-process embedded NATS; rollout KV publication/admission/commit and insight/dashboard providers; occupied socket bind and independent event-ring redaction; token open/stat denial; local signed/decode guards; real cost report KV reads/writes; test-only LB/currentDesired pass helpers into production Publish/PublishSet/KV mutation/readback; registry validate/adopt/withSigned and AuthorityChanges.",
+    "Category counts normalize optional total metadata and exhaust exactly20: integration6/unit8/mixed4/unresolved2. Independent unit blocks and actual boundary assertions are distinguished. All runtime fields UNKNOWN, retirement false, safety obligations retained."
+  ],
+  "resolved_findings": [],
+  "remaining_review_findings": [],
+  "retained_source_limitations": [
+    {
+      "root_indices": [
+        369
+      ],
+      "status": "UNRESOLVED_UNCREDITED",
+      "detail": "Report.Through uses nontruncated now-24h; Report.Validate requires UTC midnight. Do not assume a coincident clock; intended nodeCost/cache assertions lack reached-source credit."
+    },
+    {
+      "root_indices": [
+        377
+      ],
+      "status": "UNRESOLVED_TABLE_ASSERTIONS_UNCREDITED",
+      "detail": "AuthorityChanges emits route_tables/private for the new resource as well as requested prune changes; no-prune/prune-others table expectations remain contradicted. t.Errorf permits subsequent actual KV assertions; mixed category does not credit contradictory expectations."
+    },
+    {
+      "root_indices": [
+        379
+      ],
+      "status": "UNRESOLVED_MAPPING_UNCREDITED",
+      "detail": "Frozen current name is absent. Candidate renamed test is source-visible but has no authoritative survival mapping transfer; original assertions remain obligations."
+    },
+    {
+      "root_indices": [
+        360,
+        361,
+        362,
+        363,
+        365,
+        370,
+        371,
+        374,
+        377,
+        378
+      ],
+      "status": "NARROW_BOUNDARIES_ONLY",
+      "detail": "No actual cloud/OCI API, live TerraBase rollout, real budget-provider, distributed quorum/failover or HTTP wire claim for direct httptest calls. Listener binding/token OS-stat/store readbacks are described only where material."
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "qualification_limits": [
+    "Read-only pinned Git/file inspection and metadata hashing only. No source/repo/ledger mutation, Go/build/test/helper/scanner/parser/lint/format, process/resource probes, locks/leases, privilege/cloud/signing/crypto execution, TerraBase or downloads.",
+    "Acceptance is source-classification-only; zero runtime, qualification, completion, deletion, retirement or ledger/count-application credit. Source contradictions and missing mapping remain open."
+  ]
+}

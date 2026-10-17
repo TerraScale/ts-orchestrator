@@ -1,0 +1,76 @@
+{
+  "schema": "independent-source-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_200_220",
+  "author": "/root/classification_100_dispatch/batch_220_240",
+  "allocation": {
+    "path": "/tmp/ts-root800-source-dispatch-58wrSDrA/allocation-and-exclusions.json",
+    "sha256": "c9407bbf548f26e874996a930f6fafe9bf01c825bc495e4b1e2c46eb7cf5659e",
+    "range": [
+      580,
+      600
+    ]
+  },
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-580-600-138pdipr/classification.json",
+    "sha256": "ba1db0e60d28f182d8f5de54868e38bd6ff5010f6acdcdda2fc1f264fab623ab",
+    "checksum_path": "/tmp/ts-source-classification-580-600-138pdipr/SHA256SUMS",
+    "checksum_sha256": "caccc38bf32e6fa911b63a876ebec8a86dfc385cdb4b96df80a8d23f547fef29"
+  },
+  "status": "accepted_source_only",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/atlas/region_test.go::TestAddRegionRefusesConflictsAndUnknownCells",
+    "internal/atlas/region_test.go::TestRegionForAndWithRegionsRefuseBadCells",
+    "internal/atlas/region_test.go::TestWithRegionsListsTheRosterAndKeepsSpecEntries",
+    "internal/attempt/attempt_test.go::TestResumePreservesHistoricalJSONBytes",
+    "internal/attempt/attempt_test.go::TestRootMaterialCleanupRunsAfterCancellationAndFailure",
+    "internal/attempt/cell_test.go::TestAttemptOCIConfigDefaultsToTheOperatorsConfig",
+    "internal/attempt/cell_test.go::TestImageImportsTheStaticCellImageName",
+    "internal/attempt/cell_test.go::TestMembersKeepTheLaunchInputWhileTheLaunchIsUnresolved",
+    "internal/attempt/cell_test.go::TestMembersLaunchEachDatabaseHostOnce",
+    "internal/attempt/cell_test.go::TestMembersLaunchNothingOnAShortAdmissionOrABadInput",
+    "internal/attempt/cell_test.go::TestMembersRefuseToAdoptAForeignInstanceOfTheName",
+    "internal/attempt/cell_test.go::TestPlanPreviewsTheCellPlanWithoutLaunching",
+    "internal/attempt/cell_test.go::TestServicesPhaseAddsServicesThroughSignedSets",
+    "internal/attempt/cell_test.go::TestServicesPhaseAppliesTheCellsProfilesFirst",
+    "internal/attempt/cell_test.go::TestSignRendersIdentityOnlyConfigs",
+    "internal/attempt/cell_test.go::TestTerraBaseRefusesACommitTheReleaseTagDoesNotName",
+    "internal/attempt/cell_test.go::TestTerraBaseRollsOutTheVerifiedRelease",
+    "internal/attempt/cell_test.go::TestTerraBaseStopsOnATamperedChecksumOrABadCommit",
+    "internal/attempt/cloud_live_test.go::TestLiveReadOnlyCellInstancesFollowTheNamingScheme",
+    "internal/attempt/cloud_test.go::TestControllerObjectGrantsRefuseAnUnconditionalPolicyUpdate"
+  ],
+  "counts": {
+    "integration": 5,
+    "unit": 11,
+    "mixed": 4,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all twenty full canonical roots and actual connected helper/production paths, with source-only fixture boundaries.",
+    "Verified exact activated literal IDs, survival mappings and all forty raw baseline/current declaration texts, bounds and SHA256 against pinned Git bytes; no declaration drift.",
+    "Verified all35 recorded file pins (Git blob/mode/SHA256/bytes), all20 assertion spans/texts and all72 connected evidence spans/texts against pinned Git source.",
+    "Verified packet/checksum hashes and frozen files0444/directory0555. Input pins match.",
+    "Followed real attempt file retention/write/readback and image-import SDK HTTP stand-in paths; fake cloud/Runner assertions remain limited to simulation. Independently inspected release fixture ELF64 little-endian AArch64 header, SHA256 and checksum as bytes only."
+  ],
+  "category_assessment": {
+    "integration": "Historical-byte resume and member-launch persistence/adoption roots materially assert actual production file safety/readback; conditional live root is an external SDK contract with fixture limits retained.",
+    "mixed": "Image import asserts real HTTP/checkpoint behavior alongside independent fake release-command flags; sign and TerraBase rows combine actual retained-config/release-file checks with independent local guards.",
+    "unit": "Atlas tables, fake privileged cleanup, config selection, short admission/input guards, simulated planning/services/tag correspondence and empty-ETag guards remain local or simulated; fixture file setup alone gives no promotion."
+  },
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION for every root. No runtime receipts reviewed; no Go/build/test/helper/scanner/cloud/process/crypto/signing/TerraBase execution.",
+    "Fake Runner does not establish real CLI/service/privileged cleanup/Git/download/signature or TerraBase rollout success. Fake cloud does not establish real OCI launch/adoption.",
+    "Image HTTP stand-in only checks signature header prefix; no claim of full OCI request authentication or production image evidence verification.",
+    "Live OCI test depends on external compartments/credentials not inspected and can have empty/nonmatching inventory; no proof of naming coverage or runtime pass.",
+    "No discovered source-visible contradiction blocks a credited assertion. External fixture availability remains unverified."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "No ledger/count/completion/deletion/retirement or runtime-qualification promotion; independent source evidence only."
+}

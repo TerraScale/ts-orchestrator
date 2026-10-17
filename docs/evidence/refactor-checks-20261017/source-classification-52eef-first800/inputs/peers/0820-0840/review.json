@@ -1,0 +1,166 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_800_820",
+  "author": "/root/classification_100_dispatch/batch_820_840",
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-820-840-corrected-yhh8ys9y/classification.json",
+    "sha256": "e4282ce5837ce4ae668cbfc01bcd162335faddf2961e24c73fcd4ad90a78431c",
+    "checksum_path": "/tmp/ts-source-820-840-corrected-yhh8ys9y/SHA256SUMS",
+    "checksum_sha256": "2774fb4f16808dc8d5d9754eef43bfb723bab17a14c2fa9de3fe5baafa3e0288"
+  },
+  "prior_packet_preserved": {
+    "path": "/tmp/ts-source-820-840-1_gjrb67/classification.json",
+    "sha256": "3479452b7a149472854dea4c6960deee65fd4160a0601658636a77ee5667d261"
+  },
+  "own_prior_sealed_handoff": {
+    "path": "/tmp/ts-source-other800-820-ya43r296/classification.json",
+    "sha256": "ba08ebdffc73dac1cb089ec7fa675486af7fa1ba4c70d5271986753527a8ab62"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "literal_range": "other_unadjudicated[820:840)",
+  "root_ids": [
+    "internal/bootstrapmaterial/generation_test.go::TestCheckGenerationFilesRefusesUnsafeMaterial",
+    "internal/bootstrapmaterial/generation_test.go::TestCheckGenerationFilesWithLink",
+    "internal/bootstrapmaterial/generation_test.go::TestCheckGenerationFilesWithRoleSigner",
+    "internal/bootstrapmaterial/generation_test.go::TestGenerationRejectsRemovedGlobalAndInterRegionSwitches",
+    "internal/bootstrapmaterial/interregion_test.go::TestInterRegionCellClaimStartsFromTheBrokersClaim",
+    "internal/bootstrapmaterial/interregion_test.go::TestInterRegionChildNeedsTheHubsCA",
+    "internal/bootstrapmaterial/interregion_test.go::TestInterRegionConfigNeedsAPortExactlyWithChildren",
+    "internal/bootstrapmaterial/interregion_test.go::TestInterRegionMaterialMatchesTheContract",
+    "internal/bootstrapmaterial/interregion_test.go::TestInterRegionTLSChainsToTheHubCA",
+    "internal/bootstrapmaterial/interregion_test.go::TestLeafRemoteFallsBackToReviewedNetBirdAddresses",
+    "internal/bootstrapmaterial/interregion_test.go::TestLeafRemotePrivateURLsComeFromTheReviewedReceipt",
+    "internal/bootstrapmaterial/interregion_test.go::TestRenderInterRegionPassesTheBrokerCheck",
+    "internal/bootstrapmaterial/interregion_test.go::TestSingleRegionInterRegionMaterialUsesStrictV1",
+    "internal/bootstrapmaterial/interregion_test.go::TestWideTreeMaterialIsRefusedBeforeWriting",
+    "internal/bootstrapmaterial/issue_test.go::TestRenewAndCheckIssuedCredentials",
+    "internal/bootstrapmaterial/issue_test.go::TestRenewAndCheckIssuedTLS",
+    "internal/bootstrapmaterial/link_integration_test.go::TestLinkMaterialAuthenticatesEmbeddedNATS",
+    "internal/bootstrapmaterial/link_integration_test.go::TestLinkMaterialPublicationRecovery",
+    "internal/bootstrapmaterial/material_test.go::TestCellAccountRoleSignerIsExactOrAbsent",
+    "internal/bootstrapmaterial/material_test.go::TestControllerMaterialAlwaysGrantsTelemetryWithBoundGlobalHome"
+  ],
+  "counts": {
+    "unit": 6,
+    "mixed": 9,
+    "integration": 5,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all 20 entire current test roots and followed the actual reached fixture, production filesystem, map-backed generation, JWT/TLS byte, NATS runtime, link and publication paths. Categories assessed separately from runtime outcomes.",
+    "Verified exact literal activated allocation IDs/owner/peer, all 20 literal survival mappings, canonical HEAD/tree and clean worktree, and all five input SHA256/byte pins.",
+    "Verified 27 baseline/current source file pins against Git blob, mode, SHA256 and byte length; verified all 40 raw root declarations against explicit baseline/current bounds, complete raw text, hashes and mapping drift fields.",
+    "Verified all 135 explicit assertion/connected/finding spans against canonical source, including exact line bounds, full stored text and source blob. Reviewed actual independent local-only blocks before agreeing with mixed categories.",
+    "Verified exact final packet/checksum hashes, all SHA256SUMS entries and immutable directory0555/files0444 modes. Only metadata serialization/hashing and ordinary file/Git inspection used."
+  ],
+  "connected_boundary_review": {
+    "generation": "Material.Read/With/Generation/InterRegion/Link are byte-map callbacks; CheckGenerationFiles and issuer/controller guards consume local values. No boundary credit for cryptographic fixture computation.",
+    "interregion_remote": "GenerateInterRegion/writeOnce and LoadInterRegion/readOwnedFile establish real on-disk effects/readback; LeafRemote reaches validated private credential files only after local receipt/topology checks; net.Pipe TLS in the chain root is an actual handshake.",
+    "issue": "RenewCredentials/RenewTLS/CheckIssuedCredentials/CheckIssuedTLS consume and return byte slices, with no material filesystem or broker exchange.",
+    "link_auth": "natscell.Start reaches real project server lifecycle and in-process clients; the separately started spoke uses loopback leaf TCP/mTLS. External bridge authorization reaches the actual TLS/protocol path. Fixture is limited to loopback/fixed leaf port.",
+    "publication": "GenerateLink atomic staging/rename and journal persistence are actual files. ProvisionLink traverses OCI SDK HTTP into the httptest store simulator. fakeVault methods retain map state behind HTTP; this is not live OCI. LinkGenerationReferences is a separate independent local-only block.",
+    "role_telemetry": "ValidateLive Load/validateSignerFiles and credential validators read actual persisted products. Telemetry root earlier credential/grant readback supports integration; later budget protocol path stays uncredited due to invalid bridge port."
+  },
+  "resolved_findings": [
+    {
+      "kind": "span_end_past_eof",
+      "path": "internal/bootstrapmaterial/generation.go",
+      "old_end_line": 589,
+      "corrected_file_end_line": 587
+    },
+    {
+      "kind": "span_end_past_eof",
+      "path": "internal/bootstrapmaterial/controller_credentials.go",
+      "old_end_line": 53,
+      "corrected_file_end_line": 49
+    },
+    {
+      "kind": "span_end_past_eof",
+      "path": "internal/natscell/interregion.go",
+      "old_end_line": 798,
+      "corrected_file_end_line": 797
+    },
+    {
+      "kind": "span_end_past_eof",
+      "path": "internal/bootstrapmaterial/issue.go",
+      "old_end_line": 292,
+      "corrected_file_end_line": 287
+    },
+    {
+      "kind": "span_end_past_eof",
+      "path": "internal/natscell/link.go",
+      "old_end_line": 359,
+      "corrected_file_end_line": 343
+    },
+    {
+      "kind": "span_end_past_eof",
+      "path": "internal/bootstrapmaterial/link.go",
+      "old_end_line": 479,
+      "corrected_file_end_line": 478
+    },
+    {
+      "kind": "span_end_past_eof",
+      "path": "internal/bootstrapmaterial/vault.go",
+      "old_end_line": 516,
+      "corrected_file_end_line": 504
+    },
+    {
+      "kind": "citation_precision",
+      "detail": "Author split grouped/truncated callee ranges into explicit function spans and preserved an explicitly labeled validateSignerFiles role-signer path. Fresh final packet verified; no category or root-identity changes."
+    }
+  ],
+  "remaining_findings": [
+    {
+      "kind": "source_visible_contradiction",
+      "root_id": "internal/bootstrapmaterial/material_test.go::TestControllerMaterialAlwaysGrantsTelemetryWithBoundGlobalHome",
+      "detail": "material_test.go267 sets Embedded.Port=-1; runtime.go483-484 uses unchanged port to startBridge; bridge.go82 tls.Listen cannot bind TCP port -1. Later NATS budget assertions remain unresolved/uncredited; earlier generated credential file readback supports integration category. No execution result inferred.",
+      "evidence": [
+        {
+          "path": "internal/bootstrapmaterial/material_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "df3202f3050fc7ceceba2b0fed26732500b9724c",
+          "line": 265,
+          "end_line": 277,
+          "text": "\t\t\ttlsFiles := natscell.TLSFiles{CAFile: path(\"ca.pem\"), CertFile: path(\"controller-a-tls-cert.pem\"), KeyFile: path(\"controller-a-tls-key.pem\")}\n\t\t\tbrokerConfig := natscell.Config{Cell: cfg.Cell, Instance: \"controller-a\", Replicas: 1, CredentialsFile: path(\"controller-a.creds\"), TLS: tlsFiles,\n\t\t\t\tEmbedded: &natscell.Embedded{Host: \"127.0.0.1\", Port: -1, StoreDir: filepath.Join(t.TempDir(), \"broker\"),\n\t\t\t\t\tTLS: tlsFiles, RouteTLS: tlsFiles, RouteUser: \"integration-route\", OperatorJWTFile: path(\"operator.jwt\"),\n\t\t\t\t\tSystemJWTFile: path(\"system.jwt\"), CellJWTFile: path(\"cell.jwt\"), SystemCredentialsFile: path(\"system.creds\"),\n\t\t\t\t\tTicketPublicKeyFile: path(\"ticket.pub\"), BrokerIDs: []string{\"controller-a\"}}}\n\t\t\tif err := natscell.ValidateProductionCredentials(brokerConfig); err != nil {\n\t\t\t\tt.Fatalf(\"generated controller preflight: %v\", err)\n\t\t\t}\n\t\t\tbroker, err := natscell.Start(ctx, brokerConfig)\n\t\t\tif err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n",
+          "function": "telemetry broker fixture / Start"
+        },
+        {
+          "path": "internal/natscell/runtime.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "b7d9b16bf34c966d722a17bea21a3ccb76cc396b",
+          "line": 482,
+          "end_line": 488,
+          "text": "\t\tif !identityRekey {\n\t\t\tr.bridge, err = startBridge(r.server, net.JoinHostPort(cfg.Embedded.Host, fmt.Sprint(cfg.Embedded.Port)),\n\t\t\t\tr.brokerTLS.ServerConfig(), r.resolver.cell)\n\t\t\tif err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n\t\t}\n",
+          "function": "start bridge"
+        },
+        {
+          "path": "internal/natscell/bridge.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "43d0a9518b40d3e88eda0cf3287775cb0a63517a",
+          "line": 78,
+          "end_line": 85,
+          "text": "func startBridge(s *server.Server, address string, tlsConfig *tls.Config, account string) (*Bridge, error) {\n\tif s == nil || tlsConfig == nil || account == \"\" {\n\t\treturn nil, errors.New(\"production broker bridge is incomplete\")\n\t}\n\tlistener, err := tls.Listen(\"tcp\", address, tlsConfig)\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"listen for regional broker clients: %w\", err)\n\t}\n",
+          "function": "startBridge listener"
+        }
+      ]
+    }
+  ],
+  "remaining_assertion_qualification": "TestControllerMaterialAlwaysGrantsTelemetryWithBoundGlobalHome material_test.go267 sets Embedded.Port=-1. Start delegates start(...,false); runtime.go483 passes the unchanged port to startBridge; bridge.go82 tls.Listen cannot bind TCP port -1. Later budget assertions are unresolved/uncredited. Root category relies on earlier genuine persisted credential assertions only.",
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "qualification_limits": [
+    "No Go, tests, helpers, services, SDK calls, cloud operations, signing or cryptographic fixture operations executed. Source reading and hashing only.",
+    "No live OCI/NetBird/regional runtime/deployment, crash or durability receipts reviewed.",
+    "No repository/source/ledger mutation, original-count promotion, deletion/retirement authorization or runtime/qualification completion credit. All safety/negative/retry/identity obligations retained."
+  ],
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false,
+    "retirement_authorized": false
+  }
+}

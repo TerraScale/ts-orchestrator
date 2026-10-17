@@ -1,0 +1,120 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_240_260",
+  "author": "/root/classification_100_dispatch/batch_260_280",
+  "accepted": true,
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-620-640-yic57n2b/classification.json",
+    "sha256": "45ca9f00341c1bfbd7edee5b7be48d7d39451342de9a296827c092d9f3d95d0b",
+    "checksum_path": "/tmp/ts-source-classification-620-640-yic57n2b/SHA256SUMS",
+    "checksum_sha256": "8e44980f151963fb15ea3201e3325b42ea8d056864b9a528025fc1a735e5f9e7"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-source-dispatch-58wrSDrA/allocation-and-exclusions.json",
+    "sha256": "c9407bbf548f26e874996a930f6fafe9bf01c825bc495e4b1e2c46eb7cf5659e",
+    "range": [
+      620,
+      640
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_240_260"
+  },
+  "root_ids": [
+    "internal/benchmark/benchmark_test.go::TestUnknownUsageAndStorageFailureCannotProduceQualifiedVerdict",
+    "internal/benchmark/contract_review_test.go::TestFinalPersistenceFailureInvalidatesReturnedVerdictAndReport",
+    "internal/benchmark/contract_review_test.go::TestJSONLRejectsMissingAndNullFieldsButAcceptsExplicitZero",
+    "internal/benchmark/contract_review_test.go::TestWorkerRejectsMissingLatencyEvidenceAndCleansUp",
+    "internal/benchmark/contract_review_test.go::TestWorkloadReservesClientLifecycleTime",
+    "internal/benchmark/coverage_review_test.go::TestDuplicateMeasurementIntervalsCannotInflateCapacity",
+    "internal/benchmark/coverage_review_test.go::TestQualificationNeedsIntervalsForEveryOperation",
+    "internal/benchmark/coverage_review_test.go::TestSafetyStopBeforeMeasurementLeavesUsageUnknown",
+    "internal/benchmark/coverage_review_test.go::TestSafetyStopTruncatesUsageBeforePersistenceAndCleanup",
+    "internal/benchmark/coverage_review_test.go::TestUsageAlignsWithCommonClientMeasurementWindow",
+    "internal/benchmark/results_test.go::TestBlockedResultIODoesNotDelayLaterSafetySample",
+    "internal/benchmark/results_test.go::TestFailedResultOutputRetainsReportWithoutRetryingWriter",
+    "internal/benchmark/results_test.go::TestPendingResultsDrainInOrderBeforeUsageAndFinalRun",
+    "internal/benchmark/results_test.go::TestResultConsumerFailureCancelsActiveLoad",
+    "internal/benchmark/results_test.go::TestResultQueueOverflowCancelsAndFailsRun",
+    "internal/benchmark/review_test.go::TestCleanupStopsAllOwnedContainersConcurrently",
+    "internal/benchmark/review_test.go::TestFinalLatencyFailurePreservesMaximumWithoutScaleDown",
+    "internal/benchmark/review_test.go::TestIncompleteEvidenceCannotRecommendScaling",
+    "internal/benchmark/review_test.go::TestOversizedClientLineCancelsBeforeWaitingAndCleansUp",
+    "internal/benchmark/review_test.go::TestQualificationRequiresEveryClientAndOperation"
+  ],
+  "counts": {
+    "integration": 4,
+    "unit": 15,
+    "mixed": 1,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 whole canonical roots, actual fixtures/callbacks and production endpoints. Same pinned shared dependencies read for own600 allocation before reviewing author rationale.",
+    "Verified exact activated literal IDs, complete survival rows, original/current raw declaration bytes/bounds/SHA256, no body drift, all16 canonical/baseline file blob/mode/SHA256/bytes and canonical worktree equality.",
+    "Verified exact text/blob of every assertion and connected span against pinned Git; packet checksums, immutable modes and input pins checked.",
+    "Followed Runner to supplied memory Generator/Repository/Usage plus local goroutines/channels/buffers; followed finishRun/writeReport to production file append/write/close and explicit test ReadFile.",
+    "Followed runContainers/container/cleanup to real os.Pipe/exec.Start/Kill/Wait, inherited fd3, stdout and PATH shell shim; helper implements synthetic job ownership/barrier/exit-status files. No actual Podman/cloud qualification inferred.",
+    "Reviewed independent positive/negative controls, local blocks in mixed root, source blockers and qualification limits; no correction required."
+  ],
+  "validated_source_pins": 16,
+  "validated_evidence_spans": 39,
+  "independent_source_conclusions": [
+    {
+      "category": "integration",
+      "roots": [
+        "internal/benchmark/contract_review_test.go::TestWorkerRejectsMissingLatencyEvidenceAndCleansUp",
+        "internal/benchmark/results_test.go::TestFailedResultOutputRetainsReportWithoutRetryingWriter",
+        "internal/benchmark/review_test.go::TestCleanupStopsAllOwnedContainersConcurrently",
+        "internal/benchmark/review_test.go::TestOversizedClientLineCancelsBeforeWaitingAndCleansUp"
+      ],
+      "basis": "Missing-latency, oversized-line and cleanup roots materially use real child/pipe/file effects through synthetic Podman endpoint. Failed-output report root materially writes/reads actual report."
+    },
+    {
+      "category": "mixed",
+      "roots": [
+        "internal/benchmark/contract_review_test.go::TestFinalPersistenceFailureInvalidatesReturnedVerdictAndReport"
+      ],
+      "basis": "Final persistence failure combines independent memory-repository verdict controls and actual report file write/readback."
+    },
+    {
+      "category": "unit",
+      "roots": [
+        "internal/benchmark/benchmark_test.go::TestUnknownUsageAndStorageFailureCannotProduceQualifiedVerdict",
+        "internal/benchmark/contract_review_test.go::TestJSONLRejectsMissingAndNullFieldsButAcceptsExplicitZero",
+        "internal/benchmark/contract_review_test.go::TestWorkloadReservesClientLifecycleTime",
+        "internal/benchmark/coverage_review_test.go::TestDuplicateMeasurementIntervalsCannotInflateCapacity",
+        "internal/benchmark/coverage_review_test.go::TestQualificationNeedsIntervalsForEveryOperation",
+        "internal/benchmark/coverage_review_test.go::TestSafetyStopBeforeMeasurementLeavesUsageUnknown",
+        "internal/benchmark/coverage_review_test.go::TestSafetyStopTruncatesUsageBeforePersistenceAndCleanup",
+        "internal/benchmark/coverage_review_test.go::TestUsageAlignsWithCommonClientMeasurementWindow",
+        "internal/benchmark/results_test.go::TestBlockedResultIODoesNotDelayLaterSafetySample",
+        "internal/benchmark/results_test.go::TestPendingResultsDrainInOrderBeforeUsageAndFinalRun",
+        "internal/benchmark/results_test.go::TestResultConsumerFailureCancelsActiveLoad",
+        "internal/benchmark/results_test.go::TestResultQueueOverflowCancelsAndFailsRun",
+        "internal/benchmark/review_test.go::TestFinalLatencyFailurePreservesMaximumWithoutScaleDown",
+        "internal/benchmark/review_test.go::TestIncompleteEvidenceCannotRecommendScaling",
+        "internal/benchmark/review_test.go::TestQualificationRequiresEveryClientAndOperation"
+      ],
+      "basis": "Local JSON/validation/verdict or Runner fake callback/synthetic-clock/channel/concurrency behavior; no genuine target service/store/process boundary."
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "unresolved_blockers": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "qualification_limits": [
+    "Source-only peer acceptance; no runtime receipts/execution.",
+    "Synthetic Podman endpoint is not real container runtime; fake repository/usage is not SDK/database/telemetry. Report file proof only covers represented write/readback.",
+    "No ledger/count/deletion/retirement/runtime qualification/completion promotion."
+  ],
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  }
+}

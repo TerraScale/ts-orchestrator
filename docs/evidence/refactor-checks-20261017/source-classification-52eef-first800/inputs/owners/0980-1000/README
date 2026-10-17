@@ -1,0 +1,6 @@
+SOURCE_ONLY_CANDIDATE other[980:1000), exact 20 original roots.
+Canonical52eef only; baseline bfca603. Counts: 5 integration, 12 unit, 3 mixed, 0 unresolved.
+All original/current raw declarations and whole-root assertion text retained; actual fake and filesystem boundaries distinguished.
+Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No ledger/deletion/retirement credit. Independent peer required.
+Corrected connected evidence EOF bounds; supersedes immutable d6o7ioz1 packet.
+Peer-corrected EOF span LF convention; supersedes lu0ff06_ packet.

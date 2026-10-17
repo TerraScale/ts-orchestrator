@@ -1,0 +1,1 @@
+FIRST800 QA metadata successor acceptance binds592eb55a packet. Corrected generation.go span298:451 against actualEOF451; no source/category/root change.18I1U1M0 unresolved. Prior receipt preserved; runtimeUNKNOWN and no ledger/qualification/retirement credit.

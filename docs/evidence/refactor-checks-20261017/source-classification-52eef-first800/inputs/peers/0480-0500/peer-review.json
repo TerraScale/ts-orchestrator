@@ -1,0 +1,334 @@
+{
+  "schema": "root800-independent-source-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/peer_60_80",
+  "author": "/root/classification_100_dispatch/peer_80_100",
+  "decision": "ACCEPTED_SOURCE_CLASSIFICATION_ONLY",
+  "range": [
+    480,
+    500
+  ],
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-52eef-next480-500-r2-2kjudg9s/classification.json",
+    "sha256": "5da30b43ca0e949f57c260c0a9e0e5617b922ab826e88f5515675088cfaf0fa9",
+    "checksum_path": "/tmp/ts-source-classification-52eef-next480-500-r2-2kjudg9s/SHA256SUMS",
+    "checksum_sha256": "97cc4fb3a2ff9e477486ac3c5330ee463e1a04c62b861f11a15f299c7ddc93b2"
+  },
+  "canonical_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "canonical_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/app/rollout_channel_test.go::TestReleaseChannelFailsUntrustedOrExcessivelyFutureReceipt",
+    "internal/app/rollout_channel_test.go::TestReleaseChannelNeverRepublishesAnOlderOrRolledBackRun",
+    "internal/app/rollout_channel_test.go::TestReleaseChannelPinsRefreshWithoutProgressChange",
+    "internal/app/rollout_channel_test.go::TestReleaseChannelPublishesANewerRunAndReportsProgress",
+    "internal/app/rollout_channel_test.go::TestReleaseChannelPublishesManualPinsWithoutAChannel",
+    "internal/app/rollout_channel_test.go::TestReleaseChannelPublishesRealDeploymentScopeWithoutAValidChannel",
+    "internal/app/rollout_channel_test.go::TestReleaseChannelRefusesATamperedChannel",
+    "internal/app/rollout_channel_test.go::TestReleaseChannelRetriesUntouchedExpiryWithFreshSignedRun",
+    "internal/app/rollout_channel_test.go::TestReleaseChannelWaitsForAPublishedGenerationToBecomeVisible",
+    "internal/app/rollout_channel_test.go::TestReleaseChannelWaitsForEveryHost",
+    "internal/app/rollout_channel_test.go::TestReleaseChannelWaitsForToleratedReceiptClockSkew",
+    "internal/app/rollout_channel_watch_test.go::TestReleaseChannelWatcherInitialization",
+    "internal/app/rollout_control_test.go::TestNextRolloutUsesTheFixedPolicy",
+    "internal/app/rollout_control_test.go::TestRolloutConfigAndCommandFlagsAreChecked",
+    "internal/app/rollout_control_test.go::TestRolloutRequestsDeferFutureReceiptAndRefuseEarlyRollback",
+    "internal/app/rollout_control_test.go::TestRolloutRequestsPublishPauseAndRollBack",
+    "internal/app/rollout_control_test.go::TestRolloutRequestsRefuseUntrustedStaleAndTamperedRequests",
+    "internal/app/rollout_e2e_test.go::TestRolloutExecutorUpdatesARunningCell",
+    "internal/app/rollout_hosts_test.go::TestHostRolloutBinaryServesTheLeadersRelease",
+    "internal/app/rollout_hosts_test.go::TestHostRolloutExchangeVerifiesTheProofAndRelaysTheStep"
+  ],
+  "counts": {
+    "integration": 13,
+    "unit": 2,
+    "mixed": 5,
+    "unresolved": 0
+  },
+  "root_decisions": [
+    {
+      "allocation_index": 480,
+      "root_id": "internal/app/rollout_channel_test.go::TestReleaseChannelFailsUntrustedOrExcessivelyFutureReceipt",
+      "category": "unit",
+      "decision": "ACCEPTED_SOURCE_ONLY",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 481,
+      "root_id": "internal/app/rollout_channel_test.go::TestReleaseChannelNeverRepublishesAnOlderOrRolledBackRun",
+      "category": "integration",
+      "decision": "ACCEPTED_SOURCE_ONLY",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 482,
+      "root_id": "internal/app/rollout_channel_test.go::TestReleaseChannelPinsRefreshWithoutProgressChange",
+      "category": "integration",
+      "decision": "ACCEPTED_SOURCE_ONLY",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 483,
+      "root_id": "internal/app/rollout_channel_test.go::TestReleaseChannelPublishesANewerRunAndReportsProgress",
+      "category": "integration",
+      "decision": "ACCEPTED_SOURCE_ONLY",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 484,
+      "root_id": "internal/app/rollout_channel_test.go::TestReleaseChannelPublishesManualPinsWithoutAChannel",
+      "category": "integration",
+      "decision": "ACCEPTED_SOURCE_ONLY",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 485,
+      "root_id": "internal/app/rollout_channel_test.go::TestReleaseChannelPublishesRealDeploymentScopeWithoutAValidChannel",
+      "category": "mixed",
+      "decision": "ACCEPTED_SOURCE_ONLY",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 486,
+      "root_id": "internal/app/rollout_channel_test.go::TestReleaseChannelRefusesATamperedChannel",
+      "category": "integration",
+      "decision": "ACCEPTED_SOURCE_ONLY",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 487,
+      "root_id": "internal/app/rollout_channel_test.go::TestReleaseChannelRetriesUntouchedExpiryWithFreshSignedRun",
+      "category": "mixed",
+      "decision": "ACCEPTED_SOURCE_ONLY",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 488,
+      "root_id": "internal/app/rollout_channel_test.go::TestReleaseChannelWaitsForAPublishedGenerationToBecomeVisible",
+      "category": "integration",
+      "decision": "ACCEPTED_SOURCE_ONLY",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 489,
+      "root_id": "internal/app/rollout_channel_test.go::TestReleaseChannelWaitsForEveryHost",
+      "category": "integration",
+      "decision": "ACCEPTED_SOURCE_ONLY",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 490,
+      "root_id": "internal/app/rollout_channel_test.go::TestReleaseChannelWaitsForToleratedReceiptClockSkew",
+      "category": "mixed",
+      "decision": "ACCEPTED_SOURCE_ONLY",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 491,
+      "root_id": "internal/app/rollout_channel_watch_test.go::TestReleaseChannelWatcherInitialization",
+      "category": "integration",
+      "decision": "ACCEPTED_SOURCE_ONLY",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 492,
+      "root_id": "internal/app/rollout_control_test.go::TestNextRolloutUsesTheFixedPolicy",
+      "category": "integration",
+      "decision": "ACCEPTED_SOURCE_ONLY",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 493,
+      "root_id": "internal/app/rollout_control_test.go::TestRolloutConfigAndCommandFlagsAreChecked",
+      "category": "unit",
+      "decision": "ACCEPTED_SOURCE_ONLY",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 494,
+      "root_id": "internal/app/rollout_control_test.go::TestRolloutRequestsDeferFutureReceiptAndRefuseEarlyRollback",
+      "category": "integration",
+      "decision": "ACCEPTED_SOURCE_ONLY",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 495,
+      "root_id": "internal/app/rollout_control_test.go::TestRolloutRequestsPublishPauseAndRollBack",
+      "category": "integration",
+      "decision": "ACCEPTED_SOURCE_ONLY",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 496,
+      "root_id": "internal/app/rollout_control_test.go::TestRolloutRequestsRefuseUntrustedStaleAndTamperedRequests",
+      "category": "mixed",
+      "decision": "ACCEPTED_SOURCE_ONLY",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 497,
+      "root_id": "internal/app/rollout_e2e_test.go::TestRolloutExecutorUpdatesARunningCell",
+      "category": "integration",
+      "decision": "ACCEPTED_SOURCE_ONLY",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 498,
+      "root_id": "internal/app/rollout_hosts_test.go::TestHostRolloutBinaryServesTheLeadersRelease",
+      "category": "integration",
+      "decision": "ACCEPTED_SOURCE_ONLY",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 499,
+      "root_id": "internal/app/rollout_hosts_test.go::TestHostRolloutExchangeVerifiesTheProofAndRelaysTheStep",
+      "category": "mixed",
+      "decision": "ACCEPTED_SOURCE_ONLY",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    }
+  ],
+  "checks_performed": {
+    "independent_manual_source_review": "All twenty complete canonical test roots and connected production, fixture, client, store, executor and selfupdate paths read independently before acceptance. Actual reached boundaries control categories; incidental setup and fake observers alone do not create mixed categories.",
+    "metadata_only_verification": {
+      "literal_allocation_and_survival_mappings": 20,
+      "baseline_current_raw_declaration_hashes": 40,
+      "canonical_and_baseline_file_pins": 31,
+      "exact_quoted_spans": 152,
+      "citation_spans": 69,
+      "complete_assertion_interiors": 20
+    },
+    "immutable_source_identity": "Canonical tree, pinned input manifest hashes, file modes/blobs/SHA256/byte lengths, exact quoted source bounds and hashes verified against immutable Git objects. Packet and SHA256SUMS hashes and 0444 files/0555 directory verified.",
+    "canonical_drift": "Roots493 config version1->2 and499 original-proof publication/root re-verification additions retained explicitly; frozen survival identities and canonical declaration hashes checked separately.",
+    "boundary_limits": "Embedded natscell clients are in-process protocol clients; no external TCP/TLS claim. Watcher, fences, object client, receipt verification and restart/health fixture limits retained. Host Exchange throttle ordering independently checked; no deterministic throttle blocker found."
+  },
+  "resolved_review_findings": [
+    {
+      "allocation_index": 491,
+      "root_id": "internal/app/rollout_channel_watch_test.go::TestReleaseChannelWatcherInitialization",
+      "finding": "Present=true watcher branch manually publishes with later clock than captured/truncated signer time; retained issuance floor rejects later channel release before report. Original packet omitted this source blocker.",
+      "resolution": "Author froze corrected r2 packet with explicit present=true assertions97-138 unresolved and uncredited. Absent-channel branch retains integration category. Exact accepted hash above only."
+    }
+  ],
+  "remaining_classification_findings": [],
+  "retained_source_blockers": [
+    {
+      "allocation_index": 495,
+      "root_id": "internal/app/rollout_control_test.go::TestRolloutRequestsPublishPauseAndRollBack",
+      "reason": "Second publish at137 uses RunNumber9 but digest b, conflicting with first run9 digest a. advanceReleaseOrdering137–138 returns ErrInvalid; root t.Fatal138 prevents pause140–142, rollback143–146, resume148–150 and final status151–153.",
+      "blocked_assertion_evidence": {
+        "path": "internal/app/rollout_control_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "0a0997e916f1c2e2a7d257ebb7092dcf44dea8cf",
+        "start_line": 137,
+        "end_line": 153,
+        "sha256": "e523ebfef933ad7221ecc5b821ecb9044623df4dfad0dd5d45e5a013c1f1844b",
+        "text": "\tif _, err := r.serve(r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: []byte(\"receipt:\" + second)}, nil)); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif reply, err := r.serve(r.sign(rolloutPauseKind, struct{}{}, nil)); err != nil || reply.Status != \"paused\" || !reply.Paused {\n\t\tt.Fatalf(\"pause = %+v %v\", reply, err)\n\t}\n\treply, err = r.serve(r.sign(rolloutRollbackKind, rolloutRollbackRequest{To: 1}, nil))\n\tif err != nil || reply.Status != \"rolled-back\" || reply.Desired.Generation != 3 || reply.Desired.RollbackOf != 1 ||\n\t\treply.Desired.Digest != first || reply.Desired.RunNumber != 9 || !reply.Paused || len(reply.History) != 3 {\n\t\tt.Fatalf(\"rollback = %+v %v\", reply, err)\n\t}\n\tif reply, err := r.serve(r.sign(rolloutResumeKind, struct{}{}, nil)); err != nil || reply.Status != \"resumed\" || reply.Paused {\n\t\tt.Fatalf(\"resume = %+v %v\", reply, err)\n\t}\n\tif reply, err := r.serve(r.sign(rolloutStatusKind, struct{}{}, nil)); err != nil || reply.Status != \"\" || reply.Desired.Generation != 3 {\n\t\tt.Fatalf(\"status = %+v %v\", reply, err)\n\t}"
+      },
+      "credit": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 496,
+      "root_id": "internal/app/rollout_control_test.go::TestRolloutRequestsRefuseUntrustedStaleAndTamperedRequests",
+      "reason": "Second publish at251 uses fixed RunNumber9/digest b after first run9/digest a at248. Ordering guard rejects it and t.Fatal252 blocks injected expired verification260–265, nil roots269–272 and nil store273–276.",
+      "blocked_assertion_evidence": {
+        "path": "internal/app/rollout_control_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "0a0997e916f1c2e2a7d257ebb7092dcf44dea8cf",
+        "start_line": 251,
+        "end_line": 276,
+        "sha256": "9841e31c6e36f5527fe5dd59a19088fb655e6f2fa250fdfa6ce56b9083f2cfa9",
+        "text": "\tif _, err := r.serve(r.sign(rolloutPublishKind, rolloutPublishRequest{Receipt: []byte(\"receipt:\" + strings.Repeat(\"b\", 64))}, nil)); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tr.control.verify = func(receipt, _ []byte, _ time.Time) (rollout.Release, error) {\n\t\tif strings.HasSuffix(string(receipt), digest) {\n\t\t\treturn rollout.Release{}, errors.New(\"delegation expired\")\n\t\t}\n\t\treturn testReceiptDigest(receipt, nil, time.Time{})\n\t}\n\tif _, err := r.serve(r.sign(rolloutRollbackKind, rolloutRollbackRequest{To: 1}, nil)); err == nil || !strings.Contains(err.Error(), \"no longer verifies\") {\n\t\tt.Fatalf(\"rollback to an expired receipt: %v\", err)\n\t}\n\tif desired, _, err := r.control.store.Load().Desired(t.Context()); err != nil || desired.Generation() != 2 {\n\t\tt.Fatalf(\"a refused rollback moved the cell: %+v %v\", desired, err)\n\t}\n\n\t// Without release roots nothing is published; without the store\n\t// nothing is answered.\n\tr.control.verify = nil\n\tif _, err := r.serve(r.sign(rolloutPublishKind, publish, nil)); err == nil || !strings.Contains(err.Error(), \"trust roots\") {\n\t\tt.Fatalf(\"publish without roots: %v\", err)\n\t}\n\tr.control.store.Store(nil)\n\tif _, err := r.serve(r.sign(rolloutStatusKind, struct{}{}, nil)); err == nil || !strings.Contains(err.Error(), \"not open\") {\n\t\tt.Fatalf(\"status without a store: %v\", err)\n\t}"
+      },
+      "credit": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 497,
+      "root_id": "internal/app/rollout_e2e_test.go::TestRolloutExecutorUpdatesARunningCell",
+      "reason": "command publish bad at146 uses fixed run9 and new digest after good run9. serve PublishRelease -> advanceReleaseOrdering137–138 returns ErrInvalid; operatorRollout returns the error and command t.Fatalf100 stops the root. Bad rollout/known-bad146–168, pause/resume170–183, rollback185–192 and final history193–203 stay uncredited.",
+      "blocked_assertion_evidence": {
+        "path": "internal/app/rollout_e2e_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4b94c2d7720b6c3a1dc62af0ed695632ecc4943e",
+        "start_line": 146,
+        "end_line": 203,
+        "sha256": "5ee90fcfc352f2a90bb54ede2ca1a0974e8dbbd358fe4cbd7ff84031f13d65ec",
+        "text": "\tcommand(\"publish\", \"bad\", 0)\n\twaitPhase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(2)), rollout.PhaseRolledBack)\n\twaitSettled(\"good\")\n\tif moved := starts.on(digests[\"bad\"]); !slices.Equal(moved, []string{\"ctl-b\"}) {\n\t\tt.Fatalf(\"units that ran the bad release = %v, want the canary only\", moved)\n\t}\n\tif bad, err := units[\"ctl-b\"].layout.KnownBad(); err != nil || !bad[digests[\"bad\"]] {\n\t\tt.Fatalf(\"the canary's node does not refuse the bad release: %v %v\", bad, err)\n\t}\n\t// The next tick reports why the program stopped.\n\tfor {\n\t\tstatus := command(\"status\", \"\", 0)\n\t\tif !status.DesiredKnownBad || status.Desired.Digest != digests[\"bad\"] {\n\t\t\tt.Fatalf(\"status does not report the rejected release: %+v\", status)\n\t\t}\n\t\tif status.Rollout != nil && strings.Contains(status.Rollout.Waiting, entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(2))+\" stopped the program: rollout ended rolled-back\") {\n\t\t\tbreak\n\t\t}\n\t\tif ctx.Err() != nil {\n\t\t\tt.Fatalf(\"status does not say why nothing runs: %+v\", status.Rollout)\n\t\t}\n\t\ttime.Sleep(200 * time.Millisecond)\n\t}\n\n\t// A paused cell starts nothing until it is resumed.\n\tif reply := command(\"pause\", \"\", 0); reply.Status != \"paused\" || !reply.Paused {\n\t\tt.Fatalf(\"pause = %+v\", reply)\n\t}\n\tcommand(\"publish\", \"good2\", 0)\n\ttime.Sleep(2 * time.Second)\n\tif moved := starts.on(digests[\"good2\"]); len(moved) != 0 {\n\t\tt.Fatalf(\"a paused cell moved %v\", moved)\n\t}\n\tif reply := command(\"resume\", \"\", 0); reply.Status != \"resumed\" || reply.Paused {\n\t\tt.Fatalf(\"resume = %+v\", reply)\n\t}\n\twaitPhase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(3)), rollout.PhaseComplete)\n\twaitSettled(\"good2\")\n\n\t// Rolling back to generation 1 is a new generation.\n\treply := command(\"rollback\", \"\", 1)\n\tif reply.Status != \"rolled-back\" || reply.Desired == nil || reply.Desired.Generation != 4 ||\n\t\treply.Desired.RollbackOf != 1 || reply.Desired.Digest != digests[\"good\"] {\n\t\tt.Fatalf(\"rollback = %+v\", reply)\n\t}\n\twaitPhase(entityid.Derive(\"release-controllers\", rollout.ReleaseRolloutID(4)), rollout.PhaseComplete)\n\twaitSettled(\"good\")\n\thistory := command(\"status\", \"\", 0).History\n\tvar generations []uint64\n\tfor _, release := range history {\n\t\tgenerations = append(generations, release.Generation)\n\t\tif release.Receipt != nil {\n\t\t\tt.Fatal(\"status carries release receipts\")\n\t\t}\n\t}\n\tif !slices.Equal(generations, []uint64{4, 3, 2, 1}) {\n\t\tt.Fatalf(\"history = %v\", generations)\n\t}"
+      },
+      "credit": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "allocation_index": 491,
+      "root_id": "internal/app/rollout_channel_watch_test.go::TestReleaseChannelWatcherInitialization",
+      "reason": "Present=true branch publishes manual release at later time.Now().UTC() (root47), then signs run620 using earlier signer.now captured/truncated before the manual write (newReleaseSigner48–81). store.publishRelease -> advanceReleaseOrdering134–135 rejects CreatedAt below retained LegacyIssuanceFloor even though the run number increases. consumeChannel243–244 returns before report; f.report97 cannot read the expected initial report. Present=true assertions97–138 remain unresolved/uncredited. Absent-channel branch still traverses actual KV report/pin/follower behavior and supports integration category.",
+      "blocked_assertion_evidence": {
+        "path": "internal/app/rollout_channel_watch_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "075ac44fd3ac097783e01eb0a0ead522158b1ff2",
+        "start_line": 97,
+        "end_line": 138,
+        "sha256": "097fb67c8ceb306e6ac5ff6e1c781abc3265328b5845e5217bdbb722005de646",
+        "text": "\t\t\tstatus, revision := f.report(t)\n\t\t\tif status.RunNumber != wantRun || status.Pins == nil || !slices.Equal(status.Pins.Rollback, wantRollback) ||\n\t\t\t\t!present && status.Reason != \"the cell has no release channel\" {\n\t\t\t\tt.Fatalf(\"initialized report = %+v, pins = %+v\", status, status.Pins)\n\t\t\t}\n\t\t\tif present {\n\t\t\t\tupdate(nil)\n\t\t\t\tif after, got := f.report(t); got != revision || !sameReport(status, after) {\n\t\t\t\t\tt.Fatalf(\"completion marker changed the channel report: %+v\", after)\n\t\t\t\t}\n\t\t\t\tupdate(deletedChannelEntry{initial})\n\t\t\t\tstatus, revision = f.report(t)\n\t\t\t\tif status.RunNumber != 0 || status.Reason != \"the cell has no release channel\" {\n\t\t\t\t\tt.Fatalf(\"deleted channel report = %+v\", status)\n\t\t\t\t}\n\t\t\t}\n\t\t\tbad := strings.Repeat(\"e\", 64)\n\t\t\tif _, err := f.rolloutKV.Put(ctx, \"knownbad.\"+bad, []byte(`{}`)); err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tf.control.ticks <- struct{}{}\n\t\t\tnext()\n\t\t\trefreshed, got := f.report(t)\n\t\t\tif got == revision || refreshed.Reason != status.Reason || refreshed.Pins == nil ||\n\t\t\t\t!slices.Equal(refreshed.Pins.Rollback, wantRollback) || !slices.Equal(refreshed.Pins.KnownBad, []string{bad}) {\n\t\t\t\tt.Fatalf(\"pin-only tick report = %+v, pins = %+v\", refreshed, refreshed.Pins)\n\t\t\t}\n\t\t\tfencer.set(followerLeadership{}.Current())\n\t\t\tf.control.ticks <- struct{}{}\n\t\t\tnext()\n\t\t\tif _, after := f.report(t); after != got || f.control.reported.Load() != nil {\n\t\t\t\tt.Fatal(\"follower changed the report or retained the leader's local status\")\n\t\t\t}\n\t\t\tif present {\n\t\t\t\tcancel()\n\t\t\t} else {\n\t\t\t\tclose(watcher.updates)\n\t\t\t}\n\t\t\tselect {\n\t\t\tcase <-done:\n\t\t\tcase <-time.After(5 * time.Second):\n\t\t\t\tt.Fatal(\"consumer did not stop after watcher closure or cancellation\")"
+      },
+      "credit": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    }
+  ],
+  "qualification_limits": {
+    "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+    "source_execution_performed": false,
+    "runtime_receipts_reviewed": false,
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "deletion_authorized": false,
+    "retirement_authorized": false,
+    "safety_obligations_retained": true,
+    "qualification_delta": 0,
+    "retirement_delta": 0,
+    "count_promotion_authorized": false,
+    "global_completion_claimed": false,
+    "blocked_suffixes": "Four blocked assertion paths491/495/496/497 remain unresolved and receive no qualification or retirement credit; zero unresolved-category roots does not credit their blocked suffixes.",
+    "scope": "Read-only source review and metadata-only packaging. No Go/test/build/lint/format/project helper/scanner/parser execution, process/resource/privilege/cloud/signing/crypto/TerraBase execution, downloads, locks or deletion."
+  }
+}

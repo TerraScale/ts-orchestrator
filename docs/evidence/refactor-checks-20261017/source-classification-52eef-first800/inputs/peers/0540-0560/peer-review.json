@@ -1,0 +1,83 @@
+{
+  "schema": "independent-source-only-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_160_180",
+  "author": "/root/classification_100_dispatch/batch_180_200",
+  "status": "ACCEPTED_SOURCE_ONLY_WITH_EXPLICIT_UNRESOLVED_ROOT",
+  "accepted_packet": {
+    "path": "/tmp/ts-classification-540-560-localpath-za9_if1_/classification.json",
+    "sha256": "1adbb896427666317daf1407b7b214817cfe3af998db01375a026c7baa074e91",
+    "checksum_path": "/tmp/ts-classification-540-560-localpath-za9_if1_/SHA256SUMS",
+    "checksum_sha256": "ad0c4826b4425966b06d40dd3231ff8cb0ef12eca5abb00b84ecfc7e9ce1be7b"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "range": [
+    540,
+    560
+  ],
+  "literal_root_ids": [
+    "internal/app/signers_test.go::TestDelegatedReleaseKeyReleasesOnlyItsDelegation",
+    "internal/app/signers_test.go::TestSignerPolicyReplacesItsSignersLive",
+    "internal/app/status_log_test.go::TestReleaseChannelStatusLogsOnlyChangesAtInfo",
+    "internal/app/status_log_test.go::TestServiceReleaseFailureWarnsOncePerErrorText",
+    "internal/app/status_log_test.go::TestServiceReleaseStatusLogsOnlyChangesAtInfo",
+    "internal/app/storage_test.go::TestControllerCollectsStorageWithoutSettings",
+    "internal/app/storage_test.go::TestOwnedLoopStopCancelsAndJoins",
+    "internal/app/storage_test.go::TestPlacementVolumeIDsListsPlacedRetainedVolumesOnce",
+    "internal/app/storage_test.go::TestPlacementVolumeIDsSkipsAnUnreadablePartition",
+    "internal/app/storage_test.go::TestRoleConfigRejectsRemovedStorageControls",
+    "internal/app/storage_test.go::TestStorageFeaturesRequireTheirDependenciesWithoutAnOptIn",
+    "internal/app/terrabase_seats_load_test.go::TestTerraBaseReleaseUnderLoadServesNoErrors",
+    "internal/app/terrabase_seats_test.go::TestSeatBackendsReadTheLoadBalancer",
+    "internal/app/terrabase_seats_test.go::TestSeatMembersAreTheSignedSeatsWithTheirBackends",
+    "internal/app/terrabase_seats_test.go::TestTerraBaseSeatsConfigDefaultsOffAndBoundsItsTimes",
+    "internal/app/topology_nodes_test.go::TestTopologyNodes",
+    "internal/app/trust_roots_test.go::TestRootRegistryAdoptsOnlyExtendingChains",
+    "internal/app/trust_roots_test.go::TestRootRepairNeverRollsBackAValidRecord",
+    "internal/app/trust_roots_test.go::TestRootRotationOnARunningController",
+    "internal/app/volume_init_test.go::TestVolumeInitRequiresCurrentExactPlacementSeat"
+  ],
+  "counts": {
+    "unit": 12,
+    "integration": 6,
+    "unresolved": 1,
+    "mixed": 1
+  },
+  "checks_performed": [
+    "Independently read all20 complete allocated current roots, retained baseline declarations, missing-root baseline and canonical replacement file, and connected actual production/fixture/client/store paths. Baseline/current file identity/hash equivalence makes exact retained bodies independently comparable.",
+    "Verified literal order against active [540:560) allocation and original raw declaration hashes against every literal survival TSV row. Recomputed raw current/baseline declaration text/hashes and explicit bounds; following LF excluded. Current missing declaration stays null; body-drift states remain explicit.",
+    "Recomputed all55 canonical/baseline source-file Git blobs, file modes, SHA256 and byte lengths; checked all79 explicit connected source spans and every exact assertion span against immutable Git bytes.",
+    "Checked genuine assertions: actual loopback TCP fenceBroker/seat KV, authenticated in-process natscell JetStream inventories and usage publication, actual Statfs/filesystem persistence, real HTTP proxy/member load and seat-store orchestration. Distinguished fake OCI APIs, test publicLBPass publisher, simulated hosts/leases/member servers and local predicate/config/callback paths.",
+    "Verified20-root category totals I6/U12/M1/R1, runtime UNKNOWN and safety/no-retirement fields, packet and checksum hashes, files0444 and directory0555. No test/helper/project scanner/runtime/crypto/cloud execution, source/repo/ledger mutation, process/resource probes, count promotion or retirement."
+  ],
+  "resolved_findings": [
+    {
+      "root_id": "internal/app/trust_roots_test.go::TestRootRotationOnARunningController",
+      "finding": "Reviewer initially suspected missing global cell-spec relay could block later successful apply assertions.",
+      "resolution": "Withdrawn after independent exact call trace: test identity/operator cell both gru; operatorSpecApply425-429 sends same-cell cellSpecApplyKind; host_enrollment179-191 dispatches services.serve, which applies at registry854. The ignored cellSpecPublish/global relay branch is not reached. Fresh accepted packet adds local path completeness evidence. Category remains integration; no source blocker established."
+    },
+    {
+      "scope": "packet boundary completeness",
+      "resolution": "Author preserved prior sealed packets and added exact fake channelBucket seam and natscell connect/JetStream completion, then local operator apply dispatch. Accepted only final immutable 1adbb896 packet."
+    }
+  ],
+  "remaining_findings": [
+    {
+      "root_id": "internal/app/terrabase_seats_test.go::TestTerraBaseSeatsConfigDefaultsOffAndBoundsItsTimes",
+      "status": "UNRESOLVED_UNCREDITED",
+      "reason": "Original baseline root15-32 is absent canonical source; the stale survival row claims exact retention. Canonical test with another literal name is not inferred as successor. All original obligations remain retained; no deletion or retirement authorization."
+    }
+  ],
+  "qualification_limits": [
+    "Runtime UNKNOWN: no receipts reviewed and no source/helper/test/runtime execution.",
+    "Single-node embedded brokers; synthetic fences, cloud LB API, host/member simulation and accepted trust fixtures do not qualify production OCI, TerraBase binaries, deployment or multi-replica quorum.",
+    "publicLBPass resides in oci_reconcile_test.go; never credited as a production publisher. testSeatStore directly starts upstream loopback broker; testOCIResourceStore follows testRolloutJetStream to authenticated in-process natscell client.",
+    "Missing historical TerraBase seat-configuration root stays unresolved with all original obligations retained; no successor inference.",
+    "Classification provides no migration, retirement, deletion, ledger, count-promotion or completion authorization."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "NONE; independent source candidate acceptance only, no ledger/count/deletion/retirement/runtime/completion promotion."
+}

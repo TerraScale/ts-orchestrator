@@ -1,0 +1,205 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_780_800",
+  "author": "/root/classification_100_dispatch/batch_800_820",
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-other800-820-ya43r296/classification.json",
+    "sha256": "ba08ebdffc73dac1cb089ec7fa675486af7fa1ba4c70d5271986753527a8ab62",
+    "checksum_path": "/tmp/ts-source-other800-820-ya43r296/SHA256SUMS",
+    "checksum_sha256": "d163c89bb2d5b4844ab3772f069faacfcd3ef803686ed03afe06162ac82bcd38"
+  },
+  "own_prior_sealed_handoff": {
+    "path": "/tmp/ts-source-classification-780-800-n6ozq8ln/classification.json",
+    "sha256": "9a49ac98c4062626b465d887ecbdbb67741d93cd01b8475b62d46dcf945b501a"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "literal_range": "other_unadjudicated[800:820)",
+  "root_ids": [
+    "internal/bootstrap/manifest_test.go::TestSeedAndPeerReceiptsBindExactInstanceAndManifest",
+    "internal/bootstrap/manifest_test.go::TestSignManifestDoesNotRetainCallerReleaseWireAliases",
+    "internal/bootstrap/manifest_test.go::TestVaultRejectsDigestTraversalSymlinkOverwriteAndInterruptedWrites",
+    "internal/bootstrap/manifest_test.go::TestVaultRequiresVerifiedReceiptAndPinsExactSecretVersion",
+    "internal/bootstrap/slot_replacement_review_test.go::TestReplacementTokensAreDisjointFromInitialTokens",
+    "internal/bootstrap/slot_replacement_test.go::TestReplacementSlotHeadFollowsCompletedAttempt",
+    "internal/bootstrap/slot_replacement_test.go::TestSignSlotRetirementRoundTripAndBounds",
+    "internal/bootstrap/slot_replacement_test.go::TestSlotRetirementCandidateBindsCompletedAttempt",
+    "internal/bootstrap/v1_contract_test.go::TestBootstrapAnchorRejectsNonV1ForCurrentAndHistoricalVerification",
+    "internal/bootstrap/v1_contract_test.go::TestHistoricalLedgerRequiresCompleteCurrentGrant",
+    "internal/bootstrap/v1_contract_test.go::TestLedgerSignedRecordsRejectNonV1ForCurrentAndHistoricalReads",
+    "internal/bootstrap/v1_contract_test.go::TestManifestRejectsNonV1WithoutDroppingCurrentFields",
+    "internal/bootstrap/v1_contract_test.go::TestSlotReplacementRejectsNonV1InputsAndMissingManagedCandidate",
+    "internal/bootstrap/vault_current_test.go::TestVaultRechecksCurrentProofBeforeFetchAndInstall",
+    "internal/bootstrapmaterial/controller_credentials_test.go::TestCheckControllerCredentialsRequiresExactRoleGrants",
+    "internal/bootstrapmaterial/function_tls_integration_test.go::TestFunctionClientTLSAuthenticatesOnlyItsTenantAndFunction",
+    "internal/bootstrapmaterial/generation_test.go::TestCheckGenerationControllerCredentials",
+    "internal/bootstrapmaterial/generation_test.go::TestCheckGenerationControllerCredentialsWithoutInterRegion",
+    "internal/bootstrapmaterial/generation_test.go::TestCheckGenerationFiles",
+    "internal/bootstrapmaterial/generation_test.go::TestCheckGenerationFilesRefusesFutureJWTs"
+  ],
+  "counts": {
+    "integration": 0,
+    "unit": 16,
+    "mixed": 4,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all twenty entire current canonical root declarations and baseline identity/body obligations. Full baseline/current raw declaration text, exact function/column-zero close bounds and SHA256 reconciled against Git. Inspected explicit two-root baseline/current diff.",
+    "Reconciled twenty literal IDs in order to activated allocation and all twenty exact raw survival TSV rows; no additional root or retirement credit.",
+    "Verified all 39 canonical/baseline file pins: Git blob/mode, SHA256 and byte size. Verified 40 raw declarations, all 20 complete assertion-evidence spans and all 56 explicit connected source spans against immutable Git bytes. Verified packet SHA256SUMS and 0444 files/0555 directory. Metadata-only hashes/serialization used; no source parser/scanner or test/helper execution.",
+    "Read actual reached manifest/receipt/trust validation, fake ledger constructors and record decoders, slot replacement constructors, generation map callbacks and controller credential checks. Generated setup files remain incidental to direct grant validation. No fixture name promoted to boundary credit.",
+    "Confirmed four mixed roots retain separate unit blocks: bundle decode plus real filesystem write cleanup/no-overwrite/readback; exact secret materialization readback plus local fetch/authorization guards; current-proof callbacks plus actual file installation; real stdlib mTLS handshake consuming production-issued certs plus independent certificate/expiry/scope predicates."
+  ],
+  "per_root_category_confirmation": [
+    {
+      "root_id": "internal/bootstrap/manifest_test.go::TestSeedAndPeerReceiptsBindExactInstanceAndManifest",
+      "category": "unit",
+      "source_resolution": "category_confirmed_only",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/bootstrap/manifest_test.go::TestSignManifestDoesNotRetainCallerReleaseWireAliases",
+      "category": "unit",
+      "source_resolution": "category_confirmed_only",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/bootstrap/manifest_test.go::TestVaultRejectsDigestTraversalSymlinkOverwriteAndInterruptedWrites",
+      "category": "mixed",
+      "source_resolution": "category_confirmed_only",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/bootstrap/manifest_test.go::TestVaultRequiresVerifiedReceiptAndPinsExactSecretVersion",
+      "category": "mixed",
+      "source_resolution": "category_confirmed_only",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/bootstrap/slot_replacement_review_test.go::TestReplacementTokensAreDisjointFromInitialTokens",
+      "category": "unit",
+      "source_resolution": "category_confirmed_only",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/bootstrap/slot_replacement_test.go::TestReplacementSlotHeadFollowsCompletedAttempt",
+      "category": "unit",
+      "source_resolution": "category_confirmed_only",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/bootstrap/slot_replacement_test.go::TestSignSlotRetirementRoundTripAndBounds",
+      "category": "unit",
+      "source_resolution": "category_confirmed_only",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/bootstrap/slot_replacement_test.go::TestSlotRetirementCandidateBindsCompletedAttempt",
+      "category": "unit",
+      "source_resolution": "category_confirmed_only",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/bootstrap/v1_contract_test.go::TestBootstrapAnchorRejectsNonV1ForCurrentAndHistoricalVerification",
+      "category": "unit",
+      "source_resolution": "category_confirmed_only",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/bootstrap/v1_contract_test.go::TestHistoricalLedgerRequiresCompleteCurrentGrant",
+      "category": "unit",
+      "source_resolution": "category_confirmed_only",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/bootstrap/v1_contract_test.go::TestLedgerSignedRecordsRejectNonV1ForCurrentAndHistoricalReads",
+      "category": "unit",
+      "source_resolution": "category_confirmed_only",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/bootstrap/v1_contract_test.go::TestManifestRejectsNonV1WithoutDroppingCurrentFields",
+      "category": "unit",
+      "source_resolution": "category_confirmed_only",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/bootstrap/v1_contract_test.go::TestSlotReplacementRejectsNonV1InputsAndMissingManagedCandidate",
+      "category": "unit",
+      "source_resolution": "category_confirmed_only",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/bootstrap/vault_current_test.go::TestVaultRechecksCurrentProofBeforeFetchAndInstall",
+      "category": "mixed",
+      "source_resolution": "category_confirmed_only",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/bootstrapmaterial/controller_credentials_test.go::TestCheckControllerCredentialsRequiresExactRoleGrants",
+      "category": "unit",
+      "source_resolution": "category_confirmed_only",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/bootstrapmaterial/function_tls_integration_test.go::TestFunctionClientTLSAuthenticatesOnlyItsTenantAndFunction",
+      "category": "mixed",
+      "source_resolution": "category_confirmed_only",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/bootstrapmaterial/generation_test.go::TestCheckGenerationControllerCredentials",
+      "category": "unit",
+      "source_resolution": "category_confirmed_only",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/bootstrapmaterial/generation_test.go::TestCheckGenerationControllerCredentialsWithoutInterRegion",
+      "category": "unit",
+      "source_resolution": "category_confirmed_only",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/bootstrapmaterial/generation_test.go::TestCheckGenerationFiles",
+      "category": "unit",
+      "source_resolution": "category_confirmed_only",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/bootstrapmaterial/generation_test.go::TestCheckGenerationFilesRefusesFutureJWTs",
+      "category": "unit",
+      "source_resolution": "category_confirmed_only",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "retained_source_findings": [
+    {
+      "kind": "canonical_body_drift",
+      "root_ids": [
+        "internal/bootstrapmaterial/generation_test.go::TestCheckGenerationControllerCredentials",
+        "internal/bootstrapmaterial/generation_test.go::TestCheckGenerationControllerCredentialsWithoutInterRegion"
+      ],
+      "detail": "Two assigned generation credential roots now use controller config version 2. Historical survival current hashes remain recorded verbatim; baseline and actual canonical bytes/hashes are preserved. Identity/obligation retained, no retirement credit."
+    }
+  ],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; source-only classification is not compilation, runtime success or cryptographic qualification.",
+    "Generation credential roots 816 and 817 retain exact original identity and obligations despite canonical controller config version changes; historical current hashes are preserved and actual hashes independently verified.",
+    "Filesystem is the only real Vault-test boundary: all SecretBundleReader responses remain synthetic; no OCI Vault or Object Storage contact. No crash durability, production secret deployment or live identity claim.",
+    "Function TLS boundary uses stdlib httptest with test-owned URI verifier and production certificate issuance; no production function server, Wasm/TerraBase runtime or cloud acceptance.",
+    "No source/repository/ledger/runtime mutations, execution, deletion/retirement, accepted count promotion or global completion. All original negative/safety/identity/expiry/no-overwrite/cancellation and retry obligations retained."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "ledger_promotion_authorized": false,
+  "accounting_effect": {
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "accepted_global_count_delta": 0,
+    "global_completion": false
+  }
+}

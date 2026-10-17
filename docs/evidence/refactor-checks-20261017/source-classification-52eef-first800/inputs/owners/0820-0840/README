@@ -1,0 +1,6 @@
+Source-only candidate for exact other[820:840), twenty literal roots.
+Canonical 52eef25bad09736d8f0806ecaccaef1a7c86b49e; baseline bfca60368f60d2da67f9016d1d489317ae8749c8.
+Counts: {"integration": 5, "mixed": 9, "unit": 6, "unresolved": 0}.
+All root declarations and assertion bodies, raw hashes, file blob/mode/SHA256/bytes and reached boundary spans are retained in classification.json.
+Telemetry fixture port -1 blocks later budget exchange; those assertions are unresolved/uncredited. Runtime UNKNOWN; no source/runtime/ledger mutation or retirement/qualification credit.
+Author self-review: connected function spans split and corrected; root categories unchanged. Prior packet bytes preserved.

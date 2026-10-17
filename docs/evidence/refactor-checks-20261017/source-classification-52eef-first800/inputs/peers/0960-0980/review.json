@@ -1,0 +1,81 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_940_960",
+  "author": "/root/classification_100_dispatch/batch_960_980",
+  "accepted": true,
+  "accepted_packet": {
+    "path": "/tmp/ts-source-960-980-final-ei3mw5ip/classification.json",
+    "sha256": "a36ec5e5ceaaa23ad6d064252ec5a9145f630ecf1675c1dc0708b1a85f133aa0",
+    "checksum_path": "/tmp/ts-source-960-980-final-ei3mw5ip/SHA256SUMS",
+    "checksum_sha256": "809ed2215dd531a15f87b43a8674faa461e48b785e3adcf133adda8106ab5bda"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "range": [
+    960,
+    980
+  ],
+  "literal_root_ids": [
+    "internal/bootstrapstart/founder_publish_initial_test.go::TestPublishInitialFounderSelectionRejectsBadPinBeforeAnyWrite",
+    "internal/bootstrapstart/founder_publish_initial_test.go::TestPublishInitialFounderSelectionRejectsConflictingExistingSelector",
+    "internal/bootstrapstart/founder_replacement_review_test.go::TestFencedReplacementStopsBeforeEveryMutation",
+    "internal/bootstrapstart/founder_replacement_review_test.go::TestReplacementFinishesAStagedAdvanceAfterAHeadWriteFailure",
+    "internal/bootstrapstart/founder_replacement_review_test.go::TestReplacementLaunchNeedsTheSeedPlacementSource",
+    "internal/bootstrapstart/founder_replacement_test.go::TestFounderReplacementInstanceIsAdmittedForMatchingAttempt",
+    "internal/bootstrapstart/founder_replacement_test.go::TestFounderReplacementRelaunchesRetiredPeerAsNextAttempt",
+    "internal/bootstrapstart/founder_replacement_test.go::TestFounderReplacementRequiresRootSignedRetirement",
+    "internal/bootstrapstart/founder_replacement_test.go::TestObserveLifecycleReportsTerminatedWithoutVNIC",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeCandidateOnlyRestartObservesWithoutRelaunch",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeChangedInstanceAfterStaleObservationCannotComplete",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeCompletedCellRequiresExistingCanonicalFloor",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeCompletedCellRestartDoesNotNeedCurrentLaunchPlan",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeCompletedPeerRestartAfterLaunchDeadline",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeCompletesTwoPlannedPeersAndRestartIsIdempotent",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeFirstInstallHoldsAfterReceiptExpiry",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeFirstInstallHoldsIfReceiptExpiresDuringFloorPublication",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeHistoricalCompletionRequiresExactBakedAnchor",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeLateCompletionCannotFirstAdmitAfterLaunchDeadline",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeLaterLedgerReadCrossesSelectionExpiryWithoutEffects"
+  ],
+  "counts": {
+    "integration": 2,
+    "unit": 15,
+    "mixed": 3,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 complete roots and actual connected founder publication/replacement/runtime/gate/floor/marker paths; setup-selected topology rewrites and map-backed OCI/ledger fakes were traced.",
+    "Verified literal20 roots against activated allocation and original accounting other_unadjudicated[960:980); raw survival mappings match.",
+    "Recomputed baseline/current declaration bounds, raw text/hash/blob and assertion spans for all20; recomputed50 original connected spans and27 final file pins (mode/blob/SHA256/bytes). No body drift.",
+    "Verified fresh packet/checksum hashes, unchanged raw declarations/assertions and old source pins, added prepareFounderFloorOwner159:196 exact source span/pin, files0444 and directory0555.",
+    "Accepted categories after independent map-backed founderPeersComplete block was separated from actual initial/restart file assertions."
+  ],
+  "resolved_findings": [
+    {
+      "root_id": "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeCompletedPeerRestartAfterLaunchDeadline",
+      "finding": "Independent unit-only founderPeersComplete assertion at founder_runtime_test.go976\u2013979 accompanied real floor/marker admission.",
+      "resolution": "Final category mixed; counts2I/15U/3M/0unresolved."
+    },
+    {
+      "scope": "Continuation floor preparation",
+      "finding": "Production prepareFounderFloorOwner span/pin absent from original evidence.",
+      "resolution": "Added canonical founder_provision.go159\u2013196 and full-file pin; all continuation roots link it."
+    }
+  ],
+  "remaining_findings": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "qualification_limits": [
+    "No Go, tests, helpers, source scripts, execution/probes/locks, signing/crypto, cloud or runtime actions were performed. Only read-only Git/file inspection and metadata hashing/packaging.",
+    "Map ledger and fake SDK observations do not establish live OCI or provider persistence. Real floor/marker file effects qualify only the specific local assertions named.",
+    "Peer acceptance conveys source category review only; no ledger/count/deletion/retirement/runtime qualification or global completion credit."
+  ],
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  }
+}

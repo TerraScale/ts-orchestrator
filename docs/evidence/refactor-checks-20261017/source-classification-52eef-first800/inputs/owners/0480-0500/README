@@ -1,0 +1,8 @@
+NEXT800 corrected source-only candidate: exact other_unadjudicated[480:500).
+Owner /root/classification_100_dispatch/peer_80_100; peer /root/classification_100_dispatch/peer_60_80.
+Canonical 52eef25bad09736d8f0806ecaccaef1a7c86b49e; tree 425f29503c1880f68c0499a8372e08b466f370de; baseline bfca60368f60d2da67f9016d1d489317ae8749c8.
+Counts 13 integration, 2 unit, 5 mixed, 0 identity-category unresolved.
+Four source-blocked assertion suffixes:491 present=true issuance ordering;495/496/497 fixed run9 conflicting digests. All remain explicitly unresolved/uncredited.
+Correction r2 adds reviewer finding491; prior immutable packet preserved.
+Runtime UNKNOWN; no source/Git/ledger mutation, execution, retirement or completion credit.
+Raw declarations exclude following LF; assertions and connected citations include exact bounds/hash/text; whole-file pins include mode/blob/SHA256/bytes.

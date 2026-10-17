@@ -1,0 +1,108 @@
+{
+  "schema": "ts-source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_260_280",
+  "author": "/root/classification_100_dispatch/batch_280_300",
+  "allocation_range": [
+    640,
+    660
+  ],
+  "status": "ACCEPTED_WITH_ONE_UNRESOLVED_HELPER_ROOT",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-640-660-decoder-e1g_7not/classification.json",
+    "sha256": "564012966e95de8d0c8d570b29e5eec2d65ac251ee8521a2f4bc27e59eeafb10",
+    "checksum_path": "/tmp/ts-source-classification-640-660-decoder-e1g_7not/SHA256SUMS",
+    "checksum_sha256": "4b80c80bb5040f1d2ca7135f1e4b2105ca15cebc83246abb0cae17b36c6304df"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/benchmark/review_test.go::TestSSHCancelAndStreamFailuresWaitForRemoteCleanup",
+    "internal/benchmark/review_test.go::TestSSHWorkerHelper",
+    "internal/benchmark/review_test.go::TestSafetyCancellationPrecedesStorageAndOutput",
+    "internal/benchmark/review_test.go::TestSafetyStopCannotHideCleanupFailure",
+    "internal/benchmark/review_test.go::TestWorkerDisconnectCancelsBeforeAcknowledging",
+    "internal/benchmark/window_review_test.go::TestInitialRunSaveFailureProducesFailedLocalReport",
+    "internal/benchmark/window_review_test.go::TestMeasurementMarkerCannotBeRepeatedOrContradictClientClock",
+    "internal/benchmark/window_review_test.go::TestQualificationCountsMissingIntervalsInElapsedThroughput",
+    "internal/benchmark/window_review_test.go::TestQualificationRejectsSamplesOutsideMeasurementWindow",
+    "internal/benchmark/window_review_test.go::TestWorkerMeasurementMarkersExcludeWarmupAfterStartup",
+    "internal/bootstrap/accepted_install_test.go::TestAcceptedExportSupportsTheFullIdentityBound",
+    "internal/bootstrap/accepted_install_test.go::TestPublishAcceptedInstallIsWriteOnceAndReadable",
+    "internal/bootstrap/anchor_test.go::TestBootstrapAnchorCurrentVerificationPinsIdentityAndReturnsDefensiveCopies",
+    "internal/bootstrap/anchor_test.go::TestBootstrapAnchorRejectsWrongLocalIdentityAndRoot",
+    "internal/bootstrap/anchor_test.go::TestBootstrapAnchorRequiresCanonicalBoundedIntentAndExactPins",
+    "internal/bootstrap/anchor_test.go::TestBootstrapAnchorRequiresExactSingleSignerLedgerCapabilitySet",
+    "internal/bootstrap/anchor_test.go::TestBootstrapAnchorSignsRegionalKMSKeyOCIDsWithFutureUse",
+    "internal/bootstrap/anchor_test.go::TestHistoricalBootstrapAnchorOnlyProvesAcceptedInterval",
+    "internal/bootstrap/cli/customer_open_test.go::TestOpenCustomerMaterialRejectsWrongKeyTamperAndBinding",
+    "internal/bootstrap/cli/customer_open_test.go::TestOpenCustomerMaterialSignedReplyAndOwnerOnlyOutput"
+  ],
+  "counts": {
+    "integration": 3,
+    "unit": 14,
+    "mixed": 2,
+    "unresolved": 1
+  },
+  "independence": {
+    "own_packet_frozen_before_peer_review": true,
+    "own_packet_path": "/tmp/ts-source-classification-620-640-yic57n2b/classification.json",
+    "own_packet_sha256": "45ca9f00341c1bfbd7edee5b7be48d7d39451342de9a296827c092d9f3d95d0b",
+    "children_spawned": false
+  },
+  "checks": {
+    "entire_roots_manually_read": 20,
+    "literal_allocation_order_and_survival_rows_verified": 20,
+    "baseline_and_current_raw_declarations_verified": 40,
+    "full_source_file_git_blob_mode_sha256_bytes_verified": 30,
+    "exact_assertion_and_connected_spans_verified": 70,
+    "unique_spans": 69,
+    "declaration_rule": "Exact explicitly pinned function-start through column-zero closing brace; excluding following LF. No source parser/scanner.",
+    "canonical_tree_verified": true,
+    "checksums_verified": true,
+    "files_mode": "0444",
+    "directory_mode": "0555",
+    "source_categories_independently_confirmed": true,
+    "method": "Independent full-root and reached-callee source reading followed by metadata-only exact-byte/hash validation over author-pinned explicit spans."
+  },
+  "boundary_findings": [
+    "SSH tests materially exercise production exec.CommandContext, real child pipes/Wait/cancellation and cleanup subprocesses through shell wrappers running test-binary fixtures. No actual SSH networking or Podman engine.",
+    "Runner callbacks, bytes.Buffer worker session, usage/result fixtures and map-backed fakeObjectStorageClient establish only local behavior. OCI SDK request structs and KMS identifiers do not establish cloud integration.",
+    "Anchor roots exercise local signatures, identity/capability/time predicates and copies. Customer successful root reaches actual 0600 create-only file publication, sync, hard link, mode/content/no-overwrite readback.",
+    "Initial-save failure has an independent local verdict block plus actual report write/readback. Customer negative root has independent crypto/schema blocks plus actual permission/O_NOFOLLOW file security blocks; both are mixed."
+  ],
+  "resolved_findings": [
+    {
+      "root_id": "internal/benchmark/review_test.go::TestSSHCancelAndStreamFailuresWaitForRemoteCleanup",
+      "finding": "Pre-freeze author claim that missing-fields reaches marker error was incorrect. Sample.UnmarshalJSON rejects absent latency in session.go95 before marker check97, selecting invalid-JSONL text96. Author sealed fresh decoder packet with exact contract.go82\u2013159 source evidence and withdrew false contradiction.",
+      "resolution": "CORRECTED_IN_EXACT_ACCEPTED_PACKET",
+      "category_changed": false
+    }
+  ],
+  "remaining_findings": [
+    {
+      "root_id": "internal/benchmark/review_test.go::TestSSHWorkerHelper",
+      "status": "UNRESOLVED_HELPER_ROOT_RULE",
+      "explanation": "Conditional child fixture returns immediately without TS_761_SSH_MODE; selected branches call workerSession then os.Exit, while parent tests own assertions. Standalone root category needs an established helper-root accounting rule."
+    }
+  ],
+  "qualification_limits": [
+    "Conditional TestSSHWorkerHelper remains unresolved: empty mode returns without assertion, selected child branches os.Exit, parents own process assertions. No independent helper-root accounting rule was supplied.",
+    "Customer tampered ciphertext is rejected by signed-envelope digest verification before AES-GCM open; no later decrypt/tamper coverage claimed.",
+    "No runtime receipts reviewed or project code executed. Source categories do not establish runtime pass/fail, actual cloud/container/database integration, secret delivery, production measurement or operational qualification.",
+    "Accepted packet only; prior superseded packet is preserved and not accepted by this receipt."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "source_mutated": false,
+    "count_promotion": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "deletion_authorized": false,
+    "global_completion": false
+  }
+}

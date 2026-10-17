@@ -1,0 +1,8 @@
+Source-only candidate, literal other_unadjudicated[540:560), 20 roots.
+Counts: integration6 unit12 mixed1 unresolved1.
+Canonical52eef25bad09736d8f0806ecaccaef1a7c86b49e; baselinebfca60368f60d2da67f9016d1d489317ae8749c8.
+Missing historical TerraBaseSeats config root unresolved; canonical new permit test is not inferred as successor.
+Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no retirement/deletion, ledger or count promotion.
+All original safety obligations retained. Exact raw declarations, assertion texts, connected spans and file pins are in classification.json.
+Supersedes initial packet only to add connected fake Object Store and NATS completion spans; categories unchanged.
+Local service-apply path added; same-cell gru apply uses cellSpecApplyKind dispatch, not the cross-region global relay.

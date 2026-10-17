@@ -1,0 +1,87 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1060_1080",
+  "author": "/root/classification_100_dispatch/batch_1080_1100",
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-1080-1100-e_vrlkws/classification.json",
+    "sha256": "6695cc2319c00a904ba9b972062806a0529079159e5eb2ba1449f2d345726876",
+    "checksum_path": "/tmp/ts-source-classification-1080-1100-e_vrlkws/SHA256SUMS",
+    "checksum_sha256": "453cb948a65f66c07d31a55a2bf8046a18851ff2ef557481c5bf0dc8dff36736"
+  },
+  "reviewer_own_packet_frozen_before_peer_review": {
+    "path": "/tmp/ts-source-1060-1080-nrdjusa9/classification.json",
+    "sha256": "13965f544c2c99e973e6b4a4e68981db6ab2cbcf62fafdd3b271473e68bf7fd8"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "literal_range": [
+    1080,
+    1100
+  ],
+  "root_ids": [
+    "internal/bootstrapstart/launch_pins_test.go::TestInitialAdmissionRequiresLaunchFilesBeforeEffectsAndRetainsExactPins",
+    "internal/bootstrapstart/launch_pins_test.go::TestInitialLaunchMaterialUsesIndependentPinnedRegionImageAndCurrentProof",
+    "internal/bootstrapstart/launch_pins_test.go::TestSignedARMHostLaunchIsIndependentOfAMD64Controller",
+    "internal/bootstrapstart/ledger_test.go::TestHistoricalLedgerOpenerAcceptsCurrentFiveDomainGrantReadOnly",
+    "internal/bootstrapstart/ledger_test.go::TestLedgerOpenerUsesExactVerifiedGrantAndBakedRoots",
+    "internal/bootstrapstart/marker_test.go::TestMarkerAtomicNoReplaceAndTamper",
+    "internal/bootstrapstart/marker_test.go::TestMarkerRejectsSymlinkAndUntrustedParent",
+    "internal/bootstrapstart/marker_test.go::TestMarkerRequiresPrimaryVNICIdentity",
+    "internal/bootstrapstart/marker_test.go::TestMarkerRequiresSignedSeedRole",
+    "internal/bootstrapstart/material_caps_test.go::TestBootstrapUnitPinsMaterialInstallCapabilities",
+    "internal/bootstrapstart/material_caps_test.go::TestMaterialInstallUnderRestrictedCapabilities",
+    "internal/bootstrapstart/material_caps_test.go::TestMaterialInstallWithoutDACOverride",
+    "internal/bootstrapstart/material_restore_test.go::TestInitialMaterialMountRequiresEmptyDirectoryAndKeepsSecretsInMemory",
+    "internal/bootstrapstart/material_restore_test.go::TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles",
+    "internal/bootstrapstart/material_restore_test.go::TestRebootArmedSuccessorDoesNotWriteSecretsBeforeMemoryMount",
+    "internal/bootstrapstart/material_restore_test.go::TestRebootArmedSuccessorInstallsOnlyInMemory",
+    "internal/bootstrapstart/material_restore_test.go::TestRebootArmedSuccessorRechecksExpiryAfterVaultRead",
+    "internal/bootstrapstart/material_restore_test.go::TestRebootRestoresFullAcceptedBaselineWithoutRetiredFiles",
+    "internal/bootstrapstart/material_restore_test.go::TestRebootSuccessorDiskCleanupRefusesUnverifiedPredecessor",
+    "internal/bootstrapstart/material_restore_test.go::TestRestoreAcceptsOlderDiskPrefixButRejectsDivergentChain"
+  ],
+  "counts": {
+    "integration": 12,
+    "mixed": 3,
+    "unit": 5,
+    "unresolved": 0,
+    "total": 20
+  },
+  "checks_performed": [
+    "Independently read all twenty full canonical roots and actual connected fixture/production boundaries. Earlier own-source shared-path reads retained; new peer paths read directly from immutable Git objects.",
+    "Confirmed activated cyclic mapping, exact literal20 IDs/order, original-accounting other_unadjudicated[1080:1100), and no exclusions overlap.",
+    "Recomputed all baseline/current raw declarations from func through column-zero close excluding following LF; checked exact survival rows and current raw declaration text. All twenty unchanged, no mapping ambiguity.",
+    "Recomputed31 canonical/baseline file pins: commit/path/Git blob/mode/SHA256/bytes. Checked75 exact connected callee/fixture source spans and every assertion evidence span against Git bytes.",
+    "Verified immutable files0444/directory0555, packet/checksum hashes and SHA256SUMS entries. Counts exhaust only literal20 allocation.",
+    "Followed actual local marker/pinned-launch/material filesystem calls, single-root parent/child unshare and tmpfs flow, exact-capability prerequisites, raw-provider SDK construction and map-backed/synthetic adapters. No execution or process/resource probe.",
+    "Reviewed distinct pre-file region guard, byte-map ARM rekey negative table and wrong-root/baseline/reference rekey guards; mixed categories retain independent local-only obligations. Incidental systemd text read stays unit."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "category_assessment": {
+    "integration": 12,
+    "unit": 5,
+    "mixed": 3,
+    "unresolved": 0,
+    "detail": "Real OS file effects/readback and conditional mount/capability scenarios materially support integration roots. SDK construction, string parsing and local validators remain unit. Mixed roots keep independent local-only assertions. Source categories do not imply runtime success."
+  },
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; compilation and privileged/kernel/runtime prerequisites not established.",
+    "No live OCI/Vault/IMDS/NATS/NetBird/TerraBase boundary or production credentials. SDK construction and synthetic services do not qualify API access.",
+    "Mount/capability tests require exact privileged invocation and suitable /var/tmp; no invocation or capability probe was performed. Parent/child assertions are in the same allocated root.",
+    "Temporary filesystem source paths and fake-Vault contents do not qualify live cloud recovery, real reboot, crash/power-loss durability or production material delivery.",
+    "No source/repository/ledger/runtime mutation, deletion, retirement, qualification/count/global-completion promotion; all safety obligations retained."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "ledger_mutated": false,
+  "repository_mutated": false,
+  "accounting_effect": {
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "count_promotion": false,
+    "global_completion": false
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_900_920",
+  "author": "/root/classification_100_dispatch/batch_920_940",
+  "accepted": true,
+  "accepted_packet": {
+    "path": "/tmp/ts-source-920-940-accepted-candidate-tk9upexq/classification.json",
+    "sha256": "2486898a3af0faeb9d7038d5e5253ee1d24e0e889486f2f8582f13eff1c3bb27",
+    "checksum_path": "/tmp/ts-source-920-940-accepted-candidate-tk9upexq/SHA256SUMS",
+    "checksum_sha256": "1fd862a1428b03d1af4fa89185e3629fc7537e4b9b140e8581d174fb433f605f"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-source-dispatch-58wrSDrA/allocation-and-exclusions.json",
+    "sha256": "c9407bbf548f26e874996a930f6fafe9bf01c825bc495e4b1e2c46eb7cf5659e",
+    "range": [
+      920,
+      940
+    ]
+  },
+  "root_ids": [
+    "internal/bootstrapstart/controller_host_recipient_integration_test.go::TestControllerHostRecipientRejectsSignedSubstitution",
+    "internal/bootstrapstart/controller_host_recipient_integration_test.go::TestControllerHostRecipientSignedSDKIntegration",
+    "internal/bootstrapstart/credentials_review_test.go::TestCredentialCheckerPinsTheOptionalMembershipCredential",
+    "internal/bootstrapstart/credentials_test.go::TestCredentialCheckerBindsPathsAndExactInventory",
+    "internal/bootstrapstart/credentials_test.go::TestCredentialCheckerBindsTerraBaseMemberCA",
+    "internal/bootstrapstart/credentials_test.go::TestCredentialCheckerRejectsExtraAndChangedInstalledFiles",
+    "internal/bootstrapstart/credentials_test.go::TestFreshInterregionCredentialPathsUseManifestRoleReferences",
+    "internal/bootstrapstart/credentials_test.go::TestSeedSignerCredentialPathsFollowSelectedSignedManifest",
+    "internal/bootstrapstart/descriptor_test.go::TestDescriptorStrictAndFixedIMDS",
+    "internal/bootstrapstart/descriptor_test.go::TestFetchLaunchMaterialReadsOperatorSSHKey",
+    "internal/bootstrapstart/descriptor_test.go::TestFetchLaunchMaterialReportsNonControllerInstance",
+    "internal/bootstrapstart/descriptor_test.go::TestIMDSInstanceIDIsOnlyALocalLocator",
+    "internal/bootstrapstart/descriptor_test.go::TestIMDSRejectsRedirectOversizeAndForeignDial",
+    "internal/bootstrapstart/external_seed_admission_test.go::TestExternalSeedProducedLedgerHistoryAdmitsInitial",
+    "internal/bootstrapstart/founder_classification_review_test.go::TestExpiredSelectedPlanIsClassifiedAsOperatorActionThroughWrappers",
+    "internal/bootstrapstart/founder_classification_review_test.go::TestSelectionFloorRollbackIsClassifiedAsOperatorActionThroughWrappers",
+    "internal/bootstrapstart/founder_decisions_test.go::TestFailedFounderLaunchDoesNotClaimNoInstance",
+    "internal/bootstrapstart/founder_floor_artifact_test.go::TestFounderFloorArtifactsMatchInitializedPeerFloor",
+    "internal/bootstrapstart/founder_formation_review_test.go::TestAntiAffinityRefusalLeavesThePeerSlotUnreserved",
+    "internal/bootstrapstart/founder_formation_test.go::TestFounderPeersCompleteFactBindsExactSeedInstall"
+  ],
+  "counts": {
+    "integration": 2,
+    "unit": 10,
+    "mixed": 8,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all twenty full canonical test roots and actual connected production/fixture paths. Only literal assigned original IDs classified.",
+    "Verified all20 survival mappings and exact baseline/current raw declaration text, start/end bounds and declaration hashes, no body drift; verified exact assertion span text/hashes.",
+    "Verified all56 cited canonical/baseline source-file mode/blob/SHA256/byte pins against Git and all112 explicit callee/fixture excerpt span text/hashes and bounds.",
+    "Followed actual recipient SDK HTTP fixture setup and topology rewrite. Distinguished local grant/deadline predicates, fake Object Storage/OCI maps, injected IMDS RoundTripper, local path-only predicates, actual inventory/floor/marker/completion-file effects, and in-memory decision journal.",
+    "Verified final packet/checksum hashes and files0444/directory0555. Prior packets preserved. Source-only read/hash/metadata packaging; no source/repository/ledger/runtime mutation or project execution."
+  ],
+  "resolved_findings": [
+    {
+      "roots": [
+        "internal/bootstrapstart/controller_host_recipient_integration_test.go::TestControllerHostRecipientRejectsSignedSubstitution",
+        "internal/bootstrapstart/controller_host_recipient_integration_test.go::TestControllerHostRecipientSignedSDKIntegration",
+        "internal/bootstrapstart/founder_floor_artifact_test.go::TestFounderFloorArtifactsMatchInitializedPeerFloor"
+      ],
+      "detail": "Withdrew alleged old topology/absent-controller-c blocker after reading actual setup call and founderFixtureWithAdmissibleRelease244-361, which rewrites/re-signs seed-a as controller-c before admission. All three now mixed with independent local blocks explicit."
+    },
+    {
+      "detail": "Corrected EOF citation bounds for founder_anti_affinity.go to52 and founder_continuation.go to147. Source text/pins/categories unchanged by this correction."
+    }
+  ],
+  "remaining_findings": [],
+  "unresolved_roots": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "qualification_limits": [
+    "Source classification only; no compile/test/runtime receipt, live OCI/IMDS/Vault/NATS, actual cloud persistence, production ownership or power-loss/crash durability qualification.",
+    "Real SDK HTTP emulator checks Authorization presence; it does not cryptographically authenticate requests. Fake map-backed paths and local-only assertion blocks retain all original safety obligations."
+  ],
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "ledger_mutated": false,
+    "source_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "deletion_credit": 0,
+    "global_completion": false
+  }
+}

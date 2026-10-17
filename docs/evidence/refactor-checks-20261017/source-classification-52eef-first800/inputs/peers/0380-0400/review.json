@@ -1,0 +1,1401 @@
+{
+  "schema": "root800-independent-source-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_60_80",
+  "author": "/root/classification_100_dispatch/batch_80_100",
+  "decision": "ACCEPT_FROZEN_SOURCE_CLASSIFICATION_ONLY",
+  "reviewed_packet": {
+    "path": "/tmp/ts-source-classification-52eef-batch380-400-tkyn1tih/classification.json",
+    "sha256": "e557601eb81b306478d4d75d413369d8d748ac661e353a857ca6744c341e572f",
+    "checksum_manifest_path": "/tmp/ts-source-classification-52eef-batch380-400-tkyn1tih/SHA256SUMS",
+    "checksum_manifest_sha256": "16f15ff80d30590f48cc809ef9d25658806bbe1f2b648c4e74ad3b9adc5eb11c"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-source-dispatch-58wrSDrA/allocation-and-exclusions.json",
+    "sha256": "c9407bbf548f26e874996a930f6fafe9bf01c825bc495e4b1e2c46eb7cf5659e",
+    "range": [
+      380,
+      400
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_60_80"
+  },
+  "input_pins": [
+    {
+      "path": "/tmp/ts-root800-source-dispatch-58wrSDrA/allocation-and-exclusions.json",
+      "sha256": "c9407bbf548f26e874996a930f6fafe9bf01c825bc495e4b1e2c46eb7cf5659e"
+    },
+    {
+      "path": "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json",
+      "sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513",
+      "selector": "original_root_ids_by_disposition.other_unadjudicated[380:400]"
+    },
+    {
+      "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+      "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+    },
+    {
+      "path": "/tmp/ts-root800-source-dispatch-58wrSDrA/PEER-PROTOCOL.md",
+      "sha256": "f0985a2f3dd927f859422148d1e89d5247a4213b8ee693475c7efb7d24d653e5"
+    },
+    {
+      "path": "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md",
+      "sha256": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70"
+    }
+  ],
+  "literal_root_ids": [
+    "internal/app/operator_admission_retryable_review_test.go::TestArtifactAdmissionRecoveryExpiryStaysTransient",
+    "internal/app/operator_forward_test.go::TestOperatorForwardFlagRejectsDuplicateAndMalformedEntries",
+    "internal/app/operator_integration_test.go::TestAuthenticatedOperatorToHostDelivery",
+    "internal/app/operator_placement_list_test.go::TestOperatorPlacementListEmptyCurrentSet",
+    "internal/app/operator_placement_list_test.go::TestOperatorPlacementListFailsClosedOnMalformedOrUnauthorizedRead",
+    "internal/app/operator_placement_list_test.go::TestOperatorPlacementListSortsCurrentIdentityWithoutPayload",
+    "internal/app/operator_retry_test.go::TestArtifactAdmissionExactEnvelopeIsIdempotent",
+    "internal/app/operator_retry_test.go::TestArtifactAdmissionPermanentReplyAndCallerBound",
+    "internal/app/operator_retry_test.go::TestArtifactAdmissionReplaysExactClaimWithinRecoveryWindow",
+    "internal/app/operator_retry_test.go::TestOperatorMetadataRecovery",
+    "internal/app/operator_terminal_integration_test.go::TestOperatorTerminalTeardownThroughSignedRuntimeAndGrantReadback",
+    "internal/app/operator_terminal_test.go::TestTerminalPlanApplyAndStatusRequireSignedExactInventory",
+    "internal/app/operator_terrabase_classify_test.go::TestSoakSampleRequiresTheHostsCurrentServingProof",
+    "internal/app/operator_terrabase_classify_test.go::TestTerraBaseRolloutClassifiesConnectAndStatusErrors",
+    "internal/app/operator_terrabase_csharp_test.go::TestTerraBasePlacementKeepsMembersOnListedHosts",
+    "internal/app/operator_terrabase_csharp_test.go::TestTerraBaseProfileRejectsArguments",
+    "internal/app/operator_terrabase_csharp_test.go::TestTerraBaseReleaseDeployUpgradeRollback",
+    "internal/app/operator_terrabase_csharp_test.go::TestTerraBaseReleaseGateWithFakeMember",
+    "internal/app/operator_terrabase_csharp_test.go::TestTerraBaseReleaseStateRules",
+    "internal/app/operator_terrabase_deploy_integration_test.go::TestTerraBaseDeployDrivesManagedPlacementToDesiredState"
+  ],
+  "counts": {
+    "integration": 7,
+    "unit": 11,
+    "mixed": 2,
+    "unresolved": 0,
+    "total": 20
+  },
+  "verification": {
+    "method": "Independent full-root and connected actual fixture/production-path reading; metadata-only Git byte/hash/mode checks over explicitly reviewed spans. No source parser/scanner or project helper execution.",
+    "literal_allocation_and_frozen_survival_mappings": 20,
+    "baseline_current_raw_declarations": 40,
+    "canonical_file_git_blob_mode_sha256_byte_pins": 53,
+    "exact_citation_declaration_assertion_spans": 163,
+    "span_bounds_include_no_eof_overrun": true,
+    "source_pins": {
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/operator.go": {
+        "path": "internal/app/operator.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "e3253f30ad40527583c1d7bd29839292f7e7c6b9",
+        "sha256": "86ba1665d81a49de49853d387f0b58524fa561a40e0cf2c756bed689fe997b32",
+        "bytes": 31732
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/app.go": {
+        "path": "internal/app/app.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "aa73fcefab0003cd8b288db7405a53246014a704",
+        "sha256": "97e01b38be95267a45a0efe58fbd5a473559f82d74ff3d60352a2aef91c6e6f4",
+        "bytes": 19397
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/operator_admission_retryable_review_test.go": {
+        "path": "internal/app/operator_admission_retryable_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "b3e77517bbc4734053c6c3bb46b57ae9a4b63587",
+        "sha256": "93c78b4f52387ce5c4f732b3f696ddbc12a6681bececdac36dd8e292db08c77a",
+        "bytes": 2579
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/operator_terrabase_update.go": {
+        "path": "internal/app/operator_terrabase_update.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "bd1c17418c0a95b6306199a627465372638d6856",
+        "sha256": "313ee1328d9af4920654e2b3722559d54fb20fa85f97df60e2b27291174e4fab",
+        "bytes": 26377
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/operator_placement_list.go": {
+        "path": "internal/app/operator_placement_list.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "d5996828f5c9e59741aa1b42a99abe1a7b6a262c",
+        "sha256": "b1fddb791a6471b1403f6e7d6e8017548a40e51e9f139285b58f821507dad061",
+        "bytes": 2984
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/placement_reader.go": {
+        "path": "internal/app/placement_reader.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "02037aec6d0da8cbeb4fc82fd795167bccc0d030",
+        "sha256": "54801e9bb081fdd3529ad51684314f66612b82b82fb01507a7cc798ceff584a6",
+        "bytes": 1890
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/operator_placement_list_test.go": {
+        "path": "internal/app/operator_placement_list_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "2fe52c7efda5da83d69f6ccc58a04f0cd3fb1750",
+        "sha256": "b7388d01a959ae743dd65f5b07c565dced063cd9c6dd92e30ee46fbdff3368d4",
+        "bytes": 5644
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/placement_admission_test.go": {
+        "path": "internal/app/placement_admission_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "9af79fa14812234d54ffee7f7dbe22b4a594cf09",
+        "sha256": "328c5349b6209093d0028fca1fe274c29cec2ac6ef9ee118e6c891f18e65a31b",
+        "bytes": 19631
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/operator_retry_test.go": {
+        "path": "internal/app/operator_retry_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "ec9bc405a21a0f0df3231ffc83947682ecafbdbb",
+        "sha256": "ba6e8278f383b5196131019fbc13d30bf42b72e79649362e8270adbc724f389f",
+        "bytes": 11233
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/authenticated_nats_test.go": {
+        "path": "internal/app/authenticated_nats_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "5ccb7b89b0abeb8373c3e29ea0ef5da5b2ff5ca4",
+        "sha256": "46255a91d171884a762f1508c7af007e83e75d477c7a83aac63c848ea1dc53f7",
+        "bytes": 8431
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/natscell/runtime.go": {
+        "path": "internal/natscell/runtime.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "b7d9b16bf34c966d722a17bea21a3ccb76cc396b",
+        "sha256": "44804d1b0692d1b47fb37f4a9e1d99bfe7235d3fb317fc7c81c9090d80dc57cf",
+        "bytes": 35509
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/native_history_test.go": {
+        "path": "internal/app/native_history_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "67ef77be768b27ddd0bb7d3f933a593b001f4536",
+        "sha256": "13801d3c738dd1aa3a48f11e59c32e167e6279af0d94df9cfe0a8bfe0d5fe0a1",
+        "bytes": 19577
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/operator_integration_test.go": {
+        "path": "internal/app/operator_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "e717f55964fea7003d6f6770f321cf00e85c6fca",
+        "sha256": "2e5169ccabb85ec8b1a50f75ff7bdfd4511c8deb980611218feb3849fe59d7ec",
+        "bytes": 19133
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/delivery/artifact.go": {
+        "path": "internal/delivery/artifact.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "72d7da5ca5cb37cc81347403692dc7c04849341f",
+        "sha256": "409068773ef0108b454047349d0bf7da915b0edbe692ef5cab267a56dae62fce",
+        "bytes": 24514
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/artifact_admission.go": {
+        "path": "internal/app/artifact_admission.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "8da6fd4dba6bead77cfa68f4baebfbc755e86e8f",
+        "sha256": "b423165b22841a5cd04b58caae3f3d15560c01dc67efc38d113809789a6202e5",
+        "bytes": 1596
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/authority/log.go": {
+        "path": "internal/authority/log.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "39e8073c3302fd73785bec8b3b3e8d0d61024a03",
+        "sha256": "500b03c30e554986f79a78891a88fad0c31732b37bf4f397b57a6919d66aed8f",
+        "bytes": 47408
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/placement_admission.go": {
+        "path": "internal/app/placement_admission.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "2463ccbd3b95e5861f5a945cc498088e841f692a",
+        "sha256": "ae07c6bc0d33afb60038514242eebd5d207da8536d313aab9bd4e0c6ae24bbe9",
+        "bytes": 10516
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/native_history.go": {
+        "path": "internal/app/native_history.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "dc25e18656bb8c7c47682e825db413da492772f0",
+        "sha256": "21c066868389d1a76f0761b37c3d5385055e0ba4ee2bdd54c90bb9180c766047",
+        "bytes": 55462
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/operator_terminal.go": {
+        "path": "internal/app/operator_terminal.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "8719cd91e75ef75533e1007021a8db688b5cd06c",
+        "sha256": "57d54e440532ddab135880320c1ee26e5ff9f3c6384745d4e6866b4afa46fe43",
+        "bytes": 18577
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/controller_terminal.go": {
+        "path": "internal/app/controller_terminal.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "9af8bae2be4a87406a4bbcc0c7ea68b768016119",
+        "sha256": "716000b6ac1ad7c873707750cc5d60ce127b7e6c64c307b6597b6a4a804610f1",
+        "bytes": 7263
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/operator_terminal_test.go": {
+        "path": "internal/app/operator_terminal_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "d3e65316e019755602c411a8137d16158ea9c2a2",
+        "sha256": "75765f5b1b17b2bb7e0ddd36548d529327a63e982f7a9a6fcfbed3721fa01f34",
+        "bytes": 8616
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/operator_terminal_integration_test.go": {
+        "path": "internal/app/operator_terminal_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "9261f64f816d8b1116d882a3308f3075e22488b1",
+        "sha256": "5ed82b5be1af639e4b002a61374f773379970132efa0e572cc13f0962eafcbbf",
+        "bytes": 24081
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/hostenroll/grant.go": {
+        "path": "internal/hostenroll/grant.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "f379925a2e68a067a1732ff6d9447069b15827b0",
+        "sha256": "c63610ad9c1d13e3bf95c5d91863201e643fb34d084350407ef89cc589a81984",
+        "bytes": 18968
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/host_enrollment_revoke.go": {
+        "path": "internal/app/host_enrollment_revoke.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "cdec209a9aaf6879542ea733c77d30378f669341",
+        "sha256": "45edf9dc5f8013523947df1dc89ce2f8f1cbf7074ddd488e8c8b1628cbaea6b6",
+        "bytes": 21877
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/oci/terminal.go": {
+        "path": "internal/oci/terminal.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "bd58ac2917f4dd6713a9db379cf97e7620e74b34",
+        "sha256": "b16b58dcfa0893a8273db44acf05ac78e5c3ff74a30042413605b90a2743c9f2",
+        "bytes": 27554
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/store.go": {
+        "path": "internal/placement/store.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "7e3d662f66ca96e8eaf94db5b1b69558deeea3c0",
+        "sha256": "f968ae26aaf8eda428d8b5476bf052a69a578cd66e632ada1602b51cd44e75df",
+        "bytes": 12852
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/metrics.go": {
+        "path": "internal/placement/metrics.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "f68a7862e703afc586547d2693e6fc4ec5ce7ff5",
+        "sha256": "a652d083b35bfc9055ff8996c9745588ee705cfbf29a819bdb02bab5247d05e1",
+        "bytes": 4844
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/delivery_planner.go": {
+        "path": "internal/app/delivery_planner.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "251567e2107f7640eb90df4db093e79fee5565d5",
+        "sha256": "249e92fce1549cef628a2f9c7856bfa0d5b5fe5e9adb36712c4926be8a213210",
+        "bytes": 10517
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/placement/workload.go": {
+        "path": "internal/placement/workload.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "d8738921e9a9c784aad7a3d4cb3f005386c4d347",
+        "sha256": "5bf056d3752aa493a176654af50263a2c6c8df54a5a22d09969a976b502e4b3c",
+        "bytes": 9683
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/operator_terrabase_csharp.go": {
+        "path": "internal/app/operator_terrabase_csharp.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "91b0be1ab604d0ba7318d73f0d0b9212a12b9ea7",
+        "sha256": "e52305a942d9659d1900904d5ee671f37213d5f4facfe79f2cce9ec5f1d29ce3",
+        "bytes": 20962
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/terrabase/release.go": {
+        "path": "internal/terrabase/release.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "49382fb2120267ae60464644ec5a363ea910f925",
+        "sha256": "00a8fa50c2ab9b6ec044150593b4d4a98d4497ae7abc79d3301a46e5bfb717a0",
+        "bytes": 3319
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/terrabase/contract.go": {
+        "path": "internal/terrabase/contract.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "3bcdd081109773a71640a7ddd2e914c73bf27be1",
+        "sha256": "ee32050e56812ab9f3028fb52e46a1d3e1d54796e1f93bcb7a40d039ebca7f22",
+        "bytes": 10113
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/testutil/tier/tier.go": {
+        "path": "internal/testutil/tier/tier.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "97ef958c65d9ac2b8e09fff7fb408898a2b76848",
+        "sha256": "2896e13f0185848ac1252bfa977827ac382105b49fb70f4405729dd35139f33c",
+        "bytes": 2621
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/operator_terrabase_csharp_test.go": {
+        "path": "internal/app/operator_terrabase_csharp_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "e3828bdb9ea30cdc43e4b1a7e3cfc87490292544",
+        "sha256": "2a168df7957bad26ce89441de5de430fa9d6594ec58fab1dc33a2bc154c24b0b",
+        "bytes": 45313
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/operator_terrabase_deploy.go": {
+        "path": "internal/app/operator_terrabase_deploy.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "0a492755b498267fb01160d26c94e441521ffeed",
+        "sha256": "2bef11eac3febec10ccb13d490bcb6dea0cf5214b3ab842eef3684952e254819",
+        "bytes": 21645
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/operator_terrabase_deploy_integration_test.go": {
+        "path": "internal/app/operator_terrabase_deploy_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "78402cfe81233869643ebec23e2449e46aecb322",
+        "sha256": "7903c5a12d33028e3913989976d2df20c2370950815ddb618179dffcfa667fd1",
+        "bytes": 33278
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/operator_terrabase_fleet_test.go": {
+        "path": "internal/app/operator_terrabase_fleet_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "fa07c4c72544f272525c0096a0959ca449c8ce31",
+        "sha256": "9fe4c01fbf0ed06802c8f57a60b9a83b3e3835cc89eb81914d5f1d8067d486d2",
+        "bytes": 9585
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/operator_terrabase_status.go": {
+        "path": "internal/app/operator_terrabase_status.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "f818735cb75e2bec8fdd1661428af7455220a4fc",
+        "sha256": "0d0b74769958b5d840573dfd21d90ad33dfcd710b3ecd698adbe3625edd79844",
+        "bytes": 20066
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/oci/journal.go": {
+        "path": "internal/oci/journal.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "e51e17f165ec36020295a4fe5d7120352b29480c",
+        "sha256": "c4f6d28a3abb8bea6fca9714c31985e06568b0c6118cc7ac8b8764d96d261c5b",
+        "bytes": 33200
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/oci/fleet.go": {
+        "path": "internal/oci/fleet.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "7f43e31674e2b222066bcf94fc5e400856ba3844",
+        "sha256": "a4301b2cc6671ec71acb6f2169c861b669d2a0efecfed07408920b8b0d04f5be",
+        "bytes": 68572
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/accepted_trust_test.go": {
+        "path": "internal/app/accepted_trust_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "2bbc20fd88a48b0842bd479b155d9e91e720fbb2",
+        "sha256": "5b7ebabc6d49b8739b7b0ea6a064f66c8ddc95fd1e6e9f2d8aee32bbf9d58445",
+        "bytes": 1745
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/operator_admission_retryable_review_test.go": {
+        "path": "internal/app/operator_admission_retryable_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_mode": "100644",
+        "git_blob": "b3e77517bbc4734053c6c3bb46b57ae9a4b63587",
+        "sha256": "93c78b4f52387ce5c4f732b3f696ddbc12a6681bececdac36dd8e292db08c77a",
+        "bytes": 2579
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/operator_forward_test.go": {
+        "path": "internal/app/operator_forward_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "b543b0bd233e59b0ac23392e8ba4f434bd62a782",
+        "sha256": "bf5fa0a55c067e1bd20ef8d78cd87723fe42a6cef3b56fc572ac59a1dea0d25d",
+        "bytes": 639
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/operator_forward_test.go": {
+        "path": "internal/app/operator_forward_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_mode": "100644",
+        "git_blob": "b543b0bd233e59b0ac23392e8ba4f434bd62a782",
+        "sha256": "bf5fa0a55c067e1bd20ef8d78cd87723fe42a6cef3b56fc572ac59a1dea0d25d",
+        "bytes": 639
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/operator_integration_test.go": {
+        "path": "internal/app/operator_integration_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_mode": "100644",
+        "git_blob": "e717f55964fea7003d6f6770f321cf00e85c6fca",
+        "sha256": "2e5169ccabb85ec8b1a50f75ff7bdfd4511c8deb980611218feb3849fe59d7ec",
+        "bytes": 19133
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/operator_placement_list_test.go": {
+        "path": "internal/app/operator_placement_list_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_mode": "100644",
+        "git_blob": "2fe52c7efda5da83d69f6ccc58a04f0cd3fb1750",
+        "sha256": "b7388d01a959ae743dd65f5b07c565dced063cd9c6dd92e30ee46fbdff3368d4",
+        "bytes": 5644
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/operator_retry_test.go": {
+        "path": "internal/app/operator_retry_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_mode": "100644",
+        "git_blob": "ec9bc405a21a0f0df3231ffc83947682ecafbdbb",
+        "sha256": "ba6e8278f383b5196131019fbc13d30bf42b72e79649362e8270adbc724f389f",
+        "bytes": 11233
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/operator_terminal_integration_test.go": {
+        "path": "internal/app/operator_terminal_integration_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_mode": "100644",
+        "git_blob": "9261f64f816d8b1116d882a3308f3075e22488b1",
+        "sha256": "5ed82b5be1af639e4b002a61374f773379970132efa0e572cc13f0962eafcbbf",
+        "bytes": 24081
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/operator_terminal_test.go": {
+        "path": "internal/app/operator_terminal_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_mode": "100644",
+        "git_blob": "d3e65316e019755602c411a8137d16158ea9c2a2",
+        "sha256": "75765f5b1b17b2bb7e0ddd36548d529327a63e982f7a9a6fcfbed3721fa01f34",
+        "bytes": 8616
+      },
+      "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/app/operator_terrabase_classify_test.go": {
+        "path": "internal/app/operator_terrabase_classify_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_mode": "100644",
+        "git_blob": "bc3f3b246871ccec91f8f0490e2871b82cba9ec2",
+        "sha256": "af94f42de5b41ef63f030158e0fd118340439d82098e1d91698f60f06ef1de6e",
+        "bytes": 4353
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/operator_terrabase_classify_test.go": {
+        "path": "internal/app/operator_terrabase_classify_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_mode": "100644",
+        "git_blob": "bc3f3b246871ccec91f8f0490e2871b82cba9ec2",
+        "sha256": "af94f42de5b41ef63f030158e0fd118340439d82098e1d91698f60f06ef1de6e",
+        "bytes": 4353
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/operator_terrabase_csharp_test.go": {
+        "path": "internal/app/operator_terrabase_csharp_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_mode": "100644",
+        "git_blob": "e3828bdb9ea30cdc43e4b1a7e3cfc87490292544",
+        "sha256": "2a168df7957bad26ce89441de5de430fa9d6594ec58fab1dc33a2bc154c24b0b",
+        "bytes": 45313
+      },
+      "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/app/operator_terrabase_deploy_integration_test.go": {
+        "path": "internal/app/operator_terrabase_deploy_integration_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_mode": "100644",
+        "git_blob": "09c3ebe7de30f79a369239ee01b6de2a76f13d9b",
+        "sha256": "68824c31fedfd22ebaf0ed1adf6be009d37f6ac791960aa0c60931de9a278bed",
+        "bytes": 30982
+      }
+    },
+    "packet_checksums_and_immutable_modes_verified": true,
+    "canonical_checkout_reads_match_pinned_git_blobs": true,
+    "runtime_receipts_reviewed": false
+  },
+  "roots": [
+    {
+      "allocation_index": 380,
+      "root_id": "internal/app/operator_admission_retryable_review_test.go::TestArtifactAdmissionRecoveryExpiryStaysTransient",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "mixed",
+      "independent_assessment": "Mixed: the request retry and recovery-expiry assertions cross a genuine upstream embedded NATS in-process protocol exchange under a synthetic clock; the separate plain admission-denied classifier assertion is local. This fixture directly starts upstream server.NewServer rather than the authenticated natscell helper.",
+      "baseline_source": {
+        "path": "internal/app/operator_admission_retryable_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "b3e77517bbc4734053c6c3bb46b57ae9a4b63587",
+        "start_line": 21,
+        "end_line": 68,
+        "sha256": "6d647cabee7f7581ce952e495c1dc8790d0a4d591e31938bc91a3e65a7189a88"
+      },
+      "current_source": {
+        "path": "internal/app/operator_admission_retryable_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b3e77517bbc4734053c6c3bb46b57ae9a4b63587",
+        "start_line": 21,
+        "end_line": 68,
+        "sha256": "6d647cabee7f7581ce952e495c1dc8790d0a4d591e31938bc91a3e65a7189a88"
+      },
+      "original_declaration_sha256": "6d647cabee7f7581ce952e495c1dc8790d0a4d591e31938bc91a3e65a7189a88",
+      "current_declaration_sha256": "6d647cabee7f7581ce952e495c1dc8790d0a4d591e31938bc91a3e65a7189a88",
+      "frozen_survival_state": "retained_body_exact",
+      "frozen_d4ac_current_declaration_sha256": "6d647cabee7f7581ce952e495c1dc8790d0a4d591e31938bc91a3e65a7189a88",
+      "assertion_span_checks": [
+        {
+          "path": "internal/app/operator_admission_retryable_review_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "b3e77517bbc4734053c6c3bb46b57ae9a4b63587",
+          "start_line": 54,
+          "end_line": 63,
+          "sha256": "d64edb677bd78ee5b417b359025d53dad95b6a0b0f3800b79d52ef8a7f89b51a"
+        },
+        {
+          "path": "internal/app/operator_admission_retryable_review_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "b3e77517bbc4734053c6c3bb46b57ae9a4b63587",
+          "start_line": 64,
+          "end_line": 66,
+          "sha256": "abf14ecca92d52d1ecf9c12a596850311accd94bdb6f1dbe1941668df3d3201a"
+        }
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 381,
+      "root_id": "internal/app/operator_forward_test.go::TestOperatorForwardFlagRejectsDuplicateAndMalformedEntries",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: string splitting, duplicate detection and map state for forwarding flags; no endpoint is dialed.",
+      "baseline_source": {
+        "path": "internal/app/operator_forward_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "b543b0bd233e59b0ac23392e8ba4f434bd62a782",
+        "start_line": 5,
+        "end_line": 21,
+        "sha256": "30a32fbbce37c265152c43e293b855f966eaec5241e37828c750922610c9e023"
+      },
+      "current_source": {
+        "path": "internal/app/operator_forward_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "b543b0bd233e59b0ac23392e8ba4f434bd62a782",
+        "start_line": 5,
+        "end_line": 21,
+        "sha256": "30a32fbbce37c265152c43e293b855f966eaec5241e37828c750922610c9e023"
+      },
+      "original_declaration_sha256": "30a32fbbce37c265152c43e293b855f966eaec5241e37828c750922610c9e023",
+      "current_declaration_sha256": "30a32fbbce37c265152c43e293b855f966eaec5241e37828c750922610c9e023",
+      "frozen_survival_state": "retained_body_exact",
+      "frozen_d4ac_current_declaration_sha256": "30a32fbbce37c265152c43e293b855f966eaec5241e37828c750922610c9e023",
+      "assertion_span_checks": [
+        {
+          "path": "internal/app/operator_forward_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "b543b0bd233e59b0ac23392e8ba4f434bd62a782",
+          "start_line": 7,
+          "end_line": 20,
+          "sha256": "a1244c4b84aead1358b2277526abdf79dd76578c71c713c01860b9fd139250c9"
+        }
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 382,
+      "root_id": "internal/app/operator_integration_test.go::TestAuthenticatedOperatorToHostDelivery",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: authenticated operator/controller/host delivery, artifact storage, deploy and rollback, refusal readback and ordered placement authority readback cross real broker/client/store paths. Host runner and bootstrap/trust/clock fixtures are synthetic; no workload process or OCI proof.",
+      "baseline_source": {
+        "path": "internal/app/operator_integration_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "e717f55964fea7003d6f6770f321cf00e85c6fca",
+        "start_line": 113,
+        "end_line": 424,
+        "sha256": "fb340193a25693066949eab85d653e5aa8e6d388b21b518ef354118e5924da92"
+      },
+      "current_source": {
+        "path": "internal/app/operator_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "e717f55964fea7003d6f6770f321cf00e85c6fca",
+        "start_line": 113,
+        "end_line": 424,
+        "sha256": "fb340193a25693066949eab85d653e5aa8e6d388b21b518ef354118e5924da92"
+      },
+      "original_declaration_sha256": "fb340193a25693066949eab85d653e5aa8e6d388b21b518ef354118e5924da92",
+      "current_declaration_sha256": "fb340193a25693066949eab85d653e5aa8e6d388b21b518ef354118e5924da92",
+      "frozen_survival_state": "retained_body_exact",
+      "frozen_d4ac_current_declaration_sha256": "fb340193a25693066949eab85d653e5aa8e6d388b21b518ef354118e5924da92",
+      "assertion_span_checks": [
+        {
+          "path": "internal/app/operator_integration_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "e717f55964fea7003d6f6770f321cf00e85c6fca",
+          "start_line": 171,
+          "end_line": 291,
+          "sha256": "3d8295e98041cde2e90339266d58b0aaf944d67f1b545ed9a23f99a398bbef35"
+        },
+        {
+          "path": "internal/app/operator_integration_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "e717f55964fea7003d6f6770f321cf00e85c6fca",
+          "start_line": 293,
+          "end_line": 415,
+          "sha256": "299237e6d9d65ea9797dd8b0de6a0d4a61ce59802b5300da96828c7adfbea23b"
+        }
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 383,
+      "root_id": "internal/app/operator_placement_list_test.go::TestOperatorPlacementListEmptyCurrentSet",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: empty map-backed admitted-intent reader output and JSON shape; no production store I/O.",
+      "baseline_source": {
+        "path": "internal/app/operator_placement_list_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "2fe52c7efda5da83d69f6ccc58a04f0cd3fb1750",
+        "start_line": 50,
+        "end_line": 60,
+        "sha256": "3dd7ea596788a0326c00fc75ccacd4fcbc14dee33c294aceee2f990887ae1684"
+      },
+      "current_source": {
+        "path": "internal/app/operator_placement_list_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2fe52c7efda5da83d69f6ccc58a04f0cd3fb1750",
+        "start_line": 50,
+        "end_line": 60,
+        "sha256": "3dd7ea596788a0326c00fc75ccacd4fcbc14dee33c294aceee2f990887ae1684"
+      },
+      "original_declaration_sha256": "3dd7ea596788a0326c00fc75ccacd4fcbc14dee33c294aceee2f990887ae1684",
+      "current_declaration_sha256": "3dd7ea596788a0326c00fc75ccacd4fcbc14dee33c294aceee2f990887ae1684",
+      "frozen_survival_state": "retained_body_exact",
+      "frozen_d4ac_current_declaration_sha256": "3dd7ea596788a0326c00fc75ccacd4fcbc14dee33c294aceee2f990887ae1684",
+      "assertion_span_checks": [
+        {
+          "path": "internal/app/operator_placement_list_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "2fe52c7efda5da83d69f6ccc58a04f0cd3fb1750",
+          "start_line": 54,
+          "end_line": 59,
+          "sha256": "95367817df42e816c306935a4a310d83e7acc9edb44af8f0a3ad645775d94d5c"
+        }
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 384,
+      "root_id": "internal/app/operator_placement_list_test.go::TestOperatorPlacementListFailsClosedOnMalformedOrUnauthorizedRead",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: malformed synthetic authority entries and unauthorized injected material reader fail locally before output.",
+      "baseline_source": {
+        "path": "internal/app/operator_placement_list_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "2fe52c7efda5da83d69f6ccc58a04f0cd3fb1750",
+        "start_line": 111,
+        "end_line": 136,
+        "sha256": "db8b794301e5b9abee7796635b8dea6555cd113b4ae0bf4db968b1ab01e3b7e9"
+      },
+      "current_source": {
+        "path": "internal/app/operator_placement_list_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2fe52c7efda5da83d69f6ccc58a04f0cd3fb1750",
+        "start_line": 111,
+        "end_line": 136,
+        "sha256": "db8b794301e5b9abee7796635b8dea6555cd113b4ae0bf4db968b1ab01e3b7e9"
+      },
+      "original_declaration_sha256": "db8b794301e5b9abee7796635b8dea6555cd113b4ae0bf4db968b1ab01e3b7e9",
+      "current_declaration_sha256": "db8b794301e5b9abee7796635b8dea6555cd113b4ae0bf4db968b1ab01e3b7e9",
+      "frozen_survival_state": "retained_body_exact",
+      "frozen_d4ac_current_declaration_sha256": "db8b794301e5b9abee7796635b8dea6555cd113b4ae0bf4db968b1ab01e3b7e9",
+      "assertion_span_checks": [
+        {
+          "path": "internal/app/operator_placement_list_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "2fe52c7efda5da83d69f6ccc58a04f0cd3fb1750",
+          "start_line": 117,
+          "end_line": 135,
+          "sha256": "051aa6003baf88e48d034fa725260aa08e0e7786141b2216b0ec0d299ab9fe95"
+        }
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 385,
+      "root_id": "internal/app/operator_placement_list_test.go::TestOperatorPlacementListSortsCurrentIdentityWithoutPayload",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: synthetic committed-intent records are decoded, sorted and rendered with identity fields only; incidental temporary key files do not establish a target I/O boundary.",
+      "baseline_source": {
+        "path": "internal/app/operator_placement_list_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "2fe52c7efda5da83d69f6ccc58a04f0cd3fb1750",
+        "start_line": 62,
+        "end_line": 109,
+        "sha256": "45c4455412fc521fc336c1cfc2128ac74f25a8ecaa00fbc3ea428d879fc74335"
+      },
+      "current_source": {
+        "path": "internal/app/operator_placement_list_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2fe52c7efda5da83d69f6ccc58a04f0cd3fb1750",
+        "start_line": 62,
+        "end_line": 109,
+        "sha256": "45c4455412fc521fc336c1cfc2128ac74f25a8ecaa00fbc3ea428d879fc74335"
+      },
+      "original_declaration_sha256": "45c4455412fc521fc336c1cfc2128ac74f25a8ecaa00fbc3ea428d879fc74335",
+      "current_declaration_sha256": "45c4455412fc521fc336c1cfc2128ac74f25a8ecaa00fbc3ea428d879fc74335",
+      "frozen_survival_state": "retained_body_exact",
+      "frozen_d4ac_current_declaration_sha256": "45c4455412fc521fc336c1cfc2128ac74f25a8ecaa00fbc3ea428d879fc74335",
+      "assertion_span_checks": [
+        {
+          "path": "internal/app/operator_placement_list_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "2fe52c7efda5da83d69f6ccc58a04f0cd3fb1750",
+          "start_line": 76,
+          "end_line": 108,
+          "sha256": "74c36a5d4eaa0fa9e168eb644720b3aa89e4bacda60e88ed798efe1dba7b8a49"
+        }
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 386,
+      "root_id": "internal/app/operator_retry_test.go::TestArtifactAdmissionExactEnvelopeIsIdempotent",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: artifact staging/upload/admission and exact-envelope replay reach actual JetStream object/KV storage; an independent admission KV revision read proves the second exact envelope leaves the admission revision unchanged.",
+      "baseline_source": {
+        "path": "internal/app/operator_retry_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "ec9bc405a21a0f0df3231ffc83947682ecafbdbb",
+        "start_line": 139,
+        "end_line": 197,
+        "sha256": "0e499dbb50466dc99199c40e7e91784f76427c2b6cfd6ff71326ec419be36210"
+      },
+      "current_source": {
+        "path": "internal/app/operator_retry_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "ec9bc405a21a0f0df3231ffc83947682ecafbdbb",
+        "start_line": 139,
+        "end_line": 197,
+        "sha256": "0e499dbb50466dc99199c40e7e91784f76427c2b6cfd6ff71326ec419be36210"
+      },
+      "original_declaration_sha256": "0e499dbb50466dc99199c40e7e91784f76427c2b6cfd6ff71326ec419be36210",
+      "current_declaration_sha256": "0e499dbb50466dc99199c40e7e91784f76427c2b6cfd6ff71326ec419be36210",
+      "frozen_survival_state": "retained_body_exact",
+      "frozen_d4ac_current_declaration_sha256": "0e499dbb50466dc99199c40e7e91784f76427c2b6cfd6ff71326ec419be36210",
+      "assertion_span_checks": [
+        {
+          "path": "internal/app/operator_retry_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "ec9bc405a21a0f0df3231ffc83947682ecafbdbb",
+          "start_line": 165,
+          "end_line": 196,
+          "sha256": "e9fa0e4863cdbdb1e13ec967c7a92f791cfca5b9287340a79a7d76c4f31df17f"
+        }
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 387,
+      "root_id": "internal/app/operator_retry_test.go::TestArtifactAdmissionPermanentReplyAndCallerBound",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: synthetic permanent responder and silent responder are exercised through genuine NATS request/reply and caller-timeout boundaries. Counters are injected observations, not persisted admission proof.",
+      "baseline_source": {
+        "path": "internal/app/operator_retry_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "ec9bc405a21a0f0df3231ffc83947682ecafbdbb",
+        "start_line": 240,
+        "end_line": 283,
+        "sha256": "ab599fc0885a7c2a97e7c56b56453180adeb3723d687db841497b119802a842e"
+      },
+      "current_source": {
+        "path": "internal/app/operator_retry_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "ec9bc405a21a0f0df3231ffc83947682ecafbdbb",
+        "start_line": 240,
+        "end_line": 283,
+        "sha256": "ab599fc0885a7c2a97e7c56b56453180adeb3723d687db841497b119802a842e"
+      },
+      "original_declaration_sha256": "ab599fc0885a7c2a97e7c56b56453180adeb3723d687db841497b119802a842e",
+      "current_declaration_sha256": "ab599fc0885a7c2a97e7c56b56453180adeb3723d687db841497b119802a842e",
+      "frozen_survival_state": "retained_body_exact",
+      "frozen_d4ac_current_declaration_sha256": "ab599fc0885a7c2a97e7c56b56453180adeb3723d687db841497b119802a842e",
+      "assertion_span_checks": [
+        {
+          "path": "internal/app/operator_retry_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "ec9bc405a21a0f0df3231ffc83947682ecafbdbb",
+          "start_line": 249,
+          "end_line": 281,
+          "sha256": "4af2ef04d493d9f6749366bc43d52e48581f008d8dd467a831747b46504fcbae"
+        }
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 388,
+      "root_id": "internal/app/operator_retry_test.go::TestArtifactAdmissionReplaysExactClaimWithinRecoveryWindow",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: the operator replays identical claim bytes across transient responses through genuine authenticated broker exchanges. Subscriber count is injected; durable deduplication is demonstrated only by the separate exact-envelope root.",
+      "baseline_source": {
+        "path": "internal/app/operator_retry_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "ec9bc405a21a0f0df3231ffc83947682ecafbdbb",
+        "start_line": 199,
+        "end_line": 238,
+        "sha256": "0e6112e6a39d402b9bd997735a478461abf02cd1ed793c92929099194e18ea0f"
+      },
+      "current_source": {
+        "path": "internal/app/operator_retry_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "ec9bc405a21a0f0df3231ffc83947682ecafbdbb",
+        "start_line": 199,
+        "end_line": 238,
+        "sha256": "0e6112e6a39d402b9bd997735a478461abf02cd1ed793c92929099194e18ea0f"
+      },
+      "original_declaration_sha256": "0e6112e6a39d402b9bd997735a478461abf02cd1ed793c92929099194e18ea0f",
+      "current_declaration_sha256": "0e6112e6a39d402b9bd997735a478461abf02cd1ed793c92929099194e18ea0f",
+      "frozen_survival_state": "retained_body_exact",
+      "frozen_d4ac_current_declaration_sha256": "0e6112e6a39d402b9bd997735a478461abf02cd1ed793c92929099194e18ea0f",
+      "assertion_span_checks": [
+        {
+          "path": "internal/app/operator_retry_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "ec9bc405a21a0f0df3231ffc83947682ecafbdbb",
+          "start_line": 214,
+          "end_line": 237,
+          "sha256": "eaf844356750a6c9eda13fe726335a2ed5b6b6723b426527cc96db29eb50e884"
+        }
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 389,
+      "root_id": "internal/app/operator_retry_test.go::TestOperatorMetadataRecovery",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: closure-injected metadata/authority/backend errors and local retry timing/classification; no metadata service or real connection is invoked by the tested closures.",
+      "baseline_source": {
+        "path": "internal/app/operator_retry_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "ec9bc405a21a0f0df3231ffc83947682ecafbdbb",
+        "start_line": 25,
+        "end_line": 137,
+        "sha256": "94df47b24ab170e51c748bb3fe60c727425bc13d6f8454537754687937dc58b9"
+      },
+      "current_source": {
+        "path": "internal/app/operator_retry_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "ec9bc405a21a0f0df3231ffc83947682ecafbdbb",
+        "start_line": 25,
+        "end_line": 137,
+        "sha256": "94df47b24ab170e51c748bb3fe60c727425bc13d6f8454537754687937dc58b9"
+      },
+      "original_declaration_sha256": "94df47b24ab170e51c748bb3fe60c727425bc13d6f8454537754687937dc58b9",
+      "current_declaration_sha256": "94df47b24ab170e51c748bb3fe60c727425bc13d6f8454537754687937dc58b9",
+      "frozen_survival_state": "retained_body_exact",
+      "frozen_d4ac_current_declaration_sha256": "94df47b24ab170e51c748bb3fe60c727425bc13d6f8454537754687937dc58b9",
+      "assertion_span_checks": [
+        {
+          "path": "internal/app/operator_retry_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "ec9bc405a21a0f0df3231ffc83947682ecafbdbb",
+          "start_line": 28,
+          "end_line": 136,
+          "sha256": "b736279267eb1acd3d55e2d8bdd73271b2735fb4c4ff09e65a8dbf52f56210a2"
+        }
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 390,
+      "root_id": "internal/app/operator_terminal_integration_test.go::TestOperatorTerminalTeardownThroughSignedRuntimeAndGrantReadback",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: signed operator terminal plan/apply/status crosses broker transport, authority log, placement/journal and enrollment-grant KV persistence, including corrupted grant held-status and corrected readback. OCI inventory/mutations use map-backed provider, not cloud.",
+      "baseline_source": {
+        "path": "internal/app/operator_terminal_integration_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "9261f64f816d8b1116d882a3308f3075e22488b1",
+        "start_line": 31,
+        "end_line": 365,
+        "sha256": "4218ba3815fa3060c1db66913ad3844ee6fb85c54ff21bbb033ddbc323bee845"
+      },
+      "current_source": {
+        "path": "internal/app/operator_terminal_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "9261f64f816d8b1116d882a3308f3075e22488b1",
+        "start_line": 31,
+        "end_line": 365,
+        "sha256": "4218ba3815fa3060c1db66913ad3844ee6fb85c54ff21bbb033ddbc323bee845"
+      },
+      "original_declaration_sha256": "4218ba3815fa3060c1db66913ad3844ee6fb85c54ff21bbb033ddbc323bee845",
+      "current_declaration_sha256": "4218ba3815fa3060c1db66913ad3844ee6fb85c54ff21bbb033ddbc323bee845",
+      "frozen_survival_state": "retained_body_exact",
+      "frozen_d4ac_current_declaration_sha256": "4218ba3815fa3060c1db66913ad3844ee6fb85c54ff21bbb033ddbc323bee845",
+      "assertion_span_checks": [
+        {
+          "path": "internal/app/operator_terminal_integration_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "9261f64f816d8b1116d882a3308f3075e22488b1",
+          "start_line": 258,
+          "end_line": 364,
+          "sha256": "6ec427072eaa808e0550c517848a426c554179c952f70ce58fbdc93c94cc1e6b"
+        }
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 391,
+      "root_id": "internal/app/operator_terminal_test.go::TestTerminalPlanApplyAndStatusRequireSignedExactInventory",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: signed exact-inventory terminal plan/apply/status uses map-backed control, synthetic inventory and local callbacks; cryptographic operations and fixtures do not establish a service boundary.",
+      "baseline_source": {
+        "path": "internal/app/operator_terminal_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "d3e65316e019755602c411a8137d16158ea9c2a2",
+        "start_line": 76,
+        "end_line": 194,
+        "sha256": "1eac4e94eca027861ba05979c070f0f9f678498da32c13794dacc7e09c4d1d4d"
+      },
+      "current_source": {
+        "path": "internal/app/operator_terminal_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "d3e65316e019755602c411a8137d16158ea9c2a2",
+        "start_line": 76,
+        "end_line": 194,
+        "sha256": "1eac4e94eca027861ba05979c070f0f9f678498da32c13794dacc7e09c4d1d4d"
+      },
+      "original_declaration_sha256": "1eac4e94eca027861ba05979c070f0f9f678498da32c13794dacc7e09c4d1d4d",
+      "current_declaration_sha256": "1eac4e94eca027861ba05979c070f0f9f678498da32c13794dacc7e09c4d1d4d",
+      "frozen_survival_state": "retained_body_exact",
+      "frozen_d4ac_current_declaration_sha256": "1eac4e94eca027861ba05979c070f0f9f678498da32c13794dacc7e09c4d1d4d",
+      "assertion_span_checks": [
+        {
+          "path": "internal/app/operator_terminal_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "d3e65316e019755602c411a8137d16158ea9c2a2",
+          "start_line": 133,
+          "end_line": 193,
+          "sha256": "02da6358ef6dab090289a2b546b4efb5a6fe5a403ab57c234f0a6918f9a0b9a8"
+        }
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 392,
+      "root_id": "internal/app/operator_terrabase_classify_test.go::TestSoakSampleRequiresTheHostsCurrentServingProof",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: synthetic placement/member host-status records feed the soak predicate; current proof and gap assertions are local.",
+      "baseline_source": {
+        "path": "internal/app/operator_terrabase_classify_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "bc3f3b246871ccec91f8f0490e2871b82cba9ec2",
+        "start_line": 59,
+        "end_line": 91,
+        "sha256": "8f8c17716774be2a93401ed46f115f79998877edaf4361bdef337364ad2fe68a"
+      },
+      "current_source": {
+        "path": "internal/app/operator_terrabase_classify_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bc3f3b246871ccec91f8f0490e2871b82cba9ec2",
+        "start_line": 59,
+        "end_line": 91,
+        "sha256": "8f8c17716774be2a93401ed46f115f79998877edaf4361bdef337364ad2fe68a"
+      },
+      "original_declaration_sha256": "8f8c17716774be2a93401ed46f115f79998877edaf4361bdef337364ad2fe68a",
+      "current_declaration_sha256": "8f8c17716774be2a93401ed46f115f79998877edaf4361bdef337364ad2fe68a",
+      "frozen_survival_state": "retained_body_exact",
+      "frozen_d4ac_current_declaration_sha256": "8f8c17716774be2a93401ed46f115f79998877edaf4361bdef337364ad2fe68a",
+      "assertion_span_checks": [
+        {
+          "path": "internal/app/operator_terrabase_classify_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "bc3f3b246871ccec91f8f0490e2871b82cba9ec2",
+          "start_line": 69,
+          "end_line": 90,
+          "sha256": "027643b82f4f50a3e41a12df3a619dd46c704b5b8ba358df62b85b67cd91b2c0"
+        }
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 393,
+      "root_id": "internal/app/operator_terrabase_classify_test.go::TestTerraBaseRolloutClassifiesConnectAndStatusErrors",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: constructed status/connect errors feed local transient/terminal classifiers; no connection or status API is called.",
+      "baseline_source": {
+        "path": "internal/app/operator_terrabase_classify_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "bc3f3b246871ccec91f8f0490e2871b82cba9ec2",
+        "start_line": 20,
+        "end_line": 54,
+        "sha256": "0cd7bb7131ce41bc2508b65a43077bcaa7a1669cc83a4cd116435a5705560982"
+      },
+      "current_source": {
+        "path": "internal/app/operator_terrabase_classify_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "bc3f3b246871ccec91f8f0490e2871b82cba9ec2",
+        "start_line": 20,
+        "end_line": 54,
+        "sha256": "0cd7bb7131ce41bc2508b65a43077bcaa7a1669cc83a4cd116435a5705560982"
+      },
+      "original_declaration_sha256": "0cd7bb7131ce41bc2508b65a43077bcaa7a1669cc83a4cd116435a5705560982",
+      "current_declaration_sha256": "0cd7bb7131ce41bc2508b65a43077bcaa7a1669cc83a4cd116435a5705560982",
+      "frozen_survival_state": "retained_body_exact",
+      "frozen_d4ac_current_declaration_sha256": "0cd7bb7131ce41bc2508b65a43077bcaa7a1669cc83a4cd116435a5705560982",
+      "assertion_span_checks": [
+        {
+          "path": "internal/app/operator_terrabase_classify_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "bc3f3b246871ccec91f8f0490e2871b82cba9ec2",
+          "start_line": 21,
+          "end_line": 53,
+          "sha256": "6f3b2f1b290210269ffd97edb78abc3cdf5017348012332cc3e0a3164138d546"
+        }
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 394,
+      "root_id": "internal/app/operator_terrabase_csharp_test.go::TestTerraBasePlacementKeepsMembersOnListedHosts",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: listed-host filtering and workload planning operate on local synthetic host/assignment slices and address callback, including renamed host and no input mutation.",
+      "baseline_source": {
+        "path": "internal/app/operator_terrabase_csharp_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "e3828bdb9ea30cdc43e4b1a7e3cfc87490292544",
+        "start_line": 788,
+        "end_line": 826,
+        "sha256": "f87896846815ea2a8b081f8636b97cf804da67c04c28df6c5c063bc47e84fff6"
+      },
+      "current_source": {
+        "path": "internal/app/operator_terrabase_csharp_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "e3828bdb9ea30cdc43e4b1a7e3cfc87490292544",
+        "start_line": 788,
+        "end_line": 826,
+        "sha256": "f87896846815ea2a8b081f8636b97cf804da67c04c28df6c5c063bc47e84fff6"
+      },
+      "original_declaration_sha256": "f87896846815ea2a8b081f8636b97cf804da67c04c28df6c5c063bc47e84fff6",
+      "current_declaration_sha256": "f87896846815ea2a8b081f8636b97cf804da67c04c28df6c5c063bc47e84fff6",
+      "frozen_survival_state": "retained_body_exact",
+      "frozen_d4ac_current_declaration_sha256": "f87896846815ea2a8b081f8636b97cf804da67c04c28df6c5c063bc47e84fff6",
+      "assertion_span_checks": [
+        {
+          "path": "internal/app/operator_terrabase_csharp_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "e3828bdb9ea30cdc43e4b1a7e3cfc87490292544",
+          "start_line": 796,
+          "end_line": 825,
+          "sha256": "7a61cf8fe5c394a7f1c869447d3a44dda620c08d0bbf19e82ffbf91c1918b222"
+        }
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 395,
+      "root_id": "internal/app/operator_terrabase_csharp_test.go::TestTerraBaseProfileRejectsArguments",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: workload profile argument validation and environment parsing; no runtime execution.",
+      "baseline_source": {
+        "path": "internal/app/operator_terrabase_csharp_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "e3828bdb9ea30cdc43e4b1a7e3cfc87490292544",
+        "start_line": 721,
+        "end_line": 732,
+        "sha256": "de1449f97ad5b87ef50125ea722cbb137c6f8d33b37976789aa8c4a35909fd0d"
+      },
+      "current_source": {
+        "path": "internal/app/operator_terrabase_csharp_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "e3828bdb9ea30cdc43e4b1a7e3cfc87490292544",
+        "start_line": 721,
+        "end_line": 732,
+        "sha256": "de1449f97ad5b87ef50125ea722cbb137c6f8d33b37976789aa8c4a35909fd0d"
+      },
+      "original_declaration_sha256": "de1449f97ad5b87ef50125ea722cbb137c6f8d33b37976789aa8c4a35909fd0d",
+      "current_declaration_sha256": "de1449f97ad5b87ef50125ea722cbb137c6f8d33b37976789aa8c4a35909fd0d",
+      "frozen_survival_state": "retained_body_exact",
+      "frozen_d4ac_current_declaration_sha256": "de1449f97ad5b87ef50125ea722cbb137c6f8d33b37976789aa8c4a35909fd0d",
+      "assertion_span_checks": [
+        {
+          "path": "internal/app/operator_terrabase_csharp_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "e3828bdb9ea30cdc43e4b1a7e3cfc87490292544",
+          "start_line": 725,
+          "end_line": 731,
+          "sha256": "8195162badcbc4faf452251eff6059883aa91abb38c1a2328b90392e2a215eab"
+        }
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 396,
+      "root_id": "internal/app/operator_terrabase_csharp_test.go::TestTerraBaseReleaseDeployUpgradeRollback",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: externally supplied qualified ELF fixture selects the shared scenario real-child branch, which launches/stops a child process and probes real localhost HTTP health during deploy/upgrade/rollback, alongside real controller/host/broker/store paths. The helper returns before fake-only extensions. Fixture availability and runtime success remain unknown.",
+      "baseline_source": {
+        "path": "internal/app/operator_terrabase_csharp_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "e3828bdb9ea30cdc43e4b1a7e3cfc87490292544",
+        "start_line": 60,
+        "end_line": 66,
+        "sha256": "1ee7db3c39f49827314146d2c9e4438dd62c711f562b24eb820aa0f24bb94ef3"
+      },
+      "current_source": {
+        "path": "internal/app/operator_terrabase_csharp_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "e3828bdb9ea30cdc43e4b1a7e3cfc87490292544",
+        "start_line": 60,
+        "end_line": 66,
+        "sha256": "1ee7db3c39f49827314146d2c9e4438dd62c711f562b24eb820aa0f24bb94ef3"
+      },
+      "original_declaration_sha256": "1ee7db3c39f49827314146d2c9e4438dd62c711f562b24eb820aa0f24bb94ef3",
+      "current_declaration_sha256": "1ee7db3c39f49827314146d2c9e4438dd62c711f562b24eb820aa0f24bb94ef3",
+      "frozen_survival_state": "retained_body_exact",
+      "frozen_d4ac_current_declaration_sha256": "1ee7db3c39f49827314146d2c9e4438dd62c711f562b24eb820aa0f24bb94ef3",
+      "assertion_span_checks": [
+        {
+          "path": "internal/app/operator_terrabase_csharp_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "e3828bdb9ea30cdc43e4b1a7e3cfc87490292544",
+          "start_line": 61,
+          "end_line": 65,
+          "sha256": "9666731ac82dbd22b48602059fe10b454144df3789b126c5c32eb18a671cb7e0"
+        },
+        {
+          "path": "internal/app/operator_terrabase_csharp_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "e3828bdb9ea30cdc43e4b1a7e3cfc87490292544",
+          "start_line": 191,
+          "end_line": 236,
+          "sha256": "1c6dc03b427ba714b3b32eaa0b9a73f7f59718decf278109a787500e6e442e9b"
+        }
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 397,
+      "root_id": "internal/app/operator_terrabase_csharp_test.go::TestTerraBaseReleaseGateWithFakeMember",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "integration",
+      "independent_assessment": "Integration: fake=true selects a synthetic member implemented by real localhost HTTP and filesystem/TLS-material readbacks, while release/channel/history/rollback paths reach actual broker and persisted state. Error/fence/CAS injections surround real store/readback assertions. No TerraBase executable runs and object-storage backend is fake.",
+      "baseline_source": {
+        "path": "internal/app/operator_terrabase_csharp_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "e3828bdb9ea30cdc43e4b1a7e3cfc87490292544",
+        "start_line": 72,
+        "end_line": 75,
+        "sha256": "acfede0aa5c7d111b490b50538dd1d8ed5cc8221ac53bf7a946b94929cc07a25"
+      },
+      "current_source": {
+        "path": "internal/app/operator_terrabase_csharp_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "e3828bdb9ea30cdc43e4b1a7e3cfc87490292544",
+        "start_line": 72,
+        "end_line": 75,
+        "sha256": "acfede0aa5c7d111b490b50538dd1d8ed5cc8221ac53bf7a946b94929cc07a25"
+      },
+      "original_declaration_sha256": "acfede0aa5c7d111b490b50538dd1d8ed5cc8221ac53bf7a946b94929cc07a25",
+      "current_declaration_sha256": "acfede0aa5c7d111b490b50538dd1d8ed5cc8221ac53bf7a946b94929cc07a25",
+      "frozen_survival_state": "retained_body_exact",
+      "frozen_d4ac_current_declaration_sha256": "acfede0aa5c7d111b490b50538dd1d8ed5cc8221ac53bf7a946b94929cc07a25",
+      "assertion_span_checks": [
+        {
+          "path": "internal/app/operator_terrabase_csharp_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "e3828bdb9ea30cdc43e4b1a7e3cfc87490292544",
+          "start_line": 73,
+          "end_line": 74,
+          "sha256": "41e6828aea3082fc8d49f4b798d51d183f8687a4662f1f3fce31189ed5242404"
+        },
+        {
+          "path": "internal/app/operator_terrabase_csharp_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "e3828bdb9ea30cdc43e4b1a7e3cfc87490292544",
+          "start_line": 191,
+          "end_line": 236,
+          "sha256": "1c6dc03b427ba714b3b32eaa0b9a73f7f59718decf278109a787500e6e442e9b"
+        },
+        {
+          "path": "internal/app/operator_terrabase_csharp_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "e3828bdb9ea30cdc43e4b1a7e3cfc87490292544",
+          "start_line": 240,
+          "end_line": 672,
+          "sha256": "e683f92d49f79a15eb9bac2166314f8345d97edbc396e7b5cd406032624a8442"
+        },
+        {
+          "path": "internal/app/native_history_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "67ef77be768b27ddd0bb7d3f933a593b001f4536",
+          "start_line": 249,
+          "end_line": 316,
+          "sha256": "90f42a184a454a377fe24523941b634fedc452e4750e2ddc43b15cff5222e174"
+        },
+        {
+          "path": "internal/app/native_history_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "67ef77be768b27ddd0bb7d3f933a593b001f4536",
+          "start_line": 360,
+          "end_line": 437,
+          "sha256": "ee56bf9156d528b7941ad927c72213f3480ad188112cb1cf3af947a4bba95607"
+        }
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 398,
+      "root_id": "internal/app/operator_terrabase_csharp_test.go::TestTerraBaseReleaseStateRules",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "unit",
+      "independent_assessment": "Unit: synthetic host reports, desired records and receipts feed current-digest/generation/readiness/hold predicates; no host/status service or storage access.",
+      "baseline_source": {
+        "path": "internal/app/operator_terrabase_csharp_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "e3828bdb9ea30cdc43e4b1a7e3cfc87490292544",
+        "start_line": 828,
+        "end_line": 860,
+        "sha256": "646e84df923ed538b78efe523e9f456ef28f667fd4d0ea134f408c3334e5a5a9"
+      },
+      "current_source": {
+        "path": "internal/app/operator_terrabase_csharp_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "e3828bdb9ea30cdc43e4b1a7e3cfc87490292544",
+        "start_line": 828,
+        "end_line": 860,
+        "sha256": "646e84df923ed538b78efe523e9f456ef28f667fd4d0ea134f408c3334e5a5a9"
+      },
+      "original_declaration_sha256": "646e84df923ed538b78efe523e9f456ef28f667fd4d0ea134f408c3334e5a5a9",
+      "current_declaration_sha256": "646e84df923ed538b78efe523e9f456ef28f667fd4d0ea134f408c3334e5a5a9",
+      "frozen_survival_state": "retained_body_exact",
+      "frozen_d4ac_current_declaration_sha256": "646e84df923ed538b78efe523e9f456ef28f667fd4d0ea134f408c3334e5a5a9",
+      "assertion_span_checks": [
+        {
+          "path": "internal/app/operator_terrabase_csharp_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "e3828bdb9ea30cdc43e4b1a7e3cfc87490292544",
+          "start_line": 837,
+          "end_line": 859,
+          "sha256": "dd29bf15b86cac83dfb9da13c6d72cf65de70644d6d635ceba36dc8fc518476f"
+        }
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "allocation_index": 399,
+      "root_id": "internal/app/operator_terrabase_deploy_integration_test.go::TestTerraBaseDeployDrivesManagedPlacementToDesiredState",
+      "decision": "accept_source_category_with_stated_limits",
+      "category": "mixed",
+      "independent_assessment": "Mixed: operator deployment/resume, file protection and real broker/authority/placement/journal/material/host desired readbacks support integration with fake OCI/object storage/runner. Independent obsolete-host-report and retired-session predicate assertions at the end are local. Actual canonical62-230 declaration is separately pinned from frozen baseline62-188; original assertions remain retained.",
+      "baseline_source": {
+        "path": "internal/app/operator_terrabase_deploy_integration_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "09c3ebe7de30f79a369239ee01b6de2a76f13d9b",
+        "start_line": 62,
+        "end_line": 188,
+        "sha256": "d9f2cbc6be1efcec977b1f2d1d0a557a336e42740e8acc4018279f6a1cd3cebb"
+      },
+      "current_source": {
+        "path": "internal/app/operator_terrabase_deploy_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "78402cfe81233869643ebec23e2449e46aecb322",
+        "start_line": 62,
+        "end_line": 230,
+        "sha256": "44242f67035ff59d43e681819e7ad3f425e3a0625e0ca5ae95e84e64094dc6d3"
+      },
+      "original_declaration_sha256": "d9f2cbc6be1efcec977b1f2d1d0a557a336e42740e8acc4018279f6a1cd3cebb",
+      "current_declaration_sha256": "44242f67035ff59d43e681819e7ad3f425e3a0625e0ca5ae95e84e64094dc6d3",
+      "frozen_survival_state": "retained_body_exact",
+      "frozen_d4ac_current_declaration_sha256": "d9f2cbc6be1efcec977b1f2d1d0a557a336e42740e8acc4018279f6a1cd3cebb",
+      "assertion_span_checks": [
+        {
+          "path": "internal/app/operator_terrabase_deploy_integration_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "78402cfe81233869643ebec23e2449e46aecb322",
+          "start_line": 66,
+          "end_line": 216,
+          "sha256": "8708b6594aa893290dee342b3df005ca878a6b52270f16008ebebecb1b46a4f1"
+        },
+        {
+          "path": "internal/app/operator_terrabase_deploy_integration_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "78402cfe81233869643ebec23e2449e46aecb322",
+          "start_line": 218,
+          "end_line": 229,
+          "sha256": "bcdf2200b05db515f02aacace67cba9976ee663fb7be9e1f6d9ee5fa8623ede9"
+        }
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    }
+  ],
+  "correction_requests": [],
+  "resolved_findings": [],
+  "remaining_source_blockers": [],
+  "qualification_limits": [
+    "Source categories describe asserted boundaries only. No tests, Go/build/lint/format/benchmark, runtime, TerraBase, cloud or crypto/signing operations were executed.",
+    "Internal embedded NATS clients use in-process protocol; configured external clients use configured transport. Real broker setup alone is not category evidence.",
+    "Map-backed OCI inventory, fake object storage and synthetic runner/member behavior receive no cloud/native-runtime qualification.",
+    "The real-member root requires an external ELF fixture; source review establishes its selected code path, not availability or passing execution.",
+    "Canonical drift for root399 is explicit; frozen mapping and original baseline bytes remain unchanged."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "ledger_mutation": false,
+    "canonical_count_promotion": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "deletion_authorized": false,
+    "global_completion": false
+  },
+  "scope": "Exactly other_unadjudicated[380:400), source-only independent peer candidate review. Repository/source/ledger unchanged."
+}

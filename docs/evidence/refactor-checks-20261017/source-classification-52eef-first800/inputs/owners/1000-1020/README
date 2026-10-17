@@ -1,0 +1,5 @@
+Exact other[1000:1020): 20 literal roots, canonical 52eef25bad09736d8f0806ecaccaef1a7c86b49e.
+Candidates: 5 integration, 10 unit, 5 mixed, 0 unresolved.
+All entire declarations, assertion text, raw baseline/current hashes and actual connected spans are embedded in classification.json.
+Only metadata packaging in fresh /tmp; repository, source, ledger and runtime unchanged.
+Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No retirement/deletion/count/completion credit. Independent peer review required.

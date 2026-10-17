@@ -1,0 +1,80 @@
+{
+  "schema": "root800-independent-source-review-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_960_980",
+  "author": "/root/classification_100_dispatch/batch_980_1000",
+  "review_after_own_freeze": {
+    "path": "/tmp/ts-source-960-980-tpx4rcnf/classification.json",
+    "sha256": "b15031179f6f4b9182583691bc786195e281610b981512d8e0f600c45f27c9ed"
+  },
+  "accepted_packet": {
+    "path": "/tmp/ts-source-other-980-1000-final-2pj0b0u5/classification.json",
+    "sha256": "563cdd46b00a9ede3374a11ea3214c4eade28af6784b293b38b43499b1dfe527",
+    "checksum_path": "/tmp/ts-source-other-980-1000-final-2pj0b0u5/SHA256SUMS",
+    "checksum_sha256": "2286ab4d9b4e1f88d48eb125d3d9e92577879e5dc509f6beb9473ceff5a66c75"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "literal_range": [
+    980,
+    1000
+  ],
+  "root_ids": [
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeMalformedPositiveHEADCannotSkipFounding",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeMissingOCIObservationDateCannotComplete",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeMissingSignerCannotTouchOCI",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeOCIContextEndsWithSelectedAuthority",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimePeerGateWaitsForQuarantineRepair",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimePeerGateWaitsForRealLedgerCompletion",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeQuarantinedLateResultRepairsPinnedCandidate",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeReservesUnreservedPeersBeforeLaunch",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeResultKeepsActualOCIObservationDate",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeResultReadyRestartReplaysExactResultWithoutOCI",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeStagedResultRestartReplaysWithoutOCI",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeStaleObservationReobservesExactInstanceBeforeResult",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeSupersededSelectionStopsBeforeLaunch",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeSupersedingPendingHEADCannotSkipFounding",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeTimelyCompletedPeersRemainAdmittedAfterProgressExpiry",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeTrustedAgeGateReobservesPinnedInstance",
+    "internal/bootstrapstart/founder_runtime_test.go::TestFounderRuntimeWrongSignerCannotTouchOCI",
+    "internal/bootstrapstart/founder_selection_floor_test.go::TestFounderSelectionFloorRejectsTamperedFileAndDirectory",
+    "internal/bootstrapstart/founder_selection_floor_test.go::TestFounderSelectionFloorRequiresProvisioningAndRejectsRollback",
+    "internal/bootstrapstart/founder_selection_floor_test.go::TestServiceFounderFloorPublishesCompleteOwnerCheckedFileAfterOrphanTemp"
+  ],
+  "counts": {
+    "integration": 5,
+    "unit": 12,
+    "mixed": 3,
+    "unresolved": 0
+  },
+  "decision": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "checks_performed": [
+    "Independently read all twenty complete literal roots and connected actual canonical fixture/client/store/OS paths; distinguished direct in-process OCI/object fakes from signer, floor and marker effects.",
+    "Verified literal activated allocation order and every raw TSV survival mapping. Compared all forty baseline/current raw declarations and hashes with exact canonical Git source and declared line bounds.",
+    "Verified all canonical/baseline file mode, Git blob, SHA256 and byte pins, exact full assertion text and each supplied callee evidence span against Git.",
+    "Reviewed mixed-root independent synthetic assertion blocks versus real material/floor/marker publication and restart readback; no fake OCI or map-backed ledger integration credit.",
+    "Verified final packet/checksum hashes, contained SHA256SUMS entries and immutable0444 files/0555 directory."
+  ],
+  "verified_source_pin_count": 22,
+  "verified_assertion_and_callee_span_count": 60,
+  "resolved_findings": [
+    {
+      "kind": "author_self_correction",
+      "detail": "Three connected evidence end_line bounds previously exceeded EOF; author corrected bounds in preserved successor packet."
+    },
+    {
+      "kind": "peer_correction",
+      "detail": "Three EOF evidence texts retained one LF past the declared last code line. Final563cdd46 removes exactly the following LF from material.go256:315, accepted_identity.go482:635 and founder_completion_fact.go37:136."
+    }
+  ],
+  "remaining_findings": [],
+  "unresolved_assertions": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "qualification_limits": [
+    "Source category acceptance only; no test, Go, helper, scanner, cloud, signing or runtime execution.",
+    "No live OCI, durable object storage, production credentials, crash or power-loss durability qualification.",
+    "No ledger/count/deletion/retirement/completion promotion or mutation. All safety obligations remain retained."
+  ]
+}

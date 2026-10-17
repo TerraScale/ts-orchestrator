@@ -1,0 +1,187 @@
+{
+  "schema": "source-classification-independent-peer-review/v1",
+  "reviewer": "/root/classification_100_dispatch/peer_00_20",
+  "author": "/root/classification_100_dispatch/peer_20_40",
+  "decision": "ACCEPT_SOURCE_CLASSIFICATION_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-root800-420-440-source-qs_09sqg/classification.json",
+    "sha256": "d3fdcd7a0fe3c45cd9270269fb69962bedc1c7d1ce70de9d5805ec0600ac68d6",
+    "checksum_path": "/tmp/ts-root800-420-440-source-qs_09sqg/SHA256SUMS",
+    "checksum_sha256": "3dea5cac8a946b378e78064d0fee07821e63ef791914648fdca3b3167812dd37"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-source-dispatch-58wrSDrA/allocation-and-exclusions.json",
+    "sha256": "c9407bbf548f26e874996a930f6fafe9bf01c825bc495e4b1e2c46eb7cf5659e",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[420:440)",
+    "independent_peer_owner": "/root/classification_100_dispatch/peer_00_20"
+  },
+  "input_pins": {
+    "/tmp/ts-root800-source-dispatch-58wrSDrA/allocation-and-exclusions.json": "c9407bbf548f26e874996a930f6fafe9bf01c825bc495e4b1e2c46eb7cf5659e",
+    "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+    "/tmp/ts-root800-source-dispatch-58wrSDrA/PEER-PROTOCOL.md": "f0985a2f3dd927f859422148d1e89d5247a4213b8ee693475c7efb7d24d653e5",
+    "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70"
+  },
+  "literal_root_ids": [
+    "internal/app/operator_tsauth_test.go::TestSFOProfilesAreValid",
+    "internal/app/operator_tsauth_test.go::TestTSAuthAutoscaleBoundsAreFixed",
+    "internal/app/operator_tsauth_test.go::TestTSAuthGRUConfigIsValid",
+    "internal/app/operator_tsauth_test.go::TestTSAuthProfileRejectsOtherCell",
+    "internal/app/operator_tsauth_test.go::TestTSAuthReleaseGateWithFakeReplicas",
+    "internal/app/operator_tsauth_test.go::TestWorkloadProfileSecretsStayWithTheirRole",
+    "internal/app/placement_admission_test.go::TestPlacementAdmissionCommitsSignedCanonicalV5AndExposesDigests",
+    "internal/app/placement_admission_test.go::TestPlacementAdmissionCreatesPlacementOnlyOnce",
+    "internal/app/placement_admission_test.go::TestPlacementAdmissionRejectsSignedLegacyAndNoncanonicalPayload",
+    "internal/app/placement_authority_integration_test.go::TestSignedPlacementUsesBusinessKeyInRealAuthorityLog",
+    "internal/app/placement_sizing_integration_test.go::TestPlacementLaunchNameIsStableAcrossReleases",
+    "internal/app/placement_sizing_integration_test.go::TestSignedPlacementSizingReachesProviderThroughController",
+    "internal/app/region_drilldown_integration_test.go::TestJournalAPIExposesRegionalResourceObservations",
+    "internal/app/region_link_supervisor_test.go::TestIncompleteOrCatchingUpWANDoesNotStartFailureEpisode",
+    "internal/app/region_link_supervisor_test.go::TestLinkRecoveryRequiresFreshWANAndPublishesMetrics",
+    "internal/app/region_link_supervisor_test.go::TestLinkRepairCooldownSurvivesInterveningRounds",
+    "internal/app/region_link_supervisor_test.go::TestLinkRepairIsCoalescedAndDoesNotClaimRecovery",
+    "internal/app/region_link_supervisor_test.go::TestLinkRepairJournalNamesTheFailedAdmittedPeer",
+    "internal/app/region_link_supervisor_test.go::TestLinkRepairRequiresCurrentPeerAdmission",
+    "internal/app/region_link_supervisor_test.go::TestLinkSupervisorRunsEveryMinuteWithoutDashboardReaders"
+  ],
+  "counts": {
+    "integration": 3,
+    "unit": 15,
+    "mixed": 1,
+    "unresolved": 1
+  },
+  "checks_performed": [
+    "Independently read all 20 complete current root declarations and connected fixture/production/store/client paths; read four changed baseline declarations and byte-verified all other baseline declarations against the independently read identical current bodies.",
+    "Verified exact allocation/accounting range other_unadjudicated[420:440), all 20 literal original IDs, original/current name/kind/state and declaration SHA256 identities against pinned survival inventory.",
+    "Verified 40 explicit baseline/current raw declaration spans, full text, bounds and SHA256; preserved four actual canonical body drifts separately from stale inventory current hashes.",
+    "Verified all 40 canonical file Git blob/mode/SHA256/byte pins and equality with disk, all baseline file SHA256/byte/blob metadata, 74 exact assertion/connected citation spans including EOF bounds, and all five committed JSON fixture pins.",
+    "Verified canonical commit/tree, all input SHA256 pins, exact accepted packet and checksum hashes, checksum members, file modes 0444 and packet directory mode 0555.",
+    "Confirmed source-only category rationale follows actual called paths and distinguishes map-backed controls/static link handlers from actual NATS/JetStream/authority/HTTP effects."
+  ],
+  "root_reviews": [
+    {
+      "root_id": "internal/app/operator_tsauth_test.go::TestSFOProfilesAreValid",
+      "accepted_category": "unit",
+      "independent_rationale": "Local SFO/GRU profile predicates; committed JSON reads are incidental fixture setup."
+    },
+    {
+      "root_id": "internal/app/operator_tsauth_test.go::TestTSAuthAutoscaleBoundsAreFixed",
+      "accepted_category": "unit",
+      "independent_rationale": "Local mutation table rejects replica/domain bounds; no asserted service boundary."
+    },
+    {
+      "root_id": "internal/app/operator_tsauth_test.go::TestTSAuthGRUConfigIsValid",
+      "accepted_category": "unit",
+      "independent_rationale": "Local profile validation and config-digest assertions; fixture reads do not establish a live service effect."
+    },
+    {
+      "root_id": "internal/app/operator_tsauth_test.go::TestTSAuthProfileRejectsOtherCell",
+      "accepted_category": "unit",
+      "independent_rationale": "Local cell acceptance/rejection predicate."
+    },
+    {
+      "root_id": "internal/app/operator_tsauth_test.go::TestTSAuthReleaseGateWithFakeReplicas",
+      "accepted_category": "unresolved",
+      "independent_rationale": "Native rollout target is blocked by production migration/PlanShaped conflict; real setup does not credit later readiness/upgrade/recovery assertions."
+    },
+    {
+      "root_id": "internal/app/operator_tsauth_test.go::TestWorkloadProfileSecretsStayWithTheirRole",
+      "accepted_category": "unit",
+      "independent_rationale": "Local role/secret contract validation only."
+    },
+    {
+      "root_id": "internal/app/placement_admission_test.go::TestPlacementAdmissionCommitsSignedCanonicalV5AndExposesDigests",
+      "accepted_category": "unit",
+      "independent_rationale": "Map-backed placementAdmissionTestControl records prepared material; no real authority persistence."
+    },
+    {
+      "root_id": "internal/app/placement_admission_test.go::TestPlacementAdmissionCreatesPlacementOnlyOnce",
+      "accepted_category": "unit",
+      "independent_rationale": "Map-backed control exercises idempotent placement admission only."
+    },
+    {
+      "root_id": "internal/app/placement_admission_test.go::TestPlacementAdmissionRejectsSignedLegacyAndNoncanonicalPayload",
+      "accepted_category": "unit",
+      "independent_rationale": "Signed payload validation and fake authority recording remain local."
+    },
+    {
+      "root_id": "internal/app/placement_authority_integration_test.go::TestSignedPlacementUsesBusinessKeyInRealAuthorityLog",
+      "accepted_category": "integration",
+      "independent_rationale": "Real embedded NATS/authority ordered log, independent reader and idempotence materially support target; no OCI effect."
+    },
+    {
+      "root_id": "internal/app/placement_sizing_integration_test.go::TestPlacementLaunchNameIsStableAcrossReleases",
+      "accepted_category": "integration",
+      "independent_rationale": "Real JetStream member/journal/controller path reaches fake provider; name stability compares actual controller-selected launch requests across fresh stores."
+    },
+    {
+      "root_id": "internal/app/placement_sizing_integration_test.go::TestSignedPlacementSizingReachesProviderThroughController",
+      "accepted_category": "mixed",
+      "independent_rationale": "Independent fake-authority admission/readback block is unit; real member KV CAS, journal, restart and immutable shape propagation support integration block. Cloud provider is fake."
+    },
+    {
+      "root_id": "internal/app/region_drilldown_integration_test.go::TestJournalAPIExposesRegionalResourceObservations",
+      "accepted_category": "integration",
+      "independent_rationale": "Real loopback HTTP server/client traverses production authenticated regional-resource routes; input rollup is synthetic and no regional/cloud query is asserted."
+    },
+    {
+      "root_id": "internal/app/region_link_supervisor_test.go::TestIncompleteOrCatchingUpWANDoesNotStartFailureEpisode",
+      "accepted_category": "unit",
+      "independent_rationale": "Direct static region-link handler, synthetic WAN and in-memory recorder; incomplete/catch-up predicate is local."
+    },
+    {
+      "root_id": "internal/app/region_link_supervisor_test.go::TestLinkRecoveryRequiresFreshWANAndPublishesMetrics",
+      "accepted_category": "unit",
+      "independent_rationale": "Direct synthetic probe handler/clock plus bytes.Buffer metrics and in-memory journal; no real NATS or WAN boundary."
+    },
+    {
+      "root_id": "internal/app/region_link_supervisor_test.go::TestLinkRepairCooldownSurvivesInterveningRounds",
+      "accepted_category": "unit",
+      "independent_rationale": "Fake time and static links exercise cooldown state locally."
+    },
+    {
+      "root_id": "internal/app/region_link_supervisor_test.go::TestLinkRepairIsCoalescedAndDoesNotClaimRecovery",
+      "accepted_category": "unit",
+      "independent_rationale": "Coalescing is checked through injected callback and memory recorder."
+    },
+    {
+      "root_id": "internal/app/region_link_supervisor_test.go::TestLinkRepairJournalNamesTheFailedAdmittedPeer",
+      "accepted_category": "unit",
+      "independent_rationale": "Failed admitted peer naming is checked in memory recorder."
+    },
+    {
+      "root_id": "internal/app/region_link_supervisor_test.go::TestLinkRepairRequiresCurrentPeerAdmission",
+      "accepted_category": "unit",
+      "independent_rationale": "Current membership changes through local test fixture; repair callback is injected."
+    },
+    {
+      "root_id": "internal/app/region_link_supervisor_test.go::TestLinkSupervisorRunsEveryMinuteWithoutDashboardReaders",
+      "accepted_category": "unit",
+      "independent_rationale": "Direct supervisor rounds and fake clock/callback establish scheduling logic without live scheduler/network boundary."
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [
+    {
+      "root_id": "internal/app/operator_tsauth_test.go::TestTSAuthReleaseGateWithFakeReplicas",
+      "status": "unresolved_source_conflict_preserved",
+      "detail": "controller.go:320 sets migrated(role) true for ts-auth; delivery/consumer.go:591-597 calls ShapedPlanner.PlanShaped; workload_autoscale.go:112-116 rejects the native role. First ready and subsequent upgrade/rollback/history assertions remain uncredited. fakeTSAuthReplica is an in-process HTTP server, not a ts-auth subprocess. No runtime failure/pass inferred."
+    }
+  ],
+  "qualification_limits": [
+    "Acceptance covers only this immutable source-classification packet and retains its unresolved root; it supplies no execution receipts or runtime qualification.",
+    "Authority/controller integration uses embedded/in-process NATS protocol clients and real ordered-log/KV effects; placement OCI hosts/provider remain fakes.",
+    "Drilldown integration uses local HTTP and synthetic regional rollups; link-supervisor roots use static direct handlers, fake clocks and memory recorders.",
+    "Four inventory/current body drifts remain explicit; original obligations are retained without ledger/count promotion."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "ledger_modified": false,
+  "counts_promoted": false,
+  "deletion_authorized": false,
+  "source_modified": false,
+  "execution_performed": false
+}

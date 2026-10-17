@@ -1,0 +1,79 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_980_1000",
+  "author": "/root/classification_100_dispatch/batch_1000_1020",
+  "accepted": true,
+  "accepted_packet": {
+    "path": "/tmp/ts-source-other-1000-1020-ku5561n4/classification.json",
+    "sha256": "7bda233cfdd312b495bde15900c00279865e9afa369b651102ac47ec1b3ecdf6",
+    "checksum_path": "/tmp/ts-source-other-1000-1020-ku5561n4/SHA256SUMS",
+    "checksum_sha256": "d18a4b2cf369fd2b588a4f6977b94a264f67dd3c850037c77714315a5af14944"
+  },
+  "reviewer_own_prior_seal": {
+    "path": "/tmp/ts-source-other-980-1000-final-2pj0b0u5/classification.json",
+    "sha256": "563cdd46b00a9ede3374a11ea3214c4eade28af6784b293b38b43499b1dfe527"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root800-source-dispatch-58wrSDrA/allocation-and-exclusions.json",
+    "sha256": "c9407bbf548f26e874996a930f6fafe9bf01c825bc495e4b1e2c46eb7cf5659e",
+    "range": [
+      1000,
+      1020
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_980_1000"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/bootstrapstart/founder_selection_floor_test.go::TestServiceFounderFloorReplaysVisiblePublicationAndRejectsIncompleteDestination",
+    "internal/bootstrapstart/founder_selection_floor_test.go::TestServicePeerFloorCrashReplayAdvancesWithoutLosingOwner",
+    "internal/bootstrapstart/founder_selection_floor_test.go::TestServicePeerFloorRootReplayPreservesDistinctServiceOwner",
+    "internal/bootstrapstart/founder_selection_test.go::TestCurrentFounderSelectionExpiresDuringRead",
+    "internal/bootstrapstart/founder_selection_test.go::TestCurrentFounderSelectionReadsRealSignedSnapshotAndSupersedes",
+    "internal/bootstrapstart/founder_selection_test.go::TestCurrentFounderSelectionRejectsExpiredAndMissingFloor",
+    "internal/bootstrapstart/founder_selection_test.go::TestCurrentFounderSelectionRejectsSameGenerationEquivocationAndWrongDomain",
+    "internal/bootstrapstart/founder_selection_test.go::TestCurrentFounderSelectionRejectsSelectedAnchorChangingDiscoveryDomain",
+    "internal/bootstrapstart/founder_selection_test.go::TestCurrentFounderSelectionRejectsTornAndWrongPins",
+    "internal/bootstrapstart/founder_selection_test.go::TestCurrentFounderSelectionRequiresAcceptedSeedContinuity",
+    "internal/bootstrapstart/founder_selection_test.go::TestFounderSelectionRejectsNonV1AndRetiredContinuityShape",
+    "internal/bootstrapstart/founder_signer_test.go::TestCanceledSeedCannotOpenFounderProviderOrLaunch",
+    "internal/bootstrapstart/founder_signer_test.go::TestFounderSignerStoreHoldsMissingTamperedOrWrongRoleMaterial",
+    "internal/bootstrapstart/founder_signer_test.go::TestFounderSignerStoreLoadsSeparateDelegatedKeysAndClearsThem",
+    "internal/bootstrapstart/founder_signer_test.go::TestPeerStartupSkipsFounderFloorAndLaunchClients",
+    "internal/bootstrapstart/founder_signer_test.go::TestRestartRejectsTamperedAcceptedSeedRole",
+    "internal/bootstrapstart/founder_supervisor_test.go::TestFounderSupervisorReportsPlanExpiryAsOperatorAction",
+    "internal/bootstrapstart/founder_supervisor_test.go::TestFounderSupervisorRetriesWithBackoffUntilComplete",
+    "internal/bootstrapstart/founder_supervisor_test.go::TestFounderSupervisorStopsOnCancellationWithoutError",
+    "internal/bootstrapstart/generation_adopt_test.go::TestAdoptGenerationInstallsWhatRestartAdmits"
+  ],
+  "counts": {
+    "integration": 5,
+    "unit": 10,
+    "mixed": 5,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all 20 entire canonical roots and actual connected floor, selector, signer, startup, admission/marker, supervisor and material adoption/restart paths.",
+    "Verified exact activated other[1000:1020) literal IDs/order, all survival mappings, baseline/current raw declaration bounds/text/SHA256 and exact assertion spans/text against immutable canonical/baseline Git.",
+    "Verified all 30 cited file commit/blob/mode/SHA256/byte pins and all connected evidence source slices; no stale pin, out-of-range end or text mismatch.",
+    "Verified all packet checksums and files0444/directory0555; fresh exact accepted packet/checksum hashes recorded.",
+    "Independently assessed classification: floor/marker/key/material effects are genuine local file boundaries; map replies, local scope/expiry checks, clearing, guards and synthetic supervisor hooks remain unit; mixed roots retain independent local-only blocks.",
+    "Snapshot-and-supersession integration category accepted as one coherent persisted floor advance/anti-rollback scenario; fake Object Storage transport receives no credit.",
+    "Reviewed conditional root-only owner test qualification; no privilege check or runtime execution used."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "unresolved_source_roots": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "qualification_limits": [
+    "Source-only category acceptance does not establish compilation, runtime pass/fail, crash/power-loss durability or live external service correctness.",
+    "No Go/tests/helpers/scanners/frameworks/runtime/probes/locks/cloud/signing/crypto execution/downloads or child agents used.",
+    "No repository/source/ledger mutation; no deletion, retirement, ledger count, qualification or global completion credit. All original safety obligations retained."
+  ],
+  "retirement_authorized": false,
+  "ledger_mutated": false,
+  "source_mutated": false,
+  "retirement_delta": 0,
+  "qualification_delta": 0
+}

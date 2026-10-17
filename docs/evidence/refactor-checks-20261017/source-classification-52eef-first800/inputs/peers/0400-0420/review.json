@@ -1,0 +1,257 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_80_100",
+  "author": "/root/classification_100_dispatch/peer_00_20",
+  "disposition": "ACCEPTED_SOURCE_ONLY",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-400-420-v2-7qlaucp0/classification.json",
+    "sha256": "ff3268718457f7283c44fe123fb6047443e4bf7866732dbec095d2a2dfa8e480",
+    "checksum_path": "/tmp/ts-source-classification-400-420-v2-7qlaucp0/SHA256SUMS",
+    "checksum_sha256": "3793d507e2058ceb8e5a2df5939845cc68fe51651d9b57a8f83c6adcd1964cd1"
+  },
+  "superseded_packet_preserved": {
+    "path": "/tmp/ts-source-classification-400-420-383kdnr6/classification.json",
+    "sha256": "0b2321b73e215dee98f271a4cceed449f0f16f5b67fd8d028c68212d5b170c81"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-source-dispatch-58wrSDrA/allocation-and-exclusions.json",
+    "sha256": "c9407bbf548f26e874996a930f6fafe9bf01c825bc495e4b1e2c46eb7cf5659e",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[400:420]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_80_100"
+  },
+  "input_pins": {
+    "/tmp/ts-root800-source-dispatch-58wrSDrA/allocation-and-exclusions.json": "c9407bbf548f26e874996a930f6fafe9bf01c825bc495e4b1e2c46eb7cf5659e",
+    "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513",
+    "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+    "/tmp/ts-root800-source-dispatch-58wrSDrA/PEER-PROTOCOL.md": "f0985a2f3dd927f859422148d1e89d5247a4213b8ee693475c7efb7d24d653e5",
+    "/tmp/ts-root100-source-dispatch-jeov3BoT/expansion-worker-instructions.md": "c46903b4b63a98dd411aeaa2da324b7f64cc106b0c0f2053ed20aa990c07ce70"
+  },
+  "root_ids": [
+    "internal/app/operator_terrabase_deploy_integration_test.go::TestTerraBaseDeployHoldsVolumeAttachOnUnqualifiedImageLaunchOptions",
+    "internal/app/operator_terrabase_deploy_integration_test.go::TestTerraBaseDeployPlanKeepsGRUMembersOnTheirNamedSlots",
+    "internal/app/operator_terrabase_sync_deadline_review_test.go::TestTerraBaseSyncCancellationRecordsNothing",
+    "internal/app/operator_terrabase_sync_deadline_review_test.go::TestTerraBaseSyncCountsAnExpiredDeadlineAsTransient",
+    "internal/app/operator_terrabase_sync_retry_test.go::TestTerraBaseSyncBlocksTerminalFailuresImmediately",
+    "internal/app/operator_terrabase_sync_retry_test.go::TestTerraBaseSyncKeepsPinOnPersistentTransientFailureThenEscalates",
+    "internal/app/operator_terrabase_sync_retry_test.go::TestTerraBaseSyncRetriesTransientFailuresWithoutBlocking",
+    "internal/app/operator_terrabase_sync_test.go::TestTerraBaseSyncCLIRejectsIncompleteOptionsWithoutContactingCell",
+    "internal/app/operator_terrabase_sync_test.go::TestTerraBaseSyncCompletesRealSignedRollingUpdateAndLatchesRollback",
+    "internal/app/operator_terrabase_sync_test.go::TestTerraBaseSyncRejectsAssetMutationDuringResume",
+    "internal/app/operator_terrabase_sync_test.go::TestTerraBaseSyncRejectsUnqualifiedOrChangedInputsBeforeUpdating",
+    "internal/app/operator_terrabase_sync_test.go::TestTerraBaseSyncResumesPinnedReleaseBeforeConsideringNewerPublication",
+    "internal/app/operator_terrabase_sync_test.go::TestTerraBaseSyncSelectsNewestSourceAndDoesNotRepeatCompletedRollout",
+    "internal/app/operator_terrabase_sync_test.go::TestTerraBaseSyncStopsAfterFailureAndLocksOverlappingInvocations",
+    "internal/app/operator_terrabase_update_test.go::TestTerraBaseUpdateRollsReleasesSeatBySeatAndRollsBackAHeldCandidate",
+    "internal/app/operator_terrabase_update_test.go::TestTerraBaseUpdateSoaksTheFirstSeatAndRollsBackARestartingCandidate",
+    "internal/app/operator_terrabase_walkthrough_process_test.go::TestTerraBaseWalkthroughAgainstRealMembers",
+    "internal/app/operator_terrabase_walkthrough_test.go::TestTerraBaseWalkthroughRejectsEarlierClientProfile",
+    "internal/app/operator_tsauth_test.go::TestReleaseReplacesFailedConfigurationOfSameArtifactInPlace",
+    "internal/app/operator_tsauth_test.go::TestReleaseReplacesFailedReplicasOfAnotherReleaseInPlace"
+  ],
+  "counts": {
+    "integration": 9,
+    "unit": 5,
+    "mixed": 6,
+    "unresolved": 0
+  },
+  "root_decisions": [
+    {
+      "root_id": "internal/app/operator_terrabase_deploy_integration_test.go::TestTerraBaseDeployHoldsVolumeAttachOnUnqualifiedImageLaunchOptions",
+      "category": "integration",
+      "source_only_disposition": "accepted",
+      "source_blocked_assertions": []
+    },
+    {
+      "root_id": "internal/app/operator_terrabase_deploy_integration_test.go::TestTerraBaseDeployPlanKeepsGRUMembersOnTheirNamedSlots",
+      "category": "unit",
+      "source_only_disposition": "accepted",
+      "source_blocked_assertions": []
+    },
+    {
+      "root_id": "internal/app/operator_terrabase_sync_deadline_review_test.go::TestTerraBaseSyncCancellationRecordsNothing",
+      "category": "integration",
+      "source_only_disposition": "accepted",
+      "source_blocked_assertions": []
+    },
+    {
+      "root_id": "internal/app/operator_terrabase_sync_deadline_review_test.go::TestTerraBaseSyncCountsAnExpiredDeadlineAsTransient",
+      "category": "integration",
+      "source_only_disposition": "accepted",
+      "source_blocked_assertions": []
+    },
+    {
+      "root_id": "internal/app/operator_terrabase_sync_retry_test.go::TestTerraBaseSyncBlocksTerminalFailuresImmediately",
+      "category": "mixed",
+      "source_only_disposition": "accepted",
+      "source_blocked_assertions": []
+    },
+    {
+      "root_id": "internal/app/operator_terrabase_sync_retry_test.go::TestTerraBaseSyncKeepsPinOnPersistentTransientFailureThenEscalates",
+      "category": "mixed",
+      "source_only_disposition": "accepted",
+      "source_blocked_assertions": []
+    },
+    {
+      "root_id": "internal/app/operator_terrabase_sync_retry_test.go::TestTerraBaseSyncRetriesTransientFailuresWithoutBlocking",
+      "category": "mixed",
+      "source_only_disposition": "accepted",
+      "source_blocked_assertions": []
+    },
+    {
+      "root_id": "internal/app/operator_terrabase_sync_test.go::TestTerraBaseSyncCLIRejectsIncompleteOptionsWithoutContactingCell",
+      "category": "mixed",
+      "source_only_disposition": "accepted",
+      "source_blocked_assertions": []
+    },
+    {
+      "root_id": "internal/app/operator_terrabase_sync_test.go::TestTerraBaseSyncCompletesRealSignedRollingUpdateAndLatchesRollback",
+      "category": "integration",
+      "source_only_disposition": "accepted",
+      "source_blocked_assertions": []
+    },
+    {
+      "root_id": "internal/app/operator_terrabase_sync_test.go::TestTerraBaseSyncRejectsAssetMutationDuringResume",
+      "category": "integration",
+      "source_only_disposition": "accepted",
+      "source_blocked_assertions": []
+    },
+    {
+      "root_id": "internal/app/operator_terrabase_sync_test.go::TestTerraBaseSyncRejectsUnqualifiedOrChangedInputsBeforeUpdating",
+      "category": "unit",
+      "source_only_disposition": "accepted",
+      "source_blocked_assertions": []
+    },
+    {
+      "root_id": "internal/app/operator_terrabase_sync_test.go::TestTerraBaseSyncResumesPinnedReleaseBeforeConsideringNewerPublication",
+      "category": "integration",
+      "source_only_disposition": "accepted",
+      "source_blocked_assertions": []
+    },
+    {
+      "root_id": "internal/app/operator_terrabase_sync_test.go::TestTerraBaseSyncSelectsNewestSourceAndDoesNotRepeatCompletedRollout",
+      "category": "mixed",
+      "source_only_disposition": "accepted",
+      "source_blocked_assertions": []
+    },
+    {
+      "root_id": "internal/app/operator_terrabase_sync_test.go::TestTerraBaseSyncStopsAfterFailureAndLocksOverlappingInvocations",
+      "category": "integration",
+      "source_only_disposition": "accepted",
+      "source_blocked_assertions": []
+    },
+    {
+      "root_id": "internal/app/operator_terrabase_update_test.go::TestTerraBaseUpdateRollsReleasesSeatBySeatAndRollsBackAHeldCandidate",
+      "category": "mixed",
+      "source_only_disposition": "accepted",
+      "source_blocked_assertions": []
+    },
+    {
+      "root_id": "internal/app/operator_terrabase_update_test.go::TestTerraBaseUpdateSoaksTheFirstSeatAndRollsBackARestartingCandidate",
+      "category": "integration",
+      "source_only_disposition": "accepted",
+      "source_blocked_assertions": []
+    },
+    {
+      "root_id": "internal/app/operator_terrabase_walkthrough_process_test.go::TestTerraBaseWalkthroughAgainstRealMembers",
+      "category": "integration",
+      "source_only_disposition": "accepted",
+      "source_blocked_assertions": []
+    },
+    {
+      "root_id": "internal/app/operator_terrabase_walkthrough_test.go::TestTerraBaseWalkthroughRejectsEarlierClientProfile",
+      "category": "unit",
+      "source_only_disposition": "accepted",
+      "source_blocked_assertions": []
+    },
+    {
+      "root_id": "internal/app/operator_tsauth_test.go::TestReleaseReplacesFailedConfigurationOfSameArtifactInPlace",
+      "category": "unit",
+      "source_only_disposition": "accepted",
+      "source_blocked_assertions": []
+    },
+    {
+      "root_id": "internal/app/operator_tsauth_test.go::TestReleaseReplacesFailedReplicasOfAnotherReleaseInPlace",
+      "category": "unit",
+      "source_only_disposition": "accepted",
+      "source_blocked_assertions": []
+    }
+  ],
+  "independent_checks": {
+    "method": "Full twenty canonical declarations and actual connected fixture/client/service/store/process paths independently read through immutable Git. Metadata-only checks cover manually reviewed explicit spans; no source parser, scanner or supplied helper executed.",
+    "ordered_literal_mapping_rows": 20,
+    "raw_original_and_current_declarations": 40,
+    "canonical_and_baseline_file_pins": 39,
+    "file_pin_fields": [
+      "commit",
+      "path",
+      "git_blob",
+      "mode",
+      "sha256",
+      "bytes"
+    ],
+    "exact_assertion_spans_with_bounds": 20,
+    "exact_connected_spans_with_bounds": 54,
+    "input_pins": 5,
+    "canonical_commit_tree_verified": true,
+    "survival_original_current_declaration_hashes_exact": true,
+    "category_counts_verified": true,
+    "checksum_and_readonly_modes_verified": true,
+    "fresh_packet_exact_four_field_delta_verified": true,
+    "boundary_judgments": "Actual signed NATS clients, subscriptions, JetStream/state readback, production filesystem outputs/OS flock and conditional external walkthrough processes support integration classifications. Incidental input files/pre-I/O guards remain unit. Independent local retry/selection/compatibility blocks retain mixed obligations."
+  },
+  "resolved_findings": [
+    {
+      "kind": "citation_end_beyond_eof",
+      "group": "deploy",
+      "path": "internal/app/authenticated_nats_test.go",
+      "line": 59,
+      "old_end_line": 232,
+      "correct_end_line": 227,
+      "resolution": "Fresh packet changes only this metadata field; quoted bytes already match immutable source."
+    },
+    {
+      "kind": "citation_end_beyond_eof",
+      "group": "deploy",
+      "path": "internal/app/placement_admission.go",
+      "line": 158,
+      "old_end_line": 271,
+      "correct_end_line": 250,
+      "resolution": "Fresh packet changes only this metadata field; quoted bytes already match immutable source."
+    },
+    {
+      "kind": "citation_end_beyond_eof",
+      "group": "walkthrough",
+      "path": "internal/testutil/tier/tier.go",
+      "line": 43,
+      "old_end_line": 77,
+      "correct_end_line": 71,
+      "resolution": "Fresh packet changes only this metadata field; quoted bytes already match immutable source."
+    },
+    {
+      "kind": "citation_end_beyond_eof",
+      "group": "walkthrough",
+      "path": "internal/app/operator_terrabase_walkthrough.go",
+      "line": 328,
+      "old_end_line": 380,
+      "correct_end_line": 373,
+      "resolution": "Fresh packet changes only this metadata field; quoted bytes already match immutable source."
+    }
+  ],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Runtime, compilation and all test outcomes remain unknown; no receipts were reviewed and no execution occurred.",
+    "Deploy/update/sync use simulated OCI, object storage, image/native validators, workload runner/controller/PIDs, release bytes and Git/GitHub producers. Accepted integration categories cover reached protocol/store/state boundaries only.",
+    "Real-member walkthrough depends on supplied TS_TERRABASE_SERVER, IP utility, finite cgroup, namespace capability and external process behavior; none was inspected or executed. No external artifact or process qualification is inferred.",
+    "All twenty roots and their original safety/assertion obligations remain retained. No source-visible blocked assertion identified in these roots.",
+    "No repository, source, Git state or ledger mutation; no count promotion, deletion, retirement, deployment, completion or production authority."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "ledger_mutated": false,
+  "count_promotion_authorized": false,
+  "execution_performed": false
+}

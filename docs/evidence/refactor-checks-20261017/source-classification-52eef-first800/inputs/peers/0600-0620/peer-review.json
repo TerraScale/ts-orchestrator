@@ -1,0 +1,202 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_220_240",
+  "author": "/root/classification_100_dispatch/batch_240_260",
+  "decision": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+  "range": "other_unadjudicated[600:620)",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "packet": {
+    "path": "/tmp/ts-source-classification-600-620-ql5494zz/classification.json",
+    "sha256": "d5f40c46da341804372ebdcde8fe3065423fc42c65d249e6f8ef9adffd32d77a",
+    "checksum_file": "/tmp/ts-source-classification-600-620-ql5494zz/SHA256SUMS",
+    "checksum_sha256": "ed71d943c56486c033c603237ee1ef7a7cdc118da0ebe221c3646153370cf101"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root800-source-dispatch-58wrSDrA/allocation-and-exclusions.json",
+    "sha256": "c9407bbf548f26e874996a930f6fafe9bf01c825bc495e4b1e2c46eb7cf5659e",
+    "range": "other_unadjudicated[600:620)"
+  },
+  "root_ids": [
+    "internal/attempt/cloud_test.go::TestControllerObjectGrantsReplaceOnlyDifferingStatements",
+    "internal/attempt/cloud_test.go::TestLaunchDetailsCarriesTheSeedLaunchInputIntoTheVNIC",
+    "internal/attempt/cloud_test.go::TestLaunchDetailsDecodesTheMemberLaunchWriterOutput",
+    "internal/attempt/cloud_test.go::TestLaunchDetailsDecodesTheSeedLaunchWriterOutput",
+    "internal/attempt/cloud_test.go::TestLaunchDetailsRefusesUnknownOrMissingMembers",
+    "internal/attempt/cloud_test.go::TestLaunchRetryTokenBindsTheInputBytes",
+    "internal/attempt/cloud_test.go::TestSlotRecordPrefixesScopeToTheDeployment",
+    "internal/attempt/image_production_integration_test.go::TestAttemptFinalImageQualificationPrecedesOCIMutations",
+    "internal/attempt/services_test.go::TestServicesPhaseDerivesANewCellsFirstGenerations",
+    "internal/attempt/services_test.go::TestServicesPhaseDerivesGRUsBootstrapProfiles",
+    "internal/attempt/services_test.go::TestServicesPhaseKeepsAConfiguredProfile",
+    "internal/attempt/services_test.go::TestServicesPhaseKeepsConfiguredSigningProfiles",
+    "internal/attempt/typed_test.go::TestTypedWritesTheCanonicalFieldOrder",
+    "internal/benchmark/benchmark_test.go::TestAdmissionRejectsServingNodesAndOtherRegions",
+    "internal/benchmark/benchmark_test.go::TestContainersCleanUpAfterMalformedOutputWithoutExposingSecrets",
+    "internal/benchmark/benchmark_test.go::TestJSONLPreservesRequiredZeroFields",
+    "internal/benchmark/benchmark_test.go::TestPodmanHelper",
+    "internal/benchmark/benchmark_test.go::TestRunnerRampPersistsAndStopsAtFirstUnsafeStep",
+    "internal/benchmark/benchmark_test.go::TestSDKPersistsULIDKeysWithoutPayloadIDs",
+    "internal/benchmark/benchmark_test.go::TestServiceLimitCanBeTheBottleneckOnAnIdleNode"
+  ],
+  "counts": {
+    "unit": 13,
+    "integration": 3,
+    "mixed": 3,
+    "unresolved": 1
+  },
+  "checks": {
+    "exact_literal_allocation_and_order": true,
+    "all_20_entire_roots_and_connected_actual_paths_independently_read": true,
+    "baseline_current_raw_declarations_text_bounds_hashes_verified": true,
+    "survival_identity_and_historical_current_hashes_verified": true,
+    "all_53_git_file_blob_mode_sha256_byte_pins_verified": true,
+    "all_2_external_module_cache_sha256_byte_pins_verified": true,
+    "all_93_connected_spans_exact_bytes_verified": true,
+    "all_20_assertion_spans_exact_bytes_verified": true,
+    "categories_independently_adjudicated": true,
+    "checksums_and_0444_files_0555_directory_verified": true
+  },
+  "root_decisions": [
+    {
+      "root_id": "internal/attempt/cloud_test.go::TestControllerObjectGrantsReplaceOnlyDifferingStatements",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Fake policy callbacks record local statement/ETag slices and no IAM request occurs."
+    },
+    {
+      "root_id": "internal/attempt/cloud_test.go::TestLaunchDetailsCarriesTheSeedLaunchInputIntoTheVNIC",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Literal launch input becomes local SDK request structs; VNIC/source/shape fields are inspected without SDK I/O."
+    },
+    {
+      "root_id": "internal/attempt/cloud_test.go::TestLaunchDetailsDecodesTheMemberLaunchWriterOutput",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "MemberLaunchDocument and strict LaunchDetails decode use in-memory values and no cloud boundary."
+    },
+    {
+      "root_id": "internal/attempt/cloud_test.go::TestLaunchDetailsDecodesTheSeedLaunchWriterOutput",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "SeedLaunchDocument and strict decode use in-memory values and no cloud boundary."
+    },
+    {
+      "root_id": "internal/attempt/cloud_test.go::TestLaunchDetailsRefusesUnknownOrMissingMembers",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Mutated literal JSON is rejected by local schema/required-member guards."
+    },
+    {
+      "root_id": "internal/attempt/cloud_test.go::TestLaunchRetryTokenBindsTheInputBytes",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Exact-input retry identity is a deterministic local digest/ULID calculation."
+    },
+    {
+      "root_id": "internal/attempt/cloud_test.go::TestSlotRecordPrefixesScopeToTheDeployment",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Object prefixes and string membership checks perform no object-store access."
+    },
+    {
+      "root_id": "internal/attempt/image_production_integration_test.go::TestAttemptFinalImageQualificationPrecedesOCIMutations",
+      "category": "integration",
+      "accepted": true,
+      "independent_observation": "Parent drives actual verifier child process/file reads and signed SDK loopback HTTP. Negatives observe withheld mutation; fake preview callbacks and synthetic403 do not qualify production cloud."
+    },
+    {
+      "root_id": "internal/attempt/services_test.go::TestServicesPhaseDerivesANewCellsFirstGenerations",
+      "category": "mixed",
+      "accepted": true,
+      "independent_observation": "Production profiles are written and read back; independent fake command/grant/sign/root counters support mixed status."
+    },
+    {
+      "root_id": "internal/attempt/services_test.go::TestServicesPhaseDerivesGRUsBootstrapProfiles",
+      "category": "mixed",
+      "accepted": true,
+      "independent_observation": "Generated profile/service files are read back against committed fixtures; separate validators and fake grants remain local."
+    },
+    {
+      "root_id": "internal/attempt/services_test.go::TestServicesPhaseKeepsAConfiguredProfile",
+      "category": "mixed",
+      "accepted": true,
+      "independent_observation": "Production reads configured profile and persists derived endpoint file; separate path predicates and fake grant observations remain local."
+    },
+    {
+      "root_id": "internal/attempt/services_test.go::TestServicesPhaseKeepsConfiguredSigningProfiles",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Configured profile selection and absent replacement are asserted through fake command callbacks. Other file setup does not exercise actual signing or service acceptance."
+    },
+    {
+      "root_id": "internal/attempt/typed_test.go::TestTypedWritesTheCanonicalFieldOrder",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Typed JSON field ordering and unknown-member refusal are in-memory operations."
+    },
+    {
+      "root_id": "internal/benchmark/benchmark_test.go::TestAdmissionRejectsServingNodesAndOtherRegions",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Synthetic OCI instance tags/name/region drive a local admission predicate."
+    },
+    {
+      "root_id": "internal/benchmark/benchmark_test.go::TestContainersCleanUpAfterMalformedOutputWithoutExposingSecrets",
+      "category": "integration",
+      "accepted": true,
+      "independent_observation": "Actual subprocesses, inherited secret pipe, stdout parsing, kill/wait and cleanup callbacks alter real shim state files. Parent directory readback checks no leak/foreign deletion; no actual container engine."
+    },
+    {
+      "root_id": "internal/benchmark/benchmark_test.go::TestJSONLPreservesRequiredZeroFields",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Custom Sample JSON marshaling preserves required zero fields without process or store use."
+    },
+    {
+      "root_id": "internal/benchmark/benchmark_test.go::TestPodmanHelper",
+      "category": "unresolved",
+      "accepted": true,
+      "independent_observation": "Conditional child fixture returns without state env; its parent roots own process assertions. Standalone category remains unresolved under the required accounting rule."
+    },
+    {
+      "root_id": "internal/benchmark/benchmark_test.go::TestRunnerRampPersistsAndStopsAtFirstUnsafeStep",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Runner uses synthetic generator/usage/clock and memoryRepository; local channels and goroutines do not establish a persistence service."
+    },
+    {
+      "root_id": "internal/benchmark/benchmark_test.go::TestSDKPersistsULIDKeysWithoutPayloadIDs",
+      "category": "integration",
+      "accepted": true,
+      "independent_observation": "Actual HTTP SDK client sends database creation, collection creation and document writes. Handler asserts auth/ULID/no repeated payload IDs; synthetic201 responses do not prove database durability."
+    },
+    {
+      "root_id": "internal/benchmark/benchmark_test.go::TestServiceLimitCanBeTheBottleneckOnAnIdleNode",
+      "category": "unit",
+      "accepted": true,
+      "independent_observation": "Synthetic stage/capacity statistics feed a local verdict; no cgroup/telemetry boundary is reached."
+    }
+  ],
+  "requested_corrections": [],
+  "resolved_findings": [],
+  "remaining_findings": [
+    {
+      "root_id": "internal/benchmark/benchmark_test.go::TestPodmanHelper",
+      "status": "unresolved",
+      "detail": "Conditional Podman fixture has parent-owned process assertions and no established standalone accounting rule. Author correctly retains unresolved with no classification credit."
+    }
+  ],
+  "qualification_limits": [
+    "Source-only review; runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No test/helper/build/process/resource/privilege/cloud/signing/crypto/TerraBase execution or receipts reviewed.",
+    "Process assertions use the test executable and PATH shell shim; they do not qualify a real Podman/container runtime. Loopback SDK responses do not prove live OCI/TerraBase database persistence.",
+    "External SDK module cache files are separately byte-hashed with repository go.mod replacement/version provenance; they are outside the canonical Git tree. No download or SDK execution was performed.",
+    "All20 original safety obligations retained; no deletion, retirement, ledger/count promotion, migration, completion or runtime acceptance is authorized."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "NONE_SOURCE_ONLY_PEER_RECEIPT"
+}

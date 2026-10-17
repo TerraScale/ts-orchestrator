@@ -1,0 +1,45 @@
+{
+  "schema": "first800-isolated-evidence-proposal-v1",
+  "state": "FROZEN_PROPOSAL_PENDING_INDEPENDENT_COMPOSITION_REVIEW",
+  "base_commit": "22e878881ee8a4ae4fe36bcc89733bdc9669e299",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "source_scope": "New first800 exact52eef only; inherited695 evidence scope unchanged. Evidence successor earns no compile/runtime credit.",
+  "controlling_original_aggregate": {
+    "path": "/tmp/ts-root800-final-qa-corrected-t7qm50lj/manifest.json",
+    "sha256": "7945e94559d4a7e56e117ab6534633e966a62304fa08192698ef838ac1c28906"
+  },
+  "central_source_acceptance": {
+    "path": "/tmp/ts-root800-aggregate-review-7945e945-fixture-source-review-next.json",
+    "sha256": "4e3e91e7ffa22bd5132ef6d43a9de69ed181d75c444be085fe12ea25981afc75"
+  },
+  "current695_accounting": {
+    "path": "/tmp/ts-qa-first800-source-evidence-52eef/docs/evidence/refactor-checks-20261017/source-classification-52eef-root200/composition/original-root-accounting.json",
+    "sha256": "4049387b6dbc1ba27c7334be023f8bf0b78177346cac61bb8fb754ca4f9a25db"
+  },
+  "source_preservation_proof": "inputs/aggregate/source-preservation-proof.json",
+  "proposed_composition": "composition/receipt.json",
+  "counts_after": {
+    "classified": 1484,
+    "integration": 510,
+    "mixed": 267,
+    "originals": 4319,
+    "other_unadjudicated": 2719,
+    "retained": 4300,
+    "retired": 19,
+    "reviewed_unresolved_included": 97,
+    "unadjudicated": 2816,
+    "unit": 707
+  },
+  "all_five_categories": "OPEN",
+  "complete": false,
+  "actual_shared_ledger_mutation": false,
+  "runtime_credit": 0,
+  "retirement_delta": 0,
+  "limits": [
+    "All800 original owner records,40distinct peer acceptances and central aggregate review retained verbatim.",
+    "Original aggregate8502/HOLD and corrected7945 provenance retained, no erased historical findings.",
+    "Before695 after1484 proposals preserve unrelated fields, prior applications and history prefixes. Actual application requires independent composition acceptance and ROOT exact grant with fresh before hashes.",
+    "No Go/compiler/test/runtime/cloud execution. Source-only classifications are no runtime pass."
+  ]
+}

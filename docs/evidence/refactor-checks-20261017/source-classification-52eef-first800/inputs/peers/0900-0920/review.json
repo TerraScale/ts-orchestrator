@@ -1,0 +1,81 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_880_900",
+  "author": "/root/classification_100_dispatch/batch_900_920",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-900-920-peer-corrected-k6jn_60s/classification.json",
+    "sha256": "3b40fd671502960644b18156bbfc8d2df26a4279622d4aa5b1e73f0c41708aa7",
+    "checksum_path": "/tmp/ts-source-classification-900-920-peer-corrected-k6jn_60s/SHA256SUMS",
+    "checksum_sha256": "d1f4ce9ee680b66a453fd602e8f05e2f3aba03d7604d73993093d0fb297d12be"
+  },
+  "decision": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root800-source-dispatch-58wrSDrA/allocation-and-exclusions.json",
+    "sha256": "c9407bbf548f26e874996a930f6fafe9bf01c825bc495e4b1e2c46eb7cf5659e",
+    "range": [
+      900,
+      920
+    ]
+  },
+  "root_ids": [
+    "internal/bootstrapstart/admission_local_test.go::TestRestartAdmissionRequiresExactAuthenticatedOCIObservation",
+    "internal/bootstrapstart/admission_selfupdate_test.go::TestAcceptedBinaryUsesExactSharedFileMeasurement",
+    "internal/bootstrapstart/admission_selfupdate_test.go::TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly",
+    "internal/bootstrapstart/admission_selfupdate_test.go::TestRestartAdmissionAcceptsSelfUpdatedReleaseAndAcceptedBaseline",
+    "internal/bootstrapstart/admission_selfupdate_test.go::TestSelfUpdatedBinaryNeedsRootVerifiedUpdateReceipt",
+    "internal/bootstrapstart/admission_test.go::TestExpectedMaterialsIncludesRegionalHostIssuerForSeedAndPeer",
+    "internal/bootstrapstart/admission_test.go::TestObserveAssemblesIntentFactsAfterExactOCIComparison",
+    "internal/bootstrapstart/admission_test.go::TestObserveRejectsMismatchedCloudInstanceAndPrimaryVNIC",
+    "internal/bootstrapstart/baked_test.go::TestBakedInputsExtendGenesisWithTheAdoptedRootChain",
+    "internal/bootstrapstart/baked_test.go::TestBakedInputsRejectSymlinkAndUnknownRootEntry",
+    "internal/bootstrapstart/baked_test.go::TestBakedInputsRequireCanonicalRootOwnedPublicFiles",
+    "internal/bootstrapstart/binary_test.go::TestRunningBinaryPinsInstalledExecutable",
+    "internal/bootstrapstart/controller_config_install_test.go::TestFounderLaunchMetadataReachesControllerConfigInstall",
+    "internal/bootstrapstart/controller_config_install_test.go::TestVerifyControllerConfigInstallBindsSignedEnvelopeAndOCIInstance",
+    "internal/bootstrapstart/controller_host_recipient_integration_test.go::TestControllerHostRecipientCapsRequestedStartupExpiry",
+    "internal/bootstrapstart/controller_host_recipient_integration_test.go::TestControllerHostRecipientRejectsLiveSDKMismatch",
+    "internal/bootstrapstart/controller_host_recipient_integration_test.go::TestControllerHostRecipientRejectsProtectedRecordChanges",
+    "internal/bootstrapstart/controller_host_recipient_integration_test.go::TestControllerHostRecipientRejectsRootChangeDuringSDK",
+    "internal/bootstrapstart/controller_host_recipient_integration_test.go::TestControllerHostRecipientRejectsSelectionChangeDuringSDK",
+    "internal/bootstrapstart/controller_host_recipient_integration_test.go::TestControllerHostRecipientRejectsShortenedRevalidation"
+  ],
+  "counts": {
+    "unit": 6,
+    "integration": 13,
+    "mixed": 1,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 entire canonical root declarations and relevant actual connected helper/production paths; baseline/current declarations identical and hashes verified against raw bounds.",
+    "Verified20 literal activated allocation mappings and frozen survival original/current names/kinds/states/raw SHA256 identities.",
+    "Verified32 baseline/current source-file pins: canonical Git blob/mode/SHA256/bytes; every exact assertion text span and connected callee excerpt matches canonical bytes.",
+    "Traced production ELF file measurement, baked trust file reads, staged release/receipt/current-link/rollback file effects, and recipient Compute/VirtualNetwork/ObjectStorage SDK HTTP exchanges. Distinguished synthetic adapters and independent local-only expiry block.",
+    "Verified exact corrected packet/classification and checksum SHA256, all checksum entries, and0444 file/0555 directory freeze."
+  ],
+  "resolved_findings": [
+    {
+      "id": "selection-http-trace",
+      "roots": [
+        "internal/bootstrapstart/controller_host_recipient_integration_test.go::TestControllerHostRecipientRejectsSelectionChangeDuringSDK",
+        "internal/bootstrapstart/controller_host_recipient_integration_test.go::TestControllerHostRecipientRejectsShortenedRevalidation"
+      ],
+      "finding": "Original packet stopped selection authority citation at ReadRuntimeAuthority; requested exact readCurrentCompletedPeer/confirm/getExact evidence to reach asserted selection HTTP reads.",
+      "resolution": "Fresh accepted packet adds founder_selection.go300:393,395:444,526:546 with canonical file pin; also actual topology rewrite and peer gate fixture spans. All independently read and exact bytes/pins verified. Counts unchanged."
+    }
+  ],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE; no accepted ledger or global count promotion.",
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no tests, Go, helpers, cloud or workload execution.",
+    "HTTP fixtures use real local TCP SDK exchange with synthetic records/in-memory backend; Authorization presence is checked, not signature validity.",
+    "Binary/release tests use minimal ELF files/test ownership; no rollout process, systemd, production root deployment or crash durability qualification.",
+    "All baseline safety/assertion obligations retained; no ledger/deletion/retirement/completion credit."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "ledger_mutation": false
+}
