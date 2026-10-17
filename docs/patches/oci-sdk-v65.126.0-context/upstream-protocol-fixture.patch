@@ -1,0 +1,88 @@
+diff --git a/common/auth/certificate_retriever_test.go b/common/auth/certificate_retriever_test.go
+index e867f73ee490afe4ff4d5dcf5e3f9e7a3306cb9e..d9fcbf04b716728354cf095ac4e0a805e8ce5db9 100644
+--- a/common/auth/certificate_retriever_test.go
++++ b/common/auth/certificate_retriever_test.go
+@@ -8,0 +9 @@ import (
++	"context"
+@@ -13,0 +15 @@ import (
++	"errors"
+@@ -17,0 +20 @@ import (
++	"sync"
+@@ -281,0 +285,77 @@ func TestBadStaticCertificateRetriever(t *testing.T) {
++
++// The first refresh owns the real metadata body read; a second refresh must not
++// remain stuck on its serialization lock after the second caller is canceled.
++func TestURLCertificateRefreshContextCancelsBodyAndQueuedRefresh(t *testing.T) {
++	entered := make(chan struct{})
++	exited := make(chan struct{})
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if r.Header.Get("Authorization") != "Bearer Oracle" {
++			t.Error("missing metadata authorization")
++		}
++		w.WriteHeader(http.StatusOK)
++		_, _ = w.Write([]byte("-----BEGIN CERTIFICATE-----\n"))
++		w.(http.Flusher).Flush()
++		close(entered)
++		<-r.Context().Done()
++		close(exited)
++	}))
++	defer server.Close()
++	retriever := newURLBasedX509CertificateRetriever(server.Client(), server.URL, "", "").(*urlBasedX509CertificateRetriever)
++	ctx, cancel := context.WithCancel(t.Context())
++	defer cancel()
++	done := make(chan error, 1)
++	go func() { done <- retriever.RefreshContext(ctx) }()
++	select {
++	case <-entered:
++	case <-time.After(10 * time.Second):
++		t.Fatal("no actual metadata request")
++	}
++	queued, stop := context.WithCancel(t.Context())
++	defer stop()
++	waiting := &certificateQueuedContext{Context: queued, waiting: make(chan struct{})}
++	queued = waiting
++	queuedDone := make(chan error, 1)
++	go func() { queuedDone <- retriever.RefreshContext(queued) }()
++	select {
++	case <-waiting.waiting:
++	case <-time.After(10 * time.Second):
++		t.Fatal("queued certificate caller never reached lock select")
++	}
++	stop()
++	select {
++	case err := <-queuedDone:
++		if !errors.Is(err, context.Canceled) {
++			t.Fatal(err)
++		}
++	case <-time.After(10 * time.Second):
++		t.Fatal("queued certificate refresh did not join")
++	}
++	cancel()
++	select {
++	case err := <-done:
++		if !errors.Is(err, context.Canceled) {
++			t.Fatal(err)
++		}
++	case <-time.After(10 * time.Second):
++		t.Fatal("metadata body read did not join")
++	}
++	select {
++	case <-exited:
++	case <-time.After(10 * time.Second):
++		t.Fatal("metadata wire continued after cancellation")
++	}
++	if retriever.Certificate() != nil || retriever.PrivateKey() != nil {
++		t.Fatal("failed refresh installed certificate material")
++	}
++}
++
++type certificateQueuedContext struct {
++	context.Context
++	once    sync.Once
++	waiting chan struct{}
++}
++
++func (ctx *certificateQueuedContext) Done() <-chan struct{} {
++	ctx.once.Do(func() { close(ctx.waiting) })
++	return ctx.Context.Done()
++}
