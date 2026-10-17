@@ -549,7 +549,7 @@ func (o *nodeOps) save(ctx context.Context, epoch uint64, op nodeOp) error {
 // run executes queued operations on the leader, one at a time, oldest
 // first; a running one, which a deposed leader left, goes first.
 func (o *nodeOps) run(ctx context.Context) {
-	ticker := time.NewTicker(time.Minute)
+	ticker := time.NewTicker(nodeOpPoll)
 	defer ticker.Stop()
 	for ctx.Err() == nil {
 		if o.fence.fencer.Current().CanMutate() {
