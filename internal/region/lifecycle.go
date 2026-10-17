@@ -14,6 +14,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/capacityledger"
+	"github.com/TerraScale/ts-orchestrator/internal/drainwire"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
@@ -150,6 +151,7 @@ type FoundationRecord struct {
 	CapacityCreates     map[string]PoolCreateRecord             `json:"capacityCreates,omitempty"`
 	CapacityPools       map[string]PoolResourceRecord           `json:"capacityPools,omitempty"`
 	PoolChildren        map[string]PoolChildRecord              `json:"poolChildren,omitempty"`
+	PoolDrains          map[string]drainwire.PoolReceipt        `json:"poolDrains,omitempty"`
 	PoolQuarantines     map[string]PoolQuarantineRecord         `json:"poolQuarantines,omitempty"`
 }
 
@@ -636,5 +638,6 @@ func (a *foundationAttempt) finish(ctx context.Context, providerErr error) (Foun
 	result.WorkerPolicyIDs = maps.Clone(result.WorkerPolicyIDs)
 	result.ResourceProvenance = maps.Clone(result.ResourceProvenance)
 	result.cloneCapacity()
+	result.clonePoolDrains()
 	return result, errors.Join(providerErr, err)
 }
