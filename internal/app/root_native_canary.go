@@ -34,10 +34,9 @@ type rootWorkloadCredentials struct {
 	admission *rootMaterialAdmission
 }
 
-func newRootWorkloadCredentials(source *managedRuntimeHost, factory *ociclient.Factory) (rootoci.WorkloadCredentials, error) {
-	admission, err := newRootMaterialAdmission(source, factory)
-	if err != nil {
-		return nil, err
+func newRootWorkloadCredentials(admission *rootMaterialAdmission) (rootoci.WorkloadCredentials, error) {
+	if os.Geteuid() != 0 || admission == nil {
+		return nil, rootoci.ErrUnauthorized
 	}
 	return &rootWorkloadCredentials{MaterialService: rootsecret.MaterialService{AdmitContainer: admission.container, AdmitGeneration: admission.generation}, admission: admission}, nil
 }

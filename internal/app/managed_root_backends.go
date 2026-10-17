@@ -48,10 +48,6 @@ func newManagedRootBackends(ctx context.Context, cfg Config, local automaticFoun
 	if err != nil {
 		return nil, fmt.Errorf("construct root foundation authority: %w", err)
 	}
-	foundations, err := newRootOCIResources(cfg, foundation)
-	if err != nil {
-		return nil, fmt.Errorf("construct root foundation and resource backend: %w", err)
-	}
 	homeIAM, err := foundation.GuardedHomeIAM(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("retain original root home IAM authority: %w", err)
@@ -72,7 +68,15 @@ func newManagedRootBackends(ctx context.Context, cfg Config, local automaticFoun
 	if err != nil {
 		return nil, fmt.Errorf("construct root release channels: %w", err)
 	}
-	workloads, err := newRootWorkloadCredentials(ownhost, local.factory)
+	traffic, err := newRootMaterialAdmission(ownhost, local.factory)
+	if err != nil {
+		return nil, fmt.Errorf("construct root material admission: %w", err)
+	}
+	foundations, err := newRootOCIResources(cfg, foundation, traffic, channels)
+	if err != nil {
+		return nil, fmt.Errorf("construct root foundation and resource backend: %w", err)
+	}
+	workloads, err := newRootWorkloadCredentials(traffic)
 	if err != nil {
 		return nil, fmt.Errorf("construct root workload credentials: %w", err)
 	}
