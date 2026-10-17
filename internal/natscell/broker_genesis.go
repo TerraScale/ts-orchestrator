@@ -23,6 +23,8 @@ type BrokerGenesisInfo struct {
 	Device, Inode                                  uint64
 	UID                                            uint32
 	OperatorSHA256, SystemJWTSHA256, CellJWTSHA256 string
+	MarkerInode                                    uint64
+	MarkerSHA256                                   string
 }
 
 type brokerGenesis struct {
@@ -38,8 +40,8 @@ type brokerGenesis struct {
 // It grants no permission to initialize a release floor or regional history.
 type VerifiedBrokerGenesis struct{ runtime *Runtime }
 
-// StartOriginalBroker requires the independently protected before-start
-// reservation. Local empty storage alone cannot prove a never-used region.
+// StartOriginalBroker records local provenance only. The combined root consumer
+// must enforce its independent protected before-start reservation.
 func StartOriginalBroker(ctx context.Context, cfg Config) (*Runtime, VerifiedBrokerGenesis, error) {
 	if os.Geteuid() != 0 || cfg.Embedded == nil {
 		return nil, VerifiedBrokerGenesis{}, errors.New("original broker requires root and an installed embedded broker")
@@ -71,7 +73,10 @@ func (p VerifiedBrokerGenesis) Revalidate(ctx context.Context) error {
 	if r == nil || r.genesis == nil || r.storeLock == nil || r.server == nil || r.conn == nil {
 		return errors.New("original broker provenance is unavailable")
 	}
-	g := r.genesis
+	return validateBrokerStorage(ctx, r, r.genesis)
+}
+
+func validateBrokerStorage(ctx context.Context, r *Runtime, g *brokerGenesis) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -101,7 +106,8 @@ func (p VerifiedBrokerGenesis) Revalidate(ctx context.Context) error {
 	}
 	observed, err := observeInstalledIdentity(g.cfg, dir)
 	if err != nil || observed != g.info.Installation || r.operator == nil || r.resolver == nil ||
-		r.operator.Subject != observed.Operator || r.resolver.cell != observed.CellAccount {
+		r.operator.Subject != observed.Operator || r.resolver.cell != observed.CellAccount ||
+		r.server.NodeName() != observed.RaftNodeID || r.serverName != observed.ServerName {
 		return errors.Join(ErrStoreIdentity, err)
 	}
 	claims, err := brokerGenesisClaims(g.cfg)
@@ -114,7 +120,7 @@ func (p VerifiedBrokerGenesis) Revalidate(ctx context.Context) error {
 		return errors.Join(ErrStoreIdentity, cellErr, systemErr)
 	}
 	var markerStat unix.Stat_t
-	if err := unix.Fstatat(dir, brokerGenesisMarker, &markerStat, unix.AT_SYMLINK_NOFOLLOW); err != nil || markerStat.Ino != g.markerInode {
+	if err := unix.Fstatat(dir, brokerGenesisMarker, &markerStat, unix.AT_SYMLINK_NOFOLLOW); err != nil || markerStat.Ino != g.markerInode || markerStat.Uid != 0 {
 		return errors.Join(ErrStoreIdentity, err)
 	}
 	marker, err := readInstallationFileAt(dir, brokerGenesisMarker, 4096)
@@ -146,6 +152,13 @@ func (r *Runtime) lockBrokerStore(ctx context.Context, cfg Config, original bool
 	if err := unix.Flock(dir, unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		return fmt.Errorf("lock embedded broker store: %w", err)
 	}
+	embedded := *cfg.Embedded
+	if embedded.InterRegion != nil {
+		interRegion := *embedded.InterRegion
+		embedded.InterRegion = &interRegion
+	}
+	cfg.Embedded = &embedded
+	r.storeConfig = cfg
 	if !original {
 		return nil
 	}
@@ -201,10 +214,8 @@ func (r *Runtime) lockBrokerStore(ctx context.Context, cfg Config, original bool
 	if deadline, ok := ctx.Deadline(); ok && deadline.Before(expires) {
 		expires = deadline
 	}
-	embedded := *cfg.Embedded
-	cfg.Embedded = &embedded
 	r.genesis = &brokerGenesis{info: BrokerGenesisInfo{Installation: identity, Cell: cfg.Cell, Instance: cfg.Instance,
-		StartedAt: started, Device: uint64(stat.Dev), Inode: stat.Ino, UID: stat.Uid, OperatorSHA256: claims[0], SystemJWTSHA256: claims[1], CellJWTSHA256: claims[2]}, ctx: ctx, expires: expires, marker: marker, markerInode: markerStat.Ino, cfg: cfg}
+		StartedAt: started, Device: uint64(stat.Dev), Inode: stat.Ino, UID: stat.Uid, OperatorSHA256: claims[0], SystemJWTSHA256: claims[1], CellJWTSHA256: claims[2], MarkerInode: markerStat.Ino, MarkerSHA256: installationDigest(marker)}, ctx: ctx, expires: expires, marker: marker, markerInode: markerStat.Ino, cfg: cfg}
 	return nil
 }
 

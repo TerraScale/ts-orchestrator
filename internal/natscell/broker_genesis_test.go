@@ -114,4 +114,33 @@ func TestOriginalBrokerProofBindsActualServerAndDirectory(t *testing.T) {
 	if err := proof.Revalidate(t.Context()); err == nil {
 		t.Fatal("canceled creation operation remained valid")
 	}
+	storage, err := r.ObserveBrokerStorage(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storage.Info().MarkerSHA256 != proof.Info().MarkerSHA256 || storage.Info().StartedAt != proof.Info().StartedAt {
+		t.Fatal("read-only observation changed durable origin")
+	}
+	_ = r.Close()
+	reopened, err := Start(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	retained, err := reopened.ObserveBrokerStorage(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.genesis != nil || retained.Info().MarkerSHA256 != info.MarkerSHA256 || retained.Info().Inode != info.Inode {
+		t.Fatal("reopen lost origin or renewed creation authority")
+	}
+	if err := storage.Revalidate(t.Context()); err == nil {
+		t.Fatal("stopped original process retained observation")
+	}
+	if err := os.Remove(filepath.Join(cfg.Embedded.StoreDir, brokerGenesisMarker)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reopened.ObserveBrokerStorage(t.Context()); err == nil {
+		t.Fatal("missing original marker accepted on actual reopened broker")
+	}
 }
