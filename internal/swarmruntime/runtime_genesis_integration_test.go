@@ -2,11 +2,26 @@ package swarmruntime
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/moby/swarmkit/v2/api"
 )
+
+func TestFounderGenesisGuardPrecedesPersistentAdmission(t *testing.T) {
+	cfg := serviceConfig(t, "ts-gru-1", "manager")
+	revoked := errors.New("protected original creation is unavailable")
+	cfg.guardGenesis = func(context.Context) error { return revoked }
+	if _, err := StartNode(t.Context(), cfg, serviceExecutor{}); !errors.Is(err, revoked) {
+		t.Fatalf("founder escaped protected creation refusal: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.StateDir, "admission.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("refused genesis wrote durable admission: %v", err)
+	}
+}
 
 func TestRuntimeGenesisRequiresOriginalProcessAndCompleteHistory(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)

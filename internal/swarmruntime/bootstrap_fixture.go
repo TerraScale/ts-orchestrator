@@ -81,7 +81,7 @@ func StartAcceptedNodeFixture(ctx context.Context, stateDir string,
 		}
 		return nil
 	}
-	n, err := startAcceptedNodeAt(ctx, stateDir, identity, target, vault, bundles, executor, refresh)
+	n, err := startAcceptedNodeAt(ctx, stateDir, identity, target, vault, bundles, executor, refresh, nil)
 	if err != nil {
 		return nil, err
 	}
