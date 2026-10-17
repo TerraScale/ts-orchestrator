@@ -1,11 +1,71 @@
 package region
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 )
+
+func TestRegionalTrustFloorAcquisitionRetainsOriginalLifetime(t *testing.T) {
+	original, cancelOriginal := context.WithDeadline(t.Context(), time.Now().Add(20*time.Second))
+	defer cancelOriginal()
+	acquisition, cancelAcquisition := context.WithDeadline(original, time.Now().Add(time.Second))
+	defer cancelAcquisition()
+	materialExpiry := time.Now().Add(10 * time.Second)
+	operation, cancel, expires, err := regionalTrustFloorReadContext(acquisition, original, materialExpiry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cancel()
+	deadline, ok := operation.Deadline()
+	acquisitionDeadline, _ := acquisition.Deadline()
+	if !ok || !deadline.Equal(acquisitionDeadline) || !expires.Equal(materialExpiry) {
+		t.Fatal("floor acquisition dropped its current operation cap or retained the temporary deadline")
+	}
+	cancelAcquisition()
+	if !errors.Is(operation.Err(), context.Canceled) || original.Err() != nil || !expires.Equal(materialExpiry) {
+		t.Fatal("temporary acquisition cancellation changed the original retained lifetime")
+	}
+
+	operation, cancelJoined, expires, err := regionalTrustFloorReadContext(t.Context(), original, time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cancelJoined()
+	originalDeadline, _ := original.Deadline()
+	if !expires.Equal(originalDeadline) {
+		t.Fatal("floor proof exceeded the original reader deadline")
+	}
+	cancelOriginal()
+	select {
+	case <-operation.Done():
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+}
+
+func TestRegionalTrustFloorAcquisitionRejectsExpiredSources(t *testing.T) {
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	for _, input := range []struct {
+		operation context.Context
+		original  context.Context
+		expires   time.Time
+	}{
+		{t.Context(), t.Context(), time.Time{}},
+		{t.Context(), t.Context(), time.Now().Add(-time.Second)},
+		{canceled, t.Context(), time.Now().Add(time.Second)},
+		{t.Context(), canceled, time.Now().Add(time.Second)},
+	} {
+		if _, cancel, _, err := regionalTrustFloorReadContext(input.operation, input.original, input.expires); err == nil {
+			cancel()
+			t.Fatal("floor acquisition accepted an absent, expired or canceled original source")
+		}
+	}
+}
 
 func TestRegionalControlZeroProofsRefuseAuthority(t *testing.T) {
 	ctx := t.Context()
