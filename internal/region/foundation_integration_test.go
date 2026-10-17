@@ -27,6 +27,7 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
@@ -40,7 +41,7 @@ import (
 
 // The simulator persists exact Object Storage bytes and conditional-write
 // semantics on disk; clients use the actual signed OCI HTTP implementation.
-func foundationProtocolStore(t *testing.T) (*ObjectFoundationStore, FoundationObjects, func(string, []byte)) {
+func foundationProtocolStore(t *testing.T) (*ObjectFoundationStore, *objectstorage.ObjectStorageClient, func(string, []byte)) {
 	t.Helper()
 	dir := t.TempDir()
 	var mu sync.Mutex
