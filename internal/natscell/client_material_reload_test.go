@@ -2,10 +2,12 @@ package natscell
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,8 +31,8 @@ func applyOptions(t *testing.T, options []nats.Option) nats.Options {
 // handshake.
 func TestClientMaterialSourceRejectsCorruptReloadedJWT(t *testing.T) {
 	root := t.TempDir()
-	account, _ := nkeys.CreateAccount()
-	accountID, _ := account.PublicKey()
+	region := productionTestRegion(t, "gru", "broker-a")
+	account, accountID := region.cell, region.cellID
 	user, _ := nkeys.CreateUser()
 	userID, _ := user.PublicKey()
 	startup := filepath.Join(root, "startup.creds")
@@ -60,6 +62,30 @@ func TestClientMaterialSourceRejectsCorruptReloadedJWT(t *testing.T) {
 	}}, userID)
 	if got := source.current().CredentialsFile; got != startup {
 		t.Fatalf("credentials with a corrupt JWT were accepted: %s", got)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+	defer cancel()
+	broker, err := openTestBroker(t, ctx, region.cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{Cell: "gru", Instance: "host-a", Replicas: 1, ClientRole: "host",
+		URL: broker.URL(), CredentialsFile: startup, TLS: region.cfg.TLS}
+	var reloads atomic.Int32
+	cfg.ReloadClientMaterial = func() (ClientMaterial, error) {
+		reloads.Add(1)
+		return ClientMaterial{CredentialsFile: corrupt, TLS: cfg.TLS}, nil
+	}
+	client, err := Start(ctx, cfg)
+	if err != nil {
+		t.Fatalf("corrupt renewal did not fall back during JWT/mTLS handshake: %v", err)
+	}
+	defer client.Close()
+	if err := client.Conn().FlushWithContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if reloads.Load() == 0 {
+		t.Fatal("real handshake did not resolve renewed material")
 	}
 }
 
@@ -92,8 +118,7 @@ func unwrapAll(err error) error {
 	}
 }
 
-// Renewed certificates must be presented in every authentication mode: an
-// NKey-seed client and a lab client both resolve them per handshake.
+// Both seed-only option construction and JWT clients resolve renewed TLS material per handshake.
 func TestClientOptionsReloadTLSWithoutCredentialsFileAndInLab(t *testing.T) {
 	root := t.TempDir()
 	startupTLS := testBridgeTLS(t, filepath.Join(root, "startup"))
@@ -125,18 +150,24 @@ func TestClientOptionsReloadTLSWithoutCredentialsFileAndInLab(t *testing.T) {
 		t.Fatal("the NKey-seed client did not resolve the renewed certificate")
 	}
 
-	options, err = clientOptions(Config{Cell: "lab", Instance: "host-a", Replicas: 1, ClientRole: "host", Lab: true,
-		URL: "tls://127.0.0.1:4222", NKeySeedFile: seed, TLS: startupTLS, ReloadClientMaterial: reload})
+	region := productionTestRegion(t, "lab", "broker-a")
+	cfg, _ := productionTestUser(t, region, "host-a", "host", false)
+	cfg.URL, cfg.TLS = "tls://127.0.0.1:4222", startupTLS
+	cfg.ReloadClientMaterial = func() (ClientMaterial, error) {
+		reloads++
+		return ClientMaterial{CredentialsFile: cfg.CredentialsFile, TLS: renewedTLS}, nil
+	}
+	options, err = clientOptions(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	lab := applyOptions(t, options).TLSConfig
-	if lab == nil || lab.GetClientCertificate == nil || len(lab.Certificates) != 0 {
-		t.Fatal("a lab client keeps its startup certificate for the connection's life")
+	lab, ok := applyOptions(t, options).CustomDialer.(*tlsFirstDialer)
+	if !ok || lab.reload == nil {
+		t.Fatal("a JWT client keeps its startup certificate for the connection's life")
 	}
 	before := reloads
-	presented, err := lab.GetClientCertificate(&tls.CertificateRequestInfo{})
-	if err != nil || reloads == before || !bytes.Equal(presented.Certificate[0], want.Certificate[0]) {
-		t.Fatalf("lab handshake did not present the renewed certificate: %v", err)
+	presented, err := lab.reload()
+	if err != nil || reloads == before || !bytes.Equal(presented.Certificates[0].Certificate[0], want.Certificate[0]) {
+		t.Fatalf("JWT handshake did not present the renewed certificate: %v", err)
 	}
 }

@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
-	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -20,13 +18,10 @@ import (
 )
 
 func TestEmbeddedSingleNodeDurableRestart(t *testing.T) {
-	cfg := Config{
-		Cell: "lab", Instance: "one", Replicas: 1, Lab: true,
-		Embedded: &Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "jetstream")},
-	}
+	cfg := productionTestConfig(t, "lab", "one")
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
-	r, err := Start(ctx, cfg)
+	r, err := openTestBroker(t, ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +40,7 @@ func TestEmbeddedSingleNodeDurableRestart(t *testing.T) {
 	if err := r.Close(); err != nil {
 		t.Fatal("second close:", err)
 	}
-	r, err = Start(ctx, cfg)
+	r, err = openTestBroker(t, ctx, cfg)
 	if err != nil {
 		t.Fatal("restart:", err)
 	}
@@ -64,8 +59,8 @@ func TestEmbeddedSingleNodeDurableRestart(t *testing.T) {
 }
 
 func TestEmbeddedStoreLimit(t *testing.T) {
-	embedded := &Embedded{Host: "127.0.0.1", Port: -1, StoreDir: t.TempDir()}
-	cfg := Config{Cell: "lab", Instance: "one", Replicas: 1, Lab: true, Embedded: embedded}
+	cfg := productionTestConfig(t, "lab", "one")
+	embedded := cfg.Embedded
 	for _, test := range []struct {
 		name  string
 		limit int64
@@ -102,12 +97,12 @@ func TestEmbeddedStoreLimit(t *testing.T) {
 }
 
 func TestControllerNKeyDurablyAcknowledgesDeliveryIntent(t *testing.T) {
-	public, seed := newUserIdentity(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, Config{Cell: "lab", Instance: "one", Replicas: 1, Lab: true,
-		NKeySeedFile: seed, Embedded: &Embedded{Host: "127.0.0.1", Port: -1,
-			StoreDir: t.TempDir(), Users: []NKeyGrant{{PublicKey: public, Role: "controller"}}}})
+	region := productionTestRegion(t, "lab", "one")
+	controller, _ := productionTestUser(t, region, "one", "controller", false)
+	region.cfg.CredentialsFile = controller.CredentialsFile
+	runtime, err := openTestBroker(t, ctx, region.cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,31 +143,10 @@ func TestEmbeddedClusterAdvertisesClientPeers(t *testing.T) {
 	const peers = 3
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
-	routePorts := make([]int, peers)
-	for index := range routePorts {
-		listener, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		routePorts[index] = listener.Addr().(*net.TCPAddr).Port
-		listener.Close()
-	}
-	routes := make([]string, peers)
-	for index, port := range routePorts {
-		routes[index] = fmt.Sprintf("nats-route://127.0.0.1:%d", port)
-	}
-	runtimes := make([]*Runtime, peers)
+	cluster := newLabCluster(t, peers)
+	runtimes := cluster.runtimes
 	for index := range runtimes {
-		instance := fmt.Sprintf("peer%d", index)
-		runtime, err := Start(ctx, Config{Cell: "lab", Instance: instance, Replicas: peers, Lab: true,
-			Embedded: &Embedded{Host: "127.0.0.1", Port: -1, RouteHost: "127.0.0.1", RoutePort: routePorts[index],
-				Routes: PeerRoutes(routes, routes[index]), StoreDir: filepath.Join(t.TempDir(), instance)},
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		runtimes[index] = runtime
-		t.Cleanup(func() { _ = runtime.Close() })
+		cluster.start(t, ctx, index)
 	}
 	for _, runtime := range runtimes {
 		if err := runtime.WaitForCluster(ctx, peers); err != nil {
@@ -190,46 +164,70 @@ func TestEmbeddedClusterAdvertisesClientPeers(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Production suppresses internal client advertisements; check routes and each external mTLS listener.
+	observerKey, err := nkeys.CreateUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer observerKey.Wipe()
+	observerID, err := observerKey.PublicKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentials := testJWTUserCredentialsWithKey(t, t.TempDir(), "observer.creds", cluster.region.cell,
+		cluster.region.cellID, observerKey, []string{"$JS.API.INFO"}, []string{inboxPrefix("lab", observerID) + ".>"})
 	for _, runtime := range runtimes {
 		for {
-			servers := runtime.Conn().Servers()
-			if slices.ContainsFunc(runtimes, func(peer *Runtime) bool { return !slices.Contains(servers, peer.URL()) }) {
+			observation, err := runtime.ObserveCluster()
+			if err != nil {
+				t.Fatal(err)
+			}
+			servers := append([]string{observation.ServerName}, observation.Routes...)
+			if slices.ContainsFunc(runtimes, func(peer *Runtime) bool { return !slices.Contains(servers, peer.serverName) }) {
 				if err := ctx.Err(); err != nil {
-					t.Fatalf("cluster client URLs were not discovered: %v; known %v", err, servers)
+					t.Fatalf("cluster peers were not discovered: %v; known %v", err, servers)
 				}
 				time.Sleep(20 * time.Millisecond)
 				continue
 			}
 			break
 		}
+		observer, err := Start(ctx, Config{Cell: "lab", Instance: "client-discovery", Replicas: peers,
+			URL: runtime.URL(), CredentialsFile: credentials, TLS: cluster.region.cfg.TLS})
+		if err != nil {
+			t.Fatalf("authenticate external peer %s: %v", runtime.URL(), err)
+		}
+		t.Cleanup(func() { _ = observer.Close() })
+		healthCtx, healthCancel := context.WithTimeout(ctx, 2*time.Second)
+		_, healthErr := observer.JetStream().AccountInfo(healthCtx)
+		healthCancel()
+		if healthErr != nil {
+			t.Fatalf("external peer %s health query: %v", runtime.URL(), healthErr)
+		}
+		if known := observer.Conn().Servers(); !slices.Equal(known, []string{runtime.URL()}) {
+			t.Fatalf("external peer advertised an unconfigured client address: %v", known)
+		}
+		if discovered := observer.Conn().DiscoveredServers(); len(discovered) != 0 {
+			t.Fatalf("external peer advertised an internal client bypass: %v", discovered)
+		}
 	}
+
 }
 
 func TestHostNKeyCannotCrossNodeOrUseJetStream(t *testing.T) {
-	controllerPublic, controllerSeed := newUserIdentity(t)
-	hostPublic, hostSeed := newUserIdentity(t)
-	otherPublic, _ := newUserIdentity(t)
-	serverConfig := Config{
-		Cell: "lab", Instance: "one", Replicas: 1, Lab: true,
-		NKeySeedFile: controllerSeed,
-		Embedded: &Embedded{
-			Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "store"),
-			Users: []NKeyGrant{
-				{PublicKey: controllerPublic, Role: "controller"},
-				{PublicKey: hostPublic, Role: "host", Node: "node-one"},
-				{PublicKey: otherPublic, Role: "host", Node: "node-two"},
-			},
-		},
-	}
+	region := productionTestRegion(t, "lab", "one")
+	hostConfig, hostPublic := productionTestUser(t, region, "host-one", "host", false)
+	_, otherPublic := productionTestUser(t, region, "host-two", "host", false)
+	serverConfig := region.cfg
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
-	controller, err := Start(ctx, serverConfig)
+	controller, err := openTestBroker(t, ctx, serverConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = controller.Close() })
-	host, err := Start(ctx, Config{Cell: "lab", Instance: "host-one", Replicas: 1, Lab: true,
-		URL: controller.URL(), NKeySeedFile: hostSeed, ClientRole: "host"})
+	hostConfig.URL = controller.URL()
+	host, err := Start(ctx, hostConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,15 +312,11 @@ func TestLabTerminalPermissionsAreRoleScoped(t *testing.T) {
 }
 
 func TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState(t *testing.T) {
-	controllerPublic, controllerSeed := newUserIdentity(t)
-	operatorPublic, operatorSeed := newUserIdentity(t)
+	region := productionTestRegion(t, "lab", "one")
+	operatorConfig, operatorPublic := productionTestUser(t, region, "operator", "operator", false)
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
-	controller, err := Start(ctx, Config{
-		Cell: "lab", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
-		Embedded: &Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "store"),
-			Users: []NKeyGrant{{PublicKey: controllerPublic, Role: "controller"}, {PublicKey: operatorPublic, Role: "operator"}}},
-	})
+	controller, err := openTestBroker(t, ctx, region.cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,8 +340,8 @@ func TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState(t *testing.T)
 	if _, err := controller.JetStream().Publish(ctx, "ts.control.lab.lease", []byte("test")); err != nil {
 		t.Fatal(err)
 	}
-	operator, err := Start(ctx, Config{Cell: "lab", Instance: "operator", Replicas: 1, Lab: true,
-		URL: controller.URL(), NKeySeedFile: operatorSeed, ClientRole: "operator"})
+	operatorConfig.URL = controller.URL()
+	operator, err := Start(ctx, operatorConfig)
 	if err != nil {
 		t.Fatal(err)
 	}

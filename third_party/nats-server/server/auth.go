@@ -431,16 +431,45 @@ func (s *Server) checkAuthentication(c *client) bool {
 // This could be nkey, token, or username/password based.
 func (s *Server) isClientAuthorized(c *client) bool {
 	opts := s.getOpts()
+	if c.inProcessAccount != _EMPTY_ {
+		c.mu.Lock()
+		presented := c.opts.JWT
+		c.mu.Unlock()
+		if c.inProcessJWT != _EMPTY_ && presented != c.inProcessJWT {
+			return false
+		}
+		claim, err := jwt.DecodeUserClaims(presented)
+		if err != nil {
+			return false
+		}
+		account := claim.IssuerAccount
+		if account == _EMPTY_ {
+			account = claim.Issuer
+		}
+		// Reject before native registration can move this client into another account.
+		if account != c.inProcessAccount {
+			return false
+		}
+		if !s.processClientOrLeafAuthentication(c, opts) {
+			return false
+		}
+		c.mu.Lock()
+		authenticated := c.acc
+		c.mu.Unlock()
+		if authenticated == nil || authenticated.GetName() != c.inProcessAccount {
+			return false
+		}
+	} else {
+		// Check custom auth first, then jwts, then nkeys, then
+		// multiple users with TLS map if enabled, then token,
+		// then single user/pass.
+		if opts.CustomClientAuthentication != nil && !opts.CustomClientAuthentication.Check(c) {
+			return false
+		}
 
-	// Check custom auth first, then jwts, then nkeys, then
-	// multiple users with TLS map if enabled, then token,
-	// then single user/pass.
-	if opts.CustomClientAuthentication != nil && !opts.CustomClientAuthentication.Check(c) {
-		return false
-	}
-
-	if opts.CustomClientAuthentication == nil && !s.processClientOrLeafAuthentication(c, opts) {
-		return false
+		if opts.CustomClientAuthentication == nil && !s.processClientOrLeafAuthentication(c, opts) {
+			return false
+		}
 	}
 
 	if c.kind == CLIENT || c.kind == LEAF {

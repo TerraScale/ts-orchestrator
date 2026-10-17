@@ -2900,9 +2900,31 @@ func (s *Server) getServerListener(hp string) (net.Listener, error) {
 // within the same process. This can be used regardless of the
 // state of the DontListen option.
 func (s *Server) InProcessConn() (net.Conn, error) {
+	return s.inProcessConn(_EMPTY_, _EMPTY_)
+}
+
+// InProcessConnForAccount keeps every CONNECT on the authenticated account.
+// The normal native JWT, nonce, signature and expiry checks still apply.
+func (s *Server) InProcessConnForAccount(account string) (net.Conn, error) {
+	if !nkeys.IsValidPublicAccountKey(account) {
+		return nil, fmt.Errorf("in-process connection requires its fixed account")
+	}
+	return s.inProcessConn(account, _EMPTY_)
+}
+
+// InProcessConnForJWT additionally requires the exact original user claim on
+// every CONNECT, including attempts to authenticate again on the same stream.
+func (s *Server) InProcessConnForJWT(account, userJWT string) (net.Conn, error) {
+	if !nkeys.IsValidPublicAccountKey(account) || userJWT == _EMPTY_ {
+		return nil, fmt.Errorf("in-process connection requires its fixed account and user JWT")
+	}
+	return s.inProcessConn(account, userJWT)
+}
+
+func (s *Server) inProcessConn(account, userJWT string) (net.Conn, error) {
 	pl, pr := net.Pipe()
 	if !s.startGoRoutine(func() {
-		s.createClientInProcess(pl)
+		s.createClientEx(pl, true, account, userJWT)
 		s.grWG.Done()
 	}) {
 		pl.Close()
@@ -3269,14 +3291,14 @@ func (c *tlsMixConn) Read(b []byte) (int, error) {
 }
 
 func (s *Server) createClient(conn net.Conn) *client {
-	return s.createClientEx(conn, false)
+	return s.createClientEx(conn, false, _EMPTY_, _EMPTY_)
 }
 
 func (s *Server) createClientInProcess(conn net.Conn) *client {
-	return s.createClientEx(conn, true)
+	return s.createClientEx(conn, true, _EMPTY_, _EMPTY_)
 }
 
-func (s *Server) createClientEx(conn net.Conn, inProcess bool) *client {
+func (s *Server) createClientEx(conn net.Conn, inProcess bool, account, userJWT string) *client {
 	// Snapshot server options.
 	opts := s.getOpts()
 
@@ -3289,14 +3311,16 @@ func (s *Server) createClientEx(conn net.Conn, inProcess bool) *client {
 	now := time.Now()
 
 	c := &client{
-		srv:   s,
-		nc:    conn,
-		opts:  defaultOpts,
-		mpay:  maxPay,
-		msubs: maxSubs,
-		start: now,
-		last:  now,
-		iproc: inProcess,
+		srv:              s,
+		nc:               conn,
+		opts:             defaultOpts,
+		mpay:             maxPay,
+		msubs:            maxSubs,
+		start:            now,
+		last:             now,
+		iproc:            inProcess,
+		inProcessAccount: account,
+		inProcessJWT:     userJWT,
 	}
 
 	c.registerWithAccount(s.globalAccount())

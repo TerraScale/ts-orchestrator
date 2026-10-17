@@ -3,7 +3,6 @@ package natscell
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -88,28 +87,22 @@ func TestOnlyHomeControllersCarryGlobalGrants(t *testing.T) {
 func TestGlobalHomeNeedsGlobalGrantsUnderRestrictedCredentials(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
-	regionalPublic, regionalSeed := newUserIdentity(t)
-	homePublic, homeSeed := newUserIdentity(t)
-	server, err := Start(ctx, Config{Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: homeSeed,
-		Embedded: &Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "store"), Users: []NKeyGrant{
-			{PublicKey: regionalPublic, Role: "controller"}, {PublicKey: homePublic, Role: "controller", Global: true},
-		}},
-	})
+	region := productionTestRegion(t, "gru", "one")
+	homeConfig, _ := productionTestUser(t, region, "home", "controller", true)
+	region.cfg.CredentialsFile = homeConfig.CredentialsFile
+	server, err := openTestBroker(t, ctx, region.cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = server.Close() })
-	regionalConfig := Config{Cell: "gru", Instance: "regional", Replicas: 1, Lab: true, URL: server.URL(),
-		NKeySeedFile: regionalSeed, Embedded: &Embedded{Users: []NKeyGrant{{PublicKey: regionalPublic, Role: "controller"}}}}
+	regionalConfig, _ := productionTestUser(t, region, "regional", "controller", false)
+	regionalConfig.URL = server.URL()
 	if err := ValidateGlobalControllerPermissions(regionalConfig); !errors.Is(err, ErrMissingGlobalGrants) {
 		t.Fatalf("regional controller preflight = %v, want ErrMissingGlobalGrants", err)
 	}
-	homeConfig := Config{Cell: "gru", Embedded: &Embedded{Users: []NKeyGrant{{PublicKey: homePublic, Role: "controller", Global: true}}},
-		NKeySeedFile: homeSeed}
 	if err := ValidateGlobalControllerPermissions(homeConfig); err != nil {
 		t.Fatalf("home controller preflight: %v", err)
 	}
-	regionalConfig.Embedded = nil
+
 	regional, err := Start(ctx, regionalConfig)
 	if err != nil {
 		t.Fatal(err)

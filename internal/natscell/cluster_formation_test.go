@@ -12,7 +12,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// labCluster is a three-broker lab cell that uses the production seed-route
+// labCluster uses signed JWT credentials, mutual TLS and the production seed-route
 // shape: each broker lists only the other brokers' routes.
 type labCluster struct {
 	routes      []string
@@ -20,12 +20,14 @@ type labCluster struct {
 	routePorts  []int
 	stores      []string
 	runtimes    []*Runtime
+	region      *testRegion
+	routeSecret string
 }
 
 func newLabCluster(t *testing.T, size int) *labCluster {
 	t.Helper()
 	ports := freeClientPorts(t, 2*size)
-	cluster := &labCluster{clientPorts: ports[:size], routePorts: ports[size:], stores: make([]string, size),
+	cluster := &labCluster{region: productionTestRegion(t, "lab", "peer0"), routeSecret: productionRouteSecret(t), clientPorts: ports[:size], routePorts: ports[size:], stores: make([]string, size),
 		runtimes: make([]*Runtime, size), routes: make([]string, size)}
 	for index := range size {
 		cluster.routes[index] = fmt.Sprintf("nats-route://127.0.0.1:%d", cluster.routePorts[index])
@@ -42,11 +44,17 @@ func newLabCluster(t *testing.T, size int) *labCluster {
 func (cluster *labCluster) start(t *testing.T, ctx context.Context, index int) *Runtime {
 	t.Helper()
 	instance := fmt.Sprintf("peer%d", index)
-	runtime, err := Start(ctx, Config{Cell: "lab", Instance: instance, Replicas: len(cluster.routes), Lab: true,
-		Embedded: &Embedded{Host: "127.0.0.1", Port: cluster.clientPorts[index], RouteHost: "127.0.0.1",
-			RoutePort: cluster.routePorts[index], Routes: PeerRoutes(cluster.routes, cluster.routes[index]),
-			StoreDir: cluster.stores[index], BrokerIDs: []string{"peer0", "peer1", "peer2"}[:len(cluster.routes)]},
-	})
+	cfg := cluster.region.cfg
+	embedded := *cfg.Embedded
+	cfg.Embedded = &embedded
+	cfg.Instance, cfg.Replicas = instance, len(cluster.routes)
+	embedded.Port = cluster.clientPorts[index]
+	embedded.RouteHost, embedded.RoutePort = "127.0.0.1", cluster.routePorts[index]
+	embedded.Routes = PeerRoutes(cluster.routes, cluster.routes[index])
+	embedded.StoreDir = cluster.stores[index]
+	embedded.BrokerIDs = []string{"peer0", "peer1", "peer2"}[:len(cluster.routes)]
+	embedded.RoutePasswordFile = cluster.routeSecret
+	runtime, err := openTestBroker(t, ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,8 +72,7 @@ func (cluster *labCluster) stop(index int) {
 func TestObserveStandaloneBroker(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, Config{Cell: "lab", Instance: "solo", Replicas: 1, Lab: true,
-		Embedded: &Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "solo")}})
+	runtime, err := openTestBroker(t, ctx, productionTestConfig(t, "lab", "solo"))
 	if err != nil {
 		t.Fatal(err)
 	}
