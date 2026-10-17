@@ -19,6 +19,7 @@ import (
 // Its public identity is descriptive; only this retained proof can revalidate.
 type ManagerRuntimeCandidate struct {
 	original                                    context.Context
+	lifetime                                    context.Context
 	control                                     *manager.ControlReader
 	local                                       *ControllerHostBinding
 	session                                     *host.ManagerRuntimeSession
@@ -37,15 +38,36 @@ func (p *ManagerRuntimeCandidate) SourceSHA256() string                 { return
 
 func (n *Node) ReadManagerRuntimeCandidate(ctx context.Context, hosts *host.Reader, leases *authority.Reader,
 	localBinding *ControllerHostBinding, authenticatedOriginNodeID string,
-) (*ManagerRuntimeCandidate, error) {
+) (_ *ManagerRuntimeCandidate, resultErr error) {
 	if ctx == nil || ctx.Err() != nil || localBinding == nil || localBinding.reader == nil || hosts == nil || leases == nil {
 		return nil, errors.New("manager runtime candidate sources unavailable")
 	}
-	if _, err := localBinding.currentRegistration(ctx); err != nil {
-		return nil, err
+	original := ctx
+	var limits []context.CancelFunc
+	defer func() {
+		if resultErr != nil {
+			for _, cancel := range limits {
+				cancel()
+			}
+		}
+	}()
+	limit := func(deadline time.Time) error {
+		if existing, ok := ctx.Deadline(); ok && !deadline.Before(existing) {
+			return ctx.Err()
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, deadline)
+		limits = append(limits, cancel)
+		return ctx.Err()
 	}
 	current, err := localBinding.reader.ReadRuntimeAuthority(ctx, localBinding.accepted, time.Now().UTC())
 	if err != nil {
+		return nil, err
+	}
+	if err := limit(current.ExpiresAt()); err != nil {
+		return nil, err
+	}
+	if _, err := localBinding.currentRegistration(ctx); err != nil {
 		return nil, err
 	}
 	control, err := n.ReadOnlyControlClient(ctx)
@@ -67,6 +89,11 @@ func (n *Node) ReadManagerRuntimeCandidate(ctx context.Context, hosts *host.Read
 	signed, ok := session.SignedBinding()
 	if !ok {
 		return nil, errors.New("manager runtime original signed carrier unavailable")
+	}
+	for _, expiry := range []time.Time{session.ExpiresAt(), signed.Binding.ExpiresAt} {
+		if err := limit(expiry); err != nil {
+			return nil, err
+		}
 	}
 	if err := host.VerifySignedManagerRuntimeBinding(signed, got.Node.Certificate.Certificate, cluster.RootCACert, cluster.ID, time.Now().UTC()); err != nil {
 		return nil, err
@@ -90,7 +117,10 @@ func (n *Node) ReadManagerRuntimeCandidate(ctx context.Context, hosts *host.Read
 	if original, ok := ctx.Deadline(); ok && original.Before(deadline) {
 		deadline = original
 	}
-	proof := &ManagerRuntimeCandidate{original: ctx, control: control, local: localBinding, session: session, lease: lease, signed: signed,
+	if err := limit(deadline); err != nil {
+		return nil, err
+	}
+	proof := &ManagerRuntimeCandidate{original: original, lifetime: ctx, control: control, local: localBinding, session: session, lease: lease, signed: signed,
 		certificate: bytes.Clone(got.Node.Certificate.Certificate), clusterCA: bytes.Clone(cluster.RootCACert), clusterID: cluster.ID,
 		slot: got.Node.Spec.Annotations.Name, sourceDigest: current.ManagerSourceSHA256(), anchorDigest: current.Anchor().Digest(), deadline: deadline}
 	if err := proof.Revalidate(ctx); err != nil {
@@ -100,12 +130,12 @@ func (n *Node) ReadManagerRuntimeCandidate(ctx context.Context, hosts *host.Read
 }
 
 func (p *ManagerRuntimeCandidate) Revalidate(ctx context.Context) error {
-	if p == nil || p.original == nil || ctx == nil || ctx.Err() != nil || p.original.Err() != nil ||
+	if p == nil || p.original == nil || p.lifetime == nil || p.lifetime.Err() != nil || ctx == nil || ctx.Err() != nil || p.original.Err() != nil ||
 		p.control == nil || p.local == nil || p.session == nil || p.lease == nil || !time.Now().Before(p.deadline) {
 		return errors.New("original manager runtime candidate expired or cancelled")
 	}
 	ctx, cancel := context.WithDeadline(ctx, p.deadline)
-	stop := context.AfterFunc(p.original, cancel)
+	stop := context.AfterFunc(p.lifetime, cancel)
 	defer cancel()
 	defer stop()
 	if _, err := p.local.currentRegistration(ctx); err != nil {
@@ -116,7 +146,7 @@ func (p *ManagerRuntimeCandidate) Revalidate(ctx context.Context) error {
 		return err
 	}
 	b, id := p.signed.Binding, current.Identity()
-	if current.ManagerSourceSHA256() != p.sourceDigest || current.Anchor().Digest() != p.anchorDigest ||
+	if current.ExpiresAt().Before(p.deadline) || current.ManagerSourceSHA256() != p.sourceDigest || current.Anchor().Digest() != p.anchorDigest ||
 		b.SourceSHA256 != p.sourceDigest || b.AnchorSHA256 != p.anchorDigest || b.DeploymentID != id.DeploymentID ||
 		b.ClusterID != id.ClusterID || b.Environment != id.Environment || !strings.EqualFold(b.Cell, id.Cell) || b.OCIRegion != id.OCIRegion ||
 		!slices.Contains(p.local.accepted.ControllerSlots, p.slot) {
@@ -159,7 +189,7 @@ func (p *ManagerRuntimeCandidate) Revalidate(ctx context.Context) error {
 		return err
 	}
 	fresh, err := p.local.reader.ReadRuntimeAuthority(ctx, p.local.accepted, time.Now().UTC())
-	if err != nil || fresh.Identity() != current.Identity() || fresh.Anchor().Digest() != p.anchorDigest || fresh.ManagerSourceSHA256() != p.sourceDigest {
+	if err != nil || fresh.ExpiresAt().Before(p.deadline) || fresh.Identity() != current.Identity() || fresh.Anchor().Digest() != p.anchorDigest || fresh.ManagerSourceSHA256() != p.sourceDigest {
 		return errors.New("original manager runtime source changed during native and lease verification")
 	}
 	if !time.Now().Before(p.deadline) || p.original.Err() != nil {
