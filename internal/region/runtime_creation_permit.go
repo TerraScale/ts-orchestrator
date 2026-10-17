@@ -37,6 +37,10 @@ func PrepareRuntimeCreation(ctx context.Context, factory *ociclient.Factory, rea
 	if deadline, ok := ctx.Deadline(); ok && deadline.Before(expires) {
 		expires = deadline
 	}
+	return prepareRuntimeCreationFromFactory(ctx, factory, reader, accepted, expires)
+}
+
+func prepareRuntimeCreationFromFactory(ctx context.Context, factory *ociclient.Factory, reader *bootstrapstart.CurrentFounderAuthorityReader, accepted bootstrapstart.AcceptedIdentity, expires time.Time) (*RuntimeCreationPermit, error) {
 	operation, cancel := context.WithDeadline(ctx, expires)
 	defer cancel()
 	authority, err := reader.ReadRuntimeAuthority(operation, accepted, time.Now().UTC())
@@ -58,6 +62,35 @@ func PrepareRuntimeCreation(ctx context.Context, factory *ociclient.Factory, rea
 	if err != nil {
 		return nil, err
 	}
+	return prepareRuntimeCreation(ctx, home, reader, accepted, expires)
+}
+
+func prepareRuntimeCreation(ctx context.Context, home *HomeIAMAuthority, reader *bootstrapstart.CurrentFounderAuthorityReader, accepted bootstrapstart.AcceptedIdentity, expires time.Time) (*RuntimeCreationPermit, error) {
+	if os.Geteuid() != 0 || home == nil || reader == nil || ctx.Err() != nil || !time.Now().Before(expires) {
+		return nil, errors.New("runtime creation requires its original verified home authority")
+	}
+	operation, cancel := context.WithDeadline(ctx, expires)
+	defer cancel()
+	authority, err := reader.ReadRuntimeAuthority(operation, accepted, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	identity := authority.Identity()
+	if identity.Slot != identity.SeedSlot || accepted.Origin != identityrekey.AcceptanceOriginInitial {
+		return nil, nil
+	}
+	if home.factory == nil || home.factory.Region() != identity.OCIRegion {
+		return nil, errors.New("runtime creation home authority names another region")
+	}
+	if err := home.VerifyFoundationWriter(operation); err != nil {
+		return nil, err
+	}
+	resolver, err := discoverCurrentFoundation(operation, home.objects, home.tenancyID, home.currentGenesis)
+	if err != nil {
+		return nil, err
+	}
+	resolver.Footprint.(*SignedFootprint).factory = home.factory
+	factory := home.factory
 	factory, operation, err = home.GuardedFactory(operation)
 	if err != nil {
 		return nil, err
@@ -81,13 +114,13 @@ func PrepareRuntimeCreation(ctx context.Context, factory *ociclient.Factory, rea
 		return nil, err
 	}
 	now := time.Now().UTC()
-	creation := RuntimeCreation{OperationID: entityid.Derive("runtime-genesis", record.RuntimeLineage.FoundationOperationID),
-		DeploymentID: identity.DeploymentID, SignedClusterID: identity.ClusterID, Environment: identity.Environment,
-		HostID: identity.Slot, InstanceID: identity.InstanceID, AcceptanceSHA256: acceptance,
-		AnchorSHA256: authority.Anchor().Digest(), StartedAt: now}
 	if authority.ExpiresAt().Before(expires) {
 		expires = authority.ExpiresAt()
 	}
+	creation := RuntimeCreation{OperationID: entityid.Derive("runtime-genesis", record.RuntimeLineage.FoundationOperationID),
+		DeploymentID: identity.DeploymentID, SignedClusterID: identity.ClusterID, Environment: identity.Environment,
+		HostID: identity.Slot, InstanceID: identity.InstanceID, AcceptanceSHA256: acceptance,
+		AnchorSHA256: authority.Anchor().Digest(), StartedAt: now, ExpiresAt: expires}
 	permit := &RuntimeCreationPermit{ctx: ctx, factory: factory, home: home, reader: reader, accepted: accepted.Clone(),
 		identity: identity, creation: creation, origin: *record.RuntimeLineage, expires: expires}
 	operation, finish, err := permit.bound(operation)
@@ -236,7 +269,7 @@ func (permit *RuntimeCreationPermit) current(ctx context.Context) error {
 	if err := permit.ValidateSource(ctx); err != nil {
 		return err
 	}
-	resolver, err := DiscoverCurrentFoundation(ctx, permit.factory)
+	resolver, err := discoverCurrentFoundation(ctx, permit.home.objects, permit.home.tenancyID, permit.home.currentGenesis)
 	if err != nil {
 		return err
 	}

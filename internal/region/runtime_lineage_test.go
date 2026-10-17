@@ -1,6 +1,9 @@
 package region
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestRuntimeLineageCannotBeReinitialized(t *testing.T) {
 	original := &RuntimeLineageRecord{Version: 1, FoundationOperationID: "original-foundation"}
@@ -42,5 +45,12 @@ func TestRuntimeLineageCannotBeReinitialized(t *testing.T) {
 	}
 	if err := retainRuntimeLineage(&completed, &completed); err != nil {
 		t.Fatal(err)
+	}
+	extended := changed
+	extendedCreation := *changed.Creation
+	extendedCreation.ExpiresAt = time.Now().Add(time.Hour)
+	extended.Creation = &extendedCreation
+	if err := retainRuntimeLineage(&changed, &extended); err == nil {
+		t.Fatal("new observation renewed the original creation lifetime")
 	}
 }
