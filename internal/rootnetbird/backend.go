@@ -177,11 +177,11 @@ func (b *Backend) AuthorizeNetBirdIntent(ctx context.Context, call rootoci.Call,
 		return fail(err)
 	}
 	rootPin, err := s.current(ctx, "TS_TRUST_ROOTS", "chain")
-	if err != nil || rootPin.revision != originalFacts.RootRevision || !bytes.Equal(rootPin.wire, originalFacts.RootChain) {
+	if err != nil || !rootPin.created.Equal(originalFacts.RootStreamCreated) || rootPin.revision != originalFacts.RootRevision || !bytes.Equal(rootPin.wire, originalFacts.RootChain) {
 		return fail(err)
 	}
 	specPin, err := s.current(ctx, "TS_SERVICE_SET", "current")
-	if err != nil || specPin.revision != originalFacts.SpecRevision || !bytes.Equal(specPin.wire, originalFacts.SignedSpec) {
+	if err != nil || !specPin.created.Equal(originalFacts.SpecStreamCreated) || specPin.revision != originalFacts.SpecRevision || !bytes.Equal(specPin.wire, originalFacts.SignedSpec) {
 		return fail(err)
 	}
 	if ctx.Err() != nil || !time.Now().Before(request.ExpiresAt) {
@@ -253,13 +253,15 @@ func (b *Backend) canonical(ctx context.Context, s *Sources, identity bootstraps
 	slices.SortFunc(hosts, func(a, b rootoci.NetBirdIntentHost) int { return strings.Compare(a.Name, b.Name) })
 	return rootoci.NetBirdIntent{Cell: identity.Cell, InstallationID: material.InstallationID(), DeploymentID: identity.DeploymentID,
 		SourceGrantSHA256: digest(material.FoundationGrantWire()), MaterialGeneration: material.Generation(),
-		SpecGeneration: spec.Generation, SpecSHA256: digest(signedSpec.wire), SpecRevision: signedSpec.revision, RootRevision: root.revision, SubnetCIDR: config.SubnetCIDR, Hosts: hosts,
+		SpecGeneration: spec.Generation, SpecSHA256: digest(signedSpec.wire), SpecRevision: signedSpec.revision, RootRevision: root.revision,
+		SpecStreamCreated: signedSpec.created, RootStreamCreated: root.created, SubnetCIDR: config.SubnetCIDR, Hosts: hosts,
 		SignedSpec: signedSpec.wire, RootChain: root.wire, SourceSlot: identity.Slot, SourceInstanceID: identity.InstanceID,
 		ManagerStoreGeneration: entityid.Derive("netbird-foundation-store", material.InstallationID()) + ":1"}, nil
 }
 
 // current always reads the stream leader, never a follower's direct KV cache.
 type sourceRecord struct {
+	created  time.Time
 	wire     []byte
 	revision uint64
 }
@@ -276,6 +278,14 @@ func (s *Sources) current(ctx context.Context, bucket, key string) (sourceRecord
 	if err != nil {
 		return sourceRecord{}, err
 	}
+	stream, err := s.JS.Stream(ctx, "KV_"+bucket)
+	if err != nil {
+		return sourceRecord{}, err
+	}
+	before, err := stream.Info(ctx)
+	if err != nil || before.Created.IsZero() {
+		return sourceRecord{}, errors.Join(rootoci.ErrUnauthorized, err)
+	}
 	subject := "$KV." + bucket + "." + key
 	entry, err := reader.GetLastMsg("KV_"+bucket, subject, nats.Context(ctx))
 	if err != nil {
@@ -284,7 +294,11 @@ func (s *Sources) current(ctx context.Context, bucket, key string) (sourceRecord
 	if entry == nil || entry.Subject != subject || entry.Sequence == 0 || len(entry.Data) == 0 || entry.Header.Get("KV-Operation") != "" || entry.Header.Get(jetstream.MarkerReasonHeader) != "" {
 		return sourceRecord{}, rootoci.ErrUnauthorized
 	}
-	return sourceRecord{wire: bytes.Clone(entry.Data), revision: entry.Sequence}, ctx.Err()
+	after, err := stream.Info(ctx)
+	if err != nil || !after.Created.Equal(before.Created) {
+		return sourceRecord{}, errors.Join(rootoci.ErrUnauthorized, err)
+	}
+	return sourceRecord{created: after.Created, wire: bytes.Clone(entry.Data), revision: entry.Sequence}, ctx.Err()
 }
 
 func digest(wire []byte) string { sum := sha256.Sum256(wire); return hex.EncodeToString(sum[:]) }
