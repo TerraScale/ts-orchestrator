@@ -15,6 +15,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/drainwire"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/rootsecret"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
@@ -62,6 +63,7 @@ func (b *Backend) poolSnapshot(ctx context.Context, call rootoci.Call) (poolDrai
 	if s == nil || s.Credentials.Context().Err() != nil || s.JS.Conn().IsClosed() {
 		return empty, rootoci.ErrPending
 	}
+	ctx = b.poolLifetimeContext(ctx, call, time.Time{})
 	if err := b.guard(ctx, call); err != nil {
 		return empty, err
 	}
@@ -178,3 +180,23 @@ func poolSourceWire(ctx context.Context, js jetstream.JetStream, bucket, key str
 }
 
 func poolDigest(wire []byte) string { return fmt.Sprintf("%x", sha256.Sum256(wire)) }
+
+// Nested source verification preserves the original call/credential guard
+// without recursively invoking the provider operation's source verifier.
+func (b *Backend) poolLifetimeContext(ctx context.Context, call rootoci.Call, deadline time.Time) context.Context {
+	return ociclient.WithRequestGuard(ctx, func(check context.Context) error {
+		if err := call.Guard(check); err != nil {
+			return err
+		}
+		if b.poolSources == nil || !deadline.IsZero() && !time.Now().Before(deadline) {
+			return ErrScope
+		}
+		return b.poolSources.Credentials.Guard(check)
+	})
+}
+
+func (b *Backend) poolReceiptContext(ctx context.Context, call rootoci.Call, receipt drainwire.PoolReceipt) context.Context {
+	return ociclient.WithRequestGuard(ctx, func(check context.Context) error {
+		return b.guardPoolReceipt(b.poolLifetimeContext(check, call, receipt.ExpiresAt), call, receipt)
+	})
+}

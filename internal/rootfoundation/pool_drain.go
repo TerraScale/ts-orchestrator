@@ -3,7 +3,6 @@ package rootfoundation
 import (
 	"context"
 	"errors"
-	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -169,10 +168,8 @@ func (b *Backend) commitPoolDrain(ctx context.Context, call rootoci.Call, receip
 		}
 		return nil
 	}
-	writeCtx := ociclient.CheckpointContext(ctx)
-	writeCtx = ociclient.WithAuthority(writeCtx, guard)
-	writeCtx = ociclient.WithWireAttempt(writeCtx, func(*http.Request) (func(*http.Response, error, bool) error, error) {
-		return func(*http.Response, error, bool) error { return nil }, nil
+	writeCtx := ociclient.WithRequestGuard(ociclient.CheckpointContext(ctx), func(check context.Context) error {
+		return guard(b.poolLifetimeContext(check, call, receipt.ExpiresAt))
 	})
 	if _, err := resolver.Store.CompareAndSwap(writeCtx, record, etag); err != nil {
 		return err

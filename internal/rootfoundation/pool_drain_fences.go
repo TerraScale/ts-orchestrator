@@ -15,6 +15,7 @@ import (
 
 // Empty inventory is accepted only after every bounded SDK page completes.
 func (b *Backend) verifyPoolProviderFences(ctx context.Context, call rootoci.Call, record region.FoundationRecord, receipt drainwire.PoolReceipt) error {
+	ctx = b.poolReceiptContext(ctx, call, receipt)
 	if err := b.guardPoolReceipt(ctx, call, receipt); err != nil {
 		return err
 	}
