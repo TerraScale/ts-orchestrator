@@ -4,6 +4,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -40,6 +41,27 @@ func TestProtectedResourceJournalSharesFoundationCASAndByteBound(t *testing.T) {
 	loaded, loadedETag, err := restarted.Load(t.Context(), "GRU")
 	if err != nil || loadedETag != etag || !reflect.DeepEqual(loaded.OCIResources, record.OCIResources) || !reflect.DeepEqual(loaded.ResourceIDs, record.ResourceIDs) {
 		t.Fatalf("protected original history changed: %+v %v", loaded, err)
+	}
+	stored := loaded.OCIResources.Resources[desired.Key.String()].Desired
+	resumed, err := ociresource.OperationRecord(stored, 2, now.Add(time.Second), false)
+	if err != nil || resumed.Operation.ID != desired.Operation.ID || !resumed.Operation.StartedAt.Equal(now) || !slices.Equal(resumed.Operation.WorkRequests, desired.Operation.WorkRequests) {
+		t.Fatalf("restarted uncertain operation changed: %+v %v", resumed.Operation, err)
+	}
+	unsigned := loaded
+	copyJournal := *loaded.OCIResources
+	copyJournal.Resources = make(map[string]ociresource.ProtectedResource, len(loaded.OCIResources.Resources))
+	for key, value := range loaded.OCIResources.Resources {
+		copyJournal.Resources[key] = value
+	}
+	entryWithoutRemoval := copyJournal.Resources[desired.Key.String()]
+	entryWithoutRemoval.Desired.Tombstone = &ociresource.Tombstone{RequestedAt: now, NotBefore: now.Add(time.Hour)}
+	copyJournal.Resources[desired.Key.String()] = entryWithoutRemoval
+	unsigned.OCIResources = &copyJournal
+	if _, err := restarted.CompareAndSwap(t.Context(), unsigned, loadedETag); err == nil {
+		t.Fatal("unsigned removal provenance entered protected object")
+	}
+	if err := loaded.OCIResources.Validate("SFO"); err == nil {
+		t.Fatal("cross-cell protected journal accepted")
 	}
 	loaded.Epoch = 2
 	if _, err := restarted.CompareAndSwap(t.Context(), loaded, loadedETag); err != nil {
