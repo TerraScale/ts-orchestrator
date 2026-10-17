@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"reflect"
-	"strings"
 	"time"
 )
 
@@ -33,30 +32,33 @@ func NewService(backends Backends) (*Service, error) {
 
 func validBackends(backends Backends) bool {
 	for _, backend := range []any{backends.Readers, backends.Foundations, backends.Credentials, backends.Capacity, backends.NetBird} {
-		if backend == nil {
+		if !validDependency(backend) {
 			return false
-		}
-		value := reflect.ValueOf(backend)
-		switch value.Kind() {
-		case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
-			if value.IsNil() {
-				return false
-			}
 		}
 	}
 	return true
 }
 
+func validDependency(backend any) bool {
+	if backend == nil {
+		return false
+	}
+	value := reflect.ValueOf(backend)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return !value.IsNil()
+	}
+	return true
+}
+
 func (service *Service) validRequest(request wireRequest) bool {
+	if request.Operation.ReadOnly() {
+		return validReadRequest(request)
+	}
 	if len(request.Payload) > 16<<10 && request.Operation != OperationDeliverControllerGeneration {
 		return false
 	}
 	switch request.Operation {
-	case OperationInventory, OperationObserveLocalInstance, OperationObserveFleet, OperationCosts, OperationReleaseChannel:
-		return decodePayload(request.Payload, new(struct{})) == nil
-	case OperationObserveImage:
-		var input ImageRequest
-		return decodePayload(request.Payload, &input) == nil && validSelector(input.ImageID) && strings.HasPrefix(input.ImageID, "ocid1.image.")
 	case OperationReconcileFoundation:
 		var input ReconcileFoundationRequest
 		return decodePayload(request.Payload, &input) == nil && validSelector(input.Cell) &&
@@ -120,23 +122,10 @@ func (service *Service) dispatch(ctx context.Context, call Call, request wireReq
 	if err := call.Guard(ctx); err != nil {
 		return nil, err
 	}
+	if request.Operation.ReadOnly() {
+		return dispatchRead(ctx, service.backends.Readers, call, request)
+	}
 	switch request.Operation {
-	case OperationInventory:
-		return service.backends.Readers.Inventory(ctx, call)
-	case OperationObserveLocalInstance:
-		return service.backends.Readers.ObserveLocalInstance(ctx, call)
-	case OperationObserveFleet:
-		return service.backends.Readers.ObserveFleet(ctx, call)
-	case OperationCosts:
-		return service.backends.Readers.Costs(ctx, call)
-	case OperationReleaseChannel:
-		return service.backends.Readers.ReleaseChannel(ctx, call)
-	case OperationObserveImage:
-		var input ImageRequest
-		if err := decodePayload(request.Payload, &input); err != nil {
-			return nil, err
-		}
-		return service.backends.Readers.ObserveImage(ctx, call, input)
 	case OperationReconcileFoundation:
 		var input ReconcileFoundationRequest
 		if err := decodePayload(request.Payload, &input); err != nil {

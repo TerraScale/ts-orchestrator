@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -21,6 +22,55 @@ type Client struct {
 	expected      Expectations
 	mu            sync.Mutex
 	serverBinding string
+	root          *rootClient
+	closed        bool
+}
+
+type rootClient struct {
+	service *Service
+	call    Call
+	cancel  context.CancelFunc
+}
+
+// RootClient retains this root process and the original finite bootstrap call.
+// Domain backends still derive actual signed phase authority for every effect.
+func (service *Service) RootClient(ctx context.Context) (*Client, error) {
+	if service == nil || !validBackends(service.backends) {
+		return nil, ErrInvalid
+	}
+	call, err := RootCall(ctx)
+	if err != nil {
+		return nil, err
+	}
+	witness, err := CaptureProcess(os.Getpid())
+	if err != nil {
+		return nil, err
+	}
+	bounded, cancel := context.WithDeadline(ctx, call.Deadline())
+	call.state.ctx = bounded
+	call.state.witness = witness
+	context.AfterFunc(bounded, func() { _ = witness.Close() })
+	if call.Guard(bounded) != nil {
+		cancel()
+		return nil, ErrUnauthorized
+	}
+	client := &Client{root: &rootClient{service: service, call: call, cancel: cancel}}
+	binding := fmt.Sprintf("%x", sha256.Sum256([]byte(witness.Binding()+"\x00"+call.SessionBindingSHA256())))
+	client.pinServer(binding)
+	return client, nil
+}
+
+func (client *Client) Close() error {
+	if client == nil {
+		return nil
+	}
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	client.closed = true
+	if client.root != nil {
+		client.root.cancel()
+	}
+	return nil
 }
 
 func NewClient(expected Expectations) *Client { return &Client{expected: expected} }
@@ -91,6 +141,12 @@ func (client *Client) invoke(parent context.Context, operation Operation, reques
 	if err != nil || len(wire) > maxFrameBytes {
 		return ErrInvalid
 	}
+	if client.isClosed() {
+		return ErrUnauthorized
+	}
+	if client.root != nil {
+		return client.invokeRoot(ctx, wireRequest{Version: 1, Operation: operation, Expected: client.expected, Payload: payload}, destination)
+	}
 	connection, err := new(net.Dialer).DialContext(ctx, "unix", SocketPath)
 	if err != nil {
 		return ErrUnavailable
@@ -142,6 +198,9 @@ func (client *Client) invoke(parent context.Context, operation Operation, reques
 func (client *Client) pinServer(binding string) bool {
 	client.mu.Lock()
 	defer client.mu.Unlock()
+	if client.closed {
+		return false
+	}
 	if client.serverBinding == "" {
 		client.serverBinding = binding
 	}
@@ -151,7 +210,45 @@ func (client *Client) pinServer(binding string) bool {
 func (client *Client) transportBinding() string {
 	client.mu.Lock()
 	defer client.mu.Unlock()
+	if client.closed {
+		return ""
+	}
 	return client.serverBinding
+}
+
+func (client *Client) isClosed() bool {
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	return client.closed
+}
+
+func (client *Client) invokeRoot(ctx context.Context, request wireRequest, destination any) error {
+	root := client.root
+	if root == nil || root.call.Guard(ctx) != nil || client.isClosed() {
+		return ErrUnauthorized
+	}
+	bounded, cancel := context.WithDeadline(ctx, root.call.Deadline())
+	defer cancel()
+	stop := context.AfterFunc(root.call.state.ctx, cancel)
+	defer stop()
+	state := *root.call.state
+	state.operation, state.expected = request.Operation, request.Expected
+	call := Call{state: &state}
+	result, err := root.service.dispatch(bounded, call, request)
+	if err != nil {
+		return statusError(errorStatus(err))
+	}
+	if call.Guard(bounded) != nil {
+		return ErrUnauthorized
+	}
+	wire, err := json.Marshal(result)
+	if err != nil || len(wire) > maxFrameBytes || json.Unmarshal(wire, destination, json.RejectUnknownMembers(true)) != nil {
+		return outcomeError(request.Operation)
+	}
+	if call.Guard(bounded) != nil {
+		return ErrUnauthorized
+	}
+	return nil
 }
 
 func rootServerBinding(peer nativerootoci.Peer) (string, error) {

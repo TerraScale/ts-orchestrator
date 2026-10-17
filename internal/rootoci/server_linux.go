@@ -26,11 +26,20 @@ type listenerHandle struct {
 	socket    unix.Stat_t
 }
 
+type dispatcher interface {
+	validRequest(wireRequest) bool
+	dispatch(context.Context, Call, wireRequest) (any, error)
+}
+
 // Listen belongs to the existing root managed runtime, before admission children.
 func Listen(ctx context.Context, service *Service, authorize Authorize, controllerGID uint32) (io.Closer, error) {
 	if ctx == nil || ctx.Err() != nil || os.Geteuid() != 0 || service == nil || !validBackends(service.backends) || authorize == nil || controllerGID == 0 {
 		return nil, ErrUnauthorized
 	}
+	return listen(ctx, service, authorize, controllerGID)
+}
+
+func listen(ctx context.Context, service dispatcher, authorize Authorize, controllerGID uint32) (io.Closer, error) {
 	directory, err := openSocketDirectory()
 	if err != nil {
 		return nil, err
@@ -131,7 +140,7 @@ func openSocketDirectory() (int, error) {
 	return root, nil
 }
 
-func serve(ctx context.Context, listener *net.UnixListener, service *Service, authorize Authorize) {
+func serve(ctx context.Context, listener *net.UnixListener, service dispatcher, authorize Authorize) {
 	stop := context.AfterFunc(ctx, func() { _ = listener.Close() })
 	defer stop()
 	slots := make(chan struct{}, 2)
@@ -151,7 +160,7 @@ func serve(ctx context.Context, listener *net.UnixListener, service *Service, au
 	}
 }
 
-func serveConnection(parent context.Context, connection *net.UnixConn, service *Service, authorize Authorize) {
+func serveConnection(parent context.Context, connection *net.UnixConn, service dispatcher, authorize Authorize) {
 	defer connection.Close()
 	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()

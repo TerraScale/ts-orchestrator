@@ -122,7 +122,7 @@ func (call Call) Guard(ctx context.Context) error {
 		return ErrUnauthorized
 	}
 	if state.root {
-		if os.Geteuid() != 0 {
+		if os.Geteuid() != 0 || state.witness != nil && state.witness.Verify() != nil || !time.Now().Before(state.deadline) {
 			return ErrUnauthorized
 		}
 		return nil
