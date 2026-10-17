@@ -187,14 +187,6 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 	if policy == nil || policy.Kind != workload.KindStateless || policy.Validate() != nil {
 		return pending(nil)
 	}
-	location, err := b.location(ctx, identity.Cell)
-	if err != nil {
-		return pending(err)
-	}
-	allocations, err := b.allocations(ctx, *intent.Container, roots.Current, release.ContainerTarget{Cell: identity.Cell, Environment: intent.Environment, Role: intent.Role, Architecture: claim.Architecture})
-	if err != nil {
-		return pending(err)
-	}
 	deadline, _ := ctx.Deadline()
 	deadline = earlier(deadline, source.ExpiresAt(), lease.Deadline())
 	for _, wire := range [][]byte{intent.Container.Claim, intent.Container.Delegation, claim.Production.Qualification, claim.Production.Delegation} {
@@ -210,6 +202,23 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 
 	ctx, finish := context.WithDeadline(ctx, deadline)
 	defer finish()
+	location, err := b.location(ctx, identity.Cell)
+	if err != nil {
+		return pending(err)
+	}
+	channelBundle, found, err := releasechannel.ReadContainerBundle(ctx, location, intent.Role, claim.Architecture)
+	if err != nil || !found {
+		return pending(err)
+	}
+	channelDigest, err := release.ContainerBundleSHA256(channelBundle)
+	intentDigest, digestErr := release.ContainerBundleSHA256(*intent.Container)
+	if err != nil || digestErr != nil || channelDigest != intentDigest {
+		return pending(errors.Join(err, digestErr))
+	}
+	allocations, err := b.allocations(ctx, *intent.Container, roots.Current, release.ContainerTarget{Cell: identity.Cell, Environment: intent.Environment, Role: intent.Role, Architecture: claim.Architecture})
+	if err != nil {
+		return pending(err)
+	}
 	verified, err := release.VerifyContainerCurrent(ctx, *intent.Container, roots.Current, release.ContainerTarget{Cell: identity.Cell, Environment: intent.Environment, Role: intent.Role, Architecture: claim.Architecture}, time.Now().UTC(), deadline, func(ctx context.Context, digest string) (io.ReadCloser, error) {
 		return releasechannel.ReadContainerEvidence(ctx, location, intent.Role, digest)
 	}, allocations)
@@ -228,20 +237,29 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 	if err != nil || !entityid.Valid(originalOperation) {
 		return pending(err)
 	}
-	original := intent.Clone()
-	if originalOperation != intent.OperationID {
-		original, err = s.Intents.ContainerIntent(ctx, originalOperation)
-		if err != nil || !equivalentIntents(intent, original) {
-			return pending(err)
-		}
-		profile, err = containermaterial.VerifyProfile(specEntry.Value(), roots.Current, specIdentity, original)
-		if err != nil {
-			return pending(err)
-		}
-		expected, err = containermaterial.ServiceIntent(profile, claim.Architecture)
-		if err != nil {
-			return pending(err)
-		}
+	original, originalReference, err := s.Intents.ContainerProvenance(ctx, originalOperation)
+	if err != nil {
+		return pending(err)
+	}
+	originalWire, err := s.ContainerProfiles.ReadContainerProfile(ctx, originalReference)
+	if err != nil {
+		return pending(err)
+	}
+	originalProfile, err := containermaterial.VerifyProfile(originalWire, roots.Historical, specIdentity, original)
+	if err != nil {
+		return pending(err)
+	}
+	historical, err := release.VerifyContainerHistorical(*original.Container, roots.Historical, release.ContainerTarget{Cell: identity.Cell, Environment: intent.Environment, Role: intent.Role, Architecture: claim.Architecture})
+	if err != nil {
+		return pending(err)
+	}
+	profile, err = containermaterial.ContinueProfile(originalProfile, historical, profile, verified, time.Now().UTC())
+	if err != nil {
+		return pending(err)
+	}
+	expected, err = containermaterial.ServiceIntent(profile, claim.Architecture)
+	if err != nil {
+		return pending(err)
 	}
 	originalFingerprint, err := original.Fingerprint()
 	if err != nil {
@@ -254,6 +272,14 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 		}
 		if !time.Now().Before(deadline) || !verified.Valid(time.Now().UTC()) {
 			return ErrPending
+		}
+		channelNow, found, err := releasechannel.ReadContainerBundle(ctx, location, intent.Role, claim.Architecture)
+		if err != nil || !found {
+			return errors.Join(ErrPending, err)
+		}
+		digestNow, err := release.ContainerBundleSHA256(channelNow)
+		if err != nil || digestNow != channelDigest {
+			return errors.Join(ErrPending, err)
 		}
 		current, err := s.Authority.ReadRuntimeAuthority(ctx, s.Accepted, time.Now().UTC())
 		if err != nil || current.Identity() != identity || !time.Now().Before(current.ExpiresAt()) {
@@ -279,12 +305,16 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 			return err
 		}
 
-		originalNow, err := s.Intents.ContainerIntent(ctx, original.OperationID)
+		originalNow, referenceNow, err := s.Intents.ContainerProvenance(ctx, original.OperationID)
 		if err != nil {
 			return err
 		}
 		originalNowFingerprint, err := originalNow.Fingerprint()
-		if err != nil || originalNowFingerprint != originalFingerprint {
+		if err != nil || originalNowFingerprint != originalFingerprint || referenceNow != originalReference {
+			return ErrPending
+		}
+		wireNow, err := s.ContainerProfiles.ReadContainerProfile(ctx, referenceNow)
+		if err != nil || !bytes.Equal(wireNow, originalWire) {
 			return ErrPending
 		}
 		return nil
@@ -432,19 +462,4 @@ func (b *Backend) allocations(ctx context.Context, bundle release.ContainerBundl
 		return release.SequenceLocation{}, err
 	}
 	return release.SequenceLocation{Client: sdkObjects{client}, Namespace: migration.Namespace, Bucket: migration.Bucket}, ctx.Err()
-}
-
-// Equivalent metadata may retain the original task operation. Both journal
-// entries remain independently authorized; no new operation execution is implied.
-func equivalentIntents(request, original delivery.Intent) bool {
-	if request.Container == nil || original.Container == nil {
-		return false
-	}
-	request = request.Clone()
-	original = original.Clone()
-	request.OperationID = original.OperationID
-	request.AuthorityEpoch = original.AuthorityEpoch
-	before, err := request.Fingerprint()
-	after, otherErr := original.Fingerprint()
-	return err == nil && otherErr == nil && before == after
 }
