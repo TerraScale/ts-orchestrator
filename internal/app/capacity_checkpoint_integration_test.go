@@ -3,6 +3,7 @@ package app
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -98,7 +99,18 @@ func TestCapacityCheckpointPrecedesActualSDKRequestAndRetainsOriginalReceipt(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	request.IfMatch, request.OpcRetryToken = new("refreshed-etag"), new("replacement-token")
+	original, found, err := reopened.GetCapacityRequest(ctx, action.ID)
+	if err != nil || !found {
+		t.Fatalf("original checkpoint lost after reopening journal: found=%v err=%v", found, err)
+	}
+	request.OpcRetryToken = new("replacement-token")
+	if _, err := checkpointCapacityGrowth(compartment, store, reopened)(ctx, recipe, request); !errors.Is(err, nodescale.ErrCapacityPending) || calls.Load() != 1 {
+		t.Fatalf("changed retry token admitted growth or sent another SDK request: calls=%d err=%v", calls.Load(), err)
+	}
+	if stored, found, err := reopened.GetCapacityRequest(ctx, action.ID); err != nil || !found || stored != original {
+		t.Fatalf("changed retry token damaged original checkpoint: %+v found=%v err=%v", stored, found, err)
+	}
+	request.IfMatch, request.OpcRetryToken = new("refreshed-etag"), new("original-retry-token")
 	replayed, err := checkpointCapacityGrowth(compartment, store, reopened)(ctx, recipe, request)
 	if err != nil || *replayed.IfMatch != "original-etag" || *replayed.OpcRetryToken != "original-retry-token" {
 		t.Fatalf("restart refreshed an unknown request: %+v err=%v", replayed, err)
