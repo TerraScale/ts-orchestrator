@@ -3,6 +3,7 @@
 package host
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -31,5 +32,29 @@ func TestContainerMaterialInventoryBoundary(t *testing.T) {
 	files := ContainerMaterialFiles{User: "65532:65532", ExpiresAt: time.Now().Add(time.Minute)}
 	if err := validateContainerMaterial(files); err != nil || !files.CredentialExpiresAt.IsZero() {
 		t.Fatal("explicit empty inventory fabricated credential expiry", err)
+	}
+}
+
+func TestContainerInventoryContinuationRequiresOriginalExpiryAndDigest(t *testing.T) {
+	query := containerMaterialQuery{}
+	if !validContainerInventoryQuery(query) {
+		t.Fatal("initial inventory request rejected")
+	}
+	query.Offset = 1
+	if validContainerInventoryQuery(query) {
+		t.Fatal("continuation accepted without inventory identity")
+	}
+	query.InventoryExpiresAt = time.Now().Add(time.Second)
+	query.InventorySHA256 = strings.Repeat("a", 64)
+	if !validContainerInventoryQuery(query) {
+		t.Fatal("bounded continuation rejected")
+	}
+	query.InventoryExpiresAt = time.Now().Add(-time.Second)
+	if validContainerInventoryQuery(query) {
+		t.Fatal("expired inventory continuation accepted")
+	}
+	query.Offset = 0
+	if validContainerInventoryQuery(query) {
+		t.Fatal("new inventory accepted an inherited identity")
 	}
 }

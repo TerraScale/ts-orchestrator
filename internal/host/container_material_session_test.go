@@ -38,6 +38,14 @@ func TestRootContainerMaterialPinsOriginalSessionAcrossRenewal(t *testing.T) {
 	if !admitted.Deadline().Equal(current.ExpiresAt) || admitted.Binding() != binding {
 		t.Fatal("root admission did not pin the original session cap and exact task binding")
 	}
+	inventoryExpiry := time.Now().Add(time.Second)
+	continuation := signedHostRequest(t, key, "container-material", current.SessionID, current.Epoch,
+		containerMaterialQuery{Binding: binding, RegistrationGeneration: registration.Generation, Offset: 1, Length: materialChunkBytes,
+			EphemeralPublicKey: make([]byte, 32), InventoryExpiresAt: inventoryExpiry, InventorySHA256: strings.Repeat("a", 64)})
+	continued, err := (&Reader{controller: c}).AdmitContainerMaterialSession(original, ContainerMaterialEvidence{Request: continuation.Envelope})
+	if err != nil || !continued.Deadline().Equal(inventoryExpiry) {
+		t.Fatal("signed continuation did not shorten fresh root admission to original inventory expiry", err)
+	}
 	renew := signedHostRequest(t, key, "session", current.SessionID, current.Epoch, struct {
 		Kind string `json:"kind"`
 	}{"renew"})
