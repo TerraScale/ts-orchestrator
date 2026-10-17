@@ -150,9 +150,13 @@ func launchFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, re
 		return OriginalFoundationWriter{}, errors.New("home writer has no signed seed address")
 	}
 	details := core.LaunchInstanceDetails{AvailabilityDomain: new(profile.AvailabilityDomain), CompartmentId: new(profile.CompartmentOCID), FaultDomain: new(profile.FaultDomain), DisplayName: new(strings.ToLower(cell) + "-1-" + startup.SeedSlot), Shape: new(profile.Shape), Metadata: foundationWriterMetadata(startup.SeedSlot),
-		ShapeConfig:       &core.LaunchInstanceShapeConfigDetails{Ocpus: new(float32(resources.WholeOCPUs)), MemoryInGBs: new(float32(resources.MemoryInGB))},
-		SourceDetails:     core.InstanceSourceViaImageDetails{ImageId: new(startup.ImageOCID), BootVolumeSizeInGBs: new(int64(resources.BootVolumeGB)), BootVolumeVpusPerGB: new(int64(10))},
-		CreateVnicDetails: &core.CreateVnicDetails{SubnetId: new(profile.SubnetOCID), NsgIds: slices.Clone(profile.NetworkSecurityGroupOCIDs), PrivateIp: new(privateIP), AssignPublicIp: new(false)}}
+		// The SDK restores these optional lists as empty after durable decoding.
+		// Send that same body on the original launch so its digest survives replay.
+		LaunchVolumeAttachments: []core.LaunchAttachVolumeDetails{},
+		LicensingConfigs:        []core.LaunchInstanceLicensingConfig{},
+		ShapeConfig:             &core.LaunchInstanceShapeConfigDetails{Ocpus: new(float32(resources.WholeOCPUs)), MemoryInGBs: new(float32(resources.MemoryInGB))},
+		SourceDetails:           core.InstanceSourceViaImageDetails{ImageId: new(startup.ImageOCID), BootVolumeSizeInGBs: new(int64(resources.BootVolumeGB)), BootVolumeVpusPerGB: new(int64(10))},
+		CreateVnicDetails:       &core.CreateVnicDetails{SubnetId: new(profile.SubnetOCID), NsgIds: slices.Clone(profile.NetworkSecurityGroupOCIDs), PrivateIp: new(privateIP), AssignPublicIp: new(false)}}
 	digest, err := netBirdRequestDigest(details)
 	if err != nil {
 		return OriginalFoundationWriter{}, err
