@@ -12,7 +12,7 @@ import (
 )
 
 func TestConstructorRejectsCallerBuiltAuthorityWithoutConnecting(t *testing.T) {
-	if _, err := New(context.Background(), nil, region.FoundationResolver{}); err == nil {
+	if _, err := New(context.Background(), nil, region.FoundationResolver{}, nil); err == nil {
 		t.Fatal("accepted caller-built capacity authority without signed SDK discovery")
 	}
 }

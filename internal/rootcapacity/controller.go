@@ -24,20 +24,21 @@ import (
 // Controller retains only concrete root SDK discovery. NATS is opened lazily
 // after operation admission, so the root listener can precede broker startup.
 type Controller struct {
-	factory  *ociclient.Factory
-	resolver region.FoundationResolver
-	store    *region.ObjectFoundationStore
+	factory       *ociclient.Factory
+	resolver      region.FoundationResolver
+	store         *region.ObjectFoundationStore
+	homeAuthority *region.HomeIAMAuthority
 }
 
-func New(ctx context.Context, factory *ociclient.Factory, resolver region.FoundationResolver) (*Controller, error) {
-	if os.Geteuid() != 0 || ctx == nil || ctx.Err() != nil {
+func New(ctx context.Context, factory *ociclient.Factory, resolver region.FoundationResolver, homeAuthority *region.HomeIAMAuthority) (*Controller, error) {
+	if os.Geteuid() != 0 || ctx == nil || ctx.Err() != nil || homeAuthority == nil {
 		return nil, rootoci.ErrUnauthorized
 	}
 	store, err := resolver.ProtectedCapacityReaderStore(factory)
 	if err != nil {
 		return nil, err
 	}
-	return &Controller{factory: factory, resolver: resolver, store: store}, nil
+	return &Controller{factory: factory, resolver: resolver, store: store, homeAuthority: homeAuthority}, nil
 }
 
 func (c *Controller) open(ctx context.Context, call rootoci.Call, cell, operation string) (*attempt, func(), error) {
