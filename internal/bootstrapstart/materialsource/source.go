@@ -164,18 +164,18 @@ func resolveSource(ctx context.Context, source *ColdStartMaterial, management bo
 	}
 	body, err := source.readEscrow(ctx, management, bundles, id)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read exact source escrow: %w", err)
 	}
 	defer clear(body)
 	if len(candidate) > 0 && !bytes.Equal(candidate, body) {
-		return nil, ErrMaterialSource
+		return nil, fmt.Errorf("%w: existing escrow differs from uncommitted candidate; recover existing source", ErrMaterialSource)
 	}
 	source.archive, err = source.decodeArchive(body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode exact source escrow: %w", err)
 	}
 	if err := source.restore(ctx); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("restore exact source escrow: %w", err)
 	}
 	checkpoint := false
 	if state.Reference.SecretOCID == "" {
@@ -195,7 +195,7 @@ func resolveSource(ctx context.Context, source *ColdStartMaterial, management bo
 	if checkpoint {
 		source.etag, err = source.write(ctx, source.state, source.etag)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("checkpoint exact source reference: %w", err)
 		}
 	}
 	return source, nil
@@ -204,8 +204,11 @@ func resolveSource(ctx context.Context, source *ColdStartMaterial, management bo
 // Provision checkpoints the original retry identities/timestamps before every
 // secret create. Escrow is never included in the ordinary host references.
 func (source *ColdStartMaterial) Provision(ctx context.Context, target bootstrapmaterial.VaultTarget, management bootstrapmaterial.VaultClient, bundles bootstrapmaterial.BundleClient, now time.Time) (bootstrapmaterial.Publication, error) {
-	if source == nil || !now.Before(source.grant.ExpiresAt()) || source.verifySource(ctx) != nil || !source.publicationTargetAllowed(target) {
+	if source == nil || !now.Before(source.grant.ExpiresAt()) || !source.publicationTargetAllowed(target) {
 		return bootstrapmaterial.Publication{}, ErrMaterialSource
+	}
+	if err := source.verifySource(ctx); err != nil {
+		return bootstrapmaterial.Publication{}, err
 	}
 	ctx = ociclient.WithAuthority(ctx, source.guard)
 	provision := bootstrapmaterial.ProvisionDurable
@@ -218,7 +221,7 @@ func (source *ColdStartMaterial) Provision(ctx context.Context, target bootstrap
 		etag, err := source.write(ctx, next, source.etag)
 		if err != nil {
 			clear(next.Journal)
-			return err
+			return fmt.Errorf("checkpoint publication journal: %w", err)
 		}
 		clear(source.state.Journal)
 		source.state.Journal = next.Journal
@@ -420,10 +423,10 @@ func (source *ColdStartMaterial) read(ctx context.Context) (materialSourceState,
 
 func (source *ColdStartMaterial) write(ctx context.Context, state materialSourceState, etag string) (string, error) {
 	if err := source.authorize(ctx); err != nil {
-		return "", err
+		return "", fmt.Errorf("authorize source write: %w", err)
 	}
 	if state.Actor.InstanceID != source.actor.InstanceID() || source.state.Actor.InstanceID != "" && state.Actor != source.state.Actor || source.state.Actor.InstanceID == "" && state.Actor != source.currentActor() {
-		return "", ErrMaterialSource
+		return "", fmt.Errorf("%w: source write actor differs", ErrMaterialSource)
 	}
 	ctx = ociclient.WithAuthority(ctx, source.guard)
 	if ctx.Err() != nil || !time.Now().Before(source.grant.ExpiresAt()) || source.link != nil && source.link.verify(ctx) != nil {
@@ -451,7 +454,7 @@ func (source *ColdStartMaterial) write(ctx context.Context, state materialSource
 	actual, err := json.Marshal(current, json.Deterministic(true))
 	defer clear(actual)
 	if err != nil || !bytes.Equal(actual, wire) {
-		return "", ErrMaterialSource
+		return "", fmt.Errorf("%w: source write readback differs", ErrMaterialSource)
 	}
 	return currentETag, nil
 }

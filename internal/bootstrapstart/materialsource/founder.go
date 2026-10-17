@@ -27,6 +27,9 @@ func (source *ColdStartMaterial) guard(ctx context.Context) error {
 			return ErrMaterialSource
 		}
 	}
+	if err := source.grant.Revalidate(ctx); err != nil {
+		return err
+	}
 	return source.actor.Guard(ctx)
 }
 
