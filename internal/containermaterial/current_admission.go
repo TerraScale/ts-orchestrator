@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
@@ -22,6 +23,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go"
@@ -55,6 +57,16 @@ type Admission struct{ state *currentTaskAdmission }
 // GenerationAdmission grants metadata observation, never material delivery.
 type GenerationAdmission struct{ state *currentTaskAdmission }
 
+// TaskMaterial is checked output metadata, never an admission input.
+type TaskMaterial struct {
+	Binding      host.ContainerMaterialBinding
+	OperationID  string
+	ConfigDigest string
+	Generation   uint64
+	User         string
+	ExpiresAt    time.Time
+}
+
 type currentTaskAdmission struct {
 	sources           CurrentTaskSources
 	original          context.Context
@@ -74,9 +86,23 @@ type currentTaskAdmission struct {
 func (a Admission) Profile() Profile                          { return admittedProfile(a.state) }
 func (a Admission) Deadline() time.Time                       { return admittedDeadline(a.state) }
 func (a Admission) Guard(ctx context.Context) error           { return a.state.guard(ctx) }
+func (a Admission) Task() TaskMaterial                        { return admittedTask(a.state) }
 func (a GenerationAdmission) Profile() Profile                { return admittedProfile(a.state) }
 func (a GenerationAdmission) Deadline() time.Time             { return admittedDeadline(a.state) }
 func (a GenerationAdmission) Guard(ctx context.Context) error { return a.state.guard(ctx) }
+func (a GenerationAdmission) Task() TaskMaterial              { return admittedTask(a.state) }
+
+func admittedTask(a *currentTaskAdmission) TaskMaterial {
+	if a == nil {
+		return TaskMaterial{}
+	}
+	expected, err := ServiceIntent(a.profile, a.verified.Claim().Architecture)
+	if err != nil {
+		return TaskMaterial{}
+	}
+	return TaskMaterial{Binding: a.binding, OperationID: a.profile.intent.OperationID, ConfigDigest: a.profile.intent.ConfigDigest,
+		Generation: a.task.Spec.ForceUpdate, User: expected.Container.User, ExpiresAt: a.deadline}
+}
 
 func admittedProfile(a *currentTaskAdmission) Profile {
 	if a == nil {
@@ -129,6 +155,11 @@ func newCurrentTaskAdmission(ctx context.Context, sources CurrentTaskSources, ta
 		sources.Mutations == nil || sources.Lease == nil || sources.RootHead == "" || task.Task == nil || task.Profile.fingerprint == "" ||
 		task.Profile.intent.AuthorityEpoch != sources.Lease.Epoch() || !task.Release.Valid(time.Now()) {
 		return nil, ErrPending
+	}
+	for key := range task.Profile.profile.Secrets {
+		if !vaultsecret.FileKey(key) || len(key) > 128 || key != strings.ToUpper(key) || key[0] < 'A' || key[0] > 'Z' {
+			return nil, ErrPending
+		}
 	}
 	genesis := make(trust.Keyring, len(sources.Genesis))
 	for id, key := range sources.Genesis {
