@@ -18,6 +18,7 @@ const maxProviderItems = 512
 type sdkProvider struct {
 	config       RegionConfig
 	terminations *KVJournal
+	backupGuard  func(context.Context) error
 	hostMetadata map[string]string
 	compute      core.ComputeClient
 	storage      core.BlockstorageClient
