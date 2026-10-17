@@ -6,11 +6,13 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/identity"
@@ -19,6 +21,7 @@ import (
 // CapacityJournalPolicy retains the original signed purpose and every possible
 // policy dispatch. A later grant cannot transfer or repair this reservation.
 type CapacityJournalPolicy struct {
+	Cells            []string               `json:"cells,omitempty"`
 	OperationID      string                 `json:"operationId"`
 	WriterSHA256     string                 `json:"writerSha256"`
 	GrantSHA256      string                 `json:"grantSha256"`
@@ -47,6 +50,8 @@ type CapacityJournalWriter struct {
 	signedExpiry time.Time
 	expires      time.Time
 	policy       string
+	cells        []string
+	scope        string
 }
 
 // CapacityJournalWriter is lazy: startup does not install IAM or add reads.
@@ -65,11 +70,11 @@ func (r FoundationResolver) CapacityJournalWriter(ctx context.Context, authority
 		return nil, err
 	}
 	w := &CapacityJournalWriter{original: ctx, authority: authority, resolver: r, reader: reader, store: store, expires: deadline}
-	grant, generation, purpose, expiry, err := w.signedPurpose(ctx)
+	grant, generation, purpose, expiry, cells, err := w.signedPurpose(ctx)
 	if err != nil {
 		return nil, err
 	}
-	w.grant, w.generation, w.purpose, w.signedExpiry = grant, generation, purpose, expiry
+	w.grant, w.generation, w.purpose, w.signedExpiry, w.cells = grant, generation, purpose, expiry, slices.Clone(cells)
 	if expiry.Before(w.expires) {
 		w.expires = expiry
 	}
@@ -119,41 +124,54 @@ func (w *CapacityJournalWriter) ExpiresAt() time.Time {
 	return w.expires
 }
 
-func (w *CapacityJournalWriter) signedPurpose(ctx context.Context) (string, uint64, string, time.Time, error) {
+func (w *CapacityJournalWriter) signedPurpose(ctx context.Context) (string, uint64, string, time.Time, []string, error) {
 	wire, err := w.reader.readGrant(ctx)
 	if err != nil {
-		return "", 0, "", time.Time{}, err
+		return "", 0, "", time.Time{}, nil, err
 	}
 	_, expiry, err := w.reader.verifyGrant(wire)
 	if err != nil {
-		return "", 0, "", time.Time{}, err
+		return "", 0, "", time.Time{}, nil, err
 	}
 	envelope, err := trust.DecodeEnvelope(wire)
 	if err != nil {
-		return "", 0, "", time.Time{}, err
+		return "", 0, "", time.Time{}, nil, err
 	}
 	var grant FoundationGrant
 	if err := json.Unmarshal(envelope.Payload, &grant, json.RejectUnknownMembers(true)); err != nil {
-		return "", 0, "", time.Time{}, err
+		return "", 0, "", time.Time{}, nil, err
 	}
 	if len(grant.WorkerProfiles) == 0 || len(grant.WorkerProfiles) > 512 {
-		return "", 0, "", time.Time{}, ErrFoundationFenced
+		return "", 0, "", time.Time{}, nil, ErrFoundationFenced
 	}
 	cells, profiles := map[string]bool{}, map[string]bool{}
 	purpose := WorkerCapacityJournal{Purpose: CapacityJournalPurposeV1, Principal: CapacityJournalPrincipalV1, Delta: CapacityJournalDeltaV1}
 	for _, profile := range grant.WorkerProfiles {
 		key := profile.Cell + "/" + profile.Role + "/" + profile.Architecture + "/" + profile.Shape
-		if !capacityJournalCell(profile.Cell) || profiles[key] || profile.CapacityJournal != purpose || ValidateWorkerProfile(grant, profile) != nil {
-			return "", 0, "", time.Time{}, ErrFoundationFenced
+		if profiles[key] || profile.CapacityJournal != purpose || ValidateWorkerProfile(grant, profile) != nil {
+			return "", 0, "", time.Time{}, nil, ErrFoundationFenced
 		}
 		profiles[key], cells[profile.Cell] = true, true
 	}
-	if len(cells) != 3 || grant.InstallationID != w.authority.installationID || grant.TenancyID != w.authority.tenancyID ||
+	if grant.InstallationID != w.authority.installationID || grant.TenancyID != w.authority.tenancyID ||
 		digestSource(wire) != w.authority.grantDigest || grant.Generation != w.authority.grantGeneration {
-		return "", 0, "", time.Time{}, ErrFoundationFenced
+		return "", 0, "", time.Time{}, nil, ErrFoundationFenced
+	}
+	targets, err := w.resolver.CapacityPoolCells(ctx)
+	if err != nil || len(targets) != len(cells) {
+		return "", 0, "", time.Time{}, nil, errors.Join(ErrFoundationFenced, err)
+	}
+	for _, cell := range targets {
+		if !cells[cell] {
+			return "", 0, "", time.Time{}, nil, ErrFoundationFenced
+		}
+	}
+	current, err := w.reader.readGrant(ctx)
+	if err != nil || !bytes.Equal(current, wire) {
+		return "", 0, "", time.Time{}, nil, errors.Join(ErrFoundationFenced, err)
 	}
 	purposeWire, err := json.Marshal(purpose, json.Deterministic(true))
-	return digestSource(wire), grant.Generation, digestSource(purposeWire), expiry, err
+	return digestSource(wire), grant.Generation, digestSource(purposeWire), expiry, targets, err
 }
 
 func (w *CapacityJournalWriter) guardBirth(ctx context.Context) error {
@@ -171,11 +189,17 @@ func (w *CapacityJournalWriter) guardBirth(ctx context.Context) error {
 	}
 	admission := ctx
 	ctx = ociclient.CheckpointContext(ctx)
-	grant, generation, purpose, expiry, err := w.signedPurpose(ctx)
-	if err != nil || grant != w.grant || generation != w.generation || purpose != w.purpose || !expiry.Equal(w.signedExpiry) {
+	grant, generation, purpose, expiry, cells, err := w.signedPurpose(ctx)
+	if err != nil || grant != w.grant || generation != w.generation || purpose != w.purpose || !expiry.Equal(w.signedExpiry) || !slices.Equal(cells, w.cells) {
 		return errors.Join(ErrFoundationFenced, err)
 	}
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	// HOME must remain in the current authenticated foundation/source footprint,
+	// even when it is absent from the worker target scope.
+	homeAndTargets := slices.Clone(w.cells)
+	if !slices.Contains(homeAndTargets, "GRU") {
+		homeAndTargets = append(homeAndTargets, "GRU")
+	}
+	for _, cell := range homeAndTargets {
 		record, err := w.resolver.Resolve(ctx, cell)
 		if err != nil {
 			return err
@@ -194,17 +218,15 @@ func (w *CapacityJournalWriter) guardBirth(ctx context.Context) error {
 		if err != nil || digest != w.writer {
 			return errors.Join(ErrFoundationFenced, err)
 		}
-		if p := pending.CapacityJournal; p != nil {
-			if p.PurposeSHA256 != w.purpose || p.WriterSHA256 != w.writer || pending.validateCapacityJournal() != nil {
-				return ErrFoundationFenced
-			}
+		if err := pending.validateCapacityJournal(); err != nil {
+			return err
 		}
 	}
 	if err := w.authority.Guard(ctx, 0); err != nil {
 		return err
 	}
-	grant, generation, purpose, expiry, err = w.signedPurpose(ctx)
-	if err != nil || grant != w.grant || generation != w.generation || purpose != w.purpose || !expiry.Equal(w.signedExpiry) {
+	grant, generation, purpose, expiry, cells, err = w.signedPurpose(ctx)
+	if err != nil || grant != w.grant || generation != w.generation || purpose != w.purpose || !expiry.Equal(w.signedExpiry) || !slices.Equal(cells, w.cells) {
 		return errors.Join(ErrFoundationFenced, err)
 	}
 	if w.original.Err() != nil || !time.Now().Before(w.expires) {
@@ -230,11 +252,12 @@ func (w *CapacityJournalWriter) Guard(ctx context.Context) error {
 		return err
 	}
 	pending := record.FoundationWriter
-	if pending == nil || pending.CapacityJournal == nil || pending.CapacityJournal.Policy.PolicyID != w.policy ||
-		pending.CapacityJournal.ObservedPolicyID != w.policy || pending.CapacityJournal.Policy.VerifiedAt.IsZero() {
+	p := capacityPolicyAt(pending, w.scope)
+	if p == nil || p.Policy.PolicyID != w.policy ||
+		p.ObservedPolicyID != w.policy || p.Policy.VerifiedAt.IsZero() {
 		return ErrFoundationFenced
 	}
-	if err := (&SourceFounder{iam: *w.iam}).verifyPolicy(ociclient.CheckpointContext(ctx), SourcePolicyRecord{Request: pending.CapacityJournal.Policy.Request, PolicyID: w.policy}); err != nil {
+	if err := (&SourceFounder{iam: *w.iam}).verifyPolicy(ociclient.CheckpointContext(ctx), SourcePolicyRecord{Request: p.Policy.Request, PolicyID: w.policy}); err != nil {
 		return err
 	}
 	return w.guardBirth(ctx)
@@ -251,7 +274,7 @@ func (w *CapacityJournalWriter) operationContext(ctx context.Context) (context.C
 }
 
 func (w *CapacityJournalWriter) Load(ctx context.Context, cell string) (FoundationRecord, string, error) {
-	if !capacityJournalCell(cell) {
+	if w == nil || !slices.Contains(w.cells, cell) {
 		return FoundationRecord{}, "", ErrFoundationFenced
 	}
 	if err := w.Guard(ctx); err != nil {
@@ -270,7 +293,7 @@ func (w *CapacityJournalWriter) Load(ctx context.Context, cell string) (Foundati
 }
 
 func (w *CapacityJournalWriter) CompareAndSwap(ctx context.Context, record FoundationRecord, etag string) (string, error) {
-	if etag == "" || !capacityJournalCell(record.Cell) {
+	if w == nil || etag == "" || !slices.Contains(w.cells, record.Cell) {
 		return "", ErrFoundationFenced
 	}
 	if err := w.Guard(ctx); err != nil {
@@ -315,24 +338,75 @@ func (w *CapacityJournalWriter) CompareAndSwap(ctx context.Context, record Found
 	return w.store.CompareAndSwap(ctx, next, etag)
 }
 
-func capacityJournalCell(cell string) bool { return cell == "GRU" || cell == "SFO" || cell == "FRA" }
-
 func capacityWriterDigest(record FoundationWriterRecord) (string, error) {
 	record.CapacityJournal = nil
+	record.CapacityJournalScopes = nil
 	wire, err := json.Marshal(record, json.Deterministic(true))
 	return digestSource(wire), err
 }
 
 func capacityJournalPolicy(record FoundationWriterRecord) (identity.CreatePolicyDetails, error) {
+	return capacityPolicyDetails(record, []string{"GRU", "SFO", "FRA"}, "ts-capacity-journal-"+digestSource([]byte(record.InstallationID + "\x00" + record.InstanceID))[:32])
+}
+
+func capacityScopeID(writer, purpose string, cells []string) (string, error) {
+	if len(cells) == 0 || !slices.IsSorted(cells) {
+		return "", ErrFoundationFenced
+	}
+	for i, cell := range cells {
+		entry, ok := catalog.Lookup(cell)
+		if !ok || entry.Cell != cell || i > 0 && cells[i-1] == cell {
+			return "", ErrFoundationFenced
+		}
+	}
+	wire, err := json.Marshal(cells, json.Deterministic(true))
+	return digestSource([]byte(writer + "\x00" + purpose + "\x00" + string(wire))), err
+}
+
+func capacityScopePolicy(record FoundationWriterRecord, purpose string, cells []string) (identity.CreatePolicyDetails, string, error) {
+	writer, err := capacityWriterDigest(record)
+	if err != nil {
+		return identity.CreatePolicyDetails{}, "", err
+	}
+	scope, err := capacityScopeID(writer, purpose, cells)
+	if err != nil {
+		return identity.CreatePolicyDetails{}, "", err
+	}
+	details, err := capacityPolicyDetails(record, cells, "ts-capacity-journal-"+scope[:32])
+	return details, scope, err
+}
+
+func capacityPolicyDetails(record FoundationWriterRecord, cells []string, name string) (identity.CreatePolicyDetails, error) {
 	if record.Cell != "GRU" || !sourceInstancePattern.MatchString(record.InstanceID) ||
 		!sourceCompartmentPattern.MatchString(record.BucketCompartment) || !sourceStoragePattern.MatchString(record.Bucket) {
 		return identity.CreatePolicyDetails{}, ErrFoundationFenced
 	}
-	statements := make([]string, 0, 3)
-	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+	statements := make([]string, 0, len(cells))
+	for _, cell := range cells {
 		statements = append(statements, fmt.Sprintf("Allow any-user to manage objects in compartment id %s where all {request.principal.type='instance', request.principal.id='%s', target.bucket.name='%s', target.object.name='%s%s.json', any {request.permission='OBJECT_READ', request.permission='OBJECT_OVERWRITE'}}", record.BucketCompartment, record.InstanceID, record.Bucket, foundationObjectPrefix, cell))
 	}
-	return identity.CreatePolicyDetails{CompartmentId: new(record.BucketCompartment), Name: new("ts-capacity-journal-" + digestSource([]byte(record.InstallationID + "\x00" + record.InstanceID))[:32]), Description: new("Original HOME capacity-only protected journal updates"), Statements: statements, FreeformTags: map[string]string{}, DefinedTags: map[string]map[string]any{}}, nil
+	return identity.CreatePolicyDetails{CompartmentId: new(record.BucketCompartment), Name: new(name), Description: new("Original HOME capacity-only protected journal updates"), Statements: statements, FreeformTags: map[string]string{}, DefinedTags: map[string]map[string]any{}}, nil
+}
+
+func capacityPolicyAt(record *FoundationWriterRecord, scope string) *CapacityJournalPolicy {
+	if record == nil {
+		return nil
+	}
+	if scope == "" {
+		return record.CapacityJournal
+	}
+	p, ok := record.CapacityJournalScopes[scope]
+	if !ok {
+		return nil
+	}
+	return &p
+}
+
+func capacityPolicyCells(p *CapacityJournalPolicy) []string {
+	if len(p.Cells) == 0 {
+		return []string{"FRA", "GRU", "SFO"}
+	}
+	return p.Cells
 }
 
 func (w *CapacityJournalWriter) install(ctx context.Context) error {
@@ -350,40 +424,71 @@ func (w *CapacityJournalWriter) install(ctx context.Context) error {
 	if err != nil || record.FoundationWriter == nil {
 		return errors.Join(ErrFoundationFenced, err)
 	}
-	details, err := capacityJournalPolicy(*record.FoundationWriter)
+	details, scope, err := capacityScopePolicy(*record.FoundationWriter, w.purpose, w.cells)
 	if err != nil {
 		return err
+	}
+	if record.FoundationWriter.CapacityJournal != nil && slices.Equal(w.cells, []string{"FRA", "GRU", "SFO"}) {
+		scope = ""
+		details, err = capacityJournalPolicy(*record.FoundationWriter)
+		if err != nil {
+			return err
+		}
+	}
+	w.scope = scope
+	actor := &SourceFounder{iam: *w.iam}
+	// A new signed scope may positively resolve old dispatches, never retry
+	// them or replace an unknown outcome with a fresh reservation.
+	keys := slices.Sorted(maps.Keys(record.FoundationWriter.CapacityJournalScopes))
+	if record.FoundationWriter.CapacityJournal != nil {
+		keys = append([]string{""}, keys...)
+	}
+	covered := map[string]bool{}
+	for _, key := range keys {
+		p := capacityPolicyAt(record.FoundationWriter, key)
+		if key == scope {
+			continue
+		}
+		if err := w.reconcilePolicy(ctx, key, p, actor); err != nil {
+			return err
+		}
+		for _, cell := range capacityPolicyCells(p) {
+			covered[cell] = true
+		}
+	}
+	record, _, err = w.store.Load(ctx, "GRU")
+	if err != nil || record.FoundationWriter == nil {
+		return errors.Join(ErrFoundationFenced, err)
 	}
 	body, err := foundationWriterPolicyBody(details)
 	if err != nil {
 		return err
 	}
-	actor := &SourceFounder{iam: *w.iam}
 	found, err := actor.findPolicy(ctx, details)
 	if err != nil {
 		return err
 	}
-	p := record.FoundationWriter.CapacityJournal
+	p := capacityPolicyAt(record.FoundationWriter, scope)
 	if p == nil {
 		if found != "" {
 			return errors.New("discovered capacity IAM policy lacks its original protected reservation")
 		}
-		for _, cell := range []string{"GRU", "SFO", "FRA"} {
+		for _, cell := range w.cells {
 			existing, _, err := w.store.Load(ctx, cell)
 			if err != nil {
 				return err
 			}
-			if existing.CapacityLedger != nil || len(existing.CapacityCreates) != 0 || len(existing.CapacityPools) != 0 ||
-				len(existing.PoolChildren) != 0 || len(existing.PoolQuarantines) != 0 || len(existing.PoolDrains) != 0 {
-				return errors.New("existing capacity history cannot acquire replacement journal authority")
+			if !covered[cell] && (existing.CapacityLedger != nil || len(existing.CapacityCreates) != 0 || len(existing.CapacityPools) != 0 ||
+				len(existing.PoolChildren) != 0 || len(existing.PoolQuarantines) != 0 || len(existing.PoolDrains) != 0) {
+				return errors.New("unexplained capacity history cannot acquire replacement journal authority")
 			}
 		}
-		operation := digestSource([]byte(w.writer + "\x00" + w.grant + "\x00" + w.purpose))
-		reserved := CapacityJournalPolicy{OperationID: operation, WriterSHA256: w.writer, GrantSHA256: w.grant,
+		operation := digestSource([]byte(w.writer + "\x00" + w.grant + "\x00" + w.purpose + "\x00" + scope))
+		reserved := CapacityJournalPolicy{Cells: slices.Clone(w.cells), OperationID: operation, WriterSHA256: w.writer, GrantSHA256: w.grant,
 			Generation: w.generation, PurposeSHA256: w.purpose, ExpiresAt: w.signedExpiry,
 			Policy: FoundationWriterPolicy{Request: details, RequestDigest: digestSource(body),
 				RetryToken: digestSource([]byte(operation + "\x00" + digestSource(body))), FirstAttemptAt: time.Now().UTC()}}
-		if err := w.savePolicy(ctx, nil, reserved); err != nil {
+		if err := w.savePolicy(ctx, scope, nil, reserved); err != nil {
 			return err
 		}
 		p = &reserved
@@ -419,7 +524,7 @@ func (w *CapacityJournalWriter) install(ctx context.Context) error {
 		}
 		next := *p
 		next.Attempts = append(slices.Clone(p.Attempts), time.Now().UTC())
-		if err := w.savePolicy(ctx, p, next); err != nil {
+		if err := w.savePolicy(ctx, scope, p, next); err != nil {
 			return err
 		}
 		p = &next
@@ -428,7 +533,7 @@ func (w *CapacityJournalWriter) install(ctx context.Context) error {
 				return nil, err
 			}
 			current, _, err := w.store.Load(ociclient.CheckpointContext(ctx), "GRU")
-			if err != nil || current.FoundationWriter == nil || !sameCapacityPolicy(current.FoundationWriter.CapacityJournal, p) {
+			if err != nil || current.FoundationWriter == nil || !sameCapacityPolicy(capacityPolicyAt(current.FoundationWriter, scope), p) {
 				return nil, errors.Join(ErrFoundationFenced, err)
 			}
 			if err := w.guardBirth(ctx); err != nil {
@@ -451,7 +556,7 @@ func (w *CapacityJournalWriter) install(ctx context.Context) error {
 		found = *response.Id
 		observed := *p
 		observed.ObservedPolicyID, observed.ObservedAt = found, time.Now().UTC()
-		if err := w.savePolicy(ctx, p, observed); err != nil {
+		if err := w.savePolicy(ctx, scope, p, observed); err != nil {
 			return err
 		}
 		p = &observed
@@ -464,23 +569,68 @@ func (w *CapacityJournalWriter) install(ctx context.Context) error {
 		verified.ObservedPolicyID, verified.ObservedAt = found, time.Now().UTC()
 	}
 	verified.Policy.PolicyID, verified.Policy.VerifiedAt = found, time.Now().UTC()
-	if err := w.savePolicy(ctx, p, verified); err != nil {
+	if err := w.savePolicy(ctx, scope, p, verified); err != nil {
 		return err
 	}
 	w.policy = found
 	return nil
 }
 
-func (w *CapacityJournalWriter) savePolicy(ctx context.Context, previous *CapacityJournalPolicy, next CapacityJournalPolicy) error {
+// Historical scopes can only append authenticated outcome evidence. No dispatch
+// is issued under a successor grant, including when a response was lost.
+func (w *CapacityJournalWriter) reconcilePolicy(ctx context.Context, scope string, p *CapacityJournalPolicy, actor *SourceFounder) error {
+	found, err := actor.findPolicy(ctx, p.Policy.Request)
+	if err != nil {
+		return err
+	}
+	if found == "" || len(p.Attempts) == 0 || p.ObservedPolicyID != "" && p.ObservedPolicyID != found || p.Policy.PolicyID != "" && p.Policy.PolicyID != found {
+		return errors.New("earlier capacity policy outcome is unresolved or changed")
+	}
+	if err := actor.verifyPolicy(ctx, SourcePolicyRecord{Request: p.Policy.Request, PolicyID: found}); err != nil {
+		return err
+	}
+	if err := w.guardBirth(ctx); err != nil {
+		return err
+	}
+	if p.Policy.PolicyID != "" {
+		return nil
+	}
+	next := *p
+	if next.ObservedPolicyID == "" {
+		next.ObservedPolicyID, next.ObservedAt = found, time.Now().UTC()
+	}
+	next.Policy.PolicyID, next.Policy.VerifiedAt = found, time.Now().UTC()
+	return w.savePolicy(ctx, scope, p, next)
+}
+
+func (w *CapacityJournalWriter) savePolicy(ctx context.Context, scope string, previous *CapacityJournalPolicy, next CapacityJournalPolicy) error {
+	// Freeze all nested request maps/slices and dispatch evidence before admission.
+	wire, err := json.Marshal(next, json.Deterministic(true))
+	if err != nil {
+		return err
+	}
+	var frozen CapacityJournalPolicy
+	if err := json.Unmarshal(wire, &frozen, json.RejectUnknownMembers(true)); err != nil {
+		return err
+	}
+	next = frozen
 	if err := w.guardBirth(ctx); err != nil {
 		return err
 	}
 	record, etag, err := w.store.Load(ociclient.CheckpointContext(ctx), "GRU")
-	if err != nil || etag == "" || record.FoundationWriter == nil || !sameCapacityPolicy(record.FoundationWriter.CapacityJournal, previous) {
+	if err != nil || etag == "" || record.FoundationWriter == nil || !sameCapacityPolicy(capacityPolicyAt(record.FoundationWriter, scope), previous) {
 		return errors.Join(ErrFoundationFenced, err)
 	}
 	writer := *record.FoundationWriter
-	writer.CapacityJournal = &next
+	if scope == "" {
+		writer.CapacityJournal = &next
+	} else {
+		writer.CapacityJournalScopes = maps.Clone(writer.CapacityJournalScopes)
+		if writer.CapacityJournalScopes == nil {
+			writer.CapacityJournalScopes = map[string]CapacityJournalPolicy{}
+		}
+		writer.CapacityJournalScopes[scope] = next
+	}
 	if err := writer.validate(); err != nil {
 		return err
 	}
@@ -502,16 +652,43 @@ func sameCapacityPolicy(a, b *CapacityJournalPolicy) bool {
 }
 
 func (record FoundationWriterRecord) validateCapacityJournal() error {
-	p := record.CapacityJournal
-	if p == nil {
-		return nil
+	if p := record.CapacityJournal; p != nil {
+		if len(p.Cells) != 0 {
+			return errors.New("legacy capacity policy cannot acquire a new scope")
+		}
+		if err := record.validateCapacityPolicy("", p); err != nil {
+			return err
+		}
 	}
+	for scope, p := range record.CapacityJournalScopes {
+		if scope == "" || len(p.Cells) == 0 {
+			return ErrFoundationFenced
+		}
+		if err := record.validateCapacityPolicy(scope, &p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (record FoundationWriterRecord) validateCapacityPolicy(scope string, p *CapacityJournalPolicy) error {
 	writer, err := capacityWriterDigest(record)
 	details, detailsErr := capacityJournalPolicy(record)
+	if scope != "" {
+		var computed string
+		details, computed, detailsErr = capacityScopePolicy(record, p.PurposeSHA256, p.Cells)
+		if computed != scope {
+			return errors.New("capacity policy scope key differs from its exact cells")
+		}
+	}
 	expected, wireErr := foundationWriterPolicyBody(details)
 	actual, actualErr := foundationWriterPolicyBody(p.Policy.Request)
 	purpose, purposeErr := json.Marshal(WorkerCapacityJournal{Purpose: CapacityJournalPurposeV1, Principal: CapacityJournalPrincipalV1, Delta: CapacityJournalDeltaV1}, json.Deterministic(true))
-	operation := digestSource([]byte(writer + "\x00" + p.GrantSHA256 + "\x00" + p.PurposeSHA256))
+	operationInput := writer + "\x00" + p.GrantSHA256 + "\x00" + p.PurposeSHA256
+	if scope != "" {
+		operationInput += "\x00" + scope
+	}
+	operation := digestSource([]byte(operationInput))
 	if err != nil || detailsErr != nil || wireErr != nil || actualErr != nil || purposeErr != nil || record.Policy == nil || record.Policy.PolicyID == "" ||
 		p.WriterSHA256 != writer || !sourceDigest(p.GrantSHA256) || p.Generation < record.Generation || p.PurposeSHA256 != digestSource(purpose) ||
 		p.OperationID != operation || !bytes.Equal(expected, actual) || p.Policy.RequestDigest != digestSource(actual) ||
@@ -538,14 +715,52 @@ func (record FoundationWriterRecord) validateCapacityJournal() error {
 }
 
 func (next FoundationRecord) retainCapacityJournal(previous FoundationRecord) error {
-	if previous.FoundationWriter == nil || previous.FoundationWriter.CapacityJournal == nil {
+	if previous.FoundationWriter == nil {
 		return nil
 	}
-	old := previous.FoundationWriter.CapacityJournal
-	if next.FoundationWriter == nil || next.FoundationWriter.CapacityJournal == nil {
+	before := previous.FoundationWriter
+	if before.CapacityJournal == nil && len(before.CapacityJournalScopes) == 0 {
+		return nil
+	}
+	if next.FoundationWriter == nil {
+		return errors.New("original capacity policy reservations cannot be removed")
+	}
+	after := next.FoundationWriter
+	if err := retainCapacityPolicy(before.CapacityJournal, after.CapacityJournal); err != nil {
+		return err
+	}
+	for scope, old := range before.CapacityJournalScopes {
+		if err := retainCapacityPolicy(&old, capacityPolicyAt(after, scope)); err != nil {
+			return err
+		}
+	}
+	added := before.CapacityJournal == nil && after.CapacityJournal != nil
+	for scope := range after.CapacityJournalScopes {
+		if _, ok := before.CapacityJournalScopes[scope]; !ok {
+			added = true
+		}
+	}
+	if added {
+		if before.CapacityJournal != nil && before.CapacityJournal.Policy.PolicyID == "" {
+			return errors.New("unresolved original capacity policy blocks a new scope")
+		}
+		for _, p := range before.CapacityJournalScopes {
+			if p.Policy.PolicyID == "" {
+				return errors.New("unresolved capacity policy blocks a new scope")
+			}
+		}
+	}
+	return nil
+}
+
+func retainCapacityPolicy(old, current *CapacityJournalPolicy) error {
+	if old == nil {
+		return nil
+	}
+	if current == nil {
 		return errors.New("original capacity policy reservation cannot be removed")
 	}
-	p := *next.FoundationWriter.CapacityJournal
+	p := *current
 	if len(p.Attempts) < len(old.Attempts) || !slices.Equal(p.Attempts[:len(old.Attempts)], old.Attempts) ||
 		old.ObservedPolicyID != "" && (p.ObservedPolicyID != old.ObservedPolicyID || !p.ObservedAt.Equal(old.ObservedAt)) ||
 		old.Policy.PolicyID != "" && (p.Policy.PolicyID != old.Policy.PolicyID || !p.Policy.VerifiedAt.Equal(old.Policy.VerifiedAt)) {
