@@ -365,7 +365,7 @@ func (o netBirdObservedInstance) ObserveInstance(ctx context.Context, id string)
 		ids[key] = value
 	}
 	plan["resource_ids"] = ids
-	progress := FoundationProgress{OperationID: record.OperationID, AuxiliaryIDs: record.AuxiliaryIDs,
+	progress := FoundationProgress{OperationID: record.OperationID, AuxiliaryIDs: record.AuxiliaryIDs, NetBirdUnderlay: record.NetBirdUnderlay,
 		BeforeWrite: func(ctx context.Context, _ bool) (context.Context, func(), error) {
 			return ctx, nil, errors.New("manager admission cannot create or repair network resources")
 		},
