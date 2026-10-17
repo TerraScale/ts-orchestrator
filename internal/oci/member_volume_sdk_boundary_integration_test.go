@@ -170,7 +170,7 @@ func (p *memberSDKLedger) policyWire(policy memberSDKPolicy) map[string]any {
 }
 
 func (p *memberSDKLedger) backupWire(backup memberSDKBackup) map[string]any {
-	return map[string]any{"id": backup.ID, "volumeId": backup.VolumeID, "lifecycleState": backup.LifecycleState,
+	return map[string]any{"id": backup.ID, "compartmentId": p.config.CompartmentID, "volumeId": backup.VolumeID, "lifecycleState": backup.LifecycleState,
 		"sizeInGBs": backup.SizeGB, "timeCreated": backup.CreatedAt.UTC().Format(time.RFC3339Nano)}
 }
 
