@@ -36,6 +36,8 @@ type NetBirdIntent struct {
 	MaterialGeneration     uint64              `json:"material_generation"`
 	SpecGeneration         uint64              `json:"spec_generation"`
 	SpecSHA256             string              `json:"spec_sha256"`
+	SpecRevision           uint64              `json:"spec_revision"`
+	RootRevision           uint64              `json:"root_revision"`
 	SubnetCIDR             string              `json:"subnet_cidr"`
 	Hosts                  []NetBirdIntentHost `json:"hosts"`
 	SignedSpec             []byte              `json:"signed_spec"`

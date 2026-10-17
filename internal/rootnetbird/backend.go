@@ -136,6 +136,7 @@ func (b *Backend) AuthorizeNetBirdIntent(ctx context.Context, call rootoci.Call,
 	if err != nil {
 		return fail(err)
 	}
+	originalFacts := canonical
 	canonical.OperationID, canonical.RuntimeID, canonical.OwnerID = request.OperationID, call.RuntimeID(), original.OwnerID
 	canonical.Epoch, canonical.LeaseRevision, canonical.ExpiresAt = request.Epoch, original.Revision, request.ExpiresAt
 	if call.Expected().GrantSHA256 != "" && call.Expected().GrantSHA256 != canonical.SourceGrantSHA256 {
@@ -159,6 +160,32 @@ func (b *Backend) AuthorizeNetBirdIntent(ctx context.Context, call rootoci.Call,
 	if err := guard(ctx); err != nil {
 		return fail(err)
 	}
+	currentSource, err := s.Authority.ReadRuntimeAuthority(ctx, s.Accepted, time.Now().UTC())
+	if err != nil || currentSource.Identity() != identity || currentSource.Anchor().Digest() != source.Anchor().Digest() ||
+		!currentSource.ExpiresAt().Equal(source.ExpiresAt()) {
+		return fail(err)
+	}
+	currentFacts, err := b.canonical(ctx, s, identity, request.ExpiresAt)
+	if err != nil || !reflect.DeepEqual(currentFacts, originalFacts) {
+		return fail(err)
+	}
+	if err := lease.Guard(ctx); err != nil {
+		return fail(err)
+	}
+	if err := guard(ctx); err != nil {
+		return fail(err)
+	}
+	rootPin, err := s.current(ctx, "TS_TRUST_ROOTS", "chain")
+	if err != nil || rootPin.revision != originalFacts.RootRevision || !bytes.Equal(rootPin.wire, originalFacts.RootChain) {
+		return fail(err)
+	}
+	specPin, err := s.current(ctx, "TS_SERVICE_SET", "current")
+	if err != nil || specPin.revision != originalFacts.SpecRevision || !bytes.Equal(specPin.wire, originalFacts.SignedSpec) {
+		return fail(err)
+	}
+	if ctx.Err() != nil || !time.Now().Before(request.ExpiresAt) {
+		return fail(ctx.Err())
+	}
 	canonical.IntentRevision, canonical.IssuedAt = entry.Sequence, entry.CreatedAt
 	return rootoci.NetBirdIntentReceipt{Intent: canonical}, nil
 }
@@ -180,7 +207,7 @@ func (b *Backend) canonical(ctx context.Context, s *Sources, identity bootstraps
 		config.Cell != strings.ToLower(identity.Cell) || config.Region != identity.OCIRegion {
 		return rootoci.NetBirdIntent{}, rootoci.ErrUnauthorized
 	}
-	rootWire, err := s.current(ctx, "TS_TRUST_ROOTS", "chain")
+	root, err := s.current(ctx, "TS_TRUST_ROOTS", "chain")
 	if err != nil {
 		return rootoci.NetBirdIntent{}, err
 	}
@@ -188,7 +215,7 @@ func (b *Backend) canonical(ctx context.Context, s *Sources, identity bootstraps
 	if err != nil {
 		return rootoci.NetBirdIntent{}, err
 	}
-	chain, err := trust.DecodeRootChain(rootWire)
+	chain, err := trust.DecodeRootChain(root.wire)
 	if err != nil || len(chain.Rotations) < len(installed.Chain.Rotations) {
 		return rootoci.NetBirdIntent{}, rootoci.ErrUnauthorized
 	}
@@ -202,11 +229,11 @@ func (b *Backend) canonical(ctx context.Context, s *Sources, identity bootstraps
 	if err != nil {
 		return rootoci.NetBirdIntent{}, err
 	}
-	specWire, err := s.current(ctx, "TS_SERVICE_SET", "current")
+	signedSpec, err := s.current(ctx, "TS_SERVICE_SET", "current")
 	if err != nil {
 		return rootoci.NetBirdIntent{}, err
 	}
-	spec, err := cellspec.VerifyHistorical(specWire, roots.Current, cellspec.Identity{DeploymentID: config.DeploymentID, Environment: config.Environment, Cell: config.Cell})
+	spec, err := cellspec.VerifyHistorical(signedSpec.wire, roots.Current, cellspec.Identity{DeploymentID: config.DeploymentID, Environment: config.Environment, Cell: config.Cell})
 	if err != nil || !spec.RootSigned {
 		return rootoci.NetBirdIntent{}, rootoci.ErrUnauthorized
 	}
@@ -225,13 +252,18 @@ func (b *Backend) canonical(ctx context.Context, s *Sources, identity bootstraps
 	slices.SortFunc(hosts, func(a, b rootoci.NetBirdIntentHost) int { return strings.Compare(a.Name, b.Name) })
 	return rootoci.NetBirdIntent{Cell: identity.Cell, InstallationID: material.InstallationID(), DeploymentID: identity.DeploymentID,
 		SourceGrantSHA256: digest(material.FoundationGrantWire()), MaterialGeneration: material.Generation(),
-		SpecGeneration: spec.Generation, SpecSHA256: digest(specWire), SubnetCIDR: config.SubnetCIDR, Hosts: hosts,
-		SignedSpec: specWire, RootChain: rootWire, SourceSlot: identity.Slot, SourceInstanceID: identity.InstanceID,
+		SpecGeneration: spec.Generation, SpecSHA256: digest(signedSpec.wire), SpecRevision: signedSpec.revision, RootRevision: root.revision, SubnetCIDR: config.SubnetCIDR, Hosts: hosts,
+		SignedSpec: signedSpec.wire, RootChain: root.wire, SourceSlot: identity.Slot, SourceInstanceID: identity.InstanceID,
 		ManagerStoreGeneration: entityid.Derive("netbird-foundation-store", material.InstallationID()) + ":1"}, nil
 }
 
 // current always reads the stream leader, never a follower's direct KV cache.
-func (s *Sources) current(ctx context.Context, bucket, key string) ([]byte, error) {
+type sourceRecord struct {
+	wire     []byte
+	revision uint64
+}
+
+func (s *Sources) current(ctx context.Context, bucket, key string) (sourceRecord, error) {
 	options := s.JS.Options()
 	var opts []nats.JSOpt
 	if options.Domain != "" {
@@ -241,20 +273,17 @@ func (s *Sources) current(ctx context.Context, bucket, key string) ([]byte, erro
 	}
 	reader, err := s.JS.Conn().JetStream(opts...)
 	if err != nil {
-		return nil, err
+		return sourceRecord{}, err
 	}
 	subject := "$KV." + bucket + "." + key
 	entry, err := reader.GetLastMsg("KV_"+bucket, subject, nats.Context(ctx))
-	if errors.Is(err, nats.ErrMsgNotFound) && bucket == "TS_TRUST_ROOTS" {
-		return []byte(`{"version":1}`), nil
-	}
 	if err != nil {
-		return nil, err
+		return sourceRecord{}, err
 	}
 	if entry == nil || entry.Subject != subject || entry.Sequence == 0 || len(entry.Data) == 0 || entry.Header.Get("KV-Operation") != "" || entry.Header.Get(jetstream.MarkerReasonHeader) != "" {
-		return nil, rootoci.ErrUnauthorized
+		return sourceRecord{}, rootoci.ErrUnauthorized
 	}
-	return bytes.Clone(entry.Data), ctx.Err()
+	return sourceRecord{wire: bytes.Clone(entry.Data), revision: entry.Sequence}, ctx.Err()
 }
 
 func digest(wire []byte) string { sum := sha256.Sum256(wire); return hex.EncodeToString(sum[:]) }
