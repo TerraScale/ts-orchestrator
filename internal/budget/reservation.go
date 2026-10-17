@@ -408,11 +408,8 @@ func Revalidate(ctx context.Context, reader *globalcontrol.Reader, receipt Reser
 		return errors.New("capacity reservation was never committed")
 	}
 	r := c.Reservations[i]
-	if err := originalReservationQuote(receipt); err != nil {
+	if err := sameOriginalReservation(r, receipt); err != nil {
 		return err
-	}
-	if r.RecipeSHA256 != receipt.RecipeSHA256 || r.MonthlyCents != receipt.MonthlyCents || r.Cell != receipt.Cell || r.CompartmentID != receipt.CompartmentID || r.Shape != receipt.Shape || r.OCPUs != receipt.OCPUs || r.MemoryGB != receipt.MemoryGB || r.BootGB != receipt.BootGB || r.InfrastructureBudgetID != receipt.InfrastructureBudgetID || r.GrantSHA256 != receipt.GrantSHA256 || r.ScopeSHA256 != receipt.ScopeSHA256 || r.ResolvedScopeSHA256 != receipt.ResolvedScopeSHA256 || r.BindingSHA256 != receipt.BindingSHA256 || r.GrantGeneration != receipt.GrantGeneration || r.QuoteSHA256 != receipt.QuoteSHA256 || r.Currency != receipt.Currency || r.TenancyID != receipt.TenancyID || r.BudgetID != receipt.BudgetID || !r.IssuedAt.Equal(receipt.IssuedAt) || !r.LaunchExpiresAt.Equal(receipt.LaunchExpiresAt) {
-		return errors.New("capacity receipt differs from its durable reservation")
 	}
 	tenantID := ""
 	if found {
@@ -443,6 +440,93 @@ func Revalidate(ctx context.Context, reader *globalcontrol.Reader, receipt Reser
 		return err
 	}
 	return quotedCandidate(proof, quote, receipt.Cell, receipt.CompartmentID, receipt.Shape, receipt.OCPUs, receipt.MemoryGB, receipt.BootGB, receipt.MonthlyCents, checkedAt)
+}
+
+// RevalidateExisting checks an already billed child's original commitment, not
+// launch permission. The root caller must separately prove its exact birth.
+func RevalidateExisting(ctx context.Context, reader *globalcontrol.Reader, receipt Reservation,
+	proof region.VerifiedInfrastructureSpend, snapshot capacityinventory.Snapshot, now time.Time,
+) error {
+	monthly, found, limit, err := spendingFacts(ctx, reader, proof, snapshot, now)
+	if err != nil {
+		return err
+	}
+	c, exists, err := ReadCapacity(ctx, reader)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return errors.New("capacity reservation ledger is unavailable")
+	}
+	limit, err = bootstrapLimit(c, proof, limit)
+	if err != nil {
+		return err
+	}
+	i := reservationIndex(c, receipt.OperationID)
+	if i < 0 {
+		return errors.New("capacity reservation was never committed")
+	}
+	r := c.Reservations[i]
+	if err := sameOriginalReservation(r, receipt); err != nil {
+		return err
+	}
+	tenantID := ""
+	if found {
+		tenantID = monthly.ID
+	}
+	if err := existingReservation(r, tenantID, proof, now); err != nil {
+		return err
+	}
+	if projection(c, snapshot, "") > limit {
+		return errors.New("complete infrastructure commitments exceed the current spending ceiling")
+	}
+	if err := proof.RevalidateBindings(ctx); err != nil {
+		return err
+	}
+	current, stillExists, err := ReadCapacity(ctx, reader)
+	if err != nil {
+		return err
+	}
+	expected, expectedErr := c.Encode()
+	actual, actualErr := current.Encode()
+	if !stillExists || expectedErr != nil || actualErr != nil || !sameCapacity(actual, expected) {
+		return errors.New("capacity commitments changed during existing commitment revalidation")
+	}
+	latest, hasBudget, err := ReadBudget(ctx, reader)
+	if err != nil {
+		return err
+	}
+	if hasBudget != found || hasBudget && latest != monthly {
+		return errors.New("tenant spending ceiling changed during existing commitment revalidation")
+	}
+	checkedAt := time.Now()
+	if now.After(checkedAt) {
+		checkedAt = now
+	}
+	if err := existingReservation(r, tenantID, proof, checkedAt); err != nil {
+		return err
+	}
+	return snapshot.Validate(proof.Footprint(), checkedAt)
+}
+
+func sameOriginalReservation(r, receipt Reservation) error {
+	if err := originalReservationQuote(receipt); err != nil {
+		return err
+	}
+	if r.OperationID != receipt.OperationID || r.RecipeSHA256 != receipt.RecipeSHA256 || r.MonthlyCents != receipt.MonthlyCents || r.Cell != receipt.Cell || r.CompartmentID != receipt.CompartmentID || r.Shape != receipt.Shape || r.OCPUs != receipt.OCPUs || r.MemoryGB != receipt.MemoryGB || r.BootGB != receipt.BootGB || r.InfrastructureBudgetID != receipt.InfrastructureBudgetID || r.GrantSHA256 != receipt.GrantSHA256 || r.ScopeSHA256 != receipt.ScopeSHA256 || r.ResolvedScopeSHA256 != receipt.ResolvedScopeSHA256 || r.BindingSHA256 != receipt.BindingSHA256 || r.GrantGeneration != receipt.GrantGeneration || r.QuoteSHA256 != receipt.QuoteSHA256 || r.Currency != receipt.Currency || r.TenancyID != receipt.TenancyID || r.BudgetID != receipt.BudgetID || !r.IssuedAt.Equal(receipt.IssuedAt) || !r.LaunchExpiresAt.Equal(receipt.LaunchExpiresAt) {
+		return errors.New("capacity receipt differs from its durable reservation")
+	}
+	return originalReservationQuote(r)
+}
+
+func existingReservation(r Reservation, tenantID string, proof region.VerifiedInfrastructureSpend, now time.Time) error {
+	if !proof.ValidAt(now) || !r.RetiredAt.IsZero() || r.IssuedAt.After(now) || r.BudgetID != tenantID || r.InfrastructureBudgetID != proof.BudgetID() ||
+		r.ScopeSHA256 != proof.ScopeDigest() || r.ResolvedScopeSHA256 != proof.PhysicalScopeDigest() || r.GrantGeneration == 0 || r.GrantGeneration > proof.Generation() ||
+		r.GrantGeneration == proof.Generation() && r.GrantSHA256 != proof.GrantDigest() || r.Currency != proof.Currency() || r.TenancyID != proof.Footprint().TenancyID ||
+		!allowedCompartment(proof.Footprint(), r.Cell, r.CompartmentID) {
+		return errors.New("existing commitment is retired or differs from current signed spending scope")
+	}
+	return originalReservationQuote(r)
 }
 
 func quotedCandidate(proof region.VerifiedInfrastructureSpend, quote capacityinventory.Quote,
