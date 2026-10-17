@@ -1,0 +1,15 @@
+[Unit]
+Description=TerraScale NetBird foundation lifecycle
+After=network-online.target containerd.service
+Wants=network-online.target
+Requires=containerd.service
+[Service]
+ExecStart=/usr/local/bin/ts-orch netbird foundation serve
+Restart=always
+RestartSec=30
+RuntimeDirectory=terrascale-netbird
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+LimitCORE=0
+[Install]
+WantedBy=multi-user.target
