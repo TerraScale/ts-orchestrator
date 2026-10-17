@@ -191,6 +191,10 @@ func openFoundationFloorDirectory() (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
+	return openFoundationFloorDirectoryAt(config, true)
+}
+
+func openFoundationFloorDirectoryAt(config string, create bool) (*os.File, error) {
 	if !filepath.IsAbs(config) || filepath.Clean(config) != config {
 		return nil, errors.New("foundation user config directory must be absolute and clean")
 	}
@@ -202,7 +206,7 @@ func openFoundationFloorDirectory() (*os.File, error) {
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	for index, component := range parts {
 		next, openErr := unix.Openat(fd, component, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-		if errors.Is(openErr, unix.ENOENT) {
+		if create && errors.Is(openErr, unix.ENOENT) {
 			if openErr = unix.Mkdirat(fd, component, 0700); openErr == nil || errors.Is(openErr, unix.EEXIST) {
 				openErr = unix.Fsync(fd)
 				if openErr == nil {
