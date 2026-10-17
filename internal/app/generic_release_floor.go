@@ -7,13 +7,14 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 )
 
 // Retained native records and their original signed claims remain unchanged.
 func (history *nativeHistory) retainedContainerFloor(ctx context.Context, role, environment string) (release.SequenceFloor, error) {
-	if history == nil || history.deliveries == nil {
+	if history == nil || history.deliveries == nil || history.hosts == nil {
 		return release.SequenceFloor{}, errors.New("retained native release evidence unavailable")
 	}
 	state, _, err := history.load(ctx, role)
@@ -21,7 +22,8 @@ func (history *nativeHistory) retainedContainerFloor(ctx context.Context, role, 
 		return release.SequenceFloor{}, err
 	}
 	var floor release.SequenceFloor
-	for _, binding := range nativeBindings(&state) {
+	bindings := nativeBindings(&state)
+	for _, binding := range bindings {
 		if binding.Intent.Environment != environment {
 			return release.SequenceFloor{}, errors.New("retained native release names another environment")
 		}
@@ -43,6 +45,26 @@ func (history *nativeHistory) retainedContainerFloor(ctx context.Context, role, 
 	}
 	if floor.IssuedAt.IsZero() {
 		return release.SequenceFloor{}, errors.New("no retained authenticated native release floor; explicit root-authorized baseline required")
+	}
+	desired, err := history.hosts.ListDesired(ctx, role)
+	if err != nil {
+		return release.SequenceFloor{}, err
+	}
+	for _, target := range desired {
+		if target.Environment != environment || target.Digest == "" {
+			continue
+		}
+		covered := false
+		for _, binding := range bindings {
+			if target.ManagedMember == nil && target.Digest == binding.Artifact.Digest &&
+				delivery.ConfigDigestOf(target.Args, target.Env, target.Secrets) == binding.Intent.ConfigDigest {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			return release.SequenceFloor{}, errors.New("current native desired lacks authenticated retained release and profile coverage")
+		}
 	}
 	return floor, nil
 }

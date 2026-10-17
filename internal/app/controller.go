@@ -910,7 +910,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	defer statefulServices.Store(nil)
 	generic, err := newGenericRuntime(genericRuntimeConfig{Client: functionClient, ManagerID: managerID, Authority: control, Specs: services, Delivery: service,
 		Evidence: containers.config.Evidence, Allocations: containers.config.Allocations, CurrentBundle: statefulMaterial.currentBundle,
-		Probe: containers.probe, RetainedFloor: nativeReleases.retainedContainerFloor,
+		Probe: containers.probe, RetainedFloor: nativeReleases.retainedContainerFloor, Hosts: hostController,
 		OriginalProfile: nativeReleases.originalContainerProfile,
 		SessionGuard:    func(ctx context.Context) error { return containers.managerSession(ctx, managerID) },
 	}, hostLoad.load)

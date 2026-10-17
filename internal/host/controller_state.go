@@ -32,6 +32,11 @@ func (c *Controller) serveCycle(ctx context.Context, req request, r Registration
 	if !slices.Contains(r.Roles, query.Role) || validateDigest(query.Digest) != nil || query.Generation == 0 || query.AuthorityEpoch == 0 || !entityid.Valid(query.Attempt) {
 		return nil, errors.New("invalid cycle query")
 	}
+	if query.CycleID == "" {
+		if err := c.guardNativeOwner(ctx, r.Environment, query.Role); err != nil {
+			return nil, err
+		}
+	}
 	var desired Desired
 	if query.CycleID == "" {
 		var exists bool
