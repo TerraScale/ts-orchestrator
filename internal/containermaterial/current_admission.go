@@ -42,6 +42,13 @@ type CurrentTaskSources struct {
 	RootHead       string
 	ResponsePublic ed25519.PublicKey
 	Lease          *authority.LeaseAdmission
+	Credentials    ControllerCredentials
+}
+
+// ControllerCredentials is supplied only by the private root producer.
+type ControllerCredentials interface {
+	Context() context.Context
+	Guard(context.Context) error
 }
 
 type CurrentTask struct {
@@ -70,6 +77,7 @@ type TaskMaterial struct {
 type currentTaskAdmission struct {
 	sources           CurrentTaskSources
 	original          context.Context
+	credentials       context.Context
 	task              *api.Task
 	profile           Profile
 	verified          release.VerifiedContainer
@@ -152,8 +160,19 @@ func AdmitGenerationTask(ctx context.Context, sources CurrentTaskSources, task C
 
 func newCurrentTaskAdmission(ctx context.Context, sources CurrentTaskSources, task CurrentTask, binding host.ContainerMaterialBinding, sessionDeadline time.Time) (*currentTaskAdmission, error) {
 	if ctx == nil || ctx.Err() != nil || sources.Client == nil || sources.JS == nil || sources.JS.Conn() == nil || sources.Delivery == nil ||
-		sources.Mutations == nil || sources.Lease == nil || sources.RootHead == "" || task.Task == nil || task.Profile.fingerprint == "" ||
+		sources.Mutations == nil || sources.Lease == nil || sources.Credentials == nil || sources.RootHead == "" || task.Task == nil || task.Profile.fingerprint == "" ||
 		task.Profile.intent.AuthorityEpoch != sources.Lease.Epoch() || !task.Release.Valid(time.Now()) {
+		return nil, ErrPending
+	}
+	if sources.Credentials.Guard(ctx) != nil {
+		return nil, ErrPending
+	}
+	credentials := sources.Credentials.Context()
+	if credentials == nil || credentials.Done() == nil || credentials.Err() != nil {
+		return nil, ErrPending
+	}
+	credentialDeadline, ok := credentials.Deadline()
+	if !ok || !time.Now().Before(credentialDeadline) {
 		return nil, ErrPending
 	}
 	for key := range task.Profile.profile.Secrets {
@@ -166,25 +185,30 @@ func newCurrentTaskAdmission(ctx context.Context, sources CurrentTaskSources, ta
 		genesis[id] = slices.Clone(key)
 	}
 	sources.Genesis, sources.ResponsePublic = genesis, slices.Clone(sources.ResponsePublic)
-	deadline := earlier(sessionDeadline, earlier(sources.Lease.Deadline(), task.Release.ExpiresAt()))
+	deadline := earlier(credentialDeadline, earlier(sessionDeadline, earlier(sources.Lease.Deadline(), task.Release.ExpiresAt())))
 	if original, ok := ctx.Deadline(); ok {
 		deadline = earlier(deadline, original)
 	}
 	if task.Controller != nil {
 		deadline = earlier(deadline, task.Controller.Deadline())
 	}
-	return &currentTaskAdmission{sources: sources, original: ctx, task: proto.Clone(task.Task).(*api.Task), profile: task.Profile,
+	return &currentTaskAdmission{sources: sources, original: ctx, credentials: credentials, task: proto.Clone(task.Task).(*api.Task), profile: task.Profile,
 		verified: task.Release, controller: task.Controller, binding: binding, deadline: deadline}, nil
 }
 
 func (a *currentTaskAdmission) guard(ctx context.Context) error {
-	if a == nil || a.original == nil || ctx == nil || a.original.Err() != nil || ctx.Err() != nil || !time.Now().Before(a.deadline) {
+	if a == nil || a.original == nil || a.credentials == nil || ctx == nil || a.original.Err() != nil || a.credentials.Err() != nil || ctx.Err() != nil || !time.Now().Before(a.deadline) {
 		return ErrPending
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	stop := context.AfterFunc(a.original, cancel)
 	defer cancel()
 	defer stop()
+	credentialStop := context.AfterFunc(a.credentials, cancel)
+	defer credentialStop()
+	if a.sources.Credentials.Guard(ctx) != nil {
+		return ErrPending
+	}
 	if err := a.sources.Lease.Guard(ctx); err != nil {
 		return err
 	}
@@ -244,7 +268,7 @@ func (a *currentTaskAdmission) guard(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if !time.Now().Before(a.deadline) || a.original.Err() != nil {
+	if a.sources.Credentials.Guard(ctx) != nil || !time.Now().Before(a.deadline) || a.original.Err() != nil || a.credentials.Err() != nil {
 		return ErrPending
 	}
 	return ctx.Err()
