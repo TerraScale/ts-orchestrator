@@ -73,6 +73,16 @@ func TestServiceIntentGeneration(t *testing.T) {
 	if actual, err := serviceIntentFingerprint(changed); err != nil || actual != fingerprint {
 		t.Fatalf("manager scale or operation changed workload identity: %q %v", actual, err)
 	}
+	for name, mutate := range map[string]func(*api.ServiceSpec){
+		"update delay":   func(spec *api.ServiceSpec) { spec.Update.Delay++ },
+		"rollback delay": func(spec *api.ServiceSpec) { spec.Rollback.Delay++ },
+	} {
+		changed := spec.Copy()
+		mutate(changed)
+		if actual, err := serviceIntentFingerprint(changed); err != nil || actual == fingerprint {
+			t.Fatalf("%s lost workload identity: %q %v", name, actual, err)
+		}
+	}
 	for _, stored := range []string{"8", "07", "0", "bad"} {
 		labels[LabelIntentGeneration] = stored
 		if err := checkIntentGeneration(labels, intent); err == nil {
