@@ -91,8 +91,9 @@ type NetBirdRead struct {
 	counts              [2]uint64
 	delivered, sequence uint64
 	lease, intent       *jetstream.RawStreamMsg
+	liveLeases          map[uint64]Snapshot
 	failed              error
-	created             time.Time
+	created, cursorBorn time.Time
 }
 
 func ConnectNetBirdRead(ctx context.Context, js jetstream.JetStream, scope, nonce string) (*NetBirdRead, error) {
@@ -117,7 +118,23 @@ func ConnectNetBirdRead(ctx context.Context, js jetstream.JetStream, scope, nonc
 	if info.Delivered.Consumer != 0 {
 		return nil, errors.New("NetBird read session has already been consumed")
 	}
-	return &NetBirdRead{stream: stream, consumer: consumer, scope: scope, nonce: nonce}, nil
+	return &NetBirdRead{stream: stream, consumer: consumer, scope: scope, nonce: nonce, cursorBorn: info.Created,
+		liveLeases: make(map[uint64]Snapshot)}, nil
+}
+
+// OriginalLease returns only an already authenticated, still-live observation.
+// The caller also reads the current intent/lease and compares the original tuple.
+func (r *NetBirdRead) OriginalLease(revision uint64) (Snapshot, error) {
+	if r == nil || revision == 0 {
+		return Snapshot{}, ErrFenced
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	lease, ok := r.liveLeases[revision]
+	if r.failed != nil || !ok || !time.Now().Before(lease.ExpiresAt) {
+		return Snapshot{}, ErrFenced
+	}
+	return lease, nil
 }
 
 // Read returns the latest committed intent and actual live lease after proving
@@ -140,7 +157,7 @@ func (r *NetBirdRead) Read(ctx context.Context) (LogEntry, Snapshot, error) {
 		if err := verifyNetBirdConsumer(info, r.scope, r.nonce); err != nil {
 			return LogEntry{}, Snapshot{}, err
 		}
-		if info.Delivered.Consumer != r.delivered {
+		if info.Created != r.cursorBorn || info.Delivered.Consumer != r.delivered {
 			r.failed = errors.New("NetBird read cursor moved outside its original session")
 			return LogEntry{}, Snapshot{}, r.failed
 		}
@@ -254,6 +271,22 @@ func (r *NetBirdRead) drain(ctx context.Context, remaining uint64) error {
 					Time: metadata.Timestamp, Data: bytes.Clone(msg.Data())}
 				if index == 0 {
 					r.lease = entry
+					lease, err := decodeLease(entry.Data)
+					if err != nil || lease.Scope != r.scope {
+						return ErrLeaseCorrupt
+					}
+					now := time.Now()
+					for revision, lease := range r.liveLeases {
+						if !now.Before(lease.ExpiresAt) {
+							delete(r.liveLeases, revision)
+						}
+					}
+					expires := entry.Time.Add(time.Duration(lease.LeaseDuration))
+					if !lease.Released && now.Before(expires) {
+						r.liveLeases[entry.Sequence] = Snapshot{Scope: lease.Scope, DeploymentID: lease.DeploymentID,
+							CandidateID: lease.CandidateID, OwnerID: lease.OwnerID, Epoch: lease.Epoch, Revision: entry.Sequence,
+							ExpiresAt: expires, Ready: true, ObservedAt: now}
+					}
 				} else {
 					r.intent = entry
 				}

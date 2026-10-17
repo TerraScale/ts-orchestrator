@@ -90,6 +90,13 @@ func TestNetBirdScopedReadAuthenticatedBroker(t *testing.T) {
 	if err != nil || entry.Sequence != sequence || entry.OperationID != operation || lease.OwnerID != runtime.Current().OwnerID {
 		t.Fatalf("current source read = %+v %+v %v", entry, lease, err)
 	}
+	original, err := reader.OriginalLease(lease.Revision)
+	if err != nil || original.Revision != lease.Revision || original.OwnerID != lease.OwnerID || !original.ExpiresAt.Equal(lease.ExpiresAt) {
+		t.Fatalf("original finite lease = %+v %v", original, err)
+	}
+	if _, err := reader.OriginalLease(entry.Sequence); err == nil {
+		t.Fatal("intent revision was accepted as an original lease")
+	}
 	if _, err := ConnectNetBirdRead(ctx, readerJS, "gru", nonce); err == nil {
 		t.Fatal("reused consumed session")
 	}
