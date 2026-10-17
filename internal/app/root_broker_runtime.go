@@ -12,6 +12,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/nativerootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
 // The sole embedded broker and its rekey/close lifecycle remain in root.
@@ -25,6 +26,7 @@ type rootBrokerRuntime struct {
 	workers   sync.WaitGroup
 	once      sync.Once
 	origin    bootstrapstart.RuntimeAuthority
+	children  *rootBrokerSourceChildren
 }
 
 func startRootBrokerRuntime(ctx context.Context, cfg Config, authority *rootOCIAuthority) (*rootBrokerRuntime, error) {
@@ -46,11 +48,18 @@ func startRootBrokerRuntime(ctx context.Context, cfg Config, authority *rootOCIA
 		return nil, err
 	}
 	broker.runtime = runtime
+	broker.children, err = newRootBrokerSourceChildren(broker)
+	if err != nil {
+		_ = broker.Close()
+		return nil, err
+	}
+	ctx = swarmruntime.WithSourceChildRegistrar(ctx, broker.children)
+	broker.ctx = ctx
 	if err := broker.guard(ctx); err != nil {
 		_ = broker.Close()
 		return nil, err
 	}
-	for _, path := range []string{rootBrokerStartupSocket, rootBrokerObservationSocket, rootBrokerReconnectSocket, rootBrokerClientSocket} {
+	for _, path := range []string{rootBrokerStartupSocket, rootBrokerObservationSocket, rootBrokerReconnectSocket, rootBrokerClientSocket, rootBrokerSourceSocket} {
 		socket, err := listenRootBrokerSocket(path, authority.gid)
 		if err != nil {
 			_ = broker.Close()
@@ -64,6 +73,10 @@ func startRootBrokerRuntime(ctx context.Context, cfg Config, authority *rootOCIA
 			handler = broker.serveReconnect
 		} else if path == rootBrokerClientSocket {
 			handler = broker.serveClientTransport
+		} else if path == rootBrokerSourceSocket {
+			handler = func(ctx context.Context, conn *net.UnixConn) {
+				serveRootBrokerSourceTransport(ctx, conn, broker.children)
+			}
 		}
 		broker.workers.Go(func() { serveRootBrokerSocket(ctx, socket, handler) })
 	}
@@ -101,6 +114,9 @@ func startRootBrokerRuntime(ctx context.Context, cfg Config, authority *rootOCIA
 func (broker *rootBrokerRuntime) Close() error {
 	broker.once.Do(func() {
 		broker.cancel()
+		if broker.children != nil {
+			_ = broker.children.Close()
+		}
 		for _, socket := range broker.sockets {
 			_ = socket.Close()
 		}

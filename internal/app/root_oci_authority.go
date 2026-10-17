@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
@@ -78,6 +79,7 @@ type rootOCIAuthority struct {
 	child    *rootOCIProcess
 	main     *rootOCIProcess
 	sources  *rootBoundRuntimeSources
+	children atomic.Pointer[rootBrokerSourceChildren]
 }
 
 func (authority *rootOCIAuthority) bindSources(sources *rootBoundRuntimeSources) error {
@@ -185,7 +187,38 @@ func (authority *rootOCIAuthority) readVerifiedBinary(ctx context.Context, witne
 }
 
 func (authority *rootOCIAuthority) authorize(request context.Context, peer nativerootoci.Peer, operation rootoci.Operation) (rootoci.Lease, error) {
-	return authority.authorizeProcess(request, peer, operation.ReadOnly())
+	if registry := authority.children.Load(); registry != nil {
+		if child := registry.find(peer.PID); child != nil {
+			if operation != rootoci.OperationObserveLocalInstance || child.witness.Peer() != peer {
+				return rootoci.Lease{}, rootoci.ErrUnauthorized
+			}
+			return child.localInstanceLease(request)
+		}
+	}
+	if operation == rootoci.OperationObserveLocalInstance && authority.localDescriptorGuard(request) != nil {
+		return rootoci.Lease{}, rootoci.ErrUnauthorized
+	}
+	lease, err := authority.authorizeProcess(request, peer, operation.ReadOnly())
+	if err == nil && operation == rootoci.OperationObserveLocalInstance && authority.localDescriptorGuard(request) != nil {
+		return rootoci.Lease{}, rootoci.ErrUnauthorized
+	}
+	return lease, err
+}
+
+func (authority *rootOCIAuthority) localDescriptorGuard(ctx context.Context) error {
+	if ctx == nil || ctx.Err() != nil || authority.ctx.Err() != nil || authority.verifyMarker() != nil {
+		return rootoci.ErrUnauthorized
+	}
+	imds := bootstrapstart.NewIMDSClient()
+	descriptor, err := imds.FetchDescriptor(ctx)
+	if err != nil || descriptor.SchemaVersion != 1 || descriptor.Slot != authority.accepted.Slot || ctx.Err() != nil || authority.ctx.Err() != nil {
+		return rootoci.ErrUnauthorized
+	}
+	instance, err := imds.FetchInstanceID(ctx)
+	if err != nil || instance != authority.accepted.InstanceOCID || authority.verifyMarker() != nil || ctx.Err() != nil || authority.ctx.Err() != nil {
+		return rootoci.ErrUnauthorized
+	}
+	return nil
 }
 
 func (authority *rootOCIAuthority) authorizeRuntime(request context.Context, peer nativerootoci.Peer) (rootoci.Lease, error) {
@@ -207,6 +240,9 @@ func (authority *rootOCIAuthority) authorizeProcess(request context.Context, pee
 		deadline = earlier(deadline, authority.sources.deadline)
 	}
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	if registry := authority.children.Load(); registry != nil {
+		ctx = swarmruntime.WithSourceChildRegistrar(ctx, registry)
+	}
 	stopRequest := context.AfterFunc(request, cancel)
 	stopAuthority := context.AfterFunc(authority.ctx, cancel)
 	defer func() { stopRequest(); stopAuthority(); cancel() }()

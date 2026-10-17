@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/nativerootoci"
@@ -31,6 +32,10 @@ type rootBrokerSourceChildren struct {
 	parent   *rootoci.ProcessWitness
 	uid, gid uint32
 	proxy    *natscell.ControllerProxy
+	accepted []byte
+	slot     string
+	instance string
+	imds     bootstrapstart.IMDSClient
 }
 
 type rootBrokerSourceChild struct {
@@ -67,7 +72,9 @@ func newRootBrokerSourceChildren(broker *rootBrokerRuntime) (*rootBrokerSourceCh
 	}
 	ctx, cancel := context.WithCancel(broker.ctx)
 	registry := &rootBrokerSourceChildren{children: make(map[int]*rootBrokerSourceChild), ctx: ctx, cancel: cancel,
-		deadline: deadline, parent: parent, uid: broker.authority.uid, gid: broker.authority.gid, proxy: proxy}
+		deadline: deadline, parent: parent, uid: broker.authority.uid, gid: broker.authority.gid, proxy: proxy,
+		accepted: bytes.Clone(broker.authority.encoded), slot: broker.authority.accepted.Slot,
+		instance: broker.authority.accepted.InstanceOCID, imds: bootstrapstart.NewIMDSClient()}
 	registry.stopRoot = context.AfterFunc(broker.authority.ctx, cancel)
 	if err := registry.guardRoot(); err != nil {
 		_ = registry.Close()
@@ -162,6 +169,14 @@ func (registry *rootBrokerSourceChildren) guardRoot() error {
 		registry.parent.Peer().GID != 0 || registry.parent.Verify() != nil {
 		return rootoci.ErrUnauthorized
 	}
+	current, err := bootstrapstart.NewMarkerStore().ReadIdentity()
+	if err != nil {
+		return rootoci.ErrUnauthorized
+	}
+	encoded, err := bootstrapstart.EncodeAcceptedIdentity(current)
+	if err != nil || !bytes.Equal(encoded, registry.accepted) || registry.ctx.Err() != nil || !time.Now().Before(registry.deadline) {
+		return rootoci.ErrUnauthorized
+	}
 	return nil
 }
 
@@ -186,7 +201,8 @@ func (child *rootBrokerSourceChild) verifyProcess() error {
 	}
 	commandLine, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", peer.PID))
 	if err != nil || !bytes.Equal(commandLine, []byte("/proc/self/exe\x00"+child.command+"\x00")) ||
-		sha256.Sum256(child.query) != child.querySHA256 || child.witness.Verify() != nil || registry.guardRoot() != nil || child.ctx.Err() != nil {
+		sha256.Sum256(child.query) != child.querySHA256 || child.witness.Verify() != nil || registry.guardRoot() != nil ||
+		child.ctx.Err() != nil || child.original.Err() != nil || !time.Now().Before(child.deadline) || !time.Now().Before(registry.deadline) {
 		return rootoci.ErrUnauthorized
 	}
 	return nil
@@ -199,7 +215,8 @@ func (child *rootBrokerSourceChild) guard(ctx context.Context) error {
 	child.registry.mu.Lock()
 	retained := child.registry.children[child.witness.Peer().PID] == child
 	child.registry.mu.Unlock()
-	if !retained || child.ctx.Err() != nil || ctx.Err() != nil {
+	if !retained || child.ctx.Err() != nil || child.original.Err() != nil || ctx.Err() != nil ||
+		!time.Now().Before(child.deadline) || !time.Now().Before(child.registry.deadline) {
 		return rootoci.ErrUnauthorized
 	}
 	return nil
@@ -213,13 +230,45 @@ func (registry *rootBrokerSourceChildren) lookup(conn *net.UnixConn) (*rootBroke
 	if err != nil || peer.UID != registry.uid || peer.GID != registry.gid {
 		return nil, rootoci.ErrUnauthorized
 	}
-	registry.mu.Lock()
-	child := registry.children[peer.PID]
-	registry.mu.Unlock()
+	child := registry.find(peer.PID)
 	if child == nil || child.witness.Peer() != peer || child.guard(child.ctx) != nil {
 		return nil, rootoci.ErrUnauthorized
 	}
 	return child, nil
+}
+
+func (registry *rootBrokerSourceChildren) find(pid int) *rootBrokerSourceChild {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	return registry.children[pid]
+}
+
+// A source child may observe this host without entering MainPID or task admission.
+func (child *rootBrokerSourceChild) localInstanceLease(ctx context.Context) (rootoci.Lease, error) {
+	if child == nil || child.guard(ctx) != nil {
+		return rootoci.Lease{}, rootoci.ErrUnauthorized
+	}
+	deadline, finite := child.ctx.Deadline()
+	if !finite || !time.Now().Before(deadline) {
+		return rootoci.Lease{}, rootoci.ErrUnauthorized
+	}
+	probe, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	stop := context.AfterFunc(child.ctx, cancel)
+	defer stop()
+	descriptor, err := child.registry.imds.FetchDescriptor(probe)
+	if err != nil || descriptor.SchemaVersion != 1 || descriptor.Slot != child.registry.slot || child.guard(probe) != nil {
+		return rootoci.Lease{}, rootoci.ErrUnauthorized
+	}
+	instance, err := child.registry.imds.FetchInstanceID(probe)
+	if err != nil || instance != child.registry.instance || child.guard(probe) != nil {
+		return rootoci.Lease{}, rootoci.ErrUnauthorized
+	}
+	binding := fmt.Sprintf("source-local-instance:%s:%s:%s:%x", child.registry.parent.Binding(), child.witness.Binding(), child.command, child.querySHA256)
+	if child.guard(ctx) != nil {
+		return rootoci.Lease{}, rootoci.ErrUnauthorized
+	}
+	return rootoci.Lease{Context: child.ctx, Deadline: deadline, Binding: binding}, nil
 }
 
 func (child *rootBrokerSourceChild) servePublic(ctx context.Context, conn *net.UnixConn) error {

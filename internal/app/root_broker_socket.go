@@ -24,7 +24,7 @@ type rootBrokerSocket struct {
 }
 
 func listenRootBrokerSocket(path string, gid uint32) (*rootBrokerSocket, error) {
-	if path != rootBrokerStartupSocket && path != rootBrokerObservationSocket && path != rootBrokerReconnectSocket && path != rootBrokerClientSocket || gid == 0 {
+	if path != rootBrokerStartupSocket && path != rootBrokerObservationSocket && path != rootBrokerReconnectSocket && path != rootBrokerClientSocket && path != rootBrokerSourceSocket || gid == 0 {
 		return nil, rootoci.ErrUnauthorized
 	}
 	directory, err := unix.Open("/", unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)

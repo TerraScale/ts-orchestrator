@@ -133,7 +133,7 @@ func runRootBrokerPeerFixtureServer(t *testing.T) {
 	defer cancel()
 	var sockets []*rootBrokerSocket
 	var workers sync.WaitGroup
-	errorsFound := make(chan error, 4)
+	errorsFound := make(chan error, 5)
 	defer func() {
 		cancel()
 		for _, socket := range sockets {
@@ -145,7 +145,7 @@ func runRootBrokerPeerFixtureServer(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	for _, path := range []string{rootBrokerStartupSocket, rootBrokerObservationSocket, rootBrokerReconnectSocket, rootBrokerClientSocket} {
+	for _, path := range []string{rootBrokerStartupSocket, rootBrokerObservationSocket, rootBrokerReconnectSocket, rootBrokerClientSocket, rootBrokerSourceSocket} {
 		socket, err := listenRootBrokerSocket(path, 65534)
 		if err != nil {
 			t.Fatal(err)
@@ -244,7 +244,7 @@ func runRootBrokerPeerFixtureOrdinary(t *testing.T) {
 	pins := make(map[string]rootBrokerPeerIdentity)
 	socketPins := make(map[string]bool)
 	var process string
-	for _, path := range []string{rootBrokerStartupSocket, rootBrokerObservationSocket, rootBrokerReconnectSocket, rootBrokerClientSocket} {
+	for _, path := range []string{rootBrokerStartupSocket, rootBrokerObservationSocket, rootBrokerReconnectSocket, rootBrokerClientSocket, rootBrokerSourceSocket} {
 		connection, err := new(net.Dialer).DialContext(ctx, "unix", path)
 		if err != nil {
 			t.Fatal(err)
@@ -279,7 +279,7 @@ func runRootBrokerPeerFixtureOrdinary(t *testing.T) {
 			process = identity.process
 		}
 		if identity.process != process || socketPins[identity.socket] {
-			t.Fatal("four fixed endpoints did not retain one root process and distinct socket identities")
+			t.Fatal("fixed endpoints did not retain one root process and distinct socket identities")
 		}
 		socketPins[identity.socket] = true
 		connections[path], pins[path] = conn, identity
@@ -290,7 +290,7 @@ func runRootBrokerPeerFixtureOrdinary(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := rootBrokerPeerBinding(conn, "/run/terrascale-orchestrator/unregistered.sock"); !errors.Is(err, rootoci.ErrUnauthorized) {
-		t.Fatal("accepted a socket path outside the four fixed endpoints")
+		t.Fatal("accepted a socket path outside the fixed endpoints")
 	}
 	mutate := func(action string) {
 		t.Helper()

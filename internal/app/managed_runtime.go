@@ -156,6 +156,11 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 		return fmt.Errorf("start root-owned regional broker: %w", err)
 	}
 	defer broker.Close()
+	authority.children.Store(broker.children)
+	ownhost.mu.Lock()
+	ownhost.children = broker.children
+	ownhost.mu.Unlock()
+	ctx = swarmruntime.WithSourceChildRegistrar(ctx, broker.children)
 	stopBroker := context.AfterFunc(broker.ctx, func() { stopRuntime(errors.New("root-owned regional broker authority ended")) })
 	defer stopBroker()
 	notifier := sdnotify.FromEnvironment()

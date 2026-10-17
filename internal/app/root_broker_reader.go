@@ -244,7 +244,7 @@ type rootBrokerPeerIdentity struct {
 
 // Ordinary callers observe the kernel peer without opening or signaling root's executable.
 func rootBrokerPeerBinding(socket *net.UnixConn, path string) (rootBrokerPeerIdentity, error) {
-	if path != rootBrokerStartupSocket && path != rootBrokerObservationSocket && path != rootBrokerReconnectSocket && path != rootBrokerClientSocket {
+	if path != rootBrokerStartupSocket && path != rootBrokerObservationSocket && path != rootBrokerReconnectSocket && path != rootBrokerClientSocket && path != rootBrokerSourceSocket {
 		return rootBrokerPeerIdentity{}, rootoci.ErrUnauthorized
 	}
 	peer, err := rootociwire.PeerCredential(socket)
