@@ -249,7 +249,7 @@ func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInpu
 			return FoundationPreparation{}, fmt.Errorf("validate prepared %s OCI plan: %w", cell, err)
 		}
 		plan = validated
-		regional := FoundationIntent{Generation: 1, Plan: plan, BootstrapMaterial: &material}
+		regional := FoundationIntent{ControlLineagePurpose: RegionalControlLineagePurpose, Generation: 1, Plan: plan, BootstrapMaterial: &material}
 		grant.Regions = append(grant.Regions, regional)
 		slot, err := controllerBootstrapSlot(installation, cell, *material.Startup, host)
 		if err != nil {
@@ -510,6 +510,9 @@ func ValidatePreparedFoundation(grant FoundationGrant) error {
 	}
 	seen := map[string]bool{}
 	for _, regional := range grant.Regions {
+		if err := regional.validateControlLineagePurpose(); err != nil {
+			return err
+		}
 		cell, _ := regional.Plan["cell"].(string)
 		if !slices.Contains([]string{"GRU", "SFO", "FRA"}, cell) || seen[cell] || regional.BootstrapMaterial == nil || regional.BootstrapMaterial.Startup == nil {
 			return errors.New("prepared foundation differs from the fixed bootstrap footprint")
