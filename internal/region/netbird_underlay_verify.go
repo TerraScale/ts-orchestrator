@@ -135,7 +135,7 @@ func verifyNetBirdUnderlaySnapshot(ctx, originalCtx context.Context, factory *oc
 	journal := *record.NetBirdUnderlay
 	ctx, retainedCancel := context.WithDeadline(ctx, journal.ExpiresAt)
 	defer retainedCancel()
-	if err := journal.validate(); err != nil {
+	if err := journal.Validate(); err != nil {
 		return zero, time.Time{}, err
 	}
 	expected, err := netBirdUnderlayBirth(ctx, originalCtx, factory, resolver, purpose)
