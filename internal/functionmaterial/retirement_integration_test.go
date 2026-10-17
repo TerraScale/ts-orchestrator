@@ -107,7 +107,7 @@ func TestRetirementUsesConditionalOCIRequestsAndRecoversLostReply(t *testing.T) 
 	}
 	factory.Configure(&vault.BaseClient, ociclient.ServiceVault)
 	factory.Configure(&bundles.BaseClient, ociclient.ServiceVault)
-	controller := Controller{Authority: control, Reader: Reader{Bundles: &bundles, VaultID: backend.target.VaultID}, Target: backend.target}
+	controller := RootStore{Reader: Reader{Authority: control}, Vault: &vault, Versions: &vault, Bundles: &bundles, Target: backend.target, Guard: func(ctx context.Context) error { return control.Guard(ctx, epoch) }, Seal: func(ctx context.Context) error { return ctx.Err() }}
 	unused := func(_ context.Context, actual Binding) error {
 		if actual != binding {
 			return ErrMaterial
@@ -115,7 +115,7 @@ func TestRetirementUsesConditionalOCIRequestsAndRecoversLostReply(t *testing.T) 
 		return nil
 	}
 	backend.reset()
-	retired, err := controller.RetireExpired(t.Context(), &vault, unused)
+	retired, err := controller.retireExpired(t.Context(), &vault, unused)
 	_, schedules, _ := backend.observations()
 	if err != nil || len(retired) != 0 || schedules != 0 {
 		t.Fatalf("unexpired delivery retired: %d, %v", len(retired), err)
@@ -148,7 +148,7 @@ func TestRetirementUsesConditionalOCIRequestsAndRecoversLostReply(t *testing.T) 
 			}
 			backend.mu.Unlock()
 			calls := 0
-			_, err := controller.RetireExpired(t.Context(), &vault, func(ctx context.Context, actual Binding) error {
+			_, err := controller.retireExpired(t.Context(), &vault, func(ctx context.Context, actual Binding) error {
 				calls++
 				if calls == test.denyCall {
 					return errors.New("task absence could not be established")
@@ -166,13 +166,13 @@ func TestRetirementUsesConditionalOCIRequestsAndRecoversLostReply(t *testing.T) 
 	backend.wire = wire
 	backend.loseReply = true
 	backend.mu.Unlock()
-	retired, err = controller.RetireExpired(t.Context(), &vault, unused)
+	retired, err = controller.retireExpired(t.Context(), &vault, unused)
 	_, schedules, reads := backend.observations()
 	if err != nil || len(retired) != 1 || schedules != 1 || retired[0].TaskID != binding.TaskID || retired[0].MaterialSHA256 != sum(wire) || !retired[0].ExpiresAt.Equal(expires) || time.Until(retired[0].DeleteAt) < 24*time.Hour {
 		t.Fatalf("lost schedule reply was not recovered: count=%d schedules=%d error=%v", len(retired), schedules, err)
 	}
-	restarted := Controller{Authority: control, Reader: Reader{Bundles: &bundles, VaultID: backend.target.VaultID}, Target: backend.target}
-	retired, err = restarted.RetireExpired(t.Context(), &vault, func(context.Context, Binding) error { t.Fatal("pending deletion rechecked task"); return ErrMaterial })
+	restarted := RootStore{Reader: Reader{Authority: control}, Vault: &vault, Versions: &vault, Bundles: &bundles, Target: backend.target, Guard: func(ctx context.Context) error { return control.Guard(ctx, epoch) }, Seal: func(ctx context.Context) error { return ctx.Err() }}
+	retired, err = restarted.retireExpired(t.Context(), &vault, func(context.Context, Binding) error { t.Fatal("pending deletion rechecked task"); return ErrMaterial })
 	_, schedules, afterReads := backend.observations()
 	if err != nil || len(retired) != 1 || retired[0].TaskID != "" || schedules != 1 || afterReads != reads {
 		t.Fatalf("restart replayed deletion or read inaccessible bundle: schedules=%d bundles=%d error=%v", schedules, afterReads, err)
@@ -196,7 +196,7 @@ func TestRetirementUsesConditionalOCIRequestsAndRecoversLostReply(t *testing.T) 
 		backend.name, backend.wire = ref.Name, orphanWire
 		backend.mu.Unlock()
 		checks := 0
-		retired, err := controller.RetireExpired(t.Context(), &vault, func(_ context.Context, candidate Binding) error {
+		retired, err := controller.retireExpired(t.Context(), &vault, func(_ context.Context, candidate Binding) error {
 			checks++
 			if candidate != orphan.Binding {
 				return ErrMaterial

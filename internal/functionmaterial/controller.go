@@ -1,12 +1,8 @@
 package functionmaterial
 
 import (
-	"bytes"
 	"context"
-	"encoding/json/v2"
 	"errors"
-	"strings"
-	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/brokerauth"
@@ -14,7 +10,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/functions"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
-	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/nats-io/nats.go"
 )
 
@@ -25,16 +20,13 @@ type Controller struct {
 	Authority          *authority.Runtime
 	Conn               *nats.Conn
 	Issuer             TaskIssuer
-	Vault              vaultsecret.VaultClient
-	Versions           vaultsecret.VersionClient
-	Target             vaultsecret.Target
 	AuthorizeRecipient func(context.Context, Binding) error
 }
 
 // Prepare recovers publication before committing the immutable task grant.
 // Existing Vault material retains its worker key, including after a lost reply.
 func (controller Controller) Prepare(ctx context.Context, tenant, function string, binding Binding) (VerifiedDelivery, error) {
-	if controller.Authority == nil || controller.Conn == nil || controller.Issuer == nil || controller.Vault == nil || controller.Versions == nil || controller.AuthorizeRecipient == nil || controller.Reader.Bundles == nil || controller.Target.VaultID != controller.Reader.VaultID {
+	if controller.Authority == nil || controller.Conn == nil || controller.Issuer == nil || controller.AuthorizeRecipient == nil || controller.Reader.Materials == nil {
 		return VerifiedDelivery{}, ErrMaterial
 	}
 	if err := controller.AuthorizeRecipient(ctx, binding); err != nil {
@@ -44,19 +36,12 @@ func (controller Controller) Prepare(ctx context.Context, tenant, function strin
 	reader.Authority = controller.Authority
 	reader.AuthorizeRecipient = controller.AuthorizeRecipient
 	reader.Recipient = Recipient{NodeID: binding.NodeID, InstanceID: binding.InstanceID, Region: binding.Region, HostID: binding.HostID}
-	ref, err := secretRef(reader.VaultID, binding)
-	if err != nil {
-		return VerifiedDelivery{}, err
-	}
 	proof, sequence, err := reader.currentFunction(ctx, tenant, function)
 	if err != nil {
 		return VerifiedDelivery{}, err
 	}
 	if catalog.OCIRegion(proof.Claim().Cell) != binding.Region {
 		return VerifiedDelivery{}, ErrMaterial
-	}
-	if err := vaultsecret.ValidateDeliveryRefs(strings.ToLower(proof.Claim().Cell), "function-worker", map[string]vaultsecret.Ref{"FUNCTION_MATERIAL_FILE": ref}, nil); err != nil {
-		return VerifiedDelivery{}, err
 	}
 	account, err := reader.currentAccount(ctx, proof)
 	if err != nil {
@@ -79,62 +64,14 @@ func (controller Controller) Prepare(ctx context.Context, tenant, function strin
 	if err := functions.ProvisionQueue(ctx, controller.Conn, proof); err != nil {
 		return VerifiedDelivery{}, err
 	}
-	_, err = vaultsecret.Ensure(ctx, controller.Vault, controller.Target, ref.Name, "Admitted function task material", func(ctx context.Context) (string, error) {
-		if err := guard(); err != nil {
-			return "", err
-		}
-		material, err := controller.issue(ctx, reader, proof, sequence, account, binding)
-		if err != nil {
-			return "", err
-		}
-		wire, err := encodeMaterial(material)
-		if err != nil {
-			return "", err
-		}
-		defer clear(wire)
-		return string(wire), nil
-	})
+	wire, err := controller.Issuer.IssueFunctionTaskMaterial(ctx, binding.TaskID)
 	if err != nil {
 		return VerifiedDelivery{}, err
 	}
-	current, err := vaultsecret.ReadCurrent(ctx, reader.Bundles, ref)
-	if err != nil {
-		return VerifiedDelivery{}, err
-	}
-	wire := []byte(current.Value())
-	defer func() { clear(wire) }()
+	defer clear(wire)
 	material, err := decodeMaterial(wire)
 	if err != nil {
 		return VerifiedDelivery{}, err
-	}
-	if material.Binding != binding || material.TenantID != tenant || material.FunctionID != function || material.EnvelopeSHA256 != proof.EnvelopeSHA256() || material.IntentSequence != sequence {
-		return VerifiedDelivery{}, ErrMaterial
-	}
-	if _, err := reader.verifyMaterial(material, binding, proof, sequence, account); err != nil {
-		material, err = controller.issue(ctx, reader, proof, sequence, account, binding)
-		if err != nil {
-			return VerifiedDelivery{}, err
-		}
-		next, err := encodeMaterial(material)
-		if err != nil {
-			return VerifiedDelivery{}, err
-		}
-		defer clear(next)
-		if err := controller.recheck(ctx, reader, proof, sequence, account, binding, epoch); err != nil {
-			return VerifiedDelivery{}, err
-		}
-		if _, err := vaultsecret.PublishVersion(ctx, controller.Versions, ref, current.ID, current.Version, next); err != nil {
-			return VerifiedDelivery{}, err
-		}
-		readback, err := vaultsecret.ReadCurrent(ctx, reader.Bundles, ref)
-		if err != nil {
-			return VerifiedDelivery{}, err
-		}
-		if readback.ID != current.ID || readback.Version <= current.Version || !bytes.Equal([]byte(readback.Value()), next) {
-			return VerifiedDelivery{}, ErrMaterial
-		}
-		clear(wire)
-		wire = bytes.Clone(next)
 	}
 	if _, err := reader.verifyMaterial(material, binding, proof, sequence, account); err != nil {
 		return VerifiedDelivery{}, err
@@ -172,35 +109,4 @@ func (controller Controller) recheck(ctx context.Context, reader Reader, proof r
 		return ErrMaterial
 	}
 	return nil
-}
-
-func (controller Controller) issue(ctx context.Context, reader Reader, proof release.VerifiedFunction, sequence uint64, account brokerauth.Claim, binding Binding) (storedMaterial, error) {
-	wire, err := controller.Issuer.IssueFunctionTaskMaterial(ctx, binding.TaskID)
-	if err != nil {
-		return storedMaterial{}, err
-	}
-	defer clear(wire)
-	material, err := decodeMaterial(wire)
-	if err != nil {
-		return storedMaterial{}, err
-	}
-	if _, err := reader.verifyMaterial(material, binding, proof, sequence, account); err != nil {
-		return storedMaterial{}, err
-	}
-	return material, nil
-}
-
-func encodeMaterial(material storedMaterial) ([]byte, error) {
-	if !time.Now().Before(material.ExpiresAt) {
-		return nil, ErrMaterial
-	}
-	wire, err := json.Marshal(material)
-	if err != nil {
-		return nil, err
-	}
-	if len(wire) > 16384 {
-		clear(wire)
-		return nil, errors.New("function credentials and TLS material exceed Vault's 16 KiB bound")
-	}
-	return wire, nil
 }

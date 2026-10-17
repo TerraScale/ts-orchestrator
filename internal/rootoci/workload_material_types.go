@@ -58,6 +58,8 @@ type ContainerGenerationReceipt struct {
 }
 
 type WorkloadCredentials interface {
+	ReadFunctionTaskMaterial(context.Context, Call, FunctionTaskRequest) (FunctionTaskMaterialReceipt, error)
+	RetireExpiredFunctionMaterial(context.Context, Call, FunctionRetirementRequest) (FunctionRetirementReceipt, error)
 	MaterializeContainer(context.Context, Call, MaterializeContainerRequest) (ContainerMaterialReceipt, error)
 	ObserveContainerGeneration(context.Context, Call, ObserveContainerGenerationRequest) (ContainerGenerationReceipt, error)
 	MaterializeNativeCanary(context.Context, Call, NativeCanaryRequest) (NativeCanaryReceipt, error)

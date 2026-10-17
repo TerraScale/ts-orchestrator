@@ -3,6 +3,7 @@ package functionmaterial
 import (
 	"context"
 	"errors"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -37,11 +38,18 @@ var retirementID = regexp.MustCompile(`^ocid1\.vaultsecret\.oc1\.[a-z0-9-]+\.[a-
 
 // RetireExpired schedules only exact, expired, independently unused deliveries.
 // Authority grants remain in the control log for audit after Vault deletion.
-func (controller Controller) RetireExpired(ctx context.Context, lifecycle RetirementClient, requireUnused func(context.Context, Binding) error) ([]Retirement, error) {
-	if controller.Authority == nil || lifecycle == nil || requireUnused == nil || controller.Reader.Bundles == nil || controller.Target.CompartmentID == "" || controller.Target.VaultID != controller.Reader.VaultID {
+func (store RootStore) RetireExpired(ctx context.Context, lifecycle RetirementClient, requireUnused func(context.Context, Binding) error) ([]Retirement, error) {
+	if os.Geteuid() != 0 {
 		return nil, ErrMaterial
 	}
-	parts := strings.Split(controller.Target.VaultID, ".")
+	return store.retireExpired(ctx, lifecycle, requireUnused)
+}
+
+func (store RootStore) retireExpired(ctx context.Context, lifecycle RetirementClient, requireUnused func(context.Context, Binding) error) ([]Retirement, error) {
+	if store.Reader.Authority == nil || lifecycle == nil || requireUnused == nil || store.Bundles == nil || store.Target.CompartmentID == "" || store.Target.VaultID == "" {
+		return nil, ErrMaterial
+	}
+	parts := strings.Split(store.Target.VaultID, ".")
 	if len(parts) < 5 || parts[0] != "ocid1" || parts[1] != "vault" || parts[2] != "oc1" {
 		return nil, ErrMaterial
 	}
@@ -51,11 +59,8 @@ func (controller Controller) RetireExpired(ctx context.Context, lifecycle Retire
 	}
 	prefix := cell.Name() + "-function-worker-"
 	names := regexp.MustCompile(`^` + regexp.QuoteMeta(prefix) + `[0-9a-f]{64}$`)
-	epoch := controller.Authority.Current().Epoch
-	ctx = ociclient.WithAuthority(ctx, func(ctx context.Context) error {
-		return controller.Authority.Guard(ctx, epoch)
-	})
-	if err := controller.Authority.Guard(ctx, epoch); err != nil {
+	ctx = ociclient.WithAuthority(ctx, store.guard)
+	if err := store.guard(ctx); err != nil {
 		return nil, err
 	}
 	var retired []Retirement
@@ -64,7 +69,7 @@ func (controller Controller) RetireExpired(ctx context.Context, lifecycle Retire
 	pages, ids := map[string]bool{}, map[string]bool{}
 	for range 32 {
 		response, err := lifecycle.ListSecrets(ociclient.RequestContext(ctx), ocivault.ListSecretsRequest{
-			CompartmentId: new(controller.Target.CompartmentID), VaultId: new(controller.Target.VaultID), Limit: new(1000), Page: page,
+			CompartmentId: new(store.Target.CompartmentID), VaultId: new(store.Target.VaultID), Limit: new(1000), Page: page,
 			SortBy: ocivault.ListSecretsSortByName, SortOrder: ocivault.ListSecretsSortOrderAsc,
 		})
 		if err != nil || len(response.Items) > 1000 {
@@ -79,7 +84,7 @@ func (controller Controller) RetireExpired(ctx context.Context, lifecycle Retire
 				continue
 			}
 			ids[*item.Id] = true
-			result, err := controller.retireSecret(ctx, lifecycle, requireUnused, epoch, *item.Id, *item.SecretName)
+			result, err := store.retireSecret(ctx, lifecycle, requireUnused, *item.Id, *item.SecretName)
 			if err != nil {
 				failures = append(failures, err)
 				continue
@@ -89,6 +94,9 @@ func (controller Controller) RetireExpired(ctx context.Context, lifecycle Retire
 			}
 		}
 		if response.OpcNextPage == nil || *response.OpcNextPage == "" {
+			if err := store.guard(ctx); err != nil {
+				return nil, err
+			}
 			return retired, errors.Join(failures...)
 		}
 		if pages[*response.OpcNextPage] {
@@ -100,19 +108,21 @@ func (controller Controller) RetireExpired(ctx context.Context, lifecycle Retire
 	return retired, errors.Join(append(failures, ErrMaterial)...)
 }
 
-func (controller Controller) retirementMetadata(ctx context.Context, lifecycle RetirementClient, id, name string) (ocivault.GetSecretResponse, error) {
+func (store RootStore) retirementMetadata(ctx context.Context, lifecycle interface {
+	GetSecret(context.Context, ocivault.GetSecretRequest) (ocivault.GetSecretResponse, error)
+}, id, name string) (ocivault.GetSecretResponse, error) {
 	response, err := lifecycle.GetSecret(ociclient.RequestContext(ctx), ocivault.GetSecretRequest{SecretId: new(id)})
 	secret := response.Secret
 	if err != nil || secret.Id == nil || *secret.Id != id || secret.SecretName == nil || *secret.SecretName != name ||
-		secret.VaultId == nil || *secret.VaultId != controller.Target.VaultID || secret.CompartmentId == nil || *secret.CompartmentId != controller.Target.CompartmentID ||
+		secret.VaultId == nil || *secret.VaultId != store.Target.VaultID || secret.CompartmentId == nil || *secret.CompartmentId != store.Target.CompartmentID ||
 		secret.Description == nil || *secret.Description != "Admitted function task material" || response.Etag == nil || *response.Etag == "" {
 		return ocivault.GetSecretResponse{}, ErrMaterial
 	}
 	return response, nil
 }
 
-func (controller Controller) retireSecret(ctx context.Context, lifecycle RetirementClient, requireUnused func(context.Context, Binding) error, epoch uint64, id, name string) (Retirement, error) {
-	metadata, err := controller.retirementMetadata(ctx, lifecycle, id, name)
+func (store RootStore) retireSecret(ctx context.Context, lifecycle RetirementClient, requireUnused func(context.Context, Binding) error, id, name string) (Retirement, error) {
+	metadata, err := store.retirementMetadata(ctx, lifecycle, id, name)
 	if err != nil {
 		return Retirement{}, err
 	}
@@ -128,8 +138,8 @@ func (controller Controller) retireSecret(ctx context.Context, lifecycle Retirem
 	if metadata.TimeOfDeletion != nil || metadata.CurrentVersionNumber == nil || *metadata.CurrentVersionNumber < 1 {
 		return Retirement{}, ErrMaterial
 	}
-	ref := vaultsecret.Ref{Vault: controller.Target.VaultID, Name: name}
-	current, err := vaultsecret.ReadCurrent(ociclient.RequestContext(ctx), controller.Reader.Bundles, ref)
+	ref := vaultsecret.Ref{Vault: store.Target.VaultID, Name: name}
+	current, err := vaultsecret.ReadCurrent(ociclient.RequestContext(ctx), store.Bundles, ref)
 	if err != nil || current.ID != id || current.Version != *metadata.CurrentVersionNumber {
 		return Retirement{}, ErrMaterial
 	}
@@ -144,7 +154,7 @@ func (controller Controller) retireSecret(ctx context.Context, lifecycle Retirem
 			clear(value)
 		}
 	}()
-	expected, err := secretRef(controller.Target.VaultID, material.Binding)
+	expected, err := secretRef(store.Target.VaultID, material.Binding)
 	if err != nil || expected != ref || material.ExpiresAt.IsZero() {
 		return Retirement{}, ErrMaterial
 	}
@@ -152,7 +162,7 @@ func (controller Controller) retireSecret(ctx context.Context, lifecycle Retirem
 		return Retirement{}, nil
 	}
 	manifest := sum(wire)
-	entry, err := controller.Authority.ReadFunctionGrant(ctx, material.Binding.TaskID)
+	entry, err := store.Reader.Authority.ReadFunctionGrant(ctx, material.Binding.TaskID)
 	if err == nil {
 		grant, err := authority.DecodeFunctionGrant(entry)
 		if err != nil || grant.Binding != bindingGrant(material.Binding, manifest) || grant.TenantID != material.TenantID || grant.FunctionID != material.FunctionID || grant.EnvelopeSHA256 != material.EnvelopeSHA256 {
@@ -166,21 +176,21 @@ func (controller Controller) retireSecret(ctx context.Context, lifecycle Retirem
 	if err := requireUnused(ctx, material.Binding); err != nil {
 		return Retirement{}, err
 	}
-	if err := controller.Authority.Guard(ctx, epoch); err != nil {
+	if err := store.guard(ctx); err != nil {
 		return Retirement{}, err
 	}
-	after, err := vaultsecret.ReadCurrent(ociclient.RequestContext(ctx), controller.Reader.Bundles, ref)
+	after, err := vaultsecret.ReadCurrent(ociclient.RequestContext(ctx), store.Bundles, ref)
 	if err != nil || after.ID != current.ID || after.Version != current.Version || after.Value() != current.Value() {
 		return Retirement{}, ErrMaterial
 	}
-	latest, err := controller.retirementMetadata(ctx, lifecycle, id, name)
+	latest, err := store.retirementMetadata(ctx, lifecycle, id, name)
 	if err != nil || latest.LifecycleState != ocivault.SecretLifecycleStateActive || latest.TimeOfDeletion != nil || latest.CurrentVersionNumber == nil || *latest.CurrentVersionNumber != current.Version || *latest.Etag != *metadata.Etag {
 		return Retirement{}, ErrMaterial
 	}
 	if err := requireUnused(ctx, material.Binding); err != nil {
 		return Retirement{}, err
 	}
-	if err := controller.Authority.Guard(ctx, epoch); err != nil {
+	if err := store.guard(ctx); err != nil {
 		return Retirement{}, err
 	}
 	// OCI requires at least 24 hours; the extra hour covers clock margin.
@@ -192,7 +202,7 @@ func (controller Controller) retireSecret(ctx context.Context, lifecycle Retirem
 	})
 	// Both success and a lost response need exact provider confirmation. Never
 	// replay a destructive request merely because its reply was uncertain.
-	pending, err := controller.retirementMetadata(ctx, lifecycle, id, name)
+	pending, err := store.retirementMetadata(ctx, lifecycle, id, name)
 	if err != nil || pending.LifecycleState != ocivault.SecretLifecycleStatePendingDeletion || pending.TimeOfDeletion == nil || !pending.TimeOfDeletion.Equal(deleteAt) {
 		return Retirement{}, ErrMaterial
 	}

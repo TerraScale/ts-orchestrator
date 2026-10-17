@@ -39,7 +39,6 @@ type functionControllerConfig struct {
 	JS                jetstream.JetStream
 	Startup           bootstrap.DerivedStartupAuthority
 	Material          functionmaterial.Controller
-	Retirement        functionmaterial.RetirementClient
 	Client            api.ControlClient
 	ReadClient        api.ControlReader
 	Worker            func(context.Context, release.VerifiedFunction) (functionWorkerRelease, error)
@@ -126,10 +125,10 @@ func (config functionControllerConfig) functionEpoch(ctx context.Context) (uint6
 }
 
 func startFunctionController(ctx context.Context, config functionControllerConfig) (host.FunctionMaterialProvider, func(), error) {
-	if config.Authority == nil || config.JS == nil || !config.Startup.IsVerified() || config.Client == nil || config.Roots == nil || config.Factory == nil || config.Worker == nil || config.Evidence == nil || config.Probe == nil || config.Retirement == nil ||
+	if config.Authority == nil || config.JS == nil || !config.Startup.IsVerified() || config.Client == nil || config.Roots == nil || config.Factory == nil || config.Worker == nil || config.Evidence == nil || config.Probe == nil ||
 		config.Channel == nil || config.Material.Reader.Roots == nil || config.Material.Reader.Artifacts == nil ||
-		config.Material.Conn == nil || config.Material.Issuer == nil || config.Material.Vault == nil || config.Material.Versions == nil ||
-		config.Material.Reader.Bundles == nil || config.Material.Reader.Accounts == nil || config.Material.Reader.VaultID == "" || config.Material.Target.VaultID != config.Material.Reader.VaultID ||
+		config.Material.Conn == nil || config.Material.Issuer == nil ||
+		config.Material.Reader.Materials == nil || config.Material.Reader.Accounts == nil ||
 		!release.ValidRegion(strings.ToUpper(config.Cell)) || !release.ValidEnvironment(config.Environment) {
 		return nil, nil, errors.New("function controller requires current regional authority, release source, artifacts and manager")
 	}

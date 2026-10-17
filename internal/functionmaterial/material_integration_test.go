@@ -118,10 +118,13 @@ func TestControllerRecoversVaultPublicationBeforeImmutableRecipientGrant(t *test
 	}
 	vault, bundles, backend, target := materialVault(t)
 	binding := Binding{TaskID: strings.Repeat("a", 25), ServiceID: strings.Repeat("b", 25), NodeID: strings.Repeat("c", 25), InstanceID: "ocid1.instance.oc1.sa-saopaulo-1.worker", Region: "sa-saopaulo-1", HostID: entityid.New(), Fingerprint: strings.Repeat("a", 64)}
-	reader := Reader{Authority: control, Artifacts: artifacts, Roots: func() trust.Keyring { return roots }, Accounts: accounts, Bundles: bundles, VaultID: target.VaultID, Trust: public, Recipient: Recipient{NodeID: binding.NodeID, InstanceID: binding.InstanceID, Region: binding.Region, HostID: binding.HostID}}
+	reader := Reader{Authority: control, Artifacts: artifacts, Roots: func() trust.Keyring { return roots }, Accounts: accounts, Trust: public, Recipient: Recipient{NodeID: binding.NodeID, InstanceID: binding.InstanceID, Region: binding.Region, HostID: binding.HostID}}
 	checks := 0
 	interrupted := errors.New("recipient disappeared after publication")
-	controller := Controller{Reader: reader, Authority: control, Conn: conn, Issuer: materialTestIssuer{reader: reader, issuer: issuer, binding: binding, proof: proof, vault: vault, target: target}, Vault: vault, Versions: vault, Target: target, AuthorizeRecipient: func(_ context.Context, candidate Binding) error {
+	backendIssuer := materialTestIssuer{reader: reader, issuer: issuer, binding: binding, proof: proof, vault: vault, bundles: bundles, target: target,
+		guard: func(ctx context.Context) error { return control.Guard(ctx, control.Current().Epoch) }}
+	reader.Materials = backendIssuer
+	controller := Controller{Reader: reader, Authority: control, Conn: conn, Issuer: backendIssuer, AuthorizeRecipient: func(_ context.Context, candidate Binding) error {
 		if candidate != binding {
 			return ErrMaterial
 		}
@@ -137,6 +140,13 @@ func TestControllerRecoversVaultPublicationBeforeImmutableRecipientGrant(t *test
 		}
 		return nil
 	}
+	// Simulate a concurrent unique-name winner whose exact wire differs from ours.
+	winner, err := backendIssuer.store(reader).candidate(t.Context(), issuer, binding, proof.Claim().TenantID, proof.Claim().FunctionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend.createWinner = append(winner, ' ')
+	backend.loseUpdateReply = true
 	if _, err := controller.Prepare(t.Context(), proof.Claim().TenantID, proof.Claim().FunctionID, binding); !errors.Is(err, interrupted) {
 		t.Fatalf("publication interruption: %v", err)
 	}
@@ -185,6 +195,20 @@ func TestControllerRecoversVaultPublicationBeforeImmutableRecipientGrant(t *test
 	if creates != 1 || updates != 1 {
 		t.Fatalf("Vault creation/conditional update = %d/%d", creates, updates)
 	}
+	entry, err := control.ReadFunctionGrant(t.Context(), binding.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant, err := authority.DecodeFunctionGrant(entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend.mu.Lock()
+	exact := sum(backend.value)
+	backend.mu.Unlock()
+	if grant.Binding.MaterialManifestSHA256 != exact {
+		t.Fatal("grant hashed reencoded bytes instead of the confirmed CURRENT wire")
+	}
 	clone := delivery.Files()
 	clone["broker.creds"][0] = 0
 	if bytes.Equal(clone["broker.creds"], delivery.Files()["broker.creds"]) {
@@ -226,7 +250,9 @@ type materialTestIssuer struct {
 	issuer  *bootstrapmaterial.ControllerIssuer
 	binding Binding
 	proof   release.VerifiedFunction
-	vault   vaultsecret.VaultClient
+	vault   *ocivault.VaultsClient
+	bundles vaultsecret.BundleClient
+	guard   func(context.Context) error
 	target  vaultsecret.Target
 }
 
@@ -242,7 +268,30 @@ func (issuer materialTestIssuer) IssueFunctionTaskMaterial(ctx context.Context, 
 		return nil
 	}
 	claim := issuer.proof.Claim()
-	return reader.issueTaskMaterial(ctx, issuer.issuer, issuer.binding, claim.TenantID, claim.FunctionID, issuer.vault, issuer.target)
+	return issuer.store(reader).issueTaskMaterial(ctx, issuer.issuer, issuer.binding, claim.TenantID, claim.FunctionID)
+}
+
+func (issuer materialTestIssuer) store(reader Reader) RootStore {
+	return RootStore{Reader: reader, Vault: issuer.vault, Versions: issuer.vault, Bundles: issuer.bundles, Target: issuer.target, Guard: issuer.guard, Seal: func(ctx context.Context) error { return ctx.Err() }}
+}
+
+func (issuer materialTestIssuer) ReadFunctionTaskMaterial(ctx context.Context, taskID string) ([]byte, error) {
+	if taskID != issuer.binding.TaskID {
+		return nil, ErrMaterial
+	}
+	reader := issuer.reader
+	reader.AuthorizeRecipient = func(ctx context.Context, binding Binding) error {
+		if binding != issuer.binding {
+			return ErrMaterial
+		}
+		return issuer.guard(ctx)
+	}
+	claim := issuer.proof.Claim()
+	return issuer.store(reader).readTaskMaterial(ctx, issuer.issuer, issuer.binding, claim.TenantID, claim.FunctionID)
+}
+
+func (issuer materialTestIssuer) RetireExpiredFunctionMaterial(context.Context) (int, error) {
+	return 0, ErrMaterial
 }
 
 func (issuer materialTestIssuer) IssueFunctionObservationIdentity(ctx context.Context, taskID string) (cert, key, ca []byte, err error) {
@@ -299,6 +348,8 @@ type vaultBackend struct {
 	name             string
 	version          int64
 	creates, updates int
+	createWinner     []byte
+	loseUpdateReply  bool
 	target           vaultsecret.Target
 }
 
@@ -339,7 +390,7 @@ func (backend *vaultBackend) serve(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(wire)
 	}
 	metadata := func() map[string]any {
-		return map[string]any{"id": materialSecretID, "vaultId": backend.target.VaultID, "secretName": backend.name, "lifecycleState": "ACTIVE", "currentVersionNumber": backend.version}
+		return map[string]any{"id": materialSecretID, "vaultId": backend.target.VaultID, "secretName": backend.name, "compartmentId": backend.target.CompartmentID, "description": "Admitted function task material", "lifecycleState": "ACTIVE", "currentVersionNumber": backend.version}
 	}
 	switch {
 	case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/secrets"):
@@ -365,8 +416,18 @@ func (backend *vaultBackend) serve(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "content", 400)
 			return
 		}
+		if len(backend.createWinner) > 0 {
+			value = bytes.Clone(backend.createWinner)
+		}
 		backend.name, backend.value, backend.version = input.SecretName, value, 1
 		backend.creates++
+		if len(backend.createWinner) > 0 {
+			clear(backend.createWinner)
+			backend.createWinner = nil
+			w.WriteHeader(http.StatusConflict)
+			write(map[string]any{"code": "Conflict", "message": "concurrent name winner"})
+			return
+		}
 		w.WriteHeader(200)
 		write(metadata())
 	case r.Method == "GET" && strings.Contains(r.URL.Path, "/secrets/"):
@@ -392,9 +453,16 @@ func (backend *vaultBackend) serve(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "content", 400)
 			return
 		}
-		backend.value = value
+		// Store valid noncanonical JSON to exercise exact provider-byte hashing.
+		backend.value = append(value, ' ')
 		backend.version++
 		backend.updates++
+		if backend.loseUpdateReply {
+			backend.loseUpdateReply = false
+			w.WriteHeader(http.StatusInternalServerError)
+			write(map[string]any{"code": "InternalError", "message": "publication reply unavailable"})
+			return
+		}
 		write(metadata())
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/secretbundles/actions/getByName"):
 		if backend.name == "" {

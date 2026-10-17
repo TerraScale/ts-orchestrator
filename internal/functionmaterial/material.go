@@ -9,7 +9,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
-	"encoding/json/v2"
 	"errors"
 	"net/url"
 	"slices"
@@ -23,7 +22,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
-	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
@@ -125,8 +123,7 @@ type Reader struct {
 	Artifacts          jetstream.ObjectStore
 	Roots              func() trust.Keyring
 	Accounts           *brokerauth.Store
-	Bundles            vaultsecret.BundleClient
-	VaultID            string
+	Materials          TaskMaterialReader
 	Trust              PublicTrust
 	Recipient          Recipient
 	AuthorizeRecipient func(context.Context, Binding) error
@@ -175,21 +172,6 @@ func (delivery VerifiedDelivery) Files() map[string][]byte {
 func sum(value []byte) string {
 	digest := sha256.Sum256(value)
 	return hex.EncodeToString(digest[:])
-}
-
-func secretRef(vault string, binding Binding) (vaultsecret.Ref, error) {
-	if err := bindingGrant(binding, strings.Repeat("a", 64)).Validate(); err != nil {
-		return vaultsecret.Ref{}, ErrMaterial
-	}
-	region, known := catalog.CellForOCIRegion(binding.Region)
-	if !known {
-		return vaultsecret.Ref{}, ErrMaterial
-	}
-	wire, err := json.Marshal(binding)
-	if err != nil {
-		return vaultsecret.Ref{}, err
-	}
-	return vaultsecret.Ref{Vault: vault, Name: region.Name() + "-function-worker-" + sum(wire)}, nil
 }
 
 func (reader Reader) currentAccount(ctx context.Context, proof release.VerifiedFunction) (brokerauth.Claim, error) {

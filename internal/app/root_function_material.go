@@ -4,7 +4,9 @@ package app
 
 import (
 	"context"
+	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"slices"
 	"strings"
@@ -26,6 +28,8 @@ import (
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go/jetstream"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // This admission and both broad signing keys remain inside the root service.
@@ -50,8 +54,8 @@ type rootFunctionAdmission struct {
 	rootChain          jetstream.KeyValueEntry
 	rootHead           string
 	accepted           string
-	vault              vaultsecret.VaultClient
-	target             vaultsecret.Target
+	store              functionmaterial.RootStore
+	retirement         functionmaterial.RetirementClient
 	deadline           time.Time
 	close              context.CancelFunc
 }
@@ -67,15 +71,9 @@ func (service *rootWorkloadCredentials) IssueFunctionTaskMaterial(ctx context.Co
 	defer admitted.close()
 	defer admitted.issuer.Issuer.Wipe()
 	ctx = admitted.original
-	reader := admitted.controller.config.Material.Reader
-	reader.AuthorizeRecipient = func(ctx context.Context, binding functionmaterial.Binding) error {
-		if binding != admitted.binding {
-			return rootoci.ErrUnauthorized
-		}
-		return admitted.guard(ctx)
-	}
+	store := admitted.taskStore()
 	claim := admitted.function.Claim()
-	value, err := reader.IssueRootTaskMaterial(ctx, admitted.issuer.Issuer, admitted.binding, claim.TenantID, claim.FunctionID, admitted.vault, admitted.target)
+	value, err := store.IssueRootTaskMaterial(ctx, admitted.issuer.Issuer, admitted.binding, claim.TenantID, claim.FunctionID)
 	if err != nil {
 		return rootoci.FunctionTaskMaterialReceipt{}, err
 	}
@@ -110,8 +108,8 @@ func (service *rootWorkloadCredentials) IssueFunctionObservationIdentity(ctx con
 	return rootoci.FunctionObservationIdentityReceipt{Certificate: cert, Key: key, CA: ca, ExpiresAt: admitted.deadline}, nil
 }
 
-func (producer *rootMaterialAdmission) function(ctx context.Context, call rootoci.Call, taskID string) (_ *rootFunctionAdmission, resultErr error) {
-	if os.Geteuid() != 0 || ctx == nil || producer == nil || producer.ownhost == nil || call.Guard(ctx) != nil || len(taskID) != 25 {
+func (producer *rootMaterialAdmission) functionSource(ctx context.Context, call rootoci.Call) (_ *rootFunctionAdmission, resultErr error) {
+	if os.Geteuid() != 0 || ctx == nil || producer == nil || producer.ownhost == nil || call.Guard(ctx) != nil {
 		return nil, rootoci.ErrUnauthorized
 	}
 	ctx, cancel := context.WithDeadline(ctx, call.Deadline())
@@ -219,23 +217,54 @@ func (producer *rootMaterialAdmission) function(ctx context.Context, call rootoc
 		return nil, err
 	}
 	signedTarget := template.VaultTarget()
-	admitted := &rootFunctionAdmission{close: cancel, vault: management, target: vaultsecret.Target{VaultID: signedTarget.VaultOCID, CompartmentID: signedTarget.CompartmentOCID, KeyID: signedTarget.KMSKeyOCID}, producer: producer, call: call, original: ctx, issuer: issuer, credentials: config,
+	admitted := &rootFunctionAdmission{close: cancel, retirement: management, producer: producer, call: call, original: ctx, issuer: issuer, credentials: config,
 		credentialOriginal: credentialOriginal, credentialDeadline: credentialDeadline, lease: lease, node: node, founder: founder, membership: membership, rootChain: rootChain, rootHead: roots.Head, accepted: acceptance, deadline: deadline}
-	management.HTTPClient = nativeCanaryDispatcher{next: management.HTTPClient, guard: admitted.sourceGuard}
-	bundles.HTTPClient = nativeCanaryDispatcher{next: bundles.HTTPClient, guard: admitted.sourceGuard}
+	sdkGuard := func(ctx context.Context) error {
+		if admitted.binding.TaskID != "" {
+			return admitted.guard(ctx)
+		}
+		return admitted.sourceGuard(ctx)
+	}
+	management.HTTPClient = nativeCanaryDispatcher{next: management.HTTPClient, guard: sdkGuard}
+	bundles.HTTPClient = nativeCanaryDispatcher{next: bundles.HTTPClient, guard: sdkGuard}
 	admitted.controller.config = functionControllerConfig{ReadLease: lease, JS: config.JS, Startup: issuer.Startup, ReadClient: config.Client, Roots: config.Specs.roots, Factory: producer.factory,
 		Cell: cfg.NATS.Cell, Environment: accepted.Environment,
 		Material: functionmaterial.Controller{Reader: functionmaterial.Reader{Authority: config.Mutations, Artifacts: config.Delivery.Artifacts(), Roots: config.Specs.roots.current,
-			Accounts: accounts, Bundles: bundles, VaultID: template.VaultTarget().VaultOCID, Trust: public}},
+			Accounts: accounts, Trust: public}},
 		Evidence: func(ctx context.Context, digest string) (io.ReadCloser, error) {
 			return config.Evidence(ctx, swarmruntime.FunctionWorkerRole, digest)
 		}}
+	admitted.store = functionmaterial.RootStore{Reader: admitted.controller.config.Material.Reader,
+		Vault: management, Versions: management, Bundles: bundles,
+		Target: vaultsecret.Target{VaultID: signedTarget.VaultOCID, CompartmentID: signedTarget.CompartmentOCID, KeyID: signedTarget.KMSKeyOCID},
+		Guard:  admitted.sourceGuard, Seal: admitted.checkOriginal}
+	if err := admitted.sourceGuard(ctx); err != nil {
+		return nil, err
+	}
+	return admitted, nil
+}
+
+func (producer *rootMaterialAdmission) function(ctx context.Context, call rootoci.Call, taskID string) (_ *rootFunctionAdmission, resultErr error) {
+	if len(taskID) != 25 {
+		return nil, rootoci.ErrUnauthorized
+	}
+	admitted, err := producer.functionSource(ctx, call)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if resultErr != nil {
+			admitted.close()
+			admitted.issuer.Issuer.Wipe()
+		}
+	}()
+	ctx = admitted.original
 	if err := admitted.selectTask(ctx, taskID); err != nil {
 		return nil, err
 	}
 	leafDeadline := admitted.issuer.ExpiresAt()
-	if !config.releaseDeadline.IsZero() {
-		leafDeadline = earlier(leafDeadline, config.releaseDeadline)
+	if !admitted.credentials.releaseDeadline.IsZero() {
+		leafDeadline = earlier(leafDeadline, admitted.credentials.releaseDeadline)
 	}
 	account, err := jwt.DecodeAccountClaims(admitted.account.JWT)
 	if err != nil {
@@ -365,4 +394,92 @@ func (admitted *rootFunctionAdmission) guard(ctx context.Context) error {
 		return rootoci.ErrUnauthorized
 	}
 	return admitted.sourceGuard(ctx)
+}
+
+func (admitted *rootFunctionAdmission) taskStore() functionmaterial.RootStore {
+	store := admitted.store
+	store.Guard = admitted.guard
+	store.Reader.AuthorizeRecipient = func(ctx context.Context, binding functionmaterial.Binding) error {
+		if binding != admitted.binding {
+			return rootoci.ErrUnauthorized
+		}
+		return admitted.guard(ctx)
+	}
+	return store
+}
+
+func (service *rootWorkloadCredentials) ReadFunctionTaskMaterial(ctx context.Context, call rootoci.Call, request rootoci.FunctionTaskRequest) (rootoci.FunctionTaskMaterialReceipt, error) {
+	if service == nil || service.admission == nil || call.Operation() != rootoci.OperationReadFunctionTaskMaterial {
+		return rootoci.FunctionTaskMaterialReceipt{}, rootoci.ErrUnauthorized
+	}
+	admitted, err := service.admission.function(ctx, call, request.TaskID)
+	if err != nil {
+		return rootoci.FunctionTaskMaterialReceipt{}, err
+	}
+	defer admitted.close()
+	defer admitted.issuer.Issuer.Wipe()
+	claim := admitted.function.Claim()
+	value, err := admitted.taskStore().ReadRootTaskMaterial(admitted.original, admitted.issuer.Issuer, admitted.binding, claim.TenantID, claim.FunctionID)
+	if err != nil {
+		return rootoci.FunctionTaskMaterialReceipt{}, err
+	}
+	if err := admitted.guard(admitted.original); err != nil {
+		clear(value)
+		return rootoci.FunctionTaskMaterialReceipt{}, err
+	}
+	return rootoci.FunctionTaskMaterialReceipt{Value: value, ExpiresAt: admitted.deadline}, nil
+}
+
+func (service *rootWorkloadCredentials) RetireExpiredFunctionMaterial(ctx context.Context, call rootoci.Call, request rootoci.FunctionRetirementRequest) (rootoci.FunctionRetirementReceipt, error) {
+	if service == nil || service.admission == nil || call.Operation() != rootoci.OperationRetireExpiredFunctionMaterial || request.Purpose != rootoci.ExpiredFunctionTaskMaterial {
+		return rootoci.FunctionRetirementReceipt{}, rootoci.ErrUnauthorized
+	}
+	admitted, err := service.admission.functionSource(ctx, call)
+	if err != nil {
+		return rootoci.FunctionRetirementReceipt{}, err
+	}
+	defer admitted.close()
+	defer admitted.issuer.Issuer.Wipe()
+	retired, err := admitted.store.RetireExpired(admitted.original, admitted.retirement, admitted.requireUnusedMaterial)
+	for _, material := range retired {
+		slog.InfoContext(admitted.original, "expired function material retirement confirmed", "secret_id", material.SecretID, "name", material.Name, "task_id", material.TaskID, "material_sha256", material.MaterialSHA256, "expires_at", material.ExpiresAt, "delete_at", material.DeleteAt)
+	}
+	if err != nil {
+		return rootoci.FunctionRetirementReceipt{}, err
+	}
+	if err := admitted.sourceGuard(admitted.original); err != nil {
+		return rootoci.FunctionRetirementReceipt{}, err
+	}
+	return rootoci.FunctionRetirementReceipt{Count: len(retired), ExpiresAt: admitted.deadline}, nil
+}
+
+func (admitted *rootFunctionAdmission) requireUnusedMaterial(ctx context.Context, binding functionmaterial.Binding) error {
+	return requireUnusedFunctionMaterial(ctx, admitted.controller.config.ReadClient, admitted.sourceGuard, binding)
+}
+
+func requireUnusedFunctionMaterial(ctx context.Context, client api.ControlReader, guard func(context.Context) error, binding functionmaterial.Binding) error {
+	if err := guard(ctx); err != nil {
+		return err
+	}
+	response, err := client.GetTask(ctx, &api.GetTaskRequest{TaskID: binding.TaskID})
+	if status.Code(err) == codes.NotFound {
+		return guard(ctx)
+	}
+	if err != nil {
+		return err
+	}
+	if response == nil || response.Task == nil {
+		return errors.New("function material retirement requires an authoritative task observation")
+	}
+	task := response.Task
+	if task.ID != binding.TaskID || task.ServiceID != binding.ServiceID || task.NodeID != binding.NodeID {
+		return errors.New("function material retirement task differs from its immutable recipient")
+	}
+	// Desired shutdown alone does not prove that the assigned process stopped.
+	switch task.Status.State {
+	case api.TaskStateCompleted, api.TaskStateShutdown, api.TaskStateFailed, api.TaskStateRejected, api.TaskStateRemove, api.TaskStateOrphaned:
+		return guard(ctx)
+	default:
+		return errors.New("function material remains referenced by an assigned task")
+	}
 }

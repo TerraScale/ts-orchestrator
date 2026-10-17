@@ -33,3 +33,26 @@ func (issuer functionIssuerClient) IssueFunctionObservationIdentity(ctx context.
 	}
 	return receipt.Certificate, receipt.Key, receipt.CA, nil
 }
+
+func (issuer functionIssuerClient) ReadFunctionTaskMaterial(ctx context.Context, taskID string) ([]byte, error) {
+	receipt, err := issuer.client.ReadFunctionTaskMaterial(ctx, rootoci.FunctionTaskRequest{TaskID: taskID})
+	if err != nil {
+		return nil, err
+	}
+	if ctx.Err() != nil || !time.Now().Before(receipt.ExpiresAt) || len(receipt.Value) == 0 || len(receipt.Value) > 16<<10 {
+		clear(receipt.Value)
+		return nil, functionmaterial.ErrMaterial
+	}
+	return receipt.Value, nil
+}
+
+func (issuer functionIssuerClient) RetireExpiredFunctionMaterial(ctx context.Context) (int, error) {
+	receipt, err := issuer.client.RetireExpiredFunctionMaterial(ctx, rootoci.FunctionRetirementRequest{Purpose: rootoci.ExpiredFunctionTaskMaterial})
+	if err != nil {
+		return 0, err
+	}
+	if ctx.Err() != nil || !time.Now().Before(receipt.ExpiresAt) || receipt.Count < 0 || receipt.Count > 32000 {
+		return 0, functionmaterial.ErrMaterial
+	}
+	return receipt.Count, nil
+}

@@ -43,13 +43,17 @@ func TestFunctionMaterialRetirementRequiresAuthoritativeUnusedTask(t *testing.T)
 	}
 	t.Cleanup(func() { _ = connection.Close() })
 	controller := functionController{config: functionControllerConfig{Authority: control, Client: api.NewControlClient(connection)}}
+	epoch := control.Current().Epoch
+	unused := func(ctx context.Context, binding functionmaterial.Binding) error {
+		return requireUnusedFunctionMaterial(ctx, controller.config.Client, func(ctx context.Context) error { return control.Guard(ctx, epoch) }, binding)
+	}
 	binding := functionmaterial.Binding{TaskID: strings.Repeat("a", 25), ServiceID: strings.Repeat("b", 25), NodeID: strings.Repeat("c", 25)}
 	task := &api.Task{ID: binding.TaskID, ServiceID: binding.ServiceID, NodeID: binding.NodeID,
 		DesiredState: api.TaskStateRunning, Status: api.TaskStatus{State: api.TaskStateRunning}}
 	if err := tasks.Update(func(tx store.Tx) error { return store.CreateTask(tx, task) }); err != nil {
 		t.Fatal(err)
 	}
-	if err := controller.requireUnusedMaterial(ctx, binding); err == nil {
+	if err := unused(ctx, binding); err == nil {
 		t.Fatal("running assigned task permitted material retirement")
 	}
 	if err := tasks.Update(func(tx store.Tx) error {
@@ -59,7 +63,7 @@ func TestFunctionMaterialRetirementRequiresAuthoritativeUnusedTask(t *testing.T)
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := controller.requireUnusedMaterial(ctx, binding); err == nil {
+	if err := unused(ctx, binding); err == nil {
 		t.Fatal("desired shutdown retired material before observed process shutdown")
 	}
 	if err := tasks.Update(func(tx store.Tx) error {
@@ -69,24 +73,24 @@ func TestFunctionMaterialRetirementRequiresAuthoritativeUnusedTask(t *testing.T)
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := controller.requireUnusedMaterial(ctx, binding); err != nil {
+	if err := unused(ctx, binding); err != nil {
 		t.Fatalf("terminal exact task denied retirement: %v", err)
 	}
 	foreign := binding
 	foreign.NodeID = strings.Repeat("d", 25)
-	if err := controller.requireUnusedMaterial(ctx, foreign); err == nil {
+	if err := unused(ctx, foreign); err == nil {
 		t.Fatal("terminal task for a different recipient permitted retirement")
 	}
 	if _, err := controller.config.Client.RemoveTask(ctx, &api.RemoveTaskRequest{TaskID: binding.TaskID}); err != nil {
 		t.Fatal(err)
 	}
-	if err := controller.requireUnusedMaterial(ctx, binding); err != nil {
+	if err := unused(ctx, binding); err != nil {
 		t.Fatalf("authoritatively removed task denied retirement: %v", err)
 	}
 	server.Stop()
 	failed, cancelFailed := context.WithTimeout(ctx, time.Second)
 	defer cancelFailed()
-	if err := controller.requireUnusedMaterial(failed, binding); err == nil {
+	if err := unused(failed, binding); err == nil {
 		t.Fatal("failed manager observation permitted retirement")
 	}
 }

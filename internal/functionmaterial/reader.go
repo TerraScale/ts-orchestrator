@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json/v2"
 	"io"
-	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
@@ -13,7 +12,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/functions"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
-	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 func (reader Reader) currentFunction(ctx context.Context, tenant, function string) (release.VerifiedFunction, uint64, error) {
@@ -64,7 +62,7 @@ func (reader Reader) CurrentFunction(ctx context.Context, tenant, function strin
 // Current reads only the exact grant of this independently admitted recipient.
 // The caller's task fields select records; the durable grant supplies authority.
 func (reader Reader) Current(ctx context.Context, binding Binding) (VerifiedDelivery, error) {
-	if reader.Authority == nil || reader.Bundles == nil || reader.AuthorizeRecipient == nil || reader.Recipient != (Recipient{NodeID: binding.NodeID, InstanceID: binding.InstanceID, Region: binding.Region, HostID: binding.HostID}) {
+	if reader.Authority == nil || reader.Materials == nil || reader.AuthorizeRecipient == nil || reader.Recipient != (Recipient{NodeID: binding.NodeID, InstanceID: binding.InstanceID, Region: binding.Region, HostID: binding.HostID}) {
 		return VerifiedDelivery{}, ErrMaterial
 	}
 	if err := reader.AuthorizeRecipient(ctx, binding); err != nil {
@@ -89,18 +87,10 @@ func (reader Reader) Current(ctx context.Context, binding Binding) (VerifiedDeli
 	if err != nil {
 		return VerifiedDelivery{}, err
 	}
-	ref, err := secretRef(reader.VaultID, binding)
+	wire, err := reader.Materials.ReadFunctionTaskMaterial(ctx, binding.TaskID)
 	if err != nil {
 		return VerifiedDelivery{}, err
 	}
-	if err := vaultsecret.ValidateDeliveryRefs(strings.ToLower(reader.Trust.cell), "function-worker", map[string]vaultsecret.Ref{"FUNCTION_MATERIAL_FILE": ref}, nil); err != nil {
-		return VerifiedDelivery{}, err
-	}
-	current, err := vaultsecret.ReadCurrent(ctx, reader.Bundles, ref)
-	if err != nil {
-		return VerifiedDelivery{}, err
-	}
-	wire := []byte(current.Value())
 	defer clear(wire)
 	if sum(wire) != grant.Binding.MaterialManifestSHA256 {
 		return VerifiedDelivery{}, ErrMaterial

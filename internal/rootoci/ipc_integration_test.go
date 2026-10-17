@@ -72,6 +72,7 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 		"retained_negative_offset", "retained_startup", "channel_bad_role", "channel_offset_limit", "channel_startup",
 		"native_bad_node", "native_startup",
 		"function_task_startup", "function_observation_startup", "function_task_raw_proof", "function_observation_raw_key",
+		"function_read_startup", "function_read_raw_ref", "function_read_bad_task", "function_retirement_startup", "function_retirement_raw_ref", "function_retirement_bad_purpose",
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -103,7 +104,7 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 					return Lease{}, ErrUnauthorized
 				}
 				expectedOperation := OperationObserveLocalInstance
-				if scenario == "retained_startup" || scenario == "channel_startup" || scenario == "native_startup" || scenario == "function_task_startup" || scenario == "function_observation_startup" {
+				if scenario == "retained_startup" || scenario == "channel_startup" || scenario == "native_startup" || scenario == "function_task_startup" || scenario == "function_observation_startup" || scenario == "function_read_startup" || scenario == "function_retirement_startup" {
 					if !operation.ReadOnly() {
 						return Lease{}, ErrUnauthorized
 					}
@@ -119,6 +120,12 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 					}
 					if scenario == "function_observation_startup" {
 						expectedOperation = OperationIssueFunctionObservationIdentity
+					}
+					if scenario == "function_read_startup" {
+						expectedOperation = OperationReadFunctionTaskMaterial
+					}
+					if scenario == "function_retirement_startup" {
+						expectedOperation = OperationRetireExpiredFunctionMaterial
 					}
 				}
 				if scenario == "effect_then_revoke" || scenario == "backend_unknown" {
@@ -226,6 +233,27 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 				}
 			}
 
+			if scenario == "function_read_startup" || scenario == "function_read_raw_ref" || scenario == "function_read_bad_task" {
+				request.Operation = OperationReadFunctionTaskMaterial
+				request.Payload = []byte(`{"task_id":"aaaaaaaaaaaaaaaaaaaaaaaaa"}`)
+				if scenario == "function_read_raw_ref" {
+					request.Payload = []byte(`{"task_id":"aaaaaaaaaaaaaaaaaaaaaaaaa","vault_ref":"caller-controlled"}`)
+				}
+				if scenario == "function_read_bad_task" {
+					request.Payload = []byte(`{"task_id":"AAAAAAAAAAAAAAAAAAAAAAAAA"}`)
+				}
+			}
+			if scenario == "function_retirement_startup" || scenario == "function_retirement_raw_ref" || scenario == "function_retirement_bad_purpose" {
+				request.Operation = OperationRetireExpiredFunctionMaterial
+				request.Payload = []byte(`{"purpose":"expired_function_task_material"}`)
+				if scenario == "function_retirement_raw_ref" {
+					request.Payload = []byte(`{"purpose":"expired_function_task_material","secret_id":"caller-controlled"}`)
+				}
+				if scenario == "function_retirement_bad_purpose" {
+					request.Payload = []byte(`{"purpose":"delete"}`)
+				}
+			}
+
 			wire, err := json.Marshal(request)
 			if err != nil {
 				t.Fatal(err)
@@ -275,7 +303,7 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 			} else {
 				var response wireResponse
 				expected := "invalid"
-				if scenario == "wrong_process" || scenario == "expired" || scenario == "retained_startup" || scenario == "channel_startup" || scenario == "native_startup" || scenario == "function_task_startup" || scenario == "function_observation_startup" {
+				if scenario == "wrong_process" || scenario == "expired" || scenario == "retained_startup" || scenario == "channel_startup" || scenario == "native_startup" || scenario == "function_task_startup" || scenario == "function_observation_startup" || scenario == "function_read_startup" || scenario == "function_retirement_startup" {
 					expected = "unauthorized"
 				}
 				if json.Unmarshal(output.Bytes(), &response) != nil || response.Status != expected || reader.calls.Load() != 0 ||

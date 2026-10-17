@@ -3,7 +3,10 @@ package functionmaterial
 import (
 	"bytes"
 	"context"
+	"encoding/json/v2"
+	"errors"
 	"os"
+	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/brokerauth"
@@ -11,8 +14,14 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
+// TaskMaterialReader selects only root's actual current task grant.
+type TaskMaterialReader interface {
+	ReadFunctionTaskMaterial(context.Context, string) ([]byte, error)
+}
+
 // TaskIssuer selects root's actual assigned task, never caller-provided grants.
 type TaskIssuer interface {
+	RetireExpiredFunctionMaterial(context.Context) (int, error)
 	IssueFunctionTaskMaterial(context.Context, string) ([]byte, error)
 	IssueFunctionObservationIdentity(context.Context, string) (certificate, key, ca []byte, err error)
 }
@@ -22,17 +31,29 @@ func (reader Reader) CurrentAccount(ctx context.Context, proof release.VerifiedF
 	return reader.currentAccount(ctx, proof)
 }
 
-// IssueRootTaskMaterial reads the existing seed only from its actual fixed Vault record.
-// The root caller installs authorization against the actual manager and host sources.
-func (reader Reader) IssueRootTaskMaterial(ctx context.Context, issuer *bootstrapmaterial.ControllerIssuer, binding Binding, tenant, function string, vault vaultsecret.VaultClient, target vaultsecret.Target) ([]byte, error) {
+// RootStore owns all function Vault access inside the root service.
+// Guard retains genuine root Call, credential and runtime lease admission.
+type RootStore struct {
+	Reader   Reader
+	Vault    vaultsecret.VaultClient
+	Versions vaultsecret.VersionClient
+	Bundles  vaultsecret.BundleClient
+	Target   vaultsecret.Target
+	Guard    func(context.Context) error
+	Seal     func(context.Context) error
+}
+
+func (store RootStore) IssueRootTaskMaterial(ctx context.Context, issuer *bootstrapmaterial.ControllerIssuer, binding Binding, tenant, function string) ([]byte, error) {
 	if os.Geteuid() != 0 {
 		return nil, ErrMaterial
 	}
-	return reader.issueTaskMaterial(ctx, issuer, binding, tenant, function, vault, target)
+	return store.issueTaskMaterial(ctx, issuer, binding, tenant, function)
 }
 
-func (reader Reader) issueTaskMaterial(ctx context.Context, issuer *bootstrapmaterial.ControllerIssuer, binding Binding, tenant, function string, vault vaultsecret.VaultClient, target vaultsecret.Target) ([]byte, error) {
-	if issuer == nil || reader.Bundles == nil || reader.AuthorizeRecipient == nil || vault == nil || target.VaultID != reader.VaultID {
+func (store RootStore) candidate(ctx context.Context, issuer *bootstrapmaterial.ControllerIssuer, binding Binding, tenant, function string) ([]byte, error) {
+	reader, vault, target := store.Reader, store.Vault, store.Target
+
+	if issuer == nil || store.Bundles == nil || reader.AuthorizeRecipient == nil || vault == nil || target.VaultID == "" {
 		return nil, ErrMaterial
 	}
 	if err := reader.AuthorizeRecipient(ctx, binding); err != nil {
@@ -46,7 +67,7 @@ func (reader Reader) issueTaskMaterial(ctx context.Context, issuer *bootstrapmat
 	if err != nil {
 		return nil, err
 	}
-	ref, err := secretRef(reader.VaultID, binding)
+	ref, err := secretRef(target.VaultID, binding)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +75,7 @@ func (reader Reader) issueTaskMaterial(ctx context.Context, issuer *bootstrapmat
 	if err != nil || metadata.Provisioning {
 		return nil, ErrMaterial
 	}
-	current, err := vaultsecret.ReadCurrent(ctx, reader.Bundles, ref)
+	current, err := vaultsecret.ReadCurrent(ctx, store.Bundles, ref)
 	absent := vaultsecret.Absent(err)
 	recheck := func() error {
 		latest, latestSequence, err := reader.currentFunction(ctx, tenant, function)
@@ -69,7 +90,7 @@ func (reader Reader) issueTaskMaterial(ctx context.Context, issuer *bootstrapmat
 		if err != nil || metadataAfter.Provisioning || metadataAfter.ID != metadata.ID {
 			return ErrMaterial
 		}
-		currentAfter, err := vaultsecret.ReadCurrent(ctx, reader.Bundles, ref)
+		currentAfter, err := vaultsecret.ReadCurrent(ctx, store.Bundles, ref)
 		if absent {
 			if metadataAfter.ID != "" || !vaultsecret.Absent(err) {
 				return ErrMaterial
@@ -77,7 +98,10 @@ func (reader Reader) issueTaskMaterial(ctx context.Context, issuer *bootstrapmat
 		} else if err != nil || currentAfter.ID != current.ID || currentAfter.Version != current.Version || currentAfter.Value() != current.Value() {
 			return ErrMaterial
 		}
-		return reader.AuthorizeRecipient(ctx, binding)
+		if err := reader.AuthorizeRecipient(ctx, binding); err != nil {
+			return err
+		}
+		return store.guard(ctx)
 	}
 	var existing []byte
 	if err == nil {
@@ -125,4 +149,19 @@ func (reader Reader) issueTaskMaterial(ctx context.Context, issuer *bootstrapmat
 		return nil, err
 	}
 	return encodeMaterial(material)
+}
+
+func encodeMaterial(material storedMaterial) ([]byte, error) {
+	if !time.Now().Before(material.ExpiresAt) {
+		return nil, ErrMaterial
+	}
+	wire, err := json.Marshal(material)
+	if err != nil {
+		return nil, err
+	}
+	if len(wire) > 16384 {
+		clear(wire)
+		return nil, errors.New("function credentials and TLS material exceed Vault's 16 KiB bound")
+	}
+	return wire, nil
 }
