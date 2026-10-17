@@ -28,6 +28,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
@@ -169,7 +170,7 @@ func PrepareFoundationGrantSDK(ctx context.Context, input FoundationPreparationI
 			return Live{}, err
 		}
 		return liveSDK(ctx, regional, tenancy, ociRegion)
-	}, factory.Provider())
+	}, factory)
 	if err != nil {
 		return FoundationPreparation{}, err
 	}
@@ -185,16 +186,17 @@ func PrepareFoundationGrantSDK(ctx context.Context, input FoundationPreparationI
 
 // PrepareFoundationGrant derives the complete fixed first footprint from one
 // platform template and current verified image-source results.
-func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInput, images map[string]releasechannel.CurrentImage, lookup Lookup, provider common.ConfigurationProvider) (FoundationPreparation, error) {
+func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInput, images map[string]releasechannel.CurrentImage, lookup Lookup, factory *ociclient.Factory) (FoundationPreparation, error) {
 	if err := input.validate(); err != nil {
 		return FoundationPreparation{}, err
 	}
 	if lookup == nil {
 		return FoundationPreparation{}, errors.New("foundation preparation requires current OCI regional catalog facts")
 	}
-	if provider == nil {
-		return FoundationPreparation{}, errors.New("foundation preparation requires its authenticated original user provider")
+	if factory == nil || factory.Provider() == nil {
+		return FoundationPreparation{}, errors.New("foundation preparation requires its authenticated original user factory")
 	}
+	provider := factory.Provider()
 	producer, err := provider.UserOCID()
 	if err != nil || !netBirdMaterialUser(producer) {
 		return FoundationPreparation{}, errors.New("foundation preparation lacks an authenticated original user")
@@ -241,7 +243,7 @@ func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInpu
 			ids["control_compartment"], ids["vault"], ids["key"] = input.SourceVaultTarget.CompartmentOCID, input.SourceVaultTarget.VaultOCID, input.SourceVaultTarget.KMSKeyOCID
 		}
 		host := []FoundationHostApproval{input.GRUController, input.SFOController, input.FRAController}[index]
-		material, err := prepareFoundationMaterial(input, installation, cell, plan, live, host, images[cell], intentWire)
+		material, err := prepareFoundationMaterial(ctx, factory, input, installation, cell, plan, live, host, images[cell], intentWire)
 		if err != nil {
 			return FoundationPreparation{}, fmt.Errorf("prepare %s: %w", cell, err)
 		}
@@ -374,8 +376,12 @@ func foundationPreparationInstallation(input FoundationPreparationInput) string 
 	return entityid.Derive("foundation-installation", input.TenancyID, input.ParentCompartmentID, input.SharedCompartmentID)
 }
 
-func prepareFoundationMaterial(input FoundationPreparationInput, installation, cell string, plan map[string]any, live Live, host FoundationHostApproval, image releasechannel.CurrentImage, intentWire []byte) (BootstrapMaterialIntent, error) {
+func prepareFoundationMaterial(ctx context.Context, factory *ociclient.Factory, input FoundationPreparationInput, installation, cell string, plan map[string]any, live Live, host FoundationHostApproval, image releasechannel.CurrentImage, intentWire []byte) (BootstrapMaterialIntent, error) {
 	if err := validatePreparationImage(image, cell); err != nil {
+		return BootstrapMaterialIntent{}, err
+	}
+	imageCompartment, err := preparationImageCompartment(ctx, factory, image.Image.Receipt().OCIImageOCID, cell)
+	if err != nil {
 		return BootstrapMaterialIntent{}, err
 	}
 	deployment := entityid.Derive("foundation-deployment", installation, cell)
@@ -404,13 +410,13 @@ func prepareFoundationMaterial(input FoundationPreparationInput, installation, c
 		config.Slots = append(config.Slots, bootstrapmaterial.Slot{Name: slot, PrivateIP: ip})
 		startup.Profiles = append(startup.Profiles, bootstrap.LaunchProfile{Slot: slot, CompartmentOCID: control, AvailabilityDomain: live.AvailabilityDomain, FaultDomain: faultDomain,
 			SubnetOCID: subnet, NetworkSecurityGroupOCIDs: []string{nsg}, Shape: "VM.Standard.A1.Flex"})
-		startup.FounderResources.Slots = append(startup.FounderResources.Slots, bootstrap.StartupSlotResources{Slot: slot, ImageCompartmentOCID: control,
+		startup.FounderResources.Slots = append(startup.FounderResources.Slots, bootstrap.StartupSlotResources{Slot: slot, ImageCompartmentOCID: imageCompartment,
 			WholeOCPUs: uint32(host.OCPUs), MemoryInGB: uint32(host.MemoryGB), BootVolumeGB: uint32(host.BootGB), BootVolumeTier: bootstrap.FounderBootVolumeTier("balanced")})
 	}
 	if err := config.Validate(); err != nil {
 		return BootstrapMaterialIntent{}, err
 	}
-	fleet := oci.RegionConfig{Region: oci.Region(cell), Generation: 1, Endpoint: "https://iaas." + config.Region + ".oraclecloud.com", CompartmentID: control, ImageCompartmentID: control,
+	fleet := oci.RegionConfig{Region: oci.Region(cell), Generation: 1, Endpoint: "https://iaas." + config.Region + ".oraclecloud.com", CompartmentID: control, ImageCompartmentID: imageCompartment,
 		AvailabilityDomain: live.AvailabilityDomain, FaultDomains: []string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2", "FAULT-DOMAIN-3"}, SubnetID: subnet, NetworkSecurityGroupIDs: []string{nsg},
 		ImageID: startup.ImageOCID, Shape: "VM.Standard.A1.Flex", BootVolumeGB: uint32(host.BootGB), BootVolumeVPUsPerGB: 10, DataVolumeVPUsPerGB: 10, MaxDataVolumeGB: 32768, Owner: strings.ToLower(cell) + "-orch"}
 	placement := map[string]any{"environment": "production", "member_role": "terrabase", "resources": map[string]any{"cpu": 1, "memory_bytes": 4 << 30, "disk_bytes": 20 << 30}}
@@ -437,6 +443,29 @@ func prepareFoundationMaterial(input FoundationPreparationInput, installation, c
 		return BootstrapMaterialIntent{}, err
 	}
 	return BootstrapMaterialIntent{InstallationID: installation, PlanSHA256: registration.PlanSHA256, Config: config, SourceVaultTarget: input.SourceVaultTarget, Startup: &startup, SourceRegistration: &registration}, nil
+}
+
+func preparationImageCompartment(ctx context.Context, factory *ociclient.Factory, imageID, cell string) (string, error) {
+	if !release.ValidOCIImageIDForRegion(imageID, cell) {
+		return "", errors.New("foundation image differs from its selected region")
+	}
+	regional, err := factory.ForRegion(catalog.OCIRegion(cell))
+	if err != nil {
+		return "", err
+	}
+	compute, err := regional.Compute()
+	if err != nil {
+		return "", err
+	}
+	response, err := compute.GetImage(ociclient.RequestContext(ctx), core.GetImageRequest{ImageId: new(imageID)})
+	if err != nil {
+		return "", fmt.Errorf("observe qualified foundation image: %w", err)
+	}
+	if deref(response.Id) != imageID || response.LifecycleState != core.ImageLifecycleStateAvailable ||
+		!sourceCompartmentPattern.MatchString(deref(response.CompartmentId)) || len(deref(response.CompartmentId)) > 255 {
+		return "", errors.New("qualified foundation image identity, availability or compartment differs from its live observation")
+	}
+	return *response.CompartmentId, nil
 }
 
 func preparationResource(plan map[string]any, cell, key string) (string, error) {

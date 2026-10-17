@@ -117,18 +117,12 @@ update strategy and stateful quorum rules; TS-567 adds volume mounts.
 ## Slices
 
 1. Shared types and their store (this note).
-2. Scheduler on the authority leader. `machines.Plan` (2a) is the pure
-   planner: every app gets its region's count of machines; a machine goes
-   to a schedulable host of its role and node pool that runs no other
-   machine of the app and has its resources and service ports free,
-   spreading across failure domains first and packing the fullest host
-   within them. A new app version updates machines in place where their
-   host still fits. Machines of a deleted or recreated app are destroyed;
-   machines of a lost host are replaced and marked `lost` (they may still
-   run), those of a deregistered host are destroyed. A destroyed record is
-   deleted only once its process is known gone. Apps of a role the cell
-   spec or TerraBase placement still places are held. The leader loop (2b)
-   feeds it the registered hosts and applies its writes.
+2. Task placement, rolling updates and lifecycle rollback belong to the
+   embedded regional SwarmKit manager. Machines stores retain app/machine
+   intent, validation, revision CAS and lifecycle guards, including refusing
+   to delete a placed machine record before destruction is observed. The
+   retained Machines API and stores do not launch workloads or grant
+   production admission or execution authority.
 3. Runtime: the host agent runs each machine as a hardened systemd unit
    (`DynamicUser`, CPU and memory limits, `ProtectSystem`, a seccomp filter,
    private `/tmp`), runs its health checks and restart policy, logs to the

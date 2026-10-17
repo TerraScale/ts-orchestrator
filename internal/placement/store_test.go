@@ -368,6 +368,90 @@ func TestMemberPinReaderOpensExistingDurableStateWithoutWrites(t *testing.T) {
 			t.Fatalf("native exact member request = %+v, %v; want subject %q", request, err, wantSubject)
 		}
 	}
+
+	firstPartitionKey := memberStateKey("0000000000JJVVW9EMWY1PE1VX", "0000000000Z3WK359G2W66CVT8", "000000000082AXF7GZQT1D126Y")
+	secondPartitionKey := memberStateKey("0000000000JJVVW9EMWY1PE1VX", "00000000001WFHC56Q8NB0X6T8", "000000000082AXF7GZQT1D126Y")
+	if firstPartitionKey == secondPartitionKey {
+		t.Fatalf("partition member keys collide: %q", firstPartitionKey)
+	}
+	if !entityid.Valid(firstPartitionKey) || !entityid.Valid(secondPartitionKey) {
+		t.Fatal("member keys must be plain ULIDs")
+	}
+
+	listIntent := validIntent(oci.RegionGRU)
+	listIntent.PartitionID = "0000000000Q6JWK5HSVBS382F2"
+	listState := testMemberState(t, committedTestIntent(t, listIntent), Seat{
+		MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU,
+		FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent,
+	}, StagePreparedHost)
+	listKey := memberStateKey(listState.DatabaseID, listState.PartitionID, listState.MemberID)
+	if listKey == lookupKey || listKey == memberStateKey(state.DatabaseID, state.PartitionID, state.MemberID) {
+		t.Fatal("fresh partition listing reused an existing member key")
+	}
+	if _, err := kv.Get(t.Context(), listKey); !errors.Is(err, jetstream.ErrKeyNotFound) {
+		t.Fatalf("never-written partition member key = %v, want ErrKeyNotFound", err)
+	}
+	listWire, err := protocol.EncodeJSON(listState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listRevision, err := kv.Put(t.Context(), listKey, listWire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := observer.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	for _, subscription := range []*nats.Subscription{leader, direct} {
+		count, _, err := subscription.Pending()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for range count {
+			if _, err := subscription.NextMsgWithContext(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	wantListReads := len(regionsInOrder) * SeatsPerRegion
+	wantListSubjects := make(map[string]struct{}, wantListReads)
+	for _, region := range regionsInOrder {
+		seats, err := RegionSeatIDs(region)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, seat := range seats {
+			key := memberStateKey(listState.DatabaseID, listState.PartitionID, seat)
+			wantListSubjects[prefix+".DIRECT.GET.KV_"+stateBucketName+".$KV."+stateBucketName+"."+key] = struct{}{}
+		}
+	}
+	if len(wantListSubjects) != wantListReads {
+		t.Fatalf("partition seat subjects = %d, want %d distinct keys", len(wantListSubjects), wantListReads)
+	}
+	members, err := lookupStore.ListMembers(t.Context(), listState.DatabaseID, listState.PartitionID)
+	if err != nil || len(members) != 1 || members[0].Revision != listRevision || !reflect.DeepEqual(members[0].State, listState) {
+		t.Fatalf("native partition members = %+v, %v; want one original state at revision %d", members, err, listRevision)
+	}
+	if err := observer.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	listLeaderReads, _, err := leader.Pending()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count, _, err := direct.Pending(); err != nil || count != wantListReads || listLeaderReads != 0 {
+		t.Fatalf("native partition lookup requests: leader=%d, direct=%d, error=%v; want leader=0, direct=%d", listLeaderReads, count, err, wantListReads)
+	}
+	for range wantListReads {
+		request, err := direct.NextMsgWithContext(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := wantListSubjects[request.Subject]; !ok {
+			t.Fatalf("unexpected or duplicate native partition member request %q", request.Subject)
+		}
+		delete(wantListSubjects, request.Subject)
+	}
 }
 
 func TestMemberStateKeyIncludesPartitionIdentity(t *testing.T) {

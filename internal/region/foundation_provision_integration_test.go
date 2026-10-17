@@ -120,6 +120,45 @@ func newFoundationProvisionFixture(t *testing.T) foundationProvisionFixture {
 			current.QualificationWire, current.QualificationDelegationWire = proof.Qualification, proof.Delegation
 		}
 		images[role] = current
+		imageID := image.Receipt().OCIImageOCID
+		cloud.rows[imageID] = map[string]any{"id": imageID, "compartmentId": "ocid1.compartment.oc1..sharedimages" + strings.ToLower(cell), "lifecycleState": "AVAILABLE"}
+		cloud.collections[imageID] = "images"
+	}
+	server := httptest.NewTLSServer(http.HandlerFunc(cloud.serveHTTP))
+	t.Cleanup(server.Close)
+	listener, ok := server.Listener.Addr().(*net.TCPAddr)
+	if !ok || !listener.IP.IsLoopback() || listener.Port == 0 {
+		t.Fatal("provision fixture requires literal loopback listener")
+	}
+	original := http.DefaultTransport
+	transport := original.(*http.Transport).Clone()
+	transport.Proxy = func(request *http.Request) (*url.URL, error) {
+		if request.URL == nil || request.URL.Scheme != "https" || request.URL.User != nil || request.URL.Opaque != "" || request.Response != nil || request.Method == http.MethodConnect {
+			return nil, fmt.Errorf("fixture refuses noninitial HTTPS request")
+		}
+		return nil, nil
+	}
+	transport.DialContext = func(context.Context, string, string) (net.Conn, error) {
+		return nil, fmt.Errorf("fixture refuses plaintext dialing")
+	}
+	transport.DialTLSContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		if network != "tcp" && network != "tcp4" && network != "tcp6" {
+			return nil, fmt.Errorf("fixture refuses network %q", network)
+		}
+		return (&tls.Dialer{Config: server.Client().Transport.(*http.Transport).TLSClientConfig}).DialContext(ctx, "tcp", listener.String())
+	}
+	http.DefaultTransport = transport
+	t.Cleanup(func() { http.DefaultTransport = original; transport.CloseIdleConnections() })
+	factoryFor := func() *ociclient.Factory {
+		limits := map[ociclient.Service]ociclient.Limit{}
+		for service := range ociclient.DefaultLimits {
+			limits[service] = ociclient.Limit{PerSecond: 100000, Burst: 100000}
+		}
+		factory, err := ociclient.New(provider, ociclient.Options{Region: foundationHomeRegion, Limits: limits, Retry: ociclient.RetryOptions{MaxAttempts: 1}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return factory
 	}
 	prepared, err := PrepareFoundationGrant(t.Context(), approval, images, func(_ context.Context, _ string, region string) (Live, error) {
 		entry, _ := catalog.CellForOCIRegion(region)
@@ -128,11 +167,45 @@ func newFoundationProvisionFixture(t *testing.T) foundationProvisionFixture {
 		cloud.rows[serviceID] = map[string]any{"id": serviceID, "name": "All " + entry.OCIRegionKey + " Services In Oracle Services Network", "cidrBlock": serviceCIDR}
 		cloud.collections[serviceID] = "services"
 		return Live{AvailabilityDomain: "scenario:AD-1", ServiceID: serviceID, ServiceCIDR: serviceCIDR}, nil
-	}, provider)
+	}, factoryFor())
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The pure preparation helper leaves worker policy to its caller; the SDK
+	if cloud.requests != 3 || len(cloud.imageReads) != 3 || cloud.creates != 0 || cloud.launchPosts != 0 || cloud.materialPosts != 0 || cloud.hasAnchor() {
+		t.Fatal("image preparation did not remain three authenticated reads without effects or discovery")
+	}
+	for index, regional := range prepared.Grant.Regions {
+		cell := regional.Plan["cell"].(string)
+		image := images[cell]
+		imageID := image.Image.Receipt().OCIImageOCID
+		expectedRead := "iaas." + catalog.OCIRegion(cell) + ".oraclecloud.com /20160918/images/" + imageID
+		startup := regional.BootstrapMaterial.Startup
+		control, err := preparationResource(regional.Plan, cell, "control_compartment")
+		compartment := cloud.rows[imageID]["compartmentId"].(string)
+		if err != nil || cloud.imageReads[index] != expectedRead || compartment == control || startup.ImageOCID != imageID ||
+			!bytes.Equal(startup.ReleaseImageReceiptWire, image.ReceiptWire) || !bytes.Equal(startup.ReleaseDelegationWire, image.DelegationWire) || len(startup.FounderResources.Slots) != 3 {
+			t.Fatalf("%s preparation lost exact regional image observation or independent qualification", cell)
+		}
+		for slot, resource := range startup.FounderResources.Slots {
+			if resource.ImageCompartmentOCID != compartment || startup.Profiles[slot].CompartmentOCID != control {
+				t.Fatalf("%s image compartment was substituted with its launch control compartment", cell)
+			}
+		}
+		var fleet oci.RegionConfig
+		if err := json.Unmarshal(startup.ControllerFiles[1].Bytes, &fleet); err != nil || fleet.ImageID != imageID || fleet.ImageCompartmentID != compartment || fleet.CompartmentID != control {
+			t.Fatalf("%s generated fleet lost actual image compartment: %v", cell, err)
+		}
+		for _, file := range startup.ControllerFiles {
+			if preparationDigest(file.Bytes) != file.SHA256 {
+				t.Fatalf("%s image observation followed controller file hashing", cell)
+			}
+		}
+		recipe, err := ControllerBootstrapRecipeDigest(*startup)
+		if err != nil || prepared.Grant.InfrastructureSpend.Bootstrap.Slots[index].RecipeSHA256 != recipe {
+			t.Fatalf("%s image observation followed bootstrap recipe hashing: %v", cell, err)
+		}
+	}
+	// The preparation helper leaves worker policy to its caller; the SDK
 	// producer normally fills this same finite policy before offline signing.
 	for _, region := range prepared.Grant.Regions {
 		cell, _ := region.Plan["cell"].(string)
@@ -199,42 +272,6 @@ func newFoundationProvisionFixture(t *testing.T) foundationProvisionFixture {
 	}
 	cloud.bundle = bundle.clone()
 	cloud.seedPrerequisites(approval)
-	server := httptest.NewTLSServer(http.HandlerFunc(cloud.serveHTTP))
-	t.Cleanup(server.Close)
-	listener, ok := server.Listener.Addr().(*net.TCPAddr)
-	if !ok || !listener.IP.IsLoopback() || listener.Port == 0 {
-		t.Fatal("provision fixture requires literal loopback listener")
-	}
-	original := http.DefaultTransport
-	transport := original.(*http.Transport).Clone()
-	transport.Proxy = func(request *http.Request) (*url.URL, error) {
-		if request.URL == nil || request.URL.Scheme != "https" || request.URL.User != nil || request.URL.Opaque != "" || request.Response != nil || request.Method == http.MethodConnect {
-			return nil, fmt.Errorf("fixture refuses noninitial HTTPS request")
-		}
-		return nil, nil
-	}
-	transport.DialContext = func(context.Context, string, string) (net.Conn, error) {
-		return nil, fmt.Errorf("fixture refuses plaintext dialing")
-	}
-	transport.DialTLSContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
-		if network != "tcp" && network != "tcp4" && network != "tcp6" {
-			return nil, fmt.Errorf("fixture refuses network %q", network)
-		}
-		return (&tls.Dialer{Config: server.Client().Transport.(*http.Transport).TLSClientConfig}).DialContext(ctx, "tcp", listener.String())
-	}
-	http.DefaultTransport = transport
-	t.Cleanup(func() { http.DefaultTransport = original; transport.CloseIdleConnections() })
-	factoryFor := func() *ociclient.Factory {
-		limits := map[ociclient.Service]ociclient.Limit{}
-		for service := range ociclient.DefaultLimits {
-			limits[service] = ociclient.Limit{PerSecond: 100000, Burst: 100000}
-		}
-		factory, err := ociclient.New(provider, ociclient.Options{Region: foundationHomeRegion, Limits: limits, Retry: ociclient.RetryOptions{MaxAttempts: 1}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return factory
-	}
 	return foundationProvisionFixture{approval: approval, prepared: originPreparation, bundle: bundle, roots: roots, root: root, now: now, images: images, cloud: cloud, provider: provider, factoryFor: factoryFor}
 }
 
@@ -276,10 +313,92 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	approval, bundle, roots := fixture.approval, fixture.bundle, fixture.roots
 	cloud, provider, factoryFor := fixture.cloud, fixture.provider, fixture.factoryFor
 	factory := factoryFor()
+	t.Run("qualified image observation refusals", func(t *testing.T) {
+		prepare := func(selected map[string]releasechannel.CurrentImage) (FoundationPreparation, error) {
+			return PrepareFoundationGrant(t.Context(), approval, selected, func(_ context.Context, _ string, region string) (Live, error) {
+				entry, _ := catalog.CellForOCIRegion(region)
+				return Live{AvailabilityDomain: "scenario:AD-1", ServiceID: "ocid1.service.oc1." + region + ".services", ServiceCIDR: "all-" + strings.ToLower(entry.OCIRegionKey) + "-services-in-oracle-services-network"}, nil
+			}, factoryFor())
+		}
+		imageID := fixture.images["GRU"].Image.Receipt().OCIImageOCID
+		original := cloud.rows[imageID]
+		for name, mutate := range map[string]func(map[string]any) map[string]any{
+			"missing image": func(map[string]any) map[string]any { return nil },
+			"missing image ID": func(row map[string]any) map[string]any {
+				delete(row, "id")
+				return row
+			},
+			"different image": func(row map[string]any) map[string]any {
+				row["id"] = "ocid1.image.oc1.sa-saopaulo-1.foreign"
+				return row
+			},
+			"wrong image region": func(row map[string]any) map[string]any {
+				row["id"] = "ocid1.image.oc1.us-sanjose-1.qualified"
+				return row
+			},
+			"missing compartment": func(row map[string]any) map[string]any {
+				delete(row, "compartmentId")
+				return row
+			},
+			"empty compartment": func(row map[string]any) map[string]any {
+				row["compartmentId"] = ""
+				return row
+			},
+			"malformed compartment": func(row map[string]any) map[string]any {
+				row["compartmentId"] = "ocid1.compartment.oc1..bad/id"
+				return row
+			},
+			"oversized compartment": func(row map[string]any) map[string]any {
+				row["compartmentId"] = "ocid1.compartment.oc1.." + strings.Repeat("a", 256)
+				return row
+			},
+			"unavailable image": func(row map[string]any) map[string]any {
+				row["lifecycleState"] = "IMPORTING"
+				return row
+			},
+			"SDK error": func(row map[string]any) map[string]any {
+				cloud.imageFault = true
+				return row
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				cloud.rows[imageID] = mutate(maps.Clone(original))
+				defer func() { cloud.rows[imageID], cloud.imageFault = original, false }()
+				requests, reads := cloud.requests, len(cloud.imageReads)
+				result, err := prepare(fixture.images)
+				if err == nil || result.Grant.InstallationID != "" || cloud.requests != requests+1 || len(cloud.imageReads) != reads+1 || cloud.creates != 0 || cloud.launchPosts != 0 || cloud.materialPosts != 0 || cloud.hasAnchor() {
+					t.Fatalf("invalid image observation prepared authority or performed effects: %v", err)
+				}
+			})
+		}
+		for name, mutate := range map[string]func(*releasechannel.CurrentImage){
+			"unqualified base image": func(image *releasechannel.CurrentImage) { *image = releasechannel.CurrentImage{} },
+			"expired qualification": func(image *releasechannel.CurrentImage) { image.ExpiresAt = time.Now().Add(-time.Second) },
+			"different signed receipt": func(image *releasechannel.CurrentImage) { image.ReceiptWire = fixture.images["SFO"].ReceiptWire },
+		} {
+			t.Run(name, func(t *testing.T) {
+				selected := maps.Clone(fixture.images)
+				image := selected["GRU"]
+				mutate(&image)
+				selected["GRU"] = image
+				requests, reads := cloud.requests, len(cloud.imageReads)
+				result, err := prepare(selected)
+				if err == nil || result.Grant.InstallationID != "" || cloud.requests != requests || len(cloud.imageReads) != reads || cloud.creates != 0 || cloud.launchPosts != 0 || cloud.materialPosts != 0 || cloud.hasAnchor() {
+					t.Fatalf("invalid independent qualification reached image GET or effects: %v", err)
+				}
+			})
+		}
+		for _, cell := range []string{"GRU", "SFO", "FRA"} {
+			if _, err := os.Stat(cloud.objectPath("gru-1-head/" + foundationObjectPrefix + cell + ".json")); !os.IsNotExist(err) {
+				t.Fatalf("image preparation created a %s foundation/writer journal: %v", cell, err)
+			}
+		}
+	})
 	invalid := bundle.clone()
 	invalid.GrantWire = []byte("invalid signed authority")
 	before := provider.reads.Load()
-	if err := ProvisionFoundationBundle(t.Context(), factory, roots, invalid); err == nil || provider.reads.Load() != before || cloud.requests != 0 {
+	requests := cloud.requests
+	if err := ProvisionFoundationBundle(t.Context(), factory, roots, invalid); err == nil || provider.reads.Load() != before || cloud.requests != requests {
 		t.Fatalf("invalid authority touched provider/cloud: reads=%d requests=%d err=%v", provider.reads.Load()-before, cloud.requests, err)
 	}
 	// First remote acceptance loses its original SDK LaunchInstance response.
@@ -869,7 +988,7 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 		replacement, err := PrepareFoundationGrant(t.Context(), approval, fixture.images, func(_ context.Context, _ string, region string) (Live, error) {
 			entry, _ := catalog.CellForOCIRegion(region)
 			return Live{AvailabilityDomain: "scenario:AD-1", ServiceID: "ocid1.service.oc1." + region + ".services", ServiceCIDR: "all-" + strings.ToLower(entry.OCIRegionKey) + "-services-in-oracle-services-network"}, nil
-		}, fixture.provider)
+		}, fixture.factoryFor())
 		if err != nil || replacement.Grant.InstallationID == prepared.Grant.InstallationID {
 			t.Fatalf("replacement installation fixture: %v", err)
 		}
@@ -959,6 +1078,8 @@ func (p *provisionProvider) UserOCID() (string, error) {
 }
 
 type provisionCloud struct {
+	imageReads                     []string
+	imageFault                     bool
 	materialRoot                   []byte
 	materialPosts                  int
 	lostMaterialIndex              int
@@ -1487,6 +1608,27 @@ func (c *provisionCloud) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	parts = parts[1:]
 	collection := parts[0]
+	if collection == "images" {
+		if r.Method != http.MethodGet || len(parts) != 2 || r.URL.Path != "/20160918/images/"+parts[1] ||
+			!release.ValidOCIImageIDForRegion(parts[1], "GRU") && !release.ValidOCIImageIDForRegion(parts[1], "SFO") && !release.ValidOCIImageIDForRegion(parts[1], "FRA") ||
+			r.Host != "iaas."+strings.Split(parts[1], ".")[3]+".oraclecloud.com" {
+			c.unexpected(w, r)
+			return
+		}
+		c.imageReads = append(c.imageReads, r.Host+" "+r.URL.Path)
+		if c.imageFault {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			io.WriteString(w, `{"code":"InternalError","message":"image observation unavailable"}`)
+			return
+		}
+		row := c.rows[parts[1]]
+		if row == nil || c.collections[parts[1]] != "images" {
+			c.notFound(w)
+			return
+		}
+		json.MarshalWrite(w, row)
+		return
+	}
 	if collection == "secrets" || collection == "secretbundles" {
 		c.serveMaterial(w, r, parts)
 		return
