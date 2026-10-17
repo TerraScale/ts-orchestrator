@@ -26,6 +26,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
@@ -214,6 +215,55 @@ func (f *currentDiscoveryScenario) floorPath() string {
 }
 
 func TestCurrentFoundationDiscoveryHTTPDurableAuthority(t *testing.T) {
+	t.Run("retained snapshot rejects changed authority and original cancellation", func(t *testing.T) {
+		for _, change := range []string{"current bytes", "missing floor", "final response cancellation"} {
+			t.Run(change, func(t *testing.T) {
+				f := newCurrentDiscoveryScenario(t)
+				original, cancelOriginal := context.WithCancel(t.Context())
+				defer cancelOriginal()
+				operation, cancelOperation := context.WithCancel(original)
+				defer cancelOperation()
+				objects := &retainedDiscoveryObjects{foundationDiscoveryObjects: f.client}
+				snapshot, err := discoverCurrentFoundationSnapshotForOperation(operation, original, objects, f.grant.TenancyID, f.genesis)
+				if err != nil {
+					t.Fatal(err)
+				}
+				cancelOperation()
+				copy := snapshot.Documents()
+				copy.AnchorWire[0] ^= 1
+				if snapshot.Context() != original || !snapshot.ExpiresAt().Equal(f.now.Add(time.Hour)) || snapshot.Guard(t.Context()) != nil {
+					t.Fatal("snapshot lost its original lifetime, first cap or private documents")
+				}
+				before, err := os.ReadFile(f.floorPath())
+				if err != nil {
+					t.Fatal(err)
+				}
+				switch change {
+				case "current bytes":
+					f.grant.MonthlyLimitMinor++
+					f.publish()
+				case "missing floor":
+					if err := os.Rename(filepath.Dir(f.floorPath()), filepath.Dir(f.floorPath())+"-removed"); err != nil {
+						t.Fatal(err)
+					}
+				case "final response cancellation":
+					objects.afterGrantClose = cancelOriginal
+				}
+				if err := snapshot.Guard(t.Context()); err == nil {
+					t.Fatal("changed authority or canceled original revived the retained snapshot")
+				} else if change == "final response cancellation" && (!errors.Is(err, context.Canceled) || original.Err() == nil) {
+					t.Fatalf("final consumed SDK response did not revoke the snapshot: %v", err)
+				}
+				if change == "missing floor" {
+					if _, err := os.Stat(filepath.Dir(f.floorPath())); !errors.Is(err, os.ErrNotExist) {
+						t.Fatalf("guard recreated the missing floor directory: %v", err)
+					}
+				} else if after, err := os.ReadFile(f.floorPath()); err != nil || !bytes.Equal(before, after) {
+					t.Fatalf("guard rewrote the adopted floor: %v", err)
+				}
+			})
+		}
+	})
 	t.Run("mandatory chain even on fresh installation", func(t *testing.T) {
 		f := newCurrentDiscoveryScenario(t)
 		delete(f.objects, foundationRootChainObject)
@@ -417,6 +467,31 @@ func TestCurrentFoundationDiscoveryHTTPDurableAuthority(t *testing.T) {
 			t.Fatalf("symlink target changed: %q %v", wire, err)
 		}
 	})
+}
+
+// Cancellation occurs after the actual signed SDK response body was consumed.
+type retainedDiscoveryObjects struct {
+	foundationDiscoveryObjects
+	afterGrantClose func()
+}
+
+func (objects *retainedDiscoveryObjects) GetObject(ctx context.Context, request objectstorage.GetObjectRequest) (objectstorage.GetObjectResponse, error) {
+	response, err := objects.foundationDiscoveryObjects.GetObject(ctx, request)
+	if err == nil && response.Content != nil && *request.ObjectName == "bootstrap/"+foundationGrantObject && objects.afterGrantClose != nil {
+		response.Content = &retainedDiscoveryBody{ReadCloser: response.Content, after: objects.afterGrantClose}
+	}
+	return response, err
+}
+
+type retainedDiscoveryBody struct {
+	io.ReadCloser
+	after func()
+}
+
+func (body *retainedDiscoveryBody) Close() error {
+	err := body.ReadCloser.Close()
+	body.after()
+	return err
 }
 
 func TestCurrentFoundationDiscoveryLockProcess(t *testing.T) {
