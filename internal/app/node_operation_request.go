@@ -18,6 +18,10 @@ import (
 const nodeOperationExecutionLifetime = 30 * time.Minute
 
 func nodeOperationExecutionDeadline(envelope protocol.Envelope, request nodeOpRequest) (time.Time, error) {
+	id, err := entityid.Parse(envelope.OperationID)
+	if err != nil || id.Time() == 0 || int64(id.Time()) != envelope.IssuedAt.UnixMilli() {
+		return time.Time{}, errors.New("node operation ID must carry its original signed issue millisecond")
+	}
 	deadline := request.ExecutionDeadline
 	if envelope.IssuedAt.IsZero() || deadline.IsZero() || !deadline.After(envelope.IssuedAt) || deadline.After(envelope.IssuedAt.Add(nodeOperationExecutionLifetime)) {
 		return time.Time{}, errors.New("node operation lacks its original signed execution deadline")

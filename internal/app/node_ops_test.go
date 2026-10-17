@@ -207,7 +207,7 @@ func (o *nodeOps) operation(t *testing.T, node string) nodeOp {
 func TestNodeRebootDrainsActsChecksAndReturns(t *testing.T) {
 	ops, balancer, instances := newNodeOpsTest(t)
 	ctx := t.Context()
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", "0000000000M44BFMMJRNPNN6BB", nodeOpRequest{Node: "ctl-2", Op: nodeOpReboot}); err != nil {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-2", Op: nodeOpReboot}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
@@ -236,7 +236,7 @@ func TestNodeRebootKeepsANodeThatDoesNotServeOut(t *testing.T) {
 	ops.fence.hosts.(*nodeHosts).down["ctl-3"] = true
 	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()
-	op := nodeOp{ID: "0000000000M44BFMMJRNPNN6BB", Node: "ctl-3", Op: nodeOpReboot, State: nodeOpQueued}
+	op := nodeOp{ID: entityid.New(), Node: "ctl-3", Op: nodeOpReboot, State: nodeOpQueued}
 	ops.seedOriginalTest(t, ctx, 3, &op)
 	err := ops.execute(ctx, 3, &op)
 	if err == nil || !strings.Contains(err.Error(), "does not serve") {
@@ -251,7 +251,7 @@ func TestNodeRebootKeepsANodeThatDoesNotServeOut(t *testing.T) {
 		t.Fatal(err)
 	}
 	ops.fence.hosts.(*nodeHosts).down["ctl-3"] = false
-	if _, err := ops.submitTest(t, t.Context(), 3, "mariogk", entityid.Derive("test-node-operation", "2"), nodeOpRequest{Node: "ctl-3", Op: nodeOpUndrain}); err != nil {
+	if _, err := ops.submitTest(t, t.Context(), 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-3", Op: nodeOpUndrain}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(t.Context()); err != nil {
@@ -269,7 +269,7 @@ func TestNodeResizeChangesTheShapeOnce(t *testing.T) {
 	ctx := t.Context()
 	instances.shape["ctl-3"] = [2]float32{1, 4}
 	for _, node := range []string{"ctl-1", "ctl-3"} {
-		if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.Derive("test-node-operation", node), nodeOpRequest{Node: node, Op: nodeOpResize, OCPUs: 1, MemoryGB: 4}); err != nil {
+		if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: node, Op: nodeOpResize, OCPUs: 1, MemoryGB: 4}); err != nil {
 			t.Fatal(err)
 		}
 		if err := ops.pass(ctx); err != nil {
@@ -290,13 +290,13 @@ func TestNodeResizeChangesTheShapeOnce(t *testing.T) {
 func TestNodeDrainHoldsAcrossOtherFencesAndGuardsTheQuorum(t *testing.T) {
 	ops, balancer, _ := newNodeOpsTest(t)
 	ctx := t.Context()
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", "0000000000M44BFMMJRNPNN6BB", nodeOpRequest{Node: "ctl-1", Op: nodeOpDrain}); err != nil {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-1", Op: nodeOpDrain}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.Derive("test-node-operation", "2"), nodeOpRequest{Node: "ctl-2", Op: nodeOpReboot}); err == nil ||
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-2", Op: nodeOpReboot}); err == nil ||
 		!strings.Contains(err.Error(), "keeps at least 2") {
 		t.Fatalf("broke the quorum: %v", err)
 	}
@@ -309,7 +309,7 @@ func TestNodeDrainHoldsAcrossOtherFencesAndGuardsTheQuorum(t *testing.T) {
 	if returned, err := ops.fence.restore(ctx, api, 3, "ctl-1", holdRelease, true); err != nil || returned {
 		t.Fatalf("a release returned a drained node: %v %v", returned, err)
 	}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.Derive("test-node-operation", "3"), nodeOpRequest{Node: "ctl-1", Op: nodeOpReboot}); err != nil {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-1", Op: nodeOpReboot}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
@@ -322,7 +322,7 @@ func TestNodeDrainHoldsAcrossOtherFencesAndGuardsTheQuorum(t *testing.T) {
 	if !slices.Equal(record.holders(), []string{holdMaintenance}) {
 		t.Fatalf("holders %q", record.holders())
 	}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.Derive("test-node-operation", "4"), nodeOpRequest{Node: "ctl-1", Op: nodeOpUndrain}); err != nil {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-1", Op: nodeOpUndrain}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
@@ -356,7 +356,7 @@ func TestNodeSubmitRefusals(t *testing.T) {
 			t.Fatal(err)
 		}
 		envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: "gru", Kind: nodeOpSubmitKind,
-			Actor: "ops", OperationID: entityid.Derive("node-deadline", name), Generation: 1, Epoch: 3},
+			Actor: "ops", OperationID: entityid.NewAt(now), Generation: 1, Epoch: 3},
 			now, now.Add(time.Minute), key)
 		if err != nil {
 			t.Fatal(err)
@@ -369,6 +369,29 @@ func TestNodeSubmitRefusals(t *testing.T) {
 			t.Fatalf("signed deadline %s: %v", name, err)
 		}
 	}
+	for name, id := range map[string]string{
+		"derived":           entityid.Derive("node-legacy", "request"),
+		"earlier millis":    entityid.NewAt(now.Add(-time.Millisecond)),
+		"later millis":      entityid.NewAt(now.Add(time.Millisecond)),
+		"resigned newer ID": entityid.NewAt(now.Add(-time.Second)),
+	} {
+		payload, err := protocol.EncodeJSON(nodeOpRequest{Node: "ctl-1", Op: nodeOpReboot, ExecutionDeadline: now.Add(nodeOperationExecutionLifetime)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: "gru", Kind: nodeOpSubmitKind,
+			Actor: "ops", OperationID: id, Generation: 1, Epoch: 3}, now, now.Add(time.Minute), key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wire, err := protocol.EncodeJSON(envelope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := verifyNodeOperationRequest(wire, "gru", 3, policy, now); err == nil || !strings.Contains(err.Error(), "signed issue millisecond") {
+			t.Fatalf("signed operation identity %s: %v", name, err)
+		}
+	}
 	for name, request := range map[string]nodeOpRequest{
 		"unknown node":    {Node: "ctl-9", Op: nodeOpDrain},
 		"unknown op":      {Node: "ctl-1", Op: "rename"},
@@ -376,14 +399,14 @@ func TestNodeSubmitRefusals(t *testing.T) {
 		"reboot shape":    {Node: "ctl-1", Op: nodeOpReboot, OCPUs: 1},
 		"not drained":     {Node: "ctl-1", Op: nodeOpUndrain},
 	} {
-		if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.Derive("test-node-refusal", name), request); err == nil {
+		if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), request); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", "0000000000M44BFMMJRNPNN6BB", nodeOpRequest{Node: "ctl-1", Op: nodeOpReboot}); err != nil {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-1", Op: nodeOpReboot}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.Derive("test-node-operation", "2"), nodeOpRequest{Node: "ctl-1", Op: nodeOpReboot}); err == nil ||
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-1", Op: nodeOpReboot}); err == nil ||
 		!strings.Contains(err.Error(), "already has") {
 		t.Fatalf("a second operation on one node: %v", err)
 	}
@@ -399,12 +422,12 @@ func TestNodeSubmitRefusesPoolNodes(t *testing.T) {
 		"resize": {Node: "ctl-2", Op: nodeOpResize, OCPUs: 2, MemoryGB: 8},
 		"rename": {Node: "ctl-1", To: "ts-gru-4", Op: nodeOpRename},
 	} {
-		if _, err := ops.submitTest(t, t.Context(), 3, "mariogk", entityid.Derive("test-pool-node-refusal", name), request); err == nil ||
+		if _, err := ops.submitTest(t, t.Context(), 3, "mariogk", entityid.New(), request); err == nil ||
 			!strings.Contains(err.Error(), "pool node") {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	if _, err := ops.submitTest(t, t.Context(), 3, "mariogk", "0000000000M44BFMMJRNPNN6BB", nodeOpRequest{Node: "ctl-1", Op: nodeOpReboot}); err != nil {
+	if _, err := ops.submitTest(t, t.Context(), 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-1", Op: nodeOpReboot}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -513,16 +536,16 @@ func TestNodeRetireRemovesBacksUpAndTerminates(t *testing.T) {
 	ops, balancer, instances := newNodeOpsTest(t)
 	ctx := t.Context()
 	ops.controllers = func(node string) bool { return node == "ctl-1" }
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", "0000000000M44BFMMJRNPNN6BB", nodeOpRequest{Node: "ctl-1", Op: nodeOpRetire}); err == nil ||
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-1", Op: nodeOpRetire}); err == nil ||
 		!strings.Contains(err.Error(), "controller") {
 		t.Fatalf("retired a controller: %v", err)
 	}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.Derive("test-node-operation", "2"), nodeOpRequest{Node: "ctl-3", Op: nodeOpRetire}); err == nil ||
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-3", Op: nodeOpRetire}); err == nil ||
 		!strings.Contains(err.Error(), "replica") {
 		t.Fatalf("retired a node with replicas: %v", err)
 	}
 	ops.fence.hosts.(*nodeHosts).withdrawn["ctl-3"] = true
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.Derive("test-node-operation", "3"), nodeOpRequest{Node: "ctl-3", Op: nodeOpRetire}); err != nil {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-3", Op: nodeOpRetire}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
@@ -550,7 +573,7 @@ func TestNodeAddJoinsAMissingBackend(t *testing.T) {
 	_, ops, balancer, _ := newEdgeTest(t)
 	ctx := t.Context()
 	balancer.sets["ts-auth"] = balancer.sets["ts-auth"][:2]
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", "0000000000M44BFMMJRNPNN6BB", nodeOpRequest{Node: "ctl-3", Op: nodeOpAdd}); err != nil {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-3", Op: nodeOpAdd}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
@@ -670,23 +693,23 @@ func TestNodeRenameReenrollsTheHostAndMovesItsRoles(t *testing.T) {
 	}
 	instances.rebooted = func(node string) { hosts.enroll(node, "ts-gru-1") }
 	request := nodeOpRequest{Node: "ctl-1", To: "ts-gru-1", Op: nodeOpRename}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.Derive("test-node-operation", "0"), request); err == nil || !strings.Contains(err.Error(), "no host grant") {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), request); err == nil || !strings.Contains(err.Error(), "no host grant") {
 		t.Fatalf("renamed to an ungranted name: %v", err)
 	}
 	spec, _ := ops.fence.spec()
 	both := map[string]string{"ctl-1": "10.0.0.11", "ts-gru-1": "10.0.0.11", "ctl-2": "10.0.0.12", "ctl-3": "10.0.0.13"}
 	ops.fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return spec, both }
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.Derive("test-node-operation", "0"), request); err == nil || !strings.Contains(err.Error(), "still grants ctl-1") {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), request); err == nil || !strings.Contains(err.Error(), "still grants ctl-1") {
 		t.Fatalf("renamed while the old name keeps its grant: %v", err)
 	}
 	ops.controllers = func(node string) bool { return node == "ctl-1" }
 	renamed := map[string]string{"ts-gru-1": "10.0.0.11", "ctl-2": "10.0.0.12", "ctl-3": "10.0.0.13"}
 	ops.fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return spec, renamed }
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.Derive("test-node-operation", "0"), request); err == nil || !strings.Contains(err.Error(), "controller slot") {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), request); err == nil || !strings.Contains(err.Error(), "controller slot") {
 		t.Fatalf("renamed a controller node without its slot: %v", err)
 	}
 	ops.controllers = func(node string) bool { return node == "ts-gru-1" }
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.Derive("test-node-operation", "rename-missing-name"), nodeOpRequest{Node: "ctl-1", Op: nodeOpRename}); err == nil {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-1", Op: nodeOpRename}); err == nil {
 		t.Fatal("a rename without --new-name was queued")
 	}
 	// ctl-1 ran TerraBase release 15 on its permit, and a failed operation
@@ -700,7 +723,7 @@ func TestNodeRenameReenrollsTheHostAndMovesItsRoles(t *testing.T) {
 	if err := ops.fence.fence(ctx, api, 3, *spec, "ctl-1", "10.0.0.11", time.Millisecond, holdOperation); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", "0000000000M44BFMMJRNPNN6BB", request); err != nil {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), request); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
@@ -774,15 +797,15 @@ func TestNodeUndrainReleasesAFenceAFailedRenameLeftAtItsAddress(t *testing.T) {
 	if balancer.sets["terrabase"][0].Serving() {
 		t.Fatal("the stray fence did not take ctl-1's address out")
 	}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", "0000000000M44BFMMJRNPNN6BB", nodeOpRequest{Node: "ts-gru-1", Op: nodeOpUndrain}); err == nil ||
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ts-gru-1", Op: nodeOpUndrain}); err == nil ||
 		!strings.Contains(err.Error(), "no host grant") {
 		t.Fatalf("undrain of the ungranted name: %v", err)
 	}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.Derive("test-node-operation", "2"), nodeOpRequest{Node: "ctl-2", Op: nodeOpUndrain}); err == nil ||
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-2", Op: nodeOpUndrain}); err == nil ||
 		!strings.Contains(err.Error(), "not drained") {
 		t.Fatalf("undrain of a node with no fence at its address: %v", err)
 	}
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.Derive("test-node-operation", "3"), nodeOpRequest{Node: "ctl-1", Op: nodeOpUndrain}); err != nil {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-1", Op: nodeOpUndrain}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
@@ -805,8 +828,13 @@ func TestNodeUndrainReleasesAFenceAFailedRenameLeftAtItsAddress(t *testing.T) {
 // for the concrete root credential, policy and manager admission sources.
 func (o *nodeOps) seedOriginalTest(t *testing.T, ctx context.Context, epoch uint64, op *nodeOp) {
 	t.Helper()
+	id, err := entityid.Parse(op.ID)
+	if err != nil || id.Time() == 0 {
+		t.Fatal("node fixture needs a timestamped operation ID")
+	}
+	now := time.UnixMilli(int64(id.Time())).UTC()
 	request := nodeOpRequest{Node: op.Node, Op: op.Op, OCPUs: op.OCPUs, MemoryGB: op.MemoryGB,
-		ExecutionDeadline: time.Now().UTC().Add(nodeOperationExecutionLifetime)}
+		ExecutionDeadline: now.Add(nodeOperationExecutionLifetime)}
 	if op.From != "" {
 		request.Node, request.To = op.From, op.Node
 	}
@@ -844,7 +872,6 @@ func (o *nodeOps) seedOriginalTest(t *testing.T, ctx context.Context, epoch uint
 		t.Fatal(err)
 	}
 	key := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
-	now := time.Now().UTC()
 	envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: "gru", Kind: nodeOpSubmitKind, Actor: op.Actor, OperationID: op.ID, Generation: 1, Epoch: epoch}, now, now.Add(time.Minute), key)
 	if err != nil {
 		t.Fatal(err)

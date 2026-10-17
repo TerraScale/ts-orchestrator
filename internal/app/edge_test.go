@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
 )
 
@@ -95,7 +96,7 @@ func TestEdgeTakesANonServingReplicaOutAndBack(t *testing.T) {
 func TestEdgeUndoesHandEdits(t *testing.T) {
 	edge, ops, balancer, _ := newEdgeTest(t)
 	ctx := t.Context()
-	if _, err := ops.submitTest(t, ctx, 3, "mariogk", "0000000000M44BFMMJRNPNN6BB", nodeOpRequest{Node: "ctl-1", Op: nodeOpDrain}); err != nil {
+	if _, err := ops.submitTest(t, ctx, 3, "mariogk", entityid.New(), nodeOpRequest{Node: "ctl-1", Op: nodeOpDrain}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ops.pass(ctx); err != nil {
