@@ -230,7 +230,7 @@ func (b *Backend) ReleaseChannel(ctx context.Context, call rootoci.Call) (rootoc
 	if err != nil {
 		return rootoci.ChannelObservation{}, err
 	}
-	bucket, err := releasechannel.BucketName(strings.ToLower(scope.cell))
+	bucket, err := releasechannel.BucketName(scope.cell)
 	if err != nil {
 		return rootoci.ChannelObservation{}, err
 	}
