@@ -93,11 +93,18 @@ func (n *Node) readWorkerMembership(ctx context.Context, nodeID string, source *
 	if err != nil {
 		return fail(err)
 	}
-	availability, revoke, err := n.workerMembershipDisposition(ctx, node.Node, clusters.Clusters[0], snapshot)
+	operation, err := n.beginWorkerMembership(ctx, snapshot)
+	if err != nil {
+		return fail(err)
+	}
+	defer operation.close()
+	availability, revoke, err := n.workerMembershipDisposition(ctx, node.Node, clusters.Clusters[0], snapshot, operation)
 	if err != nil || revoke || availability != api.NodeAvailabilityActive {
 		return fail(errors.New("worker membership is not independently current"))
 	}
-	if _, err := n.confirmWorkerMembershipSource(ctx, client, node.Node, clusters.Clusters[0], snapshot, source); err != nil {
+	ctx, cancel := operation.boundedContext(ctx)
+	defer cancel()
+	if _, err := n.confirmWorkerMembershipSource(ctx, client, node.Node, clusters.Clusters[0], snapshot, source, operation); err != nil {
 		return fail(err)
 	}
 	verified, err := hostenroll.VerifySwarmMembership(*snapshot.Admission, n.workerAuthority.public)
@@ -105,11 +112,15 @@ func (n *Node) readWorkerMembership(ctx context.Context, nodeID string, source *
 		return fail(err)
 	}
 	w := verified.Worker()
+	if err := operation.revalidate(ctx); err != nil {
+		return fail(err)
+	}
 	now := time.Now().UTC()
+	expires := operation.expiresAt(now.Add(30 * time.Second))
 	return verifiedWorkerMembership(WorkerMembershipInfo{NodeID: nodeID, RegistrationID: w.RegistrationID, InstanceID: w.InstanceID,
 		Region: w.Region, Cell: w.Cell, Role: w.Role, Architecture: w.Architecture, PrivateIP: w.PrivateIP,
 		PublicKey: snapshot.Registration.PublicKey, NATSUserPublicKey: snapshot.Registration.NATSUserPublicKey,
-		Generation: snapshot.Registration.Generation, Revision: snapshot.Sequence, ObservedAt: now, ExpiresAt: now.Add(30 * time.Second)})
+		Generation: snapshot.Registration.Generation, Revision: snapshot.Sequence, ObservedAt: now, ExpiresAt: expires})
 }
 
 // WorkerMembershipQuery contains locators, never authority. Admission is present
@@ -190,13 +201,17 @@ func (n *Node) AuditWorkerMembership(ctx context.Context) error {
 			continue
 		}
 		availability, revoke := api.NodeAvailabilityPause, false
+		var operation *workerOperation
 		query := WorkerMembershipQuery{NodeID: node.ID, RegistrationID: node.Spec.Annotations.Name, InstanceID: node.Spec.Annotations.Labels[LabelInstanceID]}
 		if cluster != nil && entityid.Valid(query.RegistrationID) && query.InstanceID != "" {
 			snapshot, err := readCurrentWorkerMembership(ctx, query)
 			if err == nil {
-				availability, revoke, err = n.workerMembershipDisposition(ctx, node, cluster, snapshot)
+				operation, err = n.beginWorkerMembership(ctx, snapshot)
+			}
+			if err == nil {
+				availability, revoke, err = n.workerMembershipDisposition(ctx, node, cluster, snapshot, operation)
 				if err == nil {
-					node, err = n.confirmWorkerMembership(ctx, client, node, cluster, snapshot)
+					node, err = n.confirmWorkerMembershipSource(ctx, client, node, cluster, snapshot, nil, operation)
 					if err != nil {
 						availability, revoke = api.NodeAvailabilityPause, false
 					}
@@ -206,18 +221,25 @@ func (n *Node) AuditWorkerMembership(ctx context.Context) error {
 				failures = append(failures, err)
 			}
 		}
-		if err := updateWorkerMembership(ctx, client, node, availability, revoke); err != nil {
+		if availability == api.NodeAvailabilityActive {
+			if err := operation.revalidate(ctx); err != nil {
+				availability, revoke = api.NodeAvailabilityPause, false
+				failures = append(failures, err)
+			}
+		}
+		guarded := client
+		if availability == api.NodeAvailabilityActive && operation != nil {
+			guarded = workerControlClient{ControlClient: client, operation: operation}
+		}
+		if err := updateWorkerMembership(ctx, guarded, node, availability, revoke); err != nil {
 			failures = append(failures, err)
 		}
+		operation.close()
 	}
 	return errors.Join(failures...)
 }
 
-func (n *Node) confirmWorkerMembership(ctx context.Context, client api.ControlClient, node *api.Node, cluster *api.Cluster, snapshot WorkerMembershipSnapshot) (*api.Node, error) {
-	return n.confirmWorkerMembershipSource(ctx, client, node, cluster, snapshot, nil)
-}
-
-func (n *Node) confirmWorkerMembershipSource(ctx context.Context, client api.ControlClient, node *api.Node, cluster *api.Cluster, snapshot WorkerMembershipSnapshot, source *hostenroll.WorkerMembershipSource) (*api.Node, error) {
+func (n *Node) confirmWorkerMembershipSource(ctx context.Context, client api.ControlClient, node *api.Node, cluster *api.Cluster, snapshot WorkerMembershipSnapshot, source *hostenroll.WorkerMembershipSource, operation *workerOperation) (*api.Node, error) {
 	confirmed, err := readWorkerMembershipSource(ctx, source, WorkerMembershipQuery{NodeID: node.ID, RegistrationID: node.Spec.Annotations.Name, InstanceID: node.Spec.Annotations.Labels[LabelInstanceID]})
 	if err != nil {
 		return node, err
@@ -243,10 +265,13 @@ func (n *Node) confirmWorkerMembershipSource(ctx context.Context, client api.Con
 	if err := n.workerAuthority.refresh(ctx); err != nil {
 		return current.Node, err
 	}
+	if err := operation.revalidate(ctx); err != nil {
+		return current.Node, err
+	}
 	return current.Node, nil
 }
 
-func (n *Node) workerMembershipDisposition(ctx context.Context, node *api.Node, cluster *api.Cluster, snapshot WorkerMembershipSnapshot) (api.NodeSpec_Availability, bool, error) {
+func (n *Node) workerMembershipDisposition(ctx context.Context, node *api.Node, cluster *api.Cluster, snapshot WorkerMembershipSnapshot, operation *workerOperation) (api.NodeSpec_Availability, bool, error) {
 	pause := func(err error) (api.NodeSpec_Availability, bool, error) { return api.NodeAvailabilityPause, false, err }
 	if err := n.workerAuthority.refresh(ctx); err != nil {
 		return pause(err)
@@ -290,9 +315,11 @@ func (n *Node) workerMembershipDisposition(ctx context.Context, node *api.Node, 
 		registration.ManagedOCI != nil && (registration.ManagedOCI.InstanceID != worker.InstanceID || !strings.EqualFold(registration.ManagedOCI.Region, identity.Cell)) {
 		return api.NodeAvailabilityDrain, true, nil
 	}
-	if err := requireWorkerManagedBindings(descriptor, worker.InstanceID, registration); err != nil {
+	if err := operation.requireBindings(ctx, descriptor, worker.InstanceID, registration); err != nil {
 		return pause(err)
 	}
+	ctx, cancel := operation.boundedContext(ctx)
+	defer cancel()
 	block, _ := pem.Decode(node.Certificate.Certificate)
 	if block == nil {
 		return pause(errors.New("actual upstream worker certificate missing"))
@@ -332,6 +359,9 @@ func (n *Node) workerMembershipDisposition(ctx context.Context, node *api.Node, 
 	if err != nil {
 		return pause(err)
 	}
+	if err := operation.requireObservation(ctx, descriptor, observed, role, architecture); err != nil {
+		return pause(err)
+	}
 	if architecture != worker.Architecture {
 		return api.NodeAvailabilityDrain, true, nil
 	}
@@ -348,6 +378,9 @@ func (n *Node) workerMembershipDisposition(ctx context.Context, node *api.Node, 
 		return pause(errors.New("current worker Vault material differs from retained admission"))
 	}
 	if err := n.workerAuthority.refresh(ctx); err != nil {
+		return pause(err)
+	}
+	if err := operation.revalidate(ctx); err != nil {
 		return pause(err)
 	}
 	return api.NodeAvailabilityActive, false, nil
