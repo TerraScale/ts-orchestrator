@@ -11,17 +11,63 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/hostload"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 	containerd "github.com/containerd/containerd/v2/client"
+	"github.com/moby/swarmkit/v2/agent/exec"
+	"github.com/moby/swarmkit/v2/api"
+	upstreamerrors "github.com/pkg/errors"
 )
 
 // The caller holds e.mu; only the configured upstream node owns these tasks.
 func (e *Executor) trackLoadTask(task *controller) {
-	if e.functionNodeID == "" || task.task.NodeID != e.functionNodeID {
+	if taskLoadTerminalState(task.task.Status.State) {
+		task.loadTerminal = true
+	}
+	if e.functionNodeID == "" || task.task.NodeID != e.functionNodeID || task.loadTerminal {
 		return
 	}
 	if e.loadTasks == nil {
 		e.loadTasks = make(map[string]*controller)
 	}
 	e.loadTasks[task.task.ID] = task
+}
+
+func taskLoadTerminalState(state api.TaskState) bool {
+	_, known := api.TaskState_name[int32(state)]
+	return known && state >= api.TaskStateCompleted
+}
+
+// Match exec.Do exactly; cancellation and temporary errors retain reservations.
+func (c *controller) finishTaskLoadOperation(phase api.TaskState, err error) {
+	if c.stateful != nil {
+		return
+	}
+	switch phase {
+	case api.TaskStatePreparing:
+		if err == nil || err == exec.ErrTaskPrepared {
+			return
+		}
+	case api.TaskStateStarting:
+		if err == nil || err == exec.ErrTaskStarted {
+			return
+		}
+	}
+	// Upstream uses Cause and exact sentinels, including for context retries.
+	switch upstreamerrors.Cause(err) {
+	case context.Canceled, context.DeadlineExceeded:
+		return
+	}
+	if exec.IsTemporary(err) {
+		return
+	}
+	c.finishTaskLoad()
+}
+
+func (c *controller) finishTaskLoad() {
+	c.executor.mu.Lock()
+	defer c.executor.mu.Unlock()
+	c.loadTerminal = true
+	if c.executor.loadTasks[c.task.ID] == c {
+		delete(c.executor.loadTasks, c.task.ID)
+	}
 }
 
 // ReadTaskLoad observes only this executor's current upstream task controllers.
