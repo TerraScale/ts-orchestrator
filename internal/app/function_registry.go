@@ -162,6 +162,8 @@ func functionRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *hos
 		}
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
+		ctx, stopEnrollment := context.WithDeadline(ctx, signed.ExpiresAt)
+		defer stopEnrollment()
 		fingerprint, err := swarmruntime.ContainerTaskFingerprint(task)
 		if err != nil {
 			return nil, err
@@ -172,6 +174,8 @@ func functionRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *hos
 		if err != nil {
 			return nil, err
 		}
+		ctx, stopDocument := context.WithDeadline(ctx, document.ExpiresAt)
+		defer stopDocument()
 		var snapshot functionRegistrySnapshot
 		if err := protocol.DecodeStrict(document.Document, &snapshot, runtimeRegistrySourceBytes); err != nil {
 			return nil, err
@@ -191,6 +195,8 @@ func functionRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *hos
 		if err != nil {
 			return nil, err
 		}
+		ctx, stopFunction := context.WithDeadline(ctx, receipt.ExpiresAt())
+		defer stopFunction()
 		claim = receipt.Claim()
 		expected := swarmruntime.ServiceIntent{ID: entityid.Derive("function-service", signed.Environment, signed.OCIRegion, claim.TenantID, claim.FunctionID), Region: signed.OCIRegion, Environment: signed.Environment}
 		for key, value := range map[string]string{
@@ -222,6 +228,8 @@ func functionRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *hos
 		if err != nil {
 			return nil, err
 		}
+		ctx, stopWorker := context.WithDeadline(ctx, verified.ExpiresAt())
+		defer stopWorker()
 		spec, err := swarmruntime.DecodeContainer(task)
 		if err != nil || spec.Image != verified.Claim().Image || task.ServiceAnnotations.Labels[swarmruntime.LabelFunctionWorkerBundle] != verified.BundleSHA256() {
 			return nil, errors.New("function registry task differs from independently qualified worker image")
@@ -234,13 +242,23 @@ func functionRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *hos
 		if err != nil {
 			return nil, err
 		}
+		ctx, stopConfirmed := context.WithDeadline(ctx, confirmed.ExpiresAt)
+		defer stopConfirmed()
 		if !bytes.Equal(document.Document, confirmed.Document) || !time.Now().Before(document.ExpiresAt) || !time.Now().Before(confirmed.ExpiresAt) ||
 			!receipt.Valid() || !verified.Valid(time.Now().UTC()) || signed.Validate(time.Now().UTC()) != nil {
 			return nil, errors.New("function registry authority changed during credential admission")
 		}
+		admissionDeadline, _ := ctx.Deadline()
+		admission.Deadline = admissionDeadline
 		admission.VerifyCurrent = func(ctx context.Context) error {
 			mu.Lock()
 			defer mu.Unlock()
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if !time.Now().Before(admissionDeadline) {
+				return errors.New("function registry original admission expired before Vault credential read")
+			}
 			current, err := agent.CurrentRegistryAdmission(ctx, binding)
 			if err != nil {
 				return err
