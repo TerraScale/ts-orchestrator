@@ -5,6 +5,7 @@ package app
 import (
 	"context"
 	"crypto/ed25519"
+	"errors"
 	"io"
 	"os"
 	"strings"
@@ -17,12 +18,15 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/rootsecret"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
 type rootMaterialAdmission struct {
@@ -241,16 +245,54 @@ func (producer *rootMaterialAdmission) readers(ctx context.Context, call rootoci
 	if err != nil || len(public) != ed25519.PublicKeySize {
 		return fail(rootoci.ErrUnauthorized)
 	}
-	channel := instancePrincipalChannel(producer.factory.Region(), strings.ToUpper(cfg.NATS.Cell))
-	controller := &containerMaterialController{config: containerMaterialConfig{Factory: producer.factory, Client: client,
+	bucket, err := releasechannel.BucketName(strings.ToUpper(cfg.NATS.Cell))
+	if err != nil {
+		return fail(err)
+	}
+	objects, err := producer.factory.ObjectStorage()
+	if err != nil {
+		return fail(err)
+	}
+	namespace, err := objects.GetNamespace(ociclient.RequestContext(ctx), objectstorage.GetNamespaceRequest{})
+	if err != nil || namespace.Value == nil || *namespace.Value == "" {
+		return fail(errors.Join(rootoci.ErrUnauthorized, err))
+	}
+	location := releasechannel.Location{Client: objects, Namespace: *namespace.Value, Bucket: bucket}
+	controller := &containerMaterialController{config: containerMaterialConfig{Client: client,
 		credentialSource: credentials, credentialContext: ctx,
 		Specs: services, Delivery: service, ContainerProfiles: &nativeHistory{js: js}, Founders: reader, Accepted: accepted, JS: js, Mutations: mutations, ResponsePublic: public,
-		Evidence: func(ctx context.Context, role, digest string) (io.ReadCloser, error) {
-			location, err := channel.get(ctx)
+		Evidence: func(ctx context.Context, operationID, digest string) (io.ReadCloser, error) {
+			intent, err := service.ContainerIntent(ctx, operationID)
 			if err != nil {
 				return nil, err
 			}
-			return releasechannel.ReadContainerEvidence(ctx, location, role, digest)
+			return releasechannel.ReadContainerEvidence(ctx, location, intent.Role, digest)
+		},
+		Allocations: func(ctx context.Context, operationID string, requested release.ContainerBundle, _ trust.Keyring, target release.ContainerTarget) (release.SequenceLocation, error) {
+			intent, err := service.ContainerIntent(ctx, operationID)
+			if err != nil {
+				return release.SequenceLocation{}, err
+			}
+			if intent.Container == nil || target.Cell != strings.ToUpper(cfg.NATS.Cell) || target.Role != intent.Role || target.Environment != services.identity.Environment {
+				return release.SequenceLocation{}, rootoci.ErrUnauthorized
+			}
+			actual, actualErr := release.ContainerBundleSHA256(*intent.Container)
+			wanted, wantedErr := release.ContainerBundleSHA256(requested)
+			if actualErr != nil || wantedErr != nil || actual != wanted {
+				return release.SequenceLocation{}, rootoci.ErrUnauthorized
+			}
+			return currentContainerAllocations(ctx, producer.factory, *intent.Container, services.roots.current(), target)
+		},
+		CurrentBundle: func(ctx context.Context, role, architecture string) (release.ContainerBundle, time.Time, error) {
+			deadline, ok := ctx.Deadline()
+			if !ok || !time.Now().Before(deadline) || !(rootoci.ContainerReleaseRequest{Role: role, Architecture: architecture}).Valid() {
+				return release.ContainerBundle{}, time.Time{}, rootoci.ErrUnauthorized
+			}
+			bundle, found, err := releasechannel.ReadContainerBundle(ctx, location, role, architecture)
+			if err != nil || !found {
+				return release.ContainerBundle{}, time.Time{}, errors.Join(containermaterial.ErrPending, err)
+			}
+			return bundle, deadline, ctx.Err()
 		}}}
 	if delegated := policy.release.Load(); delegated != nil {
 		controller.config.releaseDeadline = delegated.expires

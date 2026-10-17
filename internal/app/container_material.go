@@ -18,10 +18,8 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/containermaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
-	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
-	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
@@ -36,7 +34,6 @@ type containerMaterialConfig struct {
 	releaseDeadline   time.Time
 	credentialSource  containermaterial.ControllerCredentials
 	credentialContext context.Context
-	Factory           *ociclient.Factory
 	Hosts             seatrollout.Hosts
 	Authority         authority.Fencer
 	ReadLease         *authority.LeaseAdmission
@@ -46,6 +43,8 @@ type containerMaterialConfig struct {
 	Delivery          *delivery.Service
 	ContainerProfiles containermaterial.ContainerProfiles
 	Evidence          func(context.Context, string, string) (io.ReadCloser, error)
+	Allocations       func(context.Context, string, release.ContainerBundle, trust.Keyring, release.ContainerTarget) (release.SequenceLocation, error)
+	CurrentBundle     func(context.Context, string, string) (release.ContainerBundle, time.Time, error)
 	Founders          *bootstrapstart.CurrentFounderAuthorityReader
 	Accepted          bootstrapstart.AcceptedIdentity
 	JS                jetstream.JetStream
@@ -235,7 +234,7 @@ func (controller *containerMaterialController) taskLoadRoles(ctx context.Context
 }
 
 func startContainerMaterial(ctx context.Context, config containerMaterialConfig) (*containerMaterialController, func(), error) {
-	if config.Root == nil || config.Factory == nil || config.Hosts == nil || config.Authority == nil || config.Client == nil || config.SnapshotMutations == nil || config.Specs == nil || config.Specs.kv == nil || config.Specs.roots == nil || config.Delivery == nil || config.ContainerProfiles == nil || config.Evidence == nil ||
+	if config.Root == nil || config.Hosts == nil || config.Authority == nil || config.Client == nil || config.SnapshotMutations == nil || config.Specs == nil || config.Specs.kv == nil || config.Specs.roots == nil || config.Delivery == nil || config.ContainerProfiles == nil || config.Evidence == nil || config.Allocations == nil || config.CurrentBundle == nil ||
 		config.Founders == nil || config.Accepted.Validate() != nil || config.JS == nil || config.Mutations == nil || config.Registrations == nil || len(config.ResponsePublic) != ed25519.PublicKeySize {
 		return nil, nil, errors.New("container material requires current authority, signed profiles, delivery and manager")
 	}
@@ -331,27 +330,11 @@ func (controller *containerMaterialController) recipientEvidence(ctx context.Con
 		return containerMaterialEvidence{}, err
 	}
 	target := release.ContainerTarget{Cell: strings.ToUpper(intent.Cell), Environment: intent.Environment, Role: intent.Role, Architecture: expected.Architecture}
-	channel := instancePrincipalChannel(config.Factory.Region(), target.Cell)
-	location, err := channel.get(ctx)
+	channelGuard, err := currentContainerChannel(ctx, intent, expected.Architecture, config.CurrentBundle)
 	if err != nil {
 		return containerMaterialEvidence{}, err
 	}
-	channelGuard := func(ctx context.Context) error {
-		bundle, found, err := releasechannel.ReadContainerBundle(ctx, location, intent.Role, expected.Architecture)
-		if err != nil || !found {
-			return errors.Join(containermaterial.ErrPending, err)
-		}
-		actual, err := release.ContainerBundleSHA256(bundle)
-		wanted, expectedErr := release.ContainerBundleSHA256(*intent.Container)
-		if err != nil || expectedErr != nil || actual != wanted {
-			return errors.Join(containermaterial.ErrPending, err, expectedErr)
-		}
-		return ctx.Err()
-	}
-	if err := channelGuard(ctx); err != nil {
-		return containerMaterialEvidence{}, err
-	}
-	allocations, err := currentContainerAllocations(ctx, config.Factory, *intent.Container, roots, target)
+	allocations, err := config.Allocations(ctx, intent.OperationID, *intent.Container, roots, target)
 	if err != nil {
 		return containerMaterialEvidence{}, err
 	}
@@ -360,7 +343,7 @@ func (controller *containerMaterialController) recipientEvidence(ctx context.Con
 		validUntil = earlier(validUntil, deadline)
 	}
 	verified, err := release.VerifyContainerCurrent(ctx, *intent.Container, roots, target, time.Now().UTC(), validUntil, func(ctx context.Context, digest string) (io.ReadCloser, error) {
-		return config.Evidence(ctx, intent.Role, digest)
+		return config.Evidence(ctx, intent.OperationID, digest)
 	}, allocations)
 	if err != nil {
 		return containerMaterialEvidence{}, err
@@ -388,6 +371,11 @@ func (controller *containerMaterialController) recipientEvidence(ctx context.Con
 		return containerMaterialEvidence{}, err
 	}
 	continuityGuard := func(ctx context.Context) error {
+		if !verified.Valid(time.Now().UTC()) {
+			return containermaterial.ErrPending
+		}
+		ctx, stop := context.WithDeadline(ctx, verified.ExpiresAt())
+		defer stop()
 		if err := selection.guard(ctx); err != nil {
 			return err
 		}

@@ -40,7 +40,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
-	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
@@ -865,18 +864,12 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return err
 	}
-	containerChannel := instancePrincipalChannel(capacityFoundation.factory.Region(), strings.ToUpper(cfg.NATS.Cell))
+	statefulMaterial := statefulReleaseReader{client: workloadRoot, deliveries: service}
 	containers, stopContainers, err := startContainerMaterial(runCtx, containerMaterialConfig{
-		Root: workloadRoot, Factory: capacityFoundation.factory, Hosts: hostController, Authority: control, Client: functionClient, SnapshotMutations: functionClient,
+		Root: workloadRoot, Hosts: hostController, Authority: control, Client: functionClient, SnapshotMutations: functionClient,
 		Specs: services, Delivery: service, ContainerProfiles: nativeReleases, Founders: containerFounders, Accepted: acceptedRuntime, WorkerMembership: functionMembership,
 		JS: runtime.JetStream(), Mutations: containerMutations, Registrations: containerRegistrations, ResponsePublic: responseKey.Public().(ed25519.PublicKey),
-		Evidence: func(ctx context.Context, role, digest string) (io.ReadCloser, error) {
-			location, err := containerChannel.get(ctx)
-			if err != nil {
-				return nil, err
-			}
-			return releasechannel.ReadContainerEvidence(ctx, location, role, digest)
-		},
+		Evidence: statefulMaterial.evidence, Allocations: statefulMaterial.allocations, CurrentBundle: statefulMaterial.currentBundle,
 	})
 	if err != nil {
 		return fmt.Errorf("start automatic regional container material: %w", err)
@@ -903,7 +896,6 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			return err
 		}
 	}
-	statefulMaterial := statefulReleaseReader{client: workloadRoot, deliveries: service}
 	stateful, err := newStatefulRuntime(statefulRuntimeConfig{
 		Client: functionClient, Authority: control, Members: statefulMembers, Delivery: service,
 		Volumes: statefulVolumes, Roots: services.roots.current(), HistoricalRoots: services.roots.historical(), Evidence: statefulMaterial.evidence, Allocations: statefulMaterial.allocations,
@@ -916,8 +908,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	statefulServices.Store(stateful)
 	defer statefulServices.Store(nil)
-	generic, err := newGenericRuntime(genericRuntimeConfig{Client: functionClient, ManagerID: managerID, Authority: control, Specs: services, Delivery: service, Factory: capacityFoundation.factory,
-		Evidence: containers.config.Evidence, Probe: containers.probe, RetainedFloor: nativeReleases.retainedContainerFloor,
+	generic, err := newGenericRuntime(genericRuntimeConfig{Client: functionClient, ManagerID: managerID, Authority: control, Specs: services, Delivery: service,
+		Evidence: containers.config.Evidence, Allocations: containers.config.Allocations, CurrentBundle: statefulMaterial.currentBundle,
+		Probe: containers.probe, RetainedFloor: nativeReleases.retainedContainerFloor,
 		OriginalProfile: nativeReleases.originalContainerProfile,
 		SessionGuard:    func(ctx context.Context) error { return containers.managerSession(ctx, managerID) },
 	}, hostLoad.load)
