@@ -111,6 +111,9 @@ func SignFoundationDiscovery(ctx context.Context, grant FoundationGrant, anchor 
 	if !expires.After(issued) {
 		return RetainedFoundation{}, errors.New("prepared foundation leaves no current image or qualification validity")
 	}
+	if err := validateNetBirdJournalPurpose(grant, expires); err != nil {
+		return RetainedFoundation{}, err
+	}
 	for _, regional := range grant.Regions {
 		if regional.BootstrapMaterial.Startup.FounderResources.LaunchDeadline.After(expires) {
 			return RetainedFoundation{}, fmt.Errorf("prepared %s founder launch deadline exceeds the foundation validity", regional.Plan["cell"])

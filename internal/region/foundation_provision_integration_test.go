@@ -138,12 +138,61 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	approvedWire, err := json.Marshal(prepared.Grant, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manager *NetBirdManagerIntent
+	for _, regional := range prepared.Grant.Regions {
+		if regional.NetBirdManager != nil {
+			manager = regional.NetBirdManager
+		}
+	}
+	if manager == nil || manager.JournalPurpose.Validate() != nil || !manager.JournalPurpose.ExpiresAt.Equal(now.Add(foundationProvisionValidity)) {
+		t.Fatal("actual preparation omitted or extended the finite signed manager journal purpose")
+	}
+	for _, mutate := range []struct {
+		name  string
+		apply func(*bootstrap.NetBirdJournalPurpose)
+	}{
+		{"purpose", func(p *bootstrap.NetBirdJournalPurpose) { p.Purpose = "another-purpose" }},
+		{"source", func(p *bootstrap.NetBirdJournalPurpose) { p.SourcePlanSHA256 = strings.Repeat("f", 64) }},
+		{"recipe", func(p *bootstrap.NetBirdJournalPurpose) { p.Underlay.Port = 444 }},
+	} {
+		var changed FoundationGrant
+		if err := json.Unmarshal(approvedWire, &changed); err != nil {
+			t.Fatal(err)
+		}
+		for _, regional := range changed.Regions {
+			if regional.NetBirdManager != nil {
+				mutate.apply(&regional.NetBirdManager.JournalPurpose)
+			}
+		}
+		before, err := json.Marshal(changed, json.Deterministic(true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := SignFoundationDiscovery(t.Context(), changed, prepared.Anchor, chain, roots, root, now.Add(-time.Second), now.Add(foundationProvisionValidity)); err == nil {
+			t.Fatalf("signer accepted modified approved journal %s", mutate.name)
+		}
+		after, err := json.Marshal(changed, json.Deterministic(true))
+		if err != nil || !bytes.Equal(before, after) {
+			t.Fatalf("rejected signing rewrote approved journal %s", mutate.name)
+		}
+	}
 	if _, err := SignFoundationDiscovery(t.Context(), prepared.Grant, prepared.Anchor, chain, roots, root, now.Add(-time.Second), now.Add(foundationProvisionValidity-time.Minute)); err == nil {
 		t.Fatal("signed a foundation expiry shorter than its unchanged approved founder launch deadline")
+	}
+	if _, err := SignFoundationDiscovery(t.Context(), prepared.Grant, prepared.Anchor, chain, roots, root, now.Add(-time.Second), now.Add(foundationProvisionValidity-time.Second)); err == nil || !strings.Contains(err.Error(), "journal purpose") {
+		t.Fatalf("final signing interval did not reject the approved purpose before narrowing it: %v", err)
 	}
 	bundle, err := SignFoundationDiscovery(t.Context(), prepared.Grant, prepared.Anchor, chain, roots, root, now.Add(-time.Second), now.Add(foundationProvisionValidity))
 	if err != nil {
 		t.Fatal(err)
+	}
+	afterSigning, err := json.Marshal(prepared.Grant, json.Deterministic(true))
+	if err != nil || !bytes.Equal(approvedWire, afterSigning) {
+		t.Fatal("final signer rewrote the approved grant or spending digest")
 	}
 	cloud.bundle = bundle.clone()
 	cloud.seedPrerequisites(approval)
