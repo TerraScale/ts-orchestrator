@@ -286,6 +286,13 @@ func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInpu
 	if err != nil {
 		return FoundationPreparation{}, err
 	}
+	for index := range grant.Regions {
+		authorization, err := foundationAdmissionAttestor(grant, input.HomeStorageDomain, grant.Regions[index])
+		if err != nil {
+			return FoundationPreparation{}, err
+		}
+		grant.Regions[index].BootstrapMaterial.AdmissionAttestor = &authorization
+	}
 	if err := ValidatePreparedFoundation(grant); err != nil {
 		return FoundationPreparation{}, err
 	}
@@ -507,6 +514,9 @@ func ValidatePreparedFoundation(grant FoundationGrant) error {
 		}
 	}
 	if err := validateFoundationWorkloadGenesis(grant, home); err != nil {
+		return err
+	}
+	if err := validateFoundationAdmissionAttestors(grant, home); err != nil {
 		return err
 	}
 	if err := validatePreparedReleaseAuthorities(grant.ReleaseAuthorities); err != nil {

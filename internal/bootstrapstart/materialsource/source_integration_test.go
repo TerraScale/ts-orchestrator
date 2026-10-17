@@ -297,6 +297,41 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 }
 
 func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
+	t.Run("prospective CAS data transitions only", func(t *testing.T) {
+		reserved := materialSourceState{AdmissionAuthorizationSHA256: strings.Repeat("a", 64)}
+		archive := reserved
+		archive.Reference = materialSourceReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.original", SHA256: strings.Repeat("b", 64), MaxBytes: 100}
+		selected := archive
+		selected.Inventory = []byte("first-inventory-data")
+		selected.OriginalAdmissionInventory = bytes.Clone(selected.Inventory)
+		if !immutableAdmissionSource(reserved, archive) || !immutableAdmissionSource(archive, selected) || immutableAdmissionSource(reserved, selected) {
+			t.Fatal("archive and first inventory do not require separate CAS phases")
+		}
+		renewed := selected
+		renewed.Inventory = []byte("renewed-current-inventory-data")
+		if !immutableAdmissionSource(selected, renewed) {
+			t.Fatal("same original selection could not renew current inventory")
+		}
+		for name, mutate := range map[string]func(*materialSourceState){
+			"clear original":        func(s *materialSourceState) { s.OriginalAdmissionInventory = nil },
+			"replace original":      func(s *materialSourceState) { s.OriginalAdmissionInventory = []byte("replacement") },
+			"replace archive":       func(s *materialSourceState) { s.Reference.SHA256 = strings.Repeat("c", 64) },
+			"clear archive":         func(s *materialSourceState) { s.Reference = materialSourceReference{} },
+			"replace authorization": func(s *materialSourceState) { s.AdmissionAuthorizationSHA256 = strings.Repeat("d", 64) },
+		} {
+			candidate := selected
+			mutate(&candidate)
+			if immutableAdmissionSource(selected, candidate) {
+				t.Fatalf("accepted %s", name)
+			}
+		}
+		if immutableAdmissionSource(materialSourceState{}, reserved) {
+			t.Fatal("legacy state gained prospective authorization")
+		}
+	})
+	t.Run("prospective original actor lifecycle", func(t *testing.T) {
+		t.Skip("HOLD: schema3 has no authentic VerifiedBootstrapMaterial/SourceFounder producer; escrow loss, host loss and same-key renewal cannot be qualified by document or mechanical-data fixtures")
+	})
 	now := time.Now().UTC().Truncate(time.Second).Add(-2 * time.Second)
 	anchor, _, roots, private, _ := materialSourceAnchor(t)
 	target := bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..control", VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.vault", KMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head"}

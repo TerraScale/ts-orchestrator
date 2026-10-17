@@ -159,6 +159,12 @@ func newFoundationProvisionFixture(t *testing.T) foundationProvisionFixture {
 	prepared.Grant.SchemaVersion = 2
 	prepared.Grant.WorkloadGenesis = nil
 	prepared.Grant.ReleaseAuthorities = historicalAuthorities
+	prepared.Grant.Regions = slices.Clone(prepared.Grant.Regions)
+	for index := range prepared.Grant.Regions {
+		material := *prepared.Grant.Regions[index].BootstrapMaterial
+		material.AdmissionAttestor = nil
+		prepared.Grant.Regions[index].BootstrapMaterial = &material
+	}
 	bundle := signProvisionFoundation(t, prepared, chain, root, now)
 	if err := VerifyFoundationProvisionBundle(t.Context(), roots, bundle); err != nil {
 		t.Fatal(err)
@@ -438,6 +444,12 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 	if prepared.Grant.SchemaVersion != 3 || len(prepared.Grant.WorkloadGenesis) != 9 {
 		t.Fatal("new founding preparation did not derive the complete prospective lineage")
 	}
+	for _, regional := range prepared.Grant.Regions {
+		expected, err := foundationAdmissionAttestor(prepared.Grant, fixture.approval.HomeStorageDomain, regional)
+		if err != nil || regional.BootstrapMaterial.AdmissionAttestor == nil || *regional.BootstrapMaterial.AdmissionAttestor != expected {
+			t.Fatalf("prepared region lacks exact dedicated attestor authorization: %v", err)
+		}
+	}
 	bundle := signProvisionFoundation(t, prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
 	if err := VerifyFoundationProvisionBundle(t.Context(), fixture.roots, bundle); err != nil {
 		t.Fatalf("original root-signed prospective founding grant: %v", err)
@@ -462,10 +474,44 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 		"mixed historical migration": func(grant *FoundationGrant) {
 			grant.ReleaseAuthorities[0].SequenceMigrationWire = []byte("test-only conflicting migration input")
 		},
+		"missing attestor authorization": func(grant *FoundationGrant) { grant.Regions[0].BootstrapMaterial.AdmissionAttestor = nil },
+		"duplicate attestor authorization": func(grant *FoundationGrant) {
+			grant.Regions[0].BootstrapMaterial.AdmissionAttestor = new(*grant.Regions[1].BootstrapMaterial.AdmissionAttestor)
+		},
+		"foreign attestor scope": func(grant *FoundationGrant) {
+			grant.Regions[0].BootstrapMaterial.AdmissionAttestor.InstallationID = "0000000000YTR4D9RJ6W8NG1HC"
+		},
+		"foreign attestor source store": func(grant *FoundationGrant) {
+			grant.Regions[0].BootstrapMaterial.AdmissionAttestor.SourceNamespace = "foreign"
+		},
+		"foreign attestor source object": func(grant *FoundationGrant) {
+			grant.Regions[0].BootstrapMaterial.AdmissionAttestor.SourceObject += ".other"
+		},
+		"foreign attestor plan": func(grant *FoundationGrant) {
+			grant.Regions[0].BootstrapMaterial.AdmissionAttestor.PlanSHA256 = strings.Repeat("a", 64)
+		},
+		"foreign attestor registration": func(grant *FoundationGrant) {
+			grant.Regions[0].BootstrapMaterial.AdmissionAttestor.SourceRegistrationSHA256 = strings.Repeat("a", 64)
+		},
+		"foreign attestor genesis": func(grant *FoundationGrant) {
+			grant.Regions[0].BootstrapMaterial.AdmissionAttestor.WorkloadGenesisSHA256 = strings.Repeat("a", 64)
+		},
+		"foreign attestor domain": func(grant *FoundationGrant) {
+			grant.Regions[0].BootstrapMaterial.AdmissionAttestor.Domain = "bootstrap-intent"
+		},
+		"foreign attestor action": func(grant *FoundationGrant) { grant.Regions[0].BootstrapMaterial.AdmissionAttestor.Action = "sign" },
+		"foreign attestor binding": func(grant *FoundationGrant) {
+			grant.Regions[0].BootstrapMaterial.AdmissionAttestor.SourceBinding = "latest-source"
+		},
+		"schema1 with attestor": func(grant *FoundationGrant) { grant.SchemaVersion = 1; grant.WorkloadGenesis = nil },
+		"schema2 with attestor": func(grant *FoundationGrant) { grant.SchemaVersion = 2; grant.WorkloadGenesis = nil },
 	} {
 		candidate := prepared
-		candidate.Grant.WorkloadGenesis = slices.Clone(prepared.Grant.WorkloadGenesis)
-		candidate.Grant.ReleaseAuthorities = slices.Clone(prepared.Grant.ReleaseAuthorities)
+		candidate.Grant = FoundationGrant{}
+		grantWire, err := json.Marshal(prepared.Grant)
+		if err != nil || json.Unmarshal(grantWire, &candidate.Grant) != nil {
+			t.Fatalf("clone prospective root document: %v", err)
+		}
 		mutate(&candidate.Grant)
 		invalid := signProvisionFoundation(t, candidate, bundle.RootChainWire, fixture.root, fixture.now)
 		factory := fixture.factoryFor()
@@ -525,6 +571,16 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 	resolver, err := verifyRetainedFoundation(t.Context(), bundle, fixture.roots)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, regional := range prepared.Grant.Regions {
+		cell := regional.Plan["cell"].(string)
+		proof, err := resolver.Footprint.(*SignedFootprint).AdmissionAttestor(t.Context(), cell)
+		if err != nil || !proof.IsVerified() || proof.Authorization() != *regional.BootstrapMaterial.AdmissionAttestor {
+			t.Fatalf("original root document did not produce its exact %s authorization: %v", cell, err)
+		}
+		if selected, err := proof.OriginalBinding(t.Context(), nil); err == nil || selected.IsVerified() {
+			t.Fatal("document-only proof inferred a protected original actor/source binding")
+		}
 	}
 	if authority, err := resolver.ContainerReleaseAuthority(t.Context(), "GRU", "terrabase", "production"); err == nil || !strings.Contains(err.Error(), "no admitted runtime consumer") || authority.IsVerified() {
 		t.Fatal("prospective origin minted container ordering authority without a consumer")

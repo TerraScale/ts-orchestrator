@@ -39,6 +39,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
@@ -81,15 +82,16 @@ type File struct {
 }
 
 type Public struct {
-	PeerSignerPublicKey         string `json:"peerSignerPublicKey"`
-	LedgerSignerPublicKey       string `json:"ledgerSignerPublicKey"`
-	TicketSignerPublicKey       string `json:"ticketSignerPublicKey"`
-	ControllerResponsePublicKey string `json:"controllerResponsePublicKey"`
-	ControllerAccountSignerNKey string `json:"controllerAccountSignerNkey"`
-	HostNATSIssuerNKey          string `json:"hostNatsIssuerNkey"`
-	OperatorNKey                string `json:"operatorNkey"`
-	SystemAccountNKey           string `json:"systemAccountNkey"`
-	CellAccountNKey             string `json:"cellAccountNkey"`
+	AdmissionAttestor           release.AdmissionAttestorMaterial `json:"admissionAttestor,omitzero"`
+	PeerSignerPublicKey         string                            `json:"peerSignerPublicKey"`
+	LedgerSignerPublicKey       string                            `json:"ledgerSignerPublicKey"`
+	TicketSignerPublicKey       string                            `json:"ticketSignerPublicKey"`
+	ControllerResponsePublicKey string                            `json:"controllerResponsePublicKey"`
+	ControllerAccountSignerNKey string                            `json:"controllerAccountSignerNkey"`
+	HostNATSIssuerNKey          string                            `json:"hostNatsIssuerNkey"`
+	OperatorNKey                string                            `json:"operatorNkey"`
+	SystemAccountNKey           string                            `json:"systemAccountNkey"`
+	CellAccountNKey             string                            `json:"cellAccountNkey"`
 }
 
 type Record struct {
@@ -153,6 +155,10 @@ var (
 // Generate creates an immutable local source. An incomplete directory is an
 // operator hold: no automatic cleanup can prove that publication never began.
 func Generate(directory string, cfg Config, now time.Time) (Record, error) {
+	return generate(directory, cfg, now, nil)
+}
+
+func generate(directory string, cfg Config, now time.Time, authorization *release.AdmissionAttestorAuthorization) (Record, error) {
 	if err := cfg.validate(); err != nil || !filepath.IsAbs(directory) || now.IsZero() || secureParents(directory) != nil {
 		return Record{}, ErrMaterial
 	}
@@ -160,6 +166,9 @@ func Generate(directory string, cfg Config, now time.Time) (Record, error) {
 		record, loadErr := Load(directory)
 		if loadErr != nil || !sameConfig(record.Config, cfg) {
 			return Record{}, ErrMaterial
+		}
+		if err := matchAdmissionAuthorization(record, authorization); err != nil {
+			return Record{}, err
 		}
 		return record, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -177,6 +186,11 @@ func Generate(directory string, cfg Config, now time.Time) (Record, error) {
 			clear(body)
 		}
 	}()
+	if authorization != nil {
+		if err := buildAdmissionAttestor(files, &public, *authorization); err != nil {
+			return Record{}, err
+		}
+	}
 	record := Record{SchemaVersion: 1, Config: cfg, IssuedAt: now.UTC(),
 		ExpiresAt: now.UTC().Add(time.Duration(cfg.ValidityHours) * time.Hour), Public: public}
 	for name, body := range files {
@@ -225,7 +239,7 @@ func Load(directory string) (Record, error) {
 	var record Record
 	if err := json.Unmarshal(metadata, &record, json.RejectUnknownMembers(true)); err != nil || record.SchemaVersion != 1 ||
 		record.Config.validate() != nil ||
-		len(record.Files) != len(expectedNames())+len(memberCANames)*boolInt(record.HasMemberCA()) ||
+		len(record.Files) != len(expectedNames())+len(memberCANames)*boolInt(record.HasMemberCA())+3*boolInt(record.Public.AdmissionAttestor != (release.AdmissionAttestorMaterial{})) ||
 		record.ExpiresAt.Sub(record.IssuedAt) != time.Duration(record.Config.ValidityHours)*time.Hour {
 		return Record{}, ErrMaterial
 	}
@@ -279,6 +293,9 @@ func Load(directory string) (Record, error) {
 	}
 	if len(entries) < len(record.Files)+2 {
 		return Record{}, ErrMaterial
+	}
+	if err := validateAdmissionAttestor(directory, record); err != nil {
+		return Record{}, err
 	}
 	return record, nil
 }
@@ -706,7 +723,7 @@ func classify(name string) (bootstrap.SecretPurpose, string) {
 		return bootstrap.SecretRegionalShared, ""
 	}
 	for _, slot := range []string{"controller-a", "controller-b", "controller-c"} {
-		if slices.Contains([]string{slot + ".creds", slot + "-tls-cert.pem", slot + "-tls-key.pem", slot + "-response.key"}, name) {
+		if slices.Contains([]string{slot + ".creds", slot + "-tls-cert.pem", slot + "-tls-key.pem", slot + "-response.key", slot + "-admission.key"}, name) {
 			return bootstrap.SecretController, slot
 		}
 	}
@@ -819,6 +836,9 @@ func ValidateLive(directory string, record Record) error {
 		return err
 	}
 	if err := validateSignerFiles(directory, record); err != nil {
+		return err
+	}
+	if err := validateAdmissionAttestor(directory, record); err != nil {
 		return err
 	}
 	for _, slot := range record.Config.Slots {
