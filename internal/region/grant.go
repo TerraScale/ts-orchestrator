@@ -349,6 +349,11 @@ func (s *SignedFootprint) AuthorizedRegions(ctx context.Context) (ApprovedFootpr
 	return footprint, err
 }
 
+// AuthorizedRegionsUntil retains the authenticated grant's original expiry.
+func (s *SignedFootprint) AuthorizedRegionsUntil(ctx context.Context) (ApprovedFootprint, time.Time, error) {
+	return s.authorizedRegions(ctx)
+}
+
 func (s *SignedFootprint) authorizedRegions(ctx context.Context) (ApprovedFootprint, time.Time, error) {
 	wire, err := s.readGrant(ctx)
 	if err != nil {
