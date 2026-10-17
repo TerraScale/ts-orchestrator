@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -39,6 +40,18 @@ import (
 	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/confinement"
 	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/principal"
 )
+
+type rotatingCleanupIssuer struct {
+	common.ConfigurationProvider
+	calls atomic.Int32
+}
+
+func (r *rotatingCleanupIssuer) KeyID() (string, error) {
+	if r.calls.Add(1) == 1 {
+		return r.ConfigurationProvider.KeyID()
+	}
+	return "ocid1.tenancy.oc1..fixture/ocid1.user.oc1..unrelated/other", nil
+}
 
 func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 	f := fixture(t)
@@ -553,14 +566,36 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 			mode = "missing-publication"
 			beforeReads := reads
 			mu.Unlock()
-			if _, err := runRootCredentialBoundary(t.Context(), prepared.principalWire, nil, f.roots, observer, nil, paths); err != nil {
+			rotating := &rotatingCleanupIssuer{ConfigurationProvider: provider}
+			rotatingFactory, err := ociclient.New(rotating, ociclient.Options{Region: a.OCIRegion})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := runRootCredentialBoundary(t.Context(), prepared.principalWire, nil, f.roots, rotatingFactory, nil, paths); err != nil {
 				t.Fatalf("outer restart required renewed creation, signing or local artifacts: %v", err)
+			}
+			if rotating.calls.Load() != 1 {
+				t.Fatal("cleanup or publication consulted the mutable issuer after the original identity freeze")
 			}
 			mu.Lock()
 			afterReads, afterWrites := reads, writes
 			mu.Unlock()
 			if afterReads <= beforeReads || afterWrites != publicationWrites {
 				t.Fatal("outer restart failed to reobserve cleanup without cloud writes")
+			}
+			otherIssuer := common.NewRawConfigurationProvider(a.Tenancy, p.IssuerPrincipal+"other", a.OCIRegion, p.IssuerFingerprint, string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), nil)
+			otherFactory, err := ociclient.New(otherIssuer, ociclient.Options{Region: a.OCIRegion})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := runRootCredentialBoundary(t.Context(), prepared.principalWire, nil, f.roots, otherFactory, nil, paths); err == nil || !strings.Contains(err.Error(), "issuer authenticated credential differs from signed preparation") {
+				t.Fatalf("refreshed unrelated issuer accepted for absence settlement: %v", err)
+			}
+			mu.Lock()
+			afterMismatchReads, afterMismatchWrites := reads, writes
+			mu.Unlock()
+			if afterMismatchReads != afterReads || afterMismatchWrites != afterWrites {
+				t.Fatal("unrelated refreshed issuer reached the SDK wire")
 			}
 			mu.Lock()
 			removeJournalOnIAM = path
