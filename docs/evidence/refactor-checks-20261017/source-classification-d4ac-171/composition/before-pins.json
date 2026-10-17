@@ -1,0 +1,14 @@
+{
+  "completion": {
+    "original": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+    "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/before/completion.json",
+    "sha256": "fde357ecbc4cd877a3c71baad94d3dd701ce351b3da6ff139858b9c4c4a64064",
+    "bytes": 1149251
+  },
+  "progress": {
+    "original": "/tmp/ts-qa-main-union-progress-20261016.json",
+    "path": "/tmp/ts-qa-classification69-composed-proposal-o_xwah_z/before/progress.json",
+    "sha256": "6a5500adb0ddde566224ac7a6ca1ebf99b797bccaefd4546968539aec32dbe93",
+    "bytes": 105488
+  }
+}

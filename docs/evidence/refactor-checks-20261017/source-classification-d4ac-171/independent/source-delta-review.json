@@ -1,0 +1,3549 @@
+{
+  "accounting": {
+    "all_six_package_groups_and_summary_root_sets_exhaustive": true,
+    "before": {
+      "baseline_originals": 4319,
+      "classified": 102,
+      "globally_unadjudicated": 4198,
+      "integration": 78,
+      "mixed": 1,
+      "retained": 4300,
+      "retired": 19,
+      "unit": 23
+    },
+    "delta": {
+      "classified": 69,
+      "integration": 22,
+      "mixed": 27,
+      "retirement": 0,
+      "reviewed_unresolved_separate": 10,
+      "runtime": 0,
+      "unit": 20
+    },
+    "identities": [
+      "78+22=100 integration",
+      "23+20=43 unit",
+      "1+27=28 mixed",
+      "102+69=171 classified",
+      "4198-69=4129 unadjudicated",
+      "100+43+28=171",
+      "171+4129=4300 retained",
+      "19+171+4129=4319 originals",
+      "4129=10 reviewed unresolved+4119 other unadjudicated"
+    ],
+    "prior_ociclient_and_authority_package_summaries_byte_semantically_unchanged": true,
+    "proposed_after": {
+      "baseline_originals": 4319,
+      "classified": 171,
+      "globally_unadjudicated": 4129,
+      "integration": 100,
+      "mixed": 28,
+      "remaining_other_unadjudicated": 4119,
+      "retained": 4300,
+      "retired": 19,
+      "reviewed_unresolved_included_in_unadjudicated": 10,
+      "unit": 43
+    },
+    "retirement_delta": 0,
+    "runtime_delta": 0,
+    "summary_baseline_rows": 186,
+    "summary_baseline_rows_identity": "171 classified +10 unresolved +5 previously retired rows excluded =186 scoped baseline rows",
+    "ten_unresolved_intended_integration_receive_zero_classification_credit": true,
+    "ten_unresolved_remain_in_global_unadjudicated": true
+  },
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "bridge_commit": "7330ca87c377d2cbe5f8c269282039039df550ad",
+  "bridge_qualification": "NOTQUALIFIED_NO_AUTOMATIC_TRANSFER",
+  "candidate_packet": "/tmp/ts-d4ac-classification69-delta-final-l6fu61l5",
+  "candidate_pins": {
+    "SHA256SUMS": {
+      "bytes": 4654,
+      "sha256": "7c2983d449d5017dbe1a79dcee9026edc81469956b6910c787de60e7ba2bdce6"
+    },
+    "inputs-manifest.json": {
+      "bytes": 12084,
+      "sha256": "6ff4a34673ec555ecc9b354464c09e587fc0af78c8e51e6c0c52c2282dfcfe2b"
+    },
+    "proposal.json": {
+      "bytes": 225913,
+      "sha256": "7eaaa19a3ccb97b64e02d74021ec4bcdf0908ecc2f317f131ae7c9acd473c69e"
+    },
+    "proposed-classification-summary.json": {
+      "bytes": 19163,
+      "sha256": "e0d72ce20f886ab96113a42a753796098854e1d111e276a9848d8ba26e92fe3d"
+    },
+    "verify.py": {
+      "bytes": 8270,
+      "sha256": "e5c4cd831c270a90062fb9145850b4546c2911bdd604fd7b3bd9cd0e8088ca73"
+    }
+  },
+  "decision": "ACCEPT_EXACT_D4AC_69_CLASSIFIED_PLUS_10_UNRESOLVED_DELTA_ONLY",
+  "declaration_and_receipt_verification": {
+    "ROOTS_tsv_exactly_matches79_proposed_rows": true,
+    "additional_source_blob_and_file_hash_fields_verified": 151,
+    "all_eleven_peer_category_corrections_preserved": true,
+    "all_four_batch_counts_exhaustive": true,
+    "all_four_peer_categories_and_rationales_preserved": true,
+    "all_root_identity_survival_source_spans_match_allocation_inventory_candidate_and_peer": true,
+    "baseline_current_declaration_hash_checks": 158,
+    "batch_receipts": [
+      {
+        "batch_id": "functions14",
+        "candidate": {
+          "path": "/tmp/ts-functions14-d4ac-source-classification-o5y_ymin/classification.json",
+          "sha256": "9510b271f01831ed0d0b8607f14d62f841a2e248bf1bcb491f2878e40154caf2"
+        },
+        "classified_roots": 14,
+        "counts": {
+          "integration": 6,
+          "mixed": 7,
+          "unit": 1,
+          "unresolved": 0
+        },
+        "exact_roots_categories_and_receipt_hashes_match": true,
+        "peer": {
+          "path": "/tmp/ts-functions14-d4ac-independent-peer-kqfl7tyr/review.json",
+          "sha256": "89aef0faa2318141b40091c99f45ada9b2dc8828593eceaaaa88aff96f07905c"
+        },
+        "peer_decision": "ACCEPTED_WITH_ONE_PEER_CATEGORY_CORRECTION",
+        "reviewed_unresolved_roots": 0
+      },
+      {
+        "batch_id": "natscell20",
+        "candidate": {
+          "path": "/tmp/ts-natscell20-d4ac-source-classification-nzhpx105/classification.json",
+          "sha256": "b21ae142cb4d24e3bd64a2ba70ee920c87f765c734652ef0c3bd38a2efb54b50"
+        },
+        "classified_roots": 10,
+        "counts": {
+          "integration": 1,
+          "mixed": 1,
+          "unit": 8,
+          "unresolved": 10
+        },
+        "exact_roots_categories_and_receipt_hashes_match": true,
+        "peer": {
+          "path": "/tmp/ts-natscell20-d4ac-independent-peer-b_bio5m1/review.json",
+          "sha256": "e87bafa1ba1a80a5dabe467f73ee52676d2c6e5a956edea6522521794cf42034"
+        },
+        "peer_decision": "PARTIAL_ACCEPTANCE_TEN_CLASSIFIED_TEN_REVIEWED_UNRESOLVED",
+        "reviewed_unresolved_roots": 10
+      },
+      {
+        "batch_id": "oci_boundaries15",
+        "candidate": {
+          "path": "/tmp/ts-oci-boundaries15-d4ac-source-b8ro_u0v/classification.json",
+          "sha256": "ad3bbfee8f3e1af9cd72abe484ec91f656f623a0fa55e56525cc5869967aa29a"
+        },
+        "classified_roots": 15,
+        "counts": {
+          "integration": 7,
+          "mixed": 3,
+          "unit": 5,
+          "unresolved": 0
+        },
+        "exact_roots_categories_and_receipt_hashes_match": true,
+        "peer": {
+          "path": "/tmp/ts-oci15-d4ac-classification-independent-storage-review-fa7eepf1/review.json",
+          "sha256": "433fa228c6fe371b9d175d9bac76944facf9f4464f1e8f52be9c9c896fe81de8"
+        },
+        "peer_decision": "ACCEPT_D4AC_SOURCE_CLASSIFICATIONS_ONLY_NO_LEDGER_PROMOTION",
+        "reviewed_unresolved_roots": 0
+      },
+      {
+        "batch_id": "region30",
+        "candidate": {
+          "path": "/tmp/ts-region30-d4ac-source-classification-k5k2eh_b/classification.json",
+          "sha256": "0253d55a2fd2467198fca1287004ecc20a2c888fe2f8341536bdeb4ca7549002"
+        },
+        "classified_roots": 30,
+        "counts": {
+          "integration": 8,
+          "mixed": 16,
+          "unit": 6,
+          "unresolved": 0
+        },
+        "exact_roots_categories_and_receipt_hashes_match": true,
+        "peer": {
+          "path": "/tmp/ts-qa-region30-d4ac-source-peer-7fda186bcce1/review.json",
+          "sha256": "06e0955ab81f69141ad43401a1ad333d18541e724112961a2c6accdde19a2d69"
+        },
+        "peer_decision": "ACCEPT_REGION30_SOURCE_CLASSIFICATIONS_ONLY_NO_ACCOUNTING_PROMOTION",
+        "reviewed_unresolved_roots": 0
+      }
+    ],
+    "declarations": [
+      {
+        "blob": "27350e1b7621666584389be386e4f7b35704a6e5",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "5262fcf6c509a08a28d6ccd5e762f14b9ec291a8abf65775a03cb70282a174df",
+        "end_line": 45,
+        "line": 16,
+        "root_id": "internal/functions/admission_integration_test.go::TestSignedReleaseWorkerLifecycle",
+        "source": "original"
+      },
+      {
+        "blob": "27350e1b7621666584389be386e4f7b35704a6e5",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "5262fcf6c509a08a28d6ccd5e762f14b9ec291a8abf65775a03cb70282a174df",
+        "end_line": 45,
+        "line": 16,
+        "root_id": "internal/functions/admission_integration_test.go::TestSignedReleaseWorkerLifecycle",
+        "source": "current"
+      },
+      {
+        "blob": "c2a7ba4d11448138e452a573a1c7804833109323",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "fa642b45772db7edd5a1f70567c465244aeb25c280bb37ea55ad8bc8199416e9",
+        "end_line": 253,
+        "line": 29,
+        "root_id": "internal/functions/broker_integration_test.go::TestWorkerBrokerJWTAndTLSIsolation",
+        "source": "original"
+      },
+      {
+        "blob": "c2a7ba4d11448138e452a573a1c7804833109323",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "fa642b45772db7edd5a1f70567c465244aeb25c280bb37ea55ad8bc8199416e9",
+        "end_line": 253,
+        "line": 29,
+        "root_id": "internal/functions/broker_integration_test.go::TestWorkerBrokerJWTAndTLSIsolation",
+        "source": "current"
+      },
+      {
+        "blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "df10a616903c4ba5ac1e68c54af6a8bcd47c516b23efbc25116f26ee8f15de22",
+        "end_line": 303,
+        "line": 40,
+        "root_id": "internal/functions/process_integration_test.go::TestFunctionWorkerProcess",
+        "source": "original"
+      },
+      {
+        "blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "df10a616903c4ba5ac1e68c54af6a8bcd47c516b23efbc25116f26ee8f15de22",
+        "end_line": 303,
+        "line": 40,
+        "root_id": "internal/functions/process_integration_test.go::TestFunctionWorkerProcess",
+        "source": "current"
+      },
+      {
+        "blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "d84525af69df88578d8dd3940c828fe68d2b3cea97ab9a18e4ff163af8cb5db3",
+        "end_line": 440,
+        "line": 416,
+        "root_id": "internal/functions/process_integration_test.go::TestFunctionWorkerRejectsExpiredMaterial",
+        "source": "original"
+      },
+      {
+        "blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "d84525af69df88578d8dd3940c828fe68d2b3cea97ab9a18e4ff163af8cb5db3",
+        "end_line": 440,
+        "line": 416,
+        "root_id": "internal/functions/process_integration_test.go::TestFunctionWorkerRejectsExpiredMaterial",
+        "source": "current"
+      },
+      {
+        "blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "3283ee767cc1b5ae36b28652325f28b29a31860f47bee63c0a59616566e09837",
+        "end_line": 91,
+        "line": 53,
+        "root_id": "internal/functions/runtime_integration_test.go::TestWorkerCancellationAndCapacity",
+        "source": "original"
+      },
+      {
+        "blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "3283ee767cc1b5ae36b28652325f28b29a31860f47bee63c0a59616566e09837",
+        "end_line": 91,
+        "line": 53,
+        "root_id": "internal/functions/runtime_integration_test.go::TestWorkerCancellationAndCapacity",
+        "source": "current"
+      },
+      {
+        "blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "794b60aa35cf7435f9e2de9d68a1d7db047dff82e53ba1cf074b20cf2e96f501",
+        "end_line": 123,
+        "line": 93,
+        "root_id": "internal/functions/runtime_integration_test.go::TestWorkerFixedDeadlineAndConcurrentClose",
+        "source": "original"
+      },
+      {
+        "blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "794b60aa35cf7435f9e2de9d68a1d7db047dff82e53ba1cf074b20cf2e96f501",
+        "end_line": 123,
+        "line": 93,
+        "root_id": "internal/functions/runtime_integration_test.go::TestWorkerFixedDeadlineAndConcurrentClose",
+        "source": "current"
+      },
+      {
+        "blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "13978486fc815d20423cb68b4defd9cdae55710f75672812b03b8bfb28804d1f",
+        "end_line": 51,
+        "line": 16,
+        "root_id": "internal/functions/runtime_integration_test.go::TestWorkerGuestExecutionAndIsolation",
+        "source": "original"
+      },
+      {
+        "blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "13978486fc815d20423cb68b4defd9cdae55710f75672812b03b8bfb28804d1f",
+        "end_line": 51,
+        "line": 16,
+        "root_id": "internal/functions/runtime_integration_test.go::TestWorkerGuestExecutionAndIsolation",
+        "source": "current"
+      },
+      {
+        "blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "9216525c5d6b1b4d2216fb20276674f42c6b1ba95c0868c2d032b7cdfedb5e67",
+        "end_line": 175,
+        "line": 125,
+        "root_id": "internal/functions/runtime_integration_test.go::TestWorkerResourceAndImportBoundaries",
+        "source": "original"
+      },
+      {
+        "blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "9216525c5d6b1b4d2216fb20276674f42c6b1ba95c0868c2d032b7cdfedb5e67",
+        "end_line": 175,
+        "line": 125,
+        "root_id": "internal/functions/runtime_integration_test.go::TestWorkerResourceAndImportBoundaries",
+        "source": "current"
+      },
+      {
+        "blob": "841664089ac3951035fb0c2f2861155a39cd79d1",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "15b3fb0a4c9bdb617026fc4280e1fbef7a35e39215b95de8187ab339b4db4853",
+        "end_line": 55,
+        "line": 11,
+        "root_id": "internal/functions/runtime_limits_integration_test.go::TestWorkerRejectsUnboundedDecoderResources",
+        "source": "original"
+      },
+      {
+        "blob": "841664089ac3951035fb0c2f2861155a39cd79d1",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "15b3fb0a4c9bdb617026fc4280e1fbef7a35e39215b95de8187ab339b4db4853",
+        "end_line": 55,
+        "line": 11,
+        "root_id": "internal/functions/runtime_limits_integration_test.go::TestWorkerRejectsUnboundedDecoderResources",
+        "source": "current"
+      },
+      {
+        "blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "a06f5a6ef89a9b4974a91a752bc271b891b805cd040278bf0940bba9775c885b",
+        "end_line": 354,
+        "line": 306,
+        "root_id": "internal/functions/transports_integration_test.go::TestHTTPBoundsPendingBodiesBeforeGuestExecution",
+        "source": "original"
+      },
+      {
+        "blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "a06f5a6ef89a9b4974a91a752bc271b891b805cd040278bf0940bba9775c885b",
+        "end_line": 354,
+        "line": 306,
+        "root_id": "internal/functions/transports_integration_test.go::TestHTTPBoundsPendingBodiesBeforeGuestExecution",
+        "source": "current"
+      },
+      {
+        "blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "09cd46686052a1d9bf0aea321b486422c86bd7eeb1c9872541b071b8bedd4263",
+        "end_line": 104,
+        "line": 35,
+        "root_id": "internal/functions/transports_integration_test.go::TestHTTPRealWorkerAuthenticationScopeAndLimits",
+        "source": "original"
+      },
+      {
+        "blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "09cd46686052a1d9bf0aea321b486422c86bd7eeb1c9872541b071b8bedd4263",
+        "end_line": 104,
+        "line": 35,
+        "root_id": "internal/functions/transports_integration_test.go::TestHTTPRealWorkerAuthenticationScopeAndLimits",
+        "source": "current"
+      },
+      {
+        "blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "395959469c5f1b506b1be202562af668c7e5bc9949d3ba622ecf86c32bda02f5",
+        "end_line": 135,
+        "line": 106,
+        "root_id": "internal/functions/transports_integration_test.go::TestHTTPRealWorkerTimeoutAndGuestFailure",
+        "source": "original"
+      },
+      {
+        "blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "395959469c5f1b506b1be202562af668c7e5bc9949d3ba622ecf86c32bda02f5",
+        "end_line": 135,
+        "line": 106,
+        "root_id": "internal/functions/transports_integration_test.go::TestHTTPRealWorkerTimeoutAndGuestFailure",
+        "source": "current"
+      },
+      {
+        "blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "d7d1f3be57265cf328430c2c16f566c6dbf0074435fdd278d8ac93aa11095d3b",
+        "end_line": 277,
+        "line": 206,
+        "root_id": "internal/functions/transports_integration_test.go::TestQueueRealWorkerReceiptsReplayPoisonAndScope",
+        "source": "original"
+      },
+      {
+        "blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "d7d1f3be57265cf328430c2c16f566c6dbf0074435fdd278d8ac93aa11095d3b",
+        "end_line": 277,
+        "line": 206,
+        "root_id": "internal/functions/transports_integration_test.go::TestQueueRealWorkerReceiptsReplayPoisonAndScope",
+        "source": "current"
+      },
+      {
+        "blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "0a947923e24724dc390a82c511c7d2358412ae78dc9a029eaffc160eeaa38b79",
+        "end_line": 304,
+        "line": 279,
+        "root_id": "internal/functions/transports_integration_test.go::TestQueueRealWorkerRetriesTimedOutInvocation",
+        "source": "original"
+      },
+      {
+        "blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "0a947923e24724dc390a82c511c7d2358412ae78dc9a029eaffc160eeaa38b79",
+        "end_line": 304,
+        "line": 279,
+        "root_id": "internal/functions/transports_integration_test.go::TestQueueRealWorkerRetriesTimedOutInvocation",
+        "source": "current"
+      },
+      {
+        "blob": "be0a72ef446456f3d55ec2e32e334296cca1779a",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "24dd299a316915170f31e285a7bc60d6aa07d64a5f76966da2b7b181be67d947",
+        "end_line": 88,
+        "line": 79,
+        "root_id": "internal/natscell/cluster_formation_test.go::TestPeerRoutesOmitsOnlySelf",
+        "source": "original"
+      },
+      {
+        "blob": "be0a72ef446456f3d55ec2e32e334296cca1779a",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "24dd299a316915170f31e285a7bc60d6aa07d64a5f76966da2b7b181be67d947",
+        "end_line": 88,
+        "line": 79,
+        "root_id": "internal/natscell/cluster_formation_test.go::TestPeerRoutesOmitsOnlySelf",
+        "source": "current"
+      },
+      {
+        "blob": "6558b31066b125cb9401de1d19f5b4cc55d46cae",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "42bce445b541586163803271b7ab4c1bda9aaad2f161606cd1ffe22f98a03dbf",
+        "end_line": 225,
+        "line": 33,
+        "root_id": "internal/natscell/fabric_test.go::TestRelayedCellSpecReachesTheSpokeThroughPartitions",
+        "source": "original"
+      },
+      {
+        "blob": "6558b31066b125cb9401de1d19f5b4cc55d46cae",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "42bce445b541586163803271b7ab4c1bda9aaad2f161606cd1ffe22f98a03dbf",
+        "end_line": 225,
+        "line": 33,
+        "root_id": "internal/natscell/fabric_test.go::TestRelayedCellSpecReachesTheSpokeThroughPartitions",
+        "source": "current"
+      },
+      {
+        "blob": "adaeff0954d7c1c77c61c36182d912ba2e1f8efd",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "72622708131385ee150646efea02c7c5ed2af2c3400b5036ac14bf9303d8a65e",
+        "end_line": 283,
+        "line": 157,
+        "root_id": "internal/natscell/interregion_test.go::TestGlobalMirrorContractExportsNoConsumerCreation",
+        "source": "original"
+      },
+      {
+        "blob": "adaeff0954d7c1c77c61c36182d912ba2e1f8efd",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "72622708131385ee150646efea02c7c5ed2af2c3400b5036ac14bf9303d8a65e",
+        "end_line": 283,
+        "line": 157,
+        "root_id": "internal/natscell/interregion_test.go::TestGlobalMirrorContractExportsNoConsumerCreation",
+        "source": "current"
+      },
+      {
+        "blob": "adaeff0954d7c1c77c61c36182d912ba2e1f8efd",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "e8758ed6b4d1ff88cf34c7b3ec2ade3aa4fea45199d3b6ad225f502c71dcbc83",
+        "end_line": 150,
+        "line": 74,
+        "root_id": "internal/natscell/interregion_test.go::TestInterRegionContractIsExplicitAndExact",
+        "source": "original"
+      },
+      {
+        "blob": "adaeff0954d7c1c77c61c36182d912ba2e1f8efd",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "e8758ed6b4d1ff88cf34c7b3ec2ade3aa4fea45199d3b6ad225f502c71dcbc83",
+        "end_line": 150,
+        "line": 74,
+        "root_id": "internal/natscell/interregion_test.go::TestInterRegionContractIsExplicitAndExact",
+        "source": "current"
+      },
+      {
+        "blob": "adaeff0954d7c1c77c61c36182d912ba2e1f8efd",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "703b85bbbecc1658ed1de81ffe97ccc30f8ab757429439ba33fe8f93fd8abc24",
+        "end_line": 371,
+        "line": 290,
+        "root_id": "internal/natscell/interregion_test.go::TestInterRegionLeafFailsOverToTheNextURLInOrder",
+        "source": "original"
+      },
+      {
+        "blob": "adaeff0954d7c1c77c61c36182d912ba2e1f8efd",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "703b85bbbecc1658ed1de81ffe97ccc30f8ab757429439ba33fe8f93fd8abc24",
+        "end_line": 371,
+        "line": 290,
+        "root_id": "internal/natscell/interregion_test.go::TestInterRegionLeafFailsOverToTheNextURLInOrder",
+        "source": "current"
+      },
+      {
+        "blob": "adaeff0954d7c1c77c61c36182d912ba2e1f8efd",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "9b34a0cf8f970ff989bb562899d7ceff6b9bcf6bb72cb316837738ec97a40abf",
+        "end_line": 72,
+        "line": 27,
+        "root_id": "internal/natscell/interregion_test.go::TestLeafTopologyIsARootedTree",
+        "source": "original"
+      },
+      {
+        "blob": "adaeff0954d7c1c77c61c36182d912ba2e1f8efd",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "9b34a0cf8f970ff989bb562899d7ceff6b9bcf6bb72cb316837738ec97a40abf",
+        "end_line": 72,
+        "line": 27,
+        "root_id": "internal/natscell/interregion_test.go::TestLeafTopologyIsARootedTree",
+        "source": "current"
+      },
+      {
+        "blob": "70fbf88f0cc2a3d494f9e66cac18f13fc5459a71",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "590399a4dac3e8e54edcf5c0b8ed4ffeec6d3d037510a300326e16c70b1fb753",
+        "end_line": 56,
+        "line": 45,
+        "root_id": "internal/natscell/membership_test.go::TestMembershipAPIErrorDecoding",
+        "source": "original"
+      },
+      {
+        "blob": "70fbf88f0cc2a3d494f9e66cac18f13fc5459a71",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "590399a4dac3e8e54edcf5c0b8ed4ffeec6d3d037510a300326e16c70b1fb753",
+        "end_line": 56,
+        "line": 45,
+        "root_id": "internal/natscell/membership_test.go::TestMembershipAPIErrorDecoding",
+        "source": "current"
+      },
+      {
+        "blob": "70fbf88f0cc2a3d494f9e66cac18f13fc5459a71",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "1f3c4d168594880eb22f4331b66196629da66fb071c6447f99d27c99e49c066e",
+        "end_line": 43,
+        "line": 10,
+        "root_id": "internal/natscell/membership_test.go::TestMembershipCredentialsAreNarrowlyScoped",
+        "source": "original"
+      },
+      {
+        "blob": "70fbf88f0cc2a3d494f9e66cac18f13fc5459a71",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "1f3c4d168594880eb22f4331b66196629da66fb071c6447f99d27c99e49c066e",
+        "end_line": 43,
+        "line": 10,
+        "root_id": "internal/natscell/membership_test.go::TestMembershipCredentialsAreNarrowlyScoped",
+        "source": "current"
+      },
+      {
+        "blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "0259c00344c8bd26bf19d83f9946b815edf3bbbd631a3faa30d0486747abb070",
+        "end_line": 102,
+        "line": 66,
+        "root_id": "internal/natscell/runtime_test.go::TestEmbeddedStoreLimit",
+        "source": "original"
+      },
+      {
+        "blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "0259c00344c8bd26bf19d83f9946b815edf3bbbd631a3faa30d0486747abb070",
+        "end_line": 102,
+        "line": 66,
+        "root_id": "internal/natscell/runtime_test.go::TestEmbeddedStoreLimit",
+        "source": "current"
+      },
+      {
+        "blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "24957d75d04c58dd3b3dab4b3519a759a7b8c3b2918fc7a8ead595eea0d89695",
+        "end_line": 314,
+        "line": 286,
+        "root_id": "internal/natscell/runtime_test.go::TestLabTerminalPermissionsAreRoleScoped",
+        "source": "original"
+      },
+      {
+        "blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "24957d75d04c58dd3b3dab4b3519a759a7b8c3b2918fc7a8ead595eea0d89695",
+        "end_line": 314,
+        "line": 286,
+        "root_id": "internal/natscell/runtime_test.go::TestLabTerminalPermissionsAreRoleScoped",
+        "source": "current"
+      },
+      {
+        "blob": "37540b09350a172f7a57d2a9dd5b77121eb95143",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "d9bda0fac58e26ea00a6cb0e9fb184c8a10c1f27953330955b5583cc053e69cb",
+        "end_line": 87,
+        "line": 13,
+        "root_id": "internal/oci/capacity_request_integration_test.go::TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity",
+        "source": "original"
+      },
+      {
+        "blob": "a792c3b650f5f6edc93c646c14f5821f2918031b",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "c1e3f015356bb5d1754e6b565954627d5bbe72f47c1ce50ff3a0f8d8c4132e46",
+        "end_line": 84,
+        "line": 11,
+        "root_id": "internal/oci/capacity_request_integration_test.go::TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity",
+        "source": "current"
+      },
+      {
+        "blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "bff7cc53dec632a8dfcd12e7747af47b57cbafe1775d2479a6638d30f11e6607",
+        "end_line": 56,
+        "line": 22,
+        "root_id": "internal/oci/inventory_test.go::TestCompleteObserveSweepPublishesTheFleetByLifecycleState",
+        "source": "original"
+      },
+      {
+        "blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "bff7cc53dec632a8dfcd12e7747af47b57cbafe1775d2479a6638d30f11e6607",
+        "end_line": 56,
+        "line": 22,
+        "root_id": "internal/oci/inventory_test.go::TestCompleteObserveSweepPublishesTheFleetByLifecycleState",
+        "source": "current"
+      },
+      {
+        "blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "c2f920bd7718d9a21ddc36763e9d9369ba37214f17ba0c9dfb8fbae8829ea357",
+        "end_line": 120,
+        "line": 98,
+        "root_id": "internal/oci/inventory_test.go::TestInventoryCountsOnlyVerifiedHosts",
+        "source": "original"
+      },
+      {
+        "blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "c2f920bd7718d9a21ddc36763e9d9369ba37214f17ba0c9dfb8fbae8829ea357",
+        "end_line": 120,
+        "line": 98,
+        "root_id": "internal/oci/inventory_test.go::TestInventoryCountsOnlyVerifiedHosts",
+        "source": "current"
+      },
+      {
+        "blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "51a0509e22e3ed3ff2ffe814c42eb8a18c1a4242906c7626ac0b0a8fbf36a8c7",
+        "end_line": 85,
+        "line": 58,
+        "root_id": "internal/oci/inventory_test.go::TestInventoryZeroesStatesThatEmptied",
+        "source": "original"
+      },
+      {
+        "blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "51a0509e22e3ed3ff2ffe814c42eb8a18c1a4242906c7626ac0b0a8fbf36a8c7",
+        "end_line": 85,
+        "line": 58,
+        "root_id": "internal/oci/inventory_test.go::TestInventoryZeroesStatesThatEmptied",
+        "source": "current"
+      },
+      {
+        "blob": "8705e216dfdbc41ce3a645d2f9b13ef96ab14b82",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "659e88061cda236b9490c76c7f5217bec28a1a8aac9e6af6356f958c5c042810",
+        "end_line": 70,
+        "line": 40,
+        "root_id": "internal/oci/journal_test.go::TestJournalBootBindingSurvivesReopenAndRejectsRebinding",
+        "source": "original"
+      },
+      {
+        "blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "659e88061cda236b9490c76c7f5217bec28a1a8aac9e6af6356f958c5c042810",
+        "end_line": 68,
+        "line": 38,
+        "root_id": "internal/oci/journal_test.go::TestJournalBootBindingSurvivesReopenAndRejectsRebinding",
+        "source": "current"
+      },
+      {
+        "blob": "8705e216dfdbc41ce3a645d2f9b13ef96ab14b82",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "0390afb5ecefa90bea5cf30003adb213057fe258680f330f7805bc2fde67c327",
+        "end_line": 341,
+        "line": 280,
+        "root_id": "internal/oci/journal_test.go::TestJournalConcurrentConflictingResultsHaveOneImmutableWinner",
+        "source": "original"
+      },
+      {
+        "blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "0390afb5ecefa90bea5cf30003adb213057fe258680f330f7805bc2fde67c327",
+        "end_line": 339,
+        "line": 278,
+        "root_id": "internal/oci/journal_test.go::TestJournalConcurrentConflictingResultsHaveOneImmutableWinner",
+        "source": "current"
+      },
+      {
+        "blob": "8705e216dfdbc41ce3a645d2f9b13ef96ab14b82",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "a9f34778db983fd0b1b901b7a919de5f2f846ecf13c0cdc69f8262c5d23b97f7",
+        "end_line": 169,
+        "line": 128,
+        "root_id": "internal/oci/journal_test.go::TestJournalDistinguishesFreshIntentFromUnknownProviderOutcome",
+        "source": "original"
+      },
+      {
+        "blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "a9f34778db983fd0b1b901b7a919de5f2f846ecf13c0cdc69f8262c5d23b97f7",
+        "end_line": 167,
+        "line": 126,
+        "root_id": "internal/oci/journal_test.go::TestJournalDistinguishesFreshIntentFromUnknownProviderOutcome",
+        "source": "current"
+      },
+      {
+        "blob": "8705e216dfdbc41ce3a645d2f9b13ef96ab14b82",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "017dbb96f601bbb3ebc51cde09dbe018b497873024a18bdddaff877a5e93a778",
+        "end_line": 212,
+        "line": 171,
+        "root_id": "internal/oci/journal_test.go::TestJournalOperationLookupRecoversPersistedAttachmentDevice",
+        "source": "original"
+      },
+      {
+        "blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "017dbb96f601bbb3ebc51cde09dbe018b497873024a18bdddaff877a5e93a778",
+        "end_line": 210,
+        "line": 169,
+        "root_id": "internal/oci/journal_test.go::TestJournalOperationLookupRecoversPersistedAttachmentDevice",
+        "source": "current"
+      },
+      {
+        "blob": "8705e216dfdbc41ce3a645d2f9b13ef96ab14b82",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "ebeb747c678ba39c2ef4c3dc31d7e45ac08a7f9ee8eaac7fcdd216af4b63f108",
+        "end_line": 126,
+        "line": 101,
+        "root_id": "internal/oci/journal_test.go::TestJournalPinsSignedPlacementComputeProfile",
+        "source": "original"
+      },
+      {
+        "blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "ebeb747c678ba39c2ef4c3dc31d7e45ac08a7f9ee8eaac7fcdd216af4b63f108",
+        "end_line": 124,
+        "line": 99,
+        "root_id": "internal/oci/journal_test.go::TestJournalPinsSignedPlacementComputeProfile",
+        "source": "current"
+      },
+      {
+        "blob": "8705e216dfdbc41ce3a645d2f9b13ef96ab14b82",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "9f56ab8fb7e1920d2893058b812ef5ec1c396c8cee7892d585df73562bf8568f",
+        "end_line": 278,
+        "line": 214,
+        "root_id": "internal/oci/journal_test.go::TestJournalRepairsInterruptedAttachmentProjectionWithoutRebinding",
+        "source": "original"
+      },
+      {
+        "blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "9f56ab8fb7e1920d2893058b812ef5ec1c396c8cee7892d585df73562bf8568f",
+        "end_line": 276,
+        "line": 212,
+        "root_id": "internal/oci/journal_test.go::TestJournalRepairsInterruptedAttachmentProjectionWithoutRebinding",
+        "source": "current"
+      },
+      {
+        "blob": "8705e216dfdbc41ce3a645d2f9b13ef96ab14b82",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "fee5193a4d050dcf59bd8c1cbb749915d8600afd7ba8f89ceded831ac905ddf0",
+        "end_line": 99,
+        "line": 72,
+        "root_id": "internal/oci/journal_test.go::TestJournalRepairsOwnershipProjectionAfterPartialFailure",
+        "source": "original"
+      },
+      {
+        "blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "fee5193a4d050dcf59bd8c1cbb749915d8600afd7ba8f89ceded831ac905ddf0",
+        "end_line": 97,
+        "line": 70,
+        "root_id": "internal/oci/journal_test.go::TestJournalRepairsOwnershipProjectionAfterPartialFailure",
+        "source": "current"
+      },
+      {
+        "blob": "8705e216dfdbc41ce3a645d2f9b13ef96ab14b82",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "c7e16576d9159bd9d878c773eb2c6c97ad92231d6c3aac9a411840e365f05655",
+        "end_line": 38,
+        "line": 19,
+        "root_id": "internal/oci/journal_test.go::TestRegionIntentUsesFixedProductMapping",
+        "source": "original"
+      },
+      {
+        "blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "c7e16576d9159bd9d878c773eb2c6c97ad92231d6c3aac9a411840e365f05655",
+        "end_line": 36,
+        "line": 17,
+        "root_id": "internal/oci/journal_test.go::TestRegionIntentUsesFixedProductMapping",
+        "source": "current"
+      },
+      {
+        "blob": "6bf9dc47c5bbdedcc3b24ea96f22b4abdeef3a83",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "ddbada1578f8dae01bfd144d68097b79d79854740560ecc63dfd166860500388",
+        "end_line": 210,
+        "line": 26,
+        "root_id": "internal/oci/pool_receipt_integration_test.go::TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission",
+        "source": "original"
+      },
+      {
+        "blob": "b3a44b62978dd78ddbc2c7d06e099e4ce4ddea3c",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "e1c905060d11b2b51ff3868ff047bc5ab05db80d3bc9f96f5f18090d0e944389",
+        "end_line": 207,
+        "line": 24,
+        "root_id": "internal/oci/pool_receipt_integration_test.go::TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission",
+        "source": "current"
+      },
+      {
+        "blob": "7e94e6a0ec1220177af2f520f57e0593b8b3f937",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "b336273b6a0213f6a0e3871fbc9df073cd0af8c572b3a7d881c8ef4c92704829",
+        "end_line": 58,
+        "line": 8,
+        "root_id": "internal/oci/static_host_test.go::TestObserveStaticHostAcceptsOnlyAnUnmanagedRunningFleetInstance",
+        "source": "original"
+      },
+      {
+        "blob": "7e94e6a0ec1220177af2f520f57e0593b8b3f937",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "b336273b6a0213f6a0e3871fbc9df073cd0af8c572b3a7d881c8ef4c92704829",
+        "end_line": 58,
+        "line": 8,
+        "root_id": "internal/oci/static_host_test.go::TestObserveStaticHostAcceptsOnlyAnUnmanagedRunningFleetInstance",
+        "source": "current"
+      },
+      {
+        "blob": "f99a50f11461131c2511176b51605b8cabede07d",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "e99d7e2c54cdbe91d325e715c327d146400396b2c5a31ba7f694655da8418287",
+        "end_line": 343,
+        "line": 28,
+        "root_id": "internal/oci/volume_observer_integration_test.go::TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects",
+        "source": "original"
+      },
+      {
+        "blob": "caa3e73c91687dfc1e9697aa3eb87f7d017a4e5b",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "69bb127a4502de5f04ccbc89a1272665ab9e80d03479954cdf05046b91b15a62",
+        "end_line": 340,
+        "line": 26,
+        "root_id": "internal/oci/volume_observer_integration_test.go::TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects",
+        "source": "current"
+      },
+      {
+        "blob": "7e3088b08eec3819cc9307ff509a1ed9c7fa45cc",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "32e72018db571be73f47cb084ad408710e16638e692a616373f302d342ced779",
+        "end_line": 200,
+        "line": 19,
+        "root_id": "internal/region/access_integration_test.go::TestSignedReadAccessRequiresCurrentOwnedFoundation",
+        "source": "original"
+      },
+      {
+        "blob": "7e3088b08eec3819cc9307ff509a1ed9c7fa45cc",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "32e72018db571be73f47cb084ad408710e16638e692a616373f302d342ced779",
+        "end_line": 200,
+        "line": 19,
+        "root_id": "internal/region/access_integration_test.go::TestSignedReadAccessRequiresCurrentOwnedFoundation",
+        "source": "current"
+      },
+      {
+        "blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "f0707170a059aa929061bc257153c257ec3f1cb44bfc80ea0c9d0ae4a51bb676",
+        "end_line": 420,
+        "line": 216,
+        "root_id": "internal/region/discovery_current_integration_test.go::TestCurrentFoundationDiscoveryHTTPDurableAuthority",
+        "source": "original"
+      },
+      {
+        "blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "f0707170a059aa929061bc257153c257ec3f1cb44bfc80ea0c9d0ae4a51bb676",
+        "end_line": 420,
+        "line": 216,
+        "root_id": "internal/region/discovery_current_integration_test.go::TestCurrentFoundationDiscoveryHTTPDurableAuthority",
+        "source": "current"
+      },
+      {
+        "blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "29fafdd70ca332917fadbf1a7ed3789044e7ddadf855b39a44e28820a5a81712",
+        "end_line": 440,
+        "line": 422,
+        "root_id": "internal/region/discovery_current_integration_test.go::TestCurrentFoundationDiscoveryLockProcess",
+        "source": "original"
+      },
+      {
+        "blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "29fafdd70ca332917fadbf1a7ed3789044e7ddadf855b39a44e28820a5a81712",
+        "end_line": 440,
+        "line": 422,
+        "root_id": "internal/region/discovery_current_integration_test.go::TestCurrentFoundationDiscoveryLockProcess",
+        "source": "current"
+      },
+      {
+        "blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "ca475cb3298712083ea2056e57751b36e76edc2fe823c4b830d3c2589b530068",
+        "end_line": 154,
+        "line": 125,
+        "root_id": "internal/region/foundation_integration_test.go::TestFoundationRecordsPersistAndFenceConcurrentWriters",
+        "source": "original"
+      },
+      {
+        "blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "ca475cb3298712083ea2056e57751b36e76edc2fe823c4b830d3c2589b530068",
+        "end_line": 154,
+        "line": 125,
+        "root_id": "internal/region/foundation_integration_test.go::TestFoundationRecordsPersistAndFenceConcurrentWriters",
+        "source": "current"
+      },
+      {
+        "blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "25127a9b2f5e560a09073553549984220df2023b9e77e36e10e2c6abbdd7288d",
+        "end_line": 469,
+        "line": 156,
+        "root_id": "internal/region/foundation_integration_test.go::TestSignedFoundationScopeRequiresExplicitBootstrapAuthority",
+        "source": "original"
+      },
+      {
+        "blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "25127a9b2f5e560a09073553549984220df2023b9e77e36e10e2c6abbdd7288d",
+        "end_line": 469,
+        "line": 156,
+        "root_id": "internal/region/foundation_integration_test.go::TestSignedFoundationScopeRequiresExplicitBootstrapAuthority",
+        "source": "current"
+      },
+      {
+        "blob": "f89f8d1682bd9454cbbcf770d4b8d34c2a9f2e5c",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "82e11df6e2001bc042bc1099316fba578034a22d043364b0d1f84a3932bced12",
+        "end_line": 233,
+        "line": 42,
+        "root_id": "internal/region/foundation_recovery_integration_test.go::TestFoundationAcceptedCreateRecoversFromDurablePendingRequest",
+        "source": "original"
+      },
+      {
+        "blob": "f89f8d1682bd9454cbbcf770d4b8d34c2a9f2e5c",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "82e11df6e2001bc042bc1099316fba578034a22d043364b0d1f84a3932bced12",
+        "end_line": 233,
+        "line": 42,
+        "root_id": "internal/region/foundation_recovery_integration_test.go::TestFoundationAcceptedCreateRecoversFromDurablePendingRequest",
+        "source": "current"
+      },
+      {
+        "blob": "f89f8d1682bd9454cbbcf770d4b8d34c2a9f2e5c",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "c0000f9464ddedead7a0f20ee7ac51de01f8916781daa67f828d4c090b20503d",
+        "end_line": 278,
+        "line": 235,
+        "root_id": "internal/region/foundation_recovery_integration_test.go::TestFoundationAuxiliaryIdentityCheckpointsPersistSeparately",
+        "source": "original"
+      },
+      {
+        "blob": "f89f8d1682bd9454cbbcf770d4b8d34c2a9f2e5c",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "c0000f9464ddedead7a0f20ee7ac51de01f8916781daa67f828d4c090b20503d",
+        "end_line": 278,
+        "line": 235,
+        "root_id": "internal/region/foundation_recovery_integration_test.go::TestFoundationAuxiliaryIdentityCheckpointsPersistSeparately",
+        "source": "current"
+      },
+      {
+        "blob": "3d47a8bc5dd5433914deb1656f279d422d66ac29",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "86a01e34104006ec35298e8b1f62564d69efc60b7ccc3430db9419a81068f81d",
+        "end_line": 424,
+        "line": 40,
+        "root_id": "internal/region/netbird_manager_integration_test.go::TestNetBirdManagerSignedLaunchAndStoreRecovery",
+        "source": "original"
+      },
+      {
+        "blob": "3d47a8bc5dd5433914deb1656f279d422d66ac29",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "86a01e34104006ec35298e8b1f62564d69efc60b7ccc3430db9419a81068f81d",
+        "end_line": 424,
+        "line": 40,
+        "root_id": "internal/region/netbird_manager_integration_test.go::TestNetBirdManagerSignedLaunchAndStoreRecovery",
+        "source": "current"
+      },
+      {
+        "blob": "09e851618f26f1eb9c44731ff545411f6789e7a5",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "5c003a8efa3d75ff5788b366af0ad64b90c827796a0f99f7291c1a2a77003daf",
+        "end_line": 262,
+        "line": 32,
+        "root_id": "internal/region/netbird_network_integration_test.go::TestNetBirdNetworkRecoversLostCreatesAndRejectsDrift",
+        "source": "original"
+      },
+      {
+        "blob": "09e851618f26f1eb9c44731ff545411f6789e7a5",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "5c003a8efa3d75ff5788b366af0ad64b90c827796a0f99f7291c1a2a77003daf",
+        "end_line": 262,
+        "line": 32,
+        "root_id": "internal/region/netbird_network_integration_test.go::TestNetBirdNetworkRecoversLostCreatesAndRejectsDrift",
+        "source": "current"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "ac9771e22895f523da5dc2d40d5c08b2fe7fc3466b286d5ae32f27b79d2c089b",
+        "end_line": 422,
+        "line": 367,
+        "root_id": "internal/region/region_test.go::TestCreatePeersWithTheHome",
+        "source": "original"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "ac9771e22895f523da5dc2d40d5c08b2fe7fc3466b286d5ae32f27b79d2c089b",
+        "end_line": 422,
+        "line": 367,
+        "root_id": "internal/region/region_test.go::TestCreatePeersWithTheHome",
+        "source": "current"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "cbd634c7fae38911474fe38c94fbc417ca6b7ddf486b85fda592f812823b399d",
+        "end_line": 479,
+        "line": 467,
+        "root_id": "internal/region/region_test.go::TestCreateReadsTheTokensOnceForItsSteps",
+        "source": "original"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "cbd634c7fae38911474fe38c94fbc417ca6b7ddf486b85fda592f812823b399d",
+        "end_line": 479,
+        "line": 467,
+        "root_id": "internal/region/region_test.go::TestCreateReadsTheTokensOnceForItsSteps",
+        "source": "current"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "456e4e9f0e3959541c035fde4c539dba48facc7d98367b8dde86ce475e6d32b9",
+        "end_line": 450,
+        "line": 424,
+        "root_id": "internal/region/region_test.go::TestCreateRefusesBeforeSpending",
+        "source": "original"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "456e4e9f0e3959541c035fde4c539dba48facc7d98367b8dde86ce475e6d32b9",
+        "end_line": 450,
+        "line": 424,
+        "root_id": "internal/region/region_test.go::TestCreateRefusesBeforeSpending",
+        "source": "current"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "be389ca00c113b158dc481bc2fd7f3b1859879991d92b54453ccbc2b4335947e",
+        "end_line": 304,
+        "line": 277,
+        "root_id": "internal/region/region_test.go::TestCreateRetriesFabricBeforeImageWithoutReplacingStoredKey",
+        "source": "original"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "be389ca00c113b158dc481bc2fd7f3b1859879991d92b54453ccbc2b4335947e",
+        "end_line": 304,
+        "line": 277,
+        "root_id": "internal/region/region_test.go::TestCreateRetriesFabricBeforeImageWithoutReplacingStoredKey",
+        "source": "current"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "c75badfbdf86ba445316fe224fb677376cf88d3e5cc24cc22fa149a8ac0dec04",
+        "end_line": 363,
+        "line": 306,
+        "root_id": "internal/region/region_test.go::TestCreateRunsEveryStepOnceAndResumes",
+        "source": "original"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "c75badfbdf86ba445316fe224fb677376cf88d3e5cc24cc22fa149a8ac0dec04",
+        "end_line": 363,
+        "line": 306,
+        "root_id": "internal/region/region_test.go::TestCreateRunsEveryStepOnceAndResumes",
+        "source": "current"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "a834150a47d722bf44854decce988527b094b035a35048f0d301d91130baf977",
+        "end_line": 123,
+        "line": 108,
+        "root_id": "internal/region/region_test.go::TestDeriveRefuses",
+        "source": "original"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "a834150a47d722bf44854decce988527b094b035a35048f0d301d91130baf977",
+        "end_line": 123,
+        "line": 108,
+        "root_id": "internal/region/region_test.go::TestDeriveRefuses",
+        "source": "current"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "e76634b9ee33748490d7685fe24ed90e89494d592ac60cb1d8c4f15fde408cda",
+        "end_line": 106,
+        "line": 67,
+        "root_id": "internal/region/region_test.go::TestDeriveRoundTripsTheReviewedPlan",
+        "source": "original"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "e76634b9ee33748490d7685fe24ed90e89494d592ac60cb1d8c4f15fde408cda",
+        "end_line": 106,
+        "line": 67,
+        "root_id": "internal/region/region_test.go::TestDeriveRoundTripsTheReviewedPlan",
+        "source": "current"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "08cef42e11d369688ae13463b2d115daa88236371f402d451b1e0ccaa34e8e7c",
+        "end_line": 63,
+        "line": 54,
+        "root_id": "internal/region/region_test.go::TestNetworkFollowsTheCatalog",
+        "source": "original"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "08cef42e11d369688ae13463b2d115daa88236371f402d451b1e0ccaa34e8e7c",
+        "end_line": 63,
+        "line": 54,
+        "root_id": "internal/region/region_test.go::TestNetworkFollowsTheCatalog",
+        "source": "current"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "872ae3b39c7236891fa3fa6713c6a1076f94b435ad44675223aaa2b19c31fde0",
+        "end_line": 144,
+        "line": 125,
+        "root_id": "internal/region/region_test.go::TestRegionProfileKeepsOnlyDefaultInTheRegion",
+        "source": "original"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "872ae3b39c7236891fa3fa6713c6a1076f94b435ad44675223aaa2b19c31fde0",
+        "end_line": 144,
+        "line": 125,
+        "root_id": "internal/region/region_test.go::TestRegionProfileKeepsOnlyDefaultInTheRegion",
+        "source": "current"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "e81ba3cfe7da4155b80aedad1cd4631e08aa769dc8761c107036a831ad04c0aa",
+        "end_line": 463,
+        "line": 452,
+        "root_id": "internal/region/region_test.go::TestResolveRegionAcceptsTokensAndRefusesHomeAndUnknown",
+        "source": "original"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "e81ba3cfe7da4155b80aedad1cd4631e08aa769dc8761c107036a831ad04c0aa",
+        "end_line": 463,
+        "line": 452,
+        "root_id": "internal/region/region_test.go::TestResolveRegionAcceptsTokensAndRefusesHomeAndUnknown",
+        "source": "current"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "1a034aad015b7e428fe509e9e663e7ff44444052cef39fbe4efb92c43ffe3a9a",
+        "end_line": 616,
+        "line": 603,
+        "root_id": "internal/region/region_test.go::TestRunRefusesBadArguments",
+        "source": "original"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "1a034aad015b7e428fe509e9e663e7ff44444052cef39fbe4efb92c43ffe3a9a",
+        "end_line": 616,
+        "line": 603,
+        "root_id": "internal/region/region_test.go::TestRunRefusesBadArguments",
+        "source": "current"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "68d967eef37b65682a75bcc7ee4d6b88ec1032ed42e65f5eaa869f3feff2b8f1",
+        "end_line": 502,
+        "line": 489,
+        "root_id": "internal/region/region_test.go::TestSubscribeCreatesThenPollsUntilReady",
+        "source": "original"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "68d967eef37b65682a75bcc7ee4d6b88ec1032ed42e65f5eaa869f3feff2b8f1",
+        "end_line": 502,
+        "line": 489,
+        "root_id": "internal/region/region_test.go::TestSubscribeCreatesThenPollsUntilReady",
+        "source": "current"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "4c599bfdd38fddb8ae0c22edfdfcb55fa46f24c4dd003b36cb793bb5ddab1f4a",
+        "end_line": 515,
+        "line": 504,
+        "root_id": "internal/region/region_test.go::TestSubscribeRefusesATerminalStatusAndAnEndedWait",
+        "source": "original"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "4c599bfdd38fddb8ae0c22edfdfcb55fa46f24c4dd003b36cb793bb5ddab1f4a",
+        "end_line": 515,
+        "line": 504,
+        "root_id": "internal/region/region_test.go::TestSubscribeRefusesATerminalStatusAndAnEndedWait",
+        "source": "current"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "d65a820fe3b275b0b3456659c54b4f0bd8ef83a296ccd5103ff64a5ed631f34a",
+        "end_line": 487,
+        "line": 481,
+        "root_id": "internal/region/region_test.go::TestSubscribeReusesAReadySubscription",
+        "source": "original"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "d65a820fe3b275b0b3456659c54b4f0bd8ef83a296ccd5103ff64a5ed631f34a",
+        "end_line": 487,
+        "line": 481,
+        "root_id": "internal/region/region_test.go::TestSubscribeReusesAReadySubscription",
+        "source": "current"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "daabb90c9a78635bc2b72c3142d1d89e91538c072e2d77366f1c26c38e264c9f",
+        "end_line": 601,
+        "line": 543,
+        "root_id": "internal/region/region_test.go::TestVerifierPassesOnlyAServingRegion",
+        "source": "original"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "daabb90c9a78635bc2b72c3142d1d89e91538c072e2d77366f1c26c38e264c9f",
+        "end_line": 601,
+        "line": 543,
+        "root_id": "internal/region/region_test.go::TestVerifierPassesOnlyAServingRegion",
+        "source": "current"
+      },
+      {
+        "blob": "29775c70eda5e5558aca82241de6cc439c493f4f",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "38040a5ff5651326bb47272576f8b4c25aa1f24844349d72a828cceb95bfc0be",
+        "end_line": 125,
+        "line": 39,
+        "root_id": "internal/region/retained_integration_test.go::TestRetainedFoundationHTTPFilesystemOffline",
+        "source": "original"
+      },
+      {
+        "blob": "29775c70eda5e5558aca82241de6cc439c493f4f",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "38040a5ff5651326bb47272576f8b4c25aa1f24844349d72a828cceb95bfc0be",
+        "end_line": 125,
+        "line": 39,
+        "root_id": "internal/region/retained_integration_test.go::TestRetainedFoundationHTTPFilesystemOffline",
+        "source": "current"
+      },
+      {
+        "blob": "29775c70eda5e5558aca82241de6cc439c493f4f",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "1245e24c691d01a9664f9a5e418905dc94635a4475e007eac1a306fbf4a50ec4",
+        "end_line": 178,
+        "line": 127,
+        "root_id": "internal/region/retained_integration_test.go::TestRetainedFoundationHTTPRejectsInvalidAndRollback",
+        "source": "original"
+      },
+      {
+        "blob": "29775c70eda5e5558aca82241de6cc439c493f4f",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "1245e24c691d01a9664f9a5e418905dc94635a4475e007eac1a306fbf4a50ec4",
+        "end_line": 178,
+        "line": 127,
+        "root_id": "internal/region/retained_integration_test.go::TestRetainedFoundationHTTPRejectsInvalidAndRollback",
+        "source": "current"
+      },
+      {
+        "blob": "6121c6d8cc5ad39edb5bcdc3c66fdd215bb3c9cb",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "df3d6f91c80a197bdcef02a068554bdaceffcd483332416eb9c86158752bb490",
+        "end_line": 85,
+        "line": 21,
+        "root_id": "internal/region/source_policy_integration_test.go::TestSourcePolicyJournalPreservesOriginalRecipientAndRejectsWidening",
+        "source": "original"
+      },
+      {
+        "blob": "6121c6d8cc5ad39edb5bcdc3c66fdd215bb3c9cb",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "df3d6f91c80a197bdcef02a068554bdaceffcd483332416eb9c86158752bb490",
+        "end_line": 85,
+        "line": 21,
+        "root_id": "internal/region/source_policy_integration_test.go::TestSourcePolicyJournalPreservesOriginalRecipientAndRejectsWidening",
+        "source": "current"
+      },
+      {
+        "blob": "3e0252d9d3795762343cf74af103b025b7e65c07",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "29b977a04201ed50a6417335a4d1f87ad5f8865f60507af092c769763ddc6621",
+        "end_line": 206,
+        "line": 38,
+        "root_id": "internal/region/spend_bindings_integration_test.go::TestLogicalSpendingBindingsRetainSignedAuthority",
+        "source": "original"
+      },
+      {
+        "blob": "3e0252d9d3795762343cf74af103b025b7e65c07",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "29b977a04201ed50a6417335a4d1f87ad5f8865f60507af092c769763ddc6621",
+        "end_line": 206,
+        "line": 38,
+        "root_id": "internal/region/spend_bindings_integration_test.go::TestLogicalSpendingBindingsRetainSignedAuthority",
+        "source": "current"
+      },
+      {
+        "blob": "5ca0bd127b98f48e1728f35c01fe78b42fcb20e4",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "4d3446f9e4b56591ea95aa105eb93895055a11371725cff83b56b265dd2065f4",
+        "end_line": 197,
+        "line": 28,
+        "root_id": "internal/region/worker_instance_integration_test.go::TestWorkerInstanceSDKObservationsRequireProtectedCreation",
+        "source": "original"
+      },
+      {
+        "blob": "5ca0bd127b98f48e1728f35c01fe78b42fcb20e4",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "4d3446f9e4b56591ea95aa105eb93895055a11371725cff83b56b265dd2065f4",
+        "end_line": 197,
+        "line": 28,
+        "root_id": "internal/region/worker_instance_integration_test.go::TestWorkerInstanceSDKObservationsRequireProtectedCreation",
+        "source": "current"
+      },
+      {
+        "blob": "0a0f77a50ae9ecf73c4da1e5f6a5f9d7aef75662",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "bd9c5c28aba3c08f74d6be5ce1c5eb79f36299ae888f43b75d7ec3f9f4018109",
+        "end_line": 105,
+        "line": 21,
+        "root_id": "internal/region/worker_profile_integration_test.go::TestWorkerProfileAuthorityRequiresIndependentCurrentSources",
+        "source": "original"
+      },
+      {
+        "blob": "0a0f77a50ae9ecf73c4da1e5f6a5f9d7aef75662",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "bd9c5c28aba3c08f74d6be5ce1c5eb79f36299ae888f43b75d7ec3f9f4018109",
+        "end_line": 105,
+        "line": 21,
+        "root_id": "internal/region/worker_profile_integration_test.go::TestWorkerProfileAuthorityRequiresIndependentCurrentSources",
+        "source": "current"
+      },
+      {
+        "blob": "be0a72ef446456f3d55ec2e32e334296cca1779a",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "7a5af1495e2a3fc33332efd2e7f14e071233c4bd4bde527b654c1f7e1e86f27b",
+        "end_line": 248,
+        "line": 197,
+        "root_id": "internal/natscell/cluster_formation_test.go::TestCloseHandsOffStreamLeadership",
+        "source": "original"
+      },
+      {
+        "blob": "be0a72ef446456f3d55ec2e32e334296cca1779a",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "7a5af1495e2a3fc33332efd2e7f14e071233c4bd4bde527b654c1f7e1e86f27b",
+        "end_line": 248,
+        "line": 197,
+        "root_id": "internal/natscell/cluster_formation_test.go::TestCloseHandsOffStreamLeadership",
+        "source": "current"
+      },
+      {
+        "blob": "be0a72ef446456f3d55ec2e32e334296cca1779a",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "1236dd77177c7d77964bdc0fe2c30abd7b698be3465cf2f2d8e78d1fa1ebd354",
+        "end_line": 172,
+        "line": 126,
+        "root_id": "internal/natscell/cluster_formation_test.go::TestColdRestartWithTwoOfThreeBrokers",
+        "source": "original"
+      },
+      {
+        "blob": "be0a72ef446456f3d55ec2e32e334296cca1779a",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "1236dd77177c7d77964bdc0fe2c30abd7b698be3465cf2f2d8e78d1fa1ebd354",
+        "end_line": 172,
+        "line": 126,
+        "root_id": "internal/natscell/cluster_formation_test.go::TestColdRestartWithTwoOfThreeBrokers",
+        "source": "current"
+      },
+      {
+        "blob": "be0a72ef446456f3d55ec2e32e334296cca1779a",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "03527fa01f38100506aff8bfed2ebe446822d81044470a4073611e1c73a24179",
+        "end_line": 77,
+        "line": 64,
+        "root_id": "internal/natscell/cluster_formation_test.go::TestObserveStandaloneBroker",
+        "source": "original"
+      },
+      {
+        "blob": "be0a72ef446456f3d55ec2e32e334296cca1779a",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "03527fa01f38100506aff8bfed2ebe446822d81044470a4073611e1c73a24179",
+        "end_line": 77,
+        "line": 64,
+        "root_id": "internal/natscell/cluster_formation_test.go::TestObserveStandaloneBroker",
+        "source": "current"
+      },
+      {
+        "blob": "be0a72ef446456f3d55ec2e32e334296cca1779a",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "532295679f54fcfad37884520dd349a48e808f3863b2d61bc42ddb4abe65d42f",
+        "end_line": 122,
+        "line": 93,
+        "root_id": "internal/natscell/cluster_formation_test.go::TestStagedFormationWithProductionRouteShape",
+        "source": "original"
+      },
+      {
+        "blob": "be0a72ef446456f3d55ec2e32e334296cca1779a",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "532295679f54fcfad37884520dd349a48e808f3863b2d61bc42ddb4abe65d42f",
+        "end_line": 122,
+        "line": 93,
+        "root_id": "internal/natscell/cluster_formation_test.go::TestStagedFormationWithProductionRouteShape",
+        "source": "current"
+      },
+      {
+        "blob": "be0a72ef446456f3d55ec2e32e334296cca1779a",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "a07c586fb653c2aa4190748df5ff0d8a6446de84c8e21bbb2ab450db43821d4a",
+        "end_line": 193,
+        "line": 174,
+        "root_id": "internal/natscell/cluster_formation_test.go::TestWaitForClusterFailsFastWhenEmbeddedServerStopped",
+        "source": "original"
+      },
+      {
+        "blob": "be0a72ef446456f3d55ec2e32e334296cca1779a",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "a07c586fb653c2aa4190748df5ff0d8a6446de84c8e21bbb2ab450db43821d4a",
+        "end_line": 193,
+        "line": 174,
+        "root_id": "internal/natscell/cluster_formation_test.go::TestWaitForClusterFailsFastWhenEmbeddedServerStopped",
+        "source": "current"
+      },
+      {
+        "blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "283a3c39ae0a4df5431358d63a939d8ec890384741b48534f27d0fea822b3d83",
+        "end_line": 145,
+        "line": 104,
+        "root_id": "internal/natscell/runtime_test.go::TestControllerNKeyDurablyAcknowledgesDeliveryIntent",
+        "source": "original"
+      },
+      {
+        "blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "283a3c39ae0a4df5431358d63a939d8ec890384741b48534f27d0fea822b3d83",
+        "end_line": 145,
+        "line": 104,
+        "root_id": "internal/natscell/runtime_test.go::TestControllerNKeyDurablyAcknowledgesDeliveryIntent",
+        "source": "current"
+      },
+      {
+        "blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "aa379237cdcc4e13fe387159920cf13ff6b6d4af466ead7d20bc6061f46864b0",
+        "end_line": 206,
+        "line": 147,
+        "root_id": "internal/natscell/runtime_test.go::TestEmbeddedClusterAdvertisesClientPeers",
+        "source": "original"
+      },
+      {
+        "blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "aa379237cdcc4e13fe387159920cf13ff6b6d4af466ead7d20bc6061f46864b0",
+        "end_line": 206,
+        "line": 147,
+        "root_id": "internal/natscell/runtime_test.go::TestEmbeddedClusterAdvertisesClientPeers",
+        "source": "current"
+      },
+      {
+        "blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "56dabb72ea66762b3d28bce5b328c7caaca955c7ede624cd3f8eec851e01b67d",
+        "end_line": 64,
+        "line": 22,
+        "root_id": "internal/natscell/runtime_test.go::TestEmbeddedSingleNodeDurableRestart",
+        "source": "original"
+      },
+      {
+        "blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "56dabb72ea66762b3d28bce5b328c7caaca955c7ede624cd3f8eec851e01b67d",
+        "end_line": 64,
+        "line": 22,
+        "root_id": "internal/natscell/runtime_test.go::TestEmbeddedSingleNodeDurableRestart",
+        "source": "current"
+      },
+      {
+        "blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "7fdf4fcdc1f0e54650ea150db6e8178187c6e8f8400bf225281651e79673e0b1",
+        "end_line": 284,
+        "line": 208,
+        "root_id": "internal/natscell/runtime_test.go::TestHostNKeyCannotCrossNodeOrUseJetStream",
+        "source": "original"
+      },
+      {
+        "blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "7fdf4fcdc1f0e54650ea150db6e8178187c6e8f8400bf225281651e79673e0b1",
+        "end_line": 284,
+        "line": 208,
+        "root_id": "internal/natscell/runtime_test.go::TestHostNKeyCannotCrossNodeOrUseJetStream",
+        "source": "current"
+      },
+      {
+        "blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "declaration_sha256": "c1af27365b7d4c8ab9cc4b785577a9baaa78947612833c2cf3682a38b4ad05d7",
+        "end_line": 445,
+        "line": 316,
+        "root_id": "internal/natscell/runtime_test.go::TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState",
+        "source": "original"
+      },
+      {
+        "blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3",
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "declaration_sha256": "c1af27365b7d4c8ab9cc4b785577a9baaa78947612833c2cf3682a38b4ad05d7",
+        "end_line": 445,
+        "line": 316,
+        "root_id": "internal/natscell/runtime_test.go::TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState",
+        "source": "current"
+      }
+    ],
+    "immutable_source_file_objects": 58,
+    "peer_category_corrections": [
+      {
+        "from": "integration",
+        "reason": "The only asserted result is the material-authority error from runProcess115-116, a local ExpiresAt vs now/proof-expiry predicate. Material files deliver constructed values to that predicate; the test asserts no path, permissions, ownership, readback, durability or filesystem-failure behavior. NewWorker, NATS connection and HTTP listener are not reached. Incidental real file setup does not prove an integration target.",
+        "root_id": "internal/functions/process_integration_test.go::TestFunctionWorkerRejectsExpiredMaterial",
+        "to": "unit"
+      },
+      {
+        "from": "integration",
+        "reason": "Intended broker assertion is clear, but the exact retained root/setup cannot establish a reachable current production broker boundary. Config.Lab is absent; even removing that literal leaves cfg.validate rejecting missing JWT/TLS and legacy NKey/embedded Users. No alternate path from this root to the asserted broker behavior is established.",
+        "root_id": "internal/natscell/cluster_formation_test.go::TestCloseHandsOffStreamLeadership",
+        "to": "unresolved"
+      },
+      {
+        "from": "integration",
+        "reason": "Intended broker assertion is clear, but the exact retained root/setup cannot establish a reachable current production broker boundary. Config.Lab is absent; even removing that literal leaves cfg.validate rejecting missing JWT/TLS and legacy NKey/embedded Users. No alternate path from this root to the asserted broker behavior is established.",
+        "root_id": "internal/natscell/cluster_formation_test.go::TestColdRestartWithTwoOfThreeBrokers",
+        "to": "unresolved"
+      },
+      {
+        "from": "integration",
+        "reason": "Intended broker assertion is clear, but the exact retained root/setup cannot establish a reachable current production broker boundary. Config.Lab is absent; even removing that literal leaves cfg.validate rejecting missing JWT/TLS and legacy NKey/embedded Users. No alternate path from this root to the asserted broker behavior is established.",
+        "root_id": "internal/natscell/cluster_formation_test.go::TestObserveStandaloneBroker",
+        "to": "unresolved"
+      },
+      {
+        "from": "integration",
+        "reason": "Intended broker assertion is clear, but the exact retained root/setup cannot establish a reachable current production broker boundary. Config.Lab is absent; even removing that literal leaves cfg.validate rejecting missing JWT/TLS and legacy NKey/embedded Users. No alternate path from this root to the asserted broker behavior is established.",
+        "root_id": "internal/natscell/cluster_formation_test.go::TestStagedFormationWithProductionRouteShape",
+        "to": "unresolved"
+      },
+      {
+        "from": "integration",
+        "reason": "Intended broker assertion is clear, but the exact retained root/setup cannot establish a reachable current production broker boundary. Config.Lab is absent; even removing that literal leaves cfg.validate rejecting missing JWT/TLS and legacy NKey/embedded Users. No alternate path from this root to the asserted broker behavior is established.",
+        "root_id": "internal/natscell/cluster_formation_test.go::TestWaitForClusterFailsFastWhenEmbeddedServerStopped",
+        "to": "unresolved"
+      },
+      {
+        "from": "integration",
+        "reason": "Intended broker assertion is clear, but the exact retained root/setup cannot establish a reachable current production broker boundary. Config.Lab is absent; even removing that literal leaves cfg.validate rejecting missing JWT/TLS and legacy NKey/embedded Users. No alternate path from this root to the asserted broker behavior is established.",
+        "root_id": "internal/natscell/runtime_test.go::TestControllerNKeyDurablyAcknowledgesDeliveryIntent",
+        "to": "unresolved"
+      },
+      {
+        "from": "integration",
+        "reason": "Intended broker assertion is clear, but the exact retained root/setup cannot establish a reachable current production broker boundary. Config.Lab is absent; even removing that literal leaves cfg.validate rejecting missing JWT/TLS and legacy NKey/embedded Users. No alternate path from this root to the asserted broker behavior is established.",
+        "root_id": "internal/natscell/runtime_test.go::TestEmbeddedClusterAdvertisesClientPeers",
+        "to": "unresolved"
+      },
+      {
+        "from": "integration",
+        "reason": "Intended broker assertion is clear, but the exact retained root/setup cannot establish a reachable current production broker boundary. Config.Lab is absent; even removing that literal leaves cfg.validate rejecting missing JWT/TLS and legacy NKey/embedded Users. No alternate path from this root to the asserted broker behavior is established.",
+        "root_id": "internal/natscell/runtime_test.go::TestEmbeddedSingleNodeDurableRestart",
+        "to": "unresolved"
+      },
+      {
+        "from": "integration",
+        "reason": "Intended broker assertion is clear, but the exact retained root/setup cannot establish a reachable current production broker boundary. Config.Lab is absent; even removing that literal leaves cfg.validate rejecting missing JWT/TLS and legacy NKey/embedded Users. No alternate path from this root to the asserted broker behavior is established.",
+        "root_id": "internal/natscell/runtime_test.go::TestHostNKeyCannotCrossNodeOrUseJetStream",
+        "to": "unresolved"
+      },
+      {
+        "from": "integration",
+        "reason": "Intended broker assertion is clear, but the exact retained root/setup cannot establish a reachable current production broker boundary. Config.Lab is absent; even removing that literal leaves cfg.validate rejecting missing JWT/TLS and legacy NKey/embedded Users. No alternate path from this root to the asserted broker behavior is established.",
+        "root_id": "internal/natscell/runtime_test.go::TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState",
+        "to": "unresolved"
+      }
+    ],
+    "raw_hash_contract": "func through column-zero closing brace, excluding following LF; committed baseline and d4ac bytes only",
+    "result": "PASS",
+    "source_file_pins": [
+      {
+        "blob": "27350e1b7621666584389be386e4f7b35704a6e5",
+        "bytes": 4015,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/functions/admission_integration_test.go",
+        "sha256": "3a3f054ab5b58a782ac03775394e9d93d4e9ecc8ccc94c60f7cba69eaaa35d1b"
+      },
+      {
+        "blob": "27350e1b7621666584389be386e4f7b35704a6e5",
+        "bytes": 4015,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/functions/admission_integration_test.go",
+        "sha256": "3a3f054ab5b58a782ac03775394e9d93d4e9ecc8ccc94c60f7cba69eaaa35d1b"
+      },
+      {
+        "blob": "c2a7ba4d11448138e452a573a1c7804833109323",
+        "bytes": 17800,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/functions/broker_integration_test.go",
+        "sha256": "3b63ad4ee03e5484a15928a0ae92d78b99aebe43b5465b1e9fa6fdd9b1e2d545"
+      },
+      {
+        "blob": "c2a7ba4d11448138e452a573a1c7804833109323",
+        "bytes": 17800,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/functions/broker_integration_test.go",
+        "sha256": "3b63ad4ee03e5484a15928a0ae92d78b99aebe43b5465b1e9fa6fdd9b1e2d545"
+      },
+      {
+        "blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+        "bytes": 15203,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/functions/process_integration_test.go",
+        "sha256": "68f927bfc331f0b0be8a65e5a2864cc3a9a1b6b98430731a6b8b6eb3d1047c3b"
+      },
+      {
+        "blob": "fd55f3469f13430fa8ee7aaf8d978592d5194253",
+        "bytes": 15203,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/functions/process_integration_test.go",
+        "sha256": "68f927bfc331f0b0be8a65e5a2864cc3a9a1b6b98430731a6b8b6eb3d1047c3b"
+      },
+      {
+        "blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "bytes": 11126,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/functions/runtime_integration_test.go",
+        "sha256": "73185a767b3b4aca2a75d00d490b85697de5d06de35cd73e8c474b75c6a8a2c6"
+      },
+      {
+        "blob": "1fc4fc669f8ef26ea2c297318c8a7b2e117c7cc8",
+        "bytes": 11126,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/functions/runtime_integration_test.go",
+        "sha256": "73185a767b3b4aca2a75d00d490b85697de5d06de35cd73e8c474b75c6a8a2c6"
+      },
+      {
+        "blob": "841664089ac3951035fb0c2f2861155a39cd79d1",
+        "bytes": 1801,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/functions/runtime_limits_integration_test.go",
+        "sha256": "6ec96ae20ba66ffcf3bf69cba91610207a25af9048c8fc03801dcaa2366945d2"
+      },
+      {
+        "blob": "841664089ac3951035fb0c2f2861155a39cd79d1",
+        "bytes": 1801,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/functions/runtime_limits_integration_test.go",
+        "sha256": "6ec96ae20ba66ffcf3bf69cba91610207a25af9048c8fc03801dcaa2366945d2"
+      },
+      {
+        "blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "bytes": 11177,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/functions/transports_integration_test.go",
+        "sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929"
+      },
+      {
+        "blob": "905495b7025a92d634419e135ea54778f12509d6",
+        "bytes": 11177,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/functions/transports_integration_test.go",
+        "sha256": "e24ae022823eed6cd0a16d96303964039d404192b61990d96b24942fcd721929"
+      },
+      {
+        "blob": "be0a72ef446456f3d55ec2e32e334296cca1779a",
+        "bytes": 9561,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/natscell/cluster_formation_test.go",
+        "sha256": "c0dbcf9d75e6a373798b6c4c73a5f95f91223d7bf83fef6dc2a3c3fe1c8f5229"
+      },
+      {
+        "blob": "be0a72ef446456f3d55ec2e32e334296cca1779a",
+        "bytes": 9561,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/natscell/cluster_formation_test.go",
+        "sha256": "c0dbcf9d75e6a373798b6c4c73a5f95f91223d7bf83fef6dc2a3c3fe1c8f5229"
+      },
+      {
+        "blob": "6558b31066b125cb9401de1d19f5b4cc55d46cae",
+        "bytes": 8371,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/natscell/fabric_test.go",
+        "sha256": "3f751a555909275f0e1870ab7c06cb4e47bf572c5626bec158f01981cf625c8e"
+      },
+      {
+        "blob": "6558b31066b125cb9401de1d19f5b4cc55d46cae",
+        "bytes": 8371,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/natscell/fabric_test.go",
+        "sha256": "3f751a555909275f0e1870ab7c06cb4e47bf572c5626bec158f01981cf625c8e"
+      },
+      {
+        "blob": "adaeff0954d7c1c77c61c36182d912ba2e1f8efd",
+        "bytes": 25733,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/natscell/interregion_test.go",
+        "sha256": "3f7fb1b1223022a828ce5b47897edbd58e87ae2b0ed0882dcc8279e5c3f3ac3e"
+      },
+      {
+        "blob": "adaeff0954d7c1c77c61c36182d912ba2e1f8efd",
+        "bytes": 25733,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/natscell/interregion_test.go",
+        "sha256": "3f7fb1b1223022a828ce5b47897edbd58e87ae2b0ed0882dcc8279e5c3f3ac3e"
+      },
+      {
+        "blob": "70fbf88f0cc2a3d494f9e66cac18f13fc5459a71",
+        "bytes": 2189,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/natscell/membership_test.go",
+        "sha256": "e79790831c7a593f3f1447b9e7788e97efd8ab8ba9e87379b7e2304547859f78"
+      },
+      {
+        "blob": "70fbf88f0cc2a3d494f9e66cac18f13fc5459a71",
+        "bytes": 2189,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/natscell/membership_test.go",
+        "sha256": "e79790831c7a593f3f1447b9e7788e97efd8ab8ba9e87379b7e2304547859f78"
+      },
+      {
+        "blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3",
+        "bytes": 16277,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/natscell/runtime_test.go",
+        "sha256": "d5eca77390c1c6e238f2549072fe0cd57a1bb44e7a1e5c44c9d5684b8c514e2d"
+      },
+      {
+        "blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3",
+        "bytes": 16277,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/natscell/runtime_test.go",
+        "sha256": "d5eca77390c1c6e238f2549072fe0cd57a1bb44e7a1e5c44c9d5684b8c514e2d"
+      },
+      {
+        "blob": "37540b09350a172f7a57d2a9dd5b77121eb95143",
+        "bytes": 3641,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/oci/capacity_request_integration_test.go",
+        "sha256": "1dae189eb22e6ab33b84efadcb0a343ccf179c49d5bc7072c3fab89230c3a7fe"
+      },
+      {
+        "blob": "a792c3b650f5f6edc93c646c14f5821f2918031b",
+        "bytes": 3442,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/oci/capacity_request_integration_test.go",
+        "sha256": "2a3bc2af39a4429019edca97d1175c4a41dd04fe060dba4e5e71ee38518af230"
+      },
+      {
+        "blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943",
+        "bytes": 4504,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/oci/inventory_test.go",
+        "sha256": "281b89dabeb24a0aa90ef6f0976a7da5f8024c7317d44f3515a5555dc9cd2457"
+      },
+      {
+        "blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943",
+        "bytes": 4504,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/oci/inventory_test.go",
+        "sha256": "281b89dabeb24a0aa90ef6f0976a7da5f8024c7317d44f3515a5555dc9cd2457"
+      },
+      {
+        "blob": "8705e216dfdbc41ce3a645d2f9b13ef96ab14b82",
+        "bytes": 16873,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/oci/journal_test.go",
+        "sha256": "570fc7df074fde649c4ba527b5df4ab795d412ba3a4f3a7beee64f1e01012e89"
+      },
+      {
+        "blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+        "bytes": 16657,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/oci/journal_test.go",
+        "sha256": "f74af33c76a760d8256c3c1380283abd0786475fe1fa4283f7586b4885f769ec"
+      },
+      {
+        "blob": "6bf9dc47c5bbdedcc3b24ea96f22b4abdeef3a83",
+        "bytes": 11117,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/oci/pool_receipt_integration_test.go",
+        "sha256": "116aeda8a00eaad845ee0c0c6502bbc8bc825dd095b4b2e44fbf7e667721c8d1"
+      },
+      {
+        "blob": "b3a44b62978dd78ddbc2c7d06e099e4ce4ddea3c",
+        "bytes": 10918,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/oci/pool_receipt_integration_test.go",
+        "sha256": "c28f4b4cb0b38559bae127b59bfd34727b750e881abb885366ad98d4a465ae45"
+      },
+      {
+        "blob": "7e94e6a0ec1220177af2f520f57e0593b8b3f937",
+        "bytes": 2982,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/oci/static_host_test.go",
+        "sha256": "91487639c5a41a7ac49fe2eb65721b0ac97d4a365a743fed2241f09f0a6cdf5d"
+      },
+      {
+        "blob": "7e94e6a0ec1220177af2f520f57e0593b8b3f937",
+        "bytes": 2982,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/oci/static_host_test.go",
+        "sha256": "91487639c5a41a7ac49fe2eb65721b0ac97d4a365a743fed2241f09f0a6cdf5d"
+      },
+      {
+        "blob": "f99a50f11461131c2511176b51605b8cabede07d",
+        "bytes": 17209,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/oci/volume_observer_integration_test.go",
+        "sha256": "ca132fd88f3fc76e2211849d68338537f7436bd927eba96afb8dbb6ab16c89a4"
+      },
+      {
+        "blob": "caa3e73c91687dfc1e9697aa3eb87f7d017a4e5b",
+        "bytes": 16999,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/oci/volume_observer_integration_test.go",
+        "sha256": "d00e66c587a18461e40b30da5cbfe5ea640e8f0229f8a079b5caed2495c1fa36"
+      },
+      {
+        "blob": "7e3088b08eec3819cc9307ff509a1ed9c7fa45cc",
+        "bytes": 8838,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/region/access_integration_test.go",
+        "sha256": "1fe62f574fbac790947b7d475999991920581fe7cfb990a2eac63785fff2c6ec"
+      },
+      {
+        "blob": "7e3088b08eec3819cc9307ff509a1ed9c7fa45cc",
+        "bytes": 8838,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/region/access_integration_test.go",
+        "sha256": "1fe62f574fbac790947b7d475999991920581fe7cfb990a2eac63785fff2c6ec"
+      },
+      {
+        "blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+        "bytes": 16183,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/region/discovery_current_integration_test.go",
+        "sha256": "906a22d8c45e15bc9afa168cb737734593d092452e98846f262008fc098eeb76"
+      },
+      {
+        "blob": "cf1fae57bdf904974ff3ce348ce8b102c80efa9d",
+        "bytes": 16183,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/region/discovery_current_integration_test.go",
+        "sha256": "906a22d8c45e15bc9afa168cb737734593d092452e98846f262008fc098eeb76"
+      },
+      {
+        "blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+        "bytes": 25457,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/region/foundation_integration_test.go",
+        "sha256": "2e292381410ccaa2d1e8544f8f20e7a98163401dd15966424b42eb89efba3cfa"
+      },
+      {
+        "blob": "1367b561deefe40d7d9b75bb64229264c32fcca6",
+        "bytes": 25457,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/region/foundation_integration_test.go",
+        "sha256": "2e292381410ccaa2d1e8544f8f20e7a98163401dd15966424b42eb89efba3cfa"
+      },
+      {
+        "blob": "f89f8d1682bd9454cbbcf770d4b8d34c2a9f2e5c",
+        "bytes": 12789,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/region/foundation_recovery_integration_test.go",
+        "sha256": "668be347e21a593913a92eea9d4918b8253c2934b1662bca5e07a78c01faee65"
+      },
+      {
+        "blob": "f89f8d1682bd9454cbbcf770d4b8d34c2a9f2e5c",
+        "bytes": 12789,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/region/foundation_recovery_integration_test.go",
+        "sha256": "668be347e21a593913a92eea9d4918b8253c2934b1662bca5e07a78c01faee65"
+      },
+      {
+        "blob": "3d47a8bc5dd5433914deb1656f279d422d66ac29",
+        "bytes": 20993,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/region/netbird_manager_integration_test.go",
+        "sha256": "d1d6cbb3a2c3d9cc04354a82daf97e6e9cbe19e03504aa0f148c7d29a4197a83"
+      },
+      {
+        "blob": "3d47a8bc5dd5433914deb1656f279d422d66ac29",
+        "bytes": 20993,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/region/netbird_manager_integration_test.go",
+        "sha256": "d1d6cbb3a2c3d9cc04354a82daf97e6e9cbe19e03504aa0f148c7d29a4197a83"
+      },
+      {
+        "blob": "09e851618f26f1eb9c44731ff545411f6789e7a5",
+        "bytes": 11123,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/region/netbird_network_integration_test.go",
+        "sha256": "eacc8edea5faa959eec39e00dc0896152690f5f1306d7a0dec79502a6ffb6eeb"
+      },
+      {
+        "blob": "09e851618f26f1eb9c44731ff545411f6789e7a5",
+        "bytes": 11123,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/region/netbird_network_integration_test.go",
+        "sha256": "eacc8edea5faa959eec39e00dc0896152690f5f1306d7a0dec79502a6ffb6eeb"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "bytes": 25993,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/region/region_test.go",
+        "sha256": "a414fa3887d3acb781ad3035ac726dcc1b09e089d4943fa8e904acd777b58bdf"
+      },
+      {
+        "blob": "c298bd492a4fc7d3cc7775e939d470a2013e8ff7",
+        "bytes": 25993,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/region/region_test.go",
+        "sha256": "a414fa3887d3acb781ad3035ac726dcc1b09e089d4943fa8e904acd777b58bdf"
+      },
+      {
+        "blob": "29775c70eda5e5558aca82241de6cc439c493f4f",
+        "bytes": 6947,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/region/retained_integration_test.go",
+        "sha256": "f020c473838f3eba89fccceebc4c2df1e46b7accf735ed463853f27fe2e47ccd"
+      },
+      {
+        "blob": "29775c70eda5e5558aca82241de6cc439c493f4f",
+        "bytes": 6947,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/region/retained_integration_test.go",
+        "sha256": "f020c473838f3eba89fccceebc4c2df1e46b7accf735ed463853f27fe2e47ccd"
+      },
+      {
+        "blob": "6121c6d8cc5ad39edb5bcdc3c66fdd215bb3c9cb",
+        "bytes": 5075,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/region/source_policy_integration_test.go",
+        "sha256": "16c7ae51c64606b1cb166e6351f30c5e49f9783360b8c3cf728f74cc99236841"
+      },
+      {
+        "blob": "6121c6d8cc5ad39edb5bcdc3c66fdd215bb3c9cb",
+        "bytes": 5075,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/region/source_policy_integration_test.go",
+        "sha256": "16c7ae51c64606b1cb166e6351f30c5e49f9783360b8c3cf728f74cc99236841"
+      },
+      {
+        "blob": "3e0252d9d3795762343cf74af103b025b7e65c07",
+        "bytes": 10906,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/region/spend_bindings_integration_test.go",
+        "sha256": "ad5cf26d5b49b411542f98f3f3f67bda7b924e736a4f5617d2d7b4820ce9a0c1"
+      },
+      {
+        "blob": "3e0252d9d3795762343cf74af103b025b7e65c07",
+        "bytes": 10906,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/region/spend_bindings_integration_test.go",
+        "sha256": "ad5cf26d5b49b411542f98f3f3f67bda7b924e736a4f5617d2d7b4820ce9a0c1"
+      },
+      {
+        "blob": "5ca0bd127b98f48e1728f35c01fe78b42fcb20e4",
+        "bytes": 8703,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/region/worker_instance_integration_test.go",
+        "sha256": "beadddb7e06e649c0b7ba7985a2094b641eea727b938a9b640bb5afa5c86f3b1"
+      },
+      {
+        "blob": "5ca0bd127b98f48e1728f35c01fe78b42fcb20e4",
+        "bytes": 8703,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/region/worker_instance_integration_test.go",
+        "sha256": "beadddb7e06e649c0b7ba7985a2094b641eea727b938a9b640bb5afa5c86f3b1"
+      },
+      {
+        "blob": "0a0f77a50ae9ecf73c4da1e5f6a5f9d7aef75662",
+        "bytes": 6064,
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "mode": "100644",
+        "path": "internal/region/worker_profile_integration_test.go",
+        "sha256": "a4298d0ed74a02f89e43751be326ba286067f66cd671141b775d4ab1f62a4c3b"
+      },
+      {
+        "blob": "0a0f77a50ae9ecf73c4da1e5f6a5f9d7aef75662",
+        "bytes": 6064,
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "mode": "100644",
+        "path": "internal/region/worker_profile_integration_test.go",
+        "sha256": "a4298d0ed74a02f89e43751be326ba286067f66cd671141b775d4ab1f62a4c3b"
+      }
+    ]
+  },
+  "exclusion_and_exhaustion": {
+    "all200_original_root_ids_unique": true,
+    "allocated_intersection_with_flat_exclusions": 0,
+    "allocated_roots": 79,
+    "classified_unresolved_intersection": 0,
+    "cross_batch_overlap": 0,
+    "flattened_excluded_ids": 121,
+    "method": "Flatten the VALUES of allocation.excluded_original_root_ids (all102 accepted IDs and all19 retired IDs). Independently derive IDs from actual root rows in accepted audit and proposal; compare literal ID/hash tuples to frozen inventory. Compare all79 allocation roots with69 classified and10 unresolved exactly once. No comparison against exclusion dictionary keys is used.",
+    "pending_or_omitted_allocated_roots": 0,
+    "preexisting102_rows_preserve_all_authoritative_audit_fields": true,
+    "preexisting_classified": 102,
+    "preexisting_classified_root_ids": [
+      "internal/authority/backup_operation_test.go::TestBackupActiveFencesTerminalUntilAllRosterAbort",
+      "internal/authority/backup_operation_test.go::TestBackupAllocationAndPlacementRaceAtPinnedSequence",
+      "internal/authority/backup_operation_test.go::TestBackupAndManagedUpdateCommitsFenceEachOtherInBothOrders",
+      "internal/authority/backup_operation_test.go::TestBackupAttemptNeedsRosterWideAbortBeforeReuseOfOrdinal",
+      "internal/authority/backup_operation_test.go::TestBackupCompleteRequiresCommittedProofsAndEveryAcknowledgment",
+      "internal/authority/backup_operation_test.go::TestBackupHeldRequiresEveryCutAndAbortCannotClearNewerHold",
+      "internal/authority/backup_operation_test.go::TestBackupHistoryPagesExactPartitionAndPayloadOperationID",
+      "internal/authority/backup_operation_test.go::TestBackupRosterRequiresOneHostRelayPerMember",
+      "internal/authority/backup_operation_test.go::TestBackupStartAllowsDurableHeldManagedUpdate",
+      "internal/authority/backup_operation_test.go::TestBackupStartFailsClosedWhenManagedUpdateHistoryIsUnreadable",
+      "internal/authority/backup_operation_test.go::TestConcurrentBackupAndManagedUpdateStartsHaveOneWinner",
+      "internal/authority/backup_operation_test.go::TestNewBackupOperationRequiresFinalRosterVerifier",
+      "internal/authority/control_stream_startup_test.go::TestCreatedControlStreamMissingInfoRetryIsBoundedAndCancelable",
+      "internal/authority/control_stream_startup_test.go::TestOpenControlStreamDoesNotRetryPermanentOrExistingMissingInfo",
+      "internal/authority/control_stream_startup_test.go::TestOpenControlStreamWaitsForPostCreateMetadataVisibility",
+      "internal/authority/deployment_test.go::TestDeploymentIDIsRequiredAndCanonical",
+      "internal/authority/deployment_test.go::TestDeploymentRetainedAcrossRenewReleaseAndRecovery",
+      "internal/authority/deployment_test.go::TestForeignOrLegacyLeaseCannotAuthorizeOrBeReplaced",
+      "internal/authority/deployment_test.go::TestVersionOneLeasePermanentlyFencesLegacyDecoder",
+      "internal/authority/foreign_lease_test.go::TestVerifyLeaseHolderFencesEveryOtherTermWithoutTakingAuthority",
+      "internal/authority/function_integration_test.go::TestFunctionGrantCannotRaceNewCurrentIntent",
+      "internal/authority/function_integration_test.go::TestFunctionIntentAndRecipientGrantsUseDurableCurrentFloor",
+      "internal/authority/function_integration_test.go::TestFunctionProofExpiresInsideFencedCommit",
+      "internal/authority/host_history_test.go::TestHostHistoryBoundsReadsByInventoryAndNewChanges",
+      "internal/authority/host_history_test.go::TestHostHistoryExpiresAndReseedsWithoutLifetimeReplay",
+      "internal/authority/host_history_test.go::TestHostHistoryLockHonorsRequestDeadline",
+      "internal/authority/identity_host_records_integration_test.go::TestHeldIdentityHostRecordsVerifiedStaticGRUSFOAndRetiredHeads",
+      "internal/authority/identity_host_records_test.go::TestIdentityHostCompletionChecksEveryRecord",
+      "internal/authority/identity_host_records_test.go::TestIdentityHostCompletionFencesHeadChangedAfterItsRead",
+      "internal/authority/identity_host_records_test.go::TestIdentityHostRecordInFlightAppendCannotOverwriteCompletion",
+      "internal/authority/identity_host_records_test.go::TestIdentityHostRecordsDeletionRequiresPositiveOwnTombstone",
+      "internal/authority/identity_host_records_test.go::TestIdentityHostRecordsHoldPartialHeadAndResolveLostReplies",
+      "internal/authority/identity_host_records_test.go::TestIdentityHostRecordsOwnCopiesOfValidatedValues",
+      "internal/authority/identity_host_records_test.go::TestIdentityHostRecordsR3HeldResumeAfterLeaderLoss",
+      "internal/authority/identity_host_records_test.go::TestIdentityHostRecordsRecheckPolicyAtMutationAndReadback",
+      "internal/authority/identity_host_records_test.go::TestIdentityHostRecordsRejectInvalidCurrentHeadBeforeAnyEffects",
+      "internal/authority/identity_host_records_test.go::TestIdentityHostRecordsRejectMissingPlanActionAndUnknownDestinations",
+      "internal/authority/identity_host_records_test.go::TestIdentityHostRecordsResumeEveryCommittedBoundary",
+      "internal/authority/identity_inventory_test.go::TestIdentityResetInventoryRetainsForeignCellAndRefusesLateTombstone",
+      "internal/authority/identity_inventory_test.go::TestIdentityResetRejectsAggregateEvictionBeforeBarrier",
+      "internal/authority/identity_inventory_test.go::TestIdentityResetRejectsOmittedHostInventoryBeforeBarrier",
+      "internal/authority/identity_records_test.go::TestCommittedIdentityResetResumesAfterGrantExpiry",
+      "internal/authority/identity_records_test.go::TestCompleteIdentityResetRefusesMissingOrUnpinnedRecords",
+      "internal/authority/identity_records_test.go::TestCompleteIdentityResetRejectsBucketExpiryIntroducedAfterReplacement",
+      "internal/authority/identity_records_test.go::TestCompleteIdentityResetResolvesLostReplyAfterNormalAcquisition",
+      "internal/authority/identity_records_test.go::TestIdentityResetCommittedRejectsBarrierOutsideGrantLifetime",
+      "internal/authority/identity_records_test.go::TestIdentityResetCompletionRequiresItsCommittedBarrierAndCompletion",
+      "internal/authority/identity_records_test.go::TestPublishIdentityRecordHoldsWhenConfirmationIsUnavailable",
+      "internal/authority/identity_records_test.go::TestReplaceIdentityRecordsDoesNotPurgePredecessorChangedAfterRead",
+      "internal/authority/identity_records_test.go::TestReplaceIdentityRecordsFencesDelayedOldCASWrites",
+      "internal/authority/identity_records_test.go::TestReplaceIdentityRecordsInFlightCreateCannotOverwriteCompletedDeployment",
+      "internal/authority/identity_records_test.go::TestReplaceIdentityRecordsPurgesCurrentKeysAndPreservesHistory",
+      "internal/authority/identity_records_test.go::TestReplaceIdentityRecordsRefusesForeignOrIncompleteProofMarkers",
+      "internal/authority/identity_records_test.go::TestReplaceIdentityRecordsRejectsWrongPinsRootAndTarget",
+      "internal/authority/identity_records_test.go::TestReplaceIdentityRecordsRequiresExactReleasedBarrier",
+      "internal/authority/identity_records_test.go::TestReplaceIdentityRecordsResolvesLostPublishResponses",
+      "internal/authority/identity_records_test.go::TestReplaceIdentityRecordsResumesAfterCommittedPurgeOrCreate",
+      "internal/authority/identity_records_test.go::TestReplaceIdentityRecordsUsesLeaderReadsWhenKVDirectReadsEnabled",
+      "internal/authority/identity_records_tombstone_test.go::TestIdentityResetRejectsInvalidTombstonePredecessorPins",
+      "internal/authority/identity_records_tombstone_test.go::TestIdentityResetRekeysExactTombstonesFromCompletedOperation",
+      "internal/authority/identity_reset_global_test.go::TestIdentityResetAtomicBatchDoesNotCommitOneScopeWhenGlobalCASLoses",
+      "internal/authority/identity_reset_global_test.go::TestIdentityResetRejectsChangedGlobalPredecessorBeforeRegionalHold",
+      "internal/authority/identity_reset_global_test.go::TestIdentityResetRekeysGlobalHomeAndPreservesOpaqueHistory",
+      "internal/authority/identity_reset_recovery_test.go::TestAtomicOutOfWindowHoldRecoversBothScopesWithFreshRootAuthorization",
+      "internal/authority/identity_reset_recovery_test.go::TestOutOfWindowResetNeedsFreshRootAuthorizationForItsExactHold",
+      "internal/authority/identity_reset_recovery_test.go::TestResetRecoveryCannotAuthorizeAnUncommittedProposalOrForeignSigner",
+      "internal/authority/identity_reset_test.go::TestIdentityResetFloorAndPermanentFenceProof",
+      "internal/authority/identity_reset_test.go::TestIdentityResetRejectsUntrustedOrChangedInputsBeforePublishing",
+      "internal/authority/identity_reset_test.go::TestIdentityResetRequiresV1AndMonotonicFloor",
+      "internal/authority/identity_reset_test.go::TestRootSignedIdentityResetPreservesHistoryAndFencesOldDeployment",
+      "internal/authority/log_test.go::TestAuthorityDiagnosticsAreSafeAndRateLimited",
+      "internal/authority/log_test.go::TestEnrollmentEffectIsDurableTerminalAdmissionHold",
+      "internal/authority/log_test.go::TestManagedUpdateHistoryRetainsExactPrepareAcrossLeaderEpochs",
+      "internal/authority/log_test.go::TestManagedUpdateSuccessorFollowsOnlyATerminalOutcome",
+      "internal/authority/log_test.go::TestNestedWorkloadEffectUnderAnotherEpochIsFenced",
+      "internal/authority/log_test.go::TestPendingEnrollmentEffectsSurviveLargeSettledHistory",
+      "internal/authority/log_test.go::TestPlacementIntentIdentityIncludesPartitionAndIgnoresLeaseHistory",
+      "internal/authority/log_test.go::TestPriorEpochEnrollmentEffectRequiresExactFenceProof",
+      "internal/authority/log_test.go::TestTerminalAdmissionRerunsSettlementProofAfterGlobalCASConflict",
+      "internal/authority/log_test.go::TestTerminalMarkerWaitsForNestedWorkloadEffectAndFencesPlacement",
+      "internal/authority/log_test.go::TestVerifyControlStreamConfigAcceptsDurableControlStream",
+      "internal/authority/log_test.go::TestVerifyControlStreamConfigRejectsMessageEviction",
+      "internal/authority/netbird_state_test.go::TestNetBirdStateHandoffBetweenLeaseCheckAndPublishCannotReplaceSuccessor",
+      "internal/authority/netbird_state_test.go::TestNetBirdStateLeaseExpiryDuringStateReadPreventsPublication",
+      "internal/authority/netbird_state_test.go::TestNetBirdStateRejectsStaleTransitionAndReadsThroughFollower",
+      "internal/authority/retirement_test.go::TestHostRetirementIsTimestampedAndFencedInControlLog",
+      "internal/authority/runtime_effect_integration_test.go::TestRuntimeEffectR3Integration",
+      "internal/authority/runtime_test.go::TestClockHealthFencesGuardAndDurableMutations",
+      "internal/authority/runtime_test.go::TestStartDoesNotRetryPermanentOrCanceledLeasePublish",
+      "internal/authority/runtime_test.go::TestStartRejectsExistingControlStreamWithExtraSubject",
+      "internal/authority/runtime_test.go::TestStartReobservesCommittedLeaseAfterAmbiguousPublish",
+      "internal/authority/runtime_test.go::TestStartupLeasePublishBoundsUnknownOutcomeWithLongParent",
+      "internal/authority/runtime_test.go::TestStartupReconcileBoundsStreamInfoWithLongParent",
+      "internal/ociclient/factory_test.go::TestFactoryObjectStorageRecordsHTTPAttempts",
+      "internal/ociclient/identity_integration_test.go::TestAuthorityFencesSDKMutationRetries",
+      "internal/ociclient/instance_principal_test.go::TestInstancePrincipalSerializesFetchesButNotCachedRegions",
+      "internal/ociclient/ociclient_test.go::TestBackoffIsExponentialJitteredAndHonorsRetryAfter",
+      "internal/ociclient/ociclient_test.go::TestConfiguredClientSharesLimiterAndRetriesThrottling",
+      "internal/ociclient/ociclient_test.go::TestShouldRetryNeverReplaysUnsafeMutations",
+      "internal/ociclient/ociclient_test.go::TestTransportFailuresRetryReadsOnly",
+      "internal/ociclient/retry_integration_test.go::TestConditionalMutationCancellationJoinsSDKAndRetainsAmbiguousWrite",
+      "internal/ociclient/retry_integration_test.go::TestReadCancellationJoinsSDKRetryAndPreservesHTTPDeadline"
+    ],
+    "proposed_classified": 69,
+    "result": "PASS",
+    "retired": 19,
+    "retired19_rows_equal_authoritative_audit_and_inventory_retired_states": true,
+    "retired_root_ids": [
+      "internal/attempt/cloud_test.go::TestAttemptRejectsRetiredContinuityPhase",
+      "internal/bootstrapstart/oci_observer_test.go::TestOCIObserverRejectsMissingPrimaryAndCandidateMismatch",
+      "internal/bootstrapstart/oci_observer_test.go::TestOCIObserverRejectsNetworkOwnershipAndRegionMismatch",
+      "internal/bootstrapstart/oci_observer_test.go::TestOCIObserverRequiresExactAttachedPrimaryVNIC",
+      "internal/managedmaterial/customer_open_test.go::TestOpenCustomerEnvelopeUsesProducerWireAndRecipient",
+      "internal/netbird/manager/manager_test.go::TestAPIRefusesRedirectsAndHidesBodies",
+      "internal/oci/sdk_test.go::TestLaunchInstanceMapsSignedProfileIntoOCIRequest",
+      "internal/oci/sdk_test.go::TestLaunchInstanceRejectsSizingThatCannotRoundTripThroughSDK",
+      "internal/oci/sdk_test.go::TestManagedInstanceReadbackRequiresExactBootAndPrivateVNIC",
+      "internal/oci/sdk_test.go::TestNamedHostObservationRequiresTheNamedRunningPrivateInstance",
+      "internal/oci/sdk_test.go::TestTerminalSDKDeletesUseExactIfMatchAndPreserveBoot",
+      "internal/oci/volume_backup_history_review_test.go::TestVolumeBackupListingKeepsTheNewestBackupsOfALongHistory",
+      "internal/oci/volume_resize_test.go::TestVolumeAttachmentLookupUsesVolumeFilter",
+      "internal/ociclient/factory_test.go::TestInstrumentedDispatcherRecordsCallsErrorsAndThrottling",
+      "internal/ociclient/factory_test.go::TestOperationCardinalityIsBounded",
+      "internal/ociclient/factory_test.go::TestOperationTemplateRemovesIdentifiers",
+      "internal/ociclient/ociclient_test.go::TestFactoryRejectsUncataloguedRegionsAndBadLimits",
+      "internal/ociclient/ociclient_test.go::TestTenancyHomeRegionComesFromTheCatalog",
+      "internal/terrabase/oci_live_test.go::TestPeerPortOpen"
+    ],
+    "reviewed_unresolved": 10
+  },
+  "findings": [],
+  "ledger_preconditions": {
+    "all_five_completion_categories": "OPEN",
+    "complete": false,
+    "evidence_only102_classification_delta": 0,
+    "evidence_only102_proposal_independently_accepted": true,
+    "existing_classified_total_still102": true,
+    "existing_identical_classification_mirrors_verified": [
+      {
+        "ledger": "completion",
+        "path": [
+          "source_classification_adjudication"
+        ]
+      },
+      {
+        "ledger": "completion",
+        "path": [
+          "authoritative_current_test_reconciliation",
+          "source_classification_adjudication"
+        ]
+      },
+      {
+        "ledger": "completion",
+        "path": [
+          "authoritative_current_test_reconciliation",
+          "current_feature_linkage",
+          "source_classification_adjudication"
+        ]
+      },
+      {
+        "ledger": "completion",
+        "path": [
+          "first_party_inventory",
+          "current_reconciliation",
+          "source_classification_adjudication"
+        ]
+      },
+      {
+        "ledger": "completion",
+        "path": [
+          "first_party_inventory",
+          "current_reconciliation",
+          "current_feature_linkage",
+          "source_classification_adjudication"
+        ]
+      },
+      {
+        "ledger": "completion",
+        "path": [
+          "open_categories",
+          3,
+          "first_party_inventory",
+          "current_reconciliation",
+          "source_classification_adjudication"
+        ]
+      },
+      {
+        "ledger": "completion",
+        "path": [
+          "open_categories",
+          3,
+          "first_party_inventory",
+          "current_reconciliation",
+          "current_feature_linkage",
+          "source_classification_adjudication"
+        ]
+      },
+      {
+        "ledger": "completion",
+        "path": [
+          "open_categories",
+          3,
+          "inventory",
+          "canonical_presence_derivation",
+          "source_classification_adjudication"
+        ]
+      },
+      {
+        "ledger": "completion",
+        "path": [
+          "audit_boundaries",
+          "latest_read_only_verification",
+          "source_classification_adjudication"
+        ]
+      },
+      {
+        "ledger": "completion",
+        "path": [
+          "audit_boundaries",
+          "latest_read_only_verification",
+          "current_test_reconciliation_derivation",
+          "source_classification_adjudication"
+        ]
+      },
+      {
+        "ledger": "progress",
+        "path": [
+          "source_classification_adjudication"
+        ]
+      },
+      {
+        "ledger": "progress",
+        "path": [
+          "first_party_inventory",
+          "current_reconciliation",
+          "source_classification_adjudication"
+        ]
+      }
+    ],
+    "expected_before_shared_hashes_at_review": {
+      "completion": {
+        "bytes": 1149251,
+        "equals_frozen_expected_before": true,
+        "path": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+        "sha256": "fde357ecbc4cd877a3c71baad94d3dd701ce351b3da6ff139858b9c4c4a64064"
+      },
+      "progress": {
+        "bytes": 105488,
+        "equals_frozen_expected_before": true,
+        "path": "/tmp/ts-qa-main-union-progress-20261016.json",
+        "sha256": "6a5500adb0ddde566224ac7a6ca1ebf99b797bccaefd4546968539aec32dbe93"
+      }
+    },
+    "historical_pre_evidence_snapshots_are_not_apply_preconditions": true,
+    "progress_completion_crosshash_verified": true
+  },
+  "limits": [
+    "This acceptance is limited to the exact sealed delta proposal and does not accept any unwritten full composed ledger successor. It grants no shared-ledger write.",
+    "All79 reviewed roots retain UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; ten unresolved roots receive zero category credit. Authored intended integration labels are not accepted classifications.",
+    "Historical d4ac anchor remains exact. Current7330 remains NOTQUALIFIED_NO_AUTOMATIC_TRANSFER. No current-head/main/runtime/native/cloud/global/financial qualification or receipt transfer.",
+    "No Go/build/test/gofmt/lint/benchmark/scanner/runner/native/cloud/locks/leases/runtime execution. Read-only Git/Python/file comparisons only; the authored verifier was read, not run.",
+    "No source, tests, Git, human worktree, shared ledger or existing evidence was modified. Only this fresh external immutable review packet was written.",
+    "Accepted shared counts remain19 retired/4300 retained/102 classified/4198 unadjudicated until separately authorized promotion after full composed-ledger review."
+  ],
+  "new_reviewed_root_manifest": [
+    {
+      "author_classification": "mixed",
+      "batch_id": "functions14",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "5262fcf6c509a08a28d6ccd5e762f14b9ec291a8abf65775a03cb70282a174df",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "5262fcf6c509a08a28d6ccd5e762f14b9ec291a8abf65775a03cb70282a174df",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/functions/admission_integration_test.go::TestSignedReleaseWorkerLifecycle",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "functions14",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "fa642b45772db7edd5a1f70567c465244aeb25c280bb37ea55ad8bc8199416e9",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "fa642b45772db7edd5a1f70567c465244aeb25c280bb37ea55ad8bc8199416e9",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/functions/broker_integration_test.go::TestWorkerBrokerJWTAndTLSIsolation",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "functions14",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "df10a616903c4ba5ac1e68c54af6a8bcd47c516b23efbc25116f26ee8f15de22",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "df10a616903c4ba5ac1e68c54af6a8bcd47c516b23efbc25116f26ee8f15de22",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/functions/process_integration_test.go::TestFunctionWorkerProcess",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "functions14",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "d84525af69df88578d8dd3940c828fe68d2b3cea97ab9a18e4ff163af8cb5db3",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "d84525af69df88578d8dd3940c828fe68d2b3cea97ab9a18e4ff163af8cb5db3",
+      "proposed_classification": "unit",
+      "retirement_authorized": false,
+      "root_id": "internal/functions/process_integration_test.go::TestFunctionWorkerRejectsExpiredMaterial",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "functions14",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "3283ee767cc1b5ae36b28652325f28b29a31860f47bee63c0a59616566e09837",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "3283ee767cc1b5ae36b28652325f28b29a31860f47bee63c0a59616566e09837",
+      "proposed_classification": "integration",
+      "retirement_authorized": false,
+      "root_id": "internal/functions/runtime_integration_test.go::TestWorkerCancellationAndCapacity",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "functions14",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "794b60aa35cf7435f9e2de9d68a1d7db047dff82e53ba1cf074b20cf2e96f501",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "794b60aa35cf7435f9e2de9d68a1d7db047dff82e53ba1cf074b20cf2e96f501",
+      "proposed_classification": "integration",
+      "retirement_authorized": false,
+      "root_id": "internal/functions/runtime_integration_test.go::TestWorkerFixedDeadlineAndConcurrentClose",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "functions14",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "13978486fc815d20423cb68b4defd9cdae55710f75672812b03b8bfb28804d1f",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "13978486fc815d20423cb68b4defd9cdae55710f75672812b03b8bfb28804d1f",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/functions/runtime_integration_test.go::TestWorkerGuestExecutionAndIsolation",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "functions14",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "9216525c5d6b1b4d2216fb20276674f42c6b1ba95c0868c2d032b7cdfedb5e67",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "9216525c5d6b1b4d2216fb20276674f42c6b1ba95c0868c2d032b7cdfedb5e67",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/functions/runtime_integration_test.go::TestWorkerResourceAndImportBoundaries",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "functions14",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "15b3fb0a4c9bdb617026fc4280e1fbef7a35e39215b95de8187ab339b4db4853",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "15b3fb0a4c9bdb617026fc4280e1fbef7a35e39215b95de8187ab339b4db4853",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/functions/runtime_limits_integration_test.go::TestWorkerRejectsUnboundedDecoderResources",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "functions14",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "a06f5a6ef89a9b4974a91a752bc271b891b805cd040278bf0940bba9775c885b",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "a06f5a6ef89a9b4974a91a752bc271b891b805cd040278bf0940bba9775c885b",
+      "proposed_classification": "integration",
+      "retirement_authorized": false,
+      "root_id": "internal/functions/transports_integration_test.go::TestHTTPBoundsPendingBodiesBeforeGuestExecution",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "functions14",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "09cd46686052a1d9bf0aea321b486422c86bd7eeb1c9872541b071b8bedd4263",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "09cd46686052a1d9bf0aea321b486422c86bd7eeb1c9872541b071b8bedd4263",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/functions/transports_integration_test.go::TestHTTPRealWorkerAuthenticationScopeAndLimits",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "functions14",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "395959469c5f1b506b1be202562af668c7e5bc9949d3ba622ecf86c32bda02f5",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "395959469c5f1b506b1be202562af668c7e5bc9949d3ba622ecf86c32bda02f5",
+      "proposed_classification": "integration",
+      "retirement_authorized": false,
+      "root_id": "internal/functions/transports_integration_test.go::TestHTTPRealWorkerTimeoutAndGuestFailure",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "functions14",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "d7d1f3be57265cf328430c2c16f566c6dbf0074435fdd278d8ac93aa11095d3b",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "d7d1f3be57265cf328430c2c16f566c6dbf0074435fdd278d8ac93aa11095d3b",
+      "proposed_classification": "integration",
+      "retirement_authorized": false,
+      "root_id": "internal/functions/transports_integration_test.go::TestQueueRealWorkerReceiptsReplayPoisonAndScope",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "functions14",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "0a947923e24724dc390a82c511c7d2358412ae78dc9a029eaffc160eeaa38b79",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "0a947923e24724dc390a82c511c7d2358412ae78dc9a029eaffc160eeaa38b79",
+      "proposed_classification": "integration",
+      "retirement_authorized": false,
+      "root_id": "internal/functions/transports_integration_test.go::TestQueueRealWorkerRetriesTimedOutInvocation",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "unit",
+      "batch_id": "natscell20",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "24dd299a316915170f31e285a7bc60d6aa07d64a5f76966da2b7b181be67d947",
+      "intended_target_classification": "unit",
+      "original_declaration_sha256": "24dd299a316915170f31e285a7bc60d6aa07d64a5f76966da2b7b181be67d947",
+      "proposed_classification": "unit",
+      "retirement_authorized": false,
+      "root_id": "internal/natscell/cluster_formation_test.go::TestPeerRoutesOmitsOnlySelf",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "natscell20",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "42bce445b541586163803271b7ab4c1bda9aaad2f161606cd1ffe22f98a03dbf",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "42bce445b541586163803271b7ab4c1bda9aaad2f161606cd1ffe22f98a03dbf",
+      "proposed_classification": "integration",
+      "retirement_authorized": false,
+      "root_id": "internal/natscell/fabric_test.go::TestRelayedCellSpecReachesTheSpokeThroughPartitions",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "unit",
+      "batch_id": "natscell20",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "72622708131385ee150646efea02c7c5ed2af2c3400b5036ac14bf9303d8a65e",
+      "intended_target_classification": "unit",
+      "original_declaration_sha256": "72622708131385ee150646efea02c7c5ed2af2c3400b5036ac14bf9303d8a65e",
+      "proposed_classification": "unit",
+      "retirement_authorized": false,
+      "root_id": "internal/natscell/interregion_test.go::TestGlobalMirrorContractExportsNoConsumerCreation",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "unit",
+      "batch_id": "natscell20",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "e8758ed6b4d1ff88cf34c7b3ec2ade3aa4fea45199d3b6ad225f502c71dcbc83",
+      "intended_target_classification": "unit",
+      "original_declaration_sha256": "e8758ed6b4d1ff88cf34c7b3ec2ade3aa4fea45199d3b6ad225f502c71dcbc83",
+      "proposed_classification": "unit",
+      "retirement_authorized": false,
+      "root_id": "internal/natscell/interregion_test.go::TestInterRegionContractIsExplicitAndExact",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "natscell20",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "703b85bbbecc1658ed1de81ffe97ccc30f8ab757429439ba33fe8f93fd8abc24",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "703b85bbbecc1658ed1de81ffe97ccc30f8ab757429439ba33fe8f93fd8abc24",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/natscell/interregion_test.go::TestInterRegionLeafFailsOverToTheNextURLInOrder",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "unit",
+      "batch_id": "natscell20",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "9b34a0cf8f970ff989bb562899d7ceff6b9bcf6bb72cb316837738ec97a40abf",
+      "intended_target_classification": "unit",
+      "original_declaration_sha256": "9b34a0cf8f970ff989bb562899d7ceff6b9bcf6bb72cb316837738ec97a40abf",
+      "proposed_classification": "unit",
+      "retirement_authorized": false,
+      "root_id": "internal/natscell/interregion_test.go::TestLeafTopologyIsARootedTree",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "unit",
+      "batch_id": "natscell20",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "590399a4dac3e8e54edcf5c0b8ed4ffeec6d3d037510a300326e16c70b1fb753",
+      "intended_target_classification": "unit",
+      "original_declaration_sha256": "590399a4dac3e8e54edcf5c0b8ed4ffeec6d3d037510a300326e16c70b1fb753",
+      "proposed_classification": "unit",
+      "retirement_authorized": false,
+      "root_id": "internal/natscell/membership_test.go::TestMembershipAPIErrorDecoding",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "unit",
+      "batch_id": "natscell20",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "1f3c4d168594880eb22f4331b66196629da66fb071c6447f99d27c99e49c066e",
+      "intended_target_classification": "unit",
+      "original_declaration_sha256": "1f3c4d168594880eb22f4331b66196629da66fb071c6447f99d27c99e49c066e",
+      "proposed_classification": "unit",
+      "retirement_authorized": false,
+      "root_id": "internal/natscell/membership_test.go::TestMembershipCredentialsAreNarrowlyScoped",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "unit",
+      "batch_id": "natscell20",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "0259c00344c8bd26bf19d83f9946b815edf3bbbd631a3faa30d0486747abb070",
+      "intended_target_classification": "unit",
+      "original_declaration_sha256": "0259c00344c8bd26bf19d83f9946b815edf3bbbd631a3faa30d0486747abb070",
+      "proposed_classification": "unit",
+      "retirement_authorized": false,
+      "root_id": "internal/natscell/runtime_test.go::TestEmbeddedStoreLimit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "unit",
+      "batch_id": "natscell20",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "24957d75d04c58dd3b3dab4b3519a759a7b8c3b2918fc7a8ead595eea0d89695",
+      "intended_target_classification": "unit",
+      "original_declaration_sha256": "24957d75d04c58dd3b3dab4b3519a759a7b8c3b2918fc7a8ead595eea0d89695",
+      "proposed_classification": "unit",
+      "retirement_authorized": false,
+      "root_id": "internal/natscell/runtime_test.go::TestLabTerminalPermissionsAreRoleScoped",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "oci_boundaries15",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "c1e3f015356bb5d1754e6b565954627d5bbe72f47c1ce50ff3a0f8d8c4132e46",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "d9bda0fac58e26ea00a6cb0e9fb184c8a10c1f27953330955b5583cc053e69cb",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/oci/capacity_request_integration_test.go::TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "unit",
+      "batch_id": "oci_boundaries15",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "bff7cc53dec632a8dfcd12e7747af47b57cbafe1775d2479a6638d30f11e6607",
+      "intended_target_classification": "unit",
+      "original_declaration_sha256": "bff7cc53dec632a8dfcd12e7747af47b57cbafe1775d2479a6638d30f11e6607",
+      "proposed_classification": "unit",
+      "retirement_authorized": false,
+      "root_id": "internal/oci/inventory_test.go::TestCompleteObserveSweepPublishesTheFleetByLifecycleState",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "unit",
+      "batch_id": "oci_boundaries15",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "c2f920bd7718d9a21ddc36763e9d9369ba37214f17ba0c9dfb8fbae8829ea357",
+      "intended_target_classification": "unit",
+      "original_declaration_sha256": "c2f920bd7718d9a21ddc36763e9d9369ba37214f17ba0c9dfb8fbae8829ea357",
+      "proposed_classification": "unit",
+      "retirement_authorized": false,
+      "root_id": "internal/oci/inventory_test.go::TestInventoryCountsOnlyVerifiedHosts",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "unit",
+      "batch_id": "oci_boundaries15",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "51a0509e22e3ed3ff2ffe814c42eb8a18c1a4242906c7626ac0b0a8fbf36a8c7",
+      "intended_target_classification": "unit",
+      "original_declaration_sha256": "51a0509e22e3ed3ff2ffe814c42eb8a18c1a4242906c7626ac0b0a8fbf36a8c7",
+      "proposed_classification": "unit",
+      "retirement_authorized": false,
+      "root_id": "internal/oci/inventory_test.go::TestInventoryZeroesStatesThatEmptied",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "oci_boundaries15",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "659e88061cda236b9490c76c7f5217bec28a1a8aac9e6af6356f958c5c042810",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "659e88061cda236b9490c76c7f5217bec28a1a8aac9e6af6356f958c5c042810",
+      "proposed_classification": "integration",
+      "retirement_authorized": false,
+      "root_id": "internal/oci/journal_test.go::TestJournalBootBindingSurvivesReopenAndRejectsRebinding",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "oci_boundaries15",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "0390afb5ecefa90bea5cf30003adb213057fe258680f330f7805bc2fde67c327",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "0390afb5ecefa90bea5cf30003adb213057fe258680f330f7805bc2fde67c327",
+      "proposed_classification": "integration",
+      "retirement_authorized": false,
+      "root_id": "internal/oci/journal_test.go::TestJournalConcurrentConflictingResultsHaveOneImmutableWinner",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "oci_boundaries15",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "a9f34778db983fd0b1b901b7a919de5f2f846ecf13c0cdc69f8262c5d23b97f7",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "a9f34778db983fd0b1b901b7a919de5f2f846ecf13c0cdc69f8262c5d23b97f7",
+      "proposed_classification": "integration",
+      "retirement_authorized": false,
+      "root_id": "internal/oci/journal_test.go::TestJournalDistinguishesFreshIntentFromUnknownProviderOutcome",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "oci_boundaries15",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "017dbb96f601bbb3ebc51cde09dbe018b497873024a18bdddaff877a5e93a778",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "017dbb96f601bbb3ebc51cde09dbe018b497873024a18bdddaff877a5e93a778",
+      "proposed_classification": "integration",
+      "retirement_authorized": false,
+      "root_id": "internal/oci/journal_test.go::TestJournalOperationLookupRecoversPersistedAttachmentDevice",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "oci_boundaries15",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "ebeb747c678ba39c2ef4c3dc31d7e45ac08a7f9ee8eaac7fcdd216af4b63f108",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "ebeb747c678ba39c2ef4c3dc31d7e45ac08a7f9ee8eaac7fcdd216af4b63f108",
+      "proposed_classification": "integration",
+      "retirement_authorized": false,
+      "root_id": "internal/oci/journal_test.go::TestJournalPinsSignedPlacementComputeProfile",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "oci_boundaries15",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "9f56ab8fb7e1920d2893058b812ef5ec1c396c8cee7892d585df73562bf8568f",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "9f56ab8fb7e1920d2893058b812ef5ec1c396c8cee7892d585df73562bf8568f",
+      "proposed_classification": "integration",
+      "retirement_authorized": false,
+      "root_id": "internal/oci/journal_test.go::TestJournalRepairsInterruptedAttachmentProjectionWithoutRebinding",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "oci_boundaries15",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "fee5193a4d050dcf59bd8c1cbb749915d8600afd7ba8f89ceded831ac905ddf0",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "fee5193a4d050dcf59bd8c1cbb749915d8600afd7ba8f89ceded831ac905ddf0",
+      "proposed_classification": "integration",
+      "retirement_authorized": false,
+      "root_id": "internal/oci/journal_test.go::TestJournalRepairsOwnershipProjectionAfterPartialFailure",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "unit",
+      "batch_id": "oci_boundaries15",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "c7e16576d9159bd9d878c773eb2c6c97ad92231d6c3aac9a411840e365f05655",
+      "intended_target_classification": "unit",
+      "original_declaration_sha256": "c7e16576d9159bd9d878c773eb2c6c97ad92231d6c3aac9a411840e365f05655",
+      "proposed_classification": "unit",
+      "retirement_authorized": false,
+      "root_id": "internal/oci/journal_test.go::TestRegionIntentUsesFixedProductMapping",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "oci_boundaries15",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "e1c905060d11b2b51ff3868ff047bc5ab05db80d3bc9f96f5f18090d0e944389",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "ddbada1578f8dae01bfd144d68097b79d79854740560ecc63dfd166860500388",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/oci/pool_receipt_integration_test.go::TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "unit",
+      "batch_id": "oci_boundaries15",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "b336273b6a0213f6a0e3871fbc9df073cd0af8c572b3a7d881c8ef4c92704829",
+      "intended_target_classification": "unit",
+      "original_declaration_sha256": "b336273b6a0213f6a0e3871fbc9df073cd0af8c572b3a7d881c8ef4c92704829",
+      "proposed_classification": "unit",
+      "retirement_authorized": false,
+      "root_id": "internal/oci/static_host_test.go::TestObserveStaticHostAcceptsOnlyAnUnmanagedRunningFleetInstance",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "oci_boundaries15",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "69bb127a4502de5f04ccbc89a1272665ab9e80d03479954cdf05046b91b15a62",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "e99d7e2c54cdbe91d325e715c327d146400396b2c5a31ba7f694655da8418287",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/oci/volume_observer_integration_test.go::TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "32e72018db571be73f47cb084ad408710e16638e692a616373f302d342ced779",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "32e72018db571be73f47cb084ad408710e16638e692a616373f302d342ced779",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/region/access_integration_test.go::TestSignedReadAccessRequiresCurrentOwnedFoundation",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "f0707170a059aa929061bc257153c257ec3f1cb44bfc80ea0c9d0ae4a51bb676",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "f0707170a059aa929061bc257153c257ec3f1cb44bfc80ea0c9d0ae4a51bb676",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/region/discovery_current_integration_test.go::TestCurrentFoundationDiscoveryHTTPDurableAuthority",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "29fafdd70ca332917fadbf1a7ed3789044e7ddadf855b39a44e28820a5a81712",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "29fafdd70ca332917fadbf1a7ed3789044e7ddadf855b39a44e28820a5a81712",
+      "proposed_classification": "integration",
+      "retirement_authorized": false,
+      "root_id": "internal/region/discovery_current_integration_test.go::TestCurrentFoundationDiscoveryLockProcess",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "ca475cb3298712083ea2056e57751b36e76edc2fe823c4b830d3c2589b530068",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "ca475cb3298712083ea2056e57751b36e76edc2fe823c4b830d3c2589b530068",
+      "proposed_classification": "integration",
+      "retirement_authorized": false,
+      "root_id": "internal/region/foundation_integration_test.go::TestFoundationRecordsPersistAndFenceConcurrentWriters",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "25127a9b2f5e560a09073553549984220df2023b9e77e36e10e2c6abbdd7288d",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "25127a9b2f5e560a09073553549984220df2023b9e77e36e10e2c6abbdd7288d",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/region/foundation_integration_test.go::TestSignedFoundationScopeRequiresExplicitBootstrapAuthority",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "82e11df6e2001bc042bc1099316fba578034a22d043364b0d1f84a3932bced12",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "82e11df6e2001bc042bc1099316fba578034a22d043364b0d1f84a3932bced12",
+      "proposed_classification": "integration",
+      "retirement_authorized": false,
+      "root_id": "internal/region/foundation_recovery_integration_test.go::TestFoundationAcceptedCreateRecoversFromDurablePendingRequest",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "c0000f9464ddedead7a0f20ee7ac51de01f8916781daa67f828d4c090b20503d",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "c0000f9464ddedead7a0f20ee7ac51de01f8916781daa67f828d4c090b20503d",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/region/foundation_recovery_integration_test.go::TestFoundationAuxiliaryIdentityCheckpointsPersistSeparately",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "86a01e34104006ec35298e8b1f62564d69efc60b7ccc3430db9419a81068f81d",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "86a01e34104006ec35298e8b1f62564d69efc60b7ccc3430db9419a81068f81d",
+      "proposed_classification": "integration",
+      "retirement_authorized": false,
+      "root_id": "internal/region/netbird_manager_integration_test.go::TestNetBirdManagerSignedLaunchAndStoreRecovery",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "5c003a8efa3d75ff5788b366af0ad64b90c827796a0f99f7291c1a2a77003daf",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "5c003a8efa3d75ff5788b366af0ad64b90c827796a0f99f7291c1a2a77003daf",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/region/netbird_network_integration_test.go::TestNetBirdNetworkRecoversLostCreatesAndRejectsDrift",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "ac9771e22895f523da5dc2d40d5c08b2fe7fc3466b286d5ae32f27b79d2c089b",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "ac9771e22895f523da5dc2d40d5c08b2fe7fc3466b286d5ae32f27b79d2c089b",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/region/region_test.go::TestCreatePeersWithTheHome",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "unit",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "cbd634c7fae38911474fe38c94fbc417ca6b7ddf486b85fda592f812823b399d",
+      "intended_target_classification": "unit",
+      "original_declaration_sha256": "cbd634c7fae38911474fe38c94fbc417ca6b7ddf486b85fda592f812823b399d",
+      "proposed_classification": "unit",
+      "retirement_authorized": false,
+      "root_id": "internal/region/region_test.go::TestCreateReadsTheTokensOnceForItsSteps",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "456e4e9f0e3959541c035fde4c539dba48facc7d98367b8dde86ce475e6d32b9",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "456e4e9f0e3959541c035fde4c539dba48facc7d98367b8dde86ce475e6d32b9",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/region/region_test.go::TestCreateRefusesBeforeSpending",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "be389ca00c113b158dc481bc2fd7f3b1859879991d92b54453ccbc2b4335947e",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "be389ca00c113b158dc481bc2fd7f3b1859879991d92b54453ccbc2b4335947e",
+      "proposed_classification": "integration",
+      "retirement_authorized": false,
+      "root_id": "internal/region/region_test.go::TestCreateRetriesFabricBeforeImageWithoutReplacingStoredKey",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "c75badfbdf86ba445316fe224fb677376cf88d3e5cc24cc22fa149a8ac0dec04",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "c75badfbdf86ba445316fe224fb677376cf88d3e5cc24cc22fa149a8ac0dec04",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/region/region_test.go::TestCreateRunsEveryStepOnceAndResumes",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "a834150a47d722bf44854decce988527b094b035a35048f0d301d91130baf977",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "a834150a47d722bf44854decce988527b094b035a35048f0d301d91130baf977",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/region/region_test.go::TestDeriveRefuses",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "e76634b9ee33748490d7685fe24ed90e89494d592ac60cb1d8c4f15fde408cda",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "e76634b9ee33748490d7685fe24ed90e89494d592ac60cb1d8c4f15fde408cda",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/region/region_test.go::TestDeriveRoundTripsTheReviewedPlan",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "unit",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "08cef42e11d369688ae13463b2d115daa88236371f402d451b1e0ccaa34e8e7c",
+      "intended_target_classification": "unit",
+      "original_declaration_sha256": "08cef42e11d369688ae13463b2d115daa88236371f402d451b1e0ccaa34e8e7c",
+      "proposed_classification": "unit",
+      "retirement_authorized": false,
+      "root_id": "internal/region/region_test.go::TestNetworkFollowsTheCatalog",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "872ae3b39c7236891fa3fa6713c6a1076f94b435ad44675223aaa2b19c31fde0",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "872ae3b39c7236891fa3fa6713c6a1076f94b435ad44675223aaa2b19c31fde0",
+      "proposed_classification": "integration",
+      "retirement_authorized": false,
+      "root_id": "internal/region/region_test.go::TestRegionProfileKeepsOnlyDefaultInTheRegion",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "unit",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "e81ba3cfe7da4155b80aedad1cd4631e08aa769dc8761c107036a831ad04c0aa",
+      "intended_target_classification": "unit",
+      "original_declaration_sha256": "e81ba3cfe7da4155b80aedad1cd4631e08aa769dc8761c107036a831ad04c0aa",
+      "proposed_classification": "unit",
+      "retirement_authorized": false,
+      "root_id": "internal/region/region_test.go::TestResolveRegionAcceptsTokensAndRefusesHomeAndUnknown",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "1a034aad015b7e428fe509e9e663e7ff44444052cef39fbe4efb92c43ffe3a9a",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "1a034aad015b7e428fe509e9e663e7ff44444052cef39fbe4efb92c43ffe3a9a",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/region/region_test.go::TestRunRefusesBadArguments",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "unit",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "68d967eef37b65682a75bcc7ee4d6b88ec1032ed42e65f5eaa869f3feff2b8f1",
+      "intended_target_classification": "unit",
+      "original_declaration_sha256": "68d967eef37b65682a75bcc7ee4d6b88ec1032ed42e65f5eaa869f3feff2b8f1",
+      "proposed_classification": "unit",
+      "retirement_authorized": false,
+      "root_id": "internal/region/region_test.go::TestSubscribeCreatesThenPollsUntilReady",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "unit",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "4c599bfdd38fddb8ae0c22edfdfcb55fa46f24c4dd003b36cb793bb5ddab1f4a",
+      "intended_target_classification": "unit",
+      "original_declaration_sha256": "4c599bfdd38fddb8ae0c22edfdfcb55fa46f24c4dd003b36cb793bb5ddab1f4a",
+      "proposed_classification": "unit",
+      "retirement_authorized": false,
+      "root_id": "internal/region/region_test.go::TestSubscribeRefusesATerminalStatusAndAnEndedWait",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "unit",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "d65a820fe3b275b0b3456659c54b4f0bd8ef83a296ccd5103ff64a5ed631f34a",
+      "intended_target_classification": "unit",
+      "original_declaration_sha256": "d65a820fe3b275b0b3456659c54b4f0bd8ef83a296ccd5103ff64a5ed631f34a",
+      "proposed_classification": "unit",
+      "retirement_authorized": false,
+      "root_id": "internal/region/region_test.go::TestSubscribeReusesAReadySubscription",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "daabb90c9a78635bc2b72c3142d1d89e91538c072e2d77366f1c26c38e264c9f",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "daabb90c9a78635bc2b72c3142d1d89e91538c072e2d77366f1c26c38e264c9f",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/region/region_test.go::TestVerifierPassesOnlyAServingRegion",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "38040a5ff5651326bb47272576f8b4c25aa1f24844349d72a828cceb95bfc0be",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "38040a5ff5651326bb47272576f8b4c25aa1f24844349d72a828cceb95bfc0be",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/region/retained_integration_test.go::TestRetainedFoundationHTTPFilesystemOffline",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "1245e24c691d01a9664f9a5e418905dc94635a4475e007eac1a306fbf4a50ec4",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "1245e24c691d01a9664f9a5e418905dc94635a4475e007eac1a306fbf4a50ec4",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/region/retained_integration_test.go::TestRetainedFoundationHTTPRejectsInvalidAndRollback",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "df3d6f91c80a197bdcef02a068554bdaceffcd483332416eb9c86158752bb490",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "df3d6f91c80a197bdcef02a068554bdaceffcd483332416eb9c86158752bb490",
+      "proposed_classification": "integration",
+      "retirement_authorized": false,
+      "root_id": "internal/region/source_policy_integration_test.go::TestSourcePolicyJournalPreservesOriginalRecipientAndRejectsWidening",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "29b977a04201ed50a6417335a4d1f87ad5f8865f60507af092c769763ddc6621",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "29b977a04201ed50a6417335a4d1f87ad5f8865f60507af092c769763ddc6621",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/region/spend_bindings_integration_test.go::TestLogicalSpendingBindingsRetainSignedAuthority",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "mixed",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "4d3446f9e4b56591ea95aa105eb93895055a11371725cff83b56b265dd2065f4",
+      "intended_target_classification": "mixed",
+      "original_declaration_sha256": "4d3446f9e4b56591ea95aa105eb93895055a11371725cff83b56b265dd2065f4",
+      "proposed_classification": "mixed",
+      "retirement_authorized": false,
+      "root_id": "internal/region/worker_instance_integration_test.go::TestWorkerInstanceSDKObservationsRequireProtectedCreation",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "region30",
+      "classification_credit_if_promoted": true,
+      "current_declaration_sha256": "bd9c5c28aba3c08f74d6be5ce1c5eb79f36299ae888f43b75d7ec3f9f4018109",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "bd9c5c28aba3c08f74d6be5ce1c5eb79f36299ae888f43b75d7ec3f9f4018109",
+      "proposed_classification": "integration",
+      "retirement_authorized": false,
+      "root_id": "internal/region/worker_profile_integration_test.go::TestWorkerProfileAuthorityRequiresIndependentCurrentSources",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "natscell20",
+      "classification_credit_if_promoted": false,
+      "current_declaration_sha256": "7a5af1495e2a3fc33332efd2e7f14e071233c4bd4bde527b654c1f7e1e86f27b",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "7a5af1495e2a3fc33332efd2e7f14e071233c4bd4bde527b654c1f7e1e86f27b",
+      "proposed_classification": "unresolved",
+      "retirement_authorized": false,
+      "root_id": "internal/natscell/cluster_formation_test.go::TestCloseHandsOffStreamLeadership",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "natscell20",
+      "classification_credit_if_promoted": false,
+      "current_declaration_sha256": "1236dd77177c7d77964bdc0fe2c30abd7b698be3465cf2f2d8e78d1fa1ebd354",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "1236dd77177c7d77964bdc0fe2c30abd7b698be3465cf2f2d8e78d1fa1ebd354",
+      "proposed_classification": "unresolved",
+      "retirement_authorized": false,
+      "root_id": "internal/natscell/cluster_formation_test.go::TestColdRestartWithTwoOfThreeBrokers",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "natscell20",
+      "classification_credit_if_promoted": false,
+      "current_declaration_sha256": "03527fa01f38100506aff8bfed2ebe446822d81044470a4073611e1c73a24179",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "03527fa01f38100506aff8bfed2ebe446822d81044470a4073611e1c73a24179",
+      "proposed_classification": "unresolved",
+      "retirement_authorized": false,
+      "root_id": "internal/natscell/cluster_formation_test.go::TestObserveStandaloneBroker",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "natscell20",
+      "classification_credit_if_promoted": false,
+      "current_declaration_sha256": "532295679f54fcfad37884520dd349a48e808f3863b2d61bc42ddb4abe65d42f",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "532295679f54fcfad37884520dd349a48e808f3863b2d61bc42ddb4abe65d42f",
+      "proposed_classification": "unresolved",
+      "retirement_authorized": false,
+      "root_id": "internal/natscell/cluster_formation_test.go::TestStagedFormationWithProductionRouteShape",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "natscell20",
+      "classification_credit_if_promoted": false,
+      "current_declaration_sha256": "a07c586fb653c2aa4190748df5ff0d8a6446de84c8e21bbb2ab450db43821d4a",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "a07c586fb653c2aa4190748df5ff0d8a6446de84c8e21bbb2ab450db43821d4a",
+      "proposed_classification": "unresolved",
+      "retirement_authorized": false,
+      "root_id": "internal/natscell/cluster_formation_test.go::TestWaitForClusterFailsFastWhenEmbeddedServerStopped",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "natscell20",
+      "classification_credit_if_promoted": false,
+      "current_declaration_sha256": "283a3c39ae0a4df5431358d63a939d8ec890384741b48534f27d0fea822b3d83",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "283a3c39ae0a4df5431358d63a939d8ec890384741b48534f27d0fea822b3d83",
+      "proposed_classification": "unresolved",
+      "retirement_authorized": false,
+      "root_id": "internal/natscell/runtime_test.go::TestControllerNKeyDurablyAcknowledgesDeliveryIntent",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "natscell20",
+      "classification_credit_if_promoted": false,
+      "current_declaration_sha256": "aa379237cdcc4e13fe387159920cf13ff6b6d4af466ead7d20bc6061f46864b0",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "aa379237cdcc4e13fe387159920cf13ff6b6d4af466ead7d20bc6061f46864b0",
+      "proposed_classification": "unresolved",
+      "retirement_authorized": false,
+      "root_id": "internal/natscell/runtime_test.go::TestEmbeddedClusterAdvertisesClientPeers",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "natscell20",
+      "classification_credit_if_promoted": false,
+      "current_declaration_sha256": "56dabb72ea66762b3d28bce5b328c7caaca955c7ede624cd3f8eec851e01b67d",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "56dabb72ea66762b3d28bce5b328c7caaca955c7ede624cd3f8eec851e01b67d",
+      "proposed_classification": "unresolved",
+      "retirement_authorized": false,
+      "root_id": "internal/natscell/runtime_test.go::TestEmbeddedSingleNodeDurableRestart",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "natscell20",
+      "classification_credit_if_promoted": false,
+      "current_declaration_sha256": "7fdf4fcdc1f0e54650ea150db6e8178187c6e8f8400bf225281651e79673e0b1",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "7fdf4fcdc1f0e54650ea150db6e8178187c6e8f8400bf225281651e79673e0b1",
+      "proposed_classification": "unresolved",
+      "retirement_authorized": false,
+      "root_id": "internal/natscell/runtime_test.go::TestHostNKeyCannotCrossNodeOrUseJetStream",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    },
+    {
+      "author_classification": "integration",
+      "batch_id": "natscell20",
+      "classification_credit_if_promoted": false,
+      "current_declaration_sha256": "c1af27365b7d4c8ab9cc4b785577a9baaa78947612833c2cf3682a38b4ad05d7",
+      "intended_target_classification": "integration",
+      "original_declaration_sha256": "c1af27365b7d4c8ab9cc4b785577a9baaa78947612833c2cf3682a38b4ad05d7",
+      "proposed_classification": "unresolved",
+      "retirement_authorized": false,
+      "root_id": "internal/natscell/runtime_test.go::TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "safety_obligations_retained": true
+    }
+  ],
+  "original_inventory": {
+    "all_declarations": 5986,
+    "all_preexisting102_retired19_and_allocated79_original_ids_and_declaration_hashes_match": true,
+    "frozen_inventory_sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+    "kind_test_originals": 4319,
+    "non_test_helpers_and_TestMain_excluded": true
+  },
+  "packet_integrity": {
+    "all_files_except_outer_checksum_listed": true,
+    "all_nested_checksum_files_included": true,
+    "all_snapshot_sizes_and_sha256_match": true,
+    "author_verifier_sha256_confirmed_but_not_executed": "e5c4cd831c270a90062fb9145850b4546c2911bdd604fd7b3bd9cd0e8088ca73",
+    "directories_mode": "0555",
+    "files_mode": "0444",
+    "historical_mutable_originals": [
+      "inputs/before-completion.json",
+      "inputs/before-progress.json"
+    ],
+    "historical_mutable_originals_now_equal_expected_before_instead": true,
+    "immutable_files": 47,
+    "input_snapshots": 40,
+    "nested_checksum_files": [
+      {
+        "entries": 2,
+        "path": "inputs/functions14-candidate/SHA256SUMS",
+        "sha256": "c8920a09b3e4340c2e52b0bf3466207b398875ca37cc87e9c9995b8692acfb7d"
+      },
+      {
+        "entries": 4,
+        "path": "inputs/functions14-peer/SHA256SUMS",
+        "sha256": "d5027ec4a2e3f5a0b2d750d5885123df1fffa7674808462eb66ddb2bd108a40c"
+      },
+      {
+        "entries": 2,
+        "path": "inputs/natscell20-candidate/SHA256SUMS",
+        "sha256": "731e9c4727120dc120269f6b289ec00b87074cbc726eb66f69c81890de186928"
+      },
+      {
+        "entries": 4,
+        "path": "inputs/natscell20-peer/SHA256SUMS",
+        "sha256": "5d8a3362e42b644755f15755d551e6b1ea4a3c7d8e2fd44c71c731dc624ed215"
+      },
+      {
+        "entries": 2,
+        "path": "inputs/oci_boundaries15-candidate/SHA256SUMS",
+        "sha256": "462a17cfe9e9ce1b1368804f30776d9e5991afd72c6efade6a4417f17191d9ef"
+      },
+      {
+        "entries": 2,
+        "path": "inputs/oci_boundaries15-peer/SHA256SUMS",
+        "sha256": "1eb5387ff7ec34a9219cf9df8ec9e03a95e2fe5b95446bffc865f8fd99c5f2e8"
+      },
+      {
+        "entries": 2,
+        "path": "inputs/region30-candidate/SHA256SUMS",
+        "sha256": "ef7f2e339510144daea0126e2f8ade863ad5e627a367111891e0db19ac7afbd3"
+      },
+      {
+        "entries": 2,
+        "path": "inputs/region30-peer/SHA256SUMS",
+        "sha256": "f551bd1b51fcc85409a23b8191535b570dbabc1af86bc0a83739170c96333ed3"
+      }
+    ],
+    "outer_checksum_entries": 46,
+    "result": "PASS",
+    "still_equal_immutable_original_input_paths": 38
+  },
+  "preparation_history": {
+    "failed_and_superseded_packets_preserved": [
+      {
+        "omitted_nested_checksum_files": [],
+        "path": "/tmp/ts-d4ac-classification69-promotion-proposal-96whu1os",
+        "proposal_sha256": "7a1f6876dc193f64a8eb3fbb24d6cf4d40590fea33431f55d51c1af5828e3adc",
+        "role": "superseded_packet",
+        "same79_ids_categories_declaration_hashes_and_counts": true,
+        "verifier_sha256": "198ef672d66ff7f0e46fa474a6c070b00161987a946426351d5172743adad93d"
+      },
+      {
+        "omitted_nested_checksum_files": [
+          "inputs/functions14-candidate/SHA256SUMS",
+          "inputs/functions14-peer/SHA256SUMS",
+          "inputs/natscell20-candidate/SHA256SUMS",
+          "inputs/natscell20-peer/SHA256SUMS",
+          "inputs/oci_boundaries15-candidate/SHA256SUMS",
+          "inputs/oci_boundaries15-peer/SHA256SUMS",
+          "inputs/region30-candidate/SHA256SUMS",
+          "inputs/region30-peer/SHA256SUMS"
+        ],
+        "path": "/tmp/ts-d4ac-classification69-promotion-proposal-corrected-p80hi52j",
+        "proposal_sha256": "edd260cd1f2b7faa5b908a78cd434b4ddec72cbf4ab311d90c0e7348c0d4565c",
+        "role": "second_superseded_packet",
+        "same79_ids_categories_declaration_hashes_and_counts": true,
+        "verifier_sha256": "e5c4cd831c270a90062fb9145850b4546c2911bdd604fd7b3bd9cd0e8088ca73"
+      }
+    ],
+    "final_not_confused_with_superseded_drafts": true,
+    "first_failure": "Initial verifier counted all5986 declarations instead of filtering4319 kind=test original roots. Final verifier filters kind=test; independent review independently filters the frozen TSV.",
+    "result": "PASS",
+    "second_failure": "Second seal omitted8 nested input SHA256SUMS files by excluding names rather than only the outer path. Final seal independently covers all46 nonouter files including those8 checksum files."
+  },
+  "required_next_review": "Prepare full composed completion/progress successors from the exact fde357ecbc4cd877a3c71baad94d3dd701ce351b3da6ff139858b9c4c4a64064 /6a5500adb0ddde566224ac7a6ca1ebf99b797bccaefd4546968539aec32dbe93 expected-before bytes. Independently review every nested change and preserve existing evidence, then obtain separate write authorization and recheck both actual before hashes immediately before mutation.",
+  "reviewed_at_utc": "2026-10-17T15:19:26.865517+00:00",
+  "reviewer": "/root/qa_integrator/storage_compare",
+  "schema": "ts-source-classification79-independent-delta-review/v1",
+  "scope": "Independent mechanical/accounting delta review only. Accepted connected-source peer classifications are inputs; their source semantics were not reclassified. No source/ledger/Git mutation or execution authority follows.",
+  "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+  "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82"
+}

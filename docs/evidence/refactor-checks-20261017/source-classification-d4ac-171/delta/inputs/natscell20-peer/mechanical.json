@@ -1,0 +1,830 @@
+{
+  "candidate_sha256": "b21ae142cb4d24e3bd64a2ba70ee920c87f765c734652ef0c3bd38a2efb54b50",
+  "sha256sums_sha256": "731e9c4727120dc120269f6b289ec00b87074cbc726eb66f69c81890de186928",
+  "sum_entries": 2,
+  "modes": {
+    "classification.json": "0o444",
+    "README.md": "0o444",
+    "SHA256SUMS": "0o444"
+  },
+  "allocation_root_count": 20,
+  "declaration_checks": 40,
+  "source_pins": 23,
+  "citation_checks": 132,
+  "distinct_citations": 132,
+  "assertion_blocks": 32,
+  "bridge_commit": "7330ca87c377d2cbe5f8c269282039039df550ad",
+  "bridge_tree": "1824f64d1b77aae3c7e3b2736d29426af5892e88",
+  "bridge_file_comparisons": [
+    {
+      "path": "internal/natscell/runtime.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "b7d9b16bf34c966d722a17bea21a3ccb76cc396b"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "b7d9b16bf34c966d722a17bea21a3ccb76cc396b"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/natscell/accounts.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "f3a8d6d028bc77fe07e3ff3bad376b9edd8756d4"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "f3a8d6d028bc77fe07e3ff3bad376b9edd8756d4"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/natscell/jwt_bridge_test.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "f5cf7314e7f6c2ebb5ff89c991eb359ce4a5f259"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "f5cf7314e7f6c2ebb5ff89c991eb359ce4a5f259"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/natscell/cluster_formation_test.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "be0a72ef446456f3d55ec2e32e334296cca1779a"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "be0a72ef446456f3d55ec2e32e334296cca1779a"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/natscell/host_reconnect_test.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "b49de89df4e925d2be9fdc6ae601611a674bde88"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "b49de89df4e925d2be9fdc6ae601611a674bde88"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/natscell/health.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "444108aced4c4d13c1e69cd679f40afc26e3eab2"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "444108aced4c4d13c1e69cd679f40afc26e3eab2"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/natscell/shutdown.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "c3219ff06c108ab51e121d1200ec95c41c57b9cb"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "c3219ff06c108ab51e121d1200ec95c41c57b9cb"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/natscell/runtime_test.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/natscell/leaftopology.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "3c6f43ea7587a189f51cc44abbdae107087fff25"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "3c6f43ea7587a189f51cc44abbdae107087fff25"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/natscell/interregion.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "e4eeab641fa3a2d96c089d89b55d03062d7e1b81"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "e4eeab641fa3a2d96c089d89b55d03062d7e1b81"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/natscell/interregion_test.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "adaeff0954d7c1c77c61c36182d912ba2e1f8efd"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "adaeff0954d7c1c77c61c36182d912ba2e1f8efd"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/natscell/link.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "4accdaf796d2f180b1be7dbea30a8bd2864c6668"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "4accdaf796d2f180b1be7dbea30a8bd2864c6668"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/natscell/link_test.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "d8bb22cf069bec42184378ddbf56630b765130f6"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "d8bb22cf069bec42184378ddbf56630b765130f6"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/globalcontrol/document.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "b52883ff360f52a78c95ec67d7141b9dae8d4073"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "b52883ff360f52a78c95ec67d7141b9dae8d4073"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/globalcontrol/store.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "a2163225675bebd7951ec173f9afe259887bedc7"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "a2163225675bebd7951ec173f9afe259887bedc7"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/globalcontrol/stream.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "916a8a3b62ca8d2a303ed45a0dc25a2f148934b1"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "916a8a3b62ca8d2a303ed45a0dc25a2f148934b1"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/authority/runtime.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "c6099aa5271adc0a2edbceb136884d5f0bc64635"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "3ca4fa7b42e322ae9eced36f845c45ad68892296"
+      },
+      "same_file_blob_and_mode": false,
+      "selected_declarations": []
+    },
+    {
+      "path": "internal/authority/log.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "1b6fbbcf1030ccddeddf5596b3f8de5ab9f464b0"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "39e8073c3302fd73785bec8b3b3e8d0d61024a03"
+      },
+      "same_file_blob_and_mode": false,
+      "selected_declarations": []
+    },
+    {
+      "path": "internal/cellspec/cellspec.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "f80b4d2cc32c555d093f95b2b5e45e476c94978c"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "f80b4d2cc32c555d093f95b2b5e45e476c94978c"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/trust/envelope.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "b525ec7a2bba0fb81c2c4f51f5e503394eb0b5cc"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "b525ec7a2bba0fb81c2c4f51f5e503394eb0b5cc"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/natscell/membership.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "fc6ac0a5f4f77bae2da1a5431bc09b4b0e742d0e"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "fc6ac0a5f4f77bae2da1a5431bc09b4b0e742d0e"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/natscell/fabric_test.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "6558b31066b125cb9401de1d19f5b4cc55d46cae"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "6558b31066b125cb9401de1d19f5b4cc55d46cae"
+      },
+      "same_file_blob_and_mode": true
+    },
+    {
+      "path": "internal/natscell/membership_test.go",
+      "d4ac": {
+        "mode": "100644",
+        "blob": "70fbf88f0cc2a3d494f9e66cac18f13fc5459a71"
+      },
+      "bridge_commit": {
+        "mode": "100644",
+        "blob": "70fbf88f0cc2a3d494f9e66cac18f13fc5459a71"
+      },
+      "same_file_blob_and_mode": true
+    }
+  ],
+  "bridge_cited_declarations": [
+    {
+      "citation": "internal/natscell/runtime.go::Start",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/runtime.go::start",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/runtime.go::serverOptions",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/runtime.go::serverOptionsForStart",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/runtime.go::clientOptions",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/runtime.go::Close",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/runtime.go::WaitForCluster",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/runtime.go::FullClusterReady",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/runtime.go::metadataReady",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/runtime.go::peerCount",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/runtime.go::Ready",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/runtime.go::URL",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/runtime.go::StoreLimitBytes",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/accounts.go::credentialUser",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/accounts.go::credentialUserBytes",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/accounts.go::credentialAccount",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/runtime.go::readPrivateFile",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/jwt_bridge_test.go::testJWTUserCredentials",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/jwt_bridge_test.go::testJWTUserCredentialsWithKey",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/cluster_formation_test.go::newLabCluster",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/cluster_formation_test.go::start",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/cluster_formation_test.go::stop",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/cluster_formation_test.go::waitUntil",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/cluster_formation_test.go::createR3Stream",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/host_reconnect_test.go::freeClientPort",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/host_reconnect_test.go::freeClientPorts",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/health.go::ObserveCluster",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/health.go::PeerRoutes",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/shutdown.go::drainConnection",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/shutdown.go::stopServer",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/shutdown.go::handOffLeadership",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/shutdown.go::successorsElected",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/shutdown.go::groupLeaders",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/shutdown.go::ledGroups",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/shutdown.go::hasCurrentPeer",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/runtime.go::userPermissions",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/runtime.go::inboxPrefix",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/accounts.go::BrokerOperatorPublishPermissions",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/accounts.go::ControllerSubscriptions",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/runtime_test.go::newUserIdentity",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/leaftopology.go::HubAndSpoke",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/leaftopology.go::WithSpokeParent",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/leaftopology.go::Validate",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/leaftopology.go::Regions",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/leaftopology.go::Parent",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/leaftopology.go::Children",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/leaftopology.go::Peers",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/leaftopology.go::Subtrees",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/leaftopology.go::Links",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion.go::validate",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion.go::outbound",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion.go::inbound",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion.go::sameFlow",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion.go::globalMirrorFlows",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion.go::observabilityFlows",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion.go::LeafPermissions",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion.go::leafPermissionsFor",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion.go::CellExports",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion.go::CellImports",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion.go::InterRegionExports",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion.go::InterRegionImports",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion.go::ApplyCell",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion.go::ApplyInterRegion",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion.go::childScope",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion.go::verifyChildScopes",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion.go::verify",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion.go::denyAll",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion.go::samePermissions",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion.go::sameExports",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion.go::sameImports",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion.go::interRegionServerOptions",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion_test.go::newTestRegionKeys",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion_test.go::claims",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion_test.go::newTestRegion",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion_test.go::childKey",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion_test.go::childLeafCredentials",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion_test.go::leafCredentialsFor",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion_test.go::leafCredentialsWith",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion_test.go::requestUntil",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion_test.go::waitLeafCount",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion_test.go::newTCPProxy",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion_test.go::serve",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion_test.go::forward",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion_test.go::Write",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion_test.go::Blackhole",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion_test.go::Addr",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion_test.go::Close",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/interregion_test.go::Reopen",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/jwt_bridge_test.go::testBridgeTLS",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/jwt_bridge_test.go::testTLSFor",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/link.go::LinkScope",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/link.go::ApplyLink",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/link.go::IssueLinkUser",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/link.go::linkServerOptions",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/link_test.go::newLinkRegion",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/link_test.go::linkUserCredentials",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/link_test.go::useLinkListener",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/globalcontrol/document.go::PutDocument",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/globalcontrol/document.go::Document",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/globalcontrol/document.go::Follow",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/globalcontrol/document.go::watch",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/globalcontrol/store.go::OpenHome",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/globalcontrol/store.go::read",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/globalcontrol/store.go::checkMirrorGapFree",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/globalcontrol/store.go::info",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/globalcontrol/store.go::put",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/globalcontrol/store.go::establishTerm",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/globalcontrol/store.go::readTerm",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/globalcontrol/stream.go::HomeStreamConfig",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/globalcontrol/stream.go::MirrorStreamConfig",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/globalcontrol/stream.go::MirrorConsumerConfig",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/globalcontrol/stream.go::ensureMirrorConsumers",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/globalcontrol/stream.go::openStream",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/globalcontrol/stream.go::inspectStream",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/globalcontrol/stream.go::OpenMirror",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/authority/runtime.go::Start",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/authority/runtime.go::reconcile",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/authority/runtime.go::acquire",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/authority/runtime.go::appendLease",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/authority/runtime.go::Guard",
+      "exact_cited_source_preserved": false
+    },
+    {
+      "citation": "internal/authority/runtime.go::guardLocked",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/authority/runtime.go::Current",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/authority/log.go::openControlStream",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/cellspec/cellspec.go::Sign",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/cellspec/cellspec.go::VerifyCurrent",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/cellspec/cellspec.go::verify",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/trust/envelope.go::VerifyCurrent",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/trust/envelope.go::verifySignature",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/runtime.go::Config",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/runtime.go::validate",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/membership.go::ValidateMembershipCredentials",
+      "exact_cited_source_preserved": true
+    },
+    {
+      "citation": "internal/natscell/membership.go::membershipAPIError",
+      "exact_cited_source_preserved": true
+    }
+  ],
+  "frozen_inventory_roots_verified": 20,
+  "errors": []
+}

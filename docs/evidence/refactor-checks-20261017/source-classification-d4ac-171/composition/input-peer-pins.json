@@ -1,0 +1,50 @@
+[
+  {
+    "batch": "functions14",
+    "role": "candidate",
+    "path": "/tmp/ts-functions14-d4ac-source-classification-o5y_ymin/classification.json",
+    "sha256": "9510b271f01831ed0d0b8607f14d62f841a2e248bf1bcb491f2878e40154caf2"
+  },
+  {
+    "batch": "functions14",
+    "role": "peer",
+    "path": "/tmp/ts-functions14-d4ac-independent-peer-kqfl7tyr/review.json",
+    "sha256": "89aef0faa2318141b40091c99f45ada9b2dc8828593eceaaaa88aff96f07905c"
+  },
+  {
+    "batch": "natscell20",
+    "role": "candidate",
+    "path": "/tmp/ts-natscell20-d4ac-source-classification-nzhpx105/classification.json",
+    "sha256": "b21ae142cb4d24e3bd64a2ba70ee920c87f765c734652ef0c3bd38a2efb54b50"
+  },
+  {
+    "batch": "natscell20",
+    "role": "peer",
+    "path": "/tmp/ts-natscell20-d4ac-independent-peer-b_bio5m1/review.json",
+    "sha256": "e87bafa1ba1a80a5dabe467f73ee52676d2c6e5a956edea6522521794cf42034"
+  },
+  {
+    "batch": "oci_boundaries15",
+    "role": "candidate",
+    "path": "/tmp/ts-oci-boundaries15-d4ac-source-b8ro_u0v/classification.json",
+    "sha256": "ad3bbfee8f3e1af9cd72abe484ec91f656f623a0fa55e56525cc5869967aa29a"
+  },
+  {
+    "batch": "oci_boundaries15",
+    "role": "peer",
+    "path": "/tmp/ts-oci15-d4ac-classification-independent-storage-review-fa7eepf1/review.json",
+    "sha256": "433fa228c6fe371b9d175d9bac76944facf9f4464f1e8f52be9c9c896fe81de8"
+  },
+  {
+    "batch": "region30",
+    "role": "candidate",
+    "path": "/tmp/ts-region30-d4ac-source-classification-k5k2eh_b/classification.json",
+    "sha256": "0253d55a2fd2467198fca1287004ecc20a2c888fe2f8341536bdeb4ca7549002"
+  },
+  {
+    "batch": "region30",
+    "role": "peer",
+    "path": "/tmp/ts-qa-region30-d4ac-source-peer-7fda186bcce1/review.json",
+    "sha256": "06e0955ab81f69141ad43401a1ad333d18541e724112961a2c6accdde19a2d69"
+  }
+]

@@ -1,0 +1,1661 @@
+{
+  "schema": "ts-independent-source-classification-peer/v1",
+  "state": "PARTIAL_ACCEPTANCE_TEN_CLASSIFIED_TEN_REVIEWED_UNRESOLVED",
+  "created_at_utc": "2026-10-17T15:05:16.053261+00:00",
+  "reviewer": "/root/qa_integrator/test_inventory",
+  "batch_id": "natscell20",
+  "review_scope": "Independent read-only source-only asserted-target review; authored immutable packet preserved. Categories below are peer adjudication and not ledger promotion.",
+  "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+  "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "candidate": {
+    "path": "/tmp/ts-natscell20-d4ac-source-classification-nzhpx105/classification.json",
+    "sha256": "b21ae142cb4d24e3bd64a2ba70ee920c87f765c734652ef0c3bd38a2efb54b50",
+    "sha256sums_sha256": "731e9c4727120dc120269f6b289ec00b87074cbc726eb66f69c81890de186928",
+    "preserved_unmodified": true
+  },
+  "allocation": {
+    "path": "/tmp/ts-source-classification-batches-d4ac-0a9afk60/allocation.json",
+    "sha256": "a93275c8f26aa063e6cfc28fed074308c876e2da69baae89f8a0c3e3de77a6fd"
+  },
+  "classification_criterion": {
+    "unit": "Asserted target is local computation/model/validation. Real fixture loading/crypto does not independently confer boundary credit.",
+    "integration": "Current connected source path reaches a genuine production filesystem/durable-store/network/process/guest execution boundary and that boundary behavior is part of the asserted target.",
+    "mixed": "Material independently asserted local and integration target blocks coexist in the original root.",
+    "unresolved": "Reviewed current source does not prove a reachable asserted production boundary, including structurally incompatible fixtures; intended category is recorded separately."
+  },
+  "counts": {
+    "reviewed_original_roots": 20,
+    "accepted_classified_roots": 10,
+    "reviewed_unresolved_roots": 10,
+    "integration": 1,
+    "unit": 8,
+    "mixed": 1,
+    "unresolved": 10,
+    "candidate_credit_promoted": 0,
+    "runtime_delta": 0,
+    "retirement_delta": 0
+  },
+  "original_root_ids": [
+    "internal/natscell/cluster_formation_test.go::TestObserveStandaloneBroker",
+    "internal/natscell/cluster_formation_test.go::TestPeerRoutesOmitsOnlySelf",
+    "internal/natscell/cluster_formation_test.go::TestStagedFormationWithProductionRouteShape",
+    "internal/natscell/cluster_formation_test.go::TestColdRestartWithTwoOfThreeBrokers",
+    "internal/natscell/cluster_formation_test.go::TestWaitForClusterFailsFastWhenEmbeddedServerStopped",
+    "internal/natscell/cluster_formation_test.go::TestCloseHandsOffStreamLeadership",
+    "internal/natscell/fabric_test.go::TestRelayedCellSpecReachesTheSpokeThroughPartitions",
+    "internal/natscell/interregion_test.go::TestLeafTopologyIsARootedTree",
+    "internal/natscell/interregion_test.go::TestInterRegionContractIsExplicitAndExact",
+    "internal/natscell/interregion_test.go::TestGlobalMirrorContractExportsNoConsumerCreation",
+    "internal/natscell/interregion_test.go::TestInterRegionLeafFailsOverToTheNextURLInOrder",
+    "internal/natscell/membership_test.go::TestMembershipCredentialsAreNarrowlyScoped",
+    "internal/natscell/membership_test.go::TestMembershipAPIErrorDecoding",
+    "internal/natscell/runtime_test.go::TestEmbeddedSingleNodeDurableRestart",
+    "internal/natscell/runtime_test.go::TestEmbeddedStoreLimit",
+    "internal/natscell/runtime_test.go::TestControllerNKeyDurablyAcknowledgesDeliveryIntent",
+    "internal/natscell/runtime_test.go::TestEmbeddedClusterAdvertisesClientPeers",
+    "internal/natscell/runtime_test.go::TestHostNKeyCannotCrossNodeOrUseJetStream",
+    "internal/natscell/runtime_test.go::TestLabTerminalPermissionsAreRoleScoped",
+    "internal/natscell/runtime_test.go::TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState"
+  ],
+  "roots": [
+    {
+      "root_id": "internal/natscell/cluster_formation_test.go::TestObserveStandaloneBroker",
+      "path": "internal/natscell/cluster_formation_test.go",
+      "original_name": "TestObserveStandaloneBroker",
+      "current_name": "TestObserveStandaloneBroker",
+      "kind": "test",
+      "original_declaration_sha256": "03527fa01f38100506aff8bfed2ebe446822d81044470a4073611e1c73a24179",
+      "current_declaration_sha256": "03527fa01f38100506aff8bfed2ebe446822d81044470a4073611e1c73a24179",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 64,
+        "end_line": 77
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 64,
+        "end_line": 77,
+        "git_blob": "be0a72ef446456f3d55ec2e32e334296cca1779a"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "integration",
+      "peer_classification": "unresolved",
+      "intended_target_classification": "integration",
+      "peer_status": "REVIEWED_UNRESOLVED_NO_CLASSIFICATION_CREDIT",
+      "reason": "Intended broker assertion is clear, but the exact retained root/setup cannot establish a reachable current production broker boundary. Config.Lab is absent; even removing that literal leaves cfg.validate rejecting missing JWT/TLS and legacy NKey/embedded Users. No alternate path from this root to the asserted broker behavior is established.",
+      "blockers": [
+        "REMOVED_CONFIG_LAB_FIELD",
+        "CURRENT_STARTUP_VALIDATION_REJECTS_FIXTURE"
+      ],
+      "candidate_assertion_evidence_key": "assertion_blocks",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/cluster_formation_test.go::TestPeerRoutesOmitsOnlySelf",
+      "path": "internal/natscell/cluster_formation_test.go",
+      "original_name": "TestPeerRoutesOmitsOnlySelf",
+      "current_name": "TestPeerRoutesOmitsOnlySelf",
+      "kind": "test",
+      "original_declaration_sha256": "24dd299a316915170f31e285a7bc60d6aa07d64a5f76966da2b7b181be67d947",
+      "current_declaration_sha256": "24dd299a316915170f31e285a7bc60d6aa07d64a5f76966da2b7b181be67d947",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 79,
+        "end_line": 88
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 79,
+        "end_line": 88,
+        "git_blob": "be0a72ef446456f3d55ec2e32e334296cca1779a"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "unit",
+      "peer_classification": "unit",
+      "intended_target_classification": "unit",
+      "peer_status": "ACCEPTED_SOURCE_CLASSIFICATION",
+      "reason": "PeerRoutes loops strings, omits equal self, appends into a fresh slice; assertions inspect values and unchanged input.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_blocks",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/cluster_formation_test.go::TestStagedFormationWithProductionRouteShape",
+      "path": "internal/natscell/cluster_formation_test.go",
+      "original_name": "TestStagedFormationWithProductionRouteShape",
+      "current_name": "TestStagedFormationWithProductionRouteShape",
+      "kind": "test",
+      "original_declaration_sha256": "532295679f54fcfad37884520dd349a48e808f3863b2d61bc42ddb4abe65d42f",
+      "current_declaration_sha256": "532295679f54fcfad37884520dd349a48e808f3863b2d61bc42ddb4abe65d42f",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 93,
+        "end_line": 122
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 93,
+        "end_line": 122,
+        "git_blob": "be0a72ef446456f3d55ec2e32e334296cca1779a"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "integration",
+      "peer_classification": "unresolved",
+      "intended_target_classification": "integration",
+      "peer_status": "REVIEWED_UNRESOLVED_NO_CLASSIFICATION_CREDIT",
+      "reason": "Intended broker assertion is clear, but the exact retained root/setup cannot establish a reachable current production broker boundary. Config.Lab is absent; even removing that literal leaves cfg.validate rejecting missing JWT/TLS and legacy NKey/embedded Users. No alternate path from this root to the asserted broker behavior is established.",
+      "blockers": [
+        "REMOVED_CONFIG_LAB_FIELD",
+        "CURRENT_STARTUP_VALIDATION_REJECTS_FIXTURE"
+      ],
+      "candidate_assertion_evidence_key": "assertion_blocks",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/cluster_formation_test.go::TestColdRestartWithTwoOfThreeBrokers",
+      "path": "internal/natscell/cluster_formation_test.go",
+      "original_name": "TestColdRestartWithTwoOfThreeBrokers",
+      "current_name": "TestColdRestartWithTwoOfThreeBrokers",
+      "kind": "test",
+      "original_declaration_sha256": "1236dd77177c7d77964bdc0fe2c30abd7b698be3465cf2f2d8e78d1fa1ebd354",
+      "current_declaration_sha256": "1236dd77177c7d77964bdc0fe2c30abd7b698be3465cf2f2d8e78d1fa1ebd354",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 126,
+        "end_line": 172
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 126,
+        "end_line": 172,
+        "git_blob": "be0a72ef446456f3d55ec2e32e334296cca1779a"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "integration",
+      "peer_classification": "unresolved",
+      "intended_target_classification": "integration",
+      "peer_status": "REVIEWED_UNRESOLVED_NO_CLASSIFICATION_CREDIT",
+      "reason": "Intended broker assertion is clear, but the exact retained root/setup cannot establish a reachable current production broker boundary. Config.Lab is absent; even removing that literal leaves cfg.validate rejecting missing JWT/TLS and legacy NKey/embedded Users. No alternate path from this root to the asserted broker behavior is established.",
+      "blockers": [
+        "REMOVED_CONFIG_LAB_FIELD",
+        "CURRENT_STARTUP_VALIDATION_REJECTS_FIXTURE"
+      ],
+      "candidate_assertion_evidence_key": "assertion_blocks",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/cluster_formation_test.go::TestWaitForClusterFailsFastWhenEmbeddedServerStopped",
+      "path": "internal/natscell/cluster_formation_test.go",
+      "original_name": "TestWaitForClusterFailsFastWhenEmbeddedServerStopped",
+      "current_name": "TestWaitForClusterFailsFastWhenEmbeddedServerStopped",
+      "kind": "test",
+      "original_declaration_sha256": "a07c586fb653c2aa4190748df5ff0d8a6446de84c8e21bbb2ab450db43821d4a",
+      "current_declaration_sha256": "a07c586fb653c2aa4190748df5ff0d8a6446de84c8e21bbb2ab450db43821d4a",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 174,
+        "end_line": 193
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 174,
+        "end_line": 193,
+        "git_blob": "be0a72ef446456f3d55ec2e32e334296cca1779a"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "integration",
+      "peer_classification": "unresolved",
+      "intended_target_classification": "integration",
+      "peer_status": "REVIEWED_UNRESOLVED_NO_CLASSIFICATION_CREDIT",
+      "reason": "Intended broker assertion is clear, but the exact retained root/setup cannot establish a reachable current production broker boundary. Config.Lab is absent; even removing that literal leaves cfg.validate rejecting missing JWT/TLS and legacy NKey/embedded Users. No alternate path from this root to the asserted broker behavior is established.",
+      "blockers": [
+        "REMOVED_CONFIG_LAB_FIELD",
+        "CURRENT_STARTUP_VALIDATION_REJECTS_FIXTURE"
+      ],
+      "candidate_assertion_evidence_key": "assertion_blocks",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/cluster_formation_test.go::TestCloseHandsOffStreamLeadership",
+      "path": "internal/natscell/cluster_formation_test.go",
+      "original_name": "TestCloseHandsOffStreamLeadership",
+      "current_name": "TestCloseHandsOffStreamLeadership",
+      "kind": "test",
+      "original_declaration_sha256": "7a5af1495e2a3fc33332efd2e7f14e071233c4bd4bde527b654c1f7e1e86f27b",
+      "current_declaration_sha256": "7a5af1495e2a3fc33332efd2e7f14e071233c4bd4bde527b654c1f7e1e86f27b",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 197,
+        "end_line": 248
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 197,
+        "end_line": 248,
+        "git_blob": "be0a72ef446456f3d55ec2e32e334296cca1779a"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "integration",
+      "peer_classification": "unresolved",
+      "intended_target_classification": "integration",
+      "peer_status": "REVIEWED_UNRESOLVED_NO_CLASSIFICATION_CREDIT",
+      "reason": "Intended broker assertion is clear, but the exact retained root/setup cannot establish a reachable current production broker boundary. Config.Lab is absent; even removing that literal leaves cfg.validate rejecting missing JWT/TLS and legacy NKey/embedded Users. No alternate path from this root to the asserted broker behavior is established.",
+      "blockers": [
+        "REMOVED_CONFIG_LAB_FIELD",
+        "CURRENT_STARTUP_VALIDATION_REJECTS_FIXTURE"
+      ],
+      "candidate_assertion_evidence_key": "assertion_blocks",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/fabric_test.go::TestRelayedCellSpecReachesTheSpokeThroughPartitions",
+      "path": "internal/natscell/fabric_test.go",
+      "original_name": "TestRelayedCellSpecReachesTheSpokeThroughPartitions",
+      "current_name": "TestRelayedCellSpecReachesTheSpokeThroughPartitions",
+      "kind": "test",
+      "original_declaration_sha256": "42bce445b541586163803271b7ab4c1bda9aaad2f161606cd1ffe22f98a03dbf",
+      "current_declaration_sha256": "42bce445b541586163803271b7ab4c1bda9aaad2f161606cd1ffe22f98a03dbf",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 33,
+        "end_line": 225
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 33,
+        "end_line": 225,
+        "git_blob": "6558b31066b125cb9401de1d19f5b4cc55d46cae"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "integration",
+      "peer_classification": "integration",
+      "intended_target_classification": "integration",
+      "peer_status": "ACCEPTED_SOURCE_CLASSIFICATION",
+      "reason": "Start signed JWT/mTLS link regions; authority.Start uses real JetStream lease; OpenHome creates FileStorage stream and mirror consumers, OpenMirror creates real stream mirror. PutDocument -> put Guard/term reads/CAS PublishMsg -> leaf/proxy -> mirror Document GetLastMsgForSubject/gap-free Info -> Follow OrderedConsumer + verified Document -> test-owned callback VerifyCurrent/adoption channel. Partition closes proxy; reader returns prior generation from local replica; reopen catches up. Rogue/wrong-cell records are actually relayed before test callback refusal. Spoke JetStream/core Publish cannot alter home Document readback.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_blocks",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/interregion_test.go::TestLeafTopologyIsARootedTree",
+      "path": "internal/natscell/interregion_test.go",
+      "original_name": "TestLeafTopologyIsARootedTree",
+      "current_name": "TestLeafTopologyIsARootedTree",
+      "kind": "test",
+      "original_declaration_sha256": "9b34a0cf8f970ff989bb562899d7ceff6b9bcf6bb72cb316837738ec97a40abf",
+      "current_declaration_sha256": "9b34a0cf8f970ff989bb562899d7ceff6b9bcf6bb72cb316837738ec97a40abf",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 27,
+        "end_line": 72
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 27,
+        "end_line": 72,
+        "git_blob": "adaeff0954d7c1c77c61c36182d912ba2e1f8efd"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "unit",
+      "peer_classification": "unit",
+      "intended_target_classification": "unit",
+      "peer_status": "ACCEPTED_SOURCE_CLASSIFICATION",
+      "reason": "In-memory map/slice graph functions return sorted regions/children/peers and links; Validate walks parents and validates tokens/cycles. Assertions inspect exact values and unchanged original map.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_blocks",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/interregion_test.go::TestInterRegionContractIsExplicitAndExact",
+      "path": "internal/natscell/interregion_test.go",
+      "original_name": "TestInterRegionContractIsExplicitAndExact",
+      "current_name": "TestInterRegionContractIsExplicitAndExact",
+      "kind": "test",
+      "original_declaration_sha256": "e8758ed6b4d1ff88cf34c7b3ec2ade3aa4fea45199d3b6ad225f502c71dcbc83",
+      "current_declaration_sha256": "e8758ed6b4d1ff88cf34c7b3ec2ade3aa4fea45199d3b6ad225f502c71dcbc83",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 74,
+        "end_line": 150
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 74,
+        "end_line": 150,
+        "git_blob": "adaeff0954d7c1c77c61c36182d912ba2e1f8efd"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "unit",
+      "peer_classification": "unit",
+      "intended_target_classification": "unit",
+      "peer_status": "ACCEPTED_SOURCE_CLASSIFICATION",
+      "reason": "Generate key identities -> claims builds jwt.AccountClaims with ApplyCell/ApplyInterRegion -> contract.verify compares in-memory exports/imports/defaults/scopes/limits; mutation table changes claims and requires errors.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_blocks",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/interregion_test.go::TestGlobalMirrorContractExportsNoConsumerCreation",
+      "path": "internal/natscell/interregion_test.go",
+      "original_name": "TestGlobalMirrorContractExportsNoConsumerCreation",
+      "current_name": "TestGlobalMirrorContractExportsNoConsumerCreation",
+      "kind": "test",
+      "original_declaration_sha256": "72622708131385ee150646efea02c7c5ed2af2c3400b5036ac14bf9303d8a65e",
+      "current_declaration_sha256": "72622708131385ee150646efea02c7c5ed2af2c3400b5036ac14bf9303d8a65e",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 157,
+        "end_line": 283
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 157,
+        "end_line": 283,
+        "git_blob": "adaeff0954d7c1c77c61c36182d912ba2e1f8efd"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "unit",
+      "peer_classification": "unit",
+      "intended_target_classification": "unit",
+      "peer_status": "ACCEPTED_SOURCE_CLASSIFICATION",
+      "reason": "CellExports/InterRegionImports/CellImports derive flow lists -> direct exact-list and forbidden-string assertions; LeafPermissions unions link subjects -> slices membership checks. No stream, consumer or leaf is created.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_blocks",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/interregion_test.go::TestInterRegionLeafFailsOverToTheNextURLInOrder",
+      "path": "internal/natscell/interregion_test.go",
+      "original_name": "TestInterRegionLeafFailsOverToTheNextURLInOrder",
+      "current_name": "TestInterRegionLeafFailsOverToTheNextURLInOrder",
+      "kind": "test",
+      "original_declaration_sha256": "703b85bbbecc1658ed1de81ffe97ccc30f8ab757429439ba33fe8f93fd8abc24",
+      "current_declaration_sha256": "703b85bbbecc1658ed1de81ffe97ccc30f8ab757429439ba33fe8f93fd8abc24",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 290,
+        "end_line": 371
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 290,
+        "end_line": 371,
+        "git_blob": "adaeff0954d7c1c77c61c36182d912ba2e1f8efd"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "mixed",
+      "peer_classification": "mixed",
+      "intended_target_classification": "mixed",
+      "peer_status": "ACCEPTED_SOURCE_CLASSIFICATION",
+      "reason": "Local block: cfg.validate rejects blank/IP ServerName before server startup. Boundary block: Start two signed JWT/mTLS brokers -> Leafz identifies private proxy -> gru RequestWithContext crosses leaf to test-owned sfo responder -> private.Blackhole drops traffic without closing -> Leafz identifies second proxy -> waitLeafCount -> repeated successful query.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_blocks",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/membership_test.go::TestMembershipCredentialsAreNarrowlyScoped",
+      "path": "internal/natscell/membership_test.go",
+      "original_name": "TestMembershipCredentialsAreNarrowlyScoped",
+      "current_name": "TestMembershipCredentialsAreNarrowlyScoped",
+      "kind": "test",
+      "original_declaration_sha256": "1f3c4d168594880eb22f4331b66196629da66fb071c6447f99d27c99e49c066e",
+      "current_declaration_sha256": "1f3c4d168594880eb22f4331b66196629da66fb071c6447f99d27c99e49c066e",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 10,
+        "end_line": 43
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 10,
+        "end_line": 43,
+        "git_blob": "70fbf88f0cc2a3d494f9e66cac18f13fc5459a71"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "unit",
+      "peer_classification": "unit",
+      "intended_target_classification": "unit",
+      "peer_status": "ACCEPTED_SOURCE_CLASSIFICATION",
+      "reason": "Helper creates signed JWT+matching seed, formats credentials and os.WriteFile(0600); ValidateMembershipCredentials -> credentialUser -> readPrivateFile syscall.Open/Stat/io.ReadAll -> local decode and account/grant comparisons. The acceptance/rejection target is semantic claim validation, not file durability or server authorization.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_blocks",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/membership_test.go::TestMembershipAPIErrorDecoding",
+      "path": "internal/natscell/membership_test.go",
+      "original_name": "TestMembershipAPIErrorDecoding",
+      "current_name": "TestMembershipAPIErrorDecoding",
+      "kind": "test",
+      "original_declaration_sha256": "590399a4dac3e8e54edcf5c0b8ed4ffeec6d3d037510a300326e16c70b1fb753",
+      "current_declaration_sha256": "590399a4dac3e8e54edcf5c0b8ed4ffeec6d3d037510a300326e16c70b1fb753",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 45,
+        "end_line": 56
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 45,
+        "end_line": 56,
+        "git_blob": "70fbf88f0cc2a3d494f9e66cac18f13fc5459a71"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "unit",
+      "peer_classification": "unit",
+      "intended_target_classification": "unit",
+      "peer_status": "ACCEPTED_SOURCE_CLASSIFICATION",
+      "reason": "Literal byte slices -> json.Unmarshal -> Error/Success branches -> errors and description comparisons. MembershipAdmin.request is not called.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_blocks",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/runtime_test.go::TestEmbeddedSingleNodeDurableRestart",
+      "path": "internal/natscell/runtime_test.go",
+      "original_name": "TestEmbeddedSingleNodeDurableRestart",
+      "current_name": "TestEmbeddedSingleNodeDurableRestart",
+      "kind": "test",
+      "original_declaration_sha256": "56dabb72ea66762b3d28bce5b328c7caaca955c7ede624cd3f8eec851e01b67d",
+      "current_declaration_sha256": "56dabb72ea66762b3d28bce5b328c7caaca955c7ede624cd3f8eec851e01b67d",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 22,
+        "end_line": 64
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 22,
+        "end_line": 64,
+        "git_blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "integration",
+      "peer_classification": "unresolved",
+      "intended_target_classification": "integration",
+      "peer_status": "REVIEWED_UNRESOLVED_NO_CLASSIFICATION_CREDIT",
+      "reason": "Intended broker assertion is clear, but the exact retained root/setup cannot establish a reachable current production broker boundary. Config.Lab is absent; even removing that literal leaves cfg.validate rejecting missing JWT/TLS and legacy NKey/embedded Users. No alternate path from this root to the asserted broker behavior is established.",
+      "blockers": [
+        "REMOVED_CONFIG_LAB_FIELD",
+        "CURRENT_STARTUP_VALIDATION_REJECTS_FIXTURE"
+      ],
+      "candidate_assertion_evidence_key": "assertion_blocks",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/runtime_test.go::TestEmbeddedStoreLimit",
+      "path": "internal/natscell/runtime_test.go",
+      "original_name": "TestEmbeddedStoreLimit",
+      "current_name": "TestEmbeddedStoreLimit",
+      "kind": "test",
+      "original_declaration_sha256": "0259c00344c8bd26bf19d83f9946b815edf3bbbd631a3faa30d0486747abb070",
+      "current_declaration_sha256": "0259c00344c8bd26bf19d83f9946b815edf3bbbd631a3faa30d0486747abb070",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 66,
+        "end_line": 102
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 66,
+        "end_line": 102,
+        "git_blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "unit",
+      "peer_classification": "unit",
+      "intended_target_classification": "unit",
+      "peer_status": "ACCEPTED_SOURCE_CLASSIFICATION",
+      "reason": "serverOptions returns server.Options; tests compare JetStreamMaxStore and ReconnectErrorReports. cfg.validate tests only error presence for negative limit/reserved scope. No server is started, no quota exhaustion/readback occurs.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_blocks",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/runtime_test.go::TestControllerNKeyDurablyAcknowledgesDeliveryIntent",
+      "path": "internal/natscell/runtime_test.go",
+      "original_name": "TestControllerNKeyDurablyAcknowledgesDeliveryIntent",
+      "current_name": "TestControllerNKeyDurablyAcknowledgesDeliveryIntent",
+      "kind": "test",
+      "original_declaration_sha256": "283a3c39ae0a4df5431358d63a939d8ec890384741b48534f27d0fea822b3d83",
+      "current_declaration_sha256": "283a3c39ae0a4df5431358d63a939d8ec890384741b48534f27d0fea822b3d83",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 104,
+        "end_line": 145
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 104,
+        "end_line": 145,
+        "git_blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "integration",
+      "peer_classification": "unresolved",
+      "intended_target_classification": "integration",
+      "peer_status": "REVIEWED_UNRESOLVED_NO_CLASSIFICATION_CREDIT",
+      "reason": "Intended broker assertion is clear, but the exact retained root/setup cannot establish a reachable current production broker boundary. Config.Lab is absent; even removing that literal leaves cfg.validate rejecting missing JWT/TLS and legacy NKey/embedded Users. No alternate path from this root to the asserted broker behavior is established.",
+      "blockers": [
+        "REMOVED_CONFIG_LAB_FIELD",
+        "CURRENT_STARTUP_VALIDATION_REJECTS_FIXTURE"
+      ],
+      "candidate_assertion_evidence_key": "assertion_blocks",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/runtime_test.go::TestEmbeddedClusterAdvertisesClientPeers",
+      "path": "internal/natscell/runtime_test.go",
+      "original_name": "TestEmbeddedClusterAdvertisesClientPeers",
+      "current_name": "TestEmbeddedClusterAdvertisesClientPeers",
+      "kind": "test",
+      "original_declaration_sha256": "aa379237cdcc4e13fe387159920cf13ff6b6d4af466ead7d20bc6061f46864b0",
+      "current_declaration_sha256": "aa379237cdcc4e13fe387159920cf13ff6b6d4af466ead7d20bc6061f46864b0",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 147,
+        "end_line": 206
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 147,
+        "end_line": 206,
+        "git_blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "integration",
+      "peer_classification": "unresolved",
+      "intended_target_classification": "integration",
+      "peer_status": "REVIEWED_UNRESOLVED_NO_CLASSIFICATION_CREDIT",
+      "reason": "Intended broker assertion is clear, but the exact retained root/setup cannot establish a reachable current production broker boundary. Config.Lab is absent; even removing that literal leaves cfg.validate rejecting missing JWT/TLS and legacy NKey/embedded Users. No alternate path from this root to the asserted broker behavior is established.",
+      "blockers": [
+        "REMOVED_CONFIG_LAB_FIELD",
+        "CURRENT_STARTUP_VALIDATION_REJECTS_FIXTURE",
+        "CLIENT_ADVERTISEMENT_EXPECTATION_CONFLICT"
+      ],
+      "candidate_assertion_evidence_key": "assertion_blocks",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/runtime_test.go::TestHostNKeyCannotCrossNodeOrUseJetStream",
+      "path": "internal/natscell/runtime_test.go",
+      "original_name": "TestHostNKeyCannotCrossNodeOrUseJetStream",
+      "current_name": "TestHostNKeyCannotCrossNodeOrUseJetStream",
+      "kind": "test",
+      "original_declaration_sha256": "7fdf4fcdc1f0e54650ea150db6e8178187c6e8f8400bf225281651e79673e0b1",
+      "current_declaration_sha256": "7fdf4fcdc1f0e54650ea150db6e8178187c6e8f8400bf225281651e79673e0b1",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 208,
+        "end_line": 284
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 208,
+        "end_line": 284,
+        "git_blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "integration",
+      "peer_classification": "unresolved",
+      "intended_target_classification": "integration",
+      "peer_status": "REVIEWED_UNRESOLVED_NO_CLASSIFICATION_CREDIT",
+      "reason": "Intended broker assertion is clear, but the exact retained root/setup cannot establish a reachable current production broker boundary. Config.Lab is absent; even removing that literal leaves cfg.validate rejecting missing JWT/TLS and legacy NKey/embedded Users. No alternate path from this root to the asserted broker behavior is established.",
+      "blockers": [
+        "REMOVED_CONFIG_LAB_FIELD",
+        "CURRENT_STARTUP_VALIDATION_REJECTS_FIXTURE"
+      ],
+      "candidate_assertion_evidence_key": "assertion_blocks",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/runtime_test.go::TestLabTerminalPermissionsAreRoleScoped",
+      "path": "internal/natscell/runtime_test.go",
+      "original_name": "TestLabTerminalPermissionsAreRoleScoped",
+      "current_name": "TestLabTerminalPermissionsAreRoleScoped",
+      "kind": "test",
+      "original_declaration_sha256": "24957d75d04c58dd3b3dab4b3519a759a7b8c3b2918fc7a8ead595eea0d89695",
+      "current_declaration_sha256": "24957d75d04c58dd3b3dab4b3519a759a7b8c3b2918fc7a8ead595eea0d89695",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 286,
+        "end_line": 314
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 286,
+        "end_line": 314,
+        "git_blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "unit",
+      "peer_classification": "unit",
+      "intended_target_classification": "unit",
+      "peer_status": "ACCEPTED_SOURCE_CLASSIFICATION",
+      "reason": "userPermissions -> ControllerSubscriptions/BrokerOperatorPublishPermissions returns local slices -> slices.Contains comparisons. newUserIdentity seed write supports key setup only; no file content/readback or broker enforcement is asserted.",
+      "blockers": [],
+      "candidate_assertion_evidence_key": "assertion_blocks",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/runtime_test.go::TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState",
+      "path": "internal/natscell/runtime_test.go",
+      "original_name": "TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState",
+      "current_name": "TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState",
+      "kind": "test",
+      "original_declaration_sha256": "c1af27365b7d4c8ab9cc4b785577a9baaa78947612833c2cf3682a38b4ad05d7",
+      "current_declaration_sha256": "c1af27365b7d4c8ab9cc4b785577a9baaa78947612833c2cf3682a38b4ad05d7",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 316,
+        "end_line": 445
+      },
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 316,
+        "end_line": 445,
+        "git_blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3"
+      },
+      "survival_state": "retained_body_exact",
+      "author_classification": "integration",
+      "peer_classification": "unresolved",
+      "intended_target_classification": "integration",
+      "peer_status": "REVIEWED_UNRESOLVED_NO_CLASSIFICATION_CREDIT",
+      "reason": "Intended broker assertion is clear, but the exact retained root/setup cannot establish a reachable current production broker boundary. Config.Lab is absent; even removing that literal leaves cfg.validate rejecting missing JWT/TLS and legacy NKey/embedded Users. No alternate path from this root to the asserted broker behavior is established.",
+      "blockers": [
+        "REMOVED_CONFIG_LAB_FIELD",
+        "CURRENT_STARTUP_VALIDATION_REJECTS_FIXTURE"
+      ],
+      "candidate_assertion_evidence_key": "assertion_blocks",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    }
+  ],
+  "findings": [
+    {
+      "id": "PEER-N1",
+      "severity": "classification_blocker",
+      "affected_root_ids": [
+        "internal/natscell/cluster_formation_test.go::TestObserveStandaloneBroker",
+        "internal/natscell/cluster_formation_test.go::TestStagedFormationWithProductionRouteShape",
+        "internal/natscell/cluster_formation_test.go::TestColdRestartWithTwoOfThreeBrokers",
+        "internal/natscell/cluster_formation_test.go::TestWaitForClusterFailsFastWhenEmbeddedServerStopped",
+        "internal/natscell/cluster_formation_test.go::TestCloseHandsOffStreamLeadership",
+        "internal/natscell/runtime_test.go::TestEmbeddedSingleNodeDurableRestart",
+        "internal/natscell/runtime_test.go::TestControllerNKeyDurablyAcknowledgesDeliveryIntent",
+        "internal/natscell/runtime_test.go::TestEmbeddedClusterAdvertisesClientPeers",
+        "internal/natscell/runtime_test.go::TestHostNKeyCannotCrossNodeOrUseJetStream",
+        "internal/natscell/runtime_test.go::TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState"
+      ],
+      "decision": "Ten roots are reviewed-unresolved; intended integration is preserved separately. They receive no accepted classification credit.",
+      "source_reason": "runtime.Config131-148 has no Lab field. start363-367 calls cfg.validate before server.NewServer379. validate611-618 requires JWT/TLS and rejects NKeySeedFile/embedded Users. cluster helper start uses the stale fixture. This is source-established fixture impossibility, not inference from missing runtime receipts."
+    },
+    {
+      "id": "PEER-N2",
+      "severity": "expectation_conflict",
+      "affected_root_ids": [
+        "internal/natscell/runtime_test.go::TestEmbeddedClusterAdvertisesClientPeers"
+      ],
+      "decision": "Retain unresolved. Peer discovery expectation also conflicts with current DontListen and Cluster.NoAdvertise at714-715."
+    },
+    {
+      "id": "PEER-N3",
+      "severity": "qualification_limit",
+      "decision": "Eight local targets retain unit classification, including TestEmbeddedStoreLimit with stale setup; their arithmetic/claim/string/model targets are identifiable without claiming a connected broker boundary. Package compile/startup success remains UNKNOWN for every root. TestMembershipCredentialsAreNarrowlyScoped confirms actual file loading alone does not make semantic claim assertions integration."
+    },
+    {
+      "id": "PEER-N4",
+      "severity": "accepted_boundary_trace",
+      "decision": "Fabric root traces signed JWT/mTLS actual broker\u2192leaf proxy\u2192authority/globalcontrol home stream\u2192spoke mirror\u2192Follow\u2192signature verification/adoption, partition read/catchup, and forbidden spoke writes. Failover root is mixed: independent DNS ServerName preflight guards plus actual two-proxy leaf/request failover. Their reachable source paths receive boundary categories; neither receives execution credit."
+    }
+  ],
+  "boundary_evidence": [
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/natscell/runtime.go",
+      "start_line": 131,
+      "end_line": 148,
+      "exact_source": "type Config struct {\n\tCell            string    `json:\"cell\"`\n\tInstance        string    `json:\"instance\"`\n\tReplicas        int       `json:\"replicas\"`\n\tClientRole      string    `json:\"client_role,omitempty\"`\n\tURL             string    `json:\"url\"`\n\tNKeySeedFile    string    `json:\"nkey_seed_file\"`\n\tCredentialsFile string    `json:\"credentials_file\"`\n\tTLS             TLSFiles  `json:\"tls\"`\n\tEmbedded        *Embedded `json:\"embedded\"`\n\t// OperatorForward is a transient CLI-only TCP route. Its keys remain the\n\t// configured controller TLS identities; values are local Bastion forwards.\n\tOperatorForward map[string]string `json:\"-\"`\n\t// ReloadClientMaterial, when set, is consulted on every connect and\n\t// reconnect so renewed credentials take effect without a process restart.\n\t// It must keep the startup NATS user key; failures use the startup files.\n\tReloadClientMaterial func() (ClientMaterial, error) `json:\"-\"`\n}",
+      "sha256": "b21ffd2fbc914a9f59a489768622d43621b1935f1833b68fc7cd1796d75c4a90"
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/natscell/runtime.go",
+      "start_line": 363,
+      "end_line": 382,
+      "exact_source": "func start(ctx context.Context, cfg Config, identityRekey bool) (_ *Runtime, err error) {\n\tif err := cfg.validate(); err != nil {\n\t\treturn nil, err\n\t}\n\tr := &Runtime{cell: cfg.Cell}\n\tdefer func() {\n\t\tif err != nil {\n\t\t\t_ = r.Close()\n\t\t}\n\t}()\n\tif cfg.Embedded != nil {\n\t\toptions, optionsErr := serverOptionsForStart(cfg, identityRekey)\n\t\tif optionsErr != nil {\n\t\t\treturn nil, optionsErr\n\t\t}\n\t\tr.server, err = server.NewServer(options)\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"create embedded NATS: %w\", err)\n\t\t}\n\t\tif err := pinNodeIdentity(cfg.Embedded.StoreDir, cfg.Cell, cfg.Instance, r.server.NodeName()); err != nil {",
+      "sha256": "19bcaca7a3cd498f744a756b5975fbaa1d881b900a06db59f6d3a8448329495f"
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/natscell/runtime.go",
+      "start_line": 611,
+      "end_line": 618,
+      "exact_source": "\tif !cfg.TLS.complete() || cfg.CredentialsFile == \"\" || cfg.NKeySeedFile != \"\" {\n\t\treturn errors.New(\"regional NATS requires client TLS and JWT credentials\")\n\t}\n\tif cfg.Embedded != nil && (!cfg.Embedded.TLS.complete() || !cfg.Embedded.RouteTLS.complete() ||\n\t\tcfg.Embedded.OperatorJWTFile == \"\" || cfg.Embedded.SystemJWTFile == \"\" ||\n\t\tcfg.Embedded.CellJWTFile == \"\" || cfg.Embedded.SystemCredentialsFile == \"\" ||\n\t\tcfg.Embedded.TicketPublicKeyFile == \"\" || len(cfg.Embedded.BrokerIDs) != cfg.Replicas || len(cfg.Embedded.Users) != 0) {\n\t\treturn errors.New(\"production embedded NATS requires operator/system/cell JWTs, system credentials, and client/route TLS\")",
+      "sha256": "e5814ad60d2b3699a74abf8e1c7cb42d08980051776a0ebe436b0f1ef6e3b5ed"
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/natscell/runtime.go",
+      "start_line": 712,
+      "end_line": 715,
+      "exact_source": "\toptions.AccountResolver = resolver\n\toptions.JetStreamDomain = cfg.Cell\n\toptions.DontListen = true\n\toptions.Cluster.NoAdvertise = true",
+      "sha256": "94cdd88d49ec76640c5106ffa2823086a4582198b34990f08220a18e5cbd47b4"
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/natscell/cluster_formation_test.go",
+      "start_line": 25,
+      "end_line": 61,
+      "exact_source": "func newLabCluster(t *testing.T, size int) *labCluster {\n\tt.Helper()\n\tports := freeClientPorts(t, 2*size)\n\tcluster := &labCluster{clientPorts: ports[:size], routePorts: ports[size:], stores: make([]string, size),\n\t\truntimes: make([]*Runtime, size), routes: make([]string, size)}\n\tfor index := range size {\n\t\tcluster.routes[index] = fmt.Sprintf(\"nats-route://127.0.0.1:%d\", cluster.routePorts[index])\n\t\tcluster.stores[index] = filepath.Join(t.TempDir(), fmt.Sprintf(\"peer%d\", index))\n\t}\n\tt.Cleanup(func() {\n\t\tfor _, runtime := range cluster.runtimes {\n\t\t\t_ = runtime.Close()\n\t\t}\n\t})\n\treturn cluster\n}\n\nfunc (cluster *labCluster) start(t *testing.T, ctx context.Context, index int) *Runtime {\n\tt.Helper()\n\tinstance := fmt.Sprintf(\"peer%d\", index)\n\truntime, err := Start(ctx, Config{Cell: \"lab\", Instance: instance, Replicas: len(cluster.routes), Lab: true,\n\t\tEmbedded: &Embedded{Host: \"127.0.0.1\", Port: cluster.clientPorts[index], RouteHost: \"127.0.0.1\",\n\t\t\tRoutePort: cluster.routePorts[index], Routes: PeerRoutes(cluster.routes, cluster.routes[index]),\n\t\t\tStoreDir: cluster.stores[index], BrokerIDs: []string{\"peer0\", \"peer1\", \"peer2\"}[:len(cluster.routes)]},\n\t})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tcluster.runtimes[index] = runtime\n\treturn runtime\n}\n\nfunc (cluster *labCluster) stop(index int) {\n\tif cluster.runtimes[index] != nil {\n\t\t_ = cluster.runtimes[index].Close()\n\t\tcluster.runtimes[index] = nil\n\t}",
+      "sha256": "e958fe859e1faf96f6f3f1138a8c4b1b1a78765f62d9c072b9d46e5602b8e727"
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/natscell/runtime_test.go",
+      "start_line": 66,
+      "end_line": 102,
+      "exact_source": "func TestEmbeddedStoreLimit(t *testing.T) {\n\tembedded := &Embedded{Host: \"127.0.0.1\", Port: -1, StoreDir: t.TempDir()}\n\tcfg := Config{Cell: \"lab\", Instance: \"one\", Replicas: 1, Lab: true, Embedded: embedded}\n\tfor _, test := range []struct {\n\t\tname  string\n\t\tlimit int64\n\t\twant  int64\n\t}{\n\t\t{name: \"default\", want: DefaultStoreMaxBytes},\n\t\t{name: \"configured\", limit: 4 << 30, want: 4 << 30},\n\t} {\n\t\tt.Run(test.name, func(t *testing.T) {\n\t\t\tembedded.StoreMaxBytes = test.limit\n\t\t\toptions, err := serverOptions(cfg)\n\t\t\tif err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tif options.JetStreamMaxStore != test.want {\n\t\t\t\tt.Fatalf(\"JetStream file limit = %d, want %d\", options.JetStreamMaxStore, test.want)\n\t\t\t}\n\t\t\t// A rebooting peer must not log an ERR per reconnect attempt.\n\t\t\tif options.ReconnectErrorReports != 60 {\n\t\t\t\tt.Fatalf(\"route reconnect errors reported every %d attempts, want 60\", options.ReconnectErrorReports)\n\t\t\t}\n\t\t})\n\t}\n\tembedded.StoreMaxBytes = -1\n\tif err := cfg.validate(); err == nil {\n\t\tt.Fatal(\"negative embedded store limit was accepted\")\n\t}\n\tembedded.StoreMaxBytes = 0\n\treserved := cfg\n\treserved.Cell = \"global\"\n\tif err := reserved.validate(); err == nil {\n\t\tt.Fatal(\"the reserved global scope was accepted as a cell\")\n\t}\n}",
+      "sha256": "0259c00344c8bd26bf19d83f9946b815edf3bbbd631a3faa30d0486747abb070"
+    },
+    {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/natscell/membership.go",
+      "start_line": 82,
+      "end_line": 100,
+      "exact_source": "func ValidateMembershipCredentials(path, cell, systemAccount string) error {\n\tif !cellName.MatchString(cell) || systemAccount == \"\" {\n\t\treturn errors.New(\"membership credential cell or system account is invalid\")\n\t}\n\tclaim, public, err := credentialUser(path)\n\tif err != nil {\n\t\treturn fmt.Errorf(\"membership credentials: %w\", err)\n\t}\n\tpublishes := slices.Clone([]string(claim.Pub.Allow))\n\tslices.Sort(publishes)\n\tif credentialAccount(claim) != systemAccount ||\n\t\t!slices.Equal(publishes, []string{MembershipMetaStepdownSubject, MembershipServerRemoveSubject}) ||\n\t\tlen(claim.Pub.Deny) != 0 || len(claim.Sub.Allow) != 1 ||\n\t\tclaim.Sub.Allow[0] != inboxPrefix(cell, public)+\".>\" || len(claim.Sub.Deny) != 0 ||\n\t\tclaim.Resp != nil {\n\t\treturn errors.New(\"membership credentials must have only server-remove, metadata step-down and private reply grants\")\n\t}\n\treturn nil\n}",
+      "sha256": "905e1ea4a83312eaf77b0a48e72765d5b7e3385a3efcc800149db8bd8437ba10"
+    }
+  ],
+  "mechanical_verification": {
+    "candidate_sha256": "b21ae142cb4d24e3bd64a2ba70ee920c87f765c734652ef0c3bd38a2efb54b50",
+    "sha256sums_sha256": "731e9c4727120dc120269f6b289ec00b87074cbc726eb66f69c81890de186928",
+    "sum_entries": 2,
+    "allocation_root_count": 20,
+    "declaration_checks": 40,
+    "source_pins": 23,
+    "citation_checks": 132,
+    "distinct_citations": 132,
+    "assertion_blocks": 32,
+    "bridge_commit": "7330ca87c377d2cbe5f8c269282039039df550ad",
+    "bridge_tree": "1824f64d1b77aae3c7e3b2736d29426af5892e88",
+    "frozen_inventory_roots_verified": 20,
+    "errors": []
+  },
+  "source_bridge_comparison": {
+    "target_commit": "7330ca87c377d2cbe5f8c269282039039df550ad",
+    "target_tree": "1824f64d1b77aae3c7e3b2736d29426af5892e88",
+    "qualification": "NOT_AUTOMATICALLY_QUALIFIED_AT_BRIDGE_COMMIT",
+    "all_selected_root_declarations_unchanged": true,
+    "file_comparisons": [
+      {
+        "path": "internal/natscell/runtime.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "b7d9b16bf34c966d722a17bea21a3ccb76cc396b"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "b7d9b16bf34c966d722a17bea21a3ccb76cc396b"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/natscell/accounts.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "f3a8d6d028bc77fe07e3ff3bad376b9edd8756d4"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "f3a8d6d028bc77fe07e3ff3bad376b9edd8756d4"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/natscell/jwt_bridge_test.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "f5cf7314e7f6c2ebb5ff89c991eb359ce4a5f259"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "f5cf7314e7f6c2ebb5ff89c991eb359ce4a5f259"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/natscell/cluster_formation_test.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "be0a72ef446456f3d55ec2e32e334296cca1779a"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "be0a72ef446456f3d55ec2e32e334296cca1779a"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/natscell/host_reconnect_test.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "b49de89df4e925d2be9fdc6ae601611a674bde88"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "b49de89df4e925d2be9fdc6ae601611a674bde88"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/natscell/health.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "444108aced4c4d13c1e69cd679f40afc26e3eab2"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "444108aced4c4d13c1e69cd679f40afc26e3eab2"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/natscell/shutdown.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "c3219ff06c108ab51e121d1200ec95c41c57b9cb"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "c3219ff06c108ab51e121d1200ec95c41c57b9cb"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/natscell/runtime_test.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "d6ec41236406ed3aab1ade182bbe3993d0b911e3"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/natscell/leaftopology.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "3c6f43ea7587a189f51cc44abbdae107087fff25"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "3c6f43ea7587a189f51cc44abbdae107087fff25"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/natscell/interregion.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "e4eeab641fa3a2d96c089d89b55d03062d7e1b81"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "e4eeab641fa3a2d96c089d89b55d03062d7e1b81"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/natscell/interregion_test.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "adaeff0954d7c1c77c61c36182d912ba2e1f8efd"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "adaeff0954d7c1c77c61c36182d912ba2e1f8efd"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/natscell/link.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "4accdaf796d2f180b1be7dbea30a8bd2864c6668"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "4accdaf796d2f180b1be7dbea30a8bd2864c6668"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/natscell/link_test.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "d8bb22cf069bec42184378ddbf56630b765130f6"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "d8bb22cf069bec42184378ddbf56630b765130f6"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/globalcontrol/document.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "b52883ff360f52a78c95ec67d7141b9dae8d4073"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "b52883ff360f52a78c95ec67d7141b9dae8d4073"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/globalcontrol/store.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "a2163225675bebd7951ec173f9afe259887bedc7"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "a2163225675bebd7951ec173f9afe259887bedc7"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/globalcontrol/stream.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "916a8a3b62ca8d2a303ed45a0dc25a2f148934b1"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "916a8a3b62ca8d2a303ed45a0dc25a2f148934b1"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/authority/runtime.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "c6099aa5271adc0a2edbceb136884d5f0bc64635"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "3ca4fa7b42e322ae9eced36f845c45ad68892296"
+        },
+        "same_file_blob_and_mode": false,
+        "selected_declarations": []
+      },
+      {
+        "path": "internal/authority/log.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "1b6fbbcf1030ccddeddf5596b3f8de5ab9f464b0"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "39e8073c3302fd73785bec8b3b3e8d0d61024a03"
+        },
+        "same_file_blob_and_mode": false,
+        "selected_declarations": []
+      },
+      {
+        "path": "internal/cellspec/cellspec.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "f80b4d2cc32c555d093f95b2b5e45e476c94978c"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "f80b4d2cc32c555d093f95b2b5e45e476c94978c"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/trust/envelope.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "b525ec7a2bba0fb81c2c4f51f5e503394eb0b5cc"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "b525ec7a2bba0fb81c2c4f51f5e503394eb0b5cc"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/natscell/membership.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "fc6ac0a5f4f77bae2da1a5431bc09b4b0e742d0e"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "fc6ac0a5f4f77bae2da1a5431bc09b4b0e742d0e"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/natscell/fabric_test.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "6558b31066b125cb9401de1d19f5b4cc55d46cae"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "6558b31066b125cb9401de1d19f5b4cc55d46cae"
+        },
+        "same_file_blob_and_mode": true
+      },
+      {
+        "path": "internal/natscell/membership_test.go",
+        "d4ac": {
+          "mode": "100644",
+          "blob": "70fbf88f0cc2a3d494f9e66cac18f13fc5459a71"
+        },
+        "bridge_commit": {
+          "mode": "100644",
+          "blob": "70fbf88f0cc2a3d494f9e66cac18f13fc5459a71"
+        },
+        "same_file_blob_and_mode": true
+      }
+    ],
+    "cited_declaration_comparisons": [
+      {
+        "citation": "internal/natscell/runtime.go::Start",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/runtime.go::start",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/runtime.go::serverOptions",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/runtime.go::serverOptionsForStart",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/runtime.go::clientOptions",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/runtime.go::Close",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/runtime.go::WaitForCluster",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/runtime.go::FullClusterReady",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/runtime.go::metadataReady",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/runtime.go::peerCount",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/runtime.go::Ready",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/runtime.go::URL",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/runtime.go::StoreLimitBytes",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/accounts.go::credentialUser",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/accounts.go::credentialUserBytes",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/accounts.go::credentialAccount",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/runtime.go::readPrivateFile",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/jwt_bridge_test.go::testJWTUserCredentials",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/jwt_bridge_test.go::testJWTUserCredentialsWithKey",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/cluster_formation_test.go::newLabCluster",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/cluster_formation_test.go::start",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/cluster_formation_test.go::stop",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/cluster_formation_test.go::waitUntil",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/cluster_formation_test.go::createR3Stream",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/host_reconnect_test.go::freeClientPort",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/host_reconnect_test.go::freeClientPorts",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/health.go::ObserveCluster",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/health.go::PeerRoutes",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/shutdown.go::drainConnection",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/shutdown.go::stopServer",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/shutdown.go::handOffLeadership",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/shutdown.go::successorsElected",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/shutdown.go::groupLeaders",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/shutdown.go::ledGroups",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/shutdown.go::hasCurrentPeer",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/runtime.go::userPermissions",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/runtime.go::inboxPrefix",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/accounts.go::BrokerOperatorPublishPermissions",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/accounts.go::ControllerSubscriptions",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/runtime_test.go::newUserIdentity",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/leaftopology.go::HubAndSpoke",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/leaftopology.go::WithSpokeParent",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/leaftopology.go::Validate",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/leaftopology.go::Regions",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/leaftopology.go::Parent",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/leaftopology.go::Children",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/leaftopology.go::Peers",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/leaftopology.go::Subtrees",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/leaftopology.go::Links",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion.go::validate",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion.go::outbound",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion.go::inbound",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion.go::sameFlow",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion.go::globalMirrorFlows",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion.go::observabilityFlows",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion.go::LeafPermissions",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion.go::leafPermissionsFor",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion.go::CellExports",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion.go::CellImports",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion.go::InterRegionExports",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion.go::InterRegionImports",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion.go::ApplyCell",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion.go::ApplyInterRegion",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion.go::childScope",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion.go::verifyChildScopes",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion.go::verify",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion.go::denyAll",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion.go::samePermissions",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion.go::sameExports",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion.go::sameImports",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion.go::interRegionServerOptions",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion_test.go::newTestRegionKeys",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion_test.go::claims",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion_test.go::newTestRegion",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion_test.go::childKey",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion_test.go::childLeafCredentials",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion_test.go::leafCredentialsFor",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion_test.go::leafCredentialsWith",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion_test.go::requestUntil",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion_test.go::waitLeafCount",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion_test.go::newTCPProxy",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion_test.go::serve",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion_test.go::forward",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion_test.go::Write",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion_test.go::Blackhole",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion_test.go::Addr",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion_test.go::Close",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/interregion_test.go::Reopen",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/jwt_bridge_test.go::testBridgeTLS",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/jwt_bridge_test.go::testTLSFor",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/link.go::LinkScope",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/link.go::ApplyLink",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/link.go::IssueLinkUser",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/link.go::linkServerOptions",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/link_test.go::newLinkRegion",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/link_test.go::linkUserCredentials",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/link_test.go::useLinkListener",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/globalcontrol/document.go::PutDocument",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/globalcontrol/document.go::Document",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/globalcontrol/document.go::Follow",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/globalcontrol/document.go::watch",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/globalcontrol/store.go::OpenHome",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/globalcontrol/store.go::read",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/globalcontrol/store.go::checkMirrorGapFree",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/globalcontrol/store.go::info",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/globalcontrol/store.go::put",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/globalcontrol/store.go::establishTerm",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/globalcontrol/store.go::readTerm",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/globalcontrol/stream.go::HomeStreamConfig",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/globalcontrol/stream.go::MirrorStreamConfig",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/globalcontrol/stream.go::MirrorConsumerConfig",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/globalcontrol/stream.go::ensureMirrorConsumers",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/globalcontrol/stream.go::openStream",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/globalcontrol/stream.go::inspectStream",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/globalcontrol/stream.go::OpenMirror",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/authority/runtime.go::Start",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/authority/runtime.go::reconcile",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/authority/runtime.go::acquire",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/authority/runtime.go::appendLease",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/authority/runtime.go::Guard",
+        "exact_cited_source_preserved": false
+      },
+      {
+        "citation": "internal/authority/runtime.go::guardLocked",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/authority/runtime.go::Current",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/authority/log.go::openControlStream",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/cellspec/cellspec.go::Sign",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/cellspec/cellspec.go::VerifyCurrent",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/cellspec/cellspec.go::verify",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/trust/envelope.go::VerifyCurrent",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/trust/envelope.go::verifySignature",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/runtime.go::Config",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/runtime.go::validate",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/membership.go::ValidateMembershipCredentials",
+        "exact_cited_source_preserved": true
+      },
+      {
+        "citation": "internal/natscell/membership.go::membershipAPIError",
+        "exact_cited_source_preserved": true
+      }
+    ],
+    "relevant_changes": [
+      "All selected test declarations exact;21of23sourcepins exact. authority/runtime.go and authority/log.go blobs changed.",
+      "Of132cited declarations, only authority.Runtime.Guard changed: verificationGuard context dispatch added. Fabric PutDocument\u2192put\u2192fencer.Guard is a connected affected hop. guardVerification and its context machinery require separate bridge review.",
+      "Cited authority.openControlStream byte-exact despite changed authority/log.go blob; no claim that uncited mutation changes are qualified."
+    ]
+  },
+  "current_accepted_accounting_unchanged": {
+    "retired": 19,
+    "retained": 4300,
+    "classified": 102,
+    "integration": 78,
+    "unit": 23,
+    "mixed": 1,
+    "globally_unadjudicated": 4198
+  },
+  "qualification_limits": [
+    "No compiler, formatter, build, test, lint, runtime, lease, cloud, lock, process or network operations executed. Only pinned Git/Python read-only source analysis and exclusive /tmp report writes.",
+    "No passing execution, race, timing, current production startup, coverage, security/compliance, host acquisition, Vault delivery or retention/retirement qualification.",
+    "No source/Git/ledger mutation, no candidate promotion, no duplicate original-ID classification credit. Original candidate remains immutable.",
+    "All runtime qualification UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. Source pins do not grant whole-package or whole-repository correctness."
+  ]
+}

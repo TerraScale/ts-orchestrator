@@ -1,0 +1,2478 @@
+{
+  "state": "CANDIDATE_SOURCE_CLASSIFICATION_ONLY_NO_COUNTS_PROMOTED",
+  "created_utc": "2026-10-17T15:00:27.912026+00:00",
+  "owner": "/root/oci/identity",
+  "batch_id": "oci_boundaries15",
+  "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+  "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation_manifest": {
+    "path": "/tmp/ts-source-classification-batches-d4ac-0a9afk60/allocation.json",
+    "sha256": "a93275c8f26aa063e6cfc28fed074308c876e2da69baae89f8a0c3e3de77a6fd"
+  },
+  "output_contract": {
+    "path": "/tmp/ts-source-classification-batches-d4ac-0a9afk60/OUTPUT-CONTRACT.md",
+    "sha256": "926006744cf8baa22f381f44ef3904facf01fafce42cbf096c3be9c157c8f2d8"
+  },
+  "scope": {
+    "allocated_originals": 15,
+    "selected_test_files": 6,
+    "whole_package_exhaustive": false,
+    "unallocated_roots_classified": 0
+  },
+  "classification_definitions": {
+    "integration": "Core safety target materially crosses genuine server/client/storage, OS/process or protocol boundary. Fault injection may surround actual committed/read state; incidental setup is insufficient.",
+    "unit": "Asserted target stays local/map-backed/synthetic feed/validation, including guards before any actual I/O.",
+    "mixed": "Distinct material local-only and actual-boundary assertion blocks coexist; do not assign uniform integration credit.",
+    "unresolved": "Connected immutable source insufficient; separate from runtime unknown."
+  },
+  "counts": {
+    "total": 15,
+    "integration": 7,
+    "unit": 5,
+    "mixed": 3,
+    "unresolved": 0,
+    "retained_body_exact": 12,
+    "retained_body_changed": 3
+  },
+  "roots": [
+    {
+      "root_id": "internal/oci/capacity_request_integration_test.go::TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity",
+      "path": "internal/oci/capacity_request_integration_test.go",
+      "original_name": "TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity",
+      "kind": "test",
+      "original_declaration_sha256": "d9bda0fac58e26ea00a6cb0e9fb184c8a10c1f27953330955b5583cc053e69cb",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 13,
+        "end_line": 87
+      },
+      "current_name": "TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity",
+      "current_declaration_sha256": "c1e3f015356bb5d1754e6b565954627d5bbe72f47c1ce50ff3a0f8d8c4132e46",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 11,
+        "end_line": 84,
+        "git_blob": "a792c3b650f5f6edc93c646c14f5821f2918031b"
+      },
+      "survival_state": "retained_body_changed",
+      "classification": "mixed",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "rationale": "Restart, exact replay and conflict assertions read/write real FileStorage KV. Final missing-binding rejection is a distinct pre-I/O validation target.",
+      "setup_citation_keys": [
+        "authConfig",
+        "authStart",
+        "authClose"
+      ],
+      "production_citation_keys": [
+        "natsStart",
+        "natsOptions",
+        "natsClient",
+        "tlsDial",
+        "tlsListen",
+        "jOpenJournal",
+        "jread",
+        "capacityWrite",
+        "capacityRead",
+        "capacityValidate"
+      ],
+      "boundary_trace": "RecordCapacityRequest\u2192KV.Create; close/restart same disk store\u2192GetCapacityRequest\u2192KV.Get; valid conflicts\u2192Create conflict\u2192read original; invalid missing binding\u2192local validateReceipt",
+      "fakes_and_external_fact_limits": "Synthetic quote/grant/financial digests, scope and OCIDs prove durable byte identity only; no spending authority, financial completeness or actual OCI update.",
+      "assertion_blocks": [
+        {
+          "path": "internal/oci/capacity_request_integration_test.go",
+          "line": 30,
+          "end_line": 49,
+          "git_blob": "a792c3b650f5f6edc93c646c14f5821f2918031b",
+          "boundary_category": "integration",
+          "why": "Write, stop/restart same StoreDir, read original and exact replay",
+          "exact_text": "\tif err := journal.RecordCapacityRequest(t.Context(), request); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := runtime.Close(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\truntime, err = startAuthenticatedJournal(t.Context(), config)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tjournal, err = OpenJournal(t.Context(), runtime.JetStream(), 1)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tgot, found, err := journal.GetCapacityRequest(t.Context(), request.OperationID)\n\tif err != nil || !found || got != request {\n\t\tt.Fatalf(\"original request lost after disk restart: %+v found=%v err=%v\", got, found, err)\n\t}\n\tif err := journal.RecordCapacityRequest(t.Context(), request); err != nil {\n\t\tt.Fatalf(\"exact durable replay failed: %v\", err)"
+        },
+        {
+          "path": "internal/oci/capacity_request_integration_test.go",
+          "line": 51,
+          "end_line": 77,
+          "git_blob": "a792c3b650f5f6edc93c646c14f5821f2918031b",
+          "boundary_category": "integration",
+          "why": "Structurally valid conflicts/readback/absence reach real KV",
+          "exact_text": "\tfor _, change := range []struct {\n\t\tname string\n\t\tedit func(*CapacityRequest)\n\t}{\n\t\t{\"request\", func(r *CapacityRequest) { r.RequestSHA256 = strings.Repeat(\"2\", 64) }},\n\t\t{\"retry token\", func(r *CapacityRequest) { r.RetryToken = entityid.New() }},\n\t\t{\"precondition\", func(r *CapacityRequest) { r.IfMatch = \"refreshed-etag\" }},\n\t\t{\"target\", func(r *CapacityRequest) { r.TargetSize++ }},\n\t\t{\"quote\", func(r *CapacityRequest) { r.QuoteSHA256 = strings.Repeat(\"3\", 64) }},\n\t\t{\"grant\", func(r *CapacityRequest) { r.GrantGeneration++ }},\n\t\t{\"amount\", func(r *CapacityRequest) { r.ReservedMonthlyCents++ }},\n\t\t{\"time\", func(r *CapacityRequest) { r.StartedAt = r.StartedAt.Add(time.Minute) }},\n\t} {\n\t\tt.Run(change.name, func(t *testing.T) {\n\t\t\taltered := request\n\t\t\tchange.edit(&altered)\n\t\t\tif err := journal.RecordCapacityRequest(t.Context(), altered); err == nil {\n\t\t\t\tt.Fatal(\"changed request replaced immutable original\")\n\t\t\t}\n\t\t})\n\t}\n\tgot, found, err = journal.GetCapacityRequest(t.Context(), request.OperationID)\n\tif err != nil || !found || got != request {\n\t\tt.Fatalf(\"conflicting replay damaged original: %+v found=%v err=%v\", got, found, err)\n\t}\n\tif _, found, err := journal.GetCapacityRequest(t.Context(), entityid.New()); err != nil || found {\n\t\tt.Fatalf(\"missing request became evidence: found=%v err=%v\", found, err)"
+        },
+        {
+          "path": "internal/oci/capacity_request_integration_test.go",
+          "line": 79,
+          "end_line": 83,
+          "git_blob": "a792c3b650f5f6edc93c646c14f5821f2918031b",
+          "boundary_category": "unit",
+          "why": "Missing BindingSHA with differing scopes fails validateReceipt before KV",
+          "exact_text": "\tinvalid := request\n\tinvalid.OperationID, invalid.BindingSHA256 = entityid.New(), \"\"\n\tif err := journal.RecordCapacityRequest(t.Context(), invalid); err == nil {\n\t\tt.Fatal(\"resolved scope was recorded without its verified binding\")\n\t}"
+        }
+      ],
+      "baseline_declaration": {
+        "name": "TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity",
+        "line": 13,
+        "end_line": 87,
+        "raw_declaration_sha256": "d9bda0fac58e26ea00a6cb0e9fb184c8a10c1f27953330955b5583cc053e69cb",
+        "source_file": {
+          "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+          "path": "internal/oci/capacity_request_integration_test.go",
+          "git_mode": "100644",
+          "git_blob": "37540b09350a172f7a57d2a9dd5b77121eb95143",
+          "sha256": "1dae189eb22e6ab33b84efadcb0a343ccf179c49d5bc7072c3fab89230c3a7fe",
+          "bytes": 3641
+        }
+      },
+      "current_declaration": {
+        "name": "TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity",
+        "line": 11,
+        "end_line": 84,
+        "raw_declaration_sha256": "c1e3f015356bb5d1754e6b565954627d5bbe72f47c1ce50ff3a0f8d8c4132e46",
+        "source_file": {
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "path": "internal/oci/capacity_request_integration_test.go",
+          "git_mode": "100644",
+          "git_blob": "a792c3b650f5f6edc93c646c14f5821f2918031b",
+          "sha256": "2a3bc2af39a4429019edca97d1175c4a41dd04fe060dba4e5e71ee38518af230",
+          "bytes": 3442
+        }
+      },
+      "current_raw_declaration_text": "func TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity(t *testing.T) {\n\tconfig := authenticatedJournalConfig(t, \"capacity-request\")\n\truntime, err := startAuthenticatedJournal(t.Context(), config)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tt.Cleanup(func() { _ = runtime.Close() })\n\tjournal, err := OpenJournal(t.Context(), runtime.JetStream(), 1)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\trequest := CapacityRequest{\n\t\tOperationID: entityid.New(), RecipeSHA256: strings.Repeat(\"a\", 64),\n\t\tLogicalScopeSHA256: strings.Repeat(\"b\", 64), ResolvedScopeSHA256: strings.Repeat(\"c\", 64), BindingSHA256: strings.Repeat(\"d\", 64),\n\t\tGrantSHA256: strings.Repeat(\"e\", 64), GrantGeneration: 7,\n\t\tTenancyID: \"ocid1.tenancy.oc1..test\", Region: RegionGRU, CompartmentID: \"ocid1.compartment.oc1..owned\", PoolID: \"ocid1.instancepool.oc1..owned\",\n\t\tRequestSHA256: strings.Repeat(\"f\", 64), RetryToken: entityid.New(), IfMatch: \"original-pool-etag\", Currency: \"USD\",\n\t\tReservedMonthlyCents: 2147, QuoteSHA256: strings.Repeat(\"1\", 64), TargetSize: 2, StartedAt: time.Now().UTC(),\n\t}\n\tif err := journal.RecordCapacityRequest(t.Context(), request); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := runtime.Close(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\truntime, err = startAuthenticatedJournal(t.Context(), config)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tjournal, err = OpenJournal(t.Context(), runtime.JetStream(), 1)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tgot, found, err := journal.GetCapacityRequest(t.Context(), request.OperationID)\n\tif err != nil || !found || got != request {\n\t\tt.Fatalf(\"original request lost after disk restart: %+v found=%v err=%v\", got, found, err)\n\t}\n\tif err := journal.RecordCapacityRequest(t.Context(), request); err != nil {\n\t\tt.Fatalf(\"exact durable replay failed: %v\", err)\n\t}\n\tfor _, change := range []struct {\n\t\tname string\n\t\tedit func(*CapacityRequest)\n\t}{\n\t\t{\"request\", func(r *CapacityRequest) { r.RequestSHA256 = strings.Repeat(\"2\", 64) }},\n\t\t{\"retry token\", func(r *CapacityRequest) { r.RetryToken = entityid.New() }},\n\t\t{\"precondition\", func(r *CapacityRequest) { r.IfMatch = \"refreshed-etag\" }},\n\t\t{\"target\", func(r *CapacityRequest) { r.TargetSize++ }},\n\t\t{\"quote\", func(r *CapacityRequest) { r.QuoteSHA256 = strings.Repeat(\"3\", 64) }},\n\t\t{\"grant\", func(r *CapacityRequest) { r.GrantGeneration++ }},\n\t\t{\"amount\", func(r *CapacityRequest) { r.ReservedMonthlyCents++ }},\n\t\t{\"time\", func(r *CapacityRequest) { r.StartedAt = r.StartedAt.Add(time.Minute) }},\n\t} {\n\t\tt.Run(change.name, func(t *testing.T) {\n\t\t\taltered := request\n\t\t\tchange.edit(&altered)\n\t\t\tif err := journal.RecordCapacityRequest(t.Context(), altered); err == nil {\n\t\t\t\tt.Fatal(\"changed request replaced immutable original\")\n\t\t\t}\n\t\t})\n\t}\n\tgot, found, err = journal.GetCapacityRequest(t.Context(), request.OperationID)\n\tif err != nil || !found || got != request {\n\t\tt.Fatalf(\"conflicting replay damaged original: %+v found=%v err=%v\", got, found, err)\n\t}\n\tif _, found, err := journal.GetCapacityRequest(t.Context(), entityid.New()); err != nil || found {\n\t\tt.Fatalf(\"missing request became evidence: found=%v err=%v\", found, err)\n\t}\n\tinvalid := request\n\tinvalid.OperationID, invalid.BindingSHA256 = entityid.New(), \"\"\n\tif err := journal.RecordCapacityRequest(t.Context(), invalid); err == nil {\n\t\tt.Fatal(\"resolved scope was recorded without its verified binding\")\n\t}\n}",
+      "body_change_review": "Only Lab bootstrap/restart replaced with authenticatedJournal helpers; substantive assertions retained; no retirement credit.",
+      "pins_independently_reconfirmed": true,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/inventory_test.go::TestCompleteObserveSweepPublishesTheFleetByLifecycleState",
+      "path": "internal/oci/inventory_test.go",
+      "original_name": "TestCompleteObserveSweepPublishesTheFleetByLifecycleState",
+      "kind": "test",
+      "original_declaration_sha256": "bff7cc53dec632a8dfcd12e7747af47b57cbafe1775d2479a6638d30f11e6607",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 22,
+        "end_line": 56
+      },
+      "current_name": "TestCompleteObserveSweepPublishesTheFleetByLifecycleState",
+      "current_declaration_sha256": "bff7cc53dec632a8dfcd12e7747af47b57cbafe1775d2479a6638d30f11e6607",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 22,
+        "end_line": 56,
+        "git_blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943"
+      },
+      "survival_state": "retained_body_exact",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "rationale": "Synthetic map-provider/map-journal fleet feeds local inventory snapshots and Prometheus string builder. No actual SDK or storage boundary.",
+      "setup_citation_keys": [
+        "newAttach",
+        "newFakeProvider",
+        "newFakeJournal",
+        "newTestFleet",
+        "fakeList",
+        "fakeGet",
+        "fakeAttachments",
+        "fakeOwned",
+        "fakeOwnedAttachment",
+        "fakeOperation"
+      ],
+      "production_citation_keys": [
+        "sweep",
+        "selected",
+        "instanceFromCloud",
+        "inventoryAdd",
+        "inventoryPublish",
+        "inventoryRead"
+      ],
+      "boundary_trace": "newAttachTestState\u2192fake provider/journal maps\u2192Observe\u2192local publishInventory; Metrics.WritePrometheus writes strings.Builder",
+      "fakes_and_external_fact_limits": "No actual provider, image trust, network/storage verification or persistence. Production method names do not change map-backed target.",
+      "assertion_blocks": [
+        {
+          "path": "internal/oci/inventory_test.go",
+          "line": 30,
+          "end_line": 46,
+          "git_blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943",
+          "boundary_category": "unit",
+          "why": "Fake sweep then local snapshot/API/gauge text",
+          "exact_text": "\tif _, err := subject.Observe(ctx); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tinstances, volumes, attachments, observed := fleetView(t, host.Region)\n\tif observed.IsZero() || sum(instances) != 1 || instances[host.State] != 1 || sum(volumes) != 1 ||\n\t\tattachments[\"ATTACHED\"] != 1 || sum(attachments) != 1 {\n\t\tt.Fatalf(\"inventory = instances %v volumes %v attachments %v\", instances, volumes, attachments)\n\t}\n\tview := APIView()\n\tif len(view.Fleet) == 0 {\n\t\tt.Fatal(\"the OCI view lacks the fleet inventory\")\n\t}\n\tvar exposition strings.Builder\n\tMetrics.WritePrometheus(&exposition)\n\tif !strings.Contains(exposition.String(), `oci_fleet_resources{region=\"`+string(host.Region)+`\",kind=\"attachment\",state=\"ATTACHED\"} 1`) {\n\t\tt.Fatalf(\"fleet gauges missing from /metrics:\\n%s\", exposition.String())\n\t}"
+        },
+        {
+          "path": "internal/oci/inventory_test.go",
+          "line": 48,
+          "end_line": 55,
+          "git_blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943",
+          "boundary_category": "unit",
+          "why": "Fake selective sweep preserves local complete timestamp",
+          "exact_text": "\t// A selective observation never replaces the complete inventory.\n\tbefore := observed\n\tif _, err := subject.(*fleet).ObserveSelected(ctx, func(string, string) bool { return false }); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, _, _, after := fleetView(t, host.Region); !after.Equal(before) {\n\t\tt.Fatal(\"a selective observation replaced the complete inventory\")\n\t}"
+        }
+      ],
+      "baseline_declaration": {
+        "name": "TestCompleteObserveSweepPublishesTheFleetByLifecycleState",
+        "line": 22,
+        "end_line": 56,
+        "raw_declaration_sha256": "bff7cc53dec632a8dfcd12e7747af47b57cbafe1775d2479a6638d30f11e6607",
+        "source_file": {
+          "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+          "path": "internal/oci/inventory_test.go",
+          "git_mode": "100644",
+          "git_blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943",
+          "sha256": "281b89dabeb24a0aa90ef6f0976a7da5f8024c7317d44f3515a5555dc9cd2457",
+          "bytes": 4504
+        }
+      },
+      "current_declaration": {
+        "name": "TestCompleteObserveSweepPublishesTheFleetByLifecycleState",
+        "line": 22,
+        "end_line": 56,
+        "raw_declaration_sha256": "bff7cc53dec632a8dfcd12e7747af47b57cbafe1775d2479a6638d30f11e6607",
+        "source_file": {
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "path": "internal/oci/inventory_test.go",
+          "git_mode": "100644",
+          "git_blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943",
+          "sha256": "281b89dabeb24a0aa90ef6f0976a7da5f8024c7317d44f3515a5555dc9cd2457",
+          "bytes": 4504
+        }
+      },
+      "current_raw_declaration_text": "func TestCompleteObserveSweepPublishesTheFleetByLifecycleState(t *testing.T) {\n\tctx := t.Context()\n\t_, _, _, subject, host, volume := newAttachTestState(t)\n\tif _, err := subject.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: \"0000000000JJVVW9EMWY1PE1VX\", PartitionID: \"0000000000HE4W7FRNR204Q6TQ\",\n\t\tVolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: entityid.Derive(\"test-attach\", \"attach-inventory\"),\n\t}); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := subject.Observe(ctx); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tinstances, volumes, attachments, observed := fleetView(t, host.Region)\n\tif observed.IsZero() || sum(instances) != 1 || instances[host.State] != 1 || sum(volumes) != 1 ||\n\t\tattachments[\"ATTACHED\"] != 1 || sum(attachments) != 1 {\n\t\tt.Fatalf(\"inventory = instances %v volumes %v attachments %v\", instances, volumes, attachments)\n\t}\n\tview := APIView()\n\tif len(view.Fleet) == 0 {\n\t\tt.Fatal(\"the OCI view lacks the fleet inventory\")\n\t}\n\tvar exposition strings.Builder\n\tMetrics.WritePrometheus(&exposition)\n\tif !strings.Contains(exposition.String(), `oci_fleet_resources{region=\"`+string(host.Region)+`\",kind=\"attachment\",state=\"ATTACHED\"} 1`) {\n\t\tt.Fatalf(\"fleet gauges missing from /metrics:\\n%s\", exposition.String())\n\t}\n\n\t// A selective observation never replaces the complete inventory.\n\tbefore := observed\n\tif _, err := subject.(*fleet).ObserveSelected(ctx, func(string, string) bool { return false }); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, _, _, after := fleetView(t, host.Region); !after.Equal(before) {\n\t\tt.Fatal(\"a selective observation replaced the complete inventory\")\n\t}\n}",
+      "body_change_review": "Raw declaration identical to baseline; canonical setup/production paths reviewed.",
+      "pins_independently_reconfirmed": true,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/inventory_test.go::TestInventoryZeroesStatesThatEmptied",
+      "path": "internal/oci/inventory_test.go",
+      "original_name": "TestInventoryZeroesStatesThatEmptied",
+      "kind": "test",
+      "original_declaration_sha256": "51a0509e22e3ed3ff2ffe814c42eb8a18c1a4242906c7626ac0b0a8fbf36a8c7",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 58,
+        "end_line": 85
+      },
+      "current_name": "TestInventoryZeroesStatesThatEmptied",
+      "current_declaration_sha256": "51a0509e22e3ed3ff2ffe814c42eb8a18c1a4242906c7626ac0b0a8fbf36a8c7",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 58,
+        "end_line": 85,
+        "git_blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943"
+      },
+      "survival_state": "retained_body_exact",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "rationale": "Direct tally, local replacement/gauge formatting and cardinality assertions; no I/O.",
+      "setup_citation_keys": [],
+      "production_citation_keys": [
+        "inventoryAdd",
+        "inventoryPublish",
+        "inventoryRead"
+      ],
+      "boundary_trace": "Local tally.add\u2192publishInventory\u2192FleetInventory and string builder",
+      "fakes_and_external_fact_limits": "Synthetic lifecycle strings only; no provider/journal involved.",
+      "assertion_blocks": [
+        {
+          "path": "internal/oci/inventory_test.go",
+          "line": 60,
+          "end_line": 74,
+          "git_blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943",
+          "boundary_category": "unit",
+          "why": "Replace direct local tallies and zero previous gauge",
+          "exact_text": "\tfirst := newInventoryTally()\n\tfirst.instance(\"RUNNING\")\n\tfirst.instance(\"\")\n\tpublishInventory(region, first, time.Unix(1, 0))\n\tsecond := newInventoryTally()\n\tsecond.instance(\"STOPPED\")\n\tpublishInventory(region, second, time.Unix(2, 0))\n\tinstances, _, _, _ := fleetView(t, region)\n\tif len(instances) != 1 || instances[\"STOPPED\"] != 1 {\n\t\tt.Fatalf(\"instances = %v\", instances)\n\t}\n\tvar exposition strings.Builder\n\tMetrics.WritePrometheus(&exposition)\n\tif !strings.Contains(exposition.String(), `oci_fleet_resources{region=\"inventory-test\",kind=\"instance\",state=\"RUNNING\"} 0`) {\n\t\tt.Fatal(\"an emptied state kept its last count\")"
+        },
+        {
+          "path": "internal/oci/inventory_test.go",
+          "line": 76,
+          "end_line": 84,
+          "git_blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943",
+          "boundary_category": "unit",
+          "why": "Nil-safe/local bounded-cardinality counts",
+          "exact_text": "\tvar nilTally *inventoryTally\n\tnilTally.volume(\"AVAILABLE\") // outside a sweep: no tally, no panic\n\tbounded := newInventoryTally()\n\tfor index := range maxInventoryStates + 4 {\n\t\tbounded.attachment(strings.Repeat(\"S\", index+1))\n\t}\n\tif len(bounded.attachments) != maxInventoryStates+1 || bounded.attachments[\"OTHER\"] != 4 {\n\t\tt.Fatalf(\"states are not bounded: %v\", bounded.attachments)\n\t}"
+        }
+      ],
+      "baseline_declaration": {
+        "name": "TestInventoryZeroesStatesThatEmptied",
+        "line": 58,
+        "end_line": 85,
+        "raw_declaration_sha256": "51a0509e22e3ed3ff2ffe814c42eb8a18c1a4242906c7626ac0b0a8fbf36a8c7",
+        "source_file": {
+          "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+          "path": "internal/oci/inventory_test.go",
+          "git_mode": "100644",
+          "git_blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943",
+          "sha256": "281b89dabeb24a0aa90ef6f0976a7da5f8024c7317d44f3515a5555dc9cd2457",
+          "bytes": 4504
+        }
+      },
+      "current_declaration": {
+        "name": "TestInventoryZeroesStatesThatEmptied",
+        "line": 58,
+        "end_line": 85,
+        "raw_declaration_sha256": "51a0509e22e3ed3ff2ffe814c42eb8a18c1a4242906c7626ac0b0a8fbf36a8c7",
+        "source_file": {
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "path": "internal/oci/inventory_test.go",
+          "git_mode": "100644",
+          "git_blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943",
+          "sha256": "281b89dabeb24a0aa90ef6f0976a7da5f8024c7317d44f3515a5555dc9cd2457",
+          "bytes": 4504
+        }
+      },
+      "current_raw_declaration_text": "func TestInventoryZeroesStatesThatEmptied(t *testing.T) {\n\tregion := Region(\"inventory-test\")\n\tfirst := newInventoryTally()\n\tfirst.instance(\"RUNNING\")\n\tfirst.instance(\"\")\n\tpublishInventory(region, first, time.Unix(1, 0))\n\tsecond := newInventoryTally()\n\tsecond.instance(\"STOPPED\")\n\tpublishInventory(region, second, time.Unix(2, 0))\n\tinstances, _, _, _ := fleetView(t, region)\n\tif len(instances) != 1 || instances[\"STOPPED\"] != 1 {\n\t\tt.Fatalf(\"instances = %v\", instances)\n\t}\n\tvar exposition strings.Builder\n\tMetrics.WritePrometheus(&exposition)\n\tif !strings.Contains(exposition.String(), `oci_fleet_resources{region=\"inventory-test\",kind=\"instance\",state=\"RUNNING\"} 0`) {\n\t\tt.Fatal(\"an emptied state kept its last count\")\n\t}\n\tvar nilTally *inventoryTally\n\tnilTally.volume(\"AVAILABLE\") // outside a sweep: no tally, no panic\n\tbounded := newInventoryTally()\n\tfor index := range maxInventoryStates + 4 {\n\t\tbounded.attachment(strings.Repeat(\"S\", index+1))\n\t}\n\tif len(bounded.attachments) != maxInventoryStates+1 || bounded.attachments[\"OTHER\"] != 4 {\n\t\tt.Fatalf(\"states are not bounded: %v\", bounded.attachments)\n\t}\n}",
+      "body_change_review": "Raw declaration identical to baseline; canonical setup/production paths reviewed.",
+      "pins_independently_reconfirmed": true,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/inventory_test.go::TestInventoryCountsOnlyVerifiedHosts",
+      "path": "internal/oci/inventory_test.go",
+      "original_name": "TestInventoryCountsOnlyVerifiedHosts",
+      "kind": "test",
+      "original_declaration_sha256": "c2f920bd7718d9a21ddc36763e9d9369ba37214f17ba0c9dfb8fbae8829ea357",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 98,
+        "end_line": 120
+      },
+      "current_name": "TestInventoryCountsOnlyVerifiedHosts",
+      "current_declaration_sha256": "c2f920bd7718d9a21ddc36763e9d9369ba37214f17ba0c9dfb8fbae8829ea357",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 98,
+        "end_line": 120,
+        "git_blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943"
+      },
+      "survival_state": "retained_body_exact",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "rationale": "Synthetic unconfirmed attachment inserted directly into fake map; local sweeps/ownership checks feed local tally.",
+      "setup_citation_keys": [
+        "newAttach",
+        "newFakeProvider",
+        "newFakeJournal",
+        "newTestFleet",
+        "fakeList",
+        "fakeGet",
+        "fakeAttachments",
+        "fakeOwned",
+        "fakeOwnedAttachment",
+        "fakeOperation"
+      ],
+      "production_citation_keys": [
+        "sweep",
+        "selected",
+        "instanceFromCloud",
+        "inventoryAdd",
+        "inventoryPublish",
+        "inventoryRead"
+      ],
+      "boundary_trace": "fake attachments map\u2192Observe\u2192fake journal ownership false\u2192local tally withholding",
+      "fakes_and_external_fact_limits": "No real OCI attachment/ownership or order behavior qualification.",
+      "assertion_blocks": [
+        {
+          "path": "internal/oci/inventory_test.go",
+          "line": 106,
+          "end_line": 118,
+          "git_blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943",
+          "boundary_category": "unit",
+          "why": "Eight fake sweeps withhold host and volume/attachment counts",
+          "exact_text": "\tprovider.attachments[\"attachment-unconfirmed\"] = observeTestAttachment(\"attachment-unconfirmed\", volume.ID, host.ID)\n\tfor range 8 {\n\t\tobserved, err := subject.Observe(ctx)\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tif len(observed) != 0 {\n\t\t\tt.Fatalf(\"observed %d hosts, want the host withheld\", len(observed))\n\t\t}\n\t\tinstances, volumes, attachments, _ := fleetView(t, host.Region)\n\t\tif sum(instances) != 1 || sum(volumes) != 0 || sum(attachments) != 0 {\n\t\t\tt.Fatalf(\"inventory = instances %v volumes %v attachments %v\", instances, volumes, attachments)\n\t\t}"
+        }
+      ],
+      "baseline_declaration": {
+        "name": "TestInventoryCountsOnlyVerifiedHosts",
+        "line": 98,
+        "end_line": 120,
+        "raw_declaration_sha256": "c2f920bd7718d9a21ddc36763e9d9369ba37214f17ba0c9dfb8fbae8829ea357",
+        "source_file": {
+          "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+          "path": "internal/oci/inventory_test.go",
+          "git_mode": "100644",
+          "git_blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943",
+          "sha256": "281b89dabeb24a0aa90ef6f0976a7da5f8024c7317d44f3515a5555dc9cd2457",
+          "bytes": 4504
+        }
+      },
+      "current_declaration": {
+        "name": "TestInventoryCountsOnlyVerifiedHosts",
+        "line": 98,
+        "end_line": 120,
+        "raw_declaration_sha256": "c2f920bd7718d9a21ddc36763e9d9369ba37214f17ba0c9dfb8fbae8829ea357",
+        "source_file": {
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "path": "internal/oci/inventory_test.go",
+          "git_mode": "100644",
+          "git_blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943",
+          "sha256": "281b89dabeb24a0aa90ef6f0976a7da5f8024c7317d44f3515a5555dc9cd2457",
+          "bytes": 4504
+        }
+      },
+      "current_raw_declaration_text": "func TestInventoryCountsOnlyVerifiedHosts(t *testing.T) {\n\tctx := t.Context()\n\t_, provider, _, subject, host, volume := newAttachTestState(t)\n\tif _, err := subject.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: \"0000000000JJVVW9EMWY1PE1VX\", PartitionID: \"0000000000HE4W7FRNR204Q6TQ\",\n\t\tVolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: entityid.Derive(\"test-attach\", \"attach-inventory-partial\"),\n\t}); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tprovider.attachments[\"attachment-unconfirmed\"] = observeTestAttachment(\"attachment-unconfirmed\", volume.ID, host.ID)\n\tfor range 8 {\n\t\tobserved, err := subject.Observe(ctx)\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tif len(observed) != 0 {\n\t\t\tt.Fatalf(\"observed %d hosts, want the host withheld\", len(observed))\n\t\t}\n\t\tinstances, volumes, attachments, _ := fleetView(t, host.Region)\n\t\tif sum(instances) != 1 || sum(volumes) != 0 || sum(attachments) != 0 {\n\t\t\tt.Fatalf(\"inventory = instances %v volumes %v attachments %v\", instances, volumes, attachments)\n\t\t}\n\t}\n}",
+      "body_change_review": "Raw declaration identical to baseline; canonical setup/production paths reviewed.",
+      "pins_independently_reconfirmed": true,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/journal_test.go::TestRegionIntentUsesFixedProductMapping",
+      "path": "internal/oci/journal_test.go",
+      "original_name": "TestRegionIntentUsesFixedProductMapping",
+      "kind": "test",
+      "original_declaration_sha256": "c7e16576d9159bd9d878c773eb2c6c97ad92231d6c3aac9a411840e365f05655",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 19,
+        "end_line": 38
+      },
+      "current_name": "TestRegionIntentUsesFixedProductMapping",
+      "current_declaration_sha256": "c7e16576d9159bd9d878c773eb2c6c97ad92231d6c3aac9a411840e365f05655",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 17,
+        "end_line": 36,
+        "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63"
+      },
+      "survival_state": "retained_body_exact",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "rationale": "Literal bytes go through strict JSON/config/catalog validation. No file loading or I/O.",
+      "setup_citation_keys": [
+        "regionFixture"
+      ],
+      "production_citation_keys": [
+        "parseRegion",
+        "validateRegion",
+        "validateConfig"
+      ],
+      "boundary_trace": "ParseRegionIntent\u2192strict json.Unmarshal\u2192RegionIntent.Validate; RegionConfig.Validate local checks",
+      "fakes_and_external_fact_limits": "No actual region/account authorization, runtime scope or OCI placement.",
+      "assertion_blocks": [
+        {
+          "path": "internal/oci/journal_test.go",
+          "line": 18,
+          "end_line": 34,
+          "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+          "boundary_category": "unit",
+          "why": "Known mapping accepted, wrong mapping and unknown field rejected",
+          "exact_text": "\tvalid := []byte(`{\"schemaVersion\":1,\"generation\":8,\"bootstrapRegion\":\"GRU\",\"regions\":[{\"cell\":\"GRU\",\"ociRegion\":\"sa-saopaulo-1\"},{\"cell\":\"SFO\",\"ociRegion\":\"us-sanjose-1\"}]}`)\n\tintent, err := ParseRegionIntent(valid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tconfig, _ := testRegionConfig()\n\tconfig.Generation = intent.Generation\n\tif err := config.Validate(intent); err != nil {\n\t\tt.Fatalf(\"valid GRU config rejected: %v\", err)\n\t}\n\twrongRegion := []byte(`{\"schemaVersion\":1,\"generation\":8,\"bootstrapRegion\":\"GRU\",\"regions\":[{\"cell\":\"GRU\",\"ociRegion\":\"us-sanjose-1\"}]}`)\n\tif _, err := ParseRegionIntent(wrongRegion); err == nil {\n\t\tt.Fatal(\"unsupported product-to-OCI mapping was accepted\")\n\t}\n\tunknownField := []byte(`{\"schemaVersion\":1,\"generation\":8,\"bootstrapRegion\":\"GRU\",\"regions\":[{\"cell\":\"GRU\",\"ociRegion\":\"sa-saopaulo-1\"}],\"endpoint\":\"https://elsewhere\"}`)\n\tif _, err := ParseRegionIntent(unknownField); err == nil {\n\t\tt.Fatal(\"unknown region-intent field was accepted\")"
+        }
+      ],
+      "baseline_declaration": {
+        "name": "TestRegionIntentUsesFixedProductMapping",
+        "line": 19,
+        "end_line": 38,
+        "raw_declaration_sha256": "c7e16576d9159bd9d878c773eb2c6c97ad92231d6c3aac9a411840e365f05655",
+        "source_file": {
+          "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+          "path": "internal/oci/journal_test.go",
+          "git_mode": "100644",
+          "git_blob": "8705e216dfdbc41ce3a645d2f9b13ef96ab14b82",
+          "sha256": "570fc7df074fde649c4ba527b5df4ab795d412ba3a4f3a7beee64f1e01012e89",
+          "bytes": 16873
+        }
+      },
+      "current_declaration": {
+        "name": "TestRegionIntentUsesFixedProductMapping",
+        "line": 17,
+        "end_line": 36,
+        "raw_declaration_sha256": "c7e16576d9159bd9d878c773eb2c6c97ad92231d6c3aac9a411840e365f05655",
+        "source_file": {
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "path": "internal/oci/journal_test.go",
+          "git_mode": "100644",
+          "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+          "sha256": "f74af33c76a760d8256c3c1380283abd0786475fe1fa4283f7586b4885f769ec",
+          "bytes": 16657
+        }
+      },
+      "current_raw_declaration_text": "func TestRegionIntentUsesFixedProductMapping(t *testing.T) {\n\tvalid := []byte(`{\"schemaVersion\":1,\"generation\":8,\"bootstrapRegion\":\"GRU\",\"regions\":[{\"cell\":\"GRU\",\"ociRegion\":\"sa-saopaulo-1\"},{\"cell\":\"SFO\",\"ociRegion\":\"us-sanjose-1\"}]}`)\n\tintent, err := ParseRegionIntent(valid)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tconfig, _ := testRegionConfig()\n\tconfig.Generation = intent.Generation\n\tif err := config.Validate(intent); err != nil {\n\t\tt.Fatalf(\"valid GRU config rejected: %v\", err)\n\t}\n\twrongRegion := []byte(`{\"schemaVersion\":1,\"generation\":8,\"bootstrapRegion\":\"GRU\",\"regions\":[{\"cell\":\"GRU\",\"ociRegion\":\"us-sanjose-1\"}]}`)\n\tif _, err := ParseRegionIntent(wrongRegion); err == nil {\n\t\tt.Fatal(\"unsupported product-to-OCI mapping was accepted\")\n\t}\n\tunknownField := []byte(`{\"schemaVersion\":1,\"generation\":8,\"bootstrapRegion\":\"GRU\",\"regions\":[{\"cell\":\"GRU\",\"ociRegion\":\"sa-saopaulo-1\"}],\"endpoint\":\"https://elsewhere\"}`)\n\tif _, err := ParseRegionIntent(unknownField); err == nil {\n\t\tt.Fatal(\"unknown region-intent field was accepted\")\n\t}\n}",
+      "body_change_review": "Raw declaration identical to baseline; canonical setup/production paths reviewed.",
+      "pins_independently_reconfirmed": true,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/journal_test.go::TestJournalBootBindingSurvivesReopenAndRejectsRebinding",
+      "path": "internal/oci/journal_test.go",
+      "original_name": "TestJournalBootBindingSurvivesReopenAndRejectsRebinding",
+      "kind": "test",
+      "original_declaration_sha256": "659e88061cda236b9490c76c7f5217bec28a1a8aac9e6af6356f958c5c042810",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 40,
+        "end_line": 70
+      },
+      "current_name": "TestJournalBootBindingSurvivesReopenAndRejectsRebinding",
+      "current_declaration_sha256": "659e88061cda236b9490c76c7f5217bec28a1a8aac9e6af6356f958c5c042810",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 38,
+        "end_line": 68,
+        "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63"
+      },
+      "survival_state": "retained_body_exact",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "rationale": "Boot-binding create/replay/conflict reads actual KV. Reopen means a second wrapper on the same running bucket, not broker/disk restart.",
+      "setup_citation_keys": [
+        "bucket",
+        "authConfig",
+        "authStart",
+        "authClose"
+      ],
+      "production_citation_keys": [
+        "natsStart",
+        "natsOptions",
+        "natsClient",
+        "tlsDial",
+        "tlsListen",
+        "jOpenJournal",
+        "jread",
+        "jRecordBootBinding",
+        "jGetBootBinding"
+      ],
+      "boundary_trace": "RecordBootBinding\u2192KV.Create; NewKVJournal same real bucket\u2192GetBootBinding\u2192KV.Get; rebinding\u2192Create conflict\u2192Get original",
+      "fakes_and_external_fact_limits": "Synthetic boot OCIDs; no actual boot volume or restart/R3 qualification.",
+      "assertion_blocks": [
+        {
+          "path": "internal/oci/journal_test.go",
+          "line": 49,
+          "end_line": 67,
+          "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+          "boundary_category": "integration",
+          "why": "Real create/get, reopened wrapper readback, replay and rebinding rejection",
+          "exact_text": "\tif err := journal.RecordBootBinding(t.Context(), binding); err != nil {\n\t\tt.Fatal(err)\n\t}\n\treopened, err := NewKVJournal(kv)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tgot, found, err := reopened.GetBootBinding(t.Context(), binding.InstanceID)\n\tif err != nil || !found || got != binding {\n\t\tt.Fatalf(\"reopened journal lost exact boot binding: %+v found=%v err=%v\", got, found, err)\n\t}\n\tif err := reopened.RecordBootBinding(t.Context(), binding); err != nil {\n\t\tt.Fatalf(\"idempotent binding failed: %v\", err)\n\t}\n\trebound := binding\n\trebound.BootVolumeID = \"ocid1.bootvolume.foreign\"\n\tif err := reopened.RecordBootBinding(t.Context(), rebound); err == nil {\n\t\tt.Fatal(\"journal allowed boot volume rebinding\")\n\t}"
+        }
+      ],
+      "baseline_declaration": {
+        "name": "TestJournalBootBindingSurvivesReopenAndRejectsRebinding",
+        "line": 40,
+        "end_line": 70,
+        "raw_declaration_sha256": "659e88061cda236b9490c76c7f5217bec28a1a8aac9e6af6356f958c5c042810",
+        "source_file": {
+          "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+          "path": "internal/oci/journal_test.go",
+          "git_mode": "100644",
+          "git_blob": "8705e216dfdbc41ce3a645d2f9b13ef96ab14b82",
+          "sha256": "570fc7df074fde649c4ba527b5df4ab795d412ba3a4f3a7beee64f1e01012e89",
+          "bytes": 16873
+        }
+      },
+      "current_declaration": {
+        "name": "TestJournalBootBindingSurvivesReopenAndRejectsRebinding",
+        "line": 38,
+        "end_line": 68,
+        "raw_declaration_sha256": "659e88061cda236b9490c76c7f5217bec28a1a8aac9e6af6356f958c5c042810",
+        "source_file": {
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "path": "internal/oci/journal_test.go",
+          "git_mode": "100644",
+          "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+          "sha256": "f74af33c76a760d8256c3c1380283abd0786475fe1fa4283f7586b4885f769ec",
+          "bytes": 16657
+        }
+      },
+      "current_raw_declaration_text": "func TestJournalBootBindingSurvivesReopenAndRejectsRebinding(t *testing.T) {\n\tkv := testJournalBucket(t)\n\tjournal, err := NewKVJournal(kv)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tconfig, _ := testRegionConfig()\n\tbinding := BootBinding{InstanceID: \"ocid1.instance.boot-binding\", BootVolumeID: \"ocid1.bootvolume.boot-binding\",\n\t\tRegion: config.Region, Generation: config.Generation, Owner: config.Owner, CreateKey: \"00000000009R9M51DSAZK1GRKK\",\n\t\tCompartmentID: config.CompartmentID, AvailabilityDomain: config.AvailabilityDomain,\n\t\tImageID: config.ImageID, SizeGB: int64(config.BootVolumeGB), VPUsPerGB: int64(config.BootVolumeVPUsPerGB)}\n\tif err := journal.RecordBootBinding(t.Context(), binding); err != nil {\n\t\tt.Fatal(err)\n\t}\n\treopened, err := NewKVJournal(kv)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tgot, found, err := reopened.GetBootBinding(t.Context(), binding.InstanceID)\n\tif err != nil || !found || got != binding {\n\t\tt.Fatalf(\"reopened journal lost exact boot binding: %+v found=%v err=%v\", got, found, err)\n\t}\n\tif err := reopened.RecordBootBinding(t.Context(), binding); err != nil {\n\t\tt.Fatalf(\"idempotent binding failed: %v\", err)\n\t}\n\trebound := binding\n\trebound.BootVolumeID = \"ocid1.bootvolume.foreign\"\n\tif err := reopened.RecordBootBinding(t.Context(), rebound); err == nil {\n\t\tt.Fatal(\"journal allowed boot volume rebinding\")\n\t}\n}",
+      "body_change_review": "Raw declaration identical to baseline; canonical setup/production paths reviewed.",
+      "pins_independently_reconfirmed": true,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/journal_test.go::TestJournalRepairsOwnershipProjectionAfterPartialFailure",
+      "path": "internal/oci/journal_test.go",
+      "original_name": "TestJournalRepairsOwnershipProjectionAfterPartialFailure",
+      "kind": "test",
+      "original_declaration_sha256": "fee5193a4d050dcf59bd8c1cbb749915d8600afd7ba8f89ceded831ac905ddf0",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 72,
+        "end_line": 99
+      },
+      "current_name": "TestJournalRepairsOwnershipProjectionAfterPartialFailure",
+      "current_declaration_sha256": "fee5193a4d050dcf59bd8c1cbb749915d8600afd7ba8f89ceded831ac905ddf0",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 70,
+        "end_line": 97,
+        "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63"
+      },
+      "survival_state": "retained_body_exact",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "rationale": "One-shot error rejects reverse-index Create after actual primary receipt CAS. Actual receipt read repairs actual missing ownership.",
+      "setup_citation_keys": [
+        "bucket",
+        "bootFixture",
+        "failOwnership",
+        "authConfig",
+        "authStart",
+        "authClose"
+      ],
+      "production_citation_keys": [
+        "natsStart",
+        "natsOptions",
+        "natsClient",
+        "tlsDial",
+        "tlsListen",
+        "jOpenJournal",
+        "jread",
+        "jRecordIntent",
+        "jRecordResult",
+        "jIsOwnedInstance",
+        "jisOwned",
+        "jrepairOwnershipFromOperation",
+        "jrepairOwnership",
+        "jrecordOwnership"
+      ],
+      "boundary_trace": "RecordIntent Create\u2192RecordResult Get/Update\u2192injected first index error; missing index Get\u2192primary receipt Get\u2192real Create repair",
+      "fakes_and_external_fact_limits": "Error wrapper delegates real KV except single injected Create; cloud result is synthetic. No real provider mutation.",
+      "assertion_blocks": [
+        {
+          "path": "internal/oci/journal_test.go",
+          "line": 79,
+          "end_line": 95,
+          "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+          "boundary_category": "integration",
+          "why": "Committed receipt partial failure, read repair and exact retry",
+          "exact_text": "\tif err := journal.RecordIntent(ctx, intent); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tresult := OperationResult{Intent: intent, ResourceID: \"ocid1.instance.journal-a\", ETag: \"e1\"}\n\tif err := journal.RecordResult(ctx, result); err == nil {\n\t\tt.Fatal(\"injected ownership projection failure was not surfaced\")\n\t}\n\tidentity := ResourceIdentity{\n\t\tID: result.ResourceID, Region: intent.Region, Generation: intent.Generation,\n\t\tOwner: intent.Owner, CreateKey: intent.CreateKey,\n\t}\n\towned, err := journal.IsOwnedInstance(ctx, identity)\n\tif err != nil || !owned {\n\t\tt.Fatalf(\"confirmed operation did not repair ownership on read: owned=%v err=%v\", owned, err)\n\t}\n\tif err := journal.RecordResult(ctx, result); err != nil {\n\t\tt.Fatalf(\"idempotent result retry did not repair ownership: %v\", err)"
+        }
+      ],
+      "baseline_declaration": {
+        "name": "TestJournalRepairsOwnershipProjectionAfterPartialFailure",
+        "line": 72,
+        "end_line": 99,
+        "raw_declaration_sha256": "fee5193a4d050dcf59bd8c1cbb749915d8600afd7ba8f89ceded831ac905ddf0",
+        "source_file": {
+          "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+          "path": "internal/oci/journal_test.go",
+          "git_mode": "100644",
+          "git_blob": "8705e216dfdbc41ce3a645d2f9b13ef96ab14b82",
+          "sha256": "570fc7df074fde649c4ba527b5df4ab795d412ba3a4f3a7beee64f1e01012e89",
+          "bytes": 16873
+        }
+      },
+      "current_declaration": {
+        "name": "TestJournalRepairsOwnershipProjectionAfterPartialFailure",
+        "line": 70,
+        "end_line": 97,
+        "raw_declaration_sha256": "fee5193a4d050dcf59bd8c1cbb749915d8600afd7ba8f89ceded831ac905ddf0",
+        "source_file": {
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "path": "internal/oci/journal_test.go",
+          "git_mode": "100644",
+          "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+          "sha256": "f74af33c76a760d8256c3c1380283abd0786475fe1fa4283f7586b4885f769ec",
+          "bytes": 16657
+        }
+      },
+      "current_raw_declaration_text": "func TestJournalRepairsOwnershipProjectionAfterPartialFailure(t *testing.T) {\n\tctx := t.Context()\n\tkv := testJournalBucket(t)\n\tfailing := &failOwnershipCreateKV{KeyValue: kv, failOnce: true}\n\tjournal, err := NewKVJournal(failing)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tintent := testLaunchIntent(entityid.Derive(\"test-operation\", \"node-create-journal-1\"))\n\tif err := journal.RecordIntent(ctx, intent); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tresult := OperationResult{Intent: intent, ResourceID: \"ocid1.instance.journal-a\", ETag: \"e1\"}\n\tif err := journal.RecordResult(ctx, result); err == nil {\n\t\tt.Fatal(\"injected ownership projection failure was not surfaced\")\n\t}\n\tidentity := ResourceIdentity{\n\t\tID: result.ResourceID, Region: intent.Region, Generation: intent.Generation,\n\t\tOwner: intent.Owner, CreateKey: intent.CreateKey,\n\t}\n\towned, err := journal.IsOwnedInstance(ctx, identity)\n\tif err != nil || !owned {\n\t\tt.Fatalf(\"confirmed operation did not repair ownership on read: owned=%v err=%v\", owned, err)\n\t}\n\tif err := journal.RecordResult(ctx, result); err != nil {\n\t\tt.Fatalf(\"idempotent result retry did not repair ownership: %v\", err)\n\t}\n}",
+      "body_change_review": "Raw declaration identical to baseline; canonical setup/production paths reviewed.",
+      "pins_independently_reconfirmed": true,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/journal_test.go::TestJournalPinsSignedPlacementComputeProfile",
+      "path": "internal/oci/journal_test.go",
+      "original_name": "TestJournalPinsSignedPlacementComputeProfile",
+      "kind": "test",
+      "original_declaration_sha256": "ebeb747c678ba39c2ef4c3dc31d7e45ac08a7f9ee8eaac7fcdd216af4b63f108",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 101,
+        "end_line": 126
+      },
+      "current_name": "TestJournalPinsSignedPlacementComputeProfile",
+      "current_declaration_sha256": "ebeb747c678ba39c2ef4c3dc31d7e45ac08a7f9ee8eaac7fcdd216af4b63f108",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 99,
+        "end_line": 124,
+        "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63"
+      },
+      "survival_state": "retained_body_exact",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "rationale": "Actual persisted immutable profile roundtrip and conflict. MemoryInGBs++ remains structurally valid and reaches Create/read conflict rather than pre-I/O guard.",
+      "setup_citation_keys": [
+        "bucket",
+        "bootFixture",
+        "authConfig",
+        "authStart",
+        "authClose"
+      ],
+      "production_citation_keys": [
+        "natsStart",
+        "natsOptions",
+        "natsClient",
+        "tlsDial",
+        "tlsListen",
+        "jOpenJournal",
+        "jread",
+        "jRecordIntent",
+        "jGetOperation",
+        "jvalidateIntent",
+        "jvalidComputeProfile",
+        "jsameIntent"
+      ],
+      "boundary_trace": "RecordIntent\u2192Create\u2192GetOperation Get; valid memory drift\u2192Create conflict\u2192read original\u2192sameIntent false",
+      "fakes_and_external_fact_limits": "Profile/descriptor values synthetic, not a real signed placement or cloud platform fact.",
+      "assertion_blocks": [
+        {
+          "path": "internal/oci/journal_test.go",
+          "line": 106,
+          "end_line": 122,
+          "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+          "boundary_category": "integration",
+          "why": "Actual original lookup and valid sizing drift rejection",
+          "exact_text": "\tif err := journal.RecordIntent(ctx, intent); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tscope := OperationScope{\n\t\tAction: actionLaunch, Key: intent.Key, Region: intent.Region,\n\t\tGeneration: intent.Generation, Owner: intent.Owner,\n\t}\n\tstored, found, err := journal.GetOperation(ctx, scope)\n\tif err != nil || !found || !sameIntent(stored, intent) ||\n\t\tstored.Shape != intent.Shape || stored.WholeOCPUs != intent.WholeOCPUs || stored.MemoryInGBs != intent.MemoryInGBs ||\n\t\tstored.PlacementProfileDigest != intent.PlacementProfileDigest || stored.PlacementGeneration != intent.PlacementGeneration {\n\t\tt.Fatalf(\"journal did not preserve the immutable signed profile: found=%v stored=%+v err=%v\", found, stored, err)\n\t}\n\tdrifted := intent\n\tdrifted.MemoryInGBs++\n\tif err := journal.RecordIntent(ctx, drifted); err == nil {\n\t\tt.Fatal(\"journal accepted changed compute sizing for the same create key\")"
+        }
+      ],
+      "baseline_declaration": {
+        "name": "TestJournalPinsSignedPlacementComputeProfile",
+        "line": 101,
+        "end_line": 126,
+        "raw_declaration_sha256": "ebeb747c678ba39c2ef4c3dc31d7e45ac08a7f9ee8eaac7fcdd216af4b63f108",
+        "source_file": {
+          "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+          "path": "internal/oci/journal_test.go",
+          "git_mode": "100644",
+          "git_blob": "8705e216dfdbc41ce3a645d2f9b13ef96ab14b82",
+          "sha256": "570fc7df074fde649c4ba527b5df4ab795d412ba3a4f3a7beee64f1e01012e89",
+          "bytes": 16873
+        }
+      },
+      "current_declaration": {
+        "name": "TestJournalPinsSignedPlacementComputeProfile",
+        "line": 99,
+        "end_line": 124,
+        "raw_declaration_sha256": "ebeb747c678ba39c2ef4c3dc31d7e45ac08a7f9ee8eaac7fcdd216af4b63f108",
+        "source_file": {
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "path": "internal/oci/journal_test.go",
+          "git_mode": "100644",
+          "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+          "sha256": "f74af33c76a760d8256c3c1380283abd0786475fe1fa4283f7586b4885f769ec",
+          "bytes": 16657
+        }
+      },
+      "current_raw_declaration_text": "func TestJournalPinsSignedPlacementComputeProfile(t *testing.T) {\n\tctx := t.Context()\n\tjournal, err := NewKVJournal(testJournalBucket(t))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tintent := testLaunchIntent(entityid.Derive(\"test-operation\", \"node-journal-profile\"))\n\tif err := journal.RecordIntent(ctx, intent); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tscope := OperationScope{\n\t\tAction: actionLaunch, Key: intent.Key, Region: intent.Region,\n\t\tGeneration: intent.Generation, Owner: intent.Owner,\n\t}\n\tstored, found, err := journal.GetOperation(ctx, scope)\n\tif err != nil || !found || !sameIntent(stored, intent) ||\n\t\tstored.Shape != intent.Shape || stored.WholeOCPUs != intent.WholeOCPUs || stored.MemoryInGBs != intent.MemoryInGBs ||\n\t\tstored.PlacementProfileDigest != intent.PlacementProfileDigest || stored.PlacementGeneration != intent.PlacementGeneration {\n\t\tt.Fatalf(\"journal did not preserve the immutable signed profile: found=%v stored=%+v err=%v\", found, stored, err)\n\t}\n\tdrifted := intent\n\tdrifted.MemoryInGBs++\n\tif err := journal.RecordIntent(ctx, drifted); err == nil {\n\t\tt.Fatal(\"journal accepted changed compute sizing for the same create key\")\n\t}\n}",
+      "body_change_review": "Raw declaration identical to baseline; canonical setup/production paths reviewed.",
+      "pins_independently_reconfirmed": true,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/journal_test.go::TestJournalDistinguishesFreshIntentFromUnknownProviderOutcome",
+      "path": "internal/oci/journal_test.go",
+      "original_name": "TestJournalDistinguishesFreshIntentFromUnknownProviderOutcome",
+      "kind": "test",
+      "original_declaration_sha256": "a9f34778db983fd0b1b901b7a919de5f2f846ecf13c0cdc69f8262c5d23b97f7",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 128,
+        "end_line": 169
+      },
+      "current_name": "TestJournalDistinguishesFreshIntentFromUnknownProviderOutcome",
+      "current_declaration_sha256": "a9f34778db983fd0b1b901b7a919de5f2f846ecf13c0cdc69f8262c5d23b97f7",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 126,
+        "end_line": 167,
+        "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63"
+      },
+      "survival_state": "retained_body_exact",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "rationale": "Actual operation/index persistence distinguishes fresh, unknown and confirmed, then rejects wrong observed size against durable state.",
+      "setup_citation_keys": [
+        "bucket",
+        "authConfig",
+        "authStart",
+        "authClose"
+      ],
+      "production_citation_keys": [
+        "natsStart",
+        "natsOptions",
+        "natsClient",
+        "tlsDial",
+        "tlsListen",
+        "jOpenJournal",
+        "jread",
+        "jRecordIntent",
+        "jRecordResult",
+        "jGetResult",
+        "jIsOwnedVolume",
+        "jisOwned",
+        "jrepairOwnership"
+      ],
+      "boundary_trace": "Intent Create\u2192GetResult fresh; unknown Get/Update; confirmation Get/Update\u2192Create ownership; wrong size reads real persisted state",
+      "fakes_and_external_fact_limits": "Provider states/results are explicitly constructed structs; no SDK/cloud mutation or live fencing proof.",
+      "assertion_blocks": [
+        {
+          "path": "internal/oci/journal_test.go",
+          "line": 137,
+          "end_line": 165,
+          "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+          "boundary_category": "integration",
+          "why": "Fresh read, unknown CAS, confirmation CAS/index and ownership reads",
+          "exact_text": "\tif err := journal.RecordIntent(ctx, intent); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, found, err := journal.GetResult(ctx, intent); err != nil || found {\n\t\tt.Fatalf(\"fresh intent was misclassified as a provider attempt: found=%v err=%v\", found, err)\n\t}\n\tunknown := OperationResult{Intent: intent, Unknown: true}\n\tif err := journal.RecordResult(ctx, unknown); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tresult, found, err := journal.GetResult(ctx, intent)\n\tif err != nil || !found || !result.Unknown {\n\t\tt.Fatalf(\"unknown provider result was not durably distinguished: found=%v result=%+v err=%v\", found, result, err)\n\t}\n\tconfirmed := OperationResult{Intent: intent, ResourceID: \"ocid1.volume.journal-confirmed\"}\n\tif err := journal.RecordResult(ctx, confirmed); err != nil {\n\t\tt.Fatalf(\"confirmed retry-token result was not accepted: %v\", err)\n\t}\n\tidentity := ResourceIdentity{\n\t\tID: confirmed.ResourceID, Region: intent.Region, Generation: intent.Generation,\n\t\tOwner: intent.Owner, CreateKey: intent.CreateKey,\n\t\tAvailabilityDomain: intent.AvailabilityDomain, SizeGB: intent.SizeGB,\n\t}\n\tif owned, err := journal.IsOwnedVolume(ctx, identity); err != nil || !owned {\n\t\tt.Fatalf(\"confirmed volume identity was not durably owned: owned=%v err=%v\", owned, err)\n\t}\n\tidentity.SizeGB++\n\tif owned, err := journal.IsOwnedVolume(ctx, identity); err != nil || owned {\n\t\tt.Fatalf(\"journal ownership accepted a mismatched volume size: owned=%v err=%v\", owned, err)"
+        }
+      ],
+      "baseline_declaration": {
+        "name": "TestJournalDistinguishesFreshIntentFromUnknownProviderOutcome",
+        "line": 128,
+        "end_line": 169,
+        "raw_declaration_sha256": "a9f34778db983fd0b1b901b7a919de5f2f846ecf13c0cdc69f8262c5d23b97f7",
+        "source_file": {
+          "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+          "path": "internal/oci/journal_test.go",
+          "git_mode": "100644",
+          "git_blob": "8705e216dfdbc41ce3a645d2f9b13ef96ab14b82",
+          "sha256": "570fc7df074fde649c4ba527b5df4ab795d412ba3a4f3a7beee64f1e01012e89",
+          "bytes": 16873
+        }
+      },
+      "current_declaration": {
+        "name": "TestJournalDistinguishesFreshIntentFromUnknownProviderOutcome",
+        "line": 126,
+        "end_line": 167,
+        "raw_declaration_sha256": "a9f34778db983fd0b1b901b7a919de5f2f846ecf13c0cdc69f8262c5d23b97f7",
+        "source_file": {
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "path": "internal/oci/journal_test.go",
+          "git_mode": "100644",
+          "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+          "sha256": "f74af33c76a760d8256c3c1380283abd0786475fe1fa4283f7586b4885f769ec",
+          "bytes": 16657
+        }
+      },
+      "current_raw_declaration_text": "func TestJournalDistinguishesFreshIntentFromUnknownProviderOutcome(t *testing.T) {\n\tctx := t.Context()\n\tjournal, err := NewKVJournal(testJournalBucket(t))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tintent := OperationIntent{\n\t\tAction: actionVolumeCreate, Key: \"00000000006S5Z7HCQC6MPC61G\", Region: RegionGRU,\n\t\tGeneration: 7, Owner: \"orchestrator\", CreateKey: \"00000000006S5Z7HCQC6MPC61G\",\n\t\tAvailabilityDomain: \"sa-saopaulo-1-AD-1\", SizeGB: 50, CreatedAt: time.Now().UTC(),\n\t}\n\tif err := journal.RecordIntent(ctx, intent); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, found, err := journal.GetResult(ctx, intent); err != nil || found {\n\t\tt.Fatalf(\"fresh intent was misclassified as a provider attempt: found=%v err=%v\", found, err)\n\t}\n\tunknown := OperationResult{Intent: intent, Unknown: true}\n\tif err := journal.RecordResult(ctx, unknown); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tresult, found, err := journal.GetResult(ctx, intent)\n\tif err != nil || !found || !result.Unknown {\n\t\tt.Fatalf(\"unknown provider result was not durably distinguished: found=%v result=%+v err=%v\", found, result, err)\n\t}\n\tconfirmed := OperationResult{Intent: intent, ResourceID: \"ocid1.volume.journal-confirmed\"}\n\tif err := journal.RecordResult(ctx, confirmed); err != nil {\n\t\tt.Fatalf(\"confirmed retry-token result was not accepted: %v\", err)\n\t}\n\tidentity := ResourceIdentity{\n\t\tID: confirmed.ResourceID, Region: intent.Region, Generation: intent.Generation,\n\t\tOwner: intent.Owner, CreateKey: intent.CreateKey,\n\t\tAvailabilityDomain: intent.AvailabilityDomain, SizeGB: intent.SizeGB,\n\t}\n\tif owned, err := journal.IsOwnedVolume(ctx, identity); err != nil || !owned {\n\t\tt.Fatalf(\"confirmed volume identity was not durably owned: owned=%v err=%v\", owned, err)\n\t}\n\tidentity.SizeGB++\n\tif owned, err := journal.IsOwnedVolume(ctx, identity); err != nil || owned {\n\t\tt.Fatalf(\"journal ownership accepted a mismatched volume size: owned=%v err=%v\", owned, err)\n\t}\n}",
+      "body_change_review": "Raw declaration identical to baseline; canonical setup/production paths reviewed.",
+      "pins_independently_reconfirmed": true,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/journal_test.go::TestJournalOperationLookupRecoversPersistedAttachmentDevice",
+      "path": "internal/oci/journal_test.go",
+      "original_name": "TestJournalOperationLookupRecoversPersistedAttachmentDevice",
+      "kind": "test",
+      "original_declaration_sha256": "017dbb96f601bbb3ebc51cde09dbe018b497873024a18bdddaff877a5e93a778",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 171,
+        "end_line": 212
+      },
+      "current_name": "TestJournalOperationLookupRecoversPersistedAttachmentDevice",
+      "current_declaration_sha256": "017dbb96f601bbb3ebc51cde09dbe018b497873024a18bdddaff877a5e93a778",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 169,
+        "end_line": 210,
+        "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63"
+      },
+      "survival_state": "retained_body_exact",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "rationale": "Selected device and unknown status survive actual immutable operation/result reads. Changed valid device conflicts with persisted original.",
+      "setup_citation_keys": [
+        "bucket",
+        "authConfig",
+        "authStart",
+        "authClose"
+      ],
+      "production_citation_keys": [
+        "natsStart",
+        "natsOptions",
+        "natsClient",
+        "tlsDial",
+        "tlsListen",
+        "jOpenJournal",
+        "jread",
+        "jRecordIntent",
+        "jRecordResult",
+        "jGetOperation",
+        "jGetResult",
+        "jsameIntent"
+      ],
+      "boundary_trace": "Create intent\u2192Get original\u2192GetResult fresh; RecordResult unknown Get/Update; changed device Create conflict\u2192Get original",
+      "fakes_and_external_fact_limits": "No real device attachment/mount/SDK facts; generated attachment target remains synthetic.",
+      "assertion_blocks": [
+        {
+          "path": "internal/oci/journal_test.go",
+          "line": 182,
+          "end_line": 208,
+          "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+          "boundary_category": "integration",
+          "why": "Persist/read device, fresh then unknown result and conflict",
+          "exact_text": "\tif err := journal.RecordIntent(ctx, intent); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tscope := OperationScope{\n\t\tAction: intent.Action, Key: intent.Key, Region: intent.Region,\n\t\tGeneration: intent.Generation, Owner: intent.Owner,\n\t}\n\tstored, found, err := journal.GetOperation(ctx, scope)\n\tif err != nil || !found || !sameIntent(stored, intent) || !stored.CreatedAt.Equal(intent.CreatedAt) {\n\t\tt.Fatalf(\"attachment operation lookup changed its immutable intent: found=%v stored=%+v err=%v\", found, stored, err)\n\t}\n\tif _, resultFound, err := journal.GetResult(ctx, stored); err != nil || resultFound {\n\t\tt.Fatalf(\"fresh attachment intent was misclassified as a provider result: found=%v err=%v\", resultFound, err)\n\t}\n\tif err := journal.RecordResult(ctx, OperationResult{Intent: stored, Unknown: true}); err != nil {\n\t\tt.Fatal(err)\n\t}\n\trecovered, found, err := journal.GetOperation(ctx, scope)\n\tresult, resultFound, resultErr := journal.GetResult(ctx, recovered)\n\tif err != nil || !found || resultErr != nil || !resultFound || !result.Unknown || recovered.Device != intent.Device {\n\t\tt.Fatalf(\"unknown provider result lost the selected device: found=%v resultFound=%v intent=%+v result=%+v err=%v resultErr=%v\",\n\t\t\tfound, resultFound, recovered, result, err, resultErr)\n\t}\n\tconflict := intent\n\tconflict.Device = \"/dev/oracleoci/oraclevdc\"\n\tif err := journal.RecordIntent(ctx, conflict); err == nil {\n\t\tt.Fatal(\"same attach operation key accepted a different selected device\")"
+        }
+      ],
+      "baseline_declaration": {
+        "name": "TestJournalOperationLookupRecoversPersistedAttachmentDevice",
+        "line": 171,
+        "end_line": 212,
+        "raw_declaration_sha256": "017dbb96f601bbb3ebc51cde09dbe018b497873024a18bdddaff877a5e93a778",
+        "source_file": {
+          "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+          "path": "internal/oci/journal_test.go",
+          "git_mode": "100644",
+          "git_blob": "8705e216dfdbc41ce3a645d2f9b13ef96ab14b82",
+          "sha256": "570fc7df074fde649c4ba527b5df4ab795d412ba3a4f3a7beee64f1e01012e89",
+          "bytes": 16873
+        }
+      },
+      "current_declaration": {
+        "name": "TestJournalOperationLookupRecoversPersistedAttachmentDevice",
+        "line": 169,
+        "end_line": 210,
+        "raw_declaration_sha256": "017dbb96f601bbb3ebc51cde09dbe018b497873024a18bdddaff877a5e93a778",
+        "source_file": {
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "path": "internal/oci/journal_test.go",
+          "git_mode": "100644",
+          "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+          "sha256": "f74af33c76a760d8256c3c1380283abd0786475fe1fa4283f7586b4885f769ec",
+          "bytes": 16657
+        }
+      },
+      "current_raw_declaration_text": "func TestJournalOperationLookupRecoversPersistedAttachmentDevice(t *testing.T) {\n\tctx := t.Context()\n\tjournal, err := NewKVJournal(testJournalBucket(t))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tintent := OperationIntent{\n\t\tAction: actionVolumeAttach, Key: \"attach-journal-recovery\", Region: RegionGRU,\n\t\tGeneration: 7, Owner: \"orchestrator\", ResourceID: \"ocid1.instance.attach-target\",\n\t\tCreateKey: \"0000000000NQKJR630FYJ4DPE1\", VolumeID: \"ocid1.volume.retained\", ExpectedETag: \"host-etag\",\n\t\tDevice: \"/dev/oracleoci/oraclevdb\", IsReadOnly: false, IsShareable: false,\n\t\tIsPvEncryptionInTransitEnabled: true, CreatedAt: time.Now().UTC(),\n\t}\n\tif err := journal.RecordIntent(ctx, intent); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tscope := OperationScope{\n\t\tAction: intent.Action, Key: intent.Key, Region: intent.Region,\n\t\tGeneration: intent.Generation, Owner: intent.Owner,\n\t}\n\tstored, found, err := journal.GetOperation(ctx, scope)\n\tif err != nil || !found || !sameIntent(stored, intent) || !stored.CreatedAt.Equal(intent.CreatedAt) {\n\t\tt.Fatalf(\"attachment operation lookup changed its immutable intent: found=%v stored=%+v err=%v\", found, stored, err)\n\t}\n\tif _, resultFound, err := journal.GetResult(ctx, stored); err != nil || resultFound {\n\t\tt.Fatalf(\"fresh attachment intent was misclassified as a provider result: found=%v err=%v\", resultFound, err)\n\t}\n\tif err := journal.RecordResult(ctx, OperationResult{Intent: stored, Unknown: true}); err != nil {\n\t\tt.Fatal(err)\n\t}\n\trecovered, found, err := journal.GetOperation(ctx, scope)\n\tresult, resultFound, resultErr := journal.GetResult(ctx, recovered)\n\tif err != nil || !found || resultErr != nil || !resultFound || !result.Unknown || recovered.Device != intent.Device {\n\t\tt.Fatalf(\"unknown provider result lost the selected device: found=%v resultFound=%v intent=%+v result=%+v err=%v resultErr=%v\",\n\t\t\tfound, resultFound, recovered, result, err, resultErr)\n\t}\n\tconflict := intent\n\tconflict.Device = \"/dev/oracleoci/oraclevdc\"\n\tif err := journal.RecordIntent(ctx, conflict); err == nil {\n\t\tt.Fatal(\"same attach operation key accepted a different selected device\")\n\t}\n}",
+      "body_change_review": "Raw declaration identical to baseline; canonical setup/production paths reviewed.",
+      "pins_independently_reconfirmed": true,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/journal_test.go::TestJournalRepairsInterruptedAttachmentProjectionWithoutRebinding",
+      "path": "internal/oci/journal_test.go",
+      "original_name": "TestJournalRepairsInterruptedAttachmentProjectionWithoutRebinding",
+      "kind": "test",
+      "original_declaration_sha256": "9f56ab8fb7e1920d2893058b812ef5ec1c396c8cee7892d585df73562bf8568f",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 214,
+        "end_line": 278
+      },
+      "current_name": "TestJournalRepairsInterruptedAttachmentProjectionWithoutRebinding",
+      "current_declaration_sha256": "9f56ab8fb7e1920d2893058b812ef5ec1c396c8cee7892d585df73562bf8568f",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 212,
+        "end_line": 276,
+        "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63"
+      },
+      "survival_state": "retained_body_exact",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "rationale": "Actual primary CAS precedes injected missing index; exact retry, readback, stale ETag and rebind checks use real durable receipt/index.",
+      "setup_citation_keys": [
+        "bucket",
+        "failAttachment",
+        "authConfig",
+        "authStart",
+        "authClose"
+      ],
+      "production_citation_keys": [
+        "natsStart",
+        "natsOptions",
+        "natsClient",
+        "tlsDial",
+        "tlsListen",
+        "jOpenJournal",
+        "jread",
+        "jRecordIntent",
+        "jRecordResult",
+        "jrecordAttachmentOwnership",
+        "jIsOwnedAttachment",
+        "jrepairOwnership"
+      ],
+      "boundary_trace": "Actual primary Get/Update\u2192injected Create index error\u2192Get missing; remove hook\u2192exact retry reads original\u2192real index Create; readbacks compare immutable records",
+      "fakes_and_external_fact_limits": "Fault hook delegates all other operations to genuine KV. Synthetic attach result grants no actual attachment/device authority.",
+      "assertion_blocks": [
+        {
+          "path": "internal/oci/journal_test.go",
+          "line": 226,
+          "end_line": 238,
+          "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+          "boundary_category": "integration",
+          "why": "Primary committed, injected reverse-index failure and actual missing read",
+          "exact_text": "\tif err := journal.RecordIntent(ctx, intent); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tresult := OperationResult{Intent: intent, ResourceID: \"ocid1.volumeattachment.confirmed\", ETag: \"attachment-etag\"}\n\tjournal.kv = &failAttachmentProjectionKV{KeyValue: kv, failOnce: true}\n\tif err := journal.RecordResult(ctx, result); err == nil {\n\t\tt.Fatal(\"injected attachment projection failure was hidden\")\n\t}\n\tidentity := attachmentIdentityFromResult(OperationResult{\n\t\tIntent: intent, ResourceID: result.ResourceID, ETag: result.ETag, RecordedAt: time.Now().UTC(),\n\t})\n\tif owned, err := journal.IsOwnedAttachment(ctx, identity); err != nil || owned {\n\t\tt.Fatalf(\"interrupted projection created false ownership: owned=%v err=%v\", owned, err)"
+        },
+        {
+          "path": "internal/oci/journal_test.go",
+          "line": 243,
+          "end_line": 274,
+          "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+          "boundary_category": "integration",
+          "why": "Exact repair/readback, stale ETag/rebind rejection, original owner retained",
+          "exact_text": "\tjournal.kv = kv\n\tif err := journal.RecordResult(ctx, result); err != nil {\n\t\tt.Fatalf(\"exact receipt retry did not repair the attachment projection: %v\", err)\n\t}\n\tentry, err := journal.read(ctx, ownershipKey(\"attachment\", identity.ID))\n\tif err != nil || entry.Kind != \"attachment\" || entry.AttachmentIdentity != identity ||\n\t\t!sameIntent(entry.Intent, intent) || !sameResult(entry.Result, OperationResult{Intent: intent, ResourceID: identity.ID, ETag: identity.ETag}) {\n\t\tt.Fatalf(\"attachment projection did not reference the exact confirmed receipt: entry=%+v err=%v\", entry, err)\n\t}\n\tif owned, err := journal.IsOwnedAttachment(ctx, identity); err != nil || !owned {\n\t\tt.Fatalf(\"repaired exact attachment projection was not owned: owned=%v err=%v\", owned, err)\n\t}\n\twrongETag := identity\n\twrongETag.ETag = \"stale-etag\"\n\tif owned, err := journal.IsOwnedAttachment(ctx, wrongETag); err != nil || owned {\n\t\tt.Fatalf(\"attachment projection accepted a stale ETag: owned=%v err=%v\", owned, err)\n\t}\n\n\tconflictingIntent := intent\n\tconflictingIntent.Key = \"attach-rebind-attempt\"\n\tconflictingIntent.CreatedAt = time.Now().UTC()\n\tif err := journal.RecordIntent(ctx, conflictingIntent); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tconflictErr := journal.RecordResult(ctx, OperationResult{\n\t\tIntent: conflictingIntent, ResourceID: identity.ID, ETag: identity.ETag,\n\t})\n\tif conflictErr == nil {\n\t\tt.Fatal(\"a different attach operation rebound an existing attachment ID\")\n\t}\n\tif owned, err := journal.IsOwnedAttachment(ctx, identity); err != nil || !owned {\n\t\tt.Fatalf(\"conflicting operation replaced the original attachment owner: owned=%v err=%v\", owned, err)"
+        }
+      ],
+      "baseline_declaration": {
+        "name": "TestJournalRepairsInterruptedAttachmentProjectionWithoutRebinding",
+        "line": 214,
+        "end_line": 278,
+        "raw_declaration_sha256": "9f56ab8fb7e1920d2893058b812ef5ec1c396c8cee7892d585df73562bf8568f",
+        "source_file": {
+          "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+          "path": "internal/oci/journal_test.go",
+          "git_mode": "100644",
+          "git_blob": "8705e216dfdbc41ce3a645d2f9b13ef96ab14b82",
+          "sha256": "570fc7df074fde649c4ba527b5df4ab795d412ba3a4f3a7beee64f1e01012e89",
+          "bytes": 16873
+        }
+      },
+      "current_declaration": {
+        "name": "TestJournalRepairsInterruptedAttachmentProjectionWithoutRebinding",
+        "line": 212,
+        "end_line": 276,
+        "raw_declaration_sha256": "9f56ab8fb7e1920d2893058b812ef5ec1c396c8cee7892d585df73562bf8568f",
+        "source_file": {
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "path": "internal/oci/journal_test.go",
+          "git_mode": "100644",
+          "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+          "sha256": "f74af33c76a760d8256c3c1380283abd0786475fe1fa4283f7586b4885f769ec",
+          "bytes": 16657
+        }
+      },
+      "current_raw_declaration_text": "func TestJournalRepairsInterruptedAttachmentProjectionWithoutRebinding(t *testing.T) {\n\tctx := t.Context()\n\tkv := testJournalBucket(t)\n\tjournal, err := NewKVJournal(kv)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tintent := OperationIntent{\n\t\tAction: actionVolumeAttach, Key: \"attach-projection-repair\", Region: RegionGRU,\n\t\tGeneration: 7, Owner: \"orchestrator\", ResourceID: \"ocid1.instance.attach-target\",\n\t\tCreateKey: \"0000000000NQKJR630FYJ4DPE1\", VolumeID: \"ocid1.volume.retained\", ExpectedETag: \"host-etag\",\n\t\tDevice: \"/dev/oracleoci/oraclevdb\", IsReadOnly: false, IsShareable: false,\n\t\tIsPvEncryptionInTransitEnabled: true, CreatedAt: time.Now().UTC(),\n\t}\n\tif err := journal.RecordIntent(ctx, intent); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tresult := OperationResult{Intent: intent, ResourceID: \"ocid1.volumeattachment.confirmed\", ETag: \"attachment-etag\"}\n\tjournal.kv = &failAttachmentProjectionKV{KeyValue: kv, failOnce: true}\n\tif err := journal.RecordResult(ctx, result); err == nil {\n\t\tt.Fatal(\"injected attachment projection failure was hidden\")\n\t}\n\tidentity := attachmentIdentityFromResult(OperationResult{\n\t\tIntent: intent, ResourceID: result.ResourceID, ETag: result.ETag, RecordedAt: time.Now().UTC(),\n\t})\n\tif owned, err := journal.IsOwnedAttachment(ctx, identity); err != nil || owned {\n\t\tt.Fatalf(\"interrupted projection created false ownership: owned=%v err=%v\", owned, err)\n\t}\n\n\t// RecordResult reads the immutable primary receipt and idempotently repairs\n\t// its reverse ownership projection after the failed write.\n\tjournal.kv = kv\n\tif err := journal.RecordResult(ctx, result); err != nil {\n\t\tt.Fatalf(\"exact receipt retry did not repair the attachment projection: %v\", err)\n\t}\n\tentry, err := journal.read(ctx, ownershipKey(\"attachment\", identity.ID))\n\tif err != nil || entry.Kind != \"attachment\" || entry.AttachmentIdentity != identity ||\n\t\t!sameIntent(entry.Intent, intent) || !sameResult(entry.Result, OperationResult{Intent: intent, ResourceID: identity.ID, ETag: identity.ETag}) {\n\t\tt.Fatalf(\"attachment projection did not reference the exact confirmed receipt: entry=%+v err=%v\", entry, err)\n\t}\n\tif owned, err := journal.IsOwnedAttachment(ctx, identity); err != nil || !owned {\n\t\tt.Fatalf(\"repaired exact attachment projection was not owned: owned=%v err=%v\", owned, err)\n\t}\n\twrongETag := identity\n\twrongETag.ETag = \"stale-etag\"\n\tif owned, err := journal.IsOwnedAttachment(ctx, wrongETag); err != nil || owned {\n\t\tt.Fatalf(\"attachment projection accepted a stale ETag: owned=%v err=%v\", owned, err)\n\t}\n\n\tconflictingIntent := intent\n\tconflictingIntent.Key = \"attach-rebind-attempt\"\n\tconflictingIntent.CreatedAt = time.Now().UTC()\n\tif err := journal.RecordIntent(ctx, conflictingIntent); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tconflictErr := journal.RecordResult(ctx, OperationResult{\n\t\tIntent: conflictingIntent, ResourceID: identity.ID, ETag: identity.ETag,\n\t})\n\tif conflictErr == nil {\n\t\tt.Fatal(\"a different attach operation rebound an existing attachment ID\")\n\t}\n\tif owned, err := journal.IsOwnedAttachment(ctx, identity); err != nil || !owned {\n\t\tt.Fatalf(\"conflicting operation replaced the original attachment owner: owned=%v err=%v\", owned, err)\n\t}\n}",
+      "body_change_review": "Raw declaration identical to baseline; canonical setup/production paths reviewed.",
+      "pins_independently_reconfirmed": true,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/journal_test.go::TestJournalConcurrentConflictingResultsHaveOneImmutableWinner",
+      "path": "internal/oci/journal_test.go",
+      "original_name": "TestJournalConcurrentConflictingResultsHaveOneImmutableWinner",
+      "kind": "test",
+      "original_declaration_sha256": "0390afb5ecefa90bea5cf30003adb213057fe258680f330f7805bc2fde67c327",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 280,
+        "end_line": 341
+      },
+      "current_name": "TestJournalConcurrentConflictingResultsHaveOneImmutableWinner",
+      "current_declaration_sha256": "0390afb5ecefa90bea5cf30003adb213057fe258680f330f7805bc2fde67c327",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 278,
+        "end_line": 339,
+        "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63"
+      },
+      "survival_state": "retained_body_exact",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "rationale": "Barrier first delegates actual Get; two real result revision CAS updates race and persisted receipt/index reads agree on one winner.",
+      "setup_citation_keys": [
+        "bucket",
+        "bootFixture",
+        "barrier",
+        "authConfig",
+        "authStart",
+        "authClose"
+      ],
+      "production_citation_keys": [
+        "natsStart",
+        "natsOptions",
+        "natsClient",
+        "tlsDial",
+        "tlsListen",
+        "jOpenJournal",
+        "jread",
+        "jRecordIntent",
+        "jRecordResult",
+        "jIsOwnedInstance",
+        "jisOwned",
+        "jrecordOwnership"
+      ],
+      "boundary_trace": "Create intent\u2192barrier Get real records\u2192concurrent KV.Update revisions; loser rereads committed primary; KV.Get/ownership Get verify exact immutable winner",
+      "fakes_and_external_fact_limits": "Barrier controls timing only, not returned storage data. No cloud launch or deployed R3 consensus qualification.",
+      "assertion_blocks": [
+        {
+          "path": "internal/oci/journal_test.go",
+          "line": 285,
+          "end_line": 312,
+          "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+          "boundary_category": "integration",
+          "why": "Two actual result mutations, one accepted and one rejected",
+          "exact_text": "\tintent := testLaunchIntent(entityid.Derive(\"test-operation\", \"node-create-journal-race\"))\n\tif err := journal.RecordIntent(ctx, intent); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tkey := operationKey(intent)\n\tbarrier := &barrierGetKV{KeyValue: kv, operationKey: key, release: make(chan struct{})}\n\tjournal.kv = barrier\n\tresults := []OperationResult{\n\t\t{Intent: intent, ResourceID: \"ocid1.instance.winner-a\", ETag: \"ea\"},\n\t\t{Intent: intent, ResourceID: \"ocid1.instance.winner-b\", ETag: \"eb\"},\n\t}\n\terrs := make(chan error, len(results))\n\tvar callers sync.WaitGroup\n\tfor _, result := range results {\n\t\tcallers.Go(func() { errs <- journal.RecordResult(ctx, result) })\n\t}\n\tcallers.Wait()\n\tclose(errs)\n\taccepted, rejected := 0, 0\n\tfor err := range errs {\n\t\tif err == nil {\n\t\t\taccepted++\n\t\t} else {\n\t\t\trejected++\n\t\t}\n\t}\n\tif accepted != 1 || rejected != 1 {\n\t\tt.Fatalf(\"conflicting operation results did not have one winner: accepted=%d rejected=%d\", accepted, rejected)"
+        },
+        {
+          "path": "internal/oci/journal_test.go",
+          "line": 315,
+          "end_line": 336,
+          "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+          "boundary_category": "integration",
+          "why": "Actual persisted receipt and ownership reads agree on winner",
+          "exact_text": "\tentry, err := kv.Get(ctx, key)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tstored, err := decodeJournalEntry(entry.Value())\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif stored.Result.ResourceID == \"\" || stored.Result.Unknown {\n\t\tt.Fatalf(\"accepted operation result is incomplete: %+v\", stored.Result)\n\t}\n\tfor _, result := range results {\n\t\tidentity := ResourceIdentity{\n\t\t\tID: result.ResourceID, Region: intent.Region, Generation: intent.Generation,\n\t\t\tOwner: intent.Owner, CreateKey: intent.CreateKey,\n\t\t}\n\t\towned, err := journal.IsOwnedInstance(ctx, identity)\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tif owned != (result.ResourceID == stored.Result.ResourceID) {\n\t\t\tt.Fatalf(\"resource projection disagrees with immutable winner %q for candidate %q: owned=%v\", stored.Result.ResourceID, result.ResourceID, owned)"
+        }
+      ],
+      "baseline_declaration": {
+        "name": "TestJournalConcurrentConflictingResultsHaveOneImmutableWinner",
+        "line": 280,
+        "end_line": 341,
+        "raw_declaration_sha256": "0390afb5ecefa90bea5cf30003adb213057fe258680f330f7805bc2fde67c327",
+        "source_file": {
+          "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+          "path": "internal/oci/journal_test.go",
+          "git_mode": "100644",
+          "git_blob": "8705e216dfdbc41ce3a645d2f9b13ef96ab14b82",
+          "sha256": "570fc7df074fde649c4ba527b5df4ab795d412ba3a4f3a7beee64f1e01012e89",
+          "bytes": 16873
+        }
+      },
+      "current_declaration": {
+        "name": "TestJournalConcurrentConflictingResultsHaveOneImmutableWinner",
+        "line": 278,
+        "end_line": 339,
+        "raw_declaration_sha256": "0390afb5ecefa90bea5cf30003adb213057fe258680f330f7805bc2fde67c327",
+        "source_file": {
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "path": "internal/oci/journal_test.go",
+          "git_mode": "100644",
+          "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+          "sha256": "f74af33c76a760d8256c3c1380283abd0786475fe1fa4283f7586b4885f769ec",
+          "bytes": 16657
+        }
+      },
+      "current_raw_declaration_text": "func TestJournalConcurrentConflictingResultsHaveOneImmutableWinner(t *testing.T) {\n\tctx := t.Context()\n\tkv := testJournalBucket(t)\n\tjournal, err := NewKVJournal(kv)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tintent := testLaunchIntent(entityid.Derive(\"test-operation\", \"node-create-journal-race\"))\n\tif err := journal.RecordIntent(ctx, intent); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tkey := operationKey(intent)\n\tbarrier := &barrierGetKV{KeyValue: kv, operationKey: key, release: make(chan struct{})}\n\tjournal.kv = barrier\n\tresults := []OperationResult{\n\t\t{Intent: intent, ResourceID: \"ocid1.instance.winner-a\", ETag: \"ea\"},\n\t\t{Intent: intent, ResourceID: \"ocid1.instance.winner-b\", ETag: \"eb\"},\n\t}\n\terrs := make(chan error, len(results))\n\tvar callers sync.WaitGroup\n\tfor _, result := range results {\n\t\tcallers.Go(func() { errs <- journal.RecordResult(ctx, result) })\n\t}\n\tcallers.Wait()\n\tclose(errs)\n\taccepted, rejected := 0, 0\n\tfor err := range errs {\n\t\tif err == nil {\n\t\t\taccepted++\n\t\t} else {\n\t\t\trejected++\n\t\t}\n\t}\n\tif accepted != 1 || rejected != 1 {\n\t\tt.Fatalf(\"conflicting operation results did not have one winner: accepted=%d rejected=%d\", accepted, rejected)\n\t}\n\n\tentry, err := kv.Get(ctx, key)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tstored, err := decodeJournalEntry(entry.Value())\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif stored.Result.ResourceID == \"\" || stored.Result.Unknown {\n\t\tt.Fatalf(\"accepted operation result is incomplete: %+v\", stored.Result)\n\t}\n\tfor _, result := range results {\n\t\tidentity := ResourceIdentity{\n\t\t\tID: result.ResourceID, Region: intent.Region, Generation: intent.Generation,\n\t\t\tOwner: intent.Owner, CreateKey: intent.CreateKey,\n\t\t}\n\t\towned, err := journal.IsOwnedInstance(ctx, identity)\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tif owned != (result.ResourceID == stored.Result.ResourceID) {\n\t\t\tt.Fatalf(\"resource projection disagrees with immutable winner %q for candidate %q: owned=%v\", stored.Result.ResourceID, result.ResourceID, owned)\n\t\t}\n\t}\n}",
+      "body_change_review": "Raw declaration identical to baseline; canonical setup/production paths reviewed.",
+      "pins_independently_reconfirmed": true,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/pool_receipt_integration_test.go::TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission",
+      "path": "internal/oci/pool_receipt_integration_test.go",
+      "original_name": "TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission",
+      "kind": "test",
+      "original_declaration_sha256": "ddbada1578f8dae01bfd144d68097b79d79854740560ecc63dfd166860500388",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 26,
+        "end_line": 210
+      },
+      "current_name": "TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission",
+      "current_declaration_sha256": "e1c905060d11b2b51ff3868ff047bc5ab05db80d3bc9f96f5f18090d0e944389",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 24,
+        "end_line": 207,
+        "git_blob": "b3a44b62978dd78ddbc2c7d06e099e4ce4ddea3c"
+      },
+      "survival_state": "retained_body_changed",
+      "classification": "mixed",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "rationale": "Real generated-key SDK HTTP and authenticated disk KV exercise receipt/restart/index repair. Final child-admission refusal is separate unconditional local pending placeholder.",
+      "setup_citation_keys": [
+        "authConfig",
+        "authStart",
+        "authClose"
+      ],
+      "production_citation_keys": [
+        "natsStart",
+        "natsOptions",
+        "natsClient",
+        "tlsDial",
+        "tlsListen",
+        "jOpenJournal",
+        "jread",
+        "sdkFactory",
+        "pinHost",
+        "poolRequest",
+        "poolResult",
+        "poolRead",
+        "poolWrite",
+        "pointRequest",
+        "pointResult",
+        "growthResult",
+        "pendingChild",
+        "pendingVerified",
+        "pendingRevalidate"
+      ],
+      "boundary_trace": "Real SDK signer\u2192pinned httptest TCP listener; responses\u2192actual KV receipts; Delete index\u2192close/restart same StoreDir\u2192original primary restores index; final VerifyPoolInstance returns pending locally",
+      "fakes_and_external_fact_limits": "HTTP responses/OCIDs synthetic; handler checks Authorization presence, not signature cryptography. No real OCI creation/IAM, financial authority or child creation lineage.",
+      "assertion_blocks": [
+        {
+          "path": "internal/oci/pool_receipt_integration_test.go",
+          "line": 37,
+          "end_line": 65,
+          "git_blob": "b3a44b62978dd78ddbc2c7d06e099e4ce4ddea3c",
+          "boundary_category": "integration",
+          "why": "Actual HTTP handler with header checks and synthetic create/update responses",
+          "exact_text": "\tserver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\tif r.Header.Get(\"Authorization\") == \"\" || r.Header.Get(\"opc-retry-token\") == \"\" {\n\t\t\tt.Error(\"actual SDK mutation lacks signed request or stable retry identity\")\n\t\t\thttp.Error(w, \"rejected\", http.StatusForbidden)\n\t\t\treturn\n\t\t}\n\t\tw.Header().Set(\"Content-Type\", \"application/json\")\n\t\tw.Header().Set(\"opc-request-id\", \"original-sdk-response\")\n\t\tswitch r.URL.Path {\n\t\tcase \"/20160918/instanceConfigurations\":\n\t\t\tfmt.Fprintf(w, `{\"id\":%q,\"compartmentId\":\"ocid1.compartment.oc1..owned\",\"instanceDetails\":{\"instanceType\":\"compute\",\"launchDetails\":{\"shape\":\"VM.Standard.A1.Flex\"}}}`, configurationID)\n\t\tcase \"/20160918/instancePools\":\n\t\t\tfmt.Fprintf(w, `{\"id\":%q,\"compartmentId\":\"ocid1.compartment.oc1..owned\",\"instanceConfigurationId\":%q,\"size\":0}`, poolID, configurationID)\n\t\tcase \"/20160918/instancePools/\" + poolID:\n\t\t\tbody, err := io.ReadAll(r.Body)\n\t\t\tif err != nil {\n\t\t\t\tt.Error(err)\n\t\t\t\treturn\n\t\t\t}\n\t\t\tif strings.Contains(string(body), configurationID) {\n\t\t\t\tfmt.Fprintf(w, `{\"id\":%q,\"compartmentId\":\"ocid1.compartment.oc1..owned\",\"instanceConfigurationId\":\"ocid1.instanceconfiguration.oc1..previous\",\"size\":0}`, poolID)\n\t\t\t\treturn\n\t\t\t}\n\t\t\tfmt.Fprintf(w, `{\"id\":%q,\"compartmentId\":\"ocid1.compartment.oc1..owned\",\"instanceConfigurationId\":%q,\"size\":1}`, poolID, configurationID)\n\t\tdefault:\n\t\t\tt.Errorf(\"unexpected SDK endpoint: %s %s\", r.Method, r.URL)\n\t\t\thttp.NotFound(w, r)\n\t\t}\n\t}))"
+        },
+        {
+          "path": "internal/oci/pool_receipt_integration_test.go",
+          "line": 92,
+          "end_line": 161,
+          "git_blob": "b3a44b62978dd78ddbc2c7d06e099e4ce4ddea3c",
+          "boundary_category": "integration",
+          "why": "Real SDK create/point/growth calls and scoped durable result persistence",
+          "exact_text": "\tif err := journal.RecordPoolCreateRequest(t.Context(), original); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tcreated, err := management.CreateInstanceConfiguration(t.Context(), core.CreateInstanceConfigurationRequest{OpcRetryToken: new(original.RetryToken),\n\t\tCreateInstanceConfiguration: core.CreateInstanceConfigurationDetails{CompartmentId: new(original.CompartmentID), InstanceDetails: details}})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\treadbackSHA, err := PoolConfigurationSHA256(created.InstanceDetails)\n\tif err != nil || readbackSHA != configurationSHA {\n\t\tt.Fatalf(\"SDK create/readback normalization differs: %q != %q err=%v\", configurationSHA, readbackSHA, err)\n\t}\n\tif err := journal.RecordPoolCreateResult(t.Context(), original.OperationID, original.Kind, *created.Id, *created.OpcRequestId); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tplacements := []core.CreateInstancePoolPlacementConfigurationDetails{{AvailabilityDomain: new(\"AD-1\"), PrimaryVnicSubnets: &core.InstancePoolPlacementPrimarySubnet{SubnetId: new(\"ocid1.subnet.oc1..owned\")}}}\n\tpoolRequest := original\n\tpoolRequest.Kind, poolRequest.ConfigurationID, poolRequest.RetryToken = PoolCreatePool, configurationID, entityid.New()\n\tpoolRequest.PlacementSHA256, err = PoolPlacementSHA256(placements)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := journal.RecordPoolCreateRequest(t.Context(), poolRequest); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tpool, err := management.CreateInstancePool(t.Context(), core.CreateInstancePoolRequest{OpcRetryToken: new(poolRequest.RetryToken),\n\t\tCreateInstancePoolDetails: core.CreateInstancePoolDetails{CompartmentId: new(original.CompartmentID), InstanceConfigurationId: new(configurationID), Size: new(0), PlacementConfigurations: placements}})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := journal.RecordPoolCreateResult(t.Context(), original.OperationID, PoolCreatePool, *pool.Id, *pool.OpcRequestId); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tgrowth := CapacityRequest{OperationID: original.OperationID, RecipeSHA256: original.RecipeSHA256, LogicalScopeSHA256: original.LogicalScopeSHA256,\n\t\tResolvedScopeSHA256: original.ResolvedScopeSHA256, GrantSHA256: original.GrantSHA256, GrantGeneration: original.GrantGeneration,\n\t\tTenancyID: original.TenancyID, Region: original.Region, CompartmentID: original.CompartmentID, PoolID: poolID,\n\t\tRequestSHA256: strings.Repeat(\"f\", 64), RetryToken: entityid.New(), IfMatch: \"original-etag\", Currency: original.Currency,\n\t\tReservedMonthlyCents: original.ReservedMonthlyCents, QuoteSHA256: original.QuoteSHA256, TargetSize: 1, StartedAt: original.StartedAt}\n\tpointBase := growth\n\tpointBase.TargetSize, pointBase.RetryToken, pointBase.IfMatch = 0, entityid.New(), \"original-point-etag\"\n\tpoint := PoolPointRequest{Request: pointBase, ConfigurationID: configurationID, ConfigurationSHA256: configurationSHA, PlacementSHA256: poolRequest.PlacementSHA256}\n\tif err := journal.RecordPoolPointRequest(t.Context(), point); err != nil {\n\t\tt.Fatal(err)\n\t}\n\taccepted, err := management.UpdateInstancePool(t.Context(), core.UpdateInstancePoolRequest{InstancePoolId: new(poolID), IfMatch: new(pointBase.IfMatch),\n\t\tOpcRetryToken: new(pointBase.RetryToken), UpdateInstancePoolDetails: core.UpdateInstancePoolDetails{InstanceConfigurationId: new(configurationID)}})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := journal.RecordPoolPointResult(t.Context(), original.OperationID, accepted); err != nil {\n\t\tt.Fatalf(\"asynchronous old config readback was confused with rejected SDK acceptance: %v\", err)\n\t}\n\tif err := journal.RecordCapacityRequest(t.Context(), growth); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tupdated, err := management.UpdateInstancePool(t.Context(), core.UpdateInstancePoolRequest{InstancePoolId: new(poolID), IfMatch: new(growth.IfMatch),\n\t\tOpcRetryToken: new(growth.RetryToken), UpdateInstancePoolDetails: core.UpdateInstancePoolDetails{Size: new(1)}})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tforeign := updated\n\tforeign.CompartmentId = new(\"ocid1.compartment.oc1..foreign\")\n\toversized := updated\n\toversized.Size = new(10)\n\tif journal.RecordCapacityResult(t.Context(), original.OperationID, foreign) == nil || journal.RecordCapacityResult(t.Context(), original.OperationID, oversized) == nil {\n\t\tt.Fatal(\"foreign compartment or oversized SDK effect became exact capacity result\")\n\t}\n\tif err := journal.RecordCapacityResult(t.Context(), original.OperationID, updated); err != nil {\n\t\tt.Fatal(err)\n\t}"
+        },
+        {
+          "path": "internal/oci/pool_receipt_integration_test.go",
+          "line": 163,
+          "end_line": 201,
+          "git_blob": "b3a44b62978dd78ddbc2c7d06e099e4ce4ddea3c",
+          "boundary_category": "integration",
+          "why": "Actual index deletion, same-store broker restart and immutable receipt repair/conflicts",
+          "exact_text": "\tif err := journal.kv.Delete(t.Context(), poolResourceKey(poolID)); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := runtime.Close(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\truntime, err = startAuthenticatedJournal(t.Context(), config)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tjournal, err = OpenJournal(t.Context(), runtime.JetStream(), 1)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := journal.RecordPoolCreateResult(t.Context(), original.OperationID, PoolCreatePool, poolID, \"later-idempotent-response\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tgot, result, found, err := journal.GetPoolCreateResource(t.Context(), poolID)\n\tif err != nil || !found || got != poolRequest || result.OpcRequestID != \"original-sdk-response\" {\n\t\tt.Fatalf(\"original request/result or repaired resource index lost: %+v %+v found=%v err=%v\", got, result, found, err)\n\t}\n\tif _, found, err := journal.GetCapacityResult(t.Context(), original.OperationID); err != nil || !found {\n\t\tt.Fatalf(\"positive growth result lost on restart: found=%v err=%v\", found, err)\n\t}\n\tif saved, found, err := journal.GetPoolPointRequest(t.Context(), original.OperationID); err != nil || !found || saved != point {\n\t\tt.Fatalf(\"point and growth collided or original point request lost: %+v found=%v err=%v\", saved, found, err)\n\t}\n\tif saved, found, err := journal.GetPoolPointResult(t.Context(), original.OperationID); err != nil || !found || saved.ObservedConfigurationID != \"ocid1.instanceconfiguration.oc1..previous\" || saved.ObservedSize != 0 {\n\t\tt.Fatalf(\"SDK acceptance manufactured new asynchronous configuration: %+v found=%v err=%v\", saved, found, err)\n\t}\n\tchangedPoint := point\n\tchangedPoint.Request.IfMatch = \"refreshed-point-etag\"\n\tif journal.RecordPoolPointRequest(t.Context(), changedPoint) == nil {\n\t\tt.Fatal(\"changed point precondition replaced original unknown attempt\")\n\t}\n\taltered := original\n\taltered.QuoteSHA256 = strings.Repeat(\"1\", 64)\n\tif journal.RecordPoolCreateRequest(t.Context(), altered) == nil || journal.RecordPoolCreateResult(t.Context(), original.OperationID, PoolCreatePool, \"ocid1.instancepool.oc1..foreign\", \"foreign-response\") == nil {\n\t\tt.Fatal(\"changed request or returned resource replaced original provenance\")"
+        },
+        {
+          "path": "internal/oci/pool_receipt_integration_test.go",
+          "line": 203,
+          "end_line": 205,
+          "git_blob": "b3a44b62978dd78ddbc2c7d06e099e4ce4ddea3c",
+          "boundary_category": "unit",
+          "why": "VerifyPoolInstance only local guards then unconditional pending; no SDK/KV read",
+          "exact_text": "\tproof, err := journal.VerifyPoolInstance(t.Context(), factory, \"ocid1.instance.oc1..foreign-attached\")\n\tif !errors.Is(err, ErrPoolCreationLineagePending) || proof.IsVerified() || proof.Revalidate(t.Context()) == nil {\n\t\tt.Fatalf(\"pool consistency observations minted original child creation admission: %+v err=%v\", proof, err)"
+        }
+      ],
+      "baseline_declaration": {
+        "name": "TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission",
+        "line": 26,
+        "end_line": 210,
+        "raw_declaration_sha256": "ddbada1578f8dae01bfd144d68097b79d79854740560ecc63dfd166860500388",
+        "source_file": {
+          "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+          "path": "internal/oci/pool_receipt_integration_test.go",
+          "git_mode": "100644",
+          "git_blob": "6bf9dc47c5bbdedcc3b24ea96f22b4abdeef3a83",
+          "sha256": "116aeda8a00eaad845ee0c0c6502bbc8bc825dd095b4b2e44fbf7e667721c8d1",
+          "bytes": 11117
+        }
+      },
+      "current_declaration": {
+        "name": "TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission",
+        "line": 24,
+        "end_line": 207,
+        "raw_declaration_sha256": "e1c905060d11b2b51ff3868ff047bc5ab05db80d3bc9f96f5f18090d0e944389",
+        "source_file": {
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "path": "internal/oci/pool_receipt_integration_test.go",
+          "git_mode": "100644",
+          "git_blob": "b3a44b62978dd78ddbc2c7d06e099e4ce4ddea3c",
+          "sha256": "c28f4b4cb0b38559bae127b59bfd34727b750e881abb885366ad98d4a465ae45",
+          "bytes": 10918
+        }
+      },
+      "current_raw_declaration_text": "func TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission(t *testing.T) {\n\tconst configurationID = \"ocid1.instanceconfiguration.oc1..original\"\n\tconst poolID = \"ocid1.instancepool.oc1..original\"\n\tconfig := authenticatedJournalConfig(t, \"pool-receipts\")\n\truntime, err := startAuthenticatedJournal(t.Context(), config)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tt.Cleanup(func() { _ = runtime.Close() })\n\tjournal, err := OpenJournal(t.Context(), runtime.JetStream(), 1)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tserver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\tif r.Header.Get(\"Authorization\") == \"\" || r.Header.Get(\"opc-retry-token\") == \"\" {\n\t\t\tt.Error(\"actual SDK mutation lacks signed request or stable retry identity\")\n\t\t\thttp.Error(w, \"rejected\", http.StatusForbidden)\n\t\t\treturn\n\t\t}\n\t\tw.Header().Set(\"Content-Type\", \"application/json\")\n\t\tw.Header().Set(\"opc-request-id\", \"original-sdk-response\")\n\t\tswitch r.URL.Path {\n\t\tcase \"/20160918/instanceConfigurations\":\n\t\t\tfmt.Fprintf(w, `{\"id\":%q,\"compartmentId\":\"ocid1.compartment.oc1..owned\",\"instanceDetails\":{\"instanceType\":\"compute\",\"launchDetails\":{\"shape\":\"VM.Standard.A1.Flex\"}}}`, configurationID)\n\t\tcase \"/20160918/instancePools\":\n\t\t\tfmt.Fprintf(w, `{\"id\":%q,\"compartmentId\":\"ocid1.compartment.oc1..owned\",\"instanceConfigurationId\":%q,\"size\":0}`, poolID, configurationID)\n\t\tcase \"/20160918/instancePools/\" + poolID:\n\t\t\tbody, err := io.ReadAll(r.Body)\n\t\t\tif err != nil {\n\t\t\t\tt.Error(err)\n\t\t\t\treturn\n\t\t\t}\n\t\t\tif strings.Contains(string(body), configurationID) {\n\t\t\t\tfmt.Fprintf(w, `{\"id\":%q,\"compartmentId\":\"ocid1.compartment.oc1..owned\",\"instanceConfigurationId\":\"ocid1.instanceconfiguration.oc1..previous\",\"size\":0}`, poolID)\n\t\t\t\treturn\n\t\t\t}\n\t\t\tfmt.Fprintf(w, `{\"id\":%q,\"compartmentId\":\"ocid1.compartment.oc1..owned\",\"instanceConfigurationId\":%q,\"size\":1}`, poolID, configurationID)\n\t\tdefault:\n\t\t\tt.Errorf(\"unexpected SDK endpoint: %s %s\", r.Method, r.URL)\n\t\t\thttp.NotFound(w, r)\n\t\t}\n\t}))\n\tdefer server.Close()\n\tkey, err := rsa.GenerateKey(rand.Reader, 2048)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tprovider := common.NewRawConfigurationProvider(\"ocid1.tenancy.oc1..test\", \"ocid1.user.oc1..test\", \"sa-saopaulo-1\", \"test\",\n\t\tstring(pem.EncodeToMemory(&pem.Block{Type: \"RSA PRIVATE KEY\", Bytes: x509.MarshalPKCS1PrivateKey(key)})), nil)\n\tfactory, err := ociclient.New(provider, ociclient.Options{Region: \"sa-saopaulo-1\", Retry: ociclient.RetryOptions{MaxAttempts: 1}})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tmanagement, err := factory.ComputeManagement()\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tociclient.PinHost(&management.BaseClient, server.URL)\n\tdetails := core.ComputeInstanceDetails{LaunchDetails: &core.InstanceConfigurationLaunchInstanceDetails{Shape: new(\"VM.Standard.A1.Flex\")}}\n\tconfigurationSHA, err := PoolConfigurationSHA256(details)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\toriginal := PoolCreateRequest{OperationID: entityid.New(), Kind: PoolCreateConfiguration, RecipeSHA256: strings.Repeat(\"a\", 64),\n\t\tLogicalScopeSHA256: strings.Repeat(\"b\", 64), ResolvedScopeSHA256: strings.Repeat(\"b\", 64), GrantSHA256: strings.Repeat(\"c\", 64), GrantGeneration: 7,\n\t\tTenancyID: \"ocid1.tenancy.oc1..test\", Region: RegionGRU, CompartmentID: \"ocid1.compartment.oc1..owned\", Role: \"container\", Architecture: \"arm64\", Shape: \"VM.Standard.A1.Flex\",\n\t\tConfigurationSHA256: configurationSHA, RequestSHA256: strings.Repeat(\"d\", 64), RetryToken: entityid.New(), Currency: \"USD\",\n\t\tReservedMonthlyCents: 2147, QuoteSHA256: strings.Repeat(\"e\", 64), StartedAt: time.Now().UTC()}\n\tif err := journal.RecordPoolCreateRequest(t.Context(), original); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tcreated, err := management.CreateInstanceConfiguration(t.Context(), core.CreateInstanceConfigurationRequest{OpcRetryToken: new(original.RetryToken),\n\t\tCreateInstanceConfiguration: core.CreateInstanceConfigurationDetails{CompartmentId: new(original.CompartmentID), InstanceDetails: details}})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\treadbackSHA, err := PoolConfigurationSHA256(created.InstanceDetails)\n\tif err != nil || readbackSHA != configurationSHA {\n\t\tt.Fatalf(\"SDK create/readback normalization differs: %q != %q err=%v\", configurationSHA, readbackSHA, err)\n\t}\n\tif err := journal.RecordPoolCreateResult(t.Context(), original.OperationID, original.Kind, *created.Id, *created.OpcRequestId); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tplacements := []core.CreateInstancePoolPlacementConfigurationDetails{{AvailabilityDomain: new(\"AD-1\"), PrimaryVnicSubnets: &core.InstancePoolPlacementPrimarySubnet{SubnetId: new(\"ocid1.subnet.oc1..owned\")}}}\n\tpoolRequest := original\n\tpoolRequest.Kind, poolRequest.ConfigurationID, poolRequest.RetryToken = PoolCreatePool, configurationID, entityid.New()\n\tpoolRequest.PlacementSHA256, err = PoolPlacementSHA256(placements)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := journal.RecordPoolCreateRequest(t.Context(), poolRequest); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tpool, err := management.CreateInstancePool(t.Context(), core.CreateInstancePoolRequest{OpcRetryToken: new(poolRequest.RetryToken),\n\t\tCreateInstancePoolDetails: core.CreateInstancePoolDetails{CompartmentId: new(original.CompartmentID), InstanceConfigurationId: new(configurationID), Size: new(0), PlacementConfigurations: placements}})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := journal.RecordPoolCreateResult(t.Context(), original.OperationID, PoolCreatePool, *pool.Id, *pool.OpcRequestId); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tgrowth := CapacityRequest{OperationID: original.OperationID, RecipeSHA256: original.RecipeSHA256, LogicalScopeSHA256: original.LogicalScopeSHA256,\n\t\tResolvedScopeSHA256: original.ResolvedScopeSHA256, GrantSHA256: original.GrantSHA256, GrantGeneration: original.GrantGeneration,\n\t\tTenancyID: original.TenancyID, Region: original.Region, CompartmentID: original.CompartmentID, PoolID: poolID,\n\t\tRequestSHA256: strings.Repeat(\"f\", 64), RetryToken: entityid.New(), IfMatch: \"original-etag\", Currency: original.Currency,\n\t\tReservedMonthlyCents: original.ReservedMonthlyCents, QuoteSHA256: original.QuoteSHA256, TargetSize: 1, StartedAt: original.StartedAt}\n\tpointBase := growth\n\tpointBase.TargetSize, pointBase.RetryToken, pointBase.IfMatch = 0, entityid.New(), \"original-point-etag\"\n\tpoint := PoolPointRequest{Request: pointBase, ConfigurationID: configurationID, ConfigurationSHA256: configurationSHA, PlacementSHA256: poolRequest.PlacementSHA256}\n\tif err := journal.RecordPoolPointRequest(t.Context(), point); err != nil {\n\t\tt.Fatal(err)\n\t}\n\taccepted, err := management.UpdateInstancePool(t.Context(), core.UpdateInstancePoolRequest{InstancePoolId: new(poolID), IfMatch: new(pointBase.IfMatch),\n\t\tOpcRetryToken: new(pointBase.RetryToken), UpdateInstancePoolDetails: core.UpdateInstancePoolDetails{InstanceConfigurationId: new(configurationID)}})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := journal.RecordPoolPointResult(t.Context(), original.OperationID, accepted); err != nil {\n\t\tt.Fatalf(\"asynchronous old config readback was confused with rejected SDK acceptance: %v\", err)\n\t}\n\tif err := journal.RecordCapacityRequest(t.Context(), growth); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tupdated, err := management.UpdateInstancePool(t.Context(), core.UpdateInstancePoolRequest{InstancePoolId: new(poolID), IfMatch: new(growth.IfMatch),\n\t\tOpcRetryToken: new(growth.RetryToken), UpdateInstancePoolDetails: core.UpdateInstancePoolDetails{Size: new(1)}})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tforeign := updated\n\tforeign.CompartmentId = new(\"ocid1.compartment.oc1..foreign\")\n\toversized := updated\n\toversized.Size = new(10)\n\tif journal.RecordCapacityResult(t.Context(), original.OperationID, foreign) == nil || journal.RecordCapacityResult(t.Context(), original.OperationID, oversized) == nil {\n\t\tt.Fatal(\"foreign compartment or oversized SDK effect became exact capacity result\")\n\t}\n\tif err := journal.RecordCapacityResult(t.Context(), original.OperationID, updated); err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// Simulate a crash after the immutable result but before its resource index.\n\tif err := journal.kv.Delete(t.Context(), poolResourceKey(poolID)); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := runtime.Close(); err != nil {\n\t\tt.Fatal(err)\n\t}\n\truntime, err = startAuthenticatedJournal(t.Context(), config)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tjournal, err = OpenJournal(t.Context(), runtime.JetStream(), 1)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := journal.RecordPoolCreateResult(t.Context(), original.OperationID, PoolCreatePool, poolID, \"later-idempotent-response\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tgot, result, found, err := journal.GetPoolCreateResource(t.Context(), poolID)\n\tif err != nil || !found || got != poolRequest || result.OpcRequestID != \"original-sdk-response\" {\n\t\tt.Fatalf(\"original request/result or repaired resource index lost: %+v %+v found=%v err=%v\", got, result, found, err)\n\t}\n\tif _, found, err := journal.GetCapacityResult(t.Context(), original.OperationID); err != nil || !found {\n\t\tt.Fatalf(\"positive growth result lost on restart: found=%v err=%v\", found, err)\n\t}\n\tif saved, found, err := journal.GetPoolPointRequest(t.Context(), original.OperationID); err != nil || !found || saved != point {\n\t\tt.Fatalf(\"point and growth collided or original point request lost: %+v found=%v err=%v\", saved, found, err)\n\t}\n\tif saved, found, err := journal.GetPoolPointResult(t.Context(), original.OperationID); err != nil || !found || saved.ObservedConfigurationID != \"ocid1.instanceconfiguration.oc1..previous\" || saved.ObservedSize != 0 {\n\t\tt.Fatalf(\"SDK acceptance manufactured new asynchronous configuration: %+v found=%v err=%v\", saved, found, err)\n\t}\n\tchangedPoint := point\n\tchangedPoint.Request.IfMatch = \"refreshed-point-etag\"\n\tif journal.RecordPoolPointRequest(t.Context(), changedPoint) == nil {\n\t\tt.Fatal(\"changed point precondition replaced original unknown attempt\")\n\t}\n\taltered := original\n\taltered.QuoteSHA256 = strings.Repeat(\"1\", 64)\n\tif journal.RecordPoolCreateRequest(t.Context(), altered) == nil || journal.RecordPoolCreateResult(t.Context(), original.OperationID, PoolCreatePool, \"ocid1.instancepool.oc1..foreign\", \"foreign-response\") == nil {\n\t\tt.Fatal(\"changed request or returned resource replaced original provenance\")\n\t}\n\tproof, err := journal.VerifyPoolInstance(t.Context(), factory, \"ocid1.instance.oc1..foreign-attached\")\n\tif !errors.Is(err, ErrPoolCreationLineagePending) || proof.IsVerified() || proof.Revalidate(t.Context()) == nil {\n\t\tt.Fatalf(\"pool consistency observations minted original child creation admission: %+v err=%v\", proof, err)\n\t}\n}",
+      "body_change_review": "Only Lab bootstrap/restart replaced with authenticatedJournal helpers; substantive assertions retained; no retirement credit.",
+      "pins_independently_reconfirmed": true,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/static_host_test.go::TestObserveStaticHostAcceptsOnlyAnUnmanagedRunningFleetInstance",
+      "path": "internal/oci/static_host_test.go",
+      "original_name": "TestObserveStaticHostAcceptsOnlyAnUnmanagedRunningFleetInstance",
+      "kind": "test",
+      "original_declaration_sha256": "b336273b6a0213f6a0e3871fbc9df073cd0af8c572b3a7d881c8ef4c92704829",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 8,
+        "end_line": 58
+      },
+      "current_name": "TestObserveStaticHostAcceptsOnlyAnUnmanagedRunningFleetInstance",
+      "current_declaration_sha256": "b336273b6a0213f6a0e3871fbc9df073cd0af8c572b3a7d881c8ef4c92704829",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 8,
+        "end_line": 58,
+        "git_blob": "7e94e6a0ec1220177af2f520f57e0593b8b3f937"
+      },
+      "survival_state": "retained_body_exact",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "rationale": "Map-backed fake provider plus local image allow-list exercise scope/lifecycle/tag validation only.",
+      "setup_citation_keys": [
+        "newFakeProvider",
+        "newFakeJournal",
+        "newTestFleet",
+        "fakeGet",
+        "fakeImage"
+      ],
+      "production_citation_keys": [
+        "static",
+        "imageAllowed"
+      ],
+      "boundary_trace": "Write provider.instances map\u2192ObserveStaticHost\u2192fake Get clone\u2192local checks; allowList.HostImages returns local slice",
+      "fakes_and_external_fact_limits": "No actual SDK network/storage verification, running VM, signed image chain or enrollment fact.",
+      "assertion_blocks": [
+        {
+          "path": "internal/oci/static_host_test.go",
+          "line": 20,
+          "end_line": 22,
+          "git_blob": "7e94e6a0ec1220177af2f520f57e0593b8b3f937",
+          "boundary_category": "unit",
+          "why": "Accept synthetic local record",
+          "exact_text": "\tprovider.instances[static.ID] = static\n\tif got, err := observer.ObserveStaticHost(t.Context(), static.ID, \"gru-1-db-1\"); err != nil || got.PrivateIP != \"10.251.0.21\" {\n\t\tt.Fatalf(\"ObserveStaticHost() = %+v, %v\", got, err)"
+        },
+        {
+          "path": "internal/oci/static_host_test.go",
+          "line": 24,
+          "end_line": 42,
+          "git_blob": "7e94e6a0ec1220177af2f520f57e0593b8b3f937",
+          "boundary_category": "unit",
+          "why": "Reject ten local record mutations",
+          "exact_text": "\tfor name, mutate := range map[string]func(*CloudInstance){\n\t\t\"other compartment\":    func(i *CloudInstance) { i.CompartmentID = config.ImageCompartmentID },\n\t\t\"unplanned fault\":      func(i *CloudInstance) { i.FaultDomain = \"FAULT-DOMAIN-3\" },\n\t\t\"stopped\":              func(i *CloudInstance) { i.LifecycleState = \"STOPPED\" },\n\t\t\"managed launch\":       func(i *CloudInstance) { i.FreeformTags[tagManagedBy] = managedByValue },\n\t\t\"managed create key\":   func(i *CloudInstance) { i.FreeformTags[tagCreateKey] = \"th-a\" },\n\t\t\"other node\":           func(i *CloudInstance) { i.FreeformTags[tagHostNode] = \"gru-1-db-2\" },\n\t\t\"no private address\":   func(i *CloudInstance) { i.PrivateIP = \"\" },\n\t\t\"other availability\":   func(i *CloudInstance) { i.AvailabilityDomain = \"sa-saopaulo-1-AD-2\" },\n\t\t\"untagged static host\": func(i *CloudInstance) { delete(i.FreeformTags, tagHostNode) },\n\t\t\"foreign image\":        func(i *CloudInstance) { i.ImageID = \"ocid1.image.oc1.sa-saopaulo-1.foreign\" },\n\t} {\n\t\tt.Run(name, func(t *testing.T) {\n\t\t\tcandidate := cloneCloudInstance(static)\n\t\t\tmutate(&candidate)\n\t\t\tprovider.instances[static.ID] = candidate\n\t\t\tif _, err := observer.ObserveStaticHost(t.Context(), static.ID, \"gru-1-db-1\"); !errors.Is(err, ErrForeignResource) {\n\t\t\t\tt.Fatalf(\"accepted %s: %v\", name, err)\n\t\t\t}"
+        },
+        {
+          "path": "internal/oci/static_host_test.go",
+          "line": 47,
+          "end_line": 56,
+          "git_blob": "7e94e6a0ec1220177af2f520f57e0593b8b3f937",
+          "boundary_category": "unit",
+          "why": "Allow-list slice accepts synthetic earlier image",
+          "exact_text": "\tearlier := cloneCloudInstance(static)\n\tearlier.ImageID = \"ocid1.image.oc1.sa-saopaulo-1.earlier\"\n\tprovider.instances[static.ID] = earlier\n\tallowing, err := NewFleetWithImageVerifier(config, intent, provider, newFakeJournal(), &fakeFencer{snapshot: writableSnapshot()},\n\t\tnil, nil, &allowListImageVerifier{allowed: []string{earlier.ImageID}})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := allowing.(StaticHostObserver).ObserveStaticHost(t.Context(), static.ID, \"gru-1-db-1\"); err != nil {\n\t\tt.Fatalf(\"static host of an allowed image: %v\", err)"
+        }
+      ],
+      "baseline_declaration": {
+        "name": "TestObserveStaticHostAcceptsOnlyAnUnmanagedRunningFleetInstance",
+        "line": 8,
+        "end_line": 58,
+        "raw_declaration_sha256": "b336273b6a0213f6a0e3871fbc9df073cd0af8c572b3a7d881c8ef4c92704829",
+        "source_file": {
+          "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+          "path": "internal/oci/static_host_test.go",
+          "git_mode": "100644",
+          "git_blob": "7e94e6a0ec1220177af2f520f57e0593b8b3f937",
+          "sha256": "91487639c5a41a7ac49fe2eb65721b0ac97d4a365a743fed2241f09f0a6cdf5d",
+          "bytes": 2982
+        }
+      },
+      "current_declaration": {
+        "name": "TestObserveStaticHostAcceptsOnlyAnUnmanagedRunningFleetInstance",
+        "line": 8,
+        "end_line": 58,
+        "raw_declaration_sha256": "b336273b6a0213f6a0e3871fbc9df073cd0af8c572b3a7d881c8ef4c92704829",
+        "source_file": {
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "path": "internal/oci/static_host_test.go",
+          "git_mode": "100644",
+          "git_blob": "7e94e6a0ec1220177af2f520f57e0593b8b3f937",
+          "sha256": "91487639c5a41a7ac49fe2eb65721b0ac97d4a365a743fed2241f09f0a6cdf5d",
+          "bytes": 2982
+        }
+      },
+      "current_raw_declaration_text": "func TestObserveStaticHostAcceptsOnlyAnUnmanagedRunningFleetInstance(t *testing.T) {\n\tconfig, intent := testRegionConfig()\n\tprovider := newFakeProvider(config)\n\tfleet, err := newTestFleet(config, intent, provider, newFakeJournal(), &fakeFencer{snapshot: writableSnapshot()}, nil, nil)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tstatic := CloudInstance{ID: \"ocid1.instance.oc1.sa-saopaulo-1.static\", PrivateIP: \"10.251.0.21\",\n\t\tCompartmentID: config.CompartmentID, AvailabilityDomain: config.AvailabilityDomain,\n\t\tFaultDomain: \"FAULT-DOMAIN-1\", LifecycleState: \"RUNNING\", ImageID: config.ImageID,\n\t\tFreeformTags: map[string]string{tagOwner: \"ts-470-gru-rebuild-2\", tagResource: \"terrabase-host\", tagHostNode: \"gru-1-db-1\"}}\n\tobserver := fleet.(StaticHostObserver)\n\tprovider.instances[static.ID] = static\n\tif got, err := observer.ObserveStaticHost(t.Context(), static.ID, \"gru-1-db-1\"); err != nil || got.PrivateIP != \"10.251.0.21\" {\n\t\tt.Fatalf(\"ObserveStaticHost() = %+v, %v\", got, err)\n\t}\n\tfor name, mutate := range map[string]func(*CloudInstance){\n\t\t\"other compartment\":    func(i *CloudInstance) { i.CompartmentID = config.ImageCompartmentID },\n\t\t\"unplanned fault\":      func(i *CloudInstance) { i.FaultDomain = \"FAULT-DOMAIN-3\" },\n\t\t\"stopped\":              func(i *CloudInstance) { i.LifecycleState = \"STOPPED\" },\n\t\t\"managed launch\":       func(i *CloudInstance) { i.FreeformTags[tagManagedBy] = managedByValue },\n\t\t\"managed create key\":   func(i *CloudInstance) { i.FreeformTags[tagCreateKey] = \"th-a\" },\n\t\t\"other node\":           func(i *CloudInstance) { i.FreeformTags[tagHostNode] = \"gru-1-db-2\" },\n\t\t\"no private address\":   func(i *CloudInstance) { i.PrivateIP = \"\" },\n\t\t\"other availability\":   func(i *CloudInstance) { i.AvailabilityDomain = \"sa-saopaulo-1-AD-2\" },\n\t\t\"untagged static host\": func(i *CloudInstance) { delete(i.FreeformTags, tagHostNode) },\n\t\t\"foreign image\":        func(i *CloudInstance) { i.ImageID = \"ocid1.image.oc1.sa-saopaulo-1.foreign\" },\n\t} {\n\t\tt.Run(name, func(t *testing.T) {\n\t\t\tcandidate := cloneCloudInstance(static)\n\t\t\tmutate(&candidate)\n\t\t\tprovider.instances[static.ID] = candidate\n\t\t\tif _, err := observer.ObserveStaticHost(t.Context(), static.ID, \"gru-1-db-1\"); !errors.Is(err, ErrForeignResource) {\n\t\t\t\tt.Fatalf(\"accepted %s: %v\", name, err)\n\t\t\t}\n\t\t})\n\t}\n\t// A static host booted from an image the cell's allow-list names is one\n\t// of the fleet's.\n\tearlier := cloneCloudInstance(static)\n\tearlier.ImageID = \"ocid1.image.oc1.sa-saopaulo-1.earlier\"\n\tprovider.instances[static.ID] = earlier\n\tallowing, err := NewFleetWithImageVerifier(config, intent, provider, newFakeJournal(), &fakeFencer{snapshot: writableSnapshot()},\n\t\tnil, nil, &allowListImageVerifier{allowed: []string{earlier.ImageID}})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := allowing.(StaticHostObserver).ObserveStaticHost(t.Context(), static.ID, \"gru-1-db-1\"); err != nil {\n\t\tt.Fatalf(\"static host of an allowed image: %v\", err)\n\t}\n}",
+      "body_change_review": "Raw declaration identical to baseline; canonical setup/production paths reviewed.",
+      "pins_independently_reconfirmed": true,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/volume_observer_integration_test.go::TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects",
+      "path": "internal/oci/volume_observer_integration_test.go",
+      "original_name": "TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects",
+      "kind": "test",
+      "original_declaration_sha256": "e99d7e2c54cdbe91d325e715c327d146400396b2c5a31ba7f694655da8418287",
+      "original_source": {
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "line": 28,
+        "end_line": 343
+      },
+      "current_name": "TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects",
+      "current_declaration_sha256": "69bb127a4502de5f04ccbc89a1272665ab9e80d03479954cdf05046b91b15a62",
+      "current_source": {
+        "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "line": 26,
+        "end_line": 340,
+        "git_blob": "caa3e73c91687dfc1e9697aa3eb87f7d017a4e5b"
+      },
+      "survival_state": "retained_body_changed",
+      "classification": "mixed",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "rationale": "Readonly mount/fleet/terminal safety, cancellation and nonrepair target actual SDK HTTP and real KV reads. Interface/constructor/nil-selector/zero-proof blocks remain local.",
+      "setup_citation_keys": [
+        "authConfig",
+        "authStart",
+        "authClose"
+      ],
+      "production_citation_keys": [
+        "natsStart",
+        "natsOptions",
+        "natsClient",
+        "tlsDial",
+        "tlsListen",
+        "jOpenJournal",
+        "jread",
+        "sweep",
+        "selected",
+        "instanceFromCloud",
+        "inventoryAdd",
+        "inventoryPublish",
+        "inventoryRead",
+        "journalReader",
+        "fleetObserver",
+        "volumeObserver",
+        "mount",
+        "terminated",
+        "readOnlyOwnership",
+        "sdkGet",
+        "sdkNetwork",
+        "sdkVolume",
+        "sdkAttachment"
+      ],
+      "boundary_trace": "Commit synthetic launch/volume/attachment records through real journal; SDK GETs traverse actual httptest socket; read-only wrapper uses real KV.Get; handler blocks actual request on context; actual Delete/Get/status/LastSeq prove no repair; independent local guards return before I/O",
+      "fakes_and_external_fact_limits": "Generated RSA signing and local sockets are real; handler only checks nonempty Authorization, not signature validation. OCI lifecycle/termination/device/mount and allow-listed image facts are synthetic; no actual mount, cloud fencing, IAM, signed-image or production R3 proof.",
+      "assertion_blocks": [
+        {
+          "path": "internal/oci/volume_observer_integration_test.go",
+          "line": 39,
+          "end_line": 54,
+          "git_blob": "caa3e73c91687dfc1e9697aa3eb87f7d017a4e5b",
+          "boundary_category": "integration",
+          "why": "Actual existing-only bucket/status/replica queries",
+          "exact_text": "\tif _, err := OpenJournalReader(t.Context(), runtime.JetStream(), 1); err == nil {\n\t\tt.Fatal(\"journal reader opened an absent bucket\")\n\t}\n\tif _, err := runtime.JetStream().KeyValue(t.Context(), journalBucket); err == nil {\n\t\tt.Fatal(\"journal reader created an absent bucket\")\n\t}\n\tjournal, err := OpenJournal(t.Context(), runtime.JetStream(), 1)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\treader, err := OpenJournalReader(t.Context(), runtime.JetStream(), 1)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := OpenJournalReader(t.Context(), runtime.JetStream(), 2); err == nil {\n\t\tt.Fatal(\"journal reader ignored the required regional replicas\")"
+        },
+        {
+          "path": "internal/oci/volume_observer_integration_test.go",
+          "line": 77,
+          "end_line": 88,
+          "git_blob": "caa3e73c91687dfc1e9697aa3eb87f7d017a4e5b",
+          "boundary_category": "unit",
+          "why": "Interface exposure and constructor-required-source guards",
+          "exact_text": "\tif _, ok := fleetReader.(Fleet); ok {\n\t\tt.Fatal(\"read-only observer exposed fleet mutations\")\n\t}\n\tif _, ok := any(reader).(Journal); ok {\n\t\tt.Fatal(\"opaque reader exposed journal mutations\")\n\t}\n\tif _, err := NewFleetObserver(config, intent, factory, reader, nil); err == nil {\n\t\tt.Fatal(\"fleet observer accepted a missing image verifier\")\n\t}\n\tif _, err := NewFleetObserver(config, intent, factory, JournalReader{}, images); err == nil {\n\t\tt.Fatal(\"fleet observer accepted a zero journal reader\")\n\t}"
+        },
+        {
+          "path": "internal/oci/volume_observer_integration_test.go",
+          "line": 259,
+          "end_line": 263,
+          "git_blob": "caa3e73c91687dfc1e9697aa3eb87f7d017a4e5b",
+          "boundary_category": "integration",
+          "why": "Actual readonly SDK/KV sweeps preserve original descriptor",
+          "exact_text": "\tif hosts, err := fleetReader.ObserveSelected(cachedContext, selected); err != nil || len(hosts) != 1 || hosts[0].ID != instanceID || hosts[0].BootDescriptorSHA256 != descriptorDigest {\n\t\tt.Fatalf(\"read-only fleet did not preserve allow-listed host verification: hosts=%+v err=%v\", hosts, err)\n\t}\n\tif hosts, err := fleetReader.Observe(t.Context()); err != nil || len(hosts) != 1 {\n\t\tt.Fatalf(\"read-only fleet sweep failed: hosts=%+v err=%v\", hosts, err)"
+        },
+        {
+          "path": "internal/oci/volume_observer_integration_test.go",
+          "line": 265,
+          "end_line": 267,
+          "git_blob": "caa3e73c91687dfc1e9697aa3eb87f7d017a4e5b",
+          "boundary_category": "unit",
+          "why": "Nil selector rejected before provider access",
+          "exact_text": "\tif _, err := fleetReader.ObserveSelected(t.Context(), nil); err == nil {\n\t\tt.Fatal(\"read-only fleet accepted a nil selector\")\n\t}"
+        },
+        {
+          "path": "internal/oci/volume_observer_integration_test.go",
+          "line": 268,
+          "end_line": 308,
+          "git_blob": "caa3e73c91687dfc1e9697aa3eb87f7d017a4e5b",
+          "boundary_category": "integration",
+          "why": "Actual provider/KV observations, synthetic unsafe modes, sequence/status and HTTP write count",
+          "exact_text": "\tif hosts, err := fleetReader.ObserveSelected(t.Context(), func(string, string) bool { return false }); err != nil || len(hosts) != 0 {\n\t\tt.Fatalf(\"read-only fleet ignored its selector: hosts=%+v err=%v\", hosts, err)\n\t}\n\timages.allowed = nil\n\tif hosts, err := fleetReader.ObserveSelected(t.Context(), selected); err != nil || len(hosts) != 0 {\n\t\tt.Fatalf(\"read-only fleet admitted an image removed from the allow-list: hosts=%+v err=%v\", hosts, err)\n\t}\n\timages.allowed = []string{config.ImageID}\n\tmode.Store(8)\n\tif hosts, err := fleetReader.ObserveSelected(cachedContext, selected); err == nil && len(hosts) != 0 {\n\t\tt.Fatal(\"read-only fleet reused cached network verification during registration\")\n\t}\n\tmode.Store(0)\n\tobservation, err := observer.InspectVolumeMount(t.Context(), pins, oldID)\n\tif err != nil || !observation.IsVerified() || observation.Pins() != pins || observation.PredecessorID() != oldID || observation.BootDescriptorSHA256() != descriptorDigest {\n\t\tt.Fatalf(\"existing retained mount did not verify: %v\", err)\n\t}\n\tif observation, err := observer.InspectVolumeMount(t.Context(), pins, \"\"); err != nil || !observation.IsVerified() || observation.PredecessorID() != \"\" {\n\t\tt.Fatalf(\"current mount with terminated historical attachments did not verify: %v\", err)\n\t}\n\tterminal, err := observer.ObserveTerminatedInstance(t.Context(), oldID)\n\tif err != nil || !terminal.IsVerified() || terminal.InstanceID() != oldID || terminal.Region() != config.Region || terminal.Generation() != config.Generation || terminal.Owner() != config.Owner {\n\t\tt.Fatalf(\"exact terminated predecessor did not verify: %v\", err)\n\t}\n\tfor scenario := int32(1); scenario <= 7; scenario++ {\n\t\tmode.Store(scenario)\n\t\tif _, err := observer.InspectVolumeMount(t.Context(), pins, oldID); err == nil {\n\t\t\tt.Fatalf(\"unsafe OCI observation scenario %d admitted\", scenario)\n\t\t}\n\t}\n\tmode.Store(5)\n\tif _, err := observer.InspectVolumeMount(t.Context(), pins, \"\"); err == nil {\n\t\tt.Fatal(\"omitted predecessor skipped nonterminal attachment history\")\n\t}\n\tmode.Store(0)\n\tif _, err := observer.ObserveTerminatedInstance(t.Context(), instanceID); err == nil {\n\t\tt.Fatal(\"running recipient proved terminated\")\n\t}\n\tafter, err := journal.kv.Status(t.Context())\n\tif err != nil || before.Values() != after.Values() || sequence != lastSequence() || writes.Load() != 0 {\n\t\tt.Fatal(\"observer mutated OCI or journal records\")"
+        },
+        {
+          "path": "internal/oci/volume_observer_integration_test.go",
+          "line": 310,
+          "end_line": 318,
+          "git_blob": "caa3e73c91687dfc1e9697aa3eb87f7d017a4e5b",
+          "boundary_category": "integration",
+          "why": "Actual blocked HTTP request honors caller deadline, dispatch count advances",
+          "exact_text": "\tmode.Store(9)\n\tcount := calls.Load()\n\tctx, cancel := context.WithTimeout(t.Context(), time.Second)\n\tstarted := time.Now()\n\t_, err = observer.InspectVolumeMount(ctx, pins, oldID)\n\tcancel()\n\tif !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > 2*time.Second || calls.Load() <= count {\n\t\tt.Fatalf(\"actual SDK read did not honor cancellation: %v\", err)\n\t}"
+        },
+        {
+          "path": "internal/oci/volume_observer_integration_test.go",
+          "line": 320,
+          "end_line": 335,
+          "git_blob": "caa3e73c91687dfc1e9697aa3eb87f7d017a4e5b",
+          "boundary_category": "integration",
+          "why": "Actual ownership index Delete then missing Get/sequence prove no readonly repair",
+          "exact_text": "\tif err := journal.kv.Delete(t.Context(), ownershipKey(\"instance\", instanceID)); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tsequence = lastSequence()\n\tif hosts, err := fleetReader.ObserveSelected(t.Context(), selected); err != nil || len(hosts) != 0 {\n\t\tt.Fatalf(\"read-only fleet admitted or repaired missing durable ownership: hosts=%+v err=%v\", hosts, err)\n\t}\n\tif _, err := observer.InspectVolumeMount(t.Context(), pins, oldID); err == nil {\n\t\tt.Fatal(\"missing ownership projection was repaired by a read-only observer\")\n\t}\n\tentry, err := journal.kv.Get(t.Context(), ownershipKey(\"instance\", instanceID))\n\tif err == nil || entry != nil {\n\t\tt.Fatal(\"read-only observer recreated missing ownership projection\")\n\t}\n\tif sequence != lastSequence() || writes.Load() != 0 {\n\t\tt.Fatal(\"read-only observers changed the journal or OCI after missing ownership\")"
+        },
+        {
+          "path": "internal/oci/volume_observer_integration_test.go",
+          "line": 337,
+          "end_line": 339,
+          "git_blob": "caa3e73c91687dfc1e9697aa3eb87f7d017a4e5b",
+          "boundary_category": "unit",
+          "why": "Zero-value IsVerified and ctx.Err are local checks",
+          "exact_text": "\tif (VerifiedVolumeObservation{}).IsVerified() || (VerifiedTerminatedInstance{}).IsVerified() || !errors.Is(ctx.Err(), context.DeadlineExceeded) {\n\t\tt.Fatal(\"zero or canceled observation acquired authority\")\n\t}"
+        }
+      ],
+      "baseline_declaration": {
+        "name": "TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects",
+        "line": 28,
+        "end_line": 343,
+        "raw_declaration_sha256": "e99d7e2c54cdbe91d325e715c327d146400396b2c5a31ba7f694655da8418287",
+        "source_file": {
+          "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+          "path": "internal/oci/volume_observer_integration_test.go",
+          "git_mode": "100644",
+          "git_blob": "f99a50f11461131c2511176b51605b8cabede07d",
+          "sha256": "ca132fd88f3fc76e2211849d68338537f7436bd927eba96afb8dbb6ab16c89a4",
+          "bytes": 17209
+        }
+      },
+      "current_declaration": {
+        "name": "TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects",
+        "line": 26,
+        "end_line": 340,
+        "raw_declaration_sha256": "69bb127a4502de5f04ccbc89a1272665ab9e80d03479954cdf05046b91b15a62",
+        "source_file": {
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "path": "internal/oci/volume_observer_integration_test.go",
+          "git_mode": "100644",
+          "git_blob": "caa3e73c91687dfc1e9697aa3eb87f7d017a4e5b",
+          "sha256": "d00e66c587a18461e40b30da5cbfe5ea640e8f0229f8a079b5caed2495c1fa36",
+          "bytes": 16999
+        }
+      },
+      "current_raw_declaration_text": "func TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects(t *testing.T) {\n\tintent := RegionIntent{SchemaVersion: 1, Generation: 7, BootstrapRegion: RegionGRU, Regions: []RegionMapping{{Cell: RegionGRU, OCIRegion: \"sa-saopaulo-1\"}}}\n\tconfig := RegionConfig{Region: RegionGRU, Generation: 7, Endpoint: \"https://iaas.sa-saopaulo-1.oraclecloud.com\",\n\t\tCompartmentID: \"ocid1.compartment.oc1..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", ImageCompartmentID: \"ocid1.compartment.oc1..bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\n\t\tAvailabilityDomain: \"sa-saopaulo-1-AD-1\", FaultDomains: []string{\"FAULT-DOMAIN-1\"}, SubnetID: \"ocid1.subnet.oc1.sa-saopaulo-1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\n\t\tNetworkSecurityGroupIDs: []string{\"ocid1.networksecuritygroup.oc1.sa-saopaulo-1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\n\t\tImageID:                 \"ocid1.image.oc1.sa-saopaulo-1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", BootVolumeGB: 50, BootVolumeVPUsPerGB: 10, DataVolumeVPUsPerGB: 10, MaxDataVolumeGB: 32768,\n\t\tShape: \"VM.Standard.E5.Flex\", Owner: \"orchestrator\"}\n\truntime, err := startAuthenticatedJournal(t.Context(), authenticatedJournalConfig(t, \"volume-observer\"))\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tt.Cleanup(func() { runtime.Close() })\n\tif _, err := OpenJournalReader(t.Context(), runtime.JetStream(), 1); err == nil {\n\t\tt.Fatal(\"journal reader opened an absent bucket\")\n\t}\n\tif _, err := runtime.JetStream().KeyValue(t.Context(), journalBucket); err == nil {\n\t\tt.Fatal(\"journal reader created an absent bucket\")\n\t}\n\tjournal, err := OpenJournal(t.Context(), runtime.JetStream(), 1)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\treader, err := OpenJournalReader(t.Context(), runtime.JetStream(), 1)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := OpenJournalReader(t.Context(), runtime.JetStream(), 2); err == nil {\n\t\tt.Fatal(\"journal reader ignored the required regional replicas\")\n\t}\n\tkey, err := rsa.GenerateKey(rand.Reader, 2048)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tprovider := common.NewRawConfigurationProvider(\"ocid1.tenancy.oc1..test\", \"ocid1.user.oc1..test\", \"sa-saopaulo-1\", \"test\", string(pem.EncodeToMemory(&pem.Block{Type: \"RSA PRIVATE KEY\", Bytes: x509.MarshalPKCS1PrivateKey(key)})), nil)\n\tfactory, err := ociclient.New(provider, ociclient.Options{Region: \"sa-saopaulo-1\", Retry: ociclient.RetryOptions{MaxAttempts: 2, BaseDelay: time.Millisecond}})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tobserver, err := NewVolumeMountObserver(factory, config, intent, journal)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// The running host uses a signed allow-list image rather than the new pin.\n\tfleetConfig := config\n\tfleetConfig.ImageID = \"ocid1.image.oc1.sa-saopaulo-1.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"\n\timages := &allowListImageVerifier{allowed: []string{config.ImageID}}\n\tfleetReader, err := NewFleetObserver(fleetConfig, intent, factory, reader, images)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, ok := fleetReader.(Fleet); ok {\n\t\tt.Fatal(\"read-only observer exposed fleet mutations\")\n\t}\n\tif _, ok := any(reader).(Journal); ok {\n\t\tt.Fatal(\"opaque reader exposed journal mutations\")\n\t}\n\tif _, err := NewFleetObserver(config, intent, factory, reader, nil); err == nil {\n\t\tt.Fatal(\"fleet observer accepted a missing image verifier\")\n\t}\n\tif _, err := NewFleetObserver(config, intent, factory, JournalReader{}, images); err == nil {\n\t\tt.Fatal(\"fleet observer accepted a zero journal reader\")\n\t}\n\tinstanceID, oldID := \"ocid1.instance.oc1.sa-saopaulo-1.recipient\", \"ocid1.instance.oc1.sa-saopaulo-1.predecessor\"\n\tvolumeID, attachmentID := \"ocid1.volume.oc1.sa-saopaulo-1.retained\", \"ocid1.volumeattachment.oc1.sa-saopaulo-1.current\"\n\tdatabase, partition := entityid.New(), entityid.New()\n\tnow := time.Now().UTC()\n\trecord := func(operation OperationIntent, id, etag string) {\n\t\tt.Helper()\n\t\tif err := journal.RecordIntent(t.Context(), operation); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tif err := journal.RecordResult(t.Context(), OperationResult{Intent: operation, ResourceID: id, ETag: etag, RecordedAt: now}); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\tvar hostKey, descriptorDigest string\n\tinstances := map[string]map[string]any{}\n\tfor _, id := range []string{instanceID, oldID} {\n\t\tcreateKey := entityid.New()\n\t\trequest := EnsureRequest{CreateKey: createKey, PlacementGeneration: 3, PlacementProfileDigest: strings.Repeat(\"a\", 64),\n\t\t\tBootPins: HostBootPins{DatabaseID: database, PartitionID: partition, SeatID: entityid.New(), HostAttempt: 1, IntentPayloadDigest: strings.Repeat(\"b\", 64), CanonicalRosterDigest: strings.Repeat(\"c\", 64), RuntimeManifestDigest: strings.Repeat(\"d\", 64)}}\n\t\tdescriptor, err := (&fleet{config: config}).hostBootDescriptor(request, config.ImageID)\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\twire, err := descriptor.CanonicalBytes()\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tdigest, err := descriptor.Digest()\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\top := OperationIntent{Action: actionLaunch, Key: createKey, CreateKey: createKey, Region: config.Region, Generation: config.Generation, Owner: config.Owner,\n\t\t\tCreatedAt: now, FaultDomain: \"FAULT-DOMAIN-1\", PrivateIP: \"10.251.0.21\", Shape: config.Shape, WholeOCPUs: 1, MemoryInGBs: 6,\n\t\t\tPlacementProfileDigest: request.PlacementProfileDigest, PlacementGeneration: request.PlacementGeneration, ImageID: config.ImageID, BootDescriptor: string(wire), BootDescriptorSHA256: digest}\n\t\trecord(op, id, \"instance-v1\")\n\t\tstate := \"TERMINATED\"\n\t\tif id == instanceID {\n\t\t\tstate, hostKey, descriptorDigest = \"RUNNING\", createKey, digest\n\t\t}\n\t\tinstances[id] = map[string]any{\"id\": id, \"compartmentId\": config.CompartmentID, \"availabilityDomain\": config.AvailabilityDomain, \"faultDomain\": \"FAULT-DOMAIN-1\", \"lifecycleState\": state,\n\t\t\t\"shape\": config.Shape, \"shapeConfig\": map[string]any{\"ocpus\": 1, \"memoryInGBs\": 6}, \"imageId\": config.ImageID,\n\t\t\t\"metadata\": map[string]string{hostboot.MetadataKey: string(wire)}, \"freeformTags\": placementProfileTags(hostTags(config, createKey), request.PlacementProfileDigest, request.PlacementGeneration)}\n\t}\n\tvolumeKey := entityid.New()\n\trecord(OperationIntent{Action: actionVolumeCreate, Key: volumeKey, CreateKey: volumeKey, Region: config.Region, Generation: config.Generation, Owner: config.Owner, CreatedAt: now, AvailabilityDomain: config.AvailabilityDomain, SizeGB: 50}, volumeID, \"volume-v1\")\n\tdevice := \"/dev/oracleoci/oraclevdb\"\n\trecord(OperationIntent{Action: actionVolumeAttach, Key: entityid.New(), CreateKey: hostKey, ResourceID: instanceID, VolumeID: volumeID, Region: config.Region,\n\t\tGeneration: config.Generation, Owner: config.Owner, CreatedAt: now, Device: device, IsPvEncryptionInTransitEnabled: true}, attachmentID, \"attachment-v1\")\n\tattachment := map[string]any{\"id\": attachmentID, \"instanceId\": instanceID, \"volumeId\": volumeID, \"device\": device, \"lifecycleState\": \"ATTACHED\", \"attachmentType\": \"paravirtualized\",\n\t\t\"isReadOnly\": false, \"isShareable\": false, \"isPvEncryptionInTransitEnabled\": true}\n\thistory := maps.Clone(attachment)\n\thistory[\"id\"], history[\"instanceId\"], history[\"lifecycleState\"] = \"ocid1.volumeattachment.oc1.sa-saopaulo-1.history\", oldID, \"DETACHED\"\n\tvar mode, writes, calls atomic.Int32\n\tserver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\tcalls.Add(1)\n\t\tif r.Method != http.MethodGet || r.Header.Get(\"Authorization\") == \"\" {\n\t\t\twrites.Add(1)\n\t\t\tw.WriteHeader(403)\n\t\t\treturn\n\t\t}\n\t\tw.Header().Set(\"Content-Type\", \"application/json\")\n\t\tw.Header().Set(\"etag\", \"instance-v1\")\n\t\tvar value any\n\t\tswitch {\n\t\tcase strings.HasSuffix(r.URL.Path, \"/instances\"):\n\t\t\tif r.URL.Query().Get(\"compartmentId\") != config.CompartmentID {\n\t\t\t\tt.Error(\"fleet observer widened its regional compartment query\")\n\t\t\t}\n\t\t\tvalue = []map[string]any{instances[instanceID]}\n\t\tcase strings.Contains(r.URL.Path, \"/instances/\"):\n\t\t\t_, id, _ := strings.CutLast(r.URL.Path, \"/\")\n\t\t\tif mode.Load() == 9 {\n\t\t\t\t<-r.Context().Done()\n\t\t\t\treturn\n\t\t\t}\n\t\t\tif id == oldID && mode.Load() == 6 {\n\t\t\t\tw.WriteHeader(404)\n\t\t\t\tw.Write([]byte(`{\"code\":\"NotAuthorizedOrNotFound\",\"message\":\"absent\"}`))\n\t\t\t\treturn\n\t\t\t}\n\t\t\tcloud := maps.Clone(instances[id])\n\t\t\tif id == oldID && mode.Load() == 5 {\n\t\t\t\tcloud[\"lifecycleState\"] = \"STOPPED\"\n\t\t\t}\n\t\t\tif id == instanceID && mode.Load() == 7 {\n\t\t\t\tcloud[\"compartmentId\"] = \"ocid1.compartment.oc1..foreign\"\n\t\t\t}\n\t\t\tvalue = cloud\n\t\tcase strings.HasSuffix(r.URL.Path, \"/bootVolumeAttachments\"):\n\t\t\tvalue = []map[string]any{{\"instanceId\": instanceID, \"bootVolumeId\": \"ocid1.bootvolume.oc1.sa-saopaulo-1.boot\", \"lifecycleState\": \"ATTACHED\"}}\n\t\tcase strings.Contains(r.URL.Path, \"/bootVolumes/\"):\n\t\t\tvalue = map[string]any{\"id\": \"ocid1.bootvolume.oc1.sa-saopaulo-1.boot\", \"compartmentId\": config.CompartmentID, \"imageId\": config.ImageID, \"sizeInGBs\": 50, \"vpusPerGB\": 10}\n\t\tcase strings.HasSuffix(r.URL.Path, \"/vnicAttachments\"):\n\t\t\tvalue = []map[string]any{{\"instanceId\": r.URL.Query().Get(\"instanceId\"), \"vnicId\": \"ocid1.vnic.oc1.sa-saopaulo-1.private\", \"lifecycleState\": \"ATTACHED\"}}\n\t\tcase strings.Contains(r.URL.Path, \"/vnics/\"):\n\t\t\tsubnet := config.SubnetID\n\t\t\tif mode.Load() == 8 {\n\t\t\t\tsubnet = \"ocid1.subnet.oc1.sa-saopaulo-1.foreign\"\n\t\t\t}\n\t\t\tvalue = map[string]any{\"id\": \"ocid1.vnic.oc1.sa-saopaulo-1.private\", \"subnetId\": subnet, \"privateIp\": \"10.251.0.21\", \"lifecycleState\": \"AVAILABLE\", \"nsgIds\": config.NetworkSecurityGroupIDs}\n\t\tcase strings.Contains(r.URL.Path, \"/volumes/\"):\n\t\t\tvalue = map[string]any{\"id\": volumeID, \"compartmentId\": config.CompartmentID, \"availabilityDomain\": config.AvailabilityDomain, \"lifecycleState\": \"AVAILABLE\", \"sizeInGBs\": 50, \"vpusPerGB\": 10,\n\t\t\t\t\"freeformTags\": volumeTags(config, VolumeCreateRequest{CreateKey: volumeKey, SizeGB: 50})}\n\t\tcase strings.Contains(r.URL.Path, \"/volumeAttachments/\"):\n\t\t\tw.Header().Set(\"etag\", \"attachment-v1\")\n\t\t\tcurrent := maps.Clone(attachment)\n\t\t\tswitch mode.Load() {\n\t\t\tcase 1:\n\t\t\t\tw.Header().Set(\"etag\", \"changed\")\n\t\t\tcase 2:\n\t\t\t\tcurrent[\"volumeId\"] = \"ocid1.volume.oc1.sa-saopaulo-1.foreign\"\n\t\t\tcase 3:\n\t\t\t\tcurrent[\"isShareable\"] = true\n\t\t\t}\n\t\t\tvalue = current\n\t\tcase strings.HasSuffix(r.URL.Path, \"/volumeAttachments\"):\n\t\t\tlisted := []map[string]any{attachment}\n\t\t\tif r.URL.Query().Get(\"volumeId\") != \"\" {\n\t\t\t\tif r.URL.Query().Get(\"volumeId\") != volumeID {\n\t\t\t\t\tt.Error(\"observer widened exact volume query\")\n\t\t\t\t}\n\t\t\t\tlisted = append(listed, history)\n\t\t\t\tif mode.Load() == 4 {\n\t\t\t\t\tother := maps.Clone(history)\n\t\t\t\t\tother[\"lifecycleState\"] = \"ATTACHED\"\n\t\t\t\t\tlisted = append(listed, other)\n\t\t\t\t}\n\t\t\t}\n\t\t\tvalue = listed\n\t\tdefault:\n\t\t\tt.Errorf(\"unexpected OCI read: %s\", r.URL.Path)\n\t\t\tw.WriteHeader(404)\n\t\t\treturn\n\t\t}\n\t\twire, err := json.Marshal(value)\n\t\tif err != nil {\n\t\t\tt.Error(err)\n\t\t}\n\t\tw.Write(wire)\n\t}))\n\tt.Cleanup(server.Close)\n\tsdk := observer.reader.provider.(volumeObservationProvider).Provider.(*sdkProvider)\n\tfor _, client := range []*common.BaseClient{&sdk.compute.BaseClient, &sdk.storage.BaseClient, &sdk.network.BaseClient} {\n\t\tociclient.PinHost(client, server.URL)\n\t}\n\tfleetSDK := fleetReader.(*fleetObserver).reader.provider.(fleetObservationProvider).Provider.(*sdkProvider)\n\tfor _, client := range []*common.BaseClient{&fleetSDK.compute.BaseClient, &fleetSDK.storage.BaseClient, &fleetSDK.network.BaseClient} {\n\t\tociclient.PinHost(client, server.URL)\n\t}\n\tpins := VolumeInitializationPins{DatabaseID: database, PartitionID: partition, InstanceID: instanceID, HostCreateKey: hostKey, VolumeID: volumeID,\n\t\tAttachmentID: attachmentID, AttachmentETag: \"attachment-v1\", Device: device, FileSystemUUID: \"12345678-1234-1234-1234-123456789abc\", FileSystemType: \"ext4\"}\n\tbefore, err := journal.kv.Status(t.Context())\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tstream, err := runtime.JetStream().Stream(t.Context(), \"KV_\"+journalBucket)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tlastSequence := func() uint64 {\n\t\tt.Helper()\n\t\tinfo, err := stream.Info(t.Context())\n\t\tif err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\treturn info.State.LastSeq\n\t}\n\tsequence := lastSequence()\n\tcachedContext := WithCachedVerification(t.Context())\n\tselected := func(id, node string) bool { return id == instanceID && node == hostNode(config, hostKey) }\n\tif hosts, err := fleetReader.ObserveSelected(cachedContext, selected); err != nil || len(hosts) != 1 || hosts[0].ID != instanceID || hosts[0].BootDescriptorSHA256 != descriptorDigest {\n\t\tt.Fatalf(\"read-only fleet did not preserve allow-listed host verification: hosts=%+v err=%v\", hosts, err)\n\t}\n\tif hosts, err := fleetReader.Observe(t.Context()); err != nil || len(hosts) != 1 {\n\t\tt.Fatalf(\"read-only fleet sweep failed: hosts=%+v err=%v\", hosts, err)\n\t}\n\tif _, err := fleetReader.ObserveSelected(t.Context(), nil); err == nil {\n\t\tt.Fatal(\"read-only fleet accepted a nil selector\")\n\t}\n\tif hosts, err := fleetReader.ObserveSelected(t.Context(), func(string, string) bool { return false }); err != nil || len(hosts) != 0 {\n\t\tt.Fatalf(\"read-only fleet ignored its selector: hosts=%+v err=%v\", hosts, err)\n\t}\n\timages.allowed = nil\n\tif hosts, err := fleetReader.ObserveSelected(t.Context(), selected); err != nil || len(hosts) != 0 {\n\t\tt.Fatalf(\"read-only fleet admitted an image removed from the allow-list: hosts=%+v err=%v\", hosts, err)\n\t}\n\timages.allowed = []string{config.ImageID}\n\tmode.Store(8)\n\tif hosts, err := fleetReader.ObserveSelected(cachedContext, selected); err == nil && len(hosts) != 0 {\n\t\tt.Fatal(\"read-only fleet reused cached network verification during registration\")\n\t}\n\tmode.Store(0)\n\tobservation, err := observer.InspectVolumeMount(t.Context(), pins, oldID)\n\tif err != nil || !observation.IsVerified() || observation.Pins() != pins || observation.PredecessorID() != oldID || observation.BootDescriptorSHA256() != descriptorDigest {\n\t\tt.Fatalf(\"existing retained mount did not verify: %v\", err)\n\t}\n\tif observation, err := observer.InspectVolumeMount(t.Context(), pins, \"\"); err != nil || !observation.IsVerified() || observation.PredecessorID() != \"\" {\n\t\tt.Fatalf(\"current mount with terminated historical attachments did not verify: %v\", err)\n\t}\n\tterminal, err := observer.ObserveTerminatedInstance(t.Context(), oldID)\n\tif err != nil || !terminal.IsVerified() || terminal.InstanceID() != oldID || terminal.Region() != config.Region || terminal.Generation() != config.Generation || terminal.Owner() != config.Owner {\n\t\tt.Fatalf(\"exact terminated predecessor did not verify: %v\", err)\n\t}\n\tfor scenario := int32(1); scenario <= 7; scenario++ {\n\t\tmode.Store(scenario)\n\t\tif _, err := observer.InspectVolumeMount(t.Context(), pins, oldID); err == nil {\n\t\t\tt.Fatalf(\"unsafe OCI observation scenario %d admitted\", scenario)\n\t\t}\n\t}\n\tmode.Store(5)\n\tif _, err := observer.InspectVolumeMount(t.Context(), pins, \"\"); err == nil {\n\t\tt.Fatal(\"omitted predecessor skipped nonterminal attachment history\")\n\t}\n\tmode.Store(0)\n\tif _, err := observer.ObserveTerminatedInstance(t.Context(), instanceID); err == nil {\n\t\tt.Fatal(\"running recipient proved terminated\")\n\t}\n\tafter, err := journal.kv.Status(t.Context())\n\tif err != nil || before.Values() != after.Values() || sequence != lastSequence() || writes.Load() != 0 {\n\t\tt.Fatal(\"observer mutated OCI or journal records\")\n\t}\n\tmode.Store(9)\n\tcount := calls.Load()\n\tctx, cancel := context.WithTimeout(t.Context(), time.Second)\n\tstarted := time.Now()\n\t_, err = observer.InspectVolumeMount(ctx, pins, oldID)\n\tcancel()\n\tif !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > 2*time.Second || calls.Load() <= count {\n\t\tt.Fatalf(\"actual SDK read did not honor cancellation: %v\", err)\n\t}\n\tmode.Store(0)\n\tif err := journal.kv.Delete(t.Context(), ownershipKey(\"instance\", instanceID)); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tsequence = lastSequence()\n\tif hosts, err := fleetReader.ObserveSelected(t.Context(), selected); err != nil || len(hosts) != 0 {\n\t\tt.Fatalf(\"read-only fleet admitted or repaired missing durable ownership: hosts=%+v err=%v\", hosts, err)\n\t}\n\tif _, err := observer.InspectVolumeMount(t.Context(), pins, oldID); err == nil {\n\t\tt.Fatal(\"missing ownership projection was repaired by a read-only observer\")\n\t}\n\tentry, err := journal.kv.Get(t.Context(), ownershipKey(\"instance\", instanceID))\n\tif err == nil || entry != nil {\n\t\tt.Fatal(\"read-only observer recreated missing ownership projection\")\n\t}\n\tif sequence != lastSequence() || writes.Load() != 0 {\n\t\tt.Fatal(\"read-only observers changed the journal or OCI after missing ownership\")\n\t}\n\tif (VerifiedVolumeObservation{}).IsVerified() || (VerifiedTerminatedInstance{}).IsVerified() || !errors.Is(ctx.Err(), context.DeadlineExceeded) {\n\t\tt.Fatal(\"zero or canceled observation acquired authority\")\n\t}\n}",
+      "body_change_review": "Only Lab bootstrap/restart replaced with authenticatedJournal helpers; substantive assertions retained; no retirement credit.",
+      "pins_independently_reconfirmed": true,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    }
+  ],
+  "connected_citations": {
+    "authConfig": {
+      "path": "internal/oci/authenticated_journal_test.go",
+      "function": "func authenticatedJournalConfig(t *testing.T, instance string) natscell.Config",
+      "line": 27,
+      "end_line": 156,
+      "git_blob": "c2e30e865ea393a8ada9dc8a7fbcb9892d6adfff",
+      "why": "Generated test JWT/operator/account/user credentials and mTLS certificates; stable owner-private disk StoreDir"
+    },
+    "authStart": {
+      "path": "internal/oci/authenticated_journal_test.go",
+      "function": "func startAuthenticatedJournal(ctx context.Context, cfg natscell.Config) (_ *authenticatedJournalRuntime, err error)",
+      "line": 168,
+      "end_line": 191,
+      "git_blob": "c2e30e865ea393a8ada9dc8a7fbcb9892d6adfff",
+      "why": "Real broker, applied cell claim, open bridge then separate authenticated client"
+    },
+    "authClose": {
+      "path": "internal/oci/authenticated_journal_test.go",
+      "function": "func (r *authenticatedJournalRuntime) Close() error",
+      "line": 164,
+      "end_line": 166,
+      "git_blob": "c2e30e865ea393a8ada9dc8a7fbcb9892d6adfff",
+      "why": "Closes real remote client and broker"
+    },
+    "bucket": {
+      "path": "internal/oci/journal_test.go",
+      "function": "func testJournalBucket(t *testing.T) jetstream.KeyValue",
+      "line": 366,
+      "end_line": 380,
+      "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+      "why": "Returns actual FileStorage KV from authenticated helper"
+    },
+    "bootFixture": {
+      "path": "internal/oci/journal_test.go",
+      "function": "func testLaunchIntent(createKey string) OperationIntent",
+      "line": 341,
+      "end_line": 364,
+      "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+      "why": "Synthetic immutable launch intent/boot descriptor only"
+    },
+    "failOwnership": {
+      "path": "internal/oci/journal_test.go",
+      "function": "func (kv *failOwnershipCreateKV) Create(ctx context.Context, key string, value []byte, opts ...jetstream.KVCreateOpt) (uint64, error)",
+      "line": 400,
+      "end_line": 406,
+      "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+      "why": "Injects one first reverse-index Create failure; all other calls delegate actual KV"
+    },
+    "failAttachment": {
+      "path": "internal/oci/journal_test.go",
+      "function": "func (kv *failAttachmentProjectionKV) Create(ctx context.Context, key string, value []byte, opts ...jetstream.KVCreateOpt) (uint64, error)",
+      "line": 392,
+      "end_line": 398,
+      "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+      "why": "Injects one attachment reverse-index Create failure; all other calls delegate actual KV"
+    },
+    "barrier": {
+      "path": "internal/oci/journal_test.go",
+      "function": "func (kv *barrierGetKV) Get(ctx context.Context, key string) (jetstream.KeyValueEntry, error)",
+      "line": 415,
+      "end_line": 425,
+      "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+      "why": "Actual KV.Get occurs before synchronizing racing result writers"
+    },
+    "natsStart": {
+      "path": "internal/natscell/runtime.go",
+      "function": "func start(ctx context.Context, cfg Config, identityRekey bool) (_ *Runtime, err error)",
+      "line": 363,
+      "end_line": 507,
+      "git_blob": "b7d9b16bf34c966d722a17bea21a3ccb76cc396b",
+      "why": "Actual native embedded server, remote nats.Connect, native JetStream client"
+    },
+    "natsOptions": {
+      "path": "internal/natscell/runtime.go",
+      "function": "func serverOptionsForStart(cfg Config, identityRekey bool) (*server.Options, error)",
+      "line": 666,
+      "end_line": 778,
+      "git_blob": "b7d9b16bf34c966d722a17bea21a3ccb76cc396b",
+      "why": "Actual disk StoreDir and JetStream=true"
+    },
+    "natsClient": {
+      "path": "internal/natscell/runtime.go",
+      "function": "func clientOptions(cfg Config) ([]nats.Option, error)",
+      "line": 780,
+      "end_line": 872,
+      "git_blob": "b7d9b16bf34c966d722a17bea21a3ccb76cc396b",
+      "why": "JWT nonce signing and TLS-first client dialer"
+    },
+    "tlsDial": {
+      "path": "internal/natscell/tls_dialer.go",
+      "function": "func (d *tlsFirstDialer) Dial(network, address string) (net.Conn, error)",
+      "line": 26,
+      "end_line": 54,
+      "git_blob": "d14d83ee9248efc3c3d911ad725b20fb73357c27",
+      "why": "Actual tls.DialWithDialer TCP transport"
+    },
+    "tlsListen": {
+      "path": "internal/natscell/bridge.go",
+      "function": "func startBridge(s *server.Server, address string, tlsConfig *tls.Config, account string) (*Bridge, error)",
+      "line": 78,
+      "end_line": 89,
+      "git_blob": "a696f75530c42083b749535850bc960ed6184ea4",
+      "why": "Actual tls.Listen and accept bridge"
+    },
+    "newAttach": {
+      "path": "internal/oci/fleet_test.go",
+      "function": "func newAttachTestState(t *testing.T) (RegionConfig, *fakeProvider, *fakeJournal, Fleet, Instance, RetainedVolume)",
+      "line": 2319,
+      "end_line": 2338,
+      "git_blob": "41dfd0d2bfcc1ee0d2994a02a05cfdf684965f65",
+      "why": "All fake provider/journal/fencer setup; no live OCI or JetStream"
+    },
+    "newFakeProvider": {
+      "path": "internal/oci/fleet_test.go",
+      "function": "func newFakeProvider(config RegionConfig) *fakeProvider",
+      "line": 2381,
+      "end_line": 2389,
+      "git_blob": "41dfd0d2bfcc1ee0d2994a02a05cfdf684965f65",
+      "why": "Synthetic map-backed cloud records"
+    },
+    "newFakeJournal": {
+      "path": "internal/oci/fleet_test.go",
+      "function": "func newFakeJournal() *fakeJournal",
+      "line": 1957,
+      "end_line": 1965,
+      "git_blob": "41dfd0d2bfcc1ee0d2994a02a05cfdf684965f65",
+      "why": "Synthetic map-backed journal records"
+    },
+    "newTestFleet": {
+      "path": "internal/oci/fleet_test.go",
+      "function": "func newTestFleet(",
+      "line": 2121,
+      "end_line": 2131,
+      "git_blob": "41dfd0d2bfcc1ee0d2994a02a05cfdf684965f65",
+      "why": "Injects provided fake dependencies and fake image verifier"
+    },
+    "fakeList": {
+      "path": "internal/oci/fleet_test.go",
+      "function": "func (p *fakeProvider) ListInstances(_ context.Context, compartmentID string) ([]CloudInstance, error)",
+      "line": 2391,
+      "end_line": 2400,
+      "git_blob": "41dfd0d2bfcc1ee0d2994a02a05cfdf684965f65",
+      "why": "Returns clones of local map values, no HTTP"
+    },
+    "fakeGet": {
+      "path": "internal/oci/fleet_test.go",
+      "function": "func (p *fakeProvider) GetInstance(_ context.Context, id string) (CloudInstance, error)",
+      "line": 2402,
+      "end_line": 2408,
+      "git_blob": "41dfd0d2bfcc1ee0d2994a02a05cfdf684965f65",
+      "why": "Returns map clone, no SDK"
+    },
+    "fakeAttachments": {
+      "path": "internal/oci/fleet_test.go",
+      "function": "func (p *fakeProvider) ListVolumeAttachments(_ context.Context, compartmentID, instanceID string) ([]CloudAttachment, error)",
+      "line": 2533,
+      "end_line": 2549,
+      "git_blob": "41dfd0d2bfcc1ee0d2994a02a05cfdf684965f65",
+      "why": "Returns local attachment map records"
+    },
+    "fakeOwned": {
+      "path": "internal/oci/fleet_test.go",
+      "function": "func (j *fakeJournal) IsOwnedInstance(_ context.Context, identity ResourceIdentity) (bool, error)",
+      "line": 2078,
+      "end_line": 2080,
+      "git_blob": "41dfd0d2bfcc1ee0d2994a02a05cfdf684965f65",
+      "why": "Local map equality, no KV"
+    },
+    "fakeOwnedAttachment": {
+      "path": "internal/oci/fleet_test.go",
+      "function": "func (j *fakeJournal) IsOwnedAttachment(_ context.Context, identity AttachmentIdentity) (bool, error)",
+      "line": 2086,
+      "end_line": 2088,
+      "git_blob": "41dfd0d2bfcc1ee0d2994a02a05cfdf684965f65",
+      "why": "Local map equality, no KV"
+    },
+    "fakeOperation": {
+      "path": "internal/oci/fleet_test.go",
+      "function": "func (j *fakeJournal) GetOperation(_ context.Context, scope OperationScope) (OperationIntent, bool, error)",
+      "line": 2062,
+      "end_line": 2076,
+      "git_blob": "41dfd0d2bfcc1ee0d2994a02a05cfdf684965f65",
+      "why": "Local immutable intent map lookup"
+    },
+    "fakeImage": {
+      "path": "internal/oci/fleet_test.go",
+      "function": "func (v *allowListImageVerifier) HostImages() ([]string, string)",
+      "line": 160,
+      "end_line": 160,
+      "git_blob": "41dfd0d2bfcc1ee0d2994a02a05cfdf684965f65",
+      "why": "Local fake allow-list slice, no signed image authority"
+    },
+    "regionFixture": {
+      "path": "internal/oci/fleet_test.go",
+      "function": "func testRegionConfig() (RegionConfig, RegionIntent)",
+      "line": 1848,
+      "end_line": 1869,
+      "git_blob": "41dfd0d2bfcc1ee0d2994a02a05cfdf684965f65",
+      "why": "Synthetic scoped-looking configuration values"
+    },
+    "sweep": {
+      "path": "internal/oci/fleet.go",
+      "function": "func (f *fleet) observe(ctx context.Context, selectInstance func(id, node string) bool) ([]Instance, error)",
+      "line": 279,
+      "end_line": 352,
+      "git_blob": "7f43e31674e2b222066bcf94fc5e400856ba3844",
+      "why": "Delegates provider/journal reads; publishes local tally only after complete sweep"
+    },
+    "selected": {
+      "path": "internal/oci/fleet.go",
+      "function": "func (f *fleet) ObserveSelected(ctx context.Context, selectInstance func(id, node string) bool) ([]Instance, error)",
+      "line": 272,
+      "end_line": 277,
+      "git_blob": "7f43e31674e2b222066bcf94fc5e400856ba3844",
+      "why": "Nil selector local guard precedes provider read"
+    },
+    "instanceFromCloud": {
+      "path": "internal/oci/fleet.go",
+      "function": "func (f *fleet) instanceFromCloud(ctx context.Context, cloud CloudInstance, identity ResourceIdentity, profile OperationIntent) (Instance, error)",
+      "line": 1167,
+      "end_line": 1234,
+      "git_blob": "7f43e31674e2b222066bcf94fc5e400856ba3844",
+      "why": "Verifies attachments against chosen journal before adding volume/attachment inventory"
+    },
+    "imageAllowed": {
+      "path": "internal/oci/fleet.go",
+      "function": "func (f *fleet) imageAllowed(imageID string) bool",
+      "line": 240,
+      "end_line": 250,
+      "git_blob": "7f43e31674e2b222066bcf94fc5e400856ba3844",
+      "why": "Local pinned-image/allow-list policy"
+    },
+    "inventoryAdd": {
+      "path": "internal/oci/inventory.go",
+      "function": "func (tally *inventoryTally) add(counts map[string]int, state string)",
+      "line": 55,
+      "end_line": 63,
+      "git_blob": "52cc23a2cc14f849bccdde26d7c8f6b40918e707",
+      "why": "Local state maps bounded by label limit"
+    },
+    "inventoryPublish": {
+      "path": "internal/oci/inventory.go",
+      "function": "func publishInventory(region Region, tally *inventoryTally, now time.Time)",
+      "line": 85,
+      "end_line": 116,
+      "git_blob": "52cc23a2cc14f849bccdde26d7c8f6b40918e707",
+      "why": "Replaces local snapshot and sets in-memory gauges"
+    },
+    "inventoryRead": {
+      "path": "internal/oci/inventory.go",
+      "function": "func FleetInventory() []observability.OCIFleetView",
+      "line": 120,
+      "end_line": 128,
+      "git_blob": "52cc23a2cc14f849bccdde26d7c8f6b40918e707",
+      "why": "Reads local snapshot under mutex"
+    },
+    "parseRegion": {
+      "path": "internal/oci/config.go",
+      "function": "func ParseRegionIntent(data []byte) (RegionIntent, error)",
+      "line": 65,
+      "end_line": 77,
+      "git_blob": "96d9781bec8d70bbb8f281ddf9ed6ef6a5f4c0e9",
+      "why": "Strict local JSON decoding; calls local validation"
+    },
+    "validateRegion": {
+      "path": "internal/oci/config.go",
+      "function": "func (intent RegionIntent) Validate() error",
+      "line": 116,
+      "end_line": 136,
+      "git_blob": "96d9781bec8d70bbb8f281ddf9ed6ef6a5f4c0e9",
+      "why": "Local product-to-OCI catalog mapping"
+    },
+    "validateConfig": {
+      "path": "internal/oci/config.go",
+      "function": "func (config RegionConfig) Validate(intent RegionIntent) error",
+      "line": 170,
+      "end_line": 230,
+      "git_blob": "96d9781bec8d70bbb8f281ddf9ed6ef6a5f4c0e9",
+      "why": "Local URL/config/scope checks"
+    },
+    "static": {
+      "path": "internal/oci/static_host.go",
+      "function": "func (f *fleet) ObserveStaticHost(ctx context.Context, instanceID, node string) (CloudInstance, error)",
+      "line": 23,
+      "end_line": 36,
+      "git_blob": "683bb20cd9630a6cba3e8522b5a6242353f4379c",
+      "why": "Provider.GetInstance plus local scope/lifecycle/tag/image checks; test injects fake"
+    },
+    "capacityWrite": {
+      "path": "internal/oci/capacity_request.go",
+      "function": "func (journal *KVJournal) RecordCapacityRequest(ctx context.Context, request CapacityRequest) error",
+      "line": 83,
+      "end_line": 107,
+      "git_blob": "8e20018d585f33e098c3821f1ff56c48c1e06a07",
+      "why": "validate before actual KV.Create; replay/conflict reads persisted original"
+    },
+    "capacityRead": {
+      "path": "internal/oci/capacity_request.go",
+      "function": "func (journal *KVJournal) GetCapacityRequest(ctx context.Context, operationID string) (CapacityRequest, bool, error)",
+      "line": 109,
+      "end_line": 124,
+      "git_blob": "8e20018d585f33e098c3821f1ff56c48c1e06a07",
+      "why": "Actual immutable original KV.Get"
+    },
+    "capacityValidate": {
+      "path": "internal/oci/capacity_request.go",
+      "function": "func (r CapacityRequest) validateReceipt() error",
+      "line": 51,
+      "end_line": 74,
+      "git_blob": "8e20018d585f33e098c3821f1ff56c48c1e06a07",
+      "why": "Missing BindingSHA with differing logical/resolved scope rejected before I/O"
+    },
+    "sdkFactory": {
+      "path": "internal/ociclient/factory.go",
+      "function": "func (f *Factory) ComputeManagement() (core.ComputeManagementClient, error)",
+      "line": 303,
+      "end_line": 311,
+      "git_blob": "e9846258def469f2563255190a68927aae4d4871",
+      "why": "Actual generated-provider SDK client constructor"
+    },
+    "pinHost": {
+      "path": "internal/ociclient/factory.go",
+      "function": "func PinHost(client *common.BaseClient, endpoint string)",
+      "line": 284,
+      "end_line": 288,
+      "git_blob": "e9846258def469f2563255190a68927aae4d4871",
+      "why": "Actual local test listener becomes SDK endpoint"
+    },
+    "poolWrite": {
+      "path": "internal/oci/pool_receipt.go",
+      "function": "func (journal *KVJournal) writePoolEntry(ctx context.Context, key string, entry journalEntry) error",
+      "line": 206,
+      "end_line": 223,
+      "git_blob": "1bdbfad0a24116f45b0275eb497eacf94cdab0a9",
+      "why": "Actual KV.Create and exact persisted-byte recovery"
+    },
+    "poolRequest": {
+      "path": "internal/oci/pool_receipt.go",
+      "function": "func (journal *KVJournal) RecordPoolCreateRequest(ctx context.Context, request PoolCreateRequest) error",
+      "line": 101,
+      "end_line": 116,
+      "git_blob": "1bdbfad0a24116f45b0275eb497eacf94cdab0a9",
+      "why": "Original configuration lookup and immutable request write"
+    },
+    "poolResult": {
+      "path": "internal/oci/pool_receipt.go",
+      "function": "func (journal *KVJournal) RecordPoolCreateResult(ctx context.Context, operationID, kind, resourceID, opcRequestID string) error",
+      "line": 137,
+      "end_line": 163,
+      "git_blob": "1bdbfad0a24116f45b0275eb497eacf94cdab0a9",
+      "why": "Actual original request/result reads and reverse-index repair"
+    },
+    "poolRead": {
+      "path": "internal/oci/pool_receipt.go",
+      "function": "func (journal *KVJournal) GetPoolCreateResource(ctx context.Context, resourceID string) (PoolCreateRequest, PoolCreateResult, bool, error)",
+      "line": 183,
+      "end_line": 204,
+      "git_blob": "1bdbfad0a24116f45b0275eb497eacf94cdab0a9",
+      "why": "Actual resource-index/primary/request KV reads"
+    },
+    "pointRequest": {
+      "path": "internal/oci/pool_point.go",
+      "function": "func (journal *KVJournal) RecordPoolPointRequest(ctx context.Context, request PoolPointRequest) error",
+      "line": 49,
+      "end_line": 66,
+      "git_blob": "4164b64e02032ad926a15bcf6fe64ade49e66017",
+      "why": "Read original scoped pool/config then write immutable request"
+    },
+    "pointResult": {
+      "path": "internal/oci/pool_point.go",
+      "function": "func (journal *KVJournal) RecordPoolPointResult(ctx context.Context, operationID string, response core.UpdateInstancePoolResponse) error",
+      "line": 86,
+      "end_line": 104,
+      "git_blob": "4164b64e02032ad926a15bcf6fe64ade49e66017",
+      "why": "Read original request then persist actual asynchronous acceptance fields"
+    },
+    "growthResult": {
+      "path": "internal/oci/pool_membership.go",
+      "function": "func (journal *KVJournal) RecordCapacityResult(ctx context.Context, operationID string, response core.UpdateInstancePoolResponse) error",
+      "line": 30,
+      "end_line": 55,
+      "git_blob": "f2b2ab92273e9538249868b0dde0bd1c01c24802",
+      "why": "Read actual original request/config then scope-check/store exact SDK result"
+    },
+    "pendingChild": {
+      "path": "internal/oci/pool_membership.go",
+      "function": "func (journal *KVJournal) VerifyPoolInstance(ctx context.Context, factory *ociclient.Factory, instanceID string) (VerifiedPoolInstance, error)",
+      "line": 110,
+      "end_line": 118,
+      "git_blob": "f2b2ab92273e9538249868b0dde0bd1c01c24802",
+      "why": "No SDK/KV access: local parameter checks then unconditional pending error"
+    },
+    "pendingVerified": {
+      "path": "internal/oci/pool_membership.go",
+      "function": "func (p VerifiedPoolInstance) IsVerified() bool",
+      "line": 97,
+      "end_line": 97,
+      "git_blob": "f2b2ab92273e9538249868b0dde0bd1c01c24802",
+      "why": "Always false"
+    },
+    "pendingRevalidate": {
+      "path": "internal/oci/pool_membership.go",
+      "function": "func (p VerifiedPoolInstance) Revalidate(context.Context) error",
+      "line": 108,
+      "end_line": 108,
+      "git_blob": "f2b2ab92273e9538249868b0dde0bd1c01c24802",
+      "why": "Always returns pending"
+    },
+    "journalReader": {
+      "path": "internal/oci/journal_reader.go",
+      "function": "func OpenJournalReader(ctx context.Context, js jetstream.JetStream, replicas int) (JournalReader, error)",
+      "line": 15,
+      "end_line": 33,
+      "git_blob": "f94901132ce49d5a27a66ca7b511004115d8a742",
+      "why": "Actual KeyValue/status reads; never bucket create"
+    },
+    "fleetObserver": {
+      "path": "internal/oci/fleet_observer.go",
+      "function": "func NewFleetObserver(config RegionConfig, intent RegionIntent, factory *ociclient.Factory, reader JournalReader, imageVerifier ImageQualificationVerifier) (FleetObserver, error)",
+      "line": 20,
+      "end_line": 41,
+      "git_blob": "35fe22de39170c42797d57c1ca47ca04f6a5efa8",
+      "why": "Local required-source guards then actual read-only SDK adapter"
+    },
+    "volumeObserver": {
+      "path": "internal/oci/volume_observer.go",
+      "function": "func NewVolumeMountObserver(factory *ociclient.Factory, config RegionConfig, intent RegionIntent, journal Journal) (*VolumeMountObserver, error)",
+      "line": 21,
+      "end_line": 37,
+      "git_blob": "94d3ae909384926724ae3c66a2840136094cbfbc",
+      "why": "Actual regional SDK adapter and read-only original ownership wrapper"
+    },
+    "mount": {
+      "path": "internal/oci/volume_observer.go",
+      "function": "func (o *VolumeMountObserver) InspectVolumeMount(ctx context.Context, pins VolumeInitializationPins, predecessorInstanceID string) (VerifiedVolumeObservation, error)",
+      "line": 112,
+      "end_line": 193,
+      "git_blob": "94d3ae909384926724ae3c66a2840136094cbfbc",
+      "why": "Actual host/volume/attachment/history reads plus original ownership"
+    },
+    "terminated": {
+      "path": "internal/oci/volume_observer.go",
+      "function": "func (o *VolumeMountObserver) ObserveTerminatedInstance(ctx context.Context, instanceID string) (VerifiedTerminatedInstance, error)",
+      "line": 79,
+      "end_line": 110,
+      "git_blob": "94d3ae909384926724ae3c66a2840136094cbfbc",
+      "why": "Actual SDK state and durable original ownership; no absent\u2192terminated inference"
+    },
+    "readOnlyOwnership": {
+      "path": "internal/oci/volume_observer.go",
+      "function": "func (j volumeObservationJournal) readOwnership(ctx context.Context, kind string, identity ResourceIdentity) (bool, error)",
+      "line": 228,
+      "end_line": 237,
+      "git_blob": "94d3ae909384926724ae3c66a2840136094cbfbc",
+      "why": "Only actual KV.Get; missing projection does not repair"
+    },
+    "sdkGet": {
+      "path": "internal/oci/sdk.go",
+      "function": "func (provider *sdkProvider) GetInstance(ctx context.Context, id string) (CloudInstance, error)",
+      "line": 102,
+      "end_line": 124,
+      "git_blob": "6bae1cb90ea15dc59c6f6f4d6ceb712bb4bd09cc",
+      "why": "Actual SDK GET followed by current boot/network verification"
+    },
+    "sdkNetwork": {
+      "path": "internal/oci/sdk.go",
+      "function": "func verifyInstanceStorageAndNetwork(ctx context.Context, config RegionConfig, instance CloudInstance,",
+      "line": 143,
+      "end_line": 223,
+      "git_blob": "6bae1cb90ea15dc59c6f6f4d6ceb712bb4bd09cc",
+      "why": "Actual boot attachment/volume and VNIC reads"
+    },
+    "sdkVolume": {
+      "path": "internal/oci/sdk.go",
+      "function": "func (provider *sdkProvider) GetVolume(ctx context.Context, id string) (CloudVolume, error)",
+      "line": 481,
+      "end_line": 497,
+      "git_blob": "6bae1cb90ea15dc59c6f6f4d6ceb712bb4bd09cc",
+      "why": "Actual SDK volume GET"
+    },
+    "sdkAttachment": {
+      "path": "internal/oci/sdk.go",
+      "function": "func (provider *sdkProvider) GetVolumeAttachment(ctx context.Context, id string) (CloudAttachment, error)",
+      "line": 370,
+      "end_line": 376,
+      "git_blob": "6bae1cb90ea15dc59c6f6f4d6ceb712bb4bd09cc",
+      "why": "Actual SDK attachment GET"
+    },
+    "jOpenJournal": {
+      "path": "internal/oci/journal.go",
+      "function": "func OpenJournal(ctx context.Context, js jetstream.JetStream, replicas int) (*KVJournal, error)",
+      "line": 133,
+      "end_line": 164,
+      "git_blob": "e51e17f165ec36020295a4fe5d7120352b29480c",
+      "why": "Actual production journal path; KV boundary and local guard order inspected"
+    },
+    "jNewKVJournal": {
+      "path": "internal/oci/journal.go",
+      "function": "func NewKVJournal(kv jetstream.KeyValue) (*KVJournal, error)",
+      "line": 168,
+      "end_line": 173,
+      "git_blob": "e51e17f165ec36020295a4fe5d7120352b29480c",
+      "why": "Actual production journal path; KV boundary and local guard order inspected"
+    },
+    "jRecordBootBinding": {
+      "path": "internal/oci/journal.go",
+      "function": "func (journal *KVJournal) RecordBootBinding(ctx context.Context, binding BootBinding) error",
+      "line": 51,
+      "end_line": 74,
+      "git_blob": "e51e17f165ec36020295a4fe5d7120352b29480c",
+      "why": "Actual production journal path; KV boundary and local guard order inspected"
+    },
+    "jGetBootBinding": {
+      "path": "internal/oci/journal.go",
+      "function": "func (journal *KVJournal) GetBootBinding(ctx context.Context, instanceID string) (BootBinding, bool, error)",
+      "line": 76,
+      "end_line": 91,
+      "git_blob": "e51e17f165ec36020295a4fe5d7120352b29480c",
+      "why": "Actual production journal path; KV boundary and local guard order inspected"
+    },
+    "jRecordIntent": {
+      "path": "internal/oci/journal.go",
+      "function": "func (journal *KVJournal) RecordIntent(ctx context.Context, intent OperationIntent) error",
+      "line": 175,
+      "end_line": 200,
+      "git_blob": "e51e17f165ec36020295a4fe5d7120352b29480c",
+      "why": "Actual production journal path; KV boundary and local guard order inspected"
+    },
+    "jRecordResult": {
+      "path": "internal/oci/journal.go",
+      "function": "func (journal *KVJournal) RecordResult(ctx context.Context, result OperationResult) error",
+      "line": 202,
+      "end_line": 257,
+      "git_blob": "e51e17f165ec36020295a4fe5d7120352b29480c",
+      "why": "Actual production journal path; KV boundary and local guard order inspected"
+    },
+    "jGetResult": {
+      "path": "internal/oci/journal.go",
+      "function": "func (journal *KVJournal) GetResult(ctx context.Context, intent OperationIntent) (OperationResult, bool, error)",
+      "line": 262,
+      "end_line": 283,
+      "git_blob": "e51e17f165ec36020295a4fe5d7120352b29480c",
+      "why": "Actual production journal path; KV boundary and local guard order inspected"
+    },
+    "jGetOperation": {
+      "path": "internal/oci/journal.go",
+      "function": "func (journal *KVJournal) GetOperation(ctx context.Context, scope OperationScope) (OperationIntent, bool, error)",
+      "line": 289,
+      "end_line": 313,
+      "git_blob": "e51e17f165ec36020295a4fe5d7120352b29480c",
+      "why": "Actual production journal path; KV boundary and local guard order inspected"
+    },
+    "jIsOwnedInstance": {
+      "path": "internal/oci/journal.go",
+      "function": "func (journal *KVJournal) IsOwnedInstance(ctx context.Context, identity ResourceIdentity) (bool, error)",
+      "line": 315,
+      "end_line": 317,
+      "git_blob": "e51e17f165ec36020295a4fe5d7120352b29480c",
+      "why": "Actual production journal path; KV boundary and local guard order inspected"
+    },
+    "jIsOwnedVolume": {
+      "path": "internal/oci/journal.go",
+      "function": "func (journal *KVJournal) IsOwnedVolume(ctx context.Context, identity ResourceIdentity) (bool, error)",
+      "line": 319,
+      "end_line": 321,
+      "git_blob": "e51e17f165ec36020295a4fe5d7120352b29480c",
+      "why": "Actual production journal path; KV boundary and local guard order inspected"
+    },
+    "jIsOwnedAttachment": {
+      "path": "internal/oci/journal.go",
+      "function": "func (journal *KVJournal) IsOwnedAttachment(ctx context.Context, identity AttachmentIdentity) (bool, error)",
+      "line": 323,
+      "end_line": 355,
+      "git_blob": "e51e17f165ec36020295a4fe5d7120352b29480c",
+      "why": "Actual production journal path; KV boundary and local guard order inspected"
+    },
+    "jrecordOwnership": {
+      "path": "internal/oci/journal.go",
+      "function": "func (journal *KVJournal) recordOwnership(ctx context.Context, resourceKind string, identity ResourceIdentity) error",
+      "line": 357,
+      "end_line": 379,
+      "git_blob": "e51e17f165ec36020295a4fe5d7120352b29480c",
+      "why": "Actual production journal path; KV boundary and local guard order inspected"
+    },
+    "jrecordAttachmentOwnership": {
+      "path": "internal/oci/journal.go",
+      "function": "func (journal *KVJournal) recordAttachmentOwnership(ctx context.Context, identity AttachmentIdentity, result OperationResult) error",
+      "line": 381,
+      "end_line": 410,
+      "git_blob": "e51e17f165ec36020295a4fe5d7120352b29480c",
+      "why": "Actual production journal path; KV boundary and local guard order inspected"
+    },
+    "jisOwned": {
+      "path": "internal/oci/journal.go",
+      "function": "func (journal *KVJournal) isOwned(ctx context.Context, kind string, identity ResourceIdentity) (bool, error)",
+      "line": 412,
+      "end_line": 444,
+      "git_blob": "e51e17f165ec36020295a4fe5d7120352b29480c",
+      "why": "Actual production journal path; KV boundary and local guard order inspected"
+    },
+    "jread": {
+      "path": "internal/oci/journal.go",
+      "function": "func (journal *KVJournal) read(ctx context.Context, key string) (journalEntry, error)",
+      "line": 527,
+      "end_line": 533,
+      "git_blob": "e51e17f165ec36020295a4fe5d7120352b29480c",
+      "why": "Actual production journal path; KV boundary and local guard order inspected"
+    },
+    "jrepairOwnership": {
+      "path": "internal/oci/journal.go",
+      "function": "func (journal *KVJournal) repairOwnership(ctx context.Context, result OperationResult) error",
+      "line": 546,
+      "end_line": 568,
+      "git_blob": "e51e17f165ec36020295a4fe5d7120352b29480c",
+      "why": "Actual production journal path; KV boundary and local guard order inspected"
+    },
+    "jrepairOwnershipFromOperation": {
+      "path": "internal/oci/journal.go",
+      "function": "func (journal *KVJournal) repairOwnershipFromOperation(ctx context.Context, kind string, identity ResourceIdentity) (bool, error)",
+      "line": 652,
+      "end_line": 689,
+      "git_blob": "e51e17f165ec36020295a4fe5d7120352b29480c",
+      "why": "Actual production journal path; KV boundary and local guard order inspected"
+    },
+    "jvalidateIntent": {
+      "path": "internal/oci/journal.go",
+      "function": "func validateIntent(intent OperationIntent) error",
+      "line": 719,
+      "end_line": 748,
+      "git_blob": "e51e17f165ec36020295a4fe5d7120352b29480c",
+      "why": "Actual production journal path; KV boundary and local guard order inspected"
+    },
+    "jsameIntent": {
+      "path": "internal/oci/journal.go",
+      "function": "func sameIntent(a, b OperationIntent) bool",
+      "line": 776,
+      "end_line": 789,
+      "git_blob": "e51e17f165ec36020295a4fe5d7120352b29480c",
+      "why": "Actual production journal path; KV boundary and local guard order inspected"
+    },
+    "jvalidComputeProfile": {
+      "path": "internal/oci/journal.go",
+      "function": "func validComputeProfile(shape string, wholeOCPUs, memoryInGBs uint32, profileDigest string, placementGeneration uint64) bool",
+      "line": 753,
+      "end_line": 761,
+      "git_blob": "e51e17f165ec36020295a4fe5d7120352b29480c",
+      "why": "Actual production journal path; KV boundary and local guard order inspected"
+    }
+  },
+  "source_pins": {
+    "internal/oci/authenticated_journal_test.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/oci/authenticated_journal_test.go",
+      "git_mode": "100644",
+      "git_blob": "c2e30e865ea393a8ada9dc8a7fbcb9892d6adfff",
+      "sha256": "6f9428ba15e41b97aeedc8b3d261daca6ff24b230aaaa2691e4c043d6131e663",
+      "bytes": 6683
+    },
+    "internal/oci/journal_test.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/oci/journal_test.go",
+      "git_mode": "100644",
+      "git_blob": "05fa2ac5dec71291daf17ce2240f5954a7e32b63",
+      "sha256": "f74af33c76a760d8256c3c1380283abd0786475fe1fa4283f7586b4885f769ec",
+      "bytes": 16657
+    },
+    "internal/natscell/runtime.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/natscell/runtime.go",
+      "git_mode": "100644",
+      "git_blob": "b7d9b16bf34c966d722a17bea21a3ccb76cc396b",
+      "sha256": "44804d1b0692d1b47fb37f4a9e1d99bfe7235d3fb317fc7c81c9090d80dc57cf",
+      "bytes": 35509
+    },
+    "internal/natscell/tls_dialer.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/natscell/tls_dialer.go",
+      "git_mode": "100644",
+      "git_blob": "d14d83ee9248efc3c3d911ad725b20fb73357c27",
+      "sha256": "d6e9d24d0e04e725333d52d14422b07af22ef0cb6ddbf98b1dece4c002625e5a",
+      "bytes": 2073
+    },
+    "internal/natscell/bridge.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/natscell/bridge.go",
+      "git_mode": "100644",
+      "git_blob": "a696f75530c42083b749535850bc960ed6184ea4",
+      "sha256": "40e089ec3dbb2173fb7348f963ef2dfefccc8c3209596c82b1597434b8a5a548",
+      "bytes": 7638
+    },
+    "internal/oci/fleet_test.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/oci/fleet_test.go",
+      "git_mode": "100644",
+      "git_blob": "41dfd0d2bfcc1ee0d2994a02a05cfdf684965f65",
+      "sha256": "4bd81008838277fd49ff2bbe0f5e7239229b99aaaf76affc7f56243eac45bf3d",
+      "bytes": 118314
+    },
+    "internal/oci/fleet.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/oci/fleet.go",
+      "git_mode": "100644",
+      "git_blob": "7f43e31674e2b222066bcf94fc5e400856ba3844",
+      "sha256": "a4301b2cc6671ec71acb6f2169c861b669d2a0efecfed07408920b8b0d04f5be",
+      "bytes": 68572
+    },
+    "internal/oci/inventory.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/oci/inventory.go",
+      "git_mode": "100644",
+      "git_blob": "52cc23a2cc14f849bccdde26d7c8f6b40918e707",
+      "sha256": "43de1e9a8901ecd8b244c695d6e35e8115f2e5a5155806c48c947cafa8ce5efb",
+      "bytes": 4022
+    },
+    "internal/oci/config.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/oci/config.go",
+      "git_mode": "100644",
+      "git_blob": "96d9781bec8d70bbb8f281ddf9ed6ef6a5f4c0e9",
+      "sha256": "ecba4d4a0ebe6451c68e96ff57ea78f721150b7b3c666bdcc3d113a3b8693f45",
+      "bytes": 9644
+    },
+    "internal/oci/static_host.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/oci/static_host.go",
+      "git_mode": "100644",
+      "git_blob": "683bb20cd9630a6cba3e8522b5a6242353f4379c",
+      "sha256": "8dc8021a9909654ad035902401c336eccad6d6d5a2bdc619ad6a75942aa2ea79",
+      "bytes": 4539
+    },
+    "internal/oci/capacity_request.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/oci/capacity_request.go",
+      "git_mode": "100644",
+      "git_blob": "8e20018d585f33e098c3821f1ff56c48c1e06a07",
+      "sha256": "6871a893d8fd31c204c3b4673008c732b9e1a677433f8b552683ff67171cd78e",
+      "bytes": 5203
+    },
+    "internal/ociclient/factory.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/ociclient/factory.go",
+      "git_mode": "100644",
+      "git_blob": "e9846258def469f2563255190a68927aae4d4871",
+      "sha256": "4f1d9c577bbeabb1b24443c9dbd97591f792fe3d9b069c38ef9cc86128aab0fa",
+      "bytes": 22992
+    },
+    "internal/oci/pool_receipt.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/oci/pool_receipt.go",
+      "git_mode": "100644",
+      "git_blob": "1bdbfad0a24116f45b0275eb497eacf94cdab0a9",
+      "sha256": "a734d737b280dfe5f28afd146741fc1e6586ed9ae4283f548a0570b3edbf219e",
+      "bytes": 11773
+    },
+    "internal/oci/pool_point.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/oci/pool_point.go",
+      "git_mode": "100644",
+      "git_blob": "4164b64e02032ad926a15bcf6fe64ade49e66017",
+      "sha256": "16db5f190814bbe8211df938f08764e4fbf87578fb3bf4f4fc95fa1f7dc28d83",
+      "bytes": 6222
+    },
+    "internal/oci/pool_membership.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/oci/pool_membership.go",
+      "git_mode": "100644",
+      "git_blob": "f2b2ab92273e9538249868b0dde0bd1c01c24802",
+      "sha256": "121bdedb8be9df40750f6dba25d96564f4046d26a8acba44323b4a4d58736850",
+      "bytes": 6561
+    },
+    "internal/oci/journal_reader.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/oci/journal_reader.go",
+      "git_mode": "100644",
+      "git_blob": "f94901132ce49d5a27a66ca7b511004115d8a742",
+      "sha256": "0c04aee00e87d2a0e6697a2e7082e6ee2d458101d4bb7343e96818aedbeb1f39",
+      "bytes": 1301
+    },
+    "internal/oci/fleet_observer.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/oci/fleet_observer.go",
+      "git_mode": "100644",
+      "git_blob": "35fe22de39170c42797d57c1ca47ca04f6a5efa8",
+      "sha256": "3c317aeb87294bfd4f75c1085723447e0c62aa03608a47915be79543ac92d225",
+      "bytes": 2088
+    },
+    "internal/oci/volume_observer.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/oci/volume_observer.go",
+      "git_mode": "100644",
+      "git_blob": "94d3ae909384926724ae3c66a2840136094cbfbc",
+      "sha256": "f15846a149c7a16839276905aba9d16a884ffe84bcd81f604870141576df398b",
+      "bytes": 11447
+    },
+    "internal/oci/sdk.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/oci/sdk.go",
+      "git_mode": "100644",
+      "git_blob": "6bae1cb90ea15dc59c6f6f4d6ceb712bb4bd09cc",
+      "sha256": "fb5b600a5ff7ed525f4a34b558295277be1c79257f8d5286ba7fc3ef1f3f6400",
+      "bytes": 27951
+    },
+    "internal/oci/journal.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/oci/journal.go",
+      "git_mode": "100644",
+      "git_blob": "e51e17f165ec36020295a4fe5d7120352b29480c",
+      "sha256": "c4f6d28a3abb8bea6fca9714c31985e06568b0c6118cc7ac8b8764d96d261c5b",
+      "bytes": 33200
+    },
+    "internal/oci/capacity_request_integration_test.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/oci/capacity_request_integration_test.go",
+      "git_mode": "100644",
+      "git_blob": "a792c3b650f5f6edc93c646c14f5821f2918031b",
+      "sha256": "2a3bc2af39a4429019edca97d1175c4a41dd04fe060dba4e5e71ee38518af230",
+      "bytes": 3442
+    },
+    "internal/oci/inventory_test.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/oci/inventory_test.go",
+      "git_mode": "100644",
+      "git_blob": "8c66bf272e7415e6e1e842b5ddc100581cc79943",
+      "sha256": "281b89dabeb24a0aa90ef6f0976a7da5f8024c7317d44f3515a5555dc9cd2457",
+      "bytes": 4504
+    },
+    "internal/oci/pool_receipt_integration_test.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/oci/pool_receipt_integration_test.go",
+      "git_mode": "100644",
+      "git_blob": "b3a44b62978dd78ddbc2c7d06e099e4ce4ddea3c",
+      "sha256": "c28f4b4cb0b38559bae127b59bfd34727b750e881abb885366ad98d4a465ae45",
+      "bytes": 10918
+    },
+    "internal/oci/static_host_test.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/oci/static_host_test.go",
+      "git_mode": "100644",
+      "git_blob": "7e94e6a0ec1220177af2f520f57e0593b8b3f937",
+      "sha256": "91487639c5a41a7ac49fe2eb65721b0ac97d4a365a743fed2241f09f0a6cdf5d",
+      "bytes": 2982
+    },
+    "internal/oci/volume_observer_integration_test.go": {
+      "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "path": "internal/oci/volume_observer_integration_test.go",
+      "git_mode": "100644",
+      "git_blob": "caa3e73c91687dfc1e9697aa3eb87f7d017a4e5b",
+      "sha256": "d00e66c587a18461e40b30da5cbfe5ea640e8f0229f8a079b5caed2495c1fa36",
+      "bytes": 16999
+    }
+  },
+  "common_boundary_notes": [
+    "Generated test JWT/mTLS client materially crosses real TCP bridge to native disk FileStorage; no deployed production credential or R3 qualification follows.",
+    "Boot-binding reopen means another wrapper on the same running KV; only capacity and pool roots explicitly stop/restart same-store broker.",
+    "Synthetic API facts and handler nonempty Authorization checks do not establish cloud truth or cryptographic server verification.",
+    "All fifteen original obligations survive. Changed bootstrap helpers authorize no retirement."
+  ],
+  "qualification_limits": [
+    "SOURCE ONLY. No Go/gofmt/build/test/lint/benchmark/runtime/process/listener/lock/cloud actions for this batch.",
+    "No source/Git/ledger mutation. Source read only via immutable git show; exact path ls-tree metadata authorized by coordinator.",
+    "All runtime results UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no runtime receipts reviewed.",
+    "Independent peer review and separate ledger promotion required.",
+    "No real OCI resource, IAM, signed image, financial completeness, actual mounted device, opaque production authority or production R3 proof."
+  ],
+  "findings": [
+    {
+      "type": "mixed_local_guard",
+      "root_id": "internal/oci/capacity_request_integration_test.go::TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity",
+      "local_only_spans": [
+        {
+          "line": 79,
+          "end_line": 83,
+          "why": "Missing BindingSHA with differing scopes fails validateReceipt before KV"
+        }
+      ]
+    },
+    {
+      "type": "mixed_local_guard",
+      "root_id": "internal/oci/pool_receipt_integration_test.go::TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission",
+      "local_only_spans": [
+        {
+          "line": 203,
+          "end_line": 205,
+          "why": "VerifyPoolInstance only local guards then unconditional pending; no SDK/KV read"
+        }
+      ]
+    },
+    {
+      "type": "mixed_local_guard",
+      "root_id": "internal/oci/volume_observer_integration_test.go::TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects",
+      "local_only_spans": [
+        {
+          "line": 77,
+          "end_line": 88,
+          "why": "Interface exposure and constructor-required-source guards"
+        },
+        {
+          "line": 265,
+          "end_line": 267,
+          "why": "Nil selector rejected before provider access"
+        },
+        {
+          "line": 337,
+          "end_line": 339,
+          "why": "Zero-value IsVerified and ctx.Err are local checks"
+        }
+      ]
+    }
+  ],
+  "source_blockers": [],
+  "accounting_effect": {
+    "accepted_counts_unchanged": {
+      "retired": 19,
+      "retained": 4300,
+      "classified": 102,
+      "integration": 78,
+      "unit": 23,
+      "mixed": 1,
+      "globally_unadjudicated": 4198
+    },
+    "candidate_originals": 15,
+    "accepted_classification_delta": 0,
+    "retirement_delta": 0,
+    "runtime_delta": 0,
+    "ledger_mutated": false
+  }
+}
