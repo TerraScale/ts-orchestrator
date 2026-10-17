@@ -336,3 +336,7 @@ func (foundation *transportFoundation) ReconcileFoundation(ctx context.Context, 
 func (*transportFoundation) EnsureSource(context.Context, Call, SourceRequest) (SourceReceipt, error) {
 	return SourceReceipt{}, ErrUnauthorized
 }
+
+func (*transportFoundation) ReconcileTaskTraffic(context.Context, Call, TaskTrafficRequest) (TaskTrafficReceipt, error) {
+	return TaskTrafficReceipt{}, ErrUnauthorized
+}

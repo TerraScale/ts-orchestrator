@@ -163,4 +163,4 @@ func effectContext(ctx context.Context, guard func(context.Context) error) conte
 	})
 }
 
-var _ rootoci.Foundation = (*Backend)(nil)
+var _ rootoci.FoundationInstallation = (*Backend)(nil)

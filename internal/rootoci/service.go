@@ -72,6 +72,9 @@ func (service *Service) validRequest(request wireRequest) bool {
 		return false
 	}
 	switch request.Operation {
+	case OperationReconcileTaskTraffic:
+		var input TaskTrafficRequest
+		return decodePayload(request.Payload, &input) == nil && validSelector(input.Role)
 	case OperationReconcileFoundation:
 		var input ReconcileFoundationRequest
 		return decodePayload(request.Payload, &input) == nil && validSelector(input.Cell) &&
@@ -214,6 +217,19 @@ func (service *Service) dispatch(ctx context.Context, call Call, request wireReq
 		return dispatchRead(ctx, service.backends.Readers, call, request)
 	}
 	switch request.Operation {
+	case OperationReconcileTaskTraffic:
+		var input TaskTrafficRequest
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		receipt, err := service.backends.Foundations.ReconcileTaskTraffic(ctx, call, input)
+		if err != nil {
+			return nil, err
+		}
+		if !validTaskTrafficReceipt(receipt, input.Role, call) {
+			return nil, ErrOutcomeUnknown
+		}
+		return receipt, nil
 	case OperationReconcileFoundation:
 		var input ReconcileFoundationRequest
 		if err := decodePayload(request.Payload, &input); err != nil {
