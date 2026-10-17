@@ -165,6 +165,8 @@ type FoundationController struct {
 	Authority   FoundationAuthority
 	Store       FoundationStore
 	Foundations Foundations
+	// Only the private initial operator path supplies authenticated home buckets.
+	initialGRUAuxiliary map[string]string
 }
 
 // ReconcileCell selects one authenticated intent without accepting a caller's
@@ -291,7 +293,17 @@ func (c *FoundationController) reconcile(ctx context.Context, epoch uint64, foot
 			ParentCompartmentID: footprint.ParentCompartmentID, SharedCompartmentID: footprint.SharedCompartmentID,
 			Generation: intent.Generation, IntentDigest: digest, GrantSHA256: footprint.GrantSHA256, OperationID: entityid.Derive("regional-foundation", footprint.TenancyID, cell, fmt.Sprint(intent.Generation)),
 			StartedAt: now, ResourceIDs: map[string]string{}}
+		if cell == "GRU" {
+			current.AuxiliaryIDs = maps.Clone(c.initialGRUAuxiliary)
+		}
 	} else {
+		if cell == "GRU" {
+			for key, id := range c.initialGRUAuxiliary {
+				if current.AuxiliaryIDs[key] != id {
+					return current, errors.New("existing home journal differs from authenticated initial bucket prerequisites")
+				}
+			}
+		}
 		if current.TenancyID != footprint.TenancyID || current.ParentCompartmentID != footprint.ParentCompartmentID || current.SharedCompartmentID != footprint.SharedCompartmentID {
 			return current, errors.New("foundation record belongs to another authorized scope")
 		}
