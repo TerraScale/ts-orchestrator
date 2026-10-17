@@ -334,6 +334,15 @@ func TestRuntimeEffectR3Integration(t *testing.T) {
 		if retained.Phase != RuntimeEffectSettled || retained.Epoch != effect.Epoch || !bytes.Equal(retained.Material, material) {
 			t.Fatalf("history lost settled provenance: %+v", retained)
 		}
+		if retained.Stop != nil {
+			t.Fatal("generic settlement manufactured a signed worker stop record")
+		}
+	}
+	readsBeforeReplay := proofReads.Load()
+	if _, err := current.SettleRuntimeEffectWithStop(ctx, epoch, scope, effect.EffectID, closing,
+		RuntimeStopRecord{ClosingSequence: closing, ChallengeEpoch: epoch, ChallengeIssuedAt: time.Now().UTC()}, verify,
+	); !errors.Is(err, ErrOperationConflict) || proofReads.Load() != readsBeforeReplay {
+		t.Fatalf("generic settlement was reclassified as a signed stop: %v", err)
 	}
 	expiring := effect
 	expiring.Scope = WorkloadScope{DatabaseID: entityid.New(), PartitionID: entityid.New()}

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json/v2"
 	"fmt"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/moby/swarmkit/v2/api"
 	"time"
 )
@@ -70,23 +71,25 @@ func WorkerAdmissionSHA256(payload WorkerGrantPayload) (string, error) {
 
 // RuntimeStopPayload describes a fresh observation of an already stopped writer.
 type RuntimeStopPayload struct {
-	EffectID       string    `json:"effect_id"`
-	TaskSHA256     string    `json:"task_sha256"`
-	InstanceID     string    `json:"instance_id"`
-	NodeID         string    `json:"node_id"`
-	ContainerID    string    `json:"container_id"`
-	KernelStart    string    `json:"kernel_start"`
-	Cgroup         string    `json:"cgroup"`
-	Challenge      string    `json:"challenge"`
-	Epoch          uint64    `json:"epoch"`
-	Revision       uint64    `json:"revision"`
-	PIDNamespace   uint64    `json:"pid_namespace"`
-	MountNamespace uint64    `json:"mount_namespace"`
-	HostPID        int       `json:"host_pid"`
-	Deadline       time.Time `json:"deadline"`
-	ObservedAt     time.Time `json:"observed_at"`
+	ClosingGrantSHA256 string    `json:"closing_grant_sha256"`
+	EffectID           string    `json:"effect_id"`
+	TaskSHA256         string    `json:"task_sha256"`
+	InstanceID         string    `json:"instance_id"`
+	NodeID             string    `json:"node_id"`
+	ContainerID        string    `json:"container_id"`
+	KernelStart        string    `json:"kernel_start"`
+	Cgroup             string    `json:"cgroup"`
+	Challenge          string    `json:"challenge"`
+	Epoch              uint64    `json:"epoch"`
+	Revision           uint64    `json:"revision"`
+	PIDNamespace       uint64    `json:"pid_namespace"`
+	MountNamespace     uint64    `json:"mount_namespace"`
+	HostPID            int       `json:"host_pid"`
+	Deadline           time.Time `json:"deadline"`
+	ObservedAt         time.Time `json:"observed_at"`
 }
 type SignedRuntimeStop struct {
+	ClosingGrant     protocol.Envelope  `json:"closing_grant"`
 	Payload          RuntimeStopPayload `json:"payload"`
 	CertificateChain [][]byte           `json:"certificate_chain"`
 	Signature        []byte             `json:"signature"`
