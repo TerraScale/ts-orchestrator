@@ -124,6 +124,7 @@ func foundationProtocolStore(t *testing.T) (*ObjectFoundationStore, FoundationOb
 }
 
 func TestFoundationRecordsPersistAndFenceConcurrentWriters(t *testing.T) {
+	t.Run("provision_originals", foundationProvisionSDKScenario)
 	store, client, raw := foundationProtocolStore(t)
 	now := time.Now().UTC()
 	record := FoundationRecord{SchemaVersion: 1, Cell: "GRU", OCIRegion: "sa-saopaulo-1", TenancyID: "ocid1.tenancy.oc1..test",
