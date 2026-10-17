@@ -46,7 +46,7 @@ func (enrollment *managedHostEnrollment) prepareRuntimeWorker(ctx context.Contex
 }
 
 func (enrollment *managedHostEnrollment) refreshRuntimeWorker(writer http.ResponseWriter, request *http.Request) {
-	if request.Method != http.MethodPost || request.TLS == nil || request.Header.Get("Forwarded") != "" ||
+	if request.Method != http.MethodPost || !hostEnrollmentTransport(request) || request.Header.Get("Forwarded") != "" ||
 		request.Header.Get("X-Forwarded-For") != "" || request.Header.Get("X-Real-IP") != "" {
 		http.Error(writer, "invalid worker refresh transport", http.StatusBadRequest)
 		return
@@ -65,7 +65,7 @@ func (enrollment *managedHostEnrollment) refreshRuntimeWorker(writer http.Respon
 		return
 	}
 	enrolled, descriptor, err := hostenroll.ParseRetainedWorkerRequest(transport.Request, time.Now().UTC())
-	peer, _, peerErr := net.SplitHostPort(request.RemoteAddr)
+	peer, peerErr := hostEnrollmentPeer(request)
 	if err != nil || peerErr != nil || net.ParseIP(peer) == nil || enrollment.observeRuntimeWorkerPeer(ctx, peer, enrolled, descriptor) != nil {
 		http.Error(writer, "worker peer is not current", http.StatusForbidden)
 		return
@@ -95,7 +95,7 @@ func (enrollment *managedHostEnrollment) refreshRuntimeWorker(writer http.Respon
 }
 
 func (enrollment *managedHostEnrollment) bindRuntimeWorker(writer http.ResponseWriter, request *http.Request) {
-	if request.Method != http.MethodPost || request.TLS == nil || request.Header.Get("Forwarded") != "" ||
+	if request.Method != http.MethodPost || !hostEnrollmentTransport(request) || request.Header.Get("Forwarded") != "" ||
 		request.Header.Get("X-Forwarded-For") != "" || request.Header.Get("X-Real-IP") != "" {
 		http.Error(writer, "invalid worker binding transport", http.StatusBadRequest)
 		return
@@ -118,7 +118,7 @@ func (enrollment *managedHostEnrollment) bindRuntimeWorker(writer http.ResponseW
 		return
 	}
 	enrollmentRequest, descriptor, err := hostenroll.ParseRetainedWorkerRequest(binding.Query.Request, time.Now().UTC())
-	peer, _, peerErr := net.SplitHostPort(request.RemoteAddr)
+	peer, peerErr := hostEnrollmentPeer(request)
 	if err != nil || peerErr != nil || net.ParseIP(peer) == nil {
 		http.Error(writer, "invalid worker peer identity", http.StatusForbidden)
 		return
