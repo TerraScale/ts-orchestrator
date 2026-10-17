@@ -1,0 +1,49 @@
+{
+  "status": "source correction; compile and runtime qualification pending",
+  "base_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "base_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "target": {
+    "path": "internal/app/capacity_checkpoint_integration_test.go",
+    "root": "TestCapacityCheckpointPrecedesActualSDKRequestAndRetainsOriginalReceipt",
+    "base_blob": "176359f3a7a86b6df9b5f07522d692e85441e6d7",
+    "base_sha256": "b63ab9b3f184ca44ea5f7cbb5382d2a9a8efa313c30bc80e7ebc7d8b2b4461e0",
+    "candidate_blob": "f88cb831f9f66837c62d22e5a0ed931c8e04239e",
+    "candidate_sha256": "8b2f0dde25d337d90d863c30b12d5f5c2accdae68b8406415faf76becfc8d28a"
+  },
+  "production_unchanged": {
+    "path": "internal/app/capacity_checkpoint.go",
+    "blob": "2f03450eabcbd81067573df2d6711e36f006162b",
+    "sha256": "8abf78c138288ba4e0890314303ceaa71055074f6d1138f5e5759592e85700a2",
+    "contract": "checkpointCapacityGrowth refuses changed retry tokens or first-attempt identity before replay; an unchanged token permits replay of original IfMatch; exact receipt differences are refused afterward"
+  },
+  "problem": "The old fixture supplied replacement-token and expected successful replay, contradicting the production retry-token guard and preventing its later replay and quote assertions from being reached.",
+  "correction": [
+    "Read the complete original CapacityRequest from the reopened real JetStream journal.",
+    "Change only OpcRetryToken to replacement-token; require errors.Is(ErrCapacityPending) and exactly one SDK HTTP call.",
+    "Read the journal again and compare the complete CapacityRequest with the original, preserving digest, retry identity, ETag, start time and financial receipt.",
+    "Restore original-retry-token while setting refreshed-etag; retain the original successful replay assertion for original-etag and original-retry-token.",
+    "Keep the restored original token for the later changed-quote assertion so it reaches the exact checkpoint mismatch rather than an earlier retry-token rejection."
+  ],
+  "preserved_assertions": [
+    "The original checkpoint must already exist when the actual OCI SDK HTTP request reaches the local server.",
+    "The request digest must match actual SDK method, escaped path, Content-Type, IfMatch, retry token and body, and match original quote and reserved monthly cents.",
+    "The reopened journal must replay the original IfMatch and retry token; changed quote must refuse without another SDK call; a missing durable journal must refuse growth.",
+    "Existing setup, HTTP response, record revision handling, error checks and boundary-authority comment remain unchanged."
+  ],
+  "boundary": "Existing embedded NATS/JetStream -> nodescale durable record -> app checkpoint -> OCI KV journal -> actual OCI SDK HTTP request to httptest server; no new root, helper, signer, receipt or production wiring.",
+  "authority_limit": "The existing fixture supplies an already verified home receipt and uses a no-op SDK signer. It tests checkpoint ordering and immutable receipt retention only; it is not genuine signed spending authority or live OCI acceptance. The original explicit seam comment is retained.",
+  "proposed_future_qa": {
+    "package": "./internal/app",
+    "compile": "true go test -c -o /dev/null or explicitly bound nonexecutable0600artifact; never go test -run '^$'",
+    "runtime_selector": "^TestCapacityCheckpointPrecedesActualSDKRequestAndRetainsOriginalReceipt$",
+    "source_expected_named_nodes": 1,
+    "source_expected_leaves": 1,
+    "count_basis": "source inspection only; existing single root with no subtests",
+    "grant": "Separate exact-candidate closure, environment, lane, source review and explicit QA authorization required; none assumed."
+  },
+  "execution_limits": [
+    "Only the existing target test file and this new manifest change; no production code, dependencies, new test root, fake authority or guard weakening.",
+    "Source formatting and diff checks only; no Go compiler, test runtime/discovery, helper runner, probe, lock, key/signing operation, cloud operation or live acceptance.",
+    "Prior32bf node-cost and707cd report-cost candidates remain frozen; no canonical adoption, gate, classification, retirement or production-readiness credit claimed."
+  ]
+}

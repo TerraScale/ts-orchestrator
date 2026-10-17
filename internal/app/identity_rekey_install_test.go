@@ -157,7 +157,7 @@ func TestIdentityRekeyInstallerRequiresExactV1RoleAndAllPinnedFiles(t *testing.T
 			case "extra":
 				wire["controller-manifest.json"] = []byte("retired authority")
 			case "schema":
-				cfg.Version = 2
+				cfg.Version = ConfigVersion + 1
 			case "role":
 				cfg.Controller.CandidateID = entityid.Derive("wrong-controller")
 			case "binary layout":

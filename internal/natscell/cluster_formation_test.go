@@ -146,6 +146,35 @@ func TestColdRestartWithTwoOfThreeBrokers(t *testing.T) {
 	if _, err := cluster.runtimes[0].JetStream().Publish(ctx, "formation.cold", []byte("before")); err != nil {
 		t.Fatal(err)
 	}
+	waitForStreamState := func(runtime *Runtime, offline int) {
+		t.Helper()
+		var last string
+		defer func() {
+			if t.Failed() {
+				t.Log(last)
+			}
+		}()
+		waitUntil(t, ctx, fmt.Sprintf("%s R3 stream with %d offline replicas", runtime.serverName, offline), func() bool {
+			probe, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+			states, healthErr := runtime.StreamHealth(probe)
+			view, observeErr := runtime.Observe(probe)
+			last = fmt.Sprintf("StreamHealth = %+v, %v; Observe = %+v, %v", states, healthErr, view, observeErr)
+			if healthErr != nil || observeErr != nil || len(states) != 1 || states[0].Name != "FORMATION" ||
+				len(states[0].Peers) != 3 || states[0].Lagging != (offline > 0) {
+				return false
+			}
+			for _, stream := range view.Streams {
+				if stream.Name == "FORMATION" {
+					return stream.Replicas == 3 && stream.Leader != "" && stream.OfflinePeers == offline
+				}
+			}
+			return false
+		})
+	}
+	for _, runtime := range cluster.runtimes {
+		waitForStreamState(runtime, 0)
+	}
 	for index := range 3 {
 		cluster.stop(index)
 	}
@@ -176,6 +205,112 @@ func TestColdRestartWithTwoOfThreeBrokers(t *testing.T) {
 		_, err := cluster.runtimes[2].JetStream().Publish(publish, "formation.cold", []byte("after"))
 		return err == nil
 	})
+	for _, index := range []int{0, 2} {
+		waitForStreamState(cluster.runtimes[index], 1)
+	}
+	// Monitoring must retain the configured R3 factor when quorum and the leader disappear.
+	cluster.stop(2)
+	waitUntil(t, ctx, "leaderless stream retains configured R3", func() bool {
+		view, err := cluster.runtimes[0].Observe(ctx)
+		if err != nil {
+			return false
+		}
+		for _, stream := range view.Streams {
+			if stream.Name == "FORMATION" && stream.Leader == "" {
+				if stream.Replicas != 3 {
+					t.Fatalf("leaderless stream replication = %+v", stream)
+				}
+				return true
+			}
+		}
+		return false
+	})
+	probe, probeCancel := context.WithTimeout(ctx, 3*time.Second)
+	states, healthErr := cluster.runtimes[0].StreamHealth(probe)
+	probeCancel()
+	if healthErr == nil && (len(states) != 1 || states[0].Name != "FORMATION" || !states[0].Lagging) {
+		t.Fatalf("leaderless stream reported healthy: %+v", states)
+	}
+	t.Logf("leaderless StreamHealth = %+v, %v", states, healthErr)
+	for _, index := range []int{2, 1} {
+		cluster.start(t, ctx, index)
+	}
+	for _, runtime := range cluster.runtimes {
+		waitUntil(t, ctx, "restored full metadata group", func() bool { return runtime.FullClusterReady(3) })
+		waitForStreamState(runtime, 0)
+	}
+	recovered, err := cluster.runtimes[1].JetStream().Stream(ctx, "FORMATION")
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, err := recovered.GetMsg(ctx, 1)
+	if err != nil || string(message.Data) != "before" {
+		t.Fatalf("first message after recovery = %+v, %v", message, err)
+	}
+	// An unavailable R1 stream must hold rollout even while metadata still has quorum.
+	single, err := cluster.runtimes[0].JetStream().CreateStream(ctx, jetstream.StreamConfig{
+		Name: "UNAVAILABLE", Subjects: []string{"unavailable.>"}, Replicas: 1, Storage: jetstream.FileStorage})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cluster.runtimes[0].JetStream().Publish(ctx, "unavailable.probe", []byte("single-before")); err != nil {
+		t.Fatal(err)
+	}
+	singleInfo := single.CachedInfo()
+	if singleInfo.Cluster == nil || singleInfo.Cluster.Leader == "" {
+		t.Fatalf("R1 stream has no assigned leader: %+v", singleInfo)
+	}
+	owner := singleInfo.Cluster.Leader
+	ownerIndex := slices.IndexFunc(cluster.runtimes, func(runtime *Runtime) bool { return runtime.serverName == owner })
+	if ownerIndex < 0 {
+		t.Fatalf("R1 stream owner %q is not a lab broker", owner)
+	}
+	survivor := cluster.runtimes[(ownerIndex+1)%3]
+	cluster.stop(ownerIndex)
+	if err := survivor.WaitForCluster(ctx, 3); err != nil {
+		t.Fatalf("metadata quorum did not survive the R1 owner stop: %v", err)
+	}
+	var lastR1Health string
+	defer func() {
+		if t.Failed() {
+			t.Log(lastR1Health)
+		}
+	}()
+	waitUntil(t, ctx, "unavailable R1 stream reported lagging with metadata quorum", func() bool {
+		probe, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		states, err := survivor.StreamHealth(probe)
+		lastR1Health = fmt.Sprintf("unavailable R1 StreamHealth = %+v, %v", states, err)
+		index := slices.IndexFunc(states, func(state StreamState) bool { return state.Name == "UNAVAILABLE" })
+		return err == nil && len(states) == 2 && index >= 0 && states[index].Lagging && len(states[index].Peers) == 0
+	})
+	t.Log(lastR1Health)
+	cluster.start(t, ctx, ownerIndex)
+	for _, runtime := range cluster.runtimes {
+		waitUntil(t, ctx, "metadata restored after R1 owner restart", func() bool { return runtime.FullClusterReady(3) })
+	}
+	waitUntil(t, ctx, "R1 stream healthy on its restored owner", func() bool {
+		probe, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		states, err := survivor.StreamHealth(probe)
+		lastR1Health = fmt.Sprintf("restored R1 StreamHealth = %+v, %v", states, err)
+		index := slices.IndexFunc(states, func(state StreamState) bool { return state.Name == "UNAVAILABLE" })
+		return err == nil && len(states) == 2 && index >= 0 && !states[index].Lagging && slices.Equal(states[index].Peers, []string{owner})
+	})
+	single, err = survivor.JetStream().Stream(ctx, "UNAVAILABLE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, err = single.GetMsg(ctx, 1)
+	if err != nil || string(message.Data) != "single-before" {
+		t.Fatalf("R1 message after owner recovery = %+v, %v", message, err)
+	}
+	if err := survivor.JetStream().DeleteStream(ctx, "UNAVAILABLE"); err != nil {
+		t.Fatal(err)
+	}
+	for _, runtime := range cluster.runtimes {
+		waitForStreamState(runtime, 0)
+	}
 }
 
 func TestWaitForClusterFailsFastWhenEmbeddedServerStopped(t *testing.T) {

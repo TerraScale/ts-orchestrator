@@ -1,0 +1,124 @@
+{
+  "schema": "nats-r1-unavailable-source-handoff/v1",
+  "status": "source prepared and independently reviewed; runtime qualification pending",
+  "owner": "/root/nats_next_conversion",
+  "model": "gpt-6.1-sol",
+  "reasoning_effort": "high",
+  "eta_minutes": 20,
+  "base_commit": "69cfb228fc90eb4be8bc8128e51fa22ceb59483f",
+  "branch": "test/nats-r1-unavailable-source-69cf",
+  "worktree": "/tmp/ts-nats-r1-unavailable-source-69cf",
+  "claim": {
+    "qa_owner": "/root/qa_integrator",
+    "ack": "exclusive existing ColdRestart root and new handoff/peer receipt; original69cf immutable; source only; zero runtime/count credit",
+    "files": [
+      "internal/natscell/cluster_formation_test.go",
+      "docs/evidence/refactor-checks-20261017/nats-r1-unavailable-source-69cf/handoff.json",
+      "docs/evidence/refactor-checks-20261017/nats-r1-unavailable-source-69cf/peer-review-receipt.json"
+    ]
+  },
+  "source": {
+    "file": "internal/natscell/cluster_formation_test.go",
+    "sha256": "7b2b9b73f07ee5e850ddaf5bea57fa5ec62244d77a6cd6e938e815ea385e655e",
+    "patch_sha256": "fd7196c282fb0133a56181a12c947c4f757b333a3da6a5133574475f11895317",
+    "existing_root": "internal/natscell/cluster_formation_test.go::TestColdRestartWithTwoOfThreeBrokers",
+    "new_test_roots": 0,
+    "deleted_test_roots": 0,
+    "production_files_changed": 0
+  },
+  "prepared_behavior": [
+    "Creates native file-backed R1 stream UNAVAILABLE, publishes single-before and derives the owner from actual cached STREAM.INFO Cluster.Leader.",
+    "Stops only the assigned owner; a different surviving broker retains 2-of-3 metadata quorum. StreamHealth must succeed with both stream names and report UNAVAILABLE as Lagging with zero Peers, proving a per-stream unavailable INFO path instead of accepting an outer listing failure or empty success.",
+    "Restarts the same owner/store, requires all three metadata peers, healthy R1 with the original owner as its single peer and recovery of the published message.",
+    "Deletes only the test-owned UNAVAILABLE stream and reuses the existing helper to verify healthy R3 state on every broker."
+  ],
+  "native_semantics": [
+    {
+      "source": "third_party/nats-server/server/jetstream_api.go::jsStreamNamesRequest",
+      "fact": "Healthy metadata leader lists its assigned stream names, including an offline R1 assignment."
+    },
+    {
+      "source": "third_party/nats-server/server/jetstream_api.go::jsStreamInfoRequest",
+      "fact": "Expected native branch: metadata leader returns a StreamOffline API error when all peers of that stream are offline. The test observes StreamHealth default lagging/no-peers behavior and cannot uniquely identify that inner error."
+    },
+    {
+      "source": "internal/natscell/health.go::Runtime.StreamHealth",
+      "fact": "A non-not-found per-stream INFO error yields the named default Lagging state with no fabricated peers while successful stream listing leaves the outer error nil."
+    }
+  ],
+  "checks": {
+    "modern_go": {
+      "status": "QA-authorized reuse of complete Go1.27 guidance for same existing Go file from immutable69cf parent handoff",
+      "original_command": "nice -n 19 /home/mariogk/.cache/go-modern-guidelines/v0.1.1/go-modern-guidelines list --file-path internal/natscell/cluster_formation_test.go",
+      "original_binary_sha256": "09937a1a253b6c52a49670cd63bfa17172da482d8ec399d7d08de8cd39254254",
+      "applied": [
+        "Existing t.Context() retained; slices.IndexFunc/slices.Equal for lookup/comparison; no repeated loop-variable captures."
+      ],
+      "new_cli_execution": false
+    },
+    "format": {
+      "status": "passed",
+      "command": "nice -n 19 gofmt -w internal/natscell/cluster_formation_test.go",
+      "exit_code": 0
+    },
+    "diff_check": {
+      "status": "passed",
+      "command": "git diff --check",
+      "exit_code": 0
+    },
+    "independent_source_review": {
+      "status": "passed; no blocking source findings",
+      "owner": "/root/nats_next_conversion/nats_r1_source_review",
+      "receipt_path": "docs/evidence/refactor-checks-20261017/nats-r1-unavailable-source-69cf/peer-review-receipt.json",
+      "receipt_sha256": "47915544fe204aab2aa38c1bf7989a8cf1d79443067b5787675c682930a2667d",
+      "reviewed_patch_sha256": "fd7196c282fb0133a56181a12c947c4f757b333a3da6a5133574475f11895317",
+      "reviewed_file_sha256": "7b2b9b73f07ee5e850ddaf5bea57fa5ec62244d77a6cd6e938e815ea385e655e",
+      "reviewed_pending_handoff_sha256": "6acedcd2f60a6e18c063a03f8a9e8a4538a1bd5e9f3098b6d288bb6871a90774",
+      "reviewed_pending_receipt_sha256": "922d8b68521fdbf104fba044ae3bb316688b284a1a5d717b8024e3e89ba3596a",
+      "precision_correction": "Handoff clarified that native StreamOffline is source-derived expected behavior; assertion does not uniquely distinguish it from an inner INFO timeout. Source unchanged."
+    },
+    "compile": {
+      "status": "not run; exact QA grant/fixed environment required"
+    },
+    "runtime": {
+      "status": "not run; exact QA grant/fixed environment required"
+    },
+    "handoff_consistency": {
+      "status": "passed",
+      "method": "Python source/patch SHA checks, identical test-root list/original matrix bytes and immutable69cf evidence bytes; zero-credit assertions."
+    }
+  },
+  "proposed_qa_commands_not_executed": [
+    {
+      "purpose": "true compile-only; do not execute init/TestMain/test binary",
+      "command": "nice -n 19 env GOMAXPROCS=2 go test -p=1 -c -o /dev/null ./internal/natscell"
+    },
+    {
+      "purpose": "run only the extended existing real NATS root",
+      "command": "nice -n 19 env GOMAXPROCS=2 go test -p=1 -run '^TestColdRestartWithTwoOfThreeBrokers$' -count=1 -timeout=150s -v ./internal/natscell"
+    }
+  ],
+  "qa_execution_requirements": "Exact final candidate, toolchain/cache environment and resource grant must be assigned by QA. Retain complete outputs and exit status; proposed commands authorize no execution.",
+  "coverage_limits": [
+    "The prepared assertion covers per-stream INFO failure/default behavior, without uniquely distinguishing native StreamOffline from an inner request timeout because StreamHealth hides per-stream errors. StreamOffline is source-derived expected behavior, not observed execution. No silent network timeout or successful Info with nil response is deliberately forced.",
+    "Snapshot catchup is not deliberately forced; no deterministic existing fixture for online-but-not-current snapshot state has been established.",
+    "Config-absent streamView fallback is unreachable through the sole production Observe caller, which requests Jsz Config:true and receives upstream nonnil configs. No production deletion or synthetic fallback/nil scenario is added.",
+    "Existing 90-second root context is unchanged; the added outage/recovery stage has not been timed.",
+    "Both original helper matrices remain byte-identical; original69cf evidence is immutable. No classification ledger or counts change."
+  ],
+  "original_roots": [
+    {
+      "root_id": "internal/natscell/health_review_test.go::TestStreamLaggingJudgesEveryReplicaAsItsLeaderReports",
+      "sha256": "cb0ceb3af64c22a49054c8d4652f451bdbd204ace522df819a356b82e27c38e5",
+      "unchanged": true
+    },
+    {
+      "root_id": "internal/natscell/metrics_replicas_review_test.go::TestStreamViewReportsTheConfiguredReplicationFactor",
+      "sha256": "9f6990b0bc3b3994b2b188fb0c0140b3d978dfd53ec136e96ffa487e57f1cc70",
+      "unchanged": true
+    }
+  ],
+  "qualification_credit": 0,
+  "classification_credit": 0,
+  "retirement_credit": 0
+}

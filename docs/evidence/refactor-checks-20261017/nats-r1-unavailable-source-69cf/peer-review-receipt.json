@@ -1,0 +1,26 @@
+{
+  "schema": "independent-peer-source-review-receipt/v1",
+  "original_spawn_tool_call": {
+    "tool": "collaboration-optimize.spawn_agent",
+    "arguments": {
+      "task_name": "nats_r1_source_review",
+      "fork_turns": "none",
+      "model": "gpt-6.1-sol",
+      "reasoning_effort": "high",
+      "message": "Independent SOURCE-ONLY review of /tmp/ts-nats-r1-unavailable-source-69cf diff to69cfb228fc90eb4be8bc8128e51fa22ceb59483f. Only Go change is +64lines appended inside existing internal/natscell/cluster_formation_test.go::TestColdRestartWithTwoOfThreeBrokers. Creates real R1 JetStream stream, derives actual assigned leader, stops owner while other2 metadata quorum survives, requires StreamHealth outer success and named Lagging UNAVAILABLE with zero peers (per-stream native INFO error), restarts same store and verifies healthy one-peer state+message, deletes test-owned R1 then verifies priorR3 health. Review native API semantics (health.go; vendor jetstream_api.go STREAM.NAMES and INFO), ownership/lifecycle/guards/timeout. No production edits/original unit retirement/new roots. DO NOT edit or run Go/CLI/compiler/tests/probes, cloud or privileged commands. Static reads/diff/hash only. QA exclusive claim source+new docs/evidence/refactor-checks-20261017/nats-r1-unavailable-source-69cf/{handoff,peer-review-receipt}.json. Original matrices remain byte-identical; all runtime/qualification/classification/retirement credit0. Provide blockers, exact patch/file hashes, and honest uncovered obligations. Mandatory model actual spawn args GPT6.1Sol/high/forknone; ETA5min. Read AGENTS/REFACTOR and ponytail skill as needed."
+    },
+    "returned_result": {
+      "task_name": "/root/nats_next_conversion/nats_r1_source_review"
+    },
+    "provenance": "Actual caller tool arguments and returned task name copied from the coordinator transcript; child cannot inspect caller-side model metadata."
+  },
+  "reviewed_base_commit": "69cfb228fc90eb4be8bc8128e51fa22ceb59483f",
+  "reviewed_file": "internal/natscell/cluster_formation_test.go",
+  "reviewed_file_sha256": "7b2b9b73f07ee5e850ddaf5bea57fa5ec62244d77a6cd6e938e815ea385e655e",
+  "reviewed_patch_sha256": "fd7196c282fb0133a56181a12c947c4f757b333a3da6a5133574475f11895317",
+  "status": "passed; no blocking source findings",
+  "qualification_credit": 0,
+  "retirement_credit": 0,
+  "actual_final_review": "Retain both original matrices. **No blocking source findings** in the 64-line test extension.\n\n1. Native `STREAM.NAMES` retains the offline R1 assignment under surviving metadata quorum. `STREAM.INFO` can return `StreamOffline`; `StreamHealth` converts the per-stream failure into the required named lagging state with zero peers.\n2. Owner lookup uses the actual assigned leader. A different survivor observes failure and recovery; restart retains the original store. Cleanup deletes only the test-owned R1 stream and rechecks R3 health.\n3. Existing assertions and production guards remain intact. Test roots are unchanged; both original matrices remain byte-identical. Handoff source hashes and zero-credit accounting match.\n4. The assertion cannot distinguish native `StreamOffline` from an inner INFO timeout. Describe the offline error as expected native behavior, not uniquely observed behavior. The unchanged 90-second context remains unmeasured.\n\nBase/HEAD: `69cfb228fc90eb4be8bc8128e51fa22ceb59483f`\n\n```text\nSource SHA256:\n7b2b9b73f07ee5e850ddaf5bea57fa5ec62244d77a6cd6e938e815ea385e655e\nPatch SHA256 (3452 bytes):\nfd7196c282fb0133a56181a12c947c4f757b333a3da6a5133574475f11895317\nReviewed pending handoff SHA256:\n6acedcd2f60a6e18c063a03f8a9e8a4538a1bd5e9f3098b6d288bb6871a90774\nReviewed pending receipt SHA256:\n922d8b68521fdbf104fba044ae3bb316688b284a1a5d717b8024e3e89ba3596a\n```\n\nNot checked: compilation, execution, timing, silent timeout, nil records, deterministic snapshot catchup or config-absent fallback. Caller model arguments have coordinator-transcript provenance only.\nRisk: source review grants **zero runtime, qualification, classification or retirement credit**.",
+  "source_observation_precision": "Expected native StreamOffline error is not uniquely observed by the assertion; StreamHealth exposes the default lagging/no-peers state for any non-not-found inner INFO error. Handoff wording clarified after review; Go source unchanged."
+}
