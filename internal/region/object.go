@@ -97,6 +97,9 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 		if err := record.retainFoundationWriterQuote(previous); err != nil {
 			return "", err
 		}
+		if err := record.retainNetBirdManager(previous); err != nil {
+			return "", err
+		}
 		if err := previous.retainOCIRIssuances(record); err != nil {
 			return "", err
 		}
@@ -209,7 +212,8 @@ func (r FoundationRecord) validate() error {
 		}
 	}
 	if r.NetBirdManager != nil {
-		if r.Cell != "GRU" || r.NetBirdManager.validate() != nil {
+		if r.Cell != "GRU" || r.NetBirdManager.validate() != nil || r.NetBirdManager.OriginalQuote != nil &&
+			(r.NetBirdManager.OriginalQuote.CompartmentID != r.ResourceIDs["control_compartment"] || r.NetBirdManager.StartedAt.After(r.UpdatedAt)) {
 			return errors.New("dedicated NetBird manager checkpoint is invalid")
 		}
 	}

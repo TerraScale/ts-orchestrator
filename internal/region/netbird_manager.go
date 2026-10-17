@@ -16,6 +16,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/capacityledger"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/networkplan"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
@@ -59,20 +60,21 @@ type NetBirdManagerIntent struct {
 // NetBirdManagerLaunch is an immutable singleton reservation in the existing
 // foundation journal. New grant generations cannot reset a pending launch.
 type NetBirdManagerLaunch struct {
-	SlotID              string    `json:"slotId"`
-	OperationID         string    `json:"operationId"`
-	ProfileSHA256       string    `json:"profileSha256"`
-	RecipeSHA256        string    `json:"recipeSha256"`
-	RequestDigest       string    `json:"requestDigest"`
-	RetryToken          string    `json:"retryToken"`
-	StartedAt           time.Time `json:"startedAt"`
-	InstanceID          string    `json:"instanceId,omitempty"`
-	BootVolumeID        string    `json:"bootVolumeId,omitempty"`
-	StoreState          string    `json:"storeState"`
-	OriginGrantSHA256   string    `json:"originGrantSha256"`
-	OriginBindingSHA256 string    `json:"originBindingSha256,omitempty"`
-	OriginalScopeSHA256 string    `json:"originalScopeSha256"`
-	PhysicalScopeSHA256 string    `json:"physicalScopeSha256"`
+	SlotID              string                `json:"slotId"`
+	OperationID         string                `json:"operationId"`
+	ProfileSHA256       string                `json:"profileSha256"`
+	RecipeSHA256        string                `json:"recipeSha256"`
+	RequestDigest       string                `json:"requestDigest"`
+	RetryToken          string                `json:"retryToken"`
+	StartedAt           time.Time             `json:"startedAt"`
+	InstanceID          string                `json:"instanceId,omitempty"`
+	BootVolumeID        string                `json:"bootVolumeId,omitempty"`
+	StoreState          string                `json:"storeState"`
+	OriginGrantSHA256   string                `json:"originGrantSha256"`
+	OriginBindingSHA256 string                `json:"originBindingSha256,omitempty"`
+	OriginalScopeSHA256 string                `json:"originalScopeSha256"`
+	PhysicalScopeSHA256 string                `json:"physicalScopeSha256"`
+	OriginalQuote       *capacityledger.Quote `json:"originalQuote,omitempty"`
 }
 
 type verifiedNetBirdIntent struct {
@@ -392,6 +394,33 @@ func (l NetBirdManagerLaunch) validate() error {
 	if l.InstanceID != "" && !strings.HasPrefix(l.InstanceID, "ocid1.instance.oc1.sa-saopaulo-1.") ||
 		l.BootVolumeID != "" && !strings.HasPrefix(l.BootVolumeID, "ocid1.bootvolume.oc1.sa-saopaulo-1.") {
 		return fmt.Errorf("NetBird manager checkpoint contains an out-of-region instance or volume")
+	}
+	if q := l.OriginalQuote; q != nil {
+		if q.Validate() != nil || q.ScopeSHA256 != l.PhysicalScopeSHA256 || q.Cell != "GRU" || q.IssuedAt.After(l.StartedAt) || !l.StartedAt.Before(q.ExpiresAt) {
+			return errors.New("NetBird manager original quote differs from its physical scope or original reservation time")
+		}
+	}
+	return nil
+}
+
+func (next FoundationRecord) retainNetBirdManager(previous FoundationRecord) error {
+	if previous.NetBirdManager == nil {
+		return nil
+	}
+	if next.NetBirdManager == nil {
+		return errors.New("NetBird manager original reservation cannot be removed")
+	}
+	old, current := *previous.NetBirdManager, *next.NetBirdManager
+	if old.OriginalQuote == nil && current.OriginalQuote != nil {
+		return errors.New("historical NetBird manager cannot acquire a reconstructed original quote")
+	}
+	if !retainedString(old.InstanceID, current.InstanceID) || !retainedString(old.BootVolumeID, current.BootVolumeID) ||
+		old.StoreState == "ready" && current.StoreState != "ready" || old.StoreState == "initializing" && current.StoreState == "empty" {
+		return errors.New("NetBird manager cannot replace its original identities or reset its durable store")
+	}
+	current.InstanceID, current.BootVolumeID, current.StoreState = old.InstanceID, old.BootVolumeID, old.StoreState
+	if !sameCapacityValue(old, current) {
+		return errors.New("NetBird manager cannot replace its original quote or launch identity")
 	}
 	return nil
 }

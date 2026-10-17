@@ -66,9 +66,13 @@ func reconcileNetBirdManager(ctx context.Context, factory *ociclient.Factory, pl
 		if err != nil {
 			return err
 		}
-		actual, err := netBirdRequestDigest(netBirdLaunchDetails(intent.intent, compartment, subnet, nsg))
+		details := netBirdLaunchDetails(intent.intent, compartment, subnet, nsg)
+		actual, err := netBirdRequestDigest(details)
 		if err != nil || actual != existing.RequestDigest {
 			return errors.Join(errors.New("existing manager physical request changed"), err)
+		}
+		if err := existing.validateOriginalQuote(details); err != nil {
+			return err
 		}
 		boot, err := observeNetBirdGeometry(ctx, factory, intent.intent, *existing, compartment)
 		if err != nil {
@@ -94,6 +98,16 @@ func reconcileNetBirdManager(ctx context.Context, factory *ociclient.Factory, pl
 		if launch.SlotID != slotID || launch.OperationID != allocation.OperationID() || launch.ProfileSHA256 != intent.profileDigest || launch.RecipeSHA256 != intent.recipeDigest {
 			return errors.New("dedicated manager recipe changed while its singleton reservation exists")
 		}
+		if launch.OriginalQuote != nil {
+			current := quote.Original()
+			// Fresh authority may refresh observation times, never original tariffs.
+			current.IssuedAt, current.ExpiresAt = launch.OriginalQuote.IssuedAt, launch.OriginalQuote.ExpiresAt
+			if current.SHA256() != launch.OriginalQuote.SHA256() {
+				return errors.New("dedicated manager retry changed its original quoted financial terms")
+			}
+		}
+	} else {
+		launch.OriginalQuote = new(quote.Original())
 	}
 	request := func(digest, token string) BootstrapLaunchRequest {
 		return BootstrapLaunchRequest{SlotID: slotID, OperationID: launch.OperationID, Cell: "GRU", CompartmentID: compartment,
@@ -145,6 +159,9 @@ func reconcileNetBirdManager(ctx context.Context, factory *ociclient.Factory, pl
 		return errors.New("actual dedicated manager SDK launch body differs from its immutable checkpoint")
 	}
 	launch.RequestDigest, launch.RetryToken = digest, BootstrapRetryToken(launch.OperationID, digest)
+	if err := launch.validateOriginalQuote(details); err != nil {
+		return err
+	}
 	if err := allocation.Validate(request(digest, launch.RetryToken), quote, time.Now()); err != nil {
 		return err
 	}
@@ -207,6 +224,21 @@ func reconcileNetBirdManager(ctx context.Context, factory *ociclient.Factory, pl
 	}
 	launch.BootVolumeID = boot
 	return progress.CheckpointManager(ctx, launch)
+}
+
+func (launch NetBirdManagerLaunch) validateOriginalQuote(details core.LaunchInstanceDetails) error {
+	q := launch.OriginalQuote
+	if q == nil {
+		return nil
+	}
+	source, ok := details.SourceDetails.(core.InstanceSourceViaImageDetails)
+	shape := details.ShapeConfig
+	if q.Validate() != nil || q.ScopeSHA256 != launch.PhysicalScopeSHA256 || q.Cell != "GRU" || details.CompartmentId == nil || q.CompartmentID != *details.CompartmentId ||
+		details.Shape == nil || q.Shape != *details.Shape || shape == nil || shape.Ocpus == nil || shape.MemoryInGBs == nil || q.OCPUs != float64(*shape.Ocpus) || q.MemoryGB != float64(*shape.MemoryInGBs) ||
+		!ok || source.BootVolumeSizeInGBs == nil || q.BootGB != float64(*source.BootVolumeSizeInGBs) || source.BootVolumeVpusPerGB == nil || *source.BootVolumeVpusPerGB != 10 {
+		return errors.New("dedicated manager original quote differs from its exact SDK launch scope or billing geometry")
+	}
+	return nil
 }
 
 func validateNetBirdAllocation(allocation VerifiedBootstrapAllocation, intent verifiedNetBirdIntent, compartment string) error {
