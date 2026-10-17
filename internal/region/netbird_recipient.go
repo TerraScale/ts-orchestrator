@@ -87,18 +87,36 @@ func VerifyNetBirdManagerRecipient(ctx context.Context, factory *ociclient.Facto
 	if err != nil {
 		return VerifiedNetBirdManagerRecipient{}, err
 	}
+	return retainNetBirdRecipient(ctx, original, current)
+}
+
+func retainNetBirdRecipient(originalContext context.Context, original netBirdRecipientObservation, current func(context.Context) (netBirdRecipientObservation, error)) (VerifiedNetBirdManagerRecipient, error) {
+	expires := original.expires
+	if deadline, ok := originalContext.Deadline(); ok && deadline.Before(expires) {
+		expires = deadline
+	}
+	if originalContext.Err() != nil || !time.Now().Before(expires) {
+		return VerifiedNetBirdManagerRecipient{}, errors.Join(errors.New("remote NetBird manager original call expired"), originalContext.Err())
+	}
 	proof := VerifiedNetBirdManagerRecipient{installationID: original.installationID, grantDigest: original.grantDigest,
 		instanceID: original.launch.InstanceID, privateIP: original.privateIP, storeGeneration: original.storeGeneration,
-		target: original.target, expires: original.expires}
+		target: original.target, expires: expires}
 	proof.check = func(ctx context.Context) error {
+		if err := originalContext.Err(); err != nil {
+			return err
+		}
+		ctx, cancel := context.WithDeadline(ctx, expires)
+		defer cancel()
+		stop := context.AfterFunc(originalContext, cancel)
+		defer stop()
 		next, err := current(ctx)
 		if err != nil {
 			return err
 		}
-		if next != original || !time.Now().Before(original.expires) {
+		if next != original || !time.Now().Before(expires) {
 			return errors.New("remote NetBird manager recipient or original authority changed")
 		}
-		return ctx.Err()
+		return errors.Join(ctx.Err(), originalContext.Err())
 	}
 	return proof, nil
 }

@@ -374,6 +374,43 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	if err != nil || observedAgain != remote {
 		t.Fatalf("fresh observations changed the original recipient or deadline: %v", err)
 	}
+	originalDeadline := time.Now().Add(time.Minute)
+	originalContext, cancelRecipient := context.WithDeadline(t.Context(), originalDeadline)
+	retainedRecipient, err := retainNetBirdRecipient(originalContext, remote, func(ctx context.Context) (netBirdRecipientObservation, error) {
+		return observeNetBirdRecipient(ctx, factory, resolver, reader)
+	})
+	if err != nil || !retainedRecipient.ExpiresAt().Equal(originalDeadline) {
+		cancelRecipient()
+		t.Fatalf("remote recipient lost its shorter original call deadline: %v", err)
+	}
+	if err := retainedRecipient.Check(t.Context()); err != nil {
+		cancelRecipient()
+		t.Fatal(err)
+	}
+	cancelRecipient()
+	if err := retainedRecipient.Check(t.Context()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("new check context revived cancelled original recipient call: %v", err)
+	}
+	duringContext, cancelDuring := context.WithCancel(t.Context())
+	defer cancelDuring()
+	duringRecipient, err := retainNetBirdRecipient(duringContext, remote, func(ctx context.Context) (netBirdRecipientObservation, error) {
+		observed, err := observeNetBirdRecipient(ctx, factory, resolver, reader)
+		cancelDuring()
+		return observed, err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := duringRecipient.Check(t.Context()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("SDK observation outlived original recipient cancellation: %v", err)
+	}
+	expiredContext, cancelExpired := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+	if _, err := retainNetBirdRecipient(expiredContext, remote, func(ctx context.Context) (netBirdRecipientObservation, error) {
+		return observeNetBirdRecipient(ctx, factory, resolver, reader)
+	}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("remote recipient accepted expired original call: %v", err)
+	}
 	observer, err := bootstrapstart.NewOCIInstanceObserver(oci.RegionGRU, factory.Provider())
 	if err != nil {
 		t.Fatal(err)
@@ -446,7 +483,7 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 		SourceSHA256: digest(grant.Regions[0].NetBirdManager.ImageReceiptWire), ActorInstanceID: idFor("instance"), OperationID: current.OperationID,
 		Epoch: current.Epoch, IntentDigest: current.IntentDigest, InstanceID: remote.launch.InstanceID, PrivateIP: remote.privateIP,
 		StoreGeneration: remote.storeGeneration, ManagerVaultTarget: remote.target, VaultTarget: remote.target,
-		SecretName: "gru-1-netbird-broker", SecretID: idFor("vaultsecret"), FirstAttemptAt: now, ExpiresAt: remote.expires,
+		SecretName: "gru-1-netbird-broker", SecretID: idFor("vaultsecret"), FirstAttemptAt: now, ExpiresAt: originalDeadline,
 		Dispatches: 1, LastDispatchedAt: now, Uncertain: true}
 	key := netBirdBrokerPolicyKey(pending.InstanceID, pending.SecretID)
 	pending.Request = netBirdBrokerPolicyRequest(pending)
@@ -462,7 +499,7 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	}
 	current, etag, err = store.Load(t.Context(), "GRU")
 	if err != nil || !current.NetBirdBrokerPolicies[key].Uncertain || current.NetBirdBrokerPolicies[key].RetryToken != pending.RetryToken ||
-		!current.NetBirdBrokerPolicies[key].ExpiresAt.Equal(remote.expires) || current.NetBirdManager.StoreState != "ready" {
+		!current.NetBirdBrokerPolicies[key].ExpiresAt.Equal(originalDeadline) || current.NetBirdManager.StoreState != "ready" {
 		t.Fatalf("restart lost original unknown IAM outcome or manager sibling: %v", err)
 	}
 	widened := current.NetBirdBrokerPolicies[key]

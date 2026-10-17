@@ -115,6 +115,9 @@ func (authority *HomeIAMAuthority) EnsureNetBirdBrokerReader(ctx context.Context
 	if recipient.ExpiresAt().Before(expires) {
 		expires = recipient.ExpiresAt()
 	}
+	if deadline, ok := ctx.Deadline(); ok && deadline.Before(expires) {
+		expires = deadline
+	}
 	ctx, cancelAuthority := context.WithDeadline(ctx, expires)
 	defer cancelAuthority()
 	var original *FoundationRecord
@@ -165,6 +168,18 @@ func (authority *HomeIAMAuthority) EnsureNetBirdBrokerReader(ctx context.Context
 		return err
 	}
 	defer release()
+	lease, ok := ctx.Value(homeIAMLeaseKey{}).(*homeIAMLease)
+	if !ok || lease.authority != authority {
+		return ErrFoundationFenced
+	}
+	lease.mu.Lock()
+	leaseExpiry := lease.record.ExpiresAt
+	lease.mu.Unlock()
+	if leaseExpiry.Before(expires) {
+		expires = leaseExpiry
+	}
+	ctx, cancelLease := context.WithDeadline(ctx, expires)
+	defer cancelLease()
 	ctx = ociclient.WithAuthority(ctx, guard)
 	record, err := authority.resolver.Resolve(ctx, entry.Cell)
 	if err != nil {
@@ -214,10 +229,6 @@ func (authority *HomeIAMAuthority) EnsureNetBirdBrokerReader(ctx context.Context
 			if historical.SecretName == name && historical.VaultTarget == target {
 				return errors.New("NetBird broker secret or recipient changed; preserve the original IAM history")
 			}
-		}
-		expires := source.ExpiresAt()
-		if recipient.ExpiresAt().Before(expires) {
-			expires = recipient.ExpiresAt()
 		}
 		pending = NetBirdBrokerPolicyRecord{Cell: entry.Cell, InstallationID: authority.installationID, GrantSHA256: authority.grantDigest,
 			SourceSHA256: digestSource(source.Inventory()), ActorInstanceID: authority.instanceID, OperationID: record.OperationID, Epoch: record.Epoch,
