@@ -88,7 +88,9 @@ apply.
 Unsigned legacy `TS_OCI_DESIRED` records are never imported as authority. Their
 migration is **OPEN**; discovering legacy desired state stops the amendment pass.
 
-The additive protected-object schema requires final ROOT and security approval.
+ROOT approved the additive protected-object source schema within the existing
+128 KiB whole-record CAS bound. Security acknowledged the source and recovery
+closures; these source approvals do not qualify the integrated execution path.
 Bucket property-spend admission requires CAP authority; absent that authority,
 property mutations fail closed. Source fixtures do not qualify the full real
 root-IPC and OCI-SDK amendment path. That end-to-end qualification remains
