@@ -17,6 +17,7 @@ import (
 // NetBirdStartupCustody retains the actual original writer's root process and
 // accepted source. It grants no NATS, account effect or credential authority.
 type NetBirdStartupCustody struct {
+	original context.Context
 	lifetime context.Context
 	cancel   context.CancelFunc
 	reader   *bootstrapstart.CurrentFounderAuthorityReader
@@ -101,7 +102,7 @@ func NewNetBirdStartupCustody(ctx, original context.Context, process *rootoci.Pr
 		return nil, ErrDelivery
 	}
 	lifetime, stop := context.WithDeadline(original, expires)
-	custody := &NetBirdStartupCustody{lifetime: lifetime, cancel: stop, reader: reader, accepted: accepted.Clone(), marker: bytes.Clone(marker),
+	custody := &NetBirdStartupCustody{original: original, lifetime: lifetime, cancel: stop, reader: reader, accepted: accepted.Clone(), marker: bytes.Clone(marker),
 		process: process, binding: process.Binding(), binary: measured, trust: trust, source: source, home: home, underlay: underlay, expires: expires}
 	if err := custody.Guard(ctx); err != nil {
 		custody.Close()
@@ -140,7 +141,7 @@ func (custody *NetBirdStartupCustody) Guard(ctx context.Context) error {
 // CurrentDeadline returns the current minimum without changing the first expiry
 // or retaining a temporary operation deadline.
 func (custody *NetBirdStartupCustody) CurrentDeadline(ctx context.Context) (time.Time, error) {
-	if custody == nil || ctx == nil || custody.lifetime == nil || custody.lifetime.Err() != nil || custody.reader == nil || custody.home == nil ||
+	if custody == nil || ctx == nil || custody.original == nil || custody.original.Err() != nil || custody.lifetime == nil || custody.lifetime.Err() != nil || custody.reader == nil || custody.home == nil ||
 		!time.Now().Before(custody.expires) || checkNetBirdStartupProcess(custody.process, custody.binding) != nil {
 		return time.Time{}, ErrDelivery
 	}
@@ -183,7 +184,7 @@ func (custody *NetBirdStartupCustody) CurrentDeadline(ctx context.Context) (time
 	if err != nil || measured != custody.binary || checkNetBirdStartupProcess(custody.process, custody.binding) != nil || checkNetBirdStartupMarker(custody.marker) != nil {
 		return time.Time{}, ErrDelivery
 	}
-	if custody.lifetime.Err() != nil || ctx.Err() != nil || !time.Now().Before(expires) {
+	if custody.original.Err() != nil || custody.lifetime.Err() != nil || ctx.Err() != nil || !time.Now().Before(expires) {
 		return time.Time{}, ErrDelivery
 	}
 	return expires, nil
