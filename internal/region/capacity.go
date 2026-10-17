@@ -133,6 +133,7 @@ type PoolChildRecord struct {
 	ReadyAt              time.Time       `json:"readyAt,omitzero"`
 	RemovalOperationID   string          `json:"removalOperationId,omitempty"`
 	DrainAuthoritySHA256 string          `json:"drainAuthoritySha256,omitempty"`
+	DetachTargetFrom     int             `json:"detachTargetFrom,omitzero"`
 	Detach               *PoolWireRecord `json:"detach,omitempty"`
 	DetachedAt           time.Time       `json:"detachedAt,omitzero"`
 	Terminate            *PoolWireRecord `json:"terminate,omitempty"`
@@ -143,14 +144,16 @@ type PoolChildRecord struct {
 
 // PoolQuarantineRecord removes only membership; it grants no birth or deletion.
 type PoolQuarantineRecord struct {
-	OperationID   string          `json:"operationId"`
-	PoolID        string          `json:"poolId"`
-	InstanceID    string          `json:"instanceId"`
-	PurposeSHA256 string          `json:"purposeSha256"`
-	GrantSHA256   string          `json:"grantSha256"`
-	Generation    uint64          `json:"generation"`
-	Detach        *PoolWireRecord `json:"detach,omitempty"`
-	DetachedAt    time.Time       `json:"detachedAt,omitzero"`
+	OperationID     string          `json:"operationId"`
+	PoolID          string          `json:"poolId"`
+	InstanceID      string          `json:"instanceId"`
+	ConfigurationID string          `json:"configurationId"`
+	TargetFrom      int             `json:"targetFrom"`
+	PurposeSHA256   string          `json:"purposeSha256"`
+	GrantSHA256     string          `json:"grantSha256"`
+	Generation      uint64          `json:"generation"`
+	Detach          *PoolWireRecord `json:"detach,omitempty"`
+	DetachedAt      time.Time       `json:"detachedAt,omitzero"`
 }
 
 func (w PoolWireRecord) validate(updated time.Time) error {
@@ -274,9 +277,11 @@ func (r FoundationRecord) validateCapacity() error {
 		}
 	}
 	for key, quarantine := range r.PoolQuarantines {
-		_, poolExists := r.CapacityPools[quarantine.PoolID]
+		pool, poolExists := r.CapacityPools[quarantine.PoolID]
+		_, configExists := pool.Configurations[quarantine.ConfigurationID]
 		if key != quarantine.OperationID || !entityid.Valid(key) || !poolExists || !capacityOCID(quarantine.InstanceID, "instance") ||
-			!validFoundationDigest(quarantine.PurposeSHA256) || !validFoundationDigest(quarantine.GrantSHA256) ||
+			!capacityOCID(quarantine.ConfigurationID, "instanceconfiguration") || quarantine.TargetFrom < 1 || quarantine.TargetFrom > 9 ||
+			!configExists || !validFoundationDigest(quarantine.PurposeSHA256) || !validFoundationDigest(quarantine.GrantSHA256) ||
 			quarantine.Generation == 0 || quarantine.Generation > r.Generation {
 			return errors.New("pool quarantine lacks exact protected membership purpose")
 		}
@@ -293,7 +298,7 @@ func (c PoolChildRecord) validate(host capacityledger.Host, updated time.Time) e
 	step := poolChildRank(c.Stage)
 	if step < 0 || step < 2 && (c.InstanceID != "" || !c.BornAt.IsZero() || c.BootVolumeID != "" || c.BootAttachmentID != "") ||
 		step < 3 && c.Attach != nil || step < 5 && !c.ReadyAt.IsZero() ||
-		step < 6 && (c.RemovalOperationID != "" || c.DrainAuthoritySHA256 != "") || step < 7 && c.Detach != nil ||
+		step < 6 && (c.RemovalOperationID != "" || c.DrainAuthoritySHA256 != "") || step < 7 && (c.Detach != nil || c.DetachTargetFrom != 0) ||
 		step < 8 && !c.DetachedAt.IsZero() || step < 9 && (c.Terminate != nil || c.DeleteBoot != nil || !c.InstanceRetiredAt.IsZero() || !c.BootRetiredAt.IsZero()) {
 		return errors.New("pool child has effects outside its protected lifecycle stage")
 	}
@@ -301,6 +306,9 @@ func (c PoolChildRecord) validate(host capacityledger.Host, updated time.Time) e
 		if wire != nil && wire.validate(updated) != nil {
 			return errors.New("pool child contains an invalid protected request")
 		}
+	}
+	if c.Detach != nil && (c.DetachTargetFrom < 1 || c.DetachTargetFrom > 9) {
+		return errors.New("pool removal lacks its original exact target size")
 	}
 	if c.Attach != nil && c.Attach.RetryToken == "" || c.Detach != nil && c.Detach.RetryToken == "" {
 		return errors.New("pool membership mutation lacks its original replay token")
