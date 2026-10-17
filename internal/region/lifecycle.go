@@ -45,12 +45,13 @@ type ApprovedFootprint struct {
 }
 
 type FoundationIntent struct {
-	ControlLineagePurpose string                   `json:"controlLineagePurpose"`
-	Generation            uint64                   `json:"generation"`
-	Plan                  map[string]any           `json:"plan"`
-	BootstrapMaterial     *BootstrapMaterialIntent `json:"bootstrapMaterial,omitempty"`
-	ReadAccess            *ReadAccessIntent        `json:"readAccess,omitempty"`
-	NetBirdManager        *NetBirdManagerIntent    `json:"netbirdManager,omitempty"`
+	ControlLineagePurpose     string                           `json:"controlLineagePurpose"`
+	NetBirdBrokerPolicyWriter *NetBirdBrokerPolicyWriterIntent `json:"netbirdBrokerPolicyWriter,omitempty"`
+	Generation                uint64                           `json:"generation"`
+	Plan                      map[string]any                   `json:"plan"`
+	BootstrapMaterial         *BootstrapMaterialIntent         `json:"bootstrapMaterial,omitempty"`
+	ReadAccess                *ReadAccessIntent                `json:"readAccess,omitempty"`
+	NetBirdManager            *NetBirdManagerIntent            `json:"netbirdManager,omitempty"`
 }
 
 // FoundationIntentDigest binds every signed authority field to its generation.
@@ -257,6 +258,11 @@ func validateFootprint(f ApprovedFootprint) error {
 		}
 		if _, ok := p["resource_ids"].(map[string]any); !ok {
 			return errors.New("regional plan lacks resource identities")
+		}
+		if intent.NetBirdBrokerPolicyWriter != nil {
+			if err := intent.NetBirdBrokerPolicyWriter.validate(cell); err != nil {
+				return err
+			}
 		}
 		seen[cell] = true
 	}

@@ -33,28 +33,29 @@ type OriginalFoundationWriter struct {
 // FoundationWriterRecord permanently reserves the initial home controller.
 // Grant renewal cannot transfer this launch or its exact protected objects.
 type FoundationWriterRecord struct {
-	Cell                string                     `json:"cell"`
-	Slot                string                     `json:"slot"`
-	InstallationID      string                     `json:"installationId"`
-	GrantSHA256         string                     `json:"grantSha256"`
-	Generation          uint64                     `json:"generation"`
-	SlotID              string                     `json:"slotId"`
-	OperationID         string                     `json:"operationId"`
-	ProfileSHA256       string                     `json:"profileSha256"`
-	RecipeSHA256        string                     `json:"recipeSha256"`
-	BindingSHA256       string                     `json:"bindingSha256"`
-	ScopeSHA256         string                     `json:"scopeSha256"`
-	PhysicalScopeSHA256 string                     `json:"physicalScopeSha256"`
-	Namespace           string                     `json:"namespace"`
-	Bucket              string                     `json:"bucket"`
-	BucketCompartment   string                     `json:"bucketCompartment"`
-	KMSKeyID            string                     `json:"kmsKeyId"`
-	Request             core.LaunchInstanceDetails `json:"request"`
-	RequestDigest       string                     `json:"requestDigest"`
-	RetryToken          string                     `json:"retryToken"`
-	FirstAttemptAt      time.Time                  `json:"firstAttemptAt"`
-	InstanceID          string                     `json:"instanceId,omitempty"`
-	Policy              *FoundationWriterPolicy    `json:"policy,omitempty"`
+	BrokerPolicyAuthority *BrokerPolicyAuthorityRecord `json:"brokerPolicyAuthority,omitempty"`
+	Cell                  string                       `json:"cell"`
+	Slot                  string                       `json:"slot"`
+	InstallationID        string                       `json:"installationId"`
+	GrantSHA256           string                       `json:"grantSha256"`
+	Generation            uint64                       `json:"generation"`
+	SlotID                string                       `json:"slotId"`
+	OperationID           string                       `json:"operationId"`
+	ProfileSHA256         string                       `json:"profileSha256"`
+	RecipeSHA256          string                       `json:"recipeSha256"`
+	BindingSHA256         string                       `json:"bindingSha256"`
+	ScopeSHA256           string                       `json:"scopeSha256"`
+	PhysicalScopeSHA256   string                       `json:"physicalScopeSha256"`
+	Namespace             string                       `json:"namespace"`
+	Bucket                string                       `json:"bucket"`
+	BucketCompartment     string                       `json:"bucketCompartment"`
+	KMSKeyID              string                       `json:"kmsKeyId"`
+	Request               core.LaunchInstanceDetails   `json:"request"`
+	RequestDigest         string                       `json:"requestDigest"`
+	RetryToken            string                       `json:"retryToken"`
+	FirstAttemptAt        time.Time                    `json:"firstAttemptAt"`
+	InstanceID            string                       `json:"instanceId,omitempty"`
+	Policy                *FoundationWriterPolicy      `json:"policy,omitempty"`
 }
 
 type FoundationWriterPolicy struct {
@@ -603,6 +604,14 @@ func (record FoundationWriterRecord) validate() error {
 	entry, ok := catalog.Lookup(record.Cell)
 	if err != nil || !ok || !slices.Contains([]string{"GRU", "SFO", "FRA"}, record.Cell) || !entityid.Valid(record.InstallationID) || record.SlotID != BootstrapSlotID(record.InstallationID, record.Cell, "controller", record.Slot) || record.OperationID != BootstrapOperationID(record.InstallationID, record.SlotID) || record.InstanceID != "" && !strings.HasPrefix(record.InstanceID, "ocid1.instance.oc1."+entry.OCIRegion+".") || record.Generation == 0 || !sourceDigest(record.GrantSHA256) || !sourceDigest(record.ProfileSHA256) || !sourceDigest(record.RecipeSHA256) || !sourceDigest(record.ScopeSHA256) || !sourceDigest(record.PhysicalScopeSHA256) || record.BindingSHA256 != "" && !sourceDigest(record.BindingSHA256) || record.RequestDigest != digest || record.RetryToken != BootstrapRetryToken(record.OperationID, digest) || record.FirstAttemptAt.IsZero() || !bootstrapSlotName.MatchString(record.Slot) || !foundationWriterKeyPattern.MatchString(record.KMSKeyID) || !sourceStoragePattern.MatchString(record.Namespace) || !sourceStoragePattern.MatchString(record.Bucket) || !sourceCompartmentPattern.MatchString(record.BucketCompartment) || record.InstanceID != "" && !sourceInstancePattern.MatchString(record.InstanceID) || record.Request.CompartmentId == nil || !sourceCompartmentPattern.MatchString(*record.Request.CompartmentId) || !maps.Equal(record.Request.Metadata, foundationWriterMetadata(record.Slot)) || len(record.Request.ExtendedMetadata) != 0 {
 		return errors.New("home writer original launch reservation is invalid")
+	}
+	if record.BrokerPolicyAuthority != nil {
+		if record.Policy == nil || record.Policy.PolicyID == "" || record.Policy.VerifiedAt.IsZero() {
+			return ErrFoundationFenced
+		}
+		if err := record.BrokerPolicyAuthority.validate(&record); err != nil {
+			return err
+		}
 	}
 	if record.Policy == nil {
 		return nil
