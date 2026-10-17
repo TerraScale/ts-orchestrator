@@ -53,18 +53,6 @@ func startAutomaticFunctions(ctx context.Context, cfg Config, runtime *natscell.
 	if err != nil || cfg.NATS.URL != "tls://"+address+":4222" {
 		return fail(errors.Join(errors.New("function broker endpoint differs from its signed controller slot"), err))
 	}
-	foundation, err := local.foundations.Resolve(ctx, string(manifest.Cell))
-	if err != nil {
-		return fail(err)
-	}
-	target, err := foundation.VaultTarget()
-	if err != nil {
-		return fail(err)
-	}
-	signed := template.VaultTarget()
-	if signed.CompartmentOCID != target.CompartmentID || signed.VaultOCID != target.VaultID || signed.KMSKeyOCID != target.KeyID {
-		return fail(errors.New("function Vault target differs from signed regional startup"))
-	}
 	uid, gid, err := controllerServiceIdentity()
 	if err != nil {
 		return fail(err)
@@ -75,7 +63,7 @@ func startAutomaticFunctions(ctx context.Context, cfg Config, runtime *natscell.
 	}
 	defer unix.Close(directory)
 	var info unix.Stat_t
-	if unix.Fstat(directory, &info) != nil || info.Uid != uid || info.Gid != gid || info.Mode&0o777 != 0o700 {
+	if unix.Fstat(directory, &info) != nil || info.Uid != 0 || info.Gid != 0 || info.Mode&0o7777 != 0o755 {
 		return fail(errors.New("function issuer directory ownership or mode is invalid"))
 	}
 	files := map[string][]byte{}
@@ -105,17 +93,12 @@ func startAutomaticFunctions(ctx context.Context, cfg Config, runtime *natscell.
 		return fail(err)
 	}
 	issuer := functionIssuerClient{client: rootoci.NewClient(rootoci.Expectations{Cell: cfg.NATS.Cell})}
-	management, bundles, err := automaticVaultClients(factory)
-	if err != nil {
-		return fail(err)
-	}
 	channel := instancePrincipalChannel(factory.Region(), strings.ToUpper(cfg.NATS.Cell))
 	config := functionControllerConfig{Authority: control, JS: runtime.JetStream(), Startup: startup, Client: client, Roots: roots, Factory: factory,
-		Cell: cfg.NATS.Cell, Environment: manifest.Environment, Channel: channel, Retirement: management,
+		Cell: cfg.NATS.Cell, Environment: manifest.Environment, Channel: channel,
 		Material: functionmaterial.Controller{Authority: control, Conn: runtime.Conn(), Issuer: issuer,
-			Vault: management, Versions: management, Target: target,
 			Reader: functionmaterial.Reader{Authority: control, Artifacts: artifacts, Roots: roots.current,
-				Accounts: accounts, Bundles: bundles, VaultID: target.VaultID, Trust: public}}}
+				Accounts: accounts, Materials: issuer, Trust: public}}}
 	config.Evidence = func(ctx context.Context, digest string) (io.ReadCloser, error) {
 		location, err := channel.get(ctx)
 		if err != nil {
