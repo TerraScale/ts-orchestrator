@@ -49,6 +49,7 @@ type originalCompartmentSDKFixture struct {
 func newOriginalCompartmentSDKFixture(t *testing.T, fault string) *originalCompartmentSDKFixture {
 	t.Helper()
 	base := newFoundationProvisionFixture(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	bundle := signProvisionFoundation(t, base.prepared, base.bundle.RootChainWire, base.root, base.now)
 	base.cloud.bundle = bundle.clone()
 	f := &originalCompartmentSDKFixture{foundationProvisionFixture: base, bundle: bundle, fault: fault, gets: map[string]int{}, accepted: map[string]bool{}, started: time.Now().UTC()}

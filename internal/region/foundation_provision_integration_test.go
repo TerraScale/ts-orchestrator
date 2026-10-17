@@ -670,6 +670,7 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 		t.Fatalf("original root-signed prospective founding grant: %v", err)
 	}
 	t.Run("signed document without prospective purpose", func(t *testing.T) {
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 		var old FoundationPreparation
 		wire, err := json.Marshal(prepared)
 		if err != nil || json.Unmarshal(wire, &old) != nil {
@@ -964,6 +965,7 @@ func foundationWorkloadGenesisSDKScenario(t *testing.T) {
 	})
 	t.Run("uncertain original producer birth", func(t *testing.T) {
 		fixture := newFoundationProvisionFixture(t)
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 		bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
 		fixture.cloud.bundle, fixture.cloud.lostProducerBirth = bundle, true
 		if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); err == nil || fixture.cloud.materialPosts != 0 || fixture.cloud.launchPosts != 0 {
@@ -1206,6 +1208,7 @@ func foundationNetBirdMaterialSDKScenario(t *testing.T) {
 	for _, mismatch := range []string{"authenticated original user changed", "existing source key disabled"} {
 		t.Run(mismatch, func(t *testing.T) {
 			fixture := newFoundationProvisionFixture(t)
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 			bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
 			fixture.cloud.bundle = bundle
 			if mismatch == "authenticated original user changed" {
@@ -1227,6 +1230,7 @@ func foundationNetBirdMaterialSDKScenario(t *testing.T) {
 	}
 	t.Run("maximum opaque root", func(t *testing.T) {
 		fixture := newFoundationProvisionFixture(t)
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 		bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
 		fixture.cloud.bundle, fixture.cloud.materialRoot = bundle, bytes.Repeat([]byte{'Q'}, 1024)
 		if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) {
@@ -1237,6 +1241,7 @@ func foundationNetBirdMaterialSDKScenario(t *testing.T) {
 	for _, lost := range []int{0, 2} {
 		t.Run(fmt.Sprintf("lost original response %d", lost), func(t *testing.T) {
 			fixture := newFoundationProvisionFixture(t)
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 			bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
 			fixture.cloud.bundle, fixture.cloud.lostMaterialIndex = bundle, lost
 			if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); err == nil || errors.Is(err, bootstrap.ErrManifestInvalid) {
@@ -1259,6 +1264,7 @@ func foundationNetBirdMaterialSDKScenario(t *testing.T) {
 	for _, fault := range []string{"malformed encoding", "short root", "oversized root", "foreign version", "not CURRENT", "foreign target", "wrong generation", "automatic generation missing", "template added", "rotation added", "foreign same name", "token invalidated"} {
 		t.Run(fault, func(t *testing.T) {
 			fixture := newFoundationProvisionFixture(t)
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 			bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
 			fixture.cloud.bundle, fixture.cloud.materialFault = bundle, fault
 			if fault == "short root" {
@@ -1289,6 +1295,7 @@ func foundationNetBirdMaterialSDKScenario(t *testing.T) {
 	}
 	t.Run("expired unknown original request", func(t *testing.T) {
 		fixture := newFoundationProvisionFixture(t)
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 		bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
 		fixture.cloud.bundle, fixture.cloud.lostMaterialIndex = bundle, 0
 		if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); err == nil {
@@ -1316,6 +1323,7 @@ func foundationNetBirdMaterialSDKScenario(t *testing.T) {
 	})
 	t.Run("pinned material outlives retry tokens", func(t *testing.T) {
 		fixture := newFoundationProvisionFixture(t)
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 		bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
 		fixture.cloud.bundle = bundle
 		if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) {
@@ -1344,6 +1352,7 @@ func foundationNetBirdMaterialSDKScenario(t *testing.T) {
 	for _, failure := range []string{"missing journal and secrets", "retained origins without birth", "replaced CURRENT", "changed root content", "deleted child", "unknown original manager reservation", "original manager instance reservation"} {
 		t.Run(failure, func(t *testing.T) {
 			fixture := newFoundationProvisionFixture(t)
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 			bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
 			fixture.cloud.bundle = bundle
 			if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) {
@@ -1389,6 +1398,7 @@ func foundationNetBirdMaterialSDKScenario(t *testing.T) {
 	}
 	t.Run("protected CAS never resets material", func(t *testing.T) {
 		fixture := newFoundationProvisionFixture(t)
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 		bundle := signProvisionFoundation(t, fixture.prepared, fixture.bundle.RootChainWire, fixture.root, fixture.now)
 		fixture.cloud.bundle = bundle
 		if err := ProvisionFoundationBundle(t.Context(), fixture.factoryFor(), fixture.roots, bundle); !errors.Is(err, bootstrap.ErrManifestInvalid) {
