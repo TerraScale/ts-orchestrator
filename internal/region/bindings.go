@@ -2,11 +2,18 @@ package region
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json/v2"
 	"errors"
 	"maps"
+	"slices"
+	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 // FoundationResourceReference names one immutable resource role in the signed
@@ -64,35 +71,72 @@ func (s *SignedFootprint) resourceBindingsFor(ctx context.Context, cell string, 
 		Bucket: s.storage.HeadBucket, Prefix: s.storage.Prefix, Cell: cell, Keys: keys}, wire)
 }
 
-func (s *SignedFootprint) boundStartup(ctx context.Context, startup BootstrapStartupIntent, plan map[string]any, wire []byte) (BootstrapStartupIntent, map[string]any, error) {
+func (s *SignedFootprint) boundStartup(ctx context.Context, startup BootstrapStartupIntent, plan map[string]any, wire []byte) (BootstrapStartupIntent, map[string]any, *bootstrap.VerifiedStartupTemplate, error) {
+	if _, _, err := s.verifyGrant(wire); err != nil {
+		return BootstrapStartupIntent{}, nil, nil, err
+	}
+	envelope, err := trust.DecodeEnvelope(wire)
+	if err != nil {
+		return BootstrapStartupIntent{}, nil, nil, err
+	}
+	var version struct {
+		SchemaVersion int `json:"schemaVersion"`
+	}
+	if err := json.Unmarshal(envelope.Payload, &version); err != nil {
+		return BootstrapStartupIntent{}, nil, nil, err
+	}
+	// Historical exact-only grants retain their existing offline authorizer.
+	if version.SchemaVersion == 1 {
+		return startup, plan, nil, nil
+	}
 	cell, _ := plan["cell"].(string)
 	keys, err := startup.FoundationReferenceKeys(cell)
 	if err != nil {
-		return BootstrapStartupIntent{}, nil, err
+		return BootstrapStartupIntent{}, nil, nil, err
 	}
-	if len(keys) == 0 {
-		return startup, plan, nil
-	}
-	bindings, err := s.resourceBindingsFor(ctx, cell, wire, keys...)
+	verified, err := bootstrap.VerifyBoundRegionalStartupTemplate(ctx, s.factory, wire, s.roots, s.bootstrapAnchor, oci.Region(cell), time.Now())
 	if err != nil {
-		return BootstrapStartupIntent{}, nil, err
+		return BootstrapStartupIntent{}, nil, nil, err
 	}
-	projected, err := bootstrap.ProjectFoundationStartup(startup, bindings)
+	original, err := json.Marshal(startup, json.Deterministic(true))
 	if err != nil {
-		return BootstrapStartupIntent{}, nil, err
+		return BootstrapStartupIntent{}, nil, nil, err
 	}
+	originalDigest := sha256.Sum256(original)
+	if verified.TemplateDigest() != hex.EncodeToString(originalDigest[:]) {
+		return BootstrapStartupIntent{}, nil, nil, errors.New("regional startup differs from original signed template")
+	}
+	ctx, cancel := context.WithDeadline(ctx, verified.ExpiresAt())
+	defer cancel()
 	bound := maps.Clone(plan)
 	ids, _ := plan["resource_ids"].(map[string]any)
 	ids = maps.Clone(ids)
-	for _, key := range []string{"control_compartment", "network_compartment", "workload_compartment", "subnet", "network_security_group", "workload_network_security_group", "vault", "key"} {
-		if pinned, _ := ids[key].(string); pinned != "" {
-			continue
+	target := verified.VaultTarget()
+	for role, id := range map[string]string{"control_compartment": target.CompartmentOCID, "vault": target.VaultOCID, "key": target.KMSKeyOCID} {
+		ids[role] = id
+	}
+	// Target roles use the same finite birth/observation bridge as bootstrap.
+	keys = slices.DeleteFunc(keys, func(role string) bool { return role == "control_compartment" || role == "vault" || role == "key" })
+	if len(keys) != 0 {
+		bindings, err := s.resourceBindingsFor(ctx, cell, wire, keys...)
+		if err != nil {
+			return BootstrapStartupIntent{}, nil, nil, err
 		}
-		ref, _ := FoundationResourceReference(cell, key)
-		if id, err := bindings.Resolve(ref); err == nil {
-			ids[key] = id
+		for _, role := range keys {
+			reference, err := FoundationResourceReference(cell, role)
+			if err != nil {
+				return BootstrapStartupIntent{}, nil, nil, err
+			}
+			id, err := bindings.Resolve(reference)
+			if err != nil {
+				return BootstrapStartupIntent{}, nil, nil, err
+			}
+			ids[role] = id
 		}
 	}
+	if err := verified.VerifyCurrentContext(ctx, time.Now()); err != nil {
+		return BootstrapStartupIntent{}, nil, nil, err
+	}
 	bound["resource_ids"] = ids
-	return projected, bound, nil
+	return verified.Template(), bound, &verified, nil
 }
