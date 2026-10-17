@@ -175,7 +175,13 @@ func (bound *rootBoundRuntimeSources) live(ctx context.Context) error {
 		!bound.deadline.IsZero() && !time.Now().Before(bound.deadline) {
 		return rootoci.ErrUnauthorized
 	}
-	return bound.credentials.Guard(ctx)
+	if err := bound.credentials.Guard(ctx); err != nil {
+		return err
+	}
+	if ctx.Err() != nil || bound.lease.Err() != nil || bound.conn.IsClosed() || !time.Now().Before(bound.deadline) {
+		return rootoci.ErrUnauthorized
+	}
+	return nil
 }
 
 func (bound *rootBoundRuntimeSources) wait(ctx context.Context) error {
