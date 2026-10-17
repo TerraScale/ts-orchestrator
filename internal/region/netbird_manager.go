@@ -257,6 +257,34 @@ type netBirdManagerAdmissionState struct {
 	binary       bootstrapstart.RunningBinary
 }
 
+func netBirdManagerAdmissionPin(intent verifiedNetBirdIntent, record FoundationRecord, allocation VerifiedBootstrapAllocation) ([sha256.Size]byte, error) {
+	if record.NetBirdManager == nil {
+		return [sha256.Size]byte{}, errors.New("dedicated manager checkpoint disappeared")
+	}
+	target, err := record.VaultTarget()
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	wire, err := json.Marshal(map[string]any{
+		"grant": intent.grantDigest, "installation": intent.installationID, "generation": intent.generation,
+		"profile": intent.profileDigest, "recipe": intent.recipeDigest, "image": intent.intent.ImageOCID,
+		"foundationOperation": record.OperationID, "foundationEpoch": record.Epoch,
+		"foundationGeneration": record.Generation, "foundationIntent": record.IntentDigest,
+		"foundationStage": record.Stage, "foundationLease": record.LeaseID,
+		"managerSubnet": record.AuxiliaryIDs["netbird_manager_subnet"], "managerNSG": record.AuxiliaryIDs["netbird_manager_nsg"],
+		"controlCompartment": record.ResourceIDs["control_compartment"],
+		"launch":             record.NetBirdManager.original(), "target": target, "store": entityid.Derive("netbird-foundation-store", intent.installationID) + ":1",
+		"allocationOperation": allocation.OperationID(), "allocationGrant": allocation.GrantDigest(),
+		"allocationGeneration": allocation.Generation(), "allocationBudget": allocation.BudgetID(),
+		"allocationScope": allocation.ScopeDigest(), "allocationPhysicalScope": allocation.PhysicalScopeDigest(),
+		"allocationBinding": allocation.BindingDigest(), "allocationSlot": allocation.Slot(), "allocationSignedSlot": allocation.SignedSlot(),
+	}, json.Deterministic(true))
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	return sha256.Sum256(wire), nil
+}
+
 // AdmitNetBirdManager works before the overlay, NATS and SwarmKit. OCI instance
 // identity selects an observation; the signed role and exact checkpoint admit it.
 func AdmitNetBirdManager(ctx context.Context, factory *ociclient.Factory, resolver FoundationResolver, instanceID string) (VerifiedNetBirdManager, error) {
@@ -353,35 +381,7 @@ func admitNetBirdManager(ctx context.Context, resolver FoundationResolver, reade
 		if deadline, bounded := originalContext.Deadline(); bounded && deadline.Before(expiry) {
 			expiry = deadline
 		}
-		pin := func(record FoundationRecord) ([sha256.Size]byte, error) {
-			if record.NetBirdManager == nil {
-				return [sha256.Size]byte{}, errors.New("dedicated manager checkpoint disappeared")
-			}
-			nextTarget, err := record.VaultTarget()
-			if err != nil {
-				return [sha256.Size]byte{}, err
-			}
-			originalLaunch := record.NetBirdManager.original()
-			wire, err := json.Marshal(map[string]any{
-				"grant": intent.grantDigest, "installation": intent.installationID, "generation": intent.generation,
-				"profile": intent.profileDigest, "recipe": intent.recipeDigest, "image": intent.intent.ImageOCID,
-				"foundationOperation": record.OperationID, "foundationEpoch": record.Epoch,
-				"foundationGeneration": record.Generation, "foundationIntent": record.IntentDigest,
-				"foundationStage": record.Stage, "foundationLease": record.LeaseID,
-				"managerSubnet": record.AuxiliaryIDs["netbird_manager_subnet"], "managerNSG": record.AuxiliaryIDs["netbird_manager_nsg"],
-				"controlCompartment": record.ResourceIDs["control_compartment"],
-				"launch":             originalLaunch, "target": nextTarget, "store": store,
-				"allocationOperation": allocation.OperationID(), "allocationGrant": allocation.GrantDigest(),
-				"allocationGeneration": allocation.Generation(), "allocationBudget": allocation.BudgetID(),
-				"allocationScope": allocation.ScopeDigest(), "allocationPhysicalScope": allocation.PhysicalScopeDigest(),
-				"allocationBinding": allocation.BindingDigest(), "allocationSlot": allocation.Slot(), "allocationSignedSlot": allocation.SignedSlot(),
-			}, json.Deterministic(true))
-			if err != nil {
-				return [sha256.Size]byte{}, err
-			}
-			return sha256.Sum256(wire), nil
-		}
-		snapshot, err := pin(record)
+		snapshot, err := netBirdManagerAdmissionPin(intent, record, allocation)
 		if err != nil {
 			return netBirdManagerAdmissionState{}, err
 		}
@@ -393,7 +393,7 @@ func admitNetBirdManager(ctx context.Context, resolver FoundationResolver, reade
 		if err != nil {
 			return netBirdManagerAdmissionState{}, err
 		}
-		finalPin, err := pin(finalRecord)
+		finalPin, err := netBirdManagerAdmissionPin(intent, finalRecord, allocation)
 		if err != nil || finalPin != snapshot {
 			return netBirdManagerAdmissionState{}, errors.New("dedicated manager foundation changed during observation")
 		}

@@ -2,6 +2,7 @@ package region
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"slices"
 	"time"
@@ -21,6 +22,24 @@ type VerifiedNetBirdManagerRecipient struct {
 	target                                                              vaultsecret.Target
 	expires, authorityExpires                                           time.Time
 	check                                                               func(context.Context) error
+	journal                                                             NetBirdManagerJournalExpectation
+}
+
+// NetBirdManagerJournalExpectation describes independently authenticated launch
+// inputs. BinarySHA256 is an image receipt pin, never a remote kernel measurement.
+type NetBirdManagerJournalExpectation struct {
+	AdmissionSHA256, LaunchRecipeSHA256, BinarySHA256 string
+}
+
+func (v VerifiedNetBirdManagerRecipient) JournalExpectation(ctx context.Context) (NetBirdManagerJournalExpectation, error) {
+	if ctx == nil || !bootstrapSHA256.MatchString(v.journal.AdmissionSHA256) || !bootstrapSHA256.MatchString(v.journal.LaunchRecipeSHA256) ||
+		!bootstrapSHA256.MatchString(v.journal.BinarySHA256) {
+		return NetBirdManagerJournalExpectation{}, errors.New("remote NetBird journal expectation is absent")
+	}
+	if err := v.Check(ctx); err != nil {
+		return NetBirdManagerJournalExpectation{}, err
+	}
+	return v.journal, nil
 }
 
 func (v VerifiedNetBirdManagerRecipient) IsVerified() bool {
@@ -52,6 +71,7 @@ type netBirdRecipientObservation struct {
 	launch                                                  netBirdManagerOrigin
 	target                                                  vaultsecret.Target
 	expires                                                 time.Time
+	journal                                                 NetBirdManagerJournalExpectation
 }
 
 // VerifyNetBirdManagerRecipient uses the current regional source and fresh
@@ -123,7 +143,7 @@ func retainNetBirdRecipient(originalContext context.Context, original netBirdRec
 	}
 	proof := VerifiedNetBirdManagerRecipient{installationID: original.installationID, grantDigest: original.grantDigest,
 		instanceID: original.launch.InstanceID, privateIP: original.privateIP, storeGeneration: original.storeGeneration,
-		target: original.target, expires: expires, authorityExpires: original.expires}
+		target: original.target, expires: expires, authorityExpires: original.expires, journal: original.journal}
 	proof.check = func(ctx context.Context) error {
 		if err := originalContext.Err(); err != nil {
 			return err
@@ -246,9 +266,14 @@ func netBirdRecipientCheckpoint(intent verifiedNetBirdIntent, record FoundationR
 		expires = allocation.ExpiresAt()
 	}
 	checkpoint := launch.original()
+	admission, err := netBirdManagerAdmissionPin(intent, record, allocation)
+	if err != nil {
+		return netBirdRecipientObservation{}, err
+	}
+	journal := NetBirdManagerJournalExpectation{AdmissionSHA256: hex.EncodeToString(admission[:]), LaunchRecipeSHA256: intent.recipeDigest, BinarySHA256: intent.image.Receipt().BinarySHA256}
 	return netBirdRecipientObservation{installationID: intent.installationID, grantDigest: intent.grantDigest,
 		privateIP: intent.intent.Profile.PrivateIP, storeGeneration: entityid.Derive("netbird-foundation-store", intent.installationID) + ":1",
 		foundationOperation: record.OperationID, foundationIntent: record.IntentDigest, foundationEpoch: record.Epoch, generation: intent.generation,
 		bindingDigest: allocation.BindingDigest(), scopeDigest: allocation.ScopeDigest(), physicalScopeDigest: allocation.PhysicalScopeDigest(),
-		launch: checkpoint, target: target, expires: expires}, nil
+		launch: checkpoint, target: target, expires: expires, journal: journal}, nil
 }
