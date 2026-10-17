@@ -204,6 +204,7 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	var controller *genericRuntime
 	var activeRuntime atomic.Pointer[genericRuntime]
 	writer := new(genericRuntimeLegacyWriter)
+	var firstApplyError sync.Once
 	deliveries, err = delivery.Open(ctx, delivery.Config{Conn: broker.Conn(), JS: broker.JetStream(), Cell: identity.Cell, Replicas: 1,
 		Signer: codec, Verifier: codec, Fencer: fencer, Writer: writer,
 		Authorize: func(_ context.Context, actor string, proposed delivery.Intent) error {
@@ -212,7 +213,11 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 			}
 			return nil
 		}, ContainerApply: func(ctx context.Context, intent delivery.Intent) error {
-			return activeRuntime.Load().apply(ctx, intent)
+			err := activeRuntime.Load().apply(ctx, intent)
+			if err != nil {
+				firstApplyError.Do(func() { t.Logf("first signed container apply refusal: %v", err) })
+			}
+			return err
 		}})
 	if err != nil {
 		t.Fatal(err)
