@@ -43,6 +43,11 @@ func TestOwnRegistrationBindsActualSignedSessionAndKeys(t *testing.T) {
 		identity.Identity().HostSessionID == "" || identity.Identity().RegistrationGeneration != registration.Generation {
 		t.Fatal("runtime identity lost its actual signed session or safe execution deadline", err)
 	}
+	current, _, exists, err := controller.sessionSnapshot(t.Context(), sessionKey("gru", "node-a"))
+	if err != nil || !exists || identity.SessionEpoch() == 0 || identity.SessionEpoch() != current.Epoch ||
+		identity.Identity().HostSessionID != current.SessionID {
+		t.Fatal("runtime identity lost its actual committed session epoch", err)
+	}
 	for _, mutate := range []func(*Registration){
 		func(r *Registration) { r.Node = "another-host" },
 		func(r *Registration) { r.PublicKey = "another-key" },
@@ -59,5 +64,22 @@ func TestOwnRegistrationBindsActualSignedSessionAndKeys(t *testing.T) {
 	wrong[0] ^= 1
 	if err := agent.VerifyOwnRegistration(registration, wrong); err == nil {
 		t.Fatal("actual session accepted an unpinned controller signer")
+	}
+	originalEpoch := identity.SessionEpoch()
+	registration.Generation++
+	if _, err := controller.Register(t.Context(), registration); err != nil {
+		t.Fatal(err)
+	}
+	if err := agent.acquire(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	successor, _, exists, err := controller.sessionSnapshot(t.Context(), sessionKey("gru", "node-a"))
+	if err != nil || !exists || successor.Epoch <= originalEpoch {
+		t.Fatal("new registration did not acquire an actual successor session epoch", err)
+	}
+	fresh, err := agent.RuntimeWorkerIdentity("accepted-instance", "accepted-node")
+	if err != nil || identity.SessionEpoch() != originalEpoch || fresh.SessionEpoch() != successor.Epoch ||
+		fresh.Identity().HostSessionID != successor.SessionID || fresh.Identity().RegistrationGeneration != registration.Generation {
+		t.Fatal("runtime identity changed its retained epoch or lost the accepted successor", err)
 	}
 }
