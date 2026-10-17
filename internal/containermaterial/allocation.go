@@ -21,6 +21,14 @@ func VerifyTaskAllocation(ctx context.Context, client api.ControlClient, task *a
 	verified release.VerifiedContainer, roots trust.Keyring, proof Profile, registration host.Registration, binding host.ContainerMaterialBinding,
 	controller *bootstrapstart.ControllerHostRecipient, worker swarmruntime.VerifiedWorkerMembership,
 ) error {
+	ctx, cancel := allocationContext(ctx, verified.ExpiresAt(), controller, worker)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if now := time.Now().UTC(); !verified.Valid(now) || controller != nil && !controller.Valid(now) || controller == nil && worker.Validate() != nil {
+		return ErrPending
+	}
 	if client == nil || verifyAllocationProfile(task, expected, verified, proof, registration, binding) != nil {
 		return ErrPending
 	}
@@ -48,6 +56,14 @@ func VerifyCurrentTaskAllocation(ctx context.Context, client api.ControlClient, 
 	verified release.VerifiedContainer, roots trust.Keyring, proof Profile, registration host.Registration, binding host.ContainerMaterialBinding,
 	controller *bootstrapstart.ControllerHostRecipient, worker swarmruntime.VerifiedWorkerMembership,
 ) error {
+	ctx, cancel := allocationContext(ctx, verified.ExpiresAt(), controller, worker)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if now := time.Now().UTC(); !verified.Valid(now) || controller != nil && !controller.Valid(now) || controller == nil && worker.Validate() != nil {
+		return ErrPending
+	}
 	if err := verifyAllocationAuthority(ctx, client, task, expected, verified, roots, proof, registration, binding); err != nil {
 		return err
 	}
@@ -132,4 +148,14 @@ func verifyAllocatedTask(task *api.Task, binding host.ContainerMaterialBinding) 
 		return ErrPending
 	}
 	return nil
+}
+
+func allocationContext(ctx context.Context, deadline time.Time, controller *bootstrapstart.ControllerHostRecipient, worker swarmruntime.VerifiedWorkerMembership) (context.Context, context.CancelFunc) {
+	if controller != nil && controller.Deadline().Before(deadline) {
+		deadline = controller.Deadline()
+	}
+	if expires := worker.Info().ExpiresAt; worker.NodeID() != "" && expires.Before(deadline) {
+		deadline = expires
+	}
+	return context.WithDeadline(ctx, deadline)
 }
