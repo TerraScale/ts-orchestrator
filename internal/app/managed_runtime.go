@@ -87,6 +87,11 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 		return fmt.Errorf("listen for admitted root operations: %w", err)
 	}
 	defer listener.Close()
+	// Full secret inventory and broker preflight finish in root before the
+	// registered ordinary child receives its configuration or SDK read scope.
+	if err := admitProductionControllerRootRestartLocal(ctx, cfg); err != nil {
+		return fmt.Errorf("admit root-owned controller material: %w", err)
+	}
 	if err := superviseControllerAdmissionWithAuthority(ctx, cfg, "bootstrap-admit-restart", "/proc/self/exe", authority); err != nil {
 		return fmt.Errorf("admit root runtime: %w", err)
 	}

@@ -117,6 +117,52 @@ func writeControllerPreflightCredentials(t *testing.T, root string, claim *jwt.U
 }
 
 func TestProductionCredentialPreflightIsReadOnlyAndCurrent(t *testing.T) {
+	t.Run("typed broker and ordinary custody", func(t *testing.T) {
+		cfg, _, _, _ := productionPreflightFixture(t)
+		for _, name := range []string{"system", "membership", "client TLS", "listener TLS", "route TLS", "link TLS", "route password"} {
+			t.Run(name, func(t *testing.T) {
+				candidate := cfg
+				embedded := *cfg.Embedded
+				candidate.Embedded = &embedded
+				absent := filepath.Join(t.TempDir(), name+".creds")
+				switch name {
+				case "system":
+					embedded.SystemCredentialsFile = absent
+				case "membership":
+					embedded.MembershipCredentialsFile = absent
+				case "client TLS":
+					candidate.TLS.KeyFile = absent
+				case "listener TLS":
+					embedded.TLS.KeyFile = absent
+				case "route TLS":
+					embedded.RouteTLS.KeyFile = absent
+				case "link TLS":
+					files := cfg.TLS
+					files.KeyFile = absent
+					embedded.Link = &Link{TLS: files}
+				case "route password":
+					candidate.Replicas = 3
+					embedded.BrokerIDs = []string{"broker-a", "broker-b", "broker-c"}
+					embedded.RouteHost, embedded.RoutePort = "127.0.0.1", 6222
+					embedded.Routes = []string{"nats-route://127.0.0.1:6223"}
+					embedded.RouteUser, embedded.RoutePasswordFile = "route", absent
+				}
+				if err := ValidateProductionControllerCredentials(candidate); err != nil {
+					t.Fatalf("controller touched privileged %s credentials: %v", name, err)
+				}
+				if err := ValidateProductionBrokerCredentials(candidate); err == nil {
+					t.Fatalf("broker accepted missing %s credentials", name)
+				}
+			})
+		}
+		cfg.CredentialsFile = filepath.Join(t.TempDir(), "absent-controller.creds")
+		if err := ValidateProductionControllerCredentials(cfg); err == nil {
+			t.Fatal("controller accepted its missing user key")
+		}
+		if err := ValidateProductionBrokerCredentials(cfg); err != nil {
+			t.Fatalf("root broker preflight touched the ordinary controller key: %v", err)
+		}
+	})
 	cfg, cellKey, controllerUser, controller := productionPreflightFixture(t)
 	if err := ValidateProductionCredentials(cfg); err != nil {
 		t.Fatalf("current credentials: %v", err)

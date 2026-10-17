@@ -18,7 +18,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/identityrekey"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
-	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -128,6 +128,11 @@ func superviseControllerAdmissionWithAuthority(ctx context.Context, cfg Config, 
 	if authority != nil && (commandName != "bootstrap-admit-restart" || os.Geteuid() != 0) {
 		return errors.New("registered admission requires the root restart supervisor")
 	}
+	if commandName == "bootstrap-admit-restart" && os.Geteuid() == 0 && authority == nil {
+		if err := admitProductionControllerRootRestartLocal(ctx, cfg); err != nil {
+			return fmt.Errorf("full root controller material admission: %w", err)
+		}
+	}
 	// The child digests the exact signed bytes, not a re-encoding.
 	wire, err := cfg.signedWire()
 	if err != nil || len(wire) == 0 || len(wire) > maxConfigBytes {
@@ -230,7 +235,7 @@ func admitProductionControllerRoot(ctx context.Context, cfg Config) error {
 	markers := bootstrapstart.NewMarkerStore()
 	_, err := markers.ReadIdentity()
 	if err == nil {
-		return admitProductionController(ctx, cfg, markers, false)
+		return admitProductionControllerRootRestartLocal(ctx, cfg)
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect accepted bootstrap install: %w", err)
@@ -248,16 +253,9 @@ func admitProductionController(ctx context.Context, cfg Config, markers bootstra
 		if err != nil {
 			return err
 		}
-		region := oci.Region(accepted.Cell)
-		provider, err := bootstrap.NewRegionalInstancePrincipalConfigurationProvider(region)
-		if err != nil {
-			return err
-		}
-		gate.Instances, err = bootstrapstart.NewOCIInstanceObserver(region, provider)
-		if err != nil {
-			return err
-		}
-		_, err = gate.AdmitRestart(ctx)
+		client := rootoci.NewClient(rootoci.Expectations{Cell: accepted.Cell})
+		defer client.Close()
+		_, err = gate.AdmitRestart(ctx, acceptedControllerInstanceObserver{client: client, expectedID: accepted.InstanceOCID})
 		return err
 	}
 	loadedWire, err := cfg.signedWire()
@@ -418,7 +416,52 @@ func controllerIdentityObserver(cfg Config) bootstrapstart.IdentityObservation {
 	}
 }
 
-func acceptedControllerAdmissionGate(cfg Config, markers bootstrapstart.MarkerStore, clockCheck func() error) (bootstrapstart.Gate, bootstrapstart.AcceptedIdentity, error) {
+func acceptedControllerAdmissionGate(cfg Config, markers bootstrapstart.MarkerStore, clockCheck func() error) (bootstrapstart.ControllerClientGate, bootstrapstart.AcceptedIdentity, error) {
+	gate, accepted, err := acceptedControllerGate(cfg, markers, clockCheck)
+	if err != nil {
+		return bootstrapstart.ControllerClientGate{}, bootstrapstart.AcceptedIdentity{}, err
+	}
+	uid, gid, err := controllerServiceIdentity()
+	if err != nil || os.Geteuid() != int(uid) || os.Getegid() != int(gid) {
+		return bootstrapstart.ControllerClientGate{}, bootstrapstart.AcceptedIdentity{}, errors.New("ordinary controller admission requires the dedicated service account")
+	}
+	client, err := bootstrapstart.NewControllerClientGate(gate)
+	return client, accepted, err
+}
+
+func admitProductionControllerRootRestartLocal(ctx context.Context, cfg Config) error {
+	if os.Geteuid() != 0 {
+		return errors.New("full controller material admission requires root")
+	}
+	gate, _, err := acceptedControllerGate(cfg, bootstrapstart.NewMarkerStore(), nil)
+	if err != nil {
+		return err
+	}
+	_, err = gate.AdmitRestartLocal(ctx)
+	return err
+}
+
+// The observer can request only the root runtime's fixed local instance.
+type acceptedControllerInstanceObserver struct {
+	client     *rootoci.Client
+	expectedID string
+}
+
+func (observer acceptedControllerInstanceObserver) ObserveInstance(ctx context.Context, id string) (bootstrapstart.InstanceObservation, error) {
+	if observer.client == nil || observer.expectedID == "" || id != observer.expectedID {
+		return bootstrapstart.InstanceObservation{}, bootstrapstart.ErrInstanceObservation
+	}
+	observed, err := observer.client.ObserveLocalInstance(ctx)
+	if err != nil {
+		return bootstrapstart.InstanceObservation{}, err
+	}
+	if observed.InstanceOCID != observer.expectedID {
+		return bootstrapstart.InstanceObservation{}, bootstrapstart.ErrInstanceObservation
+	}
+	return observed, nil
+}
+
+func acceptedControllerGate(cfg Config, markers bootstrapstart.MarkerStore, clockCheck func() error) (bootstrapstart.Gate, bootstrapstart.AcceptedIdentity, error) {
 	fail := func(err error) (bootstrapstart.Gate, bootstrapstart.AcceptedIdentity, error) {
 		return bootstrapstart.Gate{}, bootstrapstart.AcceptedIdentity{}, err
 	}
@@ -445,8 +488,8 @@ func acceptedControllerAdmissionGate(cfg Config, markers bootstrapstart.MarkerSt
 	if err != nil {
 		return fail(err)
 	}
-	if os.Geteuid() != int(serviceUID) || os.Getegid() != int(serviceGID) {
-		return fail(errors.New("accepted controller admission requires the dedicated service account"))
+	if os.Geteuid() != 0 && (os.Geteuid() != int(serviceUID) || os.Getegid() != int(serviceGID)) {
+		return fail(errors.New("accepted controller admission requires root or the dedicated service account"))
 	}
 	checker, err := bootstrapstart.NewLiveCredentialChecker(cfg.NATS, serviceUID, serviceGID,
 		cfg.Controller.ResponseKeyFile, cfg.Controller.BrokerTicketKeyFile, cfg.Controller.HostNATSIssuerSeedFile,
