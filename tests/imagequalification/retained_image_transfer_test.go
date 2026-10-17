@@ -266,7 +266,7 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 		}
 		if r.Method == http.MethodGet && r.URL.Path == "/20160918/images/"+imageID {
 			reads++
-			if mode == "deleted-image" || mode == "remaining-capability" {
+			if mode == "deleted-image" || mode == "checkpoint-deleted-image" || mode == "remaining-capability" {
 				w.WriteHeader(404)
 				_, _ = w.Write([]byte(`{"code":"NotAuthorizedOrNotFound","message":"local fixture"}`))
 				return
@@ -431,7 +431,7 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 		consoleOperation := "console/" + a.Hosts[0].Name + "/root"
 		settled.ConsoleHistories[consoleOperation] = "ocid1.consolehistory.oc1.sa-saopaulo-1.original"
 		settled.ConsoleDeleted[consoleOperation] = true
-		for _, scenario := range []string{"recorded-transfer", "remaining-host", "remaining-console", "remaining-source", "missing-recorded-manifest", "missing-recorded-reference", "deleted-image", "remaining-capability", "unresolved-create", "cleanup-expired"} {
+		for _, scenario := range []string{"recorded-transfer", "remaining-host", "remaining-console", "remaining-source", "missing-recorded-manifest", "missing-recorded-reference", "deleted-image", "checkpoint-deleted-image", "remaining-capability", "omitted-bound-host", "invalid-manifest-reference", "unresolved-create", "cleanup-expired"} {
 			t.Run("completed-cleanup-"+scenario, func(t *testing.T) {
 				mu.Lock()
 				mode = scenario
@@ -441,6 +441,13 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 				switch scenario {
 				case "missing-recorded-reference":
 					copyJournal.ImageManifestSHA256 = ""
+				case "checkpoint-deleted-image":
+					copyJournal.ImageDeleted = true
+				case "omitted-bound-host":
+					copyJournal.ImageDeleted = true
+					copyJournal.Hosts = map[string]string{}
+				case "invalid-manifest-reference":
+					copyJournal.ImageManifestSHA256 = "invalid"
 				case "unresolved-create":
 					copyJournal.Intents = map[string]time.Time{"unknown-create": f.now}
 				case "cleanup-expired":
@@ -450,7 +457,7 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 					t.Fatal(err)
 				}
 				err := verifyCompletedCleanup(t.Context(), original, observer, path)
-				wantSuccess := scenario == "recorded-transfer" || scenario == "deleted-image"
+				wantSuccess := scenario == "recorded-transfer" || scenario == "deleted-image" || scenario == "checkpoint-deleted-image"
 				if (err == nil) != wantSuccess {
 					t.Fatalf("settled cleanup=%v, expected success=%v", err, wantSuccess)
 				}
@@ -460,7 +467,7 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 				if afterWrites != publicationWrites {
 					t.Fatal("completed cleanup observer dispatched a write")
 				}
-				if (scenario == "unresolved-create" || scenario == "cleanup-expired") && afterReads != beforeReads {
+				if (scenario == "unresolved-create" || scenario == "cleanup-expired" || scenario == "omitted-bound-host" || scenario == "invalid-manifest-reference") && afterReads != beforeReads {
 					t.Fatal("invalid settled cleanup authority reached SDK")
 				}
 			})
