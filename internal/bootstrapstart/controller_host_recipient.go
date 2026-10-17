@@ -27,6 +27,7 @@ type ControllerHostRecipient struct {
 	privateIP  string
 	slot       string
 	region     string
+	domain     bootstrap.ControllerFailureDomain
 	started    time.Time
 	validUntil time.Time
 }
@@ -58,6 +59,7 @@ func readControllerHostRecipient(ctx context.Context, reader *CurrentFounderAuth
 		return nil, err
 	}
 	proof.slot, proof.region = grant.Controller, authority.identity.OCIRegion
+	proof.domain, _ = authority.ControllerFailureDomain(grant.Controller)
 	if authority.expires.Before(proof.validUntil) {
 		proof.validUntil = authority.expires
 	}
@@ -72,13 +74,17 @@ func (proof *ControllerHostRecipient) Node() string           { return proof.nod
 func (proof *ControllerHostRecipient) InstanceID() string     { return proof.instanceID }
 func (proof *ControllerHostRecipient) PrivateIP() string      { return proof.privateIP }
 func (proof *ControllerHostRecipient) OCIRegion() string      { return proof.region }
-func (proof *ControllerHostRecipient) Environment() string    { return proof.issuer.Environment }
-func (proof *ControllerHostRecipient) SpecSHA256() string     { return digestWire(proof.spec) }
+func (proof *ControllerHostRecipient) FailureDomain() bootstrap.ControllerFailureDomain {
+	return proof.domain
+}
+func (proof *ControllerHostRecipient) Environment() string { return proof.issuer.Environment }
+func (proof *ControllerHostRecipient) SpecSHA256() string  { return digestWire(proof.spec) }
 
 // Valid is a cheap final check after task reads. Verification never extends the
 // constructor's fixed observation interval or any signed authority deadline.
 func (proof *ControllerHostRecipient) Valid(now time.Time) bool {
-	return proof != nil && proof.slot != "" && proof.region != "" && !now.IsZero() &&
+	return proof != nil && proof.slot != "" && proof.region != "" && proof.domain.Region == proof.region &&
+		proof.domain.AvailabilityDomain != "" && proof.domain.FaultDomain != "" && !now.IsZero() &&
 		!proof.started.IsZero() && !now.Before(proof.started) && now.Before(proof.validUntil) &&
 		time.Now().Before(proof.validUntil) && time.Now().Before(proof.started.Add(bootstrap.ManagedPeerObservationMaxAge))
 }
@@ -108,6 +114,7 @@ func (proof *ControllerHostRecipient) VerifyRegistration(ctx context.Context, re
 	if registration.ID != entityid.Derive("host", strings.ToLower(authority.identity.Cell), proof.node) ||
 		registration.Node != proof.node || registration.Cell != strings.ToLower(authority.identity.Cell) ||
 		registration.Environment != proof.issuer.Environment || registration.Generation == 0 ||
+		registration.FailureDomain != strings.ToLower(proof.domain.FaultDomain) ||
 		!slices.Equal(registration.Roles, grant.Roles) || registration.ManagedOCI != nil ||
 		registration.ManagedMember != nil || registration.ManagedPlacement != nil {
 		return errors.New("controller registration differs from its signed slot and host grant")
@@ -156,6 +163,10 @@ func (proof *ControllerHostRecipient) current(ctx context.Context) (cellspec.Hos
 		proof.slot != "" && proof.slot != grant.Controller || proof.region != "" && proof.region != identity.OCIRegion {
 		return fail(errors.New("controller recipient differs from its signed host grant"))
 	}
+	domain, ok := authority.ControllerFailureDomain(grant.Controller)
+	if !ok || proof.domain != (bootstrap.ControllerFailureDomain{}) && proof.domain != domain {
+		return fail(errors.New("controller recipient failure domain changed from its verified topology"))
+	}
 	if authority.anchor.ExpiresAt().Before(authority.expires) {
 		authority.expires = authority.anchor.ExpiresAt()
 	}
@@ -195,7 +206,8 @@ func (proof *ControllerHostRecipient) current(ctx context.Context) (cellspec.Hos
 	if err != nil {
 		return fail(err)
 	}
-	if observed.PrimaryPrivateIP != grant.PrivateIP || grant.Controller == proof.issuer.Slot &&
+	if observed.AvailabilityDomain != domain.AvailabilityDomain || observed.FaultDomain != domain.FaultDomain ||
+		observed.PrimaryPrivateIP != grant.PrivateIP || grant.Controller == proof.issuer.Slot &&
 		(observed.InstanceOCID != proof.issuer.InstanceOCID || observed.ImageOCID != proof.issuer.ImageOCID ||
 			observed.PrimaryVNICOCID != proof.issuer.PrimaryVNICOCID || observed.PrimaryPrivateIP != proof.issuer.PrimaryPrivateIP) {
 		return fail(errors.New("controller recipient differs from its live primary address or accepted local identity"))
@@ -229,6 +241,9 @@ func (proof *ControllerHostRecipient) current(ctx context.Context) (cellspec.Hos
 	if err != nil || current.identity != identity || current.selectionDigest != authority.selectionDigest ||
 		current.planDigest != authority.planDigest || !time.Now().Before(authority.expires) {
 		return fail(errors.New("controller issuer authority changed during live recipient verification"))
+	}
+	if confirmedDomain, ok := current.ControllerFailureDomain(grant.Controller); !ok || confirmedDomain != domain {
+		return fail(errors.New("controller failure domain changed during live recipient verification"))
 	}
 	freshRoots, err := proof.sources.trust.loadTrustInputs(proof.issuer)
 	if err != nil || freshRoots.Roots.Head != inputs.Roots.Head || freshRoots.Roots.Sequence != inputs.Roots.Sequence {
