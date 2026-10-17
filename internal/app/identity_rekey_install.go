@@ -28,6 +28,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
 	selfupdatecli "github.com/TerraScale/ts-orchestrator/internal/selfupdate/cli"
 	"github.com/nats-io/nats.go/jetstream"
@@ -905,11 +906,10 @@ func CleanupIdentityRekey(ctx context.Context) error {
 		return err
 	}
 	journalWire := journal.Wire()
-	uid, gid, err := controllerServiceIdentity()
-	if err != nil {
-		return err
-	}
 	check := func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := controllerClockCheck(controllerBrokerClockProbe())(); err != nil {
 			return err
 		}
@@ -923,17 +923,7 @@ func CleanupIdentityRekey(ctx context.Context) error {
 		if err := selfupdatecli.VerifyIdentityRekeyBinaries(ctx, accepted, inputs); err != nil {
 			return err
 		}
-		current, err := selfupdate.NewLayout(selfupdate.DefaultRoot).Current()
-		if err != nil || current == "" {
-			return errors.New("identity rekey cleanup has no compatible current release")
-		}
-		probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-		defer cancel()
-		command := exec.CommandContext(probeCtx, selfupdate.NewLayout(selfupdate.DefaultRoot).BinaryPath(current),
-			"identity-rekey-completion-check", "--config", controllerSidecarPath(controllerConfigFilename))
-		command.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uid, Gid: gid}}
-		command.WaitDelay = time.Second
-		if err := command.Run(); err != nil {
+		if err := checkRootRekeySharedCompletion(ctx); err != nil {
 			return fmt.Errorf("identity rekey cleanup shared completion: %w", err)
 		}
 		fresh, err := bootstrapstart.ReadIdentityRekeyJournal(accepted)
@@ -972,7 +962,7 @@ func CleanupIdentityRekey(ctx context.Context) error {
 			return err
 		}
 		for _, name := range group.names {
-			if err := unlinkRetiredIdentityInput(dir, name, group.uid, group.gid, check); err != nil {
+			if err := unlinkRetiredIdentityInput(ctx, dir, name, group.uid, group.gid, check); err != nil {
 				unix.Close(dir)
 				return err
 			}
@@ -982,7 +972,13 @@ func CleanupIdentityRekey(ctx context.Context) error {
 	return nil
 }
 
-func unlinkRetiredIdentityInput(dir int, name string, uid, gid uint32, check func() error) error {
+func unlinkRetiredIdentityInput(ctx context.Context, dir int, name string, uid, gid uint32, check func() error) error {
+	if ctx == nil {
+		return rootoci.ErrUnauthorized
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !slices.Contains([]string{"identity.json", "anchor.json", controllerManifestFilename, "initial-formation.json"}, name) {
 		return errors.New("identity rekey cleanup refuses an unrelated name")
 	}
@@ -1000,6 +996,9 @@ func unlinkRetiredIdentityInput(dir int, name string, uid, gid uint32, check fun
 	}
 	if stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Uid != uid || stat.Gid != gid || stat.Nlink != 1 || stat.Mode&0o022 != 0 {
 		return errors.New("identity rekey cleanup refuses indirect or unowned authority input")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if err := unix.Unlinkat(dir, name, 0); err != nil {
 		return err

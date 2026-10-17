@@ -64,6 +64,31 @@ func ReadVerifiedRestartProcessBinary(ctx context.Context, pid int, accepted Acc
 	return binary, err
 }
 
+// VerifyIdentityRekeyCompletionProcessBinary authenticates the actual cleanup
+// parent, including an owned recovery predecessor, for this read-only purpose.
+func VerifyIdentityRekeyCompletionProcessBinary(ctx context.Context, pid int, accepted AcceptedIdentity, layout selfupdate.Layout, roots trust.Keyring) error {
+	if ctx == nil {
+		return ErrAdmission
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if os.Geteuid() != 0 || os.Getegid() != 0 || pid < 2 || accepted.Validate() != nil {
+		return ErrAdmission
+	}
+	_, err := ReadVerifiedRestartProcessBinary(ctx, pid, accepted, layout, roots)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	if err != nil {
+		_, err = verifyRecoveryPredecessor("/proc/"+strconv.Itoa(pid)+"/exe", layout, roots, accepted)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	return err
+}
+
 type processBinaryChecker struct {
 	executableBinaryChecker
 	pid int

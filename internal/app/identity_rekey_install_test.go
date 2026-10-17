@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
@@ -334,13 +335,13 @@ func TestIdentityRekeyInstallerCleanupKeepsCurrentRootsLaunchPinsAndData(t *test
 	}
 	for _, name := range retired {
 		for range 2 {
-			if err := unlinkRetiredIdentityInput(dir, name, uid, gid, completed); err != nil {
+			if err := unlinkRetiredIdentityInput(t.Context(), dir, name, uid, gid, completed); err != nil {
 				t.Fatal(err)
 			}
 		}
 	}
 	for _, name := range append(current, "jetstream") {
-		if err := unlinkRetiredIdentityInput(dir, name, uid, gid, completed); err == nil {
+		if err := unlinkRetiredIdentityInput(t.Context(), dir, name, uid, gid, completed); err == nil {
 			t.Fatalf("cleanup permitted current authority/store/data name %s", name)
 		}
 		if _, err := os.Stat(filepath.Join(directory, name)); err != nil {
@@ -350,7 +351,7 @@ func TestIdentityRekeyInstallerCleanupKeepsCurrentRootsLaunchPinsAndData(t *test
 	if err := os.Symlink("accepted-install.json", filepath.Join(directory, "identity.json")); err != nil {
 		t.Fatal(err)
 	}
-	if err := unlinkRetiredIdentityInput(dir, "identity.json", uid, gid, completed); err == nil {
+	if err := unlinkRetiredIdentityInput(t.Context(), dir, "identity.json", uid, gid, completed); err == nil {
 		t.Fatal("cleanup followed a retired input symlink")
 	}
 	if _, err := os.Stat(filepath.Join(directory, "absent")); !errors.Is(err, os.ErrNotExist) {
@@ -373,7 +374,7 @@ func TestIdentityRekeyInstallerCleanupRequiresCurrentProofAndSharedCompletion(t 
 	uid, gid := uint32(os.Getuid()), uint32(os.Getgid())
 	currentProofDenied := errors.New("current root authorization denied")
 	for _, denied := range []error{currentProofDenied, bootstrapstart.ErrIdentityRekeyPending} {
-		if err := unlinkRetiredIdentityInput(dir, "anchor.json", uid, gid, func() error { return denied }); !errors.Is(err, denied) {
+		if err := unlinkRetiredIdentityInput(t.Context(), dir, "anchor.json", uid, gid, func() error { return denied }); !errors.Is(err, denied) {
 			t.Fatalf("cleanup did not enforce authorization/completion gate: %v", err)
 		}
 		stored, err := os.ReadFile(path)
@@ -381,10 +382,31 @@ func TestIdentityRekeyInstallerCleanupRequiresCurrentProofAndSharedCompletion(t 
 			t.Fatal("refused cleanup deleted retired authority needed by pending recovery")
 		}
 	}
-	if err := unlinkRetiredIdentityInput(dir, "anchor.json", uid, gid, nil); err == nil {
+	if err := unlinkRetiredIdentityInput(t.Context(), dir, "anchor.json", uid, gid, nil); err == nil {
 		t.Fatal("missing gate became proof of completion")
 	}
-	if err := unlinkRetiredIdentityInput(dir, "anchor.json", uid, gid, func() error { return nil }); err != nil {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := unlinkRetiredIdentityInput(t.Context(), dir, "anchor.json", uid, gid, func() error {
+		return checkRootRekeySharedCompletion(ctx)
+	}); err == nil {
+		t.Fatal("canceled original cleanup launched or accepted a completion child")
+	}
+	if stored, err := os.ReadFile(path); err != nil || !bytes.Equal(stored, wire) {
+		t.Fatal("canceled cleanup deleted the retired authority")
+	}
+	finalCtx, cancelFinal := context.WithCancel(t.Context())
+	defer cancelFinal()
+	if err := unlinkRetiredIdentityInput(finalCtx, dir, "anchor.json", uid, gid, func() error {
+		cancelFinal()
+		return nil
+	}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cleanup accepted cancellation after completion before unlink: %v", err)
+	}
+	if stored, err := os.ReadFile(path); err != nil || !bytes.Equal(stored, wire) {
+		t.Fatal("cleanup unlinked retired authority after its original context ended")
+	}
+	if err := unlinkRetiredIdentityInput(t.Context(), dir, "anchor.json", uid, gid, func() error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {

@@ -32,7 +32,7 @@ import (
 // TestMain gives the test executable the same hidden-command dispatch as the
 // production binary. Both callers below use the real /proc/self/exe path.
 func TestMain(m *testing.M) {
-	if len(os.Args) == 2 && (os.Args[1] == "bootstrap-credential-check" || os.Args[1] == "bootstrap-admit-restart" || os.Args[1] == runtimeControllerHostSourceCommand) {
+	if len(os.Args) == 2 && (os.Args[1] == "bootstrap-credential-check" || os.Args[1] == "bootstrap-admit-restart" || os.Args[1] == runtimeControllerHostSourceCommand || os.Args[1] == rootRekeyCompletionCommand) {
 		command := os.Args[1]
 		var output io.Writer = io.Discard
 		if command == runtimeControllerHostSourceCommand {

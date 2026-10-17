@@ -11,6 +11,8 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/rootsecret"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 // openControllerRuntime reconciles rooted shared identity before exposing any
@@ -153,10 +155,11 @@ func verifyIdentityRekeyGlobalScope(cfg Config, reset authority.IdentityReset) e
 }
 
 // checkControllerIdentityRekeyCompletion makes no cloud or broker mutation.
-func checkControllerIdentityRekeyCompletion(ctx context.Context, cfg Config) error {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	gate, _, err := acceptedControllerAdmissionGate(cfg, bootstrapstart.NewMarkerStore(), nil)
+func checkControllerIdentityRekeyCompletion(ctx context.Context, cfg Config, scope *rootRekeyCompletionScope) error {
+	if err := scope.guard(ctx); err != nil {
+		return err
+	}
+	gate, _, err := acceptedControllerGate(cfg, bootstrapstart.NewMarkerStore(), nil)
 	if err != nil {
 		return err
 	}
@@ -164,12 +167,39 @@ func checkControllerIdentityRekeyCompletion(ctx context.Context, cfg Config) err
 	if err != nil {
 		return err
 	}
-	client := cfg.NATS
-	client.Embedded, client.ClientRole = nil, "controller"
-	runtime, err := natscell.Start(ctx, client)
+	if err := scope.guard(ctx); err != nil {
+		return err
+	}
+	reader, err := rootsecret.OpenControllerReader(ctx)
 	if err != nil {
 		return err
 	}
-	defer runtime.Close()
-	return bootstrapstart.VerifyIdentityRekeyCompletion(ctx, accepted, runtime.JetStream())
+	defer reader.Conn().Close()
+	if err := scope.guard(ctx); err != nil {
+		return err
+	}
+	if err := reader.Guard(ctx); err != nil {
+		return err
+	}
+	js, err := jetstream.New(reader.Conn())
+	if err != nil {
+		return err
+	}
+	if err := bootstrapstart.VerifyIdentityRekeyCompletion(ctx, accepted, js); err != nil {
+		return err
+	}
+	if err := reader.Guard(ctx); err != nil {
+		return err
+	}
+	if err := scope.guard(ctx); err != nil {
+		return err
+	}
+	// Repeat full installed material and local identity admission after the wait.
+	if _, err := gate.AdmitIdentityRekeyCompletion(ctx); err != nil {
+		return err
+	}
+	if err := reader.Guard(ctx); err != nil {
+		return err
+	}
+	return scope.guard(ctx)
 }

@@ -95,6 +95,9 @@ func TestVerifyRestartProcessBinaryUsesCurrentSignedRelease(t *testing.T) {
 	if err := VerifyRestartProcessBinary(os.Getpid(), accepted, f.layout, roots); err == nil {
 		t.Fatal("recovery-only predecessor admitted as a controller process")
 	}
+	if err := VerifyIdentityRekeyCompletionProcessBinary(t.Context(), os.Getpid(), accepted, f.layout, roots); err != nil {
+		t.Fatalf("owned signed predecessor denied for completion only: %v", err)
+	}
 
 	t.Run("canceled original observation", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
@@ -102,6 +105,9 @@ func TestVerifyRestartProcessBinaryUsesCurrentSignedRelease(t *testing.T) {
 		measured, err := ReadVerifiedRestartProcessBinary(ctx, os.Getpid(), acceptedIdentityFixture(t), selfupdate.Layout{}, nil)
 		if !errors.Is(err, context.Canceled) || measured != (RunningBinary{}) {
 			t.Fatalf("canceled executable observation = %+v, %v", measured, err)
+		}
+		if err := VerifyIdentityRekeyCompletionProcessBinary(ctx, os.Getpid(), accepted, f.layout, roots); !errors.Is(err, context.Canceled) {
+			t.Fatalf("canceled original completion parent admitted: %v", err)
 		}
 	})
 }
