@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -142,7 +143,7 @@ func launchFoundationWriter(ctx context.Context, authority *HomeIAMAuthority, re
 	if privateIP == "" {
 		return OriginalFoundationWriter{}, errors.New("home writer has no signed seed address")
 	}
-	details := core.LaunchInstanceDetails{AvailabilityDomain: new(profile.AvailabilityDomain), CompartmentId: new(profile.CompartmentOCID), FaultDomain: new(profile.FaultDomain), DisplayName: new(strings.ToLower(cell) + "-1-" + startup.SeedSlot), Shape: new(profile.Shape),
+	details := core.LaunchInstanceDetails{AvailabilityDomain: new(profile.AvailabilityDomain), CompartmentId: new(profile.CompartmentOCID), FaultDomain: new(profile.FaultDomain), DisplayName: new(strings.ToLower(cell) + "-1-" + startup.SeedSlot), Shape: new(profile.Shape), Metadata: foundationWriterMetadata(startup.SeedSlot),
 		ShapeConfig:       &core.LaunchInstanceShapeConfigDetails{Ocpus: new(float32(resources.WholeOCPUs)), MemoryInGBs: new(float32(resources.MemoryInGB))},
 		SourceDetails:     core.InstanceSourceViaImageDetails{ImageId: new(startup.ImageOCID), BootVolumeSizeInGBs: new(int64(resources.BootVolumeGB)), BootVolumeVpusPerGB: new(int64(10))},
 		CreateVnicDetails: &core.CreateVnicDetails{SubnetId: new(profile.SubnetOCID), NsgIds: slices.Clone(profile.NetworkSecurityGroupOCIDs), PrivateIp: new(privateIP), AssignPublicIp: new(false)}}
@@ -507,7 +508,7 @@ func (authority *HomeIAMAuthority) VerifyFoundationWriter(ctx context.Context) e
 func (record FoundationWriterRecord) validate() error {
 	digest, err := netBirdRequestDigest(record.Request)
 	entry, ok := catalog.Lookup(record.Cell)
-	if err != nil || !ok || !slices.Contains([]string{"GRU", "SFO", "FRA"}, record.Cell) || !entityid.Valid(record.InstallationID) || record.SlotID != BootstrapSlotID(record.InstallationID, record.Cell, "controller", record.Slot) || record.OperationID != BootstrapOperationID(record.InstallationID, record.SlotID) || record.InstanceID != "" && !strings.HasPrefix(record.InstanceID, "ocid1.instance.oc1."+entry.OCIRegion+".") || record.Generation == 0 || !sourceDigest(record.GrantSHA256) || !sourceDigest(record.ProfileSHA256) || !sourceDigest(record.RecipeSHA256) || !sourceDigest(record.ScopeSHA256) || !sourceDigest(record.PhysicalScopeSHA256) || record.BindingSHA256 != "" && !sourceDigest(record.BindingSHA256) || record.RequestDigest != digest || record.RetryToken != BootstrapRetryToken(record.OperationID, digest) || record.FirstAttemptAt.IsZero() || !bootstrapSlotName.MatchString(record.Slot) || !validAuxiliaryID("key", record.KMSKeyID, foundationHomeRegion) || !sourceStoragePattern.MatchString(record.Namespace) || !sourceStoragePattern.MatchString(record.Bucket) || !sourceCompartmentPattern.MatchString(record.BucketCompartment) || record.InstanceID != "" && !sourceInstancePattern.MatchString(record.InstanceID) || record.Request.CompartmentId == nil || !sourceCompartmentPattern.MatchString(*record.Request.CompartmentId) || len(record.Request.Metadata) != 0 || len(record.Request.ExtendedMetadata) != 0 {
+	if err != nil || !ok || !slices.Contains([]string{"GRU", "SFO", "FRA"}, record.Cell) || !entityid.Valid(record.InstallationID) || record.SlotID != BootstrapSlotID(record.InstallationID, record.Cell, "controller", record.Slot) || record.OperationID != BootstrapOperationID(record.InstallationID, record.SlotID) || record.InstanceID != "" && !strings.HasPrefix(record.InstanceID, "ocid1.instance.oc1."+entry.OCIRegion+".") || record.Generation == 0 || !sourceDigest(record.GrantSHA256) || !sourceDigest(record.ProfileSHA256) || !sourceDigest(record.RecipeSHA256) || !sourceDigest(record.ScopeSHA256) || !sourceDigest(record.PhysicalScopeSHA256) || record.BindingSHA256 != "" && !sourceDigest(record.BindingSHA256) || record.RequestDigest != digest || record.RetryToken != BootstrapRetryToken(record.OperationID, digest) || record.FirstAttemptAt.IsZero() || !bootstrapSlotName.MatchString(record.Slot) || !validAuxiliaryID("key", record.KMSKeyID, foundationHomeRegion) || !sourceStoragePattern.MatchString(record.Namespace) || !sourceStoragePattern.MatchString(record.Bucket) || !sourceCompartmentPattern.MatchString(record.BucketCompartment) || record.InstanceID != "" && !sourceInstancePattern.MatchString(record.InstanceID) || record.Request.CompartmentId == nil || !sourceCompartmentPattern.MatchString(*record.Request.CompartmentId) || !maps.Equal(record.Request.Metadata, foundationWriterMetadata(record.Slot)) || len(record.Request.ExtendedMetadata) != 0 {
 		return errors.New("home writer original launch reservation is invalid")
 	}
 	if record.Policy == nil {
@@ -527,4 +528,8 @@ func (record FoundationWriterRecord) validate() error {
 		return errors.New("home writer IAM reservation differs from its canonical original policy")
 	}
 	return nil
+}
+
+func foundationWriterMetadata(slot string) map[string]string {
+	return map[string]string{"terrascale-bootstrap": fmt.Sprintf(`{"schemaVersion":1,"slot":%q}`, slot)}
 }
