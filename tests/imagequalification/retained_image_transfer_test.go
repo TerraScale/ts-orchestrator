@@ -11,6 +11,7 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -185,6 +186,7 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 	objects := map[string][]byte{releasechannel.ImageProductionEvidenceObject(j.RootGateSHA256): rootBody, releasechannel.ImageProductionEvidenceObject(hashBytes(baselineBody)): baselineBody}
 	var mu sync.Mutex
 	mode := ""
+	removeJournalOnIAM := ""
 	now := f.now.Add(2 * time.Second)
 	reads, writes := 0, 0
 	c := &cloud{prepared: prepared, now: func() time.Time { mu.Lock(); defer mu.Unlock(); return now }}
@@ -208,6 +210,12 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 			}
 			if issuerResource != nil {
 				reads++
+				if removeJournalOnIAM != "" {
+					if err := os.Remove(removeJournalOnIAM); err != nil {
+						t.Error(err)
+					}
+					removeJournalOnIAM = ""
+				}
 				_ = json.MarshalWrite(w, issuerResource)
 				return
 			}
@@ -545,11 +553,20 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 			if afterReads <= beforeReads || afterWrites != publicationWrites {
 				t.Fatal("outer restart failed to reobserve cleanup without cloud writes")
 			}
+			mu.Lock()
+			removeJournalOnIAM = path
+			mu.Unlock()
+			if _, err := runRootCredentialBoundary(t.Context(), prepared.principalWire, nil, f.roots, observer, nil, paths); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("journal lost during authenticated IAM reads certified cleanup: %v", err)
+			}
+			if err := checkpoint(path, settled); err != nil {
+				t.Fatal(err)
+			}
 		})
 		consoleOperation := "console/" + a.Hosts[0].Name + "/root"
 		settled.ConsoleHistories[consoleOperation] = "ocid1.consolehistory.oc1.sa-saopaulo-1.original"
 		settled.ConsoleDeleted[consoleOperation] = true
-		for _, scenario := range []string{"recorded-transfer", "remaining-host", "remaining-console", "remaining-source", "missing-recorded-manifest", "missing-recorded-reference", "deleted-image", "checkpoint-deleted-image", "remaining-capability", "omitted-bound-host", "invalid-manifest-reference", "unresolved-create", "cleanup-expired"} {
+		for _, scenario := range []string{"recorded-transfer", "remaining-host", "remaining-console", "remaining-source", "missing-recorded-manifest", "missing-recorded-reference", "deleted-image", "checkpoint-deleted-image", "remaining-capability", "omitted-bound-host", "invalid-manifest-reference", "unresolved-create", "cleanup-expired", "missing-journal"} {
 			t.Run("completed-cleanup-"+scenario, func(t *testing.T) {
 				mu.Lock()
 				mode = scenario
@@ -574,6 +591,11 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 				if err := checkpoint(path, copyJournal); err != nil {
 					t.Fatal(err)
 				}
+				if scenario == "missing-journal" {
+					if err := os.Remove(path); err != nil {
+						t.Fatal(err)
+					}
+				}
 				err := verifyCompletedCleanup(t.Context(), original, observer, path)
 				wantSuccess := scenario == "recorded-transfer" || scenario == "deleted-image" || scenario == "checkpoint-deleted-image"
 				if (err == nil) != wantSuccess {
@@ -585,7 +607,7 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 				if afterWrites != publicationWrites {
 					t.Fatal("completed cleanup observer dispatched a write")
 				}
-				if (scenario == "unresolved-create" || scenario == "cleanup-expired" || scenario == "omitted-bound-host" || scenario == "invalid-manifest-reference") && afterReads != beforeReads {
+				if (scenario == "unresolved-create" || scenario == "cleanup-expired" || scenario == "omitted-bound-host" || scenario == "invalid-manifest-reference" || scenario == "missing-journal") && afterReads != beforeReads {
 					t.Fatal("invalid settled cleanup authority reached SDK")
 				}
 			})

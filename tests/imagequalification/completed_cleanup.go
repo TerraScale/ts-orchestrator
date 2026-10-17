@@ -30,7 +30,7 @@ func verifyCompletedCleanup(ctx context.Context, p Prepared, observer *ociclient
 	bounded, cancel := context.WithDeadline(ctx, p.approval.CleanupUntil)
 	defer cancel()
 	bounded = ociclient.WithAuthority(ociclient.WithRequestGuard(bounded, guard), guard)
-	j, err := c.load(path)
+	j, err := c.loadExisting(path)
 	if err != nil {
 		return err
 	}
