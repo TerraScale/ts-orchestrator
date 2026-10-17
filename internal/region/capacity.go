@@ -39,6 +39,7 @@ type PoolCreateRecord struct {
 	PoolName            string         `json:"poolName"`
 	Kind                string         `json:"kind"`
 	RecipeSHA256        string         `json:"recipeSha256"`
+	ProfileSHA256       string         `json:"profileSha256"`
 	GrantSHA256         string         `json:"grantSha256"`
 	Generation          uint64         `json:"generation"`
 	ConfigurationID     string         `json:"configurationId,omitempty"`
@@ -53,6 +54,7 @@ type PoolConfigurationRecord struct {
 	OperationID         string         `json:"operationId"`
 	RecipeSHA256        string         `json:"recipeSha256"`
 	ConfigurationSHA256 string         `json:"configurationSha256"`
+	ProfileSHA256       string         `json:"profileSha256"`
 	GrantSHA256         string         `json:"grantSha256"`
 	Generation          uint64         `json:"generation"`
 	Create              PoolWireRecord `json:"create"`
@@ -68,6 +70,11 @@ type PoolConfigurationUpdateRecord struct {
 type PoolResourceRecord struct {
 	PoolID                 string                                   `json:"poolId"`
 	PoolName               string                                   `json:"poolName"`
+	Role                   string                                   `json:"role"`
+	Architecture           string                                   `json:"architecture"`
+	Shape                  string                                   `json:"shape"`
+	ProfileSHA256          string                                   `json:"profileSha256"`
+	RecipeSHA256           string                                   `json:"recipeSha256"`
 	CompartmentID          string                                   `json:"compartmentId"`
 	OperationID            string                                   `json:"operationId"`
 	GrantSHA256            string                                   `json:"grantSha256"`
@@ -189,7 +196,7 @@ func (r FoundationRecord) validateCapacity() error {
 		}
 		if key != create.OperationID+":"+create.Kind || !entityid.Valid(create.OperationID) || create.Kind != "configuration" && create.Kind != "pool" ||
 			create.PoolName == "" || len(create.PoolName) > 255 || strings.ContainsAny(create.PoolName, "\r\n") ||
-			!validFoundationDigest(create.RecipeSHA256) || !validFoundationDigest(create.GrantSHA256) || !validFoundationDigest(create.ConfigurationSHA256) ||
+			!validFoundationDigest(create.RecipeSHA256) || !validFoundationDigest(create.ProfileSHA256) || !validFoundationDigest(create.GrantSHA256) || !validFoundationDigest(create.ConfigurationSHA256) ||
 			create.Generation == 0 || create.Generation > r.Generation || create.Request.validate(r.UpdatedAt) != nil || create.Request.RetryToken == "" ||
 			create.Kind == "pool" && (!capacityOCID(create.ConfigurationID, "instanceconfiguration") || !validFoundationDigest(create.PlacementSHA256)) ||
 			create.ResourceID != "" && (!capacityOCID(create.ResourceID, kind) || create.Request.AcceptedAt.IsZero()) || create.ResourceID == "" && !create.Request.AcceptedAt.IsZero() {
@@ -204,6 +211,8 @@ func (r FoundationRecord) validateCapacity() error {
 	for key, pool := range r.CapacityPools {
 		if key != pool.PoolID || !capacityOCID(pool.PoolID, "instancepool") || !capacityOCID(pool.CompartmentID, "compartment") ||
 			pool.PoolName == "" || len(pool.PoolName) > 255 || strings.ContainsAny(pool.PoolName, "\r\n") || len(pool.ConfigurationUpdates) > 128 ||
+			(pool.Role != "container" && pool.Role != "wasm") || (pool.Architecture != "arm64" && pool.Architecture != "amd64") ||
+			pool.Shape == "" || len(pool.Shape) > 128 || !validFoundationDigest(pool.ProfileSHA256) || !validFoundationDigest(pool.RecipeSHA256) ||
 			!entityid.Valid(pool.OperationID) || !validFoundationDigest(pool.GrantSHA256) || pool.Generation == 0 || pool.Generation > r.Generation ||
 			pool.Create.validate(r.UpdatedAt) != nil || pool.Create.RetryToken == "" || pool.Create.AcceptedAt.IsZero() || len(pool.Configurations) == 0 || len(pool.Configurations) > 128 ||
 			pool.Epoch == 0 {
@@ -214,7 +223,7 @@ func (r FoundationRecord) validateCapacity() error {
 		}
 		for id, config := range pool.Configurations {
 			if id != config.ConfigurationID || !capacityOCID(id, "instanceconfiguration") || !entityid.Valid(config.OperationID) ||
-				!validFoundationDigest(config.RecipeSHA256) || !validFoundationDigest(config.ConfigurationSHA256) || !validFoundationDigest(config.GrantSHA256) ||
+				!validFoundationDigest(config.RecipeSHA256) || !validFoundationDigest(config.ProfileSHA256) || !validFoundationDigest(config.ConfigurationSHA256) || !validFoundationDigest(config.GrantSHA256) ||
 				config.Generation == 0 || config.Generation > r.Generation || config.Create.validate(r.UpdatedAt) != nil || config.Create.RetryToken == "" || config.Create.AcceptedAt.IsZero() {
 				return errors.New("capacity configuration lacks its exact protected original create")
 			}
