@@ -150,12 +150,27 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 	if err != nil || authority.Manifest().Cell != oci.RegionGRU || authority.Digest() != bound.Digest() {
 		t.Fatalf("public SFO to GRU startup proof: %v", err)
 	}
-	read := func(name string) ([]byte, error) { return os.ReadFile(filepath.Join(source.directory, name)) }
+	if len(authority.LinkMaterialRecord()) == 0 {
+		t.Fatal("genuine startup must retain its original HOME Link proof")
+	}
+	read := func(name string) ([]byte, error) {
+		if name == "cell.jwt" {
+			return os.ReadFile(filepath.Join(link.source.directory, "link-cell.jwt"))
+		}
+		return os.ReadFile(filepath.Join(source.directory, name))
+	}
 	issuer, err := bootstrapmaterial.LoadStartupControllerIssuer(t.Context(), authority, read, now)
 	if err != nil {
 		t.Fatalf("genuine sealed startup controller issuer: %v", err)
 	}
 	t.Cleanup(issuer.Wipe)
+	t.Run("sealed HOME issuer rejects superseded regional account", func(t *testing.T) {
+		readOriginal := func(name string) ([]byte, error) { return os.ReadFile(filepath.Join(source.directory, name)) }
+		if stale, err := bootstrapmaterial.LoadStartupControllerIssuer(t.Context(), authority, readOriginal, now); err == nil {
+			stale.Wipe()
+			t.Fatal("original regional cell.jwt bypassed its signed Link replacement")
+		}
+	})
 	operatorJWT, err := read("operator.jwt")
 	if err != nil {
 		t.Fatal(err)
@@ -178,7 +193,7 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 	if err != nil || leaf.Leaf.NotAfter.After(authority.ExpiresAt()) {
 		t.Fatalf("startup-issued leaf outlives its sealed authority: %v", err)
 	}
-	for _, name := range []string{"controller-tls-issuer-cert.pem", "controller-tls-issuer-key.pem", "controller-account-signer.seed"} {
+	for _, name := range []string{"cell.jwt", "controller-tls-issuer-cert.pem", "controller-tls-issuer-key.pem", "controller-account-signer.seed"} {
 		t.Run("sealed issuer rejects altered "+name, func(t *testing.T) {
 			altered := func(requested string) ([]byte, error) {
 				body, err := read(requested)
