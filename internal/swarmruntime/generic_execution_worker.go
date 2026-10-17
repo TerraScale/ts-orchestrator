@@ -84,7 +84,8 @@ func (e *Executor) genericWitnessPath(taskID string) string {
 
 func (e *Executor) readGenericWitness(taskID string) (genericExecutionWitness, error) {
 	var w genericExecutionWitness
-	if taskID == "" || strings.ContainsAny(taskID, "/\\. \t\r\n") {
+	// Shared disk helpers check current ownership; execution evidence requires root.
+	if os.Geteuid() != 0 || taskID == "" || strings.ContainsAny(taskID, "/\\. \t\r\n") {
 		return w, ErrGenericExecutionPending
 	}
 	if err := verifyDiskDirectory(e.genericWitnessRoot()); err != nil {
@@ -145,7 +146,7 @@ func (p genericProcessWitness) valid(taskID string) bool {
 
 // The executor mutex serializes writers. Retain this separate from removable logs.
 func (e *Executor) writeGenericWitness(w genericExecutionWitness) error {
-	if w.Task == nil || strings.ContainsAny(w.Task.ID, "/\\. \t\r\n") {
+	if os.Geteuid() != 0 || w.Task == nil || strings.ContainsAny(w.Task.ID, "/\\. \t\r\n") {
 		return ErrGenericExecutionPending
 	}
 	root := e.genericWitnessRoot()
