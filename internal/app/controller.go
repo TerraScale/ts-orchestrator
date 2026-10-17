@@ -42,6 +42,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
 	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
@@ -311,6 +312,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return fmt.Errorf("start broker admission gate: %w", err)
 	}
 	var genericServices atomic.Pointer[genericRuntime]
+	var statefulServices statefulRuntimeSlot
 	planner := &regionalDeliveryPlanner{profiles: services.profiles, address: services.nodeAddress, migrated: func(role string) bool { return role != terrabase.Role }}
 	service, _, err := retryControllerOpen(ctx, "open regional delivery stores", fullClusterReady, false,
 		func(attempt context.Context) (*delivery.Service, error) {
@@ -321,6 +323,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 				Authorize: policy.authorizeIntent, AuthorizeArtifact: policy.authorizeArtifact,
 				Fencer: control, Planner: planner, Writer: planner,
 				ContainerApply: func(ctx context.Context, intent delivery.Intent) error {
+					if intent.Role == terrabase.Role {
+						return statefulServices.apply(ctx, intent)
+					}
 					controller := genericServices.Load()
 					if controller == nil {
 						return containermaterial.ErrPending
@@ -561,6 +566,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 				ManagedMaterialProvider:     materialProvider,
 				ManagedCredentialFloor:      credentialFloor,
 				ManagedVolumeInspector:      volumeInspector,
+				RuntimeEffects:              &statefulServices,
 				TaskLoadRoles: func(ctx context.Context, registration host.Registration) ([]string, error) {
 					controller := automaticContainers.Load()
 					if controller == nil {
@@ -847,6 +853,35 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		defer functionCalls.Unlock()
 		stopContainers()
 	}()
+	statefulClient := rootoci.NewClient(rootoci.Expectations{Cell: cfg.NATS.Cell})
+	defer statefulClient.Close()
+	statefulVolumes, err := statefulClient.VolumeMountObserver()
+	if err != nil {
+		return fmt.Errorf("open stateful volume observations: %w", err)
+	}
+	statefulMembers := placementStore
+	if statefulMembers == nil {
+		statefulMembers, _, err = retryControllerOpen(runCtx, "open stateful member observations", fullClusterReady, false,
+			func(attempt context.Context) (placement.Store, error) {
+				return placement.NewJetStreamStore(attempt, runtime.JetStream(), cfg.NATS.Cell, cfg.NATS.Replicas,
+					admittedPlacementReader{cell: cfg.NATS.Cell, store: control, material: materialAdmission})
+			}, nil)
+		if err != nil {
+			return err
+		}
+	}
+	statefulMaterial := statefulReleaseReader{client: statefulClient, deliveries: service}
+	stateful, err := newStatefulRuntime(statefulRuntimeConfig{
+		Client: functionClient, Authority: control, Members: statefulMembers, Delivery: service,
+		Volumes: statefulVolumes, Roots: services.roots.current(), Evidence: statefulMaterial.evidence, Allocations: statefulMaterial.allocations,
+		SessionGuard: func(ctx context.Context) error { return containers.managerSession(ctx, managerID) },
+		Cell:         cfg.NATS.Cell, Environment: services.identity.Environment,
+	})
+	if err != nil {
+		return fmt.Errorf("start stateful container runtime: %w", err)
+	}
+	statefulServices.Store(stateful)
+	defer statefulServices.Store(nil)
 	generic, err := newGenericRuntime(genericRuntimeConfig{Client: functionClient, ManagerID: managerID, Authority: control, Specs: services, Delivery: service, Factory: capacityFoundation.factory,
 		Evidence: containers.config.Evidence, Probe: containers.probe, RetainedFloor: nativeReleases.retainedContainerFloor,
 		SessionGuard: func(ctx context.Context) error { return containers.managerSession(ctx, managerID) },
@@ -1169,6 +1204,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if membershipSupervisor != nil {
 		workers.Go(func() { workerErrors <- membershipSupervisor.Run(runCtx) })
 	}
+	workers.Go(func() { workerErrors <- stateful.effects.Run(runCtx) })
 	workers.Go(func() { workerErrors <- generic.Run(runCtx) })
 	atlasPublisher := &atlas.Loop{Publisher: atlas.Publisher{HTTP: &http.Client{Timeout: atlas.Interval}},
 		Config: atlasRoster(services.atlasConfig, cfg.NATS.Cell, peers), Authority: control, LoadKey: atlas.VaultKey}
