@@ -16,8 +16,8 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
-	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 )
 
 // allowanceTimeout bounds the read of the global capacity document. A read
@@ -46,28 +46,16 @@ type nodeScaling struct {
 	// costViews prices the node and forecasts the region for the scaler's Cost (TS-807).
 	costViews      *ociCostViews
 	reservations   *capacityReservations
-	journal        *oci.KVJournal
+	root           *rootoci.Client
 	functionDemand func(context.Context) ([]nodescale.CapacityDemand, error)
 }
 
 // startNodeScaler runs the region's node scaler on every regional leader and
 // returns the status each member publishes in its region summary.
-func startNodeScaler(ctx context.Context, in nodeScaling) (func() *nodescale.Status, error) {
-	store, _, err := retryControllerOpen(ctx, "open node scaler state", in.ready, false,
-		func(attempt context.Context) (*nodescale.Store, error) {
-			return nodescale.OpenStore(attempt, in.js, in.replicas)
-		}, nil)
+func startNodeScaler(ctx context.Context, in nodeScaling, store *nodescale.Store) (boundNodePool, error) {
+	pool, err := nodescale.NewChosenPool(in.pool, store, in.root, in.currentPoolAuthority)
 	if err != nil {
-		return nil, err
-	}
-	in.pool.Admit = in.reservations.admit(in.pool, store, in.fencer)
-	in.pool.CheckpointGrowth = checkpointCapacityGrowth(in.pool.CompartmentID(), store, in.journal)
-	in.pool.Journal = in.journal
-	in.pool.CheckpointCreate = checkpointCapacityCreate(in.pool.CompartmentID(), store, in.journal)
-	in.pool.CheckpointPoint = checkpointCapacityPoint(in.pool.CompartmentID(), store, in.journal)
-	pool, err := nodescale.NewChosenPool(in.pool, store)
-	if err != nil {
-		return nil, err
+		return boundNodePool{}, err
 	}
 	prober := &nodescale.Prober{Regions: ociRegionNames(in.factory), Dial: (&net.Dialer{}).DialContext, Now: time.Now}
 	recipe := func(ctx context.Context) (nodescale.Recipe, error) {
@@ -156,7 +144,38 @@ func startNodeScaler(ctx context.Context, in nodeScaling) (func() *nodescale.Sta
 	in.scaler.Store(scaler)
 	go prober.Run(ctx)
 	go scaler.Run(ctx)
-	return scaleStatus(scaler), nil
+	return boundNodePool{pool: pool, status: scaleStatus(scaler)}, nil
+}
+
+// Recovery selects current authority without requiring new purchase facts.
+func (in nodeScaling) currentPoolAuthority(ctx context.Context, _ nodescale.Record) (rootoci.PoolChildExpectation, error) {
+	if in.fencer == nil || in.reservations == nil || in.reservations.spending == nil {
+		return rootoci.PoolChildExpectation{}, fmt.Errorf("%w: current signed capacity authority is unavailable", nodescale.ErrCapacityPending)
+	}
+	snapshot := in.fencer.Current()
+	if !snapshot.CanMutate() {
+		return rootoci.PoolChildExpectation{}, authority.ErrNotLeader
+	}
+	if err := in.fencer.Guard(ctx, snapshot.Epoch); err != nil {
+		return rootoci.PoolChildExpectation{}, err
+	}
+	proof, err := in.reservations.spending.InfrastructureSpend(ctx)
+	if err != nil {
+		return rootoci.PoolChildExpectation{}, err
+	}
+	if !proof.ValidAt(time.Now()) || proof.Generation() == 0 {
+		return rootoci.PoolChildExpectation{}, fmt.Errorf("%w: current signed capacity grant is unavailable", nodescale.ErrCapacityPending)
+	}
+	if err := proof.RevalidateBindings(ctx); err != nil {
+		return rootoci.PoolChildExpectation{}, err
+	}
+	if !proof.ValidAt(time.Now()) {
+		return rootoci.PoolChildExpectation{}, fmt.Errorf("%w: current signed capacity grant expired during binding readback", nodescale.ErrCapacityPending)
+	}
+	if err := in.fencer.Guard(ctx, snapshot.Epoch); err != nil {
+		return rootoci.PoolChildExpectation{}, err
+	}
+	return rootoci.PoolChildExpectation{Cell: in.cell, GrantSHA256: proof.GrantDigest(), Generation: proof.Generation(), Epoch: snapshot.Epoch}, nil
 }
 
 // ociRegionNames lists every OCI region's name through the instance principal the pool uses.

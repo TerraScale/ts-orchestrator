@@ -995,7 +995,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 					return control.Guard(ctx, control.Current().Epoch)
 				}, load: hostLoad, global: global, fencer: control, fences: fences,
 				enrollment: managedEnrollment, scaler: &poolScaler, costViews: costViews,
-				reservations: reservations, journal: managedJournal, functionDemand: functionDemandSource(functions.config)})
+				reservations: reservations, root: workloadRoot, functionDemand: functionDemandSource(functions.config)})
 			if err != nil {
 				_ = connection.Close()
 				return boundNodePool{}, err
