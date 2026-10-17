@@ -107,17 +107,38 @@ func TestContainerChannelPreservesFailedGeneration(t *testing.T) {
 	}
 	state.Intent, state.State = new(initial), releasechannel.StateRolling
 	retry, err := containerChannelIntent(state, current, verified, service, "gru", 1, signer.roots)
-	if err != nil || retry.OperationID != initial.OperationID || retry.Generation != initial.Generation {
+	originalFingerprint, originalErr := initial.Fingerprint()
+	retryFingerprint, retryErr := retry.Fingerprint()
+	if err != nil || originalErr != nil || retryErr != nil || retryFingerprint != originalFingerprint {
 		t.Fatal("retry changed the original operation or rollback generation", err)
 	}
-	refreshed, err := containerChannelIntent(state, current, verified, service, "gru", 2, signer.roots)
-	if err != nil || refreshed.OperationID == initial.OperationID || refreshed.Generation != initial.Generation {
-		t.Fatal("authority refresh advanced the failed release generation", err)
+	if _, err := containerChannelIntent(state, current, verified, service, "gru", 2, signer.roots); !errors.Is(err, containermaterial.ErrPending) {
+		t.Fatal("successor authority recreated the failed release intent", err)
 	}
 	changed := service
 	changed.Profile.Args = []string{"changed"}
-	if _, err := containerChannelIntent(state, current, verified, changed, "gru", 2, signer.roots); !errors.Is(err, containermaterial.ErrPending) {
+	if _, err := containerChannelIntent(state, current, verified, changed, "gru", 1, signer.roots); !errors.Is(err, containermaterial.ErrPending) {
 		t.Fatal("same-release profile change reset rollback protection", err)
+	}
+	reissued := bundle
+	envelope, err := trust.DecodeEnvelope(bundle.Claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err = trust.Sign(envelope.Payload, envelope.Scope, envelope.IssuedAt, envelope.ExpiresAt.Add(-time.Minute), signer.leaf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reissued.Claim, err = trust.EncodeEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewed, renewedVerified := observation(reissued)
+	if renewedVerified.ReleaseIdentity() != verified.ReleaseIdentity() {
+		t.Fatal("reissued claim changed immutable release identity")
+	}
+	if _, err := containerChannelIntent(state, renewed, renewedVerified, service, "gru", 1, signer.roots); !errors.Is(err, containermaterial.ErrPending) {
+		t.Fatal("reissued proof replaced the original delivery intent", err)
 	}
 	missingFloor := current
 	missingFloor.Floor = nil

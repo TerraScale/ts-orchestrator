@@ -17,6 +17,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/workload"
 	"github.com/nats-io/nats.go/jetstream"
@@ -107,8 +108,17 @@ func (r *serviceReleases) containerPass(ctx context.Context, kv jetstream.KeyVal
 		if original.Cell != r.cell || original.Role != role || original.Environment != r.environment || original.Generation != floor.Generation || prior.Claim().ReleaseSequence != floor.ReleaseSequence || prior.ReleaseIdentity() != floor.ReleaseIdentity {
 			return containermaterial.ErrPending
 		}
-		if _, err := containermaterial.VerifyProfile(entry.Value(), roots, registry.identity, original); err != nil {
+		profile, err := containermaterial.VerifyProfile(entry.Value(), roots, registry.identity, original)
+		if err != nil {
 			return err
+		}
+		workload, err := containermaterial.ServiceIntent(profile, target.Architecture)
+		if err != nil {
+			return err
+		}
+		originalSHA256, err := swarmruntime.HistoricalServiceIntentSHA256(workload, prior)
+		if err != nil || originalSHA256 != floor.IntentSHA256 {
+			return errors.Join(containermaterial.ErrPending, err)
 		}
 		if state.Intent == nil || state.Intent.Container == nil || state.Intent.Generation < floor.Generation {
 			state.Intent = new(original)
@@ -219,7 +229,6 @@ func containerChannelIntent(state serviceReleaseState, observation rootoci.Conta
 	if previous != nil {
 		generation = previous.Generation
 	}
-	advance := true
 	replicas := service.Spec.Replicas.Min
 	if previous == nil {
 		if observation.Floor.Found {
@@ -236,20 +245,19 @@ func containerChannelIntent(state serviceReleaseState, observation rootoci.Conta
 		}
 		if prior.ReleaseIdentity() == verified.ReleaseIdentity() {
 			// A retry must preserve the failed floor and its original rollback baseline.
-			if previous.ConfigDigest != config {
+			digest, err := release.ContainerBundleSHA256(*previous.Container)
+			if err != nil || digest != observation.BundleSHA256 || previous.ConfigDigest != config || previous.AuthorityEpoch != epoch {
 				return delivery.Intent{}, containermaterial.ErrPending
 			}
-			advance, replicas = false, previous.DesiredReplicas
+			return previous.Clone(), nil
 		} else if claim.ReleaseSequence <= prior.Claim().ReleaseSequence {
 			return delivery.Intent{}, containermaterial.ErrPending
 		}
 	}
-	if advance {
-		if generation == math.MaxUint64 {
-			return delivery.Intent{}, containermaterial.ErrPending
-		}
-		generation++
+	if generation == math.MaxUint64 {
+		return delivery.Intent{}, containermaterial.ErrPending
 	}
+	generation++
 	intent := delivery.Intent{SchemaVersion: delivery.SchemaVersion, OperationID: entityid.Derive("container-channel-release", cell, claim.Role, observation.BundleSHA256, config, strconv.FormatUint(epoch, 10), strconv.FormatUint(generation, 10)),
 		Source: delivery.ArtifactSource{Repository: claim.SourceRepository, Commit: claim.SourceRevision, TreeDigest: claim.SourceTreeSHA256},
 		Cell:   cell, Role: claim.Role, Environment: claim.Environment, Generation: generation, DesiredReplicas: replicas,
