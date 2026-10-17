@@ -56,7 +56,7 @@ func newRetainedChainFixture(t *testing.T, matchingPin bool) (*retainedConsumerF
 	if err != nil {
 		t.Fatal(err)
 	}
-	config := []byte(`{"version":1,"nats":{},"controller":{}}`)
+	config := []byte(`{"version":2,"nats":{},"controller":{}}`)
 	manifest := bootstrap.Manifest{SchemaVersion: bootstrap.ManifestSchemaVersion, DeploymentID: identity.DeploymentID,
 		ClusterID: expected.ClusterID, Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1", Environment: identity.Environment,
 		ControllerRole: "controller", Slot: slot, SeedSlot: slot, ControllerSlots: []string{slot},

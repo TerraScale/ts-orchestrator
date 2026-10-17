@@ -10,13 +10,14 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/roleconfig"
 )
 
 const maxConfigBytes = 1 << 20
 
 // ConfigVersion is the only supported role-config contract.
-// Removed settings must be deleted from signed configs before rollout.
-const ConfigVersion = 1
+// Legacy configs require newly produced and signed desired state before rollout.
+const ConfigVersion = roleconfig.Version
 
 // Config is the one binary's role-specific configuration. A controller and a
 // host can share the same schema while holding separate credentials and files.
