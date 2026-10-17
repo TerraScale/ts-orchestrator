@@ -1,0 +1,18 @@
+{
+  "state": "QA accepts vendor diagnostic FAIL evidence packet; no closure/pass credit",
+  "created_utc": "2026-10-17T00:49:07.206445+00:00",
+  "candidate": "13185dcce9ef94f66359f0c5f740db93d5a5cb7e",
+  "tree": "223a8f501d826e6c02d81361ec28724f361b7d07",
+  "parent": "dd03841025c65c0a6c3350b3e8ad7c4d27eea77d",
+  "archive_sha256": "b71d0140ff14879de1e936e1145b46c21731f6ae6afa633e825ce40c8ab05e6f",
+  "archive_members": 99,
+  "original_inputs_verified": 94,
+  "watched_bindings_verified": 578,
+  "retained_original_bindings": 292,
+  "all_member_hashes_safe_metadata_verified": true,
+  "deterministic_tar_gzip_rebuild": true,
+  "no_binaries_or_runner": true,
+  "original_failure": "RETAINED_FAIL_OPEN",
+  "stop_before_FIFO": 7,
+  "cause": "private cleanup interleaving/SID cause unproved"
+}
