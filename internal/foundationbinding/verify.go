@@ -121,11 +121,12 @@ type grant struct {
 }
 
 type intent struct {
-	Generation        uint64         `json:"generation"`
-	Plan              map[string]any `json:"plan"`
-	BootstrapMaterial jsontext.Value `json:"bootstrapMaterial,omitempty"`
-	ReadAccess        jsontext.Value `json:"readAccess,omitempty"`
-	NetBirdManager    jsontext.Value `json:"netbirdManager,omitempty"`
+	NetBirdBrokerPolicyWriter jsontext.Value `json:"netbirdBrokerPolicyWriter,omitempty"`
+	Generation                uint64         `json:"generation"`
+	Plan                      map[string]any `json:"plan"`
+	BootstrapMaterial         jsontext.Value `json:"bootstrapMaterial,omitempty"`
+	ReadAccess                jsontext.Value `json:"readAccess,omitempty"`
+	NetBirdManager            jsontext.Value `json:"netbirdManager,omitempty"`
 }
 
 type createRequest struct {
