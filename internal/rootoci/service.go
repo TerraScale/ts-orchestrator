@@ -156,6 +156,9 @@ func (service *Service) validRequest(request wireRequest) bool {
 	case OperationObserveContainerGeneration:
 		var input ObserveContainerGenerationRequest
 		return decodePayload(request.Payload, &input) == nil && validSelector(input.TaskID) && len(input.TaskID) <= 25
+	case OperationMaterializeNativeCanary:
+		var input NativeCanaryRequest
+		return decodePayload(request.Payload, &input) == nil && entityid.Valid(input.OperationID) && validNativeNode(input.Node)
 	case OperationContainerEvidence, OperationRetainedContainerEvidence:
 		var input ContainerEvidenceRequest
 		return decodePayload(request.Payload, &input) == nil && entityid.Valid(input.OperationID) && validDigest(input.ExpectedFingerprint) &&
@@ -171,6 +174,18 @@ func (service *Service) validRequest(request wireRequest) bool {
 func optionalSelector(value string) bool { return value == "" || validSelector(value) }
 func optionalDigest(value string) bool   { return value == "" || validDigest(value) }
 func validNativeRole(role string) bool   { return role == "terrabase" || role == "ts-auth" }
+
+func validNativeNode(node string) bool {
+	if node == "" || len(node) > 63 || node[0] < 'a' || node[0] > 'z' {
+		return false
+	}
+	for _, character := range node {
+		if character != '-' && (character < 'a' || character > 'z') && (character < '0' || character > '9') {
+			return false
+		}
+	}
+	return true
+}
 
 func validResponseExpiry(expiresAt time.Time, call Call) bool {
 	return time.Now().Before(expiresAt) && !expiresAt.After(call.Deadline())
@@ -354,6 +369,19 @@ func (service *Service) dispatch(ctx context.Context, call Call, request wireReq
 			return nil, err
 		}
 		return service.backends.Workloads.ObserveContainerGeneration(ctx, call, input)
+	case OperationMaterializeNativeCanary:
+		var input NativeCanaryRequest
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		receipt, err := service.backends.Workloads.MaterializeNativeCanary(ctx, call, input)
+		if err != nil {
+			return nil, err
+		}
+		if len(receipt.Value) == 0 || len(receipt.Value) > 16<<10 || !validResponseExpiry(receipt.ExpiresAt, call) {
+			return nil, ErrUnavailable
+		}
+		return receipt, nil
 	case OperationContainerEvidence:
 		var input ContainerEvidenceRequest
 		if err := decodePayload(request.Payload, &input); err != nil {
