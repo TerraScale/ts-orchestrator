@@ -650,9 +650,14 @@ func (s *Scaler) decide(ctx context.Context, t *tick, state State) (Decision, er
 	var demand *CapacityDemand
 	var err error
 	if t.pool.AdmissionPending != "" {
+		// Cleanup has no serving samples; retain cooldown and fresh low-CPU checks.
 		decision = Decision{Action: Hold, Nodes: state.Nodes, Want: state.Nodes, Reason: t.pool.AdmissionPending}
 		if !state.Busy && state.Nodes > MinNodes {
-			decision.Action, decision.Want = Down, state.Nodes-1
+			if left := cooldownLeft(state.LastChange, t.now, DownCooldown); left > 0 {
+				decision.Reason = cooldownReason(left)
+			} else {
+				decision.Action, decision.Want = Down, state.Nodes-1
+			}
 		}
 	} else {
 		demand, err = s.functionDemand(ctx, t)
@@ -757,6 +762,9 @@ func (s *Scaler) pickDrain(ctx context.Context, t *tick) (PoolInstance, bool, er
 		loads = s.Loads()
 	}
 	for _, load := range loads {
+		if t.pool.AdmissionPending != "" && (load.At.After(t.now) || t.now.Sub(load.At) > SampleMaxAge || !(load.CPU >= 0 && load.CPU <= DownThreshold)) {
+			continue
+		}
 		cpu[load.Node] = load.CPU
 	}
 	var candidates []PoolInstance
