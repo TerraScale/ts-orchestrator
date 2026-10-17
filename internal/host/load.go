@@ -62,6 +62,7 @@ func (c *Controller) storeLoad(ctx context.Context, req request, r Registration)
 	if sink == nil {
 		return nil, errLoadDisabled
 	}
+	epoch := c.authorityEpoch()
 	var report hostload.Report
 	if err := decodeStrict(req.Payload, &report); err != nil {
 		return nil, err
@@ -82,7 +83,10 @@ func (c *Controller) storeLoad(ctx context.Context, req request, r Registration)
 	// not run.
 	roles := make([]hostload.RoleUsage, 0, len(r.Roles))
 	for _, name := range r.Roles {
-		taskRole := name != terrabase.Role && slices.Contains(taskRoles, name)
+		taskRole := c.taskLoadRoles != nil && name != terrabase.Role
+		if taskRole && !slices.Contains(taskRoles, name) {
+			continue
+		}
 		var desired Desired
 		if !taskRole {
 			var exists bool
@@ -115,6 +119,9 @@ func (c *Controller) storeLoad(ctx context.Context, req request, r Registration)
 		roles = append(roles, role)
 	}
 	report.Roles = roles
+	if err := c.recheckReplyAuthority(ctx, epoch, req, r, false); err != nil {
+		return nil, err
+	}
 	err := (*sink)(hostload.Origin{Cell: c.cell, Environment: r.Environment, Node: req.Node}, report)
 	if errors.Is(err, hostload.ErrTooFrequent) {
 		return loadAck{Accepted: false}, nil

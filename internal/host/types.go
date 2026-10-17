@@ -312,7 +312,8 @@ type ControllerConfig struct {
 	ContainerMaterialProvider   ContainerMaterialProvider
 	RegistryAdmissionProvider   RegistryAdmissionProvider
 	// TaskLoadRoles returns roles assigned to this exact current registration
-	// by the authenticated manager. Reported role names never select allocations.
+	// by the authenticated manager. With this source, non-TerraBase roles never
+	// fall back to native desired state. Reports never select allocations.
 	TaskLoadRoles func(context.Context, Registration) ([]string, error)
 	ControlLog    jetstream.Stream
 	// TerraBaseCA signs C# TerraBase member certificates; nil refuses them.
