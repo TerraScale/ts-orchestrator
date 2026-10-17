@@ -19,11 +19,11 @@ type TerminalAttachmentTarget struct {
 // TerminalAttachmentPins retain native attachment identity, not an ETag-based
 // incarnation. A future acceptance store must independently retain these pins.
 type TerminalAttachmentPins struct {
-	Target                     TerminalAttachmentTarget
+	Target                      TerminalAttachmentTarget
 	AttachmentID, CompartmentID string
 	AvailabilityDomain, Type    string
-	Device                     string
-	CreatedAt                  time.Time
+	Device                      string
+	CreatedAt                   time.Time
 }
 
 // TerminalAttachmentObservation proves only an actual SDK read. It cannot
