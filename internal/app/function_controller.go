@@ -155,6 +155,10 @@ func (controller functionController) ingest(ctx context.Context, epoch uint64) e
 }
 
 func (controller functionController) ingestRelease(ctx context.Context, epoch uint64, location releasechannel.Location, entry releasechannel.FunctionRelease) error {
+	if controller.config.Roots == nil {
+		return errors.New("function publication requires current regional roots")
+	}
+	rootHead := controller.config.Roots.reply("").Head
 	claim, err := entry.Claim()
 	if err != nil {
 		return err
@@ -201,6 +205,19 @@ func (controller functionController) ingestRelease(ctx context.Context, epoch ui
 	}
 	if stored == nil || stored.Size != uint64(proof.Claim().Bytes) || stored.Opts != nil && stored.Opts.Link != nil {
 		return errors.New("function artifact readback differs from verified module")
+	}
+	// Root adoption and its leader's KV writes wait until this intent CAS completes.
+	controller.config.Roots.adopting.Lock()
+	defer controller.config.Roots.adopting.Unlock()
+	if controller.config.Roots.reply("").Head != rootHead {
+		return errors.New("function roots changed during artifact publication")
+	}
+	proof, err = release.VerifyFunctionCurrent(entry.Envelope, entry.Delegation, module, controller.config.Roots.current(), release.FunctionExpectation{
+		Environment: controller.config.Environment, Cell: strings.ToUpper(controller.config.Cell), TenantID: claim.TenantID,
+		FunctionID: claim.FunctionID, Revision: claim.Revision, Digest: claim.Digest, MinimumSequence: minimum,
+	}, time.Now())
+	if err != nil {
+		return err
 	}
 	_, err = controller.config.Authority.CommitFunctionIntent(ctx, epoch, entityid.Derive("function-publication", proof.EnvelopeSHA256()), expected, proof)
 	return err
