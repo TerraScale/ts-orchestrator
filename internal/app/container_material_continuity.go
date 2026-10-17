@@ -76,7 +76,7 @@ func selectContainerIntent(ctx context.Context, js jetstream.JetStream, service 
 	if err != nil {
 		return containerIntentSelection{}, err
 	}
-	guard := func(ctx context.Context) error {
+	selectorGuard := func(ctx context.Context) error {
 		current, err := nativeLeaderGet(ctx, js, releasechannel.Bucket, key)
 		if readErr != nil {
 			if !errors.Is(err, nats.ErrMsgNotFound) {
@@ -84,6 +84,12 @@ func selectContainerIntent(ctx context.Context, js jetstream.JetStream, service 
 			}
 		} else if err != nil || current.Subject != entry.Subject || current.Sequence != entry.Sequence || !bytes.Equal(current.Data, entry.Data) || current.Header.Get("KV-Operation") != "" || current.Header.Get(jetstream.MarkerReasonHeader) != "" {
 			return containermaterial.ErrPending
+		}
+		return ctx.Err()
+	}
+	guard := func(ctx context.Context) error {
+		if err := selectorGuard(ctx); err != nil {
+			return err
 		}
 		currentIntent, err := service.ContainerIntent(ctx, intent.OperationID)
 		if err != nil {
@@ -101,7 +107,7 @@ func selectContainerIntent(ctx context.Context, js jetstream.JetStream, service 
 		if err != nil || originalNowFingerprint != originalFingerprint || referenceNow != reference {
 			return containermaterial.ErrPending
 		}
-		return ctx.Err()
+		return selectorGuard(ctx)
 	}
 	selection := containerIntentSelection{intent: intent, original: original, reference: reference, guard: guard}
 	return selection, guard(ctx)
