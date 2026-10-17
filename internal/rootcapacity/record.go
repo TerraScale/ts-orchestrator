@@ -97,8 +97,12 @@ func (a *attempt) guard(ctx context.Context) error {
 	return ctx.Err()
 }
 
+func (a *attempt) proofContext(ctx context.Context) context.Context {
+	return ociclient.WithRequestGuard(ociclient.CheckpointContext(ctx), a.guard)
+}
+
 func (a *attempt) readContext(ctx context.Context) context.Context {
-	return ociclient.RequestContext(ociclient.WithRequestGuard(ociclient.CheckpointContext(ctx), a.guard))
+	return ociclient.RequestContext(a.proofContext(ctx))
 }
 
 func (a *attempt) save(ctx context.Context) error {

@@ -24,6 +24,23 @@ func (c *Controller) QuarantinePoolChild(ctx context.Context, call rootoci.Call,
 		return rootoci.PoolQuarantineView{}, err
 	}
 	defer close()
+	if original, exists := a.record.PoolQuarantines[a.operation]; exists {
+		if original.PoolID != request.PoolID || original.InstanceID != request.InstanceID ||
+			request.PurposeSHA256 != "" && request.PurposeSHA256 != original.PurposeSHA256 {
+			return rootoci.PoolQuarantineView{}, errors.New("quarantine retry changed its original member, pool or permission")
+		}
+		if !original.DetachedAt.IsZero() {
+			return a.quarantineView(ctx, original)
+		}
+		if original.ExpiresAt.IsZero() || !time.Now().Before(original.ExpiresAt) {
+			return rootoci.PoolQuarantineView{}, errors.New("original quarantine permission expired before its exact completion")
+		}
+		if original.ExpiresAt.Before(a.deadline) {
+			a.deadline = original.ExpiresAt
+		}
+	}
+	ctx, cancel := context.WithDeadline(ctx, a.deadline)
+	defer cancel()
 	if request.GrantSHA256 != a.record.GrantSHA256 || request.Generation != a.record.Generation {
 		return rootoci.PoolQuarantineView{}, rootoci.ErrUnauthorized
 	}
@@ -36,13 +53,18 @@ func (c *Controller) QuarantinePoolChild(ctx context.Context, call rootoci.Call,
 	if !exists {
 		return rootoci.PoolQuarantineView{}, errors.New("quarantine target has no protected original pool birth")
 	}
-	a.membership, err = a.resolver.PoolMembership(a.readContext(ctx), a.record.Cell, pool.PoolID, pool.CurrentConfigurationID)
+	a.membership, err = a.resolver.PoolMembership(a.proofContext(ctx), a.record.Cell, pool.PoolID, pool.CurrentConfigurationID)
 	if err != nil {
 		return rootoci.PoolQuarantineView{}, err
 	}
 	if !a.membership.IsVerified() || request.PurposeSHA256 != "" && request.PurposeSHA256 != a.membership.PurposeSHA256() {
 		return rootoci.PoolQuarantineView{}, rootoci.ErrUnauthorized
 	}
+	if a.membership.ExpiresAt().Before(a.deadline) {
+		a.deadline = a.membership.ExpiresAt()
+	}
+	ctx, stop := context.WithDeadline(ctx, a.deadline)
+	defer stop()
 	if err := a.claimPool(ctx, pool.PoolID); err != nil {
 		return rootoci.PoolQuarantineView{}, err
 	}
@@ -74,7 +96,7 @@ func (c *Controller) QuarantinePoolChild(ctx context.Context, call rootoci.Call,
 		}
 		quarantine = region.PoolQuarantineRecord{OperationID: a.operation, PoolID: pool.PoolID, InstanceID: request.InstanceID,
 			ConfigurationID: pool.CurrentConfigurationID, TargetFrom: value(actual.Size), PurposeSHA256: a.membership.PurposeSHA256(),
-			GrantSHA256: a.record.GrantSHA256, Generation: a.record.Generation, Detach: wire}
+			GrantSHA256: a.record.GrantSHA256, Generation: a.record.Generation, ExpiresAt: a.deadline, Detach: wire}
 		if a.record.PoolQuarantines == nil {
 			a.record.PoolQuarantines = map[string]region.PoolQuarantineRecord{}
 		}
@@ -103,7 +125,7 @@ func (c *Controller) QuarantinePoolChild(ctx context.Context, call rootoci.Call,
 		if !complete {
 			return rootoci.PoolQuarantineView{}, fmt.Errorf("%w: original unknown-member detach is still running", ErrPending)
 		}
-		if err := a.membership.Revalidate(a.readContext(ctx)); err != nil {
+		if err := a.membership.Revalidate(a.proofContext(ctx)); err != nil {
 			return rootoci.PoolQuarantineView{}, err
 		}
 		quarantine.DetachedAt = time.Now().UTC()
@@ -112,6 +134,10 @@ func (c *Controller) QuarantinePoolChild(ctx context.Context, call rootoci.Call,
 			return rootoci.PoolQuarantineView{}, err
 		}
 	}
+	return a.quarantineView(ctx, quarantine)
+}
+
+func (a *attempt) quarantineView(ctx context.Context, quarantine region.PoolQuarantineRecord) (rootoci.PoolQuarantineView, error) {
 	digest, err := digestValue(quarantine)
 	if err != nil {
 		return rootoci.PoolQuarantineView{}, err
@@ -123,10 +149,10 @@ func (c *Controller) QuarantinePoolChild(ctx context.Context, call rootoci.Call,
 func (a *attempt) authorizeQuarantine(ctx context.Context) error {
 	quarantine, exists := a.record.PoolQuarantines[a.operation]
 	if !exists || quarantine.Detach == nil || !quarantine.DetachedAt.IsZero() || !a.membership.IsVerified() ||
-		quarantine.PurposeSHA256 != a.membership.PurposeSHA256() {
+		quarantine.PurposeSHA256 != a.membership.PurposeSHA256() || quarantine.ExpiresAt.IsZero() || !time.Now().Before(quarantine.ExpiresAt) {
 		return errors.New("unknown detach has no exact current signed membership preparation")
 	}
-	if err := a.membership.Revalidate(a.readContext(ctx)); err != nil {
+	if err := a.membership.Revalidate(a.proofContext(ctx)); err != nil {
 		return err
 	}
 	for _, child := range a.record.PoolChildren {
