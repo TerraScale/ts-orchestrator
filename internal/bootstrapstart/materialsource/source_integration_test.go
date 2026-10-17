@@ -126,6 +126,10 @@ type materialProtocolSecret struct {
 }
 type materialProtocol struct {
 	mu                sync.Mutex
+	requestMu         sync.Mutex
+	requests          map[string]int
+	startedAt         time.Time
+	lastProgressAt    time.Time
 	directory         string
 	target            bootstrapmaterial.VaultTarget
 	creates           int
@@ -139,6 +143,40 @@ type materialProtocol struct {
 	interceptIAM      func(http.ResponseWriter, *http.Request) bool
 }
 
+func (server *materialProtocol) recordRequest(r *http.Request) {
+	route := r.URL.Path
+	if strings.HasPrefix(route, "/n/") {
+		route = "/n/.../object"
+		if strings.Contains(r.URL.Path, "/bootstrap/v2/material-source/") {
+			route = "/n/.../material-source"
+		} else if strings.HasSuffix(r.URL.Path, "/iam-lease.json") {
+			route = "/n/.../iam-lease"
+		}
+	} else {
+		parts := strings.Split(strings.Trim(route, "/"), "/")
+		route = "/" + strings.Join(parts[:min(2, len(parts))], "/")
+	}
+	server.requestMu.Lock()
+	defer server.requestMu.Unlock()
+	if server.requests == nil {
+		server.requests = map[string]int{}
+	}
+	server.requests[r.Method+" "+route]++
+}
+
+func (server *materialProtocol) logProgress(t *testing.T, phase string) {
+	t.Helper()
+	server.requestMu.Lock()
+	defer server.requestMu.Unlock()
+	now := time.Now()
+	if server.startedAt.IsZero() {
+		server.startedAt, server.lastProgressAt = now, now
+	}
+	t.Logf("source phase=%s elapsed=%s phase_elapsed=%s requests=%v", phase,
+		now.Sub(server.startedAt), now.Sub(server.lastProgressAt), server.requests)
+	server.lastProgressAt = now
+}
+
 func (server *materialProtocol) objectPath(key string) string {
 	sum := sha256.Sum256([]byte(key))
 	return filepath.Join(server.directory, hex.EncodeToString(sum[:]))
@@ -147,6 +185,10 @@ func (server *materialProtocol) put(key string, body []byte) error {
 	return os.WriteFile(server.objectPath(key), body, 0o600)
 }
 func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Founder handlers also serve a separate metadata endpoint; count them there.
+	if !strings.HasPrefix(r.URL.Path, "/20160918/") {
+		server.recordRequest(r)
+	}
 	if server.interceptObject != nil && server.interceptObject(w, r) {
 		return
 	}
@@ -368,6 +410,8 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	anchor, _, roots, private, _ := materialSourceAnchor(t)
 	target := bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..control", VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.vault", KMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head"}
 	protocol := &materialProtocol{directory: t.TempDir(), target: target, loseCreate: true, loseSourceCreate: true}
+	protocol.logProgress(t, "fixture start")
+	defer protocol.logProgress(t, "fixture exit")
 	endpoint := httptest.NewTLSServer(protocol)
 	defer endpoint.Close()
 	transport := http.DefaultTransport.(*http.Transport).Clone()
@@ -527,6 +571,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	assertSourceFounderGeometryDenials(t, actor, verified, protocol)
 	_, competingAuthority := sourceFounderFixtureWithAuthority(t, verified, anchor, roots, &objects, protocol, reader, "ocid1.instance.oc1.sa-saopaulo-1.lease-contender")
 	assertHomeIAMLeases(t, homeAuthority, competingAuthority, &objects, protocol)
+	protocol.logProgress(t, "founder geometry and IAM lease checks complete")
 	// Matching Actor fields cannot adopt a source created before its IAM journal.
 	sourceScope := digestWire([]byte(verified.InstallationID() + "\x00gru"))
 	sourceObject := verified.StorageDomain().Prefix + "/bootstrap/v2/material-source/" + sourceScope + ".json"
@@ -574,6 +619,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 		})
 	}
 	workers.Wait()
+	protocol.logProgress(t, "concurrent source recovery complete")
 	for _, err := range errs {
 		if err != nil {
 			t.Fatal(err)
@@ -624,6 +670,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if len(publication.References) != 30 || protocol.creates != 31 || !reflect.DeepEqual(replacement.Record(), sources[0].Record()) {
 		t.Fatalf("replacement rotated source or duplicated secrets: creates=%d refs=%d", protocol.creates, len(publication.References))
 	}
+	protocol.logProgress(t, "regional material publication complete")
 	projection, err := replacement.InstallMaterial(t.Context())
 	if err != nil || !projection.IsVerified() {
 		t.Fatalf("sealed projection: %v", err)
@@ -741,6 +788,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	protocol.logProgress(t, "home Link publication complete")
 	homeMaterial, err := replacement.InstallMaterial(t.Context())
 	if err != nil {
 		t.Fatal(err)

@@ -153,6 +153,7 @@ func assertDerivedSeedAdmission(t *testing.T, source *ColdStartMaterial, seed bo
 			t.Fatalf("external-seed replay replaced durable object %s", name)
 		}
 	}
+	protocol.logProgress(t, "seed ledger recovery and replay complete; entering actual Gate")
 	bootstrapstart.ExerciseDerivedSeedAdmission(t, seed, source.actor.Founder(), anchor, roots, source.directory)
 }
 

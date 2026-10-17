@@ -66,9 +66,9 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 	if err != nil {
 		t.Fatalf("home startup config binding: %v", err)
 	}
-	t.Log("home startup configs bound; checking derived founder authority")
+	server.logProgress(t, "home startup configs bound; checking derived founder authority")
 	assertDerivedFounderAuthority(t, source, bound, roots, now)
-	t.Log("derived founder authority verified; publishing genuine seed ledger")
+	server.logProgress(t, "derived founder authority verified; publishing genuine seed ledger")
 	assertDerivedSeedAdmission(t, source, bound, home, roots, server, now)
 	t.Log("genuine seed ledger, Gate admission, durable floor and restart verified")
 	var grant region.FoundationGrant
