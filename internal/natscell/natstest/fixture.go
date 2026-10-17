@@ -232,7 +232,7 @@ func (a *NATSFixture) Observer(t *testing.T, endpoint string, subjects ...string
 	credentials := a.credentials(t, public+".creds", a.account, user, claim)
 	connection, err := nats.Connect(strings.ReplaceAll(endpoint, "nats://", "tls://"),
 		nats.UserCredentials(credentials), nats.RootCAs(a.tls.CAFile), nats.ClientCert(a.tls.CertFile, a.tls.KeyFile),
-		nats.CustomInboxPrefix(protocol.InboxPrefix(a.cell, public)), nats.Timeout(5*time.Second))
+		nats.CustomInboxPrefix(protocol.InboxPrefix(a.cell, public)), nats.TLSHandshakeFirst(), nats.Timeout(5*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
