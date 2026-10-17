@@ -43,33 +43,57 @@ type containerReadinessPending struct {
 	effect    authority.RuntimeEffect
 	result    chan ManagedRuntimeReport
 	completed bool
+	envelope  protocol.Envelope
 }
 
 // ObserveContainerReadiness challenges only the original held host session. The
 // verifier runs around the exchange using the same immutable effect deadline.
 func (c *Controller) ObserveContainerReadiness(ctx context.Context, effect authority.RuntimeEffect, verify func(context.Context, RuntimeEffectCaller) error) (ManagedRuntimeReport, time.Time, error) {
+	report, deadline, _, err := c.observeContainerReadiness(ctx, effect, nil, verify)
+	return report, deadline, err
+}
+
+// ObserveSignedContainerReadiness retains the original worker-signed observation.
+// A relay supplies a challenge, never authority to accept the result.
+func (c *Controller) ObserveSignedContainerReadiness(ctx context.Context, effect authority.RuntimeEffect, challenge ContainerReadinessChallenge, verify func(context.Context, RuntimeEffectCaller) error) (protocol.Envelope, error) {
+	_, _, envelope, err := c.observeContainerReadiness(ctx, effect, &challenge, verify)
+	return envelope, err
+}
+
+func (c *Controller) observeContainerReadiness(ctx context.Context, effect authority.RuntimeEffect, requested *ContainerReadinessChallenge, verify func(context.Context, RuntimeEffectCaller) error) (ManagedRuntimeReport, time.Time, protocol.Envelope, error) {
 	if ctx == nil || verify == nil || c.readOnly || effect.Phase != authority.RuntimeEffectHeld || !time.Now().Before(effect.ExpiresAt) {
-		return ManagedRuntimeReport{}, time.Time{}, errors.New("live held runtime readiness unavailable")
+		return ManagedRuntimeReport{}, time.Time{}, protocol.Envelope{}, errors.New("live held runtime readiness unavailable")
 	}
 	nonce, err := randomNonce()
 	if err != nil {
-		return ManagedRuntimeReport{}, time.Time{}, err
+		return ManagedRuntimeReport{}, time.Time{}, protocol.Envelope{}, err
 	}
 	deadline := minReadinessDeadline(effect.ExpiresAt, time.Now().Add(3*time.Second))
 	if originalDeadline, ok := ctx.Deadline(); ok {
 		deadline = minReadinessDeadline(deadline, originalDeadline)
 	}
+	if requested != nil {
+		if !lowerHex(requested.Nonce, 32) || requested.TaskID != effect.TaskID || requested.TaskSHA256 != effect.TaskSHA256 ||
+			requested.AdmissionSHA256 != effect.AdmissionSHA256 || requested.EffectID != effect.EffectID ||
+			requested.Deadline.After(deadline) || !time.Now().Before(requested.Deadline) {
+			return ManagedRuntimeReport{}, time.Time{}, protocol.Envelope{}, errors.New("readiness relay challenge differs from held effect")
+		}
+		nonce, deadline = requested.Nonce, requested.Deadline
+	}
 	ctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 	caller, desired, err := c.readinessAuthority(ctx, effect, nonce)
 	if err != nil {
-		return ManagedRuntimeReport{}, time.Time{}, err
+		return ManagedRuntimeReport{}, time.Time{}, protocol.Envelope{}, err
+	}
+	if requested != nil && requested.Deadline.After(caller.ExpiresAt()) {
+		return ManagedRuntimeReport{}, time.Time{}, protocol.Envelope{}, authority.ErrFenced
 	}
 	deadline = minReadinessDeadline(deadline, caller.ExpiresAt())
 	ctx, cancelSession := context.WithDeadline(ctx, deadline)
 	defer cancelSession()
 	if err := verify(ctx, caller); err != nil {
-		return ManagedRuntimeReport{}, time.Time{}, err
+		return ManagedRuntimeReport{}, time.Time{}, protocol.Envelope{}, err
 	}
 	pending := &containerReadinessPending{effect: effect, result: make(chan ManagedRuntimeReport, 1), challenge: ContainerReadinessChallenge{
 		Nonce: nonce, TaskID: effect.TaskID, TaskSHA256: effect.TaskSHA256, AdmissionSHA256: effect.AdmissionSHA256, EffectID: effect.EffectID, Deadline: deadline}}
@@ -77,31 +101,35 @@ func (c *Controller) ObserveContainerReadiness(ctx context.Context, effect autho
 	if c.readiness == nil {
 		c.readiness = make(map[string]*containerReadinessPending)
 	}
+	if c.readiness[nonce] != nil {
+		c.readinessMu.Unlock()
+		return ManagedRuntimeReport{}, time.Time{}, protocol.Envelope{}, errors.New("readiness nonce is already pending")
+	}
 	c.readiness[nonce] = pending
 	c.readinessMu.Unlock()
 	defer func() { c.readinessMu.Lock(); delete(c.readiness, nonce); c.readinessMu.Unlock() }()
 	select {
 	case <-ctx.Done():
-		return ManagedRuntimeReport{}, time.Time{}, ctx.Err()
+		return ManagedRuntimeReport{}, time.Time{}, protocol.Envelope{}, ctx.Err()
 	case report := <-pending.result:
 		if !time.Now().Before(deadline) {
-			return ManagedRuntimeReport{}, time.Time{}, authority.ErrFenced
+			return ManagedRuntimeReport{}, time.Time{}, protocol.Envelope{}, authority.ErrFenced
 		}
 		current, confirmed, err := c.readinessAuthority(ctx, effect, nonce)
 		if err != nil || !sameJSON(confirmed, desired) || current.ExpiresAt().Before(caller.ExpiresAt()) {
-			return ManagedRuntimeReport{}, time.Time{}, errors.Join(authority.ErrFenced, err)
+			return ManagedRuntimeReport{}, time.Time{}, protocol.Envelope{}, errors.Join(authority.ErrFenced, err)
 		}
 		if err := validateContainerReadinessReport(effect, desired, report); err != nil {
-			return ManagedRuntimeReport{}, time.Time{}, err
+			return ManagedRuntimeReport{}, time.Time{}, protocol.Envelope{}, err
 		}
 		// Retain the original session deadline even if the session renewed during the challenge.
 		if err := verify(ctx, caller); err != nil {
-			return ManagedRuntimeReport{}, time.Time{}, err
+			return ManagedRuntimeReport{}, time.Time{}, protocol.Envelope{}, err
 		}
 		if !time.Now().Before(deadline) {
-			return ManagedRuntimeReport{}, time.Time{}, authority.ErrFenced
+			return ManagedRuntimeReport{}, time.Time{}, protocol.Envelope{}, authority.ErrFenced
 		}
-		return report, deadline, nil
+		return report, deadline, pending.envelope, nil
 	}
 }
 
@@ -205,6 +233,7 @@ func (c *Controller) serveContainerReadiness(ctx context.Context, req request, r
 		return nil, errors.New("readiness challenge expired or was consumed")
 	}
 	pending.completed = true
+	pending.envelope = req.Envelope
 	pending.result <- *query.Report
 	return containerReadinessReply{Challenge: &pending.challenge}, nil
 }

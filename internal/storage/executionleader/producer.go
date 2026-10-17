@@ -37,9 +37,23 @@ type EvidenceReader func(context.Context, string, string) (io.ReadCloser, error)
 type AllocationResolver func(context.Context, string, release.ContainerBundle, trust.Keyring, release.ContainerTarget) (release.SequenceLocation, error)
 
 type Producer struct {
-	control             api.ControlClient
-	authority           *authority.Runtime
-	members             placement.Store
+	*producerVerifier
+	control api.ControlClient
+	members placement.Store
+}
+
+type producerAuthority interface {
+	Guard(context.Context, uint64) error
+	ReadHostMutation(context.Context, authority.HostMutationKind, string) (authority.LogEntry, error)
+	ReadTerminalIntent(context.Context, string, string) (authority.LogEntry, error)
+	ReadPlacementIntent(context.Context, string, string) (authority.LogEntry, error)
+	ListRuntimeEffectHistory(context.Context, authority.WorkloadScope) ([]authority.RuntimeEffect, error)
+}
+
+type producerVerifier struct {
+	control             api.ControlReader
+	authority           producerAuthority
+	members             placement.MemberPinReader
 	releases            *delivery.Service
 	volumes             *oci.VolumeMountObserver
 	roots               trust.Keyring
@@ -52,6 +66,31 @@ type Producer struct {
 }
 
 func NewProducer(control api.ControlClient, fence *authority.Runtime, members placement.Store, releases *delivery.Service, volumes *oci.VolumeMountObserver, roots trust.Keyring, evidence EvidenceReader, cell, environment string, allocations AllocationResolver, retainedEvidence EvidenceReader, retainedAllocations AllocationResolver, historicalRoots trust.Keyring) (*Producer, error) {
+	if fence == nil {
+		return nil, execution.ErrUnsafe
+	}
+	verifier, err := newProducerVerifier(control, fence, members, releases, volumes, roots, evidence, cell, environment, allocations, retainedEvidence, retainedAllocations, historicalRoots)
+	if err != nil {
+		return nil, err
+	}
+	return &Producer{producerVerifier: verifier, control: control, members: members}, nil
+}
+
+func (p *Producer) Resolve(ctx context.Context, task *api.Task, caller host.RuntimeEffectCaller) (executionwire.WorkerGrantMaterial, error) {
+	if p == nil || p.producerVerifier == nil {
+		return executionwire.WorkerGrantMaterial{}, execution.ErrUnsafe
+	}
+	return p.producerVerifier.Resolve(ctx, task, caller)
+}
+
+func (p *Producer) VerifyCurrent(ctx context.Context, task *api.Task, caller host.RuntimeEffectCaller, material executionwire.WorkerGrantMaterial) error {
+	if p == nil || p.producerVerifier == nil {
+		return execution.ErrUnsafe
+	}
+	return p.producerVerifier.VerifyCurrent(ctx, task, caller, material)
+}
+
+func newProducerVerifier(control api.ControlReader, fence producerAuthority, members placement.MemberPinReader, releases *delivery.Service, volumes *oci.VolumeMountObserver, roots trust.Keyring, evidence EvidenceReader, cell, environment string, allocations AllocationResolver, retainedEvidence EvidenceReader, retainedAllocations AllocationResolver, historicalRoots trust.Keyring) (*producerVerifier, error) {
 	if len(historicalRoots) == 0 || retainedEvidence == nil || retainedAllocations == nil || allocations == nil || control == nil || fence == nil || members == nil || releases == nil || volumes == nil || len(roots) == 0 || evidence == nil || !release.ValidRegion(strings.ToUpper(cell)) || cell != strings.ToLower(cell) || environment == "" {
 		return nil, execution.ErrUnsafe
 	}
@@ -63,10 +102,10 @@ func NewProducer(control api.ControlClient, fence *authority.Runtime, members pl
 	for id, key := range historicalRoots {
 		historical[id] = slices.Clone(key)
 	}
-	return &Producer{historicalRoots: historical, control: control, authority: fence, members: members, releases: releases, volumes: volumes, roots: keys, evidence: evidence, allocations: allocations, retainedEvidence: retainedEvidence, retainedAllocations: retainedAllocations, cell: cell, environment: environment}, nil
+	return &producerVerifier{historicalRoots: historical, control: control, authority: fence, members: members, releases: releases, volumes: volumes, roots: keys, evidence: evidence, allocations: allocations, retainedEvidence: retainedEvidence, retainedAllocations: retainedAllocations, cell: cell, environment: environment}, nil
 }
 
-func (p *Producer) open(operationID string) func(context.Context, string) (io.ReadCloser, error) {
+func (p *producerVerifier) open(operationID string) func(context.Context, string) (io.ReadCloser, error) {
 	return func(ctx context.Context, digest string) (io.ReadCloser, error) {
 		return p.evidence(ctx, operationID, digest)
 	}
@@ -74,7 +113,7 @@ func (p *Producer) open(operationID string) func(context.Context, string) (io.Re
 
 // Resolve uses labels only to locate records; every value is checked against
 // durable authority and the manager-owned service, node and assignment.
-func (p *Producer) Resolve(ctx context.Context, requested *api.Task, caller host.RuntimeEffectCaller) (executionwire.WorkerGrantMaterial, error) {
+func (p *producerVerifier) Resolve(ctx context.Context, requested *api.Task, caller host.RuntimeEffectCaller) (executionwire.WorkerGrantMaterial, error) {
 	if p == nil || ctx == nil || ctx.Err() != nil || requested == nil || !execution.Stateful(requested) || !time.Now().Before(caller.ExpiresAt()) || caller.SessionID() == "" {
 		return executionwire.WorkerGrantMaterial{}, execution.ErrUnsafe
 	}
@@ -267,7 +306,7 @@ func (p *Producer) Resolve(ctx context.Context, requested *api.Task, caller host
 	return material, nil
 }
 
-func (p *Producer) VerifyCurrent(ctx context.Context, task *api.Task, caller host.RuntimeEffectCaller, stored executionwire.WorkerGrantMaterial) error {
+func (p *producerVerifier) VerifyCurrent(ctx context.Context, task *api.Task, caller host.RuntimeEffectCaller, stored executionwire.WorkerGrantMaterial) error {
 	current, err := p.Resolve(ctx, task, caller)
 	if err != nil {
 		return err
@@ -286,7 +325,7 @@ func (p *Producer) VerifyCurrent(ctx context.Context, task *api.Task, caller hos
 	return nil
 }
 
-func (p *Producer) previousWriter(ctx context.Context, scope authority.WorkloadScope, expected executionwire.RetainedData, taskID, operationID string, candidate release.ContainerBundle, target release.ContainerTarget, until time.Time) (release.ContainerBundle, executionwire.RetainedData, error) {
+func (p *producerVerifier) previousWriter(ctx context.Context, scope authority.WorkloadScope, expected executionwire.RetainedData, taskID, operationID string, candidate release.ContainerBundle, target release.ContainerTarget, until time.Time) (release.ContainerBundle, executionwire.RetainedData, error) {
 	history, err := p.authority.ListRuntimeEffectHistory(ctx, scope)
 	if err != nil {
 		return release.ContainerBundle{}, expected, err

@@ -748,7 +748,7 @@ func sameReportMeaning(a, b Report) bool {
 // hostOperations are the host request subjects a leader serves.
 var hostOperations = []string{"session", "desired", "artifact", "material", "function-material", "cycle", "report",
 	"drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format", "runtime-effect", "container-material", "registry-admission",
-	"runtime-readiness", "role-identity", "rollout", "rollout-binary", "netbird", "netbird-binary"}
+	"runtime-readiness", "runtime-readiness-observe", "role-identity", "rollout", "rollout-binary", "netbird", "netbird-binary"}
 
 // hostLeaderPoll is how often Run follows authority leadership.
 const hostLeaderPoll = 500 * time.Millisecond
@@ -858,7 +858,7 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 	case "session":
 		payload, err = c.handleSession(ctx, req)
 	case "desired", "artifact", "cycle", "report", "material", "function-material", "drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format", "runtime-effect", "container-material", "registry-admission",
-		"runtime-readiness", "role-identity", "rollout", "rollout-binary", "netbird", "netbird-binary":
+		"runtime-readiness", "runtime-readiness-observe", "role-identity", "rollout", "rollout-binary", "netbird", "netbird-binary":
 		payload, err = c.handleAuthorized(ctx, req)
 	default:
 		err = errors.New("unknown host operation")
@@ -1184,7 +1184,7 @@ func (c *Controller) handleAuthorized(ctx context.Context, req request) (payload
 	if err := c.guard(ctx, epoch); err != nil {
 		return nil, err
 	}
-	requireActive := req.Operation == "material" || req.Operation == "container-material" || req.Operation == "registry-admission" || req.Operation == "function-material" || req.Operation == "runtime-readiness"
+	requireActive := req.Operation == "material" || req.Operation == "container-material" || req.Operation == "registry-admission" || req.Operation == "function-material" || req.Operation == "runtime-readiness" || req.Operation == "runtime-readiness-observe"
 	if req.Operation == "runtime-effect" {
 		var operation struct {
 			Action string `json:"action"`
@@ -1240,6 +1240,8 @@ func (c *Controller) handleAuthorized(ctx context.Context, req request) (payload
 		return c.serveRuntimeEffect(ctx, req, r, s)
 	case "runtime-readiness":
 		return c.serveContainerReadiness(ctx, req, r, s)
+	case "runtime-readiness-observe":
+		return c.serveObserveContainerReadiness(ctx, req)
 	case "container-material":
 		return c.serveContainerMaterial(ctx, req, r, s)
 	case "registry-admission":

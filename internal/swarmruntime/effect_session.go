@@ -269,7 +269,15 @@ func sameRuntimeWorker(effect authority.RuntimeEffect, registration host.Registr
 }
 
 func (s *EffectSessions) currentTask(ctx context.Context, registration host.Registration, requested *api.Task, hash string) (*api.Task, error) {
-	response, err := s.control.GetTask(ctx, &api.GetTaskRequest{TaskID: requested.ID})
+	return currentControlTask(ctx, s.control, registration, requested, hash)
+}
+
+func (s *EffectSessions) admittedNode(ctx context.Context, registration host.Registration, nodeID string) (*api.Node, error) {
+	return admittedControlNode(ctx, s.control, registration, nodeID)
+}
+
+func currentControlTask(ctx context.Context, control api.ControlReader, registration host.Registration, requested *api.Task, hash string) (*api.Task, error) {
+	response, err := control.GetTask(ctx, &api.GetTaskRequest{TaskID: requested.ID})
 	if err != nil {
 		return nil, err
 	}
@@ -281,7 +289,7 @@ func (s *EffectSessions) currentTask(ctx context.Context, registration host.Regi
 	if err != nil || actualHash != hash || task.DesiredState != api.TaskStateRunning || task.Status.State < api.TaskStateAssigned || task.Status.State > api.TaskStateRunning {
 		return nil, errors.New("manager task differs from current running assignment")
 	}
-	node, err := s.admittedNode(ctx, registration, task.NodeID)
+	node, err := admittedControlNode(ctx, control, registration, task.NodeID)
 	if err != nil {
 		return nil, err
 	}
@@ -291,8 +299,8 @@ func (s *EffectSessions) currentTask(ctx context.Context, registration host.Regi
 	return task, nil
 }
 
-func (s *EffectSessions) admittedNode(ctx context.Context, registration host.Registration, nodeID string) (*api.Node, error) {
-	response, err := s.control.GetNode(ctx, &api.GetNodeRequest{NodeID: nodeID})
+func admittedControlNode(ctx context.Context, control api.ControlReader, registration host.Registration, nodeID string) (*api.Node, error) {
+	response, err := control.GetNode(ctx, &api.GetNodeRequest{NodeID: nodeID})
 	if err != nil {
 		return nil, err
 	}
