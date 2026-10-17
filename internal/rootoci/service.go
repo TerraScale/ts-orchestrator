@@ -2,6 +2,8 @@ package rootoci
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json/v2"
 	"os"
 	"reflect"
@@ -9,6 +11,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rootvolumeclient"
 )
 
@@ -115,6 +118,23 @@ func (service *Service) validRequest(request wireRequest) bool {
 	case OperationReconcileContainerStatus:
 		var input ContainerStatusRequest
 		return decodePayload(request.Payload, &input) == nil && entityid.Valid(input.OperationID) && validDigest(input.ExpectedFingerprint)
+	case OperationReconcileOrchestratorStatus:
+		var input OrchestratorStatusRequest
+		return decodePayload(request.Payload, &input) == nil && validDigest(input.ExpectedChannelSHA256)
+	case OperationNativeRelease:
+		var input NativeReleaseRequest
+		return decodePayload(request.Payload, &input) == nil && validNativeRole(input.Role)
+	case OperationReleaseBinaryChunk:
+		var input ReleaseBinaryChunkRequest
+		return decodePayload(request.Payload, &input) == nil && validDigest(input.Digest) &&
+			input.Offset >= 0 && input.Offset <= releasechannel.MaxServiceBinaryBytes
+	case OperationNativeReleaseBinaryChunk:
+		var input NativeReleaseBinaryChunkRequest
+		return decodePayload(request.Payload, &input) == nil && validNativeRole(input.Role) && validDigest(input.ExpectedClaimSHA256) &&
+			input.Offset >= 0 && input.Offset <= releasechannel.MaxServiceBinaryBytes
+	case OperationReconcileNativeServiceStatus:
+		var input NativeServiceStatusRequest
+		return decodePayload(request.Payload, &input) == nil && validNativeRole(input.Role) && validDigest(input.ExpectedClaimSHA256)
 	case OperationInspectVolumeMount:
 		var input rootvolumeclient.InspectRequest
 		return decodePayload(request.Payload, &input) == nil && input.Valid()
@@ -150,6 +170,18 @@ func (service *Service) validRequest(request wireRequest) bool {
 
 func optionalSelector(value string) bool { return value == "" || validSelector(value) }
 func optionalDigest(value string) bool   { return value == "" || validDigest(value) }
+func validNativeRole(role string) bool   { return role == "terrabase" || role == "ts-auth" }
+
+func validResponseExpiry(expiresAt time.Time, call Call) bool {
+	return time.Now().Before(expiresAt) && !expiresAt.After(call.Deadline())
+}
+
+func validReleaseBinaryChunk(chunk ReleaseBinaryChunk, offset int64, call Call) bool {
+	return chunk.Size > 0 && chunk.Size <= releasechannel.MaxServiceBinaryBytes && offset >= 0 && offset <= chunk.Size &&
+		int64(len(chunk.Data)) == min(int64(ReleaseBinaryChunkBytes), chunk.Size-offset) &&
+		validDigest(chunk.Digest) && validResponseExpiry(chunk.ExpiresAt, call)
+}
+
 func validPoolChild(input PoolChildExpectation) bool {
 	return validSelector(input.Cell) && validSelector(input.OperationID) && validSelector(input.ReservationID) &&
 		validDigest(input.RecipeSHA256) && optionalSelector(input.PoolID) && optionalSelector(input.ConfigurationID) &&
@@ -221,6 +253,81 @@ func (service *Service) dispatch(ctx context.Context, call Call, request wireReq
 			return nil, err
 		}
 		return service.backends.Releases.ReconcileContainerStatus(ctx, call, input)
+	case OperationReconcileOrchestratorStatus:
+		var input OrchestratorStatusRequest
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		receipt, err := service.backends.Releases.ReconcileOrchestratorStatus(ctx, call, input)
+		if err != nil {
+			return nil, err
+		}
+		wire, err := json.Marshal(receipt)
+		if err != nil || len(wire) > releasechannel.MaxValueBytes || !validResponseExpiry(receipt.ExpiresAt, call) {
+			return nil, ErrUnavailable
+		}
+		return receipt, nil
+	case OperationNativeRelease:
+		var input NativeReleaseRequest
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		observation, err := service.backends.Releases.NativeRelease(ctx, call, input)
+		if err != nil {
+			return nil, err
+		}
+		if !validResponseExpiry(observation.ExpiresAt, call) || len(observation.Claim) > releasechannel.MaxServiceClaimBytes {
+			return nil, ErrUnavailable
+		}
+		if observation.Found {
+			digest := sha256.Sum256(observation.Claim)
+			if len(observation.Claim) == 0 || observation.ClaimSHA256 != hex.EncodeToString(digest[:]) {
+				return nil, ErrUnavailable
+			}
+		} else if len(observation.Claim) != 0 || observation.ClaimSHA256 != "" {
+			return nil, ErrUnavailable
+		}
+		return observation, nil
+	case OperationReleaseBinaryChunk:
+		var input ReleaseBinaryChunkRequest
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		chunk, err := service.backends.Releases.ReleaseBinaryChunk(ctx, call, input)
+		if err != nil {
+			return nil, err
+		}
+		if chunk.Digest != input.Digest || !validReleaseBinaryChunk(chunk, input.Offset, call) {
+			return nil, ErrUnavailable
+		}
+		return chunk, nil
+	case OperationNativeReleaseBinaryChunk:
+		var input NativeReleaseBinaryChunkRequest
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		chunk, err := service.backends.Releases.NativeReleaseBinaryChunk(ctx, call, input)
+		if err != nil {
+			return nil, err
+		}
+		if !validReleaseBinaryChunk(chunk, input.Offset, call) {
+			return nil, ErrUnavailable
+		}
+		return chunk, nil
+	case OperationReconcileNativeServiceStatus:
+		var input NativeServiceStatusRequest
+		if err := decodePayload(request.Payload, &input); err != nil {
+			return nil, err
+		}
+		receipt, err := service.backends.Releases.ReconcileNativeServiceStatus(ctx, call, input)
+		if err != nil {
+			return nil, err
+		}
+		wire, err := json.Marshal(receipt)
+		if err != nil || len(wire) > releasechannel.MaxValueBytes || !validResponseExpiry(receipt.ExpiresAt, call) {
+			return nil, ErrUnavailable
+		}
+		return receipt, nil
 	case OperationInspectVolumeMount:
 		var input rootvolumeclient.InspectRequest
 		if err := decodePayload(request.Payload, &input); err != nil {
