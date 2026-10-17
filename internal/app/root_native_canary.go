@@ -22,6 +22,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/rootsecret"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -52,6 +53,7 @@ type rootNativeCanaryAdmission struct {
 	intent          delivery.Intent
 	request         rootoci.NativeCanaryRequest
 	spec            jetstream.KeyValueEntry
+	rootChain       jetstream.KeyValueEntry
 	rootHead        string
 	historyRevision uint64
 	markRevision    uint64
@@ -141,6 +143,28 @@ func (producer *rootMaterialAdmission) nativeCanary(ctx context.Context, call ro
 		return nil, err
 	}
 	config := controller.config
+	if !config.releaseDeadline.IsZero() {
+		var cancel context.CancelFunc
+		original := ctx
+		ctx, cancel = context.WithDeadline(ctx, config.releaseDeadline)
+		context.AfterFunc(original, cancel)
+	}
+	rootKV, err := config.JS.KeyValue(ctx, rootChainBucket)
+	if err != nil {
+		return nil, err
+	}
+	rootChain, err := rootKV.Get(ctx, rootChainKey)
+	if err != nil || rootChain == nil || rootChain.Operation() != jetstream.KeyValuePut {
+		return nil, rootoci.ErrUnauthorized
+	}
+	chain, err := trust.DecodeRootChain(rootChain.Value())
+	if err != nil {
+		return nil, err
+	}
+	roots, err := trust.VerifyRootChain(config.Specs.roots.genesis, config.Specs.roots.identity, chain)
+	if err != nil || roots.Head != config.Specs.roots.reply("").Head || rootTrustChainCurrent(ctx, config.JS, rootChain) != nil {
+		return nil, rootoci.ErrUnauthorized
+	}
 	intent, err := config.Delivery.NativeCanaryIntent(ctx, request.OperationID)
 	if err != nil {
 		return nil, err
@@ -200,7 +224,7 @@ func (producer *rootMaterialAdmission) nativeCanary(ctx context.Context, call ro
 		return nil, err
 	}
 	admitted := &rootNativeCanaryAdmission{original: readCtx, config: config, history: history,
-		session: session, lease: lease, intent: intent, request: request, spec: spec, rootHead: config.Specs.roots.reply("").Head,
+		session: session, lease: lease, intent: intent, request: request, spec: spec, rootChain: rootChain, rootHead: roots.Head,
 		historyRevision: revision, markRevision: mark.Sequence, mark: bytes.Clone(mark.Data), desired: desired,
 		reference: verified.ReleaseFence.Canary.Credentials, deadline: deadline}
 	if err := admitted.guard(readCtx); err != nil {
@@ -233,6 +257,7 @@ func (admitted *rootNativeCanaryAdmission) guard(ctx context.Context) error {
 	defer cancel()
 	defer stop()
 	if admitted.lease.Guard(ctx) != nil || admitted.session.Guard(ctx) != nil ||
+		rootTrustChainCurrent(ctx, admitted.config.JS, admitted.rootChain) != nil ||
 		controllerHostSpecCurrent(ctx, admitted.config.JS, admitted.config.Specs, admitted.spec, admitted.rootHead) != nil {
 		return rootoci.ErrUnauthorized
 	}

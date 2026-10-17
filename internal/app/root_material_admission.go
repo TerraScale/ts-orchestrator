@@ -227,6 +227,9 @@ func (producer *rootMaterialAdmission) readers(ctx context.Context, call rootoci
 			}
 			return releasechannel.ReadContainerEvidence(ctx, location, role, digest)
 		}}}
+	if delegated := policy.release.Load(); delegated != nil {
+		controller.config.releaseDeadline = delegated.expires
+	}
 	sources := containermaterial.CurrentTaskSources{Client: client, JS: js, Delivery: service, Mutations: mutations,
 		Genesis: services.roots.genesis, RootIdentity: services.roots.identity, RootHead: services.roots.reply("").Head, ResponsePublic: public}
 	if err := call.Guard(ctx); err != nil {
