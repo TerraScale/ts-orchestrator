@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 )
@@ -105,8 +106,8 @@ type OCIRIssuanceEntry struct {
 
 func (s OCIRIssuanceState) Validate(key string) error {
 	if key != "ocir-issuer."+s.ScopeHash || !validFoundationDigest(s.ScopeHash) ||
-		s.Generation == 0 || !validFoundationDigest(s.GrantDigest) || !entityid.Valid(s.OperationID) ||
-		len(s.BeforeTokens) > 2 || s.Version < 0 || s.LeaseID != "" && (!entityid.Valid(s.LeaseID) || s.LeaseUntil.IsZero()) || s.LeaseID == "" && !s.LeaseUntil.IsZero() {
+		s.Generation == 0 || !validFoundationDigest(s.GrantDigest) || !validIssuerUUID(s.OperationID) ||
+		len(s.BeforeTokens) > 2 || s.Version < 0 || s.LeaseID != "" && (!validIssuerUUID(s.LeaseID) || s.LeaseUntil.IsZero()) || s.LeaseID == "" && !s.LeaseUntil.IsZero() {
 		return errors.New("OCIR issuance has invalid original scope or lease")
 	}
 	switch s.Stage {
@@ -114,7 +115,7 @@ func (s OCIRIssuanceState) Validate(key string) error {
 	default:
 		return errors.New("OCIR issuance has unknown stage")
 	}
-	if s.TokenOperation != "" && (!entityid.Valid(s.TokenOperation) || s.TokenStarted.IsZero() || !s.TokenExpires.After(s.TokenStarted)) || (s.Stage == "token-pending" || s.Stage == "vault-pending") && s.TokenOperation == "" {
+	if s.TokenOperation != "" && (!validIssuerUUID(s.TokenOperation) || s.TokenStarted.IsZero() || !s.TokenExpires.After(s.TokenStarted)) || (s.Stage == "token-pending" || s.Stage == "vault-pending") && s.TokenOperation == "" {
 		return errors.New("OCIR issuance has invalid pending credential operation")
 	}
 	for _, value := range []string{s.PendingHash, s.Hash} {
@@ -135,7 +136,7 @@ func (r FoundationRecord) validateOCIRIssuances() error {
 		return errors.New("OCIR issuance history exceeds fixed bound")
 	}
 	for key, entry := range r.OCIRIssuances {
-		if !validFoundationDigest(entry.Origin.GrantSHA256) || entry.Origin.Generation == 0 || entry.Origin.Generation > r.Generation || !entityid.Valid(entry.Origin.FoundationOperation) || entry.Origin.Epoch == 0 || entry.Origin.ExpiresAt.IsZero() || entry.Origin.LeaseID != "" && !entityid.Valid(entry.Origin.LeaseID) {
+		if !validFoundationDigest(entry.Origin.GrantSHA256) || entry.Origin.Generation == 0 || entry.Origin.Generation > r.Generation || !entityid.Valid(entry.Origin.FoundationOperation) || entry.Origin.Epoch == 0 || entry.Origin.ExpiresAt.IsZero() || entry.Origin.LeaseID != "" && !validIssuerUUID(entry.Origin.LeaseID) {
 			return errors.New("OCIR issuance has invalid original foundation authority")
 		}
 		if entry.Revision == 0 || len(entry.Attempts) > 64 || len(entry.Requests) > 256 || entry.State.Generation > r.Generation {
@@ -157,7 +158,7 @@ func (r FoundationRecord) validateOCIRIssuances() error {
 					return errors.New("OCIR dispatch history invalid")
 				}
 			}
-			if !validFoundationDigest(hash) || !validFoundationDigest(request.BodySHA256) || !validFoundationDigest(request.GrantSHA256) || request.Epoch == 0 || request.FirstAttemptAt.IsZero() || !request.Deadline.After(request.FirstAttemptAt) || len(request.URL) > 2048 || !strings.HasPrefix(request.URL, "https://") || len(request.RetryToken) > 128 || len(request.IfMatch) > 512 || request.LeaseID != "" && !entityid.Valid(request.LeaseID) {
+			if !validFoundationDigest(hash) || !validFoundationDigest(request.BodySHA256) || !validFoundationDigest(request.GrantSHA256) || request.Epoch == 0 || request.FirstAttemptAt.IsZero() || !request.Deadline.After(request.FirstAttemptAt) || len(request.URL) > 2048 || !strings.HasPrefix(request.URL, "https://") || len(request.RetryToken) > 128 || len(request.IfMatch) > 512 || request.LeaseID != "" && !validIssuerUUID(request.LeaseID) {
 				return errors.New("OCIR wire attempt has invalid original request authority")
 			}
 			switch request.Method {
@@ -167,7 +168,7 @@ func (r FoundationRecord) validateOCIRIssuances() error {
 			}
 		}
 		for operation, a := range entry.Attempts {
-			if operation != a.TokenOperation || !entityid.Valid(operation) || !entityid.Valid(a.OperationID) || !entityid.Valid(a.FoundationOperation) || !validFoundationDigest(a.GrantSHA256) || !validFoundationDigest(a.RequestSHA256) || a.Generation == 0 || a.Generation > r.Generation || a.Epoch == 0 || a.TokenStarted.IsZero() || !a.ExpiresAt.After(a.TokenStarted) || len(a.BeforeTokens) > 2 || a.Version < 0 || !strings.HasPrefix(a.VaultID, "ocid1.vault.") || a.SecretName == "" || len(a.SecretName) > 255 {
+			if operation != a.TokenOperation || !validIssuerUUID(operation) || !validIssuerUUID(a.OperationID) || !entityid.Valid(a.FoundationOperation) || !validFoundationDigest(a.GrantSHA256) || !validFoundationDigest(a.RequestSHA256) || a.Generation == 0 || a.Generation > r.Generation || a.Epoch == 0 || a.TokenStarted.IsZero() || !a.ExpiresAt.After(a.TokenStarted) || len(a.BeforeTokens) > 2 || a.Version < 0 || !strings.HasPrefix(a.VaultID, "ocid1.vault.") || a.SecretName == "" || len(a.SecretName) > 255 {
 				return errors.New("OCIR credential history has invalid original authority")
 			}
 			for _, digest := range []string{a.PendingHash, a.Hash} {
@@ -199,4 +200,9 @@ func (s VerifiedOCIRIssuer) JournalKey() (string, error) {
 	}
 	sum := sha256.Sum256(wire)
 	return "ocir-issuer." + hex.EncodeToString(sum[:]), nil
+}
+
+func validIssuerUUID(value string) bool {
+	parsed, err := uuid.Parse(value)
+	return err == nil && parsed != uuid.UUID{} && parsed.String() == value
 }

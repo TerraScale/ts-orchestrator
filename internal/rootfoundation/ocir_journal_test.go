@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
@@ -149,7 +150,7 @@ func TestOCIRProtectedSDKJournalRestartPreservesUncertainAttempt(t *testing.T) {
 	digest := sha256.Sum256(canonical)
 	hash := hex.EncodeToString(digest[:])
 	key := "ocir-issuer." + hash
-	state := region.OCIRIssuanceState{ScopeHash: hash, Generation: scope.Generation(), GrantDigest: scope.GrantDigest(), OperationID: entityid.New(), Stage: "token-pending", UserID: "ocid1.user.oc1..pull", TokenOperation: entityid.New(), TokenStarted: now, TokenExpires: now.Add(time.Minute)}
+	state := region.OCIRIssuanceState{ScopeHash: hash, Generation: scope.Generation(), GrantDigest: scope.GrantDigest(), OperationID: uuid.New().String(), Stage: "token-pending", UserID: "ocid1.user.oc1..pull", TokenOperation: uuid.New().String(), TokenStarted: now, TokenExpires: now.Add(time.Minute)}
 	revision, err := journal.CompareAndSwap(t.Context(), key, state, 0)
 	if err != nil {
 		t.Fatal(err)

@@ -160,7 +160,7 @@ func (i *Issuer) begin(ctx context.Context) (*issuerAttempt, error) {
 	}
 	hash := strings.TrimPrefix(key, "ocir-issuer.")
 	state, revision, err := i.journal.Load(ctx, key)
-	record := issuerRecord{OCIRIssuanceState: region.OCIRIssuanceState{ScopeHash: hash, Generation: i.scope.Generation(), GrantDigest: i.scope.GrantDigest(), OperationID: uuid.New().String(), Stage: "identity"}}
+	record := issuerRecord{ScopeHash: hash, Generation: i.scope.Generation(), GrantDigest: i.scope.GrantDigest(), OperationID: uuid.New().String(), Stage: "identity"}
 	if err == nil {
 		if state.Validate(key) != nil || state.ScopeHash != hash || state.OperationID == "" || state.Generation > i.scope.Generation() ||
 			state.Generation == i.scope.Generation() && state.GrantDigest != i.scope.GrantDigest() {
