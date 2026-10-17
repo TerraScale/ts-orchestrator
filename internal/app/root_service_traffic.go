@@ -56,7 +56,7 @@ func (b *rootOCIResources) ReconcileTaskTraffic(ctx context.Context, call rootoc
 	ctx, stopOperations := context.WithDeadline(ctx, operations.Deadline())
 	defer stopOperations()
 	b.traffic.ownhost.mu.RLock()
-	node, session, generation := b.traffic.ownhost.node, b.traffic.ownhost.session, b.traffic.ownhost.generation
+	node, session, generation, agent := b.traffic.ownhost.node, b.traffic.ownhost.session, b.traffic.ownhost.generation, b.traffic.ownhost.agent
 	b.traffic.ownhost.mu.RUnlock()
 	if node == nil || session == nil || session.Err() != nil {
 		return fail(containermaterial.ErrPending)
@@ -109,7 +109,17 @@ func (b *rootOCIResources) ReconcileTaskTraffic(ctx context.Context, call rootoc
 	if deadline.IsZero() {
 		return fail(rootoci.ErrUnauthorized)
 	}
+	ctx, stopSource := context.WithDeadline(ctx, deadline)
+	defer stopSource()
+	captureContext := ctx
+	var captureStops []context.CancelFunc
+	defer func() {
+		for _, stop := range captureStops {
+			stop()
+		}
+	}()
 	retained := []func(context.Context) error{operations.Revalidate}
+	var statefulReadiness *swarmruntime.RootTaskReadiness
 	var probeAuthorityErr error
 	addresses := map[string]string{}
 	guardSource := func(ctx context.Context) error {
@@ -126,7 +136,7 @@ func (b *rootOCIResources) ReconcileTaskTraffic(ctx context.Context, call rootoc
 			return err
 		}
 		b.traffic.ownhost.mu.RLock()
-		same := b.traffic.ownhost.node == node && b.traffic.ownhost.session == session && b.traffic.ownhost.generation == generation
+		same := b.traffic.ownhost.node == node && b.traffic.ownhost.session == session && b.traffic.ownhost.generation == generation && b.traffic.ownhost.agent == agent
 		b.traffic.ownhost.mu.RUnlock()
 		if !same {
 			return ociresource.ErrFenced
@@ -146,11 +156,6 @@ func (b *rootOCIResources) ReconcileTaskTraffic(ctx context.Context, call rootoc
 			return nil
 		}
 		reject := func(err error) error { probeAuthorityErr = errors.Join(probeAuthorityErr, err); return err }
-		// A stateful readiness proof needs the genuine rooted DATA capture;
-		// a generic HTTP probe cannot substitute for that serving authority.
-		if execution.Stateful(task) {
-			return reject(containermaterial.ErrPending)
-		}
 		registration, binding, err := controller.taskRegistration(ctx, task)
 		if err != nil {
 			return reject(err)
@@ -187,6 +192,38 @@ func (b *rootOCIResources) ReconcileTaskTraffic(ctx context.Context, call rootoc
 			return controller.currentMaterialTask(ctx, selected, registration, binding)
 		}
 		retained = append(retained, check)
+		if execution.Stateful(task) {
+			if err := guardSource(ctx); err != nil {
+				return reject(err)
+			}
+			if statefulReadiness == nil {
+				statefulReadiness, err = b.rootStatefulTrafficReadiness(ctx, controller, snapshot, agent, guardSource)
+				if err != nil {
+					return reject(err)
+				}
+			}
+			probeDeadline, ok := ctx.Deadline()
+			if !ok {
+				return reject(rootoci.ErrUnauthorized)
+			}
+			// The manager cancels its temporary probe context after this call.
+			// Retain its original cap under the live root operation instead.
+			capture, stop := context.WithDeadline(captureContext, earlier(deadline, probeDeadline))
+			captureStops = append(captureStops, stop)
+			witness, err := statefulReadiness.CaptureTaskReadiness(capture, selected.Task)
+			if err != nil {
+				return reject(err)
+			}
+			deadline = earlier(deadline, witness.Deadline())
+			witnessContext, finishWitness := context.WithDeadline(captureContext, deadline)
+			captureStops = append(captureStops, finishWitness)
+			context.AfterFunc(witnessContext, stopSource)
+			retained = append(retained, witness.Recheck)
+			if err := check(ctx); err != nil {
+				return reject(err)
+			}
+			return guardSource(ctx)
+		}
 		if err := swarmruntime.ProbeTask(ctx, selected.Task, ip); err != nil {
 			return err
 		}
