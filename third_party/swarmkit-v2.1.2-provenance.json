@@ -131,21 +131,130 @@
   ],
   "configuration_policy": "Unavoidable upstream public configuration names remain unchanged for provenance; application exposes no new switch or setting.",
   "go_mod_sum": "h1:GQ6T0ij2oBbWX10OHwpvK449xfXkQMZ8J+B+eQ4mgp4=",
-  "module": "github.com/moby/swarmkit/v2",
-  "module_sum": "h1:1WDZAI6HVYNKdCG4zlXnTAPyLsLwuhRGWlHoOUf5Z6I=",
   "local_readonly_control_patch": {
-    "purpose": "Privileged local read-only applied-store projection; original upstream file hashes remain unchanged. No mutation or secret methods are exposed.",
+    "archived_test_files": [
+      "manager/state/raft/observation_test.go"
+    ],
     "files": [
       {
+        "bytes": 1014,
         "path": "api/control_reader.go",
-        "sha256": "cb517ab2f70a1409e0413091111c52a04c21631d2af9ebb4ad156319a90e1ab8"
+        "rationale": "Read-only local control reader interface.",
+        "sha256": "cb517ab2f70a1409e0413091111c52a04c21631d2af9ebb4ad156319a90e1ab8",
+        "source_history": [
+          "4ff6d7c579ec6157967f254b1a281222ba7e8659 refactor(management): use guarded local readonly manager projections"
+        ]
       },
       {
+        "bytes": 5723,
         "path": "manager/control_reader.go",
-        "sha256": "48bcafceb999f1a8b153b2c97ccb5e977cb78d929cfa4a75214163aa9b19e014"
+        "rationale": "Privileged local reader implementation without control socket or secret/mutation API.",
+        "sha256": "48bcafceb999f1a8b153b2c97ccb5e977cb78d929cfa4a75214163aa9b19e014",
+        "source_history": [
+          "4ff6d7c579ec6157967f254b1a281222ba7e8659 refactor(management): use guarded local readonly manager projections"
+        ]
+      },
+      {
+        "bytes": 2214,
+        "path": "manager/observation.go",
+        "rationale": "Capture applied store snapshot/live subscription with current membership, leader and term validation.",
+        "sha256": "ccdf88de862110f133c03fa63e13d9939f43e3e0f181acd67b1734606aa53ad1",
+        "source_history": [
+          "0f6e70785e503bfb88683f3f4fb15e86bccddab5 fix(management): terminate blocked observation sends on lost authority",
+          "f6e6a9aae9e11b661f064abb4deb32d66d92b09c feat(swarmkit): expose exact applied read-only observation boundary"
+        ]
+      },
+      {
+        "bytes": 1658,
+        "path": "manager/state/raft/observation_test.go",
+        "rationale": "Archived local nested-module exact applied-boundary observation tests; no runtime credit.",
+        "sha256": "83594b669ed658d3cc801eeb24abce63366b866cda6f0eefd8f1e109c97d62fd",
+        "source_history": [
+          "f62521c541a675c7a71628c91595f36f1ffb50eb feat(management): proxy scoped exact snapshot and watch continuity"
+        ]
+      },
+      {
+        "bytes": 2075,
+        "path": "manager/state/store/observation.go",
+        "rationale": "Atomic read-view/subscription at applied index and bounded complete replay, with proposal commit index adaptation.",
+        "sha256": "552300b52e84c96232764508b38ddceb06ac1287f4ae664d73bcd24cb7cf1359",
+        "source_history": [
+          "0f6e70785e503bfb88683f3f4fb15e86bccddab5 fix(management): terminate blocked observation sends on lost authority",
+          "f6e6a9aae9e11b661f064abb4deb32d66d92b09c feat(swarmkit): expose exact applied read-only observation boundary"
+        ]
       }
-    ]
+    ],
+    "purpose": "Privileged local read-only applied-store projection with exact committed Raft boundaries and bounded snapshot/watch continuity. Five upstream files are modified as recorded separately; upstream_files retains original distribution hashes. Five local additions expose no mutation or secret methods through the read-only control interface.",
+    "test_policy": "Local nested-module observation test source is archived separately from upstream tests; no compilation or runtime qualification is implied."
   },
+  "modified_upstream_files": [
+    {
+      "bytes": 66318,
+      "path": "manager/state/raft/raft.go",
+      "rationale": "Bind proposal callbacks, follower applies and snapshot restoration to exact committed Raft indices; bound observation WAL replay and reject partial history.",
+      "sha256": "8a2346eaf1f59b62bef7f19bb38c011cb6b4590a57cccabd6b83eb9b9f34af11",
+      "source_history": [
+        "f62521c541a675c7a71628c91595f36f1ffb50eb feat(management): proxy scoped exact snapshot and watch continuity",
+        "f6e6a9aae9e11b661f064abb4deb32d66d92b09c feat(swarmkit): expose exact applied read-only observation boundary",
+        "3238ba2df53a40d2df976de5ba2f2f99f6f3a157 vendor(swarmkit): preserve pinned v2.1.2 source provenance"
+      ],
+      "upstream_bytes": 64873,
+      "upstream_sha256": "9ff63628321f676d6ea6776f1fa6d2cadf6d0536781aa9ad786493e2239292ed"
+    },
+    {
+      "bytes": 7925,
+      "path": "manager/state/raft/storage.go",
+      "rationale": "Restore durable snapshots at their actual Raft snapshot index.",
+      "sha256": "6c8ac00e4ad79dcd84be9cae96279831de0375f26157949924e0ce54f4e60e08",
+      "source_history": [
+        "f62521c541a675c7a71628c91595f36f1ffb50eb feat(management): proxy scoped exact snapshot and watch continuity",
+        "f6e6a9aae9e11b661f064abb4deb32d66d92b09c feat(swarmkit): expose exact applied read-only observation boundary",
+        "3238ba2df53a40d2df976de5ba2f2f99f6f3a157 vendor(swarmkit): preserve pinned v2.1.2 source provenance"
+      ],
+      "upstream_bytes": 7857,
+      "upstream_sha256": "af9bf31b3b827ea0297b9b83ddea5766693cbb9a3b8a3194fece0a2920c67c0c"
+    },
+    {
+      "bytes": 1676,
+      "path": "manager/state/raft/wait.go",
+      "rationale": "Carry exact committed entry index through synchronous waiter callback while preserving existing callback API.",
+      "sha256": "6cbfbec36bd69c1063b1cb5364dedc59e77425e9d79036a94f7c10b673b2048b",
+      "source_history": [
+        "f6e6a9aae9e11b661f064abb4deb32d66d92b09c feat(swarmkit): expose exact applied read-only observation boundary",
+        "3238ba2df53a40d2df976de5ba2f2f99f6f3a157 vendor(swarmkit): preserve pinned v2.1.2 source provenance"
+      ],
+      "upstream_bytes": 1306,
+      "upstream_sha256": "4696fe590e118c4caff8dd98029bdc48ba0c90865e537f2109691fb7e2d0004e"
+    },
+    {
+      "bytes": 27405,
+      "path": "manager/state/store/memory.go",
+      "rationale": "Track exact applied version under store update lock across proposals, batches, follower applies and snapshot restoration.",
+      "sha256": "57c7ece319b358b6145f9a6a0a295eda4ed248e6ed8172d349dec055d8b62d7c",
+      "source_history": [
+        "f62521c541a675c7a71628c91595f36f1ffb50eb feat(management): proxy scoped exact snapshot and watch continuity",
+        "f6e6a9aae9e11b661f064abb4deb32d66d92b09c feat(swarmkit): expose exact applied read-only observation boundary",
+        "3238ba2df53a40d2df976de5ba2f2f99f6f3a157 vendor(swarmkit): preserve pinned v2.1.2 source provenance"
+      ],
+      "upstream_bytes": 26120,
+      "upstream_sha256": "3a1cd49fab128e720d6b1eee1bf6919b2aef3bbdd1ecb91488ba48eb087cd6a4"
+    },
+    {
+      "bytes": 5675,
+      "path": "watch/watch.go",
+      "rationale": "Add bounded observation subscriptions and close/cancel blocked sends on overflow or authority/session loss.",
+      "sha256": "d9af358512f06f09af5033090408eb5dec23f29971715d0197e50afb918a80d1",
+      "source_history": [
+        "0f6e70785e503bfb88683f3f4fb15e86bccddab5 fix(management): terminate blocked observation sends on lost authority",
+        "f6e6a9aae9e11b661f064abb4deb32d66d92b09c feat(swarmkit): expose exact applied read-only observation boundary",
+        "3238ba2df53a40d2df976de5ba2f2f99f6f3a157 vendor(swarmkit): preserve pinned v2.1.2 source provenance"
+      ],
+      "upstream_bytes": 5275,
+      "upstream_sha256": "75c44a23285d4c29e74c6f654860ce26db219c41f1999994224ee6733ce47a8c"
+    }
+  ],
+  "module": "github.com/moby/swarmkit/v2",
+  "module_sum": "h1:1WDZAI6HVYNKdCG4zlXnTAPyLsLwuhRGWlHoOUf5Z6I=",
   "test_policy": "Nested module tests are archived upstream source; none are implicitly qualified or invoked by root-module ./... checks. Any execution requires explicit QA inventory and grant.",
   "upstream_files": [
     {
