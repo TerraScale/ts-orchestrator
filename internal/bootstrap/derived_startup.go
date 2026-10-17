@@ -178,7 +178,7 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 	deny := func(reason string) (DerivedStartupAuthority, error) {
 		return DerivedStartupAuthority{}, fmt.Errorf("%w: derived startup %s", ErrManifestInvalid, reason)
 	}
-	if client == nil || ctx.Err() != nil || template.VerifyCurrentContext(ctx, now) != nil || len(wire) == 0 || len(wire) > MaxManifestBytes {
+	if client == nil || ctx == nil || ctx.Err() != nil || len(wire) == 0 || len(wire) > MaxManifestBytes {
 		return deny("current grant")
 	}
 	envelope, err := trust.DecodeEnvelope(wire)
@@ -187,6 +187,9 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 	}
 	ctx, cancelEnvelope := context.WithDeadline(ctx, envelope.ExpiresAt)
 	defer cancelEnvelope()
+	if template.VerifyCurrentContext(ctx, now) != nil {
+		return deny("current grant")
+	}
 	expires := envelope.ExpiresAt
 	var binding DerivedStartupBinding
 	if json.Unmarshal(envelope.Payload, &binding, json.RejectUnknownMembers(true)) != nil || binding.SchemaVersion != 1 || binding.GrantSHA256 != template.GrantDigest() || binding.TemplateSHA256 != template.TemplateDigest() || !validDigest(binding.SourceSHA256) || binding.Manifest.validateStructure(true) != nil {
