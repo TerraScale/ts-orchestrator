@@ -64,9 +64,12 @@ type CommittedUsage struct {
 func (c *Controller) CommitUsageObservation(ctx context.Context, observation UsageObservation,
 	verify func(context.Context) error,
 ) (CommittedUsage, error) {
-	caller, ok := ctx.Value(loadObservationContextKey{}).(loadObservationCaller)
-	if !ok || caller.controller != c || verify == nil || !reflect.DeepEqual(caller.registration, observation.Registration) {
+	caller, ok := ctx.Value(loadObservationContextKey{}).(*loadObservationCaller)
+	if !ok || caller == nil || caller.controller != c || verify == nil || !reflect.DeepEqual(caller.registration, observation.Registration) {
 		return CommittedUsage{}, errors.New("usage observation requires its authenticated host request")
+	}
+	if err := caller.checkActive(ctx); err != nil {
+		return CommittedUsage{}, err
 	}
 	observation.Version = 1
 	observation.SessionID = caller.request.SessionID
@@ -135,10 +138,16 @@ func (c *Controller) CommitUsageObservation(ctx context.Context, observation Usa
 	operation := entityid.New()
 	sequence, err := store.CommitHostMutationVerified(ctx, observation.Epoch, authority.MutationUsageObservation,
 		key, operation, previous.Sequence, data, func(ctx context.Context) error {
+			if err := caller.checkActive(ctx); err != nil {
+				return err
+			}
 			if err := c.recheckReplyAuthority(ctx, observation.Epoch, caller.request, caller.registration, false); err != nil {
 				return err
 			}
-			return verify(ctx)
+			if err := verify(ctx); err != nil {
+				return err
+			}
+			return caller.checkActive(ctx)
 		})
 	if err != nil {
 		return CommittedUsage{}, err

@@ -24,6 +24,32 @@ func TestLoadOperationIsRefusedUntilASinkIsSet(t *testing.T) {
 	}
 }
 
+func TestLoadObservationRejectsEscapedRequestContext(t *testing.T) {
+	c, hostKey, session, _ := reportedTestHost(t)
+	var escaped context.Context
+	var registration Registration
+	c.SetLoadObservationSink(func(ctx context.Context, _ hostload.Origin, _ hostload.Report) error {
+		caller, ok := ctx.Value(loadObservationContextKey{}).(*loadObservationCaller)
+		if !ok || caller.controller != c || caller.checkActive(ctx) != nil {
+			t.Fatal("signed load callback has no active request capability")
+		}
+		escaped, registration = context.WithoutCancel(ctx), caller.registration
+		return nil
+	})
+	report := hostload.Report{SchemaVersion: hostload.SchemaVersion}
+	if _, err := c.handleAuthorized(t.Context(), signedHostRequest(t, hostKey, "load", session.SessionID, session.Epoch, report)); err != nil {
+		t.Fatal(err)
+	}
+	verified := false
+	_, err := c.CommitUsageObservation(escaped, UsageObservation{Registration: registration}, func(context.Context) error {
+		verified = true
+		return nil
+	})
+	if !errors.Is(err, errLoadObservationExpired) || verified {
+		t.Fatalf("escaped callback reached journal verifier: error = %v, verified = %t", err, verified)
+	}
+}
+
 func TestLoadOperationRejectsMalformedFilesystemsBeforeSink(t *testing.T) {
 	c, hostKey, session, _ := reportedTestHost(t)
 	calls := 0

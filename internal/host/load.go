@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/hostload"
@@ -35,8 +36,9 @@ const (
 )
 
 var (
-	errLoadDisabled  = errors.New("host load telemetry is not enabled on this controller")
-	errLoadThrottled = errors.New("host load report discarded inside the controller's minimum interval")
+	errLoadDisabled           = errors.New("host load telemetry is not enabled on this controller")
+	errLoadThrottled          = errors.New("host load report discarded inside the controller's minimum interval")
+	errLoadObservationExpired = errors.New("usage observation request callback is no longer active")
 )
 
 // LoadSink receives one authenticated host load report whose roles were
@@ -52,6 +54,17 @@ type loadObservationCaller struct {
 	controller   *Controller
 	request      request
 	registration Registration
+	active       atomic.Bool
+}
+
+func (caller *loadObservationCaller) checkActive(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !caller.active.Load() {
+		return errLoadObservationExpired
+	}
+	return nil
 }
 
 type loadObservationContextKey struct{}
@@ -142,8 +155,12 @@ func (c *Controller) storeLoad(ctx context.Context, req request, r Registration)
 	origin := hostload.Origin{Cell: c.cell, Environment: r.Environment, Node: req.Node}
 	var err error
 	if observationSink != nil {
-		ctx = context.WithValue(ctx, loadObservationContextKey{}, loadObservationCaller{c, req, r})
-		err = (*observationSink)(ctx, origin, report)
+		caller := &loadObservationCaller{controller: c, request: req, registration: r}
+		caller.active.Store(true)
+		err = func() error {
+			defer caller.active.Store(false)
+			return (*observationSink)(context.WithValue(ctx, loadObservationContextKey{}, caller), origin, report)
+		}()
 	} else {
 		err = (*sink)(origin, report)
 	}
