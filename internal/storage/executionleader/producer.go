@@ -22,7 +22,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
-	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/executionwire"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/hostvolume"
@@ -38,13 +37,13 @@ type Producer struct {
 	releases          *delivery.Service
 	volumes           *oci.VolumeMountObserver
 	roots             trust.Keyring
-	evidence          releasechannel.Location
+	evidence          func(context.Context, string) (io.ReadCloser, error)
 	allocations       execution.ContainerAllocationResolver
 	cell, environment string
 }
 
-func NewProducer(control api.ControlClient, fence *authority.Runtime, members placement.Store, releases *delivery.Service, volumes *oci.VolumeMountObserver, roots trust.Keyring, evidence releasechannel.Location, cell, environment string, allocations execution.ContainerAllocationResolver) (*Producer, error) {
-	if allocations == nil || control == nil || fence == nil || members == nil || releases == nil || volumes == nil || len(roots) == 0 || evidence.Client == nil || evidence.Namespace == "" || evidence.Bucket == "" || !release.ValidRegion(strings.ToUpper(cell)) || cell != strings.ToLower(cell) || environment == "" {
+func NewProducer(control api.ControlClient, fence *authority.Runtime, members placement.Store, releases *delivery.Service, volumes *oci.VolumeMountObserver, roots trust.Keyring, evidence func(context.Context, string) (io.ReadCloser, error), cell, environment string, allocations execution.ContainerAllocationResolver) (*Producer, error) {
+	if allocations == nil || control == nil || fence == nil || members == nil || releases == nil || volumes == nil || len(roots) == 0 || evidence == nil || !release.ValidRegion(strings.ToUpper(cell)) || cell != strings.ToLower(cell) || environment == "" {
 		return nil, execution.ErrUnsafe
 	}
 	keys := make(trust.Keyring, len(roots))
@@ -55,7 +54,7 @@ func NewProducer(control api.ControlClient, fence *authority.Runtime, members pl
 }
 
 func (p *Producer) open(ctx context.Context, digest string) (io.ReadCloser, error) {
-	return releasechannel.ReadContainerEvidence(ctx, p.evidence, "terrabase", digest)
+	return p.evidence(ctx, digest)
 }
 
 // Resolve uses labels only to locate records; every value is checked against
