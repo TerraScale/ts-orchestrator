@@ -27,7 +27,7 @@ func ProvisionFoundationBundle(ctx context.Context, factory *ociclient.Factory, 
 	if err != nil {
 		return err
 	}
-	controller := &FoundationController{Footprint: reader, Authority: authority, Store: resolver.Store, Foundations: SDKFoundations{Factory: authority.factory}}
+	controller := &FoundationController{Footprint: reader, Authority: authority, Store: resolver.Store, Foundations: SDKFoundations{Factory: authority.factory}, initialGRUAuxiliary: authority.operator.buckets}
 	// Sequential initial provisioning also uses the shared home IAM lease.
 	// The protected regional record supplies its fencing epoch, never a CLI knob.
 	for _, cell := range []string{"GRU", "SFO", "FRA"} {

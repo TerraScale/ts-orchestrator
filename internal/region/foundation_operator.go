@@ -24,6 +24,7 @@ type foundationOperator struct {
 	domain   bootstrap.StorageDomain
 	id       string
 	deadline time.Time
+	buckets  map[string]string
 }
 
 func (operator *foundationOperator) guard(ctx context.Context) error {
@@ -126,7 +127,7 @@ func newOperatorHomeIAMAuthority(ctx context.Context, factory *ociclient.Factory
 	if err != nil {
 		return nil, FoundationResolver{}, err
 	}
-	resolver.Store, reader.factory = store, home
+	resolver.Store, reader.factory, reader.client = store, home, &objects
 	operator := &foundationOperator{factory: home, objects: &objects, genesis: genesis, bundle: bundle.clone(), domain: reader.storage, id: principal, deadline: deadline}
 	authority := &HomeIAMAuthority{operator: operator, resolver: resolver, currentGenesis: genesis,
 		tenancyID: tenancy, installationID: reader.home.InstallationID, grantDigest: reader.home.GrantSHA256, grantGeneration: reader.home.GrantGeneration}
@@ -136,6 +137,21 @@ func newOperatorHomeIAMAuthority(ctx context.Context, factory *ociclient.Factory
 	}
 	if authority.bucketCompartment != compartment {
 		return nil, FoundationResolver{}, errors.New("actual protected bucket is outside the signed home escrow compartment")
+	}
+	operator.buckets = make(map[string]string, 2)
+	for _, bucket := range []struct{ role, name, key string }{
+		{"head_bucket", reader.storage.HeadBucket, reader.storage.HeadKMSKeyOCID},
+		{"ledger_bucket", reader.storage.LedgerBucket, reader.storage.LedgerKMSKeyOCID},
+	} {
+		response, err := objects.GetBucket(ociclient.RequestContext(ctx), objectstorage.GetBucketRequest{NamespaceName: new(reader.storage.Namespace), BucketName: new(bucket.name)})
+		if err != nil || deref(response.Name) != bucket.name || deref(response.Namespace) != reader.storage.Namespace ||
+			deref(response.CompartmentId) != compartment || deref(response.KmsKeyId) != bucket.key || !validAuxiliaryID(bucket.role, deref(response.Id), foundationHomeRegion) {
+			return nil, FoundationResolver{}, errors.Join(errors.New("initial home bucket prerequisite differs from signed storage"), err)
+		}
+		operator.buckets[bucket.role] = deref(response.Id)
+	}
+	if err := operator.guard(ctx); err != nil {
+		return nil, FoundationResolver{}, err
 	}
 	return authority, resolver, nil
 }
