@@ -216,7 +216,7 @@ func TestOCIRProtectedSDKJournalRestartPreservesUncertainAttempt(t *testing.T) {
 		})
 	}
 	rejectRemoval("vault-pending")
-	for _, field := range []string{"attempts", "requests", "origin"} {
+	for _, field := range []string{"attempts", "requests", "origin", "request-deadline"} {
 		t.Run("history-removal-"+field, func(t *testing.T) {
 			wire, err := json.Marshal(record)
 			if err != nil {
@@ -234,6 +234,11 @@ func TestOCIRProtectedSDKJournalRestartPreservesUncertainAttempt(t *testing.T) {
 				entry.Requests = nil
 			case "origin":
 				entry.Origin = region.OCIRIssuanceOrigin{}
+			case "request-deadline":
+				for hash, request := range entry.Requests {
+					request.Deadline = request.Deadline.Add(time.Minute)
+					entry.Requests[hash] = request
+				}
 			}
 			removed.OCIRIssuances[key] = entry
 			if _, err := store.CompareAndSwap(t.Context(), removed, protectedETag); err == nil {

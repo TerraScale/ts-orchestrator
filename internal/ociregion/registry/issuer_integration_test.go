@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -554,4 +555,52 @@ func (j issuerKVJournal) CompareAndSwap(ctx context.Context, key string, state r
 
 func (j issuerKVJournal) BeginEffect(*http.Request) (func(*http.Response, error, bool) error, error) {
 	return func(*http.Response, error, bool) error { return nil }, nil
+}
+
+func TestIssuerExpiredTokenOperationObservesBeforeFreshMint(t *testing.T) {
+	i, remote, _ := setupIssuer(t)
+	a, err := i.begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.repository(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.ensureIdentity(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	operation := uuid.New().String()
+	a.state.TokenOperation = operation
+	a.state.TokenStarted = time.Now().UTC().Add(-2 * time.Minute)
+	a.state.TokenExpires = a.state.TokenStarted.Add(time.Minute)
+	a.state.Stage = "token-pending"
+	a.state.LeaseID = ""
+	a.state.LeaseUntil = time.Time{}
+	if err := a.save(t.Context(), false); err != nil {
+		t.Fatal(err)
+	}
+	remote.mu.Lock()
+	remote.created = 1
+	remote.tokens["ocid1.credential.oc1..expired"] = map[string]any{"id": "ocid1.credential.oc1..expired", "userId": a.state.UserID, "description": "terrascale-ocir:" + operation, "timeCreated": a.state.TokenStarted.Add(time.Second).Format(time.RFC3339Nano), "lifecycleState": "ACTIVE"}
+	remote.mu.Unlock()
+	if _, err := i.Ensure(t.Context()); err == nil {
+		t.Fatal("lost once-returned value became successful credentials")
+	}
+	remote.mu.Lock()
+	if remote.created != 1 || remote.revoked != 0 || remote.secret != "" {
+		t.Fatal("restart replayed an expired create or published an unknown credential")
+	}
+	remote.mu.Unlock()
+	state, _, err := i.journal.Load(t.Context(), a.key)
+	if err != nil || state.TokenOperation != operation || !state.TokenExpires.Equal(a.state.TokenExpires) || state.TokenID != "ocid1.credential.oc1..expired" || state.Stage != "vault-pending" {
+		t.Fatal("expired attempt was reset rather than positively observed")
+	}
+	if _, err := i.Ensure(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	remote.mu.Lock()
+	defer remote.mu.Unlock()
+	if remote.created != 2 || remote.revoked != 1 || len(remote.tokens) != 1 || remote.version != 1 {
+		t.Fatal("fresh issuance did not follow confirmed exact old-token revocation")
+	}
 }
