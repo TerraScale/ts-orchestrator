@@ -49,9 +49,14 @@ type SourceReceipt struct {
 	ObjectKey     string     `json:"objectKey"`
 }
 
-// Foundation exposes installation operations; request expectations never grant
+// FoundationInstallation exposes installation operations; request expectations never grant
 // authority and no provider, signing key or caller-selected payload crosses IPC.
-type Foundation interface {
+type FoundationInstallation interface {
 	ReconcileFoundation(context.Context, Call, ReconcileFoundationRequest) (FoundationReceipt, error)
 	EnsureSource(context.Context, Call, SourceRequest) (SourceReceipt, error)
+}
+
+type Foundation interface {
+	FoundationInstallation
+	ReconcileTaskTraffic(context.Context, Call, TaskTrafficRequest) (TaskTrafficReceipt, error)
 }
