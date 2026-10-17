@@ -8,9 +8,12 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/keymanagement"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
@@ -108,18 +111,38 @@ func newOperatorHomeIAMAuthority(ctx context.Context, factory *ociclient.Factory
 	}
 	ctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
-	var compartment string
+	var target bootstrapmaterial.VaultTarget
 	for _, intent := range footprint.Regions {
 		if intent.Plan["cell"] == "GRU" && intent.BootstrapMaterial != nil {
-			compartment = intent.BootstrapMaterial.SourceVaultTarget.CompartmentOCID
+			target = intent.BootstrapMaterial.SourceVaultTarget
 		}
 	}
-	if !sourceCompartmentPattern.MatchString(compartment) {
+	compartment := target.CompartmentOCID
+	if target.Validate(foundationHomeRegion) != nil || !sourceCompartmentPattern.MatchString(compartment) {
 		return nil, FoundationResolver{}, errors.New("initial provisioning lacks the signed existing home escrow compartment")
 	}
 	home, err := factory.ForRegion(foundationHomeRegion)
 	if err != nil {
 		return nil, FoundationResolver{}, err
+	}
+	kms := sdkcli.NewClient(home, "")
+	vaults, err := kms.KMSVaults()
+	if err != nil {
+		return nil, FoundationResolver{}, err
+	}
+	vault, err := vaults.GetVault(ociclient.RequestContext(ctx), keymanagement.GetVaultRequest{VaultId: new(target.VaultOCID)})
+	if err != nil || deref(vault.Id) != target.VaultOCID || deref(vault.CompartmentId) != compartment || vault.LifecycleState != keymanagement.VaultLifecycleStateActive {
+		return nil, FoundationResolver{}, errors.Join(errors.New("initial home storage Vault differs from signed escrow"), err)
+	}
+	management, err := kms.KMSManagement(deref(vault.ManagementEndpoint))
+	if err != nil {
+		return nil, FoundationResolver{}, err
+	}
+	ledger, err := management.GetKey(ociclient.RequestContext(ctx), keymanagement.GetKeyRequest{KeyId: new(reader.storage.LedgerKMSKeyOCID)})
+	if err != nil || deref(ledger.Id) != reader.storage.LedgerKMSKeyOCID || deref(ledger.CompartmentId) != compartment || deref(ledger.VaultId) != target.VaultOCID ||
+		ledger.LifecycleState != keymanagement.KeyLifecycleStateEnabled || ledger.ProtectionMode != keymanagement.KeyProtectionModeHsm || ledger.KeyShape == nil ||
+		ledger.KeyShape.Algorithm != keymanagement.KeyShapeAlgorithmAes || ledger.KeyShape.Length == nil || *ledger.KeyShape.Length != 32 {
+		return nil, FoundationResolver{}, errors.Join(errors.New("initial ledger key is not enabled HSM AES-256 in the signed home escrow Vault and compartment"), err)
 	}
 	objects, err := home.ObjectStorage()
 	if err != nil {
