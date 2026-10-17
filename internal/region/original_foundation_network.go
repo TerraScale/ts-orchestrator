@@ -62,7 +62,7 @@ func provisionOriginalFoundationNetwork(ctx context.Context, authority *HomeIAMA
 	if err := retainOriginalFoundationNetwork(ctx, authority); err != nil {
 		return err
 	}
-	return ErrOriginalFoundationNetworkPending
+	return provisionOriginalFoundationVault(ctx, authority)
 }
 
 func retainOriginalFoundationNetwork(ctx context.Context, authority *HomeIAMAuthority) error {

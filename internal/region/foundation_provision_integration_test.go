@@ -284,7 +284,7 @@ func signProvisionFoundation(t *testing.T, prepared FoundationPreparation, chain
 		t.Fatal(err)
 	}
 	scope := trust.Scope{Domain: foundationGrantDomain, DeploymentID: prepared.Anchor.DeploymentID, Cell: string(prepared.Anchor.Cell), Environment: prepared.Anchor.Environment, Role: "foundation", Slot: prepared.Anchor.ClusterID}
-	grantEnvelope, err := trust.Sign(grantPayload, scope, now.Add(-time.Second), now.Add(20*time.Minute), root)
+	grantEnvelope, err := trust.Sign(grantPayload, scope, now.Add(-time.Second), now.Add(2*time.Hour), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +294,7 @@ func signProvisionFoundation(t *testing.T, prepared FoundationPreparation, chain
 	}
 	grantDigest := sha256.Sum256(grantWire)
 	prepared.Anchor.FoundationScope.GrantSHA256 = hex.EncodeToString(grantDigest[:])
-	anchorEnvelope, err := bootstrap.SignBootstrapAnchor(prepared.Anchor, now.Add(-time.Second), now.Add(20*time.Minute), root)
+	anchorEnvelope, err := bootstrap.SignBootstrapAnchor(prepared.Anchor, now.Add(-time.Second), now.Add(2*time.Hour), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -512,6 +512,10 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	startup, err := bootstrap.VerifyBoundStartupTemplate(t.Context(), factoryFor(), bundle.GrantWire, roots, anchor, time.Now())
 	if err != nil {
 		t.Fatalf("independent pinned GRU startup: %v", err)
+	}
+	founder := startup.Template().FounderResources
+	if founder == nil || founder.LaunchDeadline.After(startup.ExpiresAt()) || !founder.LaunchDeadline.Before(anchor.ExpiresAt()) {
+		t.Fatal("verified founder deadline exceeds its enclosing signing authority")
 	}
 	if startup.VaultTarget().VaultOCID != approval.SourceVaultTarget.VaultOCID || !bytes.Equal(startup.GrantWire(), bundle.GrantWire) {
 		t.Fatal("pinned startup lost original target or signed bytes")

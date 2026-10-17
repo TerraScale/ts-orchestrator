@@ -623,6 +623,49 @@ func TestReservationLedgerSurvivesPeriodicWritesThroughHomeCAS(t *testing.T) {
 		storedBudget.SetBy != monthly.SetBy || !storedBudget.SetAt.Equal(monthly.SetAt) {
 		t.Fatalf("restored monthly budget = %+v, found=%v, err=%v", storedBudget, found, err)
 	}
+
+	capacityDocument, err := concurrent.Document(ctx, globalcontrol.KindCapacity, protocol.GlobalScope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := ReadCapacity(ctx, &concurrent.Reader); err != nil || !found {
+		t.Fatalf("capacity baseline = found=%v, err=%v", found, err)
+	}
+	priorCapacityDocument := capacityDocument
+	for _, hostile := range []struct {
+		name    string
+		payload string
+	}{
+		{"not json", "{"},
+		{"fails validation", `{"schema":1}`},
+	} {
+		t.Run("capacity/"+hostile.name, func(t *testing.T) {
+			payload := []byte(hostile.payload)
+			if _, err := writer.PutDocument(ctx, epoch, globalcontrol.KindCapacity, protocol.GlobalScope, payload, nil); err != nil {
+				t.Fatalf("store %s capacity: %v", hostile.name, err)
+			}
+			document, err := concurrent.Document(ctx, globalcontrol.KindCapacity, protocol.GlobalScope)
+			if err != nil || !bytes.Equal(document.Payload, payload) ||
+				document.Generation <= priorCapacityDocument.Generation || document.Sequence <= priorCapacityDocument.Sequence {
+				t.Fatalf("stored %s capacity = %+v, err=%v; prior=%+v", hostile.name, document, err, priorCapacityDocument)
+			}
+			if _, _, err := ReadCapacity(ctx, &concurrent.Reader); !errors.Is(err, ErrInvalidCapacity) {
+				t.Fatalf("stored %s capacity error = %v, want ErrInvalidCapacity", hostile.name, err)
+			}
+			priorCapacityDocument = document
+		})
+	}
+	if _, err := writer.PutDocument(ctx, epoch, globalcontrol.KindCapacity, protocol.GlobalScope, capacityDocument.Payload, nil); err != nil {
+		t.Fatal(err)
+	}
+	restoredCapacityDocument, err := concurrent.Document(ctx, globalcontrol.KindCapacity, protocol.GlobalScope)
+	if err != nil || !bytes.Equal(restoredCapacityDocument.Payload, capacityDocument.Payload) ||
+		restoredCapacityDocument.Generation <= priorCapacityDocument.Generation || restoredCapacityDocument.Sequence <= priorCapacityDocument.Sequence {
+		t.Fatalf("restored capacity = %+v, err=%v; prior=%+v", restoredCapacityDocument, err, priorCapacityDocument)
+	}
+	if _, found, err := ReadCapacity(ctx, &concurrent.Reader); err != nil || !found {
+		t.Fatalf("restored capacity = found=%v, err=%v", found, err)
+	}
 }
 
 func reservationStoreHome(t *testing.T, ctx context.Context) (*globalcontrol.Writer, *globalcontrol.Writer, uint64) {

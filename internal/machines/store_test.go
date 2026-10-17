@@ -731,6 +731,95 @@ func TestStoreRefusesTamperedRecords(t *testing.T) {
 			}
 		}
 	}
+	{
+		stateful := testApp("store")
+		stateful.Config.Role = "store"
+		stateful.Config.Artifact, stateful.Config.Command = workloadspec.ArtifactTarball, []string{"bin/store"}
+		stateful.Config.Lifecycle = workloadspec.Lifecycle{PreStop: []string{"bin/store", "drain"}, DrainSeconds: 45}
+		stateful.Stateful = &workloadspec.Stateful{Quorum: 2}
+		stateful.Regions = map[string]int{"gru": 3, "fra": 0}
+		tenant := testApp("acme-web")
+		tenant.Class, tenant.Tenant = ClassTenant, "0000000000NY47MDQEXMPZDJR7"
+		tenant.Config.Artifact, tenant.Config.Image = workloadspec.ArtifactImage, "ghcr.io/acme/web"
+		tenant.Config.Command = []string{"web"}
+		tenant.Config.Lifecycle.PostStart = []string{"/bin/true"}
+		single := testApp("cache")
+		single.Stateful, single.Regions = &workloadspec.Stateful{}, map[string]int{"gru": 1}
+		inside := testApp("ts-auth")
+		inside.Config.Artifact, inside.Config.Command = workloadspec.ArtifactTarball, []string{"bin/ts-auth", "serve"}
+		inside.Config.Lifecycle.PreStop = []string{"bin/ts-auth", "drain"}
+		inside.Config.Checks = append(inside.Config.Checks, Check{Name: "self", Type: CheckExec, Command: []string{"bin/ts-auth", "check"}})
+		sidecar := testApp("ts-auth-canary")
+		sidecar.Config.Lifecycle.PreStop = []string{"/bin/true"}
+		sidecar.Config.Checks = testConfig().Checks
+		for name, candidate := range map[string]App{
+			"stateful": stateful, "tenant image": tenant, "single member": single,
+			"inside tarball": inside, "sidecar": sidecar,
+		} {
+			key, want := appKey(candidate.Name), encode(candidate)
+			if _, err := store.apps.Put(ctx, key, want); err != nil {
+				t.Fatal(err)
+			}
+			if stored, err := store.App(ctx, candidate.Name); err != nil || stored.Revision == 0 || string(encode(stored)) != string(want) {
+				t.Fatalf("valid %s workload read back = %+v, %v", name, stored, err)
+			}
+			apps, err := store.Apps(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, stored := range apps {
+				if stored.Name == candidate.Name && stored.ID == candidate.ID {
+					found = true
+					if stored.Revision == 0 || string(encode(stored)) != string(want) {
+						t.Fatalf("valid %s workload listed = %+v", name, stored)
+					}
+				}
+			}
+			if !found {
+				t.Fatalf("valid %s workload absent from list", name)
+			}
+			if err := store.apps.Purge(ctx, key); err != nil {
+				t.Fatal(err)
+			}
+			if candidate.Name == app.Name {
+				if _, err := store.apps.Put(ctx, appKey(app.Name), encode(app)); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		for name, mutate := range map[string]func(*App){
+			"spec":         func(a *App) { a.DependsOn = []string{a.Name} },
+			"machine spec": func(a *App) { a.Config.Files = []workloadspec.File{{Path: "/proc/self"}} },
+			"quorum":       func(a *App) { a.Stateful = &workloadspec.Stateful{Quorum: 3} },
+			"wide update":  func(a *App) { a.Stateful, a.Update.MaxUnavailable = &workloadspec.Stateful{Quorum: 2}, 2 },
+			"post-start":   func(a *App) { a.Config.Lifecycle.PostStart = []string{"/bin/true"} },
+			"pre-stop":     func(a *App) { a.Config.Lifecycle.PreStop = []string{"/bin/true"} },
+			"exec check":   func(a *App) { a.Config.Checks = testConfig().Checks },
+			"image command": func(a *App) {
+				a.Config.Artifact, a.Config.Image, a.Config.Command = workloadspec.ArtifactImage, "ghcr.io/acme/auth", []string{"sh"}
+			},
+		} {
+			candidate := testApp("ts-auth")
+			candidate.Config.Lifecycle = workloadspec.Lifecycle{}
+			mutate(&candidate)
+			key := appKey(candidate.Name)
+			if _, err := store.apps.Put(ctx, key, encode(candidate)); err != nil {
+				t.Fatal(err)
+			}
+			_, getErr := store.App(ctx, candidate.Name)
+			_, listErr := store.Apps(ctx)
+			if !errors.Is(getErr, ErrInvalid) || !errors.Is(listErr, ErrInvalid) {
+				t.Fatalf("workload %s: read = %v, list = %v", name, getErr, listErr)
+			}
+			if err := store.apps.Purge(ctx, key); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.apps.Put(ctx, appKey(app.Name), encode(app)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	// A tampered record cannot be the base of an update either.
 	revision, err := store.apps.Put(ctx, appKey("ts-auth"), encode(other))
 	if err != nil {

@@ -45,6 +45,7 @@ type OriginalFoundationCompartmentRegion struct {
 	ProducerIntentSHA256 string                           `json:"producerIntentSha256"`
 	Compartments         [2]OriginalFoundationCompartment `json:"compartments"`
 	Network              *OriginalFoundationNetwork       `json:"network,omitempty"`
+	Vault                *OriginalFoundationVault         `json:"vault,omitempty"`
 }
 
 type OriginalFoundationCompartment struct {
@@ -421,6 +422,7 @@ func checkpointOriginalCompartments(ctx context.Context, authority *HomeIAMAutho
 func (scope OriginalFoundationCompartments) scopeOnly() OriginalFoundationCompartments {
 	for region := range scope.Regions {
 		scope.Regions[region].Network = nil
+		scope.Regions[region].Vault = nil
 		for role := range scope.Regions[region].Compartments {
 			entry := &scope.Regions[region].Compartments[role]
 			entry.Pending, entry.Provenance = nil, nil
@@ -492,7 +494,10 @@ func (r FoundationRecord) validateOriginalFoundationCompartments() error {
 			}
 		}
 	}
-	return r.validateOriginalFoundationNetwork()
+	if err := r.validateOriginalFoundationNetwork(); err != nil {
+		return err
+	}
+	return r.validateOriginalFoundationVault()
 }
 
 func (next FoundationRecord) retainOriginalFoundationCompartments(previous FoundationRecord) error {
@@ -501,7 +506,7 @@ func (next FoundationRecord) retainOriginalFoundationCompartments(previous Found
 		if current != nil && (previous.Stage != "material" || !previous.netBirdMaterialOnly() || previous.NetBirdMaterial == nil || !previous.NetBirdMaterial.Complete) {
 			return ErrOriginalSourceProducerHold
 		}
-		return nil
+		return next.retainOriginalFoundationVault(previous)
 	}
 	if current == nil || !sameOriginalSourceValue(old.scopeOnly(), current.scopeOnly()) {
 		return ErrOriginalSourceProducerHold
@@ -518,5 +523,8 @@ func (next FoundationRecord) retainOriginalFoundationCompartments(previous Found
 			}
 		}
 	}
-	return next.retainOriginalFoundationNetwork(previous)
+	if err := next.retainOriginalFoundationNetwork(previous); err != nil {
+		return err
+	}
+	return next.retainOriginalFoundationVault(previous)
 }

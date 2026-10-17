@@ -72,13 +72,27 @@ func newOriginalNetworkSDKFixture(t *testing.T, fault string) *originalNetworkSD
 
 func (f *originalNetworkSDKFixture) run(t *testing.T) error {
 	t.Helper()
-	return provisionOriginalFoundationCompartments(t.Context(), f.factoryFor(), f.roots, f.bundle)
+	stage, err := provisionFoundationMaterial(t.Context(), f.factoryFor(), f.roots, f.bundle)
+	if err != nil {
+		return err
+	}
+	defer stage.cancel()
+	ctx, release, err := stage.authority.HomeWrite(stage.ctx, 0)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if err := retainOriginalFoundationCompartments(ctx, stage.authority); err != nil {
+		return err
+	}
+	return retainOriginalFoundationNetwork(ctx, stage.authority)
 }
 
 func originalNetworkUpstream(record FoundationRecord) ([]byte, error) {
 	section := *record.OriginalFoundationCompartments
 	for index := range section.Regions {
 		section.Regions[index].Network = nil
+		section.Regions[index].Vault = nil
 	}
 	return json.Marshal(struct {
 		Material     *NetBirdMaterialJournal
@@ -566,8 +580,8 @@ func (f *originalNetworkSDKFixture) assertNetworkState(t *testing.T, complete bo
 func TestOriginalFoundationNetworkSDK(t *testing.T) {
 	t.Run("eighteen exact private creates and three acknowledged rule sends", func(t *testing.T) {
 		f := newOriginalNetworkSDKFixture(t, "")
-		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationNetworkPending) {
-			t.Fatalf("automatic original path did not retain final actor/startup HOLD: %v", err)
+		if err := f.run(t); err != nil {
+			t.Fatalf("original network component did not retain complete prerequisites: %v", err)
 		}
 		creates, sends := f.effects()
 		if len(creates) != 18 || sends != 3 || f.cloud.creates != 23 || len(f.dispatches()) != 5 {
@@ -584,7 +598,7 @@ func TestOriginalFoundationNetworkSDK(t *testing.T) {
 		f.assertNetworkState(t, true)
 		before := f.wire(t)
 		materialPosts := f.cloud.materialPosts
-		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationNetworkPending) {
+		if err := f.run(t); err != nil {
 			t.Fatal(err)
 		}
 		after, ruleSends := f.effects()
@@ -613,7 +627,7 @@ func TestOriginalFoundationNetworkSDK(t *testing.T) {
 					f.cloud.rows[entry.Provenance.ResourceID]["lifecycleState"] = "AVAILABLE"
 					f.cloud.mu.Unlock()
 				}
-				if err := f.run(t); !errors.Is(err, ErrOriginalFoundationNetworkPending) {
+				if err := f.run(t); err != nil {
 					t.Fatalf("retained exact create did not resume: %v", err)
 				}
 				after, sends := f.effects()
@@ -792,7 +806,7 @@ func TestOriginalFoundationNetworkSDK(t *testing.T) {
 						t.Fatal("storage acknowledgment loss did not stop the invocation in HOLD before rule list")
 					}
 				}
-				if err := f.run(t); !errors.Is(err, ErrOriginalFoundationNetworkPending) {
+				if err := f.run(t); err != nil {
 					t.Fatalf("durable complete response did not recover read-only: %v", err)
 				}
 				creates, sends := f.effects()
@@ -808,7 +822,7 @@ func TestOriginalFoundationNetworkSDK(t *testing.T) {
 		for _, fault := range []string{"extra listed rule", "missing listed rule", "duplicate listed IDs", "invalid listed rule", "listed semantic drift"} {
 			t.Run(fault, func(t *testing.T) {
 				f := newOriginalNetworkSDKFixture(t, fault)
-				if err := f.run(t); err == nil || errors.Is(err, ErrOriginalFoundationNetworkPending) {
+				if err := f.run(t); err == nil {
 					t.Fatalf("inexact complete rule-ID/semantic readback acquired actor-boundary progress: %v", err)
 				}
 				if err := f.run(t); err == nil {
@@ -824,7 +838,7 @@ func TestOriginalFoundationNetworkSDK(t *testing.T) {
 		for _, drift := range []string{"missing accepted VCN", "wrong VCN compartment", "blocked service gateway", "public subnet", "wrong user", "wrong tenancy", "expired original"} {
 			t.Run(drift, func(t *testing.T) {
 				f := newOriginalNetworkSDKFixture(t, "")
-				if err := f.run(t); !errors.Is(err, ErrOriginalFoundationNetworkPending) {
+				if err := f.run(t); err != nil {
 					t.Fatal(err)
 				}
 				before := f.wire(t)
@@ -870,7 +884,7 @@ func TestOriginalFoundationNetworkSDK(t *testing.T) {
 
 	t.Run("protected CAS retains every network and once-send pin", func(t *testing.T) {
 		f := newOriginalNetworkSDKFixture(t, "")
-		if err := f.run(t); !errors.Is(err, ErrOriginalFoundationNetworkPending) {
+		if err := f.run(t); err != nil {
 			t.Fatal(err)
 		}
 		store := f.store(t)
