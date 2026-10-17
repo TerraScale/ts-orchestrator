@@ -150,8 +150,11 @@ func TestInstancePrincipalProtocolQueuedAcquisitionAndCachedRegion(t *testing.T)
 	go func() { _, err := InstancePrincipalContext(ctx, "sa-saopaulo-1"); slow <- err }()
 	fixture.wait("metadata")
 	queued, stop := context.WithCancel(t.Context())
+	defer stop()
+	queued, waiting := principalObserveQueuedWait(queued)
 	done := make(chan error, 1)
 	go func() { _, err := InstancePrincipalContext(queued, "sa-saopaulo-1"); done <- err }()
+	principalWaitForQueuedSelect(t, waiting)
 	stop()
 	if err := principalJoined(t, done); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
@@ -217,11 +220,14 @@ func TestInstancePrincipalProtocolFreshSigningAndRotatingRefresh(t *testing.T) {
 	fixture.wait("federation")
 	// A second real signing refresh must be cancellable while waiting for the first.
 	queued, stop := context.WithCancel(t.Context())
+	defer stop()
+	queued, waiting := principalObserveQueuedWait(queued)
 	queuedDone := make(chan error, 1)
 	go func() {
 		_, err := factory.Provider().(common.ContextKeyProvider).KeyIDContext(queued)
 		queuedDone <- err
 	}()
+	principalWaitForQueuedSelect(t, waiting)
 	stop()
 	if err := principalJoined(t, queuedDone); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
@@ -838,4 +844,28 @@ func verifyPrincipalSignature(r *http.Request, body []byte, key *rsa.PublicKey, 
 	}
 	hash := sha256.Sum256([]byte(strings.Join(canonical, "\n")))
 	return rsa.VerifyPKCS1v15(key, crypto.SHA256, hash[:], signature)
+}
+
+// Done delegates real cancellation and signals evaluation of the held lock's select.
+type principalQueuedContext struct {
+	context.Context
+	once    sync.Once
+	waiting chan struct{}
+}
+
+func principalObserveQueuedWait(ctx context.Context) (context.Context, <-chan struct{}) {
+	observed := &principalQueuedContext{Context: ctx, waiting: make(chan struct{})}
+	return observed, observed.waiting
+}
+func (ctx *principalQueuedContext) Done() <-chan struct{} {
+	ctx.once.Do(func() { close(ctx.waiting) })
+	return ctx.Context.Done()
+}
+func principalWaitForQueuedSelect(t *testing.T, waiting <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-waiting:
+	case <-time.After(10 * time.Second):
+		t.Fatal("queued caller never reached the cancellable lock select")
+	}
 }

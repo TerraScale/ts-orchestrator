@@ -47,7 +47,8 @@ The existing project `instance_principal_test.go` scenario now includes real
 local metadata HTTP and federation/Secrets TLS with generated RSA certificate
 rotation, verified request signatures and body hashes, and signed token bytes.
 It denies unexpected destinations, exercises header/body/backoff cancellation,
-queued acquisition/refresh, constructor-context release, shorter deadlines,
+queued acquisition/refresh (observed at the real held-lock select before cancel),
+constructor-context release, shorter deadlines,
 shared-factory convergence, local-source denial, tenancy change and key mismatch.
 `upstream-protocol-fixture.patch` extends the existing SDK certificate scenario
 with real stalled metadata body/queued refresh cancellation. The project fixture
