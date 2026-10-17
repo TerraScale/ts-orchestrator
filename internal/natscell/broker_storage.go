@@ -108,3 +108,11 @@ func parseBrokerStorageMarker(marker []byte, nodeSHA256 string) (time.Time, erro
 	}
 	return createdAt, nil
 }
+
+// RevalidateRuntime binds the observation to the exact live broker target.
+func (p VerifiedBrokerStorage) RevalidateRuntime(ctx context.Context, runtime *Runtime) error {
+	if runtime == nil || p.runtime != runtime {
+		return errors.New("broker observation belongs to a different runtime")
+	}
+	return p.Revalidate(ctx)
+}

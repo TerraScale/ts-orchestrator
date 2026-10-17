@@ -35,3 +35,21 @@ func TestBrokerStorageObservationRefusesMissingOriginalMarker(t *testing.T) {
 		t.Fatal("legacy runtime received original storage credit")
 	}
 }
+
+func TestBrokerProofRuntimeBindingRejectsZeroAndOtherTargets(t *testing.T) {
+	first, second := &Runtime{}, &Runtime{}
+	for _, target := range []*Runtime{nil, first, second} {
+		if err := (VerifiedBrokerGenesis{}).RevalidateRuntime(t.Context(), target); err == nil {
+			t.Fatal("zero genesis accepted runtime")
+		}
+		if err := (VerifiedBrokerStorage{}).RevalidateRuntime(t.Context(), target); err == nil {
+			t.Fatal("zero storage accepted runtime")
+		}
+	}
+	if err := (VerifiedBrokerGenesis{runtime: first}).RevalidateRuntime(t.Context(), second); err == nil {
+		t.Fatal("genesis accepted other target")
+	}
+	if err := (VerifiedBrokerStorage{runtime: first}).RevalidateRuntime(t.Context(), second); err == nil {
+		t.Fatal("storage accepted other target")
+	}
+}
