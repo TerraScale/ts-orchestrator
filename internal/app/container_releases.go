@@ -45,6 +45,7 @@ func (r *serviceReleases) containerPass(ctx context.Context, kv jetstream.KeyVal
 		return containermaterial.ErrPending
 	}
 	rootHead, roots := registry.roots.reply("").Head, registry.roots.current()
+	historicalRoots := registry.roots.historical()
 	spec, err := cellspec.VerifyHistorical(entry.Value(), roots, registry.identity)
 	if err != nil || !spec.RootSigned {
 		return errors.Join(containermaterial.ErrPending, err)
@@ -95,12 +96,23 @@ func (r *serviceReleases) containerPass(ctx context.Context, kv jetstream.KeyVal
 		previousFingerprint, _ = state.Intent.Fingerprint()
 	}
 	previousActor := state.Actor
+	var originalProfile containermaterial.Profile
+	var originalRelease release.HistoricalContainer
+	var originalGuard func(context.Context) error
 	if observation.Floor.Found {
-		original, err := r.deliveries.ContainerIntent(ctx, observation.Floor.OperationID)
+		// A floor locates archival provenance; its original actor grants no current rights.
+		if r.history == nil {
+			return containermaterial.ErrPending
+		}
+		original, reference, err := r.deliveries.ContainerProvenance(ctx, observation.Floor.OperationID)
+		if err != nil || original.Container == nil {
+			return errors.Join(containermaterial.ErrPending, err)
+		}
+		originalWire, err := r.history.ReadContainerProfile(ctx, reference)
 		if err != nil {
 			return err
 		}
-		prior, err := release.VerifyContainerHistorical(*original.Container, roots, target)
+		prior, err := release.VerifyContainerHistorical(*original.Container, historicalRoots, target)
 		if err != nil {
 			return err
 		}
@@ -108,7 +120,7 @@ func (r *serviceReleases) containerPass(ctx context.Context, kv jetstream.KeyVal
 		if original.Cell != r.cell || original.Role != role || original.Environment != r.environment || original.Generation != floor.Generation || prior.Claim().ReleaseSequence != floor.ReleaseSequence || prior.ReleaseIdentity() != floor.ReleaseIdentity {
 			return containermaterial.ErrPending
 		}
-		profile, err := containermaterial.VerifyProfile(entry.Value(), roots, registry.identity, original)
+		profile, err := containermaterial.VerifyProfile(originalWire, historicalRoots, registry.identity, original)
 		if err != nil {
 			return err
 		}
@@ -120,10 +132,30 @@ func (r *serviceReleases) containerPass(ctx context.Context, kv jetstream.KeyVal
 		if err != nil || originalSHA256 != floor.IntentSHA256 {
 			return errors.Join(containermaterial.ErrPending, err)
 		}
+		originalProfile, originalRelease = profile, prior
+		originalFingerprint, err := original.Fingerprint()
+		if err != nil {
+			return err
+		}
+		originalGuard = func(ctx context.Context) error {
+			retained, currentReference, err := r.deliveries.ContainerProvenance(ctx, original.OperationID)
+			if err != nil || currentReference != reference {
+				return errors.Join(containermaterial.ErrPending, err)
+			}
+			fingerprint, err := retained.Fingerprint()
+			if err != nil || fingerprint != originalFingerprint {
+				return errors.Join(containermaterial.ErrPending, err)
+			}
+			currentWire, err := r.history.ReadContainerProfile(ctx, reference)
+			if err != nil || !bytes.Equal(originalWire, currentWire) {
+				return errors.Join(containermaterial.ErrPending, err)
+			}
+			return ctx.Err()
+		}
 		if state.Intent == nil || state.Intent.Container == nil || state.Intent.Generation < floor.Generation {
 			state.Intent = new(original)
 		} else {
-			retained, err := release.VerifyContainerHistorical(*state.Intent.Container, roots, target)
+			retained, err := release.VerifyContainerHistorical(*state.Intent.Container, historicalRoots, target)
 			if err != nil {
 				return err
 			}
@@ -135,14 +167,40 @@ func (r *serviceReleases) containerPass(ctx context.Context, kv jetstream.KeyVal
 			}
 		}
 	}
-	intent, err := containerChannelIntent(state, observation, verified, *selected, r.cell, epoch, roots)
+	intent, err := containerChannelIntent(state, observation, verified, *selected, r.cell, epoch, historicalRoots)
+	if errors.Is(err, containermaterial.ErrPending) && observation.Floor.Found {
+		intent, err = containerChannelRenewal(state, observation, originalProfile, originalRelease, verified, entry.Value(), roots, epoch)
+	}
 	if err != nil {
 		return err
 	}
 	if _, err := containermaterial.VerifyProfile(entry.Value(), roots, registry.identity, intent); err != nil {
 		return err
 	}
+	selectorGuard := func() error {
+		// Leader revisions pin the exact immutable record bytes, including our own CAS.
+		_, currentRevision, err := r.load(ctx, key)
+		if err != nil || currentRevision != revision {
+			return errors.Join(containermaterial.ErrPending, err)
+		}
+		return ctx.Err()
+	}
 	guard := func() error {
+		if err := selectorGuard(); err != nil {
+			return err
+		}
+		if originalGuard != nil {
+			if err := originalGuard(ctx); err != nil {
+				return err
+			}
+		}
+		currentObservation, err := r.channel.readContainerRelease(ctx, role, target.Architecture)
+		if err != nil || !currentObservation.Found || currentObservation.BundleSHA256 != observation.BundleSHA256 || currentObservation.Fingerprint != observation.Fingerprint || currentObservation.Floor == nil || *currentObservation.Floor != *observation.Floor {
+			return errors.Join(containermaterial.ErrPending, err)
+		}
+		if err := selectorGuard(); err != nil {
+			return err
+		}
 		latest, err := registry.kv.Get(ctx, cellSpecKey)
 		if err != nil {
 			return err
@@ -160,7 +218,19 @@ func (r *serviceReleases) containerPass(ctx context.Context, kv jetstream.KeyVal
 		if err := r.policy.authorizeIntent(ctx, signer.Actor, intent); err != nil {
 			return err
 		}
-		return r.fencer.Guard(ctx, epoch)
+		if err := r.fencer.Guard(ctx, epoch); err != nil {
+			return err
+		}
+		if err := selectorGuard(); err != nil {
+			return err
+		}
+		registry.mu.Lock()
+		current = registry.revision
+		registry.mu.Unlock()
+		if current != adopted || registry.roots.reply("").Head != rootHead || !time.Now().Before(observation.ExpiresAt) {
+			return containermaterial.ErrPending
+		}
+		return ctx.Err()
 	}
 	if err := guard(); err != nil {
 		return err
@@ -182,6 +252,9 @@ func (r *serviceReleases) containerPass(ctx context.Context, kv jetstream.KeyVal
 	}
 	receipt, err := r.deliveries.StatusFor(ctx, intent)
 	if errors.Is(err, delivery.ErrPending) {
+		if err := guard(); err != nil {
+			return err
+		}
 		return r.deliveries.SubmitVerified(ctx, intent, signer.Actor)
 	}
 	if err != nil {
@@ -203,15 +276,45 @@ func (r *serviceReleases) containerPass(ctx context.Context, kv jetstream.KeyVal
 		status.Status.Image != claim.Image || status.Status.ReleaseSequence != claim.ReleaseSequence || status.Status.Fingerprint != observation.Fingerprint || status.Status.State != releasechannel.StateComplete {
 		return containermaterial.ErrPending
 	}
-	if state.State == releasechannel.StateComplete {
-		return nil
-	}
 	if err := guard(); err != nil {
 		return err
+	}
+	if state.State == releasechannel.StateComplete {
+		return nil
 	}
 	state.State, state.Reason = releasechannel.StateComplete, "signed container service is application-ready"
 	_, err = r.save(ctx, kv, key, state, revision, epoch)
 	return err
+}
+
+// containerChannelRenewal proposes proof renewal; current execution is reauthorized by the broker and root consumers.
+func containerChannelRenewal(state serviceReleaseState, observation rootoci.ContainerReleaseObservation, original containermaterial.Profile, historical, renewed release.HistoricalContainer, currentSpec []byte, roots trust.Keyring, epoch uint64) (delivery.Intent, error) {
+	previous, floor := state.Intent, observation.Floor
+	originalIntent := original.Intent()
+	if previous == nil || previous.Container == nil || previous.Validate() != nil || floor == nil || !floor.Found ||
+		state.Preparation != nil || state.Rollback != nil || state.State != releasechannel.StateRolling && state.State != releasechannel.StateComplete ||
+		previous.Generation != floor.Generation || originalIntent.OperationID != floor.OperationID || originalIntent.Generation != floor.Generation ||
+		historical.ReleaseIdentity() != floor.ReleaseIdentity || historical.Claim().ReleaseSequence != floor.ReleaseSequence {
+		return delivery.Intent{}, containermaterial.ErrPending
+	}
+	previousBundle, err := release.ContainerBundleSHA256(*previous.Container)
+	if err != nil || renewed.BundleSHA256() != observation.BundleSHA256 || renewed.Fingerprint() != observation.Fingerprint ||
+		previousBundle == observation.BundleSHA256 && previous.AuthorityEpoch == epoch {
+		return delivery.Intent{}, errors.Join(containermaterial.ErrPending, err)
+	}
+	intent := previous.Clone()
+	intent.AuthorityEpoch = epoch
+	intent.Container = new(observation.Bundle)
+	intent.OperationID = entityid.Derive("container-channel-renewal", floor.OperationID, intent.Cell, intent.Role,
+		observation.BundleSHA256, intent.ConfigDigest, strconv.FormatUint(epoch, 10), strconv.FormatUint(intent.Generation, 10))
+	current, err := containermaterial.VerifyProfile(currentSpec, roots, original.Identity(), intent)
+	if err != nil {
+		return delivery.Intent{}, err
+	}
+	if err := containermaterial.VerifyHistoricalContinuity(original, historical, current, renewed); err != nil {
+		return delivery.Intent{}, err
+	}
+	return intent, nil
 }
 
 func containerChannelIntent(state serviceReleaseState, observation rootoci.ContainerReleaseObservation, verified release.HistoricalContainer, service cellspec.Service, cell string, epoch uint64, roots trust.Keyring) (delivery.Intent, error) {

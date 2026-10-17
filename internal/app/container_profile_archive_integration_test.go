@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json/v2"
 	"errors"
+	"maps"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +21,8 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
+	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/workload"
 	"github.com/nats-io/nats.go/jetstream"
@@ -69,21 +72,78 @@ func TestContainerOriginalProfileArchiveBrokerIntegration(t *testing.T) {
 		return wire
 	}
 	originalSpec := signSpec(1, profile)
-	now := time.Now().UTC().Add(-time.Second)
-	claim := release.ContainerClaim{Schema: release.ContainerClaimSchema, Image: "registry.example/terrascale/auth@sha256:" + strings.Repeat("a", 64), SourceRepository: "https://github.com/TerraScale/ts-auth", SourceRevision: strings.Repeat("b", 40), SourceTreeSHA256: strings.Repeat("c", 64), Cell: "GRU", Environment: identity.Environment, Role: policy.Role, Architecture: "arm64", ReleaseSequence: 101, SequenceMigrationSHA256: strings.Repeat("d", 64), QualificationSHA256: strings.Repeat("e", 64)}
-	payload, err := json.Marshal(claim)
+	releaseSigner := newFunctionPublicationSigner(t)
+	target := release.ContainerTarget{Cell: "GRU", Environment: identity.Environment, Role: policy.Role, Architecture: "arm64"}
+	var floors []release.SequenceFloor
+	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+		floors = append(floors, release.SequenceFloor{Cell: cell, IssuedAt: time.Now().UTC().Add(-time.Hour), EvidenceSHA256: strings.Repeat("d", 64)})
+	}
+	currentBundle, _ := genericRuntimeContainerRelease(t, releaseSigner, target, floors, 101, nil)
+	originalBundle := currentBundle
+	resign := func(wire []byte, issued, expires time.Time, key ed25519.PrivateKey) []byte {
+		t.Helper()
+		envelope, err := trust.DecodeEnvelope(wire)
+		if err != nil {
+			t.Fatal(err)
+		}
+		envelope, err = trust.Sign(envelope.Payload, envelope.Scope, issued, expires, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := trust.EncodeEnvelope(envelope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	originalBundle.Delegation = resign(currentBundle.Delegation, now.Add(-4*time.Hour), now.Add(-time.Hour), releaseSigner.root)
+	claimEnvelope, err := trust.DecodeEnvelope(currentBundle.Claim)
 	if err != nil {
 		t.Fatal(err)
 	}
-	envelope, err := trust.Sign(payload, release.ContainerScope(release.ContainerTarget{Cell: claim.Cell, Environment: identity.Environment, Role: policy.Role, Architecture: claim.Architecture}), now, now.Add(time.Hour), keys.leaf)
+	var expiredClaim release.ContainerClaim
+	if err := json.Unmarshal(claimEnvelope.Payload, &expiredClaim); err != nil {
+		t.Fatal(err)
+	}
+	qualificationEnvelope, err := trust.DecodeEnvelope(expiredClaim.Production.Qualification)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire, err := trust.EncodeEnvelope(envelope)
+	var qualification release.ProductionQualification
+	if err := json.Unmarshal(qualificationEnvelope.Payload, &qualification); err != nil {
+		t.Fatal(err)
+	}
+	for i := range qualification.Evidence {
+		qualification.Evidence[i].CompletedAt = now.Add(-3 * time.Hour)
+	}
+	signExpired := func(value any, scope trust.Scope, key ed25519.PrivateKey) []byte {
+		t.Helper()
+		payload, err := trust.EncodePayload(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		envelope, err := trust.Sign(payload, scope, now.Add(-3*time.Hour), now.Add(-2*time.Hour), key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wire, err := trust.EncodeEnvelope(envelope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return wire
+	}
+	expiredClaim.Production.Qualification = signExpired(qualification, qualificationEnvelope.Scope, releaseSigner.root)
+	originalBundle.Claim = signExpired(expiredClaim, claimEnvelope.Scope, releaseSigner.leaf)
+	historical, err := release.VerifyContainerHistorical(originalBundle, releaseSigner.roots, target)
 	if err != nil {
 		t.Fatal(err)
 	}
-	intent := delivery.Intent{SchemaVersion: delivery.SchemaVersion, OperationID: entityid.New(), Source: delivery.ArtifactSource{Repository: claim.SourceRepository, Commit: claim.SourceRevision, TreeDigest: claim.SourceTreeSHA256}, Cell: identity.Cell, Role: policy.Role, Environment: identity.Environment, Generation: 1, DesiredReplicas: 1, ConfigDigest: delivery.ConfigDigestOf(profile.Args, profile.Env, profile.Secrets), AuthorityEpoch: control.Current().Epoch, Container: &release.ContainerBundle{Claim: wire}}
+	if _, err := release.VerifyProductionCurrent(expiredClaim.Production.Qualification, expiredClaim.Production.Delegation, releaseSigner.roots, qualification.Candidate, now); err == nil {
+		t.Fatal("original expired production qualification became current authority")
+	}
+	claim := historical.Claim()
+	intent := delivery.Intent{SchemaVersion: delivery.SchemaVersion, OperationID: entityid.New(), Source: delivery.ArtifactSource{Repository: claim.SourceRepository, Commit: claim.SourceRevision, TreeDigest: claim.SourceTreeSHA256}, Cell: identity.Cell, Role: policy.Role, Environment: identity.Environment, Generation: 1, DesiredReplicas: 1, ConfigDigest: delivery.ConfigDigestOf(profile.Args, profile.Env, profile.Secrets), AuthorityEpoch: control.Current().Epoch, Container: &originalBundle}
 	keyID, err := protocol.KeyID(keys.leaf.Public().(ed25519.PublicKey))
 	if err != nil {
 		t.Fatal(err)
@@ -203,6 +263,133 @@ func TestContainerOriginalProfileArchiveBrokerIntegration(t *testing.T) {
 	}
 	if _, err := selectContainerIntent(ctx, js, recovered, intent.OperationID); !errors.Is(err, delivery.ErrUnauthorized) {
 		t.Fatal("channel selector admitted held original provenance", err)
+	}
+	historicalRoots := maps.Clone(releaseSigner.roots)
+	for id, key := range keys.roots {
+		historicalRoots[id] = key
+	}
+	originalProof, err := containermaterial.VerifyProfile(original, historicalRoots, identity, retained)
+	if err != nil {
+		t.Fatal("actual protected archive lost its original profile", err)
+	}
+	if _, err := containermaterial.VerifyProfile(original, releaseSigner.roots, identity, retained); err == nil {
+		t.Fatal("retired original profile signer became current authority")
+	}
+	workloadIntent, err := containermaterial.ServiceIntent(originalProof, target.Architecture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	floorSHA, err := swarmruntime.HistoricalServiceIntentSHA256(workloadIntent, historical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentSpec, err := cellspec.Sign(cellspec.Spec{Schema: cellspec.Schema, Identity: identity, Generation: 8, RequiresBinary: cellspec.BinaryLevel,
+		Services: []cellspec.Service{{Role: policy.Role, Profile: profile, Spec: &policy}}}, nil, releaseSigner.roots, now, time.Hour, releaseSigner.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewed, err := release.VerifyContainerHistorical(currentBundle, releaseSigner.roots, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleSHA, err := release.ContainerBundleSHA256(currentBundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation := rootoci.ContainerReleaseObservation{Found: true, Bundle: currentBundle, BundleSHA256: bundleSHA, Fingerprint: renewed.Fingerprint(), ExpiresAt: now.Add(time.Minute),
+		Floor: &rootoci.ContainerReleaseFloor{Found: true, OperationID: retained.OperationID, Generation: retained.Generation, ReleaseSequence: claim.ReleaseSequence, ReleaseIdentity: historical.ReleaseIdentity(), IntentSHA256: floorSHA}}
+	state := serviceReleaseState{Intent: new(retained.Clone()), State: releasechannel.StateRolling, Previous: "retained-native-baseline", Retained: []string{"retained-native-baseline"}}
+	proposal, err := containerChannelRenewal(state, observation, originalProof, historical, renewed, currentSpec, releaseSigner.roots, retained.AuthorityEpoch+1)
+	if err != nil || proposal.Generation != retained.Generation || proposal.OperationID == retained.OperationID || proposal.DesiredReplicas != retained.DesiredReplicas || state.Previous != "retained-native-baseline" || len(state.Retained) != 1 {
+		t.Fatal("archived proof renewal reset original generation or rollback baseline", err)
+	}
+	candidate, err := containermaterial.VerifyProfile(currentSpec, releaseSigner.roots, identity, proposal)
+	if err != nil || containermaterial.VerifyHistoricalContinuity(originalProof, historical, candidate, renewed) != nil {
+		t.Fatal("protected archive did not cross full shared historical continuity", err)
+	}
+	swapped := originalBundle
+	swapped.Delegation = resign(originalBundle.Delegation, now.Add(-4*time.Hour), now.Add(-30*time.Minute), releaseSigner.root)
+	swappedHistorical, err := release.VerifyContainerHistorical(swapped, historicalRoots, target)
+	if err != nil || swappedHistorical.Fingerprint() != historical.Fingerprint() || swappedHistorical.BundleSHA256() == historical.BundleSHA256() {
+		t.Fatal("full-bundle substitution did not retain the genuine original claim", err)
+	}
+	swappedIntent := retained.Clone()
+	swappedIntent.Container = &swapped
+	swappedProfile, err := containermaterial.VerifyProfile(original, historicalRoots, identity, swappedIntent)
+	if err != nil || containermaterial.VerifyHistoricalContinuity(swappedProfile, historical, candidate, renewed) == nil {
+		t.Fatal("shared continuity lost the protected original's exact full bundle", err)
+	}
+	newSequence := currentBundle
+	newClaim := renewed.Claim()
+	newClaim.ReleaseSequence++
+	newClaimWire, err := trust.EncodePayload(newClaim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newEnvelope, err := trust.Sign(newClaimWire, claimEnvelope.Scope, now, now.Add(time.Hour), releaseSigner.leaf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newSequence.Claim, err = trust.EncodeEnvelope(newEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reservation struct {
+		Schema      string                   `json:"schema"`
+		Sequence    uint64                   `json:"sequence"`
+		Identity    release.SequenceIdentity `json:"identity"`
+		Migration   trust.Envelope           `json:"migration"`
+		Reservation trust.Envelope           `json:"reservation"`
+	}
+	if err := protocol.DecodeStrict(currentBundle.Sequence, &reservation, trust.MaxPayloadBytes); err != nil {
+		t.Fatal(err)
+	}
+	reservation.Sequence = newClaim.ReleaseSequence
+	reservationPayload, err := trust.EncodePayload(struct {
+		Sequence uint64                   `json:"sequence"`
+		Identity release.SequenceIdentity `json:"identity"`
+	}{reservation.Sequence, reservation.Identity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reservation.Reservation, err = trust.Sign(reservationPayload, reservation.Reservation.Scope, now, now.Add(time.Hour), releaseSigner.leaf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newSequence.Sequence, err = protocol.EncodeJSON(reservation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newHistorical, err := release.VerifyContainerHistorical(newSequence, releaseSigner.roots, target)
+	if err != nil || newHistorical.ReleaseIdentity() != renewed.ReleaseIdentity() {
+		t.Fatal("new sequence did not retain the same genuine immutable content identity", err)
+	}
+	newIntent := proposal.Clone()
+	newIntent.Container = &newSequence
+	newProfile, err := containermaterial.VerifyProfile(currentSpec, releaseSigner.roots, identity, newIntent)
+	if err != nil || containermaterial.VerifyHistoricalContinuity(originalProof, historical, newProfile, newHistorical) == nil {
+		t.Fatal("equal content identity admitted a different release sequence at the original generation", err)
+	}
+	state.Intent = new(proposal.Clone())
+	retried, err := containerChannelIntent(state, observation, renewed, cellspec.Service{Role: policy.Role, Profile: profile, Spec: &policy}, identity.Cell, proposal.AuthorityEpoch, historicalRoots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := proposal.Fingerprint()
+	after, _ := retried.Fingerprint()
+	if before != after {
+		t.Fatal("rolling renewal retry changed its exact deterministic operation")
+	}
+	drifted := cloneNativeProfile(profile)
+	drifted.Resources.CPU++
+	driftSpec, err := cellspec.Sign(cellspec.Spec{Schema: cellspec.Schema, Identity: identity, Generation: 9, RequiresBinary: cellspec.BinaryLevel,
+		Services: []cellspec.Service{{Role: policy.Role, Profile: drifted, Spec: &policy}}}, nil, releaseSigner.roots, now, time.Hour, releaseSigner.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Intent = new(retained.Clone())
+	if _, err := containerChannelRenewal(state, observation, originalProof, historical, renewed, driftSpec, releaseSigner.roots, proposal.AuthorityEpoch); !errors.Is(err, containermaterial.ErrPending) {
+		t.Fatal("same-generation renewal accepted original resource policy drift", err)
 	}
 	if _, err := archiveKV.Get(ctx, policy.Role); !errors.Is(err, jetstream.ErrKeyNotFound) {
 		t.Fatal("container archive created native role history", err)
