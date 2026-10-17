@@ -55,7 +55,14 @@ func TestMain(m *testing.M) {
 			clock := &fixedControllerClock{bound: brokerauth.ClockBound{SampledAt: time.Now(), MaxError: time.Millisecond}}
 			controllerBrokerClockProbe = func() brokerauth.ClockProbe { return clock }
 		}
-		err := Run(context.Background(), os.Args[1:], output)
+		var err error
+		handled := false
+		if command == runtimeControllerHostSourceCommand {
+			handled, err = runSDKFixtureControllerHostSource(context.Background(), os.Args[2:], os.Stdin, output)
+		}
+		if !handled {
+			err = Run(context.Background(), os.Args[1:], output)
+		}
 		if command == "bootstrap-admit-restart" {
 			_ = os.WriteFile(hiddenAdmissionPath(os.Getppid()), []byte(fmt.Sprint(err)), 0o600)
 		}

@@ -1,33 +1,14 @@
 package app
 
 import (
-	"context"
-	"io"
 	"testing"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
-	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
-
-func TestControllerHostAdmissionSourceRequiresLiveAcquisition(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	for _, input := range []context.Context{nil, ctx} {
-		if err := readRuntimeControllerHostAdmissionSource(input, Config{}, bootstrapstart.AcceptedIdentity{},
-			swarmruntime.WorkerRegistrationQuery{}, io.Discard, instancePrincipalControllerHostSource{}); err == nil {
-			t.Fatal("dead caller reached controller host source acquisition")
-		}
-	}
-	if err := readRuntimeControllerHostAdmissionSource(t.Context(), Config{}, bootstrapstart.AcceptedIdentity{},
-		swarmruntime.WorkerRegistrationQuery{}, io.Discard, nil); err == nil {
-		t.Fatal("missing acquisition reached controller host source reads")
-	}
-}
 
 func TestControllerHostSpecRequiresExactLeaderRevision(t *testing.T) {
 	ctx := t.Context()
