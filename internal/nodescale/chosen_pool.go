@@ -119,15 +119,18 @@ func (pool *ChosenPool) Grow(ctx context.Context, from int) error {
 	if from < 0 || from >= MaxPoolNodes || record.From != from || record.TargetFrom == nil || record.Child == nil {
 		return fmt.Errorf("%w: exact original root birth is not durable", ErrCapacityPending)
 	}
-	current, err := pool.PrepareGrowth(ctx, record)
+	original := *record.Child
+	if record.Action == nil || record.Action.Kind != Up || !entityid.Valid(record.Action.ID) || record.Recipe == nil || record.Reservation == nil || record.Recipe.Validate() != nil || record.Recipe.Cell != pool.observed.cell ||
+		record.Reservation.OperationID != record.Action.ID || record.Reservation.RecipeSHA256 != record.Recipe.SHA256() {
+		return fmt.Errorf("%w: exact original birth and reservation are not durable", ErrCapacityPending)
+	}
+	bundle, err := hostenroll.ParsePublicBundle([]byte(record.Recipe.Metadata[hostboot.EnrollmentMetadataKey]))
 	if err != nil {
 		return err
 	}
-	original := *record.Child
-	if original.Cell != current.Cell || original.OperationID != current.OperationID || original.ReservationID != current.ReservationID || original.RecipeSHA256 != current.RecipeSHA256 || !bytes.Equal(original.PublicCAPEM, current.PublicCAPEM) || !slices.Equal(original.AvailabilityDomains, current.AvailabilityDomains) {
+	if original.Cell != strings.ToUpper(pool.observed.cell) || original.OperationID != record.Action.ID || original.ReservationID != record.Reservation.OperationID || original.RecipeSHA256 != record.Recipe.SHA256() || !bytes.Equal(original.PublicCAPEM, []byte(bundle.CAPEM)) || !slices.Equal(original.AvailabilityDomains, record.Recipe.AvailabilityDomains) {
 		return errors.New("durable root birth differs from its original recipe and reservation")
 	}
-	original.GrantSHA256, original.Generation, original.Epoch = current.GrantSHA256, current.Generation, current.Epoch
 	view, err := pool.root.AdvancePoolChild(ctx, original)
 	if err != nil {
 		return errors.Join(ErrCapacityPending, err)
