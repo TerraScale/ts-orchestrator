@@ -192,6 +192,9 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 			if mode == "missing-publication" && strings.Contains(name, "/current/") {
 				found = false
 			}
+			if mode == "missing-recorded-manifest" && strings.Contains(name, "/manifests/") {
+				found = false
+			}
 			if !found {
 				w.WriteHeader(404)
 				_, _ = w.Write([]byte(`{"code":"ObjectNotFound","message":"local fixture"}`))
@@ -207,11 +210,13 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 			if mode == "late-publication" {
 				modified = a.ImageTransferUntil
 			}
+			if mode == "publication-at-deadline-second" {
+				modified = a.ImageTransferUntil.Add(-time.Second)
+			}
 			if mode == "future-publication" {
 				modified = now.Add(time.Minute)
 			}
-			if mode == "missing-timestamp" {
-			} else {
+			if mode != "missing-timestamp" {
 				w.Header().Set("Last-Modified", modified.Format(http.TimeFormat))
 			}
 			_, _ = w.Write(body)
@@ -288,7 +293,13 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 	if recoveredTransfer, err := c.observeImageTransfer(t.Context(), observer, recovered); err != nil || recoveredTransfer.manifestSHA256 != transfer.manifestSHA256 {
 		t.Fatalf("restart lost exact earlier publication after locator/proof expiry: %+v %v", recoveredTransfer, err)
 	}
-	for _, scenario := range []string{"missing-publication", "changed-manifest", "changed-evidence", "other-compartment", "other-image-bytes", "late-publication", "future-publication", "missing-timestamp", "deleted-image", "reimported-image", "other-root-gate", "other-approved-destination", "canceled"} {
+	mu.Lock()
+	mode = ""
+	mu.Unlock()
+	if _, _, err := releasechannel.ReadCurrentImageSDK(t.Context(), observer, a.Namespace, f.roots, releasechannel.CurrentImageExpectation{Cell: a.Candidate.Cell, Environment: a.Candidate.Environment, Architecture: a.Candidate.Architecture, Role: release.FoundationWriterRole}, f.now.Add(90*time.Minute)); err == nil {
+		t.Fatal("historical ownership transition renewed current writer authority")
+	}
+	for _, scenario := range []string{"missing-publication", "missing-recorded-manifest", "changed-manifest", "changed-evidence", "other-compartment", "other-image-bytes", "late-publication", "publication-at-deadline-second", "future-publication", "missing-timestamp", "deleted-image", "reimported-image", "other-root-gate", "other-approved-destination", "canceled"} {
 		t.Run(scenario, func(t *testing.T) {
 			mu.Lock()
 			mode = scenario
@@ -299,13 +310,15 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			switch scenario {
+			case "missing-recorded-manifest":
+				copyJournal.ImageManifestSHA256 = transfer.manifestSHA256
 			case "other-root-gate":
 				copyJournal.RootGateSHA256 = strings.Repeat("e", 64)
 			case "other-approved-destination":
 				copyCloud.prepared.approval.ImagePublicationBucket = "qualification"
 			case "reimported-image":
 				copyJournal.ImageID = "ocid1.image.oc1.sa-saopaulo-1.reimported"
-			case "late-publication":
+			case "late-publication", "publication-at-deadline-second":
 				mu.Lock()
 				now = a.ImageTransferUntil.Add(5 * time.Minute)
 				mu.Unlock()
