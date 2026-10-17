@@ -363,6 +363,15 @@ func TestControllerHostRecipientSignedSDKIntegration(t *testing.T) {
 				t.Fatal("recipient lost the actual signed slot, protected completion, or live SDK identity")
 			}
 			deadline := proof.validUntil
+			architecture, err := proof.ReadArchitecture(t.Context())
+			if err != nil || architecture != "amd64" {
+				t.Fatalf("recipient lost its exact signed startup architecture: %q, %v", architecture, err)
+			}
+			changed := *proof
+			changed.architecture = "arm64"
+			if _, err := changed.ReadArchitecture(t.Context()); err == nil {
+				t.Fatal("recipient accepted an architecture different from the same completed startup")
+			}
 			if err := proof.Verify(t.Context()); err != nil {
 				t.Fatal(err)
 			}

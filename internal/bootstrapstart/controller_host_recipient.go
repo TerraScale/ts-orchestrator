@@ -18,17 +18,18 @@ import (
 // ControllerHostRecipient proves an existing controller's signed slot and live
 // OCI identity. The caller must separately fence adoption of its exact spec.
 type ControllerHostRecipient struct {
-	reader     *CurrentFounderAuthorityReader
-	sources    controllerRecipientSources
-	issuer     AcceptedIdentity
-	spec       []byte
-	node       string
-	instanceID string
-	privateIP  string
-	slot       string
-	region     string
-	started    time.Time
-	validUntil time.Time
+	reader       *CurrentFounderAuthorityReader
+	sources      controllerRecipientSources
+	issuer       AcceptedIdentity
+	spec         []byte
+	node         string
+	instanceID   string
+	privateIP    string
+	slot         string
+	region       string
+	architecture string
+	started      time.Time
+	validUntil   time.Time
 }
 
 type controllerRecipientSources struct {
@@ -53,11 +54,11 @@ func readControllerHostRecipient(ctx context.Context, reader *CurrentFounderAuth
 	proof := &ControllerHostRecipient{reader: reader, sources: sources, issuer: issuer.Clone(), spec: bytes.Clone(signedSpec),
 		node: node, instanceID: instanceID, privateIP: privateIP, started: started,
 		validUntil: started.Add(bootstrap.ManagedPeerObservationMaxAge)}
-	grant, authority, err := proof.current(ctx)
+	grant, authority, architecture, err := proof.current(ctx)
 	if err != nil {
 		return nil, err
 	}
-	proof.slot, proof.region = grant.Controller, authority.identity.OCIRegion
+	proof.slot, proof.region, proof.architecture = grant.Controller, authority.identity.OCIRegion, architecture
 	if authority.expires.Before(proof.validUntil) {
 		proof.validUntil = authority.expires
 	}
@@ -75,6 +76,15 @@ func (proof *ControllerHostRecipient) OCIRegion() string      { return proof.reg
 func (proof *ControllerHostRecipient) Environment() string    { return proof.issuer.Environment }
 func (proof *ControllerHostRecipient) SpecSHA256() string     { return digestWire(proof.spec) }
 
+// ReadArchitecture returns only the architecture of the same verified startup
+// retained by the original completed slot and live OCI recipient.
+func (proof *ControllerHostRecipient) ReadArchitecture(ctx context.Context) (string, error) {
+	if err := proof.Verify(ctx); err != nil {
+		return "", err
+	}
+	return proof.architecture, nil
+}
+
 // Valid is a cheap final check after task reads. Verification never extends the
 // constructor's fixed observation interval or any signed authority deadline.
 func (proof *ControllerHostRecipient) Valid(now time.Time) bool {
@@ -88,7 +98,7 @@ func (proof *ControllerHostRecipient) Verify(ctx context.Context) error {
 	if !proof.Valid(time.Now()) {
 		return ErrAdmission
 	}
-	_, _, err := proof.current(ctx)
+	_, _, _, err := proof.current(ctx)
 	if err == nil && !proof.Valid(time.Now()) {
 		return bootstrap.ErrManagedPeerObservationStale
 	}
@@ -101,7 +111,7 @@ func (proof *ControllerHostRecipient) VerifyRegistration(ctx context.Context, re
 	if !proof.Valid(time.Now()) {
 		return ErrAdmission
 	}
-	grant, authority, err := proof.current(ctx)
+	grant, authority, _, err := proof.current(ctx)
 	if err != nil {
 		return err
 	}
@@ -118,9 +128,9 @@ func (proof *ControllerHostRecipient) VerifyRegistration(ctx context.Context, re
 	return nil
 }
 
-func (proof *ControllerHostRecipient) current(ctx context.Context) (cellspec.HostGrant, RuntimeAuthority, error) {
-	fail := func(err error) (cellspec.HostGrant, RuntimeAuthority, error) {
-		return cellspec.HostGrant{}, RuntimeAuthority{}, err
+func (proof *ControllerHostRecipient) current(ctx context.Context) (cellspec.HostGrant, RuntimeAuthority, string, error) {
+	fail := func(err error) (cellspec.HostGrant, RuntimeAuthority, string, error) {
+		return cellspec.HostGrant{}, RuntimeAuthority{}, "", err
 	}
 	if proof == nil || proof.reader == nil || proof.issuer.Validate() != nil || proof.node == "" ||
 		!instanceIDRE.MatchString(proof.instanceID) || !validPrivateIPv4(proof.privateIP) ||
@@ -204,6 +214,11 @@ func (proof *ControllerHostRecipient) current(ctx context.Context) (cellspec.Hos
 	if err != nil {
 		return fail(err)
 	}
+	architecture := strings.TrimPrefix(startup.Manifest().ImageArchitecture, "linux-")
+	if architecture != "arm64" && architecture != "amd64" ||
+		startup.Manifest().ImageArchitecture != "linux-"+architecture || proof.architecture != "" && proof.architecture != architecture {
+		return fail(errors.New("controller recipient architecture differs from its exact verified startup"))
+	}
 	if startup.ExpiresAt().Before(authority.expires) {
 		authority.expires = startup.ExpiresAt()
 	}
@@ -244,7 +259,7 @@ func (proof *ControllerHostRecipient) current(ctx context.Context) (cellspec.Hos
 	if err := ctx.Err(); err != nil {
 		return fail(err)
 	}
-	return grant, authority, nil
+	return grant, authority, architecture, nil
 }
 
 func (proof *ControllerHostRecipient) checkCompletedSlot(authority RuntimeAuthority, grant cellspec.HostGrant, state bootstrap.SlotState) error {
