@@ -124,15 +124,19 @@ func renewalLoopVolume(t *testing.T, directory, mount string) hostvolume.MountPi
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	device := strings.TrimSpace(renewalCommand(t, "losetup", "--find", "--show", "--nooverlap", image))
-	t.Cleanup(func() { renewalCommand(t, "losetup", "--detach", device) })
+	device := strings.TrimSpace(renewalCommand(t, t.Context(), "losetup", "--find", "--show", "--nooverlap", image))
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		renewalCommand(t, ctx, "losetup", "--detach", device)
+	})
 	id := uuid.New().String()
 	tool, args, err := hostvolume.FormatCommand("ext4", id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	renewalCommand(t, tool, append(args, device)...)
-	if actual := strings.TrimSpace(renewalCommand(t, "blkid", "-p", "-s", "UUID", "-o", "value", device)); actual != id {
+	renewalCommand(t, t.Context(), tool, append(args, device)...)
+	if actual := strings.TrimSpace(renewalCommand(t, t.Context(), "blkid", "-p", "-s", "UUID", "-o", "value", device)); actual != id {
 		t.Fatalf("fixture UUID readback = %q, want %q", actual, id)
 	}
 	alias := filepath.Join("/dev/disk/by-uuid", id)
@@ -178,9 +182,9 @@ func renewalLoopVolume(t *testing.T, directory, mount string) hostvolume.MountPi
 	return pins
 }
 
-func renewalCommand(t *testing.T, name string, args ...string) string {
+func renewalCommand(t *testing.T, ctx context.Context, name string, args ...string) string {
 	t.Helper()
-	command := exec.CommandContext(t.Context(), "nice", append([]string{"-n", "19", name}, args...)...)
+	command := exec.CommandContext(ctx, "nice", append([]string{"-n", "19", name}, args...)...)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("disposable fixture command %s: %v: %s", name, err, output)
