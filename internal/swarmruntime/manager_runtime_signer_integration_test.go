@@ -51,6 +51,11 @@ func TestManagerRuntimeNativeSigningIntegration(t *testing.T) {
 	}
 	digest := sha256.Sum256(block.Bytes)
 	clusterDigest := sha256.Sum256(cluster.RootCACert)
+	executable, err := os.ReadFile("/proc/self/exe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binaryDigest := sha256.Sum256(executable)
 	public, _, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +74,7 @@ func TestManagerRuntimeNativeSigningIntegration(t *testing.T) {
 		Environment: "production", Cell: "gru", OCIRegion: cfg.Admission.Region, NodeID: node.ID(), InstanceID: cfg.Admission.InstanceID,
 		HostID: entityid.Derive("host", "gru", "manager"), HostNode: "manager", HostSessionID: entityid.New(), HostSessionEpoch: 1,
 		RegistrationGeneration: 1, RegistrationRevision: 1, SourceRevision: 1, HostPublicKey: base64.StdEncoding.EncodeToString(public), NATSUserPublicKey: userPublic,
-		RuntimeCandidateID: entityid.New(), AcceptanceSHA256: strings.Repeat("1", 64), AnchorSHA256: strings.Repeat("2", 64), SourceSHA256: strings.Repeat("3", 64),
+		RuntimeCandidateID: entityid.New(), BinarySHA256: hex.EncodeToString(binaryDigest[:]), AcceptanceSHA256: strings.Repeat("1", 64), AnchorSHA256: strings.Repeat("2", 64), SourceSHA256: strings.Repeat("3", 64),
 		CertificateSHA256: hex.EncodeToString(digest[:]), ClusterCASHA256: hex.EncodeToString(clusterDigest[:]), IssuedAt: now, ExpiresAt: now.Add(5 * time.Second)}
 	guardCalls := 0
 	guard := func(check context.Context) error {
@@ -91,6 +96,11 @@ func TestManagerRuntimeNativeSigningIntegration(t *testing.T) {
 	changed.Binding.RuntimeCandidateID = entityid.New()
 	if host.VerifySignedManagerRuntimeBinding(changed, certificate, cluster.RootCACert, cluster.ID, time.Now()) == nil {
 		t.Fatal("native signature accepted a different process candidate")
+	}
+	changed = signed
+	changed.Binding.BinarySHA256 = strings.Repeat("0", 64)
+	if host.VerifySignedManagerRuntimeBinding(changed, certificate, cluster.RootCACert, cluster.ID, time.Now()) == nil {
+		t.Fatal("native signature accepted a different executable measurement")
 	}
 	for _, rejectAt := range []int{2, 3} {
 		calls := 0
