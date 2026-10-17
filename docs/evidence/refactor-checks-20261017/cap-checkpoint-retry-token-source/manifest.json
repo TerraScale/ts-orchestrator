@@ -8,7 +8,7 @@
     "base_blob": "176359f3a7a86b6df9b5f07522d692e85441e6d7",
     "base_sha256": "b63ab9b3f184ca44ea5f7cbb5382d2a9a8efa313c30bc80e7ebc7d8b2b4461e0",
     "candidate_blob": "f88cb831f9f66837c62d22e5a0ed931c8e04239e",
-    "candidate_sha256": "8bf2f0dde25d337d90d863c30b12d5f5c2accdae68b8406415faf76becfc8d28a"
+    "candidate_sha256": "8b2f0dde25d337d90d863c30b12d5f5c2accdae68b8406415faf76becfc8d28a"
   },
   "production_unchanged": {
     "path": "internal/app/capacity_checkpoint.go",
