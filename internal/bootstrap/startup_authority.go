@@ -153,6 +153,23 @@ func (verified VerifiedStartupTemplate) VerifyCurrent(now time.Time) error {
 	return verified.VerifyCurrentContext(context.Background(), now)
 }
 
+func (verified VerifiedStartupTemplate) currentReadContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithDeadline(ctx, verified.expiresAt)
+	if verified.bindings == nil {
+		return ctx, cancel
+	}
+	original := verified.bindings.original
+	if original == nil {
+		cancel()
+		return ctx, cancel
+	}
+	stop := context.AfterFunc(original, cancel)
+	if original.Err() != nil {
+		cancel()
+	}
+	return ctx, func() { stop(); cancel() }
+}
+
 // VerifyCurrentContext repeats live protected grant and resource observations for bound startup.
 func (verified VerifiedStartupTemplate) VerifyCurrentContext(ctx context.Context, now time.Time) error {
 	if !verified.IsVerified() || !now.Before(verified.expiresAt) {
@@ -162,7 +179,7 @@ func (verified VerifiedStartupTemplate) VerifyCurrentContext(ctx context.Context
 		if !time.Now().Before(verified.expiresAt) {
 			return ErrManifestInvalid
 		}
-		boundedCtx, cancel := context.WithDeadline(ctx, verified.expiresAt)
+		boundedCtx, cancel := verified.currentReadContext(ctx)
 		defer cancel()
 		ctx = boundedCtx
 	}
