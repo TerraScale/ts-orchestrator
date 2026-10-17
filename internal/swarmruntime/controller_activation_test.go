@@ -3,9 +3,12 @@
 package swarmruntime
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/gogo/protobuf/types"
 	"github.com/moby/swarmkit/v2/api"
 )
@@ -39,5 +42,18 @@ func TestProtectedNodesRetainConflictingWorkerOwners(t *testing.T) {
 	protected := protectedNodes([]*api.Node{manager, oldWorker, otherWorker}, []*api.Node{oldWorker})
 	if len(protected) != 2 || protected[0] != manager || protected[1] != oldWorker {
 		t.Fatal("conflicting worker disappeared from native node version checks")
+	}
+}
+
+func TestControllerRequestGuardPreservesOriginalDenial(t *testing.T) {
+	originalDenial := errors.New("original root request ended")
+	original := ociclient.WithRequestGuard(t.Context(), func(context.Context) error { return originalDenial })
+	admitted := new(controllerActivationAdmission)
+	if err := ociclient.CheckRequestGuard(admitted.requestContext(original)); !errors.Is(err, originalDenial) {
+		t.Fatalf("original request guard was replaced: %v", err)
+	}
+	acceptedOriginal := ociclient.WithRequestGuard(t.Context(), func(context.Context) error { return nil })
+	if err := ociclient.CheckRequestGuard(admitted.requestContext(acceptedOriginal)); !errors.Is(err, ErrControllerActivationPending) {
+		t.Fatalf("original acceptance bypassed unavailable concrete sources: %v", err)
 	}
 }
