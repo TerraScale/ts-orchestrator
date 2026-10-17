@@ -45,6 +45,17 @@ func (reader statefulReleaseReader) claim(ctx context.Context, operationID strin
 }
 
 func (reader statefulReleaseReader) evidence(ctx context.Context, operationID, digest string) (io.ReadCloser, error) {
+	return reader.readEvidence(ctx, operationID, digest, reader.client.ContainerEvidence)
+}
+
+func (reader statefulReleaseReader) retainedEvidence(ctx context.Context, operationID, digest string) (io.ReadCloser, error) {
+	return reader.readEvidence(ctx, operationID, digest, func(ctx context.Context, request rootoci.ContainerEvidenceRequest) (rootoci.ContainerEvidenceChunk, error) {
+		chunk, err := reader.client.RetainedContainerEvidence(ctx, rootoci.RetainedContainerEvidenceRequest(request))
+		return rootoci.ContainerEvidenceChunk(chunk), err
+	})
+}
+
+func (reader statefulReleaseReader) readEvidence(ctx context.Context, operationID, digest string, read func(context.Context, rootoci.ContainerEvidenceRequest) (rootoci.ContainerEvidenceChunk, error)) (io.ReadCloser, error) {
 	_, fingerprint, err := reader.claim(ctx, operationID)
 	if err != nil {
 		return nil, err
@@ -53,7 +64,7 @@ func (reader statefulReleaseReader) evidence(ctx context.Context, operationID, d
 	var total int64
 	var expires time.Time
 	for {
-		chunk, err := reader.client.ContainerEvidence(ctx, rootoci.ContainerEvidenceRequest{
+		chunk, err := read(ctx, rootoci.ContainerEvidenceRequest{
 			OperationID: operationID, ExpectedFingerprint: fingerprint, EvidenceSHA256: digest, Offset: int64(len(data)),
 		})
 		if err != nil {
@@ -84,6 +95,17 @@ func (reader statefulReleaseReader) evidence(ctx context.Context, operationID, d
 }
 
 func (reader statefulReleaseReader) allocations(ctx context.Context, operationID string, requested release.ContainerBundle, roots trust.Keyring, target release.ContainerTarget) (release.SequenceLocation, error) {
+	return reader.readAllocation(ctx, operationID, requested, roots, target, reader.client.ContainerAllocation)
+}
+
+func (reader statefulReleaseReader) retainedAllocations(ctx context.Context, operationID string, requested release.ContainerBundle, roots trust.Keyring, target release.ContainerTarget) (release.SequenceLocation, error) {
+	return reader.readAllocation(ctx, operationID, requested, roots, target, func(ctx context.Context, request rootoci.ContainerAllocationRequest) (rootoci.ContainerAllocationObservation, error) {
+		observed, err := reader.client.RetainedContainerAllocation(ctx, rootoci.RetainedContainerAllocationRequest(request))
+		return rootoci.ContainerAllocationObservation(observed), err
+	})
+}
+
+func (reader statefulReleaseReader) readAllocation(ctx context.Context, operationID string, requested release.ContainerBundle, roots trust.Keyring, target release.ContainerTarget, read func(context.Context, rootoci.ContainerAllocationRequest) (rootoci.ContainerAllocationObservation, error)) (release.SequenceLocation, error) {
 	bundle, fingerprint, err := reader.claim(ctx, operationID)
 	if err != nil {
 		return release.SequenceLocation{}, err
@@ -99,7 +121,7 @@ func (reader statefulReleaseReader) allocations(ctx context.Context, operationID
 	if err != nil {
 		return release.SequenceLocation{}, err
 	}
-	observed, err := reader.client.ContainerAllocation(ctx, rootoci.ContainerAllocationRequest{OperationID: operationID, ExpectedFingerprint: fingerprint})
+	observed, err := read(ctx, rootoci.ContainerAllocationRequest{OperationID: operationID, ExpectedFingerprint: fingerprint})
 	if err != nil {
 		return release.SequenceLocation{}, err
 	}
