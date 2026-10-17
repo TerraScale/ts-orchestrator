@@ -30,10 +30,10 @@ type RegionalLinkEvidence struct {
 }
 
 type VerifiedStartupLink struct {
-	template VerifiedStartupTemplate
-	client   ObjectStorageClient
-	evidence RegionalLinkEvidence
-	expires  time.Time
+	template                  VerifiedStartupTemplate
+	client                    ObjectStorageClient
+	evidence                  RegionalLinkEvidence
+	expires, authorityExpires time.Time
 }
 
 func (link VerifiedStartupLink) IsVerified() bool {
@@ -42,7 +42,8 @@ func (link VerifiedStartupLink) IsVerified() bool {
 func (link VerifiedStartupLink) MaterialRecord() []byte {
 	return bytes.Clone(link.evidence.MaterialRecord)
 }
-func (link VerifiedStartupLink) ExpiresAt() time.Time { return link.expires }
+func (link VerifiedStartupLink) ExpiresAt() time.Time          { return link.expires }
+func (link VerifiedStartupLink) AuthorityExpiresAt() time.Time { return link.authorityExpires }
 func (link VerifiedStartupLink) References() []SecretReference {
 	return slices.Clone(link.evidence.References)
 }
@@ -82,12 +83,14 @@ func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, cl
 		return deny()
 	}
 	deliveryExpires := template.ExpiresAt()
+	deliveryAuthorityExpires := template.AuthorityExpiresAt()
 	if len(evidence.Delivery) != 0 {
 		envelope, err := trust.DecodeEnvelope(evidence.Delivery)
 		if err != nil {
 			return deny()
 		}
 		deliveryExpires = minTimeLink(deliveryExpires, envelope.ExpiresAt)
+		deliveryAuthorityExpires = minTimeLink(deliveryAuthorityExpires, envelope.ExpiresAt)
 	}
 	// Unverified input can only shorten the read budget; provenance still follows.
 	ctx, cancelTemplate := context.WithDeadline(ctx, minTimeLink(deliveryExpires, candidate.ExpiresAt))
@@ -282,10 +285,11 @@ func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, cl
 		return deny()
 	}
 	expires := minTimeLink(deliveryExpires, minTimeLink(record.ExpiresAt, minTimeLink(regional.ExpiresAt(), minTimeLink(homeTemplate.ExpiresAt(), home.ExpiresAt()))))
+	authorityExpires := minTimeLink(deliveryAuthorityExpires, minTimeLink(record.ExpiresAt, minTimeLink(regional.AuthorityExpiresAt(), minTimeLink(homeTemplate.AuthorityExpiresAt(), home.AuthorityExpiresAt()))))
 	if ctx.Err() != nil || !time.Now().Before(expires) {
 		return deny()
 	}
-	verified := VerifiedStartupLink{template: template, client: client, evidence: evidence, expires: expires}
+	verified := VerifiedStartupLink{template: template, client: client, evidence: evidence, expires: expires, authorityExpires: authorityExpires}
 	verified.evidence = verified.Evidence()
 	return verified, nil
 }

@@ -127,7 +127,7 @@ func CheckNetBirdBrokerMaterial(m NetBirdBrokerMaterial, s NetBirdBrokerSource, 
 		m.TemplateSHA256 != s.startup.TemplateDigest() || m.SourceSHA256 != s.startup.SourceSHA256() || m.InventorySHA256 != netBirdDigest(s.source.Inventory()) ||
 		m.StartupSHA256 != s.startup.Digest() || m.StartupSlot != manifest.Slot || m.ManagerInstance != r.InstanceID() || m.ManagerStore != r.StoreGeneration() || m.RecipientSHA256 != NetBirdRecipientDigest(r) ||
 		!slices.Equal(m.Endpoints, s.endpoints) || m.IssuedAt.IsZero() || m.IssuedAt.After(now) || !m.IssuedAt.Before(m.ExpiresAt) || !now.Before(m.ExpiresAt) ||
-		m.ExpiresAt.After(s.source.ExpiresAt()) || m.ExpiresAt.After(s.startup.ExpiresAt()) || m.ExpiresAt.After(r.AuthorityExpiresAt()) {
+		!now.Before(s.ExpiresAt()) || !now.Before(r.ExpiresAt()) || m.ExpiresAt.After(s.source.AuthorityExpiresAt()) || m.ExpiresAt.After(s.startup.AuthorityExpiresAt()) || m.ExpiresAt.After(r.AuthorityExpiresAt()) {
 		return nil, "", ErrDelivery
 	}
 	for name, wire := range map[string][]byte{"ca.pem": m.CA, "operator.jwt": m.Operator, "cell.jwt": m.Account} {

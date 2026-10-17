@@ -391,6 +391,15 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if !homeLinkProof.ExpiresAt().Equal(linkDeadline) {
 		t.Fatal("public Link proof did not retain its original shortest lifetime")
 	}
+	linkAuthorityDeadline := linkRecord.ExpiresAt
+	for _, deadline := range []time.Time{homeTemplate.AuthorityExpiresAt(), homePublic.AuthorityExpiresAt()} {
+		if deadline.Before(linkAuthorityDeadline) {
+			linkAuthorityDeadline = deadline
+		}
+	}
+	if !homeLinkProof.AuthorityExpiresAt().Equal(linkAuthorityDeadline) || homeLinkProof.ExpiresAt().After(homeLinkProof.AuthorityExpiresAt()) {
+		t.Fatal("public Link proof changed its authenticated signing ceiling")
+	}
 	if _, err := ResolveLinkSource(t.Context(), replacement, replacement, new(LinkSource), &objects, &management, &bundles, filepath.Join(t.TempDir(), "invalid-link"), now); err == nil {
 		t.Fatal("empty home Link proof admitted")
 	}
@@ -454,6 +463,10 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	loaded, err := bootstrap.LoadDerivedStartupAuthority(t.Context(), spokeTemplate, &objects, "controller-a", now)
 	if err != nil || loaded.Digest() != bound.Digest() || loaded.StorageDomain() != spokeAnchor.StorageDomain() || !strings.HasPrefix(spokeSource.key, "private/bootstrap/") || strings.HasPrefix(spokeSource.key, "regional/sfo/") {
 		t.Fatalf("independent home source and regional ledger domains: %v", err)
+	}
+	loadedEnvelope, err := trust.DecodeEnvelope(loaded.Wire())
+	if err != nil || !loaded.AuthorityExpiresAt().Equal(loadedEnvelope.ExpiresAt) || loaded.ExpiresAt().After(loaded.AuthorityExpiresAt()) {
+		t.Fatal("public startup proof changed its authenticated signing ceiling")
 	}
 	grant.Generation = 3
 	grant.Regions[0].Generation = 3

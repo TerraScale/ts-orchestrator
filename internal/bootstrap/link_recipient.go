@@ -89,6 +89,9 @@ func (recipient LinkRecipient) MaterialRecord() []byte { return recipient.region
 func (recipient LinkRecipient) ExpiresAt() time.Time {
 	return minTimeLink(recipient.regional.ExpiresAt(), recipient.home.ExpiresAt())
 }
+func (recipient LinkRecipient) AuthorityExpiresAt() time.Time {
+	return minTimeLink(recipient.regional.AuthorityExpiresAt(), recipient.home.AuthorityExpiresAt())
+}
 
 // VerifyHome binds a recovered home inventory to the public home proof without
 // exposing the private source or treating a hostname as an admission record.
@@ -138,7 +141,7 @@ func VerifyLinkDelivery(ctx context.Context, recipient LinkRecipient, wire []byt
 		return nil, err
 	}
 	payload, err := trust.VerifyCurrent(envelope, recipient.deliveryScope(), trust.Keyring{keyID: recipient.home.ledgerKey}, now, ManifestTrustPolicy())
-	if err != nil || envelope.ExpiresAt.After(recipient.ExpiresAt()) {
+	if err != nil || envelope.ExpiresAt.After(recipient.AuthorityExpiresAt()) {
 		return nil, ErrManifestInvalid
 	}
 	if err := ctx.Err(); err != nil {
