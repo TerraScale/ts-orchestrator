@@ -94,8 +94,12 @@ func NewControllerSDKAcquisitionFixture(t *testing.T, ctx context.Context, fixtu
 		t.Fatal(err)
 	}
 	installed, err := NewMarkerStore().ReadIdentity()
-	if err != nil || installed.InstanceOCID != fixture.Accepted.InstanceOCID || installed.ManifestSHA256 != fixture.Accepted.ManifestSHA256 {
+	if err != nil || installed.InstanceOCID != fixture.Accepted.InstanceOCID {
 		t.Fatal("controller SDK acquisition differs from the actual installed marker", err)
+	}
+	initial, err := NewMarkerStore().ReadInitialFormation()
+	if err != nil || initial.InstanceOCID != installed.InstanceOCID || initial.ManifestSHA256 != digestWire(fixture.ManifestWire) {
+		t.Fatal("controller SDK acquisition differs from the actual accepted manifest", err)
 	}
 	authority, err := fixture.Reader.ReadRuntimeAuthority(ctx, installed, time.Now().UTC())
 	if err != nil {
