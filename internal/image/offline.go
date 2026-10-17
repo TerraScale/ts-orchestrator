@@ -1,6 +1,7 @@
 package image
 
 import (
+	"bytes"
 	"context"
 	"encoding/json/v2"
 	"errors"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
+	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
 )
 
 func fileHash(path string) (string, error) { return client.SHA256(path) }
@@ -72,6 +74,9 @@ func GuestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Wr
 		return e
 	}
 	if e = auditSSHServer(g, o.Work, out); e != nil {
+		return e
+	}
+	if e = installMetadataFence(ctx, g, repo, architecture, o.Work, out); e != nil {
 		return e
 	}
 	for _, p := range append([]string{Profile, Helper}, Dropins...) {
@@ -214,6 +219,33 @@ func GuestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Wr
 	}
 	return g.AssertFile(Native, 0, 0, 0755)
 }
+
+func installMetadataFence(ctx context.Context, g *Guest, repo, architecture, work string, out io.Writer) error {
+	if err := auditMetadataTool(g, architecture, work, out); err != nil {
+		return err
+	}
+	var rules bytes.Buffer
+	if err := tsauth.Run(ctx, []string{"metadata-rules"}, &rules, nil); err != nil {
+		return err
+	}
+	rulesPath := filepath.Join(work, "ts-auth-metadata.nft")
+	if err := os.WriteFile(rulesPath, rules.Bytes(), 0644); err != nil {
+		return err
+	}
+	for _, artifact := range []upload{
+		{rulesPath, MetadataRules, 0644},
+		{filepath.Join(repo, "deploy/systemd", MetadataUnit), "/etc/systemd/system/" + MetadataUnit, 0644},
+	} {
+		if err := g.Directory(path.Dir(artifact.destination), 0, 0, 0755); err != nil {
+			return err
+		}
+		if err := g.Upload(artifact.source, artifact.destination, artifact.mode); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func GuestVerify(ctx context.Context, image string, expect []string, out io.Writer) (result error) {
 	type expectation struct{ p, d string }
 	var expected []expectation
@@ -611,6 +643,7 @@ func OfflineBuild(ctx context.Context, repo string, o OfflineOptions, out io.Wri
 		expected = append(expected, "/usr/local/bin/"+name+"="+digest)
 	}
 	for _, artifact := range [][2]string{
+		{MetadataUnit, filepath.Join(repo, "deploy/systemd", MetadataUnit)},
 		{"containerd.service", filepath.Join(work, "containerd.service")},
 		{"terrascale-orchestrator-controller.service.d/70-containerd.conf", filepath.Join(work, "70-containerd.conf")},
 		{"terrascale-orchestrator-host.service.d/70-containerd.conf", filepath.Join(work, "70-containerd.conf")},
@@ -629,6 +662,20 @@ func OfflineBuild(ctx context.Context, repo string, o OfflineOptions, out io.Wri
 		return e
 	}
 	expected = append(expected, NetBirdFallback+"="+o.NetBirdSHA256, NetBirdPin+"="+pinDigest)
+	for _, artifact := range [][2]string{
+		{MetadataRules, filepath.Join(work, "ts-auth-metadata.nft")},
+	} {
+		digest, err := fileHash(artifact[1])
+		if err != nil {
+			return err
+		}
+		expected = append(expected, artifact[0]+"="+digest)
+	}
+	metadataReadback, e := os.ReadFile(filepath.Join(work, "metadata-runtime.readback"))
+	if e != nil {
+		return e
+	}
+	expected = append(expected, strings.Split(strings.TrimSpace(string(metadataReadback)), "\n")...)
 	if e = GuestVerify(ctx, candidate, expected, out); e != nil {
 		return e
 	}
