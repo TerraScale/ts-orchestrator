@@ -31,6 +31,8 @@ const SchemaVersion = 1
 // Bounds on what one report may carry.
 const (
 	MaxRoles = 32
+	// MaxTasks keeps identity pins within the existing 64 KiB host RPC frame.
+	MaxTasks = 128
 	// MaxCPUCores bounds a role's measured CPU use; no OCI shape exceeds it.
 	MaxCPUCores = 1024
 	// MaxMemoryBytes bounds a role's measured memory use.
@@ -81,6 +83,7 @@ type HostUsage struct {
 // Executor roles sum every current local task; partial sums remain unknown.
 type RoleUsage struct {
 	Role        string                    `json:"role"`
+	Tasks       []TaskPin                 `json:"tasks,omitempty"`
 	CPUCores    *float64                  `json:"cpu_cores,omitempty"`
 	MemoryBytes *uint64                   `json:"memory_bytes,omitempty"`
 	CPULimit    *float64                  `json:"cpu_limit_cores,omitempty"`
@@ -88,6 +91,15 @@ type RoleUsage struct {
 	LimitsRead  bool                      `json:"limits_read,omitzero"`
 	TerraBase   *memberstatus.Load        `json:"terrabase,omitempty"`
 	WAN         *terrabase.WANObservation `json:"wan,omitempty"`
+}
+
+// TaskPin identifies one sampled executor assignment. The manager independently
+// authenticates this exact set and its resources; reported pins grant nothing.
+type TaskPin struct {
+	TaskID      string `json:"task_id"`
+	ServiceID   string `json:"service_id"`
+	NodeID      string `json:"node_id"`
+	Fingerprint string `json:"fingerprint"`
 }
 
 // Validate checks the schema version, role tokens and every value bound.
@@ -125,6 +137,7 @@ func (r Report) Validate() error {
 		return fmt.Errorf("%w: more than %d roles", ErrInvalidReport, MaxRoles)
 	}
 	seen := make(map[string]struct{}, len(r.Roles))
+	tasks := make(map[string]struct{})
 	for _, role := range r.Roles {
 		if !roleRE.MatchString(role.Role) {
 			return fmt.Errorf("%w: role token", ErrInvalidReport)
@@ -133,6 +146,21 @@ func (r Report) Validate() error {
 			return fmt.Errorf("%w: repeated role %q", ErrInvalidReport, role.Role)
 		}
 		seen[role.Role] = struct{}{}
+		for _, task := range role.Tasks {
+			if !validTaskID(task.TaskID) || !validTaskID(task.ServiceID) || !validTaskID(task.NodeID) ||
+				len(task.Fingerprint) != 64 || strings.IndexFunc(task.Fingerprint, func(r rune) bool {
+				return !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f')
+			}) >= 0 {
+				return fmt.Errorf("%w: invalid task identity pin", ErrInvalidReport)
+			}
+			if _, repeated := tasks[task.TaskID]; repeated {
+				return fmt.Errorf("%w: repeated task identity pin", ErrInvalidReport)
+			}
+			tasks[task.TaskID] = struct{}{}
+			if len(tasks) > MaxTasks {
+				return fmt.Errorf("%w: more than %d task identity pins", ErrInvalidReport, MaxTasks)
+			}
+		}
 		if role.CPUCores != nil && !finiteWithin(*role.CPUCores, MaxCPUCores) {
 			return fmt.Errorf("%w: role %q CPU out of range", ErrInvalidReport, role.Role)
 		}
@@ -158,6 +186,12 @@ func (r Report) Validate() error {
 		}
 	}
 	return nil
+}
+
+func validTaskID(value string) bool {
+	return len(value) > 0 && len(value) <= 64 && strings.IndexFunc(value, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
+	}) < 0
 }
 
 func validFilesystem(filesystem observability.FilesystemView) bool {
