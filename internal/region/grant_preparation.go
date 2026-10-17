@@ -269,6 +269,16 @@ func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInpu
 	}
 	grant.Regions[0].NetBirdManager = &manager
 	grant.InfrastructureSpend.Bootstrap.Slots = append(grant.InfrastructureSpend.Bootstrap.Slots, managerSlot)
+	var journalExpiry time.Time
+	for _, role := range []string{"GRU", "SFO", "FRA", "netbird-manager"} {
+		if journalExpiry.IsZero() || images[role].ExpiresAt.Before(journalExpiry) {
+			journalExpiry = images[role].ExpiresAt
+		}
+	}
+	manager.JournalPurpose, err = preparedNetBirdJournalPurpose(grant, journalExpiry)
+	if err != nil {
+		return FoundationPreparation{}, err
+	}
 	grant.OCIRIssuances, err = prepareFoundationOCIRIssuers(grant)
 	if err != nil {
 		return FoundationPreparation{}, err
@@ -577,5 +587,5 @@ func ValidatePreparedFoundation(grant FoundationGrant) error {
 			return errors.New("NetBird allocation differs from its exact signed startup recipe")
 		}
 	}
-	return nil
+	return validateNetBirdJournalPurpose(grant, time.Time{})
 }
