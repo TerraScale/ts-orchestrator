@@ -31,9 +31,10 @@ import (
 )
 
 type Backend struct {
-	factory *ociclient.Factory
-	mu      sync.RWMutex
-	sources *Sources
+	factory       *ociclient.Factory
+	mu            sync.RWMutex
+	sources       *Sources
+	managerReader *managerReaderState
 }
 
 // Sources retain the original root-created reader and accepted installation.
