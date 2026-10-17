@@ -1,4 +1,4 @@
-package bootstrapmaterial
+package bootstrapmaterial_test
 
 import (
 	"bytes"
@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
@@ -29,7 +30,7 @@ import (
 func TestControllerObservabilityCredentialsAcrossMTLSLeaf(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
-	gru, sfo, _ := linkedRegions(t)
+	gru, sfo, link := bootstrapmaterial.ControllerObservabilityRegions(t)
 	read := func(directory, name string) []byte {
 		t.Helper()
 		data, err := os.ReadFile(filepath.Join(directory, name))
@@ -51,28 +52,25 @@ func TestControllerObservabilityCredentialsAcrossMTLSLeaf(t *testing.T) {
 		return port
 	}
 	type region struct {
-		linkedRegion
+		bootstrapmaterial.ObservabilityRegion
 		broker     *natscell.Runtime
 		clients    []*nats.Conn
 		errors     []chan error
 		journal    *decisionlog.Journal
 		aggregator *observability.Aggregator
 	}
-	regions := []region{{linkedRegion: gru}, {linkedRegion: sfo}}
+	regions := []region{{ObservabilityRegion: gru}, {ObservabilityRegion: sfo}}
 	leafPort := freePort()
-	wire, reviewed := receipt(t, nil)
-	link := &ParentLink{Record: gru.record, Receipt: Readback{wire, reviewed}, NetBird: netbirdReadback(t, nil),
-		CredentialsFile: childCredentials(t, gru, "sfo")}
 	for index := range regions {
 		r := &regions[index]
-		var parent *ParentLink
+		var parent *bootstrapmaterial.ParentLink
 		if index == 1 {
 			parent = link
-			if err := os.WriteFile(filepath.Join(r.directory, "leaf-gru.creds"), read(gru.directory, "leaf-sfo.creds"), 0o600); err != nil {
+			if err := os.WriteFile(filepath.Join(r.Directory, "leaf-gru.creds"), read(gru.Directory, "leaf-sfo.creds"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		}
-		interregion, err := RenderInterRegion(r.record, "controller-a", r.directory, parent, time.Now())
+		interregion, err := bootstrapmaterial.RenderInterRegion(r.Record, "controller-a", r.Directory, parent, time.Now())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -82,34 +80,34 @@ func TestControllerObservabilityCredentialsAcrossMTLSLeaf(t *testing.T) {
 		} else {
 			interregion.Remotes[0].URLs = []string{fmt.Sprintf("nats-leaf://127.0.0.1:%d", leafPort)}
 		}
-		path := func(name string) string { return filepath.Join(r.material, name) }
+		path := func(name string) string { return filepath.Join(r.Material, name) }
 		tlsFiles := natscell.TLSFiles{CAFile: path("ca.pem"), CertFile: path("controller-a-tls-cert.pem"),
 			KeyFile: path("controller-a-tls-key.pem")}
-		r.broker, err = natscell.Start(ctx, natscell.Config{Cell: r.record.Cell, Instance: "controller-a",
+		r.broker, err = natscell.Start(ctx, natscell.Config{Cell: r.Record.Cell, Instance: "controller-a",
 			Replicas: 1, ClientRole: "controller", CredentialsFile: path("controller-a.creds"), TLS: tlsFiles,
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: freePort(), StoreDir: filepath.Join(t.TempDir(), "store"),
 				TLS: tlsFiles, RouteTLS: tlsFiles, OperatorJWTFile: path("operator.jwt"),
-				SystemJWTFile: filepath.Join(r.directory, "system-interregion.jwt"),
-				CellJWTFile:   filepath.Join(r.directory, "cell-interregion.jwt"), SystemCredentialsFile: path("system.creds"),
+				SystemJWTFile: filepath.Join(r.Directory, "system-interregion.jwt"),
+				CellJWTFile:   filepath.Join(r.Directory, "cell-interregion.jwt"), SystemCredentialsFile: path("system.creds"),
 				TicketPublicKeyFile: path("ticket.pub"), BrokerIDs: []string{"controller-a"}, InterRegion: &interregion}})
 		if err != nil {
-			t.Fatalf("start %s: %v", r.record.Cell, err)
+			t.Fatalf("start %s: %v", r.Record.Cell, err)
 		}
 		t.Cleanup(func() { _ = r.broker.Close() })
 		if err := r.broker.Bridge().OpenUntil(1, r.broker.InitialCellJWT(), time.Now().Add(time.Minute)); err != nil {
 			t.Fatal(err)
 		}
-		r.journal = decisionlog.NewJournal(decisionlog.JournalConfig{Region: r.record.Cell})
+		r.journal = decisionlog.NewJournal(decisionlog.JournalConfig{Region: r.Record.Cell})
 		r.journal.Record(ctx, decisionlog.Decision{Kind: decisionlog.KindScaleUp})
 	}
 	connect := func(r *region, slot string, credentials []byte) (*nats.Conn, chan error) {
 		t.Helper()
-		pair, err := tls.LoadX509KeyPair(filepath.Join(r.material, slot+"-tls-cert.pem"), filepath.Join(r.material, slot+"-tls-key.pem"))
+		pair, err := tls.LoadX509KeyPair(filepath.Join(r.Material, slot+"-tls-cert.pem"), filepath.Join(r.Material, slot+"-tls-key.pem"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		roots := x509.NewCertPool()
-		if !roots.AppendCertsFromPEM(read(r.material, "ca.pem")) {
+		if !roots.AppendCertsFromPEM(read(r.Material, "ca.pem")) {
 			t.Fatal("invalid regional CA")
 		}
 		raw, err := jwt.ParseDecoratedJWT(credentials)
@@ -126,12 +124,12 @@ func TestControllerObservabilityCredentialsAcrossMTLSLeaf(t *testing.T) {
 		failures := make(chan error, 32)
 		// The production bridge terminates TLS before the embedded server's plaintext INFO.
 		conn, err := nats.Connect(r.broker.URL(), nats.UserCredentialBytes(credentials),
-			nats.CustomInboxPrefix(protocol.InboxPrefix(r.record.Cell, claim.Subject)), nats.NoReconnect(),
+			nats.CustomInboxPrefix(protocol.InboxPrefix(r.Record.Cell, claim.Subject)), nats.NoReconnect(),
 			nats.SetCustomDialer(&tls.Dialer{NetDialer: &net.Dialer{Timeout: 2 * time.Second},
 				Config: &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots, Certificates: []tls.Certificate{pair}, ServerName: "controller-a"}}),
 			nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) { failures <- err }))
 		if err != nil {
-			t.Fatalf("connect %s/%s: %v", r.record.Cell, slot, err)
+			t.Fatalf("connect %s/%s: %v", r.Record.Cell, slot, err)
 		}
 		t.Cleanup(conn.Close)
 		return conn, failures
@@ -164,7 +162,7 @@ func TestControllerObservabilityCredentialsAcrossMTLSLeaf(t *testing.T) {
 	names := []string{"controller-a", "controller-b", "controller-c"}
 	for index := range regions {
 		r := &regions[index]
-		old := read(r.material, "controller-a.creds")
+		old := read(r.Material, "controller-a.creds")
 		raw, err := jwt.ParseDecoratedJWT(old)
 		if err != nil {
 			t.Fatal(err)
@@ -174,8 +172,8 @@ func TestControllerObservabilityCredentialsAcrossMTLSLeaf(t *testing.T) {
 			t.Fatal(err)
 		}
 		// Model deficient installed credentials; founding material always grants telemetry.
-		claim.Sub.Allow.Remove(protocol.ObservabilityGrant(r.record.Cell))
-		signer, err := nkeys.FromSeed(bytes.TrimSpace(read(r.material, "issuer-cell.seed")))
+		claim.Sub.Allow.Remove(protocol.ObservabilityGrant(r.Record.Cell))
+		signer, err := nkeys.FromSeed(bytes.TrimSpace(read(r.Material, "issuer-cell.seed")))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -185,12 +183,12 @@ func TestControllerObservabilityCredentialsAcrossMTLSLeaf(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer user.Wipe()
-		old, err = credentials(claim, signer, user)
+		old, err = bootstrapmaterial.ControllerObservabilityCredentials(claim, signer, user)
 		if err != nil {
 			t.Fatal(err)
 		}
 		conn, failures := connect(r, "controller-a", old)
-		collector, err := observability.NewCollector(observability.CollectorConfig{Cell: r.record.Cell, Member: names[0], Role: "controller",
+		collector, err := observability.NewCollector(observability.CollectorConfig{Cell: r.Record.Cell, Member: names[0], Role: "controller",
 			System: func() (observability.SystemView, error) { return observability.SystemView{}, nil }})
 		if err != nil {
 			t.Fatal(err)
@@ -201,13 +199,13 @@ func TestControllerObservabilityCredentialsAcrossMTLSLeaf(t *testing.T) {
 			serve func() (*nats.Subscription, error)
 		}{
 			{observability.SnapshotLeaf, func() (*nats.Subscription, error) {
-				return observability.ServeSnapshots(ctx, conn, r.record.Cell, collector)
+				return observability.ServeSnapshots(ctx, conn, r.Record.Cell, collector)
 			}},
 			{regionview.SummaryLeaf, func() (*nats.Subscription, error) {
-				return regionview.Serve(ctx, conn, r.record.Cell, &regionview.Provider{Cell: r.record.Cell})
+				return regionview.Serve(ctx, conn, r.Record.Cell, &regionview.Provider{Cell: r.Record.Cell})
 			}},
 			{decisionlog.QueryLeaf, func() (*nats.Subscription, error) {
-				return decisionlog.ServeQueries(ctx, conn, r.record.Cell, r.journal)
+				return decisionlog.ServeQueries(ctx, conn, r.Record.Cell, r.journal)
 			}},
 		}
 		for _, responder := range responders {
@@ -215,45 +213,45 @@ func TestControllerObservabilityCredentialsAcrossMTLSLeaf(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			permissionDenied(conn, failures, protocol.InterRegionObservabilitySubject(r.record.Cell, responder.leaf))
+			permissionDenied(conn, failures, protocol.InterRegionObservabilitySubject(r.Record.Cell, responder.leaf))
 			_ = sub.Unsubscribe()
 		}
 		conn.Close()
 		for _, slot := range names {
-			conn, failures := connect(r, slot, read(r.material, slot+".creds"))
+			conn, failures := connect(r, slot, read(r.Material, slot+".creds"))
 			r.clients, r.errors = append(r.clients, conn), append(r.errors, failures)
-			collector, err := observability.NewCollector(observability.CollectorConfig{Cell: r.record.Cell, Member: slot, Role: "controller",
+			collector, err := observability.NewCollector(observability.CollectorConfig{Cell: r.Record.Cell, Member: slot, Role: "controller",
 				System: func() (observability.SystemView, error) { return observability.SystemView{}, nil }})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := observability.ServeSnapshots(ctx, conn, r.record.Cell, collector); err != nil {
+			if _, err := observability.ServeSnapshots(ctx, conn, r.Record.Cell, collector); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := decisionlog.ServeQueries(ctx, conn, r.record.Cell, r.journal); err != nil {
+			if _, err := decisionlog.ServeQueries(ctx, conn, r.Record.Cell, r.journal); err != nil {
 				t.Fatal(err)
 			}
 			flush(conn)
 		}
-		r.aggregator, err = observability.NewAggregator(r.clients[0], r.record.Cell, names, time.Second)
+		r.aggregator, err = observability.NewAggregator(r.clients[0], r.Record.Cell, names, time.Second)
 		if err != nil {
 			t.Fatal(err)
 		}
 		for _, conn := range r.clients {
-			if _, err := regionview.Serve(ctx, conn, r.record.Cell, &regionview.Provider{Cell: r.record.Cell, Cluster: r.aggregator}); err != nil {
+			if _, err := regionview.Serve(ctx, conn, r.Record.Cell, &regionview.Provider{Cell: r.Record.Cell, Cluster: r.aggregator}); err != nil {
 				t.Fatal(err)
 			}
 			flush(conn)
 		}
 	}
 	for index := range regions {
-		r, peer := &regions[index], regions[1-index].record.Cell
+		r, peer := &regions[index], regions[1-index].Record.Cell
 		cluster, err := r.aggregator.Cluster(ctx, false)
 		if err != nil || len(cluster.Members) != 3 || len(cluster.Missing) != 0 {
-			t.Fatalf("%s local snapshots: %+v, %v", r.record.Cell, cluster, err)
+			t.Fatalf("%s local snapshots: %+v, %v", r.Record.Cell, cluster, err)
 		}
 		for _, member := range cluster.Members {
-			if member.Version != 1 || member.Cell != r.record.Cell {
+			if member.Version != 1 || member.Cell != r.Record.Cell {
 				t.Fatalf("invalid local snapshot: %+v", member)
 			}
 		}
@@ -267,7 +265,7 @@ func TestControllerObservabilityCredentialsAcrossMTLSLeaf(t *testing.T) {
 						break
 					}
 					if ctx.Err() != nil || !(errors.Is(err, nats.ErrNoResponders) || errors.Is(err, nats.ErrTimeout)) {
-						t.Fatalf("%s -> %s: %v", r.record.Cell, subject, err)
+						t.Fatalf("%s -> %s: %v", r.Record.Cell, subject, err)
 					}
 					time.Sleep(20 * time.Millisecond)
 				}
@@ -289,16 +287,16 @@ func TestControllerObservabilityCredentialsAcrossMTLSLeaf(t *testing.T) {
 					}
 				}
 			}
-			links, err := regionlink.New(r.record.Cell, conn, []string{peer}, time.Second)
+			links, err := regionlink.New(r.Record.Cell, conn, []string{peer}, time.Second)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if err := links.Link(peer, conn); err != nil {
 				t.Fatal(err)
 			}
-			provider := &regionview.Provider{Cell: r.record.Cell, Links: links}
+			provider := &regionview.Provider{Cell: r.Record.Cell, Links: links}
 			if probe := provider.Probe(ctx, peer); probe.Reach != decisionlog.RegionOK || probe.Region != peer || len(probe.Members) != 3 {
-				t.Fatalf("%s controller %d authenticated probe: %+v", r.record.Cell, clientIndex, probe)
+				t.Fatalf("%s controller %d authenticated probe: %+v", r.Record.Cell, clientIndex, probe)
 			}
 			for _, subject := range []string{
 				protocol.InterRegionObservabilitySubject(peer, observability.SnapshotLeaf),
@@ -316,7 +314,7 @@ func TestControllerObservabilityCredentialsAcrossMTLSLeaf(t *testing.T) {
 			flush(conn)
 			select {
 			case err := <-r.errors[clientIndex]:
-				t.Fatalf("%s unexpected asynchronous error: %v", r.record.Cell, err)
+				t.Fatalf("%s unexpected asynchronous error: %v", r.Record.Cell, err)
 			default:
 			}
 		}

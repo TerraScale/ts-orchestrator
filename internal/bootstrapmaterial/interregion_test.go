@@ -777,3 +777,22 @@ func TestRenderInterRegionPassesTheBrokerCheck(t *testing.T) {
 		}
 	}
 }
+
+// ObservabilityRegion shares the signed interregion fixture with the external observer test.
+type ObservabilityRegion struct {
+	Material, Directory string
+	Record              InterRegionRecord
+}
+
+func ControllerObservabilityRegions(t *testing.T) (ObservabilityRegion, ObservabilityRegion, *ParentLink) {
+	t.Helper()
+	gru, sfo, _ := linkedRegions(t)
+	wire, reviewed := receipt(t, nil)
+	link := &ParentLink{Record: gru.record, Receipt: Readback{wire, reviewed}, NetBird: netbirdReadback(t, nil),
+		CredentialsFile: childCredentials(t, gru, "sfo")}
+	return ObservabilityRegion{gru.material, gru.directory, gru.record}, ObservabilityRegion{sfo.material, sfo.directory, sfo.record}, link
+}
+
+func ControllerObservabilityCredentials(claim *jwt.UserClaims, signer, user nkeys.KeyPair) ([]byte, error) {
+	return credentials(claim, signer, user)
+}
