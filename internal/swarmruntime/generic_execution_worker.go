@@ -552,7 +552,7 @@ func (w *genericExecutionWorker) signStop(ctx context.Context, observed observed
 	return drainwire.SignedStop{StopPayload: p, CertificateChain: chain, Signature: signature}, nil
 }
 
-func (c *controller) guardGenericStart() error {
+func (c *controller) guardGenericStart(ctx context.Context) error {
 	if !c.poolExecutionTask() {
 		return nil
 	}
@@ -567,6 +567,11 @@ func (c *controller) guardGenericStart() error {
 	worker := e.genericExecution
 	current, err := worker.agent.GenericExecutionSession(worker.node.admission.InstanceID, worker.node.ID())
 	if err != nil || !current.SameIdentity(w.Hold.Hold.HostSession) {
+		return errors.Join(ErrGenericExecutionPending, err)
+	}
+	// The protected pool fence is reread after credential/runtime waits.
+	reply, err := worker.agent.GenericExecution(ctx, host.GenericExecutionQuery{Action: "acquire", Task: c.task.Copy(), ExecutionSessionID: w.ExecutionSessionID})
+	if err != nil || reply.Hold == nil || !sameGenericHold(*w.Hold, *reply.Hold) || !time.Now().Before(w.Hold.Hold.ExpiresAt) {
 		return errors.Join(ErrGenericExecutionPending, err)
 	}
 	return nil

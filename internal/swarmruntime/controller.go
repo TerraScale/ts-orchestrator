@@ -344,7 +344,7 @@ func (c *controller) Start(ctx context.Context) (operationErr error) {
 		if !c.credentialExpiresAt.IsZero() && !c.credentialExpiresAt.After(time.Now()) {
 			return ErrContainerMaterialPending
 		}
-		if err := c.guardGenericStart(); err != nil {
+		if err := c.guardGenericStart(ctx); err != nil {
 			return err
 		}
 		if err := t.Start(ctx); err != nil {

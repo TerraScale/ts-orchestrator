@@ -116,4 +116,16 @@ func TestGenericExecutionHoldAndStoppedProofBindOriginalAuthority(t *testing.T) 
 	if err := VerifySignedStop(proof, c, managerPEM, caPEM, "cluster", now); err == nil {
 		t.Fatal("manager certificate substituted for original worker")
 	}
+	rotatedKey, rotatedDER, rotatedPEM := leaf(4, "swarm-worker", "worker")
+	if err := VerifySignedStop(proof, c, rotatedPEM, caPEM, "cluster", now); err == nil {
+		t.Fatal("old worker proof accepted after actual worker certificate rotation")
+	}
+	rotatedSignature, err := ecdsa.SignASN1(rand.Reader, rotatedKey, digest[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	rotatedProof := SignedStop{StopPayload: p, CertificateChain: [][]byte{rotatedDER}, Signature: rotatedSignature}
+	if err := VerifySignedStop(rotatedProof, c, workerPEM, caPEM, "cluster", now); err == nil {
+		t.Fatal("new worker key substituted for captured original worker certificate")
+	}
 }
