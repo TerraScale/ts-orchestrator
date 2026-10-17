@@ -80,6 +80,7 @@ type rootNodeOperationSource struct {
 	credentials    *rootsecret.ControllerReader
 	js             jetstream.JetStream
 	snapshot       rootResourceSnapshot
+	cfg            Config
 	lease          authority.Snapshot
 	lifetime       context.Context
 	deadline       time.Time
@@ -133,9 +134,9 @@ func (s *rootNodeOperationSource) read(ctx context.Context, key string) (rootNod
 	return pin, nil
 }
 
-func (producer *rootMaterialAdmission) nodeOperations(ctx context.Context, call rootoci.Call, cell, role string) (rootNodeOperations, error) {
-	fail := func(err error) (rootNodeOperations, error) { return rootNodeOperations{}, err }
-	if os.Geteuid() != 0 || producer == nil || producer.ownhost == nil || producer.factory == nil || cell == "" || role == "" || call.RuntimeID() == "" {
+func (producer *rootMaterialAdmission) nodeOperationSource(ctx context.Context, call rootoci.Call) (*rootNodeOperationSource, error) {
+	fail := func(err error) (*rootNodeOperationSource, error) { return nil, err }
+	if os.Geteuid() != 0 || ctx == nil || producer == nil || producer.ownhost == nil || producer.factory == nil || call.RuntimeID() == "" {
 		return fail(rootoci.ErrUnauthorized)
 	}
 	if err := call.Guard(ctx); err != nil {
@@ -183,14 +184,7 @@ func (producer *rootMaterialAdmission) nodeOperations(ctx context.Context, call 
 	if err != nil {
 		return fail(err)
 	}
-	if cell != cfg.NATS.Cell {
-		return fail(rootoci.ErrUnauthorized)
-	}
-	fence, addresses := snapshot.services.releaseFence()
-	if fence == nil || !slices.ContainsFunc(fence.BackendSets, func(set cellspec.FencedSet) bool { return set.Role == role }) {
-		return fail(errors.New("node operation role has no exact signed fenced set"))
-	}
-	observed, err := authority.Observe(ctx, js, cell)
+	observed, err := authority.Observe(ctx, js, cfg.NATS.Cell)
 	if err != nil {
 		return fail(err)
 	}
@@ -202,8 +196,13 @@ func (producer *rootMaterialAdmission) nodeOperations(ctx context.Context, call 
 		return fail(authority.ErrFenced)
 	}
 	ctx, sourceCancel := context.WithDeadline(ctx, deadline)
+	defer func() {
+		if !success {
+			sourceCancel()
+		}
+	}()
 	context.AfterFunc(ctx, conn.Close)
-	source := &rootNodeOperationSource{call: call, credentials: credentials, js: js, snapshot: snapshot, lease: observed,
+	source := &rootNodeOperationSource{call: call, credentials: credentials, js: js, snapshot: snapshot, cfg: cfg, lease: observed,
 		lifetime: ctx, deadline: deadline, pins: make(map[string]rootNodeJournalPin)}
 	journal, err := js.Stream(ctx, "KV_"+releasechannel.Bucket)
 	if err != nil {
@@ -217,6 +216,96 @@ func (producer *rootMaterialAdmission) nodeOperations(ctx context.Context, call 
 		return fail(errors.New("node operation journal has no retained stream identity"))
 	}
 	source.journalCreated, source.journalConfig = info.Created, info.Config
+	if err := source.revalidate(ctx); err != nil {
+		return fail(err)
+	}
+	success = true
+	return source, nil
+}
+
+// Prepare precedes the ordinary progress record. Only the exact current signed
+// archive can supply first-admission authority; progress is never its substitute.
+func (producer *rootMaterialAdmission) nodeOperation(ctx context.Context, call rootoci.Call, reference rootoci.NodeMaintenanceRequest) (rootNodeOperationAdmission, error) {
+	if !entityid.Valid(reference.OperationID) || !nodeOperationDigestValid(reference.RequestSHA256) || reference.RequestRevision == 0 {
+		return rootNodeOperationAdmission{}, rootoci.ErrUnauthorized
+	}
+	source, err := producer.nodeOperationSource(ctx, call)
+	if err != nil {
+		return rootNodeOperationAdmission{}, err
+	}
+	success := false
+	defer func() {
+		if !success {
+			source.credentials.Conn().Close()
+		}
+	}()
+	ctx = source.lifetime
+	archive, err := source.read(ctx, nodeOperationRequestKey(reference.OperationID))
+	if err != nil || !archive.present() || archive.revision != reference.RequestRevision {
+		return rootNodeOperationAdmission{}, errors.Join(rootoci.ErrUnauthorized, err)
+	}
+	var record nodeOperationRequestRecord
+	if err := json.Unmarshal(archive.wire, &record, json.RejectUnknownMembers(true)); err != nil {
+		return rootNodeOperationAdmission{}, err
+	}
+	if validateNodeOperationRecord(record) != nil || record.Policy != nodeOperationPins(source.snapshot) || controllerSHA256(record.Wire) != reference.RequestSHA256 {
+		return rootNodeOperationAdmission{}, rootoci.ErrUnauthorized
+	}
+	policy, err := nodeOperationPolicy(source.cfg, source.snapshot)
+	if err != nil {
+		return rootNodeOperationAdmission{}, err
+	}
+	original, request, err := verifyNodeOperationRequest(record.Wire, source.cfg.NATS.Cell, source.lease.Epoch, policy, time.Now().UTC())
+	if err != nil || original.OperationID != reference.OperationID {
+		return rootNodeOperationAdmission{}, errors.Join(rootoci.ErrUnauthorized, err)
+	}
+	op := nodeOp{ID: original.OperationID, Actor: original.Actor, Node: request.Node, Op: request.Op,
+		OCPUs: request.OCPUs, MemoryGB: request.MemoryGB, RequestSHA256: reference.RequestSHA256, RequestRevision: reference.RequestRevision}
+	if request.Op == nodeOpRename {
+		op.Node, op.From = request.To, request.Node
+	}
+	if _, err := matchNodeOperationRequest(op, record); err != nil {
+		return rootNodeOperationAdmission{}, err
+	}
+	fence, addresses := source.snapshot.services.releaseFence()
+	if fence == nil || addresses[op.Node] == "" || op.From != "" && addresses[op.From] != "" {
+		return rootNodeOperationAdmission{}, rootoci.ErrUnauthorized
+	}
+	source.deadline = earlier(source.deadline, original.ExpiresAt)
+	ctx, cancel := context.WithDeadline(ctx, source.deadline)
+	context.AfterFunc(ctx, source.credentials.Conn().Close)
+	source.lifetime = ctx
+	admitted := rootNodeOperationAdmission{source: source, op: op, original: original}
+	if err := admitted.Revalidate(ctx); err != nil {
+		cancel()
+		return rootNodeOperationAdmission{}, err
+	}
+	success = true
+	return admitted, nil
+}
+
+func (producer *rootMaterialAdmission) nodeOperations(ctx context.Context, call rootoci.Call, cell, role string) (rootNodeOperations, error) {
+	fail := func(err error) (rootNodeOperations, error) { return rootNodeOperations{}, err }
+	source, err := producer.nodeOperationSource(ctx, call)
+	if err != nil {
+		return fail(err)
+	}
+	success := false
+	defer func() {
+		if !success {
+			source.credentials.Conn().Close()
+		}
+	}()
+	if cell != source.cfg.NATS.Cell || role == "" {
+		return fail(rootoci.ErrUnauthorized)
+	}
+	fence, addresses := source.snapshot.services.releaseFence()
+	if fence == nil || !slices.ContainsFunc(fence.BackendSets, func(set cellspec.FencedSet) bool { return set.Role == role }) {
+		return fail(errors.New("node operation role has no exact signed fenced set"))
+	}
+	ctx = source.lifetime
+	cfg, snapshot, observed, conn := source.cfg, source.snapshot, source.lease, source.credentials.Conn()
+	var sourceCancel context.CancelFunc
 	// Only the finite node names from the authenticated current spec can select work.
 	for node := range addresses {
 		progress, err := source.read(ctx, nodeOpKey(node))
@@ -296,7 +385,9 @@ func (producer *rootMaterialAdmission) nodeOperations(ctx context.Context, call 
 		source.operations = append(source.operations, rootNodeOperationAdmission{source: source, op: op, original: original})
 	}
 	if err := source.revalidate(ctx); err != nil {
-		sourceCancel()
+		if sourceCancel != nil {
+			sourceCancel()
+		}
 		return fail(err)
 	}
 	success = true
