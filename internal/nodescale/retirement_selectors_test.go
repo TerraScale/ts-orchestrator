@@ -12,47 +12,49 @@ import (
 )
 
 // These are inert request selectors. No synthetic view grants ROOT authority.
-func TestOriginalPoolRetirementPreservesPurchaseAcrossCurrentGrantChange(t *testing.T) {
-	birth := rootoci.PoolChildView{Cell: "GRU", OperationID: entityid.New(), InstanceID: "ocid1.instance.original", PoolID: "ocid1.instancepool.original",
-		ConfigurationID: "ocid1.instanceconfiguration.original", RecipeSHA256: strings.Repeat("c", 64),
-		GrantSHA256: strings.Repeat("b", 64), Generation: 12, Epoch: 3,
-		OriginalBirthGrantSHA256: strings.Repeat("a", 64), OriginalBirthGeneration: 1}
-	birth.ReservationID = birth.OperationID
+func TestOriginalPoolRetirementPreservesPreparedPurchase(t *testing.T) {
+	prepared := rootoci.PoolRetirementPreparation{Node: "ts-gru-4", Retirement: rootoci.PoolRetirementExpectation{
+		InstanceID: "ocid1.instance.original", Child: rootoci.PoolChildExpectation{Cell: "GRU", OperationID: entityid.New(), PoolID: "ocid1.instancepool.original",
+			ConfigurationID: "ocid1.instanceconfiguration.original", RecipeSHA256: strings.Repeat("c", 64),
+			GrantSHA256: strings.Repeat("a", 64), Generation: 1, Epoch: 3}}}
+	prepared.Retirement.Child.ReservationID = prepared.Retirement.Child.OperationID
 	removal := entityid.New()
-	original, err := originalPoolRetirement(birth, birth.InstanceID, removal)
+	original, err := originalPoolRetirement(prepared, prepared.Retirement.InstanceID, removal)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if original.Child.GrantSHA256 != birth.OriginalBirthGrantSHA256 || original.Child.Generation != birth.OriginalBirthGeneration || original.Child.Epoch != birth.Epoch {
+	if original.Child.GrantSHA256 != prepared.Retirement.Child.GrantSHA256 || original.Child.Generation != prepared.Retirement.Child.Generation || original.Child.Epoch != prepared.Retirement.Child.Epoch || original.RemovalOperationID != removal {
 		t.Fatal("retirement request replaced original purchase or birth epoch")
 	}
 	if original.DrainSHA256 != "" {
 		t.Fatal("observational preparation supplied a digest before protected capture")
 	}
-	before, err := protocol.EncodeJSON(original)
+	want := prepared.Retirement
+	want.RemovalOperationID = removal
+	before, err := protocol.EncodeJSON(want)
 	if err != nil {
 		t.Fatal(err)
 	}
-	birth.GrantSHA256, birth.Generation = strings.Repeat("d", 64), 13
-	after, err := originalPoolRetirement(birth, birth.InstanceID, removal)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wire, err := protocol.EncodeJSON(after)
+	wire, err := protocol.EncodeJSON(original)
 	if err != nil || !bytes.Equal(before, wire) {
-		t.Fatal("compatible current grant changed original outgoing retirement selectors", err)
+		t.Fatal("preparation changed beyond the chosen removal operation", err)
 	}
-	for name, mutate := range map[string]func(*rootoci.PoolChildView){
-		"missing original grant":      func(view *rootoci.PoolChildView) { view.OriginalBirthGrantSHA256 = "" },
-		"invalid original grant":      func(view *rootoci.PoolChildView) { view.OriginalBirthGrantSHA256 = strings.Repeat("x", 64) },
-		"missing original generation": func(view *rootoci.PoolChildView) { view.OriginalBirthGeneration = 0 },
-		"missing birth epoch":         func(view *rootoci.PoolChildView) { view.Epoch = 0 },
-		"foreign instance":            func(view *rootoci.PoolChildView) { view.InstanceID = "ocid1.instance.foreign" },
+	if prepared.Retirement.RemovalOperationID != "" {
+		t.Fatal("constructing a request mutated the action-free preparation")
+	}
+	for name, mutate := range map[string]func(*rootoci.PoolRetirementExpectation){
+		"missing original grant":      func(r *rootoci.PoolRetirementExpectation) { r.Child.GrantSHA256 = "" },
+		"invalid original grant":      func(r *rootoci.PoolRetirementExpectation) { r.Child.GrantSHA256 = strings.Repeat("x", 64) },
+		"missing original generation": func(r *rootoci.PoolRetirementExpectation) { r.Child.Generation = 0 },
+		"missing birth epoch":         func(r *rootoci.PoolRetirementExpectation) { r.Child.Epoch = 0 },
+		"foreign instance":            func(r *rootoci.PoolRetirementExpectation) { r.InstanceID = "ocid1.instance.foreign" },
+		"existing removal":            func(r *rootoci.PoolRetirementExpectation) { r.RemovalOperationID = entityid.New() },
+		"existing drain":              func(r *rootoci.PoolRetirementExpectation) { r.DrainSHA256 = strings.Repeat("d", 64) },
 	} {
 		t.Run(name, func(t *testing.T) {
-			changed := birth
-			mutate(&changed)
-			if _, err := originalPoolRetirement(changed, birth.InstanceID, removal); !errors.Is(err, ErrCapacityPending) {
+			changed := prepared
+			mutate(&changed.Retirement)
+			if _, err := originalPoolRetirement(changed, prepared.Retirement.InstanceID, removal); !errors.Is(err, ErrCapacityPending) {
 				t.Fatal("missing original purchase lineage acquired retirement selectors", err)
 			}
 		})

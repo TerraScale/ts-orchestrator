@@ -131,20 +131,11 @@ func (pool *ChosenPool) PrepareRetirement(ctx context.Context, instanceID, remov
 	if !entityid.Valid(removalOperationID) {
 		return rootoci.PoolRetirementExpectation{}, errors.New("pool retirement needs its original removal operation")
 	}
-	record, _, err := pool.store.Load(ctx)
+	prepared, err := pool.root.PreparePoolRetirement(ctx, rootoci.PoolRetirementSelector{Cell: strings.ToUpper(pool.observed.cell), InstanceID: instanceID})
 	if err != nil {
 		return rootoci.PoolRetirementExpectation{}, err
 	}
-	selected, err := pool.selectors(ctx, record)
-	if err != nil {
-		return rootoci.PoolRetirementExpectation{}, err
-	}
-	proof, err := pool.root.VerifyPoolChild(ctx, rootoci.PoolChildObservation{Cell: selected.Cell, InstanceID: instanceID})
-	if err != nil {
-		return rootoci.PoolRetirementExpectation{}, err
-	}
-	birth := proof.View()
-	return originalPoolRetirement(birth, instanceID, removalOperationID)
+	return originalPoolRetirement(prepared, instanceID, removalOperationID)
 }
 
 func (pool *ChosenPool) drainRetirement(ctx context.Context, record Record, original rootoci.PoolRetirementExpectation) error {
@@ -187,14 +178,14 @@ func (pool *ChosenPool) drainRetirement(ctx context.Context, record Record, orig
 	}
 }
 
-func originalPoolRetirement(birth rootoci.PoolChildView, instanceID, removalOperationID string) (rootoci.PoolRetirementExpectation, error) {
-	_, digestErr := hex.DecodeString(birth.OriginalBirthGrantSHA256)
-	if instanceID == "" || birth.InstanceID != instanceID || len(birth.OriginalBirthGrantSHA256) != 64 || digestErr != nil || birth.OriginalBirthGeneration == 0 || birth.Epoch == 0 {
+func originalPoolRetirement(prepared rootoci.PoolRetirementPreparation, instanceID, removalOperationID string) (rootoci.PoolRetirementExpectation, error) {
+	original := prepared.Retirement
+	_, digestErr := hex.DecodeString(original.Child.GrantSHA256)
+	if instanceID == "" || original.InstanceID != instanceID || len(original.Child.GrantSHA256) != 64 || digestErr != nil || original.Child.Generation == 0 || original.Child.Epoch == 0 || original.RemovalOperationID != "" || original.DrainSHA256 != "" {
 		return rootoci.PoolRetirementExpectation{}, fmt.Errorf("%w: authenticated original purchase selectors are unavailable", ErrCapacityPending)
 	}
-	return rootoci.PoolRetirementExpectation{Child: rootoci.PoolChildExpectation{Cell: birth.Cell, OperationID: birth.OperationID, ReservationID: birth.ReservationID,
-		RecipeSHA256: birth.RecipeSHA256, PoolID: birth.PoolID, ConfigurationID: birth.ConfigurationID,
-		GrantSHA256: birth.OriginalBirthGrantSHA256, Generation: birth.OriginalBirthGeneration, Epoch: birth.Epoch}, InstanceID: instanceID, RemovalOperationID: removalOperationID}, nil
+	original.RemovalOperationID = removalOperationID
+	return original, nil
 }
 
 func (pool *ChosenPool) Remove(ctx context.Context, instanceID string) error {
