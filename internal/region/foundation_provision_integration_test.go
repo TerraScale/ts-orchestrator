@@ -108,6 +108,9 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := ValidatePreparedFoundation(prepared.Grant); err == nil {
+		t.Fatal("unsigned candidate without actual ledger protection became signable")
+	}
 	if len(prepared.Grant.RootOperationJournals) != 3 {
 		t.Fatal("preparation omitted the explicit future own-cell root operation purposes")
 	}
@@ -143,12 +146,12 @@ func foundationProvisionSDKScenario(t *testing.T) {
 				case "duplicate":
 					changed.RootOperationJournals[1] = *purpose
 				}
-				if validateRootOperationJournals(changed, time.Time{}) == nil {
+				if validateRootOperationJournalIntents(changed, time.Time{}) == nil {
 					t.Fatal("changed root operation purpose was accepted")
 				}
 			})
 		}
-		if validateRootOperationJournals(prepared.Grant, prepared.Grant.RootOperationJournals[0].ExpiresAt.Add(-time.Second)) == nil {
+		if validateRootOperationJournalIntents(prepared.Grant, prepared.Grant.RootOperationJournals[0].ExpiresAt.Add(-time.Second)) == nil {
 			t.Fatal("purpose outlived the final signed grant")
 		}
 		historical := prepared.Grant
@@ -156,7 +159,6 @@ func foundationProvisionSDKScenario(t *testing.T) {
 		if err := validateRootOperationJournals(historical, time.Time{}); err != nil {
 			t.Fatal("historical grant became unreadable", err)
 		}
-
 	})
 	// The pure preparation helper leaves worker policy to its caller; the SDK
 	// producer normally fills this same finite policy before offline signing.
@@ -184,16 +186,7 @@ func foundationProvisionSDKScenario(t *testing.T) {
 			}
 		}
 	}
-	chain, err := trust.EncodeRootChain(trust.RootChain{Version: 1})
-	if err != nil {
-		t.Fatal(err)
-	}
-	bundle, err := SignFoundationDiscovery(t.Context(), prepared.Grant, prepared.Anchor, chain, roots, root, now.Add(-time.Second), now.Add(20*time.Minute))
-	if err != nil {
-		t.Fatal(err)
-	}
-	cloud.bundle = bundle.clone()
-	cloud.seedPrerequisites(approval)
+	cloud.seedPrerequisites(approval, now)
 	server := httptest.NewTLSServer(http.HandlerFunc(cloud.serveHTTP))
 	defer server.Close()
 	listener, ok := server.Listener.Addr().(*net.TCPAddr)
@@ -237,10 +230,57 @@ func foundationProvisionSDKScenario(t *testing.T) {
 		return factory
 	}
 	factory := factoryFor()
+	ledger, err := observeRootOperationLedgerPreparation(t.Context(), factory, approval.HomeStorageDomain, approval.SourceVaultTarget.CompartmentOCID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range prepared.Grant.RootOperationJournals {
+		purpose := &prepared.Grant.RootOperationJournals[i]
+		purpose.LedgerBucketID, purpose.RetentionRuleID = ledger.BucketID, ledger.RuleID
+		purpose.RetentionLockedAt, purpose.RetentionDurationSeconds = ledger.LockedAt, ledger.DurationSeconds
+	}
+	if err := ValidatePreparedFoundation(prepared.Grant); err != nil {
+		t.Fatal("actual SDK-observed ledger description was rejected", err)
+	}
+	t.Run("root_operation_storage_is_actual_readback", func(t *testing.T) {
+		cloud.mu.Lock()
+		rule := cloud.retention[approval.HomeStorageDomain.LedgerBucket][0].(map[string]any)
+		lockedAt := rule["timeRuleLocked"]
+		rule["timeRuleLocked"] = now.Add(time.Hour)
+		cloud.mu.Unlock()
+		_, err := observeRootOperationLedgerPreparation(t.Context(), factory, approval.HomeStorageDomain, approval.SourceVaultTarget.CompartmentOCID)
+		cloud.mu.Lock()
+		rule["timeRuleLocked"] = lockedAt
+		cloud.mu.Unlock()
+		if err == nil {
+			t.Fatal("future requested lock was treated as effective protection")
+		}
+		canceled, cancel := context.WithCancel(t.Context())
+		cancel()
+		if _, err := observeRootOperationLedgerPreparation(canceled, factory, approval.HomeStorageDomain, approval.SourceVaultTarget.CompartmentOCID); err == nil {
+			t.Fatal("canceled caller acquired a ledger storage description")
+		}
+		changed := prepared.Grant
+		changed.RootOperationJournals = slices.Clone(prepared.Grant.RootOperationJournals)
+		changed.RootOperationJournals[1].LedgerBucketID = "ocid1.bucket.oc1.sa-saopaulo-1.replacement"
+		if err := ValidatePreparedFoundation(changed); err == nil {
+			t.Fatal("own-cell clauses accepted different physical ledger identities")
+		}
+	})
+	chain, err := trust.EncodeRootChain(trust.RootChain{Version: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := SignFoundationDiscovery(t.Context(), prepared.Grant, prepared.Anchor, chain, roots, root, now.Add(-time.Second), now.Add(20*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cloud.bundle = bundle.clone()
 	invalid := bundle.clone()
 	invalid.GrantWire = []byte("invalid signed authority")
 	before := provider.reads.Load()
-	if err := ProvisionFoundationBundle(t.Context(), factory, roots, invalid); err == nil || provider.reads.Load() != before || cloud.requests != 0 {
+	requestsBeforeInvalid := cloud.requests
+	if err := ProvisionFoundationBundle(t.Context(), factory, roots, invalid); err == nil || provider.reads.Load() != before || cloud.requests != requestsBeforeInvalid {
 		t.Fatalf("invalid authority touched provider/cloud: reads=%d requests=%d err=%v", provider.reads.Load()-before, cloud.requests, err)
 	}
 	// First remote acceptance loses its original SDK LaunchInstance response.
@@ -518,7 +558,7 @@ func (c *provisionCloud) original(cell string) (string, string) {
 	}
 	return "", ""
 }
-func (c *provisionCloud) seedPrerequisites(input FoundationPreparationInput) {
+func (c *provisionCloud) seedPrerequisites(input FoundationPreparationInput, now time.Time) {
 	c.rows[input.SourceVaultTarget.CompartmentOCID] = map[string]any{"id": input.SourceVaultTarget.CompartmentOCID, "name": "gru-1-control", "compartmentId": input.ParentCompartmentID, "lifecycleState": "ACTIVE"}
 	c.collections[input.SourceVaultTarget.CompartmentOCID] = "compartments"
 	c.rows[input.ParentCompartmentID] = map[string]any{"id": input.ParentCompartmentID, "name": "parent", "compartmentId": input.TenancyID, "lifecycleState": "ACTIVE"}
@@ -541,6 +581,12 @@ func (c *provisionCloud) seedPrerequisites(input FoundationPreparationInput) {
 		c.rows[id] = map[string]any{"id": id, "name": name, "namespace": "ns", "compartmentId": input.SourceVaultTarget.CompartmentOCID, "kmsKeyId": key, "versioning": versioning, "publicAccessType": "NoPublicAccess", "storageTier": "Standard"}
 		c.collections[id] = "buckets"
 	}
+	c.retention[input.HomeStorageDomain.LedgerBucket] = []any{map[string]any{
+		"id": "original-ledger-retention", "displayName": "ledger-retention", "etag": "original-retention",
+		"timeCreated": now.Add(-30 * 24 * time.Hour), "timeModified": now.Add(-30 * 24 * time.Hour),
+		"timeRuleLocked": now.Add(-15 * 24 * time.Hour),
+		"duration":       map[string]any{"timeAmount": 35, "timeUnit": "DAYS"},
+	}}
 }
 
 func (c *provisionCloud) serveHTTP(w http.ResponseWriter, r *http.Request) {
@@ -1001,6 +1047,19 @@ func (c *provisionCloud) serveStorage(w http.ResponseWriter, r *http.Request) {
 	if suffix == "" && r.Method == http.MethodGet {
 		w.Header().Set("etag", "bucket")
 		json.MarshalWrite(w, row)
+		return
+	}
+	if strings.HasPrefix(suffix, "retentionRules/") && r.Method == http.MethodGet {
+		id := strings.TrimPrefix(suffix, "retentionRules/")
+		for _, value := range c.retention[bucket] {
+			rule := value.(map[string]any)
+			if rule["id"] == id {
+				w.Header().Set("etag", fmt.Sprint(rule["etag"]))
+				json.MarshalWrite(w, rule)
+				return
+			}
+		}
+		c.notFound(w)
 		return
 	}
 	if suffix == "retentionRules" {

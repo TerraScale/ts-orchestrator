@@ -168,6 +168,18 @@ func PrepareFoundationGrantSDK(ctx context.Context, input FoundationPreparationI
 	if err != nil {
 		return FoundationPreparation{}, err
 	}
+	ledger, err := observeRootOperationLedgerPreparation(ctx, factory, input.HomeStorageDomain, input.SourceVaultTarget.CompartmentOCID)
+	if err != nil {
+		return FoundationPreparation{}, err
+	}
+	for i := range prepared.Grant.RootOperationJournals {
+		purpose := &prepared.Grant.RootOperationJournals[i]
+		purpose.LedgerBucketID, purpose.RetentionRuleID = ledger.BucketID, ledger.RuleID
+		purpose.RetentionLockedAt, purpose.RetentionDurationSeconds = ledger.LockedAt, ledger.DurationSeconds
+	}
+	if err := ValidatePreparedFoundation(prepared.Grant); err != nil {
+		return FoundationPreparation{}, err
+	}
 	if err := ValidateContainerReleaseAuthorities(prepared.Grant, roots, input.HomeStorageDomain, time.Now()); err != nil {
 		return FoundationPreparation{}, err
 	}
@@ -178,8 +190,8 @@ func PrepareFoundationGrantSDK(ctx context.Context, input FoundationPreparationI
 	return prepared, nil
 }
 
-// PrepareFoundationGrant derives the complete fixed first footprint from one
-// platform template and current verified image-source results.
+// PrepareFoundationGrant derives an unsigned logical candidate. SDK preparation
+// must observe and bind physical ledger protection before full validation.
 func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInput, images map[string]releasechannel.CurrentImage, lookup Lookup) (FoundationPreparation, error) {
 	if err := input.validate(); err != nil {
 		return FoundationPreparation{}, err
@@ -291,7 +303,7 @@ func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInpu
 	if err != nil {
 		return FoundationPreparation{}, err
 	}
-	if err := ValidatePreparedFoundation(grant); err != nil {
+	if err := validatePreparedFoundationRecipes(grant); err != nil {
 		return FoundationPreparation{}, err
 	}
 	return FoundationPreparation{Grant: grant, Anchor: anchor}, nil
@@ -505,6 +517,13 @@ func controllerBootstrapSlot(installation, cell string, startup bootstrap.Startu
 // ValidatePreparedFoundation prevents the ceremony from signing spending
 // hashes unrelated to the recipes its launch consumers actually enforce.
 func ValidatePreparedFoundation(grant FoundationGrant) error {
+	if err := validatePreparedFoundationRecipes(grant); err != nil {
+		return err
+	}
+	return validateRootOperationJournals(grant, time.Time{})
+}
+
+func validatePreparedFoundationRecipes(grant FoundationGrant) error {
 	if err := validatePreparedReleaseAuthorities(grant.ReleaseAuthorities); err != nil {
 		return err
 	}
@@ -594,5 +613,5 @@ func ValidatePreparedFoundation(grant FoundationGrant) error {
 	if err := validateNetBirdJournalPurpose(grant, time.Time{}); err != nil {
 		return err
 	}
-	return validateRootOperationJournals(grant, time.Time{})
+	return validateRootOperationJournalIntents(grant, time.Time{})
 }

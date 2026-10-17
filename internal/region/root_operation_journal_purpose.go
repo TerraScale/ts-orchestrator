@@ -3,6 +3,7 @@ package region
 import (
 	"encoding/json/v2"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
@@ -18,27 +19,31 @@ const rootOperationJournalPrefix = "orchestrator/root-operations/v1/"
 // RootOperationJournalPurpose prepares NODE first-acceptance intent only.
 // Actual signed identity, physical protection and writer proofs remain required.
 type RootOperationJournalPurpose struct {
-	Purpose          string                  `json:"purpose"`
-	InstallationID   string                  `json:"installationId"`
-	TenancyID        string                  `json:"tenancyId"`
-	Generation       uint64                  `json:"generation"`
-	Cell             string                  `json:"cell"`
-	DeploymentID     string                  `json:"deploymentId"`
-	ClusterID        string                  `json:"clusterId"`
-	Environment      string                  `json:"environment"`
-	SourcePlanSHA256 string                  `json:"sourcePlanSha256"`
-	Storage          bootstrap.StorageDomain `json:"storage"`
-	BucketRole       string                  `json:"bucketRole"`
-	Access           string                  `json:"access"`
-	OperationKind    string                  `json:"operationKind"`
-	Identity         string                  `json:"identity"`
-	WriterSlotID     string                  `json:"writerSlotId"`
-	WriterOperation  string                  `json:"writerOperation"`
-	WriterProfile    string                  `json:"writerProfile"`
-	WriterRecipe     string                  `json:"writerRecipe"`
-	ObjectPrefix     string                  `json:"objectPrefix"`
-	RecordLimit      int                     `json:"recordLimit"`
-	ExpiresAt        time.Time               `json:"expiresAt"`
+	Purpose                  string                  `json:"purpose"`
+	InstallationID           string                  `json:"installationId"`
+	TenancyID                string                  `json:"tenancyId"`
+	Generation               uint64                  `json:"generation"`
+	Cell                     string                  `json:"cell"`
+	DeploymentID             string                  `json:"deploymentId"`
+	ClusterID                string                  `json:"clusterId"`
+	Environment              string                  `json:"environment"`
+	SourcePlanSHA256         string                  `json:"sourcePlanSha256"`
+	Storage                  bootstrap.StorageDomain `json:"storage"`
+	BucketRole               string                  `json:"bucketRole"`
+	Access                   string                  `json:"access"`
+	OperationKind            string                  `json:"operationKind"`
+	Identity                 string                  `json:"identity"`
+	WriterSlotID             string                  `json:"writerSlotId"`
+	WriterOperation          string                  `json:"writerOperation"`
+	WriterProfile            string                  `json:"writerProfile"`
+	WriterRecipe             string                  `json:"writerRecipe"`
+	ObjectPrefix             string                  `json:"objectPrefix"`
+	RecordLimit              int                     `json:"recordLimit"`
+	ExpiresAt                time.Time               `json:"expiresAt"`
+	LedgerBucketID           string                  `json:"ledgerBucketId"`
+	RetentionRuleID          string                  `json:"retentionRuleId"`
+	RetentionLockedAt        time.Time               `json:"retentionLockedAt"`
+	RetentionDurationSeconds int64                   `json:"retentionDurationSeconds"`
 }
 
 func preparedRootOperationJournals(grant FoundationGrant, expires time.Time) ([]RootOperationJournalPurpose, error) {
@@ -126,7 +131,7 @@ func preparedRootOperationJournals(grant FoundationGrant, expires time.Time) ([]
 	return result, nil
 }
 
-func validateRootOperationJournals(grant FoundationGrant, envelopeExpiry time.Time) error {
+func validateRootOperationJournalIntents(grant FoundationGrant, envelopeExpiry time.Time) error {
 	// Historical grants remain readable but cannot produce this purpose witness.
 	if len(grant.RootOperationJournals) == 0 {
 		return nil
@@ -147,6 +152,9 @@ func validateRootOperationJournals(grant FoundationGrant, envelopeExpiry time.Ti
 		}
 		matched := false
 		for _, candidate := range expected {
+			// Physical descriptions are independently observed by SDK preparation.
+			candidate.LedgerBucketID, candidate.RetentionRuleID = purpose.LedgerBucketID, purpose.RetentionRuleID
+			candidate.RetentionLockedAt, candidate.RetentionDurationSeconds = purpose.RetentionLockedAt, purpose.RetentionDurationSeconds
 			if candidate == purpose {
 				matched = true
 			}
@@ -154,6 +162,26 @@ func validateRootOperationJournals(grant FoundationGrant, envelopeExpiry time.Ti
 		if !matched {
 			return ErrFoundationFenced
 		}
+	}
+	return nil
+}
+
+func validateRootOperationJournals(grant FoundationGrant, envelopeExpiry time.Time) error {
+	if err := validateRootOperationJournalIntents(grant, envelopeExpiry); err != nil {
+		return err
+	}
+	var original *RootOperationJournalPurpose
+	for _, purpose := range grant.RootOperationJournals {
+		if !validAuxiliaryID("ledger_bucket", purpose.LedgerBucketID, foundationHomeRegion) || purpose.RetentionRuleID == "" ||
+			len(purpose.RetentionRuleID) > 255 || strings.ContainsAny(purpose.RetentionRuleID, " /\\\t\r\n?#") ||
+			purpose.RetentionLockedAt.IsZero() || purpose.RetentionLockedAt.After(time.Now()) || purpose.RetentionDurationSeconds < 31*60 {
+			return errors.New("root node purpose lacks actual effective locked ledger protection")
+		}
+		if original != nil && (purpose.LedgerBucketID != original.LedgerBucketID || purpose.RetentionRuleID != original.RetentionRuleID ||
+			!purpose.RetentionLockedAt.Equal(original.RetentionLockedAt) || purpose.RetentionDurationSeconds != original.RetentionDurationSeconds) {
+			return errors.New("root node purposes differ from the one original protected home ledger")
+		}
+		original = new(purpose)
 	}
 	return nil
 }
