@@ -97,6 +97,9 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 		if err := record.retainCapacity(previous); err != nil {
 			return "", err
 		}
+		if err := record.retainPoolDrains(previous); err != nil {
+			return "", err
+		}
 	}
 	wire, err := json.Marshal(record, json.Deterministic(true))
 	if err != nil {
@@ -218,7 +221,10 @@ func (r FoundationRecord) validate() error {
 			return errors.New("foundation record has invalid pending create")
 		}
 	}
-	return r.validateCapacity()
+	if err := r.validateCapacity(); err != nil {
+		return err
+	}
+	return r.validatePoolDrains()
 }
 
 func validAuxiliaryID(key, id, region string) bool {
