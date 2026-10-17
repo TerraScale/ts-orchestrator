@@ -48,7 +48,7 @@ import (
 // supplied application probe substitutes the external OCI recipient source;
 // native execution and the production recipient adapter remain separate gates.
 func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 180*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 240*time.Second)
 	defer cancel()
 	auth := newAuthenticatedNATS(t, "gru")
 	broker, err := auth.start(t, ctx, natscell.Config{Cell: "gru", Embedded: &natscell.Embedded{}})
@@ -126,7 +126,7 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 		regionalCodec.Cell = cell
 		floors = append(floors, retainGenericRuntimeRegionalClaim(t, ctx, regionalCodec, policy.Role, identity.Environment))
 	}
-	bundle, evidence := genericRuntimeContainerRelease(t, signer, target, floors)
+	bundle, evidence := genericRuntimeContainerRelease(t, signer, target, floors, 101, nil)
 	var claim release.ContainerClaim
 	envelope, err := trust.DecodeEnvelope(bundle.Claim)
 	if err != nil || protocol.DecodeStrict(envelope.Payload, &claim, trust.MaxPayloadBytes) != nil {
@@ -148,11 +148,13 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 		}
 	}))
 	t.Cleanup(server.Close)
+	var deliveries *delivery.Service
+	probeClient := client
 	probe := func(ctx context.Context, task *api.Task) error {
 		if err := session.verify(ctx); err != nil {
 			return err
 		}
-		node, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: task.NodeID})
+		node, err := probeClient.GetNode(ctx, &api.GetNodeRequest{NodeID: task.NodeID})
 		if err != nil || node.Node.Spec.Annotations.Name != session.registration.ID || node.Node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] != managerConfig.Admission.InstanceID {
 			return errors.New("task recipient differs from current signed host session")
 		}
@@ -160,7 +162,11 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		proof, err := containermaterial.VerifyProfile(entry.Value(), specs.roots.current(), identity, intent)
+		taskIntent, err := deliveries.ContainerIntent(ctx, task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID])
+		if err != nil {
+			return err
+		}
+		proof, err := containermaterial.VerifyProfile(entry.Value(), specs.roots.current(), identity, taskIntent)
 		if err != nil {
 			return err
 		}
@@ -168,11 +174,11 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		verified, err := release.VerifyContainerCurrent(ctx, bundle, specs.roots.current(), target, time.Now().UTC(), time.Now().UTC().Add(time.Minute), evidence, signer.allocations)
+		verified, err := release.VerifyContainerCurrent(ctx, *taskIntent.Container, specs.roots.current(), target, time.Now().UTC(), time.Now().UTC().Add(time.Minute), evidence, signer.allocations)
 		if err != nil {
 			return err
 		}
-		if err := swarmruntime.VerifyRegistryTask(ctx, client, task, expected, verified, specs.roots.current()); err != nil {
+		if err := swarmruntime.VerifyRegistryTask(ctx, probeClient, task, expected, verified, specs.roots.current()); err != nil {
 			return err
 		}
 		request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/readyz", nil)
@@ -188,21 +194,24 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 		if response.StatusCode != http.StatusOK {
 			return fmt.Errorf("application readiness HTTP %d", response.StatusCode)
 		}
-		if err := swarmruntime.VerifyRegistryTask(ctx, client, task, expected, verified, specs.roots.current()); err != nil {
+		if err := swarmruntime.VerifyRegistryTask(ctx, probeClient, task, expected, verified, specs.roots.current()); err != nil {
 			return err
 		}
 		return session.verify(ctx)
 	}
 	var controller *genericRuntime
+	var activeRuntime atomic.Pointer[genericRuntime]
 	writer := new(genericRuntimeLegacyWriter)
-	deliveries, err := delivery.Open(ctx, delivery.Config{Conn: broker.Conn(), JS: broker.JetStream(), Cell: identity.Cell, Replicas: 1,
+	deliveries, err = delivery.Open(ctx, delivery.Config{Conn: broker.Conn(), JS: broker.JetStream(), Cell: identity.Cell, Replicas: 1,
 		Signer: codec, Verifier: codec, Fencer: fencer, Writer: writer,
 		Authorize: func(_ context.Context, actor string, proposed delivery.Intent) error {
 			if actor != "release" || proposed.Role != policy.Role || proposed.Environment != identity.Environment {
 				return delivery.ErrUnauthorized
 			}
 			return nil
-		}, ContainerApply: func(ctx context.Context, intent delivery.Intent) error { return controller.apply(ctx, intent) }})
+		}, ContainerApply: func(ctx context.Context, intent delivery.Intent) error {
+			return activeRuntime.Load().apply(ctx, intent)
+		}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,6 +223,7 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	activeRuntime.Store(controller)
 	for name, mutate := range map[string]func(*release.ContainerBundle){
 		"signature": func(candidate *release.ContainerBundle) {
 			envelope, err := trust.DecodeEnvelope(candidate.Claim)
@@ -296,6 +306,8 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	if err != nil || current.Service.Spec.Task.Resources.Limits.NanoCPUs != int64(profile.Resources.CPU)*1_000_000_000 || current.Service.Spec.Task.Resources.Reservations.MemoryBytes != profile.Resources.MemoryBytes {
 		t.Fatalf("replica CAS lost signed resources: %+v %v", current, err)
 	}
+	staleVersion := current.Service.Meta.Version
+	staleSpec := current.Service.Spec.Copy()
 	if err := executor.fail(first.Tasks[0].TaskID); err != nil {
 		t.Fatal(err)
 	}
@@ -311,6 +323,80 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 		}
 		return true
 	})
+	rollout := func(sequence uint64) delivery.Intent {
+		t.Helper()
+		candidate, _ := genericRuntimeContainerRelease(t, signer, target, floors, sequence, bundle.Migration)
+		var claim release.ContainerClaim
+		envelope, err := trust.DecodeEnvelope(candidate.Claim)
+		if err != nil || protocol.DecodeStrict(envelope.Payload, &claim, trust.MaxPayloadBytes) != nil {
+			t.Fatal("decode next signed container release", err)
+		}
+		next := intent.Clone()
+		next.OperationID, next.Generation, next.Container = entityid.New(), sequence-100, &candidate
+		next.Source.Commit = claim.SourceRevision
+		return next
+	}
+	next := rollout(102)
+	if err := deliveries.Submit(ctx, next); err != nil {
+		t.Fatal(err)
+	}
+	genericRuntimeEventually(t, ctx, func() bool {
+		receipt, err := deliveries.Status(ctx, next.OperationID)
+		return err == nil && receipt.Status == "accepted"
+	})
+	rolledForward := ready(2)
+	if len(rolledForward.Tasks) == 0 {
+		t.Fatal("signed rollout has no actual manager task assignments")
+	}
+	if _, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: serviceID, ServiceVersion: &staleVersion, Spec: staleSpec}); err == nil {
+		t.Fatal("manager accepted pre-rollout stale service CAS")
+	}
+	rejected := rollout(103)
+	rejectedClaim, err := trust.DecodeEnvelope(rejected.Container.Claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rejectedImage release.ContainerClaim
+	if err := protocol.DecodeStrict(rejectedClaim.Payload, &rejectedImage, trust.MaxPayloadBytes); err != nil {
+		t.Fatal(err)
+	}
+	executor.mu.Lock()
+	executor.rejectImage = rejectedImage.Image
+	executor.mu.Unlock()
+	if err := deliveries.Submit(ctx, rejected); err != nil {
+		t.Fatal(err)
+	}
+	genericRuntimeEventually(t, ctx, func() bool {
+		service, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: serviceID})
+		return err == nil && service.Service.UpdateStatus != nil && service.Service.UpdateStatus.State == api.UpdateStatus_ROLLBACK_COMPLETED &&
+			service.Service.Spec.Annotations.Labels[swarmruntime.LabelOperationID] == next.OperationID
+	})
+	ready(2)
+	if err := controller.apply(ctx, rejected); err == nil || !strings.Contains(err.Error(), "rolled back") {
+		t.Fatalf("rolled-back release replay was not refused: %v", err)
+	}
+	if err := controller.apply(ctx, intent); err == nil {
+		t.Fatal("pre-rollout release crossed durable monotonic floor after rollback")
+	}
+	if receipt, err := deliveries.Status(ctx, rejected.OperationID); err == nil && receipt.Status == "accepted" {
+		t.Fatal("application-rejected release received accepted delivery receipt")
+	}
+	recovery := rollout(104)
+	if err := deliveries.Submit(ctx, recovery); err != nil {
+		t.Fatal(err)
+	}
+	genericRuntimeEventually(t, ctx, func() bool {
+		receipt, err := deliveries.Status(ctx, recovery.OperationID)
+		return err == nil && receipt.Status == "accepted"
+	})
+	ready(2)
+	current, err = client.GetService(ctx, &api.GetServiceRequest{ServiceID: serviceID})
+	if err != nil || current.Service.Spec.Task.Resources.Limits.NanoCPUs != int64(profile.Resources.CPU)*1_000_000_000 || current.Service.Spec.Task.Resources.Reservations.MemoryBytes != profile.Resources.MemoryBytes {
+		t.Fatalf("rollout/rollback/recovery changed exact signed resource request: %+v %v", current, err)
+	}
+	if err := controller.refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
 	healthy.Store(false)
 	if err := controller.scaler.Tick(ctx); err != nil {
 		t.Fatal(err)
@@ -435,6 +521,7 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	activeRuntime.Store(controller)
 	if err := controller.refresh(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -682,7 +769,7 @@ func retainGenericRuntimeRegionalClaim(t *testing.T, ctx context.Context, codec 
 }
 
 func genericRuntimeContainerRelease(t *testing.T, signer functionPublicationSigner, target release.ContainerTarget,
-	floors []release.SequenceFloor,
+	floors []release.SequenceFloor, sequence uint64, migrationWire []byte,
 ) (release.ContainerBundle, func(context.Context, string) (io.ReadCloser, error)) {
 	t.Helper()
 	now := time.Now().UTC().Truncate(time.Second)
@@ -698,11 +785,16 @@ func genericRuntimeContainerRelease(t *testing.T, signer functionPublicationSign
 	migration := release.SequenceMigration{Schema: release.SequenceMigrationSchema, Namespace: signer.allocations.Namespace, Bucket: signer.allocations.Bucket,
 		Region: "GRU", SignerKeyID: keyID, SignerPublicKey: encoded, Role: target.Role, Environment: target.Environment, SequenceFloor: 100}
 	migration.Regions = floors
-	migrationEnvelope, err := release.SignSequenceMigration(migration, now, signer.root)
-	if err != nil {
-		t.Fatal(err)
+	var migrationEnvelope trust.Envelope
+	if len(migrationWire) == 0 {
+		migrationEnvelope, err = release.SignSequenceMigration(migration, now, signer.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		migrationWire, err = trust.EncodeEnvelope(migrationEnvelope)
+	} else {
+		migrationEnvelope, err = trust.DecodeEnvelope(migrationWire)
 	}
-	migrationWire, err := trust.EncodeEnvelope(migrationEnvelope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -723,11 +815,12 @@ func genericRuntimeContainerRelease(t *testing.T, signer functionPublicationSign
 	}
 	evidence := []byte("retained local manager integration qualification evidence")
 	evidenceSHA := sha256.Sum256(evidence)
-	nativeDigest := strings.Repeat("c", 64)
+	nativeSHA := sha256.Sum256(fmt.Appendf(nil, "local native image generation %d", sequence))
+	nativeDigest := hex.EncodeToString(nativeSHA[:])
 	index := fmt.Appendf(nil, `{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":%q,"size":42,"platform":{"os":"linux","architecture":%q}}]}`, "sha256:"+nativeDigest, target.Architecture)
 	indexDigest := sha256.Sum256(index)
 	qualification := release.ProductionQualification{Schema: release.ProductionQualificationSchema, Candidate: release.ProductionExpectation{
-		SourceRevision: strings.Repeat("b", 40), ArtifactSHA256: nativeDigest, QualificationSHA256: hex.EncodeToString(indexDigest[:]), Cell: target.Cell,
+		SourceRevision: fmt.Sprintf("%040x", sequence), ArtifactSHA256: nativeDigest, QualificationSHA256: hex.EncodeToString(indexDigest[:]), Cell: target.Cell,
 		Environment: target.Environment, Runtime: release.ProductionRuntime, Architecture: target.Architecture, Role: target.Role}}
 	for _, gate := range []string{"runtime-ha", "workload-safety"} {
 		qualification.Evidence = append(qualification.Evidence, release.ProductionGateEvidence{Gate: gate, SHA256: hex.EncodeToString(evidenceSHA[:]), Bytes: int64(len(evidence)), CompletedAt: now})
@@ -750,7 +843,7 @@ func genericRuntimeContainerRelease(t *testing.T, signer functionPublicationSign
 	}
 	claim := release.ContainerClaim{Schema: release.ContainerClaimSchema, Image: "example.invalid/api@sha256:" + nativeDigest,
 		SourceRepository: "https://example.invalid/api", SourceRevision: qualification.Candidate.SourceRevision, SourceTreeSHA256: strings.Repeat("e", 64),
-		Cell: target.Cell, Environment: target.Environment, Role: target.Role, Architecture: target.Architecture, ReleaseSequence: 101,
+		Cell: target.Cell, Environment: target.Environment, Role: target.Role, Architecture: target.Architecture, ReleaseSequence: sequence,
 		SequenceMigrationSHA256: migrationSHA, QualificationSHA256: qualification.Candidate.QualificationSHA256,
 		Production: release.ProductionProof{Qualification: sign(qualification, release.ProductionQualificationScope(qualification.Candidate), signer.root)}}
 	if err := signer.allocations.ImportMigration(t.Context(), migrationEnvelope, signer.roots, target.Role, target.Environment, now); err != nil {
@@ -760,10 +853,10 @@ func genericRuntimeContainerRelease(t *testing.T, signer functionPublicationSign
 	if err != nil {
 		t.Fatal(err)
 	}
-	sequence, sequenceWire, err := signer.allocations.AllocateWithEvidence(t.Context(), release.SequenceIdentity{Role: target.Role, Environment: target.Environment,
+	allocated, sequenceWire, err := signer.allocations.AllocateWithEvidence(t.Context(), release.SequenceIdentity{Role: target.Role, Environment: target.Environment,
 		SourceRevision: claim.SourceRevision, ManifestSHA256: family}, signer.roots, signer.leaf)
-	if err != nil || sequence != claim.ReleaseSequence {
-		t.Fatalf("allocate authentic shared sequence: got %d, want %d: %v", sequence, claim.ReleaseSequence, err)
+	if err != nil || allocated != claim.ReleaseSequence {
+		t.Fatalf("allocate authentic shared sequence: got %d, want %d: %v", allocated, claim.ReleaseSequence, err)
 	}
 	return release.ContainerBundle{Claim: sign(claim, scope, signer.leaf), Delegation: delegationWire, Migration: migrationWire, Sequence: sequenceWire, Index: index},
 		func(context.Context, string) (io.ReadCloser, error) {
@@ -779,6 +872,7 @@ func (writer *genericRuntimeLegacyWriter) ApplyDesired(context.Context, host.Des
 type genericRuntimeExecutor struct {
 	mu          sync.Mutex
 	controllers map[string]*genericRuntimeTask
+	rejectImage string
 }
 
 func (*genericRuntimeExecutor) Describe(context.Context) (*api.NodeDescription, error) {
@@ -791,8 +885,8 @@ func (executor *genericRuntimeExecutor) Controller(task *api.Task) (swarmexec.Co
 	if err != nil {
 		return nil, err
 	}
-	controller := &genericRuntimeTask{done: make(chan struct{}), reject: len(spec.Args) > 0 && spec.Args[0] == "reject"}
 	executor.mu.Lock()
+	controller := &genericRuntimeTask{done: make(chan struct{}), reject: spec.Image == executor.rejectImage}
 	executor.controllers[task.ID] = controller
 	executor.mu.Unlock()
 	return controller, nil
