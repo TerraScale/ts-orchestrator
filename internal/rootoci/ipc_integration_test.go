@@ -70,6 +70,7 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 	for _, scenario := range []string{
 		"session_cancel", "raw_sign", "unknown_member", "wrong_process", "expired", "effect_then_revoke", "backend_unknown",
 		"retained_negative_offset", "retained_startup", "channel_bad_role", "channel_offset_limit", "channel_startup",
+		"native_bad_node", "native_startup",
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -101,13 +102,16 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 					return Lease{}, ErrUnauthorized
 				}
 				expectedOperation := OperationObserveLocalInstance
-				if scenario == "retained_startup" || scenario == "channel_startup" {
+				if scenario == "retained_startup" || scenario == "channel_startup" || scenario == "native_startup" {
 					if !operation.ReadOnly() {
 						return Lease{}, ErrUnauthorized
 					}
 					expectedOperation = OperationRetainedContainerEvidence
 					if scenario == "channel_startup" {
 						expectedOperation = OperationNativeRelease
+					}
+					if scenario == "native_startup" {
+						expectedOperation = OperationMaterializeNativeCanary
 					}
 				}
 				if scenario == "effect_then_revoke" || scenario == "backend_unknown" {
@@ -189,6 +193,17 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			if scenario == "native_bad_node" || scenario == "native_startup" {
+				input := NativeCanaryRequest{OperationID: entityid.New(), Node: "worker-a"}
+				if scenario == "native_bad_node" {
+					input.Node = "../worker-a"
+				}
+				request.Operation = OperationMaterializeNativeCanary
+				request.Payload, err = json.Marshal(input)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
 			wire, err := json.Marshal(request)
 			if err != nil {
 				t.Fatal(err)
@@ -238,7 +253,7 @@ func TestRootOCIUnixRevocationIntegration(t *testing.T) {
 			} else {
 				var response wireResponse
 				expected := "invalid"
-				if scenario == "wrong_process" || scenario == "expired" || scenario == "retained_startup" || scenario == "channel_startup" {
+				if scenario == "wrong_process" || scenario == "expired" || scenario == "retained_startup" || scenario == "channel_startup" || scenario == "native_startup" {
 					expected = "unauthorized"
 				}
 				if json.Unmarshal(output.Bytes(), &response) != nil || response.Status != expected || reader.calls.Load() != 0 ||
