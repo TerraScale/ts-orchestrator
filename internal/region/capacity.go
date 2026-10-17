@@ -36,6 +36,7 @@ type PoolWireRecord struct {
 // remains after success so unknown creates cannot be replaced by discovery.
 type PoolCreateRecord struct {
 	OperationID         string         `json:"operationId"`
+	PoolName            string         `json:"poolName"`
 	Kind                string         `json:"kind"`
 	RecipeSHA256        string         `json:"recipeSha256"`
 	GrantSHA256         string         `json:"grantSha256"`
@@ -57,21 +58,28 @@ type PoolConfigurationRecord struct {
 	Create              PoolWireRecord `json:"create"`
 }
 
+type PoolConfigurationUpdateRecord struct {
+	ConfigurationID string         `json:"configurationId"`
+	Request         PoolWireRecord `json:"request"`
+}
+
 // PoolResourceRecord is original provider provenance, not tag-based discovery.
 // An unresolved lifecycle keeps ActiveOperationID until positively completed.
 type PoolResourceRecord struct {
-	PoolID                 string                             `json:"poolId"`
-	CompartmentID          string                             `json:"compartmentId"`
-	OperationID            string                             `json:"operationId"`
-	GrantSHA256            string                             `json:"grantSha256"`
-	Generation             uint64                             `json:"generation"`
-	Create                 PoolWireRecord                     `json:"create"`
-	Configurations         map[string]PoolConfigurationRecord `json:"configurations"`
-	CurrentConfigurationID string                             `json:"currentConfigurationId"`
-	ActiveOperationID      string                             `json:"activeOperationId,omitempty"`
-	LeaseID                string                             `json:"leaseId,omitempty"`
-	Epoch                  uint64                             `json:"epoch"`
-	LeaseExpiresAt         time.Time                          `json:"leaseExpiresAt,omitzero"`
+	PoolID                 string                                   `json:"poolId"`
+	PoolName               string                                   `json:"poolName"`
+	CompartmentID          string                                   `json:"compartmentId"`
+	OperationID            string                                   `json:"operationId"`
+	GrantSHA256            string                                   `json:"grantSha256"`
+	Generation             uint64                                   `json:"generation"`
+	Create                 PoolWireRecord                           `json:"create"`
+	Configurations         map[string]PoolConfigurationRecord       `json:"configurations"`
+	CurrentConfigurationID string                                   `json:"currentConfigurationId"`
+	ConfigurationUpdates   map[string]PoolConfigurationUpdateRecord `json:"configurationUpdates,omitempty"`
+	ActiveOperationID      string                                   `json:"activeOperationId,omitempty"`
+	LeaseID                string                                   `json:"leaseId,omitempty"`
+	Epoch                  uint64                                   `json:"epoch"`
+	LeaseExpiresAt         time.Time                                `json:"leaseExpiresAt,omitzero"`
 }
 
 type PoolChildStage string
@@ -141,8 +149,10 @@ type PoolQuarantineRecord struct {
 func (w PoolWireRecord) validate(updated time.Time) error {
 	if !validFoundationDigest(w.RequestSHA256) || len(w.RetryToken) > 64 ||
 		strings.ContainsAny(w.RetryToken+w.IfMatch+w.OpcRequestID, "\r\n") || len(w.IfMatch) > 512 || len(w.OpcRequestID) > 512 ||
-		w.FirstAttemptAt.IsZero() || w.LastAttemptAt.Before(w.FirstAttemptAt) || w.LastAttemptAt.After(updated) || w.Attempts == 0 ||
+		w.FirstAttemptAt.IsZero() || w.LastAttemptAt.Before(w.FirstAttemptAt) || w.LastAttemptAt.After(updated) ||
+		w.Attempts == 0 && (w.PendingAttemptID != "" || w.EverUnknown || !w.AcceptedAt.IsZero()) ||
 		w.PendingAttemptID != "" && !entityid.Valid(w.PendingAttemptID) ||
+		w.PendingAttemptID != "" && !w.AcceptedAt.IsZero() ||
 		!w.AcceptedAt.IsZero() && (w.AcceptedAt.Before(w.FirstAttemptAt) || w.AcceptedAt.After(updated)) ||
 		w.WorkRequestID != "" && !capacityOCID(w.WorkRequestID, "workrequest") ||
 		!w.WorkCompletedAt.IsZero() && (w.AcceptedAt.IsZero() || w.WorkRequestID == "" || w.WorkCompletedAt.Before(w.AcceptedAt) || w.WorkCompletedAt.After(updated)) {
@@ -178,6 +188,7 @@ func (r FoundationRecord) validateCapacity() error {
 			kind = "instancepool"
 		}
 		if key != create.OperationID+":"+create.Kind || !entityid.Valid(create.OperationID) || create.Kind != "configuration" && create.Kind != "pool" ||
+			create.PoolName == "" || len(create.PoolName) > 255 || strings.ContainsAny(create.PoolName, "\r\n") ||
 			!validFoundationDigest(create.RecipeSHA256) || !validFoundationDigest(create.GrantSHA256) || !validFoundationDigest(create.ConfigurationSHA256) ||
 			create.Generation == 0 || create.Generation > r.Generation || create.Request.validate(r.UpdatedAt) != nil || create.Request.RetryToken == "" ||
 			create.Kind == "pool" && (!capacityOCID(create.ConfigurationID, "instanceconfiguration") || !validFoundationDigest(create.PlacementSHA256)) ||
@@ -192,6 +203,7 @@ func (r FoundationRecord) validateCapacity() error {
 	}
 	for key, pool := range r.CapacityPools {
 		if key != pool.PoolID || !capacityOCID(pool.PoolID, "instancepool") || !capacityOCID(pool.CompartmentID, "compartment") ||
+			pool.PoolName == "" || len(pool.PoolName) > 255 || strings.ContainsAny(pool.PoolName, "\r\n") || len(pool.ConfigurationUpdates) > 128 ||
 			!entityid.Valid(pool.OperationID) || !validFoundationDigest(pool.GrantSHA256) || pool.Generation == 0 || pool.Generation > r.Generation ||
 			pool.Create.validate(r.UpdatedAt) != nil || pool.Create.RetryToken == "" || pool.Create.AcceptedAt.IsZero() || len(pool.Configurations) == 0 || len(pool.Configurations) > 128 ||
 			pool.Epoch == 0 {
@@ -205,6 +217,11 @@ func (r FoundationRecord) validateCapacity() error {
 				!validFoundationDigest(config.RecipeSHA256) || !validFoundationDigest(config.ConfigurationSHA256) || !validFoundationDigest(config.GrantSHA256) ||
 				config.Generation == 0 || config.Generation > r.Generation || config.Create.validate(r.UpdatedAt) != nil || config.Create.RetryToken == "" || config.Create.AcceptedAt.IsZero() {
 				return errors.New("capacity configuration lacks its exact protected original create")
+			}
+		}
+		for id, update := range pool.ConfigurationUpdates {
+			if _, exists := pool.Configurations[update.ConfigurationID]; !entityid.Valid(id) || !exists || update.Request.validate(r.UpdatedAt) != nil || update.Request.IfMatch == "" {
+				return errors.New("capacity configuration update lacks exact proven configuration and conditional request")
 			}
 		}
 		if pool.ActiveOperationID != "" && !entityid.Valid(pool.ActiveOperationID) ||
@@ -395,6 +412,7 @@ func (r *FoundationRecord) cloneCapacity() {
 	r.CapacityPools = maps.Clone(r.CapacityPools)
 	for id, pool := range r.CapacityPools {
 		pool.Configurations = maps.Clone(pool.Configurations)
+		pool.ConfigurationUpdates = maps.Clone(pool.ConfigurationUpdates)
 		r.CapacityPools[id] = pool
 	}
 	r.PoolChildren = maps.Clone(r.PoolChildren)

@@ -54,7 +54,14 @@ func (r FoundationRecord) retainCapacity(previous FoundationRecord) error {
 				return errors.New("protected capacity configuration cannot be removed or rewritten")
 			}
 		}
+		for id, update := range old.ConfigurationUpdates {
+			current, exists := next.ConfigurationUpdates[id]
+			if !exists || update.ConfigurationID != current.ConfigurationID || !retainPoolWire(&update.Request, &current.Request) {
+				return errors.New("protected pool configuration update lost original conditional request")
+			}
+		}
 		next.Create, next.Configurations = old.Create, old.Configurations
+		next.ConfigurationUpdates = old.ConfigurationUpdates
 		next.CurrentConfigurationID, next.ActiveOperationID = old.CurrentConfigurationID, old.ActiveOperationID
 		next.LeaseID, next.LeaseExpiresAt, next.Epoch = old.LeaseID, old.LeaseExpiresAt, old.Epoch
 		if !sameCapacityValue(old, next) {
