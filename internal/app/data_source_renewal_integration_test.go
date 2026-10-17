@@ -24,11 +24,14 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
+	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/managedmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
@@ -36,21 +39,23 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
+	"github.com/TerraScale/ts-orchestrator/internal/storage/executionleader"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/hostvolume"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/tests/firecracker/production"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/content"
 	"github.com/containerd/containerd/v2/core/images"
-	"github.com/containerd/containerd/v2/pkg/cio"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
+	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go/jetstream"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	runtimespec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 	"golang.org/x/sys/unix"
+	"google.golang.org/grpc"
 	"io"
 	"maps"
 	"math/big"
@@ -360,7 +365,7 @@ func renewalIsolatedChild(t *testing.T) bool {
 		t.Fatal(err)
 	}
 	command := exec.CommandContext(t.Context(), "sudo", "-n", "env", renewalFixtureChild+"="+t.Name(), renewalFixtureParent+"="+namespace, "GOMAXPROCS=2", "nice", "-n", "19", "unshare", "--mount", "--net", executable,
-		"-test.run=^"+regexp.QuoteMeta(t.Name())+"$", "-test.timeout=90s", "-test.v")
+		"-test.run=^"+regexp.QuoteMeta(t.Name())+"$", "-test.timeout=180s", "-test.v")
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("isolated renewal fixture: %v\n%s", err, output)
 	} else {
@@ -374,6 +379,7 @@ type renewalCloudRoute struct {
 	etag            string
 	cas             bool
 	version, kmsKey string
+	reads           uint64
 }
 
 type renewalCloud struct {
@@ -602,6 +608,8 @@ func (fixture *renewalCloud) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fixture.reads++
+	route.reads++
+	fixture.routes[r.Host+r.URL.RequestURI()] = route
 	if route.version != "" {
 		w.Header().Set("version-id", route.version)
 	}
@@ -640,6 +648,10 @@ const renewalMemberExecutable = "/source-renewal-member"
 // The same disposable test binary supplies the workload, including when cgo
 // needs the host's ELF loader. No TerraBase binary is fetched or executed.
 func init() {
+	if len(os.Args) == 3 && os.Args[1] == "--runtime-logger" {
+		swarmruntime.RunRuntimeLogger(os.Args[2])
+		os.Exit(0)
+	}
 	if os.Args[0] != renewalMemberExecutable {
 		return
 	}
@@ -891,41 +903,6 @@ func renewalMemberImage(t *testing.T, client *containerd.Client, environment []s
 		t.Fatal(err)
 	}
 	return image, map[string][]byte{manifestDescriptor.Digest.Encoded(): manifestWire, manifest.Config.Digest.Encoded(): configWire}
-}
-
-func renewalStartMember(t *testing.T, client *containerd.Client, image containerd.Image, pins execution.RuntimePins) containerd.Task {
-	t.Helper()
-	ctx := namespaces.WithNamespace(t.Context(), "terrascale")
-	id := "ts-" + pins.Task.ID
-	spec := &runtimespec.Spec{Version: runtimespec.Version, Process: &pins.Process, Root: &runtimespec.Root{Path: "rootfs", Readonly: true}, Mounts: pins.Mounts,
-		Linux: &runtimespec.Linux{Namespaces: pins.Namespaces, Resources: &pins.Resources, CgroupsPath: "/terrascale/" + id}}
-	container, err := client.NewContainer(ctx, id, containerd.WithImage(image), containerd.WithSnapshotter("native"), containerd.WithNewSnapshot(id, image),
-		containerd.WithRuntime("io.containerd.runc.v2", nil), containerd.WithSpec(spec), containerd.WithContainerLabels(map[string]string{
-			"terrascale.task": pins.Task.ID, "terrascale.service": pins.Task.ServiceID, "terrascale.spec": pins.ContainerSpecSHA256, "terrascale.task-binding": pins.ContainerSpecSHA256}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var process containerd.Task
-	t.Cleanup(func() {
-		cleanup, cancel := context.WithTimeout(namespaces.WithNamespace(context.Background(), "terrascale"), 10*time.Second)
-		defer cancel()
-		if process != nil {
-			if _, err := process.Delete(cleanup, containerd.WithProcessKill); err != nil {
-				t.Error(err)
-			}
-		}
-		if err := container.Delete(cleanup, containerd.WithSnapshotCleanup); err != nil {
-			t.Error(err)
-		}
-	})
-	process, err = container.NewTask(ctx, cio.NullIO)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := process.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	return process
 }
 
 func renewalMemberMain() error {
@@ -1441,4 +1418,793 @@ func TestSourceRenewalOwnershipSDKFixtureIntegration(t *testing.T) {
 	if cloud.rejected != 0 {
 		t.Fatalf("ownership fixture rejected %d unexpected or unsigned SDK calls", cloud.rejected)
 	}
+}
+
+func renewalDesired(epoch uint64, state placement.MemberState, registration host.Registration) (host.Desired, error) {
+	manifest := state.EffectiveRuntimeManifest()
+	binding := *registration.ManagedMember
+	mountPath, err := host.ManagedMountPath(manifest.ManagedRuntimeRoot, binding)
+	if err != nil {
+		return host.Desired{}, err
+	}
+	return host.Desired{
+		Cell: registration.Cell, Node: state.HostNode, Environment: registration.Environment,
+		Role: "terrabase", Digest: manifest.ArtifactDigest,
+		Generation: state.DesiredGeneration, AuthorityEpoch: epoch,
+		ManagedMember: &host.ManagedMemberLaunch{
+			OCI: host.ManagedOCIBinding{
+				Region: registration.ManagedOCI.Region, InstanceID: state.InstanceID, Owner: registration.ManagedOCI.Owner,
+				FleetGeneration: registration.ManagedOCI.FleetGeneration, CreateKey: state.CreateKey,
+			},
+			Member: binding,
+			Authority: host.MemberAuthority{
+				Epoch: state.AuthorityReference.Epoch, ConfigurationID: state.AuthorityReference.ConfigurationID,
+				CertificateSHA256: state.AuthorityReference.CertificateSHA256,
+				TLSLeafSHA256:     state.CanonicalRosterRow.TLSLeafSHA256,
+			},
+			SourceDigest: manifest.SourceDigest, VolumeID: state.VolumeID,
+			AttachmentID: state.AttachmentID, AttachmentETag: state.AttachmentETag,
+			ProcessMemoryBytes:   state.ManagedHostProfile.ProcessMemoryBytes,
+			MemoryHeadroomBytes:  state.ManagedHostProfile.MemoryHeadroomBytes,
+			CgroupMemoryMaxBytes: state.ManagedHostProfile.CgroupMemoryMaxBytes,
+			SystemReserveBytes:   state.ManagedHostProfile.SystemReserveBytes,
+			Runtime: &host.ManagedRuntimePins{
+				DevicePath: state.AttachmentDevice, MountPath: mountPath,
+				FileSystemUUID: manifest.FileSystemUUID, FileSystemType: manifest.FileSystemType,
+				TrustedKeySHA256:                    manifest.TrustedKeySHA256,
+				ServerCertificateSHA256:             manifest.ServerCertificateSHA256,
+				ServerPrivateKeySHA256:              manifest.ServerPrivateKeySHA256,
+				ClientCARootsSHA256:                 manifest.ClientCARootsSHA256,
+				ClientManagedMaterialManifestSHA256: manifest.ClientManagedMaterialManifestSHA256,
+				SQLSchemaBundleSHA256:               manifest.SQLSchemaBundleSHA256,
+				LiveS3ConfigSHA256:                  manifest.LiveS3ConfigSHA256,
+				LiveS3TargetSHA256:                  manifest.LiveS3TargetSHA256,
+				LiveS3Credential:                    manifest.LiveS3Credential,
+				BackupManifestSHA256:                manifest.BackupManifestSHA256,
+				BackupS3ConfigSHA256:                manifest.BackupS3ConfigSHA256,
+				BackupS3TargetSHA256:                manifest.BackupS3TargetSHA256,
+				BackupS3CredentialSHA256:            manifest.BackupS3CredentialSHA256,
+				BackupDataKeySHA256:                 manifest.BackupDataKeySHA256,
+				BackupOwner:                         manifest.BackupOwner,
+				BackupS3Credential:                  manifest.BackupS3Credential,
+				BackupDataKey:                       manifest.BackupDataKey,
+				ReplicationListenAddress:            manifest.ReplicationListenAddress,
+				ReplicationPeerMemberID:             manifest.ReplicationPeerMemberID,
+				ReplicationPeerAddress:              manifest.ReplicationPeerAddress,
+				ReplicationServerCASHA256:           manifest.ReplicationServerCASHA256,
+			},
+		},
+	}, nil
+}
+
+// The actual concrete authorizer guards each actual manager mutation. Socket
+// peer identity is qualified separately by the management integration fixture.
+type renewalCanonicalManager struct {
+	api.ControlClient
+	authorizer *executionleader.ServiceAuthorizer
+}
+
+func (manager renewalCanonicalManager) CreateService(ctx context.Context, request *api.CreateServiceRequest, options ...grpc.CallOption) (*api.CreateServiceResponse, error) {
+	var response *api.CreateServiceResponse
+	err := manager.authorizer.WithStatefulService(ctx, request.Spec, func(effect context.Context) error {
+		var err error
+		response, err = manager.ControlClient.CreateService(effect, request, options...)
+		return err
+	})
+	return response, err
+}
+
+func (manager renewalCanonicalManager) UpdateService(ctx context.Context, request *api.UpdateServiceRequest, options ...grpc.CallOption) (*api.UpdateServiceResponse, error) {
+	var response *api.UpdateServiceResponse
+	err := manager.authorizer.WithStatefulService(ctx, request.Spec, func(effect context.Context) error {
+		var err error
+		response, err = manager.ControlClient.UpdateService(effect, request, options...)
+		return err
+	})
+	return response, err
+}
+
+func renewalNode(t *testing.T, directory, id, role, instance string, executor *swarmruntime.Executor,
+	managerAddress, token string,
+) *swarmruntime.Node {
+	t.Helper()
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	node, err := swarmruntime.StartNode(t.Context(), swarmruntime.NodeConfig{
+		StateDir: directory, ListenAddress: address, AdvertiseAddress: address,
+		Admission: swarmruntime.Admission{Region: "sa-saopaulo-1", HostID: id, InstanceID: instance,
+			FounderID: "renewal-founder", Role: role, ManagerAddress: managerAddress, JoinToken: token}}, executor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := node.Stop(ctx); err != nil {
+			t.Error(err)
+		}
+	})
+	return node
+}
+
+func renewalInstallMaterial(t *testing.T, material renewalMaterial) {
+	t.Helper()
+	root := material.deployment.ManagedRuntimeRoot
+	for _, member := range material.receipt.Spec.Members {
+		for _, path := range []string{root, filepath.Dir(member.MaterialDirectory), member.MaterialDirectory,
+			filepath.Join(filepath.Dir(member.MaterialDirectory), "control")} {
+			if err := os.MkdirAll(path, 0o750); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chown(path, 0, 65532); err != nil {
+				t.Fatal(err)
+			}
+			mode := os.FileMode(0o750)
+			if filepath.Base(path) == "control" {
+				mode = 0o730
+			}
+			if err := os.Chmod(path, mode); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, bundle := range material.bundle.Members {
+			if bundle.MemberID != member.MemberID {
+				continue
+			}
+			for name, file := range bundle.Files {
+				path := filepath.Join(member.MaterialDirectory, name)
+				if err := os.WriteFile(path, file.Contents, 0o440); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Chown(path, 0, 65532); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
+}
+
+func renewalWait(t *testing.T, label string, until time.Time, ready func() bool) {
+	t.Helper()
+	for !ready() {
+		if !time.Now().Before(until) {
+			t.Fatal("timed out: " + label)
+		}
+		select {
+		case <-t.Context().Done():
+			t.Fatal(t.Context().Err())
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}
+
+func renewalDelivery(t *testing.T, js jetstream.JetStream, control *authority.Runtime, members placement.Store,
+	upstream api.ControlClient, volumes *oci.VolumeMountObserver, signed renewalSignedRelease,
+) (*delivery.Service, *executionleader.Producer, delivery.Intent) {
+	t.Helper()
+	identity := cellspec.Identity{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Cell: "gru", Environment: "production"}
+	profile := cellspec.Spec{Schema: cellspec.Schema, Identity: identity, Generation: 1, RequiresBinary: 1,
+		Services: []cellspec.Service{{Role: "terrabase", Profile: cellspec.Profile{Resources: placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 32 << 30}}}}}
+	wire, err := cellspec.Sign(profile, nil, signed.roots, time.Now(), time.Hour, signed.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profiles, err := js.CreateKeyValue(t.Context(), jetstream.KeyValueConfig{Bucket: "RENEWAL_SIGNED_PROFILE", Storage: jetstream.FileStorage, History: 2, Replicas: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision, err := profiles.Create(t.Context(), "current", wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifyProfile := func(ctx context.Context, intent delivery.Intent) error {
+		entry, err := profiles.Get(ctx, "current")
+		if err != nil {
+			return err
+		}
+		verified, err := cellspec.VerifyHistorical(entry.Value(), signed.roots, identity)
+		if err != nil {
+			return err
+		}
+		if !verified.RootSigned || entry.Revision() != revision || verified.Spec.Generation != 1 ||
+			intent.Cell != identity.Cell || intent.Environment != identity.Environment {
+			return execution.ErrUnsafe
+		}
+		for _, service := range verified.Spec.Services {
+			if service.Role == intent.Role && intent.ConfigDigest == delivery.ConfigDigestOf(service.Profile.Args, service.Profile.Env, service.Profile.Secrets) {
+				return nil
+			}
+		}
+		return execution.ErrUnsafe
+	}
+	key := signed.signer.Public().(ed25519.PublicKey)
+	keyID, err := protocol.KeyID(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codec := delivery.Ed25519Codec{Cell: "gru", Actor: "release", PrivateKey: signed.signer,
+		Trusted: map[string]delivery.TrustedSigner{keyID: {Actor: "release", PublicKey: key}}, Lifetime: time.Minute, MaxLifetime: time.Minute}
+	authorize := func(ctx context.Context, actor string, intent delivery.Intent) error {
+		if actor != "release" {
+			return delivery.ErrUnauthorized
+		}
+		return verifyProfile(ctx, intent)
+	}
+	var producer *executionleader.Producer
+	releases, err := delivery.Open(t.Context(), delivery.Config{Conn: js.Conn(), JS: js, Cell: "gru", Replicas: 1,
+		Signer: codec, Verifier: codec, Fencer: control, Authorize: authorize,
+		ContainerApply: func(ctx context.Context, intent delivery.Intent) error { return producer.Apply(ctx, intent) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootDelivery, err := delivery.ConnectClient(t.Context(), delivery.Config{Conn: js.Conn(), JS: js, Cell: "gru", Verifier: codec, Authorize: authorize})
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := trust.DecodeEnvelope(signed.bundle.Claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var claim release.ContainerClaim
+	if err := protocol.DecodeStrict(envelope.Payload, &claim, trust.MaxPayloadBytes); err != nil {
+		t.Fatal(err)
+	}
+	intent := delivery.Intent{SchemaVersion: delivery.SchemaVersion, OperationID: entityid.New(),
+		Source: delivery.ArtifactSource{Repository: claim.SourceRepository, Commit: claim.SourceRevision, TreeDigest: claim.SourceTreeSHA256},
+		Cell:   "gru", Role: "terrabase", Environment: "production", Generation: 1, DesiredReplicas: 1,
+		ConfigDigest: delivery.ConfigDigestOf(nil, nil, nil), AuthorityEpoch: control.Current().Epoch, Container: &signed.bundle}
+	allocations := func(_ context.Context, operation string, bundle release.ContainerBundle, _ trust.Keyring, target release.ContainerTarget) (release.SequenceLocation, error) {
+		if operation != intent.OperationID || !bytes.Equal(bundle.Claim, signed.bundle.Claim) || target.Cell != claim.Cell ||
+			target.Environment != claim.Environment || target.Role != claim.Role || target.Architecture != claim.Architecture {
+			return release.SequenceLocation{}, execution.ErrUnsafe
+		}
+		return signed.allocations, nil
+	}
+	evidence := func(ctx context.Context, operation, sha string) (io.ReadCloser, error) {
+		if operation != intent.OperationID {
+			return nil, execution.ErrUnsafe
+		}
+		return releasechannel.ReadContainerEvidence(ctx, signed.evidence, "terrabase", sha)
+	}
+	reader, err := authority.OpenReader(t.Context(), js, "gru")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pinReader, err := placement.OpenMemberPinReader(t.Context(), js, "gru", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate, err := executionleader.NewServiceAuthorizer(executionleader.ServiceAuthorizerConfig{Client: upstream,
+		Authority: reader, Members: pinReader, Delivery: rootDelivery, Roots: signed.roots, Evidence: evidence,
+		Allocations: allocations, Profile: verifyProfile, Guard: control.Guard, Cell: "gru", Environment: "production"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	producer, err = executionleader.NewProducer(renewalCanonicalManager{ControlClient: upstream, authorizer: gate}, control,
+		members, releases, volumes, signed.roots, evidence, "gru", "production", allocations, evidence, allocations, signed.roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return releases, producer, intent
+}
+
+// This exercises Source renewal from retained starting-state records. Native
+// producer validation, initial OCI provisioning and root socket peer admission
+// remain separate required qualification; this fixture never executes TerraBase.
+func TestSourceBackupRenewalIntegration(t *testing.T) {
+	if !renewalIsolatedChild(t) {
+		return
+	}
+	directory, err := os.MkdirTemp("/tmp", "ts-renewal-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	cloud := newRenewalCloud(t)
+	auth := newAuthenticatedNATS(t, "gru")
+	broker, err := auth.start(t, t.Context(), natscell.Config{Cell: "gru", Instance: "source-renewal", Replicas: 1, Embedded: &natscell.Embedded{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = broker.Close() })
+	js := broker.JetStream()
+	control, err := authority.Start(t.Context(), js, authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+		Scope: "gru", CandidateID: entityid.New(), Replicas: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = control.Close() })
+	epoch := control.Current().Epoch
+	storage := renewalStorageClient(t)
+	material := renewalRetainMaterial(t, cloud, storage, control, filepath.Join(directory, "managed"))
+	renewalInstallMaterial(t, material)
+	owner := material.deployment.Members[0]
+	binding := host.ManagedMemberBinding{Scope: host.MemberScope{ClusterID: material.deployment.Scope.ClusterID,
+		TenantID: material.deployment.Scope.TenantID, DatabaseID: material.deployment.Scope.DatabaseID,
+		ShardID: material.deployment.Scope.ShardID, MemberID: owner.MemberID, Incarnation: owner.Incarnation}, HostAttempt: 1}
+	mount, err := host.ManagedMountPath(material.deployment.ManagedRuntimeRoot, binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volume := renewalLoopVolume(t, directory, mount)
+	material.deployment.Members[0].FileSystemUUID = volume.FileSystemUUID
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	native, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent := renewalPlacement(t, material, fmt.Sprintf("%x", sha256.Sum256(native)), strings.Repeat("e", 64))
+	state := renewalMemberState(t, intent, 0)
+	state.AttachmentDevice = volume.DevicePath
+	config, volumes, fleet := renewalOwnedFleet(t, cloud, js, &state)
+	wire, err := protocol.EncodeJSON(intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := control.CommitPlacementIntent(t.Context(), epoch, intent.DatabaseID, intent.PartitionID, intent.OperationID(), 0, wire); err != nil {
+		t.Fatal(err)
+	}
+	intents, err := placement.NewAuthorityIntentReader(control, "gru", oci.RegionGRU)
+	if err != nil {
+		t.Fatal(err)
+	}
+	members, err := placement.NewJetStreamStore(t.Context(), js, "gru", 1, intents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := members.CompareAndSwap(t.Context(), 0, state); err != nil {
+		t.Fatal(err)
+	}
+	peer := renewalMemberState(t, intent, 1)
+	peer.InstanceID, peer.HostNode = "ocid1.instance.oc1.sa-saopaulo-1.sourcerenewalpeer", "retained-source-renewal-peer"
+	if _, err := members.CompareAndSwap(t.Context(), 0, peer); err != nil {
+		t.Fatal(err)
+	}
+	client := newRenewalContainerd(t, directory)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(namespaces.WithNamespace(context.Background(), "terrascale"), 10*time.Second)
+		defer cancel()
+		containers, err := client.Containers(ctx)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		for _, container := range containers {
+			if task, err := container.Task(ctx, nil); err == nil {
+				_, _ = task.Delete(ctx, containerd.WithProcessKill)
+			}
+			if err := container.Delete(ctx, containerd.WithSnapshotCleanup); err != nil {
+				t.Error(err)
+			}
+		}
+	})
+	memberIndex := slices.IndexFunc(material.receipt.Spec.Members[:], func(member managedmaterial.InitialMember) bool { return member.MemberID == owner.MemberID })
+	memberAuthority := memberstatus.Authority{Epoch: material.receipt.Spec.Scope.Epoch, ConfigurationID: material.receipt.AuthorityConfigurationID,
+		CertificateSHA256: material.receipt.AuthoritySHA256, TLSLeafSHA256: material.receipt.Members[memberIndex].TLSLeafSHA256}
+	authorityWire, err := protocol.EncodeJSON(memberAuthority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	image, objects := renewalMemberImage(t, client, []string{"TS_SOURCE_RENEWAL_AUTHORITY=" + string(authorityWire)})
+	signed := renewalQualifyImage(t, cloud, storage, image, objects, execution.RetainedData{
+		DatabaseID: state.DatabaseID, PartitionID: state.PartitionID, VolumeID: state.VolumeID,
+		FileSystemUUID: volume.FileSystemUUID, FileSystemType: "ext4", DiskFormatSHA256: strings.Repeat("d", 64),
+		SourceArtifactSHA256: state.RuntimeManifest.ArtifactDigest, SourceTreeSHA256: state.RuntimeManifest.SourceDigest, SourceArchitecture: runtime.GOARCH}, native)
+	executor, err := swarmruntime.NewExecutor(filepath.Join(directory, "daemon.sock"), filepath.Join(directory, "manager-executor"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = executor.Close() })
+	founder := renewalNode(t, filepath.Join(directory, "manager-node"), "renewal-founder", "manager", "ocid1.instance.oc1.sa-saopaulo-1.renewalfounder", executor, "", "")
+	upstream, err := founder.ControlClient(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	releases, producer, deployment := renewalDelivery(t, js, control, members, upstream, volumes, signed)
+	effects, err := swarmruntime.NewEffectSessions(upstream, control, producer, volumes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	responsePublic, response, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nkey, seed := testNKey(t)
+	registration := host.Registration{ID: entityid.Derive("host", "gru", state.HostNode), Cell: "gru", Node: state.HostNode,
+		Environment: "production", Roles: []string{"terrabase"}, Generation: 1, FailureDomain: state.FailureDomain,
+		PublicKey: base64.StdEncoding.EncodeToString(public), NATSUserPublicKey: nkey,
+		Capacity:           host.Capacity{CPU: runtime.NumCPU(), MemoryBytes: int64(state.ManagedHostProfile.AllocatableMemoryBytes), DiskBytes: 32 << 30},
+		SystemReserveBytes: int64(state.ManagedHostProfile.SystemReserveBytes),
+		ManagedOCI:         &host.ManagedOCIBinding{Region: "GRU", InstanceID: state.InstanceID, Owner: config.Owner, FleetGeneration: 1, CreateKey: state.CreateKey},
+		ManagedPlacement: &host.ManagedPlacementBinding{DatabaseID: state.DatabaseID, PartitionID: state.PartitionID, SeatID: state.MemberID,
+			IntentGeneration: state.IntentGeneration, IntentPayloadDigest: state.IntentPayloadDigest, CanonicalRosterDigest: state.CanonicalRosterDigest, ManagedHostProfileDigest: state.ManagedHostProfileDigest},
+		ManagedMember: &binding}
+	verifier, err := newManagedRegistrationVerifier("gru", oci.RegionGRU, config.Owner, 1, control, members, fleet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifacts, err := js.ObjectStore(t.Context(), delivery.ArtifactBucket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosts, err := host.NewController(t.Context(), host.ControllerConfig{Cell: "gru", Conn: broker.Conn(), JS: js,
+		Artifacts: artifacts, ResponseKey: response, StateReplicas: 1, HostMutations: control,
+		AuthorityEpoch: func() uint64 { return control.Current().Epoch }, AuthorityGuard: control.Guard,
+		ManagedRegistrationVerifier: verifier, RuntimeEffects: effects})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hosts.Register(t.Context(), registration); err != nil {
+		t.Fatalf("actual registration against current material/placement/SDK host: %v", err)
+	}
+	desired, err := renewalDesired(epoch, state, registration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := host.ValidateContainerDesired(desired, registration); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := material.service.CurrentBundle(t.Context(), intent.DatabaseID, intent.PartitionID); err != nil {
+		t.Fatal(err)
+	}
+	desiredWire, err := protocol.EncodeJSON(desired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subject := "gru." + state.HostNode + ".terrabase"
+	sequence, err := control.CommitHostMutation(t.Context(), epoch, authority.MutationDesired, subject, entityid.New(), 0, desiredWire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retained, err := control.ReadHostMutation(t.Context(), authority.MutationDesired, subject)
+	if err != nil || retained.Sequence != sequence || !bytes.Equal(retained.Payload, desiredWire) {
+		t.Fatalf("retained canonical desired R3 sequence/bytes: %v", err)
+	}
+	hostCtx, stopHosts := context.WithCancel(t.Context())
+	hostDone := make(chan error, 1)
+	go func() { hostDone <- hosts.Run(hostCtx) }()
+	t.Cleanup(func() { stopHosts(); <-hostDone })
+	select {
+	case <-hosts.Ready():
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+	transport, err := auth.start(t, t.Context(), natscell.Config{Cell: "gru", Instance: state.HostNode,
+		URL: broker.Conn().ConnectedUrl(), ClientRole: "host", NKeySeedFile: seed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = transport.Close() })
+	ready := make(chan struct{})
+	agent, err := host.NewAgent(host.AgentConfig{Cell: "gru", Node: state.HostNode, Environment: "production", Roles: registration.Roles,
+		Conn: transport.Conn(), Identity: private, NATSUserPublicKey: nkey, ControllerPublicKey: responsePublic,
+		InstallRoot: testHostInstallRoot(t), StateRoot: testHostStateRoot(t), ManagedRuntimeRoot: material.deployment.ManagedRuntimeRoot,
+		WorkloadIdentity: host.WorkloadIdentity{UID: 65532, GID: 65532}, BakedSystemReserveBytes: state.ManagedHostProfile.SystemReserveBytes,
+		ClockCheck: controllerClockCheck(hostClockProbe()), Initialized: func() { close(ready) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentCtx, stopAgent := context.WithCancel(t.Context())
+	agentDone := make(chan error, 1)
+	go func() { agentDone <- agent.RunSession(agentCtx) }()
+	t.Cleanup(func() { stopAgent(); <-agentDone })
+	select {
+	case <-ready:
+	case err := <-agentDone:
+		agentDone <- err
+		t.Fatalf("real signed Agent session: %v", err)
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+	workerExecutor, err := swarmruntime.NewExecutor(filepath.Join(directory, "daemon.sock"), filepath.Join(directory, "worker-executor"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = workerExecutor.Close() })
+	clusters, err := upstream.ListClusters(t.Context(), &api.ListClustersRequest{})
+	if err != nil || len(clusters.Clusters) != 1 {
+		t.Fatalf("actual manager join material: %v", err)
+	}
+	address, err := founder.RemoteAddress()
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker := renewalNode(t, filepath.Join(directory, "worker-node"), registration.ID, "container", state.InstanceID,
+		workerExecutor, address, clusters.Clusters[0].RootCA.JoinTokens.Worker)
+	session, err := execution.NewWorkerSessionFromAgent(agent, state.InstanceID, worker.ID(), client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.BindRuntimeStopSigner(worker); err != nil {
+		t.Fatal(err)
+	}
+	sourceDirectory := filepath.Join(directory, "source")
+	if err := os.Mkdir(sourceDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	source, err := execution.NewSource(session, execution.RuntimeObserver{Client: client}, signed.roots, signed.evidence, sourceDirectory,
+		func(_ context.Context, bundle release.ContainerBundle, _ trust.Keyring, target release.ContainerTarget) (release.SequenceLocation, error) {
+			if !bytes.Equal(bundle.Claim, signed.bundle.Claim) || target.Cell != "GRU" || target.Role != "terrabase" || target.Environment != "production" || target.Architecture != runtime.GOARCH {
+				return release.SequenceLocation{}, execution.ErrUnsafe
+			}
+			return signed.allocations, nil
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := workerExecutor.BindStateful(source); err != nil {
+		t.Fatal(err)
+	}
+	node, err := upstream.GetNode(t.Context(), &api.GetNodeRequest{NodeID: worker.ID()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := node.Node.Spec.Copy()
+	active.Availability = api.NodeAvailabilityActive
+	active.Annotations.Labels = map[string]string{swarmruntime.LabelRegion: "sa-saopaulo-1", swarmruntime.LabelExecutionScope: "platform",
+		"terrascale.instance-id": state.InstanceID, "terrascale.host-role": "container"}
+	if _, err := upstream.UpdateNode(t.Context(), &api.UpdateNodeRequest{NodeID: worker.ID(), NodeVersion: &node.Node.Meta.Version, Spec: active}); err != nil {
+		t.Fatal(err)
+	}
+	deliveryCtx, stopDelivery := context.WithCancel(t.Context())
+	deliveryDone := make(chan error, 1)
+	go func() { deliveryDone <- releases.Run(deliveryCtx) }()
+	t.Cleanup(func() { stopDelivery(); <-deliveryDone })
+	if err := releases.Submit(t.Context(), deployment); err != nil {
+		t.Fatal(err)
+	}
+	renewalAssertBackupLifecycle(t, cloud, control, members, hosts, agent, session, source, client, upstream, material, state, desired, response)
+}
+
+func renewalAssertBackupLifecycle(t *testing.T, cloud *renewalCloud, control *authority.Runtime, members placement.Store,
+	hosts *host.Controller, agent *host.Agent, session *execution.WorkerSession, source *execution.Source,
+	client *containerd.Client, manager api.ControlClient, material renewalMaterial, state placement.MemberState,
+	desired host.Desired, response ed25519.PrivateKey,
+) {
+	t.Helper()
+	scope := authority.WorkloadScope{DatabaseID: state.DatabaseID, PartitionID: state.PartitionID}
+	var first authority.RuntimeEffect
+	renewalWait(t, "first real R3 worker effect", time.Now().Add(45*time.Second), func() bool {
+		history, err := control.ListRuntimeEffectHistory(t.Context(), scope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(history) == 0 {
+			return false
+		}
+		if len(history) != 1 || history[0].Phase != authority.RuntimeEffectHeld {
+			t.Fatalf("unexpected initial real effects: %+v", history)
+		}
+		first = history[0]
+		if time.Since(first.IssuedAt) >= 3*time.Second {
+			t.Fatal("first effect was not observed before the worker's first renewal interval")
+		}
+		return true
+	})
+	var task *api.Task
+	renewalWait(t, "actual manager task assignment", time.Now().Add(20*time.Second), func() bool {
+		tasks, err := manager.ListTasks(t.Context(), &api.ListTasksRequest{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, candidate := range tasks.Tasks {
+			if candidate.ID == first.TaskID && execution.Stateful(candidate) {
+				task = candidate.Copy()
+				return true
+			}
+		}
+		return false
+	})
+	mount, _, publication, err := host.ContainerMemberPaths(material.deployment.ManagedRuntimeRoot, *desired.ManagedMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := func(name string) string { return filepath.Join(mount, "data", "fixture-"+name) }
+	renewalWait(t, "native/runc workload start and actual Source report", time.Now().Add(30*time.Second), func() bool {
+		if _, err := os.Stat(marker("started")); err != nil {
+			return false
+		}
+		statuses, err := hosts.ListHosts(t.Context())
+		if err != nil {
+			return false
+		}
+		for _, current := range statuses {
+			for _, report := range current.Reports {
+				if report.Managed != nil && report.Managed.Container != nil && report.Managed.Container.EffectID == first.EffectID {
+					return true
+				}
+			}
+		}
+		return false
+	})
+	pins, err := source.ResolveRuntime(t.Context(), task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observer := execution.RuntimeObserver{Client: client}
+	before, err := observer.Observe(t.Context(), pins)
+	if err != nil || before.State != containerd.Running || before.Process.PID < 2 || before.Process.ProtocolPID() != 1 {
+		t.Fatalf("exact initial native/runc writer: %+v error=%v", before, err)
+	}
+	if _, err := agent.RuntimeWorkerIdentity(state.InstanceID, task.NodeID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(publication); err != nil {
+		t.Fatalf("Source did not publish its actual Unix root socket: %v", err)
+	}
+	operator, signer, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := buildSignerPolicy(Config{NATS: natscell.Config{Cell: "gru"}, Controller: ControllerConfig{
+		TrustedSigners: []TrustedSignerConfig{{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operator),
+			Roles: []string{"terrabase"}, Environments: []string{"production"}, CanOperateBackup: true}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := backupOperationRuntime{cell: "gru", memberRole: "terrabase", control: control, placements: members, hosts: hosts,
+		producer: managedmaterial.BackupOperationProducer{Preparation: material.service, Store: control}, policy: policy, responseKey: response}
+	request, err := protocol.EncodeJSON(backupOperationRequest{Action: "start", DatabaseID: state.DatabaseID, PartitionID: state.PartitionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	envelope, err := protocol.SignEnvelope(request, protocol.EnvelopeScope{Region: "gru", Kind: "backup.operation", Actor: "ops",
+		OperationID: entityid.New(), Generation: 1, Epoch: control.Current().Epoch}, now, now.Add(time.Minute), signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, err := runtime.admit(t.Context(), envelope)
+	if err != nil || reply.OperationID == "" || reply.Sequence == 0 {
+		t.Fatalf("actual signed backup admission and final current roster: %+v error=%v", reply, err)
+	}
+	if err := hosts.RequestManagedBackupOperation(t.Context(), control.Current().Epoch, state.DatabaseID, state.PartitionID,
+		desired.ManagedMember.Member.Scope.MemberID, "prepare"); err != nil {
+		t.Fatalf("actual signed Prepare relay to Source: %v", err)
+	}
+	renewalWait(t, "blocked real Unix Prepare request", time.Now().Add(8*time.Second), func() bool {
+		_, err := os.Stat(marker("prepare-started"))
+		return err == nil
+	})
+	startedWire, err := os.ReadFile(marker("prepare-started"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err := time.Parse(time.RFC3339Nano, string(startedWire))
+	if err != nil || !started.Before(first.ExpiresAt) {
+		t.Fatalf("Prepare must block before the first grant deadline: started=%s first=%s error=%v", started, first.ExpiresAt, err)
+	}
+	var renewed authority.RuntimeEffect
+	renewalWait(t, "blocked Prepare crosses initial deadline using actual R3 renewal", first.ExpiresAt.Add(10*time.Second), func() bool {
+		history, err := control.ListRuntimeEffectHistory(t.Context(), scope)
+		if err != nil || len(history) != 1 {
+			t.Fatalf("real renewal history: %+v error=%v", history, err)
+		}
+		renewed = history[0]
+		if renewed.EffectID != first.EffectID || renewed.TaskID != task.ID || renewed.Phase != authority.RuntimeEffectHeld ||
+			renewed.MaterialSHA256 != first.MaterialSHA256 {
+			t.Fatalf("renewal changed retained admission identity: %+v", renewed)
+		}
+		actual, err := observer.Observe(t.Context(), pins)
+		if err != nil || actual != before {
+			t.Fatalf("blocked Prepare lost exact writer during renewal: %v", err)
+		}
+		if _, err := os.Lstat(publication); err != nil {
+			t.Fatalf("publication withdrawn during valid renewal: %v", err)
+		}
+		if _, err := os.Stat(marker("prepare-canceled")); err == nil {
+			t.Fatal("Prepare canceled while renewed authority remained current")
+		}
+		return time.Now().After(first.ExpiresAt.Add(time.Second)) && renewed.Sequence > first.Sequence && renewed.ExpiresAt.After(first.ExpiresAt)
+	})
+	current, err := session.Resolve(t.Context(), task)
+	if err != nil || current.EffectID() != first.EffectID || !current.Deadline().After(first.ExpiresAt) {
+		t.Fatalf("actual WorkerSession did not adopt renewed deadline: %v", err)
+	}
+	// Change one exact provider ETag. The genuine producer's next independent
+	// volume read must refuse renewal, while the host session remains valid.
+	cloud.mu.Lock()
+	path := renewalFixtureCompute + "/20160918/volumeAttachments/" + state.AttachmentID
+	route := cloud.routes[path]
+	readsBeforeFailure := route.reads
+	route.etag = "changed-attachment-after-renewal"
+	cloud.routes[path] = route
+	cloud.mu.Unlock()
+	failedAt := time.Now()
+	renewalWait(t, "expiry withdraws actual publication and stops exact writer", renewed.ExpiresAt.Add(15*time.Second), func() bool {
+		_, socketErr := os.Lstat(publication)
+		stopped, err := renewalOriginalProcessStopped(before.Process.PID, before.Process.KernelStart)
+		if err != nil {
+			t.Fatalf("read exact original writer identity: %v", err)
+		}
+		return errors.Is(socketErr, os.ErrNotExist) && stopped
+	})
+	if connection, err := net.DialTimeout("unix", publication, time.Second); err == nil {
+		connection.Close()
+		t.Fatal("withdrawn publication still accepts Unix connections")
+	}
+	if _, err := session.Resolve(t.Context(), task); err == nil {
+		t.Fatal("expired exact writer retained a usable WorkerSession grant")
+	}
+	var last authority.RuntimeEffect
+	renewalWait(t, "real close or stopped-proof settlement retained in R3", renewed.ExpiresAt.Add(15*time.Second), func() bool {
+		history, err := control.ListRuntimeEffectHistory(t.Context(), scope)
+		if err != nil || len(history) != 1 || history[0].EffectID != first.EffectID {
+			t.Fatalf("expiry discarded retained effect: %+v error=%v", history, err)
+		}
+		last = history[0]
+		return (last.Phase == authority.RuntimeEffectClosing || last.Phase == authority.RuntimeEffectSettled) && !time.Now().Before(last.ExpiresAt)
+	})
+	if last.MaterialSHA256 != first.MaterialSHA256 || !bytes.Equal(last.Material, first.Material) ||
+		last.TaskSHA256 != first.TaskSHA256 || last.AdmissionSHA256 != first.AdmissionSHA256 ||
+		last.InstanceID != first.InstanceID || last.NodeID != first.NodeID {
+		t.Fatal("closed effect changed its retained exact-writer admission")
+	}
+	if last.ExpiresAt.After(renewed.ExpiresAt.Add(3 * time.Second)) {
+		t.Fatal("changed provider attachment continued renewing execution authority")
+	}
+	cloud.mu.Lock()
+	readsAfterFailure, rejected := cloud.routes[path].reads, cloud.rejected
+	cloud.mu.Unlock()
+	if readsAfterFailure <= readsBeforeFailure || rejected != 0 {
+		t.Fatalf("genuine signed attachment read after ETag change: before=%d after=%d rejected=%d", readsBeforeFailure, readsAfterFailure, rejected)
+	}
+	if _, err := agent.RuntimeWorkerIdentity(state.InstanceID, task.NodeID); err != nil {
+		t.Fatalf("host session expired instead of failed volume renewal: %v", err)
+	}
+	pending, err := control.ListUnresolvedRuntimeEffects(t.Context(), scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last.Phase != authority.RuntimeEffectSettled && (len(pending) != 1 || pending[0].EffectID != first.EffectID) {
+		t.Fatal("unsettled exact writer disappeared from the durable unresolved set")
+	}
+	if last.Phase == authority.RuntimeEffectSettled && len(pending) != 0 {
+		t.Fatal("genuine stopped proof settled the effect but left it unresolved")
+	}
+	operation, _, err := control.ReadBackupOperation(t.Context(), state.DatabaseID, state.PartitionID)
+	if err != nil || operation.OperationID != reply.OperationID {
+		t.Fatalf("blocked backup operation was lost during execution expiry: %v", err)
+	}
+	for _, member := range operation.Roster {
+		if len(member.CutEnvelope) != 0 {
+			t.Fatal("blocked Prepare produced a cut after authority withdrawal")
+		}
+	}
+	t.Logf("real Source: Prepare blocked at %s, first deadline %s, renewed deadline %s; provider refusal at %s withdrew publication and stopped task=%s hostPID=%d start=%s; retained effect=%s",
+		started.Format(time.RFC3339Nano), first.ExpiresAt.Format(time.RFC3339Nano), renewed.ExpiresAt.Format(time.RFC3339Nano), failedAt.Format(time.RFC3339Nano),
+		task.ID, before.Process.PID, before.Process.KernelStart, last.Phase)
+}
+
+// Match the original kernel start time; an inspection error is never a stop.
+func renewalOriginalProcessStopped(pid int, start string) (bool, error) {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if errors.Is(err, os.ErrNotExist) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	_, rest, ok := strings.CutLast(string(data), ") ")
+	fields := strings.Fields(rest)
+	if !ok || len(fields) < 20 {
+		return false, execution.ErrUnsafe
+	}
+	if _, err := strconv.ParseUint(fields[19], 10, 64); err != nil {
+		return false, err
+	}
+	return fields[19] != start || fields[0] == "Z" || fields[0] == "X" || fields[0] == "x", nil
 }
