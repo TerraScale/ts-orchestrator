@@ -106,6 +106,8 @@ func newOperatorHomeIAMAuthority(ctx context.Context, factory *ociclient.Factory
 	if reader.expires.Before(deadline) {
 		deadline = reader.expires
 	}
+	ctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
 	var compartment string
 	for _, intent := range footprint.Regions {
 		if intent.Plan["cell"] == "GRU" && intent.BootstrapMaterial != nil {
