@@ -13,8 +13,7 @@ grant is introduced.
 The current authority leader receives host reports. The CLI discovers the
 signed regional read endpoints and selects a complete answer; otherwise it
 returns the best partial answer with `complete: false`. It queries the admitted
-regional
-controllers concurrently; a complete answer cancels the remaining requests.
+regional controllers concurrently; a complete answer cancels the remaining requests.
 Each request has a fifteen-second timeout within the caller's deadline, so
 two unavailable controllers cannot consume the runner's thirty-second usage
 deadline before a healthy third is queried. Followers have no host history.
@@ -105,6 +104,12 @@ foundation and fetch its current bearer token from OCI Vault automatically.
 Vault reads use the operator's OCI profile and never print secret values.
 Usage needs no local configuration file, controller URL or token argument.
 Unavailable signed access remains pending; no fallback endpoint is inferred.
+
+`GET /v1/cost` exposes the existing dashboard cost view with schema version 1,
+region, the source report's observation time and the exact `ocicost.View`.
+Benchmark reports retain this current observation as `cost_snapshot`, separately
+from historical usage windows. Unavailable cost is recorded as `cost_pending`;
+it never becomes a zero price or changes the resource-based benchmark verdict.
 
 The table shows mean used/request/limit and minimum headroom (memory in MiB).
 `?` means unknown, `*` means incomplete coverage. JSON includes the full

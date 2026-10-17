@@ -32,7 +32,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
 	"github.com/TerraScale/ts-orchestrator/internal/networkcheck"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
-	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
@@ -131,7 +130,7 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	case "usage":
 		return capacity.Run(ctx, args[1:], output)
 	case "cost":
-		return ocicost.Run(ctx, args[1:], output)
+		return runCost(ctx, args[1:], output)
 	case "bench":
 		return benchmark.CLI(ctx, args[1:], output)
 	case "dashboard":

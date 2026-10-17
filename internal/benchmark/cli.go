@@ -16,6 +16,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/capacity"
 	"github.com/TerraScale/ts-orchestrator/internal/controlaccess"
+	"github.com/TerraScale/ts-orchestrator/internal/runtimecostsnapshot"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
@@ -155,7 +156,14 @@ func CLI(ctx context.Context, args []string, out io.Writer) error {
 	}
 	generator := SSHGenerator{Address: settings.Generator.Address, User: settings.Generator.User, WorkerPath: settings.Generator.WorkerPath,
 		Job: Job{Region: *region, InstanceID: settings.Generator.InstanceID, Images: settings.Images, ClientID: settings.ClientID, ClientSecret: settings.ClientSecret, AuthOrigin: settings.AuthOrigin, AuthTenant: settings.AuthTenant}}
+	cost, costErr := (runtimecostsnapshot.Client{Access: access}).Read(preflight, *region)
 	runner := Runner{Generator: generator, Repository: repository, Usage: usage.Query}
+	if cost.SchemaVersion == 1 {
+		runner.CostSnapshot = &cost
+	}
+	if costErr != nil {
+		runner.CostPending = costErr.Error()
+	}
 	run, runErr := runner.Execute(ctx, *region, workload, clients, out)
 	return finishRun(*reports, out, run, runErr)
 }

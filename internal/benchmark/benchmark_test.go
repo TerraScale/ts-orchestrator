@@ -17,6 +17,8 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/capacity"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
+	"github.com/TerraScale/ts-orchestrator/internal/runtimecostsnapshot"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
@@ -209,6 +211,9 @@ func TestSDKPersistsULIDKeysWithoutPayloadIDs(t *testing.T) {
 	project := entityid.New()
 	runID := entityid.New()
 	requests, documents := 0, 0
+	observed := time.Now().UTC().Truncate(time.Second)
+	cost := &runtimecostsnapshot.Snapshot{SchemaVersion: 1, Region: "gru", ObservedAt: observed,
+		Cost: &ocicost.View{Cell: "gru", Missing: "pool pricing pending", Forecast: ocicost.Forecast{ObservedAt: observed, Currency: "USD", MonthEndCents: 123}}}
 	key := "tb_" + strings.Repeat("a", 43)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
@@ -233,8 +238,15 @@ func TestSDKPersistsULIDKeysWithoutPayloadIDs(t *testing.T) {
 			if _, repeated := payload["id"]; repeated {
 				t.Error("document payload repeated its entity ID")
 			}
-			if strings.Contains(r.URL.Path, "/runs/") && strings.Contains(string(data), `"samples":[`) {
-				t.Error("run duplicated result history")
+			if strings.Contains(r.URL.Path, "/runs/") {
+				if strings.Contains(string(data), `"samples":[`) {
+					t.Error("run duplicated result history")
+				}
+				var saved Run
+				if err := json.Unmarshal(data, &saved); err != nil || saved.CostSnapshot == nil || saved.CostSnapshot.Cost == nil ||
+					!saved.CostSnapshot.ObservedAt.Equal(observed) || saved.CostSnapshot.Cost.Forecast.MonthEndCents != 123 || saved.CostPending != "pool pricing pending" {
+					t.Errorf("SDK lost the independent pending cost observation: %+v %v", saved, err)
+				}
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -247,7 +259,7 @@ func TestSDKPersistsULIDKeysWithoutPayloadIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.SaveRun(t.Context(), Run{ID: runID, Stages: []Stage{{Samples: []Sample{{Count: 1}}}}}); err != nil {
+	if err := repo.SaveRun(t.Context(), Run{ID: runID, Stages: []Stage{{Samples: []Sample{{Count: 1}}}}, CostSnapshot: cost, CostPending: "pool pricing pending"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.SaveResult(t.Context(), runID, 0, Sample{Count: 1}); err != nil {

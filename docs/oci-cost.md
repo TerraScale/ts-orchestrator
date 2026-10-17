@@ -216,9 +216,11 @@ rights in the region-agnostic controller group (TS-803); until then
 
 Slices: collector and tags.
 
-- `ts-orch cost report --region <oci-region>` runs the collector once with
-  the operator's OCI config and prints the report and forecast. It is how
-  numbers are checked before a release reaches a region.
+- `ts-orch cost report --region <cell>` reads the same authenticated `/v1/cost`
+  snapshot as the dashboard. Signed regional discovery and OCI Vault provide
+  access automatically. Versioned JSON retains the source observation time,
+  observed pool-host forecast and missing-price status. Partial observations
+  are printed and return an error; the CLI computes no separate forecast.
 - `ts-orch cost tag --region <oci-region> --compartment <ocid>...` prints
   the tag plan for those compartments with the operator's OCI config, and
   applies it with `--apply`. It only touches the named compartments.
