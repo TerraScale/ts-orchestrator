@@ -125,6 +125,10 @@ func (n *Node) CapturePoolDrain(ctx context.Context, child drainwire.PoolChild, 
 		if err != nil {
 			return empty, err
 		}
+		service, err := reader.GetService(ctx, &api.GetServiceRequest{ServiceID: task.ServiceID})
+		if err != nil || service == nil || service.Service == nil || !poolDrainService(service.Service) {
+			return empty, errors.Join(ErrPoolDrainPending, err)
+		}
 		receipt.Tasks = append(receipt.Tasks, captured)
 	}
 	slices.SortFunc(receipt.Tasks, func(a, b drainwire.PoolTask) int { return strings.Compare(a.TaskID, b.TaskID) })
@@ -165,7 +169,7 @@ func (n *Node) CapturePoolDrain(ctx context.Context, child drainwire.PoolChild, 
 // This method never manufactures a capture for a worker already in DRAIN.
 func (n *Node) FinishPoolDrainCapture(ctx context.Context, receipt drainwire.PoolReceipt, leases *authority.Reader, hosts *host.Reader) error {
 	if err := n.checkPoolDrain(ctx, receipt, leases, hosts, api.NodeAvailabilityPause, false); err != nil {
-		return err
+		return n.checkPoolDrain(ctx, receipt, leases, hosts, api.NodeAvailabilityDrain, false)
 	}
 	client, err := n.ControlClient(ctx)
 	if err != nil {
@@ -240,6 +244,10 @@ func (n *Node) checkPoolDrain(ctx context.Context, receipt drainwire.PoolReceipt
 			(task.Status.State < api.TaskStateCompleted || task.Status.State == api.TaskStateOrphaned) {
 			return errors.Join(ErrPoolDrainPending, err)
 		}
+		service, err := reader.GetService(ctx, &api.GetServiceRequest{ServiceID: task.ServiceID})
+		if err != nil || service == nil || service.Service == nil || !poolDrainService(service.Service) {
+			return errors.Join(ErrPoolDrainPending, err)
+		}
 	}
 	history, err := leases.ListGenericExecutions(ctx)
 	if err != nil {
@@ -290,7 +298,7 @@ func poolDrainHost(ctx context.Context, hosts *host.Reader, registrationID strin
 		if status.Registration.ID != registrationID {
 			continue
 		}
-		if node != "" || status.Retired || status.Registration.Node == "" {
+		if node != "" || status.Retired || !status.Verified || status.Registration.Node == "" {
 			return "", ErrPoolDrainPending
 		}
 		node = status.Registration.Node
@@ -371,6 +379,14 @@ func poolDrainTask(task *api.Task, nodeID string) (drainwire.PoolTask, error) {
 	}
 	fingerprint, err := ContainerTaskFingerprint(task)
 	return drainwire.PoolTask{TaskID: task.ID, ServiceID: task.ServiceID, TaskSHA256: hash, ExecutionSHA256: fingerprint}, err
+}
+
+func poolDrainService(service *api.Service) bool {
+	if service.Spec.Annotations.Labels[LabelRole] == "terrabase" {
+		return false
+	}
+	_, stateful := service.Spec.Annotations.Labels["terrascale.stateful"]
+	return !stateful
 }
 
 func verifyPoolHeldExecution(receipt drainwire.PoolReceipt, hold drainwire.SignedHold, now time.Time) error {

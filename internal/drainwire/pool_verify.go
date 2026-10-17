@@ -47,5 +47,16 @@ func VerifyPoolReceiptStops(receipt PoolReceipt, now time.Time) error {
 	if certificate.Subject.CommonName != receipt.NodeID {
 		return errors.New("pool drain worker certificate differs from exact captured node")
 	}
+	if len(certificate.Subject.OrganizationalUnit) != 1 || certificate.Subject.OrganizationalUnit[0] != "swarm-worker" ||
+		len(certificate.Subject.Organization) != 1 || certificate.Subject.Organization[0] != receipt.ClusterID {
+		return errors.New("pool drain captured worker has no exact cluster worker role")
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(receipt.ClusterCAPEM) {
+		return errors.New("pool drain captured cluster CA is unavailable")
+	}
+	if _, err := certificate.Verify(x509.VerifyOptions{Roots: roots, CurrentTime: now, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
+		return err
+	}
 	return nil
 }

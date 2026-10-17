@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
@@ -24,12 +25,14 @@ const sourceDirectory = "/var/lib/terrascale-orchestrator-bootstrap/automatic"
 var ErrScope = errors.New("root foundation request differs from current protected authority")
 
 type Backend struct {
-	factory  *ociclient.Factory
-	home     *region.HomeIAMAuthority
-	baked    bootstrapstart.BakedInputs
-	anchor   bootstrap.VerifiedBootstrapAnchor
-	template bootstrap.VerifiedStartupTemplate
-	cell     string
+	factory     *ociclient.Factory
+	home        *region.HomeIAMAuthority
+	baked       bootstrapstart.BakedInputs
+	anchor      bootstrap.VerifiedBootstrapAnchor
+	template    bootstrap.VerifiedStartupTemplate
+	cell        string
+	poolMu      sync.Mutex
+	poolSources *PoolDrainSources
 }
 
 // NewFounder is also the initial bootstrap's direct backend. No SDK credential
