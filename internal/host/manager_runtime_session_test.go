@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,6 +49,50 @@ func TestManagerRuntimeSessionCarrierPinsOriginalAndAllowsFutureObservation(t *t
 	held, err := reader.ReadManagerRuntimeSession(t.Context(), "node-a")
 	if err != nil {
 		t.Fatal(err)
+	}
+	installed, ok := held.SignedBinding()
+	if !ok || !sameManagerCarrier(&installed, &signed) {
+		t.Fatal("actual host readback lost the native-signed carrier")
+	}
+	if err := VerifySignedManagerRuntimeBinding(installed, cert, ca, installed.Binding.SwarmClusterID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	for name, change := range map[string]func(*SignedManagerRuntimeBinding){
+		"candidate":  func(s *SignedManagerRuntimeBinding) { s.Binding.RuntimeCandidateID = entityid.New() },
+		"binary":     func(s *SignedManagerRuntimeBinding) { s.Binding.BinarySHA256 = strings.Repeat("b", 64) },
+		"session":    func(s *SignedManagerRuntimeBinding) { s.Binding.HostSessionID = entityid.New() },
+		"expiry":     func(s *SignedManagerRuntimeBinding) { s.Binding.ExpiresAt = s.Binding.ExpiresAt.Add(time.Second) },
+		"signature":  func(s *SignedManagerRuntimeBinding) { s.Signature[0] ^= 1 },
+		"cluster CA": func(s *SignedManagerRuntimeBinding) { s.Binding.ClusterCASHA256 = strings.Repeat("0", 64) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			changed := installed.Clone()
+			change(&changed)
+			if VerifySignedManagerRuntimeBinding(changed, cert, ca, installed.Binding.SwarmClusterID, time.Now()) == nil {
+				t.Fatal("accepted replaced signed host carrier")
+			}
+		})
+	}
+	if VerifySignedManagerRuntimeBinding(installed, cert, ca, installed.Binding.SwarmClusterID, installed.Binding.ExpiresAt) == nil {
+		t.Fatal("revived original expired binding")
+	}
+	_, otherCert, _, _ := managerBindingFixture(t)
+	if VerifySignedManagerRuntimeBinding(installed, otherCert, ca, installed.Binding.SwarmClusterID, time.Now()) == nil {
+		t.Fatal("accepted replacement current certificate")
+	}
+	for _, digest := range []string{"", strings.Repeat("a", 63), strings.Repeat("A", 64), strings.Repeat("g", 64)} {
+		binding := installed.Binding
+		binding.BinarySHA256 = digest
+		if _, err := ManagerRuntimeSigningBytes(binding); err == nil {
+			t.Fatalf("accepted invalid executable digest %q", digest)
+		}
+	}
+	var acquired session
+	if err := applyManagerRuntimeCarrier(&acquired, held.current, Registration{}, request{}, sessionOperation{Kind: "acquire", ManagerRuntimeBinding: &installed}, 1, 1, time.Now()); err == nil {
+		t.Fatal("acquire adopted previous session manager binding")
+	}
+	if acquired.ManagerRuntimeBinding != nil {
+		t.Fatal("new session inherited old signed manager")
 	}
 	digest := held.BindingSHA256()
 	if digest == "" {
@@ -180,18 +225,6 @@ func TestExpiredManagerCarrierDoesNotExpireActualHostSession(t *testing.T) {
 	renew := signedHostRequest(t, key, "session", id, current.Epoch, sessionOperation{Kind: "renew"})
 	if _, err := c.handleSession(t.Context(), renew); err != nil {
 		t.Fatal("inert expired envelope blocked ordinary renewal:", err)
-	}
-}
-
-func TestManagerCarrierAcquireCannotInheritOldEnvelope(t *testing.T) {
-	signed, _, _, _ := managerBindingFixture(t)
-	old := session{ManagerRuntimeBinding: &signed}
-	var next session
-	if err := applyManagerRuntimeCarrier(&next, old, Registration{}, request{}, sessionOperation{Kind: "acquire", ManagerRuntimeBinding: &signed}, 1, 1, time.Now()); err == nil {
-		t.Fatal("acquire adopted previous session manager binding")
-	}
-	if next.ManagerRuntimeBinding != nil {
-		t.Fatal("new session inherited old signed manager")
 	}
 }
 
