@@ -277,8 +277,10 @@ func startManagementAt(ctx context.Context, path string, uid, gid uint32, cgroup
 			return nil, status.Error(codes.PermissionDenied, "current controller authority changed")
 		}
 		return result, nil
-	}))
-	api.RegisterControlServer(server, &managementServer{client: client, region: region, environment: environment, stateful: stateful})
+	}), grpc.StreamInterceptor(managementStreamInterceptor(uid, cgroup, binding, refresh)))
+	scope := &managementServer{client: client, region: region, environment: environment, stateful: stateful}
+	api.RegisterControlServer(server, scope)
+	registerManagementObservation(server, node, scope)
 	registerWorkerManagement(server, node)
 	stop := context.AfterFunc(ctx, func() { server.Stop(); _ = listener.Close(); _ = lock.Unlock() })
 	serving := &managementListener{close: sync.OnceFunc(func() { stop(); server.Stop(); _ = listener.Close(); _ = lock.Unlock() })}
@@ -291,6 +293,8 @@ func dialManagementAt(ctx context.Context, path string, serverUID uint32, bindin
 		return (&net.Dialer{}).DialContext(ctx, "unix", path)
 	}), grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		return invoker(metadata.AppendToOutgoingContext(ctx, managementBinding, binding), method, req, reply, cc, opts...)
+	}), grpc.WithStreamInterceptor(func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+		return streamer(metadata.AppendToOutgoingContext(ctx, managementBinding, binding), desc, cc, method, opts...)
 	}))
 	if err != nil {
 		return nil, "", nil, err
