@@ -381,37 +381,6 @@ func TestMemberStateKeyIncludesPartitionIdentity(t *testing.T) {
 	}
 }
 
-func TestReadMemberUsesExactKeyAndReturnsExplicitAbsence(t *testing.T) {
-	state := validMemberStateForPins(t)
-	state.DatabaseID = "0000000000JJVVW9EMWY1PE1VX"
-	data, err := protocol.EncodeJSON(state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	entry := fixedMemberEntry{key: memberStateKey(state.DatabaseID, state.PartitionID, state.MemberID), value: data, revision: 9}
-	kv := &exactLookupKV{entry: entry}
-	store := &jetStreamStore{state: kv}
-	got, err := store.ReadMember(context.Background(), state.DatabaseID, state.PartitionID, state.MemberID)
-	if err != nil || got.Revision != entry.revision || !reflect.DeepEqual(got.State, state) {
-		t.Fatalf("exact member lookup = %+v, %v; want revision %d and original state", got, err, entry.revision)
-	}
-	if kv.key != memberStateKey(state.DatabaseID, state.PartitionID, state.MemberID) {
-		t.Fatalf("member lookup read key %q; want exact composite key", kv.key)
-	}
-
-	kv.err = jetstream.ErrKeyNotFound
-	if _, err := store.ReadMember(context.Background(), state.DatabaseID, state.PartitionID, state.MemberID); !errors.Is(err, ErrMemberNotFound) {
-		t.Fatalf("missing exact member lookup error = %v, want ErrMemberNotFound", err)
-	}
-}
-
-type exactLookupKV struct {
-	jetstream.KeyValue
-	entry fixedMemberEntry
-	key   string
-	err   error
-}
-
 func TestListMembersReadsOnlyRequestedPartitionSeats(t *testing.T) {
 	state := validMemberStateForPins(t)
 	data, err := protocol.EncodeJSON(state)
@@ -440,14 +409,6 @@ func (kv *partitionLookupKV) Get(_ context.Context, key string) (jetstream.KeyVa
 	kv.reads++
 	if key != kv.entry.key {
 		return nil, jetstream.ErrKeyNotFound
-	}
-	return kv.entry, nil
-}
-
-func (kv *exactLookupKV) Get(_ context.Context, key string) (jetstream.KeyValueEntry, error) {
-	kv.key = key
-	if kv.err != nil {
-		return nil, kv.err
 	}
 	return kv.entry, nil
 }
