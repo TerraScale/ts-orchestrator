@@ -68,7 +68,8 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 	if err != nil {
 		return materialScope{}, err
 	}
-	if intent.Container == nil || intent.Cell != strings.ToLower(identity.Cell) || intent.Environment != identity.Environment {
+	if intent.Container == nil || intent.Cell != strings.ToLower(identity.Cell) || intent.Environment != identity.Environment ||
+		call.Expected().OperationID != "" && call.Expected().OperationID != intent.OperationID || call.Expected().Epoch != 0 && call.Expected().Epoch != intent.AuthorityEpoch {
 		return materialScope{}, rootoci.ErrUnauthorized
 	}
 	specEntry, err := s.Specs.Get(ctx, "current")
@@ -158,6 +159,9 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 		return materialScope{}, err
 	}
 	guard := func(ctx context.Context) error {
+		// Scope validation may itself read OCI; retain the process/session guard
+		// while preventing those source reads from recursively validating scope.
+		ctx = ociclient.WithRequestGuard(ctx, call.Guard)
 		if err := call.Guard(ctx); err != nil {
 			return err
 		}
@@ -208,6 +212,7 @@ func (b *Backend) ContainerEvidence(ctx context.Context, call rootoci.Call, requ
 	}
 	ctx, expire := context.WithDeadline(ctx, scope.expires)
 	defer expire()
+	ctx = ociclient.WithRequestGuard(ctx, scope.guard)
 	var evidence *release.ProductionGateEvidence
 	for _, entry := range scope.proof.Evidence {
 		if entry.SHA256 == request.EvidenceSHA256 {
@@ -262,6 +267,7 @@ func (b *Backend) ContainerAllocation(ctx context.Context, call rootoci.Call, re
 	}
 	ctx, expire := context.WithDeadline(ctx, scope.expires)
 	defer expire()
+	ctx = ociclient.WithRequestGuard(ctx, scope.guard)
 	claim := scope.retained.Claim()
 	location, err := b.allocations(ctx, *scope.intent.Container, scope.roots, release.ContainerTarget{Cell: claim.Cell, Environment: claim.Environment, Role: claim.Role, Architecture: claim.Architecture})
 	if err != nil {
