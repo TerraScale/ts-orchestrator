@@ -11,6 +11,7 @@ const OperationReconcileNodeOperation Operation = "reconcile_node_operation"
 // protected progress. The caller selects an operation, never a provider payload.
 type NodeOperations interface {
 	ReconcileNodeOperation(context.Context, Call, NodeOperationRequest) (NodeOperationReceipt, error)
+	ReconcileOrchestratorMaintenance(context.Context, Call, OrchestratorMaintenanceRequest) (OrchestratorMaintenanceReceipt, error)
 }
 
 type NodeOperationRequest struct {
