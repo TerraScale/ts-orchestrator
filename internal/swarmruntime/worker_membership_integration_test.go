@@ -199,6 +199,7 @@ func checkWorkerMembershipIntegration(t *testing.T, ctx context.Context, manager
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer key.Close()
 	shortBinding, err := hostenroll.SignWorkerBinding(short, worker.ID(), hostKey, key, time.Now())
 	if err != nil {
 		t.Fatal(err)

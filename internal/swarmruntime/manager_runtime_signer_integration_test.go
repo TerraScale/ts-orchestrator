@@ -3,6 +3,7 @@ package swarmruntime
 import (
 	"bytes"
 	"context"
+	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -11,6 +12,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -115,4 +117,156 @@ func TestManagerRuntimeNativeSigningIntegration(t *testing.T) {
 			t.Fatalf("revocation at callback %d delivered a signature: calls=%d err=%v", rejectAt, calls, err)
 		}
 	}
+	// These negatives extend the real native producer above; they do not claim
+	// historical never-exposed custody or create an admitted APP caller/session.
+	keyPath := filepath.Join(node.stateDir, "certificates", "swarm-node.key")
+	t.Run("native identity is consumed and closed deterministically", func(t *testing.T) {
+		key, _, err := node.nodeSigningKey()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer key.Close()
+		signature, err := key.Sign(rand.Reader, digest[:], crypto.SHA256)
+		if err != nil || len(signature) == 0 {
+			t.Fatalf("actual native identity could not sign: %v", err)
+		}
+		if len(key.custody.files) != 0 || len(key.custody.directories) != 0 {
+			t.Fatal("successful native signing retained file descriptors")
+		}
+		if signature, err := key.Sign(rand.Reader, digest[:], crypto.SHA256); err == nil || len(signature) != 0 {
+			t.Fatal("consumed native identity signed twice")
+		}
+		closed, _, err := node.nodeSigningKey()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := closed.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := closed.Close(); err != nil {
+			t.Fatalf("native identity close is not idempotent: %v", err)
+		}
+		if signature, err := closed.Sign(rand.Reader, digest[:], crypto.SHA256); err == nil || len(signature) != 0 {
+			t.Fatal("closed native identity signed")
+		}
+	})
+	t.Run("key ownership and permissions are required at load and use", func(t *testing.T) {
+		for _, drift := range []struct {
+			name    string
+			change  func() error
+			restore func() error
+		}{
+			{"permissions", func() error { return os.Chmod(keyPath, 0o644) }, func() error { return os.Chmod(keyPath, 0o600) }},
+			{"owner", func() error { return os.Chown(keyPath, 65534, 65534) }, func() error { return os.Chown(keyPath, 0, 0) }},
+		} {
+			t.Run(drift.name, func(t *testing.T) {
+				key, _, err := node.nodeSigningKey()
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer key.Close()
+				if err := drift.change(); err != nil {
+					t.Fatal(err)
+				}
+				defer func() {
+					if err := drift.restore(); err != nil {
+						t.Fatal(err)
+					}
+				}()
+				if signature, err := key.Sign(rand.Reader, digest[:], crypto.SHA256); err == nil || len(signature) != 0 {
+					t.Fatal("changed native key custody delivered a signature")
+				}
+				if len(key.custody.files) != 0 || len(key.custody.directories) != 0 {
+					t.Fatal("refused native signing retained file descriptors")
+				}
+				if loaded, _, err := node.nodeSigningKey(); err == nil {
+					_ = loaded.Close()
+					t.Fatal("unsafe native identity was loaded")
+				}
+			})
+		}
+	})
+	t.Run("same bytes in a replacement inode do not preserve custody", func(t *testing.T) {
+		key, _, err := node.nodeSigningKey()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer key.Close()
+		wire, err := os.ReadFile(keyPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer clear(wire)
+		backup := keyPath + ".native-custody-test"
+		if err := os.Rename(keyPath, backup); err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if err := os.Rename(backup, keyPath); err != nil {
+				t.Fatal(err)
+			}
+		}()
+		if err := os.WriteFile(keyPath, wire, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if signature, err := key.Sign(rand.Reader, digest[:], crypto.SHA256); err == nil || len(signature) != 0 {
+			t.Fatal("replacement native key inode delivered a signature")
+		}
+	})
+	t.Run("certificate directory permits public reads but rejects unsafe writes", func(t *testing.T) {
+		directory := filepath.Dir(keyPath)
+		original, err := os.Stat(directory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if err := os.Chmod(directory, original.Mode().Perm()); err != nil {
+				t.Fatal(err)
+			}
+		}()
+		if err := os.Chmod(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		key, _, err := node.nodeSigningKey()
+		if err != nil {
+			t.Fatalf("safe root-owned public certificate directory rejected: %v", err)
+		}
+		defer key.Close()
+		if err := os.Chmod(directory, 0o777); err != nil {
+			t.Fatal(err)
+		}
+		if signature, err := key.Sign(rand.Reader, digest[:], crypto.SHA256); err == nil || len(signature) != 0 {
+			t.Fatal("unsafe native certificate directory delivered a signature")
+		}
+		if loaded, _, err := node.nodeSigningKey(); err == nil {
+			_ = loaded.Close()
+			t.Fatal("unsafe native certificate directory was loaded")
+		}
+	})
+	t.Run("symlinked key and state path are refused", func(t *testing.T) {
+		alias := filepath.Join(t.TempDir(), "node")
+		if err := os.Symlink(node.stateDir, alias); err != nil {
+			t.Fatal(err)
+		}
+		if custody, _, err := openNodeKeyCustody(alias); err == nil {
+			_ = custody.close()
+			t.Fatal("symlinked native state directory was accepted")
+		}
+		backup := keyPath + ".native-custody-test"
+		if err := os.Rename(keyPath, backup); err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if err := os.Rename(backup, keyPath); err != nil {
+				t.Fatal(err)
+			}
+		}()
+		if err := os.Symlink(backup, keyPath); err != nil {
+			t.Fatal(err)
+		}
+		if key, _, err := node.nodeSigningKey(); err == nil {
+			_ = key.Close()
+			t.Fatal("symlinked native private key was accepted")
+		}
+	})
 }

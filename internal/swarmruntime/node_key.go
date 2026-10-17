@@ -6,25 +6,31 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
-	"os"
-	"path/filepath"
 	"time"
 )
 
 // nodeSigningKey retains the actual joined identity; no caller supplies a key.
-func (n *Node) nodeSigningKey() (crypto.Signer, [][]byte, error) {
+func (n *Node) nodeSigningKey() (*nodeKeySigner, [][]byte, error) {
 	if n == nil || n.upstream == nil || n.stateDir == "" {
 		return nil, nil, errors.New("joined upstream node identity unavailable")
 	}
-	wire, err := os.ReadFile(filepath.Join(n.stateDir, "certificates", "swarm-node.key"))
+	custody, material, err := openNodeKeyCustody(n.stateDir)
 	if err != nil {
 		return nil, nil, err
 	}
+	retained := false
+	defer func() {
+		if !retained {
+			_ = custody.close()
+		}
+	}()
+	wire := material[0]
 	defer clear(wire)
 	block, rest := pem.Decode(wire)
 	if block == nil || len(bytes.TrimSpace(rest)) != 0 {
 		return nil, nil, errors.New("upstream node private key unavailable")
 	}
+	defer clear(block.Bytes)
 	var key crypto.Signer
 	if parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes); err == nil {
 		key, _ = parsed.(crypto.Signer)
@@ -37,10 +43,7 @@ func (n *Node) nodeSigningKey() (crypto.Signer, [][]byte, error) {
 	if key == nil {
 		return nil, nil, errors.New("unsupported upstream node private key")
 	}
-	certificateWire, err := os.ReadFile(filepath.Join(n.stateDir, "certificates", "swarm-node.crt"))
-	if err != nil {
-		return nil, nil, err
-	}
+	certificateWire := material[1]
 	var chain [][]byte
 	var certificates []*x509.Certificate
 	for len(bytes.TrimSpace(certificateWire)) != 0 {
@@ -63,10 +66,7 @@ func (n *Node) nodeSigningKey() (crypto.Signer, [][]byte, error) {
 	if err != nil || !bytes.Equal(public, certificates[0].RawSubjectPublicKeyInfo) {
 		return nil, nil, errors.New("upstream node signing key differs from certificate")
 	}
-	rootWire, err := os.ReadFile(filepath.Join(n.stateDir, "certificates", "swarm-root-ca.crt"))
-	if err != nil {
-		return nil, nil, err
-	}
+	rootWire := material[2]
 	roots, intermediates := x509.NewCertPool(), x509.NewCertPool()
 	if !roots.AppendCertsFromPEM(rootWire) {
 		return nil, nil, errors.New("upstream node certificate authority unavailable")
@@ -77,5 +77,9 @@ func (n *Node) nodeSigningKey() (crypto.Signer, [][]byte, error) {
 	if _, err := certificates[0].Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, CurrentTime: time.Now(), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
 		return nil, nil, err
 	}
-	return key, chain, nil
+	if err := custody.validate(); err != nil {
+		return nil, nil, err
+	}
+	retained = true
+	return &nodeKeySigner{key: key, public: key.Public(), custody: custody}, chain, nil
 }

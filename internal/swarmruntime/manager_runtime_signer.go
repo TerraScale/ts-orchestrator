@@ -57,6 +57,7 @@ func (n *Node) SignManagerRuntimeBinding(ctx context.Context, binding host.Manag
 	if err != nil {
 		return empty, err
 	}
+	defer key.Close()
 	if len(chain) == 0 || len(chain) > 8 {
 		return empty, errors.New("manager runtime signing identity is unavailable")
 	}

@@ -215,5 +215,6 @@ func (n *Node) WorkerBinding(accepted hostenroll.VerifiedSwarmWorker, hostKey ed
 	if err != nil {
 		return hostenroll.SwarmNodeBinding{}, err
 	}
+	defer key.Close()
 	return hostenroll.SignWorkerBinding(accepted, n.ID(), hostKey, key, time.Now().UTC())
 }
