@@ -68,6 +68,9 @@ func (Service) DeliverControllerGeneration(ctx context.Context, call rootoci.Cal
 	if err != nil || len(verified) == 0 {
 		return fail()
 	}
+	newest := verified[len(verified)-1]
+	ctx, generationCancel := context.WithDeadline(ctx, newest.ExpiresAt())
+	defer generationCancel()
 	installed, err := readInstalledChain()
 	if err != nil {
 		return fail()
@@ -132,7 +135,6 @@ func (Service) DeliverControllerGeneration(ctx context.Context, call rootoci.Cal
 		return fail()
 	}
 	client.HTTPClient = credentialDispatcher{next: client.HTTPClient, guard: guard}
-	newest := verified[len(verified)-1]
 	receipt := rootoci.SecretDeliveryReceipt{Slot: target.Slot, AcceptanceSHA256: target.AcceptanceSHA256, GenerationSHA256: newest.Fingerprint()}
 	var earliest time.Time
 	for _, reference := range newest.Generation().Secrets {
