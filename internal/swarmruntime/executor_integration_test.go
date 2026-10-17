@@ -3,6 +3,7 @@ package swarmruntime
 import (
 	"bytes"
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"flag"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	tasksapi "github.com/containerd/containerd/api/services/tasks/v1"
 	"github.com/containerd/errdefs"
 	swarmexec "github.com/moby/swarmkit/v2/agent/exec"
 	"github.com/moby/swarmkit/v2/api"
@@ -96,6 +98,11 @@ func integrationAgent(socket, state, taskPath string) error {
 }
 
 func TestContainerdLifecycleAgentRecovery(t *testing.T) {
+	testContainerdLifecycleAgentRecovery(t, integrationImage)
+}
+
+func testContainerdLifecycleAgentRecovery(t *testing.T, imageRef string) {
+	t.Helper()
 	if *integrationSocket == "" {
 		t.Fatal("provide -containerd-socket for a disposable real runtime")
 	}
@@ -118,7 +125,7 @@ func TestContainerdLifecycleAgentRecovery(t *testing.T) {
 		t.Fatalf("single-CPU runtime must reserve 250m and advertise 750m, got %d", description.Resources.NanoCPUs)
 	}
 	t.Logf("runtime reports %d CPU(s), %dm allocatable", runtime.NumCPU(), description.Resources.NanoCPUs/1_000_000)
-	runtime, err := ContainerRuntime(&api.ContainerSpec{Image: integrationImage, User: "65532:65532", Command: []string{"/bin/sh", "-c", "test \"$(id -u)\" = 65532 || exit 11; if touch /must-not-write 2>/dev/null; then exit 12; fi; head -c 2097152 /dev/zero; trap 'exit 0' TERM; while :; do echo runtime-ready; sleep 1; done"}})
+	runtime, err := ContainerRuntime(&api.ContainerSpec{Image: imageRef, User: "65532:65532", Command: []string{"/bin/sh", "-c", "test \"$(id -u)\" = 65532 || exit 11; if touch /must-not-write 2>/dev/null; then exit 12; fi; head -c 2097152 /dev/zero; trap 'exit 0' TERM; while :; do echo runtime-ready; sleep 1; done"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,6 +171,7 @@ func TestContainerdLifecycleAgentRecovery(t *testing.T) {
 		var stderr bytes.Buffer
 		command.Stderr = &stderr
 		output, err := command.Output()
+		t.Logf("actual runtime agent argv=%q output=%q stderr=%q err=%v", command.Args, output, stderr.String(), err)
 		if err != nil {
 			t.Fatalf("agent: %v\n%s", err, stderr.String())
 		}
@@ -173,12 +181,45 @@ func TestContainerdLifecycleAgentRecovery(t *testing.T) {
 	if firstPID == "" || firstPID == "0" {
 		t.Fatalf("invalid PID %q", firstPID)
 	}
+	nativeTask, err := c.(*controller).runtimeTask(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalProcess, err := c.(*controller).observeGenericProcess(ctx, nativeTask)
+	if err != nil || fmt.Sprint(originalProcess.HostPID) != firstPID {
+		t.Fatal("actual original runtime process identity unavailable", err)
+	}
 	if secondPID := agent(); secondPID != firstPID {
 		t.Fatalf("restart duplicated task: %s -> %s", firstPID, secondPID)
 	}
+	adopted, err := c.(*controller).observeGenericProcess(ctx, nativeTask)
+	if err != nil || adopted != originalProcess {
+		t.Fatal("agent recovery changed original PID/kernel-start/cgroup/namespaces/spec", err)
+	}
+	t.Logf("actual original/adopted runtime process: %+v", originalProcess)
 	containers, err := e.client.Containers(runtimeContext(ctx), "id==ts-"+task.ID)
 	if err != nil || len(containers) != 1 {
 		t.Fatalf("container identity: count=%d err=%v", len(containers), err)
+	}
+	info, err := containers[0].Info(runtimeContext(ctx))
+	if err != nil || info.SnapshotKey == "" {
+		t.Fatal("actual writable task snapshot unavailable", err)
+	}
+	processes, err := e.client.TaskService().List(runtimeContext(ctx), &tasksapi.ListTasksRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	matching := 0
+	for _, process := range processes.Tasks {
+		if process.ID == "ts-"+task.ID {
+			matching++
+			if int(process.Pid) != originalProcess.HostPID {
+				t.Fatal("actual runtime task changed original PID")
+			}
+		}
+	}
+	if matching != 1 {
+		t.Fatal("agent recovery did not retain exactly one actual runtime task", err)
 	}
 	short, stop := context.WithTimeout(ctx, 30*time.Millisecond)
 	if err := c.Wait(short); !errors.Is(err, context.DeadlineExceeded) {
@@ -246,4 +287,52 @@ func TestContainerdLifecycleAgentRecovery(t *testing.T) {
 	if _, err := e.client.LoadContainer(runtimeContext(ctx), "ts-"+task.ID); !errdefs.IsNotFound(err) {
 		t.Fatalf("container survived removal: %v", err)
 	}
+	processes, err = e.client.TaskService().List(runtimeContext(ctx), &tasksapi.ListTasksRequest{})
+	if err != nil {
+		t.Fatal("runtime task survived removal", err)
+	}
+	for _, process := range processes.Tasks {
+		if process.ID == "ts-"+task.ID {
+			t.Fatal("runtime task survived removal")
+		}
+	}
+	if _, err := e.client.SnapshotService(info.Snapshotter).Stat(runtimeContext(ctx), info.SnapshotKey); !errdefs.IsNotFound(err) {
+		t.Fatal("task writable snapshot survived removal", err)
+	}
+	if err := genericOriginalProcessStopped(originalProcess.HostPID, originalProcess.KernelStart); err != nil {
+		t.Fatal("original native process survived stop/remove", err)
+	}
+	cgroup, err := os.ReadFile(filepath.Join("/sys/fs/cgroup/terrascale", "ts-"+task.ID, "cgroup.events"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) || err == nil && !strings.Contains("\n"+string(cgroup), "\npopulated 0\n") {
+		t.Fatal("original task cgroup still populated after remove", err)
+	}
+	if _, err := os.Stat(filepath.Join(state, "runtime-logs", "ts-"+task.ID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("removed task retained runtime logs", err)
+	}
+	loggerCtx, stopLogger := context.WithTimeout(ctx, 5*time.Second)
+	defer stopLogger()
+	waitRuntime(t, loggerCtx, func() (bool, error) {
+		entries, err := os.ReadDir("/proc")
+		if err != nil {
+			return false, err
+		}
+		for _, entry := range entries {
+			command, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline"))
+			if err != nil {
+				if errors.Is(err, os.ErrNotExist) || !entry.IsDir() {
+					continue
+				}
+				return false, err
+			}
+			args := bytes.Split(bytes.TrimSuffix(command, []byte{0}), []byte{0})
+			if len(args) != 3 || string(args[1]) != "--runtime-logger" {
+				continue
+			}
+			var invocation runtimeLoggerInvocation
+			if string(args[2]) == e.logRoot || json.Unmarshal(args[2], &invocation) == nil && invocation.Root == e.logRoot {
+				return false, fmt.Errorf("exact fixture runtime logger %s remains", entry.Name())
+			}
+		}
+		return true, nil
+	})
 }
