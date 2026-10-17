@@ -56,7 +56,8 @@ type ControllerManagerStartupFixture struct {
 	Anchor   bootstrap.VerifiedBootstrapAnchor
 	Storage  *objectstorage.ObjectStorageClient
 
-	recipientSources controllerRecipientSources
+	recipientSources  controllerRecipientSources
+	retirementFixture *managerRetirementFixtureSources
 }
 
 const ControllerManagerStartupDeployment = "0000000000F9PR1WNVDTEXS31Z"
@@ -257,7 +258,7 @@ func NewControllerManagerStartupFixture(t *testing.T, enrollment []byte, broker 
 		FaultDomain: profile.FaultDomain, Shape: profile.Shape, SubnetOCID: profile.SubnetOCID, NSGOCIDs: profile.NetworkSecurityGroupOCIDs,
 		PrimaryVNICOCID: "ocid1.vnic.oc1.sa-saopaulo-1." + seed, PrimaryPrivateIP: privateIPs[seed], PrimaryVNIC: true,
 		LifecycleState: "RUNNING", ETag: "manager-startup-instance"}
-	storage, observer := managerStartupSDK(t, observed)
+	storage, observer, retirementSDK := managerStartupSDK(t, observed)
 	config, err := currentLedgerConfig(anchor, roots)
 	if err != nil {
 		t.Fatal(err)
@@ -405,6 +406,7 @@ func NewControllerManagerStartupFixture(t *testing.T, enrollment []byte, broker 
 		t.Fatal(err)
 	}
 	fixture.recipientSources = controllerRecipientSources{trust: trustStore, ledger: ledger, observer: observer}
+	fixture.retirementFixture = &managerRetirementFixtureSources{key: ledgerKey, sdk: retirementSDK}
 	return fixture
 }
 
@@ -541,7 +543,7 @@ func managerStartupImage(t *testing.T, roots trust.Keyring, root ed25519.Private
 	return wire, delegationWire
 }
 
-func managerStartupSDK(t *testing.T, observed InstanceObservation) (*objectstorage.ObjectStorageClient, *OCIInstanceObserver) {
+func managerStartupSDK(t *testing.T, observed InstanceObservation) (*objectstorage.ObjectStorageClient, *OCIInstanceObserver, *managerRetirementSDKState) {
 	t.Helper()
 	type storedObject struct {
 		wire     []byte
@@ -550,6 +552,7 @@ func managerStartupSDK(t *testing.T, observed InstanceObservation) (*objectstora
 	}
 	var mu sync.Mutex
 	objects := make(map[string]storedObject)
+	sdk := &managerRetirementSDKState{instances: map[string]InstanceObservation{observed.InstanceOCID: observed}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") == "" {
 			http.Error(w, "unsigned SDK request", 401)
@@ -612,11 +615,17 @@ func managerStartupSDK(t *testing.T, observed InstanceObservation) (*objectstora
 			_, _ = w.Write(stored.wire)
 			return
 		}
+		observed, exists := sdk.lookup(r)
+		if !exists {
+			http.Error(w, "unknown exact OCI instance", 404)
+			return
+		}
+		w.Header().Set("ETag", observed.ETag)
 		var body any
 		switch r.URL.Path {
 		case "/20160918/instances/" + observed.InstanceOCID:
 			body = core.Instance{Id: new(observed.InstanceOCID), CompartmentId: new(observed.CompartmentOCID), ImageId: new(observed.ImageOCID),
-				AvailabilityDomain: new(observed.AvailabilityDomain), FaultDomain: new(observed.FaultDomain), Shape: new(observed.Shape), LifecycleState: core.InstanceLifecycleStateRunning}
+				AvailabilityDomain: new(observed.AvailabilityDomain), FaultDomain: new(observed.FaultDomain), Shape: new(observed.Shape), LifecycleState: core.InstanceLifecycleStateEnum(observed.LifecycleState)}
 		case "/20160918/vnicAttachments":
 			if r.URL.Query().Get("instanceId") != observed.InstanceOCID {
 				http.Error(w, "foreign instance", 404)
@@ -660,5 +669,5 @@ func managerStartupSDK(t *testing.T, observed InstanceObservation) (*objectstora
 	storage.Host, storage.HTTPClient = server.URL, server.Client()
 	compute.Host, compute.HTTPClient = server.URL, server.Client()
 	network.Host, network.HTTPClient = server.URL, server.Client()
-	return &storage, &OCIInstanceObserver{compute: &compute, network: &network}
+	return &storage, &OCIInstanceObserver{compute: &compute, network: &network}, sdk
 }
