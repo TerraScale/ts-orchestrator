@@ -17,7 +17,7 @@ import (
 
 // The peers use the same original generated material as the installed seed.
 // They have independent native stores; this does not admit bootstrap peers.
-func startInstalledControllerBrokers(t *testing.T, ctx context.Context, installed *installedControllerFixture) []*natscell.Runtime {
+func startInstalledControllerBrokers(t *testing.T, ctx context.Context, installed *installedControllerFixture) ([]*natscell.Runtime, []natscell.Config) {
 	t.Helper()
 	requireInstalledControllerNamespace(t)
 	if ctx == nil || ctx.Err() != nil || installed == nil || installed.Config.NATS.Embedded == nil {
@@ -99,7 +99,7 @@ func startInstalledControllerBrokers(t *testing.T, ctx context.Context, installe
 			ready = ready && broker.FullClusterReady(3)
 		}
 		if ready {
-			return brokers
+			return brokers, configs
 		}
 		select {
 		case <-ctx.Done():
