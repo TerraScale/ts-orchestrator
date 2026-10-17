@@ -51,7 +51,7 @@ func OpenRegionalTrustFloorForOperation(ctx, original context.Context, retainedU
 	for id, key := range genesis {
 		genesis[id] = bytes.Clone(key)
 	}
-	info, sourceExpiry, err := readRegionalTrustFloor(operation, factory, genesis, cell)
+	info, sourceExpiry, err := readRegionalTrustFloor(operation, original, factory, genesis, cell)
 	if err != nil {
 		return VerifiedRegionalTrustFloor{}, err
 	}
@@ -107,7 +107,7 @@ func (proof VerifiedRegionalTrustFloor) Guard(ctx context.Context) error {
 	defer cancel()
 	stop := context.AfterFunc(proof.ctx, cancel)
 	defer stop()
-	current, _, err := readRegionalTrustFloor(operation, proof.factory, proof.genesis, proof.info.Cell)
+	current, _, err := readRegionalTrustFloor(operation, proof.ctx, proof.factory, proof.genesis, proof.info.Cell)
 	if err != nil {
 		return err
 	}
@@ -143,7 +143,7 @@ func sameRegionalTrustFloor(a, b RegionalTrustFloorInfo) bool {
 	return a.Broker == b.Broker
 }
 
-func readRegionalTrustFloor(ctx context.Context, factory *ociclient.Factory, genesis trust.Keyring, cell string) (RegionalTrustFloorInfo, time.Time, error) {
+func readRegionalTrustFloor(ctx, original context.Context, factory *ociclient.Factory, genesis trust.Keyring, cell string) (RegionalTrustFloorInfo, time.Time, error) {
 	client, tenancy, err := foundationHomeClient(factory)
 	if err != nil {
 		return RegionalTrustFloorInfo{}, time.Time{}, err
@@ -162,7 +162,7 @@ func readRegionalTrustFloor(ctx context.Context, factory *ociclient.Factory, gen
 	if err != nil {
 		return RegionalTrustFloorInfo{}, time.Time{}, err
 	}
-	material, err := resolver.BootstrapMaterial(ctx, cell)
+	material, err := resolver.BootstrapMaterialForOperation(ctx, original, cell)
 	if err != nil {
 		return RegionalTrustFloorInfo{}, time.Time{}, err
 	}
