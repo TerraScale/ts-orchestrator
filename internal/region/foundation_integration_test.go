@@ -186,7 +186,7 @@ func TestFoundationRecordsPersistAndFenceConcurrentWriters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	policyWire, err := json.Marshal(details, json.Deterministic(true))
+	policyWire, err := foundationWriterPolicyBody(details)
 	if err != nil {
 		t.Fatal(err)
 	}
