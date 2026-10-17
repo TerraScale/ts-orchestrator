@@ -201,14 +201,32 @@ func applySignedService(ctx context.Context, client api.ControlClient, intent Se
 // data preserves the root-signed migration while CAS labels retain a high-water
 // mark independently of SwarmKit's automatic previous-spec rollback.
 func reserveReleaseFloor(ctx context.Context, client api.ControlClient, intent ServiceIntent, verified release.VerifiedContainer, roots trust.Keyring, retained release.SequenceFloor, baseline uint64) (*api.Config, error) {
-	name, err := releaseFloorName(intent, verified)
+	if verified.Claim().Role == "function-worker" {
+		wire, err := verified.WorkerFamilyEvidence()
+		if err != nil {
+			return nil, err
+		}
+		if err := release.VerifyWorkerFamilyEvidence(wire, roots, verified); err != nil {
+			return nil, err
+		}
+	}
+	floor, err := reserveReleaseFloorRecord(ctx, client, intent, verified, roots, retained, baseline)
 	if err != nil {
 		return nil, err
 	}
+	// Family evidence cannot precede admission of the durable ordering floor.
 	if verified.Claim().Role == "function-worker" {
 		if err := reserveWorkerFamily(ctx, client, intent, verified, roots); err != nil {
 			return nil, err
 		}
+	}
+	return floor, nil
+}
+
+func reserveReleaseFloorRecord(ctx context.Context, client api.ControlClient, intent ServiceIntent, verified release.VerifiedContainer, roots trust.Keyring, retained release.SequenceFloor, baseline uint64) (*api.Config, error) {
+	name, err := releaseFloorName(intent, verified)
+	if err != nil {
+		return nil, err
 	}
 	listed, err := client.ListConfigs(ctx, &api.ListConfigsRequest{Filters: &api.ListConfigsRequest_Filters{Names: []string{name}}})
 	if err != nil {
