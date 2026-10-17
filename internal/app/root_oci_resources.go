@@ -77,16 +77,6 @@ func rootResourceKV(ctx context.Context, js jetstream.JetStream, bucket, key str
 	}
 	subject := "$KV." + bucket + "." + key
 	entry, err := reader.GetLastMsg("KV_"+bucket, subject, nats.Context(ctx))
-	if errors.Is(err, nats.ErrMsgNotFound) {
-		info, infoErr := reader.StreamInfo("KV_"+bucket, nats.Context(ctx))
-		if infoErr != nil {
-			return nil, infoErr
-		}
-		if info == nil || info.State.LastSeq != 0 {
-			return nil, errors.New("root OCI signed source is absent after prior stream history")
-		}
-		return nil, nil
-	}
 	if err != nil {
 		return nil, err
 	}
@@ -118,45 +108,37 @@ func readRootResourceSnapshot(ctx context.Context, cfg Config, js jetstream.JetS
 	if err != nil {
 		return rootResourceSnapshot{}, err
 	}
-	if root == nil {
-		if len(services.roots.chain.Rotations) != 0 {
-			return rootResourceSnapshot{}, errors.New("current adopted OCI root chain is unavailable")
-		}
-	} else {
-		chain, err := trust.DecodeRootChain(root.Data)
-		if err != nil {
-			return rootResourceSnapshot{}, err
-		}
-		if err := services.roots.adopt(chain); err != nil {
-			return rootResourceSnapshot{}, err
-		}
-		snapshot.rootWire, snapshot.rootRevision = bytes.Clone(root.Data), root.Sequence
+	chain, err := trust.DecodeRootChain(root.Data)
+	if err != nil {
+		return rootResourceSnapshot{}, err
 	}
+	if err := services.roots.adopt(chain); err != nil {
+		return rootResourceSnapshot{}, err
+	}
+	snapshot.rootWire, snapshot.rootRevision = bytes.Clone(root.Data), root.Sequence
 	spec, err := rootResourceKV(ctx, js, cellSpecBucket, cellSpecKey)
 	if err != nil {
 		return rootResourceSnapshot{}, err
 	}
-	if spec != nil {
-		now := time.Now().UTC()
-		verified, err := services.verify(spec.Data, &now)
-		if err != nil {
-			return rootResourceSnapshot{}, err
-		}
-		if !verified.RootSigned {
-			return rootResourceSnapshot{}, errors.New("OCI amendment authority requires the current root-signed service spec; unsigned prior admission cannot widen it")
-		}
-		services.current, services.revision = verified.Spec, spec.Sequence
-		snapshot.specWire, snapshot.specRevision = bytes.Clone(spec.Data), spec.Sequence
-		var signed cellspec.Signed
-		if err := json.Unmarshal(spec.Data, &signed, json.RejectUnknownMembers(true)); err != nil {
-			return rootResourceSnapshot{}, err
-		}
-		envelope, err := trust.DecodeEnvelope(signed.Spec)
-		if err != nil {
-			return rootResourceSnapshot{}, err
-		}
-		snapshot.specExpiresAt = envelope.ExpiresAt
+	now := time.Now().UTC()
+	verified, err := services.verify(spec.Data, &now)
+	if err != nil {
+		return rootResourceSnapshot{}, err
 	}
+	if !verified.RootSigned {
+		return rootResourceSnapshot{}, errors.New("OCI amendment authority requires the current root-signed service spec; unsigned prior admission cannot widen it")
+	}
+	services.current, services.revision = verified.Spec, spec.Sequence
+	snapshot.specWire, snapshot.specRevision = bytes.Clone(spec.Data), spec.Sequence
+	var signed cellspec.Signed
+	if err := json.Unmarshal(spec.Data, &signed, json.RejectUnknownMembers(true)); err != nil {
+		return rootResourceSnapshot{}, err
+	}
+	envelope, err := trust.DecodeEnvelope(signed.Spec)
+	if err != nil {
+		return rootResourceSnapshot{}, err
+	}
+	snapshot.specExpiresAt = envelope.ExpiresAt
 	return snapshot, nil
 }
 
